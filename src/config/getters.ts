@@ -1,12 +1,14 @@
 import { SIFT_DEFAULT_NUM_CTX, type RuntimeOwnedLlamaCppKey } from './constants.js';
 import type { RuntimeLlamaCppConfig, ServerManagedLlamaPreset, SiftConfig } from './types.js';
 
+const EMPTY_RUNTIME_LLAMA_CPP_CONFIG: RuntimeLlamaCppConfig = {};
+
 export function getDefaultNumCtx(): number {
   return SIFT_DEFAULT_NUM_CTX;
 }
 
 export function getRuntimeLlamaCpp(config: SiftConfig): RuntimeLlamaCppConfig {
-  return config.Runtime?.LlamaCpp ?? ({} as RuntimeLlamaCppConfig);
+  return config.Runtime?.LlamaCpp ?? EMPTY_RUNTIME_LLAMA_CPP_CONFIG;
 }
 
 export function getActiveManagedLlamaPreset(config: SiftConfig): ServerManagedLlamaPreset | undefined {
@@ -15,7 +17,7 @@ export function getActiveManagedLlamaPreset(config: SiftConfig): ServerManagedLl
   return presets.find((preset) => preset.id === serverLlama?.ActivePresetId) ?? presets[0];
 }
 
-export function getFinitePositiveNumber(value: unknown): number | null {
+export function getFinitePositiveNumber(value?: number | string | null): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
@@ -52,12 +54,19 @@ export function getConfiguredLlamaNumCtx(config: SiftConfig): number {
   throw new Error('SiftKit runtime config is missing LlamaCpp.NumCtx. Start a launcher script first.');
 }
 
-export function getConfiguredLlamaSetting<T>(
-  config: SiftConfig,
+export function getConfiguredLlamaSetting<TValue>(
+  config: SiftConfig | undefined,
   key: RuntimeOwnedLlamaCppKey
-): T | undefined {
+): TValue | undefined;
+export function getConfiguredLlamaSetting(
+  config: SiftConfig | undefined,
+  key: RuntimeOwnedLlamaCppKey
+): RuntimeLlamaCppConfig[RuntimeOwnedLlamaCppKey] | undefined {
+  if (!config) {
+    return undefined;
+  }
   const runtimeValue = getRuntimeLlamaCpp(config)[key];
-  return (runtimeValue === undefined || runtimeValue === null) ? undefined : runtimeValue as T;
+  return (runtimeValue === undefined || runtimeValue === null) ? undefined : runtimeValue;
 }
 
 export function getMissingRuntimeFields(config: SiftConfig): string[] {

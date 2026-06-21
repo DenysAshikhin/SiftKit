@@ -1,6 +1,8 @@
+// Third-party module shims: react-markdown's plugin array and remark-gfm's
+// default export are opaque plugin values, so `unknown` is the honest type.
 declare module 'react-markdown' {
-  import * as React from 'react';
-  const ReactMarkdown: React.ComponentType<{
+  import type { ComponentType } from 'react';
+  const ReactMarkdown: ComponentType<{
     children?: string;
     remarkPlugins?: unknown[];
   }>;

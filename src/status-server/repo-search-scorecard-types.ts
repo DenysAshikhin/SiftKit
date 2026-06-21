@@ -1,4 +1,5 @@
 import { JsonRecordReader } from '../lib/json-record-reader.js';
+import type { OptionalJsonValue } from '../lib/json-types.js';
 import type { ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
 
 export type RepoSearchCommandResult = {
@@ -45,7 +46,7 @@ export type RepoSearchResult = {
   scorecard: RepoSearchScorecard;
 };
 
-function normalizeGroundingStatus(value: unknown): ChatGroundingStatus | null {
+function normalizeGroundingStatus(value: OptionalJsonValue): ChatGroundingStatus | null {
   return value === 'ungrounded' || value === 'snippet_only' || value === 'fetched' ? value : null;
 }
 
@@ -53,8 +54,8 @@ function readNullableNumber(reader: JsonRecordReader, key: string): number | nul
   return reader.nullableNonNegativeNumber(key);
 }
 
-function normalizeCommand(value: unknown): RepoSearchCommandResult {
-  const reader = JsonRecordReader.fromUnknown(value);
+function normalizeCommand(value: OptionalJsonValue): RepoSearchCommandResult {
+  const reader = JsonRecordReader.fromJsonValue(value);
   return {
     turn: reader.nullableNonNegativeInteger('turn'),
     command: reader.string('command'),
@@ -67,8 +68,8 @@ function normalizeCommand(value: unknown): RepoSearchCommandResult {
   };
 }
 
-function normalizeTask(value: unknown): RepoSearchTaskResult {
-  const reader = JsonRecordReader.fromUnknown(value);
+function normalizeTask(value: OptionalJsonValue): RepoSearchTaskResult {
+  const reader = JsonRecordReader.fromJsonValue(value);
   const commandsRaw = reader.value('commands');
   const missingSignalsRaw = reader.value('missingSignals');
   const turnThinkingRaw = reader.object('turnThinking') || {};
@@ -90,8 +91,8 @@ function normalizeTask(value: unknown): RepoSearchTaskResult {
   };
 }
 
-function normalizeTotals(value: unknown): RepoSearchTotals {
-  const reader = JsonRecordReader.fromUnknown(value);
+function normalizeTotals(value: OptionalJsonValue): RepoSearchTotals {
+  const reader = JsonRecordReader.fromJsonValue(value);
   return {
     promptTokens: readNullableNumber(reader, 'promptTokens'),
     outputTokens: readNullableNumber(reader, 'outputTokens'),
@@ -105,8 +106,8 @@ function normalizeTotals(value: unknown): RepoSearchTotals {
   };
 }
 
-export function normalizeRepoSearchScorecard(value: unknown): RepoSearchScorecard {
-  const reader = JsonRecordReader.fromUnknown(value);
+export function normalizeRepoSearchScorecard(value: OptionalJsonValue): RepoSearchScorecard {
+  const reader = JsonRecordReader.fromJsonValue(value);
   const tasksRaw = reader.value('tasks');
   return {
     totals: normalizeTotals(reader.value('totals')),
@@ -114,8 +115,8 @@ export function normalizeRepoSearchScorecard(value: unknown): RepoSearchScorecar
   };
 }
 
-export function normalizeRepoSearchResult(value: unknown): RepoSearchResult {
-  const reader = JsonRecordReader.fromUnknown(value);
+export function normalizeRepoSearchResult(value: OptionalJsonValue): RepoSearchResult {
+  const reader = JsonRecordReader.fromJsonValue(value);
   return {
     requestId: reader.string('requestId'),
     transcriptPath: reader.string('transcriptPath'),

@@ -6,6 +6,7 @@ import type {
   SummarySourceKind,
 } from '../types.js';
 import { buildAssistantToolCallMessage as buildSharedAssistantToolCallMessage } from '../../tool-call-messages.js';
+import { parseJsonValueText } from '../../lib/json.js';
 import { getRecord, MAX_JSON_FALLBACK_PREVIEW_CHARACTERS } from './json-filter.js';
 import { truncatePlannerText } from './formatters.js';
 
@@ -24,21 +25,20 @@ export function buildPlannerDocumentProfile(inputText: string): string {
   const preview = truncatePlannerText(inputText.slice(0, MAX_PLANNER_PREVIEW_CHARACTERS));
 
   try {
-    const parsed = JSON.parse(inputText) as unknown;
+    const parsed = parseJsonValueText(inputText);
+    const parsedRecord = getRecord(parsed);
     if (Array.isArray(parsed)) {
       profileLines.push('json=parseable');
       profileLines.push('top_level=array');
       profileLines.push(`array_length=${parsed.length}`);
-      const sampleKeys = parsed.length > 0 && getRecord(parsed[0])
-        ? Object.keys(getRecord(parsed[0]) as Record<string, unknown>).slice(0, 10)
-        : [];
+      const firstRecord = parsed.length > 0 ? getRecord(parsed[0]) : null;
+      const sampleKeys = firstRecord ? Object.keys(firstRecord).slice(0, 10) : [];
       if (sampleKeys.length > 0) {
         profileLines.push(`sample_keys=${sampleKeys.join(',')}`);
       }
-    } else if (getRecord(parsed)) {
+    } else if (parsedRecord) {
       profileLines.push('json=parseable');
       profileLines.push('top_level=object');
-      const parsedRecord = getRecord(parsed) as Record<string, unknown>;
       const objectKeys = Object.keys(parsedRecord).slice(0, 10);
       if (objectKeys.length > 0) {
         profileLines.push(`object_keys=${objectKeys.join(',')}`);

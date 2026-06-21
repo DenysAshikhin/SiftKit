@@ -1,4 +1,5 @@
-import type { JsonObject, LlamaCppToolCall, LlamaCppUsage, NormalizedLlamaCppChatResponse } from './types.js';
+import type { OptionalJsonValue } from '../lib/json-types.js';
+import type { LlamaCppToolCall, LlamaCppUsage, NormalizedLlamaCppChatResponse } from './types.js';
 import { LlamaCppToolCallParser } from './tool-call-parser.js';
 
 export type LlamaCppStreamingAssemblerOptions = {
@@ -12,16 +13,16 @@ type StreamingToolCallChunk = {
 };
 
 type RawDelta = {
-  content?: unknown;
-  reasoning_content?: unknown;
-  thinking?: unknown;
-  reasoning?: unknown;
+  content?: OptionalJsonValue;
+  reasoning_content?: OptionalJsonValue;
+  thinking?: OptionalJsonValue;
+  reasoning?: OptionalJsonValue;
   tool_calls?: Array<{
     index?: number;
-    id?: unknown;
+    id?: OptionalJsonValue;
     function?: {
-      name?: unknown;
-      arguments?: unknown;
+      name?: OptionalJsonValue;
+      arguments?: OptionalJsonValue;
     };
   }>;
 };
@@ -97,7 +98,7 @@ export class LlamaCppStreamingResponseAssembler {
   }
 }
 
-function getString(value: unknown): string {
+function getString(value: OptionalJsonValue): string {
   return typeof value === 'string' ? value : '';
 }
 

@@ -1,6 +1,8 @@
-import * as fs from 'node:fs';
-import * as net from 'node:net';
-import * as path from 'node:path';
+import fs from 'node:fs';
+import net from 'node:net';
+import path from 'node:path';
+import { z } from '../src/lib/zod.js';
+import { parseJsonValueText } from '../src/lib/json.js';
 
 export type StartupPortCheck = {
   service: 'status' | 'dashboard';
@@ -10,11 +12,9 @@ export type StartupPortCheck = {
   fatalIfInUse: boolean;
 };
 
-type DashboardPackage = {
-  scripts?: {
-    dev?: string;
-  };
-};
+const DashboardPackageSchema = z.object({
+  scripts: z.object({ dev: z.string().optional() }).optional(),
+});
 
 function parsePositivePort(rawValue: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(rawValue || String(fallback), 10);
@@ -47,7 +47,7 @@ function parseCliValue(command: string, optionName: string): string | null {
 
 function readDashboardDevScript(dashboardPackageJsonPath: string): string {
   const rawPackage = fs.readFileSync(dashboardPackageJsonPath, 'utf8');
-  const parsedPackage = JSON.parse(rawPackage) as DashboardPackage;
+  const parsedPackage = DashboardPackageSchema.parse(parseJsonValueText(rawPackage));
   return parsedPackage.scripts?.dev || '';
 }
 

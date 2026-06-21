@@ -1,4 +1,4 @@
-import * as path from 'node:path';
+import { resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { notifyStatusBackend } from '../config/index.js';
 import type { NotifyStatusBackendOptions } from '../config/status-backend.js';
@@ -13,7 +13,8 @@ import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../state/runtime-db.js';
 import { upsertRepoSearchRun } from '../status-server/dashboard-runs.js';
 import { logLine } from '../status-server/managed-llama.js';
-import type { JsonObject } from '../lib/json-types.js';
+import { JsonObjectSchema } from '../lib/json-types.js';
+import { getErrorMessage, toError } from '../lib/errors.js';
 import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
 import {
   createTemporaryTimingRecorderFromEnv,
@@ -24,10 +25,6 @@ import type {
   RepoSearchExecutionResult,
   RepoSearchProgressEvent,
 } from './types.js';
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function logRepoSearchProgress(message: string): void {
   logLine(`repo_search ${message}`);
@@ -117,7 +114,7 @@ async function notifyRepoSearchRunningStatus(options: RepoSearchRunningStatusNot
     logRepoSearchProgress(
       `notify_running_done request_id=${options.requestId} ok=true duration_ms=${Date.now() - options.startedAt}`,
     );
-  } catch (error: unknown) {
+  } catch (error) {
     notifySpan?.end({ ok: false });
     traceRepoSearch(`notify running=true failed request_id=${options.requestId}`);
     logRepoSearchProgress(
@@ -145,7 +142,7 @@ async function notifyRepoSearchTerminalStatus(options: RepoSearchTerminalStatusN
       `notify running=false done request_id=${options.requestId} state=${options.terminalState} `
       + `duration_ms=${Date.now() - options.startedAt}`,
     );
-  } catch (error: unknown) {
+  } catch (error) {
     notifySpan?.end({ ok: false });
     logRepoSearchProgress(
       `notify_terminal_done request_id=${options.requestId} state=${options.terminalState} `
@@ -172,7 +169,7 @@ export async function executeRepoSearchRequest(
 
   const requestedStartedAtMs = Date.parse(String(request.startedAtUtc || ''));
   const startedAt = Number.isFinite(requestedStartedAtMs) ? requestedStartedAtMs : Date.now();
-  const repoRoot = path.resolve(String(request.repoRoot || process.cwd()));
+  const repoRoot = resolve(String(request.repoRoot || process.cwd()));
   const requestId = typeof request.requestId === 'string' && request.requestId.trim()
     ? request.requestId.trim()
     : randomUUID();
@@ -207,8 +204,8 @@ export async function executeRepoSearchRequest(
   });
   const folders = ensureRepoSearchLogFolders();
   const tempTranscriptPath = request.logFile
-    ? path.resolve(request.logFile)
-    : path.join(folders.root, `request_${requestId}.jsonl`);
+    ? resolve(request.logFile)
+    : join(folders.root, `request_${requestId}.jsonl`);
   const logger = createJsonLogger(tempTranscriptPath);
 
   try {
@@ -275,6 +272,7 @@ export async function executeRepoSearchRequest(
       transcriptPath: transcriptUri,
       scorecard,
     };
+    const artifactPayload = JsonObjectSchema.parse(artifact);
     const artifactSpan = timingRecorder?.start('repo.artifact.persist', {
       transcriptChars: transcriptText.length,
     });
@@ -284,7 +282,7 @@ export async function executeRepoSearchRequest(
       artifactKind: 'repo_search_artifact',
       requestId,
       title: artifactPathHint,
-      payload: artifact as JsonObject,
+      payload: artifactPayload,
     }).uri;
     artifactSpan?.end();
     logRepoSearchProgress(
@@ -305,32 +303,7 @@ export async function executeRepoSearchRequest(
     const promptEvalDurationMs = getNumericTotal(scorecard, 'promptEvalDurationMs');
     const generationDurationMs = getNumericTotal(scorecard, 'generationDurationMs');
     const inputTokens = getProcessedPromptTokens(promptTokens, promptCacheTokens, promptEvalTokens);
-    const scorecardToolStats = (
-      scorecard
-      && typeof scorecard === 'object'
-      && !Array.isArray(scorecard)
-      && (scorecard as { toolStats?: unknown }).toolStats
-      && typeof (scorecard as { toolStats?: unknown }).toolStats === 'object'
-      && !Array.isArray((scorecard as { toolStats?: unknown }).toolStats)
-    )
-      ? (scorecard as { toolStats: Record<string, {
-        calls?: number;
-        outputCharsTotal?: number;
-        outputTokensTotal?: number;
-        outputTokensEstimatedCount?: number;
-        lineReadCalls?: number;
-        lineReadLinesTotal?: number;
-        lineReadTokensTotal?: number;
-        finishRejections?: number;
-        semanticRepeatRejects?: number;
-        stagnationWarnings?: number;
-        forcedFinishFromStagnation?: number;
-        promptInsertedTokens?: number;
-        rawToolResultTokens?: number;
-        newEvidenceCalls?: number;
-        noNewEvidenceCalls?: number;
-      }> }).toolStats
-      : null;
+    const scorecardToolStats = scorecard.toolStats;
     const finishedAtUtc = new Date().toISOString();
     // Wait for running=true to be server-acknowledged so the runState exists before
     // terminal-metadata is enqueued; otherwise the late_running_ignored guard on the
@@ -365,7 +338,7 @@ export async function executeRepoSearchRequest(
       requestMaxTokens: null,
       maxTurns: request.maxTurns ?? null,
       transcriptText,
-      artifactPayload: artifact as JsonObject,
+      artifactPayload,
       terminalState: 'completed',
       startedAtUtc: new Date(startedAt).toISOString(),
       finishedAtUtc,
@@ -419,6 +392,7 @@ export async function executeRepoSearchRequest(
       error: message,
       transcriptPath: transcriptUri,
     };
+    const artifactPayload = JsonObjectSchema.parse(artifact);
     const artifactSpan = timingRecorder?.start('repo.artifact.persist', {
       transcriptChars: transcriptText.length,
       failed: true,
@@ -429,7 +403,7 @@ export async function executeRepoSearchRequest(
       artifactKind: 'repo_search_artifact',
       requestId,
       title: artifactPathHint,
-      payload: artifact as JsonObject,
+      payload: artifactPayload,
     }).uri;
     artifactSpan?.end();
     logRepoSearchProgress(
@@ -465,7 +439,7 @@ export async function executeRepoSearchRequest(
       requestMaxTokens: null,
       maxTurns: request.maxTurns ?? null,
       transcriptText,
-      artifactPayload: artifact as JsonObject,
+      artifactPayload,
       terminalState: 'failed',
       startedAtUtc: new Date(startedAt).toISOString(),
       finishedAtUtc: failedFinishedAtUtc,
@@ -483,9 +457,10 @@ export async function executeRepoSearchRequest(
     logRepoSearchProgress(
       `failed request_id=${requestId} duration_ms=${Date.now() - startedAt} error=${JSON.stringify(message)}`,
     );
-    (error as { artifactPath?: string; transcriptPath?: string }).artifactPath = artifactPath;
-    (error as { artifactPath?: string; transcriptPath?: string }).transcriptPath = transcriptUri;
-    throw error;
+    const enrichedError: Error & { artifactPath?: string; transcriptPath?: string } = toError(error);
+    enrichedError.artifactPath = artifactPath;
+    enrichedError.transcriptPath = transcriptUri;
+    throw enrichedError;
   } finally {
     if (timingRecorder) {
       await timingRecorder.flush({

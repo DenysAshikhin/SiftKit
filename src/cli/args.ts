@@ -1,5 +1,11 @@
 import { inspect } from 'node:util';
 import type { ShellName } from '../capture/process.js';
+import type { JsonSerializable } from '../lib/json-types.js';
+import {
+  normalizeCliReducerProfile,
+  normalizeCliRiskLevel,
+  normalizeCliShell,
+} from './request-normalizers.js';
 
 export type CliRunOptions = {
   argv: string[];
@@ -185,10 +191,10 @@ export function parseArguments(tokens: string[]): ParsedArgs {
         parsed.argList.push(tokens[++index]);
         break;
       case '--risk':
-        parsed.risk = tokens[++index] as ParsedArgs['risk'];
+        parsed.risk = normalizeCliRiskLevel(tokens[++index]);
         break;
       case '--reducer':
-        parsed.reducer = tokens[++index] as ParsedArgs['reducer'];
+        parsed.reducer = normalizeCliReducerProfile(tokens[++index]);
         break;
       case '--fixture-root':
         parsed.fixtureRoot = tokens[++index];
@@ -211,9 +217,13 @@ export function parseArguments(tokens: string[]): ParsedArgs {
       case '--request-file':
         parsed.requestFile = tokens[++index];
         break;
-      case '--response-format':
-        parsed.responseFormat = tokens[++index] as ParsedArgs['responseFormat'];
+      case '--response-format': {
+        const responseFormatValue = tokens[++index];
+        parsed.responseFormat = responseFormatValue === 'json' || responseFormatValue === 'text'
+          ? responseFormatValue
+          : undefined;
         break;
+      }
       case '--op':
         parsed.op = tokens[++index];
         break;
@@ -234,7 +244,7 @@ export function parseArguments(tokens: string[]): ParsedArgs {
         parsed.maxTurns = Number.parseInt(tokens[++index] || '', 10);
         break;
       case '--shell':
-        parsed.shell = tokens[++index] as ShellName;
+        parsed.shell = normalizeCliShell(tokens[++index]);
         break;
       default:
         parsed.positionals.push(token);
@@ -245,9 +255,8 @@ export function parseArguments(tokens: string[]): ParsedArgs {
   return parsed;
 }
 
-export function formatPsList(value: unknown): string {
-  const record = value as Record<string, unknown>;
-  const entries = Object.entries(record);
+export function formatPsList(value: Record<string, JsonSerializable>): string {
+  const entries = Object.entries(value);
   return `${entries.map(([key, item]) => {
     const rendered = Array.isArray(item) ? item.join(', ') : inspect(item, { depth: 6, breakLength: Infinity });
     return `${key} : ${rendered}`;

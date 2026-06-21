@@ -41,7 +41,7 @@ export function spawnAndWait(options: {
 
     // An interrupted matrix must not leave the spawned process running; kill it
     // and reject so callers stop awaiting a child that will never finish.
-    options.interrupted?.catch((error: unknown) => {
+    options.interrupted?.catch((error) => {
       child.kill();
       settle(() => reject(error));
     });

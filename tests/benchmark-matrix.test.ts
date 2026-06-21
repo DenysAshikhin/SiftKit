@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
+import { z } from '../src/lib/zod.js';
 import {
   readMatrixManifest,
   buildLaunchSignature,
@@ -14,10 +15,18 @@ import {
 
 type MatrixTarget = Parameters<typeof buildLaunchSignature>[0];
 type MatrixManifest = Parameters<typeof buildLauncherArgs>[0];
+type MatrixLauncherTarget = Parameters<typeof buildLauncherArgs>[1];
 type MatrixRun = Parameters<typeof buildBenchmarkArgs>[1];
 
+// Deliberately-partial benchmark-matrix fixtures: each builder reads only a few
+// fields, so minimal literals are branded to the parameter type at this boundary.
+const MatrixTargetSchema = z.custom<MatrixTarget>((value) => typeof value === 'object' && value !== null);
+const MatrixManifestSchema = z.custom<MatrixManifest>((value) => typeof value === 'object' && value !== null);
+const MatrixLauncherTargetSchema = z.custom<MatrixLauncherTarget>((value) => typeof value === 'object' && value !== null);
+const MatrixRunSchema = z.custom<MatrixRun>((value) => typeof value === 'object' && value !== null);
+
 test('buildLaunchSignature produces pipe-separated string', () => {
-  const target = {
+  const target = MatrixTargetSchema.parse({
     startScript: 'C:\\scripts\\start.ps1',
     resolvedModelPath: 'C:\\models\\model.gguf',
     contextSize: 128000,
@@ -25,7 +34,7 @@ test('buildLaunchSignature produces pipe-separated string', () => {
     passReasoningArg: true,
     reasoning: 'off',
     modelPath: 'C:\\models\\model.gguf',
-  } as unknown as MatrixTarget;
+  });
   const sig = buildLaunchSignature(target);
   assert.match(sig, /start\.ps1/u);
   assert.match(sig, /model\.gguf/u);
@@ -36,7 +45,7 @@ test('buildLaunchSignature produces pipe-separated string', () => {
 });
 
 test('buildLaunchSignature uses script-controlled when passReasoningArg is false', () => {
-  const target = {
+  const target = MatrixTargetSchema.parse({
     startScript: 'C:\\scripts\\start.ps1',
     resolvedModelPath: 'C:\\models\\model.gguf',
     contextSize: 64000,
@@ -44,26 +53,26 @@ test('buildLaunchSignature uses script-controlled when passReasoningArg is false
     passReasoningArg: false,
     reasoning: 'on',
     modelPath: 'C:\\models\\model.gguf',
-  } as unknown as MatrixTarget;
+  });
   const sig = buildLaunchSignature(target);
   assert.match(sig, /script-controlled/u);
   assert.doesNotMatch(sig, /\bon\b/u);
 });
 
 test('buildLauncherArgs produces correct PowerShell arguments', () => {
-  const manifest = {
+  const manifest = MatrixManifestSchema.parse({
     configUrl: 'http://localhost:4765/config',
     fixtureRoot: 'C:\\fixtures',
     requestTimeoutSeconds: 120,
-  } as unknown as MatrixManifest;
-  const target = {
+  });
+  const target = MatrixLauncherTargetSchema.parse({
     startScript: 'C:\\scripts\\start.ps1',
     modelPath: 'C:\\models\\model.gguf',
     contextSize: 128000,
     maxTokens: 4096,
     passReasoningArg: false,
     reasoning: 'off',
-  } as unknown as Parameters<typeof buildLauncherArgs>[1];
+  });
   const args = buildLauncherArgs(manifest, target);
   assert.ok(Array.isArray(args));
   assert.ok(args.includes('-NoProfile'));
@@ -75,30 +84,30 @@ test('buildLauncherArgs produces correct PowerShell arguments', () => {
 });
 
 test('buildLauncherArgs includes reasoning arg when passReasoningArg is true', () => {
-  const manifest = { configUrl: 'http://localhost:4765/config' } as unknown as MatrixManifest;
-  const target = {
+  const manifest = MatrixManifestSchema.parse({ configUrl: 'http://localhost:4765/config' });
+  const target = MatrixLauncherTargetSchema.parse({
     startScript: 'C:\\scripts\\start.ps1',
     modelPath: 'C:\\models\\model.gguf',
     contextSize: 128000,
     maxTokens: 4096,
     passReasoningArg: true,
     reasoning: 'auto',
-  } as unknown as Parameters<typeof buildLauncherArgs>[1];
+  });
   const args = buildLauncherArgs(manifest, target);
   assert.ok(args.includes('-Reasoning'));
   assert.ok(args.includes('auto'));
 });
 
 test('buildBenchmarkArgs produces correct node arguments', () => {
-  const manifest = {
+  const manifest = MatrixManifestSchema.parse({
     configUrl: 'http://localhost:4765/config',
     fixtureRoot: 'C:\\fixtures',
     requestTimeoutSeconds: 120,
-  } as unknown as MatrixManifest;
-  const run = {
+  });
+  const run = MatrixRunSchema.parse({
     modelId: 'test-model',
     maxTokens: 4096,
-  } as unknown as MatrixRun;
+  });
   const args = buildBenchmarkArgs(manifest, run, null);
   assert.ok(Array.isArray(args));
   assert.ok(args.includes('--fixture-root'));
@@ -114,14 +123,14 @@ test('buildBenchmarkArgs produces correct node arguments', () => {
 });
 
 test('buildBenchmarkArgs includes prompt-prefix-file when provided', () => {
-  const manifest = {
+  const manifest = MatrixManifestSchema.parse({
     fixtureRoot: 'C:\\fixtures',
     requestTimeoutSeconds: 120,
-  } as unknown as MatrixManifest;
-  const run = {
+  });
+  const run = MatrixRunSchema.parse({
     modelId: 'test-model',
     maxTokens: 4096,
-  } as unknown as MatrixRun;
+  });
   const args = buildBenchmarkArgs(manifest, run, 'C:\\prefix.txt');
   assert.ok(args.includes('--prompt-prefix-file'));
   assert.ok(args.includes('C:\\prefix.txt'));

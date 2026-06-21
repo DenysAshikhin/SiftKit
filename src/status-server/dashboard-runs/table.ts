@@ -1,6 +1,9 @@
 import Database from 'better-sqlite3';
+import { z } from '../../lib/zod.js';
 
 type DatabaseInstance = InstanceType<typeof Database>;
+
+const PragmaColumnRowSchema = z.object({ name: z.string() });
 
 export function ensureRunLogsTable(database: DatabaseInstance): void {
   database.exec(`
@@ -50,8 +53,9 @@ export function ensureRunLogsTable(database: DatabaseInstance): void {
     CREATE INDEX IF NOT EXISTS idx_run_logs_dashboard_order
       ON run_logs(COALESCE(finished_at_utc, started_at_utc, '1970-01-01T00:00:00.000Z') DESC, id DESC);
   `);
-  const existingColumns = (database.prepare('PRAGMA table_info(run_logs)').all() as Array<{ name: unknown }>)
-    .map((column) => String(column.name));
+  const existingColumns = z.array(PragmaColumnRowSchema)
+    .parse(database.prepare('PRAGMA table_info(run_logs)').all())
+    .map((column) => column.name);
   if (!existingColumns.includes('speculative_accepted_tokens')) {
     database.exec('ALTER TABLE run_logs ADD COLUMN speculative_accepted_tokens INTEGER;');
   }

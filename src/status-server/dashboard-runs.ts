@@ -4,6 +4,7 @@ import { type Metrics } from './metrics.js';
 import {
   buildIdleSummarySnapshotMessage,
   type IdleSummarySnapshot,
+  type IdleSummarySnapshotDbRow,
   parseSnapshotTaskTotalsJson,
   parseSnapshotToolStatsJson,
 } from './idle-summary.js';
@@ -176,23 +177,10 @@ export function buildStatusRequestLogMessage(input: StatusRequestLogInput): stri
   return logMessage;
 }
 
-export type RepoSearchProgressEvent = {
-  command?: unknown;
-  turn?: unknown;
-  maxTurns?: unknown;
-  promptTokenCount?: unknown;
-  elapsedMs?: unknown;
-  kind?: string;
-  thinkingText?: string;
-  answerText?: string;
-  exitCode?: number | null;
-  outputSnippet?: string;
-  outputTokens?: number;
-  outputTokensEstimated?: boolean;
-  toolCallId?: string;
-};
+import type { RepoSearchProgressEvent } from '../repo-search/types.js';
+export type { RepoSearchProgressEvent };
 
-function normalizeRepoSearchCommandForLog(command: unknown): string {
+function normalizeRepoSearchCommandForLog(command: string | undefined): string {
   return String(command || '').replace(/\s+/gu, ' ').trim();
 }
 
@@ -262,37 +250,6 @@ export function buildDashboardDailyMetrics(runtimeRoot: string, idleSummaryDatab
 
 export type IdleSummarySnapshotRow = IdleSummarySnapshot & { summaryText: string };
 
-export type IdleSummarySnapshotDbRow = {
-  emitted_at_utc: string | null;
-  completed_request_count: number | string | null;
-  input_characters_total: number | string | null;
-  output_characters_total: number | string | null;
-  compression_ratio: number | string | null;
-  input_tokens_total: number | string | null;
-  output_tokens_total: number | string | null;
-  thinking_tokens_total: number | string | null;
-  tool_tokens_total: number | string | null;
-  prompt_cache_tokens_total: number | string | null;
-  prompt_eval_tokens_total: number | string | null;
-  speculative_accepted_tokens_total: number | string | null;
-  speculative_generated_tokens_total: number | string | null;
-  saved_tokens: number | string | null;
-  saved_percent: number | string | null;
-  request_duration_ms_total: number | string | null;
-  wall_duration_ms_total: number | string | null;
-  stdin_wait_ms_total: number | string | null;
-  server_preflight_ms_total: number | string | null;
-  lock_wait_ms_total: number | string | null;
-  status_running_ms_total: number | string | null;
-  terminal_status_ms_total: number | string | null;
-  avg_request_ms: number | string | null;
-  avg_tokens_per_second: number | string | null;
-  prompt_cache_hit_rate: number | string | null;
-  acceptance_rate: number | string | null;
-  task_totals_json: string | null;
-  tool_stats_json: string | null;
-  summary_text: string | null;
-};
 
 export function normalizeIdleSummarySnapshotRow(row: IdleSummarySnapshotDbRow | null): IdleSummarySnapshotRow | null {
   if (!row || typeof row !== 'object') {

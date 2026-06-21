@@ -1,3 +1,4 @@
+import type { OptionalJsonValue } from '../../src/lib/json-types.js';
 import type { TaskMetricDay, ToolStatsByTask } from './types.js';
 
 export type ToolMetricRow = {
@@ -54,7 +55,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   'repo-search': 'Runs repository-aware semantic and keyword code discovery.',
 };
 
-function toNumber(value: unknown): number {
+function toNumber(value: OptionalJsonValue): number {
   return Number(value || 0);
 }
 

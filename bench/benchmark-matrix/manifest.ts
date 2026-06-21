@@ -1,5 +1,5 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import fs from 'node:fs';
+import path from 'node:path';
 import { ensureDirectory, readJsonFile } from '../../src/lib/fs.js';
 import { resolveOptionalPathFromBase, resolvePathFromBase } from '../../src/lib/paths.js';
 import {
@@ -11,8 +11,8 @@ import {
 } from './args.js';
 import {
   repoRoot,
+  RawMatrixManifestSchema,
   type MatrixCliOptions,
-  type RawMatrixManifest,
   type ResolvedMatrixManifest,
   type ResolvedMatrixTarget,
 } from './types.js';
@@ -57,7 +57,7 @@ export function readMatrixManifest(options: MatrixCliOptions): ResolvedMatrixMan
     throw new Error(`Manifest file not found: ${resolvedManifestPath}`);
   }
 
-  const raw = readJsonFile<RawMatrixManifest>(resolvedManifestPath);
+  const raw = readJsonFile(resolvedManifestPath, RawMatrixManifestSchema);
   const manifestDirectory = path.dirname(resolvedManifestPath);
   const fixtureRoot = resolvePathFromBase(getRequiredString(raw.fixtureRoot, 'fixtureRoot'), manifestDirectory);
   const startScript = resolvePathFromBase(getRequiredString(raw.startScript, 'startScript'), manifestDirectory);
@@ -107,7 +107,7 @@ export function readMatrixManifest(options: MatrixCliOptions): ResolvedMatrixMan
     promptPrefixFile: null,
     contextSize: getRequiredInt(raw.baseline.contextSize, 'baseline.contextSize'),
     maxTokens: getRequiredInt(raw.baseline.maxTokens, 'baseline.maxTokens'),
-    reasoning: baselineReasoning as 'on' | 'off' | 'auto',
+    reasoning: baselineReasoning,
     passReasoningArg: getOptionalBoolean(raw.baseline.passReasoningArg, 'baseline.passReasoningArg') ?? true,
   };
 
@@ -138,7 +138,7 @@ export function readMatrixManifest(options: MatrixCliOptions): ResolvedMatrixMan
       startScript: resolveOptionalPathFromBase(rawRun.startScript ?? null, manifestDirectory) ?? startScript,
       resolvedModelPath: '',
       promptPrefixFile: resolveOptionalPathFromBase(rawRun.promptPrefixFile ?? null, manifestDirectory),
-      reasoning: ((rawRun.reasoning ?? baseline.reasoning) as 'on' | 'off' | 'auto'),
+      reasoning: rawRun.reasoning ?? baseline.reasoning,
       contextSize: getOptionalInt(rawRun.contextSize, `runs[${runId}].contextSize`) ?? baseline.contextSize,
       maxTokens: getOptionalInt(rawRun.maxTokens, `runs[${runId}].maxTokens`) ?? baseline.maxTokens,
       passReasoningArg: getOptionalBoolean(rawRun.passReasoningArg, `runs[${runId}].passReasoningArg`) ?? baseline.passReasoningArg,

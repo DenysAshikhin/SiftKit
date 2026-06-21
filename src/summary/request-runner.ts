@@ -13,7 +13,7 @@ import {
 } from '../config/index.js';
 import type { NotifyStatusBackendOptions } from '../config/status-backend.js';
 import { acquireExecutionLock, releaseExecutionLock } from '../execution-lock.js';
-import { getErrorMessage } from '../lib/errors.js';
+import { getErrorMessage, toError } from '../lib/errors.js';
 import { createTemporaryTimingRecorderFromEnv, type TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
 import {
   getDeterministicExcerpt,
@@ -176,7 +176,7 @@ export class SummaryRequestRunner {
       }
       return await this.invokeModelSummary(context, lockWaitMs);
     } catch (error) {
-      await this.handleFailure(error, lockWaitMs);
+      await this.handleFailure(toError(error), lockWaitMs);
       throw error;
     }
   }
@@ -448,7 +448,7 @@ export class SummaryRequestRunner {
     };
   }
 
-  private async handleFailure(error: unknown, lockWaitMs: number): Promise<void> {
+  private async handleFailure(error: Error, lockWaitMs: number): Promise<void> {
     const failureContext = getSummaryFailureContext(error);
     if (this.config !== null) {
       await notifySummaryTerminalStatus({
@@ -489,7 +489,7 @@ export class SummaryRequestRunner {
     logSummaryProgress(`failed request_id=${this.requestId} error=${getErrorMessage(error)}`);
   }
 
-  private buildFailureArtifacts(error: unknown): NonNullable<NotifyStatusBackendOptions['deferredArtifacts']> {
+  private buildFailureArtifacts(error: Error): NonNullable<NotifyStatusBackendOptions['deferredArtifacts']> {
     return [
       buildPlannerDebugArtifact({
         requestId: this.requestId,

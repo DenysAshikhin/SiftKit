@@ -1,5 +1,6 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import fs from 'node:fs';
+import path from 'node:path';
+import { getErrorMessage } from '../../src/lib/errors.js';
 
 import {
   buildCandidates,
@@ -64,7 +65,7 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error: unknown) => {
-  process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+main().catch((error) => {
+  process.stderr.write(`${getErrorMessage(error)}\n`);
   process.exit(1);
 });

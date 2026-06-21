@@ -12,7 +12,9 @@ import type {
   AgentLoopToolExecution,
   AgentLoopToolResult,
 } from '../../agent-loop/types.js';
-import type { LlamaCppChatMessage, LlamaCppToolDefinition, NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
+import type { NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
+import { JsonObjectSchema } from '../../lib/json-types.js';
+import { toProtocolTools } from '../../providers/llama-cpp.js';
 import { readLatestIdleSummaryToolStats } from '../../line-read-guidance.js';
 import { ModelJson } from '../../lib/model-json.js';
 import { buildIgnorePolicy, type IgnorePolicy } from '../command-safety.js';
@@ -20,6 +22,7 @@ import {
   getRepoSearchToolNamesForParsing,
   requestRepoSearchPlannerProtocolAction,
   resolveRepoSearchPlannerToolDefinitions,
+  toProtocolChatMessages,
   type FinishAction,
   type PlannerActionResponse,
   type ToolAction,
@@ -94,11 +97,16 @@ type RepoSearchModelData = AgentLoopModelData & {
   resolvedTokens: ResolvedResponseTokens;
 };
 
+function isRepoSearchModelData(data: AgentLoopModelData | null): data is RepoSearchModelData {
+  return data?.kind === 'repo-search';
+}
+
 function getRepoSearchModelData(context: AgentLoopResponseContext): RepoSearchModelData {
-  if (context.modelData?.kind !== 'repo-search') {
+  const data = context.modelData;
+  if (!isRepoSearchModelData(data)) {
     throw new Error('Repo-search AgentLoop context is missing planner response data.');
   }
-  return context.modelData as RepoSearchModelData;
+  return data;
 }
 
 // ---------------------------------------------------------------------------
@@ -318,8 +326,8 @@ export class TaskLoop {
       turnNumber: turn,
       promptTokenCount: prepared.promptTokenCount,
       maxOutputTokens: prepared.maxOutputTokens,
-      messages: this.transcript.getMessages() as LlamaCppChatMessage[],
-      toolDefinitions: this.plannerToolDefinitions as LlamaCppToolDefinition[],
+      messages: toProtocolChatMessages(this.transcript.getMessages()),
+      toolDefinitions: toProtocolTools(this.plannerToolDefinitions),
       inForcedFinishMode,
     };
   }
@@ -405,7 +413,7 @@ export class TaskLoop {
     const toolActions: ToolAction[] = actions.map((action) => ({
       action: 'tool',
       tool_name: action.toolName,
-      args: action.args,
+      args: JsonObjectSchema.parse(action.args),
     }));
     const outcome = await this.toolActions.executeBatch(
       context.turnNumber,
@@ -510,7 +518,7 @@ export class TaskLoop {
     }
   }
 
-  private handleInvalidParse(turn: number, response: PlannerActionResponse, error: unknown, resolvedTokens: ResolvedResponseTokens): TurnOutcome {
+  private handleInvalidParse(turn: number, response: PlannerActionResponse, error: Error, resolvedTokens: ResolvedResponseTokens): TurnOutcome {
     this.tokenUsage.addOutputTokens(resolvedTokens.completionTokens, resolvedTokens.completionTokensEstimated);
     this.counters.invalidResponses += 1;
     const invalidActionMessage = `Invalid action: ${error instanceof Error ? error.message : String(error)}. Return a valid JSON finish action or tool action payload.`;

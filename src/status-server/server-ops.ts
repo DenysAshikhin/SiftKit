@@ -5,11 +5,11 @@
  * Every function takes a `ServerContext` as its first argument so the mutable
  * state lives in one place (created by `startStatusServer` in index.ts).
  */
-import * as crypto from 'node:crypto';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import type * as http from 'node:http';
+import { randomUUID } from 'node:crypto';
+import { dirname } from 'node:path';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import Database from 'better-sqlite3';
+import { getErrorMessage } from '../lib/errors.js';
 import { getRuntimeRoot } from './paths.js';
 import {
   STATUS_TRUE,
@@ -64,7 +64,7 @@ export function rememberCompletedStatusRequestId(ctx: ServerContext, statusPath:
   ctx.completedRequestIdByStatusPath.delete(statusPath);
   ctx.completedRequestIdByStatusPath.set(statusPath, requestId);
   while (ctx.completedRequestIdByStatusPath.size > MAX_COMPLETED_STATUS_PATH_ENTRIES) {
-    const oldestStatusPath = ctx.completedRequestIdByStatusPath.keys().next().value as string | undefined;
+    const oldestStatusPath = ctx.completedRequestIdByStatusPath.keys().next().value;
     if (!oldestStatusPath) {
       return;
     }
@@ -329,7 +329,7 @@ export function getIdleSummaryDatabase(ctx: ServerContext): DatabaseInstance {
   if (ctx.idleSummaryDatabase) {
     return ctx.idleSummaryDatabase;
   }
-  ensureDirectory(path.dirname(ctx.idleSummarySnapshotsPath));
+  ensureDirectory(dirname(ctx.idleSummarySnapshotsPath));
   ctx.idleSummaryDatabase = new Database(ctx.idleSummarySnapshotsPath);
   ensureIdleSummarySnapshotsTable(ctx.idleSummaryDatabase);
   ensureRunLogsTable(ctx.idleSummaryDatabase);
@@ -470,8 +470,8 @@ export function wakeManagedLlamaForIncomingModelRequest(ctx: ServerContext): voi
   if (ctx.disableManagedLlamaStartup) {
     return;
   }
-  void ctx.ensureManagedLlamaReady({ allowUnconfigured: true }).catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
+  void ctx.ensureManagedLlamaReady({ allowUnconfigured: true }).catch((error) => {
+    const message = getErrorMessage(error);
     ctx.managedLlamaStartupWarning = message;
     publishStatus(ctx);
     process.stderr.write(`[siftKitStatus] Failed to wake llama.cpp for incoming request: ${message}\n`);
@@ -490,7 +490,7 @@ export function acquireModelRequest(ctx: ServerContext, kind: string): ModelRequ
 
 function createModelRequestLock(kind: string): ModelRequestLock {
   return {
-    token: crypto.randomUUID(),
+    token: randomUUID(),
     kind: String(kind),
     startedAtUtc: new Date().toISOString(),
   };
@@ -599,8 +599,8 @@ function grantNextModelRequest(ctx: ServerContext): boolean {
 export async function acquireModelRequestWithWait(
   ctx: ServerContext,
   kind: string,
-  request?: http.IncomingMessage,
-  response?: http.ServerResponse,
+  request?: IncomingMessage,
+  response?: ServerResponse,
   options: ModelRequestWaitOptions = {},
 ): Promise<ModelRequestLock | null> {
   logIncomingModelRequest(ctx, kind);
@@ -619,7 +619,7 @@ export async function acquireModelRequestWithWait(
     resolveWaiterLock = resolve;
   });
   const waiter: ModelRequestWaiter = {
-    queueToken: crypto.randomUUID(),
+    queueToken: randomUUID(),
     kind: String(kind),
     enqueuedAtUtc: new Date().toISOString(),
     cancelled: false,

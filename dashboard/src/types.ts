@@ -17,6 +17,7 @@ import type {
   PresetToolName,
 } from '../../src/presets.js';
 import type { ProviderQuota } from '../../src/web-search/types.js';
+import type { JsonValue, JsonObject } from '../../src/lib/json-types.js';
 
 export type {
   DashboardLlamaCppConfig,
@@ -87,7 +88,7 @@ export type RunRecord = {
 export type RunEvent = {
   kind: string;
   at: string | null;
-  payload: unknown;
+  payload: JsonValue;
 };
 
 export type RunDetailResponse = {
@@ -186,8 +187,8 @@ export type IdleSummarySnapshot = {
   requestDurationMsTotal: number;
   avgRequestMs: number | null;
   avgTokensPerSecond: number | null;
-  taskTotals?: Record<string, unknown>;
-  toolStats?: Record<string, unknown>;
+  taskTotals?: JsonObject;
+  toolStats?: JsonObject;
   summaryText: string;
 };
 
@@ -371,8 +372,8 @@ export type DashboardBenchmarkCase = {
   label: string;
   managedPresetId: string;
   managedPresetLabel: string;
-  managedPreset: Record<string, unknown>;
-  specOverride: Record<string, unknown>;
+  managedPreset: JsonObject;
+  specOverride: JsonObject;
   createdAtUtc: string;
 };
 
@@ -431,7 +432,7 @@ export type DashboardBenchmarkStartRequest = {
   questionPresetIds: string[];
   managedPresetIds: string[];
   repetitions: number;
-  specOverrides: Array<Record<string, unknown>>;
+  specOverrides: Array<JsonObject>;
 };
 
 export type DashboardBenchmarkGradeRequest = {

@@ -1,4 +1,8 @@
+import { z } from '../lib/zod.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
+
+const WebSearchCountRowSchema = z.object({ count: z.number() });
+const WebSearchTotalRowSchema = z.object({ total: z.number() });
 
 export type WebSearchUsage = {
   currentMonth: string;
@@ -26,12 +30,13 @@ export function recordWebSearchUsage(metricsPath: string, delta: number, at: Dat
 export function readWebSearchUsage(metricsPath: string, at: Date): WebSearchUsage {
   const database = getRuntimeDatabase(metricsPath);
   const month = getUsageMonthKey(at);
-  const monthRow = database
+  const rawMonthRow = database
     .prepare('SELECT count FROM web_search_usage WHERE month = ?')
-    .get(month) as { count: number } | undefined;
-  const totalRow = database
-    .prepare('SELECT COALESCE(SUM(count), 0) AS total FROM web_search_usage')
-    .get() as { total: number };
+    .get(month);
+  const monthRow = rawMonthRow == null ? undefined : WebSearchCountRowSchema.parse(rawMonthRow);
+  const totalRow = WebSearchTotalRowSchema.parse(
+    database.prepare('SELECT COALESCE(SUM(count), 0) AS total FROM web_search_usage').get(),
+  );
   return {
     currentMonth: month,
     currentMonthCount: Number(monthRow?.count ?? 0),

@@ -8,7 +8,7 @@ import type { AddressInfo } from 'node:net';
 
 import { runCli } from '../src/cli/index.js';
 import { getDefaultConfig } from '../src/status-server/config-store.js';
-import { makeCaptureStream } from './_test-helpers.js';
+import { buildMockScorecard, makeCaptureStream } from './_test-helpers.js';
 
 type CapturedRequest = {
   route: string;
@@ -106,7 +106,7 @@ async function startBoundaryServer(): Promise<BoundaryServer> {
         requestId: 'repo-boundary',
         transcriptPath: 'db://repo-search/transcript',
         artifactPath: 'db://repo-search/artifact',
-        scorecard: { tasks: [{ finalOutput: 'server repo-search response' }] },
+        scorecard: buildMockScorecard('server repo-search response'),
       }));
       return;
     }

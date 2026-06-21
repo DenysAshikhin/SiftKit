@@ -1,18 +1,23 @@
+import { z } from '../lib/zod.js';
 import type { RuntimeLlamaCppConfig, SiftConfig } from '../config/index.js';
+import type { JsonObject } from '../lib/json-types.js';
 import type { LlamaCppToolParameterSchema } from '../llm-protocol/types.js';
 
-export type SummaryPolicyProfile =
-  | 'general'
-  | 'pass-fail'
-  | 'unique-errors'
-  | 'buried-critical'
-  | 'json-extraction'
-  | 'diff-summary'
-  | 'risky-operation';
+export const SummaryPolicyProfileSchema = z.enum([
+  'general',
+  'pass-fail',
+  'unique-errors',
+  'buried-critical',
+  'json-extraction',
+  'diff-summary',
+  'risky-operation',
+]);
+export type SummaryPolicyProfile = z.infer<typeof SummaryPolicyProfileSchema>;
 
 export type SummarySourceKind = 'standalone' | 'command-output';
 
-export type SummaryClassification = 'summary' | 'command_failure' | 'unsupported_input';
+export const SummaryClassificationSchema = z.enum(['summary', 'command_failure', 'unsupported_input']);
+export type SummaryClassification = z.infer<typeof SummaryClassificationSchema>;
 
 export type SummaryPhase = 'leaf' | 'merge' | 'planner';
 
@@ -42,18 +47,19 @@ export type SummaryRequest = {
   config?: SiftConfig;
 };
 
-export type SummaryResult = {
-  RequestId: string;
-  WasSummarized: boolean;
-  PolicyDecision: string;
-  Backend: string;
-  Model: string;
-  Summary: string;
-  Classification: SummaryClassification;
-  RawReviewRequired: boolean;
-  ModelCallSucceeded: boolean;
-  ProviderError: string | null;
-};
+export const SummaryResultSchema = z.object({
+  RequestId: z.string(),
+  WasSummarized: z.boolean(),
+  PolicyDecision: z.string(),
+  Backend: z.string(),
+  Model: z.string(),
+  Summary: z.string(),
+  Classification: SummaryClassificationSchema,
+  RawReviewRequired: z.boolean(),
+  ModelCallSucceeded: z.boolean(),
+  ProviderError: z.string().nullable(),
+});
+export type SummaryResult = z.infer<typeof SummaryResultSchema>;
 
 export type SummaryDecision = {
   ShouldSummarize: boolean;
@@ -104,14 +110,14 @@ export type PlannerPromptBudget = {
 export type PlannerToolCall = {
   action: 'tool';
   tool_name: PlannerToolName;
-  args: Record<string, unknown>;
+  args: JsonObject;
 };
 
 export type PlannerToolBatchAction = {
   action: 'tool_batch';
   tool_calls: Array<{
     tool_name: PlannerToolName;
-    args: Record<string, unknown>;
+    args: JsonObject;
   }>;
 };
 
@@ -154,8 +160,4 @@ export type SummaryFailureContext = {
   lockWaitMs?: number | null;
   statusRunningMs?: number | null;
   terminalStatusMs?: number | null;
-};
-
-export type SummaryFailureError = Error & {
-  siftkitSummaryFailureContext?: SummaryFailureContext;
 };

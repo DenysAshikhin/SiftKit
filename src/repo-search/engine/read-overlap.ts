@@ -1,3 +1,4 @@
+import { z } from '../../lib/zod.js';
 import type { ToolTypeStats } from '../../status-server/metrics.js';
 
 export const REPEATED_LINE_READ_MIN_RATIO = 0.10;
@@ -48,19 +49,20 @@ export type FileReadState = {
   overlapLines: number;
 };
 
-export type ReadOverlapSummary = {
-  byFile: Array<{
-    pathKey: string;
-    totalLinesRead: number;
-    uniqueLinesRead: number;
-    overlapLines: number;
-    overlapRatePct: number;
-  }>;
-  totalLinesRead: number;
-  totalUniqueLinesRead: number;
-  totalOverlapLines: number;
-  overlapRatePct: number;
-};
+export const ReadOverlapSummarySchema = z.object({
+  byFile: z.array(z.object({
+    pathKey: z.string(),
+    totalLinesRead: z.number(),
+    uniqueLinesRead: z.number(),
+    overlapLines: z.number(),
+    overlapRatePct: z.number(),
+  })),
+  totalLinesRead: z.number(),
+  totalUniqueLinesRead: z.number(),
+  totalOverlapLines: z.number(),
+  overlapRatePct: z.number(),
+});
+export type ReadOverlapSummary = z.infer<typeof ReadOverlapSummarySchema>;
 
 function tokenizeShellLike(input: string): string[] {
   const tokens: string[] = [];

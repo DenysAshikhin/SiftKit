@@ -1,6 +1,8 @@
+import type { OptionalJsonValue } from '../../../src/lib/json-types.js';
+
 type ToolCommandRecord = {
-  modelVisibleCommand?: unknown;
-  command?: unknown;
+  modelVisibleCommand?: OptionalJsonValue;
+  command?: OptionalJsonValue;
 };
 
 function readTrimmedString(record: ToolCommandRecord, key: 'modelVisibleCommand' | 'command'): string {

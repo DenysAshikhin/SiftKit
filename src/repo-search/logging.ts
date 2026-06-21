@@ -6,6 +6,7 @@ import {
   upsertRuntimeTextArtifact,
 } from '../state/runtime-artifacts.js';
 import { createTracer } from '../lib/trace.js';
+import type { JsonSerializable } from '../lib/json-types.js';
 import type { JsonLogger } from './types.js';
 
 export const traceRepoSearch = createTracer('SIFTKIT_TRACE_REPO_SEARCH', 'repo-search');
@@ -104,7 +105,7 @@ export function createJsonLogger(logPath: string): BufferedJsonLogger {
   };
   return {
     path: logPath,
-    write(event: Record<string, unknown>): void {
+    write(event: Record<string, JsonSerializable>): void {
       lines.push(`${JSON.stringify({ at: new Date().toISOString(), ...event })}\n`);
     },
     getText,

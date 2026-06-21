@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as path from 'node:path';
+import path from 'node:path';
 
 import { buildNodeTestArgs, resolveTestTargets } from '../scripts/test-targets.js';
 

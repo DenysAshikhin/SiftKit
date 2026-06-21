@@ -1,4 +1,4 @@
-import * as fs from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { decodeTextBuffer } from '../lib/text-encoding.js';
 
 function normalizeCliInputText(text: string | null | undefined): string | null {
@@ -18,7 +18,7 @@ export function readCliTextInput(options: {
   }
 
   if (options.file) {
-    if (!fs.existsSync(options.file)) {
+    if (!existsSync(options.file)) {
       if (options.stdinText !== undefined) {
         return normalizeCliInputText(
           Buffer.isBuffer(options.stdinText)
@@ -28,7 +28,7 @@ export function readCliTextInput(options: {
       }
       throw new Error(`Input file not found: ${options.file}`);
     }
-    return normalizeCliInputText(decodeTextBuffer(fs.readFileSync(options.file)));
+    return normalizeCliInputText(decodeTextBuffer(readFileSync(options.file)));
   }
 
   if (options.stdinText !== undefined) {

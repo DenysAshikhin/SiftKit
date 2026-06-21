@@ -60,7 +60,8 @@ import { useLiveMessages } from './hooks/useLiveMessages';
 import { useContextUsage } from './hooks/useContextUsage';
 import { usePlanInputs } from './hooks/usePlanInputs';
 import { useRepoSearchAutoAppend } from './hooks/useRepoSearchAutoAppend';
-import { useChatComposer, describeStreamError } from './hooks/useChatComposer';
+import { getErrorMessage } from '../../src/lib/errors.js';
+import { useChatComposer } from './hooks/useChatComposer';
 import {
   buildRunsSignature,
   classifyRunGroup,
@@ -77,7 +78,11 @@ import { SettingsTab } from './tabs/SettingsTab';
 import { BenchmarkTab } from './tabs/BenchmarkTab';
 import type { DashboardBenchmarkAttempt, DashboardBenchmarkQuestionPreset, DashboardBenchmarkSession, DashboardBenchmarkSortKey, DashboardConfig, DashboardManagedLlamaPreset, DashboardPreset, IdleSummarySnapshot, MetricDay, ProviderQuota, RunGroupFilter, TaskMetricDay, ToolStatsByTask, WebSearchUsage, RunDetailResponse, RunLogDeleteType, RunRecord } from './types';
 
-type TabKey = 'runs' | 'metrics' | 'benchmark' | 'chat' | 'settings';
+const TAB_KEYS = ['runs', 'metrics', 'benchmark', 'chat', 'settings'] as const;
+type TabKey = (typeof TAB_KEYS)[number];
+function isTabKey(value: string | null): value is TabKey {
+  return value !== null && TAB_KEYS.some((key) => key === value);
+}
 type RunGroupKey = Exclude<RunGroupFilter, ''>;
 type ToastLevel = 'info' | 'warning' | 'error';
 type ToastMessage = {
@@ -93,7 +98,8 @@ export function App() {
 
 function DashboardApp() {
   const params = readSearchParams();
-  const [tab, setTab] = useState<TabKey>((params.get('tab') as TabKey) || 'runs');
+  const tabParam = params.get('tab');
+  const [tab, setTab] = useState<TabKey>(isTabKey(tabParam) ? tabParam : 'runs');
   const [menuOpen, setMenuOpen] = useState(false);
 
   const [runs, setRuns] = useState<RunRecord[]>([]);
@@ -162,7 +168,7 @@ function DashboardApp() {
   const live = useLiveMessages();
   const contextHook = useContextUsage();
   const chatSessionsHook = useChatSessions({
-    onError: (error) => setChatError(describeStreamError(error)),
+    onError: (error) => setChatError(getErrorMessage(error)),
     initialSelectedSessionId: params.get('session') || '',
     refreshToken: dashboardRefreshToken,
     buildCreateSessionRequest: () => ({
@@ -304,7 +310,7 @@ function DashboardApp() {
     chatMode,
     planRepoRootInput: planInputs.planRepoRootInput,
     liveMessages: live.liveMessages,
-    onError: (error) => setChatError(describeStreamError(error)),
+    onError: (error) => setChatError(getErrorMessage(error)),
   });
 
   const composer = useChatComposer({
@@ -365,7 +371,7 @@ function DashboardApp() {
 
   useEffect(() => {
     const onPointerDown = (event: MouseEvent): void => {
-      const target = event.target as HTMLElement | null;
+      const target = event.target instanceof HTMLElement ? event.target : null;
       if (!target) {
         return;
       }
@@ -597,8 +603,8 @@ function DashboardApp() {
       return;
     }
     return openBenchmarkSessionEvents(selectedBenchmarkSessionId, (eventName, payload) => {
-      if (eventName === 'log' && payload && typeof payload === 'object') {
-        const text = String((payload as { text?: unknown }).text || '');
+      if (eventName === 'log' && payload && typeof payload === 'object' && !Array.isArray(payload)) {
+        const text = String(payload.text || '');
         if (text) {
           setBenchmarkLiveLogLines((previous) => [...previous, text.trimEnd()].slice(-200));
         }
@@ -606,8 +612,8 @@ function DashboardApp() {
       if (eventName === 'attempt' || eventName === 'session' || eventName === 'done') {
         requestDashboardDataRefresh();
       }
-      if (eventName === 'error' && payload && typeof payload === 'object') {
-        setBenchmarkError(String((payload as { error?: unknown }).error || 'Benchmark stream error.'));
+      if (eventName === 'error' && payload && typeof payload === 'object' && !Array.isArray(payload)) {
+        setBenchmarkError(String(payload.error || 'Benchmark stream error.'));
       }
     });
   }, [selectedBenchmarkSessionId, selectedBenchmarkSession?.status]);
@@ -751,7 +757,7 @@ function DashboardApp() {
         const detail = await getRunDetail(selectedRunId);
         setSelectedRunDetail(detail);
       } catch (error) {
-        setChatError(describeStreamError(error));
+        setChatError(getErrorMessage(error));
       }
     }
   }

@@ -14,6 +14,9 @@ import type {
   StructuredModelDecision,
   SummaryClassification,
 } from '../summary/types.js';
+import { getErrorMessage } from './errors.js';
+import { JsonRecordReader } from './json-record-reader.js';
+import { JsonValueSchema, type JsonObject, type JsonValue, type MutableJsonObject, type OptionalJsonValue } from './json-types.js';
 import { stripCodeFence } from './text-format.js';
 
 type RepoSearchParserOptions = {
@@ -31,9 +34,6 @@ const JSON_ESCAPE_CHARS: Record<string, string> = {
   '/': '/',
 };
 
-const SUMMARY_CLASSIFICATIONS = new Set<string>(['summary', 'command_failure', 'unsupported_input']);
-const SUMMARY_PLANNER_TOOL_NAMES = new Set<string>(['find_text', 'read_lines', 'json_filter', 'json_get']);
-
 export class ModelJson {
   static parseSummaryDecision(text: string): StructuredModelDecision {
     const parsed = this.parseModelObject(text, 'SiftKit decision');
@@ -47,7 +47,7 @@ export class ModelJson {
 
   static parseRepoSearchPlannerAction(
     text: string,
-    options: RepoSearchParserOptions
+    options: RepoSearchParserOptions,
   ): RepoSearchPlannerAction {
     const parsed = this.parseModelObject(text, 'planner');
     return this.validateRepoSearchPlannerAction(parsed, this.getAllowedToolNames(options));
@@ -101,7 +101,7 @@ export class ModelJson {
     return this.validateFinishValidation(parsed);
   }
 
-  static parseToolArguments(value: unknown): Record<string, unknown> | null {
+  static parseToolArguments(value: OptionalJsonValue): JsonObject | null {
     if (typeof value === 'string') {
       try {
         return this.parseToolArgumentsText(value);
@@ -113,7 +113,7 @@ export class ModelJson {
     return this.getRecord(value);
   }
 
-  private static parseToolArgumentsText(text: string): Record<string, unknown> | null {
+  private static parseToolArgumentsText(text: string): JsonObject | null {
     const parsed = this.parseJsonValue(text, 'tool arguments');
     if (typeof parsed === 'string') {
       return this.getRecord(this.parseJsonValue(parsed, 'tool arguments'));
@@ -121,7 +121,7 @@ export class ModelJson {
     return this.getRecord(parsed);
   }
 
-  private static parseModelObject(text: string, payloadName: string): Record<string, unknown> {
+  private static parseModelObject(text: string, payloadName: string): JsonObject {
     const parsed = this.parseJsonValue(stripCodeFence(text), payloadName);
     const record = this.getRecord(parsed);
     if (!record) {
@@ -130,38 +130,25 @@ export class ModelJson {
     return record;
   }
 
-  private static parseJsonValue(text: string, payloadName: string): unknown {
+  private static parseJsonValue(text: string, payloadName: string): JsonValue {
     const normalized = String(text || '').trim();
     try {
-      return JSON.parse(normalized) as unknown;
+      return JsonValueSchema.parse(JSON.parse(normalized));
     } catch (strictError) {
       try {
-        return JSON.parse(jsonrepair(normalized)) as unknown;
+        return JsonValueSchema.parse(JSON.parse(jsonrepair(normalized)));
       } catch (repairError) {
-        throw new Error(
-          `Provider returned an invalid ${payloadName} payload: ${this.getErrorMessage(repairError, strictError)}`
-        );
+        const message = getErrorMessage(repairError) || getErrorMessage(strictError) || 'unknown error';
+        throw new Error(`Provider returned an invalid ${payloadName} payload: ${message}`);
       }
     }
   }
 
-  private static getErrorMessage(error: unknown, fallback: unknown): string {
-    if (error instanceof Error && error.message) {
-      return error.message;
-    }
-    if (fallback instanceof Error && fallback.message) {
-      return fallback.message;
-    }
-    return String(error || fallback || 'unknown error');
+  private static getRecord(value: OptionalJsonValue): JsonObject | null {
+    return JsonRecordReader.asObject(value);
   }
 
-  private static getRecord(value: unknown): Record<string, unknown> | null {
-    return value && typeof value === 'object' && !Array.isArray(value)
-      ? value as Record<string, unknown>
-      : null;
-  }
-
-  private static validateSummaryDecision(parsed: Record<string, unknown>): StructuredModelDecision {
+  private static validateSummaryDecision(parsed: JsonObject): StructuredModelDecision {
     const classification = this.getClassification(parsed.classification);
     if (!classification) {
       throw new Error('Provider returned an invalid SiftKit decision classification.');
@@ -179,7 +166,7 @@ export class ModelJson {
     };
   }
 
-  private static validateSummaryPlannerAction(parsed: Record<string, unknown>): SummaryPlannerAction {
+  private static validateSummaryPlannerAction(parsed: JsonObject): SummaryPlannerAction {
     const action = this.getAction(parsed);
     const directToolName = this.getSummaryPlannerToolName(action);
     if (directToolName) {
@@ -225,8 +212,8 @@ export class ModelJson {
   }
 
   private static validateRepoSearchPlannerAction(
-    parsed: Record<string, unknown>,
-    allowedToolNames: Set<string>
+    parsed: JsonObject,
+    allowedToolNames: Set<string>,
   ): RepoSearchPlannerAction {
     const action = this.getAction(parsed);
     if (allowedToolNames.has(action)) {
@@ -275,8 +262,8 @@ export class ModelJson {
 
   private static normalizeRepoSearchToolCall(
     rawToolName: string,
-    rawArgs: Record<string, unknown>,
-    allowedToolNames: Set<string>
+    rawArgs: JsonObject,
+    allowedToolNames: Set<string>,
   ): RepoSearchToolAction | null {
     const toolName = rawToolName;
 
@@ -352,7 +339,7 @@ export class ModelJson {
     return { action: 'tool', tool_name: toolName, args: rawArgs };
   }
 
-  private static validateFinishValidation(parsed: Record<string, unknown>): FinishValidationResult {
+  private static validateFinishValidation(parsed: JsonObject): FinishValidationResult {
     const verdict = typeof parsed.verdict === 'string' ? parsed.verdict.trim().toLowerCase() : '';
     if (verdict !== 'pass' && verdict !== 'fail') {
       throw new Error('Provider returned an invalid finish validation payload.');
@@ -361,29 +348,42 @@ export class ModelJson {
     if (!reason) {
       throw new Error('Provider returned an invalid finish validation payload.');
     }
-    return { verdict: verdict as 'pass' | 'fail', reason };
+    return { verdict, reason };
   }
 
-  private static getClassification(value: unknown): SummaryClassification | null {
+  private static getClassification(value?: JsonValue): SummaryClassification | null {
     const classification = typeof value === 'string' ? value.trim().toLowerCase() : '';
-    return SUMMARY_CLASSIFICATIONS.has(classification)
-      ? classification as SummaryClassification
-      : null;
+    switch (classification) {
+      case 'summary':
+      case 'command_failure':
+      case 'unsupported_input':
+        return classification;
+      default:
+        return null;
+    }
   }
 
-  private static getAction(parsed: Record<string, unknown>): string {
+  private static getAction(parsed: JsonObject): string {
     return typeof parsed.action === 'string' ? parsed.action.trim().toLowerCase() : '';
   }
 
-  private static getSummaryPlannerToolName(value: unknown): PlannerToolName | null {
-    const toolName = typeof value === 'string' ? value.trim() : '';
-    return SUMMARY_PLANNER_TOOL_NAMES.has(toolName)
-      ? toolName as PlannerToolName
-      : null;
+  private static getSummaryPlannerToolName(value: string): PlannerToolName | null {
+    switch (value.trim()) {
+      case 'find_text':
+        return 'find_text';
+      case 'read_lines':
+        return 'read_lines';
+      case 'json_filter':
+        return 'json_filter';
+      case 'json_get':
+        return 'json_get';
+      default:
+        return null;
+    }
   }
 
-  private static getDirectToolArgs(parsed: Record<string, unknown>): Record<string, unknown> {
-    const args: Record<string, unknown> = {};
+  private static getDirectToolArgs(parsed: JsonObject): JsonObject {
+    const args: MutableJsonObject = {};
     for (const [key, value] of Object.entries(parsed)) {
       if (key !== 'action') {
         args[key] = value;
@@ -394,11 +394,11 @@ export class ModelJson {
 
   private static getAllowedToolNames(options: RepoSearchParserOptions): Set<string> {
     return new Set<string>(
-      options.allowedToolNames.map((toolName) => String(toolName || '').trim().toLowerCase()).filter(Boolean)
+      options.allowedToolNames.map((toolName) => String(toolName || '').trim().toLowerCase()).filter(Boolean),
     );
   }
 
-  private static getCommandArgValue(args: Record<string, unknown>): string {
+  private static getCommandArgValue(args: JsonObject): string {
     const commandValue = typeof args.command === 'string'
       ? args.command
       : typeof args.cmd === 'string'

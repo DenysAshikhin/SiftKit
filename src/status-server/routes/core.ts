@@ -1,9 +1,13 @@
 /**
  * Core API routes: health, status, execution lease, repo-search, and config.
  */
-import * as http from 'node:http';
-import * as crypto from 'node:crypto';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { randomUUID } from 'node:crypto';
+import { z } from '../../lib/zod.js';
+import { toError } from '../../lib/errors.js';
 import { JsonRecordReader } from '../../lib/json-record-reader.js';
+import { parseJsonValueText } from '../../lib/json.js';
+import { JsonValueSchema, type JsonValue, type OptionalJsonValue } from '../../lib/json-types.js';
 import { LlamaCppClient } from '../../llm-protocol/llama-cpp-client.js';
 import type {
   SummaryPolicyProfile,
@@ -101,7 +105,7 @@ type RepoSearchAdmissionRecord = {
   maxTurns: number | null;
 };
 
-function normalizeTaskKind(value: unknown): TaskKind | null {
+function normalizeTaskKind(value: OptionalJsonValue): TaskKind | null {
   return value === 'summary' || value === 'plan' || value === 'repo-search' || value === 'chat'
     ? value
     : null;
@@ -109,7 +113,7 @@ function normalizeTaskKind(value: unknown): TaskKind | null {
 
 function createRepoSearchAdmissionRecord(parsedBody: RepoSearchRouteRequest): RepoSearchAdmissionRecord {
   return {
-    requestId: crypto.randomUUID(),
+    requestId: randomUUID(),
     startedAtUtc: new Date().toISOString(),
     prompt: parsedBody.prompt,
     repoRoot: parsedBody.repoRoot,
@@ -206,7 +210,7 @@ function markRepoSearchAdmissionFailed(record: RepoSearchAdmissionRecord, errorM
   });
 }
 
-function normalizeSummaryPolicyProfile(value: unknown): SummaryPolicyProfile {
+function normalizeSummaryPolicyProfile(value: OptionalJsonValue): SummaryPolicyProfile {
   return (
     value === 'pass-fail'
     || value === 'unique-errors'
@@ -217,23 +221,23 @@ function normalizeSummaryPolicyProfile(value: unknown): SummaryPolicyProfile {
   ) ? value : 'general';
 }
 
-function normalizeSummarySourceKind(value: unknown): SummarySourceKind {
+function normalizeSummarySourceKind(value: OptionalJsonValue): SummarySourceKind {
   return value === 'command-output' ? 'command-output' : 'standalone';
 }
 
-function normalizeCommandOutputKind(value: unknown): 'command' | 'interactive' {
+function normalizeCommandOutputKind(value: OptionalJsonValue): 'command' | 'interactive' {
   return value === 'interactive' ? 'interactive' : 'command';
 }
 
-function normalizeCommandOutputRiskLevel(value: unknown): 'informational' | 'debug' | 'risky' | undefined {
+function normalizeCommandOutputRiskLevel(value: OptionalJsonValue): 'informational' | 'debug' | 'risky' | undefined {
   return value === 'informational' || value === 'debug' || value === 'risky' ? value : undefined;
 }
 
-function normalizeCommandOutputReducerProfile(value: unknown): 'smart' | 'errors' | 'tail' | 'diff' | 'none' | undefined {
+function normalizeCommandOutputReducerProfile(value: OptionalJsonValue): 'smart' | 'errors' | 'tail' | 'diff' | 'none' | undefined {
   return value === 'smart' || value === 'errors' || value === 'tail' || value === 'diff' || value === 'none' ? value : undefined;
 }
 
-function isStrictConfigPayload(value: unknown): boolean {
+function isStrictConfigPayload(value: OptionalJsonValue): boolean {
   const record = JsonRecordReader.asObject(value);
   if (!record) {
     return false;
@@ -602,8 +606,8 @@ function drainTerminalMetadataQueue(ctx: ServerContext): void {
 class HealthEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
     const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
@@ -626,8 +630,8 @@ class HealthEndpoint implements RouteEndpoint {
 class StatusReadEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
     const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
@@ -649,8 +653,8 @@ class StatusReadEndpoint implements RouteEndpoint {
 class ExecutionReadEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
     const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
@@ -664,14 +668,14 @@ class ExecutionReadEndpoint implements RouteEndpoint {
 class ExecutionAcquireEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
     const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
     const requestUrl = new URL(req.url || '/', 'http://localhost');
     clearIdleSummaryTimer(ctx);
-    const result = acquireLease(ctx.activeExecutionLease, crypto.randomUUID(), Date.now(), EXECUTION_LEASE_STALE_MS);
+    const result = acquireLease(ctx.activeExecutionLease, randomUUID(), Date.now(), EXECUTION_LEASE_STALE_MS);
     ctx.activeExecutionLease = result.lease;
     if (!result.acquired) {
       sendJson(res, 200, { ok: true, acquired: false, busy: true });
@@ -685,8 +689,8 @@ class ExecutionAcquireEndpoint implements RouteEndpoint {
 class ExecutionHeartbeatEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
     const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
@@ -717,8 +721,8 @@ class ExecutionHeartbeatEndpoint implements RouteEndpoint {
 class ExecutionReleaseEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
     const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
@@ -744,8 +748,8 @@ class ExecutionReleaseEndpoint implements RouteEndpoint {
 class CommandOutputAnalyzeEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
     const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
@@ -802,8 +806,8 @@ class CommandOutputAnalyzeEndpoint implements RouteEndpoint {
 class PresetListEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
     const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
@@ -821,8 +825,8 @@ class PresetListEndpoint implements RouteEndpoint {
 class PresetRunEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
     const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
@@ -879,8 +883,8 @@ class PresetRunEndpoint implements RouteEndpoint {
 class EvalRunEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
     const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
@@ -909,7 +913,7 @@ class EvalRunEndpoint implements RouteEndpoint {
       }
       const result = await ctx.engineService.runEvaluation({
         FixtureRoot: reader.optionalString('FixtureRoot'),
-        RealLogPath: Array.isArray(parsedBody.RealLogPath) ? (parsedBody.RealLogPath as unknown[]).map((value) => String(value)) : [],
+        RealLogPath: Array.isArray(parsedBody.RealLogPath) ? parsedBody.RealLogPath.map((value) => String(value)) : [],
         Backend: reader.optionalString('Backend'),
         Model: reader.optionalString('Model'),
       });
@@ -926,8 +930,8 @@ class EvalRunEndpoint implements RouteEndpoint {
 class RepoSearchEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
     const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
@@ -977,14 +981,14 @@ class RepoSearchEndpoint implements RouteEndpoint {
         repoRoot: admission.repoRoot,
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
         config,
-        allowedTools: Array.isArray(parsedBody.allowedTools) ? (parsedBody.allowedTools as unknown[]).map((value) => String(value)) : undefined,
+        allowedTools: Array.isArray(parsedBody.allowedTools) ? parsedBody.allowedTools.map((value) => String(value)) : undefined,
         includeAgentsMd: resolveEffectiveAgentsMd(config, null),
         includeRepoFileListing: resolveEffectiveRepoFileListing(config, null),
         model: reader.optionalString('model'),
         maxTurns: reader.number('maxTurns') ?? undefined,
         logFile: reader.optionalString('logFile'),
-        availableModels: Array.isArray(parsedBody.availableModels) ? (parsedBody.availableModels as unknown[]).map((v) => String(v)) : undefined,
-        mockResponses: Array.isArray(parsedBody.mockResponses) ? (parsedBody.mockResponses as unknown[]).map((v) => String(v)) : undefined,
+        availableModels: Array.isArray(parsedBody.availableModels) ? parsedBody.availableModels.map((v) => String(v)) : undefined,
+        mockResponses: Array.isArray(parsedBody.mockResponses) ? parsedBody.mockResponses.map((v) => String(v)) : undefined,
         mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
         onProgress(event: RepoSearchProgressEvent) {
           if (event.kind === 'tool_start') {
@@ -1007,8 +1011,8 @@ class RepoSearchEndpoint implements RouteEndpoint {
 class SummaryEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
     const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
@@ -1069,8 +1073,8 @@ class SummaryEndpoint implements RouteEndpoint {
 class StatusCompleteEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
     const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
@@ -1124,8 +1128,8 @@ type StatusPostCurrentStatusExtra = {
 class StatusPostEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
     await new StatusPostRequestHandler(ctx, req, res).handle();
@@ -1135,8 +1139,8 @@ class StatusPostEndpoint implements RouteEndpoint {
 class StatusPostRequestHandler {
   constructor(
     private readonly ctx: ServerContext,
-    private readonly req: http.IncomingMessage,
-    private readonly res: http.ServerResponse,
+    private readonly req: IncomingMessage,
+    private readonly res: ServerResponse,
   ) {}
 
   private get configPath(): string { return this.ctx.configPath; }
@@ -1215,7 +1219,7 @@ class StatusPostRequestHandler {
     const requestId = getResolvedRequestId(metadata, this.statusPath);
     enqueueTerminalMetadata(this.ctx, {
       requestId,
-      terminalState: metadata.terminalState as 'completed' | 'failed',
+      terminalState: z.enum(['completed', 'failed']).parse(metadata.terminalState),
       bodyText,
       capturedAtMs: Date.now(),
     });
@@ -1248,7 +1252,7 @@ class StatusPostRequestHandler {
       upsertRunArtifactPayload({
         database: getIdleSummaryDatabase(this.ctx),
         requestId: metadata.artifactRequestId,
-        artifactType: metadata.artifactType as 'summary_request' | 'planner_debug' | 'planner_failed' | 'request_abandoned',
+        artifactType: z.enum(['summary_request', 'planner_debug', 'planner_failed', 'request_abandoned']).parse(metadata.artifactType),
         artifactPayload: metadata.artifactPayload,
       });
       return false;
@@ -1621,8 +1625,8 @@ class StatusPostRequestHandler {
 class LlamaCppConfigTestEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
     const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
@@ -1673,8 +1677,8 @@ class LlamaCppConfigTestEndpoint implements RouteEndpoint {
 class ConfigReadEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
     const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
@@ -1700,15 +1704,15 @@ class ConfigReadEndpoint implements RouteEndpoint {
 class ConfigUpdateEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
     const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
     const requestUrl = new URL(req.url || '/', 'http://localhost');
-    let parsedBody: unknown;
+    let parsedBody: JsonValue;
     try {
-      parsedBody = JSON.parse(await readBody(req) || '{}') as unknown;
+      parsedBody = parseJsonValueText(await readBody(req) || '{}');
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return;
@@ -1716,7 +1720,7 @@ class ConfigUpdateEndpoint implements RouteEndpoint {
     const baseConfig = readConfig(configPath);
     const nextConfig = isStrictConfigPayload(parsedBody)
       ? normalizeConfig(parsedBody)
-      : normalizeConfig(mergeConfig(baseConfig, parsedBody));
+      : normalizeConfig(mergeConfig(JsonValueSchema.parse(baseConfig), parsedBody));
     writeConfig(configPath, nextConfig);
     sendJson(res, 200, nextConfig);
     return;
@@ -1726,8 +1730,8 @@ class ConfigUpdateEndpoint implements RouteEndpoint {
 class StatusRestartEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
     const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
@@ -1746,7 +1750,7 @@ class StatusRestartEndpoint implements RouteEndpoint {
       const nextConfig = await ctx.ensureManagedLlamaReady();
       sendJson(res, 200, { ok: true, restarted: true, config: nextConfig });
     } catch (error) {
-      const startupFailure = getManagedLlamaStartupFailure(error);
+      const startupFailure = getManagedLlamaStartupFailure(toError(error));
       sendJson(res, 503, {
         ok: false,
         restarted: false,
@@ -1783,8 +1787,8 @@ const CORE_ROUTES = new RouteTable([
 
 export async function handleCoreRoute(
   ctx: ServerContext,
-  req: http.IncomingMessage,
-  res: http.ServerResponse,
+  req: IncomingMessage,
+  res: ServerResponse,
 ): Promise<boolean> {
   return await CORE_ROUTES.handle(ctx, req, res, req.url || '/');
 }

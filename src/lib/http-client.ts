@@ -1,7 +1,9 @@
-import * as http from 'node:http';
-import * as https from 'node:https';
-import { Agent as UndiciAgent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from 'undici';
-import { parseJsonText } from './json.js';
+import { Agent as HttpAgent, request as httpRequest } from 'node:http';
+import { Agent as HttpsAgent, request as httpsRequest } from 'node:https';
+import { Agent as UndiciAgent, fetch as undiciFetch } from 'undici';
+import { z } from './zod.js';
+import { parseJsonObjectText, parseJsonText } from './json.js';
+import type { JsonObject } from './json-types.js';
 import { formatTimestamp } from './text-format.js';
 
 export const CONNECT_TIMEOUT_MS = 20_000;
@@ -9,7 +11,14 @@ export const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) App
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 export type HttpMethod = 'GET' | 'PUT' | 'POST' | 'DELETE';
-export type HttpClientFetchInit = RequestInit & { timeoutMs?: number };
+export type HttpClientFetchInit = {
+  method?: string;
+  headers?: HeadersInit;
+  body?: string | null;
+  signal?: AbortSignal | null;
+  redirect?: RequestRedirect;
+  timeoutMs?: number;
+};
 
 export type RequestJsonOptions = {
   url: string;
@@ -17,7 +26,7 @@ export type RequestJsonOptions = {
   timeoutMs?: number;
   body?: string;
   abortSignal?: AbortSignal;
-  agent?: http.Agent | https.Agent;
+  agent?: HttpAgent | HttpsAgent;
 };
 
 export type FullJsonResponse<T> = {
@@ -31,7 +40,7 @@ export type TextResponse = { statusCode: number; body: string };
 export type RequestTextOptions = {
   url: string;
   timeoutMs: number;
-  agent?: http.Agent | https.Agent;
+  agent?: HttpAgent | HttpsAgent;
 };
 
 export type SseStreamOptions = {
@@ -42,7 +51,7 @@ export type SseStreamOptions = {
 };
 
 export type SseStreamResult = { sawDone: boolean };
-export type SseStreamPacket = Record<string, unknown>;
+export type SseStreamPacket = JsonObject;
 export type SseStreamSignal = 'stop' | void;
 
 export class LlamaHttpError extends Error {
@@ -59,8 +68,8 @@ export class LlamaHttpError extends Error {
 
 export type LoggedHttpClientTask = 'repo-search' | 'summary' | 'command-output' | 'preset' | 'eval';
 
-const httpAgent = new http.Agent({ keepAlive: false, maxSockets: Infinity });
-const httpsAgent = new https.Agent({ keepAlive: false, maxSockets: Infinity });
+const httpAgent = new HttpAgent({ keepAlive: false, maxSockets: Infinity });
+const httpsAgent = new HttpsAgent({ keepAlive: false, maxSockets: Infinity });
 const externalAgent = new UndiciAgent({ connect: { timeout: CONNECT_TIMEOUT_MS } });
 
 function getLoggedHttpClientTask(target: URL): LoggedHttpClientTask | null {
@@ -111,10 +120,26 @@ function getPositiveTimeoutMs(value: number | undefined, fallback: number): numb
     : fallback;
 }
 
-function buildFetchHeaders(init: HttpClientFetchInit | undefined): Headers {
-  const headers = new Headers(init?.headers);
-  if (!headers.has('user-agent')) {
-    headers.set('User-Agent', DEFAULT_USER_AGENT);
+function buildFetchHeaders(init: HttpClientFetchInit | undefined): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const source = init?.headers;
+  if (source instanceof Headers) {
+    source.forEach((value, key) => {
+      headers[key] = value;
+    });
+  } else if (Array.isArray(source)) {
+    for (const [key, value] of source) {
+      headers[String(key)] = String(value);
+    }
+  } else if (source && typeof source === 'object') {
+    for (const [key, value] of Object.entries(source)) {
+      if (value !== undefined) {
+        headers[key] = String(value);
+      }
+    }
+  }
+  if (!Object.keys(headers).some((key) => key.toLowerCase() === 'user-agent')) {
+    headers['User-Agent'] = DEFAULT_USER_AGENT;
   }
   return headers;
 }
@@ -125,22 +150,31 @@ function buildFetchSignal(init: HttpClientFetchInit | undefined): AbortSignal {
 }
 
 export class HttpClient {
-  fetch(url: string | URL, init?: HttpClientFetchInit): Promise<Response> {
+  async fetch(url: string | URL, init?: HttpClientFetchInit): Promise<Response> {
     const { timeoutMs: _timeoutMs, ...requestInit } = init || {};
-    return undiciFetch(url, {
+    const response = await undiciFetch(url, {
       ...requestInit,
       headers: buildFetchHeaders(init),
       signal: buildFetchSignal(init),
       dispatcher: externalAgent,
-    } as unknown as UndiciRequestInit) as unknown as Promise<Response>;
+    });
+    const headers: Record<string, string> = {};
+    response.headers.forEach((value, key) => {
+      headers[key] = value;
+    });
+    return new Response(await response.arrayBuffer(), {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
   }
 
-  requestJson<T>(options: RequestJsonOptions): Promise<T> {
-    return requestJson<T>({ ...options, agent: options.agent ?? this.localAgent(options.url) });
+  requestJson<T>(options: RequestJsonOptions, schema: z.ZodType<T>): Promise<T> {
+    return requestJson<T>({ ...options, agent: options.agent ?? this.localAgent(options.url) }, schema);
   }
 
-  requestJsonFull<T>(options: RequestJsonOptions): Promise<FullJsonResponse<T>> {
-    return requestJsonFull<T>({ ...options, agent: options.agent ?? this.localAgent(options.url) });
+  requestJsonFull<T>(options: RequestJsonOptions, schema: z.ZodType<T>): Promise<FullJsonResponse<T>> {
+    return requestJsonFull<T>({ ...options, agent: options.agent ?? this.localAgent(options.url) }, schema);
   }
 
   requestText(options: RequestTextOptions): Promise<TextResponse> {
@@ -152,7 +186,7 @@ export class HttpClient {
     onData: (packet: SseStreamPacket) => SseStreamSignal,
   ): Promise<SseStreamResult> {
     const target = new URL(options.url);
-    const transport = target.protocol === 'https:' ? https : http;
+    const requestTransport = target.protocol === 'https:' ? httpsRequest : httpRequest;
     return new Promise<SseStreamResult>((resolve, reject) => {
       let settled = false;
       let sawDone = false;
@@ -189,7 +223,7 @@ export class HttpClient {
         settleReject(error);
       };
 
-      const request = transport.request({
+      const request = requestTransport({
         protocol: target.protocol,
         hostname: target.hostname,
         port: target.port || (target.protocol === 'https:' ? 443 : 80),
@@ -234,7 +268,7 @@ export class HttpClient {
             }
             let parsed: SseStreamPacket;
             try {
-              parsed = JSON.parse(dataValue) as SseStreamPacket;
+              parsed = parseJsonObjectText(dataValue);
             } catch {
               continue;
             }
@@ -273,21 +307,21 @@ export class HttpClient {
     });
   }
 
-  localAgent(url: string | URL): http.Agent | https.Agent {
+  localAgent(url: string | URL): HttpAgent | HttpsAgent {
     const target = typeof url === 'string' ? new URL(url) : url;
     return target.protocol === 'https:' ? httpsAgent : httpAgent;
   }
 }
 
-function requestJson<T>(options: RequestJsonOptions): Promise<T> {
+function requestJson<T>(options: RequestJsonOptions, schema: z.ZodType<T>): Promise<T> {
   const target = new URL(options.url);
-  const transport = target.protocol === 'https:' ? https : http;
+  const requestTransport = target.protocol === 'https:' ? httpsRequest : httpRequest;
   const startedAt = Date.now();
   const bodyChars = options.body ? Buffer.byteLength(options.body, 'utf8') : 0;
   logHttpClientLifecycle(target, options.method, 'enqueue_intent', `body_chars=${bodyChars}`);
   return new Promise((resolve, reject) => {
     logHttpClientLifecycle(target, options.method, 'request_start', '');
-    const request = transport.request(
+    const request = requestTransport(
       {
         protocol: target.protocol,
         hostname: target.hostname,
@@ -325,12 +359,12 @@ function requestJson<T>(options: RequestJsonOptions): Promise<T> {
           }
 
           if (!responseText.trim()) {
-            resolve({} as T);
+            resolve(parseJsonText<T>('{}', schema));
             return;
           }
 
           try {
-            resolve(parseJsonText<T>(responseText));
+            resolve(parseJsonText<T>(responseText, schema));
           } catch (error) {
             reject(error);
           }
@@ -364,8 +398,8 @@ function requestJson<T>(options: RequestJsonOptions): Promise<T> {
 function requestText(options: RequestTextOptions): Promise<TextResponse> {
   return new Promise((resolve, reject) => {
     const target = new URL(options.url);
-    const transport = target.protocol === 'https:' ? https : http;
-    const request = transport.request({
+    const requestTransport = target.protocol === 'https:' ? httpsRequest : httpRequest;
+    const request = requestTransport({
       protocol: target.protocol,
       hostname: target.hostname,
       port: target.port || (target.protocol === 'https:' ? 443 : 80),
@@ -388,7 +422,7 @@ function requestText(options: RequestTextOptions): Promise<TextResponse> {
   });
 }
 
-function requestJsonFull<T>(options: RequestJsonOptions): Promise<FullJsonResponse<T>> {
+function requestJsonFull<T>(options: RequestJsonOptions, schema: z.ZodType<T>): Promise<FullJsonResponse<T>> {
   return new Promise((resolve, reject) => {
     let settled = false;
     let timeoutHandle: NodeJS.Timeout | null = null;
@@ -399,7 +433,7 @@ function requestJsonFull<T>(options: RequestJsonOptions): Promise<FullJsonRespon
       options.abortSignal?.removeEventListener('abort', abortRequest);
       resolve(value);
     };
-    const rejectOnce = (error: unknown): void => {
+    const rejectOnce = (error: Error): void => {
       if (settled) return;
       settled = true;
       if (timeoutHandle) clearTimeout(timeoutHandle);
@@ -408,8 +442,8 @@ function requestJsonFull<T>(options: RequestJsonOptions): Promise<FullJsonRespon
     };
 
     const target = new URL(options.url);
-    const transport = target.protocol === 'https:' ? https : http;
-    const request = transport.request(
+    const requestTransport = target.protocol === 'https:' ? httpsRequest : httpRequest;
+    const request = requestTransport(
       {
         protocol: target.protocol,
         hostname: target.hostname,
@@ -430,13 +464,13 @@ function requestJsonFull<T>(options: RequestJsonOptions): Promise<FullJsonRespon
         });
         response.on('end', () => {
           if (!responseText.trim()) {
-            resolveOnce({ statusCode: response.statusCode || 0, body: {} as T, rawText: '' });
+            resolveOnce({ statusCode: response.statusCode || 0, body: parseJsonText<T>('{}', schema), rawText: '' });
             return;
           }
           try {
             resolveOnce({
               statusCode: response.statusCode || 0,
-              body: JSON.parse(responseText) as T,
+              body: parseJsonText<T>(responseText, schema),
               rawText: responseText,
             });
           } catch (error) {

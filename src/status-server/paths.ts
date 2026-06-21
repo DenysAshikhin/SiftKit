@@ -1,7 +1,7 @@
 /**
  * Path resolution for the status-server.
  */
-import * as path from 'node:path';
+import { join } from 'node:path';
 import {
   getRuntimeRoot as getRuntimeRootShared,
   getInferenceStatusPath,
@@ -36,5 +36,5 @@ export function getIdleSummarySnapshotsPath(): string {
 }
 
 export function getManagedLlamaLogRoot(): string {
-  return path.join(getRuntimeRoot(), 'logs', 'managed-llama');
+  return join(getRuntimeRoot(), 'logs', 'managed-llama');
 }

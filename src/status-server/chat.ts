@@ -1,5 +1,6 @@
-import * as crypto from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type { ServerManagedLlamaPreset, SiftConfig } from '../config/types.js';
+import type { OptionalJsonValue } from '../lib/json-types.js';
 import type { ChatMessage as PlannerChatMessage } from '../repo-search/planner-protocol.js';
 import type { ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
 import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
@@ -29,7 +30,7 @@ function trimText(value: string | null | undefined): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function nonNegativeNumber(value: unknown): number | null {
+function nonNegativeNumber(value: number | null | undefined): number | null {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) && numberValue >= 0 ? numberValue : null;
 }
@@ -181,7 +182,7 @@ export function resolveActiveChatModel(config: SiftConfig | null | undefined, se
   return DEFAULT_LLAMA_MODEL;
 }
 
-function getChatUsageValue(value: unknown): number | null {
+function getChatUsageValue(value: number | null | undefined): number | null {
   return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : null;
 }
 
@@ -256,8 +257,8 @@ export function buildChatHistoryMessages(
   return history;
 }
 
-function buildReplayToolCallId(messageId: unknown): string {
-  const raw = typeof messageId === 'string' ? messageId : crypto.randomUUID();
+function buildReplayToolCallId(messageId: string): string {
+  const raw = typeof messageId === 'string' ? messageId : randomUUID();
   const safe = raw.replace(/[^A-Za-z0-9_-]/gu, '_');
   return `chat_tool_${safe}`;
 }
@@ -414,7 +415,7 @@ export function appendChatMessagesWithUsage(
   const sourceRunId = typeof options.sourceRunId === 'string' && options.sourceRunId.trim() ? options.sourceRunId : null;
   const groundingStatus = options.groundingStatus || null;
   messages.push({
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     role: 'user',
     kind: 'user_text',
     content,
@@ -435,7 +436,7 @@ export function appendChatMessagesWithUsage(
       const explicitThinkingTokenCount = getChatUsageValue(turn.thinkingTokens);
       const turnThinkingTokens = explicitThinkingTokenCount ?? estimateTokenCount(thinkingText);
       messages.push({
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         role: 'assistant',
         kind: 'assistant_thinking',
         content: thinkingText,
@@ -451,7 +452,7 @@ export function appendChatMessagesWithUsage(
     }
     const turnToolMessages = Array.isArray(turn.toolMessages) ? turn.toolMessages : [];
     for (const toolMessage of turnToolMessages) {
-      const toolMessageId = typeof toolMessage.id === 'string' && toolMessage.id.trim() ? toolMessage.id : crypto.randomUUID();
+      const toolMessageId = typeof toolMessage.id === 'string' && toolMessage.id.trim() ? toolMessage.id : randomUUID();
       const toolOutput = typeof toolMessage.toolCallOutput === 'string'
         ? toolMessage.toolCallOutput
         : typeof toolMessage.toolCallOutputSnippet === 'string'
@@ -486,7 +487,7 @@ export function appendChatMessagesWithUsage(
       associatedToolTokens += toolOutputTokens;
     }
   }
-  const assistantMessageId = crypto.randomUUID();
+  const assistantMessageId = randomUUID();
   messages.push({
     id: assistantMessageId,
     role: 'assistant',
@@ -562,7 +563,7 @@ export function condenseChatSession(runtimeRoot: string, session: ChatSession): 
   return updated;
 }
 
-export function buildPlanRequestPrompt(userPrompt: unknown): string {
+export function buildPlanRequestPrompt(userPrompt: string): string {
   const task = String(userPrompt || '').trim();
   return [
     'You are creating an implementation plan from repository evidence.',
@@ -591,7 +592,7 @@ export function buildPlanRequestPrompt(userPrompt: unknown): string {
   ].join('\n');
 }
 
-function truncatePlanEvidence(value: unknown, maxLength: number = 700): string {
+function truncatePlanEvidence(value: string, maxLength: number = 700): string {
   const text = String(value || '').trim();
   if (!text) {
     return '';
@@ -602,7 +603,7 @@ function truncatePlanEvidence(value: unknown, maxLength: number = 700): string {
   return `${text.slice(0, maxLength)}\n... (truncated)`;
 }
 
-export function buildPlanMarkdownFromRepoSearch(userPrompt: string, repoRoot: string, result: unknown): string {
+export function buildPlanMarkdownFromRepoSearch(userPrompt: string, repoRoot: string, result: OptionalJsonValue): string {
   const normalized = result ? normalizeRepoSearchResult(result) : null;
   const tasks = normalized?.scorecard.tasks || [];
   const primaryTask = tasks[0] || null;
@@ -667,9 +668,9 @@ export function buildPlanMarkdownFromRepoSearch(userPrompt: string, repoRoot: st
   return lines.join('\n');
 }
 
-export function getScorecardTotal(scorecard: unknown, key: keyof RepoSearchScorecard['totals'] | string): number | null {
+export function getScorecardTotal(scorecard: OptionalJsonValue, key: keyof RepoSearchScorecard['totals']): number | null {
   const normalized = normalizeRepoSearchScorecard(scorecard);
-  const value = normalized.totals[key as keyof RepoSearchScorecard['totals']];
+  const value = normalized.totals[key];
   return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : null;
 }
 
@@ -686,7 +687,7 @@ function buildToolMessageFromCommand(command: RepoSearchCommandResult, turnsUsed
   const output = command.output || command.outputSnippet;
   const outputTokens = getChatUsageValue(command.outputTokens);
   return {
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     content: commandText,
     toolCallCommand: commandText,
     toolCallTurn: turn,
@@ -700,7 +701,7 @@ function buildToolMessageFromCommand(command: RepoSearchCommandResult, turnsUsed
   };
 }
 
-export function buildPersistTurnsFromRepoSearchResult(result: unknown): PersistTurn[] {
+export function buildPersistTurnsFromRepoSearchResult(result: OptionalJsonValue): PersistTurn[] {
   const normalized = result ? normalizeRepoSearchResult(result) : null;
   const tasks = normalized?.scorecard.tasks || [];
   const turns: PersistTurn[] = [];
@@ -746,7 +747,7 @@ export function buildPersistTurnsFromRepoSearchResult(result: unknown): PersistT
   return turns;
 }
 
-export function buildRepoSearchMarkdown(userPrompt: string, repoRoot: string, result: unknown): string {
+export function buildRepoSearchMarkdown(userPrompt: string, repoRoot: string, result: OptionalJsonValue): string {
   const normalized = result ? normalizeRepoSearchResult(result) : null;
   const primaryTask = normalized?.scorecard.tasks[0] || null;
   const modelOutput = primaryTask?.finalOutput

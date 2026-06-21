@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { getErrorMessage } from '../../../src/lib/errors.js';
 import {
   streamChatMessage,
   streamPlanMessage,
@@ -39,10 +40,6 @@ export function resolveRepoRoot(planRepoRootInput: string, fallback: string): st
     return trimmed;
   }
   return fallback;
-}
-
-export function describeStreamError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export function requireSelectedSession(session: ChatSession | null): ChatSession {
@@ -116,7 +113,7 @@ export function useChatComposer(deps: {
       deps.applySessionResponse({ session: response.session, contextUsage: response.contextUsage });
       setChatInput('');
     } catch (error) {
-      setChatError(describeStreamError(error));
+      setChatError(getErrorMessage(error));
     } finally {
       deps.live.resetLive();
       deps.context.setLiveToolPromptTokenCount(null);
@@ -168,7 +165,7 @@ export function useChatComposer(deps: {
       deps.applySessionResponse({ session: response.session, contextUsage: response.contextUsage });
       setChatInput('');
     } catch (error) {
-      setChatError(describeStreamError(error));
+      setChatError(getErrorMessage(error));
     } finally {
       deps.live.resetLive();
       deps.context.setLiveToolPromptTokenCount(null);
@@ -218,7 +215,7 @@ export function useChatComposer(deps: {
       deps.applySessionResponse({ session: response.session, contextUsage: response.contextUsage });
       setChatInput('');
     } catch (error) {
-      setChatError(describeStreamError(error));
+      setChatError(getErrorMessage(error));
     } finally {
       deps.live.resetLive();
       deps.context.setLiveToolPromptTokenCount(null);

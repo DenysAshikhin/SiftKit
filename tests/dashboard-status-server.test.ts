@@ -1,18 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
-import * as http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
 import { createRequire } from 'node:module';
-import type { AddressInfo } from 'node:net';
 
+import { z } from '../src/lib/zod.js';
+import { parseJsonValueText } from '../src/lib/json.js';
+import type { JsonValue, OptionalJsonValue } from '../src/lib/json-types.js';
 import { startStatusServer } from '../src/status-server/index.js';
 import { writeConfig, getDefaultConfig } from '../src/status-server/config-store.js';
 import { getConfigPath } from '../src/config/index.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import {
+  asArray,
+  asObject,
+  asObjectArray,
   fireAndAbortJsonRequest,
+  getAddressInfo,
   removeDirectoryWithRetries,
   requestJson,
   requestSse,
@@ -24,6 +30,15 @@ import {
   writeJson,
 } from './helpers/dashboard-http.js';
 import { buildRepoSearchChatSteps } from '../dashboard/src/lib/chat-steps.js';
+import type { RunEvent } from '../dashboard/src/types.js';
+
+function toRunEvents(value: OptionalJsonValue): RunEvent[] {
+  return asObjectArray(value).map((event) => ({
+    kind: String(event.kind ?? ''),
+    at: typeof event.at === 'string' ? event.at : null,
+    payload: event.payload ?? null,
+  }));
+}
 
 // F14 (test-pyramid rebalance): the pure normalizeWebSearchConfig decisions previously
 // co-located here were relocated to the config-normalization seam. Every remaining case is
@@ -56,12 +71,12 @@ test('GET /dashboard/web-search-quota returns a quotas array', async () => {
   writeConfig(configPath, config);
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
   try {
     const response = await requestJson(`${baseUrl}/dashboard/web-search-quota`);
     assert.equal(response.statusCode, 200);
-    const body = response.body as { quotas: unknown[] };
+    const body = asObject(response.body);
     assert.ok(Array.isArray(body.quotas));
     assert.deepEqual(body.quotas, []);
   } finally {
@@ -81,11 +96,11 @@ test('GET /dashboard/web-search-quota returns a quotas array', async () => {
 });
 
 const requireFromHere = createRequire(__filename);
-const Database = requireFromHere('better-sqlite3') as new (path: string, options?: { readonly?: boolean }) => {
-  prepare: (sql: string) => { all: (...args: unknown[]) => Dict[]; get: (...args: unknown[]) => Dict };
+type DatabaseConstructor = new (path: string, options?: { readonly?: boolean }) => {
+  prepare: (sql: string) => { all: (...args: JsonValue[]) => Dict[]; get: (...args: JsonValue[]) => Dict };
   close: () => void;
 };
-const runtimeHelpers = requireFromHere('./_runtime-helpers.js') as {
+type RuntimeHelpers = {
   writeManagedLlamaScripts: (tempRoot: string, port: number, modelId?: string) => {
     baseUrl: string;
     startupScriptPath: string;
@@ -113,6 +128,8 @@ const runtimeHelpers = requireFromHere('./_runtime-helpers.js') as {
     close: () => Promise<void>;
   }>;
 };
+const Database = z.custom<DatabaseConstructor>((value) => typeof value === 'function').parse(requireFromHere('better-sqlite3'));
+const runtimeHelpers = z.custom<RuntimeHelpers>((value) => typeof value === 'object' && value !== null).parse(requireFromHere('./_runtime-helpers.js'));
 
 type HostConfigServer = {
   baseUrl: string;
@@ -120,8 +137,8 @@ type HostConfigServer = {
   close: () => Promise<void>;
 };
 
-function d(value: unknown): Dict {
-  return (value || {}) as Dict;
+function d(value: OptionalJsonValue): Dict {
+  return asObject(value);
 }
 
 const DASHBOARD_CHAT_STREAM_TIMEOUT_MS = 20_000;
@@ -129,7 +146,7 @@ const DASHBOARD_CHAT_STREAM_TIMEOUT_MS = 20_000;
 function readRunLogRowCount(dbPath: string): number {
   const database = new Database(dbPath, { readonly: true });
   try {
-    const row = database.prepare('SELECT COUNT(*) AS count FROM run_logs').get() as Dict;
+    const row = database.prepare('SELECT COUNT(*) AS count FROM run_logs').get();
     return Number(row.count || 0);
   } finally {
     database.close();
@@ -191,7 +208,7 @@ async function startHostConfigServer(hostConfigBody: Dict): Promise<HostConfigSe
     response.end('{}');
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   return {
     baseUrl: `http://127.0.0.1:${address.port}`,
     requestUrls,
@@ -223,7 +240,7 @@ test('config llama cpp test endpoint reports reachable external server', async (
   });
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -267,7 +284,7 @@ test('config llama cpp test endpoint reports unreachable external server', async
   const unusedPort = await runtimeHelpers.getFreePort();
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -314,7 +331,7 @@ test('chat session creation uses pass-through host context window', async () => 
   const config = getDefaultConfig();
   const serverConfig = d(config.Server);
   const llamaServerConfig = d(serverConfig.LlamaCpp);
-  const presets = llamaServerConfig.Presets as Dict[];
+  const presets = asObjectArray(llamaServerConfig.Presets);
   const activePreset = d(presets[0]);
   activePreset.ExternalServerEnabled = true;
   activePreset.BaseUrl = host.baseUrl;
@@ -325,7 +342,7 @@ test('chat session creation uses pass-through host context window', async () => 
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -440,7 +457,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -449,7 +466,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
 
     const runsResponse = await requestJson(`${baseUrl}/dashboard/runs`);
     assert.equal(runsResponse.statusCode, 200);
-    const runs = runsResponse.body.runs as Dict[];
+    const runs = asObjectArray(runsResponse.body.runs);
     assert.equal(Array.isArray(runs), true);
     assert.ok(runs.length >= 4);
     const runKinds = new Set(runs.map((run) => String(run.kind)));
@@ -462,16 +479,16 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
 
     const detailResponse = await requestJson(`${baseUrl}/dashboard/runs/req-repo`);
     assert.equal(detailResponse.statusCode, 200);
-    assert.equal((detailResponse.body.run as Dict).id, 'req-repo');
-    const events = detailResponse.body.events as Dict[];
+    assert.equal(asObject(detailResponse.body.run).id, 'req-repo');
+    const events = asObjectArray(detailResponse.body.events);
     assert.equal(Array.isArray(events), true);
     assert.equal(events.some((event) => event.kind === 'turn_model_response'), true);
 
     const metricsResponse = await requestJson(`${baseUrl}/dashboard/metrics/timeseries`);
     assert.equal(metricsResponse.statusCode, 200);
-    const days = metricsResponse.body.days as Dict[];
-    const taskDays = metricsResponse.body.taskDays as Dict[];
-    const toolStats = metricsResponse.body.toolStats as Dict;
+    const days = asObjectArray(metricsResponse.body.days);
+    const taskDays = asObjectArray(metricsResponse.body.taskDays);
+    const toolStats = asObject(metricsResponse.body.toolStats);
     assert.equal(Array.isArray(days), true);
     assert.equal(Array.isArray(taskDays), true);
     assert.equal(Boolean(toolStats && typeof toolStats === 'object'), true);
@@ -494,9 +511,10 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     assert.equal(idleSummaryResponse.statusCode, 200);
     assert.equal(Array.isArray(idleSummaryResponse.body.snapshots), true);
     assert.equal(Object.prototype.hasOwnProperty.call(idleSummaryResponse.body, 'latest'), true);
-    const idleSummarySample: Dict = (idleSummaryResponse.body.latest as Dict)
-      || (idleSummaryResponse.body.snapshots as Dict[])?.[0]
-      || {};
+    const latest = idleSummaryResponse.body.latest;
+    const idleSummarySample: Dict = (latest !== null && typeof latest === 'object' && !Array.isArray(latest))
+      ? latest
+      : asObjectArray(idleSummaryResponse.body.snapshots)[0] || {};
     if (Object.keys(idleSummarySample).length > 0) {
       assert.equal(Object.prototype.hasOwnProperty.call(idleSummarySample, 'inputOutputRatio'), true);
     }
@@ -527,7 +545,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     assert.equal(appendMessage.statusCode, 200);
     const appendSession = d(appendMessage.body.session);
     assert.equal(Array.isArray(appendSession.messages), true);
-    assert.equal((appendSession.messages as Dict[]).length, 2);
+    assert.equal(asObjectArray(appendSession.messages).length, 2);
     const contextUsage = d(appendMessage.body.contextUsage);
     assert.equal(contextUsage.warnThresholdTokens, 12800);
     assert.equal(contextUsage.shouldCondense, false);
@@ -565,7 +583,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     });
     assert.equal(planMessage.statusCode, 200);
     const planSession = d(planMessage.body.session);
-    const planMessages = planSession.messages as Dict[];
+    const planMessages = asObjectArray(planSession.messages);
     assert.equal(planMessages.length >= 4, true);
     assert.equal(planMessages.some((message) =>
       message.kind === 'assistant_tool_call'
@@ -602,7 +620,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     assert.equal(fs.existsSync(String(repoSearch.artifactPath)), false);
     const repoRunDetailResponse = await requestJson(`${baseUrl}/dashboard/runs/${String(repoSearch.requestId)}`);
     assert.equal(repoRunDetailResponse.statusCode, 200);
-    const repoRunEvents = repoRunDetailResponse.body.events as Dict[];
+    const repoRunEvents = asObjectArray(repoRunDetailResponse.body.events);
     const repoSearchEvent = repoRunEvents.find((event) => event.kind === 'repo_search') || null;
     assert.equal(Boolean(repoSearchEvent), true);
     const plannerArtifact = d(repoSearchEvent?.payload);
@@ -628,7 +646,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
 
     const sessionsResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions`);
     assert.equal(sessionsResponse.statusCode, 200);
-    assert.equal((sessionsResponse.body.sessions as Dict[]).length, 1);
+    assert.equal(asObjectArray(sessionsResponse.body.sessions).length, 1);
 
     const sessionDetail = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
     assert.equal(sessionDetail.statusCode, 200);
@@ -642,7 +660,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
 
     const sessionsAfterDelete = await requestJson(`${baseUrl}/dashboard/chat/sessions`);
     assert.equal(sessionsAfterDelete.statusCode, 200);
-    assert.equal((sessionsAfterDelete.body.sessions as Dict[]).length, 0);
+    assert.equal(asObjectArray(sessionsAfterDelete.body.sessions).length, 0);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
@@ -677,14 +695,14 @@ test('dashboard chat message route stores exact user tokens from llama tokenizer
       request.on('data', (chunk) => { data += chunk; });
       request.on('end', () => resolve(data));
     });
-    const parsed = JSON.parse(bodyText) as { content?: unknown };
+    const parsed = asObject(parseJsonValueText(bodyText));
     const content = String(parsed.content || '');
     tokenizedContents.push(content);
     response.writeHead(200, { 'Content-Type': 'application/json' });
     response.end(JSON.stringify({ count: content === 'exact route user prompt' ? 23 : Math.max(1, Math.ceil(content.length / 4)) }));
   });
   await new Promise<void>((resolve) => tokenizerServer.listen(0, '127.0.0.1', resolve));
-  const tokenizerAddress = tokenizerServer.address() as AddressInfo;
+  const tokenizerAddress = getAddressInfo(tokenizerServer);
   const tokenizerBaseUrl = `http://127.0.0.1:${tokenizerAddress.port}`;
   const config = getDefaultConfig();
   const serverLlama = config.Server.LlamaCpp;
@@ -699,7 +717,7 @@ test('dashboard chat message route stores exact user tokens from llama tokenizer
   writeConfig(configPath, config);
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -722,7 +740,7 @@ test('dashboard chat message route stores exact user tokens from llama tokenizer
       }),
     });
     assert.equal(appendMessage.statusCode, 200);
-    const messages = d(appendMessage.body.session).messages as Dict[];
+    const messages = asObjectArray(d(appendMessage.body.session).messages);
     const userMessage = messages.find((message) => message.kind === 'user_text');
     assert.ok(userMessage);
     assert.equal(userMessage.inputTokensEstimate, 23);
@@ -777,7 +795,7 @@ test('dashboard metrics expose line-read stats and prompt-baseline recommendatio
 
   const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -863,7 +881,7 @@ test('web_search tool calls increment web search usage', async () => {
 
   const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -912,7 +930,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -959,8 +977,8 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
       false,
       JSON.stringify(planSse.events),
     );
-    const planDoneSession = d(planSse.events.find((event) => event.event === 'done')?.payload).session as Dict;
-    const planDoneMessages = (planDoneSession.messages || []) as Dict[];
+    const planDoneSession = asObject(d(planSse.events.find((event) => event.event === 'done')?.payload).session);
+    const planDoneMessages = asObjectArray(planDoneSession.messages);
     const latestPlanMessage = planDoneMessages[planDoneMessages.length - 1];
     assert.equal(typeof latestPlanMessage.requestStartedAtUtc, 'string');
     assert.equal(typeof latestPlanMessage.answerStartedAtUtc, 'string');
@@ -1004,8 +1022,8 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
       Object.keys(repoToolResult?.payload ?? {}).sort(),
       'plan and repo-search tool_result payloads must share identical key shape',
     );
-    const repoDoneSession = d(repoSse.events.find((event) => event.event === 'done')?.payload).session as Dict;
-    const repoDoneMessages = (repoDoneSession.messages || []) as Dict[];
+    const repoDoneSession = asObject(d(repoSse.events.find((event) => event.event === 'done')?.payload).session);
+    const repoDoneMessages = asObjectArray(repoDoneSession.messages);
     const latestRepoMessage = repoDoneMessages[repoDoneMessages.length - 1];
     assert.equal(typeof latestRepoMessage.requestStartedAtUtc, 'string');
     assert.equal(typeof latestRepoMessage.answerStartedAtUtc, 'string');
@@ -1035,7 +1053,7 @@ test('chat session web search defaults on and update persists webSearchEnabled',
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -1089,7 +1107,7 @@ test('no-web direct chat persists a single answer with scorecard output tokens',
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -1101,7 +1119,7 @@ test('no-web direct chat persists a single answer with scorecard output tokens',
 
     const errorLines: string[] = [];
     const originalConsoleError = console.error;
-    console.error = (...args: unknown[]) => {
+    console.error = (...args) => {
       errorLines.push(args.map((arg) => String(arg)).join(' '));
       originalConsoleError(...args);
     };
@@ -1126,9 +1144,9 @@ test('no-web direct chat persists a single answer with scorecard output tokens',
     assert.equal(errorLines.some((line) => line.includes('127.0.0.1:8097')), false);
     assert.equal(sse.events.some((event) => event.event === 'error'), false, JSON.stringify(sse.events));
     assert.equal(sse.events.some((event) => event.event === 'answer'), true, JSON.stringify(sse.events));
-    const doneSession = d(sse.events.find((event) => event.event === 'done')?.payload).session as Dict;
-    const messages = (doneSession.messages || []) as Dict[];
-    const answer = messages.find((message) => message.kind === 'assistant_answer') as Dict;
+    const doneSession = asObject(d(sse.events.find((event) => event.event === 'done')?.payload).session);
+    const messages = asObjectArray(doneSession.messages);
+    const answer = asObject(messages.find((message) => message.kind === 'assistant_answer'));
     assert.equal(answer.content, '4');
     assert.equal(Number(answer.outputTokensEstimate) >= 1, true);
     // No reasoning was emitted, so thinkingTokens must be 0 (not a lumped completion count).
@@ -1159,7 +1177,7 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -1207,15 +1225,15 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
     assert.equal(sseKinds.includes('tool_start'), true, JSON.stringify(sse.events));
     assert.equal(sseKinds.includes('tool_result'), true, JSON.stringify(sse.events));
     assert.equal(sseKinds.includes('answer'), true, JSON.stringify(sse.events));
-    const doneSession = d(sse.events.find((event) => event.event === 'done')?.payload).session as Dict;
-    const messages = (doneSession.messages || []) as Dict[];
+    const doneSession = asObject(d(sse.events.find((event) => event.event === 'done')?.payload).session);
+    const messages = asObjectArray(doneSession.messages);
     assert.equal(messages.some((message) => message.kind === 'assistant_tool_call'), true, 'persisted a tool-call step');
-    const answer = messages.find((message) => message.kind === 'assistant_answer') as Dict;
+    const answer = asObject(messages.find((message) => message.kind === 'assistant_answer'));
     assert.equal(answer.content, 'About 150 gp per bar.');
     assert.doesNotMatch(String(answer.content), /999/);
     assert.equal(answer.groundingStatus, 'fetched');
     assert.equal(Number(answer.outputTokensEstimate) >= 1, true); // answer bubble carries only its own output
-    const toolStep = messages.find((message) => message.kind === 'assistant_tool_call') as Dict;
+    const toolStep = asObject(messages.find((message) => message.kind === 'assistant_tool_call'));
     assert.equal(Number(toolStep.outputTokensEstimate) >= 1, true, 'tool output tokens live on the tool step');
     const sourceRunIds = messages
       .filter((message) => message.role === 'assistant')
@@ -1259,8 +1277,8 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
 
     assert.equal(repeated.statusCode, 200);
     assert.equal(repeated.events.some((event) => event.event === 'error'), false, JSON.stringify(repeated.events));
-    const repeatedSession = d(repeated.events.find((event) => event.event === 'done')?.payload).session as Dict;
-    const repeatedMessages = (repeatedSession.messages || []) as Dict[];
+    const repeatedSession = asObject(d(repeated.events.find((event) => event.event === 'done')?.payload).session);
+    const repeatedMessages = asObjectArray(repeatedSession.messages);
     const duplicateSearchStep = repeatedMessages.find((message) =>
       message.kind === 'assistant_tool_call'
       && String(message.toolCallCommand || '') === 'web_search query="iron bar GE price"'
@@ -1311,7 +1329,7 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -1349,8 +1367,8 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
 
     assert.equal(first.statusCode, 200);
     assert.equal(first.events.some((event) => event.event === 'error'), false, JSON.stringify(first.events));
-    const firstSession = d(first.events.find((event) => event.event === 'done')?.payload).session as Dict;
-    const firstMessages = (firstSession.messages || []) as Dict[];
+    const firstSession = asObject(d(first.events.find((event) => event.event === 'done')?.payload).session);
+    const firstMessages = asObjectArray(firstSession.messages);
     const fetchStep = firstMessages.find((message) =>
       message.kind === 'assistant_tool_call'
       && String(message.toolCallCommand || '') === 'web_fetch url="https://oldschool.runescape.wiki/w/Iron_bar"'
@@ -1376,9 +1394,9 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
     assert.equal(second.statusCode, 200);
     assert.equal(second.events.some((event) => event.event === 'error'), false, JSON.stringify(second.events));
     assert.equal(second.events.some((event) => event.event === 'tool_start'), false, JSON.stringify(second.events));
-    const secondSession = d(second.events.find((event) => event.event === 'done')?.payload).session as Dict;
-    const secondMessages = (secondSession.messages || []) as Dict[];
-    const answers = secondMessages.filter((message) => message.kind === 'assistant_answer') as Dict[];
+    const secondSession = asObject(d(second.events.find((event) => event.event === 'done')?.payload).session);
+    const secondMessages = asObjectArray(secondSession.messages);
+    const answers = asObjectArray(secondMessages.filter((message) => message.kind === 'assistant_answer'));
     const answer = answers.at(-1);
     assert.match(String(answer?.content || ''), /Iron bars are used in Smithing and quests/u);
   } finally {
@@ -1418,7 +1436,7 @@ test('deleting retained web tool step allows the same web call in a later chat t
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -1454,8 +1472,8 @@ test('deleting retained web tool step allows the same web call in a later chat t
       }),
     });
     assert.equal(first.statusCode, 200);
-    const firstSession = d(first.events.find((event) => event.event === 'done')?.payload).session as Dict;
-    const searchStep = ((firstSession.messages || []) as Dict[]).find((message) =>
+    const firstSession = asObject(d(first.events.find((event) => event.event === 'done')?.payload).session);
+    const searchStep = (asObjectArray(firstSession.messages)).find((message) =>
       message.kind === 'assistant_tool_call'
       && String(message.toolCallCommand || '') === 'web_search query="iron bar GE price"'
     );
@@ -1490,8 +1508,8 @@ test('deleting retained web tool step allows the same web call in a later chat t
     });
     assert.equal(second.statusCode, 200);
     assert.equal(second.events.some((event) => event.event === 'error'), false, JSON.stringify(second.events));
-    const secondSession = d(second.events.find((event) => event.event === 'done')?.payload).session as Dict;
-    const secondMessages = (secondSession.messages || []) as Dict[];
+    const secondSession = asObject(d(second.events.find((event) => event.event === 'done')?.payload).session);
+    const secondMessages = asObjectArray(secondSession.messages);
     assert.equal(secondMessages.some((message) => /already searched/u.test(String(message.toolCallOutput || ''))), false);
     const repeatedSearchStep = secondMessages.find((message) =>
       message.kind === 'assistant_tool_call'
@@ -1525,7 +1543,7 @@ test('repo-search auto-append preview reports agents.md and file listing token c
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -1587,7 +1605,7 @@ test('repo-search auto-append preview reports disabled defaults and missing agen
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -1651,7 +1669,7 @@ test('repo-search auto-append preview prefers llama tokenizer when available', a
     response.end('{}');
   });
   await new Promise<void>((resolve) => tokenizerServer.listen(0, '127.0.0.1', resolve));
-  const tokenizerAddress = tokenizerServer.address() as AddressInfo;
+  const tokenizerAddress = getAddressInfo(tokenizerServer);
   const tokenizerBaseUrl = `http://127.0.0.1:${tokenizerAddress.port}`;
   const config = getDefaultConfig();
   const serverLlama = config.Server.LlamaCpp;
@@ -1667,7 +1685,7 @@ test('repo-search auto-append preview prefers llama tokenizer when available', a
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -1714,9 +1732,10 @@ test('repo-search auto-append preview prefers llama tokenizer when available', a
 
 test('package start script launches the dedicated dual-server start runner', () => {
   const packageJsonPath = path.resolve(__dirname, '..', 'package.json');
-  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as { scripts?: { start?: string } };
-  assert.equal(typeof packageJson.scripts?.start, 'string');
-  assert.match(String(packageJson.scripts?.start || ''), /scripts[\\/]+start-dev\.(ts|js)/u);
+  const packageJson = asObject(parseJsonValueText(fs.readFileSync(packageJsonPath, 'utf8')));
+  const scripts = asObject(packageJson.scripts);
+  assert.equal(typeof scripts.start, 'string');
+  assert.match(String(scripts.start || ''), /scripts[\\/]+start-dev\.(ts|js)/u);
 });
 
 test('repo-search and dashboard chat messages serialize by waiting', async () => {
@@ -1728,7 +1747,7 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -1802,7 +1821,7 @@ test('model routes execute in FIFO order across mixed request kinds', async () =
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -1868,9 +1887,7 @@ test('model routes execute in FIFO order across mixed request kinds', async () =
     assert.deepEqual(completionOrder, ['b', 'c']);
 
     const sessionResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
-    const messages = Array.isArray(d(d(sessionResponse.body).session).messages)
-      ? d(d(sessionResponse.body).session).messages as unknown[]
-      : [];
+    const messages = asArray(d(d(sessionResponse.body).session).messages);
     const userContents = messages
       .map((entry) => d(entry))
       .filter((entry) => entry.role === 'user')
@@ -1901,7 +1918,7 @@ test('queued model request is dropped when client disconnects before lock grant'
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -1956,9 +1973,7 @@ test('queued model request is dropped when client disconnects before lock grant'
     await delayedRepoSearch;
 
     const sessionResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
-    const messages = Array.isArray(d(d(sessionResponse.body).session).messages)
-      ? d(d(sessionResponse.body).session).messages as unknown[]
-      : [];
+    const messages = asArray(d(d(sessionResponse.body).session).messages);
     const userContents = messages
       .map((entry) => d(entry))
       .filter((entry) => entry.role === 'user')
@@ -1990,7 +2005,7 @@ test('invalid model request is rejected without waiting for active model work', 
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -2059,7 +2074,7 @@ test('plan endpoint rejects missing or invalid repo root', async () => {
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -2131,7 +2146,7 @@ test('chat completion replays prior tool evidence without hidden system context'
   await new Promise<void>((resolve, reject) => {
     llamaServer.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
   });
-  const llamaAddress = llamaServer.address() as AddressInfo;
+  const llamaAddress = getAddressInfo(llamaServer);
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const chatConfig = getDefaultConfig();
@@ -2143,7 +2158,7 @@ test('chat completion replays prior tool evidence without hidden system context'
 
   const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -2174,11 +2189,11 @@ test('chat completion replays prior tool evidence without hidden system context'
     });
     assert.equal(planMessage.statusCode, 200);
     const planSession = d(planMessage.body.session);
-    const planToolMessage = ((planSession.messages || []) as Dict[]).find((message) => message.kind === 'assistant_tool_call');
+    const planToolMessage = (asObjectArray(planSession.messages)).find((message) => message.kind === 'assistant_tool_call');
     assert.match(String(planToolMessage?.toolCallCommand || ''), /rg -n "name" package\.json/u);
     assert.match(String(planToolMessage?.toolCallOutput || ''), /"name": "siftkit"/u);
     const persistedPlanSession = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
-    const persistedToolMessage = ((d(persistedPlanSession.body.session).messages || []) as Dict[]).find((message) => message.kind === 'assistant_tool_call');
+    const persistedToolMessage = (asObjectArray(d(persistedPlanSession.body.session).messages)).find((message) => message.kind === 'assistant_tool_call');
     assert.match(String(persistedToolMessage?.toolCallCommand || ''), /rg -n "name" package\.json/u);
     assert.match(String(persistedToolMessage?.toolCallOutput || ''), /"name": "siftkit"/u);
 
@@ -2191,7 +2206,7 @@ test('chat completion replays prior tool evidence without hidden system context'
     });
     assert.equal(chatReply.statusCode, 200);
     const chatSession = d(chatReply.body.session);
-    const sourceRunIds = ((chatSession.messages || []) as Dict[])
+    const sourceRunIds = (asObjectArray(chatSession.messages))
       .filter((message) => message.role === 'assistant' && message.content === 'ack')
       .map((message) => String(message.sourceRunId || '').trim());
     assert.equal(sourceRunIds.length, 1);
@@ -2209,16 +2224,16 @@ test('chat completion replays prior tool evidence without hidden system context'
     assert.equal(Number(d(d(statusMetrics.taskTotals).chat).inputTokensTotal) >= 20, true);
     assert.equal(Number(d(d(statusMetrics.taskTotals).chat).outputTokensTotal) >= 4, true);
     assert.notEqual(capturedChatRawBody, '');
-    const captured = JSON.parse(capturedChatRawBody) as Dict;
+    const captured = asObject(parseJsonValueText(capturedChatRawBody));
     assert.equal(Array.isArray(captured.messages), true);
-    const systemMessages = (captured.messages as Dict[]).filter((message) => message && message.role === 'system');
+    const systemMessages = asObjectArray(captured.messages).filter((message) => message && message.role === 'system');
     assert.equal(systemMessages.some((message) => String(message.content || '').includes('Internal tool-call context from prior session steps.')), false);
-    assert.equal((captured?.messages as Dict[]).some((message) =>
+    assert.equal(asObjectArray(captured.messages).some((message) =>
       message.role === 'assistant'
       && Array.isArray(message.tool_calls)
-      && String(message.tool_calls[0]?.function?.arguments || '').includes('rg -n \\"name\\" package.json')
+      && String(asObject(asObject(asArray(message.tool_calls)[0]).function).arguments || '').includes('rg -n \\"name\\" package.json')
     ), true);
-    assert.equal((captured?.messages as Dict[]).some((message) =>
+    assert.equal(asObjectArray(captured.messages).some((message) =>
       message.role === 'tool'
       && String(message.content || '').includes('"name": "siftkit"')
     ), true);
@@ -2275,7 +2290,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
   await new Promise<void>((resolve, reject) => {
     llamaServer.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
   });
-  const llamaAddress = llamaServer.address() as AddressInfo;
+  const llamaAddress = getAddressInfo(llamaServer);
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const chatConfig = getDefaultConfig();
@@ -2287,7 +2302,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
 
   const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -2320,7 +2335,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
     assert.equal(repoMessage.statusCode, 200);
     const repoDonePayload = d(repoMessage.events.find((event) => event.event === 'done')?.payload);
     const repoSession = d(repoDonePayload.session);
-    const toolMessage = ((repoSession.messages || []) as Dict[]).find((message) => message.kind === 'assistant_tool_call');
+    const toolMessage = (asObjectArray(repoSession.messages)).find((message) => message.kind === 'assistant_tool_call');
     assert.equal(typeof toolMessage?.id, 'string');
     assert.match(String(toolMessage?.toolCallCommand || ''), /^rg -n "name" package\.json/u);
     assert.equal(String(toolMessage?.toolCallOutput || '').includes('"name": "siftkit"'), true);
@@ -2330,7 +2345,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
     const detailBefore = await requestJson(`${baseUrl}/dashboard/runs/${encodeURIComponent(runId)}`);
     assert.equal(detailBefore.statusCode, 200);
     assert.equal(
-      buildRepoSearchChatSteps((d(detailBefore.body).events || []) as never).some((step) => step.command === storedCommandText),
+      buildRepoSearchChatSteps(toRunEvents(d(detailBefore.body).events)).some((step) => step.command === storedCommandText),
       true,
     );
 
@@ -2340,12 +2355,12 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
     });
     assert.equal(deleteResponse.statusCode, 200);
     const deletedSession = d(deleteResponse.body.session);
-    assert.equal(((deletedSession.messages || []) as Dict[]).some((message) => message.id === toolMessage?.id), false);
+    assert.equal((asObjectArray(deletedSession.messages)).some((message) => message.id === toolMessage?.id), false);
 
     const detailAfter = await requestJson(`${baseUrl}/dashboard/runs/${encodeURIComponent(runId)}`);
     assert.equal(detailAfter.statusCode, 200);
     assert.equal(
-      buildRepoSearchChatSteps((d(detailAfter.body).events || []) as never).some((step) => step.command === storedCommandText),
+      buildRepoSearchChatSteps(toRunEvents(d(detailAfter.body).events)).some((step) => step.command === storedCommandText),
       false,
     );
 
@@ -2358,9 +2373,9 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
     });
     assert.equal(chatReply.statusCode, 200);
     assert.notEqual(capturedChatRawBody, '');
-    const captured = JSON.parse(capturedChatRawBody) as Dict;
+    const captured = asObject(parseJsonValueText(capturedChatRawBody));
     assert.equal(Array.isArray(captured.messages), true);
-    const capturedText = ((captured.messages || []) as Dict[]).map((message) => String(message.content || '')).join('\n');
+    const capturedText = (asObjectArray(captured.messages)).map((message) => String(message.content || '')).join('\n');
     assert.equal(capturedText.includes('rg -n "name" package.json'), false);
     assert.equal(capturedText.includes('"name": "siftkit"'), false);
   } finally {

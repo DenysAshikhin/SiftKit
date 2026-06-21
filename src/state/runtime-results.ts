@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { z } from '../lib/zod.js';
 import { JsonRecordReader } from '../lib/json-record-reader.js';
+import { parseJsonValueText } from '../lib/json.js';
 import type { JsonObject } from '../lib/json-types.js';
 import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.js';
 
@@ -15,18 +17,19 @@ function getDatabase(databasePath?: string): RuntimeDatabase {
   return getRuntimeDatabase(databasePath);
 }
 
-type RuntimeResultRow = {
-  id: string | null;
-  payload_json: string | null;
-  created_at_utc: string | null;
-};
+const RuntimeResultRowSchema = z.object({
+  id: z.string().nullable(),
+  payload_json: z.string().nullable(),
+  created_at_utc: z.string().nullable(),
+});
+type RuntimeResultRow = z.infer<typeof RuntimeResultRowSchema>;
 
-function parsePayload(value: unknown): JsonObject {
+function parsePayload(value: string | null): JsonObject {
   if (typeof value !== 'string' || !value.trim()) {
     return {};
   }
   try {
-    return JsonRecordReader.asObject(JSON.parse(value) as unknown) || {};
+    return JsonRecordReader.asObject(parseJsonValueText(value)) || {};
   } catch {
     // Ignore malformed payload text.
   }
@@ -54,12 +57,12 @@ export function listBenchmarkRuns(options: {
 } = {}): StoredRuntimeResult[] {
   const database = getDatabase(options.databasePath);
   const limit = Number.isFinite(options.limit) ? Math.max(1, Math.trunc(Number(options.limit))) : 100;
-  const rows = database.prepare(`
+  const rows = z.array(RuntimeResultRowSchema).parse(database.prepare(`
     SELECT id, payload_json, created_at_utc
     FROM benchmark_runs
     ORDER BY created_at_utc DESC, id DESC
     LIMIT ?
-  `).all(limit) as RuntimeResultRow[];
+  `).all(limit));
   return rows.map((row) => parseResultRow(row)).filter((row): row is StoredRuntimeResult => row !== null);
 }
 
@@ -69,12 +72,12 @@ export function listEvalResults(options: {
 } = {}): StoredRuntimeResult[] {
   const database = getDatabase(options.databasePath);
   const limit = Number.isFinite(options.limit) ? Math.max(1, Math.trunc(Number(options.limit))) : 100;
-  const rows = database.prepare(`
+  const rows = z.array(RuntimeResultRowSchema).parse(database.prepare(`
     SELECT id, payload_json, created_at_utc
     FROM eval_results
     ORDER BY created_at_utc DESC, id DESC
     LIMIT ?
-  `).all(limit) as RuntimeResultRow[];
+  `).all(limit));
   return rows.map((row) => parseResultRow(row)).filter((row): row is StoredRuntimeResult => row !== null);
 }
 
@@ -152,12 +155,12 @@ export function readBenchmarkRun(id: string, databasePath?: string): StoredRunti
     return null;
   }
   const database = getDatabase(databasePath);
-  const row = database.prepare(`
+  const rawRow = database.prepare(`
     SELECT id, payload_json, created_at_utc
     FROM benchmark_runs
     WHERE id = ?
-  `).get(normalizedId) as RuntimeResultRow | undefined;
-  return parseResultRow(row);
+  `).get(normalizedId);
+  return parseResultRow(rawRow == null ? undefined : RuntimeResultRowSchema.parse(rawRow));
 }
 
 export function readEvalResult(id: string, databasePath?: string): StoredRuntimeResult | null {
@@ -166,10 +169,10 @@ export function readEvalResult(id: string, databasePath?: string): StoredRuntime
     return null;
   }
   const database = getDatabase(databasePath);
-  const row = database.prepare(`
+  const rawRow = database.prepare(`
     SELECT id, payload_json, created_at_utc
     FROM eval_results
     WHERE id = ?
-  `).get(normalizedId) as RuntimeResultRow | undefined;
-  return parseResultRow(row);
+  `).get(normalizedId);
+  return parseResultRow(rawRow == null ? undefined : RuntimeResultRowSchema.parse(rawRow));
 }

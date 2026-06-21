@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as http from 'node:http';
+import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import { httpClient } from '../src/lib/http-client.js';
+import { JsonObjectSchema } from '../src/lib/json-types.js';
 
 async function captureStderrLines(action: () => Promise<void>): Promise<string[]> {
   const originalWrite = process.stderr.write;
@@ -46,7 +47,7 @@ test('requestJson does not write repo-search client logs to stderr by default', 
         url: `http://127.0.0.1:${port}/repo-search`,
         method: 'POST',
         body: '{}',
-      });
+      }, JsonObjectSchema);
     });
 
     assert.equal(lines.some((line) => /http_client\b/u.test(line)), false, lines.join('\n'));
@@ -80,7 +81,7 @@ test('requestJson logs summary client request lifecycle when explicitly enabled'
           url: `http://127.0.0.1:${port}/summary`,
           method: 'POST',
           body: '{}',
-        });
+        }, JsonObjectSchema);
       });
     } finally {
       if (previousLogging === undefined) {

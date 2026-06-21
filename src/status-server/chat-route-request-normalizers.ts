@@ -1,5 +1,5 @@
 import { JsonRecordReader } from '../lib/json-record-reader.js';
-import type { JsonObject } from '../lib/json-types.js';
+import type { JsonObject, OptionalJsonValue } from '../lib/json-types.js';
 import type { ChatSessionMode } from '../state/chat-sessions.js';
 
 export type ChatSessionCreateRequest = {
@@ -31,7 +31,7 @@ export type ChatRepoAppendPreviewRequest = {
   repoRoot: string | undefined;
 };
 
-function readMode(value: unknown): ChatSessionMode | undefined {
+function readMode(value: OptionalJsonValue): ChatSessionMode | undefined {
   return value === 'chat' || value === 'plan' || value === 'repo-search' ? value : undefined;
 }
 

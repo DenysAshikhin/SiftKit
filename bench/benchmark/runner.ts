@@ -1,7 +1,8 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import fs from 'node:fs';
+import path from 'node:path';
 import { getConfiguredModel, loadConfig } from '../../src/config/index.js';
-import type { JsonObject } from '../../src/lib/json-types.js';
+import { JsonObjectSchema } from '../../src/lib/json-types.js';
+import { toError } from '../../src/lib/errors.js';
 import { summarizeRequest } from '../../src/summary/core.js';
 import { formatElapsed } from '../../src/lib/time.js';
 import {
@@ -43,7 +44,7 @@ export async function runBenchmarkSuite(options: BenchmarkRunnerOptions = {}): P
   const results: BenchmarkCaseResult[] = [];
   const interruptSignal = createInterruptSignal();
   let fatalError: string | null = null;
-  let fatalException: unknown = null;
+  let fatalException: Error | null = null;
 
   try {
     for (let index = 0; index < manifest.length; index += 1) {
@@ -99,11 +100,12 @@ export async function runBenchmarkSuite(options: BenchmarkRunnerOptions = {}): P
       } catch (error) {
         const caseDurationMs = Number(process.hrtime.bigint() - caseStartedAtHr) / 1_000_000;
         clearInterval(heartbeat);
-        const message = error instanceof Error ? error.message : String(error);
-        fatalError = error instanceof FatalBenchmarkError || isTimeoutError(error)
+        const normalizedError = toError(error);
+        const message = normalizedError.message;
+        fatalError = normalizedError instanceof FatalBenchmarkError || isTimeoutError(normalizedError)
           ? message
           : `Benchmark fixture '${fixtureLabel}' failed: ${message}`;
-        fatalException = error;
+        fatalException = normalizedError;
         process.stdout.write(
           `Fixture ${index + 1}/${manifest.length} [${fixtureLabel}] failed fatally after ${formatElapsed(caseDurationMs)}: ${message}\n`
         );
@@ -129,17 +131,18 @@ export async function runBenchmarkSuite(options: BenchmarkRunnerOptions = {}): P
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
 
+  const artifactPayload = JsonObjectSchema.parse(artifact);
   const persistedBenchmarkRun = persistBenchmarkRun({
-    payload: artifact as JsonObject,
+    payload: artifactPayload,
   });
   upsertRuntimeJsonArtifact({
     artifactKind: 'benchmark_run',
     id: persistedBenchmarkRun.id,
     title: outputPath,
-    payload: artifact as JsonObject,
+    payload: artifactPayload,
   });
   if (fatalException !== null) {
-    throw new FatalBenchmarkError(fatalError ?? (fatalException instanceof Error ? fatalException.message : String(fatalException)));
+    throw new FatalBenchmarkError(fatalError ?? fatalException.message);
   }
 
   return {

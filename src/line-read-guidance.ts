@@ -1,11 +1,21 @@
-import * as fs from 'node:fs';
+import { existsSync } from 'node:fs';
 import Database from 'better-sqlite3';
 
 import type { SiftConfig } from './config/index.js';
 import { getConfiguredLlamaNumCtx } from './config/index.js';
 import { getIdleSummarySnapshotsPath } from './config/paths.js';
 import { getPlannerPromptBudget } from './summary/chunking.js';
-import type { ToolTypeStats } from './status-server/metrics.js';
+import { z } from './lib/zod.js';
+import { parseJsonValueText } from './lib/json.js';
+import { ToolTypeStatsSchema, type ToolTypeStats } from './status-server/metrics.js';
+
+const ToolStatsSnapshotRowSchema = z.object({ tool_stats_json: z.string().nullish() });
+
+// Built lazily inside the reader: ToolTypeStatsSchema participates in a module
+// import cycle, so referencing it at module-init time would hit a TDZ error.
+function getGlobalToolStatsSchema() {
+  return z.record(z.string(), z.record(z.string(), ToolTypeStatsSchema));
+}
 
 const THINKING_BUFFER_RATIO = 0.15;
 const THINKING_BUFFER_MIN_TOKENS = 4000;
@@ -54,7 +64,7 @@ export function mergeToolTypeStats(
     if (!toolType || !rawStats || typeof rawStats !== 'object' || Array.isArray(rawStats)) {
       continue;
     }
-    const stats = rawStats as Partial<ToolTypeStats>;
+    const stats = rawStats;
     const current = merged[toolType] || createEmptyToolTypeStats();
     merged[toolType] = {
       calls: current.calls + (Number.isFinite(stats.calls) ? Number(stats.calls) : 0),
@@ -182,14 +192,15 @@ export function getPlannerPromptBaselinePerToolAllowanceTokens(config: SiftConfi
 }
 
 function readLatestSnapshotToolStatsFromDatabase(database: DatabaseInstance): Record<string, ToolTypeStats> {
-  const row = database
+  const rawRow = database
     .prepare('SELECT tool_stats_json FROM idle_summary_snapshots ORDER BY id DESC LIMIT 1')
-    .get() as { tool_stats_json?: unknown } | undefined;
+    .get();
+  const row = rawRow == null ? undefined : ToolStatsSnapshotRowSchema.parse(rawRow);
   if (!row || typeof row.tool_stats_json !== 'string' || !row.tool_stats_json.trim()) {
     return {};
   }
   try {
-    const parsed = JSON.parse(row.tool_stats_json) as Record<string, Record<string, ToolTypeStats>>;
+    const parsed = getGlobalToolStatsSchema().parse(parseJsonValueText(row.tool_stats_json));
     return aggregateGlobalToolStats(parsed);
   } catch {
     return {};
@@ -199,7 +210,7 @@ function readLatestSnapshotToolStatsFromDatabase(database: DatabaseInstance): Re
 export function readLatestIdleSummaryToolStats(
   snapshotPath: string = getIdleSummarySnapshotsPath(),
 ): Record<string, ToolTypeStats> {
-  if (!snapshotPath || !fs.existsSync(snapshotPath)) {
+  if (!snapshotPath || !existsSync(snapshotPath)) {
     return {};
   }
   let database: DatabaseInstance | null = null;

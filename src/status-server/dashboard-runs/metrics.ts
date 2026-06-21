@@ -5,6 +5,7 @@ import {
   getAcceptanceRate as getSharedAcceptanceRate,
   getPromptCacheHitRate as getSharedPromptCacheHitRate,
 } from '../../lib/telemetry-metrics.js';
+import type { OptionalJsonValue } from '../../lib/json-types.js';
 import {
   TASK_KINDS,
   type Metrics,
@@ -33,11 +34,11 @@ type DatabaseInstance = InstanceType<typeof Database>;
 
 export { type SnapshotTotals } from '../idle-summary.js';
 
-export function getPromptCacheHitRate(promptCacheTokens: unknown, promptEvalTokens: unknown): number | null {
+export function getPromptCacheHitRate(promptCacheTokens: OptionalJsonValue, promptEvalTokens: OptionalJsonValue): number | null {
   return getSharedPromptCacheHitRate(promptCacheTokens, promptEvalTokens);
 }
 
-export function getAcceptanceRate(speculativeAcceptedTokens: unknown, speculativeGeneratedTokens: unknown): number | null {
+export function getAcceptanceRate(speculativeAcceptedTokens: OptionalJsonValue, speculativeGeneratedTokens: OptionalJsonValue): number | null {
   return getSharedAcceptanceRate(speculativeAcceptedTokens, speculativeGeneratedTokens);
 }
 
@@ -456,7 +457,7 @@ export function buildDashboardToolStats(
   } catch {
     plannerAllowance = null;
   }
-  const result = {} as ToolStatsByTask;
+  const result: ToolStatsByTask = { summary: {}, plan: {}, 'repo-search': {}, chat: {} };
   for (const taskKind of TASK_KINDS) {
     const nextByTool: Record<string, ToolTypeStats> = {};
     for (const [toolType, stats] of Object.entries(baseToolStats[taskKind] || {})) {

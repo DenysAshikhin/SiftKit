@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import { toError } from '../../../src/lib/errors.js';
 import { getRepoSearchAutoAppendPreview } from '../api';
 import { buildRepoSearchAutoAppendSelection } from '../lib/repo-append-controls';
 import type {
@@ -39,7 +40,7 @@ export function useRepoSearchAutoAppend(deps: {
   chatMode: DashboardPresetExecutionFamily;
   planRepoRootInput: string;
   liveMessages: ChatMessage[];
-  onError(error: unknown): void;
+  onError(error: Error): void;
 }): UseRepoSearchAutoAppendResult {
   const [preview, setPreview] = useState<RepoSearchAutoAppendPreview | null>(null);
   const [selection, setSelection] = useState<RepoSearchAutoAppendSelection>({
@@ -73,7 +74,7 @@ export function useRepoSearchAutoAppend(deps: {
       }));
     }).catch((error) => {
       if (!cancelled) {
-        deps.onError(error);
+        deps.onError(toError(error));
       }
     }).finally(() => {
       if (!cancelled) {

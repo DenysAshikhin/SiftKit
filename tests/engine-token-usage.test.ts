@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as http from 'node:http';
+import http from 'node:http';
 
 import type { SiftConfig } from '../src/config/index.js';
 import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';

@@ -1,4 +1,4 @@
-import type { Dict } from '../lib/types.js';
+import type { JsonObject, OptionalJsonValue } from '../lib/json-types.js';
 import type { HttpClient } from '../lib/http-client.js';
 import type { ProviderQuota, WebSearchProviderId, WebSearchResult, WebSearchToolArgs } from './types.js';
 import { assertPublicHttpUrl } from './url-safety.js';
@@ -15,15 +15,15 @@ export abstract class WebSearchProvider {
   abstract getQuota(opts: WebSearchProviderOptions): Promise<ProviderQuota>;
 }
 
-export function asRecord(value: unknown): Dict {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Dict : {};
+export function asRecord(value: OptionalJsonValue): JsonObject {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
-export function getText(value: unknown): string {
+export function getText(value: OptionalJsonValue): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-export function getNumber(value: unknown): number | null {
+export function getNumber(value: OptionalJsonValue): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 

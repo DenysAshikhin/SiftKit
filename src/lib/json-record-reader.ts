@@ -1,4 +1,5 @@
-import type { JsonObject, JsonValue, MutableJsonObject } from './json-types.js';
+import { JsonObjectSchema, type JsonObject, type MutableJsonObject, type OptionalJsonValue } from './json-types.js';
+import { parseJsonValueText } from './json.js';
 
 export class JsonRecordReader {
   public readonly record: JsonObject;
@@ -7,25 +8,29 @@ export class JsonRecordReader {
     this.record = record;
   }
 
-  public static fromUnknown(value: unknown): JsonRecordReader {
+  // asObject/fromJsonValue are the JSON-object validation boundary: they accept
+  // an arbitrary runtime value and validate it into a concrete JsonObject via
+  // JsonObjectSchema. `unknown` is the only honest input type for a validator
+  // and is immediately schema-checked here; eslint permits it for this file
+  // alone (see eslint.config.mjs).
+  public static fromJsonValue(value: unknown): JsonRecordReader {
     return new JsonRecordReader(JsonRecordReader.asObject(value) || {});
   }
 
   public static asObject(value: unknown): JsonObject | null {
-    return value !== null && typeof value === 'object' && !Array.isArray(value)
-      ? value as JsonObject
-      : null;
+    const parsed = JsonObjectSchema.safeParse(value);
+    return parsed.success ? parsed.data : null;
   }
 
   public static parseObjectText(text: string | null): JsonObject | null {
     if (typeof text !== 'string' || !text.trim()) {
       return null;
     }
-    const parsed = JSON.parse(text) as unknown;
+    const parsed = parseJsonValueText(text);
     return JsonRecordReader.asObject(parsed);
   }
 
-  public value(key: string): JsonValue | undefined {
+  public value(key: string): OptionalJsonValue {
     return this.record[key];
   }
 

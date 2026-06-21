@@ -1,4 +1,4 @@
-import * as assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { SummaryPlannerLoopController } from '../src/summary/planner/agent-loop-adapter.js';

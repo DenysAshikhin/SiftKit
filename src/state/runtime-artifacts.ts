@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { z } from '../lib/zod.js';
 import { JsonRecordReader } from '../lib/json-record-reader.js';
+import { parseJsonValueText } from '../lib/json.js';
 import type { JsonObject } from '../lib/json-types.js';
 import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.js';
 
@@ -14,20 +16,20 @@ export type RuntimeArtifactRecord = {
   updatedAtUtc: string;
 };
 
-type RuntimeArtifactDbRow = {
-  id: string | null;
-  artifact_kind: string | null;
-  request_id: string | null;
-  title: string | null;
-  content_text: string | null;
-  content_json: string | null;
-  created_at_utc: string | null;
-  updated_at_utc: string | null;
-};
+const RuntimeArtifactDbRowSchema = z.object({
+  id: z.string().nullable(),
+  artifact_kind: z.string().nullable(),
+  request_id: z.string().nullable(),
+  title: z.string().nullable(),
+  content_text: z.string().nullable(),
+  content_json: z.string().nullable(),
+  created_at_utc: z.string().nullable(),
+  updated_at_utc: z.string().nullable(),
+});
 
-type RuntimeArtifactIdRow = {
-  id: string | null;
-};
+const RuntimeArtifactIdRowSchema = z.object({
+  id: z.string().nullable(),
+});
 
 export function listRuntimeArtifacts(options: {
   artifactKind?: string;
@@ -56,8 +58,8 @@ export function listRuntimeArtifacts(options: {
         ORDER BY updated_at_utc DESC, id DESC
         LIMIT ?
       `).all(requestId, requestId, limit)
-  ) as RuntimeArtifactIdRow[];
-  return rows
+  );
+  return z.array(RuntimeArtifactIdRowSchema).parse(rows)
     .map((row) => {
       const id = typeof row.id === 'string' ? row.id : '';
       return id ? readRuntimeArtifact(id, options.databasePath) : null;
@@ -75,8 +77,8 @@ export function deleteRuntimeArtifact(id: string, databasePath?: string): boolea
   return Number(result.changes) > 0;
 }
 
-function normalizeKind(value: unknown): string {
-  const kind = String(value || '').trim();
+function normalizeKind(value: string): string {
+  const kind = value.trim();
   return kind || 'artifact';
 }
 
@@ -190,18 +192,19 @@ export function readRuntimeArtifact(id: string, databasePath?: string): RuntimeA
     return null;
   }
   const database = getDatabase(databasePath);
-  const row = database.prepare(`
+  const rawRow = database.prepare(`
     SELECT id, artifact_kind, request_id, title, content_text, content_json, created_at_utc, updated_at_utc
     FROM runtime_artifacts
     WHERE id = ?
-  `).get(artifactId) as RuntimeArtifactDbRow | undefined;
-  if (!row) {
+  `).get(artifactId);
+  if (rawRow === undefined || rawRow === null) {
     return null;
   }
+  const row = RuntimeArtifactDbRowSchema.parse(rawRow);
   let contentJson: JsonObject | null = null;
   if (typeof row.content_json === 'string' && row.content_json.trim()) {
     try {
-      contentJson = JsonRecordReader.asObject(JSON.parse(row.content_json) as unknown);
+      contentJson = JsonRecordReader.asObject(parseJsonValueText(row.content_json));
     } catch {
       contentJson = null;
     }

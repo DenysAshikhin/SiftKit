@@ -1,14 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as http from 'node:http';
-import * as os from 'node:os';
-import type { SiftConfig } from '../src/config/index.js';
+import http from 'node:http';
+import os from 'node:os';
 import { runTaskLoop, runRepoSearch } from '../src/repo-search/engine.js';
+import { parseJsonValueText } from '../src/lib/json.js';
+import type { JsonSerializable } from '../src/lib/json-types.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
+import { asObject } from './helpers/dashboard-http.js';
+import { mockSiftConfig } from './helpers/mock-config.js';
 
-const MOCK_CONFIG = {
+const MOCK_CONFIG = mockSiftConfig({
   Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
-} as SiftConfig;
+});
 
 async function closeServer(server: http.Server): Promise<void> {
   await new Promise<void>((resolve, reject) => {
@@ -152,7 +155,7 @@ test('chat answer streaming waits for extractable finish output instead of emitt
       { id: 'chat', question: 'Greet me.', signals: [] },
       {
         repoRoot: os.tmpdir(),
-        config: { Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } } } as SiftConfig,
+        config: mockSiftConfig({ Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } } }),
         baseUrl: baseUrl,
         model: 'mock',
         maxTurns: 1,
@@ -192,7 +195,7 @@ test('chat terminal synthesis streams answer deltas before the final answer even
       req.setEncoding('utf8');
       req.on('data', (chunk) => { body += chunk; });
       req.on('end', () => {
-        const parsed = JSON.parse(body || '{}') as { stream?: boolean };
+        const parsed = asObject(parseJsonValueText(body || '{}'));
         if (requestCount === 1) {
           res.writeHead(200, { 'content-type': 'text/event-stream' });
           res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'not a valid action' } }] })}\n\n`);
@@ -226,7 +229,7 @@ test('chat terminal synthesis streams answer deltas before the final answer even
       { id: 'chat', question: 'Answer from terminal synthesis.', signals: [] },
       {
         repoRoot: os.tmpdir(),
-        config: { Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } } } as SiftConfig,
+        config: mockSiftConfig({ Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } } }),
         baseUrl,
         model: 'mock',
         maxTurns: 1,
@@ -289,13 +292,7 @@ test('chat mode seeds system prompt override and history before the question', a
 });
 
 test('chat loop sends replayed tool-call history before the new user message', async () => {
-  type CapturedReplayMessage = {
-    role: string;
-    content?: string;
-    tool_calls?: unknown[];
-    tool_call_id?: string;
-  };
-  const capturedMessages: CapturedReplayMessage[] = [];
+  const capturedMessages: JsonSerializable[] = [];
   const result = await runTaskLoop(
     { id: 'chat', question: 'next question', signals: [] },
     {
@@ -326,7 +323,7 @@ test('chat loop sends replayed tool-call history before the new user message', a
       mockCommandResults: {},
       logger: { path: '', write: (event) => {
         if (event.kind === 'turn_new_messages' && Array.isArray(event.messages)) {
-          capturedMessages.push(...event.messages as CapturedReplayMessage[]);
+          capturedMessages.push(...event.messages);
         }
       } },
     },
@@ -367,7 +364,7 @@ test('thinkingEnabledOverride=false forces enable_thinking:false in the planner 
       streamFinishAsAnswer: true,
       thinkingEnabledOverride: false,
       // Force config reasoning ON so the override is what matters:
-      config: { Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000, Reasoning: 'on' } } } as SiftConfig,
+      config: mockSiftConfig({ Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000, Reasoning: 'on' } } }),
       mockResponses: ['{"action":"finish","output":"hi"}'],
       mockCommandResults: {},
       logger: { path: '', write: (event) => {
@@ -399,6 +396,6 @@ test('runRepoSearch allows zero tools when allowEmptyTools is set', async () => 
     mockResponses: ['{"action":"finish","output":"hi"}'],
     mockCommandResults: {},
   });
-  const tasks = (scorecard as { tasks: Array<{ finalOutput: string }> }).tasks;
+  const tasks = scorecard.tasks;
   assert.equal(tasks[0].finalOutput, 'hi');
 });

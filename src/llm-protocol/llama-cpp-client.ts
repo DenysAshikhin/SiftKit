@@ -16,6 +16,8 @@ import {
   retryProviderRequest,
 } from '../lib/provider-helpers.js';
 import { getNormalizedCompletionTokens } from '../lib/telemetry-metrics.js';
+import { z } from '../lib/zod.js';
+import { JsonValueSchema, JsonObjectSchema, type OptionalJsonValue } from '../lib/json-types.js';
 import type {
   JsonObject,
   LlamaCppChatMessage,
@@ -28,72 +30,74 @@ import { LlamaCppToolCallParser } from './tool-call-parser.js';
 
 type LlamaCppHttpClient = Pick<typeof httpClient, 'requestJsonFull' | 'streamSse'>;
 
-type RawChatResponse = {
-  choices?: Array<{
-    text?: string;
-    message?: {
-      content?: string | Array<{ type?: string; text?: string }>;
-      reasoning_content?: string | Array<{ type?: string; text?: string }>;
-      tool_calls?: Array<{
-        id?: string;
-        type?: string;
-        function?: {
-          name?: string;
-          arguments?: string;
-        };
-      }>;
-      function_call?: {
-        name?: string;
-        arguments?: string;
-      };
-    };
-    tool_calls?: Array<{
-      id?: string;
-      type?: string;
-      function?: {
-        name?: string;
-        arguments?: string;
-      };
-    }>;
-  }>;
-  usage?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    total_tokens?: number;
-    reasoning_tokens?: number;
-    thinking_tokens?: number;
-    completion_tokens_details?: {
-      reasoning_tokens?: number;
-      thinking_tokens?: number;
-    };
-    prompt_tokens_details?: {
-      cached_tokens?: number;
-    };
-    input_tokens_details?: {
-      cached_tokens?: number;
-    };
-    output_tokens_details?: {
-      reasoning_tokens?: number;
-      thinking_tokens?: number;
-    };
-  };
-  timings?: {
-    cache_n?: number;
-    prompt_n?: number;
-  };
-};
+const RawContentPartSchema = z.object({
+  type: z.string().optional(),
+  text: z.string().optional(),
+});
 
-type RawTokenizeResponse = {
-  count?: number;
-  token_count?: number;
-  n_tokens?: number;
-  tokens?: unknown[];
-};
+const RawToolCallSchema = z.object({
+  id: z.string().optional(),
+  type: z.string().optional(),
+  function: z.object({
+    name: z.string().optional(),
+    arguments: z.string().optional(),
+  }).optional(),
+});
 
-type RawModelListResponse = {
-  data?: Array<{ id?: string; model?: string }>;
-  models?: string[];
-};
+const RawTokenDetailsSchema = z.object({
+  reasoning_tokens: z.number().optional(),
+  thinking_tokens: z.number().optional(),
+});
+
+const RawCachedTokenDetailsSchema = z.object({
+  cached_tokens: z.number().optional(),
+});
+
+const RawChatResponseSchema = z.object({
+  choices: z.array(z.object({
+    text: z.string().optional(),
+    message: z.object({
+      content: z.union([z.string(), z.array(RawContentPartSchema)]).optional(),
+      reasoning_content: z.union([z.string(), z.array(RawContentPartSchema)]).optional(),
+      tool_calls: z.array(RawToolCallSchema).optional(),
+      function_call: z.object({
+        name: z.string().optional(),
+        arguments: z.string().optional(),
+      }).optional(),
+    }).optional(),
+    tool_calls: z.array(RawToolCallSchema).optional(),
+  })).optional(),
+  usage: z.object({
+    prompt_tokens: z.number().optional(),
+    completion_tokens: z.number().optional(),
+    total_tokens: z.number().optional(),
+    reasoning_tokens: z.number().optional(),
+    thinking_tokens: z.number().optional(),
+    completion_tokens_details: RawTokenDetailsSchema.optional(),
+    prompt_tokens_details: RawCachedTokenDetailsSchema.optional(),
+    input_tokens_details: RawCachedTokenDetailsSchema.optional(),
+    output_tokens_details: RawTokenDetailsSchema.optional(),
+  }).optional(),
+  timings: z.object({
+    cache_n: z.number().optional(),
+    prompt_n: z.number().optional(),
+  }).optional(),
+});
+type RawChatResponse = z.infer<typeof RawChatResponseSchema>;
+
+const RawTokenizeResponseSchema = z.object({
+  count: z.number().optional(),
+  token_count: z.number().optional(),
+  n_tokens: z.number().optional(),
+  tokens: z.array(JsonValueSchema).optional(),
+});
+type RawTokenizeResponse = z.infer<typeof RawTokenizeResponseSchema>;
+
+const RawModelListResponseSchema = z.object({
+  data: z.array(z.object({ id: z.string().optional(), model: z.string().optional() })).optional(),
+  models: z.array(z.string()).optional(),
+});
+type RawModelListResponse = z.infer<typeof RawModelListResponseSchema>;
 
 export type LlamaCppModelProbeResult = {
   statusCode: number;
@@ -133,12 +137,12 @@ export class LlamaCppClient {
   ): Promise<{ tokenCount: number; raw: JsonObject }> {
     const baseUrl = getConfiguredLlamaBaseUrl(config);
     const response = await retryProviderRequest(async () => {
-      const nextResponse = await this.client.requestJsonFull<RawTokenizeResponse>({
+      const nextResponse = await this.client.requestJsonFull({
         url: `${baseUrl.replace(/\/$/u, '')}/tokenize`,
         method: 'POST',
         timeoutMs: Math.max(1, options.requestTimeoutSeconds ?? 30) * 1000,
         body: JSON.stringify({ content }),
-      });
+      }, RawTokenizeResponseSchema);
       if (isTransientProviderHttpResponse(nextResponse.statusCode, nextResponse.rawText)) {
         throw buildTransientProviderHttpError(nextResponse.statusCode, nextResponse.rawText);
       }
@@ -175,11 +179,11 @@ export class LlamaCppClient {
   }
 
   async probeModelsAtBaseUrl(baseUrl: string, timeoutMs = 5000): Promise<LlamaCppModelProbeResult> {
-    const response = await this.client.requestJsonFull<RawModelListResponse>({
+    const response = await this.client.requestJsonFull({
       url: `${baseUrl.replace(/\/$/u, '')}/v1/models`,
       method: 'GET',
       timeoutMs,
-    });
+    }, RawModelListResponseSchema);
     const dataModels = (response.body.data || [])
       .map((model) => model.id || model.model || '')
       .filter((model) => model.trim());
@@ -205,13 +209,13 @@ export class LlamaCppClient {
       return this.streamChatAtBaseUrl(baseUrl, options);
     }
     const requestOnce = async (): Promise<FullJsonResponse<RawChatResponse>> => {
-      const nextResponse = await this.client.requestJsonFull<RawChatResponse>({
+      const nextResponse = await this.client.requestJsonFull({
         url: `${baseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
         method: 'POST',
         timeoutMs: Math.max(1, options.requestTimeoutSeconds ?? 300) * 1000,
         body: JSON.stringify(this.buildChatRequest(options)),
         abortSignal: options.abortSignal,
-      });
+      }, RawChatResponseSchema);
       if (isTransientProviderHttpResponse(nextResponse.statusCode, nextResponse.rawText)) {
         throw buildTransientProviderHttpError(nextResponse.statusCode, nextResponse.rawText);
       }
@@ -232,7 +236,7 @@ export class LlamaCppClient {
   private buildChatRequest(options: LlamaCppChatOptions): LlamaCppChatRequest {
     const activePreset = getActiveManagedLlamaPreset(options.config);
     const resolvedReasoning = options.reasoningOverride
-      ?? getConfiguredLlamaSetting<'on' | 'off'>(options.config, 'Reasoning')
+      ?? getConfiguredLlamaSetting(options.config, 'Reasoning')
       ?? activePreset?.Reasoning;
     const reasoningContentEnabled = resolvedReasoning === 'on' && activePreset?.ReasoningContent === true;
     const preserveThinkingEnabled = reasoningContentEnabled && activePreset?.PreserveThinking === true;
@@ -290,8 +294,9 @@ export class LlamaCppClient {
           promptEvalDurationMs = timingUsage.promptEvalDurationMs ?? promptEvalDurationMs;
           generationDurationMs = timingUsage.generationDurationMs ?? generationDurationMs;
 
-          const choice = Array.isArray(packet.choices) ? packet.choices[0] as Record<string, unknown> | undefined : undefined;
-          const delta = isRecord(choice?.delta) ? choice.delta : {};
+          const firstChoice = Array.isArray(packet.choices) ? packet.choices[0] : undefined;
+          const choice = isRecord(firstChoice) ? firstChoice : undefined;
+          const delta = choice && isRecord(choice.delta) ? choice.delta : {};
           const deltaReasoning = getString(delta.reasoning_content) || getString(delta.thinking) || getString(delta.reasoning);
           const deltaContent = getString(delta.content);
           if (deltaReasoning || deltaContent || Array.isArray(delta.tool_calls)) {
@@ -421,11 +426,11 @@ function getTextContent(content: string | Array<{ type?: string; text?: string }
   return content.map((part) => typeof part.text === 'string' ? part.text : '').join('');
 }
 
-function getString(value: unknown): string {
+function getString(value: OptionalJsonValue): string {
   return typeof value === 'string' ? value : '';
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(value: OptionalJsonValue): value is JsonObject {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
@@ -504,7 +509,7 @@ function findFirstCompleteJsonObjectText(text: string): string | null {
   return null;
 }
 
-function getUsageValue(value: unknown): number | null {
+function getUsageValue(value: OptionalJsonValue): number | null {
   return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : null;
 }
 
@@ -525,5 +530,5 @@ function getThinkingTokens(usage: RawChatResponse['usage']): number | null {
 }
 
 function toJsonObject(value: object): JsonObject {
-  return JSON.parse(JSON.stringify(value)) as JsonObject;
+  return JsonObjectSchema.parse(JSON.parse(JSON.stringify(value)));
 }

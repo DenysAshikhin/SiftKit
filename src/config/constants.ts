@@ -1,9 +1,12 @@
 import { readFileSync } from 'node:fs';
-import * as path from 'node:path';
+import { resolve } from 'node:path';
+import { z } from '../lib/zod.js';
 
-const packageJson = JSON.parse(
-  readFileSync(path.resolve(__dirname, '..', '..', 'package.json'), 'utf8'),
-) as { version: string };
+const PackageJsonSchema = z.object({ version: z.string() });
+
+const packageJson = PackageJsonSchema.parse(JSON.parse(
+  readFileSync(resolve(__dirname, '..', '..', 'package.json'), 'utf8'),
+));
 
 export const SIFTKIT_VERSION = packageJson.version;
 export const SIFT_DEFAULT_NUM_CTX = 128_000;

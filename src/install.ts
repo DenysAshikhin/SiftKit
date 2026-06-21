@@ -1,5 +1,5 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import { existsSync, readFileSync, rmSync, copyFileSync, readdirSync } from 'node:fs';
+import { resolve, join } from 'node:path';
 import { getConfigPath, getConfiguredLlamaBaseUrl, getConfiguredModel, initializeRuntime, loadConfig } from './config/index.js';
 import { ensureDirectory, saveContentAtomically } from './lib/fs.js';
 import { getLlamaCppProviderStatus, listLlamaCppModels } from './providers/llama-cpp.js';
@@ -9,11 +9,11 @@ const CODEX_POLICY_START = '<!-- SiftKit Policy:Start -->';
 const CODEX_POLICY_END = '<!-- SiftKit Policy:End -->';
 
 function getRepoRoot(): string {
-  return path.resolve(__dirname, '..', '..');
+  return resolve(__dirname, '..', '..');
 }
 
 function getModuleRoot(): string {
-  return path.join(getRepoRoot(), 'SiftKit');
+  return join(getRepoRoot(), 'SiftKit');
 }
 
 function getShellIntegrationScript(): string {
@@ -26,15 +26,15 @@ function getShellIntegrationScript(): string {
 
 function copyDirectoryContents(source: string, destination: string): void {
   ensureDirectory(destination);
-  for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
-    const sourcePath = path.join(source, entry.name);
-    const destinationPath = path.join(destination, entry.name);
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    const sourcePath = join(source, entry.name);
+    const destinationPath = join(destination, entry.name);
     if (entry.isDirectory()) {
       copyDirectoryContents(sourcePath, destinationPath);
       continue;
     }
 
-    fs.copyFileSync(sourcePath, destinationPath);
+    copyFileSync(sourcePath, destinationPath);
   }
 }
 
@@ -115,14 +115,14 @@ export type InstallCodexPolicyResult = {
 };
 
 export async function installCodexPolicy(codexHome?: string, force?: boolean): Promise<InstallCodexPolicyResult> {
-  const targetCodexHome = codexHome || path.join(process.env.USERPROFILE || '', '.codex');
+  const targetCodexHome = codexHome || join(process.env.USERPROFILE || '', '.codex');
   ensureDirectory(targetCodexHome);
-  const agentsPath = path.join(targetCodexHome, 'AGENTS.md');
+  const agentsPath = join(targetCodexHome, 'AGENTS.md');
   const policyBlock = getCodexPolicyBlock();
   let updated: string;
 
-  if (fs.existsSync(agentsPath)) {
-    const existing = fs.readFileSync(agentsPath, 'utf8');
+  if (existsSync(agentsPath)) {
+    const existing = readFileSync(agentsPath, 'utf8');
     if (existing.includes(CODEX_POLICY_START)) {
       const pattern = new RegExp(`${CODEX_POLICY_START}[\\s\\S]*?${CODEX_POLICY_END}`, 'u');
       updated = existing.replace(pattern, policyBlock.trimEnd());
@@ -158,38 +158,38 @@ export async function installShellIntegration(options?: {
   ModuleInstallRoot?: string;
   Force?: boolean;
 }): Promise<InstallShellIntegrationResult> {
-  const binDir = options?.BinDir || path.join(process.env.USERPROFILE || '', 'bin');
-  const moduleInstallRoot = options?.ModuleInstallRoot || path.join(process.env.USERPROFILE || '', 'Documents', 'WindowsPowerShell', 'Modules');
+  const binDir = options?.BinDir || join(process.env.USERPROFILE || '', 'bin');
+  const moduleInstallRoot = options?.ModuleInstallRoot || join(process.env.USERPROFILE || '', 'Documents', 'WindowsPowerShell', 'Modules');
   const moduleSource = getModuleRoot();
   const repoRoot = getRepoRoot();
-  const moduleTarget = path.join(moduleInstallRoot, 'SiftKit');
-  const distSource = path.join(repoRoot, 'dist');
-  const distTarget = path.join(moduleTarget, 'dist');
-  const binSource = path.join(repoRoot, 'bin');
+  const moduleTarget = join(moduleInstallRoot, 'SiftKit');
+  const distSource = join(repoRoot, 'dist');
+  const distTarget = join(moduleTarget, 'dist');
+  const binSource = join(repoRoot, 'bin');
 
   ensureDirectory(moduleInstallRoot);
   ensureDirectory(binDir);
 
-  if (fs.existsSync(moduleTarget) && options?.Force) {
-    fs.rmSync(moduleTarget, { recursive: true, force: true });
+  if (existsSync(moduleTarget) && options?.Force) {
+    rmSync(moduleTarget, { recursive: true, force: true });
   }
 
   ensureDirectory(moduleTarget);
   copyDirectoryContents(moduleSource, moduleTarget);
-  if (fs.existsSync(distSource)) {
+  if (existsSync(distSource)) {
     copyDirectoryContents(distSource, distTarget);
   }
-  fs.copyFileSync(path.join(binSource, 'siftkit.ps1'), path.join(binDir, 'siftkit.ps1'));
-  fs.copyFileSync(path.join(binSource, 'siftkit.cmd'), path.join(binDir, 'siftkit.cmd'));
-  const shellIntegrationPath = path.join(binDir, 'siftkit-shell.ps1');
+  copyFileSync(join(binSource, 'siftkit.ps1'), join(binDir, 'siftkit.ps1'));
+  copyFileSync(join(binSource, 'siftkit.cmd'), join(binDir, 'siftkit.cmd'));
+  const shellIntegrationPath = join(binDir, 'siftkit-shell.ps1');
   saveContentAtomically(shellIntegrationPath, getShellIntegrationScript());
 
   return {
     Installed: true,
     ModulePath: moduleTarget,
     BinDir: binDir,
-    PowerShellShim: path.join(binDir, 'siftkit.ps1'),
-    CmdShim: path.join(binDir, 'siftkit.cmd'),
+    PowerShellShim: join(binDir, 'siftkit.ps1'),
+    CmdShim: join(binDir, 'siftkit.cmd'),
     ShellIntegrationScript: shellIntegrationPath,
     PathHint: 'Add the bin directory to PATH to run siftkit globally.',
     ProfileHint: `. '${shellIntegrationPath}'`,

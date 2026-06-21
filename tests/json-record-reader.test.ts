@@ -33,8 +33,8 @@ test('JsonRecordReader reads booleans, arrays, and nested objects without exposi
   assert.equal(reader.object('missing'), null);
 });
 
-test('JsonRecordReader rejects non-object input through fromUnknown', () => {
-  assert.deepEqual(JsonRecordReader.fromUnknown(null).record, {});
-  assert.deepEqual(JsonRecordReader.fromUnknown(['x']).record, {});
-  assert.deepEqual(JsonRecordReader.fromUnknown({ id: 'ok' }).record, { id: 'ok' });
+test('JsonRecordReader rejects non-object input through fromJsonValue', () => {
+  assert.deepEqual(JsonRecordReader.fromJsonValue(null).record, {});
+  assert.deepEqual(JsonRecordReader.fromJsonValue(['x']).record, {});
+  assert.deepEqual(JsonRecordReader.fromJsonValue({ id: 'ok' }).record, { id: 'ok' });
 });

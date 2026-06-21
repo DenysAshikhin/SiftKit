@@ -23,7 +23,7 @@ test('provider helpers extract llama timings and predicted token counts when usa
     __verbose: {
       tokens_predicted: 8,
     },
-  } as Record<string, unknown>;
+  };
 
   assert.deepEqual(getPromptUsageFromResponseBody(body), {
     promptTokens: null,
@@ -50,7 +50,7 @@ test('provider helpers normalize completion tokens by subtracting thinking token
         reasoning_tokens: 4,
       },
     },
-  } as Record<string, unknown>;
+  };
 
   assert.deepEqual(getCompletionUsageFromResponseBody(body), {
     completionTokens: 8,

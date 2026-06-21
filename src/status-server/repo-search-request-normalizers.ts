@@ -1,16 +1,17 @@
 import { JsonRecordReader } from '../lib/json-record-reader.js';
+import type { OptionalJsonValue } from '../lib/json-types.js';
 import type { RepoSearchMockCommandResult } from '../repo-search/types.js';
 
-function normalizeOptionalNumber(value: unknown): number | undefined {
+function normalizeOptionalNumber(value: OptionalJsonValue): number | undefined {
   return Number.isFinite(Number(value)) ? Number(value) : undefined;
 }
 
-function normalizeOptionalString(value: unknown): string | undefined {
+function normalizeOptionalString(value: OptionalJsonValue): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
 export function normalizeRepoSearchMockCommandResults(
-  value: unknown,
+  value: OptionalJsonValue,
 ): Record<string, RepoSearchMockCommandResult> | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return undefined;

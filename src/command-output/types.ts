@@ -1,6 +1,11 @@
+import { z } from '../lib/zod.js';
 import type { ShellName } from '../capture/process.js';
 import type { SiftConfig } from '../config/index.js';
-import type { SummaryClassification, SummaryPolicyProfile, SummarySourceKind } from '../summary/types.js';
+import {
+  SummaryClassificationSchema,
+  type SummaryPolicyProfile,
+  type SummarySourceKind,
+} from '../summary/types.js';
 
 export type CommandOutputKind = 'command' | 'interactive';
 
@@ -25,18 +30,19 @@ export type CommandOutputAnalyzeRequest = {
   config?: SiftConfig;
 };
 
-export type CommandOutputAnalyzeResult = {
-  ExitCode: number;
-  RawLogPath: string;
-  ReducedLogPath: string | null;
-  WasSummarized: boolean;
-  PolicyDecision: string;
-  Classification: SummaryClassification | 'no-summarize';
-  RawReviewRequired: boolean;
-  ModelCallSucceeded: boolean;
-  ProviderError: string | null;
-  Summary: string | null;
-};
+export const CommandOutputAnalyzeResultSchema = z.object({
+  ExitCode: z.number(),
+  RawLogPath: z.string(),
+  ReducedLogPath: z.string().nullable(),
+  WasSummarized: z.boolean(),
+  PolicyDecision: z.string(),
+  Classification: z.union([SummaryClassificationSchema, z.literal('no-summarize')]),
+  RawReviewRequired: z.boolean(),
+  ModelCallSucceeded: z.boolean(),
+  ProviderError: z.string().nullable(),
+  Summary: z.string().nullable(),
+});
+export type CommandOutputAnalyzeResult = z.infer<typeof CommandOutputAnalyzeResultSchema>;
 
 export type PresetRunRequest = {
   presetId: string;
@@ -54,18 +60,21 @@ export type PresetRunRequest = {
   logFile?: string;
 };
 
-export type PresetRunResult = {
-  outputText: string;
-};
+export const PresetRunResultSchema = z.object({
+  outputText: z.string(),
+});
+export type PresetRunResult = z.infer<typeof PresetRunResultSchema>;
 
-export type PresetListItem = {
-  id: string;
-  presetKind: string;
-  operationMode: string;
-  deletable: boolean;
-  label: string;
-};
+export const PresetListItemSchema = z.object({
+  id: z.string(),
+  presetKind: z.string(),
+  operationMode: z.string(),
+  deletable: z.boolean(),
+  label: z.string(),
+});
+export type PresetListItem = z.infer<typeof PresetListItemSchema>;
 
-export type PresetListResult = {
-  presets: PresetListItem[];
-};
+export const PresetListResultSchema = z.object({
+  presets: z.array(PresetListItemSchema),
+});
+export type PresetListResult = z.infer<typeof PresetListResultSchema>;

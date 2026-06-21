@@ -2,17 +2,22 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { SpawnSyncReturns } from 'node:child_process';
 
+import { z } from '../src/lib/zod.js';
 import { terminateProcessTree, type TerminateProcessTreeOptions } from '../src/status-server/index.js';
 
 type SpawnSyncImpl = TerminateProcessTreeOptions['spawnSyncImpl'];
 type ProcessObject = TerminateProcessTreeOptions['processObject'];
 
+// terminateProcessTree reads only `.status` off the spawnSync result and invokes
+// the impl as a plain function; minimal runtime stubs are branded to the wire
+// types at this single boundary.
+const SpawnSyncImplSchema = z.custom<SpawnSyncImpl>((value) => typeof value === 'function');
+const SpawnSyncReturnsSchema = z.custom<SpawnSyncReturns<Buffer>>((value) => typeof value === 'object' && value !== null);
+const InvalidPidSchema = z.custom<number>(() => true);
+
 function makeSpawnSyncImpl(handler: (file: string, args: readonly string[]) => { status: number }): SpawnSyncImpl {
-  const impl = ((file: string, args?: readonly string[]) => {
-    const result = handler(file, args || []);
-    return result as unknown as SpawnSyncReturns<Buffer>;
-  }) as unknown as SpawnSyncImpl;
-  return impl;
+  return SpawnSyncImplSchema.parse((file: string, args?: readonly string[]) =>
+    SpawnSyncReturnsSchema.parse(handler(file, args || [])));
 }
 
 function makeProcessObject(platform: string, killFn: (pid: number, signal?: string) => void): ProcessObject {
@@ -28,7 +33,7 @@ function makeProcessObject(platform: string, killFn: (pid: number, signal?: stri
 test('terminateProcessTree rejects invalid pid values', () => {
   assert.equal(terminateProcessTree(0), false);
   assert.equal(terminateProcessTree(-1), false);
-  assert.equal(terminateProcessTree('abc' as unknown as number), false);
+  assert.equal(terminateProcessTree(InvalidPidSchema.parse('abc')), false);
 });
 
 test('terminateProcessTree uses taskkill on Windows and returns true on success', () => {

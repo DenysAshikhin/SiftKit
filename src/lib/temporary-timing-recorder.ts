@@ -1,6 +1,6 @@
-import * as fs from 'node:fs/promises';
-import * as os from 'node:os';
-import * as path from 'node:path';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
 export type TemporaryTimingKind = 'repo-search' | 'summary';
@@ -125,8 +125,8 @@ export class TemporaryTimingRecorder {
       events: this.events,
       summary: Array.from(this.summaries.values()).sort((left, right) => right.totalMs - left.totalMs),
     };
-    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-    await fs.writeFile(this.filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    await mkdir(dirname(this.filePath), { recursive: true });
+    await writeFile(this.filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
   }
 }
 
@@ -140,9 +140,9 @@ export function createTemporaryTimingRecorderFromEnv(options: {
   }
   const explicitFile = String(process.env.SIFTKIT_TEMP_TIMING_TRACE_FILE || '').trim();
   const filePath = explicitFile
-    ? path.resolve(explicitFile)
-    : path.join(
-      path.resolve(String(process.env.SIFTKIT_TEMP_TIMING_TRACE_DIR || path.join(os.tmpdir(), 'siftkit-temp-timing'))),
+    ? resolve(explicitFile)
+    : join(
+      resolve(String(process.env.SIFTKIT_TEMP_TIMING_TRACE_DIR || join(tmpdir(), 'siftkit-temp-timing'))),
       `${sanitizePathPart(options.kind)}-${sanitizePathPart(options.requestId)}-${Date.now()}.json`,
     );
   return new TemporaryTimingRecorder(options.kind, options.requestId, filePath, options.metadata ?? {});

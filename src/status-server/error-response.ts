@@ -1,4 +1,5 @@
-import * as http from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { toError } from '../lib/errors.js';
 import { getPrimaryCauseDiagnostic, serializeErrorDiagnostic } from '../lib/error-diagnostics.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
 import {
@@ -16,7 +17,7 @@ function normalizeLogValue(value: string | null | undefined): string {
   return String(value ?? '').replace(/\s+/gu, ' ').trim();
 }
 
-function getRequestRoute(req: http.IncomingMessage): string {
+function getRequestRoute(req: IncomingMessage): string {
   try {
     return new URL(req.url || '/', 'http://localhost').pathname;
   } catch {
@@ -25,14 +26,14 @@ function getRequestRoute(req: http.IncomingMessage): string {
 }
 
 export function sendServerErrorJson(
-  req: http.IncomingMessage,
-  res: http.ServerResponse,
+  req: IncomingMessage,
+  res: ServerResponse,
   statusCode: number,
   error: unknown,
   options: ServerErrorResponseOptions = {},
 ): void {
   const diagnosticId = createRuntimeErrorEventId();
-  const diagnostic = serializeErrorDiagnostic(error);
+  const diagnostic = serializeErrorDiagnostic(toError(error));
   const cause = getPrimaryCauseDiagnostic(diagnostic);
   const route = getRequestRoute(req);
   const method = req.method || 'GET';
@@ -58,7 +59,7 @@ export function sendServerErrorJson(
       requestId: options.requestId ?? null,
       taskKind: options.taskKind ?? null,
       statusCode,
-      error,
+      error: toError(error),
     });
   } catch (dbError) {
     const dbMessage = dbError instanceof Error ? dbError.message : String(dbError);

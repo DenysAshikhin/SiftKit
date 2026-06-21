@@ -1,4 +1,5 @@
 import { getErrorMessage } from '../../lib/errors.js';
+import type { JsonValue, JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
 import type {
   PlannerToolCall,
   PlannerToolDefinition,
@@ -34,20 +35,15 @@ export {
 };
 
 // Planner tool executors always return a `text` rendering plus tool-specific
-// metadata fields. The index signature keeps the type assignable to the
-// `Record<string, unknown>` surfaces the planner mode passes results through.
+// metadata fields. The JsonValue index signature keeps the type a structural
+// JsonObject so results flow into JSON surfaces (debug logs, prompt rendering)
+// with no cast; per-tool metadata fields are read back via the index signature.
 export interface PlannerToolResult {
   text: string;
-  collectionPath?: string;
-  matchedCount?: number;
-  hitCount?: number;
-  returnedHits?: number;
-  truncated?: boolean;
-  found?: boolean;
-  [key: string]: unknown;
+  [key: string]: JsonValue;
 }
 
-export function getPlannerToolName(value: unknown): PlannerToolName | null {
+export function getPlannerToolName(value: OptionalJsonValue): PlannerToolName | null {
   return value === 'find_text' || value === 'read_lines' || value === 'json_filter' || value === 'json_get'
     ? value
     : null;
@@ -162,23 +158,20 @@ export function buildPlannerToolDefinitions(allowedTools: readonly PlannerToolNa
 
 type JsonFilterCollectionCandidate = {
   path: string;
-  collection: unknown[];
+  collection: JsonValue[];
   sampleKeys: string[];
 };
 
-function getJsonFilterCollectionCandidates(parsed: unknown): JsonFilterCollectionCandidate[] {
+function getJsonFilterCollectionCandidates(parsed: OptionalJsonValue): JsonFilterCollectionCandidate[] {
   const parsedRecord = getRecord(parsed);
   if (!parsedRecord) {
     return [];
   }
 
   return Object.entries(parsedRecord)
-    .filter(([, value]) => Array.isArray(value))
-    .map(([path, value]) => {
-      const collection = value as unknown[];
-      const firstRecord = Array.isArray(value)
-        ? collection.map((item) => getRecord(item)).find(Boolean)
-        : null;
+    .filter((entry): entry is [string, JsonValue[]] => Array.isArray(entry[1]))
+    .map(([path, collection]) => {
+      const firstRecord = collection.map((item) => getRecord(item)).find(Boolean);
       return {
         path,
         collection,
@@ -187,9 +180,9 @@ function getJsonFilterCollectionCandidates(parsed: unknown): JsonFilterCollectio
     });
 }
 
-function getJsonFilterPathHints(args: Record<string, unknown>): string[] {
+function getJsonFilterPathHints(args: JsonObject): string[] {
   const hints = new Set<string>();
-  const addHint = (value: unknown) => {
+  const addHint = (value: OptionalJsonValue) => {
     if (typeof value !== 'string') {
       return;
     }
@@ -215,7 +208,7 @@ function getJsonFilterPathHints(args: Record<string, unknown>): string[] {
 
 function selectJsonFilterCollectionCandidate(
   candidates: JsonFilterCollectionCandidate[],
-  args: Record<string, unknown>,
+  args: JsonObject,
 ): JsonFilterCollectionCandidate | null {
   if (candidates.length === 1) {
     return candidates[0];
@@ -261,9 +254,9 @@ function buildJsonFilterCollectionPathGuidanceResult(options: {
 }
 
 function resolveJsonFilterCollection(
-  parsed: unknown,
-  args: Record<string, unknown>,
-): { collectionPath: string; collection: unknown[] } | { recoverableResult: PlannerToolResult } {
+  parsed: OptionalJsonValue,
+  args: JsonObject,
+): { collectionPath: string; collection: JsonValue[] } | { recoverableResult: PlannerToolResult } {
   const collectionPath = typeof args.collectionPath === 'string' ? args.collectionPath.trim() : '';
   if (collectionPath) {
     const collection = getValueByPath(parsed, collectionPath);
@@ -311,7 +304,7 @@ function resolveJsonFilterCollection(
   throw new Error('json_filter collection is not an array.');
 }
 
-function executeFindTextTool(inputText: string, args: Record<string, unknown>): PlannerToolResult {
+function executeFindTextTool(inputText: string, args: JsonObject): PlannerToolResult {
   const query = typeof args.query === 'string' ? args.query : '';
   const mode = args.mode === 'regex' ? 'regex' : args.mode === 'literal' ? 'literal' : null;
   if (!query.trim() || !mode) {
@@ -382,7 +375,7 @@ function executeFindTextTool(inputText: string, args: Record<string, unknown>): 
   };
 }
 
-function executeReadLinesTool(inputText: string, args: Record<string, unknown>): PlannerToolResult {
+function executeReadLinesTool(inputText: string, args: JsonObject): PlannerToolResult {
   const startLine = Math.max(getFiniteInteger(args.startLine) ?? 1, 1);
   const endLine = Math.max(getFiniteInteger(args.endLine) ?? startLine, startLine);
   const lines = inputText.replace(/\r\n/gu, '\n').split('\n');
@@ -398,11 +391,13 @@ function executeReadLinesTool(inputText: string, args: Record<string, unknown>):
   };
 }
 
-function executeJsonFilterTool(inputText: string, args: Record<string, unknown>): PlannerToolResult {
+function executeJsonFilterTool(inputText: string, args: JsonObject): PlannerToolResult {
   const parsedContext = parseJsonForJsonFilter(inputText);
   const parsed = parsedContext.parsed;
   const filters = Array.isArray(args.filters)
-    ? normalizeJsonFilterFilters(args.filters.map((item) => getRecord(item)).filter(Boolean) as Record<string, unknown>[])
+    ? normalizeJsonFilterFilters(
+      args.filters.map((item) => getRecord(item)).filter((entry): entry is JsonObject => entry !== null),
+    )
     : [];
   if (filters.length === 0) {
     throw new Error('json_filter requires at least one filter.');
@@ -413,8 +408,8 @@ function executeJsonFilterTool(inputText: string, args: Record<string, unknown>)
     return {
       ...resolvedCollection.recoverableResult,
       usedFallback: parsedContext.usedFallback,
-      ignoredPrefixPreview: parsedContext.usedFallback ? parsedContext.ignoredPrefixPreview : undefined,
-      parsedSectionPreview: parsedContext.usedFallback ? parsedContext.parsedSectionPreview : undefined,
+      ignoredPrefixPreview: parsedContext.usedFallback ? parsedContext.ignoredPrefixPreview : null,
+      parsedSectionPreview: parsedContext.usedFallback ? parsedContext.parsedSectionPreview : null,
     };
   }
   const { collectionPath, collection } = resolvedCollection;
@@ -423,13 +418,13 @@ function executeJsonFilterTool(inputText: string, args: Record<string, unknown>)
     ? args.select.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
     : null;
   const limit = Math.max(1, getFiniteInteger(args.limit) ?? 10);
-  const matches: unknown[] = [];
+  const matches: JsonValue[] = [];
   for (const item of collection) {
     if (!filters.every((filter) => matchesJsonFilter(item, filter))) {
       continue;
     }
 
-    matches.push(projectJsonFilterItem(item, select));
+    matches.push(projectJsonFilterItem(item, select) ?? null);
     if (matches.length >= limit) {
       break;
     }
@@ -440,13 +435,13 @@ function executeJsonFilterTool(inputText: string, args: Record<string, unknown>)
     collectionPath: collectionPath || '$',
     matchedCount: matches.length,
     usedFallback: parsedContext.usedFallback,
-    ignoredPrefixPreview: parsedContext.usedFallback ? parsedContext.ignoredPrefixPreview : undefined,
-    parsedSectionPreview: parsedContext.usedFallback ? parsedContext.parsedSectionPreview : undefined,
+    ignoredPrefixPreview: parsedContext.usedFallback ? parsedContext.ignoredPrefixPreview : null,
+    parsedSectionPreview: parsedContext.usedFallback ? parsedContext.parsedSectionPreview : null,
     text: formatCompactJsonBlock(matches),
   };
 }
 
-function executeJsonGetTool(inputText: string, args: Record<string, unknown>): PlannerToolResult {
+function executeJsonGetTool(inputText: string, args: JsonObject): PlannerToolResult {
   const path = typeof args.path === 'string' ? args.path.trim() : '';
   if (!path) {
     throw new Error('json_get requires path.');
@@ -461,8 +456,8 @@ function executeJsonGetTool(inputText: string, args: Record<string, unknown>): P
     path,
     found,
     usedFallback: parsedContext.usedFallback,
-    ignoredPrefixPreview: parsedContext.usedFallback ? parsedContext.ignoredPrefixPreview : undefined,
-    parsedSectionPreview: parsedContext.usedFallback ? parsedContext.parsedSectionPreview : undefined,
+    ignoredPrefixPreview: parsedContext.usedFallback ? parsedContext.ignoredPrefixPreview : null,
+    parsedSectionPreview: parsedContext.usedFallback ? parsedContext.parsedSectionPreview : null,
     text: found ? JSON.stringify(value) : `json_get path not found: ${path}`,
   };
 }

@@ -1,9 +1,11 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import Database from 'better-sqlite3';
+import { z } from '../../lib/zod.js';
 import { listFiles, getIsoDateFromStat } from '../../lib/fs.js';
 import { JsonRecordReader } from '../../lib/json-record-reader.js';
-import type { JsonObject } from '../../lib/json-types.js';
+import { parseJsonValueText } from '../../lib/json.js';
+import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
 import { getProcessedPromptTokens } from '../../lib/provider-helpers.js';
 import { toNullableNonNegativeInteger } from '../../lib/telemetry-metrics.js';
 import { type TaskKind } from '../metrics.js';
@@ -23,6 +25,11 @@ import {
 } from './run-records.js';
 
 type DatabaseInstance = InstanceType<typeof Database>;
+
+const SpeculativeMetricsRowSchema = z.object({
+  speculative_accepted_tokens: z.number().nullable(),
+  speculative_generated_tokens: z.number().nullable(),
+});
 
 type RunArtifactPaths = {
   requestPath: string | null;
@@ -45,12 +52,13 @@ function readPersistedRunLogSpeculativeMetrics(
     };
   }
   ensureRunLogsTable(database);
-  const row = database.prepare(`
+  const rawRow = database.prepare(`
     SELECT speculative_accepted_tokens, speculative_generated_tokens
     FROM run_logs
     WHERE request_id = ?
     LIMIT 1
-  `).get(normalizedRequestId) as JsonObject | undefined;
+  `).get(normalizedRequestId);
+  const row = rawRow == null ? undefined : SpeculativeMetricsRowSchema.parse(rawRow);
   return {
     speculativeAcceptedTokens: toNullableNonNegativeInteger(row?.speculative_accepted_tokens),
     speculativeGeneratedTokens: toNullableNonNegativeInteger(row?.speculative_generated_tokens),
@@ -65,9 +73,9 @@ function resolveCanonicalRunLogSpeculativeMetrics(options: {
 }
 
 function getProcessedInputTokensValue(
-  inputTokens: unknown,
-  promptCacheTokens: unknown,
-  promptEvalTokens: unknown,
+  inputTokens: OptionalJsonValue,
+  promptCacheTokens: OptionalJsonValue,
+  promptEvalTokens: OptionalJsonValue,
 ): number | null {
   return toNullableNonNegativeInteger(getProcessedPromptTokens(inputTokens, promptCacheTokens, promptEvalTokens));
 }
@@ -366,37 +374,37 @@ export function updateRunLogSpeculativeMetricsByRequestId(options: {
 }
 
 function buildRunArtifactPaths(requestId: string): RunArtifactPaths {
-  const logsRoot = path.join(getRuntimeRoot(), 'logs');
-  const requestPath = path.join(logsRoot, 'requests', `request_${requestId}.json`);
-  const plannerDebugPath = path.join(logsRoot, `planner_debug_${requestId}.json`);
-  const failedRequestPath = path.join(logsRoot, 'failed', `request_failed_${requestId}.json`);
-  const abandonedRequestPath = path.join(logsRoot, 'abandoned', `request_abandoned_${requestId}.json`);
+  const logsRoot = join(getRuntimeRoot(), 'logs');
+  const requestPath = join(logsRoot, 'requests', `request_${requestId}.json`);
+  const plannerDebugPath = join(logsRoot, `planner_debug_${requestId}.json`);
+  const failedRequestPath = join(logsRoot, 'failed', `request_failed_${requestId}.json`);
+  const abandonedRequestPath = join(logsRoot, 'abandoned', `request_abandoned_${requestId}.json`);
   const repoCandidates = [
-    path.join(logsRoot, 'repo_search', 'failed', `request_${requestId}.json`),
-    path.join(logsRoot, 'repo_search', 'succesful', `request_${requestId}.json`),
+    join(logsRoot, 'repo_search', 'failed', `request_${requestId}.json`),
+    join(logsRoot, 'repo_search', 'succesful', `request_${requestId}.json`),
   ];
-  const repoSearchPath = repoCandidates.find((candidate) => fs.existsSync(candidate)) || null;
+  const repoSearchPath = repoCandidates.find((candidate) => existsSync(candidate)) || null;
   const repoSearchTranscriptPath = (
     repoSearchPath
-    && fs.existsSync(repoSearchPath.replace(/\.json$/iu, '.jsonl'))
+    && existsSync(repoSearchPath.replace(/\.json$/iu, '.jsonl'))
   )
     ? repoSearchPath.replace(/\.json$/iu, '.jsonl')
     : null;
   return {
-    requestPath: fs.existsSync(requestPath) ? requestPath : null,
-    plannerDebugPath: fs.existsSync(plannerDebugPath) ? plannerDebugPath : null,
-    failedRequestPath: fs.existsSync(failedRequestPath) ? failedRequestPath : null,
-    abandonedRequestPath: fs.existsSync(abandonedRequestPath) ? abandonedRequestPath : null,
+    requestPath: existsSync(requestPath) ? requestPath : null,
+    plannerDebugPath: existsSync(plannerDebugPath) ? plannerDebugPath : null,
+    failedRequestPath: existsSync(failedRequestPath) ? failedRequestPath : null,
+    abandonedRequestPath: existsSync(abandonedRequestPath) ? abandonedRequestPath : null,
     repoSearchPath,
     repoSearchTranscriptPath,
   };
 }
 
 function readTextIfExists(targetPath: string | null): string | null {
-  if (!targetPath || !fs.existsSync(targetPath)) {
+  if (!targetPath || !existsSync(targetPath)) {
     return null;
   }
-  return fs.readFileSync(targetPath, 'utf8');
+  return readFileSync(targetPath, 'utf8');
 }
 
 function parseRepoSearchTotals(payload: JsonObject | null): JsonObject | null {
@@ -489,8 +497,8 @@ function buildRunLogRow(options: {
   )
     ? repoSearchPayload.transcriptPath.trim()
     : null;
-  if (!repoSearchTranscriptJsonl && transcriptPathFromPayload && fs.existsSync(transcriptPathFromPayload)) {
-    repoSearchTranscriptJsonl = fs.readFileSync(transcriptPathFromPayload, 'utf8');
+  if (!repoSearchTranscriptJsonl && transcriptPathFromPayload && existsSync(transcriptPathFromPayload)) {
+    repoSearchTranscriptJsonl = readFileSync(transcriptPathFromPayload, 'utf8');
   }
   if (
     requestJson === null
@@ -533,7 +541,7 @@ function buildRunLogRow(options: {
       || options.artifactPaths.abandonedRequestPath
       || options.artifactPaths.repoSearchPath
       || options.artifactPaths.plannerDebugPath
-      || path.join(getRuntimeRoot(), 'logs'),
+      || join(getRuntimeRoot(), 'logs'),
   );
   const sourcePaths = [
     options.artifactPaths.requestPath,
@@ -638,18 +646,19 @@ export function flushRunArtifactsToDbAndDelete(options: {
   options.database.transaction(() => {
     upsertRunLog(options.database, row);
   })();
-  const rawSourcePaths = JSON.parse(row.sourcePathsJson) as unknown[];
+  const parsedSourcePaths = parseJsonValueText(row.sourcePathsJson);
+  const rawSourcePaths = Array.isArray(parsedSourcePaths) ? parsedSourcePaths : [];
   const sourcePaths = rawSourcePaths
     .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
   let deletedEverySource = true;
   for (const sourcePath of sourcePaths) {
-    if (!fs.existsSync(sourcePath)) {
+    if (!existsSync(sourcePath)) {
       continue;
     }
     try {
-      fs.unlinkSync(sourcePath);
+      unlinkSync(sourcePath);
     } catch {
-      if (fs.existsSync(sourcePath)) {
+      if (existsSync(sourcePath)) {
         deletedEverySource = false;
       }
     }
@@ -705,22 +714,22 @@ export function flushRunArtifactsToDbAndDeleteBounded(options: {
 }
 
 function collectRunLogRequestIdsFromDisk(): string[] {
-  const logsRoot = path.join(getRuntimeRoot(), 'logs');
+  const logsRoot = join(getRuntimeRoot(), 'logs');
   const requestIds = new Set<string>();
   const collectFromDirectory = (targetPath: string, pattern: RegExp): void => {
     for (const filePath of listFiles(targetPath)) {
-      const match = pattern.exec(path.basename(filePath));
+      const match = pattern.exec(basename(filePath));
       if (match && match[1]) {
         requestIds.add(match[1]);
       }
     }
   };
-  collectFromDirectory(path.join(logsRoot, 'requests'), /^request_(.+)\.json$/iu);
-  collectFromDirectory(path.join(logsRoot, 'failed'), /^request_failed_(.+)\.json$/iu);
-  collectFromDirectory(path.join(logsRoot, 'abandoned'), /^request_abandoned_(.+)\.json$/iu);
+  collectFromDirectory(join(logsRoot, 'requests'), /^request_(.+)\.json$/iu);
+  collectFromDirectory(join(logsRoot, 'failed'), /^request_failed_(.+)\.json$/iu);
+  collectFromDirectory(join(logsRoot, 'abandoned'), /^request_abandoned_(.+)\.json$/iu);
   collectFromDirectory(logsRoot, /^planner_debug_(.+)\.json$/iu);
-  collectFromDirectory(path.join(logsRoot, 'repo_search', 'failed'), /^request_(.+)\.jsonl?$/iu);
-  collectFromDirectory(path.join(logsRoot, 'repo_search', 'succesful'), /^request_(.+)\.jsonl?$/iu);
+  collectFromDirectory(join(logsRoot, 'repo_search', 'failed'), /^request_(.+)\.jsonl?$/iu);
+  collectFromDirectory(join(logsRoot, 'repo_search', 'succesful'), /^request_(.+)\.jsonl?$/iu);
   return Array.from(requestIds).sort((left, right) => left.localeCompare(right));
 }
 

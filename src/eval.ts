@@ -1,6 +1,8 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import type { JsonObject } from './lib/json-types.js';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve, join, basename } from 'node:path';
+import { z } from './lib/zod.js';
+import { JsonObjectSchema } from './lib/json-types.js';
+import { parseJsonValueText } from './lib/json.js';
 import { getConfiguredModel, initializeRuntime, loadConfig } from './config/index.js';
 import { summarizeRequest } from './summary/core.js';
 import { withExecutionLock } from './execution-lock.js';
@@ -8,23 +10,24 @@ import { upsertRuntimeJsonArtifact } from './state/runtime-artifacts.js';
 import { persistEvalResult } from './state/runtime-results.js';
 import type { EvalCaseResult, EvalRequest, EvaluationResult } from './eval-types.js';
 
-type Fixture = {
-  Name: string;
-  File: string;
-  Question: string;
-  Format: 'text' | 'json';
-  PolicyProfile: 'general' | 'pass-fail' | 'unique-errors' | 'buried-critical' | 'json-extraction' | 'diff-summary' | 'risky-operation';
-  RequiredTerms?: string[];
-  ForbiddenTerms?: string[];
-};
+const FixtureSchema = z.object({
+  Name: z.string(),
+  File: z.string(),
+  Question: z.string(),
+  Format: z.enum(['text', 'json']),
+  PolicyProfile: z.enum(['general', 'pass-fail', 'unique-errors', 'buried-critical', 'json-extraction', 'diff-summary', 'risky-operation']),
+  RequiredTerms: z.array(z.string()).optional(),
+  ForbiddenTerms: z.array(z.string()).optional(),
+});
+type Fixture = z.infer<typeof FixtureSchema>;
 
 function getRepoRoot(): string {
-  return path.resolve(__dirname, '..', '..');
+  return resolve(__dirname, '..', '..');
 }
 
 function getFixtureManifest(fixtureRoot: string): Fixture[] {
-  const manifestPath = path.join(fixtureRoot, 'fixtures.json');
-  return JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Fixture[];
+  const manifestPath = join(fixtureRoot, 'fixtures.json');
+  return z.array(FixtureSchema).parse(parseJsonValueText(readFileSync(manifestPath, 'utf8')));
 }
 
 function getFixtureScore(summary: string, fixture: Fixture, sourceLength: number): {
@@ -73,13 +76,13 @@ export async function runEvaluation(request: EvalRequest): Promise<EvaluationRes
     const config = await loadConfig({ ensure: true });
     const backend = request.Backend || config.Backend;
     const model = request.Model || getConfiguredModel(config);
-    const fixtureRoot = request.FixtureRoot || path.join(getRepoRoot(), 'eval', 'fixtures');
+    const fixtureRoot = request.FixtureRoot || join(getRepoRoot(), 'eval', 'fixtures');
     const manifest = getFixtureManifest(fixtureRoot);
     const results: EvalCaseResult[] = [];
 
     for (const fixture of manifest) {
-      const sourcePath = path.join(fixtureRoot, fixture.File);
-      const source = fs.readFileSync(sourcePath, 'utf8');
+      const sourcePath = join(fixtureRoot, fixture.File);
+      const source = readFileSync(sourcePath, 'utf8');
       const summaryResult = await summarizeRequest({
         question: fixture.Question,
         inputText: source,
@@ -111,11 +114,11 @@ export async function runEvaluation(request: EvalRequest): Promise<EvaluationRes
     }
 
     for (const logPath of request.RealLogPath || []) {
-      if (!fs.existsSync(logPath)) {
+      if (!existsSync(logPath)) {
         continue;
       }
 
-      const source = fs.readFileSync(logPath, 'utf8');
+      const source = readFileSync(logPath, 'utf8');
       const summaryResult = await summarizeRequest({
         question: 'Summarize the important result in up to 5 bullets, preserving only the decisive facts.',
         inputText: source,
@@ -127,7 +130,7 @@ export async function runEvaluation(request: EvalRequest): Promise<EvaluationRes
       });
 
       results.push({
-        Name: `RealLog:${path.basename(logPath)}`,
+        Name: `RealLog:${basename(logPath)}`,
         SourcePath: logPath,
         WasSummarized: summaryResult.WasSummarized,
         PolicyDecision: summaryResult.PolicyDecision,
@@ -146,11 +149,11 @@ export async function runEvaluation(request: EvalRequest): Promise<EvaluationRes
     }
 
     void initializeRuntime();
-    const evalResultPayload = {
+    const evalResultPayload = JsonObjectSchema.parse({
       backend,
       model,
       results,
-    } as JsonObject;
+    });
     const persistedEvalResult = persistEvalResult({
       payload: evalResultPayload,
     });

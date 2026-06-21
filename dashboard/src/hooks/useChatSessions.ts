@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import { toError } from '../../../src/lib/errors.js';
 import {
   condenseChatSession,
   createChatSession,
@@ -50,7 +51,7 @@ export function findSessionByIdStrict(sessions: ChatSession[], sessionId: string
 }
 
 export function useChatSessions(deps: {
-  onError(error: unknown): void;
+  onError(error: Error): void;
   initialSelectedSessionId: string;
   refreshToken: number;
   buildCreateSessionRequest(): CreateChatSessionRequest;
@@ -79,7 +80,7 @@ export function useChatSessions(deps: {
         }
       } catch (error) {
         if (!cancelled) {
-          deps.onError(error);
+          deps.onError(toError(error));
         }
       }
     })();
@@ -104,7 +105,7 @@ export function useChatSessions(deps: {
       })
       .catch((error) => {
         if (!cancelled) {
-          deps.onError(error);
+          deps.onError(toError(error));
         }
       });
     return () => {
@@ -122,7 +123,7 @@ export function useChatSessions(deps: {
       const response = await getChatSessions();
       setSessions(response.sessions);
     } catch (error) {
-      deps.onError(error);
+      deps.onError(toError(error));
     }
   }
 
@@ -134,7 +135,7 @@ export function useChatSessions(deps: {
       setSelectedSessionId(response.session.id);
       applySessionResponse(response);
     } catch (error) {
-      deps.onError(error);
+      deps.onError(toError(error));
     } finally {
       setChatBusy(false);
     }
@@ -157,7 +158,7 @@ export function useChatSessions(deps: {
       setSelectedSession(nextSession);
       deps.applyContextUsage(null);
     } catch (error) {
-      deps.onError(error);
+      deps.onError(toError(error));
     } finally {
       setChatBusy(false);
     }
@@ -172,7 +173,7 @@ export function useChatSessions(deps: {
       const response = await updateChatSession(selectedSessionId, { presetId });
       applySessionResponse(response);
     } catch (error) {
-      deps.onError(error);
+      deps.onError(toError(error));
     } finally {
       setChatBusy(false);
     }
@@ -187,7 +188,7 @@ export function useChatSessions(deps: {
       const response = await updateChatSession(selectedSessionId, { thinkingEnabled: enabled });
       applySessionResponse(response);
     } catch (error) {
-      deps.onError(error);
+      deps.onError(toError(error));
     } finally {
       setChatBusy(false);
     }
@@ -202,7 +203,7 @@ export function useChatSessions(deps: {
       const response = await updateChatSession(selectedSessionId, { webSearchEnabled: enabled });
       applySessionResponse(response);
     } catch (error) {
-      deps.onError(error);
+      deps.onError(toError(error));
     } finally {
       setChatBusy(false);
     }
@@ -220,7 +221,7 @@ export function useChatSessions(deps: {
       });
       applySessionResponse(response);
     } catch (error) {
-      deps.onError(error);
+      deps.onError(toError(error));
     } finally {
       setChatBusy(false);
     }
@@ -235,7 +236,7 @@ export function useChatSessions(deps: {
       const response = await condenseChatSession(selectedSessionId);
       applySessionResponse(response);
     } catch (error) {
-      deps.onError(error);
+      deps.onError(toError(error));
     } finally {
       setChatBusy(false);
     }
@@ -251,7 +252,7 @@ export function useChatSessions(deps: {
       applySessionResponse(response);
       return response;
     } catch (error) {
-      deps.onError(error);
+      deps.onError(toError(error));
       return null;
     } finally {
       setChatBusy(false);
@@ -278,7 +279,7 @@ export function useChatSessions(deps: {
       }
       return response;
     } catch (error) {
-      deps.onError(error);
+      deps.onError(toError(error));
       return null;
     } finally {
       setChatBusy(false);

@@ -2,11 +2,12 @@
  * Dashboard chat session routes: CRUD, message generation, streaming,
  * plan/repo-search execution, condensation, and tool-context management.
  */
-import * as http from 'node:http';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as crypto from 'node:crypto';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { existsSync, statSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { JsonRecordReader } from '../../lib/json-record-reader.js';
+import type { OptionalJsonValue, JsonSerializable } from '../../lib/json-types.js';
 import { getProcessedPromptTokens } from '../../lib/provider-helpers.js';
 import type { ChatGroundingStatus } from '../../repo-search/chat-grounding-policy.js';
 import { getRuntimeRoot } from '../paths.js';
@@ -57,7 +58,7 @@ import {
   parseChatSessionCreateRequest,
   parseChatSessionUpdateRequest,
 } from '../chat-route-request-normalizers.js';
-import { normalizeRepoSearchScorecard } from '../repo-search-scorecard-types.js';
+import { normalizeRepoSearchScorecard, type RepoSearchTotals } from '../repo-search-scorecard-types.js';
 import {
   type ChatSession,
   readChatSessionFromPath,
@@ -75,6 +76,7 @@ import {
   normalizeOperationModeAllowedTools,
   normalizePresets,
   resolvePresetAllowedTools,
+  WEB_RESEARCH_TOOLS,
   type SiftPreset,
 } from '../../presets.js';
 import {
@@ -101,14 +103,14 @@ async function readEffectiveChatRouteConfig(configPath: string): Promise<SiftCon
   return await applyHostLlamaRuntimeSettings(localConfig);
 }
 
-function normalizeChatGroundingStatus(value: unknown): ChatGroundingStatus | null {
+function normalizeChatGroundingStatus(value: ChatGroundingStatus | null | undefined): ChatGroundingStatus | null {
   if (value === 'ungrounded' || value === 'snippet_only' || value === 'fetched') {
     return value;
   }
   return null;
 }
 
-function getChatGroundingStatus(scorecard: unknown): ChatGroundingStatus | null {
+function getChatGroundingStatus(scorecard: OptionalJsonValue): ChatGroundingStatus | null {
   return normalizeChatGroundingStatus(normalizeRepoSearchScorecard(scorecard).tasks[0]?.groundingStatus);
 }
 
@@ -129,10 +131,10 @@ export function withEffectiveWebTools(
   if (!enabled || !allowedTools) {
     return allowedTools;
   }
-  return [...new Set([...allowedTools, 'web_search', 'web_fetch'])] as SiftPreset['allowedTools'];
+  return [...new Set([...allowedTools, ...WEB_RESEARCH_TOOLS])];
 }
 
-type SseWriter = (eventName: string, payload: unknown) => void;
+type SseWriter = (eventName: string, payload: JsonSerializable) => void;
 
 function requireToolCallId(event: RepoSearchProgressEvent): string {
   const value = typeof event.toolCallId === 'string' ? event.toolCallId.trim() : '';
@@ -235,7 +237,7 @@ export function resolveEffectiveAgentsMd(config: Partial<Pick<SiftConfig, 'Inclu
 export function resolveRepoSearchAutoAppendOverrides(
   config: Pick<SiftConfig, 'IncludeAgentsMd' | 'IncludeRepoFileListing'>,
   preset: Pick<SiftPreset, 'includeAgentsMd' | 'includeRepoFileListing'> | null,
-  overrides: { includeAgentsMd?: unknown; includeRepoFileListing?: unknown },
+  overrides: { includeAgentsMd?: OptionalJsonValue; includeRepoFileListing?: OptionalJsonValue },
 ): { includeAgentsMd: boolean; includeRepoFileListing: boolean } {
   return {
     includeAgentsMd: typeof overrides.includeAgentsMd === 'boolean'
@@ -288,7 +290,7 @@ async function buildRepoSearchAutoAppendPreviewItem(options: {
   };
 }
 
-export function getRepoSearchGenerationTokensPerSecond(scorecard: unknown): number | null {
+export function getRepoSearchGenerationTokensPerSecond(scorecard: OptionalJsonValue): number | null {
   return getGenerationTokensPerSecond(
     getScorecardTotal(scorecard, 'outputTokens'),
     getScorecardTotal(scorecard, 'thinkingTokens'),
@@ -296,7 +298,7 @@ export function getRepoSearchGenerationTokensPerSecond(scorecard: unknown): numb
   );
 }
 
-function hasEstimatedScorecardTokens(scorecard: unknown, key: string): boolean {
+function hasEstimatedScorecardTokens(scorecard: OptionalJsonValue, key: keyof RepoSearchTotals): boolean {
   const count = getScorecardTotal(scorecard, key);
   return count !== null && count > 0;
 }
@@ -361,7 +363,7 @@ function readSessionRepoRoot(session: ChatSession): string {
 }
 
 function resolveChatRepoRoot(request: { repoRoot?: string }, session: ChatSession): string {
-  return path.resolve(request.repoRoot || readSessionRepoRoot(session));
+  return resolve(request.repoRoot || readSessionRepoRoot(session));
 }
 
 async function notifyChatStatus(options: {
@@ -479,8 +481,8 @@ function readManagedLlamaSessionSpeculativeMetrics(
 class ListChatSessionsEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     routeMatch: RouteMatch,
   ): Promise<void> {
     const pathname = routeMatch.pathname;
@@ -495,8 +497,8 @@ class ListChatSessionsEndpoint implements RouteEndpoint {
 class GetChatSessionEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     routeMatch: RouteMatch,
   ): Promise<void> {
     const pathname = routeMatch.pathname;
@@ -516,8 +518,8 @@ class GetChatSessionEndpoint implements RouteEndpoint {
 class UpdateChatSessionEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     routeMatch: RouteMatch,
   ): Promise<void> {
     const pathname = routeMatch.pathname;
@@ -559,7 +561,7 @@ class UpdateChatSessionEndpoint implements RouteEndpoint {
       updated.presetId = mapLegacyModeToPresetId(updateRequest.mode);
     }
     if (updateRequest.planRepoRoot) {
-      updated.planRepoRoot = path.resolve(updateRequest.planRepoRoot);
+      updated.planRepoRoot = resolve(updateRequest.planRepoRoot);
     }
     saveChatSession(runtimeRoot, updated);
     sendJson(res, 200, buildChatSessionResponse(currentConfig, updated));
@@ -570,8 +572,8 @@ class UpdateChatSessionEndpoint implements RouteEndpoint {
 class DeleteChatSessionEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     routeMatch: RouteMatch,
   ): Promise<void> {
     const pathname = routeMatch.pathname;
@@ -591,8 +593,8 @@ class DeleteChatSessionEndpoint implements RouteEndpoint {
 class DeleteChatMessageEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     routeMatch: RouteMatch,
   ): Promise<void> {
     const pathname = routeMatch.pathname;
@@ -612,7 +614,7 @@ class DeleteChatMessageEndpoint implements RouteEndpoint {
       ? deletedMessage.toolCallCommand.trim()
       : '';
     if (runId && commandText) {
-      removeDashboardRunCommandFromLogs(getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite')), runId, commandText);
+      removeDashboardRunCommandFromLogs(getRuntimeDatabase(join(runtimeRoot, 'runtime.sqlite')), runId, commandText);
     }
     const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId)) || result.session;
     sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), session));
@@ -623,8 +625,8 @@ class DeleteChatMessageEndpoint implements RouteEndpoint {
 class CreateChatSessionEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     routeMatch: RouteMatch,
   ): Promise<void> {
     const pathname = routeMatch.pathname;
@@ -644,7 +646,7 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
     const runtimeLlamaCfg = currentConfig.Runtime.LlamaCpp;
     const presetId = findPresetById(presets, createRequest.presetId)?.id || 'chat';
     const session: ChatSession = {
-      id: crypto.randomUUID(),
+      id: randomUUID(),
       title: createRequest.title || 'New Session',
       model: createRequest.model || currentConfig.Runtime.Model || null,
       contextWindowTokens: Number(runtimeLlamaCfg.NumCtx || 150000),
@@ -667,8 +669,8 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
 class CreateChatMessageEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     routeMatch: RouteMatch,
   ): Promise<void> {
     const pathname = routeMatch.pathname;
@@ -714,7 +716,7 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
       }
     }
     const userContent = messageRequest.content;
-    const requestId = crypto.randomUUID();
+    const requestId = randomUUID();
     const startedAt = Date.now();
     const requestStartedAtUtc = new Date(startedAt).toISOString();
     const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
@@ -829,8 +831,8 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
 class StreamChatMessageEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     routeMatch: RouteMatch,
   ): Promise<void> {
     const pathname = routeMatch.pathname;
@@ -874,7 +876,7 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
     }
     let clientDisconnected = false;
     req.on('close', () => { clientDisconnected = true; });
-    const writeSse = (eventName: string, payload: unknown): void => {
+    const writeSse = (eventName: string, payload: JsonSerializable): void => {
       if (clientDisconnected) return;
       try {
         res.write(`event: ${eventName}\n`);
@@ -884,7 +886,7 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     res.write('\n');
     const userContent = messageRequest.content;
-    const requestId = crypto.randomUUID();
+    const requestId = randomUUID();
     const startedAt = Date.now();
     const requestStartedAtUtc = new Date(startedAt).toISOString();
     const phaseTracker = createChatTurnPhaseTracker(requestStartedAtUtc);
@@ -1028,8 +1030,8 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
 class CreateChatPlanEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     routeMatch: RouteMatch,
   ): Promise<void> {
     const pathname = routeMatch.pathname;
@@ -1055,7 +1057,7 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
       return;
     }
     const resolvedRepoRoot = resolveChatRepoRoot(repoRequest, session);
-    if (!fs.existsSync(resolvedRepoRoot) || !fs.statSync(resolvedRepoRoot).isDirectory()) {
+    if (!existsSync(resolvedRepoRoot) || !statSync(resolvedRepoRoot).isDirectory()) {
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
       return;
     }
@@ -1181,8 +1183,8 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
 class StreamChatPlanEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     routeMatch: RouteMatch,
   ): Promise<void> {
     const pathname = routeMatch.pathname;
@@ -1208,7 +1210,7 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
       return;
     }
     const resolvedRepoRoot = resolveChatRepoRoot(repoRequest, session);
-    if (!fs.existsSync(resolvedRepoRoot) || !fs.statSync(resolvedRepoRoot).isDirectory()) {
+    if (!existsSync(resolvedRepoRoot) || !statSync(resolvedRepoRoot).isDirectory()) {
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
       return;
     }
@@ -1231,7 +1233,7 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
     }
     let clientDisconnected = false;
     req.on('close', () => { clientDisconnected = true; });
-    const writeSse = (eventName: string, payload: unknown): void => {
+    const writeSse = (eventName: string, payload: JsonSerializable): void => {
       if (clientDisconnected) return;
       try {
         res.write(`event: ${eventName}\n`);
@@ -1353,8 +1355,8 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
 class PreviewRepoSearchAppendEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     routeMatch: RouteMatch,
   ): Promise<void> {
     const pathname = routeMatch.pathname;
@@ -1376,7 +1378,7 @@ class PreviewRepoSearchAppendEndpoint implements RouteEndpoint {
     }
     const appendPreviewRequest = parseChatRepoAppendPreviewRequest(parsedBody);
     const resolvedRepoRoot = resolveChatRepoRoot(appendPreviewRequest, session);
-    if (!fs.existsSync(resolvedRepoRoot) || !fs.statSync(resolvedRepoRoot).isDirectory()) {
+    if (!existsSync(resolvedRepoRoot) || !statSync(resolvedRepoRoot).isDirectory()) {
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
       return;
     }
@@ -1413,8 +1415,8 @@ class PreviewRepoSearchAppendEndpoint implements RouteEndpoint {
 class StreamRepoSearchEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     routeMatch: RouteMatch,
   ): Promise<void> {
     const pathname = routeMatch.pathname;
@@ -1440,7 +1442,7 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
       return;
     }
     const resolvedRepoRoot = resolveChatRepoRoot(repoRequest, session);
-    if (!fs.existsSync(resolvedRepoRoot) || !fs.statSync(resolvedRepoRoot).isDirectory()) {
+    if (!existsSync(resolvedRepoRoot) || !statSync(resolvedRepoRoot).isDirectory()) {
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
       return;
     }
@@ -1463,7 +1465,7 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
     }
     let clientDisconnected = false;
     req.on('close', () => { clientDisconnected = true; });
-    const writeSse = (eventName: string, payload: unknown): void => {
+    const writeSse = (eventName: string, payload: JsonSerializable): void => {
       if (clientDisconnected) return;
       try {
         res.write(`event: ${eventName}\n`);
@@ -1585,8 +1587,8 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
 class CondenseChatSessionEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     routeMatch: RouteMatch,
   ): Promise<void> {
     const pathname = routeMatch.pathname;
@@ -1621,8 +1623,8 @@ const CHAT_ROUTES = new RouteTable([
 
 export async function handleChatRoute(
   ctx: ServerContext,
-  req: http.IncomingMessage,
-  res: http.ServerResponse,
+  req: IncomingMessage,
+  res: ServerResponse,
   pathname: string,
 ): Promise<boolean> {
   return await CHAT_ROUTES.handle(ctx, req, res, pathname);

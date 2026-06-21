@@ -1,4 +1,4 @@
-import * as path from 'node:path';
+import { extname, join, resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { sleep } from '../lib/time.js';
 import {
@@ -276,9 +276,9 @@ export class ManagedLlamaFlushQueue {
     // not scale across many short-lived servers. The worker is internal
     // log-flush plumbing (not code under test), so load the compiled artifact
     // from dist in that case — a lightweight Worker thread, no tsx subprocess.
-    const workerPath = path.extname(__filename) === '.ts'
-      ? path.resolve(__dirname, '..', '..', 'dist', 'status-server', 'managed-llama-flush-worker.js')
-      : path.join(__dirname, 'managed-llama-flush-worker.js');
+    const workerPath = extname(__filename) === '.ts'
+      ? resolve(__dirname, '..', '..', 'dist', 'status-server', 'managed-llama-flush-worker.js')
+      : join(__dirname, 'managed-llama-flush-worker.js');
     this.worker = new Worker(workerPath);
     this.worker.unref();
     this.worker.on('exit', () => {

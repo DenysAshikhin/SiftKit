@@ -1,13 +1,14 @@
-import * as fs from 'node:fs';
+import { existsSync } from 'node:fs';
 import Database from 'better-sqlite3';
+import { z } from '../../lib/zod.js';
 import { getRuntimeDatabasePath } from '../../config/paths.js';
 import { type JsonlEvent } from '../../state/jsonl-transcript.js';
 import { ensureRunLogsTable } from './table.js';
-import type {
-  DashboardRunsQueryOptions,
-  RunLogDbRow,
-  RunLogGroup,
-  RunRecord,
+import {
+  RunLogDbRowSchema,
+  type DashboardRunsQueryOptions,
+  type RunLogGroup,
+  type RunRecord,
 } from './types.js';
 import {
   normalizeRunRecordFromDbRow,
@@ -94,7 +95,7 @@ function isRunLogGroup(value: string): value is RunLogGroup {
 export function loadDashboardRuns(runtimeRoot: string): RunRecord[] {
   void runtimeRoot;
   const databasePath = getRuntimeDatabasePath();
-  if (!fs.existsSync(databasePath)) {
+  if (!existsSync(databasePath)) {
     return [];
   }
   const database = new Database(databasePath);
@@ -108,7 +109,7 @@ export function loadDashboardRuns(runtimeRoot: string): RunRecord[] {
 export function buildDashboardRunDetail(runtimeRoot: string, runId: string): { run: RunRecord; events: JsonlEvent[] } | null {
   void runtimeRoot;
   const databasePath = getRuntimeDatabasePath();
-  if (!fs.existsSync(databasePath)) {
+  if (!existsSync(databasePath)) {
     return null;
   }
   const database = new Database(databasePath);
@@ -130,12 +131,12 @@ export function queryDashboardRunsFromDb(
   const shouldApplyInitialCap = options.initial === true && !search && !kind && !status;
   const limitPerGroup = Math.max(1, Math.min(200, Number.isFinite(Number(options.limitPerGroup)) ? Math.trunc(Number(options.limitPerGroup)) : 20));
   const rows = shouldApplyInitialCap
-    ? database.prepare(`
+    ? z.array(RunLogDbRowSchema).parse(database.prepare(`
       SELECT ${RUN_LOG_LIST_SELECT_COLUMNS}
       FROM run_logs
       ORDER BY COALESCE(finished_at_utc, started_at_utc, '1970-01-01T00:00:00.000Z') DESC, id DESC
       LIMIT ?
-    `).all(limitPerGroup) as RunLogDbRow[]
+    `).all(limitPerGroup))
     : (() => {
       const whereClauses: string[] = [];
       const params: string[] = [];
@@ -153,12 +154,12 @@ export function queryDashboardRunsFromDb(
         params.push(likePattern, likePattern);
       }
       const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
-      return database.prepare(`
+      return z.array(RunLogDbRowSchema).parse(database.prepare(`
         SELECT ${RUN_LOG_LIST_SELECT_COLUMNS}
         FROM run_logs
         ${whereSql}
         ORDER BY COALESCE(started_at_utc, '1970-01-01T00:00:00.000Z') DESC, id DESC
-      `).all(...params) as RunLogDbRow[];
+      `).all(...params));
     })();
   return rows.map((row) => normalizeRunRecordFromDbRow(row));
 }
@@ -168,15 +169,16 @@ export function queryDashboardRunDetailFromDb(
   runId: string,
 ): { run: RunRecord; events: JsonlEvent[] } | null {
   ensureRunLogsTable(database);
-  const row = database.prepare(`
+  const rawRow = database.prepare(`
     SELECT ${RUN_LOG_DETAIL_SELECT_COLUMNS}
     FROM run_logs
     WHERE run_id = ?
     LIMIT 1
-  `).get(runId) as RunLogDbRow | undefined;
-  if (!row || typeof row !== 'object') {
+  `).get(runId);
+  if (rawRow == null) {
     return null;
   }
+  const row = RunLogDbRowSchema.parse(rawRow);
   const run = normalizeRunRecordFromDbRow(row);
   const events: JsonlEvent[] = [];
   events.push(...parseJsonlEventsFromText(typeof row.repo_search_transcript_jsonl === 'string' ? row.repo_search_transcript_jsonl : null));

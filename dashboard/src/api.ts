@@ -25,6 +25,7 @@ import type {
   WebSearchQuotaResponse,
 } from './types.js';
 import { ChatStreamReader, type ChatStreamToolEvent } from './lib/chat-stream-parser.js';
+import type { JsonValue, JsonSerializable } from '../../src/lib/json-types.js';
 
 async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, init);
@@ -32,7 +33,7 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
     const text = await response.text();
     throw new Error(`Request failed (${response.status}): ${text}`);
   }
-  return response.json() as Promise<T>;
+  return response.json();
 }
 
 export function getRuns(
@@ -120,7 +121,7 @@ export async function restartBackend(): Promise<RestartBackendResponse> {
   const text = await response.text();
   let payload: RestartBackendResponse;
   try {
-    payload = (text ? JSON.parse(text) : {}) as RestartBackendResponse;
+    payload = text ? JSON.parse(text) : {};
   } catch {
     throw new Error(`Request failed (${response.status}): ${text}`);
   }
@@ -205,14 +206,18 @@ export function updateBenchmarkAttemptGrade(
 
 export function openBenchmarkSessionEvents(
   sessionId: string,
-  onEvent: (eventName: string, payload: unknown) => void,
+  onEvent: (eventName: string, payload: JsonValue) => void,
 ): () => void {
   const eventSource = new EventSource(`/dashboard/benchmark/sessions/${encodeURIComponent(sessionId)}/events`);
   const eventNames = ['log', 'attempt', 'session', 'done', 'error'];
   for (const eventName of eventNames) {
     eventSource.addEventListener(eventName, (event) => {
+      if (!(event instanceof MessageEvent)) {
+        return;
+      }
       try {
-        onEvent(eventName, JSON.parse((event as MessageEvent).data) as unknown);
+        const data: JsonValue = JSON.parse(String(event.data));
+        onEvent(eventName, data);
       } catch {
         onEvent(eventName, {});
       }
@@ -342,7 +347,7 @@ export function createPlanMessage(
 
 async function consumeChatStream(
   url: string,
-  payload: unknown,
+  payload: Record<string, JsonSerializable>,
   onThinking: (thinkingText: string) => void,
   onToolEvent: (event: ChatStreamToolEvent) => void,
   onAnswer?: (answerText: string) => void,

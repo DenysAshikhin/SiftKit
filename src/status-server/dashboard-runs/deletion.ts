@@ -1,51 +1,65 @@
-import * as fs from 'node:fs';
+import { existsSync, unlinkSync } from 'node:fs';
 import Database from 'better-sqlite3';
+import { z } from '../../lib/zod.js';
 import { JsonRecordReader } from '../../lib/json-record-reader.js';
-import type { JsonObject } from '../../lib/json-types.js';
+import { parseJsonValueText } from '../../lib/json.js';
+import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
 import { commandMatchesDisplayText } from '../tool-command-display.js';
 import { ensureRunLogsTable, tableExists } from './table.js';
 import type { DashboardRunLogDeleteCriteria, DashboardRunLogType } from './types.js';
 
 type DatabaseInstance = InstanceType<typeof Database>;
 
-type RunLogIdRow = {
-  run_id?: unknown;
+const RunIdRowSchema = z.object({ run_id: z.string().nullable() });
+const CountRowSchema = z.object({ count: z.number() });
+const TranscriptRowSchema = z.object({ repo_search_transcript_jsonl: z.string().nullable() });
+const ArtifactRowSchema = z.object({ id: z.string(), content_json: z.string().nullable() });
+const SourcePathsRowSchema = z.object({ source_paths_json: z.string().nullable() });
+
+type ScorecardRewriteResult = {
+  scorecard: JsonObject;
+  changed: boolean;
 };
 
-type RunLogCountRow = {
-  count?: unknown;
-};
-
-type ScorecardTaskPayload = {
-  commands?: unknown;
-};
-
-function readJsonObjectArray(value: unknown): JsonObject[] {
+function readJsonObjectArray(value: OptionalJsonValue): JsonObject[] {
   return Array.isArray(value)
     ? value.map((entry) => JsonRecordReader.asObject(entry)).filter((entry): entry is JsonObject => entry !== null)
     : [];
 }
 
-function removeCommandFromScorecard(scorecard: unknown, commandText: string): boolean {
+function removeCommandFromScorecard(scorecard: OptionalJsonValue, commandText: string): ScorecardRewriteResult | null {
   if (!scorecard || typeof scorecard !== 'object') {
-    return false;
+    return null;
   }
   const scorecardRecord = JsonRecordReader.asObject(scorecard);
-  const tasks = readJsonObjectArray(scorecardRecord?.tasks);
+  if (!scorecardRecord) {
+    return null;
+  }
+  const tasksValue = scorecardRecord.tasks;
+  if (!Array.isArray(tasksValue)) {
+    return { scorecard: scorecardRecord, changed: false };
+  }
   let changed = false;
-  for (const task of tasks) {
-    const taskPayload = task as ScorecardTaskPayload;
-    if (!Array.isArray(taskPayload.commands)) {
-      continue;
+  const tasks = tasksValue.map((taskValue) => {
+    const task = JsonRecordReader.asObject(taskValue);
+    if (!task) {
+      return taskValue;
     }
-    const originalCommands = readJsonObjectArray(taskPayload.commands);
+    if (!Array.isArray(task.commands)) {
+      return task;
+    }
+    const originalCommands = readJsonObjectArray(task.commands);
     const filteredCommands = originalCommands.filter((command) => !commandMatchesDisplayText(command, commandText));
     if (filteredCommands.length !== originalCommands.length) {
-      taskPayload.commands = filteredCommands;
       changed = true;
+      return { ...task, commands: filteredCommands };
     }
-  }
-  return changed;
+    return task;
+  });
+  return {
+    scorecard: changed ? { ...scorecardRecord, tasks } : scorecardRecord,
+    changed,
+  };
 }
 
 function removeCommandFromTranscriptJsonl(text: string | null, commandText: string): { text: string | null; changed: boolean } {
@@ -60,7 +74,7 @@ function removeCommandFromTranscriptJsonl(text: string | null, commandText: stri
     }
     let parsed: JsonObject | null = null;
     try {
-      parsed = JsonRecordReader.asObject(JSON.parse(line) as unknown);
+      parsed = JsonRecordReader.asObject(parseJsonValueText(line));
     } catch {
       keptLines.push(line);
       continue;
@@ -69,16 +83,24 @@ function removeCommandFromTranscriptJsonl(text: string | null, commandText: stri
       keptLines.push(line);
       continue;
     }
-    const payload = JsonRecordReader.asObject(parsed.payload) || parsed;
+    const nestedPayload = JsonRecordReader.asObject(parsed.payload);
+    const payload = nestedPayload || parsed;
     const kind = String(parsed.kind || payload.kind || '');
     if (commandMatchesDisplayText(payload, commandText) && (kind === 'turn_command_result' || kind === 'tool_start' || kind === 'tool_result')) {
       changed = true;
       continue;
     }
-    if (kind === 'run_done' && payload.scorecard && removeCommandFromScorecard(payload.scorecard, commandText)) {
-      changed = true;
+    let outputRecord = parsed;
+    if (kind === 'run_done' && payload.scorecard) {
+      const rewrittenScorecard = removeCommandFromScorecard(payload.scorecard, commandText);
+      if (rewrittenScorecard?.changed) {
+        outputRecord = nestedPayload
+          ? { ...parsed, payload: { ...nestedPayload, scorecard: rewrittenScorecard.scorecard } }
+          : { ...parsed, scorecard: rewrittenScorecard.scorecard };
+        changed = true;
+      }
     }
-    keptLines.push(JSON.stringify(parsed));
+    keptLines.push(JSON.stringify(outputRecord));
   }
   return { text: keptLines.length > 0 ? keptLines.join('\n') : null, changed };
 }
@@ -91,12 +113,13 @@ export function removeDashboardRunCommandFromLogs(database: DatabaseInstance, ru
   }
   ensureRunLogsTable(database);
   database.transaction(() => {
-    const row = database.prepare(`
+    const rawTranscriptRow = database.prepare(`
       SELECT repo_search_transcript_jsonl
       FROM run_logs
       WHERE run_id = ?
       LIMIT 1
-    `).get(normalizedRunId) as { repo_search_transcript_jsonl?: string | null } | undefined;
+    `).get(normalizedRunId);
+    const row = rawTranscriptRow == null ? undefined : TranscriptRowSchema.parse(rawTranscriptRow);
     if (row) {
       const rewritten = removeCommandFromTranscriptJsonl(
         typeof row.repo_search_transcript_jsonl === 'string' ? row.repo_search_transcript_jsonl : null,
@@ -108,28 +131,31 @@ export function removeDashboardRunCommandFromLogs(database: DatabaseInstance, ru
       }
     }
     if (tableExists(database, 'runtime_artifacts')) {
-      const artifactRows = database.prepare(`
+      const artifactRows = z.array(ArtifactRowSchema).parse(database.prepare(`
         SELECT id, content_json
         FROM runtime_artifacts
         WHERE request_id = ? AND content_json IS NOT NULL
-      `).all(normalizedRunId) as Array<{ id: string; content_json: string | null }>;
+      `).all(normalizedRunId));
       for (const artifactRow of artifactRows) {
         if (typeof artifactRow.content_json !== 'string' || !artifactRow.content_json.trim()) {
           continue;
         }
         let parsed: JsonObject | null;
         try {
-          parsed = JsonRecordReader.asObject(JSON.parse(artifactRow.content_json) as unknown);
+          parsed = JsonRecordReader.asObject(parseJsonValueText(artifactRow.content_json));
         } catch {
           continue;
         }
         if (!parsed) {
           continue;
         }
-        const changed = removeCommandFromScorecard(parsed.scorecard ?? parsed, normalizedCommand);
-        if (changed) {
+        const rewrittenScorecard = removeCommandFromScorecard(parsed.scorecard ?? parsed, normalizedCommand);
+        if (rewrittenScorecard?.changed) {
+          const rewrittenArtifact = parsed.scorecard
+            ? { ...parsed, scorecard: rewrittenScorecard.scorecard }
+            : rewrittenScorecard.scorecard;
           database.prepare('UPDATE runtime_artifacts SET content_json = ?, updated_at_utc = ? WHERE id = ?')
-            .run(JSON.stringify(parsed), new Date().toISOString(), artifactRow.id);
+            .run(JSON.stringify(rewrittenArtifact), new Date().toISOString(), artifactRow.id);
         }
       }
     }
@@ -154,20 +180,20 @@ function listRunLogIdsForDeletion(database: DatabaseInstance, criteria: Dashboar
   ensureRunLogsTable(database);
   const { clause, params } = buildRunLogTypeWhereClause(criteria.type);
   if (criteria.mode === 'count') {
-    return database.prepare(`
+    return z.array(RunIdRowSchema).parse(database.prepare(`
       SELECT run_id
       FROM run_logs
       ${clause}
       ORDER BY ${buildRunLogTimestampSql()} ASC, id ASC
       LIMIT ?
-    `).all(...params, criteria.count).map((row) => String((row as RunLogIdRow).run_id || ''));
+    `).all(...params, criteria.count)).map((row) => String(row.run_id || ''));
   }
-  return database.prepare(`
+  return z.array(RunIdRowSchema).parse(database.prepare(`
     SELECT run_id
     FROM run_logs
     ${clause ? `${clause} AND ` : 'WHERE '}${buildRunLogTimestampSql()} < ?
     ORDER BY ${buildRunLogTimestampSql()} ASC, id ASC
-  `).all(...params, `${criteria.beforeDate}T00:00:00.000Z`).map((row) => String((row as RunLogIdRow).run_id || ''));
+  `).all(...params, `${criteria.beforeDate}T00:00:00.000Z`)).map((row) => String(row.run_id || ''));
 }
 
 const AUX_RUN_HISTORY_DELETE_STATEMENTS: { table: string; countSql: string; deleteSql: string }[] = [
@@ -204,9 +230,9 @@ function countLinkedRuntimeArtifacts(database: DatabaseInstance, runLogIds: stri
     return 0;
   }
   const placeholders = runLogIds.map(() => '?').join(', ');
-  const row = database.prepare(`
+  const row = CountRowSchema.parse(database.prepare(`
     SELECT COUNT(*) AS count FROM runtime_artifacts WHERE request_id IN (${placeholders})
-  `).get(...runLogIds) as RunLogCountRow;
+  `).get(...runLogIds));
   return Number(row.count || 0);
 }
 
@@ -214,9 +240,9 @@ function parseRunLogSourcePaths(sourcePathsJson: string | null): string[] {
   if (!sourcePathsJson) {
     return [];
   }
-  let parsed: unknown;
+  let parsed: OptionalJsonValue;
   try {
-    parsed = JSON.parse(sourcePathsJson) as unknown;
+    parsed = parseJsonValueText(sourcePathsJson);
   } catch {
     return [];
   }
@@ -232,11 +258,11 @@ function listRunLogSourcePaths(database: DatabaseInstance, runLogIds: string[]):
     return [];
   }
   const placeholders = runLogIds.map(() => '?').join(', ');
-  const rows = database.prepare(`
+  const rows = z.array(SourcePathsRowSchema).parse(database.prepare(`
     SELECT source_paths_json
     FROM run_logs
     WHERE run_id IN (${placeholders})
-  `).all(...runLogIds) as Array<{ source_paths_json: string | null }>;
+  `).all(...runLogIds));
   const sourcePaths = new Set<string>();
   for (const row of rows) {
     for (const sourcePath of parseRunLogSourcePaths(row.source_paths_json)) {
@@ -248,10 +274,10 @@ function listRunLogSourcePaths(database: DatabaseInstance, runLogIds: string[]):
 
 function deleteRunLogSourceFiles(sourcePaths: string[]): void {
   for (const sourcePath of sourcePaths) {
-    if (!fs.existsSync(sourcePath)) {
+    if (!existsSync(sourcePath)) {
       continue;
     }
-    fs.unlinkSync(sourcePath);
+    unlinkSync(sourcePath);
   }
 }
 
@@ -268,7 +294,7 @@ export function previewDashboardRunLogDeletion(
       if (!tableExists(database, table)) {
         continue;
       }
-      const row = database.prepare(countSql).get(cutoff) as RunLogCountRow;
+      const row = CountRowSchema.parse(database.prepare(countSql).get(cutoff));
       matchCount += Number(row.count || 0);
     }
     return { matchCount };

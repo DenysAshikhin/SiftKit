@@ -228,7 +228,7 @@ export function ManagedLlamaSection({
         <input type="number" value={selectedManagedLlamaPreset.CacheRam} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.CacheRam = parseIntegerInput(event.target.value, preset.CacheRam); })} />
       ))}
       {renderField('model-presets', 'KV cache quant', (
-        <select value={selectedManagedLlamaPreset.KvCacheQuantization} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.KvCacheQuantization = event.target.value as typeof preset.KvCacheQuantization; })}>
+        <select value={selectedManagedLlamaPreset.KvCacheQuantization} onChange={(event) => updateManagedLlamaDraft((preset) => { const next = KV_CACHE_QUANT_OPTIONS.find((option) => option === event.target.value); if (next) preset.KvCacheQuantization = next; })}>
           {KV_CACHE_QUANT_OPTIONS.map((option) => (
             <option key={option} value={option}>{option}</option>
           ))}
@@ -259,7 +259,7 @@ export function ManagedLlamaSection({
         <select
           value={selectedManagedLlamaPreset.Reasoning}
           onChange={(event) => updateManagedLlamaDraft((preset) => {
-            preset.Reasoning = event.target.value as 'on' | 'off';
+            preset.Reasoning = event.target.value === 'on' ? 'on' : 'off';
             if (preset.Reasoning !== 'on') {
               preset.ReasoningContent = false;
               preset.PreserveThinking = false;
@@ -319,7 +319,7 @@ export function ManagedLlamaSection({
         </label>
       ))}
       {selectedManagedLlamaPreset.SpeculativeEnabled ? renderField('model-presets', 'Speculative type', (
-        <select value={selectedManagedLlamaPreset.SpeculativeType} onChange={(event) => updateManagedLlamaDraft((preset) => { preset.SpeculativeType = event.target.value as typeof preset.SpeculativeType; })}>
+        <select value={selectedManagedLlamaPreset.SpeculativeType} onChange={(event) => updateManagedLlamaDraft((preset) => { const next = SPECULATIVE_TYPE_OPTIONS.find((option) => option === event.target.value); if (next) preset.SpeculativeType = next; })}>
           {SPECULATIVE_TYPE_OPTIONS.map((option) => (
             <option key={option} value={option}>{option}</option>
           ))}

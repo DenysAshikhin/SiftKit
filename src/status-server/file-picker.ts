@@ -1,4 +1,4 @@
-import * as path from 'node:path';
+import { basename, dirname, extname, normalize } from 'node:path';
 import { spawn } from 'node:child_process';
 
 export type ManagedFilePickerTarget = 'managed-llama-executable' | 'managed-llama-model';
@@ -25,9 +25,9 @@ function buildInitialDirectoryExpression(initialPath: string | null): string {
   if (!trimmed) {
     return '$null';
   }
-  const normalized = path.normalize(trimmed);
-  const hasExtension = path.extname(normalized).length > 0;
-  const directory = hasExtension ? path.dirname(normalized) : normalized;
+  const normalized = normalize(trimmed);
+  const hasExtension = extname(normalized).length > 0;
+  const directory = hasExtension ? dirname(normalized) : normalized;
   return toPowerShellSingleQuotedString(directory);
 }
 
@@ -39,9 +39,9 @@ function buildInitialFileNameExpression(initialPath: string | null): string {
   if (!trimmed) {
     return '$null';
   }
-  const normalized = path.normalize(trimmed);
-  return path.extname(normalized).length > 0
-    ? toPowerShellSingleQuotedString(path.basename(normalized))
+  const normalized = normalize(trimmed);
+  return extname(normalized).length > 0
+    ? toPowerShellSingleQuotedString(basename(normalized))
     : '$null';
 }
 

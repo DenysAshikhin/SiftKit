@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as http from 'node:http';
+import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import { ModelJson } from '../src/lib/model-json.js';

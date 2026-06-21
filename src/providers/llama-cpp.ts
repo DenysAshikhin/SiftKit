@@ -3,6 +3,8 @@ import { estimatePromptTokenCountFromCharacters, getDynamicMaxOutputTokens } fro
 import { ModelJson } from '../lib/model-json.js';
 import { tryRecordAccurateCharTokenObservation } from '../state/observed-budget.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
+import { getErrorMessage } from '../lib/errors.js';
+import type { OptionalJsonValue } from '../lib/json-types.js';
 import type {
   JsonObject,
   LlamaCppChatMessage as ProtocolLlamaCppChatMessage,
@@ -18,10 +20,6 @@ import {
   type StructuredOutputToolDefinition,
 } from './structured-output-schema.js';
 import { createTracer } from '../lib/trace.js';
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function logLlamaCppError(operation: string, message: string): void {
   console.error(`llama.cpp ${operation} error: ${message}`);
@@ -70,7 +68,7 @@ export type LlamaCppChatMessage = {
     type?: string;
     function?: {
       name?: string;
-      arguments?: unknown;
+      arguments?: OptionalJsonValue;
     };
   }>;
   tool_call_id?: string;
@@ -83,7 +81,7 @@ export type LlamaCppStructuredOutput =
 
 type PlannerStructuredToolCall = {
   tool_name: string;
-  args: Record<string, unknown>;
+  args: JsonObject;
 };
 
 const traceLlamaCpp = createTracer('SIFTKIT_TRACE_SUMMARY', 'llama-cpp');
@@ -102,7 +100,7 @@ function getStructuredOutputResponseFormat(
       schema: buildSummaryDecisionJsonSchema({
         allowUnsupportedInput: structuredOutput.allowUnsupportedInput !== false,
       }),
-    }) as LlamaCppResponseFormat;
+    });
   }
 
   if (structuredOutput.kind === 'siftkit-planner-action-json') {
@@ -115,7 +113,7 @@ function getStructuredOutputResponseFormat(
         toolDefinitions,
         allowUnsupportedInput: structuredOutput.allowUnsupportedInput !== false,
       }),
-    }) as LlamaCppResponseFormat;
+    });
   }
 
   return null;
@@ -184,7 +182,7 @@ function toProtocolToolCalls(
   });
 }
 
-function toProtocolMessages(messages: readonly LlamaCppChatMessage[]): ProtocolLlamaCppChatMessage[] {
+export function toProtocolMessages(messages: readonly LlamaCppChatMessage[]): ProtocolLlamaCppChatMessage[] {
   return messages.map((message) => {
     const reasoningContent = toProtocolReasoning(message.reasoning_content);
     const toolCalls = toProtocolToolCalls(message.tool_calls);
@@ -198,26 +196,15 @@ function toProtocolMessages(messages: readonly LlamaCppChatMessage[]): ProtocolL
   });
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function toJsonObject(value: unknown): JsonObject {
-  return isRecord(value) ? JSON.parse(JSON.stringify(value)) as JsonObject : {};
-}
-
-function toProtocolTools(tools: unknown[] | undefined): LlamaCppToolDefinition[] {
+export function toProtocolTools(tools: StructuredOutputToolDefinition[] | undefined): LlamaCppToolDefinition[] {
   if (!Array.isArray(tools)) {
     return [];
   }
 
   return tools.flatMap((tool): LlamaCppToolDefinition[] => {
-    if (!isRecord(tool) || tool.type !== 'function' || !isRecord(tool.function)) {
-      return [];
-    }
-    const name = typeof tool.function.name === 'string' ? tool.function.name : '';
+    const name = tool.function.name.trim();
     const description = typeof tool.function.description === 'string' ? tool.function.description : '';
-    if (!name.trim()) {
+    if (!name) {
       return [];
     }
     return [{
@@ -225,7 +212,7 @@ function toProtocolTools(tools: unknown[] | undefined): LlamaCppToolDefinition[]
       function: {
         name,
         description,
-        parameters: toJsonObject(tool.function.parameters),
+        parameters: tool.function.parameters ?? { type: 'object', properties: {}, required: [] },
       },
     }];
   });
@@ -452,7 +439,7 @@ export async function generateLlamaCppChatResponse(options: {
   timeoutSeconds: number;
   slotId?: number;
   cachePrompt?: boolean;
-  tools?: unknown[];
+  tools?: StructuredOutputToolDefinition[];
   structuredOutput?: LlamaCppStructuredOutput;
   reasoningOverride?: 'on' | 'off';
   promptTokenCount?: number | null;

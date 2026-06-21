@@ -1,14 +1,25 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import fs from 'node:fs';
+import path from 'node:path';
 
+import { z } from '../../src/lib/zod.js';
+import { parseJsonValueText } from '../../src/lib/json.js';
 import {
   collectCoveredBranchKeys,
   escapeForNamePattern,
-  type CoverageFinal,
+  CoverageFinalSchema,
   type TestBranchSet,
 } from './coverage-attribution-core.js';
+
+const PackageVersionSchema = z.object({ version: z.string() });
+const IsolationResultSchema = z.object({
+  index: z.number(),
+  name: z.string(),
+  branchKeys: z.array(z.string()),
+  ok: z.boolean(),
+  exitCode: z.number(),
+});
 
 const repoRoot = process.cwd();
 const tsxCli = path.resolve(repoRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
@@ -16,8 +27,8 @@ const c8Cli = path.resolve(repoRoot, 'node_modules', 'c8', 'bin', 'c8.js');
 const cacheDir = path.join(repoRoot, '.coverage-attr', 'cache');
 
 function readToolVersions(): string {
-  const c8Pkg = JSON.parse(fs.readFileSync(path.resolve(repoRoot, 'node_modules', 'c8', 'package.json'), 'utf8')) as { version: string };
-  const tsxPkg = JSON.parse(fs.readFileSync(path.resolve(repoRoot, 'node_modules', 'tsx', 'package.json'), 'utf8')) as { version: string };
+  const c8Pkg = PackageVersionSchema.parse(parseJsonValueText(fs.readFileSync(path.resolve(repoRoot, 'node_modules', 'c8', 'package.json'), 'utf8')));
+  const tsxPkg = PackageVersionSchema.parse(parseJsonValueText(fs.readFileSync(path.resolve(repoRoot, 'node_modules', 'tsx', 'package.json'), 'utf8')));
   return `c8@${c8Pkg.version}|tsx@${tsxPkg.version}|node@${process.version}`;
 }
 
@@ -38,7 +49,7 @@ function readCache(key: string): IsolationResult | null {
   if (!fs.existsSync(cachePath)) {
     return null;
   }
-  return JSON.parse(fs.readFileSync(cachePath, 'utf8')) as IsolationResult;
+  return IsolationResultSchema.parse(parseJsonValueText(fs.readFileSync(cachePath, 'utf8')));
 }
 
 function writeCache(key: string, result: IsolationResult): void {
@@ -103,7 +114,7 @@ export function runOneTestInIsolation(
         resolve(failed);
         return;
       }
-      const coverage = JSON.parse(fs.readFileSync(jsonPath, 'utf8')) as CoverageFinal;
+      const coverage = CoverageFinalSchema.parse(parseJsonValueText(fs.readFileSync(jsonPath, 'utf8')));
       const result: IsolationResult = { index, name, branchKeys: [...collectCoveredBranchKeys(coverage, repoRoot)], ok: true, exitCode: 0 };
       writeCache(key, result);
       // Per-test c8 output (full istanbul coverage-final.json + temp dir) is large and now

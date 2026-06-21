@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { getDefaultConfig, normalizeConfig, normalizeWebSearchConfig } from '../src/status-server/config-store';
+import { JsonValueSchema } from '../src/lib/json-types';
 
 test('normalizeWebSearchConfig produces provider defaults and clamps ResultCount to 20', () => {
   const normalized = normalizeWebSearchConfig({ ResultCount: 999, Providers: { tavily: { Enabled: true, ApiKey: '  abc  ' } } });
@@ -64,7 +65,7 @@ test('normalizeConfig clamps WebSearch bounds, trims keys, and repairs ProviderO
     TimeoutMs: 10,
     FetchMaxCharacters: 999999,
   };
-  const normalized = normalizeConfig(config);
+  const normalized = normalizeConfig(JsonValueSchema.parse(config));
   assert.deepEqual(normalized.WebSearch, {
     EnabledDefault: true,
     Providers: {
@@ -92,20 +93,20 @@ test('normalizeConfig falls back an unknown ActivePresetId to the first preset',
   const config = getDefaultConfig() as Dict;
   ((config.Server as Dict).LlamaCpp as Dict).ActivePresetId = 'does-not-exist';
 
-  const normalized = normalizeConfig(config);
+  const normalized = normalizeConfig(JsonValueSchema.parse(config));
   const llama = (normalized.Server as Dict).LlamaCpp as Dict;
 
   assert.equal(llama.ActivePresetId, (llama.Presets as Dict[])[0].id);
 });
 
 test('normalizeConfig accepts draft-mtp speculative decoding type', () => {
-  const normalized = normalizeConfig(configWithSpeculativeType('draft-mtp'));
+  const normalized = normalizeConfig(JsonValueSchema.parse(configWithSpeculativeType('draft-mtp')));
 
   assert.equal(activePreset(normalized).SpeculativeType, 'draft-mtp');
 });
 
 test('normalizeConfig falls back unknown speculative decoding type to ngram-map-k', () => {
-  const normalized = normalizeConfig(configWithSpeculativeType('unknown-speculation'));
+  const normalized = normalizeConfig(JsonValueSchema.parse(configWithSpeculativeType('unknown-speculation')));
 
   assert.equal(activePreset(normalized).SpeculativeType, 'ngram-map-k');
 });
@@ -118,7 +119,7 @@ test('normalizeConfig defaults the MTP combination and ngram-mod fields when abs
   delete preset.SpeculativeNgramModNMin;
   delete preset.SpeculativeNgramModNMax;
 
-  const preset2 = activePreset(normalizeConfig(config));
+  const preset2 = activePreset(normalizeConfig(JsonValueSchema.parse(config)));
 
   assert.equal(preset2.SpeculativeMtpEnabled, false);
   assert.equal(preset2.SpeculativeNgramModNMatch, 24);
@@ -136,7 +137,7 @@ test('normalizeConfig preserves an enabled MTP combination with ngram-mod parame
     SpeculativeNgramModNMax: 48,
   });
 
-  const preset = activePreset(normalizeConfig(config));
+  const preset = activePreset(normalizeConfig(JsonValueSchema.parse(config)));
 
   assert.equal(preset.SpeculativeMtpEnabled, true);
   assert.equal(preset.SpeculativeNgramModNMatch, 24);

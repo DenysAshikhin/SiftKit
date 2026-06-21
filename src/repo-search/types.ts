@@ -1,11 +1,14 @@
+import { z } from '../lib/zod.js';
+import type { JsonSerializable } from '../lib/json-types.js';
+import type { SiftConfig } from '../config/index.js';
+
 export type JsonLogger = {
   path: string;
-  write: (event: Record<string, unknown>) => void;
+  write: (event: Record<string, JsonSerializable>) => void;
 };
-
 import type { RetainedWebToolCall } from '../web-search/web-tool-command.js';
 import type { ChatMessage } from './planner-protocol.js';
-import type { Scorecard } from './engine.js';
+import { ScorecardSchema } from './engine.js';
 
 export type { RetainedWebToolCall } from '../web-search/web-tool-command.js';
 
@@ -49,7 +52,7 @@ export type RepoSearchExecutionRequest = {
   repoRoot: string;
   taskKind?: 'plan' | 'repo-search' | 'chat';
   statusBackendUrl?: string;
-  config?: Record<string, unknown>;
+  config?: SiftConfig;
   model?: string;
   promptPrefix?: string;
   allowedTools?: string[];
@@ -67,9 +70,10 @@ export type RepoSearchExecutionRequest = {
   onProgress?: (event: RepoSearchProgressEvent) => void;
 };
 
-export type RepoSearchExecutionResult = {
-  requestId: string;
-  transcriptPath: string;
-  artifactPath: string;
-  scorecard: Scorecard;
-};
+export const RepoSearchExecutionResultSchema = z.object({
+  requestId: z.string(),
+  transcriptPath: z.string(),
+  artifactPath: z.string(),
+  scorecard: ScorecardSchema,
+});
+export type RepoSearchExecutionResult = z.infer<typeof RepoSearchExecutionResultSchema>;

@@ -1,4 +1,4 @@
-import type * as http from 'node:http';
+import type { Server } from 'node:http';
 import type { ChildProcess } from 'node:child_process';
 import type Database from 'better-sqlite3';
 import type { Metrics } from './metrics.js';
@@ -82,7 +82,7 @@ export type ShutdownManagedLlamaOptions = { force?: boolean; timeoutMs?: number 
 export type StartupReviewOptions = { result?: string; baseUrl?: string; errorMessage?: string };
 export type LogEntry = { label: string; streamKind: ManagedLlamaStreamKind; text: string; matchingLines: string[] };
 
-export type ExtendedServer = http.Server & {
+export type ExtendedServer = Server & {
   shutdownManagedLlamaForServerExit?: () => Promise<void>;
   shutdownManagedLlamaForProcessExitSync?: () => void;
   startupPromise?: Promise<void>;

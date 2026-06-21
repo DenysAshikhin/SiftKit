@@ -1,3 +1,5 @@
+import type { JsonObject } from './lib/json-types.js';
+
 type ToolLoopKind = 'repo-search' | 'planner' | 'chat';
 
 type SuccessfulToolCall = {
@@ -14,7 +16,7 @@ type EvaluateFinishAttemptOptions = {
 type FingerprintToolCallOptions = {
   toolName: string;
   command?: string;
-  args?: Record<string, unknown>;
+  args?: JsonObject;
 };
 
 type ClassifyToolResultNoveltyOptions = {
@@ -76,10 +78,10 @@ function isRepoSearchCommandTool(toolName: string): boolean {
   return normalized === 'run_repo_cmd' || normalized.startsWith('repo_');
 }
 
-function buildJsonFilterFingerprint(args: Record<string, unknown>): string {
+function buildJsonFilterFingerprint(args: JsonObject): string {
   const filters = Array.isArray(args.filters)
     ? args.filters
-      .filter((value): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value))
+      .filter((value): value is JsonObject => Boolean(value) && typeof value === 'object' && !Array.isArray(value))
       .map((filter) => ({
         path: String(filter.path || ''),
         op: String(filter.op || ''),
@@ -98,7 +100,7 @@ function buildJsonFilterFingerprint(args: Record<string, unknown>): string {
   });
 }
 
-function buildReadLinesFingerprint(args: Record<string, unknown>): string {
+function buildReadLinesFingerprint(args: JsonObject): string {
   const startLine = Math.max(1, Number(args.startLine) || 1);
   const endLine = Math.max(startLine, Number(args.endLine) || startLine);
   const midpoint = Math.floor((startLine + endLine) / 2);

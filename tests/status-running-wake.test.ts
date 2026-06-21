@@ -1,21 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as fs from 'node:fs';
-import * as http from 'node:http';
-import * as os from 'node:os';
-import * as path from 'node:path';
-import type { AddressInfo } from 'node:net';
-
+import fs from 'node:fs';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { z } from '../src/lib/zod.js';
+import { parseJsonValueText } from '../src/lib/json.js';
+import type { JsonObject } from '../src/lib/json-types.js';
 import { getDefaultMetrics } from '../src/status-server/metrics.js';
 import { getDefaultConfig } from '../src/status-server/config-store.js';
 import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
 import { StatusEngineService } from '../src/status-server/engine-service.js';
 import { createRequestHandler } from '../src/status-server/routes.js';
 import type { ServerContext } from '../src/status-server/server-types.js';
+import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 
-type JsonResponse = { statusCode: number; body: Record<string, unknown> };
+type JsonResponse = { statusCode: number; body: JsonObject };
 
-function requestJson(url: string, body: Record<string, unknown>): Promise<JsonResponse> {
+function requestJson(url: string, body: JsonObject): Promise<JsonResponse> {
   return new Promise((resolve, reject) => {
     const target = new URL(url);
     const bodyText = JSON.stringify(body);
@@ -40,7 +42,7 @@ function requestJson(url: string, body: Record<string, unknown>): Promise<JsonRe
         response.on('end', () => {
           resolve({
             statusCode: response.statusCode || 0,
-            body: responseText ? JSON.parse(responseText) as Record<string, unknown> : {},
+            body: responseText ? asObject(parseJsonValueText(responseText)) : {},
           });
         });
       },
@@ -51,9 +53,13 @@ function requestJson(url: string, body: Record<string, unknown>): Promise<JsonRe
   });
 }
 
+const StatusContextSchema = z.custom<ServerContext & { readonly wakeCount: number }>(
+  (value) => typeof value === 'object' && value !== null,
+);
+
 function createStatusContext(tempRoot: string): ServerContext & { readonly wakeCount: number } {
   let wakeCount = 0;
-  return {
+  return StatusContextSchema.parse({
     configPath: path.join(tempRoot, 'config.json'),
     statusPath: path.join(tempRoot, 'status.txt'),
     metricsPath: path.join(tempRoot, 'metrics.json'),
@@ -105,7 +111,7 @@ function createStatusContext(tempRoot: string): ServerContext & { readonly wakeC
     get wakeCount(): number {
       return wakeCount;
     },
-  } as ServerContext & { readonly wakeCount: number };
+  });
 }
 
 test('running status notifications wake managed llama for direct provider requests', async () => {
@@ -115,7 +121,7 @@ test('running status notifications wake managed llama for direct provider reques
 
   const server = http.createServer(createRequestHandler(ctx));
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   try {
     const response = await requestJson(`http://127.0.0.1:${address.port}/status`, {
       running: true,

@@ -28,7 +28,7 @@ export function formatElapsed(milliseconds: number): string {
   return `${seconds}s`;
 }
 
-export function formatGroupedNumber(value: unknown, fractionDigits: number | null = null): string {
+export function formatGroupedNumber(value?: number | null, fractionDigits: number | null = null): string {
   if (!Number.isFinite(value)) {
     return 'n/a';
   }
@@ -48,42 +48,42 @@ export function formatGroupedNumber(value: unknown, fractionDigits: number | nul
   });
 }
 
-export function formatInteger(value: unknown): string {
+export function formatInteger(value?: number | null): string {
   if (!Number.isFinite(value)) {
     return 'n/a';
   }
   return formatGroupedNumber(Math.trunc(Number(value)));
 }
 
-export function formatMilliseconds(milliseconds: unknown): string {
+export function formatMilliseconds(milliseconds?: number | null): string {
   if (!Number.isFinite(milliseconds) || Number(milliseconds) < 0) {
     return 'n/a';
   }
   return `${formatGroupedNumber(milliseconds, 2)}ms`;
 }
 
-export function formatSeconds(milliseconds: unknown): string {
+export function formatSeconds(milliseconds?: number | null): string {
   if (!Number.isFinite(milliseconds) || Number(milliseconds) < 0) {
     return 'n/a';
   }
   return `${formatGroupedNumber(Number(milliseconds) / 1000, 2)}s`;
 }
 
-export function formatPercentage(value: unknown): string {
+export function formatPercentage(value?: number | null): string {
   if (!Number.isFinite(value)) {
     return 'n/a';
   }
   return `${formatGroupedNumber(Number(value) * 100, 2)}%`;
 }
 
-export function formatRatio(value: unknown): string {
+export function formatRatio(value?: number | null): string {
   if (!Number.isFinite(value)) {
     return 'n/a';
   }
   return `${formatGroupedNumber(value, 2)}x`;
 }
 
-export function formatTokensPerSecond(value: unknown): string {
+export function formatTokensPerSecond(value?: number | null): string {
   if (!Number.isFinite(value) || Number(value) < 0) {
     return 'n/a';
   }

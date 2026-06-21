@@ -19,12 +19,14 @@ import {
 import {
   countLlamaCppTokens,
   generateLlamaCppChatResponse,
+  toProtocolMessages,
   type CountLlamaCppTokensOptions,
   type LlamaCppGenerateResult,
   type LlamaCppChatMessage,
 } from '../../providers/llama-cpp.js';
 import { getProcessedPromptTokens } from '../../lib/provider-helpers.js';
-import { getErrorMessage } from '../../lib/errors.js';
+import { getErrorMessage, toError } from '../../lib/errors.js';
+import { JsonObjectSchema, type JsonObject } from '../../lib/json-types.js';
 import { ModelJson } from '../../lib/model-json.js';
 import {
   buildConservativeDirectFallbackDecision,
@@ -35,6 +37,8 @@ import {
   executePlannerTool,
   formatPlannerResult,
   formatPlannerToolResultHeader,
+  getPlannerToolName,
+  type PlannerToolResult,
 } from './tools.js';
 import {
   createPlannerDebugRecorder,
@@ -178,8 +182,8 @@ type PlannerToolDefinition = ReturnType<typeof buildPlannerToolDefinitions>[numb
 type SummaryPlannerDebugRecorder = ReturnType<typeof createPlannerDebugRecorder>;
 type SummaryPlannerToolResultRecord = {
   toolName: PlannerToolName;
-  args: Record<string, unknown>;
-  result: unknown;
+  args: JsonObject;
+  result: PlannerToolResult;
   resultText: string;
 };
 
@@ -296,18 +300,23 @@ type SummaryPlannerToolBatchContext = {
   toolStatsPayload: SummaryPlannerToolStatsPayload | null;
 };
 type SummaryPlannerFormattedToolResult = {
-  result: Record<string, unknown>;
+  result: PlannerToolResult;
   promptResultText: string;
   rawResultTokenCount: number;
   resolvedToolResultTokenCount: number;
   toolResultTokenEstimated: boolean;
 };
 
+function isSummaryPlannerModelData(data: AgentLoopModelData | null): data is SummaryPlannerModelData {
+  return data?.kind === 'summary-planner';
+}
+
 function getSummaryPlannerModelData(context: AgentLoopResponseContext): SummaryPlannerModelData {
-  if (context.modelData?.kind !== 'summary-planner') {
+  const data = context.modelData;
+  if (!isSummaryPlannerModelData(data)) {
     throw new Error('Summary planner AgentLoop context is missing provider response data.');
   }
-  return context.modelData as SummaryPlannerModelData;
+  return data;
 }
 
 class SummaryPlannerToolOutputTokenCounter {
@@ -354,7 +363,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
         turnNumber,
         promptTokenCount: 0,
         maxOutputTokens: 0,
-        messages: this.messages as AgentLoopPreparedTurn['messages'],
+        messages: toProtocolMessages(this.messages),
         toolDefinitions: this.toolDefinitions,
         inForcedFinishMode: false,
       };
@@ -393,7 +402,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
         turnNumber: turn,
         promptTokenCount: this.promptTokenCount,
         maxOutputTokens: 0,
-        messages: this.messages as AgentLoopPreparedTurn['messages'],
+        messages: toProtocolMessages(this.messages),
         toolDefinitions: this.toolDefinitions,
         inForcedFinishMode: this.transcriptState.forcedFinishAttemptsRemaining > 0,
       };
@@ -403,7 +412,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       turnNumber: turn,
       promptTokenCount: this.promptTokenCount,
       maxOutputTokens: 0,
-      messages: this.messages as AgentLoopPreparedTurn['messages'],
+      messages: toProtocolMessages(this.messages),
       toolDefinitions: this.toolDefinitions,
       inForcedFinishMode: this.transcriptState.forcedFinishAttemptsRemaining > 0,
     };
@@ -734,11 +743,17 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
   }
 
   private buildToolActions(actions: readonly AgentLoopToolAction[]): SummaryPlannerToolAction[] {
-    return actions.map((action) => ({
-      action: 'tool' as const,
-      tool_name: action.toolName as PlannerToolName,
-      args: action.args,
-    }));
+    return actions.map((action) => {
+      const toolName = getPlannerToolName(action.toolName);
+      if (!toolName) {
+        throw new Error(`Unsupported planner tool: ${action.toolName}`);
+      }
+      return {
+        action: 'tool' as const,
+        tool_name: toolName,
+        args: JsonObjectSchema.parse(action.args),
+      };
+    });
   }
 
   private async notifyToolExecution(
@@ -980,7 +995,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     };
   }
 
-  private executeEffectivePlannerTool(input: SummaryPlannerEffectiveToolAction): Record<string, unknown> {
+  private executeEffectivePlannerTool(input: SummaryPlannerEffectiveToolAction): PlannerToolResult {
     if (input.effectiveToolAction.tool_name === 'read_lines' && input.readLinesNoUnread) {
       return {
         tool: 'read_lines',
@@ -996,7 +1011,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
   private async handleInvalidToolExecution(
     ctx: SummaryPlannerToolBatchContext,
     toolAction: SummaryPlannerToolAction,
-    error: unknown,
+    error: Error,
   ): Promise<AgentLoopToolExecution | null> {
     this.transcriptState.invalidActionCount += 1;
     const invalidResponseError = getErrorMessage(error);
@@ -1026,7 +1041,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     ctx: SummaryPlannerToolBatchContext,
     effectiveToolAction: SummaryPlannerToolAction,
     toolAction: SummaryPlannerToolAction,
-    result: Record<string, unknown>,
+    result: PlannerToolResult,
   ): Promise<SummaryPlannerFormattedToolResult> {
     const formatSpan = this.options.timingRecorder?.start('summary.planner.tool.format', { turn: ctx.turn, toolName: toolAction.tool_name });
     const rawFormattedResultText = formatPlannerResult(result);
@@ -1090,7 +1105,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
   private async fitToolResultForPrompt(
     ctx: SummaryPlannerToolBatchContext,
     effectiveToolAction: SummaryPlannerToolAction,
-    result: Record<string, unknown>,
+    result: PlannerToolResult,
     formattedResultText: string,
   ): Promise<{ promptResultText: string; tokenCount: number; estimated: boolean }> {
     const remainingPromptTokens = Math.max(this.promptBudget.plannerStopLineTokens - this.promptTokenCount, 0);
@@ -1161,8 +1176,8 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     toolAction: SummaryPlannerToolAction,
     formatted: SummaryPlannerFormattedToolResult,
   ): void {
-    const readLineCount = toolAction.tool_name === 'read_lines' && Number.isFinite((formatted.result as { lineCount?: unknown }).lineCount)
-      ? Number((formatted.result as { lineCount?: unknown }).lineCount)
+    const readLineCount = toolAction.tool_name === 'read_lines' && Number.isFinite(formatted.result.lineCount)
+      ? Number(formatted.result.lineCount)
       : 0;
     const currentToolStats = this.getToolStats(ctx, toolAction.tool_name);
     ctx.toolStatsPayload![toolAction.tool_name] = {
@@ -1181,7 +1196,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
 
   private recordReadLinesRange(
     effectiveToolAction: SummaryPlannerToolAction,
-    result: Record<string, unknown>,
+    result: PlannerToolResult,
     promptResultText: string,
   ): void {
     if (effectiveToolAction.tool_name !== 'read_lines') {
@@ -1206,13 +1221,13 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       turn: ctx.turn,
       toolName: effective.effectiveToolAction.tool_name,
     });
-    let result: Record<string, unknown>;
+    let result: PlannerToolResult;
     try {
       result = this.executeEffectivePlannerTool(effective);
       toolExecutionSpan?.end({ ok: true });
     } catch (error) {
       toolExecutionSpan?.end({ ok: false });
-      return this.handleInvalidToolExecution(ctx, toolAction, error);
+      return this.handleInvalidToolExecution(ctx, toolAction, toError(error));
     }
     this.debugRecorder.record({
       kind: 'planner_tool',
@@ -1299,7 +1314,7 @@ export async function invokePlannerMode(options: InvokePlannerModeOptions): Prom
     ? options.allowedTools
     : ['find_text', 'read_lines', 'json_filter'];
   const toolDefinitions = buildPlannerToolDefinitions(allowedTools);
-  const toolResults: Array<{ toolName: PlannerToolName; args: Record<string, unknown>; result: unknown; resultText: string }> = [];
+  const toolResults: SummaryPlannerToolResultRecord[] = [];
   const messages: LlamaCppChatMessage[] = [
     {
       role: 'system',

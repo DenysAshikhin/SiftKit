@@ -61,7 +61,7 @@ function getPresetById(presetId: string): SiftPreset {
   return preset;
 }
 
-function normalizePresetPolicyProfile(value: unknown): SummaryPolicyProfile {
+function normalizePresetPolicyProfile(value: string | null | undefined): SummaryPolicyProfile {
   return (
     value === 'general'
     || value === 'pass-fail'

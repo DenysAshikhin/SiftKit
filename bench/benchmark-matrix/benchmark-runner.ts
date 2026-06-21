@@ -1,5 +1,5 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import fs from 'node:fs';
+import path from 'node:path';
 import { appendBenchmarkMatrixLogChunk } from '../../src/state/benchmark-matrix.js';
 import { buildBenchmarkArgs } from './launcher.js';
 import { spawnAndWait } from './process.js';

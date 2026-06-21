@@ -1,3 +1,4 @@
+import { z } from '../../lib/zod.js';
 import type { JsonObject } from '../../lib/json-types.js';
 
 export type RunLogGroup = 'summary' | 'repo_search' | 'planner' | 'chat' | 'other';
@@ -49,38 +50,40 @@ export type RunRecord = {
   durationMs: number | null;
   providerDurationMs: number | null;
   wallDurationMs: number | null;
-  rawPaths: Record<string, unknown>;
+  rawPaths: JsonObject;
 };
 
-export type RunLogDbRow = {
-  run_id: string | null;
-  run_kind: string | null;
-  terminal_state: string | null;
-  started_at_utc: string | null;
-  finished_at_utc: string | null;
-  title: string | null;
-  model: string | null;
-  backend: string | null;
-  input_tokens: number | string | null;
-  output_tokens: number | string | null;
-  thinking_tokens: number | string | null;
-  tool_tokens: number | string | null;
-  prompt_cache_tokens: number | string | null;
-  prompt_eval_tokens: number | string | null;
-  prompt_eval_duration_ms: number | string | null;
-  generation_duration_ms: number | string | null;
-  speculative_accepted_tokens: number | string | null;
-  speculative_generated_tokens: number | string | null;
-  duration_ms: number | string | null;
-  provider_duration_ms: number | string | null;
-  wall_duration_ms: number | string | null;
-  request_json: string | null;
-  planner_debug_json: string | null;
-  failed_request_json: string | null;
-  abandoned_request_json: string | null;
-  repo_search_json: string | null;
-  repo_search_transcript_jsonl: string | null;
-};
+export const RunLogDbRowSchema = z.object({
+  run_id: z.string().nullable(),
+  run_kind: z.string().nullable(),
+  terminal_state: z.string().nullable(),
+  started_at_utc: z.string().nullable(),
+  finished_at_utc: z.string().nullable(),
+  title: z.string().nullable(),
+  model: z.string().nullable(),
+  backend: z.string().nullable(),
+  input_tokens: z.number().nullable(),
+  output_tokens: z.number().nullable(),
+  thinking_tokens: z.number().nullable(),
+  tool_tokens: z.number().nullable(),
+  prompt_cache_tokens: z.number().nullable(),
+  prompt_eval_tokens: z.number().nullable(),
+  prompt_eval_duration_ms: z.number().nullable(),
+  generation_duration_ms: z.number().nullable(),
+  speculative_accepted_tokens: z.number().nullable(),
+  speculative_generated_tokens: z.number().nullable(),
+  duration_ms: z.number().nullable(),
+  provider_duration_ms: z.number().nullable(),
+  wall_duration_ms: z.number().nullable(),
+  request_json: z.string().nullish(),
+  planner_debug_json: z.string().nullish(),
+  failed_request_json: z.string().nullish(),
+  abandoned_request_json: z.string().nullish(),
+  repo_search_json: z.string().nullish(),
+  repo_search_transcript_jsonl: z.string().nullish(),
+});
+
+export type RunLogDbRow = z.infer<typeof RunLogDbRowSchema>;
 
 export type RunLogUpsertRow = {
   runId: string;

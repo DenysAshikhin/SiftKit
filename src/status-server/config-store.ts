@@ -1,4 +1,7 @@
+import { z } from '../lib/zod.js';
 import { normalizeWindowsPath as normalizeWindowsPathShared } from '../lib/paths.js';
+import { JsonValueSchema, type JsonValue, type OptionalJsonValue } from '../lib/json-types.js';
+import { parseJsonValueText } from '../lib/json.js';
 import {
   getDefaultOperationModeAllowedTools,
   normalizeOperationModeAllowedTools,
@@ -38,44 +41,46 @@ export function getDefaultConfig(): SiftConfig {
   return getDefaultConfigObject();
 }
 
-export function normalizeWindowsPath(value: unknown): string {
+export function normalizeWindowsPath(value: OptionalJsonValue): string {
   return normalizeWindowsPathShared(String(value || ''));
 }
 
-export function normalizeConfig(input: unknown): SiftConfig {
+export function normalizeConfig(input: JsonValue): SiftConfig {
   return normalizeConfigObject(input);
 }
 
-type AppConfigRow = {
-  version: string;
-  backend: string;
-  policy_mode: string;
-  raw_log_retention: number;
-  include_agents_md: number;
-  include_repo_file_listing: number;
-  prompt_prefix: string | null;
-  runtime_model: string | null;
-  thresholds_min_characters_for_summary: number;
-  thresholds_min_lines_for_summary: number;
-  interactive_enabled: number;
-  interactive_wrapped_commands_json: string;
-  interactive_idle_timeout_ms: number;
-  interactive_max_transcript_characters: number;
-  interactive_transcript_retention: number;
-  server_llama_presets_json: string;
-  server_llama_active_preset_id: string | null;
-  server_external_server_enabled: number;
-  operation_mode_allowed_tools_json: string;
-  presets_json: string;
-  web_search_json: string;
-};
+const AppConfigRowSchema = z.object({
+  version: z.string(),
+  backend: z.string(),
+  policy_mode: z.string(),
+  raw_log_retention: z.number(),
+  include_agents_md: z.number(),
+  include_repo_file_listing: z.number(),
+  prompt_prefix: z.string().nullable(),
+  runtime_model: z.string().nullable(),
+  thresholds_min_characters_for_summary: z.number(),
+  thresholds_min_lines_for_summary: z.number(),
+  interactive_enabled: z.number(),
+  interactive_wrapped_commands_json: z.string(),
+  interactive_idle_timeout_ms: z.number(),
+  interactive_max_transcript_characters: z.number(),
+  interactive_transcript_retention: z.number(),
+  server_llama_presets_json: z.string(),
+  server_llama_active_preset_id: z.string().nullable(),
+  server_external_server_enabled: z.number(),
+  operation_mode_allowed_tools_json: z.string(),
+  presets_json: z.string(),
+  web_search_json: z.string(),
+});
 
-function parseJsonArray(text: unknown): string[] {
+type AppConfigRow = z.infer<typeof AppConfigRowSchema>;
+
+function parseJsonArray(text: OptionalJsonValue): string[] {
   if (typeof text !== 'string' || !text.trim()) {
     return [];
   }
   try {
-    const parsed = JSON.parse(text) as unknown;
+    const parsed = parseJsonValueText(text);
     if (!Array.isArray(parsed)) {
       return [];
     }
@@ -87,42 +92,41 @@ function parseJsonArray(text: unknown): string[] {
   }
 }
 
-function parsePresetArray(text: unknown): SiftPreset[] {
+function parsePresetArray(text: OptionalJsonValue): SiftPreset[] {
   if (typeof text !== 'string' || !text.trim()) {
     return normalizePresets([]);
   }
   try {
-    return normalizePresets(JSON.parse(text) as unknown);
+    return normalizePresets(parseJsonValueText(text));
   } catch {
     return normalizePresets([]);
   }
 }
 
-function parseOperationModeAllowedTools(text: unknown): ReturnType<typeof normalizeOperationModeAllowedTools> {
+function parseOperationModeAllowedTools(text: OptionalJsonValue): ReturnType<typeof normalizeOperationModeAllowedTools> {
   if (typeof text !== 'string' || !text.trim()) {
     return getDefaultOperationModeAllowedTools();
   }
   try {
-    return normalizeOperationModeAllowedTools(JSON.parse(text) as unknown);
+    return normalizeOperationModeAllowedTools(parseJsonValueText(text));
   } catch {
     return getDefaultOperationModeAllowedTools();
   }
 }
 
-function parseManagedLlamaPresetArray(text: unknown): ServerManagedLlamaPreset[] {
+function parseManagedLlamaPresetArray(text: OptionalJsonValue): ServerManagedLlamaPreset[] {
   if (typeof text !== 'string' || !text.trim()) {
     return [];
   }
   try {
-    const parsed = JSON.parse(text) as unknown;
-    return normalizeManagedLlamaPresetArray(parsed, {});
+    return normalizeManagedLlamaPresetArray(parseJsonValueText(text), {});
   } catch {
     return [];
   }
 }
 
 function normalizeConfigToRow(config: SiftConfig): AppConfigRow {
-  const normalized = normalizeConfig(config);
+  const normalized = normalizeConfig(JsonValueSchema.parse(config));
   const runtime = normalized.Runtime;
   const thresholds = normalized.Thresholds;
   const interactive = normalized.Interactive;
@@ -195,12 +199,12 @@ function rowToConfig(row: AppConfigRow): SiftConfig {
   });
 }
 
-function parseWebSearchConfig(text: unknown): WebSearchConfig {
+function parseWebSearchConfig(text: OptionalJsonValue): WebSearchConfig {
   if (typeof text !== 'string' || !text.trim()) {
     return normalizeWebSearchConfig({});
   }
   try {
-    return normalizeWebSearchConfig(JSON.parse(text) as unknown);
+    return normalizeWebSearchConfig(parseJsonValueText(text));
   } catch {
     return normalizeWebSearchConfig({});
   }
@@ -233,8 +237,8 @@ function readConfigRow(databasePath: string): AppConfigRow | null {
       web_search_json
     FROM app_config
     WHERE id = 1
-  `).get() as AppConfigRow | undefined;
-  return row || null;
+  `).get();
+  return row == null ? null : AppConfigRowSchema.parse(row);
 }
 
 function writeConfigRow(databasePath: string, row: AppConfigRow): void {

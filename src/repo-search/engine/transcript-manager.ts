@@ -5,7 +5,6 @@ import {
   upsertTrailingUserMessage,
   type ToolBatchOutcome,
   type ToolTranscriptAction,
-  type ToolTranscriptMessage,
 } from '../../tool-call-messages.js';
 import { ThinkingRetentionPolicy } from '../../thinking-retention-policy.js';
 
@@ -57,12 +56,12 @@ export class TranscriptManager {
   }
 
   appendToolExchange(action: ToolTranscriptAction, toolCallId: string, toolContent: string, thinkingText: string): void {
-    appendToolCallExchange(this.messages as unknown as ToolTranscriptMessage[], action, toolCallId, toolContent, thinkingText);
+    appendToolCallExchange(this.messages, action, toolCallId, toolContent, thinkingText);
   }
 
   appendBatchExchange(outcomes: ToolBatchOutcome[], thinkingText: string): number {
     const preAppendLength = this.messages.length;
-    appendToolBatchExchange(this.messages as unknown as ToolTranscriptMessage[], outcomes, thinkingText);
+    appendToolBatchExchange(this.messages, outcomes, thinkingText);
     return preAppendLength;
   }
 
@@ -88,6 +87,6 @@ export class TranscriptManager {
   }
 
   upsertTrailingUser(previousIndex: number, content: string): number {
-    return upsertTrailingUserMessage(this.messages as unknown as ToolTranscriptMessage[], previousIndex, content);
+    return upsertTrailingUserMessage(this.messages, previousIndex, content);
   }
 }

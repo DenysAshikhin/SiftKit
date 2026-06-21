@@ -1,5 +1,6 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import { existsSync, readFileSync, readdirSync, type Dirent } from 'node:fs';
+import { join } from 'node:path';
+import { z } from '../lib/zod.js';
 import type { IgnorePolicy } from './command-safety.js';
 
 // ---------------------------------------------------------------------------
@@ -50,9 +51,9 @@ function scanRepoFilesRaw(repoRoot: string, ignorePolicy: IgnorePolicy): ScanRes
 
   function walk(dir: string, relBase: string): void {
     if (codeFiles.length >= SCAN_MAX_FILES) return;
-    let entries: fs.Dirent[];
+    let entries: Dirent[];
     try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
+      entries = readdirSync(dir, { withFileTypes: true });
     } catch {
       return;
     }
@@ -62,7 +63,7 @@ function scanRepoFilesRaw(repoRoot: string, ignorePolicy: IgnorePolicy): ScanRes
       const relPath = relBase ? `${relBase}/${entry.name}` : entry.name;
       if (ignoredPaths.some((p) => relPath === p || relPath.startsWith(`${p}/`))) continue;
       if (entry.isDirectory()) {
-        walk(path.join(dir, entry.name), relPath);
+        walk(join(dir, entry.name), relPath);
       } else if (entry.isFile()) {
         const ext = getExtension(entry.name);
         if (ext && NON_CODE_EXTENSIONS.has(ext)) {
@@ -192,10 +193,10 @@ export function scanRepoFiles(repoRoot: string, ignorePolicy: IgnorePolicy): str
 
 export function readAgentsMd(repoRoot: string): string {
   if (!repoRoot) return '';
-  const agentsPath = path.join(repoRoot, 'agents.md');
+  const agentsPath = join(repoRoot, 'agents.md');
   try {
-    if (fs.existsSync(agentsPath)) {
-      const content = fs.readFileSync(agentsPath, 'utf8').trim();
+    if (existsSync(agentsPath)) {
+      const content = readFileSync(agentsPath, 'utf8').trim();
       if (content) return content;
     }
   } catch { /* ignore read errors */ }
@@ -331,16 +332,17 @@ export function buildTerminalSynthesisPrompt(options: {
   ].join('\n');
 }
 
-export type TaskCommand = {
-  command: string;
-  turn: number;
-  modelVisibleCommand?: string;
-  safe: boolean;
-  reason: string | null;
-  exitCode: number | null;
-  output: string;
-  promptOutput?: string;
-  outputTokens?: number;
-  outputTokensEstimated?: boolean;
-};
+export const TaskCommandSchema = z.object({
+  command: z.string(),
+  turn: z.number(),
+  modelVisibleCommand: z.string().optional(),
+  safe: z.boolean(),
+  reason: z.string().nullable(),
+  exitCode: z.number().nullable(),
+  output: z.string(),
+  promptOutput: z.string().optional(),
+  outputTokens: z.number().optional(),
+  outputTokensEstimated: z.boolean().optional(),
+});
+export type TaskCommand = z.infer<typeof TaskCommandSchema>;
 

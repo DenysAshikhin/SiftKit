@@ -1,4 +1,4 @@
-import type { Dict } from '../lib/types.js';
+import { JsonObjectSchema, type JsonObject } from '../lib/json-types.js';
 import {
   WebSearchProvider,
   asRecord,
@@ -33,7 +33,7 @@ export class TavilySearchProvider extends WebSearchProvider {
   }
 
   async search(args: WebSearchToolArgs, opts: WebSearchProviderOptions): Promise<WebSearchResult[]> {
-    const body: Dict = { query: args.query, max_results: opts.resultCount, search_depth: 'basic' };
+    const body: JsonObject = { query: args.query, max_results: opts.resultCount, search_depth: 'basic' };
     if (args.timeFilter) {
       body.time_range = args.timeFilter;
     }
@@ -46,7 +46,7 @@ export class TavilySearchProvider extends WebSearchProvider {
     if (!response.ok) {
       throw new Error(`Tavily search failed with HTTP ${response.status}.`);
     }
-    const payload = await response.json() as Dict;
+    const payload = JsonObjectSchema.parse(await response.json());
     const results = Array.isArray(payload.results) ? payload.results : [];
     return results
       .map((entry) => {
@@ -65,7 +65,7 @@ export class TavilySearchProvider extends WebSearchProvider {
     if (!response.ok) {
       throw new Error(`Tavily usage failed with HTTP ${response.status}.`);
     }
-    const payload = await response.json() as Dict;
+    const payload = JsonObjectSchema.parse(await response.json());
     const account = asRecord(payload.account);
     return clampQuota('tavily', getNumber(account.plan_usage), getNumber(account.plan_limit), null);
   }

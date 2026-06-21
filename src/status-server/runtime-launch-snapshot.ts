@@ -1,4 +1,7 @@
 import { getRuntimeMetadataValue, setRuntimeMetadataValue } from '../state/runtime-db.js';
+import { z } from '../lib/zod.js';
+import { JsonObjectSchema } from '../lib/json-types.js';
+import { parseJsonValueText } from '../lib/json.js';
 import type { RuntimeLlamaCppConfig } from '../config/types.js';
 
 const SNAPSHOT_KEY = 'runtime_llama_launch_snapshot';
@@ -13,6 +16,17 @@ export type RuntimeLaunchSnapshot = {
   LlamaCpp: RuntimeLlamaCppConfig;
 };
 
+// The snapshot is written by writeRuntimeLaunchSnapshot from a typed
+// RuntimeLaunchSnapshot, so this trusted-boundary validator only confirms the
+// stored JSON is an object whose LlamaCpp member is a nested object.
+const RuntimeLaunchSnapshotSchema = z.custom<RuntimeLaunchSnapshot>((value) => {
+  const parsed = JsonObjectSchema.safeParse(value);
+  return parsed.success
+    && typeof parsed.data.LlamaCpp === 'object'
+    && parsed.data.LlamaCpp !== null
+    && !Array.isArray(parsed.data.LlamaCpp);
+});
+
 export function writeRuntimeLaunchSnapshot(
   databasePath: string,
   snapshot: RuntimeLaunchSnapshot,
@@ -26,12 +40,9 @@ export function readRuntimeLaunchSnapshot(databasePath: string): RuntimeLaunchSn
     return null;
   }
   try {
-    const parsed = JSON.parse(raw) as RuntimeLaunchSnapshot;
-    if (parsed && typeof parsed === 'object' && parsed.LlamaCpp && typeof parsed.LlamaCpp === 'object') {
-      return parsed;
-    }
+    const result = RuntimeLaunchSnapshotSchema.safeParse(parseJsonValueText(raw));
+    return result.success ? result.data : null;
   } catch {
     return null;
   }
-  return null;
 }

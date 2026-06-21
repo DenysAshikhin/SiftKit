@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as os from 'node:os';
+import os from 'node:os';
 import { executeRepoSearchRequest } from '../src/repo-search/execute.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
+import { mockSiftConfig } from './helpers/mock-config.js';
 
-const MOCK_CONFIG = {
+const MOCK_CONFIG = mockSiftConfig({
   Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
-};
+});
 
 test('executeRepoSearchRequest chat kind returns finalOutput in scorecard, no tools', async () => {
   const events: RepoSearchProgressEvent[] = [];
@@ -23,7 +24,7 @@ test('executeRepoSearchRequest chat kind returns finalOutput in scorecard, no to
     mockResponses: ['{"action":"finish","output":"You like green."}'],
     onProgress: (event) => { events.push(event); },
   });
-  const tasks = (result.scorecard as { tasks: Array<{ finalOutput: string; groundingStatus?: string }> }).tasks;
+  const tasks = result.scorecard.tasks;
   assert.equal(tasks[0].finalOutput, 'You like green.');
   assert.equal(tasks[0].groundingStatus, undefined);
   assert.ok(events.some((event) => event.kind === 'answer' && event.answerText === 'You like green.'));
@@ -60,7 +61,7 @@ test('executeRepoSearchRequest chat with web tools runs native web_search', asyn
     },
     onProgress: (event) => { events.push(event); },
   });
-  const tasks = (result.scorecard as { tasks: Array<{ finalOutput: string }> }).tasks;
+  const tasks = result.scorecard.tasks;
   assert.equal(tasks[0].finalOutput, 'About 150 gp per bar.');
   assert.ok(events.some((event) => event.kind === 'tool_start'), 'expected tool_start');
   assert.ok(events.some((event) => event.kind === 'tool_result'), 'expected tool_result');
@@ -98,12 +99,12 @@ test('chat with web tools rejects snippet-only finish and requires web_fetch', a
     },
   });
 
-  const tasks = (result.scorecard as { tasks: Array<{ finalOutput: string; groundingStatus?: string }> }).tasks;
+  const tasks = result.scorecard.tasks;
   const task = tasks[0];
 
   assert.match(String(task.finalOutput), /requires 60 Mining/);
   assert.equal(task.groundingStatus, 'fetched');
-  assert.equal((result.scorecard as { verdict: string }).verdict, 'pass');
+  assert.equal(result.scorecard.verdict, 'pass');
 });
 
 test('chat with web tools rejects finish before web_search and requires fetched evidence', async () => {
@@ -138,7 +139,7 @@ test('chat with web tools rejects finish before web_search and requires fetched 
     },
   });
 
-  const tasks = (result.scorecard as { tasks: Array<{ finalOutput: string; groundingStatus?: string }> }).tasks;
+  const tasks = result.scorecard.tasks;
   const task = tasks[0];
 
   assert.match(String(task.finalOutput), /Smithing material and in Construction/);
@@ -178,13 +179,13 @@ test('reported OSRS failure shape fetches before answering milestones', async ()
     },
   });
 
-  const tasks = (result.scorecard as { tasks: Array<{ finalOutput: string; groundingStatus?: string }> }).tasks;
+  const tasks = result.scorecard.tasks;
   const output = String(tasks[0]?.finalOutput || '');
 
   assert.match(output, /60 Mining/);
   assert.doesNotMatch(output, /level 30/);
   assert.equal(tasks[0]?.groundingStatus, 'fetched');
-  assert.equal((result.scorecard as { verdict: string }).verdict, 'pass');
+  assert.equal(result.scorecard.verdict, 'pass');
 });
 
 test('chat with web tools does not force finish after duplicate web_search', async () => {
@@ -219,7 +220,7 @@ test('chat with web tools does not force finish after duplicate web_search', asy
     },
   });
 
-  const tasks = (result.scorecard as { tasks: Array<{ commands: Array<{ output: string }>; finalOutput: string }> }).tasks;
+  const tasks = result.scorecard.tasks;
   const commands = tasks[0].commands.map((command) => command.output).join('\n');
 
   assert.match(commands, /already searched/);
@@ -279,7 +280,7 @@ test('chat executor with thinking off yields zero thinking tokens', async () => 
     config: { Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000, Reasoning: 'on' } } },
     mockResponses: ['{"action":"finish","output":"Hello"}'],
   });
-  const tasks = (result.scorecard as { tasks: Array<{ thinkingTokens: number; finalOutput: string }> }).tasks;
+  const tasks = result.scorecard.tasks;
   assert.equal(tasks[0].finalOutput, 'Hello');
   assert.equal(tasks[0].thinkingTokens, 0);
 });

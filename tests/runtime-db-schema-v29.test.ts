@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
-import * as os from 'node:os';
-import * as path from 'node:path';
-import * as fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
 import { getRuntimeDatabase } from '../src/state/runtime-db.js';
 
 function tempDbPath(prefix: string): string {
