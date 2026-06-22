@@ -6,30 +6,12 @@ import { getRuntimeDatabase } from '../state/runtime-db.js';
 
 const PragmaColumnRowSchema = z.object({ name: z.string() });
 
+export type { MetricTotals, ToolTypeStats, ToolStatsByTask } from '@siftkit/contracts';
+import type { TaskMetricKind, MetricTotals, ToolTypeStats, ToolStatsByTask } from '@siftkit/contracts';
+
 export const METRICS_SCHEMA_VERSION = 2;
 export const TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
-export type TaskKind = typeof TASK_KINDS[number];
-
-export type MetricTotals = {
-  inputCharactersTotal: number;
-  outputCharactersTotal: number;
-  inputTokensTotal: number;
-  outputTokensTotal: number;
-  thinkingTokensTotal: number;
-  toolTokensTotal: number;
-  promptCacheTokensTotal: number;
-  promptEvalTokensTotal: number;
-  speculativeAcceptedTokensTotal: number;
-  speculativeGeneratedTokensTotal: number;
-  requestDurationMsTotal: number;
-  wallDurationMsTotal: number;
-  stdinWaitMsTotal: number;
-  serverPreflightMsTotal: number;
-  lockWaitMsTotal: number;
-  statusRunningMsTotal: number;
-  terminalStatusMsTotal: number;
-  completedRequestCount: number;
-};
+export type TaskKind = TaskMetricKind;
 
 export const ToolTypeStatsSchema = z.object({
   calls: z.number(),
@@ -50,9 +32,7 @@ export const ToolTypeStatsSchema = z.object({
   lineReadRecommendedLines: z.number().optional(),
   lineReadAllowanceTokens: z.number().optional(),
 });
-export type ToolTypeStats = z.infer<typeof ToolTypeStatsSchema>;
 
-export type ToolStatsByTask = Record<TaskKind, Record<string, ToolTypeStats>>;
 export type TaskTotals = Record<TaskKind, MetricTotals>;
 
 export type Metrics = {

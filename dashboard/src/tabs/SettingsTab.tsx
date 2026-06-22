@@ -25,7 +25,7 @@ import type { DashboardConfig, DashboardManagedLlamaPreset, DashboardPreset, Pro
 import { PresetsSection } from './settings/PresetsSection';
 import { ManagedLlamaSection } from './settings/ManagedLlamaSection';
 
-type SettingsTabProps = {
+export type SettingsTabProps = {
   activeSettingsSection: SettingsSectionId;
   dashboardConfig: DashboardConfig | null;
   selectedSettingsPreset: DashboardPreset | null;

@@ -1,14 +1,11 @@
 import { z } from '../lib/zod.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
+import type { WebSearchUsage } from '@siftkit/contracts';
+
+export type { WebSearchUsage } from '@siftkit/contracts';
 
 const WebSearchCountRowSchema = z.object({ count: z.number() });
 const WebSearchTotalRowSchema = z.object({ total: z.number() });
-
-export type WebSearchUsage = {
-  currentMonth: string;
-  currentMonthCount: number;
-  allTimeCount: number;
-};
 
 export function getUsageMonthKey(date: Date): string {
   const year = date.getUTCFullYear();

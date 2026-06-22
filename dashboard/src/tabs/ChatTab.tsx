@@ -79,7 +79,7 @@ type SessionPromptCacheStats = {
   generationTokensPerSecond: number | null;
 };
 
-type ChatTabProps = {
+export type ChatTabProps = {
   sessions: ChatSession[];
   selectedSessionId: string;
   selectedSession: ChatSession | null;

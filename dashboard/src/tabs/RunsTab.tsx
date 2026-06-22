@@ -17,7 +17,7 @@ import type { RunDetailResponse, RunGroupFilter, RunRecord } from '../types';
 type RunGroupKey = Exclude<RunGroupFilter, ''>;
 const RUN_GROUP_KEYS = ['summary', 'repo_search', 'planner', 'chat', 'other'] as const satisfies readonly RunGroupKey[];
 
-type RunsTabProps = {
+export type RunsTabProps = {
   search: string;
   statusFilter: string;
   kindFilter: RunGroupFilter;

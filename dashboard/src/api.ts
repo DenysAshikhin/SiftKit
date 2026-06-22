@@ -1,39 +1,50 @@
-import type {
-  DashboardConfig,
-  DashboardHealth,
-  ChatSessionResponse,
-  ChatSessionsResponse,
-  IdleSummaryResponse,
-  MetricsResponse,
-  ManagedFilePickerResponse,
-  ManagedFilePickerTarget,
-  LlamaCppConnectionTestResponse,
-  RestartBackendResponse,
-  RunLogDeleteCriteria,
-  RunLogDeletePreviewResponse,
-  RunLogDeleteResponse,
-  RunDetailResponse,
-  RunsResponse,
-  DashboardBenchmarkAttempt,
-  DashboardBenchmarkGradeRequest,
-  DashboardBenchmarkQuestionPreset,
-  DashboardBenchmarkQuestionPresetsResponse,
-  DashboardBenchmarkSessionDetail,
-  DashboardBenchmarkSessionsResponse,
-  DashboardBenchmarkStartRequest,
-  RepoSearchAutoAppendPreview,
-  WebSearchQuotaResponse,
-} from './types.js';
+import { z } from 'zod';
+import {
+  RunsResponseSchema, RunDetailResponseSchema, RunLogDeletePreviewResponseSchema, RunLogDeleteResponseSchema,
+  MetricsResponseSchema, WebSearchQuotaResponseSchema, IdleSummaryResponseSchema, DashboardHealthSchema,
+  SiftConfigSchema, RestartBackendResponseSchema,
+  DashboardBenchmarkQuestionPresetsResponseSchema, DashboardBenchmarkQuestionPresetSchema,
+  DashboardBenchmarkSessionsResponseSchema, DashboardBenchmarkSessionDetailSchema, DashboardBenchmarkAttemptSchema,
+  ManagedFilePickerResponseSchema, LlamaCppConnectionTestResponseSchema, ChatSessionResponseSchema,
+  ChatSessionsResponseSchema, RepoSearchAutoAppendPreviewSchema,
+  type DashboardConfig,
+  type DashboardHealth,
+  type ChatSessionResponse,
+  type ChatSessionsResponse,
+  type IdleSummaryResponse,
+  type MetricsResponse,
+  type ManagedFilePickerResponse,
+  type ManagedFilePickerTarget,
+  type LlamaCppConnectionTestResponse,
+  type RestartBackendResponse,
+  type RunLogDeleteCriteria,
+  type RunLogDeletePreviewResponse,
+  type RunLogDeleteResponse,
+  type RunDetailResponse,
+  type RunsResponse,
+  type DashboardBenchmarkAttempt,
+  type DashboardBenchmarkGradeRequest,
+  type DashboardBenchmarkQuestionPreset,
+  type DashboardBenchmarkQuestionPresetsResponse,
+  type DashboardBenchmarkSessionDetail,
+  type DashboardBenchmarkSessionsResponse,
+  type DashboardBenchmarkStartRequest,
+  type RepoSearchAutoAppendPreview,
+  type WebSearchQuotaResponse,
+} from '@siftkit/contracts';
 import { ChatStreamReader, type ChatStreamToolEvent } from './lib/chat-stream-parser.js';
 import type { JsonValue, JsonSerializable } from '../../src/lib/json-types.js';
 
-async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, init);
+export async function parseJsonResponse<S extends z.ZodTypeAny>(response: Response, schema: S): Promise<z.infer<S>> {
   if (!response.ok) {
     const text = await response.text();
     throw new Error(`Request failed (${response.status}): ${text}`);
   }
-  return response.json();
+  return schema.parse(await response.json());
+}
+
+async function fetchJson<S extends z.ZodTypeAny>(input: string, schema: S, init?: RequestInit): Promise<z.infer<S>> {
+  return parseJsonResponse(await fetch(input, init), schema);
 }
 
 export function getRuns(
@@ -59,15 +70,15 @@ export function getRuns(
     query.set('limitPerGroup', String(Math.trunc(Number(options?.limitPerGroup))));
   }
   const suffix = query.toString();
-  return fetchJson<RunsResponse>(`/dashboard/runs${suffix ? `?${suffix}` : ''}`);
+  return fetchJson(`/dashboard/runs${suffix ? `?${suffix}` : ''}`, RunsResponseSchema);
 }
 
 export function getRunDetail(id: string): Promise<RunDetailResponse> {
-  return fetchJson<RunDetailResponse>(`/dashboard/runs/${encodeURIComponent(id)}`);
+  return fetchJson(`/dashboard/runs/${encodeURIComponent(id)}`, RunDetailResponseSchema);
 }
 
 export function previewRunLogDelete(criteria: RunLogDeleteCriteria): Promise<RunLogDeletePreviewResponse> {
-  return fetchJson<RunLogDeletePreviewResponse>('/dashboard/admin/run-logs/preview', {
+  return fetchJson('/dashboard/admin/run-logs/preview', RunLogDeletePreviewResponseSchema, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(criteria),
@@ -75,7 +86,7 @@ export function previewRunLogDelete(criteria: RunLogDeleteCriteria): Promise<Run
 }
 
 export function deleteRunLogs(criteria: RunLogDeleteCriteria): Promise<RunLogDeleteResponse> {
-  return fetchJson<RunLogDeleteResponse>('/dashboard/admin/run-logs', {
+  return fetchJson('/dashboard/admin/run-logs', RunLogDeleteResponseSchema, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(criteria),
@@ -83,31 +94,31 @@ export function deleteRunLogs(criteria: RunLogDeleteCriteria): Promise<RunLogDel
 }
 
 export function getMetrics(): Promise<MetricsResponse> {
-  return fetchJson<MetricsResponse>('/dashboard/metrics/timeseries');
+  return fetchJson('/dashboard/metrics/timeseries', MetricsResponseSchema);
 }
 
 export function getWebSearchQuota(): Promise<WebSearchQuotaResponse> {
-  return fetchJson<WebSearchQuotaResponse>('/dashboard/web-search-quota');
+  return fetchJson('/dashboard/web-search-quota', WebSearchQuotaResponseSchema);
 }
 
 export function getIdleSummary(limit = 30): Promise<IdleSummaryResponse> {
   const query = new URLSearchParams();
   query.set('limit', String(limit));
-  return fetchJson<IdleSummaryResponse>(`/dashboard/metrics/idle-summary?${query.toString()}`);
+  return fetchJson(`/dashboard/metrics/idle-summary?${query.toString()}`, IdleSummaryResponseSchema);
 }
 
 export function getDashboardConfig(): Promise<DashboardConfig> {
-  return fetchJson<DashboardConfig>('/config?skip_ready=1').catch(async (error) => {
+  return fetchJson('/config?skip_ready=1', SiftConfigSchema).catch(async (error) => {
     const message = error instanceof Error ? error.message : String(error);
     if (/Request failed \(404\)/u.test(message)) {
-      return fetchJson<DashboardConfig>('/config');
+      return fetchJson('/config', SiftConfigSchema);
     }
     throw error;
   });
 }
 
 export function updateDashboardConfig(config: DashboardConfig): Promise<DashboardConfig> {
-  return fetchJson<DashboardConfig>('/config', {
+  return fetchJson('/config', SiftConfigSchema, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config),
@@ -119,24 +130,24 @@ export async function restartBackend(): Promise<RestartBackendResponse> {
     method: 'POST',
   });
   const text = await response.text();
-  let payload: RestartBackendResponse;
+  let raw: JsonValue;
   try {
-    payload = text ? JSON.parse(text) : {};
+    raw = text ? JSON.parse(text) : {};
   } catch {
     throw new Error(`Request failed (${response.status}): ${text}`);
   }
-  if (!response.ok && (!payload || typeof payload !== 'object')) {
+  if (!response.ok && (!raw || typeof raw !== 'object')) {
     throw new Error(`Request failed (${response.status}): ${text}`);
   }
-  return payload;
+  return RestartBackendResponseSchema.parse(raw);
 }
 
 export function getDashboardHealth(): Promise<DashboardHealth> {
-  return fetchJson<DashboardHealth>('/health');
+  return fetchJson('/health', DashboardHealthSchema);
 }
 
 export function getBenchmarkQuestionPresets(): Promise<DashboardBenchmarkQuestionPresetsResponse> {
-  return fetchJson<DashboardBenchmarkQuestionPresetsResponse>('/dashboard/benchmark/question-presets');
+  return fetchJson('/dashboard/benchmark/question-presets', DashboardBenchmarkQuestionPresetsResponseSchema);
 }
 
 export function createBenchmarkQuestionPreset(payload: {
@@ -145,7 +156,7 @@ export function createBenchmarkQuestionPreset(payload: {
   prompt: string;
   enabled: boolean;
 }): Promise<{ preset: DashboardBenchmarkQuestionPreset }> {
-  return fetchJson<{ preset: DashboardBenchmarkQuestionPreset }>('/dashboard/benchmark/question-presets', {
+  return fetchJson('/dashboard/benchmark/question-presets', z.object({ preset: DashboardBenchmarkQuestionPresetSchema }), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -156,7 +167,7 @@ export function updateBenchmarkQuestionPreset(
   id: string,
   payload: Partial<Pick<DashboardBenchmarkQuestionPreset, 'title' | 'taskKind' | 'prompt' | 'enabled'>>,
 ): Promise<{ preset: DashboardBenchmarkQuestionPreset }> {
-  return fetchJson<{ preset: DashboardBenchmarkQuestionPreset }>(`/dashboard/benchmark/question-presets/${encodeURIComponent(id)}`, {
+  return fetchJson(`/dashboard/benchmark/question-presets/${encodeURIComponent(id)}`, z.object({ preset: DashboardBenchmarkQuestionPresetSchema }), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -164,7 +175,7 @@ export function updateBenchmarkQuestionPreset(
 }
 
 export function deleteBenchmarkQuestionPreset(id: string): Promise<{ ok: boolean; deleted: boolean; id: string }> {
-  return fetchJson<{ ok: boolean; deleted: boolean; id: string }>(`/dashboard/benchmark/question-presets/${encodeURIComponent(id)}`, {
+  return fetchJson(`/dashboard/benchmark/question-presets/${encodeURIComponent(id)}`, z.object({ ok: z.boolean(), deleted: z.boolean(), id: z.string() }), {
     method: 'DELETE',
   });
 }
@@ -172,15 +183,15 @@ export function deleteBenchmarkQuestionPreset(id: string): Promise<{ ok: boolean
 export function getBenchmarkSessions(limit = 50): Promise<DashboardBenchmarkSessionsResponse> {
   const query = new URLSearchParams();
   query.set('limit', String(limit));
-  return fetchJson<DashboardBenchmarkSessionsResponse>(`/dashboard/benchmark/sessions?${query.toString()}`);
+  return fetchJson(`/dashboard/benchmark/sessions?${query.toString()}`, DashboardBenchmarkSessionsResponseSchema);
 }
 
 export function getBenchmarkSession(id: string): Promise<DashboardBenchmarkSessionDetail> {
-  return fetchJson<DashboardBenchmarkSessionDetail>(`/dashboard/benchmark/sessions/${encodeURIComponent(id)}`);
+  return fetchJson(`/dashboard/benchmark/sessions/${encodeURIComponent(id)}`, DashboardBenchmarkSessionDetailSchema);
 }
 
 export function startBenchmarkSession(payload: DashboardBenchmarkStartRequest): Promise<DashboardBenchmarkSessionDetail> {
-  return fetchJson<DashboardBenchmarkSessionDetail>('/dashboard/benchmark/sessions', {
+  return fetchJson('/dashboard/benchmark/sessions', DashboardBenchmarkSessionDetailSchema, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -188,7 +199,7 @@ export function startBenchmarkSession(payload: DashboardBenchmarkStartRequest): 
 }
 
 export function cancelBenchmarkSession(id: string): Promise<{ ok: boolean; cancelled: boolean; id: string }> {
-  return fetchJson<{ ok: boolean; cancelled: boolean; id: string }>(`/dashboard/benchmark/sessions/${encodeURIComponent(id)}/cancel`, {
+  return fetchJson(`/dashboard/benchmark/sessions/${encodeURIComponent(id)}/cancel`, z.object({ ok: z.boolean(), cancelled: z.boolean(), id: z.string() }), {
     method: 'POST',
   });
 }
@@ -197,7 +208,7 @@ export function updateBenchmarkAttemptGrade(
   attemptId: string,
   payload: DashboardBenchmarkGradeRequest,
 ): Promise<{ attempt: DashboardBenchmarkAttempt }> {
-  return fetchJson<{ attempt: DashboardBenchmarkAttempt }>(`/dashboard/benchmark/attempts/${encodeURIComponent(attemptId)}/grade`, {
+  return fetchJson(`/dashboard/benchmark/attempts/${encodeURIComponent(attemptId)}/grade`, z.object({ attempt: DashboardBenchmarkAttemptSchema }), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -232,7 +243,7 @@ export function pickManagedFile(
   target: ManagedFilePickerTarget,
   initialPath: string | null,
 ): Promise<ManagedFilePickerResponse> {
-  return fetchJson<ManagedFilePickerResponse>('/dashboard/system/pick-file', {
+  return fetchJson('/dashboard/system/pick-file', ManagedFilePickerResponseSchema, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ target, initialPath }),
@@ -243,7 +254,7 @@ export function testLlamaCppBaseUrl(
   baseUrl: string,
   healthcheckTimeoutMs: number,
 ): Promise<LlamaCppConnectionTestResponse> {
-  return fetchJson<LlamaCppConnectionTestResponse>('/config/llama-cpp/test', {
+  return fetchJson('/config/llama-cpp/test', LlamaCppConnectionTestResponseSchema, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ BaseUrl: baseUrl, HealthcheckTimeoutMs: healthcheckTimeoutMs }),
@@ -251,21 +262,21 @@ export function testLlamaCppBaseUrl(
 }
 
 export function getChatSessions(): Promise<ChatSessionsResponse> {
-  return fetchJson<ChatSessionsResponse>('/dashboard/chat/sessions');
+  return fetchJson('/dashboard/chat/sessions', ChatSessionsResponseSchema);
 }
 
 export function getChatSession(id: string): Promise<ChatSessionResponse> {
-  return fetchJson<ChatSessionResponse>(`/dashboard/chat/sessions/${encodeURIComponent(id)}`);
+  return fetchJson(`/dashboard/chat/sessions/${encodeURIComponent(id)}`, ChatSessionResponseSchema);
 }
 
 export function deleteChatSession(id: string): Promise<{ ok: boolean; deleted: boolean; id: string }> {
-  return fetchJson<{ ok: boolean; deleted: boolean; id: string }>(`/dashboard/chat/sessions/${encodeURIComponent(id)}`, {
+  return fetchJson(`/dashboard/chat/sessions/${encodeURIComponent(id)}`, z.object({ ok: z.boolean(), deleted: z.boolean(), id: z.string() }), {
     method: 'DELETE',
   });
 }
 
 export function deleteChatMessage(sessionId: string, messageId: string): Promise<ChatSessionResponse> {
-  return fetchJson<ChatSessionResponse>(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}`, {
+  return fetchJson(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}`, ChatSessionResponseSchema, {
     method: 'DELETE',
   });
 }
@@ -276,7 +287,7 @@ export function createChatSession(payload: {
   contextWindowTokens?: number;
   presetId?: string;
 }): Promise<ChatSessionResponse> {
-  return fetchJson<ChatSessionResponse>('/dashboard/chat/sessions', {
+  return fetchJson('/dashboard/chat/sessions', ChatSessionResponseSchema, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -287,7 +298,7 @@ export function updateChatSession(
   sessionId: string,
   payload: { title?: string; thinkingEnabled?: boolean; webSearchEnabled?: boolean; presetId?: string; mode?: 'chat' | 'plan' | 'repo-search'; planRepoRoot?: string }
 ): Promise<ChatSessionResponse> {
-  return fetchJson<ChatSessionResponse>(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}`, {
+  return fetchJson(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}`, ChatSessionResponseSchema, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -311,7 +322,7 @@ export async function streamChatMessage(
 }
 
 export function condenseChatSession(sessionId: string): Promise<ChatSessionResponse> {
-  return fetchJson<ChatSessionResponse>(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/condense`, {
+  return fetchJson(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/condense`, ChatSessionResponseSchema, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: '{}',
@@ -322,7 +333,7 @@ export function getRepoSearchAutoAppendPreview(
   sessionId: string,
   payload: { repoRoot?: string },
 ): Promise<RepoSearchAutoAppendPreview> {
-  return fetchJson<RepoSearchAutoAppendPreview>(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-search/append-preview`, {
+  return fetchJson(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-search/append-preview`, RepoSearchAutoAppendPreviewSchema, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -338,7 +349,7 @@ export function createPlanMessage(
     maxTurns?: number;
   }
 ): Promise<ChatSessionResponse> {
-  return fetchJson<ChatSessionResponse>(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/plan`, {
+  return fetchJson(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/plan`, ChatSessionResponseSchema, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

@@ -3,12 +3,12 @@
   "compilerOptions": {
     "noEmit": true,
     "types": ["vite/client", "node"],
-    "baseUrl": ".",
     "paths": {
       "react": ["./node_modules/@types/react"],
       "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime"],
       "react-dom": ["./node_modules/@types/react-dom"],
-      "react-dom/server": ["./node_modules/@types/react-dom/server"]
+      "react-dom/server": ["./node_modules/@types/react-dom/server"],
+      "@siftkit/contracts": ["../packages/contracts/src/index.ts"]
     }
   },
   "include": [
@@ -16,6 +16,11 @@
     "../src/config/types.ts",
     "../src/web-search/types.ts",
     "../src/presets.ts",
-    "../tests/dashboard-app-refresh.test.ts"
+    "../tests/dashboard-app-refresh.test.ts",
+    "../tests/dashboard-api.test.ts",
+    "../tests/dashboard-toasts.test.ts",
+    "../tests/dashboard-benchmark-controller.test.ts",
+    "../tests/dashboard-settings-controller.test.ts",
+    "../tests/dashboard-runs-controller-e2e.test.ts"
   ]
 }

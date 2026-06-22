@@ -1,14 +1,5 @@
-import { z } from '../../../src/lib/zod.js';
 import type { JsonValue, JsonObject } from '../../../src/lib/json-types.js';
-import type { ChatSessionResponse } from '../types.js';
-
-const ChatSessionResponseSchema = z.custom<ChatSessionResponse>(
-  (value) => typeof value === 'object'
-    && value !== null
-    && !Array.isArray(value)
-    && 'session' in value
-    && 'contextUsage' in value,
-);
+import { ChatSessionResponseSchema, type ChatSessionResponse } from '@siftkit/contracts';
 
 export type ChatStreamToolEvent = {
   kind: 'tool_start' | 'tool_result';

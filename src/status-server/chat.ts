@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { ContextUsage } from '@siftkit/contracts';
 import type { ServerManagedLlamaPreset, SiftConfig } from '../config/types.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
 import type { ChatMessage as PlannerChatMessage } from '../repo-search/planner-protocol.js';
@@ -88,19 +89,7 @@ type ContextUsageTokenTotals = {
   estimatedTokenFallbackTokens: number;
 };
 
-export type ContextUsage = {
-  contextWindowTokens: number;
-  usedTokens: number;
-  chatUsedTokens: number;
-  thinkingUsedTokens: number;
-  toolUsedTokens: number;
-  totalUsedTokens: number;
-  remainingTokens: number;
-  warnThresholdTokens: number;
-  shouldCondense: boolean;
-  estimatedTokenFallbackTokens: number;
-  providerOverheadTokens: number;
-};
+export type { ContextUsage } from '@siftkit/contracts';
 
 class ContextUsageBuilder {
   constructor(

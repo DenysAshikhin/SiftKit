@@ -5,8 +5,13 @@
     "src/**/*.ts",
     "tests/**/*.ts"
   ],
-  "//exclude": "dashboard-app-refresh is a React SSR test (react-dom/server + jsx + DOM, pulling dashboard/src/App.tsx and its react-markdown tree). It cannot resolve react under the node NodeNext project; it is fully typechecked by dashboard/tsconfig.test.json (Bundler resolution, react from dashboard/node_modules) instead. Excluded here to avoid double-coverage, NOT untyped.",
+  "//exclude": "These dashboard tests statically import dashboard/src modules (React tree / controller hooks coupled to JSX tabs + Bundler-resolution extensionless imports). They cannot resolve under the node NodeNext project and are fully typechecked by dashboard/tsconfig.test.json (Bundler resolution, react from dashboard/node_modules) instead. Excluded here to avoid double-coverage, NOT untyped.",
   "exclude": [
-    "tests/dashboard-app-refresh.test.ts"
+    "tests/dashboard-app-refresh.test.ts",
+    "tests/dashboard-api.test.ts",
+    "tests/dashboard-toasts.test.ts",
+    "tests/dashboard-benchmark-controller.test.ts",
+    "tests/dashboard-settings-controller.test.ts",
+    "tests/dashboard-runs-controller-e2e.test.ts"
   ]
 }

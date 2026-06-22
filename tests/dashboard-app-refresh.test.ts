@@ -39,6 +39,16 @@ test('dashboard header exposes manual data refresh instead of flavour text', () 
   assert.doesNotMatch(markup, /Runs, logs, metrics, and local chat context tracking\./u);
 });
 
+test('refactored dashboard shell composes every controller hook and renders the default runs tab', () => {
+  // Rendering exercises useToasts + useDashboardRefresh + useRuns/Metrics/Benchmark/Settings/ChatController
+  // together; a throw in any controller during render fails this test.
+  const markup = withDashboardWindow(() => renderToStaticMarkup(React.createElement(App)));
+
+  assert.match(markup, /SiftKit Local Dashboard/u);
+  assert.match(markup, /aria-label="Refresh dashboard data"/u);
+  assert.match(markup, /class="panel-grid"/u);
+});
+
 test('dashboard data refresh effects are not scheduled on intervals', () => {
   const appSource = fs.readFileSync(path.resolve('dashboard/src/App.tsx'), 'utf8');
 

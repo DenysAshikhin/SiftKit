@@ -1,0 +1,257 @@
+.run-filter-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.run-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.run-list button {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  background: #10202f;
+  color: var(--ink);
+  padding: 10px;
+  cursor: pointer;
+}
+
+.run-list button span {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.run-meta-line {
+  display: flex !important;
+  gap: 6px;
+  align-items: center;
+  overflow: visible !important;
+}
+
+.run-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+
+.run-chip.status.completed {
+  border-color: #2f8f63;
+  color: #7ce4ae;
+}
+
+.run-chip.status.failed {
+  border-color: #a84c53;
+  color: #ff9da3;
+}
+
+.run-chip.status.running {
+  border-color: #b48b3a;
+  color: #ffd287;
+}
+
+.run-chip.kind.summary {
+  border-color: #4f86b5;
+  color: #9cd6ff;
+}
+
+.run-chip.kind.chat {
+  border-color: #6f72c8;
+  color: #c8c9ff;
+}
+
+.run-chip.kind.repo_search {
+  border-color: #7f66b8;
+  color: #d0b8ff;
+}
+
+.run-chip.kind.planner {
+  border-color: #5f9f7a;
+  color: #a8f0c8;
+}
+
+.run-chip.kind.other {
+  border-color: #6680a2;
+  color: #c0d2ea;
+}
+
+.run-group {
+  margin-top: 10px;
+}
+
+.run-group:first-of-type {
+  margin-top: 0;
+}
+
+.run-group header {
+  font-size: 0.85rem;
+  color: var(--ink-dim);
+  margin: 0 0 6px;
+}
+
+.run-list button.selected {
+  border-color: var(--accent);
+}
+
+.run-view-toggle-row {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 10px;
+}
+
+.run-view-toggle-row button.active {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.run-delete-modal {
+  width: min(620px, 100%);
+  border: 1px solid #6f3f46;
+  border-radius: 18px;
+  background:
+    radial-gradient(120% 120% at 0% 0%, #51303266 0%, transparent 55%),
+    linear-gradient(180deg, #182738f7 0%, #12202ef7 100%);
+  box-shadow: 0 24px 56px #00000075;
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.run-delete-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.run-delete-header h2 {
+  margin: 0 0 4px;
+}
+
+.run-delete-header .hint {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.run-delete-close {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 999px;
+  color: var(--ink-dim);
+  flex: none;
+}
+
+.run-delete-mode-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.run-delete-mode-row button {
+  padding: 10px 14px;
+}
+
+.run-delete-mode-row button.active {
+  border-color: var(--accent-danger);
+  box-shadow: inset 0 0 0 1px var(--accent-danger);
+  color: #ffd0c8;
+}
+
+.run-delete-modal .filter-pill-row {
+  gap: 8px;
+  row-gap: 8px;
+}
+
+.run-delete-modal .filter-pill-label {
+  min-width: 0;
+  margin-right: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.72rem;
+}
+
+.run-delete-modal .filter-pill {
+  padding: 6px 12px;
+}
+
+.run-delete-fields {
+  max-width: 280px;
+}
+
+.run-delete-fields label {
+  display: grid;
+  gap: 6px;
+}
+
+.run-delete-fields span {
+  font-size: 0.82rem;
+  color: var(--ink-dim);
+  letter-spacing: 0.02em;
+}
+
+.run-delete-preview {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #5d4550;
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: #101b27;
+}
+
+.run-delete-preview strong {
+  font-size: 0.95rem;
+}
+
+.run-delete-preview .hint {
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.run-delete-preview.ready {
+  border-color: #8d5b5b;
+  box-shadow: inset 0 0 0 1px #8d5b5b44;
+}
+
+.run-delete-preview.empty {
+  border-color: #4a5a6c;
+}
+
+.run-delete-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.run-delete-button,
+.danger-button {
+  border-color: #8d4b53;
+  background: linear-gradient(180deg, #3a2028 0%, #28161c 100%);
+  color: #ffd7d2;
+  box-shadow: inset 0 0 0 1px #c86d7a22;
+}
+
+.run-delete-button {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.danger-button:disabled,
+.run-delete-button:disabled {
+  opacity: 0.65;
+}

@@ -1,4 +1,5 @@
-export type WebSearchProviderId = 'tavily' | 'firecrawl';
+export type { WebSearchProviderId } from '@siftkit/contracts';
+import type { WebSearchProviderId } from '@siftkit/contracts';
 
 export type WebSearchProviderSettings = {
   Enabled: boolean;

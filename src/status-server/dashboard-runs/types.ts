@@ -28,30 +28,7 @@ export type DashboardRunLogDeleteCriteria =
     beforeDate: string;
   };
 
-export type RunRecord = {
-  id: string;
-  kind: string;
-  status: string;
-  startedAtUtc: string | null;
-  finishedAtUtc: string | null;
-  title: string;
-  model: string | null;
-  backend: string | null;
-  inputTokens: number | null;
-  outputTokens: number | null;
-  thinkingTokens: number | null;
-  toolTokens: number | null;
-  promptCacheTokens: number | null;
-  promptEvalTokens: number | null;
-  promptEvalDurationMs: number | null;
-  generationDurationMs: number | null;
-  speculativeAcceptedTokens: number | null;
-  speculativeGeneratedTokens: number | null;
-  durationMs: number | null;
-  providerDurationMs: number | null;
-  wallDurationMs: number | null;
-  rawPaths: JsonObject;
-};
+export type { RunRecord } from '@siftkit/contracts';
 
 export const RunLogDbRowSchema = z.object({
   run_id: z.string().nullable(),

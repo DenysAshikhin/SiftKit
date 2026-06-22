@@ -3,6 +3,16 @@
  * idle-summary snapshots.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type {
+  MetricsResponse,
+  IdleSummaryResponse,
+  WebSearchQuotaResponse,
+  DashboardBenchmarkSessionDetail,
+  DashboardBenchmarkSessionsResponse,
+  DashboardBenchmarkQuestionPresetsResponse,
+  DashboardBenchmarkQuestionPreset,
+  DashboardBenchmarkAttempt,
+} from '@siftkit/contracts';
 import { existsSync } from 'node:fs';
 import { z } from '../../lib/zod.js';
 import { JsonRecordReader } from '../../lib/json-record-reader.js';
@@ -247,7 +257,7 @@ class DashboardMetricsTimeseriesEndpoint implements RouteEndpoint {
     const taskDays = buildDashboardTaskDailyMetrics(idleSummaryDatabase, ctx.metrics);
     const toolStats = buildDashboardToolStats(idleSummaryDatabase, ctx.metrics, config);
     const webSearchUsage = readWebSearchUsage(getMetricsPath(), new Date());
-    sendJson(res, 200, { days, taskDays, toolStats, webSearchUsage });
+    sendJson(res, 200, { days, taskDays, toolStats, webSearchUsage } satisfies MetricsResponse);
     return;
   }
 }
@@ -270,7 +280,7 @@ class DashboardWebSearchQuotaEndpoint implements RouteEndpoint {
       ProviderOrder: [...DEFAULT_WEB_SEARCH_CONFIG.ProviderOrder],
     };
     const quotas = await webSearchQuotaCache.read(webSearchConfig);
-    sendJson(res, 200, { quotas });
+    sendJson(res, 200, { quotas } satisfies WebSearchQuotaResponse);
     return;
   }
 }
@@ -288,7 +298,7 @@ class DashboardIdleSummaryEndpoint implements RouteEndpoint {
     const { idleSummarySnapshotsPath } = ctx;
     const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     if (!existsSync(idleSummarySnapshotsPath)) {
-      sendJson(res, 200, { latest: null, snapshots: [] });
+      sendJson(res, 200, { latest: null, snapshots: [] } satisfies IdleSummaryResponse);
       return;
     }
     const limitValue = Number(requestUrl.searchParams.get('limit') || 30);
@@ -297,7 +307,7 @@ class DashboardIdleSummaryEndpoint implements RouteEndpoint {
     const snapshots = rows
       .map(normalizeIdleSummarySnapshotRow)
       .filter((entry): entry is IdleSummarySnapshotRow => entry !== null);
-    sendJson(res, 200, { latest: snapshots[0] || null, snapshots });
+    sendJson(res, 200, { latest: snapshots[0] || null, snapshots } satisfies IdleSummaryResponse);
     return;
   }
 }
@@ -315,7 +325,7 @@ class BenchmarkQuestionPresetListEndpoint implements RouteEndpoint {
     const { idleSummarySnapshotsPath } = ctx;
     const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     seedBenchmarkQuestionPresets();
-    sendJson(res, 200, { presets: listBenchmarkQuestionPresets({ includeDisabled: true }) });
+    sendJson(res, 200, { presets: listBenchmarkQuestionPresets({ includeDisabled: true }) } satisfies DashboardBenchmarkQuestionPresetsResponse);
     return;
   }
 }
@@ -346,7 +356,7 @@ class BenchmarkQuestionPresetCreateEndpoint implements RouteEndpoint {
         prompt: String(parsedBody.prompt || ''),
         enabled: parsedBody.enabled !== false,
       });
-      sendJson(res, 200, { preset });
+      sendJson(res, 200, { preset } satisfies { preset: DashboardBenchmarkQuestionPreset });
     } catch (error) {
       sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
     }
@@ -389,7 +399,7 @@ class BenchmarkQuestionPresetMutationEndpoint implements RouteEndpoint {
       if (!preset) {
         sendJson(res, 404, { error: 'Benchmark question preset not found.' });
       } else {
-        sendJson(res, 200, { preset });
+        sendJson(res, 200, { preset } satisfies { preset: DashboardBenchmarkQuestionPreset });
       }
     } catch (error) {
       sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
@@ -413,7 +423,7 @@ class BenchmarkSessionListEndpoint implements RouteEndpoint {
     const limitValue = Number(requestUrl.searchParams.get('limit') || 50);
     const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(500, Math.trunc(limitValue))) : 50;
     const status = BenchmarkSessionStatusFilterSchema.parse(String(requestUrl.searchParams.get('status') || '').trim());
-    sendJson(res, 200, { sessions: listBenchmarkSessions({ limit, status }) });
+    sendJson(res, 200, { sessions: listBenchmarkSessions({ limit, status }) } satisfies DashboardBenchmarkSessionsResponse);
     return;
   }
 }
@@ -507,8 +517,9 @@ class BenchmarkSessionDetailEndpoint implements RouteEndpoint {
       sendJson(res, 404, { error: 'Benchmark session not found.' });
       return;
     }
+    const conformingDetail: DashboardBenchmarkSessionDetail = detail;
     sendJson(res, 200, {
-      ...detail,
+      ...conformingDetail,
       logTextByStream: readBenchmarkLogTextByStream({ sessionId }),
     });
     return;
@@ -564,7 +575,7 @@ class BenchmarkAttemptGradeEndpoint implements RouteEndpoint {
       if (!attempt) {
         sendJson(res, 404, { error: 'Benchmark attempt not found.' });
       } else {
-        sendJson(res, 200, { attempt });
+        sendJson(res, 200, { attempt } satisfies { attempt: DashboardBenchmarkAttempt });
       }
     } catch (error) {
       sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });

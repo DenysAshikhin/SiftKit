@@ -3,6 +3,13 @@
  * plan/repo-search execution, condensation, and tool-context management.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type {
+  ChatSession as WireChatSession,
+  ChatMessage as WireChatMessage,
+  ChatSessionResponse,
+  ChatSessionsResponse,
+} from '@siftkit/contracts';
+import type { ChatMessage as PersistedChatMessage } from '../../state/chat-sessions.js';
 import { existsSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -191,14 +198,32 @@ function withPromptContext(config: SiftConfig, session: ChatSession): ChatSessio
   };
 }
 
-type ChatSessionResponse = {
-  session: ChatSession;
-  contextUsage: ContextUsage;
-};
+function toWireChatMessage(message: PersistedChatMessage): WireChatMessage {
+  return { ...message, sourceRunId: message.sourceRunId ?? null };
+}
+
+function toWireChatSession(session: ChatSession): WireChatSession {
+  return {
+    id: session.id,
+    title: session.title ?? '',
+    model: session.model ?? null,
+    contextWindowTokens: session.contextWindowTokens ?? 0,
+    thinkingEnabled: session.thinkingEnabled,
+    webSearchEnabled: session.webSearchEnabled,
+    presetId: session.presetId,
+    mode: session.mode,
+    planRepoRoot: session.planRepoRoot,
+    condensedSummary: session.condensedSummary ?? '',
+    createdAtUtc: session.createdAtUtc ?? '',
+    updatedAtUtc: session.updatedAtUtc ?? '',
+    messages: (session.messages ?? []).map(toWireChatMessage),
+    promptContext: session.promptContext,
+  };
+}
 
 function buildChatSessionResponse(config: SiftConfig, session: ChatSession): ChatSessionResponse {
   return {
-    session: withPromptContext(config, session),
+    session: toWireChatSession(withPromptContext(config, session)),
     contextUsage: buildContextUsage(config, session),
   };
 }
@@ -489,7 +514,10 @@ class ListChatSessionsEndpoint implements RouteEndpoint {
     const { configPath } = ctx;
     const runtimeRoot = getRuntimeRoot();
     const config = readConfig(configPath);
-    sendJson(res, 200, { sessions: readChatSessions(runtimeRoot).map((session) => withPromptContext(config, session)) });
+    const sessionsResponse: ChatSessionsResponse = {
+      sessions: readChatSessions(runtimeRoot).map((session) => toWireChatSession(withPromptContext(config, session))),
+    };
+    sendJson(res, 200, sessionsResponse);
     return;
   }
 }
