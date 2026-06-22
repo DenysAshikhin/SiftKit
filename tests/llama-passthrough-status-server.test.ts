@@ -4,13 +4,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import * as runtimeHelpers from './_runtime-helpers.js';
-import type { AddressInfo } from 'node:net';
+import { getFreePort, writeManagedLlamaScripts } from './_runtime-helpers.js';
 
 import { startStatusServer } from '../src/status-server/index.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
 import { getConfigPath } from '../src/config/index.js';
+import { parseJsonValueText } from '../src/lib/json.js';
+import type { JsonValue } from '../src/lib/json-types.js';
+import { asObject, getAddressInfo, type JsonResponse } from './helpers/dashboard-http.js';
 
 function writeManagedConfig(
   model: string,
@@ -30,7 +32,6 @@ function writeManagedConfig(
   writeConfig(getConfigPath(), config);
 }
 
-type JsonResponse = { statusCode: number; body: Record<string, unknown> };
 
 function requestJson(url: string, timeoutMs = 5000): Promise<JsonResponse> {
   return new Promise((resolve, reject) => {
@@ -52,7 +53,7 @@ function requestJson(url: string, timeoutMs = 5000): Promise<JsonResponse> {
         response.on('end', () => {
           resolve({
             statusCode: response.statusCode || 0,
-            body: responseText ? JSON.parse(responseText) as Record<string, unknown> : {},
+            body: responseText ? asObject(parseJsonValueText(responseText)) : {},
           });
         });
       },
@@ -65,7 +66,7 @@ function requestJson(url: string, timeoutMs = 5000): Promise<JsonResponse> {
   });
 }
 
-function requestJsonPost(url: string, body: unknown, timeoutMs = 5000): Promise<JsonResponse> {
+function requestJsonPost(url: string, body: JsonValue, timeoutMs = 5000): Promise<JsonResponse> {
   return new Promise((resolve, reject) => {
     const target = new URL(url);
     const payload = JSON.stringify(body);
@@ -90,7 +91,7 @@ function requestJsonPost(url: string, body: unknown, timeoutMs = 5000): Promise<
         response.on('end', () => {
           resolve({
             statusCode: response.statusCode || 0,
-            body: responseText ? JSON.parse(responseText) as Record<string, unknown> : {},
+            body: responseText ? asObject(parseJsonValueText(responseText)) : {},
           });
         });
       },
@@ -128,8 +129,8 @@ test('llama passthrough wakes managed llama when the managed process is offline'
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
-  const llamaPort = await runtimeHelpers.getFreePort();
-  const managed = runtimeHelpers.writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-passthrough-model');
+  const llamaPort = await getFreePort();
+  const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-passthrough-model');
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   writeManagedConfig('managed-passthrough-model', managed, {
     StartupTimeoutMs: 10000,
@@ -139,7 +140,7 @@ test('llama passthrough wakes managed llama when the managed process is offline'
 
   const server = startStatusServer();
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -192,7 +193,7 @@ test('llama passthrough waits through 503 Loading model responses without timing
   process.env.SIFTKIT_STATUS_PORT = '0';
   process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
 
-  const llamaPort = await runtimeHelpers.getFreePort();
+  const llamaPort = await getFreePort();
   // The fake llama responds with the canonical "Loading model" 503 body for
   // the first 20 healthchecks, then 200. With StartupTimeoutMs=1500 and
   // HealthcheckIntervalMs=50 + HealthcheckTimeoutMs=100, the 20 503 polls
@@ -200,7 +201,7 @@ test('llama passthrough waits through 503 Loading model responses without timing
   // deadline. The test only passes if the deadline-extension on each
   // 503-loading-model response keeps the spawn alive long enough for the
   // model to finish loading.
-  const managed = runtimeHelpers.writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-passthrough-503-model', {
+  const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-passthrough-503-model', {
     initial503LoadingModelCount: 20,
   });
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
@@ -212,7 +213,7 @@ test('llama passthrough waits through 503 Loading model responses without timing
 
   const server = startStatusServer();
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -261,9 +262,9 @@ test('llama passthrough proxies POST /tokenize to managed llama', async () => {
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
-  const llamaPort = await runtimeHelpers.getFreePort();
+  const llamaPort = await getFreePort();
   // The fake llama tokenizes at 4 characters per token.
-  const managed = runtimeHelpers.writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-tokenize-model', {
+  const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-tokenize-model', {
     tokenizeCharsPerToken: 4,
   });
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
@@ -275,7 +276,7 @@ test('llama passthrough proxies POST /tokenize to managed llama', async () => {
 
   const server = startStatusServer();
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {

@@ -4,7 +4,11 @@ export type UseChatScrollResult = {
   chatLogRef: React.RefObject<HTMLDivElement | null>;
 };
 
-export function scrollChatLogToBottom(element: HTMLDivElement | null): void {
+// Only the scroll offsets are read/written, so accept the minimal structural
+// shape; a real HTMLDivElement satisfies it and tests can pass a plain stub.
+type ScrollableElement = Pick<HTMLDivElement, 'scrollTop' | 'scrollHeight'>;
+
+export function scrollChatLogToBottom(element: ScrollableElement | null): void {
   if (!element) {
     return;
   }

@@ -7,6 +7,7 @@ import path from 'node:path';
 import { isBackendReadyStatusCode } from '../scripts/start-dev-health.js';
 import { buildStartupPortChecks } from '../scripts/start-dev-ports.js';
 import { stopChildProcessTree } from '../scripts/start-dev-process.js';
+import { readPackageJson } from './helpers/package-json.js';
 
 test('start-dev preflights both status and dashboard ports before spawning services', () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-start-dev-'));
@@ -86,9 +87,7 @@ test('start-dev shutdown kills child process trees on Windows', () => {
 });
 
 test('stable status script starts the full stable dev stack', () => {
-  const packageJson = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf8')) as {
-    scripts?: Record<string, string>;
-  };
+  const packageJson = readPackageJson();
 
   assert.equal(packageJson.scripts?.['start:status:stable'], 'tsx .\\scripts\\start-dev.ts --stable');
   assert.equal(packageJson.scripts?.['start:status:stable:server'], 'node .\\dist\\status-server\\index.js');

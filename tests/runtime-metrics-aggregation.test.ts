@@ -13,6 +13,7 @@ import {
   withStubServer,
   waitForAsyncExpectation,
 } from './_runtime-helpers.js';
+import { asObject } from './helpers/dashboard-http.js';
 
 test('summary aggregation accumulates provider usage and duration in status metrics', async () => {
   await withTempEnv(async () => {
@@ -166,12 +167,7 @@ test('summary aggregation counts only processed prompt tokens when cache metadat
           && post.terminalState === 'completed',
       );
       assert.ok(completionPost);
-      const deferredMetadata = completionPost.deferredMetadata as {
-        inputTokens?: number;
-        outputTokens?: number;
-        promptCacheTokens?: number;
-        promptEvalTokens?: number;
-      };
+      const deferredMetadata = asObject(completionPost.deferredMetadata);
       assert.equal(completionPost.inputTokens, undefined);
       assert.equal(completionPost.outputTokens, undefined);
       assert.equal(completionPost.promptCacheTokens, undefined);

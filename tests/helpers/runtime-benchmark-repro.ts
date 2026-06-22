@@ -1,6 +1,5 @@
 // Fixture60 chunking-config repro helper (typed port of runtime-benchmark-repro.js).
 import { loadConfig, saveConfig } from '../_runtime-helpers.js';
-import type { ServerLlamaCppConfig, ServerManagedLlamaPreset } from '../../src/config/types.js';
 
 export const STABLE_CHUNK_BUDGET_METRICS = {
   inputCharactersTotal: 2500,
@@ -32,23 +31,20 @@ export async function saveFixture60ChunkingConfig(): Promise<void> {
   const stubLlama = getStubLlamaBaseUrl();
   config.Backend = 'llama.cpp';
   config.Runtime.LlamaCpp = {
-    ...(config.Runtime.LlamaCpp || {}),
+    ...config.Runtime.LlamaCpp,
     BaseUrl: stubLlama.baseUrl,
     NumCtx: 12_000,
   };
-  const serverLlama = config.Server.LlamaCpp as ServerLlamaCppConfig & Record<string, unknown>;
-  serverLlama.BaseUrl = stubLlama.baseUrl;
-  serverLlama.BindHost = stubLlama.host;
-  serverLlama.Port = stubLlama.port;
-  serverLlama.NumCtx = 12_000;
-  serverLlama.ActivePresetId = 'default';
-  serverLlama.Presets = [{
+  const basePreset = config.Server.LlamaCpp.Presets[0];
+  config.Server.LlamaCpp.ActivePresetId = 'default';
+  config.Server.LlamaCpp.Presets = [{
+    ...basePreset,
     id: 'default',
     label: 'Default',
     BaseUrl: stubLlama.baseUrl,
     BindHost: stubLlama.host,
     Port: stubLlama.port,
     NumCtx: 12_000,
-  } as ServerManagedLlamaPreset];
+  }];
   await saveConfig(config);
 }

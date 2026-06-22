@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { resolveExternalCommand } from '../src/capture/command-path.js';
+import { getErrorMessage } from '../src/lib/errors.js';
 import { captureWithTranscript } from '../src/capture/process.js';
 import { CommandOutputAnalyzer } from '../src/command-output/analyzer.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
@@ -72,7 +73,7 @@ test('interactive capture handles nonexistent command', async () => {
       });
       assert.equal(typeof result.ExitCode, 'number');
     } catch (error) {
-      assert.match((error as Error).message, /Unable to resolve|ENOENT|not found/u);
+      assert.match(getErrorMessage(error), /Unable to resolve|ENOENT|not found/u);
     }
   });
 });

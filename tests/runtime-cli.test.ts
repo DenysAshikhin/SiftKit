@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { UNSUPPORTED_INPUT_MESSAGE } from '../src/summary/measure.js';
+import type { JsonValue } from '../src/lib/json-types.js';
 import {
   fs,
   http,
@@ -78,8 +79,8 @@ test('concurrent oversized CLI summary requests are serialized until the first r
       const questions = events.map((event) => event.question);
       const firstQuestion = 'summarize oversized request A';
       const secondQuestion = 'summarize oversized request B';
-      const referencesFirstRequest = (question: unknown) => String(question).includes(firstQuestion);
-      const referencesSecondRequest = (question: unknown) => String(question).includes(secondQuestion);
+      const referencesFirstRequest = (question: JsonValue) => String(question).includes(firstQuestion);
+      const referencesSecondRequest = (question: JsonValue) => String(question).includes(secondQuestion);
       const transitions = questions.filter((question, index) => index === 0 || question !== questions[index - 1]);
 
       assert.equal(firstResult.code, 0);
@@ -158,7 +159,6 @@ test('CLI summary preserves HTTP 500 diagnostic response bodies containing timeo
         [path.join(repoRoot, 'bin', 'siftkit.js'), 'summary', '--question', 'summarize this', '--text', 'hello world'],
         {
           cwd: process.cwd(),
-          encoding: 'utf8',
           env: {
             ...process.env,
             SIFTKIT_STATUS_BACKEND_URL: `http://127.0.0.1:${port}/status`,

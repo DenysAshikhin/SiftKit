@@ -19,9 +19,9 @@ import type { ServerContext } from '../src/status-server/server-types.js';
 
 type StdoutLine = string;
 
-function createQueueContext(): ServerContext {
+function createQueueContext(): ServerContext & { readonly wakeCount: number } {
   let wakeCount = 0;
-  return {
+  const context: ServerContext & { readonly wakeCount: number } = {
     configPath: 'config.json',
     statusPath: 'status.txt',
     metricsPath: 'metrics.sqlite',
@@ -73,7 +73,8 @@ function createQueueContext(): ServerContext {
     get wakeCount(): number {
       return wakeCount;
     },
-  } as ServerContext & { readonly wakeCount: number };
+  };
+  return context;
 }
 
 test('completed status request ids are bounded and cleared when a status path is reused', () => {
@@ -117,7 +118,10 @@ async function captureStdoutLines(fn: (lines: StdoutLine[]) => Promise<void>): P
         lines.push(line);
       }
     }
-    return originalWrite(chunk, encodingOrCallback as BufferEncoding, callback);
+    if (typeof encodingOrCallback === 'function') {
+      return originalWrite(chunk, encodingOrCallback);
+    }
+    return originalWrite(chunk, encodingOrCallback, callback);
   };
   try {
     await fn(lines);
@@ -139,7 +143,7 @@ test('model request admission logs queue position without probing llama', async 
       assert.equal(releaseModelRequest(ctx, lock.token), true);
     });
 
-    assert.equal((ctx as ServerContext & { readonly wakeCount: number }).wakeCount, 0);
+    assert.equal(ctx.wakeCount, 0);
     assert.ok(lines.some((line) => /request incoming task=summary queue_position=1/u.test(line)), lines.join('\n'));
     assert.ok(lines.some((line) => /request lock_acquired task=summary wait_ms=0/u.test(line)), lines.join('\n'));
     assert.ok(lines.some((line) => /request lock_released task=summary held_ms=/u.test(line)), lines.join('\n'));
@@ -160,7 +164,7 @@ test('queued model request logs its FIFO position without probing llama while wa
       // acquire is called, before it awaits — no wall-clock wait is needed to observe it.
       queuedLockPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat');
       try {
-        assert.equal((ctx as ServerContext & { readonly wakeCount: number }).wakeCount, 0);
+        assert.equal(ctx.wakeCount, 0);
         assert.ok(currentLines.some((line) => /request incoming task=dashboard_chat queue_position=2/u.test(line)), currentLines.join('\n'));
       } finally {
         assert.equal(releaseModelRequest(ctx, activeLock.token), true);

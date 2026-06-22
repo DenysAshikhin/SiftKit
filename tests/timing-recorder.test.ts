@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { z } from 'zod';
 
+import { JsonValueSchema } from '../src/lib/json-types.js';
 import { executeRepoSearchRequest } from '../src/repo-search/index.js';
 import { summarizeRequest } from '../src/summary.js';
 import { createTemporaryTimingRecorderFromEnv } from '../src/lib/temporary-timing-recorder.js';
@@ -15,6 +17,29 @@ import {
   withStubServer,
   withTempEnv,
 } from './_runtime-helpers.js';
+
+const TimingTraceSchema = z
+  .object({
+    kind: z.string(),
+    requestId: z.string().optional(),
+    status: z.string(),
+    metadata: z.record(z.string(), JsonValueSchema),
+    events: z
+      .array(z.object({ label: z.string(), durationMs: z.number(), metadata: z.record(z.string(), JsonValueSchema) })),
+    summary: z.array(
+      z.object({
+        label: z.string(),
+        calls: z.number(),
+        totalMs: z.number(),
+        maxMs: z.number(),
+      }),
+    ),
+  })
+  .passthrough();
+
+function readTimingTrace(tracePath: string): z.infer<typeof TimingTraceSchema> {
+  return TimingTraceSchema.parse(JSON.parse(fs.readFileSync(tracePath, 'utf8')));
+}
 
 function withTemporaryEnv(values: Record<string, string | undefined>, run: () => Promise<void> | void): Promise<void> | void {
   const previous: Record<string, string | undefined> = {};
@@ -85,14 +110,7 @@ test('temporary timing recorder writes event details and label summaries to a te
     secondSpan.end();
     await recorder.flush({ status: 'completed' });
 
-    const trace = JSON.parse(fs.readFileSync(tracePath, 'utf8')) as {
-      kind: string;
-      requestId: string;
-      status: string;
-      metadata: { promptChars: number };
-      events: Array<{ label: string; durationMs: number; metadata: Record<string, number> }>;
-      summary: Array<{ label: string; calls: number; totalMs: number; maxMs: number }>;
-    };
+    const trace = readTimingTrace(tracePath);
 
     assert.equal(trace.kind, 'repo-search');
     assert.equal(trace.requestId, 'req-enabled');
@@ -139,11 +157,7 @@ test('repo-search execution dumps temp timing json with llama and tool phases', 
       assert.equal(result.scorecard.verdict, 'pass');
     });
 
-    const trace = JSON.parse(fs.readFileSync(tracePath, 'utf8')) as {
-      kind: string;
-      status: string;
-      summary: Array<{ label: string; calls: number }>;
-    };
+    const trace = readTimingTrace(tracePath);
     const labels = new Set(trace.summary.map((entry) => entry.label));
     assert.equal(trace.kind, 'repo-search');
     assert.equal(trace.status, 'completed');
@@ -182,7 +196,7 @@ test('summary planner dumps temp timing json with planner llama and tool phases'
         assert.equal(result.Classification, 'summary');
         assert.equal(result.Summary, 'timing trace completed');
       }, {
-        assistantContent(promptText: string, parsed: Record<string, unknown>, requestIndex: number) {
+        assistantContent(promptText, parsed, requestIndex) {
           if (requestIndex === 1) {
             return JSON.stringify({ action: 'json_filter', filters: [{ path: 'from.worldX', op: 'gte', value: 3200 }],
                 limit: 1, });
@@ -197,11 +211,7 @@ test('summary planner dumps temp timing json with planner llama and tool phases'
       });
     });
 
-    const trace = JSON.parse(fs.readFileSync(tracePath, 'utf8')) as {
-      kind: string;
-      status: string;
-      summary: Array<{ label: string; calls: number }>;
-    };
+    const trace = readTimingTrace(tracePath);
     const labels = new Set(trace.summary.map((entry) => entry.label));
     assert.equal(trace.kind, 'summary');
     assert.equal(trace.status, 'completed');

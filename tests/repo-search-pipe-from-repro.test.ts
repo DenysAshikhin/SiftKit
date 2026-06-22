@@ -2,6 +2,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { z } from 'zod';
+
+const SegmentSchema = z.object({ commandToken: z.string(), text: z.string() });
+const SafetySchema = z.object({ safe: z.boolean(), reason: z.string().nullable() });
+const PipeSafetyReportSchema = z.object({
+  reproduced: z.boolean(),
+  safety: SafetySchema,
+  directRgParsed: z.boolean(),
+  segments: z.array(SegmentSchema),
+});
+const AuditCommandReportSchema = PipeSafetyReportSchema.extend({
+  fixture: z.string(),
+  directRgSegments: z.array(SegmentSchema),
+  legacyFromSplit: z.boolean(),
+  parserMismatch: z.boolean(),
+  pipeEvents: z.array(z.object({ inSingle: z.boolean(), inDouble: z.boolean(), split: z.boolean() })),
+});
 
 test('repro-repo-search-pipe-from recreates from pipe safety rejection', () => {
   const scriptPath = path.resolve(process.cwd(), 'bench', 'repro', 'repro-repo-search-pipe-from.ts');
@@ -16,12 +33,7 @@ test('repro-repo-search-pipe-from recreates from pipe safety rejection', () => {
   );
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  const report = JSON.parse(result.stdout) as {
-    reproduced: boolean;
-    safety: { safe: boolean; reason: string | null };
-    directRgParsed: boolean;
-    segments: Array<{ commandToken: string; text: string }>;
-  };
+  const report = PipeSafetyReportSchema.parse(JSON.parse(result.stdout));
 
   assert.equal(report.reproduced, true);
   assert.equal(report.safety.safe, false);
@@ -43,17 +55,7 @@ test('repro-repo-search-pipe-from recreates saved audit command splitting', () =
   );
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  const report = JSON.parse(result.stdout) as {
-    fixture: string;
-    reproduced: boolean;
-    safety: { safe: boolean; reason: string | null };
-    directRgParsed: boolean;
-    segments: Array<{ commandToken: string; text: string }>;
-    directRgSegments: Array<{ commandToken: string; text: string }>;
-    legacyFromSplit: boolean;
-    parserMismatch: boolean;
-    pipeEvents: Array<{ inSingle: boolean; inDouble: boolean; split: boolean }>;
-  };
+  const report = AuditCommandReportSchema.parse(JSON.parse(result.stdout));
 
   assert.equal(report.fixture, 'audit-command-4');
   assert.equal(report.safety.safe, true);

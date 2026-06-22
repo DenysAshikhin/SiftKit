@@ -6,15 +6,21 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import type { AddressInfo } from 'node:net';
 import Database from 'better-sqlite3';
+import { z } from '../src/lib/zod.js';
+import { toError } from '../src/lib/errors.js';
+import { isJsonObject, type JsonObject, type JsonValue } from '../src/lib/json-types.js';
+import { mockSiftConfig, asRuntimeSiftConfig } from './helpers/mock-config.js';
 import {
   deriveServiceUrl,
   getDefaultConfig,
   clone,
+  toJsonValue,
   getChatRequestText,
   type ChatRequest,
+  type AssistantResponder,
   setManagedLlamaBaseUrl,
   mergeConfig,
   extractPromptSection,
@@ -85,15 +91,6 @@ import { runFixture60MalformedJsonRepro } from '../bench/repro/repro-fixture60-m
 import type { SiftConfig, ServerManagedLlamaPreset } from '../src/config/types.js';
 import type { TaskKind, ToolTypeStats, Metrics } from '../src/status-server/metrics.js';
 
-// Deliberately-partial SiftConfig fixtures: the input is structurally checked
-// against SiftConfig (catching typos / wrong nesting) while the cast supplies the
-// fields a given test does not exercise. Behaviour-exact for the runtime paths
-// under test — completing the object would alter what the provider reads.
-type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
-function mockConfig(partial: DeepPartial<SiftConfig>): SiftConfig {
-  return partial as unknown as SiftConfig;
-}
-
 // Shared view types for the runtime status-server HTTP responses these tests read.
 interface RuntimeStatusResponse {
   running: boolean;
@@ -155,8 +152,6 @@ const LIVE_CONFIG_SERVICE_URL = process.env.SIFTKIT_CONFIG_SERVICE_URL?.trim() |
 const FAST_LEASE_STALE_MS = 200;
 const FAST_LEASE_WAIT_MS = 350;
 
-type JsonObject = Record<string, unknown>;
-
 interface StubMetricTotals {
   inputCharactersTotal: number;
   outputCharactersTotal: number;
@@ -186,17 +181,17 @@ interface StubMetrics {
 }
 
 interface StubArtifactPost {
-  type: unknown;
-  requestId: unknown;
+  type: JsonValue;
+  requestId: JsonValue;
   path: string;
 }
 
 interface DeferredArtifactEntry {
   running: boolean;
-  statusPath: unknown;
-  artifactType: unknown;
-  artifactRequestId: unknown;
-  artifactPayload: unknown;
+  statusPath: JsonValue;
+  artifactType: JsonValue;
+  artifactRequestId: JsonValue;
+  artifactPayload: JsonValue;
 }
 
 interface StubServerState {
@@ -213,8 +208,6 @@ interface StubServerState {
 
 type StubChatResponder = (promptText: string, parsed: JsonObject, requestIndex: number) => JsonObject | null;
 type StubTokenizeTokenCount = (content: string, parsed: JsonObject) => number;
-type StubAssistantResponderFn = (promptText: string, parsed: JsonObject, requestIndex: number) => string;
-type StubAssistantResponder = string | StubAssistantResponderFn | Array<string | StubAssistantResponderFn>;
 
 interface StubServerOptions {
   config?: JsonObject;
@@ -225,8 +218,8 @@ interface StubServerOptions {
   tokenizeCharsPerToken?: number;
   chatDelayMs?: number;
   rejectPromptCharsOver?: number;
-  assistantContent?: StubAssistantResponder;
-  assistantReasoningContent?: StubAssistantResponder;
+  assistantContent?: AssistantResponder;
+  assistantReasoningContent?: AssistantResponder;
   omitUsage?: boolean;
   reasoningTokens?: number;
   chatResponse?: StubChatResponder;
@@ -308,28 +301,28 @@ interface StatusServerProcessCloseInfo {
   signal: NodeJS.Signals | null;
 }
 
-interface IdleSummarySnapshotRow {
-  emitted_at_utc: string;
-  completed_request_count: number;
-  input_characters_total: number;
-  output_characters_total: number;
-  input_tokens_total: number;
-  output_tokens_total: number;
-  thinking_tokens_total: number;
-  saved_tokens: number;
-  saved_percent: number;
-  compression_ratio: number;
-  request_duration_ms_total: number;
-  avg_request_ms: number;
-  avg_tokens_per_second: number;
-}
+const IdleSummarySnapshotRowSchema = z.object({
+  emitted_at_utc: z.string(),
+  completed_request_count: z.number(),
+  input_characters_total: z.number(),
+  output_characters_total: z.number(),
+  input_tokens_total: z.number(),
+  output_tokens_total: z.number(),
+  thinking_tokens_total: z.number(),
+  saved_tokens: z.number(),
+  saved_percent: z.number().nullable(),
+  compression_ratio: z.number().nullable(),
+  request_duration_ms_total: z.number(),
+  avg_request_ms: z.number().nullable(),
+  avg_tokens_per_second: z.number().nullable(),
+});
+type IdleSummarySnapshotRow = z.infer<typeof IdleSummarySnapshotRowSchema>;
 
 function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 async function removeDirectoryWithRetries(targetPath: string, attempts = 300, delayMs = 100): Promise<void> {
-  let lastError: unknown = null;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
       fs.rmSync(targetPath, { recursive: true, force: true });
@@ -339,15 +332,12 @@ async function removeDirectoryWithRetries(targetPath: string, attempts = 300, de
       if (code !== 'EPERM' && code !== 'EBUSY') {
         throw error;
       }
-      lastError = error;
       await sleep(delayMs);
     }
   }
-
-  void lastError;
 }
 
-function spawnProcess(command: string, args: string[], options: Record<string, unknown> = {}): Promise<SpawnProcessResult> {
+function spawnProcess(command: string, args: string[], options: SpawnOptions = {}): Promise<SpawnProcessResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       ...options,
@@ -420,10 +410,10 @@ function scheduleDeferredArtifactWrite(state: StubServerState, parsed: JsonObjec
 }
 
 function applyDeferredStatusMetrics(state: StubServerState, parsed: JsonObject): void {
-  if (!parsed.deferredMetadata || typeof parsed.deferredMetadata !== 'object' || Array.isArray(parsed.deferredMetadata)) {
+  const metadata = parsed.deferredMetadata;
+  if (!isJsonObject(metadata)) {
     return;
   }
-  const metadata = parsed.deferredMetadata as JsonObject;
   state.metrics.inputCharactersTotal += Number.isFinite(metadata.promptCharacterCount) ? Number(metadata.promptCharacterCount) : 0;
   state.metrics.outputCharactersTotal += Number.isFinite(metadata.outputCharacterCount) ? Number(metadata.outputCharacterCount) : 0;
   state.metrics.inputTokensTotal += Number.isFinite(metadata.inputTokens) ? Number(metadata.inputTokens) : 0;
@@ -443,10 +433,11 @@ function applyDeferredStatusMetrics(state: StubServerState, parsed: JsonObject):
     taskTotals.toolTokensTotal += Number.isFinite(metadata.toolTokens) ? Number(metadata.toolTokens) : 0;
     taskTotals.requestDurationMsTotal += Number.isFinite(metadata.requestDurationMs) ? Number(metadata.requestDurationMs) : 0;
     taskTotals.completedRequestCount += 1;
-    if (metadata.toolStats && typeof metadata.toolStats === 'object' && !Array.isArray(metadata.toolStats)) {
+    const toolStats = metadata.toolStats;
+    if (isJsonObject(toolStats)) {
       const existing = state.metrics.toolStats[taskKind];
-      for (const [toolType, rawStats] of Object.entries(metadata.toolStats as JsonObject)) {
-        if (!rawStats || typeof rawStats !== 'object' || Array.isArray(rawStats)) {
+      for (const [toolType, rawStats] of Object.entries(toolStats)) {
+        if (!isJsonObject(rawStats)) {
           continue;
         }
         const current: ToolTypeStats = existing[toolType] || {
@@ -466,7 +457,7 @@ function applyDeferredStatusMetrics(state: StubServerState, parsed: JsonObject):
           newEvidenceCalls: 0,
           noNewEvidenceCalls: 0,
         };
-        const stats = rawStats as JsonObject;
+        const stats = rawStats;
         existing[toolType] = {
           calls: current.calls + (Number.isFinite(stats.calls) ? Number(stats.calls) : 0),
           outputCharsTotal: current.outputCharsTotal + (Number.isFinite(stats.outputCharsTotal) ? Number(stats.outputCharsTotal) : 0),
@@ -526,7 +517,7 @@ async function waitForTextMatch(getText: () => string, pattern: RegExp, timeoutM
 
 async function startStubStatusServer(options: StubServerOptions = {}): Promise<StubServer> {
   const state: StubServerState = {
-    config: mergeConfig(getDefaultConfig(), options.config || {}) as SiftConfig,
+    config: asRuntimeSiftConfig(mergeConfig(toJsonValue(getDefaultConfig()), options.config || {})),
     statusPosts: [],
     artifactPosts: [],
     chatRequests: [],
@@ -772,7 +763,7 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
     if (req.method === 'PUT' && req.url === '/config') {
       const bodyText = await readBody(req);
       const parsed = bodyText ? JSON.parse(bodyText) : {};
-      state.config = mergeConfig(getDefaultConfig(), parsed) as SiftConfig;
+      state.config = asRuntimeSiftConfig(mergeConfig(toJsonValue(getDefaultConfig()), parsed));
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(state.config));
       return;
@@ -841,7 +832,8 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
         state.metrics.toolTokensTotal += Number.isFinite(parsed.toolTokens) ? Number(parsed.toolTokens) : 0;
         state.metrics.requestDurationMsTotal += Number.isFinite(parsed.requestDurationMs) ? Number(parsed.requestDurationMs) : 0;
         state.metrics.completedRequestCount += 1;
-        const taskKind = parsed.taskKind as TaskKind | undefined;
+        const taskKindValue: JsonValue = parsed.taskKind;
+        const taskKind = typeof taskKindValue === 'string' ? taskKindValue : '';
         if (taskKind === 'summary' || taskKind === 'plan' || taskKind === 'repo-search' || taskKind === 'chat') {
           const taskTotals = state.metrics.taskTotals[taskKind];
           taskTotals.inputCharactersTotal += Number.isFinite(parsed.promptCharacterCount) ? Number(parsed.promptCharacterCount) : 0;
@@ -852,10 +844,11 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
           taskTotals.toolTokensTotal += Number.isFinite(parsed.toolTokens) ? Number(parsed.toolTokens) : 0;
           taskTotals.requestDurationMsTotal += Number.isFinite(parsed.requestDurationMs) ? Number(parsed.requestDurationMs) : 0;
           taskTotals.completedRequestCount += 1;
-          if (parsed.toolStats && typeof parsed.toolStats === 'object' && !Array.isArray(parsed.toolStats)) {
+          const parsedToolStats = parsed.toolStats;
+          if (isJsonObject(parsedToolStats)) {
             const existing = state.metrics.toolStats[taskKind];
-            for (const [toolType, rawStats] of Object.entries(parsed.toolStats)) {
-              if (!rawStats || typeof rawStats !== 'object' || Array.isArray(rawStats)) {
+            for (const [toolType, rawStats] of Object.entries(parsedToolStats)) {
+              if (!isJsonObject(rawStats)) {
                 continue;
               }
               const current = existing[toolType] || {
@@ -875,7 +868,7 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
                 newEvidenceCalls: 0,
                 noNewEvidenceCalls: 0,
               };
-              const stats = rawStats as Record<string, unknown>;
+              const stats = rawStats;
               existing[toolType] = {
                 calls: current.calls + (Number.isFinite(stats.calls) ? Number(stats.calls) : 0),
                 outputCharsTotal: current.outputCharsTotal + (Number.isFinite(stats.outputCharsTotal) ? Number(stats.outputCharsTotal) : 0),
@@ -990,7 +983,7 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
   };
 }
 
-let tempEnvQueue: Promise<unknown> = Promise.resolve();
+let tempEnvQueue: Promise<void> = Promise.resolve();
 
 function runWithTempEnv<R>(fn: (tempRoot: string) => R | Promise<R>): Promise<R> {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-node-test-'));
@@ -1053,7 +1046,7 @@ function runWithTempEnv<R>(fn: (tempRoot: string) => R | Promise<R>): Promise<R>
 
 function withTempEnv<R>(fn: (tempRoot: string) => R | Promise<R>): Promise<R> {
   const queued = tempEnvQueue.then(() => runWithTempEnv(fn), () => runWithTempEnv(fn));
-  tempEnvQueue = queued.catch(() => undefined);
+  tempEnvQueue = queued.then(() => undefined, () => undefined);
   return queued;
 }
 
@@ -1162,13 +1155,13 @@ async function postCompletedStatus(statusUrl: string, metadata: JsonObject): Pro
   const metadataResponse = await postStatusTerminalMetadata(statusUrl, metadata);
   const completeResponse = await postStatusComplete(statusUrl, {
     requestId,
-    taskKind: typeof metadata.taskKind === 'string' ? metadata.taskKind : undefined,
+    ...(typeof metadata.taskKind === 'string' ? { taskKind: metadata.taskKind } : {}),
     terminalState,
   });
   return { metadataResponse, completeResponse };
 }
 
-function getOptionalNonNegativeInteger(value: unknown): number | null {
+function getOptionalNonNegativeInteger(value: number | undefined): number | null {
   if (!Number.isFinite(Number(value))) {
     return null;
   }
@@ -1298,7 +1291,7 @@ async function startStatusServerProcess(options: StatusServerProcessOptions) {
   let startupResolved = false;
   let closeResolved = false;
   let resolveStartup!: (value: StatusServerProcessStartupInfo) => void;
-  let rejectStartup!: (reason?: unknown) => void;
+  let rejectStartup!: (reason?: Error) => void;
   let resolveClose!: (value: StatusServerProcessCloseInfo) => void;
   const startup = new Promise<StatusServerProcessStartupInfo>((resolve, reject) => {
     resolveStartup = resolve;
@@ -1434,11 +1427,15 @@ function stripAnsi(text: string): string {
   return String(text).replace(/\u001b\[[0-9;]*m/gu, '');
 }
 
-async function captureStdout(fn: (lines: string[]) => unknown): Promise<string[]> {
+async function captureStdout(fn: (lines: string[]) => void | Promise<void>): Promise<string[]> {
   const originalWrite = process.stdout.write.bind(process.stdout);
   const lines: string[] = [];
   let buffer = '';
-  const patchedWrite = (chunk: string | Uint8Array, encoding?: BufferEncoding, callback?: (error?: Error | null) => void): boolean => {
+  const patchedWrite = (
+    chunk: string | Uint8Array,
+    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+    callback?: (error?: Error | null) => void,
+  ): boolean => {
     const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
     buffer += text;
     const parts = buffer.split(/\r?\n/u);
@@ -1448,9 +1445,12 @@ async function captureStdout(fn: (lines: string[]) => unknown): Promise<string[]
         lines.push(line);
       }
     }
-    return originalWrite(chunk, encoding as BufferEncoding, callback);
+    if (typeof encodingOrCallback === 'function') {
+      return originalWrite(chunk, encodingOrCallback);
+    }
+    return originalWrite(chunk, encodingOrCallback, callback);
   };
-  process.stdout.write = patchedWrite as typeof process.stdout.write;
+  process.stdout.write = patchedWrite;
 
   try {
     await fn(lines);
@@ -1467,7 +1467,7 @@ async function captureStdout(fn: (lines: string[]) => unknown): Promise<string[]
 function readIdleSummarySnapshots(dbPath: string): IdleSummarySnapshotRow[] {
   const database = new Database(dbPath, { readonly: true });
   try {
-    return database.prepare(`
+    const rows = database.prepare(`
       SELECT
         emitted_at_utc,
         completed_request_count,
@@ -1484,7 +1484,8 @@ function readIdleSummarySnapshots(dbPath: string): IdleSummarySnapshotRow[] {
         avg_tokens_per_second
       FROM idle_summary_snapshots
       ORDER BY id ASC
-    `).all() as IdleSummarySnapshotRow[];
+    `).all();
+    return z.array(IdleSummarySnapshotRowSchema).parse(rows);
   } finally {
     database.close();
   }
@@ -1513,19 +1514,19 @@ async function getFreePort() {
   return port;
 }
 
-async function waitForAsyncExpectation(expectation: () => unknown | Promise<unknown>, timeoutMs = 2000): Promise<void> {
+async function waitForAsyncExpectation(expectation: () => void | Promise<void>, timeoutMs = 2000): Promise<void> {
   const startedAt = Date.now();
-  let lastError: unknown = null;
+  let lastError: Error | null = null;
   for (;;) {
     try {
       await expectation();
       return;
     } catch (error) {
-      lastError = error;
+      lastError = toError(error);
     }
 
     if ((Date.now() - startedAt) >= timeoutMs) {
-      throw lastError;
+      throw lastError ?? new Error('waitForAsyncExpectation timed out');
     }
 
     await sleep(25);
@@ -1572,7 +1573,7 @@ export {
   buildStructuredStubDecision, resolveAssistantContent, readBody,
   resolveArtifactLogPathFromStatusPost, requestJson, sleep,
   removeDirectoryWithRetries, spawnProcess, waitForTextMatch,
-  startStubStatusServer, withTempEnv, withStubServer, withSummaryTestServer, mockConfig,
+  startStubStatusServer, withTempEnv, withStubServer, withSummaryTestServer, mockSiftConfig as mockConfig,
   getStatusRouteUrl, postStatusTerminalMetadata, postStatusComplete, postCompletedStatus,
   withRealStatusServer, startStatusServerProcess, stripAnsi, captureStdout,
   readIdleSummarySnapshots, getIdleSummaryBlock, getFreePort,

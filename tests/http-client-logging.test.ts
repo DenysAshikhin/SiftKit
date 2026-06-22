@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { getAddressInfo } from './helpers/dashboard-http.js';
 
 import { httpClient } from '../src/lib/http-client.js';
 import { JsonObjectSchema } from '../src/lib/json-types.js';
@@ -9,15 +9,20 @@ import { JsonObjectSchema } from '../src/lib/json-types.js';
 async function captureStderrLines(action: () => Promise<void>): Promise<string[]> {
   const originalWrite = process.stderr.write;
   let captured = '';
-  process.stderr.write = ((chunk: unknown, encoding?: BufferEncoding | ((error?: Error | null) => void), callback?: (error?: Error | null) => void): boolean => {
-    captured += String(chunk);
-    if (typeof encoding === 'function') {
-      encoding();
+  const patched = (
+    chunk: string | Uint8Array,
+    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+    callback?: (error?: Error | null) => void,
+  ): boolean => {
+    captured += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+    if (typeof encodingOrCallback === 'function') {
+      encodingOrCallback();
     } else if (callback) {
       callback();
     }
     return true;
-  }) as typeof process.stderr.write;
+  };
+  process.stderr.write = patched;
   try {
     await action();
   } finally {
@@ -41,7 +46,7 @@ test('requestJson does not write repo-search client logs to stderr by default', 
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
-    const port = (server.address() as AddressInfo).port;
+    const port = getAddressInfo(server).port;
     const lines = await captureStderrLines(async () => {
       await httpClient.requestJson({
         url: `http://127.0.0.1:${port}/repo-search`,
@@ -71,7 +76,7 @@ test('requestJson logs summary client request lifecycle when explicitly enabled'
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
-    const port = (server.address() as AddressInfo).port;
+    const port = getAddressInfo(server).port;
     const previousLogging = process.env.SIFTKIT_HTTP_CLIENT_LOGS;
     process.env.SIFTKIT_HTTP_CLIENT_LOGS = '1';
     let lines: string[] = [];

@@ -1,34 +1,54 @@
 import path from 'node:path';
 
+import { z } from '../../src/lib/zod.js';
 import { UNSUPPORTED_INPUT_MESSAGE } from '../../src/summary/measure.js';
 import { getDefaultOperationModeAllowedTools, normalizePresets } from '../../src/presets.js';
 import { normalizeManagedLlamaPresetArray } from '../../src/config/normalization.js';
+import {
+  JsonValueSchema,
+  JsonObjectSchema,
+  isJsonObject,
+  type JsonObject,
+  type JsonValue,
+  type MutableJsonObject,
+} from '../../src/lib/json-types.js';
 import type { SiftConfig } from '../../src/config/types.js';
 
-type JsonObject = Record<string, unknown>;
+// Chat-request view types are derived from runtime schemas so the JSON catchall
+// (tests read arbitrary keys like cache_prompt/id_slot/max_tokens off captured
+// requests) is laundered through z.infer rather than written as `unknown`.
+const ChatRequestMessageSchema = z.object({
+  role: z.string().optional(),
+  content: z.union([
+    z.string(),
+    z.array(z.object({ text: z.string().optional() }).catchall(JsonValueSchema)),
+  ]).optional(),
+  tool_calls: z.array(z.object({
+    function: z.object({
+      name: z.string().optional(),
+      arguments: z.string().optional(),
+    }).optional(),
+  }).catchall(JsonValueSchema)).optional(),
+  function_call: z.object({
+    name: z.string().optional(),
+    arguments: z.string().optional(),
+  }).optional(),
+  tool_call_id: z.string().optional(),
+}).catchall(JsonValueSchema);
 
-export type ChatRequestMessage = {
-  role?: string;
-  content?: string | Array<{ text?: string }>;
-  tool_calls?: Array<{
-    function?: {
-      name?: string;
-      arguments?: string;
-    };
-  }>;
-  function_call?: {
-    name?: string;
-    arguments?: string;
-  };
-  tool_call_id?: string;
-};
+const ChatRequestSchema = z.object({
+  messages: z.array(ChatRequestMessageSchema),
+  response_format: z.object({ type: z.string().optional() }).catchall(JsonValueSchema).optional(),
+  chat_template_kwargs: JsonObjectSchema.optional(),
+}).catchall(JsonValueSchema);
 
-export type ChatRequest = {
-  messages: ChatRequestMessage[];
-  response_format?: { type?: string; [key: string]: unknown };
-  chat_template_kwargs?: Record<string, unknown>;
-  [key: string]: unknown;
-};
+export type ChatRequestMessage = z.infer<typeof ChatRequestMessageSchema>;
+export type ChatRequest = z.infer<typeof ChatRequestSchema>;
+
+// Fixture-supplied assistant content: a literal, a per-request responder, or a
+// per-request rotation of either. Shared with the stub server in _runtime-helpers.
+export type AssistantResponderFn = (promptText: string, parsed: JsonValue, requestIndex: number) => string;
+export type AssistantResponder = string | AssistantResponderFn | Array<string | AssistantResponderFn>;
 
 export function deriveServiceUrl(configuredUrl: string, nextPath: string): string {
   const target = new URL(configuredUrl);
@@ -107,7 +127,14 @@ export function getDefaultConfig(): SiftConfig {
 }
 
 export function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
+  return z.custom<T>(() => true).parse(JSON.parse(JSON.stringify(value)));
+}
+
+// JSON-serialize-then-validate boundary: views a typed config (or any
+// JSON-serializable value) as a plain JsonValue so it can be deep-merged without
+// a cast or a Record<string, unknown> index.
+export function toJsonValue<T>(value: T): JsonValue {
+  return JsonValueSchema.parse(JSON.parse(JSON.stringify(value)));
 }
 
 export function getChatRequestText(request: ChatRequest | null | undefined): string {
@@ -151,44 +178,28 @@ export function getChatRequestText(request: ChatRequest | null | undefined): str
   }).join('\n');
 }
 
-export function setManagedLlamaBaseUrl(config: JsonObject, baseUrl: string): void {
-  const runtime = (config.Runtime ?? {}) as JsonObject;
-  const runtimeLlamaCpp = (runtime.LlamaCpp ?? {}) as JsonObject;
-  runtimeLlamaCpp.BaseUrl = baseUrl;
-  runtime.LlamaCpp = runtimeLlamaCpp;
-  config.Runtime = runtime;
-
-  const server = (config.Server ?? {}) as JsonObject;
-  const serverLlamaCpp = (server.LlamaCpp ?? {}) as JsonObject;
-  const presets = Array.isArray(serverLlamaCpp.Presets) ? serverLlamaCpp.Presets as JsonObject[] : [];
-  for (const preset of presets) {
+export function setManagedLlamaBaseUrl(config: SiftConfig, baseUrl: string): void {
+  config.Runtime.LlamaCpp.BaseUrl = baseUrl;
+  for (const preset of config.Server.LlamaCpp.Presets) {
     preset.BaseUrl = baseUrl;
   }
-  server.LlamaCpp = serverLlamaCpp;
-  config.Server = server;
 }
 
-export function mergeConfig(baseValue: unknown, patchValue: unknown): unknown {
+export function mergeConfig(baseValue: JsonValue, patchValue: JsonValue): JsonValue {
   if (Array.isArray(baseValue) && Array.isArray(patchValue)) {
     return patchValue.slice();
   }
 
-  if (
-    baseValue
-    && patchValue
-    && typeof baseValue === 'object'
-    && typeof patchValue === 'object'
-    && !Array.isArray(baseValue)
-    && !Array.isArray(patchValue)
-  ) {
-    const merged: JsonObject = { ...(baseValue as JsonObject) };
-    for (const [key, value] of Object.entries(patchValue as JsonObject)) {
+  if (isJsonObject(baseValue) && isJsonObject(patchValue)) {
+    const merged: MutableJsonObject = { ...baseValue };
+    for (const [key, value] of Object.entries(patchValue)) {
       merged[key] = key in merged ? mergeConfig(merged[key], value) : value;
     }
     delete merged.Paths;
     delete merged.Effective;
-    if (merged.Thresholds && typeof merged.Thresholds === 'object') {
-      delete (merged.Thresholds as JsonObject).MaxInputCharacters;
+    const thresholds = merged.Thresholds;
+    if (isJsonObject(thresholds)) {
+      delete thresholds.MaxInputCharacters;
     }
     return merged;
   }
@@ -363,11 +374,11 @@ export function buildStructuredStubDecision(promptText: string): JsonObject {
 }
 
 export function resolveAssistantContent(
-  option: unknown,
+  option: AssistantResponder | undefined,
   promptText: string,
-  parsed: unknown,
+  parsed: JsonValue,
   requestIndex: number,
-): unknown {
+): string | undefined {
   if (typeof option === 'function') {
     return option(promptText, parsed, requestIndex);
   }

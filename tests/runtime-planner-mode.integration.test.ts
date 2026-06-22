@@ -14,11 +14,12 @@ import {
   withTempEnv,
   withStubServer,
 } from './_runtime-helpers.js';
+import type { JsonValue } from '../src/lib/json-types.js';
 
 interface PlannerDebugEvent {
   kind?: string;
   command?: string;
-  thinkingProcess?: unknown;
+  thinkingProcess?: JsonValue;
   output?: { text?: string };
 }
 

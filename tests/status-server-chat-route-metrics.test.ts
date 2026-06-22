@@ -12,7 +12,7 @@ test('getRepoSearchGenerationTokensPerSecond counts thinking tokens in repo-sear
     },
   };
 
-  const rate = getRepoSearchGenerationTokensPerSecond(scorecard as never);
+  const rate = getRepoSearchGenerationTokensPerSecond(scorecard);
 
   assert.equal(rate, (607 + 576) / (15837.164 / 1000));
 });
@@ -26,5 +26,5 @@ test('getRepoSearchGenerationTokensPerSecond returns null when duration is missi
     },
   };
 
-  assert.equal(getRepoSearchGenerationTokensPerSecond(scorecard as never), null);
+  assert.equal(getRepoSearchGenerationTokensPerSecond(scorecard), null);
 });

@@ -4,7 +4,10 @@ import Database from 'better-sqlite3';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
+import { z } from 'zod';
 import { getRuntimeDatabase } from '../src/state/runtime-db.js';
+
+const ColumnNameRowSchema = z.array(z.object({ name: z.string() }));
 
 function tempDbPath(prefix: string): string {
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), prefix)), 'runtime.sqlite');
@@ -13,7 +16,8 @@ function tempDbPath(prefix: string): string {
 function columnNames(dbPath: string, table: string): string[] {
   const db = new Database(dbPath, { readonly: true });
   try {
-    return (db.prepare(`SELECT name FROM pragma_table_info('${table}')`).all() as { name: string }[])
+    return ColumnNameRowSchema
+      .parse(db.prepare(`SELECT name FROM pragma_table_info('${table}')`).all())
       .map((r) => r.name);
   } finally {
     db.close();

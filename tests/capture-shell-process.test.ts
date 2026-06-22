@@ -43,7 +43,7 @@ test('invokeShellProcess with explicit bash shell on POSIX runs via bash', { ski
 
 test('invokeShellProcess rejects unsupported shell name', () => {
   assert.throws(
-    () => invokeShellProcess('echo x', 'fish' as unknown as 'auto'),
+    () => invokeShellProcess('echo x', 'fish'),
     /unsupported shell/iu,
   );
 });

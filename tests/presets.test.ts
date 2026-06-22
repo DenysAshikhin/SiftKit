@@ -23,6 +23,12 @@ import {
   writeConfig,
 } from '../src/status-server/config-store.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { z } from 'zod';
+import type { SiftPreset } from '../src/presets.js';
+
+function mockPreset(partial: Partial<SiftPreset>): SiftPreset {
+  return z.custom<SiftPreset>(() => true).parse(partial);
+}
 
 function withTempRepo(fn: (repoRoot: string) => void): void {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-preset-test-'));
@@ -130,10 +136,12 @@ test('legacy chat modes map to builtin preset ids', () => {
 test('config persistence stores normalized presets in sqlite', () => {
   withTempRepo((repoRoot) => {
     const configPath = path.join(repoRoot, '.siftkit', 'runtime.sqlite');
-    const config = getDefaultConfig() as typeof getDefaultConfig extends (...args: never[]) => infer T ? T : never;
-    (config as { Presets?: unknown }).Presets = [
-      { id: 'summary', label: 'Summary Override', surfaces: ['cli'] },
-      {
+    const config = getDefaultConfig();
+    // Deliberately-partial preset overlays exercise persistence normalization;
+    // brand each through a runtime check instead of casting the whole config.
+    config.Presets = [
+      mockPreset({ id: 'summary', label: 'Summary Override', surfaces: ['cli'] }),
+      mockPreset({
         id: 'custom-search',
         label: 'Custom Search',
         presetKind: 'repo-search',
@@ -141,21 +149,10 @@ test('config persistence stores normalized presets in sqlite', () => {
         surfaces: ['web'],
         includeAgentsMd: false,
         includeRepoFileListing: true,
-      },
+      }),
     ];
     writeConfig(configPath, config);
-    const loaded = readConfig(configPath) as {
-      Presets?: Array<{
-        id: string;
-        label: string;
-        deletable: boolean;
-        presetKind: string;
-        operationMode: string;
-        includeAgentsMd: boolean;
-        includeRepoFileListing: boolean;
-      }>;
-      OperationModeAllowedTools?: Record<string, string[]>;
-    };
+    const loaded = readConfig(configPath);
     assert.equal(Array.isArray(loaded.Presets), true);
     assert.equal(loaded.Presets?.some((preset) => preset.id === 'chat'), true);
     assert.equal(loaded.Presets?.find((preset) => preset.id === 'summary')?.label, 'Summary Override');
@@ -186,7 +183,7 @@ test('config persistence stores global agents.md auto-append setting in sqlite',
       ...defaultConfig,
       IncludeAgentsMd: false,
     });
-    const loaded = readConfig(configPath) as { IncludeAgentsMd?: boolean };
+    const loaded = readConfig(configPath);
 
     assert.equal(loaded.IncludeAgentsMd, false);
   });

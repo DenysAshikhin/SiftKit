@@ -12,7 +12,12 @@ import {
 } from '../src/status-server/dashboard-runs.js';
 import {
   ensureIdleSummarySnapshotsTable,
+  IdleSummarySnapshotDbRowSchema,
 } from '../src/status-server/idle-summary.js';
+import { JsonRecordReader } from '../src/lib/json-record-reader.js';
+import { parseJsonValueText } from '../src/lib/json.js';
+import { asObject } from './helpers/dashboard-http.js';
+import type { JsonObject } from '../src/lib/json-types.js';
 import {
   readMetrics,
 } from '../src/status-server/metrics.js';
@@ -22,6 +27,15 @@ import {
   getRuntimeDatabase,
   getRuntimeDatabasePath,
 } from '../src/state/runtime-db.js';
+
+// SQLite .get()/.all() return `unknown`; narrow rows to JsonObject at the boundary.
+function asRow<T>(value: T): JsonObject {
+  return JsonRecordReader.asObject(value) ?? {};
+}
+
+function asRows<T>(values: readonly T[]): JsonObject[] {
+  return values.map((value) => JsonRecordReader.asObject(value) ?? {});
+}
 
 function waitSync(delayMs: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
@@ -110,11 +124,11 @@ test('ensureRunLogsTable preserves existing run token fields', () => {
 
     ensureRunLogsTable(database);
 
-    const row = database.prepare(`
+    const row = asRow(database.prepare(`
       SELECT input_tokens, prompt_eval_tokens
       FROM run_logs
       WHERE run_id = 'run-1'
-    `).get() as { input_tokens: number; prompt_eval_tokens: number | null };
+    `).get());
     assert.equal(row.input_tokens, 123);
     assert.equal(row.prompt_eval_tokens, null);
   } finally {
@@ -165,9 +179,9 @@ test('ensureRunLogsTable does not rewrite existing run rows', () => {
     );
 
     ensureRunLogsTable(database);
-    const before = Number((database.prepare('SELECT total_changes() AS changes').get() as { changes: number }).changes);
+    const before = Number(asRow(database.prepare('SELECT total_changes() AS changes').get()).changes);
     ensureRunLogsTable(database);
-    const after = Number((database.prepare('SELECT total_changes() AS changes').get() as { changes: number }).changes);
+    const after = Number(asRow(database.prepare('SELECT total_changes() AS changes').get()).changes);
 
     assert.equal(after - before, 0);
   } finally {
@@ -180,29 +194,29 @@ test('ensureRunLogsTable creates indexes for request lookup and dashboard orderi
   try {
     ensureRunLogsTable(database);
 
-    const indexes = database.prepare("PRAGMA index_list('run_logs')").all() as Array<{ name?: string }>;
+    const indexes = asRows(database.prepare("PRAGMA index_list('run_logs')").all());
     assert.equal(indexes.some((row) => row.name === 'idx_run_logs_request_id'), true);
     assert.equal(indexes.some((row) => row.name === 'idx_run_logs_dashboard_order'), true);
 
-    const requestPlan = database.prepare(`
+    const requestPlan = asRows(database.prepare(`
       EXPLAIN QUERY PLAN
       SELECT speculative_accepted_tokens, speculative_generated_tokens
       FROM run_logs
       WHERE request_id = ?
       LIMIT 1
-    `).all('request-1') as Array<{ detail?: string }>;
+    `).all('request-1'));
     assert.equal(
       requestPlan.some((row) => String(row.detail || '').includes('idx_run_logs_request_id')),
       true,
     );
 
-    const orderPlan = database.prepare(`
+    const orderPlan = asRows(database.prepare(`
       EXPLAIN QUERY PLAN
       SELECT id, run_id, request_id
       FROM run_logs
       ORDER BY COALESCE(finished_at_utc, started_at_utc, '1970-01-01T00:00:00.000Z') DESC, id DESC
       LIMIT 20
-    `).all() as Array<{ detail?: string }>;
+    `).all());
     assert.equal(
       orderPlan.some((row) => String(row.detail || '').includes('idx_run_logs_dashboard_order')),
       true,
@@ -309,7 +323,7 @@ test('ensureIdleSummarySnapshotsTable preserves existing token totals and expose
 
     ensureIdleSummarySnapshotsTable(database);
 
-    const row = database.prepare('SELECT * FROM idle_summary_snapshots').get() as IdleSummarySnapshotDbRow;
+    const row = IdleSummarySnapshotDbRowSchema.parse(database.prepare('SELECT * FROM idle_summary_snapshots').get());
     assert.equal(Number(row.input_tokens_total), 123);
     assert.equal(Number(row.prompt_eval_tokens_total), 0);
     const snapshot = normalizeIdleSummarySnapshotRow(row);
@@ -328,17 +342,17 @@ test('ensureIdleSummarySnapshotsTable creates emitted-at ordering index', () => 
   try {
     ensureIdleSummarySnapshotsTable(database);
 
-    const indexes = database.prepare("PRAGMA index_list('idle_summary_snapshots')").all() as Array<{ name?: string }>;
+    const indexes = asRows(database.prepare("PRAGMA index_list('idle_summary_snapshots')").all());
     assert.equal(indexes.some((row) => row.name === 'idx_idle_summary_snapshots_emitted'), true);
 
-    const beforeDatePlan = database.prepare(`
+    const beforeDatePlan = asRows(database.prepare(`
       EXPLAIN QUERY PLAN
       SELECT id, emitted_at_utc
       FROM idle_summary_snapshots
       WHERE emitted_at_utc < ?
       ORDER BY emitted_at_utc DESC, id DESC
       LIMIT 1
-    `).all('2026-05-01T00:00:00.000Z') as Array<{ detail?: string }>;
+    `).all('2026-05-01T00:00:00.000Z'));
     assert.equal(
       beforeDatePlan.some((row) => String(row.detail || '').includes('idx_idle_summary_snapshots_emitted')),
       true,
@@ -351,17 +365,17 @@ test('ensureIdleSummarySnapshotsTable creates emitted-at ordering index', () => 
 test('runtime database creates runtime artifact updated-at ordering index', () => {
   withTempRepo(() => {
     const database = getRuntimeDatabase();
-    const indexes = database.prepare("PRAGMA index_list('runtime_artifacts')").all() as Array<{ name?: string }>;
+    const indexes = asRows(database.prepare("PRAGMA index_list('runtime_artifacts')").all());
     assert.equal(indexes.some((row) => row.name === 'idx_runtime_artifacts_updated'), true);
 
-    const planRows = database.prepare(`
+    const planRows = asRows(database.prepare(`
       EXPLAIN QUERY PLAN
       SELECT id, artifact_kind, request_id, title, content_text, content_json, created_at_utc, updated_at_utc
       FROM runtime_artifacts
       WHERE (? = '' OR request_id = ?)
       ORDER BY updated_at_utc DESC, id DESC
       LIMIT ?
-    `).all('', '', 20) as Array<{ detail?: string }>;
+    `).all('', '', 20));
     assert.equal(
       planRows.some((row) => String(row.detail || '').includes('idx_runtime_artifacts_updated')),
       true,
@@ -411,7 +425,7 @@ test('readMetrics backfills timing columns for already-current runtime databases
     assert.equal(metrics.requestDurationMsTotal, 1000);
     assert.equal(metrics.wallDurationMsTotal, 0);
     const reopened = getRuntimeDatabase(databasePath);
-    const columns = reopened.prepare('PRAGMA table_info(runtime_metrics_totals)').all() as Array<{ name: string }>;
+    const columns = asRows(reopened.prepare('PRAGMA table_info(runtime_metrics_totals)').all());
     assert.ok(columns.some((column) => column.name === 'wall_duration_ms_total'));
   });
 });
@@ -458,21 +472,20 @@ test('runtime database schema migration preserves existing metrics token totals'
     legacy.close();
 
     const migrated = getRuntimeDatabase(databasePath);
-    const schemaVersionRow = migrated.prepare('SELECT version FROM runtime_schema WHERE id = 1').get() as { version: number };
-    const metricsRow = migrated.prepare(`
+    const schemaVersionRow = asRow(migrated.prepare('SELECT version FROM runtime_schema WHERE id = 1').get());
+    const metricsRow = asRow(migrated.prepare(`
       SELECT input_tokens_total, prompt_eval_tokens_total, task_totals_json
       FROM runtime_metrics_totals
       WHERE id = 1
-    `).get() as { input_tokens_total: number; prompt_eval_tokens_total: number; task_totals_json: string };
+    `).get());
 
     assert.equal(schemaVersionRow.version, CURRENT_SCHEMA_VERSION);
     assert.equal(metricsRow.input_tokens_total, 123);
     assert.equal(metricsRow.prompt_eval_tokens_total, 0);
-    const taskTotals = JSON.parse(metricsRow.task_totals_json) as {
-      summary: { inputTokensTotal: number; promptEvalTokensTotal: number };
-    };
-    assert.equal(taskTotals.summary.inputTokensTotal, 123);
-    assert.equal(taskTotals.summary.promptEvalTokensTotal, 0);
+    const taskTotals = asObject(parseJsonValueText(String(metricsRow.task_totals_json)));
+    const summaryTotals = asObject(taskTotals.summary);
+    assert.equal(summaryTotals.inputTokensTotal, 123);
+    assert.equal(summaryTotals.promptEvalTokensTotal, 0);
     closeRuntimeDatabase();
   });
 });

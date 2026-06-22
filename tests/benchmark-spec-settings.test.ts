@@ -8,6 +8,8 @@ import { createRequire } from 'node:module';
 
 import type { DashboardConfig } from '../dashboard/src/types';
 import { mockConfig } from './_runtime-helpers.js';
+import { readPackageJson } from './helpers/package-json.js';
+import { mockRunRecord } from './helpers/mock-run-record.js';
 import {
   DEFAULT_SPEC_BENCHMARK_CASES,
   FOCUSED3_SPEC_BENCHMARK_CASES,
@@ -35,18 +37,24 @@ const DEFAULT_SPEC_BENCHMARK_PROMPTS = [
 const DEFAULT_SPEC_BENCHMARK_PROMPT = DEFAULT_SPEC_BENCHMARK_PROMPTS[0];
 
 const require = createRequire(__filename);
-const { normalizeForwardedArgs } = require('../scripts/run-benchmark-spec-settings.js') as {
+// The benchmark wrapper scripts are CommonJS .js without declarations, so the
+// require() result is untyped at this boundary. loadScriptModule names the
+// expected shape via a generic, keeping the call sites free of assertions.
+function loadScriptModule<T>(id: string): T {
+  return require(id);
+}
+const { normalizeForwardedArgs } = loadScriptModule<{
   normalizeForwardedArgs: (argv: string[]) => string[];
-};
-const { buildFocusedPowerShellArgs } = require('../scripts/run-benchmark-spec-focused.js') as {
+}>('../scripts/run-benchmark-spec-settings.js');
+const { buildFocusedPowerShellArgs } = loadScriptModule<{
   buildFocusedPowerShellArgs: (repoRoot: string, forwardedArgv: string[]) => string[];
-};
-const { buildFocused3PowerShellArgs } = require('../scripts/run-benchmark-spec-focused3.js') as {
+}>('../scripts/run-benchmark-spec-focused.js');
+const { buildFocused3PowerShellArgs } = loadScriptModule<{
   buildFocused3PowerShellArgs: (repoRoot: string, forwardedArgv: string[]) => string[];
-};
-const { syncDistRuntime } = require('../scripts/sync-dist-runtime.js') as {
+}>('../scripts/run-benchmark-spec-focused3.js');
+const { syncDistRuntime } = loadScriptModule<{
   syncDistRuntime: (sourceRoot: string, targetRoot: string) => void;
-};
+}>('../scripts/sync-dist-runtime.js');
 
 const INTENTIONAL_SRC_DECLARATION_FILES = new Set<string>(['src/types/better-sqlite3.d.ts']);
 
@@ -137,35 +145,35 @@ test('buildBenchmarkCaseId uses a dedicated id for the no-spec baseline case', (
 
 test('findBenchmarkRun selects the nearest matching repo-search run after the run start', () => {
   const run = findBenchmarkRun([
-    {
+    mockRunRecord({
       id: 'older',
       kind: 'repo_search',
       startedAtUtc: '2026-04-20T21:00:00.000Z',
       finishedAtUtc: '2026-04-20T21:00:20.000Z',
       title: DEFAULT_SPEC_BENCHMARK_PROMPT,
-    },
-    {
+    }),
+    mockRunRecord({
       id: 'winner',
       kind: 'repo_search',
       startedAtUtc: '2026-04-20T21:01:00.000Z',
       finishedAtUtc: '2026-04-20T21:01:20.000Z',
       title: DEFAULT_SPEC_BENCHMARK_PROMPT,
-    },
-    {
+    }),
+    mockRunRecord({
       id: 'later-same-prompt',
       kind: 'repo_search',
       startedAtUtc: '2026-04-20T21:05:00.000Z',
       finishedAtUtc: '2026-04-20T21:05:20.000Z',
       title: DEFAULT_SPEC_BENCHMARK_PROMPT,
-    },
-    {
+    }),
+    mockRunRecord({
       id: 'wrong-title',
       kind: 'repo_search',
       startedAtUtc: '2026-04-20T21:02:00.000Z',
       finishedAtUtc: '2026-04-20T21:02:20.000Z',
       title: 'different prompt',
-    },
-  ] as never, DEFAULT_SPEC_BENCHMARK_PROMPT, '2026-04-20T21:00:30.000Z');
+    }),
+  ], DEFAULT_SPEC_BENCHMARK_PROMPT, '2026-04-20T21:00:30.000Z');
 
   assert.equal(run?.id, 'winner');
 });
@@ -213,7 +221,7 @@ test('getSpeculativeLogDeltaTotals converts cumulative log totals into per-reque
 });
 
 test('getRunTelemetryStats uses managed-log delta speculative totals instead of persisted run totals', () => {
-  const run = {
+  const run = mockRunRecord({
     promptCacheTokens: 200,
     promptEvalTokens: 50,
     promptEvalDurationMs: 10,
@@ -222,7 +230,7 @@ test('getRunTelemetryStats uses managed-log delta speculative totals instead of 
     generationDurationMs: 2_000,
     speculativeAcceptedTokens: 30,
     speculativeGeneratedTokens: 60,
-  } as never;
+  });
   const logDelta = {
     speculative: true,
     checkpointed: true,
@@ -250,7 +258,7 @@ test('getRunTelemetryStats uses managed-log delta speculative totals instead of 
 });
 
 test('getRunTelemetryStats leaves speculative totals null when managed-log delta is unavailable', () => {
-  const run = {
+  const run = mockRunRecord({
     promptCacheTokens: 200,
     promptEvalTokens: 50,
     promptEvalDurationMs: 10,
@@ -259,7 +267,7 @@ test('getRunTelemetryStats leaves speculative totals null when managed-log delta
     generationDurationMs: 2_000,
     speculativeAcceptedTokens: 30,
     speculativeGeneratedTokens: 60,
-  } as never;
+  });
 
   assert.deepEqual(
     getRunTelemetryStats(run, null),
@@ -280,7 +288,7 @@ test('getRunTelemetryStats leaves speculative totals null when managed-log delta
 });
 
 test('applySpeculativeCaseToConfig updates only the approved speculative settings', () => {
-  const config = {
+  const config = mockConfig({
     Server: {
       LlamaCpp: {
         ActivePresetId: 'active',
@@ -299,7 +307,7 @@ test('applySpeculativeCaseToConfig updates only the approved speculative setting
         ],
       },
     },
-  } as DashboardConfig;
+  });
 
   const updated = applySpeculativeCaseToConfig(config, {
     speculativeNgramSizeN: 24,
@@ -357,7 +365,7 @@ test('applySpeculativeCaseToConfig updates the active managed llama preset used 
 });
 
 test('applySpeculativeCaseToConfig can disable speculative decoding for the baseline run', () => {
-  const config = {
+  const config = mockConfig({
     Server: {
       LlamaCpp: {
         ActivePresetId: 'active',
@@ -374,7 +382,7 @@ test('applySpeculativeCaseToConfig can disable speculative decoding for the base
         ],
       },
     },
-  } as DashboardConfig;
+  });
 
   const updated = applySpeculativeCaseToConfig(config, {
     speculativeEnabled: false,
@@ -414,8 +422,9 @@ test('DEFAULT_SPEC_BENCHMARK_CASES contains the approved baseline', () => {
 test('DEFAULT_SPEC_BENCHMARK_CASES appends a no-spec baseline case', () => {
   const lastEntry = DEFAULT_SPEC_BENCHMARK_CASES.at(-1);
 
-  assert.equal(lastEntry?.speculativeEnabled, false);
-  assert.equal(buildBenchmarkCaseId(lastEntry as never), 'baseline-no-spec');
+  assert.ok(lastEntry);
+  assert.equal(lastEntry.speculativeEnabled, false);
+  assert.equal(buildBenchmarkCaseId(lastEntry), 'baseline-no-spec');
 });
 
 test('FOCUSED_SPEC_BENCHMARK_CASES contains baseline, current best, and eight nearby candidates', () => {
@@ -575,14 +584,14 @@ test('spec benchmark script updates the active managed llama preset before resta
 });
 
 test('package benchmark command uses a node wrapper instead of forwarding prompt args directly to PowerShell', () => {
-  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { scripts?: Record<string, string> };
+  const pkg = readPackageJson();
 
   assert.match(String(pkg.scripts?.['benchmark:spec-settings'] || ''), /node\s+\.\\scripts\\run-benchmark-spec-settings\.js/u);
   assert.doesNotMatch(String(pkg.scripts?.['benchmark:spec-settings'] || ''), /&&/u);
 });
 
 test('package focused spec benchmark command preserves the old command and selects Focused10', () => {
-  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { scripts?: Record<string, string> };
+  const pkg = readPackageJson();
 
   assert.equal(String(pkg.scripts?.['benchmark:spec-settings']), 'node .\\scripts\\run-benchmark-spec-settings.js');
   assert.equal(String(pkg.scripts?.['benchmark:spec-focused']), 'node .\\scripts\\run-benchmark-spec-focused.js');
@@ -593,7 +602,7 @@ test('package focused spec benchmark command preserves the old command and selec
 });
 
 test('package focused3 spec benchmark command preserves existing commands and selects Focused3', () => {
-  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { scripts?: Record<string, string> };
+  const pkg = readPackageJson();
 
   assert.equal(String(pkg.scripts?.['benchmark:spec-settings']), 'node .\\scripts\\run-benchmark-spec-settings.js');
   assert.equal(String(pkg.scripts?.['benchmark:spec-focused']), 'node .\\scripts\\run-benchmark-spec-focused.js');
@@ -605,20 +614,20 @@ test('package focused3 spec benchmark command preserves existing commands and se
 });
 
 test('package build command syncs dist runtime output after compiling TypeScript', () => {
-  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { scripts?: Record<string, string> };
+  const pkg = readPackageJson();
 
   assert.match(String(pkg.scripts?.build || ''), /node\s+\.\\scripts\\sync-dist-runtime\.js/u);
 });
 
 test('package test command runs the test TypeScript typecheck', () => {
-  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { scripts?: Record<string, string> };
+  const pkg = readPackageJson();
 
   assert.equal(String(pkg.scripts?.['typecheck:test']), 'tsc -p .\\tsconfig.test.json --noEmit');
   assert.match(String(pkg.scripts?.test || ''), /npm run typecheck:test/u);
 });
 
 test('package typecheck command is available for repo, scripts, dashboard, bench, tests, and dashboard-test', () => {
-  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { scripts?: Record<string, string> };
+  const pkg = readPackageJson();
 
   assert.equal(
     String(pkg.scripts?.typecheck),

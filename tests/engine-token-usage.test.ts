@@ -2,9 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
-import type { SiftConfig } from '../src/config/index.js';
 import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
 import { getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
+import { parseJsonValueText } from '../src/lib/json.js';
+import { asObject } from './helpers/dashboard-http.js';
+import { mockConfig } from './_runtime-helpers.js';
 
 async function closeServer(server: http.Server): Promise<void> {
   await new Promise<void>((resolve, reject) => {
@@ -76,7 +78,7 @@ test('recordModelResponse uses llama tokenizer for missing completion and thinki
     req.setEncoding('utf8');
     req.on('data', (chunk) => { body += chunk; });
     req.on('end', () => {
-      const parsed = JSON.parse(body || '{}') as { content?: string };
+      const parsed = asObject(parseJsonValueText(body || '{}'));
       const content = String(parsed.content || '');
       const count = content === 'exact answer'
         ? 17
@@ -92,9 +94,9 @@ test('recordModelResponse uses llama tokenizer for missing completion and thinki
   const baseUrl = `http://127.0.0.1:${Number(typeof address === 'object' && address ? address.port : 0)}`;
 
   try {
-    const tracker = new TokenUsageTracker({
+    const tracker = new TokenUsageTracker(mockConfig({
       Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } },
-    } as SiftConfig);
+    }));
     const resolved = await tracker.recordModelResponse({
       text: 'exact answer',
       thinkingText: 'exact thinking',

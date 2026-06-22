@@ -3,44 +3,35 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createRequire } from 'node:module';
-import type { AddressInfo } from 'node:net';
+import Database from 'better-sqlite3';
 
 import { startStatusServer } from '../src/status-server/index.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import {
   removeDirectoryWithRetries,
   requestJson,
-  type Dict,
+  asObjectArray,
+  asArray,
+  getAddressInfo,
   writeJson,
 } from './helpers/dashboard-http.js';
-
-const requireFromHere = createRequire(__filename);
-type SqliteStatement = {
-  get: (...args: unknown[]) => Dict | undefined;
-  all: (...args: unknown[]) => Dict[];
-  run: (...args: unknown[]) => { changes: number };
-};
-const Database = requireFromHere('better-sqlite3') as new (path: string, options?: { readonly?: boolean }) => {
-  prepare: (sql: string) => SqliteStatement;
-  close: () => void;
-};
 
 function readRunLogRowCount(dbPath: string): number {
   const database = new Database(dbPath, { readonly: true });
   try {
-    const row = database.prepare('SELECT COUNT(*) AS count FROM run_logs').get() as Dict;
-    return Number(row.count || 0);
+    const row = JsonRecordReader.asObject(database.prepare('SELECT COUNT(*) AS count FROM run_logs').get());
+    return Number(row?.count || 0);
   } finally {
     database.close();
   }
 }
 
-function countRows(dbPath: string, sql: string, ...params: unknown[]): number {
+function countRows(dbPath: string, sql: string, ...params: (string | number)[]): number {
   const database = new Database(dbPath, { readonly: true });
   try {
-    const row = database.prepare(sql).get(...params) as Dict;
-    return Number(row.count || 0);
+    const row = JsonRecordReader.asObject(database.prepare(sql).get(...params));
+    return Number(row?.count || 0);
   } finally {
     database.close();
   }
@@ -191,13 +182,13 @@ test('dashboard initial runs load returns top 20 overall and migrates pre-existi
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
     const cappedRunsResponse = await requestJson(`${baseUrl}/dashboard/runs?initial=1&limitPerGroup=20`);
     assert.equal(cappedRunsResponse.statusCode, 200);
-    const runs = cappedRunsResponse.body.runs as Dict[];
+    const runs = asObjectArray(cappedRunsResponse.body.runs);
     assert.equal(runs.length, 20);
 
     assert.equal(fs.readdirSync(requestsRoot).length, 0);
@@ -272,13 +263,13 @@ test('dashboard filters runs by preset group and deletes the oldest matching log
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
     const groupedRunsResponse = await requestJson(`${baseUrl}/dashboard/runs?kind=summary`);
     assert.equal(groupedRunsResponse.statusCode, 200);
-    const summaryRuns = groupedRunsResponse.body.runs as Dict[];
+    const summaryRuns = asObjectArray(groupedRunsResponse.body.runs);
     assert.equal(summaryRuns.length, 8);
 
     const previewResponse = await requestJson(`${baseUrl}/dashboard/admin/run-logs/preview`, {
@@ -310,7 +301,7 @@ test('dashboard filters runs by preset group and deletes the oldest matching log
 
     const afterDeleteResponse = await requestJson(`${baseUrl}/dashboard/runs?kind=summary`);
     assert.equal(afterDeleteResponse.statusCode, 200);
-    const remainingSummaryRuns = afterDeleteResponse.body.runs as Dict[];
+    const remainingSummaryRuns = asObjectArray(afterDeleteResponse.body.runs);
     assert.equal(remainingSummaryRuns.length, 5);
     assert.equal(readRunLogRowCount(idleSummaryDbPath), 10);
   } finally {
@@ -382,7 +373,7 @@ test('dashboard deletes matching logs before a date and rejects invalid delete c
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -418,7 +409,7 @@ test('dashboard deletes matching logs before a date and rejects invalid delete c
     });
     assert.equal(deleteResponse.statusCode, 200);
     assert.equal(deleteResponse.body.deletedCount, 6);
-    assert.equal((deleteResponse.body.deletedRunIds as unknown[]).length, 6);
+    assert.equal(asArray(deleteResponse.body.deletedRunIds).length, 6);
     assert.equal(readRunLogRowCount(idleSummaryDbPath), 6);
   } finally {
     await new Promise<void>((resolve, reject) => {
@@ -464,7 +455,7 @@ test('dashboard before_date all-type delete wipes run history across tables whil
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -485,7 +476,7 @@ test('dashboard before_date all-type delete wipes run history across tables whil
     });
     assert.equal(deleteResponse.statusCode, 200);
     assert.equal(deleteResponse.body.deletedCount, 11);
-    assert.equal((deleteResponse.body.deletedRunIds as unknown[]).length, 6);
+    assert.equal(asArray(deleteResponse.body.deletedRunIds).length, 6);
 
     assert.equal(readRunLogRowCount(idleSummaryDbPath), 0);
     assert.equal(countRows(idleSummaryDbPath, 'SELECT COUNT(*) AS count FROM runtime_artifacts'), 2);
@@ -543,7 +534,7 @@ test('dashboard run-log delete cascades linked runtime artifacts and source file
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -587,7 +578,7 @@ test('dashboard run-log delete cascades linked runtime artifacts and source file
     });
     assert.equal(deleteResponse.statusCode, 200);
     assert.equal(deleteResponse.body.deletedCount, 6);
-    assert.equal((deleteResponse.body.deletedRunIds as unknown[]).length, 5);
+    assert.equal(asArray(deleteResponse.body.deletedRunIds).length, 5);
 
     assert.equal(readRunLogRowCount(idleSummaryDbPath), 0);
     assert.equal(countRows(idleSummaryDbPath, "SELECT COUNT(*) AS count FROM runtime_artifacts WHERE id = 'art-linked'"), 0);

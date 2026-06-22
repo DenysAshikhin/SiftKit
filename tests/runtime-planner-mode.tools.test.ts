@@ -15,6 +15,7 @@ import {
 import { generateLlamaCppResponse } from '../src/providers/llama-cpp.js';
 import { executePlannerTool } from '../src/summary/planner/tools.js';
 import type { PlannerToolDefinition, PlannerToolName } from '../src/summary/types.js';
+import { asObject } from './helpers/dashboard-http.js';
 
 function getToolDefinition(
   definitions: readonly PlannerToolDefinition[],
@@ -284,7 +285,7 @@ test('llama.cpp provider reconstructs planner tool actions from empty-content to
 
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model as string,
+        model: config.Runtime.Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
         structuredOutput: {
@@ -336,7 +337,7 @@ test('llama.cpp provider reconstructs planner tool batches from empty-content to
 
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model as string,
+        model: config.Runtime.Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
         structuredOutput: {
@@ -589,7 +590,6 @@ test('summary below planner threshold disables thinking for fully ingested one-s
       const inputText = 'A'.repeat(Math.max(plannerThreshold - 10, 1));
 
       config.Runtime.LlamaCpp.Reasoning = 'on';
-      (config.Server.LlamaCpp as { Reasoning?: 'on' | 'off' }).Reasoning = 'on';
       if (Array.isArray(config.Server.LlamaCpp.Presets) && config.Server.LlamaCpp.Presets[0]) {
         config.Server.LlamaCpp.Presets[0].Reasoning = 'on';
       }
@@ -628,7 +628,6 @@ test('summary above planner threshold respects runtime reasoning for planner req
       const inputText = buildOversizedTransitionsInput(plannerThreshold + 100);
 
       config.Runtime.LlamaCpp.Reasoning = 'on';
-      (config.Server.LlamaCpp as { Reasoning?: 'on' | 'off' }).Reasoning = 'on';
       if (Array.isArray(config.Server.LlamaCpp.Presets) && config.Server.LlamaCpp.Presets[0]) {
         config.Server.LlamaCpp.Presets[0].Reasoning = 'on';
       }
@@ -654,7 +653,7 @@ test('summary above planner threshold respects runtime reasoning for planner req
       assert.match(firstResponseFormatText, /find_text/u);
     }, {
       assistantContent(promptText, parsed) {
-        if (JSON.stringify(parsed?.response_format || {}).includes('find_text')) {
+        if (JSON.stringify(asObject(parsed).response_format || {}).includes('find_text')) {
           return JSON.stringify({
             action: 'finish',
             classification: 'summary',

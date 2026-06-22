@@ -1,22 +1,27 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { z } from 'zod';
 
-type LintMessage = {
-  ruleId: string | null;
-  message: string;
-};
+const LintMessageSchema = z.object({
+  ruleId: z.string().nullable(),
+  message: z.string(),
+}).passthrough();
 
-type LintFileResult = {
-  filePath: string;
-  messages: LintMessage[];
-  errorCount: number;
-};
+const LintFileResultSchema = z.object({
+  filePath: z.string(),
+  messages: z.array(LintMessageSchema),
+  errorCount: z.number(),
+}).passthrough();
+
+type LintFileResult = z.infer<typeof LintFileResultSchema>;
+
+const ExecErrorSchema = z.object({ stdout: z.string().optional() }).passthrough();
 
 const eslintExecutable = 'node_modules/eslint/bin/eslint.js';
 
 function parseLintOutput(output: string): LintFileResult {
-  const results = JSON.parse(output) as LintFileResult[];
+  const results = z.array(LintFileResultSchema).parse(JSON.parse(output));
   assert.equal(results.length, 1);
   return results[0];
 }
@@ -34,7 +39,7 @@ function lintFixtureAllowingFailure(fixtureName: string): LintFileResult {
   try {
     return lintFixture(fixtureName);
   } catch (error) {
-    const failed = error as { stdout?: string };
+    const failed = ExecErrorSchema.parse(error);
     return parseLintOutput(failed.stdout ?? '[]');
   }
 }

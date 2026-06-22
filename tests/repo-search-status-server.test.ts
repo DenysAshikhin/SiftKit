@@ -3,51 +3,24 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import http from 'node:http';
-import { createRequire } from 'node:module';
-import type { AddressInfo } from 'node:net';
+import { createRequire, Module } from 'node:module';
+import Database from 'better-sqlite3';
 
 import { startStatusServer, buildRepoSearchProgressLogMessage } from '../src/status-server/index.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { getConfigPath } from '../src/config/index.js';
 import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
+import {
+  writeManagedLlamaScripts,
+  getFreePort,
+  waitForAsyncExpectation,
+  startStatusServerProcess,
+} from './_runtime-helpers.js';
+import { requestJson, asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
+import { JsonRecordReader } from '../src/lib/json-record-reader.js';
+import { parseJsonValueText } from '../src/lib/json.js';
 
 const requireFromHere = createRequire(__filename);
-const Database = requireFromHere('better-sqlite3') as new (path: string, options?: { readonly?: boolean }) => {
-  prepare: (sql: string) => {
-    get: (...args: unknown[]) => Record<string, unknown> | undefined;
-    all: (...args: unknown[]) => Array<Record<string, unknown>>;
-  };
-  close: () => void;
-};
-const runtimeHelpers = requireFromHere('./_runtime-helpers.js') as {
-  writeManagedLlamaScripts: (tempRoot: string, port: number, modelId?: string, options?: {
-    launchHangingProcess?: boolean;
-  }) => {
-    baseUrl: string;
-    modelPath: string;
-    startupScriptPath: string;
-    shutdownScriptPath: string;
-    pidFilePath: string;
-    readyFilePath: string;
-  };
-  getFreePort: () => Promise<number>;
-  waitForAsyncExpectation: (expectation: () => Promise<void>, timeoutMs?: number) => Promise<void>;
-  startStatusServerProcess: (options: {
-    statusPath: string;
-    configPath: string;
-    idleSummaryDbPath?: string;
-    idleSummaryDelayMs?: number;
-    terminalMetadataIdleDelayMs?: number;
-    disableManagedLlamaStartup?: boolean;
-  }) => Promise<{
-    statusUrl: string;
-    close: () => Promise<void>;
-  }>;
-};
-
-type JsonResponse = { statusCode: number; body: Record<string, unknown> };
-type RequestOptions = { method?: string; body?: string; timeoutMs?: number };
 
 function writeManagedLlamaReadinessTestConfig(managed: {
   baseUrl: string;
@@ -113,7 +86,10 @@ async function captureStdoutLines(fn: () => Promise<void>): Promise<string[]> {
     for (const line of parts) {
       if (line.trim()) lines.push(line);
     }
-    return originalWrite(chunk, encodingOrCallback as BufferEncoding, callback);
+    if (typeof encodingOrCallback === 'function') {
+      return originalWrite(chunk, encodingOrCallback);
+    }
+    return originalWrite(chunk, encodingOrCallback, callback);
   };
   try {
     await fn();
@@ -122,46 +98,6 @@ async function captureStdoutLines(fn: () => Promise<void>): Promise<string[]> {
   }
   if (buffer.trim()) lines.push(buffer.trim());
   return lines;
-}
-
-function requestJson(url: string, options: RequestOptions = {}): Promise<JsonResponse> {
-  return new Promise((resolve, reject) => {
-    const target = new URL(url);
-    const request = http.request(
-      {
-        protocol: target.protocol,
-        hostname: target.hostname,
-        port: target.port,
-        path: `${target.pathname}${target.search}`,
-        method: options.method || 'GET',
-        headers: options.body ? {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(options.body, 'utf8'),
-        } : undefined,
-      },
-      (response) => {
-        let responseText = '';
-        response.setEncoding('utf8');
-        response.on('data', (chunk: string) => {
-          responseText += chunk;
-        });
-        response.on('end', () => {
-          resolve({
-            statusCode: response.statusCode || 0,
-            body: responseText ? JSON.parse(responseText) as Record<string, unknown> : {},
-          });
-        });
-      },
-    );
-    request.on('error', reject);
-    request.setTimeout(Number(options.timeoutMs || 4000), () => {
-      request.destroy(new Error('request timeout'));
-    });
-    if (options.body) {
-      request.write(options.body);
-    }
-    request.end();
-  });
 }
 
 test('status server stays responsive while repo-search is running', async () => {
@@ -190,12 +126,12 @@ test('status server stays responsive while repo-search is running', async () => 
 
   const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
     const baselineStatus = await requestJson(`${baseUrl}/status`);
-    const baselineMetrics = (baselineStatus.body?.metrics as Record<string, unknown>) || {};
+    const baselineMetrics = asObject(baselineStatus.body.metrics);
     const baselineCompleted = Number(baselineMetrics.completedRequestCount || 0);
     const baselineInputChars = Number(baselineMetrics.inputCharactersTotal || 0);
     const baselineDurationMs = Number(baselineMetrics.requestDurationMsTotal || 0);
@@ -232,9 +168,9 @@ test('status server stays responsive while repo-search is running', async () => 
     assert.ok(searchResponse.statusCode >= 200 && searchResponse.statusCode < 600);
     assert.equal(typeof searchResponse.body, 'object');
 
-    await runtimeHelpers.waitForAsyncExpectation(async () => {
+    await waitForAsyncExpectation(async () => {
       const finalStatus = await requestJson(`${baseUrl}/status`);
-      const finalMetrics = (finalStatus.body?.metrics as Record<string, unknown>) || {};
+      const finalMetrics = asObject(finalStatus.body.metrics);
       if (searchResponse.statusCode >= 200 && searchResponse.statusCode < 300) {
         assert.ok(Number(finalMetrics.completedRequestCount || 0) >= baselineCompleted + 1);
       } else {
@@ -242,13 +178,13 @@ test('status server stays responsive while repo-search is running', async () => 
       }
       assert.ok(Number(finalMetrics.outputTokensTotal || 0) > 0);
       assert.ok(Number(finalMetrics.toolTokensTotal || 0) > 0);
-      const taskTotals = (finalMetrics.taskTotals as Record<string, unknown>) || {};
-      const repoTaskTotals = ((taskTotals['repo-search'] as Record<string, unknown>) || {});
+      const taskTotals = asObject(finalMetrics.taskTotals);
+      const repoTaskTotals = asObject(taskTotals['repo-search']);
       assert.ok(Number(repoTaskTotals.outputTokensTotal || 0) > 0);
       assert.ok(Number(repoTaskTotals.toolTokensTotal || 0) > 0);
-      const toolStats = ((finalMetrics.toolStats as Record<string, unknown>) || {});
-      const repoToolStats = ((toolStats['repo-search'] as Record<string, unknown>) || {});
-      assert.ok(Number((((repoToolStats.rg || {}) as Record<string, unknown>).calls) || 0) >= 1);
+      const toolStats = asObject(finalMetrics.toolStats);
+      const repoToolStats = asObject(toolStats['repo-search']);
+      assert.ok(Number(asObject(repoToolStats.rg).calls || 0) >= 1);
       assert.ok(Number(finalMetrics.inputCharactersTotal || 0) >= baselineInputChars + 'find x'.length);
       assert.ok(Number(finalMetrics.requestDurationMsTotal || 0) > baselineDurationMs);
     }, 5000);
@@ -295,7 +231,7 @@ test('repo-search abandons stale running status after acquiring the model lock',
 
   const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -374,7 +310,7 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
 
   const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
   const dbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
 
@@ -414,21 +350,21 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
         }),
       });
 
-      await runtimeHelpers.waitForAsyncExpectation(async () => {
+      await waitForAsyncExpectation(async () => {
         const statusResponse = await requestJson(`${baseUrl}/status`);
-        const modelRequests = statusResponse.body.modelRequests as Record<string, unknown>;
+        const modelRequests = asObject(statusResponse.body.modelRequests);
         assert.equal(modelRequests.active, true);
         assert.equal(modelRequests.queueLength, 1);
-        const queuedRequests = modelRequests.queuedRequests as Array<Record<string, unknown>>;
+        const queuedRequests = asObjectArray(modelRequests.queuedRequests);
         assert.equal(queuedRequests[0]?.kind, 'repo_search');
 
         const database = new Database(dbPath, { readonly: true });
         try {
-          const row = database.prepare(`
+          const row = JsonRecordReader.asObject(database.prepare(`
             SELECT terminal_state, title
             FROM run_logs
             WHERE title = ?
-          `).get('queued behind active');
+          `).get('queued behind active'));
           assert.equal(row?.terminal_state, 'unknown');
         } finally {
           database.close();
@@ -447,11 +383,11 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
 
     const database = new Database(dbPath, { readonly: true });
     try {
-      const failedRow = database.prepare(`
+      const failedRow = JsonRecordReader.asObject(database.prepare(`
         SELECT terminal_state, failed_request_json
         FROM run_logs
         WHERE title = ?
-      `).get('queued behind active');
+      `).get('queued behind active'));
       assert.equal(failedRow?.terminal_state, 'failed');
       assert.match(String(failedRow?.failed_request_json || ''), /Timed out waiting for model request queue/u);
     } finally {
@@ -498,15 +434,15 @@ test('managed llama readiness wait is serialized by the model request queue', as
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
-  const llamaPort = await runtimeHelpers.getFreePort();
-  const managed = runtimeHelpers.writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
+  const llamaPort = await getFreePort();
+  const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
     launchHangingProcess: true,
   });
   writeManagedLlamaReadinessTestConfig(managed, 250);
 
   const server = startStatusServer();
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -581,17 +517,17 @@ test('health reports unavailable while managed llama bootstrap is still starting
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
-  const llamaPort = await runtimeHelpers.getFreePort();
-  const managed = runtimeHelpers.writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
+  const llamaPort = await getFreePort();
+  const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
     launchHangingProcess: true,
   });
   writeManagedLlamaReadinessTestConfig(managed, 900);
 
   const server = startStatusServer();
-  await runtimeHelpers.waitForAsyncExpectation(async () => {
+  await waitForAsyncExpectation(async () => {
     assert.notEqual(server.address(), null);
   }, 1000);
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -656,24 +592,30 @@ test('status completion flushing does not block health responses', async () => {
     'utf8',
   );
 
-  const sharedNodeFs = requireFromHere('node:fs') as {
-    readFileSync: (...args: unknown[]) => unknown;
+  // Minimal mutable view of the shared CJS fs module so readFileSync can be
+  // monkeypatched with a single-signature wrapper (the full overloaded type
+  // cannot accept a plain arrow without a cast).
+  type ReadFileSyncArg = string | Buffer | URL | number;
+  type ReadFileSyncOptions = BufferEncoding | { encoding?: BufferEncoding | null; flag?: string } | null;
+  type MutableFsModule = {
+    readFileSync: (filePath: ReadFileSyncArg, options?: ReadFileSyncOptions) => string | Buffer;
   };
+  const sharedNodeFs: MutableFsModule = requireFromHere('node:fs');
   const originalReadFileSync = sharedNodeFs.readFileSync;
-  sharedNodeFs.readFileSync = (...args: unknown[]) => {
-    const target = typeof args[0] === 'string' ? args[0] : '';
+  sharedNodeFs.readFileSync = (filePath, options) => {
+    const target = typeof filePath === 'string' ? filePath : '';
     if (target && path.resolve(target).toLowerCase() === path.resolve(delayedArtifactPath).toLowerCase()) {
       const start = Date.now();
       while (Date.now() - start < 350) {
         // Intentional busy wait to simulate a heavy synchronous artifact read.
       }
     }
-    return originalReadFileSync(...args);
+    return originalReadFileSync(filePath, options);
   };
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -754,7 +696,7 @@ test('repo-search endpoint logs one model-requested command line per tool call',
 
   const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -873,7 +815,7 @@ test('repo-search transcript artifact keeps routine normalized flags out of tool
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -899,29 +841,25 @@ test('repo-search transcript artifact keeps routine normalized flags out of tool
     assert.equal(response.statusCode, 200);
     const database = new Database(runtimeDbPath, { readonly: true });
     try {
-      const transcriptArtifact = database.prepare(
+      const transcriptArtifact = JsonRecordReader.asObject(database.prepare(
         "SELECT content_text FROM runtime_artifacts WHERE artifact_kind = 'repo_search_transcript' ORDER BY created_at_utc DESC LIMIT 1"
-      ).get();
+      ).get());
       const transcriptText = String(transcriptArtifact?.content_text || '');
       const transcriptEvents = transcriptText
         .trim()
         .split(/\r?\n/u)
         .filter((line) => line.length > 0)
-        .map((line) => JSON.parse(line) as Record<string, unknown>);
+        .map((line) => asObject(parseJsonValueText(line)));
       const turnMessagesEvent = transcriptEvents.find((event) => (
         event.kind === 'turn_new_messages' && event.turn === 2
       ));
-      const messages = Array.isArray(turnMessagesEvent?.messages)
-        ? turnMessagesEvent.messages as Record<string, unknown>[]
-        : [];
+      const messages = asObjectArray(turnMessagesEvent?.messages);
       const assistantMessage = messages.find((message) => (
         message.role === 'assistant' && Array.isArray(message.tool_calls)
       ));
-      const toolCalls = Array.isArray(assistantMessage?.tool_calls)
-        ? assistantMessage.tool_calls as Record<string, unknown>[]
-        : [];
-      const firstCallFunction = (toolCalls[0]?.function || {}) as Record<string, unknown>;
-      const firstCallArgs = JSON.parse(String(firstCallFunction.arguments || '{}')) as { command?: string };
+      const toolCalls = asObjectArray(assistantMessage?.tool_calls);
+      const firstCallFunction = asObject(toolCalls[0]?.function);
+      const firstCallArgs = asObject(parseJsonValueText(String(firstCallFunction.arguments || '{}')));
       assert.equal(String(firstCallFunction.name || ''), 'repo_rg');
       assert.equal(String(firstCallArgs.command || ''), 'rg -n "needle" src');
       assert.doesNotMatch(String(firstCallArgs.command || ''), /--no-ignore|--ignore-case|--glob/u);
@@ -978,7 +916,7 @@ test('repo-search transcript artifact replays fitted repo_read_file range using 
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -1005,34 +943,26 @@ test('repo-search transcript artifact replays fitted repo_read_file range using 
     assert.equal(response.statusCode, 200);
     const database = new Database(runtimeDbPath, { readonly: true });
     try {
-      const transcriptArtifact = database.prepare(
+      const transcriptArtifact = JsonRecordReader.asObject(database.prepare(
         "SELECT content_text FROM runtime_artifacts WHERE artifact_kind = 'repo_search_transcript' ORDER BY created_at_utc DESC LIMIT 1"
-      ).get();
+      ).get());
       const transcriptText = String(transcriptArtifact?.content_text || '');
       const transcriptEvents = transcriptText
         .trim()
         .split(/\r?\n/u)
         .filter((line) => line.length > 0)
-        .map((line) => JSON.parse(line) as Record<string, unknown>);
+        .map((line) => asObject(parseJsonValueText(line)));
       const turnMessagesEvent = transcriptEvents.find((event) => (
         event.kind === 'turn_new_messages' && event.turn === 3
       ));
-      const messages = Array.isArray(turnMessagesEvent?.messages)
-        ? turnMessagesEvent.messages as Record<string, unknown>[]
-        : [];
+      const messages = asObjectArray(turnMessagesEvent?.messages);
       const assistantMessage = messages.find((message) => (
         message.role === 'assistant' && Array.isArray(message.tool_calls)
       ));
       const toolMessage = messages.find((message) => message.role === 'tool');
-      const toolCalls = Array.isArray(assistantMessage?.tool_calls)
-        ? assistantMessage.tool_calls as Record<string, unknown>[]
-        : [];
-      const firstCallFunction = (toolCalls[0]?.function || {}) as Record<string, unknown>;
-      const firstCallArgs = JSON.parse(String(firstCallFunction.arguments || '{}')) as {
-        path?: string;
-        startLine?: number;
-        endLine?: number;
-      };
+      const toolCalls = asObjectArray(assistantMessage?.tool_calls);
+      const firstCallFunction = asObject(toolCalls[0]?.function);
+      const firstCallArgs = asObject(parseJsonValueText(String(firstCallFunction.arguments || '{}')));
       assert.equal(String(firstCallFunction.name || ''), 'repo_read_file');
       assert.equal(firstCallArgs.path, 'src/big.ts');
       assert.equal(firstCallArgs.startLine, 300);
@@ -1085,52 +1015,51 @@ test('repo-search endpoint reloads executor module per request', async () => {
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
   const repoSearchModulePath = requireFromHere.resolve('../dist/repo-search/index.js');
   const priorCacheEntry = requireFromHere.cache[repoSearchModulePath];
 
   try {
-    requireFromHere.cache[repoSearchModulePath] = {
-      id: repoSearchModulePath,
-      filename: repoSearchModulePath,
-      loaded: true,
-      exports: {
-        executeRepoSearchRequest: async () => ({
-          requestId: 'cache-hit',
-          transcriptPath: '',
-          artifactPath: '',
-          scorecard: {
-            runId: 'cache-hit',
-            model: 'cache-hit',
-            tasks: [{
-              id: 'repo-search',
-              question: 'cache-hit',
-              reason: 'finish',
-              turnsUsed: 0,
-              safetyRejects: 0,
-              invalidResponses: 0,
-              commandFailures: 0,
-              commands: [],
-              finalOutput: 'CACHE_HIT_OUTPUT',
-              passed: true,
-              missingSignals: [],
-            }],
-            totals: {
-              tasks: 1,
-              passed: 1,
-              failed: 0,
-              commandsExecuted: 0,
-              safetyRejects: 0,
-              invalidResponses: 0,
-              commandFailures: 0,
-            },
-            verdict: 'pass',
-            failureReasons: [],
+    const mockModule = new Module(repoSearchModulePath);
+    mockModule.filename = repoSearchModulePath;
+    mockModule.loaded = true;
+    mockModule.exports = {
+      executeRepoSearchRequest: async () => ({
+        requestId: 'cache-hit',
+        transcriptPath: '',
+        artifactPath: '',
+        scorecard: {
+          runId: 'cache-hit',
+          model: 'cache-hit',
+          tasks: [{
+            id: 'repo-search',
+            question: 'cache-hit',
+            reason: 'finish',
+            turnsUsed: 0,
+            safetyRejects: 0,
+            invalidResponses: 0,
+            commandFailures: 0,
+            commands: [],
+            finalOutput: 'CACHE_HIT_OUTPUT',
+            passed: true,
+            missingSignals: [],
+          }],
+          totals: {
+            tasks: 1,
+            passed: 1,
+            failed: 0,
+            commandsExecuted: 0,
+            safetyRejects: 0,
+            invalidResponses: 0,
+            commandFailures: 0,
           },
-        }),
-      },
-    } as unknown as NodeJS.Require['cache'][string];
+          verdict: 'pass',
+          failureReasons: [],
+        },
+      }),
+    };
+    requireFromHere.cache[repoSearchModulePath] = mockModule;
 
     const response = await requestJson(`${baseUrl}/repo-search`, {
       method: 'POST',
@@ -1152,8 +1081,8 @@ test('repo-search endpoint reloads executor module per request', async () => {
     });
 
     assert.equal(response.statusCode, 200);
-    const scorecard = response.body?.scorecard as { tasks?: Array<{ finalOutput?: string }> } | undefined;
-    const finalOutput = String(scorecard?.tasks?.[0]?.finalOutput || '');
+    const scorecard = asObject(response.body.scorecard);
+    const finalOutput = String(asObject(asObjectArray(scorecard.tasks)[0]).finalOutput || '');
     assert.notEqual(finalOutput, 'CACHE_HIT_OUTPUT');
   } finally {
     if (priorCacheEntry) {
@@ -1221,7 +1150,7 @@ test('repo-search endpoint rejects duplicated final output before sending succes
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {

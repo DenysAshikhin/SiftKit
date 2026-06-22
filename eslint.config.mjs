@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint';
 // retain casts / explicit `unknown` / namespace imports. They are ratcheted off
 // so the gate stays green for the rest of the repo (P1-P6 + bench/scripts/eval
 // are clean and stay enforced). Remove these entries as P7 lands.
-const RATCHET_DIRTY = ['tests/**', 'dashboard/tests/**'];
+const RATCHET_DIRTY = [];
 
 const CLEAN_FIXTURES = ['tests/fixtures/eslint-gate/**'];
 

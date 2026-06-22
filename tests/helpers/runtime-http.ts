@@ -1,9 +1,18 @@
 import http from 'node:http';
 import path from 'node:path';
 
+import { z } from '../../src/lib/zod.js';
+import { parseJsonValueText } from '../../src/lib/json.js';
+import type { JsonValue } from '../../src/lib/json-types.js';
 import { getRuntimeRootFromStatusPath } from './runtime-config.js';
 
-type JsonObject = Record<string, unknown>;
+// The status-server posts these locator fields on every artifact write; a parsed
+// JSON body (JsonObject) is structurally assignable here without a cast.
+export type ArtifactLogSource = {
+  statusPath?: JsonValue;
+  artifactType?: JsonValue;
+  artifactRequestId?: JsonValue;
+};
 
 export type RequestJsonOptions = {
   method?: string;
@@ -18,24 +27,23 @@ export function readBody(req: http.IncomingMessage): Promise<string> {
   });
 }
 
-export function resolveArtifactLogPathFromStatusPost(parsedBody: unknown): string | null {
-  if (!parsedBody || typeof parsedBody !== 'object') {
+export function resolveArtifactLogPathFromStatusPost(parsedBody: ArtifactLogSource | null): string | null {
+  if (!parsedBody) {
     return null;
   }
 
-  const body = parsedBody as JsonObject;
-  const artifactType = typeof body.artifactType === 'string'
-    ? body.artifactType.trim()
+  const artifactType = typeof parsedBody.artifactType === 'string'
+    ? parsedBody.artifactType.trim()
     : '';
-  const artifactRequestId = typeof body.artifactRequestId === 'string'
-    ? body.artifactRequestId.trim()
+  const artifactRequestId = typeof parsedBody.artifactRequestId === 'string'
+    ? parsedBody.artifactRequestId.trim()
     : '';
   if (!artifactType || !artifactRequestId) {
     return null;
   }
 
-  const statusPath = typeof body.statusPath === 'string' && body.statusPath.trim()
-    ? body.statusPath
+  const statusPath = typeof parsedBody.statusPath === 'string' && parsedBody.statusPath.trim()
+    ? parsedBody.statusPath
     : (process.env.sift_kit_status || process.env.SIFTKIT_STATUS_PATH || '');
   if (!statusPath) {
     return null;
@@ -55,7 +63,7 @@ export function resolveArtifactLogPathFromStatusPost(parsedBody: unknown): strin
   return null;
 }
 
-export function requestJson<T = unknown>(url: string, options: RequestJsonOptions = {}): Promise<T> {
+export function requestJson<T = JsonValue>(url: string, options: RequestJsonOptions = {}): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const target = new URL(url);
     const request = http.request(
@@ -82,7 +90,8 @@ export function requestJson<T = unknown>(url: string, options: RequestJsonOption
             return;
           }
 
-          resolve((responseText ? JSON.parse(responseText) : {}) as T);
+          const parsedBody = responseText ? parseJsonValueText(responseText) : {};
+          resolve(z.custom<T>((value) => value !== undefined).parse(parsedBody));
         });
       },
     );

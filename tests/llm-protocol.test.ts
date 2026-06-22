@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { z } from 'zod';
 
 import type {
   LlamaCppChatMessage,
@@ -11,6 +12,7 @@ import { LLAMA_CPP_PROTOCOL_FORMAT } from '../src/llm-protocol/types.js';
 import { buildReplayToolCall, LlamaCppToolCallParser } from '../src/llm-protocol/tool-call-parser.js';
 import { LlamaCppClient } from '../src/llm-protocol/llama-cpp-client.js';
 import type { FullJsonResponse, RequestJsonOptions } from '../src/lib/http-client.js';
+import type { JsonValue } from '../src/lib/json-types.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 
@@ -108,13 +110,13 @@ test('replay tool-call helper emits real web tool protocol names and rejects unk
 
 class CapturingHttpClient {
   readonly requests: RequestJsonOptions[] = [];
-  private readonly responses: Array<FullJsonResponse<unknown> | Error>;
+  private readonly responses: Array<FullJsonResponse<JsonValue> | Error>;
 
-  constructor(responses: Array<FullJsonResponse<unknown> | Error> = []) {
+  constructor(responses: Array<FullJsonResponse<JsonValue> | Error> = []) {
     this.responses = responses;
   }
 
-  async requestJsonFull<T>(options: RequestJsonOptions): Promise<FullJsonResponse<T>> {
+  async requestJsonFull<T>(options: RequestJsonOptions, schema: z.ZodType<T>): Promise<FullJsonResponse<T>> {
     this.requests.push(options);
     const response = this.responses.shift() || {
       statusCode: 200,
@@ -130,7 +132,7 @@ class CapturingHttpClient {
     if (response instanceof Error) {
       throw response;
     }
-    return response as FullJsonResponse<T>;
+    return { statusCode: response.statusCode, rawText: response.rawText, body: schema.parse(response.body) };
   }
 
   async streamSse(): Promise<{ sawDone: boolean }> {
@@ -144,7 +146,7 @@ class StringThrowingHttpClient extends CapturingHttpClient {
   }
 }
 
-function jsonResponse<T>(body: T, statusCode = 200, rawText = JSON.stringify(body)): FullJsonResponse<T> {
+function jsonResponse(body: JsonValue, statusCode = 200, rawText = JSON.stringify(body)): FullJsonResponse<JsonValue> {
   return {
     statusCode,
     rawText,

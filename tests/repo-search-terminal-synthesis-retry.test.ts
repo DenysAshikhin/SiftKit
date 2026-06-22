@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { runTaskLoop } from '../src/repo-search/engine.js';
+import type { JsonSerializable } from '../src/lib/json-types.js';
 
 // runTaskLoop requires repoRoot/model/baseUrl; the mock-provider path never reads the
 // model/baseUrl, and an empty temp repo produces the same empty listing the prior
@@ -16,7 +17,7 @@ const MOCK_LOOP_DEFAULTS = {
 };
 
 test('synthesis succeeds on attempt 1 sets finalOutput and logs a single result event', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: Record<string, JsonSerializable>[] = [];
   const result = await runTaskLoop(
     { id: 'task-syn-1', question: 'Any question.', signals: [] },
     {
@@ -28,7 +29,7 @@ test('synthesis succeeds on attempt 1 sets finalOutput and logs a single result 
         'The definition lives in src/foo.ts:1.',
       ],
       mockCommandResults: {},
-      logger: { path: 'memory', write: (event: Record<string, unknown>) => { events.push(event); } },
+      logger: { path: 'memory', write: (event) => { events.push(event); } },
     }
   );
   assert.equal(result.finalOutput, 'The definition lives in src/foo.ts:1.');
@@ -42,7 +43,7 @@ test('synthesis succeeds on attempt 1 sets finalOutput and logs a single result 
 });
 
 test('synthesis that returns empty text twice then succeeds on attempt 3 sets finalOutput', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: Record<string, JsonSerializable>[] = [];
   const result = await runTaskLoop(
     { id: 'task-syn-3', question: 'Any question.', signals: [] },
     {
@@ -56,7 +57,7 @@ test('synthesis that returns empty text twice then succeeds on attempt 3 sets fi
         'Summary emitted on third attempt.',
       ],
       mockCommandResults: {},
-      logger: { path: 'memory', write: (event: Record<string, unknown>) => { events.push(event); } },
+      logger: { path: 'memory', write: (event) => { events.push(event); } },
     }
   );
   assert.equal(result.finalOutput, 'Summary emitted on third attempt.');
@@ -70,7 +71,7 @@ test('synthesis that returns empty text twice then succeeds on attempt 3 sets fi
 });
 
 test('synthesis that returns empty text 3 times throws a hard-fail error', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: Record<string, JsonSerializable>[] = [];
   await assert.rejects(
     runTaskLoop(
       { id: 'task-syn-fail', question: 'Any question.', signals: [] },
@@ -85,7 +86,7 @@ test('synthesis that returns empty text 3 times throws a hard-fail error', async
           '',
         ],
         mockCommandResults: {},
-        logger: { path: 'memory', write: (event: Record<string, unknown>) => { events.push(event); } },
+        logger: { path: 'memory', write: (event) => { events.push(event); } },
       }
     ),
     /Terminal synthesis produced no usable output after 3 attempts/u

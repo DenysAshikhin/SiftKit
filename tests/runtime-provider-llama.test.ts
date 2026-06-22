@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { getLlamaCppProviderStatus } from '../src/providers/llama-cpp.js';
+import { z } from '../src/lib/zod.js';
 import type { SiftConfig } from '../src/config/types.js';
+import { asObject } from './helpers/dashboard-http.js';
 import {
   http,
   path,
@@ -18,12 +20,12 @@ import {
   mockConfig,
 } from './_runtime-helpers.js';
 
-interface ObservedBudgetRow {
-  observed_telemetry_seen?: number;
-  observed_chars_total?: number;
-  observed_tokens_total?: number;
-  last_known_chars_per_token?: number;
-}
+const ObservedBudgetRowSchema = z.object({
+  observed_telemetry_seen: z.number().optional(),
+  observed_chars_total: z.number().optional(),
+  observed_tokens_total: z.number().optional(),
+  last_known_chars_per_token: z.number().optional(),
+});
 
 function buildStubLlamaConfig(port: number): SiftConfig {
   return mockConfig({
@@ -56,7 +58,7 @@ class ConsoleErrorCapture {
   }
 
   start() {
-    console.error = (...args: unknown[]) => {
+    console.error = (...args) => {
       this.calls.push(args.map((arg) => String(arg)).join(' '));
     };
   }
@@ -73,7 +75,7 @@ test('llama.cpp provider lists models and parses chat completions from the stub 
       const models = await listLlamaCppModels(config);
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model as string,
+        model: config.Runtime.Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -98,7 +100,7 @@ test('llama.cpp provider returns null usage when the server omits token usage', 
       const config = await loadConfig({ ensure: true });
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model as string,
+        model: config.Runtime.Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -117,7 +119,7 @@ test('llama.cpp provider records thinking tokens separately from completion usag
       const config = await loadConfig({ ensure: true });
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model as string,
+        model: config.Runtime.Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -145,7 +147,7 @@ test('llama.cpp provider forwards reasoning mode to chat template kwargs', async
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model as string,
+        model: config.Runtime.Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -172,7 +174,7 @@ test('llama.cpp provider forwards thinking preservation flags when enabled', asy
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model as string,
+        model: config.Runtime.Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -196,7 +198,7 @@ test('llama.cpp provider per-call reasoning override takes precedence over confi
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model as string,
+        model: config.Runtime.Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
         reasoningOverride: 'off',
@@ -224,7 +226,7 @@ test('llama.cpp provider omits sampling knobs from the chat request body', async
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model as string,
+        model: config.Runtime.Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -249,7 +251,7 @@ test('llama.cpp provider enables explicit prompt caching on a supplied slot', as
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model as string,
+        model: config.Runtime.Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
         slotId: 7,
@@ -269,7 +271,7 @@ test('llama.cpp provider includes per-request response_format json_schema when s
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model as string,
+        model: config.Runtime.Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
         structuredOutput: { kind: 'siftkit-decision-json' },
@@ -293,7 +295,7 @@ test('llama.cpp provider omits native tools for structured planner JSON', async 
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model as string,
+        model: config.Runtime.Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
         structuredOutput: {
@@ -316,7 +318,7 @@ test('llama.cpp provider does not enable parallel tool calls when no tools are s
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model as string,
+        model: config.Runtime.Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -335,7 +337,7 @@ test('llama.cpp provider gets answer content from qwen-style servers when reason
 
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model as string,
+        model: config.Runtime.Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -343,7 +345,7 @@ test('llama.cpp provider gets answer content from qwen-style servers when reason
       assert.equal(summary.text, '{"classification":"summary","raw_review_required":false,"output":"ok"}');
     }, {
       assistantContent(promptText, parsed) {
-        if ((parsed?.chat_template_kwargs as { enable_thinking?: unknown } | undefined)?.enable_thinking === false) {
+        if (asObject(asObject(parsed).chat_template_kwargs).enable_thinking === false) {
           return '{"classification":"summary","raw_review_required":false,"output":"ok"}';
         }
 
@@ -375,11 +377,12 @@ test('llama.cpp tokenize updates observed-budget weighted totals from exact char
 
       const database = new Database(path.join(tempRoot, '.siftkit', 'runtime.sqlite'));
       try {
-        const row = database.prepare(`
+        const row = ObservedBudgetRowSchema.optional().parse(database.prepare(`
           SELECT observed_telemetry_seen, last_known_chars_per_token, observed_chars_total, observed_tokens_total
           FROM observed_budget_state
           WHERE id = 1
-        `).get() as ObservedBudgetRow;
+        `).get());
+        assert.ok(row);
         assert.equal(row.observed_telemetry_seen, 1);
         assert.equal(row.observed_chars_total, 1234);
         assert.equal(row.observed_tokens_total, 1234);
@@ -400,18 +403,19 @@ test('llama.cpp chat responses update observed-budget weighted totals from exact
       const prompt = 'B'.repeat(500);
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model as string,
+        model: config.Runtime.Model ?? '',
         prompt,
         timeoutSeconds: 5,
       });
 
       const database = new Database(path.join(tempRoot, '.siftkit', 'runtime.sqlite'));
       try {
-        const row = database.prepare(`
+        const row = ObservedBudgetRowSchema.optional().parse(database.prepare(`
           SELECT observed_chars_total, observed_tokens_total, last_known_chars_per_token
           FROM observed_budget_state
           WHERE id = 1
-        `).get() as ObservedBudgetRow;
+        `).get());
+        assert.ok(row);
         assert.equal(row.observed_chars_total, 500);
         assert.equal(row.observed_tokens_total, 123);
         assert.equal(row.last_known_chars_per_token, 500 / 123);
@@ -428,7 +432,7 @@ test('estimated token fallback does not mutate observed-budget state', async () 
       const config = await loadConfig({ ensure: true });
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model as string,
+        model: config.Runtime.Model ?? '',
         prompt: 'C'.repeat(500),
         timeoutSeconds: 5,
       });
@@ -436,11 +440,11 @@ test('estimated token fallback does not mutate observed-budget state', async () 
 
       const database = new Database(path.join(tempRoot, '.siftkit', 'runtime.sqlite'));
       try {
-        const row = database.prepare(`
+        const row = ObservedBudgetRowSchema.optional().parse(database.prepare(`
           SELECT observed_telemetry_seen, observed_chars_total, observed_tokens_total
           FROM observed_budget_state
           WHERE id = 1
-        `).get() as ObservedBudgetRow;
+        `).get());
         assert.equal(row?.observed_telemetry_seen ?? 0, 0);
         assert.equal(row?.observed_chars_total ?? null, null);
         assert.equal(row?.observed_tokens_total ?? null, null);
@@ -460,18 +464,19 @@ test('exact char-token observations accumulate as a weighted average', async () 
       await countLlamaCppTokens(config, 'A'.repeat(100));
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model as string,
+        model: config.Runtime.Model ?? '',
         prompt: 'B'.repeat(500),
         timeoutSeconds: 5,
       });
 
       const database = new Database(path.join(tempRoot, '.siftkit', 'runtime.sqlite'));
       try {
-        const row = database.prepare(`
+        const row = ObservedBudgetRowSchema.optional().parse(database.prepare(`
           SELECT observed_chars_total, observed_tokens_total, last_known_chars_per_token
           FROM observed_budget_state
           WHERE id = 1
-        `).get() as ObservedBudgetRow;
+        `).get());
+        assert.ok(row);
         assert.equal(row.observed_chars_total, 600);
         assert.equal(row.observed_tokens_total, 223);
         assert.equal(row.last_known_chars_per_token, 600 / 223);
@@ -495,7 +500,7 @@ test('llama.cpp provider surfaces HTTP 400 errors when json-schema constrained r
         await assert.rejects(
           () => generateLlamaCppResponse({
             config,
-            model: config.Runtime.Model as string,
+            model: config.Runtime.Model ?? '',
             prompt: 'test prompt body',
             timeoutSeconds: 5,
             structuredOutput: { kind: 'siftkit-decision-json' },

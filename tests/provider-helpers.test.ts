@@ -69,9 +69,7 @@ test('retryProviderRequest retries transient failures and returns on success', a
   const result = await retryProviderRequest(async () => {
     attemptCount += 1;
     if (attemptCount < 3) {
-      const error = new Error(`connect ECONNREFUSED 127.0.0.1:8097 attempt=${attemptCount}`) as Error & { code?: string };
-      error.code = 'ECONNREFUSED';
-      throw error;
+      throw Object.assign(new Error(`connect ECONNREFUSED 127.0.0.1:8097 attempt=${attemptCount}`), { code: 'ECONNREFUSED' });
     }
     return 'ok';
   }, {
@@ -94,9 +92,7 @@ test('retryProviderRequest stops after max wait budget and surfaces the original
   const retryEvents: number[] = [];
   await assert.rejects(
     () => retryProviderRequest(async () => {
-      const error = new Error('connect ECONNREFUSED 127.0.0.1:8097') as Error & { code?: string };
-      error.code = 'ECONNREFUSED';
-      throw error;
+      throw Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:8097'), { code: 'ECONNREFUSED' });
     }, {
       maxWaitMs: 200,
       onRetry(event) {

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { getAddressInfo } from './helpers/dashboard-http.js';
 
 import {
   applyHostLlamaRuntimeSettings,
@@ -11,28 +11,21 @@ import {
   type SiftConfig,
 } from '../src/config/index.js';
 import { getPlannerPromptBudget } from '../src/summary.js';
+import { mockConfig } from './_runtime-helpers.js';
+import type { JsonValue } from '../src/lib/json-types.js';
 
 function makeClientConfig(options: {
   externalServer: boolean;
   baseUrl: string;
   localNumCtx: number;
 }): SiftConfig {
-  const llama = { BaseUrl: options.baseUrl, NumCtx: options.localNumCtx, Reasoning: 'on' };
-  return {
-    Version: '0.1.0',
+  const llama = { BaseUrl: options.baseUrl, NumCtx: options.localNumCtx, Reasoning: 'on' } as const;
+  return mockConfig({
     Backend: 'llama.cpp',
     PolicyMode: 'conservative',
     RawLogRetention: true,
-    LlamaCpp: { ...llama },
     Runtime: { Model: 'mock-model', LlamaCpp: { ...llama } },
     Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },
-    Interactive: {
-      Enabled: true,
-      WrappedCommands: [],
-      IdleTimeoutMs: 1000,
-      MaxTranscriptCharacters: 1000,
-      TranscriptRetention: true,
-    },
     Server: {
       LlamaCpp: {
         ActivePresetId: 'default',
@@ -46,7 +39,7 @@ function makeClientConfig(options: {
         ],
       },
     },
-  } as unknown as SiftConfig;
+  });
 }
 
 type HostConfigServer = {
@@ -56,7 +49,7 @@ type HostConfigServer = {
 };
 
 async function startHostConfigServer(
-  hostConfigBody: unknown,
+  hostConfigBody: JsonValue,
   options: { status?: number } = {},
 ): Promise<HostConfigServer> {
   const requestUrls: string[] = [];
@@ -71,7 +64,7 @@ async function startHostConfigServer(
     res.end('{}');
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const port = (server.address() as AddressInfo).port;
+  const port = getAddressInfo(server).port;
   return {
     baseUrl: `http://127.0.0.1:${port}`,
     requestUrls,

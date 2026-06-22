@@ -1,10 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import type { AddressInfo } from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
+import { parseJsonValueText } from '../src/lib/json.js';
+import type { JsonObject } from '../src/lib/json-types.js';
+import { asObject, asArray, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
 
 import {
   runTaskLoop,
@@ -117,7 +120,7 @@ test('runRepoSearch does not fail on model inventory mismatch', async () => {
 });
 
 test('repo-search executes a native web_search tool when allowed', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const scorecard = await runRepoSearch({
     config: mockSiftConfig({
       Runtime: { Model: 'Qwen3.5-9B-Q8_0.gguf', LlamaCpp: { BaseUrl: 'http://127.0.0.1:8097', NumCtx: 70000 } },
@@ -159,7 +162,7 @@ test('repo-search executes a native web_search tool when allowed', async () => {
 });
 
 test('runTaskLoop rewrites mixed rg --type ts and --type tsx flags', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-rewrite-mixed-types',
@@ -181,8 +184,8 @@ test('runTaskLoop rewrites mixed rg --type ts and --type tsx flags', async () =>
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event) {
+          events.push(JSON.parse(JSON.stringify(event)));
         },
       },
     }
@@ -233,7 +236,7 @@ test('runTaskLoop executes simple rg directly and preserves mixed quote regex', 
 });
 
 test('runTaskLoop rewrites rg --include and annotates output', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-rewrite-include',
@@ -257,8 +260,8 @@ test('runTaskLoop rewrites rg --include and annotates output', async () => {
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event) {
+          events.push(JSON.parse(JSON.stringify(event)));
         },
       },
     }
@@ -377,7 +380,7 @@ test('runTaskLoop tool_result outputTokens reflects the fitted bubble output', a
 
 test('runTaskLoop logs fitted tool result truncation in the full inserted output', async () => {
   const longStdout = Array.from({ length: 400 }, (_, index) => `planner hit ${index}`).join('\n');
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   await runTaskLoop(
     {
       id: 'task-output-tokens-full-log',
@@ -400,8 +403,8 @@ test('runTaskLoop logs fitted tool result truncation in the full inserted output
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event) {
+          events.push(JSON.parse(JSON.stringify(event)));
         },
       },
     }
@@ -414,7 +417,7 @@ test('runTaskLoop replaces long repeated tool output before inserting it into co
   const repeatedTail = '</arg_value>'.repeat(10);
   const longStdout = `${Array.from({ length: 101 }, (_, index) => `src/example.ts:${index + 1}: anchor-${index}`).join('\n')}\n${repeatedTail}`;
   const progressEvents: RepoSearchProgressEvent[] = [];
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
 
   await runTaskLoop(
     {
@@ -438,8 +441,8 @@ test('runTaskLoop replaces long repeated tool output before inserting it into co
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event) {
+          events.push(JSON.parse(JSON.stringify(event)));
         },
       },
       onProgress(event: RepoSearchProgressEvent) {
@@ -496,7 +499,7 @@ test('runTaskLoop reuses preflight prompt token count for tool progress and allo
       req.setEncoding('utf8');
       req.on('data', (chunk) => { body += chunk; });
       req.on('end', () => {
-        const parsed = JSON.parse(body || '{}') as { content?: string };
+        const parsed = asObject(parseJsonValueText(body || '{}'));
         const content = String(parsed.content || '');
         tokenizedContent.push(content);
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -568,7 +571,7 @@ test('runTaskLoop reuses preflight prompt token count for tool progress and allo
 });
 
 test('runTaskLoop executes repo_list_files and repo_read_file natively', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const repoRoot = createTempRepoRoot();
   try {
     fs.mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
@@ -596,8 +599,8 @@ test('runTaskLoop executes repo_list_files and repo_read_file natively', async (
         mockCommandResults: {},
         logger: {
           path: 'memory',
-          write(event: Record<string, unknown>) {
-            events.push(event);
+          write(event) {
+            events.push(JSON.parse(JSON.stringify(event)));
           },
         },
       }
@@ -619,7 +622,7 @@ test('runTaskLoop executes repo_list_files and repo_read_file natively', async (
 });
 
 test('runTaskLoop executes repo_list_files at repository root natively', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const repoRoot = createTempRepoRoot();
   try {
     fs.mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
@@ -646,8 +649,8 @@ test('runTaskLoop executes repo_list_files at repository root natively', async (
         mockCommandResults: {},
         logger: {
           path: 'memory',
-          write(event: Record<string, unknown>) {
-            events.push(event);
+          write(event) {
+            events.push(JSON.parse(JSON.stringify(event)));
           },
         },
       }
@@ -666,7 +669,7 @@ test('runTaskLoop executes repo_list_files at repository root natively', async (
 });
 
 test('runTaskLoop executes repo_list_files with runner-* glob natively', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const repoRoot = createTempRepoRoot();
   try {
     fs.mkdirSync(path.join(repoRoot, 'logs'), { recursive: true });
@@ -694,8 +697,8 @@ test('runTaskLoop executes repo_list_files with runner-* glob natively', async (
         mockCommandResults: {},
         logger: {
           path: 'memory',
-          write(event: Record<string, unknown>) {
-            events.push(event);
+          write(event) {
+            events.push(JSON.parse(JSON.stringify(event)));
           },
         },
       }
@@ -716,7 +719,7 @@ test('runTaskLoop executes repo_list_files with runner-* glob natively', async (
 });
 
 test('runTaskLoop logs provider request error details and surfaces enriched network failures', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const startedAt = Date.now();
   await assert.rejects(
     () => runTaskLoop(
@@ -735,8 +738,8 @@ test('runTaskLoop logs provider request error details and surfaces enriched netw
         minToolCallsBeforeFinish: 0,
         logger: {
           path: 'memory',
-          write(event: Record<string, unknown>) {
-            events.push(event);
+          write(event) {
+            events.push(JSON.parse(JSON.stringify(event)));
           },
         },
       }
@@ -755,11 +758,11 @@ test('runTaskLoop logs provider request error details and surfaces enriched netw
   assert.equal(typeof errorEvent?.elapsedMs, 'number');
   assert.equal(Number(errorEvent?.elapsedMs) >= 0, true);
   assert.equal(typeof errorEvent?.error, 'object');
-  assert.equal(typeof (errorEvent?.error as { message?: unknown } | undefined)?.message, 'string');
+  assert.equal(typeof asObject(errorEvent?.error).message, 'string');
 });
 
 test('runTaskLoop rewrites mixed --type jsx and --type tsx to --type js and --type ts', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-rewrite-jsx-tsx',
@@ -781,8 +784,8 @@ test('runTaskLoop rewrites mixed --type jsx and --type tsx to --type js and --ty
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event) {
+          events.push(JSON.parse(JSON.stringify(event)));
         },
       },
     }
@@ -985,7 +988,7 @@ test('runTaskLoop executes tool batches sequentially and counts each tool call t
 });
 
 test('runTaskLoop accepts corroborated finish before minimum tool-call depth', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-min-depth',
@@ -1009,8 +1012,8 @@ test('runTaskLoop accepts corroborated finish before minimum tool-call depth', a
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event) {
+          events.push(JSON.parse(JSON.stringify(event)));
         },
       },
     }
@@ -1055,7 +1058,7 @@ test('runTaskLoop stops at max turns when model keeps asking for tools', async (
 });
 
 test('runTaskLoop prompt omits visible tool-call budget counters', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-budget-hidden',
@@ -1078,8 +1081,8 @@ test('runTaskLoop prompt omits visible tool-call budget counters', async () => {
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event) {
+          events.push(JSON.parse(JSON.stringify(event)));
         },
       },
     }
@@ -1088,7 +1091,7 @@ test('runTaskLoop prompt omits visible tool-call budget counters', async () => {
   const turnNewMessagesEvents = events.filter((event) => event.kind === 'turn_new_messages');
   assert.equal(turnNewMessagesEvents.length >= 3, true);
   const allMessageContent = turnNewMessagesEvents
-    .flatMap((event) => Array.isArray(event.messages) ? event.messages as Array<{ content?: unknown }> : [])
+    .flatMap((event) => asObjectArray(event.messages))
     .map((m) => String(m.content || ''))
     .join('\n');
   assert.doesNotMatch(allMessageContent, /Tool-call budget remaining:/u);
@@ -1128,7 +1131,7 @@ test('runTaskLoop records line-read stats for Get-Content windows', async () => 
 });
 
 test('runTaskLoop rewrites Get-ChildItem recurse command to include ignore excludes', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const repoRoot = createTempRepoRoot('/custom_ignored\n');
   try {
     const result = await runTaskLoop(
@@ -1157,8 +1160,8 @@ test('runTaskLoop rewrites Get-ChildItem recurse command to include ignore exclu
         },
         logger: {
           path: 'memory',
-          write(event: Record<string, unknown>) {
-            events.push(event);
+          write(event) {
+            events.push(JSON.parse(JSON.stringify(event)));
           },
         },
       }
@@ -1178,7 +1181,7 @@ test('runTaskLoop rewrites Get-ChildItem recurse command to include ignore exclu
 });
 
 test('runTaskLoop rewrites Select-String path scan to include ignore excludes', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const repoRoot = createTempRepoRoot('/custom_ignored\n');
   try {
     const result = await runTaskLoop(
@@ -1207,8 +1210,8 @@ test('runTaskLoop rewrites Select-String path scan to include ignore excludes', 
         },
         logger: {
           path: 'memory',
-          write(event: Record<string, unknown>) {
-            events.push(event);
+          write(event) {
+            events.push(JSON.parse(JSON.stringify(event)));
           },
         },
       }
@@ -1261,7 +1264,7 @@ test('runTaskLoop rejects Get-Content reads under ignored directories', async ()
 });
 
 test('runTaskLoop sends append-only chat requests with explicit cache_prompt and a pinned slot', async () => {
-  const chatRequests: Record<string, unknown>[] = [];
+  const chatRequests: JsonObject[] = [];
   let requestCount = 0;
   const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && req.url === '/tokenize') {
@@ -1326,8 +1329,7 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
   });
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address();
-  const baseUrl = `http://127.0.0.1:${Number((address as AddressInfo).port)}`;
+  const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
 
   try {
     const result = await runTaskLoop(
@@ -1366,10 +1368,10 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
     assert.equal(chatRequests[1].cache_prompt, true);
     assert.equal(Number.isInteger(chatRequests[0].id_slot), true);
     assert.equal(chatRequests[0].id_slot, chatRequests[1].id_slot);
-    assert.equal((chatRequests[0]?.response_format as { type?: unknown } | undefined)?.type, 'json_schema');
+    assert.equal(asObject(chatRequests[0]?.response_format).type, 'json_schema');
     assert.equal('tools' in chatRequests[0], false);
     assert.equal('parallel_tool_calls' in chatRequests[0], false);
-    assert.equal((chatRequests[1].messages as unknown[]).length > (chatRequests[0].messages as unknown[]).length, true);
+    assert.equal(asArray(chatRequests[1].messages).length > asArray(chatRequests[0].messages).length, true);
     assert.doesNotMatch(JSON.stringify(chatRequests[0].messages), /Tool-call budget remaining:/u);
     assert.doesNotMatch(JSON.stringify(chatRequests[1].messages), /Tool-call budget remaining:/u);
   } finally {
@@ -1378,7 +1380,7 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
 });
 
 test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the fifth duplicate', async () => {
-  const chatRequests: Record<string, unknown>[] = [];
+  const chatRequests: JsonObject[] = [];
   let requestCount = 0;
   const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && req.url === '/tokenize') {
@@ -1443,8 +1445,7 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
   });
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address();
-  const baseUrl = `http://127.0.0.1:${Number((address as AddressInfo).port)}`;
+  const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
 
   try {
     const result = await runTaskLoop(
@@ -1479,7 +1480,7 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
 
     assert.equal(result.reason, 'finish');
     assert.equal(chatRequests.length, 6);
-    const finalMessages = Array.isArray(chatRequests[5]?.messages) ? chatRequests[5].messages : [];
+    const finalMessages = asObjectArray(chatRequests[5]?.messages);
     const assistantToolCalls = finalMessages.filter((message) => Array.isArray(message?.tool_calls));
     const toolMessages = finalMessages.filter((message) => message?.role === 'tool');
     const duplicateToolMessages = toolMessages.filter((message) => /duplicate command requested/u.test(String(message?.content || '')));
@@ -1524,7 +1525,7 @@ test('runTaskLoop synthesizes final output on terminal max_turns', async () => {
 });
 
 test('runTaskLoop uses dynamic max_tokens for planner requests from live prompt budget', async () => {
-  const chatRequests: Array<Record<string, unknown>> = [];
+  const chatRequests: JsonObject[] = [];
   const loggedPromptTokenCounts: number[] = [];
   const server = http.createServer((req, res) => {
     if (req.method === 'POST' && req.url === '/v1/chat/completions') {
@@ -1566,7 +1567,7 @@ test('runTaskLoop uses dynamic max_tokens for planner requests from live prompt 
         includeRepoFileListing: false,
         logger: {
           path: 'test',
-          write(event: Record<string, unknown>) {
+          write(event) {
             if (event.kind === 'turn_preflight_budget' && Number.isFinite(event.promptTokenCount)) {
               loggedPromptTokenCounts.push(Number(event.promptTokenCount));
             }
@@ -1588,7 +1589,7 @@ test('runTaskLoop uses dynamic max_tokens for planner requests from live prompt 
 });
 
 test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', async () => {
-  const chatRequests: Array<Record<string, unknown>> = [];
+  const chatRequests: JsonObject[] = [];
   const server = http.createServer((req, res) => {
     if (req.method === 'POST' && req.url === '/v1/chat/completions') {
       let body = '';
@@ -1641,7 +1642,7 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
     assert.equal(result.reason, 'invalid_response_limit');
     assert.equal(result.finalOutput, 'best-effort answer');
     assert.equal(chatRequests.length, 2);
-    const synthesisPrompt = String((chatRequests[1].messages as Array<Record<string, unknown>>)?.[0]?.content || '');
+    const synthesisPrompt = String(asObject(asObjectArray(chatRequests[1].messages)[0]).content || '');
     assert.equal(
       Number(chatRequests[1].max_tokens),
       getDynamicMaxOutputTokens({

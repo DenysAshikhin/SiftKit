@@ -120,9 +120,10 @@ test('chat sessions persist webSearchEnabled', () => {
     });
 
     const loaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
-    assert.equal(loaded?.webSearchEnabled, true);
+    assert.ok(loaded);
+    assert.equal(loaded.webSearchEnabled, true);
 
-    saveChatSession(runtimeRoot, { ...loaded, webSearchEnabled: false } as Parameters<typeof saveChatSession>[1]);
+    saveChatSession(runtimeRoot, { ...loaded, webSearchEnabled: false });
     const reloaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
     assert.equal(reloaded?.webSearchEnabled, false);
   });

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { z } from 'zod';
 
 import { summarizeRequest } from '../src/summary.js';
 import { runBenchmarkSuite } from '../bench/benchmark/index.js';
@@ -144,10 +145,17 @@ test('benchmark runner uses a 30 minute default request timeout when omitted', a
         },
       ], null, 2), 'utf8');
 
-      global.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
-        observedTimeouts.push(args[1] as number);
+      const patchedSetTimeout = (...args: Parameters<typeof setTimeout>): ReturnType<typeof setTimeout> => {
+        if (typeof args[1] === 'number') {
+          observedTimeouts.push(args[1]);
+        }
         return originalSetTimeout(...args);
-      }) as typeof setTimeout;
+      };
+      // global.setTimeout carries overloads plus __promisify__; brand the spy
+      // through a runtime check rather than a cast to satisfy that shape.
+      global.setTimeout = z.custom<typeof setTimeout>(() => true).parse(
+        Object.assign(patchedSetTimeout, { __promisify__: originalSetTimeout.__promisify__ }),
+      );
 
       try {
         const result = await runBenchmarkSuite({

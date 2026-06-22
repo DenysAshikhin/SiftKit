@@ -65,7 +65,7 @@ test('getSessionTelemetryStats computes cache hit rate and per-turn averaged acc
         sourceRunId: null,
       },
     ],
-  } as ChatSession;
+  } satisfies ChatSession;
 
   assert.deepEqual(getSessionTelemetryStats(session), {
     promptCacheTokens: 90,
@@ -140,7 +140,7 @@ test('getSessionTelemetryStats uses thinking plus output tokens consistently acr
         sourceRunId: null,
       },
     ],
-  } as ChatSession;
+  } satisfies ChatSession;
 
   assert.deepEqual(getSessionTelemetryStats(session), {
     promptCacheTokens: 0,
@@ -166,7 +166,7 @@ test('getSessionTelemetryStats returns null rates when the session has no timing
     createdAtUtc: '2026-04-16T11:00:00.000Z',
     updatedAtUtc: '2026-04-16T12:00:00.000Z',
     messages: [],
-  } as ChatSession;
+  } satisfies ChatSession;
 
   assert.deepEqual(getSessionTelemetryStats(session), {
     promptCacheTokens: 0,

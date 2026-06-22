@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { asObject } from './helpers/dashboard-http.js';
 import {
   fs,
   path,
@@ -477,7 +478,7 @@ test('live llama token-aware chunk planning preserves the 5m benchmark fixture w
   if (RUN_LIVE_LLAMA_TOKENIZE_TESTS) {
     let liveConfig: LiveConfigResponse | null = null;
     try {
-      liveConfig = (await requestJson(LIVE_CONFIG_SERVICE_URL)) as LiveConfigResponse;
+      liveConfig = await requestJson<LiveConfigResponse>(LIVE_CONFIG_SERVICE_URL);
     } catch {
       liveConfig = null;
     }
@@ -558,7 +559,7 @@ test('planner activation threshold at exactly 75% stays on non-planner path', as
       assert.doesNotMatch(JSON.stringify(nonPlannerRequest?.response_format || {}), /tool_name/u);
     }, {
       assistantContent(promptText, parsed) {
-        if (JSON.stringify(parsed?.response_format || {}).includes('tool_name')) {
+        if (JSON.stringify(asObject(parsed).response_format || {}).includes('tool_name')) {
           return JSON.stringify({
             action: 'finish',
             classification: 'summary',

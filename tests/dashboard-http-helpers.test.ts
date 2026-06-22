@@ -8,6 +8,7 @@ import type { AddressInfo } from 'node:net';
 
 import {
   requestJson,
+  getAddressInfo,
   requestSse,
   writeJson,
   removeDirectoryWithRetries,
@@ -39,7 +40,7 @@ test('dashboard HTTP helpers read JSON and SSE payloads', async () => {
   });
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address() as AddressInfo;
+  const { port } = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${port}`;
 
   try {
