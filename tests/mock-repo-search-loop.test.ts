@@ -17,7 +17,7 @@ import {
   runRepoSearch,
   type TaskResult,
 } from '../src/repo-search/engine.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
+import { resolveRepoSearchPlannerToolDefinitions, type ChatMessage } from '../src/repo-search/planner-protocol.js';
 import { buildTaskSystemPrompt } from '../src/repo-search/prompts.js';
 import {
   preflightPlannerPromptBudget,
@@ -52,6 +52,31 @@ function mockLoopConfig(config: DeepPartial<SiftConfig>): SiftConfig {
 const MockTaskResultSchema = z.custom<TaskResult>((value) => typeof value === 'object' && value !== null);
 function mockTaskResult(task: DeepPartial<TaskResult>): TaskResult {
   return MockTaskResultSchema.parse(task);
+}
+
+// Logged `turn_new_messages` events carry the planner transcript as arbitrary
+// JSON. Parse each message to the fields the assertions read so the access is
+// typed without indexing the raw JsonData union.
+const PlannerLogMessageSchema = z.object({
+  role: z.string(),
+  content: z.string().optional(),
+  tool_calls: z
+    .array(z.object({ function: z.object({ name: z.string(), arguments: z.string() }) }))
+    .optional(),
+});
+type PlannerLogMessage = z.infer<typeof PlannerLogMessageSchema>;
+function plannerLogMessages(event: JsonObject | undefined): PlannerLogMessage[] {
+  const raw = event?.messages;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.map((message) => PlannerLogMessageSchema.parse(message));
+}
+
+// Logged events may carry undefined-valued fields; the real JSONL logger drops
+// them via JSON.stringify, so normalize the same way before schema-validating.
+function parseLoggedEvent(event: Record<string, JsonSerializable>): JsonObject {
+  return JsonObjectSchema.parse(JSON.parse(JSON.stringify(event)));
 }
 
 function createTempRepoRoot(gitignoreText = '') {
@@ -127,18 +152,18 @@ test('runTaskLoop repairs malformed planner payloads before executing tool calls
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
   );
 
   const turn2NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 2);
-  const turn2Messages = Array.isArray(turn2NewMessages?.messages) ? turn2NewMessages.messages : [];
-  const assistantMessage = turn2Messages.find((message: { role?: string }) => message.role === 'assistant');
-  const toolMessage = turn2Messages.find((message: { role?: string }) => message.role === 'tool');
-  const userMessages = turn2Messages.filter((message: { role?: string }) => message.role === 'user');
-  const assistantToolCall = Array.isArray(assistantMessage?.tool_calls) ? assistantMessage.tool_calls[0] : null;
+  const turn2Messages = plannerLogMessages(turn2NewMessages);
+  const assistantMessage = turn2Messages.find((message) => message.role === 'assistant');
+  const toolMessage = turn2Messages.find((message) => message.role === 'tool');
+  const userMessages = turn2Messages.filter((message) => message.role === 'user');
+  const assistantToolCall = assistantMessage?.tool_calls?.[0] ?? null;
 
   assert.equal(result.reason, 'finish');
   assert.equal(result.invalidResponses, 0);
@@ -170,18 +195,18 @@ test('runTaskLoop replays unrecoverable invalid planner payloads through invalid
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
   );
 
   const turn2NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 2);
-  const turn2Messages = Array.isArray(turn2NewMessages?.messages) ? turn2NewMessages.messages : [];
-  const assistantMessage = turn2Messages.find((message: { role?: string }) => message.role === 'assistant');
-  const toolMessage = turn2Messages.find((message: { role?: string }) => message.role === 'tool');
-  const userMessages = turn2Messages.filter((message: { role?: string }) => message.role === 'user');
-  const assistantToolCall = Array.isArray(assistantMessage?.tool_calls) ? assistantMessage.tool_calls[0] : null;
+  const turn2Messages = plannerLogMessages(turn2NewMessages);
+  const assistantMessage = turn2Messages.find((message) => message.role === 'assistant');
+  const toolMessage = turn2Messages.find((message) => message.role === 'tool');
+  const userMessages = turn2Messages.filter((message) => message.role === 'user');
+  const assistantToolCall = assistantMessage?.tool_calls?.[0] ?? null;
   const assistantArgs = JSON.parse(String(assistantToolCall?.function?.arguments || '{}'));
 
   assert.equal(result.reason, 'finish');
@@ -263,7 +288,7 @@ test('runTaskLoop cuts off runaway streamed tool JSON and reprompts once', { tim
         logger: {
           path: 'memory',
           write(event: Record<string, JsonSerializable>) {
-            events.push(JsonObjectSchema.parse(event));
+            events.push(parseLoggedEvent(event));
           },
         },
         onProgress(event) {
@@ -281,9 +306,9 @@ test('runTaskLoop cuts off runaway streamed tool JSON and reprompts once', { tim
 
     const invalidEvent = events.find((event) => event.kind === 'turn_action_invalid');
     const turn2NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 2);
-    const turn2Messages = Array.isArray(turn2NewMessages?.messages) ? turn2NewMessages.messages : [];
-    const assistantMessage = turn2Messages.find((message: { role?: string }) => message.role === 'assistant');
-    const assistantToolCall = Array.isArray(assistantMessage?.tool_calls) ? assistantMessage.tool_calls[0] : null;
+    const turn2Messages = plannerLogMessages(turn2NewMessages);
+    const assistantMessage = turn2Messages.find((message) => message.role === 'assistant');
+    const assistantToolCall = assistantMessage?.tool_calls?.[0] ?? null;
 
     assert.equal(result.reason, 'finish');
     assert.equal(result.invalidResponses, 1);
@@ -335,7 +360,7 @@ test('runTaskLoop truncates oversized rg output to the largest fitting prefix', 
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -384,7 +409,7 @@ test('runTaskLoop advances overlapping repo_read_file calls to the next unread s
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -431,7 +456,7 @@ test('runTaskLoop replays effective repo_read_file range after native unread exp
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -439,8 +464,8 @@ test('runTaskLoop replays effective repo_read_file range after native unread exp
 
   const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
   const turn3NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 3);
-  const turn3Messages = Array.isArray(turn3NewMessages?.messages) ? turn3NewMessages.messages : [];
-  const assistantMessages = turn3Messages.filter((message: { role?: string }) => message.role === 'assistant');
+  const turn3Messages = plannerLogMessages(turn3NewMessages);
+  const assistantMessages = turn3Messages.filter((message) => message.role === 'assistant');
   const replayedAssistantAction = assistantMessages[assistantMessages.length - 1]?.tool_calls?.[0];
   const replayedAssistantArgs = JSON.parse(String(replayedAssistantAction?.function?.arguments || '{}'));
 
@@ -489,7 +514,7 @@ test('runTaskLoop replays only returned repo_read_file range after fitting overs
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -548,7 +573,7 @@ test('runTaskLoop bounds repo_read_file unread span at the next returned range',
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -588,7 +613,7 @@ test('runTaskLoop reports when repo_read_file has no unread lines left', async (
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -628,7 +653,7 @@ test('runTaskLoop truncates oversized repo_list_files output with omitted file c
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -678,12 +703,16 @@ test('runTaskLoop preserves raw line-read stats when oversized Get-Content outpu
 test('runTaskLoop does not print a red console warning when successful output is fitted', async () => {
   const writes: string[] = [];
   const originalWrite = process.stderr.write;
-  process.stderr.write = (chunk, encoding, callback) => {
+  process.stderr.write = (
+    chunk: string | Uint8Array,
+    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+    callback?: (error?: Error | null) => void,
+  ): boolean => {
     writes.push(Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk));
     if (typeof callback === 'function') {
       callback();
-    } else if (typeof encoding === 'function') {
-      encoding();
+    } else if (typeof encodingOrCallback === 'function') {
+      encodingOrCallback();
     }
     return true;
   };
@@ -766,7 +795,7 @@ test('preflightPlannerPromptBudget reserves provider prompt overhead against con
 });
 
 test('compactPlannerMessagesOnce preserves system and latest user intent', async () => {
-  const messages = [
+  const messages: ChatMessage[] = [
     { role: 'system', content: 'system message' },
     { role: 'user', content: 'first user intent' },
     { role: 'assistant', content: 'older assistant details ' + 'a'.repeat(2000) },
@@ -788,7 +817,7 @@ test('compactPlannerMessagesOnce preserves system and latest user intent', async
 });
 
 test('compactPlannerMessagesOnce budgets provider prompt overhead while selecting history', async () => {
-  const messages = [
+  const messages: ChatMessage[] = [
     { role: 'system', content: 'system message' },
     { role: 'assistant', content: 'older assistant details ' + 'a'.repeat(2000) },
     { role: 'tool', content: 'older tool output ' + 'b'.repeat(2000), tool_call_id: 'call_1' },
@@ -827,7 +856,7 @@ test('runTaskLoop fails with planner_preflight_overflow before provider request 
         logger: {
           path: 'memory',
           write(event: Record<string, JsonSerializable>) {
-            events.push(JsonObjectSchema.parse(event));
+            events.push(parseLoggedEvent(event));
           },
         },
       }
@@ -864,7 +893,7 @@ test('runTaskLoop includes planner provider reserve in dynamic output budget', a
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -918,7 +947,7 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -972,7 +1001,7 @@ test('runTaskLoop increases per-tool cap as tool-call progress grows', async () 
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1022,7 +1051,7 @@ test('runTaskLoop fits tool output that exceeds remaining token allowance', asyn
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1076,7 +1105,7 @@ test('runTaskLoop subtracts accepted same-turn tool results from remaining allow
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1119,7 +1148,7 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is off
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1163,7 +1192,7 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is on'
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1229,7 +1258,7 @@ test('runTaskLoop does not emit follow-up finish events after many reasoning-off
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1280,7 +1309,7 @@ test('runTaskLoop keeps reasoning disabled across max-turn exhaustion when runti
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1363,7 +1392,7 @@ test('runTaskLoop retries transient provider network failures via shared retry h
         logger: {
           path: 'memory',
           write(event: Record<string, JsonSerializable>) {
-            events.push(JsonObjectSchema.parse(event));
+            events.push(parseLoggedEvent(event));
           },
         },
       }
@@ -1427,7 +1456,7 @@ test('runTaskLoop waits for planner endpoint warm-up when initial connections ar
         logger: {
           path: 'memory',
           write(event: Record<string, JsonSerializable>) {
-            events.push(JsonObjectSchema.parse(event));
+            events.push(parseLoggedEvent(event));
           },
         },
       }
@@ -1486,7 +1515,7 @@ test('runTaskLoop retries planner calls when endpoint returns HTTP 503 Loading m
         logger: {
           path: 'memory',
           write(event: Record<string, JsonSerializable>) {
-            events.push(JsonObjectSchema.parse(event));
+            events.push(parseLoggedEvent(event));
           },
         },
       }
@@ -1604,7 +1633,7 @@ test('runTaskLoop keeps raw rewrite notes in logs but inserts compact repo-searc
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1646,7 +1675,7 @@ test('runTaskLoop keeps routine normalized repo_rg flags out of model replay whi
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1660,9 +1689,9 @@ test('runTaskLoop keeps routine normalized repo_rg flags out of model replay whi
   assert.equal(String(commandEvent?.insertedResultText || '').includes('note: added --no-ignore'), false);
   assert.match(String(commandEvent?.insertedResultText || ''), /(?:^|\n)exit_code=1$/u);
   const turn2NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 2);
-  const turn2AssistantMessages = Array.isArray(turn2NewMessages?.messages)
-    ? turn2NewMessages.messages.filter((message: { role?: string }) => message.role === 'assistant')
-    : [];
+  const turn2AssistantMessages = plannerLogMessages(turn2NewMessages).filter(
+    (message) => message.role === 'assistant',
+  );
   const replayedAssistantAction = turn2AssistantMessages[turn2AssistantMessages.length - 1]?.tool_calls?.[0];
   const replayedAssistantArgs = JSON.parse(String(replayedAssistantAction?.function?.arguments || '{}'));
   assert.equal(String(replayedAssistantArgs?.command || ''), 'rg -n "sendStatusUpdate" src');
@@ -1711,7 +1740,7 @@ test('runTaskLoop widens repeated Get-Content reads on the same file and logs re
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1736,18 +1765,18 @@ test('runTaskLoop widens repeated Get-Content reads on the same file and logs re
   assert.match(String(commandEvents[1]?.output || ''), /^note: repeated file read window adjusted/mu);
   assert.doesNotMatch(String(commandEvents[1]?.insertedResultText || ''), /^note:/mu);
   const turn3NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 3);
-  const turn3AssistantMessages = Array.isArray(turn3NewMessages?.messages)
-    ? turn3NewMessages.messages.filter((message: { role?: string }) => message.role === 'assistant')
-    : [];
+  const turn3AssistantMessages = plannerLogMessages(turn3NewMessages).filter(
+    (message) => message.role === 'assistant',
+  );
   assert.equal(turn3AssistantMessages.length > 0, true);
   const replayedAssistantAction = turn3AssistantMessages[turn3AssistantMessages.length - 1]?.tool_calls?.[0];
   assert.equal(String(replayedAssistantAction?.function?.name || ''), 'repo_get_content');
   const replayedAssistantArgs = JSON.parse(String(replayedAssistantAction?.function?.arguments || '{}'));
   assert.equal(String(replayedAssistantArgs?.command || ''), String(commandEvents[1]?.executedCommand || ''));
   assert.notEqual(String(replayedAssistantArgs?.command || ''), String(commandEvents[1]?.requestedCommand || ''));
-  const turn3ToolMessages = Array.isArray(turn3NewMessages?.messages)
-    ? turn3NewMessages.messages.filter((message: { role?: string }) => message.role === 'tool')
-    : [];
+  const turn3ToolMessages = plannerLogMessages(turn3NewMessages).filter(
+    (message) => message.role === 'tool',
+  );
   const replayedToolResultForPrompt = String(turn3ToolMessages[turn3ToolMessages.length - 1]?.content || '');
   assert.doesNotMatch(replayedToolResultForPrompt, /requested start=/u);
   assert.doesNotMatch(replayedToolResultForPrompt, /adjusted start=/u);
@@ -1789,7 +1818,7 @@ test('runTaskLoop records adjusted Get-Content coverage from fitted returned lin
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1840,7 +1869,7 @@ test('runTaskLoop clamps adjusted repeated Get-Content skip to non-negative valu
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1894,7 +1923,7 @@ test('runTaskLoop forces repeated backward same-file reads to non-overlapping fo
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1948,7 +1977,7 @@ test('runTaskLoop tracks per-file overlap telemetry and isolates histories acros
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -2013,7 +2042,7 @@ test('runTaskLoop does not compact different commands that happen to return the 
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -2056,7 +2085,7 @@ test('runTaskLoop forces finish mode after ten zero-output commands', async () =
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -2111,7 +2140,7 @@ test('runTaskLoop enables thinking on every tool-call turn when runtime reasonin
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -2161,7 +2190,7 @@ test('runTaskLoop disables thinking on every tool-call turn when runtime reasoni
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
-          events.push(JsonObjectSchema.parse(event));
+          events.push(parseLoggedEvent(event));
         },
       },
     },
@@ -2224,7 +2253,7 @@ test('mock planner strips think block from response text', async () => {
       maxTurns: 1, maxInvalidResponses: 2, minToolCallsBeforeFinish: 0,
       mockResponses: ['<think>hidden</think>{"action":"finish","output":"done"}'],
       mockCommandResults: {},
-      logger: { path: 'memory', write(event: Record<string, JsonSerializable>) { events.push(JsonObjectSchema.parse(event)); } },
+      logger: { path: 'memory', write(event: Record<string, JsonSerializable>) { events.push(parseLoggedEvent(event)); } },
     }
   );
   const response = events.find((e) => e.kind === 'turn_model_response');

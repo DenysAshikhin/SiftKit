@@ -805,6 +805,7 @@ test('repo-search endpoint logs one model-requested command line per tool call',
 
 test('buildRepoSearchProgressLogMessage formats planner and repo-search command progress lines', () => {
   const msg1 = buildRepoSearchProgressLogMessage({
+    kind: 'command',
     turn: 2,
     maxTurns: 9,
     promptTokenCount: 1234,
@@ -814,6 +815,7 @@ test('buildRepoSearchProgressLogMessage formats planner and repo-search command 
   assert.ok(msg1);
   assert.match(msg1, /^repo_search command turn=2\/9 prompt_tokens=1,234 elapsed=2s command=rg -n "planner" src$/u);
   const msg2 = buildRepoSearchProgressLogMessage({
+    kind: 'command',
     turn: 1,
     maxTurns: 2,
     promptTokenCount: 88,

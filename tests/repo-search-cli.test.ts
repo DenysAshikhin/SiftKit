@@ -19,10 +19,14 @@ async function runMockRepoSearchCli(port: number): Promise<{ stdout: string; std
     const stderr = makeCaptureStream();
     const originalStderrWrite = process.stderr.write;
     let processStderr = '';
-    process.stderr.write = (chunk, encoding, callback) => {
+    process.stderr.write = (
+      chunk: string | Uint8Array,
+      encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+      callback?: (error?: Error | null) => void,
+    ): boolean => {
       processStderr += String(chunk);
-      if (typeof encoding === 'function') {
-        encoding();
+      if (typeof encodingOrCallback === 'function') {
+        encodingOrCallback();
       } else if (callback) {
         callback();
       }

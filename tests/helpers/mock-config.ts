@@ -1,4 +1,5 @@
 import { z } from '../../src/lib/zod.js';
+import type { JsonObject } from '../../src/lib/json-types.js';
 import type { SiftConfig } from '../../src/config/types.js';
 
 // Deliberately-partial SiftConfig fixtures: the input is structurally checked
@@ -15,4 +16,10 @@ const MockSiftConfigSchema = z.custom<SiftConfig>((value) => typeof value === 'o
 
 export function mockSiftConfig(partial: DeepPartial<SiftConfig>): SiftConfig {
   return MockSiftConfigSchema.parse(partial);
+}
+
+// Brand an already-constructed runtime config object (e.g. a stub server's live
+// config, or a clone with a few overridden fields) as SiftConfig at one boundary.
+export function asRuntimeSiftConfig(value: JsonObject): SiftConfig {
+  return MockSiftConfigSchema.parse(value);
 }

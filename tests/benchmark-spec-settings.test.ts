@@ -622,7 +622,7 @@ test('package typecheck command is available for repo, scripts, dashboard, bench
 
   assert.equal(
     String(pkg.scripts?.typecheck),
-    'tsc -p .\\tsconfig.json --noEmit && tsc -p .\\tsconfig.scripts.json --noEmit && tsc -p .\\dashboard\\tsconfig.json --noEmit && npm run typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test && npm run typecheck:analysis && npm run lint',
+    'tsc -b .\\packages\\contracts\\tsconfig.json && tsc -p .\\tsconfig.json --noEmit && tsc -p .\\tsconfig.scripts.json --noEmit && tsc -p .\\dashboard\\tsconfig.json --noEmit && npm run typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test && npm run typecheck:analysis && npm run lint',
   );
   assert.equal(String(pkg.scripts?.['typecheck:bench']), 'tsc -p .\\tsconfig.bench.json --noEmit');
   assert.equal(String(pkg.scripts?.['typecheck:dashboard-test']), 'tsc -p .\\dashboard\\tsconfig.test.json --noEmit');

@@ -1,10 +1,8 @@
 import { inspect } from 'node:util';
-import type { ShellName } from '../capture/process.js';
 import type { JsonSerializable } from '../lib/json-types.js';
 import {
   normalizeCliReducerProfile,
   normalizeCliRiskLevel,
-  normalizeCliShell,
 } from './request-normalizers.js';
 
 export type CliRunOptions = {
@@ -50,7 +48,7 @@ export type ParsedArgs = {
   preset?: string;
   repoRoot?: string;
   maxTurns?: number;
-  shell?: ShellName;
+  shell?: string;
 };
 
 export const KNOWN_COMMANDS = new Set([
@@ -244,7 +242,7 @@ export function parseArguments(tokens: string[]): ParsedArgs {
         parsed.maxTurns = Number.parseInt(tokens[++index] || '', 10);
         break;
       case '--shell':
-        parsed.shell = normalizeCliShell(tokens[++index]);
+        parsed.shell = tokens[++index];
         break;
       default:
         parsed.positionals.push(token);

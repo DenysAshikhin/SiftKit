@@ -465,7 +465,11 @@ test('ensureStatusServerReachable keeps transient retry diagnostics out of stder
   };
   const originalWrite = process.stderr.write.bind(process.stderr);
   let stderrText = '';
-  process.stderr.write = (chunk, encodingOrCallback, callback) => {
+  process.stderr.write = (
+    chunk: string | Uint8Array,
+    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+    callback?: (error?: Error | null) => void,
+  ): boolean => {
     stderrText += String(chunk);
     const resolvedCallback = typeof encodingOrCallback === 'function' ? encodingOrCallback : callback;
     if (resolvedCallback) {

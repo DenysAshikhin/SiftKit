@@ -12,7 +12,8 @@ import {
   parseRuntimeArtifactUri,
   readRuntimeArtifact,
 } from '../src/state/runtime-artifacts.js';
-import { withTestEnvAndServer } from './_test-helpers.js';
+import { withTestEnvAndServer, mergeConfig } from './_test-helpers.js';
+import { asRuntimeSiftConfig } from './helpers/mock-config.js';
 
 const requireFromHere = createRequire(__filename);
 const Database = requireFromHere('better-sqlite3') as new (path: string, options?: { readonly?: boolean }) => {
@@ -372,7 +373,7 @@ test('executeRepoSearchRequest logs repo-search preflight tokenization timing', 
       await executeRepoSearchRequest({
         prompt: 'find tokenize timing logs',
         repoRoot: tempRoot,
-        config: stub.state.config,
+        config: asRuntimeSiftConfig(stub.state.config),
         maxTurns: 1,
         mockCommandResults: {},
       });
@@ -508,17 +509,10 @@ test('executeRepoSearchRequest persists summed prompt-eval and generation durati
     try {
       const address = modelServer.address() as AddressInfo;
       const baseUrl = `http://127.0.0.1:${address.port}`;
-      const config = structuredClone(stub.state.config) as Record<string, unknown>;
-      const runtime = (config.Runtime as Record<string, unknown>) || {};
-      config.Runtime = runtime;
-      const runtimeLlama = (runtime.LlamaCpp as Record<string, unknown>) || {};
-      runtime.LlamaCpp = runtimeLlama;
-      runtimeLlama.BaseUrl = baseUrl;
-      runtime.Model = 'mock-model';
-      const topLlama = (config.LlamaCpp as Record<string, unknown>) || {};
-      config.LlamaCpp = topLlama;
-      topLlama.BaseUrl = baseUrl;
-      topLlama.Reasoning = 'on';
+      const config = asRuntimeSiftConfig(mergeConfig(structuredClone(stub.state.config), {
+        Runtime: { Model: 'mock-model', LlamaCpp: { BaseUrl: baseUrl } },
+        LlamaCpp: { BaseUrl: baseUrl, Reasoning: 'on' },
+      }));
 
       const result = await executeRepoSearchRequest({
         prompt: 'find build scripts',

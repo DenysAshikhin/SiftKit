@@ -37,9 +37,12 @@ test('config-store does not define untyped config defaults or Dict signatures', 
 
 test('dashboard config type is an alias of shared SiftConfig', () => {
   const source = fs.readFileSync('dashboard/src/types.ts', 'utf8');
+  const contracts = fs.readFileSync('packages/contracts/src/config.ts', 'utf8');
 
-  assert.match(source, /import type \{[\s\S]*SiftConfig[\s\S]*\} from ['"]\.\.\/\.\.\/src\/config\/types(?:\.js)?['"]/u);
-  assert.match(source, /export type DashboardConfig = SiftConfig;/u);
+  // Dashboard config types now flow from the shared @siftkit/contracts barrel,
+  // where DashboardConfig is the single SiftConfig alias.
+  assert.match(source, /export \* from ['"]@siftkit\/contracts['"]/u);
+  assert.match(contracts, /export type DashboardConfig = SiftConfig;/u);
   assert.doesNotMatch(source, /export type DashboardConfig = \{/u);
 });
 
@@ -55,7 +58,7 @@ test('dashboard does not mirror the config schema', () => {
 
   assert.doesNotMatch(source, /Server:\s*\{[\s\S]*LlamaCpp:\s*\{/u);
   assert.doesNotMatch(source, /WebSearch:\s*\{/u);
-  assert.match(source, /export type DashboardConfig = SiftConfig;|export type \{[\s\S]*DashboardConfig[\s\S]*\}/u);
+  assert.match(source, /export \* from ['"]@siftkit\/contracts['"]/u);
 });
 
 test('config-store keeps Dict out of the config boundary', () => {

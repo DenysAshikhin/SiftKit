@@ -3,6 +3,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { Writable } from 'node:stream';
+import { z } from '../src/lib/zod.js';
 import { getPresetsForSurface, normalizePresets } from '../src/presets.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { parseJsonValueText } from '../src/lib/json.js';
@@ -155,16 +156,12 @@ export function getDefaultConfig(): TestConfig {
 }
 
 export function mergeConfig<T extends Dict>(base: T, overrides: Dict): T {
-  const merged = structuredClone(base);
+  const merged: Dict = structuredClone(base);
   for (const [key, value] of Object.entries(overrides)) {
     const existing = merged[key];
-    if (isJsonObject(value) && isJsonObject(existing)) {
-      merged[key] = mergeConfig(existing, value);
-    } else {
-      merged[key] = value;
-    }
+    merged[key] = isJsonObject(value) && isJsonObject(existing) ? mergeConfig(existing, value) : value;
   }
-  return merged;
+  return z.custom<T>((value) => typeof value === 'object' && value !== null).parse(merged);
 }
 
 export type StubServerMetrics = {

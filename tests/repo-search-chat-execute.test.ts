@@ -40,10 +40,10 @@ test('executeRepoSearchRequest chat with web tools runs native web_search', asyn
     allowedTools: ['web_search', 'web_fetch'],
     availableModels: ['mock'],
     model: 'mock',
-    config: {
+    config: mockSiftConfig({
       Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
       WebSearch: { EnabledDefault: true, Providers: { tavily: { Enabled: true, ApiKey: 'test-key' }, firecrawl: { Enabled: false, ApiKey: '' } }, ProviderOrder: ['tavily', 'firecrawl'], ResultCount: 5, FetchMaxPages: 3, TimeoutMs: 15000, FetchMaxCharacters: 12000 },
-    },
+    }),
     mockResponses: [
       '{"action":"web_search","query":"iron bar GE price"}',
       '{"action":"web_fetch","url":"https://prices.runescape.wiki/iron-bar"}',
@@ -277,7 +277,7 @@ test('chat executor with thinking off yields zero thinking tokens', async () => 
     allowedTools: [],
     availableModels: ['mock'],
     model: 'mock',
-    config: { Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000, Reasoning: 'on' } } },
+    config: mockSiftConfig({ Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000, Reasoning: 'on' } } }),
     mockResponses: ['{"action":"finish","output":"Hello"}'],
   });
   const tasks = result.scorecard.tasks;

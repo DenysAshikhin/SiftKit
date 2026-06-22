@@ -21,6 +21,7 @@ import { getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import type { SiftConfig } from '../src/config/types.js';
+import { mockSiftConfig } from './helpers/mock-config.js';
 
 // Mock-mode runTaskLoop calls do not reach a real provider or repo; these defaults
 // satisfy the required RunTaskLoopOptions fields with an empty repo root (behaviour-
@@ -92,7 +93,7 @@ test('assertConfiguredModelPresent hard-fails when configured model is missing',
 
 test('runRepoSearch does not fail on model inventory mismatch', async () => {
   const scorecard = await runRepoSearch({
-    config: {
+    config: mockSiftConfig({
       Runtime: {
         Model: 'Qwen3.5-9B-Q8_0.gguf',
         LlamaCpp: {
@@ -100,7 +101,7 @@ test('runRepoSearch does not fail on model inventory mismatch', async () => {
           NumCtx: 70000,
         },
       },
-    },
+    }),
     model: 'Qwen3.5-9B-Q8_0.gguf',
     baseUrl: 'http://127.0.0.1:8097',
     availableModels: ['Qwen3.5-27B-Q4_K_M.gguf'],
@@ -118,7 +119,7 @@ test('runRepoSearch does not fail on model inventory mismatch', async () => {
 test('repo-search executes a native web_search tool when allowed', async () => {
   const events: Record<string, unknown>[] = [];
   const scorecard = await runRepoSearch({
-    config: {
+    config: mockSiftConfig({
       Runtime: { Model: 'Qwen3.5-9B-Q8_0.gguf', LlamaCpp: { BaseUrl: 'http://127.0.0.1:8097', NumCtx: 70000 } },
       WebSearch: {
         EnabledDefault: true,
@@ -129,7 +130,7 @@ test('repo-search executes a native web_search tool when allowed', async () => {
         TimeoutMs: 15000,
         FetchMaxCharacters: 12000,
       },
-    },
+    }),
     model: 'Qwen3.5-9B-Q8_0.gguf',
     baseUrl: 'http://127.0.0.1:8097',
     availableModels: ['Qwen3.5-9B-Q8_0.gguf'],
