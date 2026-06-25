@@ -3,7 +3,7 @@
 Remaining work items only. Resolved findings are deleted or narrowed as they are fixed, so finding numbers (F-series) and LLM-behavior items (L-series) have gaps. Re-verify every item against current code before acting.
 
 Original audit date: 2026-06-09.
-Last pruned: 2026-06-22.
+Last pruned: 2026-06-25.
 
 ---
 
