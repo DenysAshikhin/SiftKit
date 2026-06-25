@@ -7,10 +7,6 @@ import type {
 } from '../summary/types.js';
 import type { DashboardRunLogType } from './dashboard-runs.js';
 
-export type ExecutionTokenRequest = {
-  token: string;
-};
-
 export type RepoSearchRouteRequest = {
   prompt: string;
   repoRoot: string;
@@ -90,11 +86,6 @@ function normalizeRunLogDeleteType(value: string): DashboardRunLogType | null {
     || normalized === 'other'
     ? normalized
     : null;
-}
-
-export function parseExecutionTokenRequest(body: JsonObject): ExecutionTokenRequest | null {
-  const token = new JsonRecordReader(body).optionalString('token');
-  return token ? { token } : null;
 }
 
 export function parseRepoSearchRequest(body: JsonObject): RepoSearchRouteRequest | null {

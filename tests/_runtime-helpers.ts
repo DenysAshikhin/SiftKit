@@ -1321,7 +1321,6 @@ async function startStatusServerProcess(options: StatusServerProcessOptions) {
     startupWarning: startupInfo.startupWarning || null,
     statusUrl: `http://127.0.0.1:${startupInfo.port}/status`,
     configUrl: `http://127.0.0.1:${startupInfo.port}/config`,
-    executionUrl: `http://127.0.0.1:${startupInfo.port}/execution`,
     stdoutLines,
     stderrLines,
     idleSummaryDbPath: options.idleSummaryDbPath || path.join(path.dirname(options.statusPath), 'idle-summary.sqlite'),

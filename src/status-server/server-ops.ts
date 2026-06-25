@@ -39,18 +39,13 @@ import type {
   ActiveRunState,
   DatabaseInstance,
   DeferredArtifact,
-  ExecutionLease,
   ModelRequestQueueDiagnostics,
   ModelRequestLock,
   ModelRequestWaitOptions,
   ModelRequestWaiter,
   ServerContext,
 } from './server-types.js';
-import {
-  EXECUTION_LEASE_STALE_MS,
-  logLine,
-} from './managed-llama.js';
-import { releaseLease, resolveActiveLease } from './core/lease-handlers.js';
+import { logLine } from './managed-llama.js';
 
 export const MAX_COMPLETED_STATUS_PATH_ENTRIES = 1000;
 export const DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS = 900_000;
@@ -306,7 +301,6 @@ export function enqueueDeferredArtifacts(ctx: ServerContext, artifacts: Deferred
 
 export function isIdle(ctx: ServerContext): boolean {
   return !hasActiveRuns(ctx)
-    && !getActiveExecutionLease(ctx)
     && !ctx.activeModelRequest
     && ctx.modelRequestQueue.length === 0;
 }
@@ -365,25 +359,6 @@ export function scheduleIdleSummaryIfNeeded(ctx: ServerContext): void {
   if (typeof ctx.idleSummaryTimer.unref === 'function') {
     ctx.idleSummaryTimer.unref();
   }
-}
-
-// ---------------------------------------------------------------------------
-// Execution lease
-// ---------------------------------------------------------------------------
-
-export function getActiveExecutionLease(ctx: ServerContext): ExecutionLease | null {
-  const active = resolveActiveLease(ctx.activeExecutionLease, Date.now(), EXECUTION_LEASE_STALE_MS);
-  ctx.activeExecutionLease = active;
-  return active;
-}
-
-export function releaseExecutionLease(ctx: ServerContext, token: string): boolean {
-  if (!releaseLease(ctx.activeExecutionLease, token, Date.now(), EXECUTION_LEASE_STALE_MS)) {
-    return false;
-  }
-  ctx.activeExecutionLease = null;
-  scheduleIdleSummaryIfNeeded(ctx);
-  return true;
 }
 
 // ---------------------------------------------------------------------------

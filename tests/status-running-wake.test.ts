@@ -82,7 +82,6 @@ function createStatusContext(tempRoot: string): ServerContext & { readonly wakeC
     completedRequestIdByStatusPath: new Map(),
     activeModelRequest: null,
     modelRequestQueue: [],
-    activeExecutionLease: null,
     deferredArtifactQueue: [],
     deferredArtifactDrainScheduled: false,
     deferredArtifactDrainRunning: false,

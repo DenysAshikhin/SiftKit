@@ -227,7 +227,6 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     completedRequestIdByStatusPath: new Map(),
     activeModelRequest: null,
     modelRequestQueue: [],
-    activeExecutionLease: null,
     deferredArtifactQueue: [],
     deferredArtifactDrainScheduled: false,
     deferredArtifactDrainRunning: false,

@@ -84,7 +84,6 @@ function getNonNegativeIntegerFromEnv(name: string, fallback: number): number {
   return parsedValue;
 }
 
-export const EXECUTION_LEASE_STALE_MS = getPositiveIntegerFromEnv('SIFTKIT_EXECUTION_LEASE_STALE_MS', 10_000);
 export const LLAMA_STARTUP_GRACE_DELAY_MS = 2_000;
 const DEFAULT_MANAGED_LLAMA_METRICS_LOG_TAIL_CHARACTERS = 1_000_000;
 export const MANAGED_LLAMA_LOG_ALERT_PATTERN = /\b(?:warn(?:ing)?|error|exception|fatal)\b/iu;

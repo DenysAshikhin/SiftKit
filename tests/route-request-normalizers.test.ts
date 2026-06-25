@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   parseDashboardRunLogDeleteRequest,
-  parseExecutionTokenRequest,
   parseRepoSearchRequest,
   parseSummaryRequest,
 } from '../src/status-server/route-request-normalizers.js';
@@ -14,9 +13,6 @@ import {
 } from '../src/status-server/chat-route-request-normalizers.js';
 
 test('core route request normalizers return typed values', () => {
-  assert.deepEqual(parseExecutionTokenRequest({ token: ' abc ' }), { token: 'abc' });
-  assert.equal(parseExecutionTokenRequest({ token: ' ' }), null);
-
   assert.deepEqual(parseRepoSearchRequest({ prompt: ' p ', repoRoot: ' C:/repo ', model: ' m ', maxTurns: '3' }), {
     prompt: 'p',
     repoRoot: 'C:/repo',

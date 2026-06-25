@@ -42,16 +42,16 @@ test('serializeErrorDiagnostic includes nested causes, stack, and custom status 
   const root = new Error('socket hang up');
   const wrapped = new StatusServerUnavailableError('http://127.0.0.1:4765/health', {
     cause: root,
-    operation: 'execution:acquire',
-    serviceUrl: 'http://127.0.0.1:4765/execution/acquire',
+    operation: 'status:post',
+    serviceUrl: 'http://127.0.0.1:4765/status',
   });
 
   const diagnostic = serializeErrorDiagnostic(wrapped);
   const primaryCause = getPrimaryCauseDiagnostic(diagnostic);
 
   assert.equal(diagnostic.name, 'StatusServerUnavailableError');
-  assert.equal(diagnostic.operation, 'execution:acquire');
-  assert.equal(diagnostic.serviceUrl, 'http://127.0.0.1:4765/execution/acquire');
+  assert.equal(diagnostic.operation, 'status:post');
+  assert.equal(diagnostic.serviceUrl, 'http://127.0.0.1:4765/status');
   assert.equal(diagnostic.healthUrl, getStatusServerHealthUrl());
   assert.equal(typeof diagnostic.stack, 'string');
   assert.equal(diagnostic.cause?.name, 'Error');

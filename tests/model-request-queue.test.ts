@@ -44,7 +44,6 @@ function createQueueContext(): ServerContext & { readonly wakeCount: number } {
     completedRequestIdByStatusPath: new Map(),
     activeModelRequest: null,
     modelRequestQueue: [],
-    activeExecutionLease: null,
     deferredArtifactQueue: [],
     deferredArtifactDrainScheduled: false,
     deferredArtifactDrainRunning: false,

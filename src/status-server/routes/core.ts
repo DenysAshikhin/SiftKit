@@ -51,7 +51,6 @@ import { RepoSearchResponseSanityChecker } from '../../repo-search/response-sani
 import { StatusPresetRunner } from '../preset-runner.js';
 import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.js';
 import {
-  parseExecutionTokenRequest,
   parseRepoSearchRequest,
   parseSummaryRequest,
   type RepoSearchRouteRequest,
@@ -61,16 +60,12 @@ import {
   getManagedLlamaSpeculativeMetricsDelta,
   getManagedLlamaStartupFailure,
   logLine,
-  EXECUTION_LEASE_STALE_MS,
 } from '../managed-llama.js';
-import { acquireLease, heartbeatLease } from '../core/lease-handlers.js';
 import {
   getPublishedStatusText,
   writePublishedStatus,
   clearIdleSummaryTimer,
   scheduleIdleSummaryIfNeeded,
-  getActiveExecutionLease,
-  releaseExecutionLease,
   acquireModelRequestWithWait,
   releaseModelRequest,
   ensureManagedLlamaReadyForModelRequest,
@@ -646,101 +641,6 @@ class StatusReadEndpoint implements RouteEndpoint {
       idleSummarySnapshotsPath: ctx.idleSummarySnapshotsPath,
       modelRequests: getModelRequestQueueDiagnostics(ctx),
     });
-    return;
-  }
-}
-
-class ExecutionReadEndpoint implements RouteEndpoint {
-  async handle(
-    ctx: ServerContext,
-    req: IncomingMessage,
-    res: ServerResponse,
-    _match: RouteMatch,
-  ): Promise<void> {
-    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const lease = getActiveExecutionLease(ctx);
-    sendJson(res, 200, { busy: Boolean(lease), statusPath, configPath });
-    return;
-  }
-}
-
-class ExecutionAcquireEndpoint implements RouteEndpoint {
-  async handle(
-    ctx: ServerContext,
-    req: IncomingMessage,
-    res: ServerResponse,
-    _match: RouteMatch,
-  ): Promise<void> {
-    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    clearIdleSummaryTimer(ctx);
-    const result = acquireLease(ctx.activeExecutionLease, randomUUID(), Date.now(), EXECUTION_LEASE_STALE_MS);
-    ctx.activeExecutionLease = result.lease;
-    if (!result.acquired) {
-      sendJson(res, 200, { ok: true, acquired: false, busy: true });
-      return;
-    }
-    sendJson(res, 200, { ok: true, acquired: true, busy: true, token: result.lease.token });
-    return;
-  }
-}
-
-class ExecutionHeartbeatEndpoint implements RouteEndpoint {
-  async handle(
-    ctx: ServerContext,
-    req: IncomingMessage,
-    res: ServerResponse,
-    _match: RouteMatch,
-  ): Promise<void> {
-    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    let parsedBody: ReturnType<typeof parseJsonBody>;
-    try {
-      parsedBody = parseJsonBody(await readBody(req));
-    } catch {
-      sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return;
-    }
-    const tokenRequest = parseExecutionTokenRequest(parsedBody);
-    if (!tokenRequest) {
-      sendJson(res, 400, { error: 'Expected token.' });
-      return;
-    }
-    const refreshed = heartbeatLease(ctx.activeExecutionLease, tokenRequest.token, Date.now(), EXECUTION_LEASE_STALE_MS);
-    if (!refreshed) {
-      sendJson(res, 409, { error: 'Execution lease is not active.' });
-      return;
-    }
-    ctx.activeExecutionLease = refreshed;
-    sendJson(res, 200, { ok: true, busy: true });
-    return;
-  }
-}
-
-class ExecutionReleaseEndpoint implements RouteEndpoint {
-  async handle(
-    ctx: ServerContext,
-    req: IncomingMessage,
-    res: ServerResponse,
-    _match: RouteMatch,
-  ): Promise<void> {
-    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    let parsedBody: ReturnType<typeof parseJsonBody>;
-    try {
-      parsedBody = parseJsonBody(await readBody(req));
-    } catch {
-      sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return;
-    }
-    const tokenRequest = parseExecutionTokenRequest(parsedBody);
-    if (!tokenRequest) {
-      sendJson(res, 400, { error: 'Expected token.' });
-      return;
-    }
-    const released = releaseExecutionLease(ctx, tokenRequest.token);
-    sendJson(res, released ? 200 : 409, { ok: released, released, busy: Boolean(getActiveExecutionLease(ctx)) });
     return;
   }
 }
@@ -1765,10 +1665,6 @@ const STATUS_POST_ENDPOINT = new StatusPostEndpoint();
 const CORE_ROUTES = new RouteTable([
   { method: 'GET', path: '/health', endpoint: new HealthEndpoint() },
   { method: 'GET', path: '/status', endpoint: new StatusReadEndpoint() },
-  { method: 'GET', path: '/execution', endpoint: new ExecutionReadEndpoint() },
-  { method: 'POST', path: '/execution/acquire', endpoint: new ExecutionAcquireEndpoint() },
-  { method: 'POST', path: '/execution/heartbeat', endpoint: new ExecutionHeartbeatEndpoint() },
-  { method: 'POST', path: '/execution/release', endpoint: new ExecutionReleaseEndpoint() },
   { method: 'POST', path: '/command-output/analyze', endpoint: new CommandOutputAnalyzeEndpoint() },
   { method: 'GET', path: '/preset/list', endpoint: new PresetListEndpoint() },
   { method: 'POST', path: '/preset/run', endpoint: new PresetRunEndpoint() },

@@ -26,11 +26,6 @@ import {
   type LlamaModelsResponse,
 } from './_runtime-helpers.js';
 
-interface LeaseResponse {
-  acquired: boolean;
-  token: string;
-}
-
 test('real status server prints one idle metrics line only after the full idle delay', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
@@ -348,60 +343,3 @@ test('real status server restarts the idle countdown when a new request begins b
   });
 });
 
-test('real status server does not count idle delay while an execution lease remains active', async () => {
-  await withTempEnv(async (tempRoot) => {
-    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
-    const configPath = path.join(tempRoot, 'config.json');
-    const idleSummaryDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
-    const requestId = 'idle-summary-lease';
-    const server = await startStatusServerProcess({
-      statusPath,
-      configPath,
-      idleSummaryDbPath,
-      idleSummaryDelayMs: 80,
-      terminalMetadataIdleDelayMs: 0,
-      disableManagedLlamaStartup: true,
-    });
-
-    try {
-      const lease = await requestJson<LeaseResponse>(`${server.executionUrl}/acquire`, {
-        method: 'POST',
-        body: JSON.stringify({ pid: process.pid }),
-      });
-      assert.equal(lease.acquired, true);
-
-      await requestJson(server.statusUrl, {
-        method: 'POST',
-        body: JSON.stringify({ running: true, requestId, rawInputCharacterCount: 10 }),
-      });
-      await postCompletedStatus(server.statusUrl, {
-        requestId,
-        taskKind: 'summary',
-        terminalState: 'completed',
-        promptCharacterCount: 10,
-        inputTokens: 0,
-        outputCharacterCount: 0,
-        outputTokens: 0,
-        requestDurationMs: 10,
-      });
-
-      await sleep(120);
-      assert.equal(server.stdoutLines.some((line) => /idle_metrics/u.test(line)), false);
-
-      await requestJson(`${server.executionUrl}/release`, {
-        method: 'POST',
-        body: JSON.stringify({ token: lease.token }),
-      });
-
-      await server.waitForStdoutMatch(/requests=1/u, 1000);
-      const block = getIdleSummaryBlock(server.stdoutLines, /requests=1/u);
-      assert.equal(block[1], '  input:  chars=10 tokens=0');
-      assert.equal(block[2], '  output: chars=0 tokens=0 avg_tokens_per_request=0.00');
-      assert.equal(block[3], '  ratio:  input/output=n/a');
-      assert.equal(block[4], '  timing: total=0s avg_request=0.01s gen_tokens_per_s=n/a');
-      assert.equal(readIdleSummarySnapshots(idleSummaryDbPath).length, 1);
-    } finally {
-      await server.close();
-    }
-  });
-});

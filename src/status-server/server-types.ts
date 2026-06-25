@@ -27,7 +27,6 @@ export type ActiveRunState = {
   managedLlamaSpeculativeSnapshot: ManagedLlamaSpeculativeMetricsSnapshot | null;
 };
 
-export type ExecutionLease = { token: string; heartbeatAt: number };
 export type ModelRequestLock = { token: string; kind: string; startedAtUtc: string };
 export type ModelRequestWaitOptions = { timeoutMs?: number };
 export type ModelRequestWaiter = {
@@ -118,7 +117,6 @@ export type ServerContext = {
   completedRequestIdByStatusPath: Map<string, string>;
   activeModelRequest: ModelRequestLock | null;
   modelRequestQueue: ModelRequestWaiter[];
-  activeExecutionLease: ExecutionLease | null;
   deferredArtifactQueue: DeferredArtifact[];
   deferredArtifactDrainScheduled: boolean;
   deferredArtifactDrainRunning: boolean;
