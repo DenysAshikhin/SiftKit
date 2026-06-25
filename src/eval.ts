@@ -5,7 +5,6 @@ import { JsonObjectSchema } from './lib/json-types.js';
 import { parseJsonValueText } from './lib/json.js';
 import { getConfiguredModel, initializeRuntime, loadConfig } from './config/index.js';
 import { summarizeRequest } from './summary/core.js';
-import { withExecutionLock } from './execution-lock.js';
 import { upsertRuntimeJsonArtifact } from './state/runtime-artifacts.js';
 import { persistEvalResult } from './state/runtime-results.js';
 import type { EvalCaseResult, EvalRequest, EvaluationResult } from './eval-types.js';
@@ -72,102 +71,100 @@ function getFixtureScore(summary: string, fixture: Fixture, sourceLength: number
 }
 
 export async function runEvaluation(request: EvalRequest): Promise<EvaluationResult> {
-  return withExecutionLock(async () => {
-    const config = await loadConfig({ ensure: true });
-    const backend = request.Backend || config.Backend;
-    const model = request.Model || getConfiguredModel(config);
-    const fixtureRoot = request.FixtureRoot || join(getRepoRoot(), 'eval', 'fixtures');
-    const manifest = getFixtureManifest(fixtureRoot);
-    const results: EvalCaseResult[] = [];
+  const config = await loadConfig({ ensure: true });
+  const backend = request.Backend || config.Backend;
+  const model = request.Model || getConfiguredModel(config);
+  const fixtureRoot = request.FixtureRoot || join(getRepoRoot(), 'eval', 'fixtures');
+  const manifest = getFixtureManifest(fixtureRoot);
+  const results: EvalCaseResult[] = [];
 
-    for (const fixture of manifest) {
-      const sourcePath = join(fixtureRoot, fixture.File);
-      const source = readFileSync(sourcePath, 'utf8');
-      const summaryResult = await summarizeRequest({
-        question: fixture.Question,
-        inputText: source,
-        format: fixture.Format,
-        backend,
-        model,
-        policyProfile: fixture.PolicyProfile,
-        sourceKind: 'standalone',
-      });
-      const score = getFixtureScore(summaryResult.Summary, fixture, source.length);
-
-      results.push({
-        Name: fixture.Name,
-        SourcePath: sourcePath,
-        WasSummarized: summaryResult.WasSummarized,
-        PolicyDecision: summaryResult.PolicyDecision,
-        Classification: summaryResult.Classification,
-        RawReviewRequired: summaryResult.RawReviewRequired,
-        ModelCallSucceeded: summaryResult.ModelCallSucceeded,
-        Summary: summaryResult.Summary,
-        Recall: score.Recall,
-        Precision: score.Precision,
-        Faithfulness: score.Faithfulness,
-        Format: score.Format,
-        Compression: score.Compression,
-        Total: score.Total,
-        Notes: score.Notes,
-      });
-    }
-
-    for (const logPath of request.RealLogPath || []) {
-      if (!existsSync(logPath)) {
-        continue;
-      }
-
-      const source = readFileSync(logPath, 'utf8');
-      const summaryResult = await summarizeRequest({
-        question: 'Summarize the important result in up to 5 bullets, preserving only the decisive facts.',
-        inputText: source,
-        format: 'text',
-        backend,
-        model,
-        policyProfile: 'general',
-        sourceKind: 'standalone',
-      });
-
-      results.push({
-        Name: `RealLog:${basename(logPath)}`,
-        SourcePath: logPath,
-        WasSummarized: summaryResult.WasSummarized,
-        PolicyDecision: summaryResult.PolicyDecision,
-        Classification: summaryResult.Classification,
-        RawReviewRequired: summaryResult.RawReviewRequired,
-        ModelCallSucceeded: summaryResult.ModelCallSucceeded,
-        Summary: summaryResult.Summary,
-        Recall: null,
-        Precision: null,
-        Faithfulness: null,
-        Format: null,
-        Compression: null,
-        Total: null,
-        Notes: 'Manual review required for real-log scoring.',
-      });
-    }
-
-    void initializeRuntime();
-    const evalResultPayload = JsonObjectSchema.parse({
+  for (const fixture of manifest) {
+    const sourcePath = join(fixtureRoot, fixture.File);
+    const source = readFileSync(sourcePath, 'utf8');
+    const summaryResult = await summarizeRequest({
+      question: fixture.Question,
+      inputText: source,
+      format: fixture.Format,
       backend,
       model,
-      results,
+      policyProfile: fixture.PolicyProfile,
+      sourceKind: 'standalone',
     });
-    const persistedEvalResult = persistEvalResult({
-      payload: evalResultPayload,
+    const score = getFixtureScore(summaryResult.Summary, fixture, source.length);
+
+    results.push({
+      Name: fixture.Name,
+      SourcePath: sourcePath,
+      WasSummarized: summaryResult.WasSummarized,
+      PolicyDecision: summaryResult.PolicyDecision,
+      Classification: summaryResult.Classification,
+      RawReviewRequired: summaryResult.RawReviewRequired,
+      ModelCallSucceeded: summaryResult.ModelCallSucceeded,
+      Summary: summaryResult.Summary,
+      Recall: score.Recall,
+      Precision: score.Precision,
+      Faithfulness: score.Faithfulness,
+      Format: score.Format,
+      Compression: score.Compression,
+      Total: score.Total,
+      Notes: score.Notes,
     });
-    upsertRuntimeJsonArtifact({
-      artifactKind: 'eval_result',
-      id: persistedEvalResult.id,
-      payload: evalResultPayload,
+  }
+
+  for (const logPath of request.RealLogPath || []) {
+    if (!existsSync(logPath)) {
+      continue;
+    }
+
+    const source = readFileSync(logPath, 'utf8');
+    const summaryResult = await summarizeRequest({
+      question: 'Summarize the important result in up to 5 bullets, preserving only the decisive facts.',
+      inputText: source,
+      format: 'text',
+      backend,
+      model,
+      policyProfile: 'general',
+      sourceKind: 'standalone',
     });
 
-    return {
-      Backend: backend,
-      Model: model,
-      ResultPath: persistedEvalResult.uri,
-      Results: results,
-    };
+    results.push({
+      Name: `RealLog:${basename(logPath)}`,
+      SourcePath: logPath,
+      WasSummarized: summaryResult.WasSummarized,
+      PolicyDecision: summaryResult.PolicyDecision,
+      Classification: summaryResult.Classification,
+      RawReviewRequired: summaryResult.RawReviewRequired,
+      ModelCallSucceeded: summaryResult.ModelCallSucceeded,
+      Summary: summaryResult.Summary,
+      Recall: null,
+      Precision: null,
+      Faithfulness: null,
+      Format: null,
+      Compression: null,
+      Total: null,
+      Notes: 'Manual review required for real-log scoring.',
+    });
+  }
+
+  void initializeRuntime();
+  const evalResultPayload = JsonObjectSchema.parse({
+    backend,
+    model,
+    results,
   });
+  const persistedEvalResult = persistEvalResult({
+    payload: evalResultPayload,
+  });
+  upsertRuntimeJsonArtifact({
+    artifactKind: 'eval_result',
+    id: persistedEvalResult.id,
+    payload: evalResultPayload,
+  });
+
+  return {
+    Backend: backend,
+    Model: model,
+    ResultPath: persistedEvalResult.uri,
+    Results: results,
+  };
 }

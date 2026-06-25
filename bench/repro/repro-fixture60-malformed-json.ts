@@ -11,7 +11,6 @@ import {
   getConfiguredPromptPrefix,
   getEffectiveInputCharactersPerContextToken,
 } from '../../src/config/index.js';
-import { acquireExecutionLock, releaseExecutionLock } from '../../src/execution-lock.js';
 import { buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks } from '../../src/summary.js';
 import { countLlamaCppTokens, generateLlamaCppResponse } from '../../src/providers/llama-cpp.js';
 import { ModelJson } from '../../src/lib/model-json.js';
@@ -265,7 +264,6 @@ export async function runFixture60MalformedJsonRepro(
     process.env.SIFTKIT_TRACE_SUMMARY = '1';
   }
 
-  let lock: { token: string } | null = null;
   try {
     const workItems = resolveWorkItems(fixtureRoot, fixtureStartIndex, fixtureEndIndex);
     const config = await loadConfig({ ensure: true });
@@ -283,7 +281,6 @@ export async function runFixture60MalformedJsonRepro(
     logger.log(`Output root: ${outputRoot}`);
     logger.log(`Fixture range: ${fixtureStartIndex}-${fixtureEndIndex}`);
     logger.log(`Fixture count: ${workItems.length}`);
-    lock = await acquireExecutionLock();
 
     for (const workItem of workItems) {
       const fixtureManifest = buildFixtureManifest(workItem, backend, model, args.requestTimeoutSeconds);
@@ -439,20 +436,6 @@ export async function runFixture60MalformedJsonRepro(
     stderrTarget.write(`${message}\n`);
     return { exitCode: 1, manifestPath, manifest };
   } finally {
-    if (lock) {
-      try {
-        await releaseExecutionLock(lock);
-      } catch (error) {
-        const message = getErrorMessage(error);
-        manifest.lockReleaseError = message;
-        if (fs.existsSync(path.dirname(manifestPath))) {
-          writeJson(manifestPath, manifest);
-        }
-        logger.log(`Lock release warning: ${message}`);
-        stderrTarget.write(`Warning: ${message}\n`);
-      }
-    }
-
     if (previousTraceSummary === undefined) {
       delete process.env.SIFTKIT_TRACE_SUMMARY;
     } else {

@@ -1057,7 +1057,6 @@ class SummaryEndpoint implements RouteEndpoint {
         requestTimeoutSeconds: summaryRequest.requestTimeoutSeconds,
         timing: summaryRequest.timing,
         statusBackendUrl: `${serviceBaseUrl}/status`,
-        skipExecutionLock: true,
         config: readConfig(configPath),
       });
       sendJson(res, 200, result);

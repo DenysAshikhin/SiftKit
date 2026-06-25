@@ -12,7 +12,6 @@ import {
   notifyStatusBackend,
 } from '../config/index.js';
 import type { NotifyStatusBackendOptions } from '../config/status-backend.js';
-import { acquireExecutionLock, releaseExecutionLock } from '../execution-lock.js';
 import { getErrorMessage, toError } from '../lib/errors.js';
 import { createTemporaryTimingRecorderFromEnv, type TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
 import {
@@ -41,8 +40,6 @@ import type {
   SummaryResult,
   SummarySourceKind,
 } from './types.js';
-
-type SummaryExecutionLock = Awaited<ReturnType<typeof acquireExecutionLock>>;
 
 type SummaryExecutionContext = {
   config: SiftConfig;
@@ -113,13 +110,9 @@ export class SummaryRequestRunner {
       return deterministicResult;
     }
 
-    const lockStartedAt = Date.now();
-    const lock = this.request.skipExecutionLock ? null : await acquireExecutionLock();
-    const lockWaitMs = this.request.skipExecutionLock ? 0 : Date.now() - lockStartedAt;
     try {
-      return await this.runWithLock(lockWaitMs);
+      return await this.runRequest();
     } finally {
-      await this.releaseLock(lock);
       await this.flushTiming();
     }
   }
@@ -161,22 +154,22 @@ export class SummaryRequestRunner {
       ModelCallSucceeded: true,
       ProviderError: null,
     };
-    await this.notifyDeterministicCompletion(result, backend, model, 0);
+    await this.notifyDeterministicCompletion(result, backend, model);
     await this.flushCompletedTiming();
     this.completeRequest(result);
     return result;
   }
 
-  private async runWithLock(lockWaitMs: number): Promise<SummaryResult> {
+  private async runRequest(): Promise<SummaryResult> {
     try {
       const context = await this.loadExecutionContext();
-      const deterministicPassFailResult = await this.tryDeterministicPassFail(context, lockWaitMs);
+      const deterministicPassFailResult = await this.tryDeterministicPassFail(context);
       if (deterministicPassFailResult) {
         return deterministicPassFailResult;
       }
-      return await this.invokeModelSummary(context, lockWaitMs);
+      return await this.invokeModelSummary(context);
     } catch (error) {
-      await this.handleFailure(toError(error), lockWaitMs);
+      await this.handleFailure(toError(error));
       throw error;
     }
   }
@@ -252,7 +245,6 @@ export class SummaryRequestRunner {
 
   private async tryDeterministicPassFail(
     context: SummaryExecutionContext,
-    lockWaitMs: number,
   ): Promise<SummaryResult | null> {
     const errorMetrics = getErrorSignalMetrics(this.inputText);
     if (
@@ -281,14 +273,13 @@ export class SummaryRequestRunner {
       ModelCallSucceeded: true,
       ProviderError: null,
     };
-    await this.notifyDeterministicCompletion(result, context.backend, context.model, lockWaitMs);
+    await this.notifyDeterministicCompletion(result, context.backend, context.model);
     this.completeRequest(result);
     return result;
   }
 
   private async invokeModelSummary(
     context: SummaryExecutionContext,
-    lockWaitMs: number,
   ): Promise<SummaryResult> {
     traceSummary(
       `decision ready backend=${context.backend} model=${context.model} `
@@ -330,7 +321,7 @@ export class SummaryRequestRunner {
     }
     logSummaryProgress(`core_done request_id=${this.requestId} backend=${context.backend}`);
     traceSummary(`invokeSummaryCore done classification=${summaryCore.decision.classification}`);
-    await this.notifyModelCompletion(summaryCore, context, lockWaitMs);
+    await this.notifyModelCompletion(summaryCore, context);
     const result = this.buildModelResult(summaryCore, context);
     this.completeRequest(result);
     return result;
@@ -340,7 +331,6 @@ export class SummaryRequestRunner {
     result: SummaryResult,
     backend: string,
     model: string,
-    lockWaitMs: number,
   ): Promise<void> {
     await notifySummaryTerminalStatus({
       running: false,
@@ -355,7 +345,7 @@ export class SummaryRequestRunner {
         wallDurationMs: getSummaryWallDurationMs(this.request, this.requestStartedAtMs),
         stdinWaitMs: getNonNegativeTiming(this.request.timing?.stdinWaitMs),
         serverPreflightMs: getNonNegativeTiming(this.request.timing?.serverPreflightMs),
-        lockWaitMs,
+        lockWaitMs: 0,
         statusRunningMs: 0,
         terminalStatusMs: 0,
       },
@@ -380,7 +370,6 @@ export class SummaryRequestRunner {
   private async notifyModelCompletion(
     summaryCore: SummaryCoreResult,
     context: SummaryExecutionContext,
-    lockWaitMs: number,
   ): Promise<void> {
     const modelDecision = summaryCore.decision;
     await notifySummaryTerminalStatus({
@@ -403,7 +392,7 @@ export class SummaryRequestRunner {
         wallDurationMs: getSummaryWallDurationMs(this.request, this.requestStartedAtMs),
         stdinWaitMs: getNonNegativeTiming(this.request.timing?.stdinWaitMs),
         serverPreflightMs: getNonNegativeTiming(this.request.timing?.serverPreflightMs),
-        lockWaitMs,
+        lockWaitMs: 0,
         statusRunningMs: summaryCore.completionMetrics?.statusRunningMs ?? null,
         terminalStatusMs: 0,
       },
@@ -448,7 +437,7 @@ export class SummaryRequestRunner {
     };
   }
 
-  private async handleFailure(error: Error, lockWaitMs: number): Promise<void> {
+  private async handleFailure(error: Error): Promise<void> {
     const failureContext = getSummaryFailureContext(error);
     if (this.config !== null) {
       await notifySummaryTerminalStatus({
@@ -478,7 +467,7 @@ export class SummaryRequestRunner {
           wallDurationMs: failureContext?.wallDurationMs ?? getSummaryWallDurationMs(this.request, this.requestStartedAtMs),
           stdinWaitMs: failureContext?.stdinWaitMs ?? getNonNegativeTiming(this.request.timing?.stdinWaitMs),
           serverPreflightMs: failureContext?.serverPreflightMs ?? getNonNegativeTiming(this.request.timing?.serverPreflightMs),
-          lockWaitMs: failureContext?.lockWaitMs ?? lockWaitMs,
+          lockWaitMs: failureContext?.lockWaitMs ?? 0,
           statusRunningMs: failureContext?.statusRunningMs ?? null,
           terminalStatusMs: failureContext?.terminalStatusMs ?? 0,
         },
@@ -515,12 +504,6 @@ export class SummaryRequestRunner {
     this.timingStatus = 'completed';
     clearSummaryArtifactState(this.requestId);
     logSummaryProgress(`completed request_id=${this.requestId} classification=${result.Classification}`);
-  }
-
-  private async releaseLock(lock: SummaryExecutionLock | null): Promise<void> {
-    if (lock !== null) {
-      await releaseExecutionLock(lock);
-    }
   }
 
   private async flushCompletedTiming(): Promise<void> {

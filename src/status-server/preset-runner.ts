@@ -168,7 +168,6 @@ export class StatusPresetRunner {
       sourceKind: request.sourceKind === 'command-output' ? 'command-output' : 'standalone',
       commandExitCode: Number.isFinite(Number(request.commandExitCode)) ? Number(request.commandExitCode) : undefined,
       statusBackendUrl: options.statusBackendUrl,
-      skipExecutionLock: true,
       config,
     });
     return { outputText: result.Summary };

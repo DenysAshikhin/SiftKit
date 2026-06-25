@@ -191,7 +191,6 @@ test('summary planner dumps temp timing json with planner llama and tool phases'
           policyProfile: 'general',
           backend: 'llama.cpp',
           model: 'mock-model',
-          skipExecutionLock: true,
         });
         assert.equal(result.Classification, 'summary');
         assert.equal(result.Summary, 'timing trace completed');

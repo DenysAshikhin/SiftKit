@@ -16,7 +16,6 @@ test('SummaryRequestRunner handles deterministic command-output summaries withou
     policyProfile: 'general',
     sourceKind: 'command-output',
     commandExitCode: 0,
-    skipExecutionLock: true,
   }).run();
 
   assert.equal(result.PolicyDecision, 'deterministic-test-output');

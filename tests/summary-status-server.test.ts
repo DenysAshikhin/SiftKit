@@ -775,7 +775,6 @@ test('summarizeRequest uses explicit config without requiring config service', a
       backend: 'mock',
       model: 'mock-model',
       statusBackendUrl: 'http://127.0.0.1:1/status',
-      skipExecutionLock: true,
       config,
     });
 

@@ -3,7 +3,6 @@ import { resolve, join } from 'node:path';
 import { getConfigPath, getConfiguredLlamaBaseUrl, getConfiguredModel, initializeRuntime, loadConfig } from './config/index.js';
 import { ensureDirectory, saveContentAtomically } from './lib/fs.js';
 import { getLlamaCppProviderStatus, listLlamaCppModels } from './providers/llama-cpp.js';
-import { withExecutionLock } from './execution-lock.js';
 
 const CODEX_POLICY_START = '<!-- SiftKit Policy:Start -->';
 const CODEX_POLICY_END = '<!-- SiftKit Policy:End -->';
@@ -77,36 +76,34 @@ export type InstallSiftKitResult = {
 };
 
 export async function installSiftKit(force?: boolean): Promise<InstallSiftKitResult> {
-  return withExecutionLock(async () => {
-    void force;
-    const paths = initializeRuntime();
-    const config = await loadConfig({ ensure: true });
+  void force;
+  const paths = initializeRuntime();
+  const config = await loadConfig({ ensure: true });
 
-    let models: string[] = [];
-    let providerReachable = false;
-    try {
-      if (config.Backend === 'llama.cpp') {
-        const providerStatus = await getLlamaCppProviderStatus(config);
-        providerReachable = Boolean(providerStatus.Reachable);
-        models = providerReachable ? await listLlamaCppModels(config) : [];
-      }
-    } catch {
-      models = [];
+  let models: string[] = [];
+  let providerReachable = false;
+  try {
+    if (config.Backend === 'llama.cpp') {
+      const providerStatus = await getLlamaCppProviderStatus(config);
+      providerReachable = Boolean(providerStatus.Reachable);
+      models = providerReachable ? await listLlamaCppModels(config) : [];
     }
+  } catch {
+    models = [];
+  }
 
-    return {
-      Installed: true,
-      ConfigPath: getConfigPath(),
-      RuntimeRoot: paths.RuntimeRoot,
-      LogsPath: paths.Logs,
-      EvalResultsPath: paths.EvalResults,
-      Backend: config.Backend,
-      Model: getConfiguredModel(config),
-      LlamaCppBaseUrl: getConfiguredLlamaBaseUrl(config),
-      LlamaCppReachable: providerReachable,
-      AvailableModels: models,
-    };
-  });
+  return {
+    Installed: true,
+    ConfigPath: getConfigPath(),
+    RuntimeRoot: paths.RuntimeRoot,
+    LogsPath: paths.Logs,
+    EvalResultsPath: paths.EvalResults,
+    Backend: config.Backend,
+    Model: getConfiguredModel(config),
+    LlamaCppBaseUrl: getConfiguredLlamaBaseUrl(config),
+    LlamaCppReachable: providerReachable,
+    AvailableModels: models,
+  };
 }
 
 export type InstallCodexPolicyResult = {

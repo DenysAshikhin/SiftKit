@@ -43,7 +43,6 @@ export type SummaryRequest = {
   llamaCppOverrides?: Pick<RuntimeLlamaCppConfig, 'MaxTokens'>;
   timing?: SummaryTimingInput;
   statusBackendUrl?: string | null;
-  skipExecutionLock?: boolean;
   config?: SiftConfig;
 };
 

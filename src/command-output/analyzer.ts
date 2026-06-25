@@ -176,7 +176,6 @@ export class CommandOutputAnalyzer {
       sourceKind: 'command-output',
       commandExitCode: request.exitCode,
       debugCommand: request.commandText,
-      skipExecutionLock: true,
       config,
     });
     const summaryText = summaryResult.RawReviewRequired && summaryResult.Classification !== 'unsupported_input' && summaryResult.Summary.trim()
