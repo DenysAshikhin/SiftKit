@@ -48,7 +48,6 @@ import {
   loadConfig,
   saveConfig,
   getConfigPath,
-  getExecutionServerState,
   getChunkThresholdCharacters,
   getConfiguredLlamaNumCtx,
   getEffectiveInputCharactersPerContextToken,
@@ -76,7 +75,6 @@ import {
   listLlamaCppModels,
   generateLlamaCppResponse,
 } from '../src/providers/llama-cpp.js';
-import { withExecutionLock } from '../src/execution-lock.js';
 import {
   buildIdleMetricsLogMessage,
   buildStatusRequestLogMessage,
@@ -149,7 +147,6 @@ const EXISTING_SERVER_CONFIG_URL = process.env.SIFTKIT_CONFIG_SERVICE_URL;
 const RUN_LIVE_LLAMA_TOKENIZE_TESTS = process.env.SIFTKIT_RUN_LIVE_LLAMA_TOKENIZE_TESTS === '1';
 const LIVE_LLAMA_BASE_URL = process.env.SIFTKIT_LIVE_LLAMA_BASE_URL?.trim() || 'http://127.0.0.1:8097';
 const LIVE_CONFIG_SERVICE_URL = process.env.SIFTKIT_CONFIG_SERVICE_URL?.trim() || 'http://127.0.0.1:4765/config';
-const FAST_LEASE_STALE_MS = 200;
 const FAST_LEASE_WAIT_MS = 350;
 
 interface StubMetricTotals {
@@ -202,7 +199,6 @@ interface StubServerState {
   tokenizeRequests: JsonObject[];
   healthChecks: number;
   running: boolean;
-  executionLeaseToken: string | null;
   metrics: StubMetrics;
 }
 
@@ -259,7 +255,6 @@ interface RealStatusServerOptions {
   statusPath: string;
   configPath: string;
   idleSummaryDbPath?: string;
-  executionLeaseStaleMs?: number;
   terminalMetadataIdleDelayMs?: number;
   managedLlamaFlushIdleDelayMs?: number;
   disableManagedLlamaStartup?: boolean;
@@ -285,7 +280,6 @@ interface StatusServerProcessOptions {
   idleSummaryDelayMs?: number;
   terminalMetadataIdleDelayMs?: number;
   managedLlamaFlushIdleDelayMs?: number;
-  executionLeaseStaleMs?: number;
   disableManagedLlamaStartup?: boolean;
   startupTimeoutMs?: number;
 }
@@ -524,7 +518,6 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
     tokenizeRequests: [],
     healthChecks: 0,
     running: Boolean(options.running),
-    executionLeaseToken: null,
     metrics: {
       schemaVersion: 2,
       inputCharactersTotal: 3461904,
@@ -612,12 +605,6 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
     if (req.method === 'GET' && req.url === '/status') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ running: state.running, status: state.running ? 'true' : 'false', metrics: state.metrics }));
-      return;
-    }
-
-    if (req.method === 'GET' && req.url === '/execution') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ busy: Boolean(state.executionLeaseToken) }));
       return;
     }
 
@@ -918,40 +905,6 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
       return;
     }
 
-    if (req.method === 'POST' && req.url === '/execution/acquire') {
-      if (state.executionLeaseToken) {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, acquired: false, busy: true }));
-        return;
-      }
-
-      state.executionLeaseToken = `lease-${Date.now()}`;
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, acquired: true, busy: true, token: state.executionLeaseToken }));
-      return;
-    }
-
-    if (req.method === 'POST' && req.url === '/execution/heartbeat') {
-      const bodyText = await readBody(req);
-      const parsed = bodyText ? JSON.parse(bodyText) : {};
-      const ok = typeof parsed.token === 'string' && parsed.token === state.executionLeaseToken;
-      res.writeHead(ok ? 200 : 409, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok, busy: ok }));
-      return;
-    }
-
-    if (req.method === 'POST' && req.url === '/execution/release') {
-      const bodyText = await readBody(req);
-      const parsed = bodyText ? JSON.parse(bodyText) : {};
-      const released = typeof parsed.token === 'string' && parsed.token === state.executionLeaseToken;
-      if (released) {
-        state.executionLeaseToken = null;
-      }
-      res.writeHead(released ? 200 : 409, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: released, released, busy: Boolean(state.executionLeaseToken) }));
-      return;
-    }
-
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'not found' }));
   });
@@ -1178,7 +1131,6 @@ async function withRealStatusServer<R>(fn: (context: RealStatusServerContext) =>
     SIFTKIT_IDLE_SUMMARY_DB_PATH: process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH,
     SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS: process.env.SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS,
     SIFTKIT_MANAGED_LLAMA_FLUSH_IDLE_DELAY_MS: process.env.SIFTKIT_MANAGED_LLAMA_FLUSH_IDLE_DELAY_MS,
-    SIFTKIT_EXECUTION_LEASE_STALE_MS: process.env.SIFTKIT_EXECUTION_LEASE_STALE_MS,
     SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS,
     SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE: process.env.SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE,
   };
@@ -1194,11 +1146,6 @@ async function withRealStatusServer<R>(fn: (context: RealStatusServerContext) =>
     process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH = options.idleSummaryDbPath;
   } else {
     delete process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH;
-  }
-  if (options.executionLeaseStaleMs) {
-    process.env.SIFTKIT_EXECUTION_LEASE_STALE_MS = String(options.executionLeaseStaleMs);
-  } else {
-    delete process.env.SIFTKIT_EXECUTION_LEASE_STALE_MS;
   }
   const terminalMetadataIdleDelayMs = getOptionalNonNegativeInteger(options.terminalMetadataIdleDelayMs);
   if (terminalMetadataIdleDelayMs !== null) {
@@ -1270,7 +1217,6 @@ async function startStatusServerProcess(options: StatusServerProcessOptions) {
     ...(getOptionalNonNegativeInteger(options.idleSummaryDelayMs) !== null ? { SIFTKIT_IDLE_SUMMARY_DELAY_MS: String(getOptionalNonNegativeInteger(options.idleSummaryDelayMs)) } : {}),
     ...(getOptionalNonNegativeInteger(options.terminalMetadataIdleDelayMs) !== null ? { SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS: String(getOptionalNonNegativeInteger(options.terminalMetadataIdleDelayMs)) } : {}),
     ...(getOptionalNonNegativeInteger(options.managedLlamaFlushIdleDelayMs) !== null ? { SIFTKIT_MANAGED_LLAMA_FLUSH_IDLE_DELAY_MS: String(getOptionalNonNegativeInteger(options.managedLlamaFlushIdleDelayMs)) } : {}),
-    ...(getOptionalNonNegativeInteger(options.executionLeaseStaleMs) !== null ? { SIFTKIT_EXECUTION_LEASE_STALE_MS: String(getOptionalNonNegativeInteger(options.executionLeaseStaleMs)) } : {}),
     SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: '0',
     SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE: '1',
   };
@@ -1548,7 +1494,7 @@ function runPowerShellScript(scriptPath: string): void {
 export {
   // Re-exports from dist modules (used by test files)
   assert, fs, http, os, path, spawn, spawnSync, Database,
-  loadConfig, saveConfig, getConfigPath, getExecutionServerState,
+  loadConfig, saveConfig, getConfigPath,
   getChunkThresholdCharacters, getConfiguredLlamaNumCtx,
   getEffectiveInputCharactersPerContextToken, initializeRuntime,
   getStatusServerUnavailableMessage,
@@ -1558,14 +1504,13 @@ export {
   readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs,
   pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt,
   countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse,
-  withExecutionLock,
   buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed,
   getIdleSummarySnapshotsPath, startStatusServer,
   runDebugRequest, runFixture60MalformedJsonRepro,
   // Local helpers
   TEST_USE_EXISTING_SERVER, EXISTING_SERVER_STATUS_URL, EXISTING_SERVER_CONFIG_URL,
   RUN_LIVE_LLAMA_TOKENIZE_TESTS, LIVE_LLAMA_BASE_URL, LIVE_CONFIG_SERVICE_URL,
-  FAST_LEASE_STALE_MS, FAST_LEASE_WAIT_MS,
+  FAST_LEASE_WAIT_MS,
   deriveServiceUrl, getDefaultConfig, clone, getChatRequestText, setManagedLlamaBaseUrl,
   mergeConfig, extractPromptSection, buildOversizedTransitionsInput,
   buildOversizedRunnerStateHistoryInput, getRuntimeRootFromStatusPath,

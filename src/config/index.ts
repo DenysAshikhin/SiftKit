@@ -77,14 +77,6 @@ export {
 } from './status-backend.js';
 
 export {
-  getExecutionServerState,
-  getExecutionServiceUrl,
-  refreshExecutionLease,
-  releaseExecutionLease,
-  tryAcquireExecutionLease,
-} from './execution-lease.js';
-
-export {
   getConfigServiceUrl,
   loadConfig,
   normalizeLoadedConfig,

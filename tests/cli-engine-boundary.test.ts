@@ -16,7 +16,6 @@ const FORBIDDEN_CLI_IMPORTS: ReadonlyArray<{ label: string; pattern: RegExp }> =
   { label: 'local interactive engine', pattern: /from\s+['"]\.\.\/interactive\.js['"]/u },
   { label: 'local eval engine', pattern: /from\s+['"]\.\.\/eval\.js['"]/u },
   { label: 'status-server internals', pattern: /from\s+['"]\.\.\/status-server\//u },
-  { label: 'execution lock', pattern: /from\s+['"]\.\.\/execution-lock\.js['"]/u },
 ];
 
 function listTypeScriptFiles(root: string): SourceFile[] {

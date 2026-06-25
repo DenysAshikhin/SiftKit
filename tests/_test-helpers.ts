@@ -180,15 +180,12 @@ export type StubServerState = {
   chatRequests: Dict[];
   statusPosts: Dict[];
   running: boolean;
-  executionLeaseToken: string | null;
   metrics: StubServerMetrics;
 };
 
 export type StubServerOptions = {
   config?: Dict;
   assistantContent?: string | ((parsed: Dict) => string);
-  executionAcquireDelayMs?: number;
-  executionAcquireDelayCount?: number;
   tokenizeTokenCount?: number | ((content: string, parsed: Dict) => number | null);
 };
 
@@ -208,7 +205,6 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
     chatRequests: [],
     statusPosts: [],
     running: false,
-    executionLeaseToken: null,
     metrics: {
       inputCharactersTotal: 3461904,
       inputTokensTotal: 1865267,
@@ -220,7 +216,6 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
       updatedAtUtc: null,
     },
   };
-  let executionAcquireAttempts = 0;
 
   const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
@@ -231,39 +226,6 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
     if (req.method === 'GET' && req.url === '/status') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ running: state.running, status: state.running ? 'true' : 'false', metrics: state.metrics }));
-      return;
-    }
-    if (req.method === 'GET' && req.url === '/execution') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ busy: Boolean(state.executionLeaseToken) }));
-      return;
-    }
-    if (req.method === 'POST' && req.url === '/execution/acquire') {
-      executionAcquireAttempts += 1;
-      const delayCount = Number.isFinite(options.executionAcquireDelayCount)
-        ? Number(options.executionAcquireDelayCount)
-        : 0;
-      const delayMs = Number.isFinite(options.executionAcquireDelayMs)
-        ? Number(options.executionAcquireDelayMs)
-        : 0;
-      if (executionAcquireAttempts <= delayCount && delayMs > 0) {
-        await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
-      }
-      const token = `tok-${Date.now()}`;
-      state.executionLeaseToken = token;
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ acquired: true, token }));
-      return;
-    }
-    if (req.method === 'POST' && req.url === '/execution/heartbeat') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true }));
-      return;
-    }
-    if (req.method === 'POST' && req.url === '/execution/release') {
-      state.executionLeaseToken = null;
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true }));
       return;
     }
     if (req.method === 'GET' && req.url === '/config') {

@@ -21,7 +21,6 @@ import type { SiftConfig } from '../src/config/types.js';
 
 import {
   applyManagedScriptConfig,
-  FAST_LEASE_STALE_MS,
   FAST_LEASE_WAIT_MS,
   getDefaultConfig,
   requestJson,
@@ -69,7 +68,6 @@ test('real status server normalizes legacy non-boolean status text to false', as
     }, {
       statusPath,
       configPath,
-      executionLeaseStaleMs: FAST_LEASE_STALE_MS,
     });
   });
 });
@@ -150,7 +148,6 @@ test('real status server preserves true status while an active request is tracke
     }, {
       statusPath,
       configPath,
-      executionLeaseStaleMs: FAST_LEASE_STALE_MS,
     });
   });
 });
@@ -566,7 +563,6 @@ test('real status server reports idle false while managed llama stays ready', as
     }, {
       statusPath,
       configPath,
-      executionLeaseStaleMs: FAST_LEASE_STALE_MS,
     });
   });
 });

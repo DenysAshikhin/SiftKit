@@ -238,42 +238,6 @@ test('summary command-output pass/fail with Jest failure output is deterministic
   });
 });
 
-test('summary timing metadata records lock wait separately from provider duration', async () => {
-  await withTempEnv(async () => {
-    await withStubServer(async (server) => {
-      server.state.executionLeaseToken = 'held-by-other-process';
-      setTimeout(() => {
-        server.state.executionLeaseToken = null;
-      }, 70);
-      const result = await summarizeRequest({
-        question: 'summarize this',
-        inputText: 'A'.repeat(5000),
-        format: 'text',
-        policyProfile: 'general',
-        backend: 'mock',
-        model: 'mock-model',
-        timing: {
-          processStartedAtMs: Date.now() - 40,
-          stdinWaitMs: 25,
-          serverPreflightMs: 5,
-        },
-      });
-
-      assert.equal(result.WasSummarized, true);
-      let terminalPost: TerminalStatusPost | undefined;
-      await waitForAsyncExpectation(async () => {
-        terminalPost = server.state.statusPosts.findLast((post): post is TerminalStatusPost => post.terminalState === 'completed');
-        assert.ok(terminalPost);
-        assert.ok(terminalPost.deferredMetadata.lockWaitMs >= 50);
-      }, 1000);
-      assert.ok(terminalPost);
-      assert.ok(terminalPost.deferredMetadata.wallDurationMs >= terminalPost.deferredMetadata.lockWaitMs);
-      assert.equal(terminalPost.deferredMetadata.requestDurationMs, terminalPost.deferredMetadata.providerDurationMs);
-      assert.ok(terminalPost.deferredMetadata.wallDurationMs > terminalPost.deferredMetadata.providerDurationMs);
-    });
-  });
-});
-
 test('summary ignores legacy busy running status without retrying', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {

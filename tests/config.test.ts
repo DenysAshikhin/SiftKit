@@ -9,7 +9,6 @@ import {
   loadConfig,
   saveConfig,
   getConfigPath,
-  getExecutionServerState,
   getChunkThresholdCharacters,
   getConfiguredLlamaNumCtx,
   getEffectiveInputCharactersPerContextToken,
@@ -23,14 +22,12 @@ import {
   getConfiguredLlamaSetting,
   getStatusBackendUrl,
   getConfigServiceUrl,
-  getExecutionServiceUrl,
   getInferenceStatusPath,
   getRuntimeRoot,
   getRepoLocalRuntimeRoot,
   getRepoLocalLogsPath,
   ensureStatusServerReachable,
   notifyStatusBackend,
-  releaseExecutionLease,
   SIFTKIT_VERSION,
   SIFT_DEFAULT_NUM_CTX,
   SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN,
@@ -263,20 +260,6 @@ test('getConfigServiceUrl uses env var when set', () => {
   }
 });
 
-test('getExecutionServiceUrl returns execution endpoint URL', () => {
-  const prev = process.env.SIFTKIT_STATUS_BACKEND_URL;
-  process.env.SIFTKIT_STATUS_BACKEND_URL = 'http://localhost:4765/status';
-  try {
-    assert.match(getExecutionServiceUrl(), /\/execution$/u);
-  } finally {
-    if (prev !== undefined) {
-      process.env.SIFTKIT_STATUS_BACKEND_URL = prev;
-    } else {
-      delete process.env.SIFTKIT_STATUS_BACKEND_URL;
-    }
-  }
-});
-
 test('loadConfig returns a valid config object', async () => {
   await withTestEnvAndServer(async () => {
     const config = await loadConfig({ ensure: true });
@@ -300,13 +283,6 @@ test('getEffectiveInputCharactersPerContextToken returns the effective value', a
     const config = await loadConfig({ ensure: true });
     const value = getEffectiveInputCharactersPerContextToken(config);
     assert.ok(value > 0);
-  });
-});
-
-test('getExecutionServerState returns busy status', async () => {
-  await withTestEnvAndServer(async () => {
-    const state = await getExecutionServerState();
-    assert.equal(typeof state.busy, 'boolean');
   });
 });
 
@@ -676,43 +652,6 @@ test('notifyStatusBackend preserves canonical unavailable error when backend is 
     }),
     { name: 'StatusServerUnavailableError' },
   );
-});
-
-test('releaseExecutionLease ignores already-cleared lease responses', async () => {
-  const server = await new Promise<http.Server>((resolve) => {
-    const nextServer = http.createServer((req, res) => {
-      if (req.method === 'POST' && req.url === '/execution/release') {
-        res.writeHead(409, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: false, released: false, busy: false }));
-        return;
-      }
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'not found' }));
-    });
-    nextServer.listen(0, '127.0.0.1', () => resolve(nextServer));
-  });
-  const previousEnv = {
-    SIFTKIT_STATUS_BACKEND_URL: process.env.SIFTKIT_STATUS_BACKEND_URL,
-    SIFTKIT_CONFIG_SERVICE_URL: process.env.SIFTKIT_CONFIG_SERVICE_URL,
-  };
-  try {
-    const address = getAddressInfo(server);
-    process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${address.port}/status`;
-    process.env.SIFTKIT_CONFIG_SERVICE_URL = `http://127.0.0.1:${address.port}/config`;
-
-    await releaseExecutionLease('already-cleared');
-  } finally {
-    await new Promise<void>((resolve, reject) => {
-      server.close((error: Error | undefined) => (error ? reject(error) : resolve()));
-    });
-    for (const [key, value] of Object.entries(previousEnv)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-  }
 });
 
 test('getRuntimeRoot is repo-local and ignores sift_kit_status overrides', () => {
