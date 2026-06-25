@@ -8,7 +8,8 @@
  *   - `managed-llama.ts` – llama.cpp lifecycle (startup, shutdown, log scan)
  *   - `routes.ts`        – HTTP route handler
  */
-import * as http from 'node:http';
+import { createServer } from 'node:http';
+import { toError } from '../lib/errors.js';
 import {
   getStatusPath,
   getConfigPath,
@@ -198,7 +199,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   pruneManagedLlamaLogChunks();
 
   let resolveStartupPromise: () => void = () => {};
-  let rejectStartupPromise: (error: unknown) => void = () => {};
+  let rejectStartupPromise: (error: Error) => void = () => {};
   const startupPromise = new Promise<void>((resolve, reject) => {
     resolveStartupPromise = resolve;
     rejectStartupPromise = reject;
@@ -270,9 +271,9 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
 
   const handleRequest = createRequestHandler(ctx);
 
-  const server = http.createServer(async (req, res) => {
+  const server: ExtendedServer = createServer(async (req, res) => {
     await handleRequest(req, res);
-  }) as ExtendedServer;
+  });
 
   ctx.server = server;
   ctx.managedLlamaLogCleanupTimer = setInterval(() => {
@@ -295,17 +296,18 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   // Override close to ensure managed llama shuts down first.
   const originalClose = server.close.bind(server);
   let closeRequested = false;
-  server.close = ((callback?: (err?: Error) => void) => {
+  server.close = (callback?: (err?: Error) => void): ExtendedServer => {
     const finalCallback = typeof callback === 'function' ? callback : undefined;
     if (closeRequested) {
-      return originalClose(finalCallback);
+      originalClose(finalCallback);
+      return server;
     }
     closeRequested = true;
     void shutdownManagedLlamaForServerExit(ctx).finally(() => {
       originalClose(finalCallback);
     });
     return server;
-  }) as typeof server.close;
+  };
 
   server.listen(Number.isFinite(requestedPort) ? requestedPort : 4765, host, async () => {
     try {
@@ -340,7 +342,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       // the listen callback or block early request handling.
       setImmediate(() => runRuntimeHistoryPrune());
     } catch (error) {
-      rejectStartupPromise(error);
+      rejectStartupPromise(toError(error));
       dumpManagedLlamaStartupReviewToConsole(ctx.managedLlamaLastStartupLogs);
       process.stderr.write(`[siftKitStatus] Startup cleanup failed: ${error instanceof Error ? error.message : String(error)}\n`);
       server.close(() => process.exit(1));

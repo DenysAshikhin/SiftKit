@@ -25,7 +25,7 @@ import type { DashboardConfig, DashboardManagedLlamaPreset, DashboardPreset, Pro
 import { PresetsSection } from './settings/PresetsSection';
 import { ManagedLlamaSection } from './settings/ManagedLlamaSection';
 
-type SettingsTabProps = {
+export type SettingsTabProps = {
   activeSettingsSection: SettingsSectionId;
   dashboardConfig: DashboardConfig | null;
   selectedSettingsPreset: DashboardPreset | null;
@@ -327,7 +327,7 @@ export function SettingsTab(props: SettingsTabProps) {
           <select
             value={web.ProviderOrder[0]}
             onChange={(event) => updateSettingsDraft((next) => {
-              const primary = event.target.value as 'tavily' | 'firecrawl';
+              const primary = event.target.value === 'firecrawl' ? 'firecrawl' : 'tavily';
               const fallback = primary === 'tavily' ? 'firecrawl' : 'tavily';
               next.WebSearch.ProviderOrder = [primary, fallback];
             })}

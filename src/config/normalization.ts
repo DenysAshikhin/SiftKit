@@ -32,7 +32,9 @@ import type {
   WebSearchProviderId,
   WebSearchProviderSettings,
 } from './types.js';
-import type { JsonValue, MutableJsonObject } from '../lib/json-types.js';
+import { JsonObjectSchema, JsonValueSchema, type JsonValue, type MutableJsonObject } from '../lib/json-types.js';
+import { JsonRecordReader } from '../lib/json-record-reader.js';
+import { z } from '../lib/zod.js';
 
 const WEB_SEARCH_PROVIDER_IDS: readonly WebSearchProviderId[] = ['tavily', 'firecrawl'];
 const MANAGED_LLAMA_SPECULATIVE_TYPES: readonly ManagedLlamaSpeculativeType[] = [
@@ -46,6 +48,7 @@ const MANAGED_LLAMA_SPECULATIVE_TYPES: readonly ManagedLlamaSpeculativeType[] = 
   'ngram-cache',
 ];
 const MAX_LLAMA_STARTUP_TIMEOUT_MS = 600_000;
+const SiftConfigSchema = z.custom<SiftConfig>((value) => JsonObjectSchema.safeParse(value).success);
 
 export type ManagedLlamaConfig = {
   Model?: string | null;
@@ -96,12 +99,9 @@ export type ManagedLlamaConfig = {
   VerboseLogging: boolean;
 };
 
-function isRecord(value: unknown): value is MutableJsonObject {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function getRecord(value: unknown): MutableJsonObject {
-  return isRecord(value) ? value : {};
+function getRecord(value: JsonValue): MutableJsonObject {
+  const record = JsonRecordReader.asObject(value);
+  return record ? { ...record } : {};
 }
 
 function getDefaultWebSearchConfig(): WebSearchConfig {
@@ -116,7 +116,7 @@ function getDefaultManagedLlamaPreset(): ServerManagedLlamaPreset {
   return preset;
 }
 
-function clampInteger(value: unknown, fallback: number, minValue: number, maxValue: number): number {
+function clampInteger(value: JsonValue, fallback: number, minValue: number, maxValue: number): number {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   if (!Number.isFinite(parsed)) {
     return fallback;
@@ -124,21 +124,21 @@ function clampInteger(value: unknown, fallback: number, minValue: number, maxVal
   return Math.min(Math.max(parsed, minValue), maxValue);
 }
 
-export function getFinitePositiveInteger(value: unknown, fallback: number): number {
+export function getFinitePositiveInteger(value: JsonValue, fallback: number): number {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-export function getManagedStartupTimeoutMs(value: unknown, fallback: number): number {
+export function getManagedStartupTimeoutMs(value: JsonValue, fallback: number): number {
   return Math.min(getFinitePositiveInteger(value, fallback), MAX_LLAMA_STARTUP_TIMEOUT_MS);
 }
 
-function getFiniteInteger(value: unknown, fallback: number): number {
+function getFiniteInteger(value: JsonValue, fallback: number): number {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function getSpeculativeInteger(value: unknown, fallback: number, requirePositive: boolean): number {
+function getSpeculativeInteger(value: JsonValue, fallback: number, requirePositive: boolean): number {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   if (!Number.isFinite(parsed)) {
     return fallback;
@@ -149,16 +149,16 @@ function getSpeculativeInteger(value: unknown, fallback: number, requirePositive
   return !requirePositive || parsed > 0 ? parsed : fallback;
 }
 
-function getFiniteNumber(value: unknown, fallback: number): number {
+function getFiniteNumber(value: JsonValue, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-export function getNullableTrimmedString(value: unknown): string | null {
+export function getNullableTrimmedString(value: JsonValue): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-function deriveModelIdFromPath(value: unknown): string | null {
+function deriveModelIdFromPath(value: JsonValue): string | null {
   const normalized = getNullableTrimmedString(value);
   if (!normalized) {
     return null;
@@ -167,7 +167,7 @@ function deriveModelIdFromPath(value: unknown): string | null {
   return lastSeparatorIndex >= 0 ? normalized.slice(lastSeparatorIndex + 1) : normalized;
 }
 
-function normalizeProviderSettings(value: unknown): WebSearchProviderSettings {
+function normalizeProviderSettings(value: JsonValue): WebSearchProviderSettings {
   const record = getRecord(value);
   return {
     Enabled: record.Enabled === true,
@@ -175,12 +175,26 @@ function normalizeProviderSettings(value: unknown): WebSearchProviderSettings {
   };
 }
 
-function normalizeProviderOrder(value: unknown): WebSearchProviderId[] {
+function getWebSearchProviderId(value: string): WebSearchProviderId | null {
+  switch (value) {
+    case 'tavily':
+      return 'tavily';
+    case 'firecrawl':
+      return 'firecrawl';
+    default:
+      return null;
+  }
+}
+
+function normalizeProviderOrder(value: JsonValue): WebSearchProviderId[] {
   const requested = Array.isArray(value) ? value.map((entry) => String(entry || '').trim()) : [];
-  const ordered = requested.filter(
-    (id, index): id is WebSearchProviderId =>
-      WEB_SEARCH_PROVIDER_IDS.includes(id as WebSearchProviderId) && requested.indexOf(id) === index,
-  );
+  const ordered: WebSearchProviderId[] = [];
+  for (const requestedId of requested) {
+    const id = getWebSearchProviderId(requestedId);
+    if (id && !ordered.includes(id)) {
+      ordered.push(id);
+    }
+  }
   for (const id of WEB_SEARCH_PROVIDER_IDS) {
     if (!ordered.includes(id)) {
       ordered.push(id);
@@ -189,7 +203,7 @@ function normalizeProviderOrder(value: unknown): WebSearchProviderId[] {
   return ordered;
 }
 
-export function normalizeWebSearchConfig(value: unknown): WebSearchConfig {
+export function normalizeWebSearchConfig(value: JsonValue): WebSearchConfig {
   const defaults = getDefaultWebSearchConfig();
   const record = getRecord(value);
   const providersInput = getRecord(record.Providers);
@@ -209,13 +223,30 @@ export function normalizeWebSearchConfig(value: unknown): WebSearchConfig {
   };
 }
 
-function getManagedSpeculativeType(value: unknown, fallback: ManagedLlamaSpeculativeType): ManagedLlamaSpeculativeType {
-  return MANAGED_LLAMA_SPECULATIVE_TYPES.includes(String(value || '') as ManagedLlamaSpeculativeType)
-    ? String(value) as ManagedLlamaSpeculativeType
-    : fallback;
+function getManagedSpeculativeType(value: JsonValue, fallback: ManagedLlamaSpeculativeType): ManagedLlamaSpeculativeType {
+  switch (String(value || '')) {
+    case 'draft-simple':
+      return 'draft-simple';
+    case 'draft-eagle3':
+      return 'draft-eagle3';
+    case 'draft-mtp':
+      return 'draft-mtp';
+    case 'ngram-simple':
+      return 'ngram-simple';
+    case 'ngram-map-k':
+      return 'ngram-map-k';
+    case 'ngram-map-k4v':
+      return 'ngram-map-k4v';
+    case 'ngram-mod':
+      return 'ngram-mod';
+    case 'ngram-cache':
+      return 'ngram-cache';
+    default:
+      return fallback;
+  }
 }
 
-function getManagedKvCacheQuantization(value: unknown, fallback: ManagedLlamaKvCacheQuantization): ManagedLlamaKvCacheQuantization {
+function getManagedKvCacheQuantization(value: JsonValue, fallback: ManagedLlamaKvCacheQuantization): ManagedLlamaKvCacheQuantization {
   const normalized = getNullableTrimmedString(value);
   if (
     normalized === 'f32'
@@ -235,25 +266,27 @@ function getManagedKvCacheQuantization(value: unknown, fallback: ManagedLlamaKvC
   return fallback;
 }
 
-export function mergeConfig(baseValue: unknown, patchValue: unknown): unknown {
+export function mergeConfig(baseValue: JsonValue, patchValue: JsonValue): JsonValue {
   if (Array.isArray(baseValue) && Array.isArray(patchValue)) {
-    return patchValue.slice();
+    return JsonValueSchema.parse(patchValue.slice());
   }
-  if (isRecord(baseValue) && isRecord(patchValue)) {
-    const merged: MutableJsonObject = { ...baseValue };
-    for (const [key, value] of Object.entries(patchValue)) {
+  const baseRecord = JsonRecordReader.asObject(baseValue);
+  const patchRecord = JsonRecordReader.asObject(patchValue);
+  if (baseRecord && patchRecord) {
+    const merged: MutableJsonObject = { ...baseRecord };
+    for (const [key, value] of Object.entries(patchRecord)) {
       if (key === 'Paths') {
         continue;
       }
-      merged[key] = (key in merged ? mergeConfig(merged[key], value) : value) as JsonValue;
+      merged[key] = key in merged ? mergeConfig(merged[key], value) : value;
     }
     return merged;
   }
-  return patchValue;
+  return JsonValueSchema.parse(patchValue ?? null);
 }
 
 export function normalizeManagedLlamaPresetRecord(
-  input: unknown,
+  input: JsonValue,
   fallbackId: string,
   fallbackLabel: string,
 ): ServerManagedLlamaPreset {
@@ -266,7 +299,7 @@ export function normalizeManagedLlamaPresetRecord(
   };
 }
 
-export function normalizeManagedLlamaPresetArray(value: unknown, fallbackSource: unknown): ServerManagedLlamaPreset[] {
+export function normalizeManagedLlamaPresetArray(value: JsonValue, fallbackSource: JsonValue): ServerManagedLlamaPreset[] {
   const records = Array.isArray(value) ? value : [];
   const normalized: ServerManagedLlamaPreset[] = [];
   const seen = new Set<string>();
@@ -288,7 +321,7 @@ export function normalizeManagedLlamaPresetArray(value: unknown, fallbackSource:
   }, 'default', 'Default')];
 }
 
-function resolveOperationModeAllowedTools(value: unknown): OperationModeAllowedTools {
+function resolveOperationModeAllowedTools(value: JsonValue): OperationModeAllowedTools {
   if (!value) {
     return getDefaultOperationModeAllowedTools();
   }
@@ -359,8 +392,8 @@ function resolveManagedLlamaSettings(input: MutableJsonObject): ManagedLlamaConf
   };
 }
 
-export function normalizeConfigObject(input: unknown): SiftConfig {
-  const merged = getRecord(mergeConfig(getDefaultConfigObject(), input || {}));
+export function normalizeConfigObject(input: JsonValue): SiftConfig {
+  const merged = getRecord(mergeConfig(JsonValueSchema.parse(getDefaultConfigObject()), input ?? {}));
   if (merged.Backend === 'ollama') {
     merged.Backend = 'llama.cpp';
   }
@@ -397,13 +430,13 @@ export function normalizeConfigObject(input: unknown): SiftConfig {
   merged.Server = server;
 
   merged.OperationModeAllowedTools = resolveOperationModeAllowedTools(merged.OperationModeAllowedTools);
-  merged.Presets = normalizePresets(merged.Presets) as SiftPreset[];
+  merged.Presets = normalizePresets(merged.Presets);
   merged.WebSearch = normalizeWebSearchConfig(merged.WebSearch);
-  return merged as SiftConfig;
+  return SiftConfigSchema.parse(merged);
 }
 
 export function normalizeConfig(config: SiftConfig): { config: SiftConfig; info: NormalizationInfo } {
-  return { config: normalizeConfigObject(config), info: { changed: false } };
+  return { config: normalizeConfigObject(JsonValueSchema.parse(config)), info: { changed: false } };
 }
 
 export function getRuntimeLlamaCpp(config: SiftConfig): RuntimeLlamaCppConfig {
@@ -411,7 +444,7 @@ export function getRuntimeLlamaCpp(config: SiftConfig): RuntimeLlamaCppConfig {
 }
 
 export function getActiveManagedLlamaPreset(config: SiftConfig): ServerManagedLlamaPreset {
-  const normalized = normalizeConfigObject(config);
+  const normalized = normalizeConfigObject(JsonValueSchema.parse(config));
   const serverLlama = normalized.Server.LlamaCpp;
   return serverLlama.Presets.find((preset) => preset.id === serverLlama.ActivePresetId) || serverLlama.Presets[0];
 }
@@ -459,8 +492,6 @@ export function updateRuntimePaths(config: SiftConfig): SiftConfig {
 
 /** Strips derived fields (`Paths`, `Effective`) before persisting via PUT /config. */
 export function toPersistedConfigObject(config: SiftConfig): Omit<SiftConfig, 'Paths' | 'Effective'> {
-  const persisted = { ...config };
-  delete (persisted as Partial<SiftConfig>).Paths;
-  delete (persisted as Partial<SiftConfig>).Effective;
+  const { Paths: _Paths, Effective: _Effective, ...persisted } = config;
   return persisted;
 }

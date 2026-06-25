@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as http from 'node:http';
-import type { AddressInfo } from 'node:net';
+import http from 'node:http';
 
 import { runCli } from '../src/cli/index.js';
+import { parseJsonValueText } from '../src/lib/json.js';
+import type { JsonObject } from '../src/lib/json-types.js';
 import { makeCaptureStream } from './_test-helpers.js';
+import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 
 test('summary delegates non-deterministic execution to status server', async () => {
-  const received: unknown[] = [];
+  const received: JsonObject[] = [];
   const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -22,7 +24,7 @@ test('summary delegates non-deterministic execution to status server', async () 
         body += chunk;
       });
       req.on('end', () => {
-        received.push(JSON.parse(body || '{}'));
+        received.push(asObject(parseJsonValueText(body || '{}')));
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           RequestId: 'summary-req-1',
@@ -45,7 +47,7 @@ test('summary delegates non-deterministic execution to status server', async () 
   });
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const port = Number(address.port);
   const oldStatusUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
   const oldConfigUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
@@ -57,15 +59,19 @@ test('summary delegates non-deterministic execution to status server', async () 
     const stderr = makeCaptureStream();
     const originalStderrWrite = process.stderr.write;
     let processStderr = '';
-    process.stderr.write = ((chunk: unknown, encoding?: BufferEncoding | ((error?: Error | null) => void), callback?: (error?: Error | null) => void): boolean => {
+    process.stderr.write = (
+      chunk: string | Uint8Array,
+      encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+      callback?: (error?: Error | null) => void,
+    ): boolean => {
       processStderr += String(chunk);
-      if (typeof encoding === 'function') {
-        encoding();
+      if (typeof encodingOrCallback === 'function') {
+        encodingOrCallback();
       } else if (callback) {
         callback();
       }
       return true;
-    }) as typeof process.stderr.write;
+    };
     let code = 1;
     try {
       code = await runCli({
@@ -78,7 +84,7 @@ test('summary delegates non-deterministic execution to status server', async () 
     }
     assert.equal(code, 0);
     assert.equal(received.length, 1);
-    const first = received[0] as { question: string; inputText: string; sourceKind: string };
+    const first = received[0];
     assert.equal(first.question, 'What happened?');
     assert.equal(first.inputText, 'Build output: a warning appeared.');
     assert.equal(first.sourceKind, 'standalone');

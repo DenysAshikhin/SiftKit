@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { scrollChatLogToBottom } from '../../src/hooks/useChatScroll';
 
 test('scrollChatLogToBottom sets scrollTop to scrollHeight when given a live element', () => {
-  const element = { scrollTop: 0, scrollHeight: 480 } as HTMLDivElement;
+  const element = { scrollTop: 0, scrollHeight: 480 };
   scrollChatLogToBottom(element);
   assert.equal(element.scrollTop, 480);
 });
@@ -14,7 +14,7 @@ test('scrollChatLogToBottom is a no-op when the element is null', () => {
 });
 
 test('scrollChatLogToBottom keeps scrollTop at scrollHeight after subsequent updates', () => {
-  const element = { scrollTop: 0, scrollHeight: 100 } as HTMLDivElement;
+  const element = { scrollTop: 0, scrollHeight: 100 };
   scrollChatLogToBottom(element);
   assert.equal(element.scrollTop, 100);
   element.scrollHeight = 250;

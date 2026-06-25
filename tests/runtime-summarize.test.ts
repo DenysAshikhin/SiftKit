@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import type { AddressInfo } from 'node:net';
+import { getAddressInfo } from './helpers/dashboard-http.js';
+import type { JsonValue } from '../src/lib/json-types.js';
 import Database from 'better-sqlite3';
 
 import { loadConfig, saveConfig, getChunkThresholdCharacters, initializeRuntime } from '../src/config/index.js';
@@ -27,7 +28,7 @@ import {
 // named optional fields stay precisely typed while the index keeps it a
 // structural supertype of JsonObject, so findLast guards narrow cast-free.
 interface TerminalStatusPost {
-  [key: string]: unknown;
+  [key: string]: JsonValue;
   deferredMetadata: {
     providerDurationMs: number;
     wallDurationMs: number;
@@ -75,7 +76,7 @@ async function startDelayedTerminalSummaryStatusServer(delayMs: number): Promise
     res.end(JSON.stringify({ ok: true }));
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   return {
     statusUrl: `http://127.0.0.1:${address.port}/status`,
     terminalPostCount() {
@@ -517,7 +518,7 @@ test('saveConfig reports operation-specific context when the external server is 
     const config = getDefaultConfig();
     await assert.rejects(
       () => saveConfig(config),
-      (error: unknown) => {
+      (error) => {
         assert.ok(error instanceof Error);
         assert.equal(error.name, 'StatusServerUnavailableError');
         assert.match(error.message, /SiftKit status\/config server is not reachable at http:\/\/127\.0\.0\.1:4779\/health\./u);

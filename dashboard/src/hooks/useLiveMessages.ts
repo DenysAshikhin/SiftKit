@@ -37,7 +37,7 @@ export function upsertLiveMessageInto(previous: ChatMessage[], message: ChatMess
     return [...previous, message];
   }
   const next = previous.slice();
-  next[index] = { ...next[index], ...message } as ChatMessage;
+  next[index] = { ...previous[index], ...message };
   return next;
 }
 

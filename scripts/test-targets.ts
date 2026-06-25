@@ -1,5 +1,5 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const TEST_RUNNER_OPTIONS_WITH_VALUES = new Set([
   '--test-name-pattern',

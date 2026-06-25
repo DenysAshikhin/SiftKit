@@ -15,6 +15,10 @@ import { acquireExecutionLock, releaseExecutionLock } from '../../src/execution-
 import { buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks } from '../../src/summary.js';
 import { countLlamaCppTokens, generateLlamaCppResponse } from '../../src/providers/llama-cpp.js';
 import { ModelJson } from '../../src/lib/model-json.js';
+import { getErrorMessage } from '../../src/lib/errors.js';
+import { parseJsonValueText } from '../../src/lib/json.js';
+import type { JsonObject, JsonSerializable } from '../../src/lib/json-types.js';
+import type { SiftConfig } from '../../src/config/index.js';
 
 const LLAMA_CPP_NON_THINKING_PROMPT_TOKEN_RESERVE = 10_000;
 const LLAMA_CPP_THINKING_PROMPT_TOKEN_RESERVE = 15_000;
@@ -91,7 +95,7 @@ function getTimestamp(): string {
 
 function createLogger(
   logPath: string,
-  stdoutTarget: { write: (text: string) => unknown } = process.stdout,
+  stdoutTarget: { write: (text: string) => void } = process.stdout,
 ): { log: (message: string) => void } {
   fs.mkdirSync(path.dirname(logPath), { recursive: true });
   fs.writeFileSync(logPath, '', 'utf8');
@@ -110,12 +114,12 @@ export function resolveWorkItems(
   fixtureEndIndex: number,
 ): Array<{
   fixtureIndex: number;
-  fixture: Record<string, unknown>;
+  fixture: JsonObject;
   sourcePath: string;
   inputText: string;
 }> {
   const manifestPath = path.join(fixtureRoot, 'fixtures.json');
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Array<Record<string, unknown>>;
+  const manifest = parseJsonValueText(fs.readFileSync(manifestPath, 'utf8'));
   const workItems = [];
   for (let fixtureIndex = fixtureStartIndex; fixtureIndex <= fixtureEndIndex; fixtureIndex += 1) {
     const fixture = manifest[fixtureIndex - 1];
@@ -133,7 +137,7 @@ export function resolveWorkItems(
   return workItems;
 }
 
-function writeJson(filePath: string, value: unknown): void {
+function writeJson(filePath: string, value: JsonSerializable): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 }
@@ -152,14 +156,14 @@ function splitTextIntoChunks(text: string, chunkSize: number): string[] {
   return chunks;
 }
 
-function getLlamaCppPromptTokenReserve(config: Record<string, unknown>): number {
+function getLlamaCppPromptTokenReserve(config: SiftConfig): number {
   const reasoning = getConfiguredLlamaSetting(config, 'Reasoning');
   return reasoning === 'off'
     ? LLAMA_CPP_NON_THINKING_PROMPT_TOKEN_RESERVE
     : LLAMA_CPP_THINKING_PROMPT_TOKEN_RESERVE;
 }
 
-function getLlamaCppChunkThresholdCharacters(config: Record<string, unknown>): number {
+function getLlamaCppChunkThresholdCharacters(config: SiftConfig): number {
   const reserveChars = Math.ceil(getLlamaCppPromptTokenReserve(config) * getEffectiveInputCharactersPerContextToken(config));
   return Math.max(getChunkThresholdCharacters(config) - reserveChars, 1);
 }
@@ -178,11 +182,11 @@ function getFixtureBounds(args: {
 }
 
 function buildFixtureManifest(
-  workItem: { fixtureIndex: number; fixture: Record<string, unknown>; sourcePath: string },
+  workItem: { fixtureIndex: number; fixture: JsonObject; sourcePath: string },
   backend: string,
   model: string,
   requestTimeoutSeconds: number,
-): Record<string, unknown> {
+): JsonObject {
   return {
     ok: false,
     fixtureIndex: workItem.fixtureIndex,
@@ -200,7 +204,7 @@ function buildFixtureManifest(
   };
 }
 
-function mirrorFixtureSummary(manifest: Record<string, unknown>, fixtureManifest: Record<string, unknown>): void {
+function mirrorFixtureSummary(manifest: JsonObject, fixtureManifest: JsonObject): void {
   manifest.fixtureIndex = fixtureManifest.fixtureIndex;
   manifest.sourcePath = fixtureManifest.sourcePath;
   manifest.fixtureName = fixtureManifest.fixtureName;
@@ -216,13 +220,13 @@ export async function runFixture60MalformedJsonRepro(
   argv: string[],
   options: {
     fixtureRoot?: string;
-    stdout?: { write: (text: string) => unknown };
-    stderr?: { write: (text: string) => unknown };
+    stdout?: { write: (text: string) => void };
+    stderr?: { write: (text: string) => void };
   } = {},
 ): Promise<{
   exitCode: number;
   manifestPath: string;
-  manifest: Record<string, unknown>;
+  manifest: JsonObject;
 }> {
   const args = parseArgs(argv);
   const { fixtureStartIndex, fixtureEndIndex } = getFixtureBounds(args);
@@ -235,7 +239,7 @@ export async function runFixture60MalformedJsonRepro(
   const stderrTarget = options.stderr || process.stderr;
   const logger = createLogger(logPath, stdoutTarget);
   const previousTraceSummary = process.env.SIFTKIT_TRACE_SUMMARY;
-  const manifest: Record<string, unknown> = {
+  const manifest: JsonObject = {
     ok: false,
     fixtureIndex: fixtureStartIndex,
     fixtureStartIndex,
@@ -261,7 +265,7 @@ export async function runFixture60MalformedJsonRepro(
     process.env.SIFTKIT_TRACE_SUMMARY = '1';
   }
 
-  let lock: unknown = null;
+  let lock: { token: string } | null = null;
   try {
     const workItems = resolveWorkItems(fixtureRoot, fixtureStartIndex, fixtureEndIndex);
     const config = await loadConfig({ ensure: true });
@@ -314,7 +318,7 @@ export async function runFixture60MalformedJsonRepro(
       fixtureManifest.chunkThreshold = chunkThreshold;
       fixtureManifest.effectivePromptLimit = effectivePromptLimit;
       fixtureManifest.chunkCount = chunks.length;
-      (manifest.fixtures as unknown[]).push(fixtureManifest);
+      manifest.fixtures.push(fixtureManifest);
       mirrorFixtureSummary(manifest, fixtureManifest);
       writeJson(fixtureManifestPath, fixtureManifest);
       writeJson(manifestPath, manifest);
@@ -357,7 +361,7 @@ export async function runFixture60MalformedJsonRepro(
         fs.mkdirSync(chunkRoot, { recursive: true });
         fs.writeFileSync(promptPath, prompt, 'utf8');
         fs.writeFileSync(responsePath, response.text, 'utf8');
-        const chunkRecord: Record<string, unknown> = {
+        const chunkRecord: JsonObject = {
           index: chunkIndex,
           chunkPath,
           inputCharacters: chunks[index].length,
@@ -385,7 +389,7 @@ export async function runFixture60MalformedJsonRepro(
             + `output_tokens=${chunkRecord.outputTokens ?? 'null'}`,
           );
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
+          const message = getErrorMessage(error);
           chunkRecord.error = message;
           fixtureManifest.malformedChunk = {
             index: chunkIndex,
@@ -394,7 +398,7 @@ export async function runFixture60MalformedJsonRepro(
             responsePath,
             error: message,
           };
-          (fixtureManifest.chunks as unknown[]).push(chunkRecord);
+          fixtureManifest.chunks.push(chunkRecord);
           manifest.malformedFixture = {
             fixtureIndex: workItem.fixtureIndex,
             fixtureName: workItem.fixture.Name,
@@ -411,7 +415,7 @@ export async function runFixture60MalformedJsonRepro(
           return { exitCode: 1, manifestPath, manifest };
         }
 
-        (fixtureManifest.chunks as unknown[]).push(chunkRecord);
+        fixtureManifest.chunks.push(chunkRecord);
         mirrorFixtureSummary(manifest, fixtureManifest);
         writeJson(chunkManifestPath, chunkRecord);
         writeJson(fixtureManifestPath, fixtureManifest);
@@ -429,7 +433,7 @@ export async function runFixture60MalformedJsonRepro(
     logger.log('Completed without malformed chunk payloads.');
     return { exitCode: 0, manifestPath, manifest };
   } catch (error) {
-    const message = error instanceof Error ? (error.stack || error.message) : String(error);
+    const message = getErrorMessage(error);
     manifest.error = message;
     writeJson(manifestPath, manifest);
     stderrTarget.write(`${message}\n`);
@@ -439,7 +443,7 @@ export async function runFixture60MalformedJsonRepro(
       try {
         await releaseExecutionLock(lock);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getErrorMessage(error);
         manifest.lockReleaseError = message;
         if (fs.existsSync(path.dirname(manifestPath))) {
           writeJson(manifestPath, manifest);
@@ -463,9 +467,8 @@ async function main(): Promise<void> {
 }
 
 if (require.main === module) {
-  void main().catch((error: unknown) => {
-    const message = error instanceof Error ? (error.stack || error.message) : String(error);
-    process.stderr.write(`${message}\n`);
+  void main().catch((error) => {
+    process.stderr.write(`${getErrorMessage(error)}\n`);
     process.exit(1);
   });
 }

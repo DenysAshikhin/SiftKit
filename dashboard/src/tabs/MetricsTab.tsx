@@ -9,7 +9,7 @@ import {
 import { describeToolType, type ToolMetricRow } from '../metrics-view';
 import type { IdleSummarySnapshot, MetricDay, ProviderQuota, WebSearchUsage } from '../types';
 
-type MetricsTabProps = {
+export type MetricsTabProps = {
   metrics: MetricDay[];
   idleSummarySnapshots: IdleSummarySnapshot[];
   recentIdlePoints: IdleSummarySnapshot[];

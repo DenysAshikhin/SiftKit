@@ -8,14 +8,16 @@ import {
   type SiftConfig,
 } from '../config/index.js';
 import { mergeToolTypeStats } from '../line-read-guidance.js';
+import { z } from '../lib/zod.js';
 import type { TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
 import { listLlamaCppModels } from '../providers/llama-cpp.js';
-import type { ToolTypeStats } from '../status-server/metrics.js';
+import { ToolTypeStatsSchema, type ToolTypeStats } from '../status-server/metrics.js';
 import { throwIfAborted } from './engine/abort.js';
 import {
   mergeReadOverlapSummaries,
-  type ReadOverlapSummary,
+  ReadOverlapSummarySchema,
 } from './engine/read-overlap.js';
+import { TaskResultSchema } from './engine/task-loop-support.js';
 import {
   DEFAULT_MAX_INVALID_RESPONSES,
   DEFAULT_MAX_TURNS,
@@ -82,16 +84,17 @@ export async function runTaskLoop(task: TaskDefinition, options: RunTaskLoopOpti
 // Scorecard
 // ---------------------------------------------------------------------------
 
-export type Scorecard = {
-  runId: string;
-  model: string;
-  tasks: TaskResult[];
-  totals: Record<string, number>;
-  toolStats: Record<string, ToolTypeStats>;
-  readOverlapSummary: ReadOverlapSummary;
-  verdict: 'pass' | 'fail';
-  failureReasons: string[];
-};
+export const ScorecardSchema = z.object({
+  runId: z.string(),
+  model: z.string(),
+  tasks: z.array(TaskResultSchema),
+  totals: z.record(z.string(), z.number()),
+  toolStats: z.record(z.string(), ToolTypeStatsSchema),
+  readOverlapSummary: ReadOverlapSummarySchema,
+  verdict: z.enum(['pass', 'fail']),
+  failureReasons: z.array(z.string()),
+});
+export type Scorecard = z.infer<typeof ScorecardSchema>;
 
 export function buildScorecard(options: { runId: string; model: string; tasks: TaskResult[] }): Scorecard {
   const totals = {
@@ -155,7 +158,7 @@ export function assertConfiguredModelPresent(model: string, availableModels: str
 
 export async function runRepoSearch(options: {
   repoRoot?: string;
-  config?: SiftConfig | Record<string, unknown>;
+  config?: SiftConfig;
   model?: string;
   baseUrl?: string;
   allowedTools?: string[];
@@ -194,7 +197,7 @@ export async function runRepoSearch(options: {
   // In pass-through mode the prompt-budget math must use the host SiftKit's
   // real context window, not this client's (possibly stale) local NumCtx.
   const config = await applyHostLlamaRuntimeSettings(
-    (options.config || await loadConfig({ ensure: true })) as SiftConfig,
+    options.config || await loadConfig({ ensure: true }),
   );
   configSpan?.end();
   const model = options.model || getConfiguredModel(config);

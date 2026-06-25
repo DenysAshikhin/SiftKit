@@ -1,17 +1,17 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import { existsSync } from 'node:fs';
+import { join, isAbsolute, delimiter, extname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 export function findCommandInPath(commandName: string): string | null {
-  const pathEntries = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
-  const candidates = process.platform === 'win32' && !path.extname(commandName)
+  const pathEntries = (process.env.PATH || '').split(delimiter).filter(Boolean);
+  const candidates = process.platform === 'win32' && !extname(commandName)
     ? [commandName, `${commandName}.exe`, `${commandName}.cmd`, `${commandName}.bat`]
     : [commandName];
 
   for (const entry of pathEntries) {
     for (const candidate of candidates) {
-      const fullPath = path.join(entry, candidate);
-      if (fs.existsSync(fullPath)) {
+      const fullPath = join(entry, candidate);
+      if (existsSync(fullPath)) {
         return fullPath;
       }
     }
@@ -20,13 +20,13 @@ export function findCommandInPath(commandName: string): string | null {
   if (process.platform === 'win32') {
     const windowsRoot = process.env.WINDIR || 'C:\\Windows';
     const extraCandidates = [
-      path.join(windowsRoot, 'System32', commandName),
-      path.join(windowsRoot, 'System32', `${commandName}.exe`),
-      path.join(windowsRoot, 'System32', 'WindowsPowerShell', 'v1.0', commandName),
-      path.join(windowsRoot, 'System32', 'WindowsPowerShell', 'v1.0', `${commandName}.exe`),
+      join(windowsRoot, 'System32', commandName),
+      join(windowsRoot, 'System32', `${commandName}.exe`),
+      join(windowsRoot, 'System32', 'WindowsPowerShell', 'v1.0', commandName),
+      join(windowsRoot, 'System32', 'WindowsPowerShell', 'v1.0', `${commandName}.exe`),
     ];
     for (const candidate of extraCandidates) {
-      if (fs.existsSync(candidate)) {
+      if (existsSync(candidate)) {
         return candidate;
       }
     }
@@ -36,8 +36,8 @@ export function findCommandInPath(commandName: string): string | null {
 }
 
 export function resolveExternalCommand(commandName: string): string {
-  if (path.isAbsolute(commandName) || commandName.includes('\\') || commandName.includes('/')) {
-    if (fs.existsSync(commandName)) {
+  if (isAbsolute(commandName) || commandName.includes('\\') || commandName.includes('/')) {
+    if (existsSync(commandName)) {
       return commandName;
     }
     throw new Error(`Unable to resolve external command: ${commandName}`);

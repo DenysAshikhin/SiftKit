@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as http from 'node:http';
-import type { AddressInfo } from 'node:net';
+import http from 'node:http';
 
 import { ModelJson } from '../src/lib/model-json.js';
+import type { JsonObject } from '../src/lib/json-types.js';
+import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import {
   getRepoSearchToolNames,
   getRepoSearchToolNamesForParsing,
@@ -20,7 +21,7 @@ async function withServer(
     server.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
   });
   try {
-    const address = server.address() as AddressInfo;
+    const address = getAddressInfo(server);
     await fn(`http://127.0.0.1:${address.port}`);
   } finally {
     await new Promise<void>((resolve, reject) => {
@@ -241,7 +242,7 @@ test('requestRepoSearchPlannerProtocolAction stops streamed reasoning after a co
 test('requestRepoSearchPlannerProtocolAction stops streamed content when recent tokens repeat in long output', async () => {
   const repeatedTail = '</arg_value>'.repeat(64);
   const longPrefix = Array.from({ length: 101 }, (_, index) => `anchor-${index}`).join(' ');
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
 
   await withServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
@@ -265,8 +266,8 @@ test('requestRepoSearchPlannerProtocolAction stops streamed content when recent 
       stream: true,
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event) {
+          events.push(JSON.parse(JSON.stringify(event)));
         },
       },
     });
@@ -282,7 +283,7 @@ test('requestRepoSearchPlannerProtocolAction does not stop streamed content for 
   const repeatedTail = '</arg_value>'.repeat(10);
   const longPrefix = Array.from({ length: 101 }, (_, index) => `anchor-${index}`).join(' ');
   const streamedText = `${longPrefix} ${repeatedTail}`;
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
 
   await withServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
@@ -308,8 +309,8 @@ test('requestRepoSearchPlannerProtocolAction does not stop streamed content for 
       stream: true,
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event) {
+          events.push(JSON.parse(JSON.stringify(event)));
         },
       },
     });
@@ -394,7 +395,7 @@ test('requestRepoSearchPlannerProtocolAction aborts an in-flight streaming reque
 });
 
 test('requestRepoSearchPlannerProtocolAction sends json_schema response_format without native tools or grammar', async () => {
-  let capturedBody: Record<string, unknown> | null = null;
+  let capturedBody: JsonObject | null = null;
   await withServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
       res.statusCode = 404;
@@ -420,16 +421,16 @@ test('requestRepoSearchPlannerProtocolAction sends json_schema response_format w
       maxTokens: 512,
     });
 
-    const captured = capturedBody as Record<string, any>;
-    assert.equal(captured?.response_format?.type, 'json_schema');
-    assert.equal('tools' in (captured || {}), false);
-    assert.equal('parallel_tool_calls' in (captured || {}), false);
-    assert.equal('grammar' in (captured || {}), false);
+    const captured = asObject(capturedBody);
+    assert.equal(asObject(captured.response_format).type, 'json_schema');
+    assert.equal('tools' in captured, false);
+    assert.equal('parallel_tool_calls' in captured, false);
+    assert.equal('grammar' in captured, false);
   });
 });
 
 test('requestRepoSearchPlannerProtocolAction assembles planner schema dynamically from provided tool definitions', async () => {
-  let capturedBody: Record<string, unknown> | null = null;
+  let capturedBody: JsonObject | null = null;
   await withServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
       res.statusCode = 404;
@@ -467,12 +468,12 @@ test('requestRepoSearchPlannerProtocolAction assembles planner schema dynamicall
       }],
     });
 
-    const captured = capturedBody as Record<string, any>;
-    const schemaText = JSON.stringify(captured?.response_format || {});
+    const captured = asObject(capturedBody);
+    const schemaText = JSON.stringify(captured.response_format || {});
     assert.match(schemaText, /search_symbol/u);
     assert.doesNotMatch(schemaText, /run_repo_cmd/u);
     assert.doesNotMatch(schemaText, /tool_name/u);
-    assert.equal('tools' in (captured || {}), false);
+    assert.equal('tools' in captured, false);
   });
 });
 

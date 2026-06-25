@@ -1,6 +1,8 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { parseJsonText } from './json.js';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, isAbsolute, resolve } from 'node:path';
+import { z } from './zod.js';
+
+const PackageJsonNameSchema = z.object({ name: z.string().optional() });
 
 export function normalizeWindowsPath(value: string): string {
   return value.replace(/\//gu, '\\').toLowerCase();
@@ -12,12 +14,12 @@ export function normalizeWindowsPath(value: string): string {
  * SiftKit repo root is reachable.
  */
 export function findNearestSiftKitRepoRoot(startPath: string = process.cwd()): string | null {
-  let currentPath = path.resolve(startPath);
+  let currentPath = resolve(startPath);
   for (;;) {
-    const packagePath = path.join(currentPath, 'package.json');
-    if (fs.existsSync(packagePath)) {
+    const packagePath = resolve(currentPath, 'package.json');
+    if (existsSync(packagePath)) {
       try {
-        const parsed = parseJsonText<{ name?: unknown }>(fs.readFileSync(packagePath, 'utf8'));
+        const parsed = PackageJsonNameSchema.parse(JSON.parse(readFileSync(packagePath, 'utf8')));
         if (parsed?.name === 'siftkit') {
           return currentPath;
         }
@@ -26,7 +28,7 @@ export function findNearestSiftKitRepoRoot(startPath: string = process.cwd()): s
       }
     }
 
-    const parentPath = path.dirname(currentPath);
+    const parentPath = dirname(currentPath);
     if (parentPath === currentPath) {
       return null;
     }
@@ -39,9 +41,9 @@ export function resolvePathFromBase(targetPath: string, baseDirectory: string): 
     throw new Error('Path value cannot be empty.');
   }
 
-  return path.isAbsolute(targetPath)
-    ? path.resolve(targetPath)
-    : path.resolve(baseDirectory, targetPath);
+  return isAbsolute(targetPath)
+    ? resolve(targetPath)
+    : resolve(baseDirectory, targetPath);
 }
 
 export function resolveOptionalPathFromBase(

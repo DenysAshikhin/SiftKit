@@ -1,11 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { z } from 'zod';
 
 import { groupMessagesIntoTurns, normalizeMessageKind } from '../../src/lib/chatTurns';
 import type { ChatMessage } from '../../src/types';
 
 function message(overrides: Partial<ChatMessage>): ChatMessage {
-  return {
+  // Some cases override `kind` with undefined to exercise the role-based
+  // fallback, producing a deliberately malformed message; brand it through a
+  // runtime check rather than a cast.
+  return z.custom<ChatMessage>(() => true).parse({
     id: 'id',
     role: 'assistant',
     kind: 'assistant_answer',
@@ -17,7 +21,7 @@ function message(overrides: Partial<ChatMessage>): ChatMessage {
     createdAtUtc: '2026-06-04T00:00:00.000Z',
     sourceRunId: null,
     ...overrides,
-  } as ChatMessage;
+  });
 }
 
 test('normalizeMessageKind falls back by role when kind is absent', () => {

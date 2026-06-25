@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { z } from 'zod';
 import { writeConfig } from '../src/status-server/config-store.js';
 
 import {
@@ -28,11 +29,11 @@ interface RestartResponse {
   };
 }
 
-interface StartupFailureResponse {
-  ok: boolean;
-  restarted: boolean;
-  startupFailure: { kind: string; requiredMiB: number; availableMiB: number };
-}
+const StartupFailureResponseSchema = z.object({
+  ok: z.boolean(),
+  restarted: z.boolean(),
+  startupFailure: z.object({ kind: z.string(), requiredMiB: z.number(), availableMiB: z.number() }),
+}).passthrough();
 
 interface ManagedInvocationLog {
   argv: string[];
@@ -40,6 +41,7 @@ interface ManagedInvocationLog {
 
 function requestJsonAllowError<T>(
   url: string,
+  schema: z.ZodType<T>,
   options: { method?: string; body?: string } = {},
 ): Promise<{ statusCode: number; body: T }> {
   return new Promise((resolve, reject) => {
@@ -63,15 +65,9 @@ function requestJsonAllowError<T>(
           responseText += chunk;
         });
         response.on('end', () => {
-          let body: T;
-          try {
-            body = (responseText ? JSON.parse(responseText) : {}) as T;
-          } catch {
-            body = { raw: responseText } as T;
-          }
           resolve({
             statusCode: response.statusCode || 0,
-            body,
+            body: schema.parse(responseText ? JSON.parse(responseText) : {}),
           });
         });
       }
@@ -236,7 +232,7 @@ test('real status server backend restart endpoint returns structured GPU OOM det
     writeConfig(runtimeDbPath, config);
 
     await withRealStatusServer(async ({ statusUrl }) => {
-      const restartResponse = await requestJsonAllowError<StartupFailureResponse>(new URL('/status/restart', statusUrl).toString(), {
+      const restartResponse = await requestJsonAllowError(new URL('/status/restart', statusUrl).toString(), StartupFailureResponseSchema, {
         method: 'POST',
       });
 

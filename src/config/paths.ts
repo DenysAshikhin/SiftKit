@@ -1,4 +1,4 @@
-import * as path from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { ensureDirectory } from '../lib/fs.js';
 import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
 import {
@@ -20,12 +20,12 @@ export type RuntimePaths = {
 
 export function getRepoLocalRuntimeRoot(): string | null {
   const repoRoot = findNearestSiftKitRepoRoot();
-  return repoRoot ? path.resolve(repoRoot, '.siftkit') : null;
+  return repoRoot ? resolve(repoRoot, '.siftkit') : null;
 }
 
 export function getRepoLocalLogsPath(): string | null {
   const runtimeRoot = getRepoLocalRuntimeRoot();
-  return runtimeRoot ? path.resolve(runtimeRoot, 'logs') : null;
+  return runtimeRoot ? resolve(runtimeRoot, 'logs') : null;
 }
 
 export function getRuntimeRoot(): string {
@@ -35,10 +35,10 @@ export function getRuntimeRoot(): string {
 /** Creates (mkdir -p) the standard runtime subdirectories and returns their paths. */
 export function initializeRuntime(): RuntimePaths {
   const runtimeRoot = ensureDirectory(getRuntimeRoot());
-  const logs = ensureDirectory(path.join(runtimeRoot, 'logs'));
-  const evalRoot = ensureDirectory(path.join(runtimeRoot, 'eval'));
-  const evalFixtures = ensureDirectory(path.join(evalRoot, 'fixtures'));
-  const evalResults = ensureDirectory(path.join(evalRoot, 'results'));
+  const logs = ensureDirectory(join(runtimeRoot, 'logs'));
+  const evalRoot = ensureDirectory(join(runtimeRoot, 'eval'));
+  const evalFixtures = ensureDirectory(join(evalRoot, 'fixtures'));
+  const evalResults = ensureDirectory(join(evalRoot, 'results'));
 
   return {
     RuntimeRoot: runtimeRoot,
@@ -61,7 +61,7 @@ export function getConfigPath(): string {
 // ---------- status/ ---------- //
 
 export function getStatusDirectory(): string {
-  return path.join(getRuntimeRoot(), 'status');
+  return join(getRuntimeRoot(), 'status');
 }
 
 export function getInferenceStatusPath(): string {
@@ -75,7 +75,7 @@ export function getIdleSummarySnapshotsPath(): string {
 // ---------- metrics/ ---------- //
 
 export function getMetricsDirectory(): string {
-  return path.join(getRuntimeRoot(), 'metrics');
+  return join(getRuntimeRoot(), 'metrics');
 }
 
 export function getObservedBudgetStatePath(): string {
@@ -89,57 +89,57 @@ export function getCompressionMetricsPath(): string {
 // ---------- logs/ ---------- //
 
 export function getRuntimeLogsPath(): string {
-  return path.join(getRuntimeRoot(), 'logs');
+  return join(getRuntimeRoot(), 'logs');
 }
 
 export function getSummaryRequestLogsDirectory(): string {
-  return path.join(getRuntimeLogsPath(), 'requests');
+  return join(getRuntimeLogsPath(), 'requests');
 }
 
 export function getSummaryRequestLogPath(requestId: string): string {
-  return path.join(getSummaryRequestLogsDirectory(), `request_${requestId}.json`);
+  return join(getSummaryRequestLogsDirectory(), `request_${requestId}.json`);
 }
 
 export function getPlannerFailedLogsDirectory(): string {
-  return path.join(getRuntimeLogsPath(), 'failed');
+  return join(getRuntimeLogsPath(), 'failed');
 }
 
 export function getPlannerFailedPath(requestId: string): string {
-  return path.join(getPlannerFailedLogsDirectory(), `request_failed_${requestId}.json`);
+  return join(getPlannerFailedLogsDirectory(), `request_failed_${requestId}.json`);
 }
 
 export function getPlannerDebugPath(requestId: string): string {
-  return path.join(getRuntimeLogsPath(), `planner_debug_${requestId}.json`);
+  return join(getRuntimeLogsPath(), `planner_debug_${requestId}.json`);
 }
 
 export function getAbandonedLogsDirectory(): string {
-  return path.join(getRuntimeLogsPath(), 'abandoned');
+  return join(getRuntimeLogsPath(), 'abandoned');
 }
 
 export function getAbandonedRequestPath(requestId: string): string {
-  return path.join(getAbandonedLogsDirectory(), `request_abandoned_${requestId}.json`);
+  return join(getAbandonedLogsDirectory(), `request_abandoned_${requestId}.json`);
 }
 
 // ---------- logs/repo_search/ ---------- //
 
 export function getRepoSearchLogRoot(): string {
-  return path.join(getRuntimeLogsPath(), 'repo_search');
+  return join(getRuntimeLogsPath(), 'repo_search');
 }
 
 export function getRepoSearchSuccessfulDirectory(): string {
-  return path.join(getRepoSearchLogRoot(), 'succesful');
+  return join(getRepoSearchLogRoot(), 'succesful');
 }
 
 export function getRepoSearchFailedDirectory(): string {
-  return path.join(getRepoSearchLogRoot(), 'failed');
+  return join(getRepoSearchLogRoot(), 'failed');
 }
 
 // ---------- chat/sessions/ ---------- //
 
 export function getChatSessionsRoot(): string {
-  return path.join(getRuntimeRoot(), 'chat', 'sessions');
+  return join(getRuntimeRoot(), 'chat', 'sessions');
 }
 
 export function getChatSessionPath(sessionId: string): string {
-  return path.join(getChatSessionsRoot(), `session_${sessionId}.json`);
+  return join(getChatSessionsRoot(), `session_${sessionId}.json`);
 }

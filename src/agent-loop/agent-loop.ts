@@ -65,7 +65,7 @@ export class AgentLoop {
         preparedTurn,
         response,
         modelData: modelResponse.data,
-        turns: this.turns as readonly AgentLoopTurn[],
+        turns: this.turns,
       };
       const inspected = this.options.actionAdapter.inspectResponse(responseContext);
       if (inspected === 'stop') {

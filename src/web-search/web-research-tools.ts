@@ -67,11 +67,11 @@ export class WebResearchTools {
   }
 
   async execute(toolName: 'web_search' | 'web_fetch', args: WebToolArgs): Promise<WebToolExecutionResult> {
-    if (toolName === 'web_search') {
-      return await this.search(args as WebSearchToolArgs);
+    if (toolName === 'web_search' && 'query' in args) {
+      return await this.search(args);
     }
-    if (toolName === 'web_fetch') {
-      return await this.fetch(args as WebFetchToolArgs);
+    if (toolName === 'web_fetch' && 'url' in args) {
+      return await this.fetch(args);
     }
     throw new Error(`Unsupported web tool: ${String(toolName)}`);
   }

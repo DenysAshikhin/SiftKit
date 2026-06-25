@@ -1,11 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
-import * as http from 'node:http';
-import { createRequire } from 'node:module';
-import type { AddressInfo } from 'node:net';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
 
 import {
   loadConfig,
@@ -39,14 +37,20 @@ import {
   StatusServerUnavailableError,
   MissingObservedBudgetError,
 } from '../src/config/index.js';
+import { getDefaultConfigObject } from '../src/config/defaults.js';
+import type { SiftConfig } from '../src/config/index.js';
+import { parseJsonValueText } from '../src/lib/json.js';
+import type { JsonObject } from '../src/lib/json-types.js';
+import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { ensureDirectory, saveContentAtomically } from '../src/lib/fs.js';
 import { withTestEnvAndServer, type Dict } from './_test-helpers.js';
 
-type ConfigArg = Parameters<typeof getConfiguredModel>[0];
+function makeConfig(overrides: Partial<SiftConfig>): SiftConfig {
+  return { ...getDefaultConfigObject(), ...overrides };
+}
 
 test('SIFTKIT_VERSION matches package.json version', () => {
-  const requireFromTest = createRequire(__filename);
-  const packageJson = requireFromTest('../package.json') as { version: string };
+  const packageJson = asObject(parseJsonValueText(fs.readFileSync(path.resolve(__dirname, '..', 'package.json'), 'utf8')));
   assert.equal(typeof SIFTKIT_VERSION, 'string');
   assert.match(SIFTKIT_VERSION, /^\d+\.\d+\.\d+$/u);
   assert.equal(SIFTKIT_VERSION, packageJson.version);
@@ -162,66 +166,66 @@ test('initializeRuntime returns runtime paths', () => {
 
 test('getConfiguredModel throws when model is missing', () => {
   assert.throws(
-    () => getConfiguredModel({ LlamaCpp: {} } as unknown as ConfigArg),
+    () => getConfiguredModel(makeConfig({ Runtime: { Model: null, LlamaCpp: {} } })),
     /missing Model/u,
   );
 });
 
 test('getConfiguredModel returns Runtime.Model', () => {
   assert.equal(
-    getConfiguredModel({ Runtime: { Model: 'test-model' }, LlamaCpp: {} } as unknown as ConfigArg),
+    getConfiguredModel(makeConfig({ Runtime: { Model: 'test-model', LlamaCpp: {} } })),
     'test-model',
   );
 });
 
 test('getConfiguredLlamaBaseUrl throws when BaseUrl is missing', () => {
   assert.throws(
-    () => getConfiguredLlamaBaseUrl({ LlamaCpp: {} } as unknown as ConfigArg),
+    () => getConfiguredLlamaBaseUrl(makeConfig({ Runtime: { Model: null, LlamaCpp: {} } })),
     /missing LlamaCpp\.BaseUrl/u,
   );
 });
 
 test('getConfiguredLlamaBaseUrl returns Runtime.LlamaCpp.BaseUrl', () => {
   assert.equal(
-    getConfiguredLlamaBaseUrl({ Runtime: { LlamaCpp: { BaseUrl: 'http://test:8080' } }, LlamaCpp: {} } as unknown as ConfigArg),
+    getConfiguredLlamaBaseUrl(makeConfig({ Runtime: { Model: null, LlamaCpp: { BaseUrl: 'http://test:8080' } } })),
     'http://test:8080',
   );
 });
 
 test('getConfiguredLlamaNumCtx throws when NumCtx is missing', () => {
   assert.throws(
-    () => getConfiguredLlamaNumCtx({ LlamaCpp: {} } as unknown as ConfigArg),
+    () => getConfiguredLlamaNumCtx(makeConfig({ Runtime: { Model: null, LlamaCpp: {} } })),
     /missing LlamaCpp\.NumCtx/u,
   );
 });
 
 test('getConfiguredLlamaNumCtx returns Runtime.LlamaCpp.NumCtx', () => {
   assert.equal(
-    getConfiguredLlamaNumCtx({ Runtime: { LlamaCpp: { NumCtx: 65000 } }, LlamaCpp: {} } as unknown as ConfigArg),
+    getConfiguredLlamaNumCtx(makeConfig({ Runtime: { Model: null, LlamaCpp: { NumCtx: 65000 } } })),
     65000,
   );
 });
 
 test('getConfiguredPromptPrefix returns undefined for empty prefix', () => {
-  assert.equal(getConfiguredPromptPrefix({ LlamaCpp: {} } as unknown as ConfigArg), undefined);
-  assert.equal(getConfiguredPromptPrefix({ PromptPrefix: '', LlamaCpp: {} } as unknown as ConfigArg), undefined);
-  assert.equal(getConfiguredPromptPrefix({ PromptPrefix: '   ', LlamaCpp: {} } as unknown as ConfigArg), undefined);
+  assert.equal(getConfiguredPromptPrefix(makeConfig({ PromptPrefix: null })), undefined);
+  assert.equal(getConfiguredPromptPrefix(makeConfig({ PromptPrefix: '' })), undefined);
+  assert.equal(getConfiguredPromptPrefix(makeConfig({ PromptPrefix: '   ' })), undefined);
 });
 
 test('getConfiguredPromptPrefix returns trimmed prefix', () => {
   assert.equal(
-    getConfiguredPromptPrefix({ PromptPrefix: 'test prefix', LlamaCpp: {} } as unknown as ConfigArg),
+    getConfiguredPromptPrefix(makeConfig({ PromptPrefix: 'test prefix' })),
     'test prefix',
   );
 });
 
 test('getConfiguredLlamaSetting returns value from Runtime.LlamaCpp', () => {
-  const config = { Runtime: { LlamaCpp: { Temperature: 0.5 } }, LlamaCpp: {} } as unknown as ConfigArg;
+  const config = makeConfig({ Runtime: { Model: null, LlamaCpp: { Temperature: 0.5 } } });
   assert.equal(getConfiguredLlamaSetting<number>(config, 'Temperature'), 0.5);
 });
 
 test('getConfiguredLlamaSetting returns undefined for missing key', () => {
-  const config = { Runtime: { LlamaCpp: {} }, LlamaCpp: {} } as unknown as ConfigArg;
+  const config = makeConfig({ Runtime: { Model: null, LlamaCpp: {} } });
   assert.equal(getConfiguredLlamaSetting<number>(config, 'Temperature'), undefined);
 });
 
@@ -359,7 +363,7 @@ test('ensureStatusServerReachable retries transient health failures and succeeds
     SIFTKIT_HEALTHCHECK_BACKOFF_MS: process.env.SIFTKIT_HEALTHCHECK_BACKOFF_MS,
   };
   try {
-    const address = server.address() as AddressInfo;
+    const address = getAddressInfo(server);
     process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${address.port}/status`;
     process.env.SIFTKIT_CONFIG_SERVICE_URL = `http://127.0.0.1:${address.port}/config`;
     process.env.SIFTKIT_HEALTHCHECK_ATTEMPTS = '5';
@@ -409,7 +413,7 @@ test('ensureStatusServerReachable extends default retries for timed out health c
     SIFTKIT_HEALTHCHECK_BUSY_ATTEMPTS: process.env.SIFTKIT_HEALTHCHECK_BUSY_ATTEMPTS,
   };
   try {
-    const address = server.address() as AddressInfo;
+    const address = getAddressInfo(server);
     process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${address.port}/status`;
     process.env.SIFTKIT_CONFIG_SERVICE_URL = `http://127.0.0.1:${address.port}/config`;
     delete process.env.SIFTKIT_HEALTHCHECK_ATTEMPTS;
@@ -461,16 +465,20 @@ test('ensureStatusServerReachable keeps transient retry diagnostics out of stder
   };
   const originalWrite = process.stderr.write.bind(process.stderr);
   let stderrText = '';
-  process.stderr.write = ((chunk: string | Uint8Array, encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void), callback?: (error?: Error | null) => void) => {
+  process.stderr.write = (
+    chunk: string | Uint8Array,
+    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+    callback?: (error?: Error | null) => void,
+  ): boolean => {
     stderrText += String(chunk);
     const resolvedCallback = typeof encodingOrCallback === 'function' ? encodingOrCallback : callback;
     if (resolvedCallback) {
       resolvedCallback();
     }
     return true;
-  }) as typeof process.stderr.write;
+  };
   try {
-    const address = server.address() as AddressInfo;
+    const address = getAddressInfo(server);
     process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${address.port}/status`;
     process.env.SIFTKIT_CONFIG_SERVICE_URL = `http://127.0.0.1:${address.port}/config`;
     process.env.SIFTKIT_HEALTHCHECK_ATTEMPTS = '3';
@@ -483,7 +491,7 @@ test('ensureStatusServerReachable keeps transient retry diagnostics out of stder
     assert.equal(healthChecks, 2);
     assert.equal(stderrText, '');
   } finally {
-    process.stderr.write = originalWrite as typeof process.stderr.write;
+    process.stderr.write = originalWrite;
     await new Promise<void>((resolve, reject) => {
       server.close((error: Error | undefined) => (error ? reject(error) : resolve()));
     });
@@ -520,7 +528,7 @@ test('ensureStatusServerReachable honors health retry env overrides', async () =
     SIFTKIT_HEALTHCHECK_BACKOFF_MS: process.env.SIFTKIT_HEALTHCHECK_BACKOFF_MS,
   };
   try {
-    const address = server.address() as AddressInfo;
+    const address = getAddressInfo(server);
     process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${address.port}/status`;
     process.env.SIFTKIT_CONFIG_SERVICE_URL = `http://127.0.0.1:${address.port}/config`;
     process.env.SIFTKIT_HEALTHCHECK_ATTEMPTS = '2';
@@ -573,7 +581,7 @@ test('notifyStatusBackend ignores legacy busy responses without retrying', async
     nextServer.listen(0, '127.0.0.1', () => resolve(nextServer));
   });
   try {
-    const address = server.address() as AddressInfo;
+    const address = getAddressInfo(server);
     await notifyStatusBackend({
       running: true,
       statusBackendUrl: `http://127.0.0.1:${address.port}/status`,
@@ -593,7 +601,7 @@ test('notifyStatusBackend splits terminal completion and metadata routes', async
   let metadataCount = 0;
   // Hold the parsed body on an object so reads aren't narrowed to null by control-flow
   // analysis (it is only ever assigned inside the request 'end' callback below).
-  const captured: { metadataBody: Record<string, unknown> | null } = { metadataBody: null };
+  const captured: { metadataBody: JsonObject | null } = { metadataBody: null };
   const routeOrder: string[] = [];
   let resolveMetadataReceived: (() => void) | null = null;
   const metadataReceived = new Promise<void>((resolve) => {
@@ -633,7 +641,7 @@ test('notifyStatusBackend splits terminal completion and metadata routes', async
     nextServer.listen(0, '127.0.0.1', () => resolve(nextServer));
   });
   try {
-    const address = server.address() as AddressInfo;
+    const address = getAddressInfo(server);
     const startedAt = Date.now();
     await notifyStatusBackend({
       running: false,
@@ -688,7 +696,7 @@ test('releaseExecutionLease ignores already-cleared lease responses', async () =
     SIFTKIT_CONFIG_SERVICE_URL: process.env.SIFTKIT_CONFIG_SERVICE_URL,
   };
   try {
-    const address = server.address() as AddressInfo;
+    const address = getAddressInfo(server);
     process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${address.port}/status`;
     process.env.SIFTKIT_CONFIG_SERVICE_URL = `http://127.0.0.1:${address.port}/config`;
 

@@ -1,24 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import { z } from '../lib/zod.js';
 import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.js';
 import { formatTimestamp } from '../lib/text-format.js';
 
-export type ManagedLlamaRunStatus = 'running' | 'ready' | 'failed' | 'stopped' | 'sync_completed';
-export type ManagedLlamaStreamKind =
-  | 'startup_script_stdout'
-  | 'startup_script_stderr'
-  | 'llama_stdout'
-  | 'llama_stderr'
-  | 'startup_review'
-  | 'startup_failure';
-
-const ALLOWED_STATUSES = new Set<ManagedLlamaRunStatus>([
-  'running',
-  'ready',
-  'failed',
-  'stopped',
-  'sync_completed',
-]);
-const ALLOWED_STREAMS = new Set<ManagedLlamaStreamKind>([
+const ManagedLlamaRunStatusSchema = z.enum(['running', 'ready', 'failed', 'stopped', 'sync_completed']);
+export type ManagedLlamaRunStatus = z.infer<typeof ManagedLlamaRunStatusSchema>;
+const ManagedLlamaStreamKindSchema = z.enum([
   'startup_script_stdout',
   'startup_script_stderr',
   'llama_stdout',
@@ -26,6 +13,34 @@ const ALLOWED_STREAMS = new Set<ManagedLlamaStreamKind>([
   'startup_review',
   'startup_failure',
 ]);
+export type ManagedLlamaStreamKind = z.infer<typeof ManagedLlamaStreamKindSchema>;
+
+const ManagedLlamaRunRowSchema = z.object({
+  id: z.string().nullable(),
+  purpose: z.string().nullable(),
+  script_path: z.string().nullable(),
+  base_url: z.string().nullable(),
+  status: z.string().nullable(),
+  exit_code: z.number().nullable(),
+  error_message: z.string().nullable(),
+  started_at_utc: z.string().nullable(),
+  finished_at_utc: z.string().nullable(),
+  updated_at_utc: z.string().nullable(),
+  speculative_accepted_tokens: z.number().nullable(),
+  speculative_generated_tokens: z.number().nullable(),
+  stdout_character_count: z.number().nullable(),
+  stderr_character_count: z.number().nullable(),
+  metrics_updated_at_utc: z.string().nullable(),
+});
+type ManagedLlamaRunRow = z.infer<typeof ManagedLlamaRunRowSchema>;
+
+const MaxSequenceRowSchema = z.object({ max_sequence: z.number().nullable() });
+
+const ManagedLlamaLogChunkRowSchema = z.object({
+  stream_kind: z.string().nullable(),
+  chunk_text: z.string().nullable(),
+});
+
 const PENDING_LOG_PEAK_MIN_STREAM_CHARACTER_DELTA = 1024;
 const pendingChunkTextByRunId = new Map<string, Map<ManagedLlamaStreamKind, string>>();
 const pendingLogPeakStreamCharactersByRunId = new Map<string, Map<ManagedLlamaStreamKind, number>>();
@@ -69,17 +84,17 @@ function getDatabase(databasePath?: string): RuntimeDatabase {
   return getRuntimeDatabase(databasePath);
 }
 
-function normalizeStatus(value: unknown): ManagedLlamaRunStatus {
-  const normalized = String(value || '').trim() as ManagedLlamaRunStatus;
-  return ALLOWED_STATUSES.has(normalized) ? normalized : 'running';
+function normalizeStatus(value: string | null | undefined): ManagedLlamaRunStatus {
+  const result = ManagedLlamaRunStatusSchema.safeParse(String(value || '').trim());
+  return result.success ? result.data : 'running';
 }
 
-function normalizeStreamKind(value: unknown): ManagedLlamaStreamKind {
-  const normalized = String(value || '').trim() as ManagedLlamaStreamKind;
-  if (!ALLOWED_STREAMS.has(normalized)) {
+function normalizeStreamKind(value: string | null | undefined): ManagedLlamaStreamKind {
+  const result = ManagedLlamaStreamKindSchema.safeParse(String(value || '').trim());
+  if (!result.success) {
     throw new Error(`Unsupported managed llama stream kind: ${String(value || '')}`);
   }
-  return normalized;
+  return result.data;
 }
 
 function createEmptyTextByStream(): Record<ManagedLlamaStreamKind, string> {
@@ -142,7 +157,7 @@ function appendCappedTail(currentText: string, chunkText: string, maxCharacters:
   return `${currentText.slice(combinedLength - maxCharacters)}${chunkText}`;
 }
 
-function normalizeRecord(row: Record<string, unknown> | undefined): ManagedLlamaRunRecord | null {
+function normalizeRecord(row: ManagedLlamaRunRow | undefined): ManagedLlamaRunRecord | null {
   if (!row || typeof row.id !== 'string') {
     return null;
   }
@@ -249,11 +264,12 @@ function getNextChunkSequence(
   runId: string,
   streamKind: ManagedLlamaStreamKind,
 ): number {
-  const row = database.prepare(`
+  const rawRow = database.prepare(`
     SELECT MAX(sequence) AS max_sequence
     FROM managed_llama_log_chunks
     WHERE run_id = ? AND stream_kind = ?
-  `).get(runId, streamKind) as { max_sequence?: number | null } | undefined;
+  `).get(runId, streamKind);
+  const row = rawRow == null ? undefined : MaxSequenceRowSchema.parse(rawRow);
   const current = Number.isFinite(row?.max_sequence) ? Number(row?.max_sequence) : -1;
   return current + 1;
 }
@@ -475,15 +491,15 @@ export function readManagedLlamaRun(id: string, databasePath?: string): ManagedL
     return null;
   }
   const database = getDatabase(databasePath);
-  const row = database.prepare(`
+  const rawRow = database.prepare(`
     SELECT id, purpose, script_path, base_url, status,
            exit_code, error_message, started_at_utc, finished_at_utc, updated_at_utc,
            speculative_accepted_tokens, speculative_generated_tokens,
            stdout_character_count, stderr_character_count, metrics_updated_at_utc
     FROM managed_llama_runs
     WHERE id = ?
-  `).get(runId) as Record<string, unknown> | undefined;
-  return normalizeRecord(row);
+  `).get(runId);
+  return normalizeRecord(rawRow == null ? undefined : ManagedLlamaRunRowSchema.parse(rawRow));
 }
 
 export function updateManagedLlamaRunSpeculativeMetrics(options: {
@@ -549,12 +565,12 @@ export function readManagedLlamaLogTextStatsByStream(
     return result;
   }
   const database = getDatabase(options.databasePath);
-  const rows = database.prepare(`
+  const rows = z.array(ManagedLlamaLogChunkRowSchema).parse(database.prepare(`
     SELECT stream_kind, chunk_text
     FROM managed_llama_log_chunks
     WHERE run_id = ?
     ORDER BY stream_kind ASC, sequence ASC, id ASC
-  `).all(normalizedRunId) as Array<{ stream_kind?: unknown; chunk_text?: unknown }>;
+  `).all(normalizedRunId));
   for (const row of rows) {
     const streamKind = normalizeStreamKind(row.stream_kind);
     const chunkText = typeof row.chunk_text === 'string' ? row.chunk_text : '';
@@ -568,7 +584,7 @@ export function readManagedLlamaLogTextStatsByStream(
       textByStream[streamKind] = appendCappedTail(textByStream[streamKind], chunkText, maxCharactersPerStream);
     }
   }
-  for (const streamKind of ALLOWED_STREAMS) {
+  for (const streamKind of ManagedLlamaStreamKindSchema.options) {
     truncatedByStream[streamKind] = textByStream[streamKind].length < characterCountByStream[streamKind];
   }
   return result;
@@ -582,8 +598,8 @@ export function listManagedLlamaRuns(options: {
   const database = getDatabase(options.databasePath);
   const limit = Number.isFinite(options.limit) ? Math.max(1, Math.trunc(Number(options.limit))) : 100;
   const status = String(options.status || '').trim();
-  if (status && ALLOWED_STATUSES.has(status as ManagedLlamaRunStatus)) {
-    const rows = database.prepare(`
+  if (status && ManagedLlamaRunStatusSchema.safeParse(status).success) {
+    const rows = z.array(ManagedLlamaRunRowSchema).parse(database.prepare(`
       SELECT id, purpose, script_path, base_url, status,
              exit_code, error_message, started_at_utc, finished_at_utc, updated_at_utc,
              speculative_accepted_tokens, speculative_generated_tokens,
@@ -592,10 +608,10 @@ export function listManagedLlamaRuns(options: {
       WHERE status = ?
       ORDER BY started_at_utc DESC, id DESC
       LIMIT ?
-    `).all(status, limit) as Array<Record<string, unknown>>;
+    `).all(status, limit));
     return rows.map((row) => normalizeRecord(row)).filter((row): row is ManagedLlamaRunRecord => row !== null);
   }
-  const rows = database.prepare(`
+  const rows = z.array(ManagedLlamaRunRowSchema).parse(database.prepare(`
     SELECT id, purpose, script_path, base_url, status,
            exit_code, error_message, started_at_utc, finished_at_utc, updated_at_utc,
            speculative_accepted_tokens, speculative_generated_tokens,
@@ -603,7 +619,7 @@ export function listManagedLlamaRuns(options: {
     FROM managed_llama_runs
     ORDER BY started_at_utc DESC, id DESC
     LIMIT ?
-  `).all(limit) as Array<Record<string, unknown>>;
+  `).all(limit));
   return rows.map((row) => normalizeRecord(row)).filter((row): row is ManagedLlamaRunRecord => row !== null);
 }
 

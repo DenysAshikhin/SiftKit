@@ -1,4 +1,5 @@
-import * as fs from 'node:fs';
+import fs from 'node:fs';
+import { getErrorMessage, toError } from '../../src/lib/errors.js';
 import { resolvePathFromBase } from '../../src/lib/paths.js';
 import {
   createBenchmarkMatrixRun,
@@ -103,8 +104,8 @@ export async function runMatrixWithInterrupt(
   };
 
   let currentLaunchSignature: string | null = null;
-  let capturedError: unknown = null;
-  let restoreError: unknown = null;
+  let capturedError: Error | null = null;
+  let restoreError: Error | null = null;
   let activeRunEntry: RunEntry | null = null;
   const interruptSignal = interruptSignalOverride ?? createMatrixInterruptSignal((error) => {
     if (activeRunEntry && activeRunEntry.status === 'running') {
@@ -220,7 +221,7 @@ export async function runMatrixWithInterrupt(
       status: 'completed',
     });
   } catch (error) {
-    capturedError = error;
+    capturedError = toError(error);
     matrixIndex.status = 'failed';
     updateBenchmarkMatrixSession({
       id: sessionRecord.id,
@@ -236,9 +237,9 @@ export async function runMatrixWithInterrupt(
         baselineRestoreStatus: 'completed',
       });
     } catch (error) {
-      restoreError = error;
+      restoreError = toError(error);
       matrixIndex.baselineRestore.status = 'failed';
-      matrixIndex.baselineRestore.error = error instanceof Error ? error.message : String(error);
+      matrixIndex.baselineRestore.error = getErrorMessage(error);
       updateBenchmarkMatrixSession({
         id: sessionRecord.id,
         baselineRestoreStatus: 'failed',
@@ -255,8 +256,8 @@ export async function runMatrixWithInterrupt(
   }
 
   if (capturedError !== null && restoreError !== null) {
-    const runError = capturedError instanceof Error ? capturedError.message : String(capturedError);
-    const baselineError = restoreError instanceof Error ? restoreError.message : String(restoreError);
+    const runError = capturedError.message;
+    const baselineError = restoreError.message;
     throw new Error(`Benchmark matrix failed: ${runError} Baseline restore also failed: ${baselineError}`);
   }
   if (capturedError !== null) {

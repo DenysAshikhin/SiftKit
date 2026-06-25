@@ -1,3 +1,4 @@
+import type { Readable } from 'node:stream';
 import { getCommandArgs, getCommandName, parseArguments } from './args.js';
 
 // Only these command handlers consume `stdinText`. Every other command ignores
@@ -37,7 +38,7 @@ export function commandReadsStdin(argv: string[]): boolean {
 }
 
 /** Reads a readable stream to EOF as UTF-8 text. */
-export function readStdinToEnd(stream: NodeJS.ReadStream): Promise<StdinReadResult> {
+export function readStdinToEnd(stream: Readable): Promise<StdinReadResult> {
   const startedAt = Date.now();
   return new Promise<StdinReadResult>((resolve, reject) => {
     let collected = '';

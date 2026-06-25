@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { z } from 'zod';
 
 import {
   getDefaultConfig,
@@ -11,18 +12,21 @@ import {
 import {
   resolveArtifactLogPathFromStatusPost,
 } from './helpers/runtime-http.js';
+import { JsonObjectSchema } from '../src/lib/json-types.js';
 
-// mergeConfig is a heterogeneous deep-merge that returns `unknown`; for the config-merge
+// mergeConfig is a heterogeneous deep-merge that returns JsonValue; for the config-merge
 // case the test exercises, the result carries the merged Runtime plus a Thresholds bag
-// (with derived keys stripped). Name that shape at the boundary instead of reading unknown.
-type MergedRuntimeConfig = {
-  Runtime: { LlamaCpp: { BaseUrl: string } };
-  Thresholds: Record<string, unknown>;
-};
+// (with derived keys stripped). Validate that shape at the boundary so reads stay typed.
+const MergedRuntimeConfigSchema = z
+  .object({
+    Runtime: z.object({ LlamaCpp: z.object({ BaseUrl: z.string() }).passthrough() }).passthrough(),
+    Thresholds: JsonObjectSchema,
+  })
+  .passthrough();
 
 test('runtime config helpers merge nested overrides and strip derived fields', () => {
   const config = getDefaultConfig();
-  const merged = mergeConfig(config, {
+  const merged = MergedRuntimeConfigSchema.parse(mergeConfig(config, {
     Runtime: {
       LlamaCpp: {
         BaseUrl: 'http://127.0.0.1:9999',
@@ -37,7 +41,7 @@ test('runtime config helpers merge nested overrides and strip derived fields', (
     Thresholds: {
       MaxInputCharacters: 123,
     },
-  }) as MergedRuntimeConfig;
+  }));
 
   assert.equal(merged.Runtime.LlamaCpp.BaseUrl, 'http://127.0.0.1:9999');
   assert.equal('Paths' in merged, false);

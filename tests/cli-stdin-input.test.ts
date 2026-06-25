@@ -28,19 +28,19 @@ test('commandReadsStdin: non-consuming commands never read stdin', () => {
 });
 
 test('readStdinToEnd: concatenates chunks until end', async () => {
-  const stream = Readable.from(['hello ', 'world']) as unknown as NodeJS.ReadStream;
+  const stream = Readable.from(['hello ', 'world']);
   const result = await readStdinToEnd(stream);
   assert.equal(result.text, 'hello world');
   assert.ok(result.stdinWaitMs >= 0);
 });
 
 test('readStdinToEnd: empty stream resolves empty', async () => {
-  const stream = Readable.from([]) as unknown as NodeJS.ReadStream;
+  const stream = Readable.from([]);
   const result = await readStdinToEnd(stream);
   assert.equal(result.text, '');
 });
 
 test('readStdinToEnd: rejects on stream error', async () => {
-  const stream = new Readable({ read() { this.destroy(new Error('boom')); } }) as unknown as NodeJS.ReadStream;
+  const stream = new Readable({ read() { this.destroy(new Error('boom')); } });
   await assert.rejects(readStdinToEnd(stream), /boom/u);
 });

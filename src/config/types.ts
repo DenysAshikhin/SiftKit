@@ -167,16 +167,3 @@ export type DashboardPreset = SiftPreset;
 export type NormalizationInfo = {
   changed: boolean;
 };
-
-export type StatusMetricsSnapshot = {
-  inputCharactersTotal?: number;
-  inputTokensTotal?: number;
-  promptCacheTokensTotal?: number;
-  promptEvalTokensTotal?: number;
-  speculativeAcceptedTokensTotal?: number;
-  speculativeGeneratedTokensTotal?: number;
-};
-
-export type StatusSnapshotResponse = {
-  metrics?: StatusMetricsSnapshot;
-};

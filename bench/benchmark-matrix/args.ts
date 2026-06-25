@@ -1,6 +1,7 @@
+import type { OptionalJsonValue } from '../../src/lib/json-types.js';
 import { defaultManifestPath, type MatrixCliOptions } from './types.js';
 
-export function getRequiredString(value: unknown, name: string): string {
+export function getRequiredString(value: OptionalJsonValue, name: string): string {
   const text = String(value ?? '').trim();
   if (!text) {
     throw new Error(`Manifest field '${name}' is required.`);
@@ -9,7 +10,7 @@ export function getRequiredString(value: unknown, name: string): string {
   return text;
 }
 
-export function getRequiredInt(value: unknown, name: string): number {
+export function getRequiredInt(value: OptionalJsonValue, name: string): number {
   const parsed = Number(value);
   if (!Number.isInteger(parsed)) {
     throw new Error(`Manifest field '${name}' must be an integer.`);
@@ -18,7 +19,7 @@ export function getRequiredInt(value: unknown, name: string): number {
   return parsed;
 }
 
-export function getRequiredDouble(value: unknown, name: string): number {
+export function getRequiredDouble(value: OptionalJsonValue, name: string): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
     throw new Error(`Manifest field '${name}' must be numeric.`);
@@ -27,7 +28,7 @@ export function getRequiredDouble(value: unknown, name: string): number {
   return parsed;
 }
 
-export function getOptionalInt(value: unknown, name: string): number | null {
+export function getOptionalInt(value: OptionalJsonValue, name: string): number | null {
   if (value === null || value === undefined || String(value).trim() === '') {
     return null;
   }
@@ -35,7 +36,7 @@ export function getOptionalInt(value: unknown, name: string): number | null {
   return getRequiredInt(value, name);
 }
 
-export function getOptionalPositiveInt(value: unknown, name: string): number | null {
+export function getOptionalPositiveInt(value: OptionalJsonValue, name: string): number | null {
   const parsed = getOptionalInt(value, name);
   if (parsed === null) {
     return null;
@@ -47,7 +48,7 @@ export function getOptionalPositiveInt(value: unknown, name: string): number | n
   return parsed;
 }
 
-export function getOptionalBoolean(value: unknown, name: string): boolean | null {
+export function getOptionalBoolean(value: OptionalJsonValue, name: string): boolean | null {
   if (value === null || value === undefined) {
     return null;
   }

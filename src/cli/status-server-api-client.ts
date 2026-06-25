@@ -2,22 +2,35 @@ import {
   getStatusBackendUrl,
   getStatusServerUnavailableMessage,
 } from '../config/index.js';
+import { normalizeConfigObject } from '../config/normalization.js';
 import {
   httpClient,
   logHttpClientBoundary,
   type HttpClient,
 } from '../lib/http-client.js';
+import { JsonObjectSchema, type JsonSerializable } from '../lib/json-types.js';
+import { toError } from '../lib/errors.js';
 import type { SiftConfig } from '../config/index.js';
-import type { RepoSearchExecutionResult } from '../repo-search/types.js';
-import type { SummaryRequest, SummaryResult } from '../summary/types.js';
-import type {
-  CommandOutputAnalyzeRequest,
-  CommandOutputAnalyzeResult,
-  PresetListResult,
-  PresetRunRequest,
-  PresetRunResult,
+import {
+  RepoSearchExecutionResultSchema,
+  type RepoSearchExecutionResult,
+} from '../repo-search/types.js';
+import {
+  SummaryResultSchema,
+  type SummaryRequest,
+  type SummaryResult,
+} from '../summary/types.js';
+import {
+  CommandOutputAnalyzeResultSchema,
+  PresetListResultSchema,
+  PresetRunResultSchema,
+  type CommandOutputAnalyzeRequest,
+  type CommandOutputAnalyzeResult,
+  type PresetListResult,
+  type PresetRunRequest,
+  type PresetRunResult,
 } from '../command-output/types.js';
-import type { EvalRequest, EvaluationResult } from '../eval-types.js';
+import { EvaluationResultSchema, type EvalRequest, type EvaluationResult } from '../eval-types.js';
 
 const DEFAULT_SERVER_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -43,7 +56,7 @@ export class StatusServerApiClient {
     return result;
   }
 
-  async requestRepoSearch(request: Record<string, unknown>): Promise<RepoSearchExecutionResult> {
+  async requestRepoSearch(request: Record<string, JsonSerializable>): Promise<RepoSearchExecutionResult> {
     const startedAt = Date.now();
     const result = await this.postRepoSearch(request);
     logHttpClientBoundary(
@@ -101,100 +114,101 @@ export class StatusServerApiClient {
 
   private async requestConfig(): Promise<SiftConfig> {
     try {
-      return await this.client.requestJson<SiftConfig>({
+      const config = await this.client.requestJson({
         url: this.getServiceUrl('/config'),
         method: 'GET',
         timeoutMs: DEFAULT_SERVER_REQUEST_TIMEOUT_MS,
-      });
+      }, JsonObjectSchema);
+      return normalizeConfigObject(config);
     } catch (error) {
-      throw this.normalizeError(error);
+      throw this.normalizeError(toError(error));
     }
   }
 
   private async postSummary(request: SummaryRequest): Promise<SummaryResult> {
     try {
-      return await this.client.requestJson<SummaryResult>({
+      return await this.client.requestJson({
         url: this.getServiceUrl('/summary'),
         method: 'POST',
         timeoutMs: DEFAULT_SERVER_REQUEST_TIMEOUT_MS,
         body: JSON.stringify(request),
-      });
+      }, SummaryResultSchema);
     } catch (error) {
-      throw this.normalizeError(error);
+      throw this.normalizeError(toError(error));
     }
   }
 
-  private async postRepoSearch(request: Record<string, unknown>): Promise<RepoSearchExecutionResult> {
+  private async postRepoSearch(request: Record<string, JsonSerializable>): Promise<RepoSearchExecutionResult> {
     try {
-      return await this.client.requestJson<RepoSearchExecutionResult>({
+      return await this.client.requestJson({
         url: this.getServiceUrl('/repo-search'),
         method: 'POST',
         body: JSON.stringify(request),
-      });
+      }, RepoSearchExecutionResultSchema);
     } catch (error) {
-      throw this.normalizeError(error);
+      throw this.normalizeError(toError(error));
     }
   }
 
   private async postCommandOutput(request: CommandOutputAnalyzeRequest): Promise<CommandOutputAnalyzeResult> {
     try {
-      return await this.client.requestJson<CommandOutputAnalyzeResult>({
+      return await this.client.requestJson({
         url: this.getServiceUrl('/command-output/analyze'),
         method: 'POST',
         timeoutMs: DEFAULT_SERVER_REQUEST_TIMEOUT_MS,
         body: JSON.stringify(request),
-      });
+      }, CommandOutputAnalyzeResultSchema);
     } catch (error) {
-      throw this.normalizeError(error);
+      throw this.normalizeError(toError(error));
     }
   }
 
   private async postPresetRun(request: PresetRunRequest): Promise<PresetRunResult> {
     try {
-      return await this.client.requestJson<PresetRunResult>({
+      return await this.client.requestJson({
         url: this.getServiceUrl('/preset/run'),
         method: 'POST',
         timeoutMs: DEFAULT_SERVER_REQUEST_TIMEOUT_MS,
         body: JSON.stringify(request),
-      });
+      }, PresetRunResultSchema);
     } catch (error) {
-      throw this.normalizeError(error);
+      throw this.normalizeError(toError(error));
     }
   }
 
   private async requestPresetList(): Promise<PresetListResult> {
     try {
-      return await this.client.requestJson<PresetListResult>({
+      return await this.client.requestJson({
         url: this.getServiceUrl('/preset/list'),
         method: 'GET',
         timeoutMs: DEFAULT_SERVER_REQUEST_TIMEOUT_MS,
-      });
+      }, PresetListResultSchema);
     } catch (error) {
-      throw this.normalizeError(error);
+      throw this.normalizeError(toError(error));
     }
   }
 
   private async postEvalRun(request: EvalRequest): Promise<EvaluationResult> {
     try {
-      return await this.client.requestJson<EvaluationResult>({
+      return await this.client.requestJson({
         url: this.getServiceUrl('/eval/run'),
         method: 'POST',
         timeoutMs: DEFAULT_SERVER_REQUEST_TIMEOUT_MS,
         body: JSON.stringify(request),
-      });
+      }, EvaluationResultSchema);
     } catch (error) {
-      throw this.normalizeError(error);
+      throw this.normalizeError(toError(error));
     }
   }
 
-  private normalizeError(error: unknown): Error {
-    const message = error instanceof Error ? error.message : String(error);
+  private normalizeError(error: Error): Error {
+    const message = error.message;
     if (/^HTTP \d+:/u.test(message)) {
-      return error instanceof Error ? error : new Error(message);
+      return error;
     }
     if (/ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|timed out|socket hang up/iu.test(message)) {
       return new Error(getStatusServerUnavailableMessage());
     }
-    return error instanceof Error ? error : new Error(message);
+    return error;
   }
 }

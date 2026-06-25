@@ -44,7 +44,7 @@ const METRIC_DAY = {
   speculativeGeneratedTokens: 20,
   acceptanceRate: 0.75,
   avgDurationMs: 1200,
-} as MetricDay;
+} satisfies MetricDay;
 
 const IDLE_SNAPSHOT = {
   emittedAtUtc: '2026-04-16T12:00:00.000Z',
@@ -65,7 +65,7 @@ const IDLE_SNAPSHOT = {
   avgRequestMs: 1000,
   avgTokensPerSecond: 8,
   summaryText: '',
-} as IdleSummarySnapshot;
+} satisfies IdleSummarySnapshot;
 
 const BENCHMARK_PROMPT = {
   id: 'prompt-1',
@@ -75,7 +75,7 @@ const BENCHMARK_PROMPT = {
   enabled: true,
   createdAtUtc: '2026-05-13T12:00:00.000Z',
   updatedAtUtc: '2026-05-13T12:00:00.000Z',
-} as DashboardBenchmarkQuestionPreset;
+} satisfies DashboardBenchmarkQuestionPreset;
 
 const BENCHMARK_SESSION = {
   id: 'session-1',
@@ -92,7 +92,7 @@ const BENCHMARK_SESSION = {
   startedAtUtc: '2026-05-13T12:00:00.000Z',
   completedAtUtc: null,
   updatedAtUtc: '2026-05-13T12:00:01.000Z',
-} as DashboardBenchmarkSession;
+} satisfies DashboardBenchmarkSession;
 
 const BENCHMARK_ATTEMPT = {
   id: 'attempt-1',
@@ -129,7 +129,7 @@ const BENCHMARK_ATTEMPT = {
   startedAtUtc: '2026-05-13T12:00:00.000Z',
   completedAtUtc: '2026-05-13T12:00:02.000Z',
   updatedAtUtc: '2026-05-13T12:00:02.000Z',
-} as DashboardBenchmarkAttempt;
+} satisfies DashboardBenchmarkAttempt;
 
 const MANAGED_PRESET = {
   id: 'managed',
@@ -180,7 +180,7 @@ const MANAGED_PRESET = {
   HealthcheckIntervalMs: 500,
   SleepIdleSeconds: 600,
   VerboseLogging: false,
-} as DashboardManagedLlamaPreset & {
+} satisfies DashboardManagedLlamaPreset & {
   SpeculativeEnabled: boolean;
   SpeculativeType: string;
   SpeculativeMtpEnabled: boolean;
@@ -208,7 +208,7 @@ const PRESET = {
   includeRepoFileListing: false,
   repoRootRequired: false,
   maxTurns: null,
-} as DashboardPreset;
+} satisfies DashboardPreset;
 
 const DASHBOARD_CONFIG = {
   Version: '1',
@@ -299,7 +299,7 @@ const DASHBOARD_CONFIG = {
     TimeoutMs: 15000,
     FetchMaxCharacters: 12000,
   },
-} as DashboardConfig;
+} satisfies DashboardConfig;
 
 const CHAT_MESSAGE = {
   id: 'message-1',
@@ -316,7 +316,7 @@ const CHAT_MESSAGE = {
   thinkingContent: '',
   createdAtUtc: '2026-04-16T12:00:00.000Z',
   sourceRunId: null,
-} as ChatMessage;
+} satisfies ChatMessage;
 
 const CHAT_THINKING_MESSAGE = {
   id: 'thinking-1',
@@ -333,7 +333,7 @@ const CHAT_THINKING_MESSAGE = {
   thinkingContent: '',
   createdAtUtc: '2026-04-16T12:00:01.000Z',
   sourceRunId: null,
-} as ChatMessage;
+} satisfies ChatMessage;
 
 const CHAT_TOOL_MESSAGE = {
   id: 'tool-1',
@@ -357,7 +357,7 @@ const CHAT_TOOL_MESSAGE = {
   toolCallPromptTokenCount: 123,
   toolCallOutputSnippet: 'dashboard/src/tabs/ChatTab.tsx:75:export function ChatTab',
   toolCallOutput: 'dashboard/src/tabs/ChatTab.tsx:75:export function ChatTab\nfull output line',
-} as ChatMessage;
+} satisfies ChatMessage;
 
 const CHAT_SESSION = {
   id: 'session-1',
@@ -371,7 +371,7 @@ const CHAT_SESSION = {
   createdAtUtc: '2026-04-16T11:00:00.000Z',
   updatedAtUtc: '2026-04-16T12:00:00.000Z',
   messages: [CHAT_MESSAGE],
-} as ChatSession;
+} satisfies ChatSession;
 
 const CHAT_SESSION_WITH_PROMPT_CONTEXT = {
   ...CHAT_SESSION,
@@ -384,7 +384,7 @@ const CHAT_SESSION_WITH_PROMPT_CONTEXT = {
     createdAtUtc: '2026-04-16T11:00:00.000Z',
     deletable: false,
   },
-} as ChatSession;
+} satisfies ChatSession;
 
 const CONTEXT_USAGE = {
   shouldCondense: false,
@@ -398,7 +398,7 @@ const CONTEXT_USAGE = {
   usedTokens: 10,
   estimatedTokenFallbackTokens: 0,
   providerOverheadTokens: 5,
-} as ContextUsage;
+} satisfies ContextUsage;
 
 type ChatTabProps = React.ComponentProps<typeof ChatTab>;
 
@@ -679,7 +679,7 @@ test('settings tab web-search section renders provider keys (masked), usage, and
       TimeoutMs: 15000,
       FetchMaxCharacters: 12000,
     },
-  } as DashboardConfig;
+  } satisfies DashboardConfig;
   const markup = renderToStaticMarkup(
     <SettingsTab
       activeSettingsSection="web-search"
@@ -1001,7 +1001,7 @@ test('managed llama section shows ngram-mod controls for ngram-mod speculation',
   const fields = captureManagedLlamaFields({
     ...MANAGED_PRESET,
     SpeculativeEnabled: true,
-    SpeculativeType: 'ngram-mod' as DashboardManagedLlamaPreset['SpeculativeType'],
+    SpeculativeType: 'ngram-mod' satisfies DashboardManagedLlamaPreset['SpeculativeType'],
   });
 
   assert.equal(fields.includes('SpeculativeNgramModNMatch'), true);
@@ -1015,7 +1015,7 @@ test('managed llama section shows draft-token controls when MTP combination is e
   const fields = captureManagedLlamaFields({
     ...MANAGED_PRESET,
     SpeculativeEnabled: true,
-    SpeculativeType: 'ngram-mod' as DashboardManagedLlamaPreset['SpeculativeType'],
+    SpeculativeType: 'ngram-mod' satisfies DashboardManagedLlamaPreset['SpeculativeType'],
     SpeculativeMtpEnabled: true,
   });
 
@@ -1029,7 +1029,7 @@ test('managed llama section hides the Combine with MTP toggle for draft speculat
   const fields = captureManagedLlamaFields({
     ...MANAGED_PRESET,
     SpeculativeEnabled: true,
-    SpeculativeType: 'draft-mtp' as DashboardManagedLlamaPreset['SpeculativeType'],
+    SpeculativeType: 'draft-mtp' satisfies DashboardManagedLlamaPreset['SpeculativeType'],
   });
 
   assert.equal(fields.includes('Combine with MTP'), false);
@@ -1039,7 +1039,7 @@ test('managed llama section shows only draft-token controls for draft-mtp specul
   const fields = captureManagedLlamaFields({
     ...MANAGED_PRESET,
     SpeculativeEnabled: true,
-    SpeculativeType: 'draft-mtp' as DashboardManagedLlamaPreset['SpeculativeType'],
+    SpeculativeType: 'draft-mtp' satisfies DashboardManagedLlamaPreset['SpeculativeType'],
   });
 
   assert.equal(fields.includes('Speculative type'), true);
@@ -1056,7 +1056,7 @@ test('managed llama section warns when an MTP combination uses parallel slots', 
       selectedManagedLlamaPreset={{
         ...MANAGED_PRESET,
         SpeculativeEnabled: true,
-        SpeculativeType: 'ngram-mod' as DashboardManagedLlamaPreset['SpeculativeType'],
+        SpeculativeType: 'ngram-mod' satisfies DashboardManagedLlamaPreset['SpeculativeType'],
         SpeculativeMtpEnabled: true,
         ParallelSlots: 2,
       }}
@@ -1082,7 +1082,7 @@ test('managed llama section warns when mtp speculation uses parallel slots', () 
       selectedManagedLlamaPreset={{
         ...MANAGED_PRESET,
         SpeculativeEnabled: true,
-        SpeculativeType: 'draft-mtp' as DashboardManagedLlamaPreset['SpeculativeType'],
+        SpeculativeType: 'draft-mtp' satisfies DashboardManagedLlamaPreset['SpeculativeType'],
         ParallelSlots: 2,
       }}
       settingsActionBusy={false}
@@ -1421,7 +1421,7 @@ test('chat tab context bar fills from the live prompt token count while generati
 });
 
 test('chat tab context bar draws from the session window on a fresh session stream before usage exists', () => {
-  const session = { ...CHAT_SESSION, contextWindowTokens: 1000 } as ChatSession;
+  const session = { ...CHAT_SESSION, contextWindowTokens: 1000 } satisfies ChatSession;
   const markup = renderChatTab({
     selectedSession: session,
     webPresets: [PRESET],
@@ -1559,8 +1559,8 @@ test('chat tab gear popover does not render numeric context labels when usage in
 test('chat tab user message bubble carries the .msg.user class', () => {
   const session = {
     ...CHAT_SESSION,
-    messages: [{ ...CHAT_MESSAGE, id: 'u1', role: 'user', kind: 'user_text', content: 'hi' } as ChatMessage],
-  } as ChatSession;
+    messages: [{ ...CHAT_MESSAGE, id: 'u1', role: 'user', kind: 'user_text', content: 'hi' } satisfies ChatMessage],
+  } satisfies ChatSession;
   const markup = renderChatTab({
     selectedSession: session,
     webPresets: [PRESET],
@@ -1591,8 +1591,8 @@ test('chat tab assistant answer shows fetched grounding badge', () => {
       id: 'grounded-answer',
       content: 'The Mining Guild requires 60 Mining.',
       groundingStatus: 'fetched',
-    } as ChatMessage],
-  } as ChatSession;
+    } satisfies ChatMessage],
+  } satisfies ChatSession;
   const markup = renderChatTab({
     selectedSession: session,
     webPresets: [PRESET],
@@ -1610,7 +1610,7 @@ test('chat tab tool-call bubble carries the assistant class for left alignment',
   const session = {
     ...CHAT_SESSION,
     messages: [CHAT_TOOL_MESSAGE],
-  } as ChatSession;
+  } satisfies ChatSession;
   const markup = renderChatTab({
     selectedSession: session,
     webPresets: [PRESET],
@@ -1626,7 +1626,7 @@ test('chat tab renders typed thinking and tool bubbles with trash and expandable
   const session = {
     ...CHAT_SESSION,
     messages: [CHAT_THINKING_MESSAGE, CHAT_TOOL_MESSAGE, CHAT_MESSAGE],
-  } as ChatSession;
+  } satisfies ChatSession;
   const markup = renderChatTab({
     selectedSession: session,
     webPresets: [PRESET],
@@ -1655,7 +1655,7 @@ test('chat tab renders only explicit model-visible tool commands', () => {
       content: 'rg -n "tool.call|toolCall|ToolCall" --no-ignore --ignore-case --glob "!**/.git/**"',
       toolCallCommand: 'rg -n "tool.call|toolCall|ToolCall"',
     }],
-  } as ChatSession;
+  } satisfies ChatSession;
   const markup = renderChatTab({
     selectedSession: session,
     webPresets: [PRESET],
@@ -1671,10 +1671,10 @@ test('chat tab renders only explicit model-visible tool commands', () => {
 });
 
 test('ChatTab wraps a run turn in a turn bubble with collapsed Internal Logic and the answer outside', () => {
-  const thinking = { ...CHAT_THINKING_MESSAGE, id: 'th', sourceRunId: 'run-7' } as ChatMessage;
-  const tool = { ...CHAT_TOOL_MESSAGE, id: 'to', sourceRunId: 'run-7' } as ChatMessage;
-  const answer = { ...CHAT_MESSAGE, id: 'an', sourceRunId: 'run-7', content: 'Final formatted answer.' } as ChatMessage;
-  const session = { ...CHAT_SESSION, messages: [thinking, tool, answer] } as ChatSession;
+  const thinking = { ...CHAT_THINKING_MESSAGE, id: 'th', sourceRunId: 'run-7' } satisfies ChatMessage;
+  const tool = { ...CHAT_TOOL_MESSAGE, id: 'to', sourceRunId: 'run-7' } satisfies ChatMessage;
+  const answer = { ...CHAT_MESSAGE, id: 'an', sourceRunId: 'run-7', content: 'Final formatted answer.' } satisfies ChatMessage;
+  const session = { ...CHAT_SESSION, messages: [thinking, tool, answer] } satisfies ChatSession;
   const markup = renderChatTab({ selectedSession: session });
   assert.match(markup, /class="msg assistant turn/u);
   assert.match(markup, /Internal Logic \(2\)/u);
@@ -1690,17 +1690,17 @@ test('ChatTab does not render retained internal steps as standalone transcript b
     content: 'web_search query="x"',
     toolCallCommand: 'web_search query="x"',
     sourceRunId: 'run-chat-1',
-  } as ChatMessage;
+  } satisfies ChatMessage;
   const toolFetch = {
     ...CHAT_TOOL_MESSAGE,
     id: 't2',
     content: 'web_fetch url="https://example.test"',
     toolCallCommand: 'web_fetch url="https://example.test"',
     sourceRunId: 'run-chat-1',
-  } as ChatMessage;
-  const answer = { ...CHAT_MESSAGE, id: 'a1', content: 'answer', sourceRunId: 'run-chat-1' } as ChatMessage;
-  const user = { ...CHAT_MESSAGE, id: 'u1', role: 'user', kind: 'user_text', content: 'question' } as ChatMessage;
-  const session = { ...CHAT_SESSION, messages: [user, toolSearch, toolFetch, answer] } as ChatSession;
+  } satisfies ChatMessage;
+  const answer = { ...CHAT_MESSAGE, id: 'a1', content: 'answer', sourceRunId: 'run-chat-1' } satisfies ChatMessage;
+  const user = { ...CHAT_MESSAGE, id: 'u1', role: 'user', kind: 'user_text', content: 'question' } satisfies ChatMessage;
+  const session = { ...CHAT_SESSION, messages: [user, toolSearch, toolFetch, answer] } satisfies ChatSession;
   const markup = renderChatTab({ selectedSession: session });
 
   assert.equal((markup.match(/Internal Logic \(2\)/gu) ?? []).length, 1);
@@ -1709,10 +1709,10 @@ test('ChatTab does not render retained internal steps as standalone transcript b
 });
 
 test('ChatTab settled run turn exposes a delete button per step, one for the answer, and one turn delete', () => {
-  const thinking = { ...CHAT_THINKING_MESSAGE, id: 'th', sourceRunId: 'run-7' } as ChatMessage;
-  const tool = { ...CHAT_TOOL_MESSAGE, id: 'to', sourceRunId: 'run-7' } as ChatMessage;
-  const answer = { ...CHAT_MESSAGE, id: 'an', sourceRunId: 'run-7' } as ChatMessage;
-  const session = { ...CHAT_SESSION, messages: [thinking, tool, answer] } as ChatSession;
+  const thinking = { ...CHAT_THINKING_MESSAGE, id: 'th', sourceRunId: 'run-7' } satisfies ChatMessage;
+  const tool = { ...CHAT_TOOL_MESSAGE, id: 'to', sourceRunId: 'run-7' } satisfies ChatMessage;
+  const answer = { ...CHAT_MESSAGE, id: 'an', sourceRunId: 'run-7' } satisfies ChatMessage;
+  const session = { ...CHAT_SESSION, messages: [thinking, tool, answer] } satisfies ChatSession;
   const markup = renderChatTab({ selectedSession: session });
   const deleteMessageButtons = (markup.match(/aria-label="Delete message"/gu) ?? []).length;
   assert.equal(deleteMessageButtons, 3); // 2 steps in Internal Logic + 1 answer in the main slot
@@ -1721,7 +1721,7 @@ test('ChatTab settled run turn exposes a delete button per step, one for the ans
 });
 
 test('ChatTab renders a lone assistant answer as a plain bubble with no Internal Logic', () => {
-  const session = { ...CHAT_SESSION, messages: [{ ...CHAT_MESSAGE, id: 'solo' } as ChatMessage] } as ChatSession;
+  const session = { ...CHAT_SESSION, messages: [{ ...CHAT_MESSAGE, id: 'solo' } satisfies ChatMessage] } satisfies ChatSession;
   const markup = renderChatTab({ selectedSession: session });
   assert.match(markup, /class="msg assistant assistant_answer/u);
   assert.doesNotMatch(markup, /Internal Logic/u);
@@ -1731,8 +1731,8 @@ test('ChatTab renders a lone assistant answer as a plain bubble with no Internal
 test('ChatTab renders a user message as a plain bubble with no Internal Logic', () => {
   const session = {
     ...CHAT_SESSION,
-    messages: [{ ...CHAT_MESSAGE, id: 'u1', role: 'user', kind: 'user_text', content: 'hi' } as ChatMessage],
-  } as ChatSession;
+    messages: [{ ...CHAT_MESSAGE, id: 'u1', role: 'user', kind: 'user_text', content: 'hi' } satisfies ChatMessage],
+  } satisfies ChatSession;
   const markup = renderChatTab({ selectedSession: session });
   assert.match(markup, /class="msg user user_text/u);
   assert.doesNotMatch(markup, /Internal Logic/u);
@@ -1750,7 +1750,7 @@ test('ChatTab main transcript token labels do not use cumulative prompt eval tel
         content: 'tiny',
         inputTokensEstimate: 161239,
         inputTokensEstimated: true,
-      } as ChatMessage,
+      } satisfies ChatMessage,
       {
         ...CHAT_MESSAGE,
         id: 'a1',
@@ -1760,9 +1760,9 @@ test('ChatTab main transcript token labels do not use cumulative prompt eval tel
         outputTokensEstimate: 554,
         promptEvalTokens: 161239,
         promptCacheTokens: 1204807,
-      } as ChatMessage,
+      } satisfies ChatMessage,
     ],
-  } as ChatSession;
+  } satisfies ChatSession;
 
   const markup = renderChatTab({ selectedSession: session });
 
@@ -1775,15 +1775,15 @@ test('ChatTab grouped turn header shows aggregate answer and internal tokens', (
     id: 'to',
     sourceRunId: 'run-token-display',
     outputTokensEstimate: 161239,
-  } as ChatMessage;
+  } satisfies ChatMessage;
   const answer = {
     ...CHAT_MESSAGE,
     id: 'an',
     sourceRunId: 'run-token-display',
     content: 'short answer',
     outputTokensEstimate: 0,
-  } as ChatMessage;
-  const session = { ...CHAT_SESSION, messages: [tool, answer] } as ChatSession;
+  } satisfies ChatMessage;
+  const session = { ...CHAT_SESSION, messages: [tool, answer] } satisfies ChatSession;
 
   const markup = renderChatTab({ selectedSession: session });
 
@@ -1798,7 +1798,7 @@ test('ChatTab tool and grouped turn token labels hide estimated counts', () => {
     outputTokensEstimate: 9048,
     associatedToolTokens: 9048,
     outputTokensEstimated: true,
-  } as ChatMessage;
+  } satisfies ChatMessage;
   const answer = {
     ...CHAT_MESSAGE,
     id: 'an',
@@ -1806,8 +1806,8 @@ test('ChatTab tool and grouped turn token labels hide estimated counts', () => {
     content: 'short answer',
     inputTokensEstimate: 0,
     outputTokensEstimate: 3550,
-  } as ChatMessage;
-  const session = { ...CHAT_SESSION, messages: [tool, answer] } as ChatSession;
+  } satisfies ChatMessage;
+  const session = { ...CHAT_SESSION, messages: [tool, answer] } satisfies ChatSession;
 
   const markup = renderChatTab({ selectedSession: session });
 
@@ -1818,11 +1818,11 @@ test('ChatTab tool and grouped turn token labels hide estimated counts', () => {
 });
 
 test('ChatTab live turn shows latest item in the main slot, earlier steps in Internal Logic, and no delete buttons', () => {
-  const liveThinking = { ...CHAT_THINKING_MESSAGE, id: 'live-thinking-0' } as ChatMessage;
+  const liveThinking = { ...CHAT_THINKING_MESSAGE, id: 'live-thinking-0' } satisfies ChatMessage;
   const liveTool = {
     ...CHAT_TOOL_MESSAGE, id: 'live-tool-x', toolCallStatus: 'running', toolCallOutput: '', toolCallOutputSnippet: '',
-  } as ChatMessage;
-  const session = { ...CHAT_SESSION, messages: [] } as ChatSession;
+  } satisfies ChatMessage;
+  const session = { ...CHAT_SESSION, messages: [] } satisfies ChatSession;
   const markup = renderChatTab({ selectedSession: session, liveMessages: [liveThinking, liveTool] });
   assert.match(markup, /Internal Logic \(1\)/u);
   assert.match(markup, /class="tool-spinner"/u);
@@ -1839,8 +1839,8 @@ test('ChatTab renders a friendly loading label for a running web search tool', (
     content: 'web_search query="osrs iron bar"',
     toolCallOutput: '',
     toolCallOutputSnippet: '',
-  } as ChatMessage;
-  const session = { ...CHAT_SESSION, messages: [] } as ChatSession;
+  } satisfies ChatMessage;
+  const session = { ...CHAT_SESSION, messages: [] } satisfies ChatSession;
   const markup = renderChatTab({ selectedSession: session, liveMessages: [liveTool] });
   assert.match(markup, /class="tool-spinner"/u);
   assert.match(markup, /Fetching search results/u);
@@ -1878,13 +1878,13 @@ test('chat tab renders non-deletable collapsed system context bubble first', () 
 });
 
 test('chat tab renders fallback system context bubble when session metadata is missing', () => {
-  const session = { ...CHAT_SESSION, promptContext: undefined } as ChatSession;
+  const session = { ...CHAT_SESSION, promptContext: undefined } satisfies ChatSession;
   const preset = {
     ...PRESET,
     presetKind: 'repo-search',
     promptPrefix: 'Use strict repo evidence.',
     allowedTools: ['repo_rg', 'repo_read_file'],
-  } as DashboardPreset;
+  } satisfies DashboardPreset;
   const markup = renderChatTab({
     selectedSession: session,
     webPresets: [preset],
@@ -1921,7 +1921,7 @@ test('chat tab system prompt bubble hides the agents.md block without rendering 
       createdAtUtc: CHAT_SESSION.createdAtUtc,
       deletable: false as const,
     },
-  } as ChatSession;
+  } satisfies ChatSession;
   const renderWithSelection = (includeAgentsMd: boolean): string =>
     renderChatTab({
       selectedSession: session,
@@ -1953,7 +1953,7 @@ test('chat tab renders repo-search auto-append controls before first message', (
   const emptySession = {
     ...CHAT_SESSION,
     messages: [],
-  } as ChatSession;
+  } satisfies ChatSession;
   const markup = renderChatTab({
     selectedSession: emptySession,
     webPresets: [PRESET],
@@ -1998,7 +1998,7 @@ test('chat tab renders exact repo-search auto-append token counts from llama.cpp
   const emptySession = {
     ...CHAT_SESSION,
     messages: [],
-  } as ChatSession;
+  } satisfies ChatSession;
   const markup = renderChatTab({
     selectedSession: emptySession,
     webPresets: [PRESET],
@@ -2034,7 +2034,7 @@ test('chat tab renders exact repo-search auto-append token counts from llama.cpp
 });
 
 test('chat tab hides repo-search auto-append controls outside first empty repo-search turn', () => {
-  const emptySession = { ...CHAT_SESSION, messages: [] } as ChatSession;
+  const emptySession = { ...CHAT_SESSION, messages: [] } satisfies ChatSession;
   const preview = {
     agentsMd: {
       key: 'agentsMd' as const,
@@ -2083,10 +2083,10 @@ test('repo-search auto-append helper maps toggled controls into request payload 
 });
 
 test('chat tab preserves persisted server order and keeps live messages last', () => {
-  const older = { ...CHAT_MESSAGE, id: 'older', role: 'user', kind: 'user_text', content: 'older message', createdAtUtc: '2026-04-16T12:00:00.000Z' } as ChatMessage;
-  const newer = { ...CHAT_MESSAGE, id: 'newer', content: 'newer persisted message', createdAtUtc: '2026-04-16T12:01:00.000Z' } as ChatMessage;
-  const live = { ...CHAT_MESSAGE, id: 'live-answer', content: 'currently streaming message', createdAtUtc: '2026-04-16T11:59:00.000Z' } as ChatMessage;
-  const session = { ...CHAT_SESSION, messages: [newer, older] } as ChatSession;
+  const older = { ...CHAT_MESSAGE, id: 'older', role: 'user', kind: 'user_text', content: 'older message', createdAtUtc: '2026-04-16T12:00:00.000Z' } satisfies ChatMessage;
+  const newer = { ...CHAT_MESSAGE, id: 'newer', content: 'newer persisted message', createdAtUtc: '2026-04-16T12:01:00.000Z' } satisfies ChatMessage;
+  const live = { ...CHAT_MESSAGE, id: 'live-answer', content: 'currently streaming message', createdAtUtc: '2026-04-16T11:59:00.000Z' } satisfies ChatMessage;
+  const session = { ...CHAT_SESSION, messages: [newer, older] } satisfies ChatSession;
   const markup = renderChatTab({
     selectedSession: session,
     webPresets: [PRESET],
@@ -2107,12 +2107,12 @@ test('ChatTab preserves server message order when timestamps are equal', () => {
   const session = {
     ...CHAT_SESSION,
     messages: [
-      { ...CHAT_MESSAGE, id: 'u1', role: 'user', kind: 'user_text', content: 'first', createdAtUtc: '2026-06-06T10:00:00.000Z' } as ChatMessage,
-      { ...CHAT_TOOL_MESSAGE, id: 't1', content: 'web_search query="x"', createdAtUtc: '2026-06-06T10:00:00.000Z', sourceRunId: 'run-1' } as ChatMessage,
-      { ...CHAT_MESSAGE, id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'answer', createdAtUtc: '2026-06-06T10:00:00.000Z', sourceRunId: 'run-1' } as ChatMessage,
-      { ...CHAT_MESSAGE, id: 'u2', role: 'user', kind: 'user_text', content: 'second', createdAtUtc: '2026-06-06T09:00:00.000Z' } as ChatMessage,
+      { ...CHAT_MESSAGE, id: 'u1', role: 'user', kind: 'user_text', content: 'first', createdAtUtc: '2026-06-06T10:00:00.000Z' } satisfies ChatMessage,
+      { ...CHAT_TOOL_MESSAGE, id: 't1', content: 'web_search query="x"', createdAtUtc: '2026-06-06T10:00:00.000Z', sourceRunId: 'run-1' } satisfies ChatMessage,
+      { ...CHAT_MESSAGE, id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'answer', createdAtUtc: '2026-06-06T10:00:00.000Z', sourceRunId: 'run-1' } satisfies ChatMessage,
+      { ...CHAT_MESSAGE, id: 'u2', role: 'user', kind: 'user_text', content: 'second', createdAtUtc: '2026-06-06T09:00:00.000Z' } satisfies ChatMessage,
     ],
-  } as ChatSession;
+  } satisfies ChatSession;
 
   const markup = renderChatTab({ selectedSession: session });
 
@@ -2124,7 +2124,7 @@ test('ChatTab assistant turn token chip sums answer and internal tool tokens', (
   const session = {
     ...CHAT_SESSION,
     messages: [
-      { ...CHAT_TOOL_MESSAGE, id: 'tool-agg', outputTokensEstimate: 12, associatedToolTokens: 12, sourceRunId: 'run-agg' } as ChatMessage,
+      { ...CHAT_TOOL_MESSAGE, id: 'tool-agg', outputTokensEstimate: 12, associatedToolTokens: 12, sourceRunId: 'run-agg' } satisfies ChatMessage,
       {
         ...CHAT_MESSAGE,
         id: 'answer-agg',
@@ -2136,9 +2136,9 @@ test('ChatTab assistant turn token chip sums answer and internal tool tokens', (
         thinkingTokens: 0,
         associatedToolTokens: 0,
         sourceRunId: 'run-agg',
-      } as ChatMessage,
+      } satisfies ChatMessage,
     ],
-  } as ChatSession;
+  } satisfies ChatSession;
 
   const markup = renderChatTab({
     selectedSession: session,

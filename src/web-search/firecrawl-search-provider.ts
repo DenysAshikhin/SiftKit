@@ -1,4 +1,4 @@
-import type { Dict } from '../lib/types.js';
+import { JsonObjectSchema, type JsonObject } from '../lib/json-types.js';
 import {
   WebSearchProvider,
   asRecord,
@@ -36,7 +36,7 @@ export class FirecrawlSearchProvider extends WebSearchProvider {
   }
 
   async search(args: WebSearchToolArgs, opts: WebSearchProviderOptions): Promise<WebSearchResult[]> {
-    const body: Dict = { query: args.query, limit: opts.resultCount };
+    const body: JsonObject = { query: args.query, limit: opts.resultCount };
     if (args.timeFilter) {
       body.tbs = TBS_BY_TIME_FILTER[args.timeFilter];
     }
@@ -49,7 +49,7 @@ export class FirecrawlSearchProvider extends WebSearchProvider {
     if (!response.ok) {
       throw new Error(`Firecrawl search failed with HTTP ${response.status}.`);
     }
-    const payload = await response.json() as Dict;
+    const payload = JsonObjectSchema.parse(await response.json());
     if (payload.success === false) {
       throw new Error(`Firecrawl search failed with HTTP ${response.status}.`);
     }
@@ -72,7 +72,7 @@ export class FirecrawlSearchProvider extends WebSearchProvider {
     if (!response.ok) {
       throw new Error(`Firecrawl usage failed with HTTP ${response.status}.`);
     }
-    const payload = await response.json() as Dict;
+    const payload = JsonObjectSchema.parse(await response.json());
     const data = asRecord(payload.data);
     return clampQuota('firecrawl', null, getNumber(data.planCredits), getNumber(data.remainingCredits));
   }

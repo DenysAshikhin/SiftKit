@@ -1,4 +1,4 @@
-import * as fs from 'node:fs';
+import { readFileSync } from 'node:fs';
 
 export type SupportedTextEncoding = 'utf8' | 'utf16le' | 'utf16be';
 
@@ -71,5 +71,5 @@ export function decodeTextBuffer(buffer: Buffer): string {
 }
 
 export function readTextFileWithEncoding(filePath: string): string {
-  return decodeTextBuffer(fs.readFileSync(filePath));
+  return decodeTextBuffer(readFileSync(filePath));
 }

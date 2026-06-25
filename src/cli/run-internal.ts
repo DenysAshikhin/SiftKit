@@ -4,6 +4,9 @@ import { captureWithTranscript, invokeProcess, invokeShellProcess } from '../cap
 import { findFiles } from '../find-files.js';
 import { installCodexPolicy, installShellIntegration, installSiftKit } from '../install.js';
 import { readTextFileWithEncoding } from '../lib/text-encoding.js';
+import { parseJsonValueText } from '../lib/json.js';
+import { JsonRecordReader } from '../lib/json-record-reader.js';
+import type { JsonObject, JsonSerializable } from '../lib/json-types.js';
 import { getCommandArgs, parseArguments, SERVER_DEPENDENT_INTERNAL_OPS } from './args.js';
 import {
   normalizeCliFormat,
@@ -16,8 +19,8 @@ import {
 import { buildTestResult } from './run-test.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
 
-function readRequestFile(filePath: string): Record<string, unknown> {
-  return JSON.parse(readTextFileWithEncoding(filePath)) as Record<string, unknown>;
+function readRequestFile(filePath: string): JsonObject {
+  return JsonRecordReader.asObject(parseJsonValueText(readTextFileWithEncoding(filePath))) ?? {};
 }
 
 export async function runInternal(options: {
@@ -38,7 +41,7 @@ export async function runInternal(options: {
 
   const request = readRequestFile(parsed.requestFile);
   const apiClient = new StatusServerApiClient();
-  let result: unknown;
+  let result: JsonSerializable;
   switch (parsed.op) {
     case 'install':
       result = await installSiftKit(Boolean(request.Force));
@@ -118,7 +121,10 @@ export async function runInternal(options: {
       });
       break;
     case 'find-files':
-      result = findFiles((request.Name as string[]).map(String), request.Path ? String(request.Path) : '.');
+      result = findFiles(
+        Array.isArray(request.Name) ? request.Name.map(String) : [],
+        request.Path ? String(request.Path) : '.',
+      );
       break;
     case 'codex-policy':
       result = await installCodexPolicy(request.CodexHome ? String(request.CodexHome) : undefined, Boolean(request.Force));
@@ -157,11 +163,7 @@ export async function runInternal(options: {
         logFile: request.LogFile ? String(request.LogFile) : undefined,
         availableModels: Array.isArray(request.AvailableModels) ? request.AvailableModels.map(String) : undefined,
         mockResponses: Array.isArray(request.MockResponses) ? request.MockResponses.map(String) : undefined,
-        mockCommandResults: (
-          request.MockCommandResults
-          && typeof request.MockCommandResults === 'object'
-          && !Array.isArray(request.MockCommandResults)
-        ) ? request.MockCommandResults as Record<string, { exitCode?: number; stdout?: string; stderr?: string }> : undefined,
+        mockCommandResults: JsonRecordReader.asObject(request.MockCommandResults) ?? undefined,
       });
       break;
     default:

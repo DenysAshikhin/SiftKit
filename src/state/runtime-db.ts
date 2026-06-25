@@ -1,11 +1,25 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import { existsSync, rmSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
+import { z } from '../lib/zod.js';
 import { ensureDirectory } from '../lib/fs.js';
+import { parseJsonValueText } from '../lib/json.js';
+import type { OptionalJsonValue, JsonValue } from '../lib/json-types.js';
 import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
 import { normalizeOperationModeAllowedTools, normalizePresets } from '../presets.js';
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
+
+const ExistsFlagRowSchema = z.object({ exists_flag: z.number().nullable() });
+const VersionRowSchema = z.object({ version: z.number().nullable() });
+const PlannerToolNamesRowSchema = z.object({
+  operation_mode_allowed_tools_json: z.string().nullable(),
+  presets_json: z.string().nullable(),
+});
+const PresetsJsonRowSchema = z.object({ presetsJson: z.string().nullable() });
+const MetadataValueRowSchema = z.object({ value: z.string().nullable() });
+const FreelistRowSchema = z.object({ freelist_count: z.number().nullable() });
+const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
 
 export const CURRENT_SCHEMA_VERSION = 30;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
@@ -16,12 +30,13 @@ let cachedDatabasePath: string | null = null;
 let cachedDatabase: RuntimeDatabase | null = null;
 
 function tableExists(database: RuntimeDatabase, name: string): boolean {
-  const row = database.prepare(`
+  const rawRow = database.prepare(`
     SELECT 1 AS exists_flag
     FROM sqlite_master
     WHERE type = 'table' AND name = ?
     LIMIT 1
-  `).get(name) as { exists_flag?: number } | undefined;
+  `).get(name);
+  const row = rawRow == null ? undefined : ExistsFlagRowSchema.parse(rawRow);
   return Number(row?.exists_flag) === 1;
 }
 
@@ -30,12 +45,13 @@ function tableHasColumn(database: RuntimeDatabase, tableName: string, columnName
     return false;
   }
   const escapedTableName = String(tableName).replace(/'/gu, "''");
-  const row = database.prepare(`
+  const rawRow = database.prepare(`
     SELECT 1 AS exists_flag
     FROM pragma_table_info('${escapedTableName}')
     WHERE name = ?
     LIMIT 1
-  `).get(columnName) as { exists_flag?: number } | undefined;
+  `).get(columnName);
+  const row = rawRow == null ? undefined : ExistsFlagRowSchema.parse(rawRow);
   return Number(row?.exists_flag) === 1;
 }
 
@@ -77,7 +93,8 @@ function getSchemaVersion(database: RuntimeDatabase): number {
       version INTEGER NOT NULL
     );
   `);
-  const row = database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get() as { version?: number } | undefined;
+  const rawRow = database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get();
+  const row = rawRow == null ? undefined : VersionRowSchema.parse(rawRow);
   return Number.isFinite(row?.version) ? Number(row?.version) : 0;
 }
 
@@ -614,29 +631,27 @@ function migrateStoredPlannerToolNames(database: RuntimeDatabase): void {
   if (!tableExists(database, 'app_config')) {
     return;
   }
-  const row = database.prepare(`
+  const rawRow = database.prepare(`
     SELECT operation_mode_allowed_tools_json, presets_json
     FROM app_config
     WHERE id = 1
-  `).get() as {
-    operation_mode_allowed_tools_json?: string;
-    presets_json?: string;
-  } | undefined;
-  if (!row) {
+  `).get();
+  if (rawRow == null) {
     return;
   }
+  const row = PlannerToolNamesRowSchema.parse(rawRow);
 
-  let parsedOperationModeAllowedTools: unknown = undefined;
-  let parsedPresets: unknown = undefined;
+  let parsedOperationModeAllowedTools: OptionalJsonValue;
+  let parsedPresets: OptionalJsonValue;
   try {
     parsedOperationModeAllowedTools = row.operation_mode_allowed_tools_json
-      ? JSON.parse(row.operation_mode_allowed_tools_json)
+      ? parseJsonValueText(row.operation_mode_allowed_tools_json)
       : undefined;
   } catch {
     parsedOperationModeAllowedTools = undefined;
   }
   try {
-    parsedPresets = row.presets_json ? JSON.parse(row.presets_json) : undefined;
+    parsedPresets = row.presets_json ? parseJsonValueText(row.presets_json) : undefined;
   } catch {
     parsedPresets = undefined;
   }
@@ -681,12 +696,13 @@ function migrateAppConfigToPresetSourceOfTruth(database: RuntimeDatabase): void 
     return;
   }
   if (tableHasColumn(database, 'app_config', 'server_llama_presets_json')) {
-    const row = database.prepare(
+    const rawRow = database.prepare(
       'SELECT server_llama_presets_json AS presetsJson FROM app_config WHERE id = 1',
-    ).get() as { presetsJson?: string } | undefined;
-    let presets: unknown[] = [];
+    ).get();
+    const row = rawRow == null ? undefined : PresetsJsonRowSchema.parse(rawRow);
+    let presets: JsonValue = [];
     try {
-      presets = row?.presetsJson ? (JSON.parse(row.presetsJson) as unknown[]) : [];
+      presets = row?.presetsJson ? parseJsonValueText(row.presetsJson) : [];
     } catch {
       presets = [];
     }
@@ -1121,12 +1137,12 @@ function ensureSchema(database: RuntimeDatabase): void {
 
 export function getRepoRuntimeRoot(startPath: string = process.cwd()): string {
   const repoRoot = findNearestSiftKitRepoRoot(startPath);
-  const resolvedBaseRoot = repoRoot ? path.resolve(repoRoot) : path.resolve(startPath);
-  return path.join(resolvedBaseRoot, '.siftkit');
+  const resolvedBaseRoot = repoRoot ? resolve(repoRoot) : resolve(startPath);
+  return join(resolvedBaseRoot, '.siftkit');
 }
 
 export function getRuntimeDatabasePath(startPath: string = process.cwd()): string {
-  return path.join(getRepoRuntimeRoot(startPath), 'runtime.sqlite');
+  return join(getRepoRuntimeRoot(startPath), 'runtime.sqlite');
 }
 
 function configureRuntimeDatabase(database: RuntimeDatabase): void {
@@ -1149,7 +1165,7 @@ function closeRuntimeDatabaseHandle(database: RuntimeDatabase): void {
 }
 
 export function getRuntimeDatabase(databasePath: string = getRuntimeDatabasePath()): RuntimeDatabase {
-  const resolvedPath = path.resolve(databasePath);
+  const resolvedPath = resolve(databasePath);
   if (cachedDatabase && cachedDatabasePath === resolvedPath) {
     return cachedDatabase;
   }
@@ -1158,7 +1174,7 @@ export function getRuntimeDatabase(databasePath: string = getRuntimeDatabasePath
     cachedDatabase = null;
     cachedDatabasePath = null;
   }
-  ensureDirectory(path.dirname(resolvedPath));
+  ensureDirectory(dirname(resolvedPath));
   let database: RuntimeDatabase = new Database(resolvedPath);
   try {
     configureRuntimeDatabase(database);
@@ -1175,8 +1191,8 @@ export function getRuntimeDatabase(databasePath: string = getRuntimeDatabasePath
     }
     for (const suffix of ['', '-wal', '-shm']) {
       const targetPath = `${resolvedPath}${suffix}`;
-      if (fs.existsSync(targetPath)) {
-        fs.rmSync(targetPath, { force: true });
+      if (existsSync(targetPath)) {
+        rmSync(targetPath, { force: true });
       }
     }
     database = new Database(resolvedPath);
@@ -1206,12 +1222,13 @@ export function getRuntimeMetadataValue(
     return null;
   }
   const database = getRuntimeDatabase(databasePath);
-  const row = database.prepare(`
+  const rawRow = database.prepare(`
     SELECT value
     FROM runtime_metadata
     WHERE key = ?
     LIMIT 1
-  `).get(normalizedKey) as { value?: unknown } | undefined;
+  `).get(normalizedKey);
+  const row = rawRow == null ? undefined : MetadataValueRowSchema.parse(rawRow);
   return typeof row?.value === 'string' ? row.value : null;
 }
 
@@ -1268,8 +1285,10 @@ export function pruneRuntimeHistory(
 
   let vacuumed = false;
   try {
-    const freelistRow = database.prepare('PRAGMA freelist_count').get() as { freelist_count?: number } | undefined;
-    const pageRow = database.prepare('PRAGMA page_count').get() as { page_count?: number } | undefined;
+    const rawFreelistRow = database.prepare('PRAGMA freelist_count').get();
+    const rawPageRow = database.prepare('PRAGMA page_count').get();
+    const freelistRow = rawFreelistRow == null ? undefined : FreelistRowSchema.parse(rawFreelistRow);
+    const pageRow = rawPageRow == null ? undefined : PageCountRowSchema.parse(rawPageRow);
     const freelistCount = Number(freelistRow?.freelist_count) || 0;
     const pageCount = Number(pageRow?.page_count) || 0;
     if (pageCount > 0 && freelistCount / pageCount > RUNTIME_HISTORY_VACUUM_FREELIST_RATIO) {

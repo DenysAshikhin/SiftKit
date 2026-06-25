@@ -186,7 +186,7 @@ export async function planTokenAwareLlamaCppChunks(options: {
 }
 
 export function shouldRetryWithSmallerChunks(options: {
-  error: unknown;
+  error: Error;
   backend: string;
   inputText: string;
   chunkThreshold: number;
@@ -199,19 +199,18 @@ export function shouldRetryWithSmallerChunks(options: {
     return false;
   }
 
-  const message = options.error instanceof Error ? options.error.message : String(options.error);
-  return /llama\.cpp generate failed with HTTP 400\b/iu.test(message);
+  return /llama\.cpp generate failed with HTTP 400\b/iu.test(options.error.message);
 }
 
 export function getLlamaCppPromptTokenReserve(config: SiftConfig): number {
-  const reasoning = getConfiguredLlamaSetting<'on' | 'off'>(config, 'Reasoning');
+  const reasoning = getConfiguredLlamaSetting(config, 'Reasoning');
   return reasoning === 'off'
     ? LLAMA_CPP_NON_THINKING_PROMPT_TOKEN_RESERVE
     : LLAMA_CPP_THINKING_PROMPT_TOKEN_RESERVE;
 }
 
 export function allocateLlamaCppSlotId(config: SiftConfig): number {
-  const configuredSlots = getConfiguredLlamaSetting<number | null>(config, 'ParallelSlots');
+  const configuredSlots = getConfiguredLlamaSetting(config, 'ParallelSlots');
   const slotCount = Math.max(1, Math.floor(Number(configuredSlots) || 1));
   const slotId = nextLlamaCppSlotId % slotCount;
   nextLlamaCppSlotId = (nextLlamaCppSlotId + 1) % slotCount;

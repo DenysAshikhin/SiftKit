@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import {
@@ -16,9 +16,18 @@ import {
 import { buildChatPromptContext } from '../src/status-server/chat-prompt-context.js';
 import { normalizeConfig } from '../src/status-server/config-store.js';
 import { estimateTokenCount, type ChatSession } from '../src/state/chat-sessions.js';
+import { z } from '../src/lib/zod.js';
+import type { JsonObject } from '../src/lib/json-types.js';
 import type { SiftConfig } from '../src/config/types.js';
 
-function createConfig(overrides: Record<string, unknown> = {}): SiftConfig {
+// Brand a deliberately-partial session fixture as ChatSession at one boundary;
+// tests exercise only the fields they set.
+const ChatSessionSchema = z.custom<ChatSession>((value) => typeof value === 'object' && value !== null);
+function mockChatSession(session: object): ChatSession {
+  return ChatSessionSchema.parse(session);
+}
+
+function createConfig(overrides: JsonObject = {}): SiftConfig {
   return normalizeConfig({
     Runtime: {
       Model: 'managed.gguf',
@@ -84,7 +93,7 @@ function createNoThinkingReplayConfig(): SiftConfig {
 }
 
 function createSession(): ChatSession {
-  return {
+  return mockChatSession({
     id: 'session-1',
     title: 'Session',
     model: 'managed.gguf',
@@ -106,7 +115,7 @@ function createSession(): ChatSession {
         thinkingContent: '',
       },
     ],
-  } as ChatSession;
+  });
 }
 
 
@@ -415,7 +424,7 @@ test('buildPersistTurnsFromRepoSearchResult throws on a command with a missing t
 
 
 test('buildContextUsage counts typed thinking and tool bubbles from visible timeline content', () => {
-  const session = {
+  const session = mockChatSession({
     id: 'session-usage-typed',
     contextWindowTokens: 75000,
     messages: [
@@ -434,7 +443,7 @@ test('buildContextUsage counts typed thinking and tool bubbles from visible time
         toolCallOutput: 'src/example.ts:1:x',
       },
     ],
-  } as ChatSession;
+  });
 
   const usage = buildContextUsage(null, session);
 
@@ -453,7 +462,7 @@ test('buildContextUsage counts typed thinking and tool bubbles from visible time
 });
 
 test('buildChatHistoryMessages replays user answers and tool calls in persisted order', () => {
-  const session = {
+  const session = mockChatSession({
     id: 's1',
     messages: [
       { id: 'u1', role: 'user', kind: 'user_text', content: 'What did the page say?' },
@@ -468,8 +477,8 @@ test('buildChatHistoryMessages replays user answers and tool calls in persisted 
       { id: 'think-1', role: 'assistant', kind: 'assistant_thinking', content: 'private reasoning' },
       { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'It says iron bars are used in quests.' },
     ],
-  };
-  assert.deepEqual(buildChatHistoryMessages(createNoThinkingReplayConfig(), session as never), [
+  });
+  assert.deepEqual(buildChatHistoryMessages(createNoThinkingReplayConfig(), session), [
     { role: 'user', content: 'What did the page say?' },
     {
       role: 'assistant',
@@ -493,7 +502,7 @@ test('buildChatHistoryMessages replays user answers and tool calls in persisted 
 });
 
 test('buildChatHistoryMessages replays persisted repo tool calls with real protocol names', () => {
-  const session = {
+  const session = mockChatSession({
     id: 's1',
     messages: [
       {
@@ -505,9 +514,9 @@ test('buildChatHistoryMessages replays persisted repo tool calls with real proto
         toolCallOutput: 'src/status-server/chat.ts:181:export function buildChatHistoryMessages',
       },
     ],
-  };
+  });
 
-  assert.deepEqual(buildChatHistoryMessages(createNoThinkingReplayConfig(), session as never), [
+  assert.deepEqual(buildChatHistoryMessages(createNoThinkingReplayConfig(), session), [
     {
       role: 'assistant',
       content: '',
@@ -550,7 +559,7 @@ test('buildContextUsage counts replay-visible context, not internal tool telemet
 
 test('appendChatMessagesWithUsage stores user text token estimate from content, not cumulative prompt eval telemetry', () => {
   const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-user-tokens-'));
-  const session = {
+  const session = mockChatSession({
     id: 'session-user-tokens',
     title: 'Session',
     model: 'managed.gguf',
@@ -558,7 +567,7 @@ test('appendChatMessagesWithUsage stores user text token estimate from content, 
     createdAtUtc: '2026-04-17T00:00:00.000Z',
     updatedAtUtc: '2026-04-17T00:00:00.000Z',
     messages: [],
-  } as ChatSession;
+  });
 
   const updated = appendChatMessagesWithUsage(runtimeRoot, session, 'tiny', 'answer', {
     promptTokens: null,
@@ -575,7 +584,7 @@ test('appendChatMessagesWithUsage stores user text token estimate from content, 
 });
 
 test('buildChatHistoryMessages replays retained thinking when preserve thinking is enabled', () => {
-  const session = {
+  const session = mockChatSession({
     id: 's1',
     thinkingEnabled: true,
     messages: [
@@ -592,9 +601,9 @@ test('buildChatHistoryMessages replays retained thinking when preserve thinking 
         toolCallOutput: 'Title: Example Page',
       },
     ],
-  };
+  });
 
-  assert.deepEqual(buildChatHistoryMessages(createConfig(), session as never), [
+  assert.deepEqual(buildChatHistoryMessages(createConfig(), session), [
     { role: 'user', content: 'What did the page say?' },
     { role: 'assistant', content: 'It says iron bars are used in quests.', reasoning_content: 'private reasoning' },
     {
@@ -619,14 +628,14 @@ test('buildChatHistoryMessages replays retained thinking when preserve thinking 
 });
 
 test('buildChatHistoryMessages omits retained thinking when preserve thinking is disabled', () => {
-  const session = {
+  const session = mockChatSession({
     id: 's1',
     thinkingEnabled: true,
     messages: [
       { id: 'think-1', role: 'assistant', kind: 'assistant_thinking', content: 'private reasoning' },
       { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'It says iron bars are used in quests.' },
     ],
-  };
+  });
   const config = createConfig({
     Server: {
       LlamaCpp: {
@@ -642,14 +651,14 @@ test('buildChatHistoryMessages omits retained thinking when preserve thinking is
     },
   });
 
-  assert.deepEqual(buildChatHistoryMessages(config, session as never), [
+  assert.deepEqual(buildChatHistoryMessages(config, session), [
     { role: 'assistant', content: 'It says iron bars are used in quests.' },
   ]);
 });
 
 test('appendChatMessagesWithUsage stores exact user text tokens when caller supplies tokenizer count', () => {
   const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-user-exact-tokens-'));
-  const session = {
+  const session = mockChatSession({
     id: 'session-user-exact-tokens',
     title: 'Session',
     model: 'managed.gguf',
@@ -657,7 +666,7 @@ test('appendChatMessagesWithUsage stores exact user text tokens when caller supp
     createdAtUtc: '2026-04-17T00:00:00.000Z',
     updatedAtUtc: '2026-04-17T00:00:00.000Z',
     messages: [],
-  } as ChatSession;
+  });
 
   const updated = appendChatMessagesWithUsage(runtimeRoot, session, 'full user message', 'answer', {
     promptTokens: null,
@@ -698,7 +707,7 @@ test('appendChatMessagesWithUsage preserves estimated usage flags on answer toke
 });
 
 test('buildRetainedWebToolCalls extracts command result state from undeleted web calls', () => {
-  const session = {
+  const session = mockChatSession({
     id: 'session-retained-web',
     messages: [
       {
@@ -718,7 +727,7 @@ test('buildRetainedWebToolCalls extracts command result state from undeleted web
         toolCallOutput: 'Iron bar page text',
       },
     ],
-  } as ChatSession;
+  });
 
   assert.deepEqual(buildRetainedWebToolCalls(session), [
     {
@@ -739,17 +748,17 @@ test('buildRetainedWebToolCalls extracts command result state from undeleted web
 });
 
 test('buildRetainedWebToolCalls ignores deleted tool messages because they are absent from the session', () => {
-  const session = {
+  const session = mockChatSession({
     id: 'session-retained-web-deleted',
     messages: [
       { id: 'a1', role: 'assistant', kind: 'assistant_answer', content: 'answer' },
     ],
-  } as ChatSession;
+  });
 
   assert.deepEqual(buildRetainedWebToolCalls(session), []);
 });
 
 test('buildChatSystemContent returns the default chat system prompt', () => {
-  const content = buildChatSystemContent(createConfig(), { id: 's', messages: [] } as never);
+  const content = buildChatSystemContent(createConfig(), mockChatSession({ id: 's', messages: [] }));
   assert.match(content, /coder friendly assistant/);
 });

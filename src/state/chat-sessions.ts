@@ -1,11 +1,13 @@
-import * as crypto from 'node:crypto';
-import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { basename, dirname, join, parse, resolve } from 'node:path';
+import { z } from '../lib/zod.js';
 import { mapLegacyModeToPresetId } from '../presets.js';
 import {
   toNullableNonNegativeInteger,
   toNullableNonNegativeNumber,
 } from '../lib/telemetry-metrics.js';
 import { getRuntimeDatabase } from './runtime-db.js';
+import type { ChatPromptContext } from '../status-server/chat-prompt-context.js';
 
 export type ChatSessionMode = 'chat' | 'plan' | 'repo-search';
 export type ChatMessageRole = 'user' | 'assistant';
@@ -63,70 +65,73 @@ export type ChatSession = {
   mode?: ChatSessionMode;
   planRepoRoot?: string;
   condensedSummary?: string;
-  promptContext?: unknown;
+  promptContext?: ChatPromptContext;
   createdAtUtc?: string;
   updatedAtUtc?: string;
   messages?: ChatMessage[];
 };
 
-type SessionRow = {
-  id: string;
-  title: string;
-  model: string | null;
-  context_window_tokens: number;
-  thinking_enabled: number;
-  web_search_enabled: number;
-  preset_id: string | null;
-  mode: string;
-  plan_repo_root: string;
-  condensed_summary: string;
-  created_at_utc: string;
-  updated_at_utc: string;
-};
+const SessionIdRowSchema = z.object({ id: z.string().nullable() });
 
-type MessageRow = {
-  id: string;
-  role: string;
-  kind: string | null;
-  content: string;
-  input_tokens_estimate: number;
-  output_tokens_estimate: number;
-  thinking_tokens: number;
-  input_tokens_estimated: number;
-  output_tokens_estimated: number;
-  thinking_tokens_estimated: number;
-  prompt_cache_tokens: number | null;
-  prompt_eval_tokens: number | null;
-  prompt_tokens_per_second: number | null;
-  output_tokens_per_second: number | null;
-  request_duration_ms: number | null;
-  prompt_eval_duration_ms: number | null;
-  generation_duration_ms: number | null;
-  request_started_at_utc: string | null;
-  thinking_started_at_utc: string | null;
-  thinking_ended_at_utc: string | null;
-  answer_started_at_utc: string | null;
-  answer_ended_at_utc: string | null;
-  speculative_accepted_tokens: number | null;
-  speculative_generated_tokens: number | null;
-  associated_tool_tokens: number | null;
-  thinking_content: string | null;
-  tool_call_command: string | null;
-  tool_call_turn: number | null;
-  tool_call_max_turns: number | null;
-  tool_call_exit_code: number | null;
-  tool_call_prompt_token_count: number | null;
-  tool_call_output_snippet: string | null;
-  tool_call_output: string | null;
-  created_at_utc: string;
-  source_run_id: string | null;
-  compressed_into_summary: number;
-  grounding_status: string | null;
-  position: number;
-};
+const SessionRowSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  model: z.string().nullable(),
+  context_window_tokens: z.number(),
+  thinking_enabled: z.number(),
+  web_search_enabled: z.number(),
+  preset_id: z.string().nullable(),
+  mode: z.string(),
+  plan_repo_root: z.string(),
+  condensed_summary: z.string(),
+  created_at_utc: z.string(),
+  updated_at_utc: z.string(),
+});
+
+const MessageRowSchema = z.object({
+  id: z.string(),
+  role: z.string(),
+  kind: z.string().nullable(),
+  content: z.string(),
+  input_tokens_estimate: z.number(),
+  output_tokens_estimate: z.number(),
+  thinking_tokens: z.number(),
+  input_tokens_estimated: z.number(),
+  output_tokens_estimated: z.number(),
+  thinking_tokens_estimated: z.number(),
+  prompt_cache_tokens: z.number().nullable(),
+  prompt_eval_tokens: z.number().nullable(),
+  prompt_tokens_per_second: z.number().nullable(),
+  output_tokens_per_second: z.number().nullable(),
+  request_duration_ms: z.number().nullable(),
+  prompt_eval_duration_ms: z.number().nullable(),
+  generation_duration_ms: z.number().nullable(),
+  request_started_at_utc: z.string().nullable(),
+  thinking_started_at_utc: z.string().nullable(),
+  thinking_ended_at_utc: z.string().nullable(),
+  answer_started_at_utc: z.string().nullable(),
+  answer_ended_at_utc: z.string().nullable(),
+  speculative_accepted_tokens: z.number().nullable(),
+  speculative_generated_tokens: z.number().nullable(),
+  associated_tool_tokens: z.number().nullable(),
+  thinking_content: z.string().nullable(),
+  tool_call_command: z.string().nullable(),
+  tool_call_turn: z.number().nullable(),
+  tool_call_max_turns: z.number().nullable(),
+  tool_call_exit_code: z.number().nullable(),
+  tool_call_prompt_token_count: z.number().nullable(),
+  tool_call_output_snippet: z.string().nullable(),
+  tool_call_output: z.string().nullable(),
+  created_at_utc: z.string(),
+  source_run_id: z.string().nullable(),
+  compressed_into_summary: z.number(),
+  grounding_status: z.string().nullable(),
+  position: z.number(),
+});
+type MessageRow = z.infer<typeof MessageRowSchema>;
 
 function getSessionDatabase(runtimeRoot: string): ReturnType<typeof getRuntimeDatabase> {
-  return getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite'));
+  return getRuntimeDatabase(join(runtimeRoot, 'runtime.sqlite'));
 }
 
 function parseSessionId(targetPath: string): string | null {
@@ -134,7 +139,7 @@ function parseSessionId(targetPath: string): string | null {
   if (!raw) {
     return null;
   }
-  const base = path.basename(raw);
+  const base = basename(raw);
   const match = /^session_(.+)\.json$/iu.exec(base);
   if (match && match[1] && match[1].trim()) {
     return match[1].trim();
@@ -145,20 +150,20 @@ function parseSessionId(targetPath: string): string | null {
   return null;
 }
 
-function normalizeMode(value: unknown): ChatSessionMode {
+function normalizeMode(value: string | null | undefined): ChatSessionMode {
   return value === 'plan' || value === 'repo-search' ? value : 'chat';
 }
 
-function normalizePresetId(value: unknown, modeValue?: unknown): string {
+function normalizePresetId(value: string | null | undefined, modeValue?: string | null): string {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
   return normalized || mapLegacyModeToPresetId(modeValue);
 }
 
-function normalizeRole(value: unknown): ChatMessageRole {
+function normalizeRole(value: string | null | undefined): ChatMessageRole {
   return value === 'user' ? 'user' : 'assistant';
 }
 
-function normalizeMessageKind(value: unknown, roleValue: unknown): ChatMessageKind {
+function normalizeMessageKind(value: string | null | undefined, roleValue: string | null | undefined): ChatMessageKind {
   if (
     value === 'user_text'
     || value === 'assistant_answer'
@@ -170,7 +175,7 @@ function normalizeMessageKind(value: unknown, roleValue: unknown): ChatMessageKi
   return roleValue === 'user' ? 'user_text' : 'assistant_answer';
 }
 
-function normalizeGroundingStatus(value: unknown): ChatGroundingStatus | null {
+function normalizeGroundingStatus(value: string | null | undefined): ChatGroundingStatus | null {
   if (value === 'ungrounded' || value === 'snippet_only' || value === 'fetched') {
     return value;
   }
@@ -219,29 +224,30 @@ function mapMessageRow(row: MessageRow): ChatMessage {
   };
 }
 
-function toNullableInteger(value: unknown): number | null {
-  if (value === null || value === undefined || value === '') {
+function toNullableInteger(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) {
     return null;
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
 }
 
-export function estimateTokenCount(value: unknown): number {
-  const text = String(value || '');
-  if (!text.trim()) {
+export function estimateTokenCount(value: string): number {
+  if (!value.trim()) {
     return 0;
   }
-  return Math.max(1, Math.ceil(text.length / 4));
+  return Math.max(1, Math.ceil(value.length / 4));
 }
 
 export function getChatSessionsRoot(runtimeRoot: string): string {
-  return path.join(runtimeRoot, 'chat', 'sessions');
+  return join(runtimeRoot, 'chat', 'sessions');
 }
 
 export function listChatSessionPaths(runtimeRoot: string): string[] {
   const database = getSessionDatabase(runtimeRoot);
-  const rows = database.prepare('SELECT id FROM chat_sessions ORDER BY updated_at_utc DESC').all() as Array<{ id?: unknown }>;
+  const rows = z.array(SessionIdRowSchema).parse(
+    database.prepare('SELECT id FROM chat_sessions ORDER BY updated_at_utc DESC').all(),
+  );
   return rows
     .map((row) => (typeof row.id === 'string' ? row.id.trim() : ''))
     .filter((id) => id.length > 0)
@@ -266,10 +272,11 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       updated_at_utc
     FROM chat_sessions
     WHERE id = ?
-  `).get(sessionId) as SessionRow | undefined;
-  if (!row) {
+  `).get(sessionId);
+  if (row === undefined || row === null) {
     return null;
   }
+  const session = SessionRowSchema.parse(row);
 
   const messageRows = database.prepare(`
     SELECT
@@ -314,22 +321,23 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
     FROM chat_messages
     WHERE session_id = ?
     ORDER BY position ASC
-  `).all(sessionId) as MessageRow[];
+  `).all(sessionId);
+  const messages = z.array(MessageRowSchema).parse(messageRows);
 
   return {
-    id: row.id,
-    title: row.title,
-    model: row.model,
-    contextWindowTokens: row.context_window_tokens,
-    thinkingEnabled: row.thinking_enabled === 1,
-    webSearchEnabled: row.web_search_enabled === 1,
-    presetId: normalizePresetId(row.preset_id, row.mode),
-    mode: normalizeMode(row.mode),
-    planRepoRoot: row.plan_repo_root,
-    condensedSummary: row.condensed_summary,
-    createdAtUtc: row.created_at_utc,
-    updatedAtUtc: row.updated_at_utc,
-    messages: messageRows.map((message) => mapMessageRow(message)),
+    id: session.id,
+    title: session.title,
+    model: session.model,
+    contextWindowTokens: session.context_window_tokens,
+    thinkingEnabled: session.thinking_enabled === 1,
+    webSearchEnabled: session.web_search_enabled === 1,
+    presetId: normalizePresetId(session.preset_id, session.mode),
+    mode: normalizeMode(session.mode),
+    planRepoRoot: session.plan_repo_root,
+    condensedSummary: session.condensed_summary,
+    createdAtUtc: session.created_at_utc,
+    updatedAtUtc: session.updated_at_utc,
+    messages: messages.map((message) => mapMessageRow(message)),
   };
 }
 
@@ -338,8 +346,8 @@ export function readChatSessionFromPath(targetPath: string): ChatSession | null 
   if (!sessionId) {
     return null;
   }
-  const runtimeRoot = path.resolve(path.dirname(path.dirname(path.dirname(targetPath))));
-  if (!runtimeRoot || runtimeRoot === path.parse(runtimeRoot).root) {
+  const runtimeRoot = resolve(dirname(dirname(dirname(targetPath))));
+  if (!runtimeRoot || runtimeRoot === parse(runtimeRoot).root) {
     return null;
   }
   return readSessionById(runtimeRoot, sessionId);
@@ -356,7 +364,7 @@ export function readChatSessions(runtimeRoot: string): ChatSession[] {
 }
 
 export function getChatSessionPath(runtimeRoot: string, sessionId: string): string {
-  return path.join(getChatSessionsRoot(runtimeRoot), `session_${sessionId}.json`);
+  return join(getChatSessionsRoot(runtimeRoot), `session_${sessionId}.json`);
 }
 
 export function deleteChatSession(runtimeRoot: string, sessionId: string): boolean {
@@ -366,7 +374,7 @@ export function deleteChatSession(runtimeRoot: string, sessionId: string): boole
   }
   const database = getSessionDatabase(runtimeRoot);
   database.prepare('DELETE FROM chat_messages WHERE session_id = ?').run(normalizedId);
-  const result = database.prepare('DELETE FROM chat_sessions WHERE id = ?').run(normalizedId) as { changes?: number };
+  const result = database.prepare('DELETE FROM chat_sessions WHERE id = ?').run(normalizedId);
   return Number(result.changes || 0) > 0;
 }
 
@@ -441,7 +449,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
       presetId,
       mode,
       typeof session.planRepoRoot === 'string' && session.planRepoRoot.trim()
-        ? path.resolve(session.planRepoRoot)
+        ? resolve(session.planRepoRoot)
         : process.cwd(),
       typeof session.condensedSummary === 'string' ? session.condensedSummary : '',
       typeof session.createdAtUtc === 'string' && session.createdAtUtc.trim() ? session.createdAtUtc : now,
@@ -498,7 +506,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
       const message = messages[index];
       insertMessage.run(
         sessionId,
-        typeof message.id === 'string' && message.id.trim() ? message.id.trim() : crypto.randomUUID(),
+        typeof message.id === 'string' && message.id.trim() ? message.id.trim() : randomUUID(),
         normalizeRole(message.role),
         normalizeMessageKind(message.kind, message.role),
         typeof message.content === 'string' ? message.content : '',

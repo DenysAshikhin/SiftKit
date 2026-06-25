@@ -4,8 +4,10 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { AddressInfo } from 'node:net';
-
+import { z } from '../src/lib/zod.js';
+import { parseJsonValueText } from '../src/lib/json.js';
+import { JsonObjectSchema, type JsonObject, type JsonSerializable } from '../src/lib/json-types.js';
+import { asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
 import { evaluateCommandSafety } from '../src/repo-search/command-safety.js';
 import { isTransientProviderError, retryProviderRequest } from '../src/lib/provider-helpers.js';
 import {
@@ -15,7 +17,7 @@ import {
   runRepoSearch,
   type TaskResult,
 } from '../src/repo-search/engine.js';
-import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
+import { resolveRepoSearchPlannerToolDefinitions, type ChatMessage } from '../src/repo-search/planner-protocol.js';
 import { buildTaskSystemPrompt } from '../src/repo-search/prompts.js';
 import {
   preflightPlannerPromptBudget,
@@ -40,14 +42,41 @@ type DeepPartial<T> = T extends (infer U)[]
   : T extends object
     ? { [K in keyof T]?: DeepPartial<T[K]> }
     : T;
+const MockSiftConfigSchema = z.custom<SiftConfig>((value) => typeof value === 'object' && value !== null);
 function mockLoopConfig(config: DeepPartial<SiftConfig>): SiftConfig {
-  return config as unknown as SiftConfig;
+  return MockSiftConfigSchema.parse(config);
 }
 
 // buildScorecard reads only the tallying fields of each TaskResult; the rest are
 // irrelevant, so partial literals are structurally checked and cast in one place.
+const MockTaskResultSchema = z.custom<TaskResult>((value) => typeof value === 'object' && value !== null);
 function mockTaskResult(task: DeepPartial<TaskResult>): TaskResult {
-  return task as unknown as TaskResult;
+  return MockTaskResultSchema.parse(task);
+}
+
+// Logged `turn_new_messages` events carry the planner transcript as arbitrary
+// JSON. Parse each message to the fields the assertions read so the access is
+// typed without indexing the raw JsonData union.
+const PlannerLogMessageSchema = z.object({
+  role: z.string(),
+  content: z.string().optional(),
+  tool_calls: z
+    .array(z.object({ function: z.object({ name: z.string(), arguments: z.string() }) }))
+    .optional(),
+});
+type PlannerLogMessage = z.infer<typeof PlannerLogMessageSchema>;
+function plannerLogMessages(event: JsonObject | undefined): PlannerLogMessage[] {
+  const raw = event?.messages;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.map((message) => PlannerLogMessageSchema.parse(message));
+}
+
+// Logged events may carry undefined-valued fields; the real JSONL logger drops
+// them via JSON.stringify, so normalize the same way before schema-validating.
+function parseLoggedEvent(event: Record<string, JsonSerializable>): JsonObject {
+  return JsonObjectSchema.parse(JSON.parse(JSON.stringify(event)));
 }
 
 function createTempRepoRoot(gitignoreText = '') {
@@ -97,7 +126,7 @@ test('runTaskLoop stops on invalid response limit', async () => {
 });
 
 test('runTaskLoop repairs malformed planner payloads before executing tool calls', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-invalid-recoverable-tool-replay',
@@ -122,19 +151,19 @@ test('runTaskLoop repairs malformed planner payloads before executing tool calls
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
   );
 
   const turn2NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 2);
-  const turn2Messages = Array.isArray(turn2NewMessages?.messages) ? turn2NewMessages.messages : [];
-  const assistantMessage = turn2Messages.find((message: { role?: string }) => message.role === 'assistant');
-  const toolMessage = turn2Messages.find((message: { role?: string }) => message.role === 'tool');
-  const userMessages = turn2Messages.filter((message: { role?: string }) => message.role === 'user');
-  const assistantToolCall = Array.isArray(assistantMessage?.tool_calls) ? assistantMessage.tool_calls[0] : null;
+  const turn2Messages = plannerLogMessages(turn2NewMessages);
+  const assistantMessage = turn2Messages.find((message) => message.role === 'assistant');
+  const toolMessage = turn2Messages.find((message) => message.role === 'tool');
+  const userMessages = turn2Messages.filter((message) => message.role === 'user');
+  const assistantToolCall = assistantMessage?.tool_calls?.[0] ?? null;
 
   assert.equal(result.reason, 'finish');
   assert.equal(result.invalidResponses, 0);
@@ -145,7 +174,7 @@ test('runTaskLoop repairs malformed planner payloads before executing tool calls
 });
 
 test('runTaskLoop replays unrecoverable invalid planner payloads through invalid_tool_call', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-invalid-fallback-tool-replay',
@@ -165,19 +194,19 @@ test('runTaskLoop replays unrecoverable invalid planner payloads through invalid
       mockCommandResults: {},
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
   );
 
   const turn2NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 2);
-  const turn2Messages = Array.isArray(turn2NewMessages?.messages) ? turn2NewMessages.messages : [];
-  const assistantMessage = turn2Messages.find((message: { role?: string }) => message.role === 'assistant');
-  const toolMessage = turn2Messages.find((message: { role?: string }) => message.role === 'tool');
-  const userMessages = turn2Messages.filter((message: { role?: string }) => message.role === 'user');
-  const assistantToolCall = Array.isArray(assistantMessage?.tool_calls) ? assistantMessage.tool_calls[0] : null;
+  const turn2Messages = plannerLogMessages(turn2NewMessages);
+  const assistantMessage = turn2Messages.find((message) => message.role === 'assistant');
+  const toolMessage = turn2Messages.find((message) => message.role === 'tool');
+  const userMessages = turn2Messages.filter((message) => message.role === 'user');
+  const assistantToolCall = assistantMessage?.tool_calls?.[0] ?? null;
   const assistantArgs = JSON.parse(String(assistantToolCall?.function?.arguments || '{}'));
 
   assert.equal(result.reason, 'finish');
@@ -188,7 +217,7 @@ test('runTaskLoop replays unrecoverable invalid planner payloads through invalid
 });
 
 test('runTaskLoop cuts off runaway streamed tool JSON and reprompts once', { timeout: 5000 }, async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const progressEvents: Array<{ kind: string; thinkingText?: string }> = [];
   const controller = new AbortController();
   let requestCount = 0;
@@ -238,7 +267,7 @@ test('runTaskLoop cuts off runaway streamed tool JSON and reprompts once', { tim
   });
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -258,8 +287,8 @@ test('runTaskLoop cuts off runaway streamed tool JSON and reprompts once', { tim
         abortSignal: controller.signal,
         logger: {
           path: 'memory',
-          write(event: Record<string, unknown>) {
-            events.push(event);
+          write(event: Record<string, JsonSerializable>) {
+            events.push(parseLoggedEvent(event));
           },
         },
         onProgress(event) {
@@ -277,9 +306,9 @@ test('runTaskLoop cuts off runaway streamed tool JSON and reprompts once', { tim
 
     const invalidEvent = events.find((event) => event.kind === 'turn_action_invalid');
     const turn2NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 2);
-    const turn2Messages = Array.isArray(turn2NewMessages?.messages) ? turn2NewMessages.messages : [];
-    const assistantMessage = turn2Messages.find((message: { role?: string }) => message.role === 'assistant');
-    const assistantToolCall = Array.isArray(assistantMessage?.tool_calls) ? assistantMessage.tool_calls[0] : null;
+    const turn2Messages = plannerLogMessages(turn2NewMessages);
+    const assistantMessage = turn2Messages.find((message) => message.role === 'assistant');
+    const assistantToolCall = assistantMessage?.tool_calls?.[0] ?? null;
 
     assert.equal(result.reason, 'finish');
     assert.equal(result.invalidResponses, 1);
@@ -295,7 +324,7 @@ test('runTaskLoop cuts off runaway streamed tool JSON and reprompts once', { tim
 });
 
 test('runTaskLoop truncates oversized rg output to the largest fitting prefix', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const totalContextTokens = 20000;
   const thinkingBufferTokens = Math.max(Math.ceil(totalContextTokens * 0.15), 4000);
   const usablePromptTokens = Math.max(totalContextTokens - thinkingBufferTokens, 0);
@@ -330,8 +359,8 @@ test('runTaskLoop truncates oversized rg output to the largest fitting prefix', 
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -355,7 +384,7 @@ test('runTaskLoop advances overlapping repo_read_file calls to the next unread s
     Array.from({ length: 14 }, (_, index) => `line-${index + 1}`).join('\n'),
     'utf8'
   );
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-native-read-unread-span',
@@ -379,8 +408,8 @@ test('runTaskLoop advances overlapping repo_read_file calls to the next unread s
       mockCommandResults: {},
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -402,7 +431,7 @@ test('runTaskLoop replays effective repo_read_file range after native unread exp
     Array.from({ length: 260 }, (_, index) => `line-${index + 1}`).join('\n'),
     'utf8'
   );
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-native-read-effective-replay',
@@ -426,8 +455,8 @@ test('runTaskLoop replays effective repo_read_file range after native unread exp
       mockCommandResults: {},
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -435,8 +464,8 @@ test('runTaskLoop replays effective repo_read_file range after native unread exp
 
   const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
   const turn3NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 3);
-  const turn3Messages = Array.isArray(turn3NewMessages?.messages) ? turn3NewMessages.messages : [];
-  const assistantMessages = turn3Messages.filter((message: { role?: string }) => message.role === 'assistant');
+  const turn3Messages = plannerLogMessages(turn3NewMessages);
+  const assistantMessages = turn3Messages.filter((message) => message.role === 'assistant');
   const replayedAssistantAction = assistantMessages[assistantMessages.length - 1]?.tool_calls?.[0];
   const replayedAssistantArgs = JSON.parse(String(replayedAssistantAction?.function?.arguments || '{}'));
 
@@ -458,7 +487,7 @@ test('runTaskLoop replays only returned repo_read_file range after fitting overs
     Array.from({ length: 900 }, (_, index) => `line-${index + 1} ${'x'.repeat(80)}`).join('\n'),
     'utf8',
   );
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-budget-bounded-read',
@@ -484,8 +513,8 @@ test('runTaskLoop replays only returned repo_read_file range after fitting overs
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -501,12 +530,12 @@ test('runTaskLoop replays only returned repo_read_file range after fitting overs
   assert.match(String(commandEvents[1]?.insertedResultText || ''), /\d+ lines truncated due to per-tool context limit\./u);
 
   const turn3 = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 3);
-  const messages = Array.isArray(turn3?.messages) ? turn3.messages as Array<Record<string, unknown>> : [];
+  const messages = asObjectArray(turn3?.messages);
   const assistantMessages = messages.filter((message) => message.role === 'assistant');
   const assistant = assistantMessages[assistantMessages.length - 1];
-  const toolCalls = Array.isArray(assistant?.tool_calls) ? assistant.tool_calls as Array<Record<string, unknown>> : [];
-  const fn = (toolCalls[0]?.function || {}) as Record<string, unknown>;
-  const args = JSON.parse(String(fn.arguments || '{}')) as { startLine?: number; endLine?: number };
+  const toolCalls = asObjectArray(assistant?.tool_calls);
+  const fn = asObject(toolCalls[0]?.function);
+  const args = asObject(parseJsonValueText(String(fn.arguments || '{}')));
   assert.equal(String(fn.name || ''), 'repo_read_file');
   assert.equal(args.startLine, 300);
   assert.equal(Number(args.endLine) < 900, true);
@@ -519,7 +548,7 @@ test('runTaskLoop bounds repo_read_file unread span at the next returned range',
     Array.from({ length: 20 }, (_, index) => `line-${index + 1}`).join('\n'),
     'utf8'
   );
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   await runTaskLoop(
     {
       id: 'task-native-read-next-range-bound',
@@ -543,8 +572,8 @@ test('runTaskLoop bounds repo_read_file unread span at the next returned range',
       mockCommandResults: {},
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -559,7 +588,7 @@ test('runTaskLoop bounds repo_read_file unread span at the next returned range',
 test('runTaskLoop reports when repo_read_file has no unread lines left', async () => {
   const repoRoot = createTempRepoRoot();
   fs.writeFileSync(path.join(repoRoot, 'target.ts'), ['line-1', 'line-2', 'line-3'].join('\n'), 'utf8');
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   await runTaskLoop(
     {
       id: 'task-native-read-exhausted',
@@ -583,8 +612,8 @@ test('runTaskLoop reports when repo_read_file has no unread lines left', async (
       mockCommandResults: {},
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -599,7 +628,7 @@ test('runTaskLoop truncates oversized repo_list_files output with omitted file c
   for (let index = 1; index <= 160; index += 1) {
     fs.writeFileSync(path.join(repoRoot, `file-${String(index).padStart(3, '0')}.ts`), 'export {};\n', 'utf8');
   }
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   await runTaskLoop(
     {
       id: 'task-native-list-truncate',
@@ -623,8 +652,8 @@ test('runTaskLoop truncates oversized repo_list_files output with omitted file c
       mockCommandResults: {},
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -674,20 +703,19 @@ test('runTaskLoop preserves raw line-read stats when oversized Get-Content outpu
 test('runTaskLoop does not print a red console warning when successful output is fitted', async () => {
   const writes: string[] = [];
   const originalWrite = process.stderr.write;
-  const patchedWrite = (
+  process.stderr.write = (
     chunk: string | Uint8Array,
-    encoding?: BufferEncoding | ((error?: Error | null) => void),
+    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
     callback?: (error?: Error | null) => void,
   ): boolean => {
     writes.push(Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk));
     if (typeof callback === 'function') {
       callback();
-    } else if (typeof encoding === 'function') {
-      encoding();
+    } else if (typeof encodingOrCallback === 'function') {
+      encodingOrCallback();
     }
     return true;
   };
-  process.stderr.write = patchedWrite as typeof process.stderr.write;
   try {
     const totalContextTokens = 20000;
     await runTaskLoop(
@@ -767,7 +795,7 @@ test('preflightPlannerPromptBudget reserves provider prompt overhead against con
 });
 
 test('compactPlannerMessagesOnce preserves system and latest user intent', async () => {
-  const messages = [
+  const messages: ChatMessage[] = [
     { role: 'system', content: 'system message' },
     { role: 'user', content: 'first user intent' },
     { role: 'assistant', content: 'older assistant details ' + 'a'.repeat(2000) },
@@ -789,7 +817,7 @@ test('compactPlannerMessagesOnce preserves system and latest user intent', async
 });
 
 test('compactPlannerMessagesOnce budgets provider prompt overhead while selecting history', async () => {
-  const messages = [
+  const messages: ChatMessage[] = [
     { role: 'system', content: 'system message' },
     { role: 'assistant', content: 'older assistant details ' + 'a'.repeat(2000) },
     { role: 'tool', content: 'older tool output ' + 'b'.repeat(2000), tool_call_id: 'call_1' },
@@ -809,7 +837,7 @@ test('compactPlannerMessagesOnce budgets provider prompt overhead while selectin
 });
 
 test('runTaskLoop fails with planner_preflight_overflow before provider request when compaction cannot fit', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   await assert.rejects(
     () => runTaskLoop(
       {
@@ -827,8 +855,8 @@ test('runTaskLoop fails with planner_preflight_overflow before provider request 
         totalContextTokens: 7000,
         logger: {
           path: 'memory',
-          write(event: Record<string, unknown>) {
-            events.push(event);
+          write(event: Record<string, JsonSerializable>) {
+            events.push(parseLoggedEvent(event));
           },
         },
       }
@@ -844,7 +872,7 @@ test('runTaskLoop fails with planner_preflight_overflow before provider request 
 });
 
 test('runTaskLoop includes planner provider reserve in dynamic output budget', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-provider-reserve-budget',
@@ -864,8 +892,8 @@ test('runTaskLoop includes planner provider reserve in dynamic output budget', a
       mockCommandResults: {},
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -882,7 +910,7 @@ test('runTaskLoop includes planner provider reserve in dynamic output budget', a
 });
 
 test('runTaskLoop applies one-pass compaction and continues when compacted prompt fits', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-preflight-compaction-success',
@@ -918,8 +946,8 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -932,7 +960,7 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
   assert.equal(Number(compactionEvents[0].providerPromptReserveTokenCount) > 0, true);
   const newMessagesEvents = events.filter((event) => event.kind === 'turn_new_messages');
   const allCompactedContent = newMessagesEvents
-    .flatMap((event) => Array.isArray(event.messages) ? event.messages as Array<{ content?: unknown }> : [])
+    .flatMap((event) => asObjectArray(event.messages))
     .map((m) => String(m.content || ''));
   assert.equal(allCompactedContent.some((c) => c.includes('[COMPRESSED HISTORICAL EVIDENCE]')), true);
   assert.equal(result.reason, 'finish');
@@ -940,7 +968,7 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
 });
 
 test('runTaskLoop increases per-tool cap as tool-call progress grows', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const totalContextTokens = 20000;
   const thinkingBufferTokens = Math.max(Math.ceil(totalContextTokens * 0.15), 4000);
   const usablePromptTokens = Math.max(totalContextTokens - thinkingBufferTokens, 0);
@@ -972,8 +1000,8 @@ test('runTaskLoop increases per-tool cap as tool-call progress grows', async () 
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -988,7 +1016,7 @@ test('runTaskLoop increases per-tool cap as tool-call progress grows', async () 
 });
 
 test('runTaskLoop fits tool output that exceeds remaining token allowance', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const totalContextTokens = 30000;
   // Sized to pin the regime where remainingTokenAllowance < perToolCapTokens after
   // the system prompt + question consume most of totalContextTokens. The prior
@@ -1022,8 +1050,8 @@ test('runTaskLoop fits tool output that exceeds remaining token allowance', asyn
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1038,7 +1066,7 @@ test('runTaskLoop fits tool output that exceeds remaining token allowance', asyn
 });
 
 test('runTaskLoop subtracts accepted same-turn tool results from remaining allowance', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-same-turn-token-guard',
@@ -1076,8 +1104,8 @@ test('runTaskLoop subtracts accepted same-turn tool results from remaining allow
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1093,7 +1121,7 @@ test('runTaskLoop subtracts accepted same-turn tool results from remaining allow
 });
 
 test('runTaskLoop accepts first finish immediately when runtime reasoning is off', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-finish-no-reasoning',
@@ -1119,8 +1147,8 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is off
       mockCommandResults: {},
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1137,7 +1165,7 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is off
 });
 
 test('runTaskLoop accepts first finish immediately when runtime reasoning is on', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-finish-with-reasoning',
@@ -1163,8 +1191,8 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is on'
       mockCommandResults: {},
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1180,7 +1208,7 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is on'
 });
 
 test('runTaskLoop does not emit follow-up finish events after many reasoning-off tool calls', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const mockResponses = [
     "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"hit-1\\\" src\"}",
     "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"hit-2\\\" src\"}",
@@ -1229,8 +1257,8 @@ test('runTaskLoop does not emit follow-up finish events after many reasoning-off
       mockCommandResults,
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1247,7 +1275,7 @@ test('runTaskLoop does not emit follow-up finish events after many reasoning-off
 });
 
 test('runTaskLoop keeps reasoning disabled across max-turn exhaustion when runtime reasoning is off', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-max-turns-no-reasoning',
@@ -1280,8 +1308,8 @@ test('runTaskLoop keeps reasoning disabled across max-turn exhaustion when runti
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1296,7 +1324,7 @@ test('runTaskLoop keeps reasoning disabled across max-turn exhaustion when runti
 });
 
 test('runTaskLoop retries transient provider network failures via shared retry helper', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const requestBodies = [];
   let requestCount = 0;
   const server = http.createServer((req, res) => {
@@ -1338,7 +1366,7 @@ test('runTaskLoop retries transient provider network failures via shared retry h
   });
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -1363,8 +1391,8 @@ test('runTaskLoop retries transient provider network failures via shared retry h
         },
         logger: {
           path: 'memory',
-          write(event: Record<string, unknown>) {
-            events.push(event);
+          write(event: Record<string, JsonSerializable>) {
+            events.push(parseLoggedEvent(event));
           },
         },
       }
@@ -1391,7 +1419,7 @@ test('runTaskLoop retries transient provider network failures via shared retry h
 });
 
 test('runTaskLoop waits for planner endpoint warm-up when initial connections are refused', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const port = await getFreePort();
   let delayedServer: http.Server | null = null;
   let plannerRequestCount = 0;
@@ -1427,8 +1455,8 @@ test('runTaskLoop waits for planner endpoint warm-up when initial connections ar
         minToolCallsBeforeFinish: 0,
         logger: {
           path: 'memory',
-          write(event: Record<string, unknown>) {
-            events.push(event);
+          write(event: Record<string, JsonSerializable>) {
+            events.push(parseLoggedEvent(event));
           },
         },
       }
@@ -1438,7 +1466,7 @@ test('runTaskLoop waits for planner endpoint warm-up when initial connections ar
     assert.equal(plannerRequestCount >= 1, true);
     const retryEvents = events.filter((event) => event.kind === 'provider_request_retry');
     assert.equal(retryEvents.length >= 1, true);
-    assert.match(String((retryEvents[0]?.error as { message?: string } | undefined)?.message || ''), /ECONNREFUSED/u);
+    assert.match(String(asObject(retryEvents[0]?.error).message || ''), /ECONNREFUSED/u);
   } finally {
     clearTimeout(delayedStart);
     if (delayedServer) {
@@ -1448,7 +1476,7 @@ test('runTaskLoop waits for planner endpoint warm-up when initial connections ar
 });
 
 test('runTaskLoop retries planner calls when endpoint returns HTTP 503 Loading model', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const port = await getFreePort();
   let plannerRequestCount = 0;
   const server = http.createServer((req, res) => {
@@ -1486,8 +1514,8 @@ test('runTaskLoop retries planner calls when endpoint returns HTTP 503 Loading m
         minToolCallsBeforeFinish: 0,
         logger: {
           path: 'memory',
-          write(event: Record<string, unknown>) {
-            events.push(event);
+          write(event: Record<string, JsonSerializable>) {
+            events.push(parseLoggedEvent(event));
           },
         },
       }
@@ -1497,7 +1525,7 @@ test('runTaskLoop retries planner calls when endpoint returns HTTP 503 Loading m
     assert.equal(plannerRequestCount, 2);
     const retryEvents = events.filter((event) => event.kind === 'provider_request_retry');
     assert.equal(retryEvents.length >= 1, true);
-    assert.match(String((retryEvents[0]?.error as { message?: string } | undefined)?.message || ''), /Loading model/u);
+    assert.match(String(asObject(retryEvents[0]?.error).message || ''), /Loading model/u);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
@@ -1578,7 +1606,7 @@ test('runTaskLoop blocks semantic duplicate repo-search commands with explicit e
 });
 
 test('runTaskLoop keeps raw rewrite notes in logs but inserts compact repo-search results into the prompt', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-compact-repo-search-result',
@@ -1604,8 +1632,8 @@ test('runTaskLoop keeps raw rewrite notes in logs but inserts compact repo-searc
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1620,7 +1648,7 @@ test('runTaskLoop keeps raw rewrite notes in logs but inserts compact repo-searc
 });
 
 test('runTaskLoop keeps routine normalized repo_rg flags out of model replay while audit keeps effective command', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-hide-normalized-rg-command-from-model',
@@ -1646,8 +1674,8 @@ test('runTaskLoop keeps routine normalized repo_rg flags out of model replay whi
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1661,9 +1689,9 @@ test('runTaskLoop keeps routine normalized repo_rg flags out of model replay whi
   assert.equal(String(commandEvent?.insertedResultText || '').includes('note: added --no-ignore'), false);
   assert.match(String(commandEvent?.insertedResultText || ''), /(?:^|\n)exit_code=1$/u);
   const turn2NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 2);
-  const turn2AssistantMessages = Array.isArray(turn2NewMessages?.messages)
-    ? turn2NewMessages.messages.filter((message: { role?: string }) => message.role === 'assistant')
-    : [];
+  const turn2AssistantMessages = plannerLogMessages(turn2NewMessages).filter(
+    (message) => message.role === 'assistant',
+  );
   const replayedAssistantAction = turn2AssistantMessages[turn2AssistantMessages.length - 1]?.tool_calls?.[0];
   const replayedAssistantArgs = JSON.parse(String(replayedAssistantAction?.function?.arguments || '{}'));
   assert.equal(String(replayedAssistantArgs?.command || ''), 'rg -n "sendStatusUpdate" src');
@@ -1673,7 +1701,7 @@ test('runTaskLoop keeps routine normalized repo_rg flags out of model replay whi
 });
 
 test('runTaskLoop widens repeated Get-Content reads on the same file and logs requested vs adjusted window', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-widen-repeated-get-content',
@@ -1711,8 +1739,8 @@ test('runTaskLoop widens repeated Get-Content reads on the same file and logs re
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1737,18 +1765,18 @@ test('runTaskLoop widens repeated Get-Content reads on the same file and logs re
   assert.match(String(commandEvents[1]?.output || ''), /^note: repeated file read window adjusted/mu);
   assert.doesNotMatch(String(commandEvents[1]?.insertedResultText || ''), /^note:/mu);
   const turn3NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 3);
-  const turn3AssistantMessages = Array.isArray(turn3NewMessages?.messages)
-    ? turn3NewMessages.messages.filter((message: { role?: string }) => message.role === 'assistant')
-    : [];
+  const turn3AssistantMessages = plannerLogMessages(turn3NewMessages).filter(
+    (message) => message.role === 'assistant',
+  );
   assert.equal(turn3AssistantMessages.length > 0, true);
   const replayedAssistantAction = turn3AssistantMessages[turn3AssistantMessages.length - 1]?.tool_calls?.[0];
   assert.equal(String(replayedAssistantAction?.function?.name || ''), 'repo_get_content');
   const replayedAssistantArgs = JSON.parse(String(replayedAssistantAction?.function?.arguments || '{}'));
   assert.equal(String(replayedAssistantArgs?.command || ''), String(commandEvents[1]?.executedCommand || ''));
   assert.notEqual(String(replayedAssistantArgs?.command || ''), String(commandEvents[1]?.requestedCommand || ''));
-  const turn3ToolMessages = Array.isArray(turn3NewMessages?.messages)
-    ? turn3NewMessages.messages.filter((message: { role?: string }) => message.role === 'tool')
-    : [];
+  const turn3ToolMessages = plannerLogMessages(turn3NewMessages).filter(
+    (message) => message.role === 'tool',
+  );
   const replayedToolResultForPrompt = String(turn3ToolMessages[turn3ToolMessages.length - 1]?.content || '');
   assert.doesNotMatch(replayedToolResultForPrompt, /requested start=/u);
   assert.doesNotMatch(replayedToolResultForPrompt, /adjusted start=/u);
@@ -1756,7 +1784,7 @@ test('runTaskLoop widens repeated Get-Content reads on the same file and logs re
 });
 
 test('runTaskLoop records adjusted Get-Content coverage from fitted returned lines only', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-fit-adjusted-get-content',
@@ -1789,8 +1817,8 @@ test('runTaskLoop records adjusted Get-Content coverage from fitted returned lin
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1808,7 +1836,7 @@ test('runTaskLoop records adjusted Get-Content coverage from fitted returned lin
 });
 
 test('runTaskLoop clamps adjusted repeated Get-Content skip to non-negative values', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-widen-repeated-negative-skip',
@@ -1840,8 +1868,8 @@ test('runTaskLoop clamps adjusted repeated Get-Content skip to non-negative valu
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1862,7 +1890,7 @@ test('runTaskLoop clamps adjusted repeated Get-Content skip to non-negative valu
 });
 
 test('runTaskLoop forces repeated backward same-file reads to non-overlapping forward windows', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-widen-repeated-backward-window',
@@ -1894,8 +1922,8 @@ test('runTaskLoop forces repeated backward same-file reads to non-overlapping fo
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1910,7 +1938,7 @@ test('runTaskLoop forces repeated backward same-file reads to non-overlapping fo
 });
 
 test('runTaskLoop tracks per-file overlap telemetry and isolates histories across files', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-line-read-overlap-metrics',
@@ -1948,8 +1976,8 @@ test('runTaskLoop tracks per-file overlap telemetry and isolates histories acros
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -1985,7 +2013,7 @@ test('runTaskLoop tracks per-file overlap telemetry and isolates histories acros
 });
 
 test('runTaskLoop does not compact different commands that happen to return the same evidence', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-collapse-repeat-replay',
@@ -2013,8 +2041,8 @@ test('runTaskLoop does not compact different commands that happen to return the 
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -2031,7 +2059,7 @@ test('runTaskLoop does not compact different commands that happen to return the 
 });
 
 test('runTaskLoop forces finish mode after ten zero-output commands', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const mockResponses: string[] = [];
   const mockCommandResults: Record<string, { exitCode: number; stdout: string; stderr: string }> = {};
   for (let index = 1; index <= 10; index += 1) {
@@ -2056,8 +2084,8 @@ test('runTaskLoop forces finish mode after ten zero-output commands', async () =
       mockCommandResults,
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -2073,7 +2101,7 @@ test('runTaskLoop forces finish mode after ten zero-output commands', async () =
 });
 
 test('runTaskLoop enables thinking on every tool-call turn when runtime reasoning is on', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-third-cadence',
@@ -2111,8 +2139,8 @@ test('runTaskLoop enables thinking on every tool-call turn when runtime reasonin
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     }
@@ -2130,7 +2158,7 @@ test('runTaskLoop enables thinking on every tool-call turn when runtime reasonin
 });
 
 test('runTaskLoop disables thinking on every tool-call turn when runtime reasoning is off', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-no-thinking',
@@ -2161,8 +2189,8 @@ test('runTaskLoop disables thinking on every tool-call turn when runtime reasoni
       },
       logger: {
         path: 'memory',
-        write(event: Record<string, unknown>) {
-          events.push(event);
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
         },
       },
     },
@@ -2217,7 +2245,7 @@ test('buildScorecard aggregates totals and verdict', () => {
 });
 
 test('mock planner strips think block from response text', async () => {
-  const events: Record<string, unknown>[] = [];
+  const events: JsonObject[] = [];
   await runTaskLoop(
     { id: 'task-strip', question: 'q', signals: ['done'] },
     {
@@ -2225,7 +2253,7 @@ test('mock planner strips think block from response text', async () => {
       maxTurns: 1, maxInvalidResponses: 2, minToolCallsBeforeFinish: 0,
       mockResponses: ['<think>hidden</think>{"action":"finish","output":"done"}'],
       mockCommandResults: {},
-      logger: { path: 'memory', write(event: Record<string, unknown>) { events.push(event); } },
+      logger: { path: 'memory', write(event: Record<string, JsonSerializable>) { events.push(parseLoggedEvent(event)); } },
     }
   );
   const response = events.find((e) => e.kind === 'turn_model_response');

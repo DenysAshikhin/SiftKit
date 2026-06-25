@@ -11,9 +11,9 @@
     "start:status:stable": "tsx .\\scripts\\start-dev.ts --stable",
     "start:status:stable:server": "node .\\dist\\status-server\\index.js",
     "start:dashboard": "npm --prefix .\\dashboard run dev",
-    "build": "tsc -p .\\tsconfig.json && tsc -p .\\tsconfig.scripts.json && npm --prefix .\\dashboard run build && node .\\scripts\\sync-dist-runtime.js",
-    "build:test": "node .\\scripts\\build-test.js",
-    "typecheck": "tsc -p .\\tsconfig.json --noEmit && tsc -p .\\tsconfig.scripts.json --noEmit && tsc -p .\\dashboard\\tsconfig.json --noEmit && npm run typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test && npm run typecheck:analysis",
+    "build": "npm --prefix .\\packages\\contracts run build && tsc -p .\\tsconfig.json && tsc -p .\\tsconfig.scripts.json && npm --prefix .\\dashboard run build && node .\\scripts\\sync-dist-runtime.js",
+    "build:test": "npm --prefix .\\packages\\contracts run build && node .\\scripts\\build-test.js",
+    "typecheck": "tsc -b .\\packages\\contracts\\tsconfig.json && tsc -p .\\tsconfig.json --noEmit && tsc -p .\\tsconfig.scripts.json --noEmit && tsc -p .\\dashboard\\tsconfig.json --noEmit && npm run typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test && npm run typecheck:analysis && npm run lint",
     "typecheck:analysis": "tsc -p .\\tsconfig.analysis.json --noEmit",
     "typecheck:test": "tsc -p .\\tsconfig.test.json --noEmit",
     "typecheck:dashboard-test": "tsc -p .\\dashboard\\tsconfig.test.json --noEmit",
@@ -32,16 +32,21 @@
     "verify:llama-live": "powershell -ExecutionPolicy Bypass -File .\\scripts\\verify-llama-live.ps1",
     "postinstall": "node scripts/postinstall.js",
     "refresh-global": "npm run build && powershell -ExecutionPolicy Bypass -File .\\scripts\\refresh-global.ps1",
-    "delete_logs": "tsx .\\scripts\\delete-logs.ts"
+    "delete_logs": "tsx .\\scripts\\delete-logs.ts",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
     "@types/jsdom": "^28.0.3",
     "@types/node": "^24.5.2",
     "@types/turndown": "^5.0.6",
     "c8": "^11.0.0",
+    "eslint": "^9.39.4",
     "nodemon": "^3.1.10",
     "tsx": "^4.20.5",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.61.1"
   },
   "files": [
     "bin",
@@ -60,12 +65,15 @@
     ]
   },
   "license": "UNLICENSED",
+  "workspaces": ["packages/contracts", "dashboard"],
   "dependencies": {
+    "@siftkit/contracts": "*",
     "@mozilla/readability": "^0.6.0",
     "better-sqlite3": "^12.8.0",
     "jsdom": "^29.1.1",
     "jsonrepair": "^3.14.0",
     "turndown": "^7.2.4",
-    "undici": "^7.27.2"
+    "undici": "^7.27.2",
+    "zod": "^4.4.3"
   }
 }

@@ -1,13 +1,14 @@
+import type { OptionalJsonValue } from '../lib/json-types.js';
 import type { LlamaCppToolCall } from './types.js';
 
 type RawFunctionCall = {
-  name?: unknown;
-  arguments?: unknown;
+  name?: OptionalJsonValue;
+  arguments?: OptionalJsonValue;
 };
 
 type RawToolCall = {
-  id?: unknown;
-  type?: unknown;
+  id?: OptionalJsonValue;
+  type?: OptionalJsonValue;
   function?: RawFunctionCall;
 };
 

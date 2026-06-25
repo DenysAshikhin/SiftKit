@@ -4,15 +4,16 @@ import {
   type SiftConfig,
 } from '../../config/index.js';
 import { ModelJson } from '../../lib/model-json.js';
+import { z } from '../../lib/zod.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
-import type { ToolTypeStats } from '../../status-server/metrics.js';
+import { ToolTypeStatsSchema } from '../../status-server/metrics.js';
 import {
   resolveRepoSearchPlannerToolDefinitions,
   type ChatMessage,
 } from '../planner-protocol.js';
-import type { ReadOverlapSummary } from './read-overlap.js';
-import type { TaskCommand } from '../prompts.js';
-import type { ChatGroundingStatus } from '../chat-grounding-policy.js';
+import { ReadOverlapSummarySchema } from './read-overlap.js';
+import { TaskCommandSchema } from '../prompts.js';
+import { ChatGroundingStatusSchema } from '../chat-grounding-policy.js';
 import type {
   JsonLogger,
   RetainedWebToolCall,
@@ -75,7 +76,7 @@ export function applyToolOutputRepetitionGuard(text: string): string {
 let nextLlamaCppSlotId = 0;
 
 export function allocateLlamaCppSlotId(config: SiftConfig): number {
-  const configuredSlots = getConfiguredLlamaSetting<number>(config, 'ParallelSlots');
+  const configuredSlots = getConfiguredLlamaSetting(config, 'ParallelSlots');
   const slotCount = Math.max(1, Math.floor(Number(configuredSlots) || 1));
   const slotId = nextLlamaCppSlotId % slotCount;
   nextLlamaCppSlotId = (nextLlamaCppSlotId + 1) % slotCount;
@@ -110,33 +111,34 @@ export function evaluateTaskSignals(task: TaskDefinition, evidenceText: string):
 // Task result type
 // ---------------------------------------------------------------------------
 
-export type TaskResult = {
-  id: string;
-  question: string;
-  reason: string;
-  turnsUsed: number;
-  safetyRejects: number;
-  invalidResponses: number;
-  commandFailures: number;
-  commands: TaskCommand[];
-  turnThinking: Record<number, string>;
-  finalOutput: string;
-  groundingStatus?: ChatGroundingStatus;
-  passed: boolean;
-  missingSignals: string[];
-  promptTokens: number;
-  outputTokens: number;
-  toolTokens: number;
-  thinkingTokens: number;
-  outputTokensEstimatedCount: number;
-  thinkingTokensEstimatedCount: number;
-  promptCacheTokens: number;
-  promptEvalTokens: number;
-  promptEvalDurationMs: number;
-  generationDurationMs: number;
-  toolStats: Record<string, ToolTypeStats>;
-  readOverlapSummary: ReadOverlapSummary;
-};
+export const TaskResultSchema = z.object({
+  id: z.string(),
+  question: z.string(),
+  reason: z.string(),
+  turnsUsed: z.number(),
+  safetyRejects: z.number(),
+  invalidResponses: z.number(),
+  commandFailures: z.number(),
+  commands: z.array(TaskCommandSchema),
+  turnThinking: z.record(z.coerce.number(), z.string()),
+  finalOutput: z.string(),
+  groundingStatus: ChatGroundingStatusSchema.optional(),
+  passed: z.boolean(),
+  missingSignals: z.array(z.string()),
+  promptTokens: z.number(),
+  outputTokens: z.number(),
+  toolTokens: z.number(),
+  thinkingTokens: z.number(),
+  outputTokensEstimatedCount: z.number(),
+  thinkingTokensEstimatedCount: z.number(),
+  promptCacheTokens: z.number(),
+  promptEvalTokens: z.number(),
+  promptEvalDurationMs: z.number(),
+  generationDurationMs: z.number(),
+  toolStats: z.record(z.string(), ToolTypeStatsSchema),
+  readOverlapSummary: ReadOverlapSummarySchema,
+});
+export type TaskResult = z.infer<typeof TaskResultSchema>;
 
 // ---------------------------------------------------------------------------
 // Task loop options
@@ -170,7 +172,7 @@ export type RunTaskLoopOptions = {
 };
 
 export function isPlannerReasoningEnabled(config: SiftConfig | undefined): boolean {
-  return getConfiguredLlamaSetting(config || {} as SiftConfig, 'Reasoning') === 'on';
+  return getConfiguredLlamaSetting(config, 'Reasoning') === 'on';
 }
 
 export function isPlannerReasoningContentEnabled(config: SiftConfig | undefined): boolean {

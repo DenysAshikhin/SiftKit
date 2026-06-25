@@ -1,5 +1,5 @@
 import { JsonRecordReader } from './lib/json-record-reader.js';
-import type { JsonObject } from './lib/json-types.js';
+import type { JsonObject, JsonValue, OptionalJsonValue } from './lib/json-types.js';
 
 export type PresetKind = 'summary' | 'chat' | 'plan' | 'repo-search';
 export type PresetExecutionFamily = PresetKind;
@@ -29,12 +29,16 @@ export const REPO_SEARCH_TOOLS = [
 
 export const WEB_RESEARCH_TOOLS = ['web_search', 'web_fetch'] as const;
 const PRESET_TOOL_NAMES = [...SUMMARY_TOOLS, ...REPO_SEARCH_TOOLS, ...WEB_RESEARCH_TOOLS] as const;
-const PRESET_TOOL_NAME_SET = new Set<string>(PRESET_TOOL_NAMES as readonly string[]);
+const PRESET_TOOL_NAME_SET = new Set<string>(PRESET_TOOL_NAMES);
 const LEGACY_REPO_SEARCH_TOOL_ALIAS = 'run_repo_cmd';
 const READ_ONLY_TOOLS = [...REPO_SEARCH_TOOLS] as const;
 
 export type PresetToolName = (typeof PRESET_TOOL_NAMES)[number];
 export type OperationModeAllowedTools = Record<PresetOperationMode, PresetToolName[]>;
+
+function isPresetToolName(value: string): value is PresetToolName {
+  return PRESET_TOOL_NAME_SET.has(value);
+}
 
 export type SiftPreset = {
   id: string;
@@ -58,8 +62,8 @@ export type SiftPreset = {
 const PRESET_SURFACES: readonly PresetSurface[] = ['cli', 'web'];
 
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS: OperationModeAllowedTools = {
-  summary: [...SUMMARY_TOOLS] as PresetToolName[],
-  'read-only': [...READ_ONLY_TOOLS] as PresetToolName[],
+  summary: [...SUMMARY_TOOLS],
+  'read-only': [...READ_ONLY_TOOLS],
   full: [],
 };
 
@@ -67,7 +71,7 @@ function getDefaultAllowedToolsForOperationMode(operationMode: PresetOperationMo
   return [...DEFAULT_OPERATION_MODE_ALLOWED_TOOLS[operationMode]];
 }
 
-function normalizePresetId(value: unknown): string {
+function normalizePresetId(value: OptionalJsonValue): string {
   return String(value || '')
     .trim()
     .toLowerCase()
@@ -75,23 +79,23 @@ function normalizePresetId(value: unknown): string {
     .replace(/^-+|-+$/gu, '');
 }
 
-function isPresetKind(value: unknown): value is PresetKind {
+export function isPresetKind(value: OptionalJsonValue): value is PresetKind {
   return value === 'summary' || value === 'chat' || value === 'plan' || value === 'repo-search';
 }
 
-function isExecutionFamily(value: unknown): value is PresetExecutionFamily {
+function isExecutionFamily(value: OptionalJsonValue): value is PresetExecutionFamily {
   return isPresetKind(value);
 }
 
-function isPresetOperationMode(value: unknown): value is PresetOperationMode {
+export function isPresetOperationMode(value: OptionalJsonValue): value is PresetOperationMode {
   return value === 'summary' || value === 'read-only' || value === 'full';
 }
 
-function normalizePromptPrefix(value: unknown): string {
+function normalizePromptPrefix(value: OptionalJsonValue): string {
   return typeof value === 'string' ? value : '';
 }
 
-function normalizeSurfaceList(value: unknown, fallback: readonly PresetSurface[]): PresetSurface[] {
+function normalizeSurfaceList(value: OptionalJsonValue, fallback: readonly PresetSurface[]): PresetSurface[] {
   if (!Array.isArray(value)) {
     return [...fallback];
   }
@@ -104,7 +108,7 @@ function normalizeSurfaceList(value: unknown, fallback: readonly PresetSurface[]
   return seen.size > 0 ? Array.from(seen) : [...fallback];
 }
 
-function normalizeToolList(value: unknown, fallback: readonly PresetToolName[]): PresetToolName[] {
+function normalizeToolList(value: OptionalJsonValue, fallback: readonly PresetToolName[]): PresetToolName[] {
   if (!Array.isArray(value)) {
     return [...fallback];
   }
@@ -132,15 +136,15 @@ function normalizeToolList(value: unknown, fallback: readonly PresetToolName[]):
             ? []
             : [normalized];
     for (const mappedToolName of mappedToolNames) {
-      if (PRESET_TOOL_NAME_SET.has(mappedToolName)) {
-        pushTool(mappedToolName as PresetToolName);
+      if (isPresetToolName(mappedToolName)) {
+        pushTool(mappedToolName);
       }
     }
   }
   return seen.size > 0 ? Array.from(seen) : [...fallback];
 }
 
-function normalizeNullableInteger(value: unknown, fallback: number | null): number | null {
+function normalizeNullableInteger(value: OptionalJsonValue, fallback: number | null): number | null {
   if (value === null || value === undefined || value === '') {
     return fallback;
   }
@@ -286,7 +290,7 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
 
 const BUILTIN_PRESET_IDS = new Set(BUILTIN_PRESETS.map((preset) => preset.id));
 
-function normalizePresetRecord(input: unknown, fallback: SiftPreset): SiftPreset {
+function normalizePresetRecord(input: OptionalJsonValue, fallback: SiftPreset): SiftPreset {
   const record = JsonRecordReader.asObject(input) || {};
   const reader = new JsonRecordReader(record);
   const presetKind = getPresetKindFromRecord(record, fallback.presetKind);
@@ -310,7 +314,7 @@ function normalizePresetRecord(input: unknown, fallback: SiftPreset): SiftPreset
   });
 }
 
-function normalizeUserPreset(input: unknown): SiftPreset | null {
+function normalizeUserPreset(input: OptionalJsonValue): SiftPreset | null {
   const record = JsonRecordReader.asObject(input);
   if (!record) {
     return null;
@@ -350,8 +354,8 @@ export function getDefaultOperationModeAllowedTools(): OperationModeAllowedTools
   };
 }
 
-export function normalizeOperationModeAllowedTools(input: unknown): OperationModeAllowedTools {
-  const reader = JsonRecordReader.fromUnknown(input);
+export function normalizeOperationModeAllowedTools(input: OptionalJsonValue): OperationModeAllowedTools {
+  const reader = JsonRecordReader.fromJsonValue(input);
   const summaryTools = normalizeToolList(reader.value('summary'), DEFAULT_OPERATION_MODE_ALLOWED_TOOLS.summary);
   if (
     summaryTools.includes('find_text')
@@ -380,10 +384,10 @@ export function getBuiltinPresets(): SiftPreset[] {
   return BUILTIN_PRESETS.map((preset) => buildPreset(preset));
 }
 
-export function normalizePresets(input: unknown): SiftPreset[] {
+export function normalizePresets(input: OptionalJsonValue): SiftPreset[] {
   const presetsById = new Map<string, SiftPreset>();
   const overlays = Array.isArray(input) ? input : [];
-  const overlayById = new Map<string, unknown>();
+  const overlayById = new Map<string, JsonValue>();
   for (const item of overlays) {
     const record = JsonRecordReader.asObject(item);
     if (!record) {
@@ -416,7 +420,7 @@ export function normalizePresets(input: unknown): SiftPreset[] {
   return result;
 }
 
-export function findPresetById(presets: readonly SiftPreset[], presetId: unknown): SiftPreset | null {
+export function findPresetById(presets: readonly SiftPreset[], presetId: OptionalJsonValue): SiftPreset | null {
   const normalizedId = normalizePresetId(presetId);
   if (!normalizedId) {
     return null;
@@ -424,8 +428,8 @@ export function findPresetById(presets: readonly SiftPreset[], presetId: unknown
   return presets.find((preset) => preset.id === normalizedId) || null;
 }
 
-export function getConfigPresets(config: unknown): SiftPreset[] {
-  const reader = JsonRecordReader.fromUnknown(config);
+export function getConfigPresets(config: OptionalJsonValue): SiftPreset[] {
+  const reader = JsonRecordReader.fromJsonValue(config);
   return normalizePresets(reader.value('Presets'));
 }
 
@@ -434,28 +438,32 @@ export function getPresetsForSurface(presets: readonly SiftPreset[], surface: Pr
 }
 
 export function resolveSummaryPreset(presets: readonly SiftPreset[]): SiftPreset {
-  return presets.find((preset) => preset.presetKind === 'summary' && preset.useForSummary)
+  const found = presets.find((preset) => preset.presetKind === 'summary' && preset.useForSummary)
     || presets.find((preset) => preset.id === 'summary')
-    || normalizePresets([]).find((preset) => preset.id === 'summary') as SiftPreset;
+    || normalizePresets([]).find((preset) => preset.id === 'summary');
+  if (!found) {
+    throw new Error('Summary preset is missing from the builtin preset set.');
+  }
+  return found;
 }
 
-export function getPresetExecutionFamily(presetId: unknown, presets: readonly SiftPreset[]): PresetExecutionFamily {
+export function getPresetExecutionFamily(presetId: OptionalJsonValue, presets: readonly SiftPreset[]): PresetExecutionFamily {
   return findPresetById(presets, presetId)?.executionFamily || 'chat';
 }
 
-export function getPresetKind(presetId: unknown, presets: readonly SiftPreset[]): PresetKind {
+export function getPresetKind(presetId: OptionalJsonValue, presets: readonly SiftPreset[]): PresetKind {
   return findPresetById(presets, presetId)?.presetKind || 'chat';
 }
 
-export function getPresetExecutionOperationMode(presetId: unknown, presets: readonly SiftPreset[]): PresetOperationMode {
+export function getPresetExecutionOperationMode(presetId: OptionalJsonValue, presets: readonly SiftPreset[]): PresetOperationMode {
   return findPresetById(presets, presetId)?.operationMode || 'summary';
 }
 
-export function mapLegacyModeToPresetId(mode: unknown): string {
+export function mapLegacyModeToPresetId(mode: OptionalJsonValue): string {
   return mode === 'plan' || mode === 'repo-search' ? mode : 'chat';
 }
 
-export function mapPresetIdToLegacyMode(presetId: unknown, presets?: readonly SiftPreset[]): 'chat' | 'plan' | 'repo-search' {
+export function mapPresetIdToLegacyMode(presetId: OptionalJsonValue, presets?: readonly SiftPreset[]): 'chat' | 'plan' | 'repo-search' {
   const presetKind = presets ? getPresetKind(presetId, presets) : (
     presetId === 'plan' || presetId === 'repo-search' ? presetId : 'chat'
   );
@@ -466,6 +474,6 @@ export function getPresetSurfaceOptions(): PresetSurface[] {
   return [...PRESET_SURFACES];
 }
 
-export function isBuiltinPresetId(value: unknown): boolean {
+export function isBuiltinPresetId(value: OptionalJsonValue): boolean {
   return BUILTIN_PRESET_IDS.has(normalizePresetId(value));
 }

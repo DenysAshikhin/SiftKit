@@ -8,11 +8,12 @@ import {
   withRealStatusServer,
   withTempEnv,
 } from './_runtime-helpers.js';
+import type { JsonObject, JsonValue } from '../src/lib/json-types.js';
 
 interface MetricsTimeseriesResponse {
-  days: unknown[];
-  taskDays: unknown[];
-  toolStats: Record<string, unknown>;
+  days: JsonValue[];
+  taskDays: JsonValue[];
+  toolStats: JsonObject;
 }
 
 test('dashboard metrics timeseries loads when managed llama is unconfigured', async () => {

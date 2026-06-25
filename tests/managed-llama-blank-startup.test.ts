@@ -161,7 +161,7 @@ test('missing local llama files log degraded startup instead of crashing', async
       }
       return true;
     };
-    process.stderr.write = patchedWrite as typeof process.stderr.write;
+    process.stderr.write = patchedWrite;
     try {
       await withRealStatusServer(async ({ configUrl, statusUrl }) => {
         const loadedConfig = await requestJson<SiftConfig>(configUrl);

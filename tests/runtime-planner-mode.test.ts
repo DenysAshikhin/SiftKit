@@ -21,13 +21,14 @@ import {
   withStubServer,
   waitForAsyncExpectation,
 } from './_runtime-helpers.js';
+import type { JsonObject, JsonValue } from '../src/lib/json-types.js';
 
 interface PlannerDebugEvent {
   kind?: string;
   toolName?: string;
   command?: string;
-  error?: unknown;
-  thinkingProcess?: unknown;
+  error?: JsonValue;
+  thinkingProcess?: JsonValue;
   toolCall?: { tool_name?: string };
   output?: { text?: string; matchedCount?: number };
 }
@@ -71,8 +72,8 @@ function buildOversizedWidgetPayloadInput(minCharacters: number): string {
       childCount: number;
       dynamicChildCount: number;
     }>;
-    bankGroupDirectLookup: Record<string, unknown>;
-    textSearchResults: unknown[];
+    bankGroupDirectLookup: JsonObject;
+    textSearchResults: JsonValue[];
     currentBankDetection: null;
   } = {
     widgetRootCount: 0,
@@ -639,7 +640,7 @@ test('planner failures write failed artifacts through status posts', async () =>
     const failedLogsPath = getFailedLogsPath();
     fs.mkdirSync(failedLogsPath, { recursive: true });
     const before = new Set(fs.readdirSync(failedLogsPath));
-    let statusPosts: Record<string, unknown>[] = [];
+    let statusPosts: JsonObject[] = [];
 
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -913,8 +914,7 @@ test('planner keeps the first real tool output and rewrites one duplicate warnin
       const config = await loadConfig({ ensure: true });
       const threshold = getChunkThresholdCharacters(config);
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
-      config.Runtime.LlamaCpp.Reasoning = 'on';
-      (config.Server.LlamaCpp as { Reasoning?: 'on' | 'off' }).Reasoning = 'on';
+      config.Runtime.LlamaCpp.Reasoning = 'on';
       if (Array.isArray(config.Server.LlamaCpp.Presets) && config.Server.LlamaCpp.Presets[0]) {
         config.Server.LlamaCpp.Presets[0].Reasoning = 'on';
       }

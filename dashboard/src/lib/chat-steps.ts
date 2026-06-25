@@ -71,7 +71,7 @@ export function buildRepoSearchChatSteps(events: RunDetailResponse['events']): R
     const turn = event.payload.turn;
     const command = readStringField(event.payload, 'modelVisibleCommand') || readStringField(event.payload, 'command');
     const output = readStringField(event.payload, 'insertedResultText') || readStringField(event.payload, 'output');
-    if (!taskId || !Number.isFinite(turn as number) || !command || !output) {
+    if (!taskId || !Number.isFinite(turn) || !command || !output) {
       continue;
     }
     stepsFromTurns.push({

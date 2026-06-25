@@ -1,5 +1,5 @@
 import { JsonRecordReader } from '../lib/json-record-reader.js';
-import type { JsonObject } from '../lib/json-types.js';
+import type { JsonObject, OptionalJsonValue } from '../lib/json-types.js';
 import type {
   SummaryPolicyProfile,
   SummarySourceKind,
@@ -41,7 +41,7 @@ function optionalNumber(reader: JsonRecordReader, key: string): number | undefin
   return reader.number(key) ?? undefined;
 }
 
-function normalizeSummaryPolicyProfile(value: unknown): SummaryPolicyProfile {
+function normalizeSummaryPolicyProfile(value: OptionalJsonValue): SummaryPolicyProfile {
   return (
     value === 'pass-fail'
     || value === 'unique-errors'
@@ -52,11 +52,11 @@ function normalizeSummaryPolicyProfile(value: unknown): SummaryPolicyProfile {
   ) ? value : 'general';
 }
 
-function normalizeSummarySourceKind(value: unknown): SummarySourceKind | undefined {
+function normalizeSummarySourceKind(value: OptionalJsonValue): SummarySourceKind | undefined {
   return value === 'command-output' ? 'command-output' : undefined;
 }
 
-function readSummaryTiming(value: unknown): SummaryTimingInput | undefined {
+function readSummaryTiming(value: OptionalJsonValue): SummaryTimingInput | undefined {
   const objectValue = JsonRecordReader.asObject(value);
   if (!objectValue) {
     return undefined;

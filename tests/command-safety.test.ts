@@ -25,7 +25,7 @@ test('evaluateCommandSafety allows allowlisted read-only commands', () => {
 
 test('normalizePlannerCommand adds ignore-case to rg searches by default', () => {
   const normalized = normalizePlannerCommand('rg -n "SKILL" src', {
-    ignorePolicy: { names: [] as string[], namesLower: new Set<string>(), paths: [] as string[] },
+    ignorePolicy: { names: new Array<string>(), namesLower: new Set<string>(), paths: new Array<string>() },
   });
 
   assert.equal(normalized.command, 'rg -n "SKILL" src --no-ignore --ignore-case');
@@ -33,7 +33,7 @@ test('normalizePlannerCommand adds ignore-case to rg searches by default', () =>
 });
 
 test('normalizePlannerCommand does not add ignore-case when rg case behavior is explicit', () => {
-  const ignorePolicy = { names: [] as string[], namesLower: new Set<string>(), paths: [] as string[] };
+  const ignorePolicy = { names: new Array<string>(), namesLower: new Set<string>(), paths: new Array<string>() };
 
   assert.equal(
     normalizePlannerCommand('rg -n --case-sensitive "SKILL" src', { ignorePolicy }).command,
@@ -47,7 +47,7 @@ test('normalizePlannerCommand does not add ignore-case when rg case behavior is 
 
 test('normalizePlannerCommand does not add ignore-case to rg file listing', () => {
   const normalized = normalizePlannerCommand('rg --files src', {
-    ignorePolicy: { names: [] as string[], namesLower: new Set<string>(), paths: [] as string[] },
+    ignorePolicy: { names: new Array<string>(), namesLower: new Set<string>(), paths: new Array<string>() },
   });
 
   assert.equal(normalized.command, 'rg --files src --no-ignore');
@@ -55,7 +55,7 @@ test('normalizePlannerCommand does not add ignore-case to rg file listing', () =
 
 test('normalizePlannerCommand rewrites rg --include to --glob', () => {
   const normalized = normalizePlannerCommand('rg -n "from " apps/runner/src --include "*.ts"', {
-    ignorePolicy: { names: [] as string[], namesLower: new Set<string>(), paths: [] as string[] },
+    ignorePolicy: { names: new Array<string>(), namesLower: new Set<string>(), paths: new Array<string>() },
   });
 
   assert.equal(normalized.command, 'rg -n "from " apps/runner/src --glob "*.ts" --no-ignore --ignore-case');
@@ -160,7 +160,7 @@ test('normalizePlannerCommand appends rg ignore flags after regex alternation in
 });
 
 // F14 (A5): rg/PowerShell rewrite decisions extracted from runTaskLoop loop cases.
-const EMPTY_IGNORE_POLICY = { names: [] as string[], namesLower: new Set<string>(), paths: [] as string[] };
+const EMPTY_IGNORE_POLICY = { names: new Array<string>(), namesLower: new Set<string>(), paths: new Array<string>() };
 
 test('normalizePlannerCommand rewrites unsupported rg --type tsx to --type ts', () => {
   const normalized = normalizePlannerCommand('rg -n "foo" --type tsx src', { ignorePolicy: EMPTY_IGNORE_POLICY });

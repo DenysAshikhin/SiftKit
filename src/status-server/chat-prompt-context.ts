@@ -26,7 +26,7 @@ type PromptContextOptions = {
   promptPrefix?: string;
 };
 
-function normalizeChatMode(value: unknown): 'chat' | 'plan' | 'repo-search' {
+function normalizeChatMode(value: string | null | undefined): 'chat' | 'plan' | 'repo-search' {
   return value === 'plan' || value === 'repo-search' ? value : 'chat';
 }
 

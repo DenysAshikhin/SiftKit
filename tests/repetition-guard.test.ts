@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 
 import { detectRecentTokenRepetition } from '../src/repo-search/repetition-guard.js';
+import { readPackageJson } from './helpers/package-json.js';
 
 test('detectRecentTokenRepetition ignores short outputs below the trigger threshold', () => {
   const text = `${'</arg_value>'.repeat(20)} normal`;
@@ -49,7 +50,7 @@ test('detectRecentTokenRepetition still catches long repeated runs when a repeat
 });
 
 test('repetition guard benchmark is exposed as a package script', () => {
-  const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { scripts?: Record<string, string> };
+  const pkg = readPackageJson();
 
   assert.equal(pkg.scripts?.['benchmark:repetition-guard'], 'tsx .\\scripts\\benchmark-repetition-guard.ts');
   assert.equal(existsSync('scripts/benchmark-repetition-guard.ts'), true);

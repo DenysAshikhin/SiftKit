@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
-import * as http from 'node:http';
-import type { AddressInfo } from 'node:net';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
+import { getAddressInfo } from './helpers/dashboard-http.js';
 
 import { getDefaultMetrics } from '../src/status-server/metrics.js';
 import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
@@ -43,7 +43,7 @@ function createPassthroughHarness(tempRoot: string): Promise<TestHarness> {
       res.writeHead(404).end();
     });
     upstream.listen(0, '127.0.0.1', () => {
-      const upstreamAddress = upstream.address() as AddressInfo;
+      const upstreamAddress = getAddressInfo(upstream);
       const upstreamBaseUrl = `http://127.0.0.1:${upstreamAddress.port}`;
 
       const configPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
@@ -135,7 +135,7 @@ function createPassthroughHarness(tempRoot: string): Promise<TestHarness> {
         }
       });
       hostServer.listen(0, '127.0.0.1', () => {
-        const hostAddress = hostServer.address() as AddressInfo;
+        const hostAddress = getAddressInfo(hostServer);
         const hostBaseUrl = `http://127.0.0.1:${hostAddress.port}`;
 
         const cleanup = async (): Promise<void> => {

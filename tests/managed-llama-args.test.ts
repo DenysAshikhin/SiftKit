@@ -21,7 +21,7 @@ function createConfig(ncpuMoe: number): SiftConfig {
   return config;
 }
 
-function createSpeculativeConfig(overrides: Record<string, unknown>): SiftConfig {
+function createSpeculativeConfig(overrides: Partial<ServerManagedLlamaPreset>): SiftConfig {
   const config = createConfig(0);
   Object.assign(activePreset(config), { SpeculativeEnabled: true }, overrides);
   return config;
@@ -29,14 +29,14 @@ function createSpeculativeConfig(overrides: Record<string, unknown>): SiftConfig
 
 // Returns just the speculative-decoding flags: from `--spec-type` up to the
 // trailing `-fa` flag that buildManagedLlamaArgs always appends afterwards.
-function speculativeArgs(overrides: Record<string, unknown>): string[] {
+function speculativeArgs(overrides: Partial<ServerManagedLlamaPreset>): string[] {
   const args = buildManagedLlamaArgs(getManagedLlamaConfig(createSpeculativeConfig(overrides)));
   const start = args.indexOf('--spec-type');
   const end = args.indexOf('-fa', start);
   return args.slice(start, end === -1 ? undefined : end);
 }
 
-function draftCacheArgs(overrides: Record<string, unknown>): string[] {
+function draftCacheArgs(overrides: Partial<ServerManagedLlamaPreset>): string[] {
   const args = buildManagedLlamaArgs(getManagedLlamaConfig(createSpeculativeConfig(overrides)));
   const start = args.indexOf('-ctkd');
   return start === -1 ? [] : args.slice(start, start + 4);

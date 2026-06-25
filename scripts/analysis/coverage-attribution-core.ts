@@ -1,19 +1,17 @@
-import * as path from 'node:path';
+import path from 'node:path';
+import { z } from '../../src/lib/zod.js';
+import { JsonObjectSchema } from '../../src/lib/json-types.js';
 
-export interface IstanbulBranch {
-  line: number;
-  type: string;
-}
-
-export interface IstanbulFileCoverage {
-  path: string;
-  branchMap: Record<string, IstanbulBranch>;
-  b: Record<string, number[]>;
-  statementMap: Record<string, unknown>;
-  s: Record<string, number>;
-}
-
-export type CoverageFinal = Record<string, IstanbulFileCoverage>;
+export const IstanbulFileCoverageSchema = z.object({
+  path: z.string(),
+  branchMap: z.record(z.string(), z.object({ line: z.number(), type: z.string() })),
+  b: z.record(z.string(), z.array(z.number())),
+  statementMap: JsonObjectSchema,
+  s: z.record(z.string(), z.number()),
+});
+export const CoverageFinalSchema = z.record(z.string(), IstanbulFileCoverageSchema);
+export type IstanbulFileCoverage = z.infer<typeof IstanbulFileCoverageSchema>;
+export type CoverageFinal = z.infer<typeof CoverageFinalSchema>;
 
 export function collectCoveredBranchKeys(coverage: CoverageFinal, repoRoot: string): Set<string> {
   const keys = new Set<string>();

@@ -1,6 +1,7 @@
+import type { OptionalJsonValue } from '../../src/lib/json-types.js';
 import type { ChatSession, DashboardConfig, DashboardPreset, DashboardPresetKind, DashboardPresetSurface } from './types.js';
 
-function normalizePresetId(value: unknown): string {
+function normalizePresetId(value: OptionalJsonValue): string {
   return String(value || '')
     .trim()
     .toLowerCase()
@@ -15,7 +16,7 @@ export function getSurfacePresets(config: DashboardConfig | null, surface: Dashb
   return config.Presets.filter((preset) => preset.surfaces.includes(surface));
 }
 
-export function getPresetById(config: DashboardConfig | null, presetId: unknown): DashboardPreset | null {
+export function getPresetById(config: DashboardConfig | null, presetId: OptionalJsonValue): DashboardPreset | null {
   const normalizedId = normalizePresetId(presetId);
   if (!normalizedId || !config || !Array.isArray(config.Presets)) {
     return null;

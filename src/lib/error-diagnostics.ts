@@ -8,40 +8,29 @@ export type ErrorDiagnostic = {
   cause?: ErrorDiagnostic;
 };
 
-function getRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' ? value as Record<string, unknown> : null;
-}
-
-function getStringProperty(record: Record<string, unknown>, key: string): string | undefined {
-  const value = record[key];
+function readErrorString(error: Error, key: 'operation' | 'serviceUrl' | 'healthUrl'): string | undefined {
+  if (!(key in error)) {
+    return undefined;
+  }
+  const value = Reflect.get(error, key);
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
-export function serializeErrorDiagnostic(error: unknown): ErrorDiagnostic {
-  const record = getRecord(error);
-  const name = error instanceof Error
-    ? error.name
-    : getStringProperty(record ?? {}, 'name') ?? 'Error';
-  const message = error instanceof Error
-    ? error.message
-    : typeof error === 'string'
-      ? error
-      : getStringProperty(record ?? {}, 'message') ?? String(error);
+export function serializeErrorDiagnostic(error: Error): ErrorDiagnostic {
+  const name = error.name || 'Error';
+  const message = error.message || String(error);
   const diagnostic: ErrorDiagnostic = { name, message };
-  const stack = error instanceof Error ? error.stack : getStringProperty(record ?? {}, 'stack');
-  if (stack) {
-    diagnostic.stack = stack;
+  if (error.stack) {
+    diagnostic.stack = error.stack;
   }
-  if (record) {
-    const operation = getStringProperty(record, 'operation');
-    const serviceUrl = getStringProperty(record, 'serviceUrl');
-    const healthUrl = getStringProperty(record, 'healthUrl');
-    if (operation) diagnostic.operation = operation;
-    if (serviceUrl) diagnostic.serviceUrl = serviceUrl;
-    if (healthUrl) diagnostic.healthUrl = healthUrl;
-    if (record.cause !== undefined) {
-      diagnostic.cause = serializeErrorDiagnostic(record.cause);
-    }
+  const operation = readErrorString(error, 'operation');
+  const serviceUrl = readErrorString(error, 'serviceUrl');
+  const healthUrl = readErrorString(error, 'healthUrl');
+  if (operation) diagnostic.operation = operation;
+  if (serviceUrl) diagnostic.serviceUrl = serviceUrl;
+  if (healthUrl) diagnostic.healthUrl = healthUrl;
+  if (error.cause instanceof Error) {
+    diagnostic.cause = serializeErrorDiagnostic(error.cause);
   }
   return diagnostic;
 }

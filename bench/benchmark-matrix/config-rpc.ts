@@ -1,41 +1,36 @@
 import { httpClient } from '../../src/lib/http-client.js';
+import { isJsonObject, type OptionalJsonValue } from '../../src/lib/json-types.js';
 import { sleep } from '../../src/lib/time.js';
 import { LlamaCppClient } from '../../src/llm-protocol/llama-cpp-client.js';
-import type { ConfigRecord } from './types.js';
+import { ConfigRecordSchema, type ConfigRecord } from './types.js';
 
 const llamaCppClient = new LlamaCppClient();
 
 export async function invokeConfigGet(configUrl: string): Promise<ConfigRecord> {
-  return httpClient.requestJson<ConfigRecord>({
+  return httpClient.requestJson({
     url: configUrl,
     method: 'GET',
     timeoutMs: 10_000,
-  });
+  }, ConfigRecordSchema);
 }
 
 export async function invokeConfigSet(configUrl: string, config: ConfigRecord): Promise<ConfigRecord> {
-  return httpClient.requestJson<ConfigRecord>({
+  return httpClient.requestJson({
     url: configUrl,
     method: 'PUT',
     timeoutMs: 10_000,
     body: JSON.stringify(config),
-  });
+  }, ConfigRecordSchema);
 }
 
-export function getRuntimeLlamaCppConfigValue(config: ConfigRecord, key: string): unknown {
-  const runtime = typeof config.Runtime === 'object' && config.Runtime !== null
-    ? config.Runtime as Record<string, unknown>
-    : null;
-  const runtimeLlamaCpp = runtime && typeof runtime.LlamaCpp === 'object' && runtime.LlamaCpp !== null
-    ? runtime.LlamaCpp as Record<string, unknown>
-    : null;
+export function getRuntimeLlamaCppConfigValue(config: ConfigRecord, key: string): OptionalJsonValue {
+  const runtime = isJsonObject(config.Runtime) ? config.Runtime : null;
+  const runtimeLlamaCpp = runtime && isJsonObject(runtime.LlamaCpp) ? runtime.LlamaCpp : null;
   if (runtimeLlamaCpp && Object.prototype.hasOwnProperty.call(runtimeLlamaCpp, key)) {
     return runtimeLlamaCpp[key];
   }
 
-  const llamaCpp = typeof config.LlamaCpp === 'object' && config.LlamaCpp !== null
-    ? config.LlamaCpp as Record<string, unknown>
-    : null;
+  const llamaCpp = isJsonObject(config.LlamaCpp) ? config.LlamaCpp : null;
   return llamaCpp?.[key];
 }
 

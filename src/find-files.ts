@@ -1,5 +1,5 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import { readdirSync } from 'node:fs';
+import { join, resolve, basename, relative } from 'node:path';
 
 export type FindFilesResult = {
   Name: string;
@@ -14,9 +14,9 @@ function wildcardToRegex(pattern: string): RegExp {
 }
 
 function walkFiles(rootPath: string, results: string[]): void {
-  const entries = fs.readdirSync(rootPath, { withFileTypes: true });
+  const entries = readdirSync(rootPath, { withFileTypes: true });
   for (const entry of entries) {
-    const fullPath = path.join(rootPath, entry.name);
+    const fullPath = join(rootPath, entry.name);
     if (entry.isDirectory()) {
       walkFiles(fullPath, results);
       continue;
@@ -29,17 +29,17 @@ function walkFiles(rootPath: string, results: string[]): void {
 }
 
 export function findFiles(names: string[], searchPath = '.'): FindFilesResult[] {
-  const resolvedPath = path.resolve(searchPath);
+  const resolvedPath = resolve(searchPath);
   const patterns = names.map((name) => wildcardToRegex(name));
   const files: string[] = [];
   walkFiles(resolvedPath, files);
 
   return files
-    .filter((filePath) => patterns.some((pattern) => pattern.test(path.basename(filePath))))
+    .filter((filePath) => patterns.some((pattern) => pattern.test(basename(filePath))))
     .sort((left, right) => left.localeCompare(right))
     .map((filePath) => ({
-      Name: path.basename(filePath),
-      RelativePath: path.relative(resolvedPath, filePath),
+      Name: basename(filePath),
+      RelativePath: relative(resolvedPath, filePath),
       FullPath: filePath,
     }));
 }

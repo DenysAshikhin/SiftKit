@@ -5,7 +5,7 @@ export function createInterruptSignal(): {
   interrupted: Promise<never>;
   dispose: () => void;
 } {
-  let rejectInterrupted: (reason?: unknown) => void = () => {};
+  let rejectInterrupted: (reason?: Error) => void = () => {};
   const interrupted = new Promise<never>((_resolve, reject) => {
     rejectInterrupted = reject;
   });
@@ -72,7 +72,7 @@ export async function runWithFixtureDeadline<T>(
       clearTimeout(timeoutHandle);
       resolve(value);
     };
-    const rejectOnce = (error: unknown): void => {
+    const rejectOnce = (error: Error): void => {
       clearTimeout(timeoutHandle);
       reject(error);
     };
@@ -88,7 +88,6 @@ export async function runWithFixtureDeadline<T>(
   });
 }
 
-export function isTimeoutError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return /\btimed out after\b/iu.test(message);
+export function isTimeoutError(error: Error): boolean {
+  return /\btimed out after\b/iu.test(error.message);
 }

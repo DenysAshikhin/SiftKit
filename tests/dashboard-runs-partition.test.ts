@@ -1,4 +1,4 @@
-import * as assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import test from 'node:test';
 
@@ -29,10 +29,10 @@ function buildRunLogRow(overrides: Partial<RunLogDbRow> = {}): RunLogDbRow {
     title: 'Repo search',
     model: 'model.gguf',
     backend: 'llama.cpp',
-    input_tokens: '10',
-    output_tokens: '3',
+    input_tokens: 10,
+    output_tokens: 3,
     thinking_tokens: null,
-    tool_tokens: '2',
+    tool_tokens: 2,
     prompt_cache_tokens: null,
     prompt_eval_tokens: null,
     prompt_eval_duration_ms: null,

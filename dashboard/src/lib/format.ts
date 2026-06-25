@@ -1,5 +1,6 @@
 import { syncDerivedSettingsFields } from '../settings-runtime.js';
 import telemetryMetrics from '../../../src/lib/telemetry-metrics.js';
+import type { JsonValue, JsonObject, OptionalJsonValue } from '../../../src/lib/json-types.js';
 import type {
   ChatSession,
   DashboardConfig,
@@ -56,7 +57,7 @@ export function formatDate(value: string | null): string {
   return date.toLocaleString();
 }
 
-function readTokenComponent(value: unknown): number {
+function readTokenComponent(value: OptionalJsonValue): number {
   const tokenCount = Number(value);
   return Number.isFinite(tokenCount) && tokenCount >= 0 ? tokenCount : 0;
 }
@@ -324,16 +325,16 @@ export function formatTaskKindClass(taskKind: string): string {
   return normalized.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'other';
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
+export function isRecord(value: OptionalJsonValue): value is JsonObject {
+  return value !== null && value !== undefined && typeof value === 'object' && !Array.isArray(value);
 }
 
-export function readStringField(record: Record<string, unknown>, key: string): string | null {
+export function readStringField(record: JsonObject, key: string): string | null {
   const value = record[key];
   return typeof value === 'string' && value.trim() ? value : null;
 }
 
-export function readNumberField(record: Record<string, unknown>, key: string): number | null {
+export function readNumberField(record: JsonObject, key: string): number | null {
   const value = record[key];
   return Number.isFinite(value) ? Number(value) : null;
 }
@@ -345,7 +346,7 @@ export function formatCompactTokenCount(value: number): string {
   return String(Math.round(value));
 }
 
-export function formatStepContextUsed(payload: Record<string, unknown>): string | null {
+export function formatStepContextUsed(payload: JsonObject): string | null {
   const promptTokenCount = readNumberField(payload, 'promptTokenCount');
   const remainingTokenAllowance = readNumberField(payload, 'remainingTokenAllowance');
   if (promptTokenCount === null || remainingTokenAllowance === null) {
@@ -384,8 +385,9 @@ export function extractRunFinalOutput(detail: RunDetailResponse): string | null 
     }
   }
   const modelResponses = events
-    .filter((event) => event.kind === 'turn_model_response' && isRecord(event.payload))
-    .map((event) => readStringField(event.payload as Record<string, unknown>, 'text'))
+    .map((event) => (event.kind === 'turn_model_response' && isRecord(event.payload)
+      ? readStringField(event.payload, 'text')
+      : null))
     .filter((value): value is string => Boolean(value));
   if (modelResponses.length > 0) {
     return modelResponses[modelResponses.length - 1] ?? null;
@@ -403,7 +405,7 @@ export function normalizeFinalOutputText(rawOutput: string): string {
   const trimmed = rawOutput.trim();
   let text = trimmed;
   try {
-    const parsed = JSON.parse(trimmed) as unknown;
+    const parsed: JsonValue = JSON.parse(trimmed);
     if (isRecord(parsed)) {
       const outputText = readStringField(parsed, 'output')
         || readStringField(parsed, 'finalOutput')
@@ -423,11 +425,11 @@ export function normalizeFinalOutputText(rawOutput: string): string {
     .replace(/\\t/gu, '\t');
 }
 
-export function formatRunEventPayload(event: { kind: string; payload: unknown }): string {
+export function formatRunEventPayload(event: { kind: string; payload: JsonValue }): string {
   if (!isRecord(event.payload)) {
     return `\`\`\`json\n${JSON.stringify(event.payload, null, 2)}\n\`\`\``;
   }
-  const payload = event.payload as Record<string, unknown>;
+  const payload = event.payload;
   const scalarLines: string[] = [];
   const blockLines: string[] = [];
   const preferredTextFields = [
@@ -442,7 +444,7 @@ export function formatRunEventPayload(event: { kind: string; payload: unknown })
   if (typeof payload.taskId === 'string' && payload.taskId.trim()) {
     scalarLines.push(`- Task: \`${payload.taskId}\``);
   }
-  if (Number.isFinite(payload.turn as number)) {
+  if (Number.isFinite(payload.turn)) {
     scalarLines.push(`- Turn: ${String(payload.turn)}`);
   }
   if (typeof payload.command === 'string' && payload.command.trim()) {
@@ -458,7 +460,7 @@ export function formatRunEventPayload(event: { kind: string; payload: unknown })
     blockLines.push(normalizeFinalOutputText(value));
     blockLines.push('```');
   }
-  const remaining: Record<string, unknown> = {};
+  const remaining: JsonObject = {};
   for (const [key, value] of Object.entries(payload)) {
     if (key === 'taskId' || key === 'turn' || key === 'command' || preferredTextFields.includes(key)) {
       continue;
@@ -496,7 +498,7 @@ export function extractFinishOutput(raw: string): string {
 }
 
 export function cloneDashboardConfig(config: DashboardConfig): DashboardConfig {
-  return syncDerivedSettingsFields(JSON.parse(JSON.stringify(config)) as DashboardConfig);
+  return syncDerivedSettingsFields(structuredClone(config));
 }
 
 export function getDashboardConfigSignature(config: DashboardConfig | null): string {

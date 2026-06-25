@@ -29,9 +29,10 @@
  *   the log to that window.
  */
 
-import * as fs from 'node:fs';
-import * as http from 'node:http';
-import * as path from 'node:path';
+import fs from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
+import { getErrorMessage } from '../src/lib/errors.js';
 
 // ---------------------------------------------------------------------------
 // CLI parsing
@@ -770,7 +771,7 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error: unknown) => {
-  process.stderr.write(`[profile] FATAL: ${error instanceof Error ? error.message : String(error)}\n`);
+main().catch((error) => {
+  process.stderr.write(`[profile] FATAL: ${getErrorMessage(error)}\n`);
   process.exit(1);
 });

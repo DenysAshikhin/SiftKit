@@ -10,8 +10,10 @@ import {
   formatTokensPerSecond,
 } from '../lib/text-format.js';
 
+import { z } from '../lib/zod.js';
 import { JsonRecordReader } from '../lib/json-record-reader.js';
-import type { JsonObject } from '../lib/json-types.js';
+import { parseJsonValueText } from '../lib/json.js';
+import type { JsonObject, OptionalJsonValue } from '../lib/json-types.js';
 import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 import {
   TASK_KINDS,
@@ -59,7 +61,7 @@ export type IdleSummarySnapshot = {
 
 export type IdleSummarySnapshotRow = IdleSummarySnapshot & { summaryText: string };
 
-function toNonNegativeNumber(value: unknown): number {
+function toNonNegativeNumber(value: OptionalJsonValue): number {
   return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : 0;
 }
 
@@ -148,7 +150,7 @@ function getDefaultTaskTotals(): SnapshotTaskTotals {
   };
 }
 
-function normalizeTaskTotals(input: unknown): SnapshotTaskTotals {
+function normalizeTaskTotals(input: JsonObject | null): SnapshotTaskTotals {
   const totals = getDefaultTaskTotals();
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return totals;
@@ -199,7 +201,7 @@ function getDefaultToolStats(): SnapshotToolStats {
   };
 }
 
-function normalizeToolStats(input: unknown): SnapshotToolStats {
+function normalizeToolStats(input: JsonObject | null): SnapshotToolStats {
   const stats = getDefaultToolStats();
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return stats;
@@ -251,22 +253,22 @@ function normalizeToolStats(input: unknown): SnapshotToolStats {
   return stats;
 }
 
-function parseJsonObject(value: unknown): JsonObject | null {
+function parseJsonObject(value: OptionalJsonValue): JsonObject | null {
   if (typeof value !== 'string' || !value.trim()) {
     return null;
   }
   try {
-    return JsonRecordReader.asObject(JSON.parse(value) as unknown);
+    return JsonRecordReader.asObject(parseJsonValueText(value));
   } catch {
     return null;
   }
 }
 
-export function parseSnapshotTaskTotalsJson(value: unknown): SnapshotTaskTotals {
+export function parseSnapshotTaskTotalsJson(value: OptionalJsonValue): SnapshotTaskTotals {
   return normalizeTaskTotals(parseJsonObject(value));
 }
 
-export function parseSnapshotToolStatsJson(value: unknown): SnapshotToolStats {
+export function parseSnapshotToolStatsJson(value: OptionalJsonValue): SnapshotToolStats {
   return normalizeToolStats(parseJsonObject(value));
 }
 
@@ -304,8 +306,8 @@ export function buildIdleSummarySnapshot(metrics: JsonObject, emittedAt: Date = 
   const chunkThresholdCharacters = Number.isFinite(metrics.chunkThresholdCharacters) && Number(metrics.chunkThresholdCharacters) > 0
     ? Number(metrics.chunkThresholdCharacters)
     : null;
-  const taskTotals = normalizeTaskTotals(metrics.taskTotals);
-  const toolStats = normalizeToolStats(metrics.toolStats);
+  const taskTotals = normalizeTaskTotals(JsonRecordReader.asObject(metrics.taskTotals));
+  const toolStats = normalizeToolStats(JsonRecordReader.asObject(metrics.toolStats));
   return {
     emittedAtUtc: emittedAt.toISOString(),
     inputTokensTotal,
@@ -375,9 +377,11 @@ export function buildIdleMetricsLogMessage(metrics: JsonObject, colorOptions: Co
   return buildIdleSummarySnapshotMessage(buildIdleSummarySnapshot(metrics), colorOptions);
 }
 
-function normalizeSqlNumber(value: unknown): number | null {
+function normalizeSqlNumber(value: OptionalJsonValue): number | null {
   return Number.isFinite(value) ? Number(value) : null;
 }
+
+const PragmaColumnRowSchema = z.object({ name: z.string() });
 
 export function ensureIdleSummarySnapshotsTable(database: DatabaseInstance): void {
   try {
@@ -408,8 +412,9 @@ export function ensureIdleSummarySnapshotsTable(database: DatabaseInstance): voi
       CREATE INDEX IF NOT EXISTS idx_idle_summary_snapshots_emitted
         ON idle_summary_snapshots(emitted_at_utc DESC, id DESC);
     `);
-    const existingColumns = (database.prepare('PRAGMA table_info(idle_summary_snapshots)').all() as Array<{ name: unknown }>)
-      .map((column) => String(column.name));
+    const existingColumns = z.array(PragmaColumnRowSchema)
+      .parse(database.prepare('PRAGMA table_info(idle_summary_snapshots)').all())
+      .map((column) => column.name);
     if (!existingColumns.includes('thinking_tokens_total')) {
       database.exec('ALTER TABLE idle_summary_snapshots ADD COLUMN thinking_tokens_total INTEGER NOT NULL DEFAULT 0;');
     }
@@ -487,7 +492,7 @@ export function persistIdleSummarySnapshot(database: DatabaseInstance, snapshot:
   );
 }
 
-export function normalizeIdleSummarySnapshotRowNumber(value: unknown): number | null {
+export function normalizeIdleSummarySnapshotRowNumber(value: OptionalJsonValue): number | null {
   return normalizeSqlNumber(value);
 }
 
@@ -505,73 +510,48 @@ export type SnapshotTotals = {
   taskTotals: SnapshotTaskTotals;
 };
 
-type SnapshotTotalsRow = {
-  completed_request_count: number | string | null;
-  input_tokens_total: number | string | null;
-  output_tokens_total: number | string | null;
-  thinking_tokens_total: number | string | null;
-  tool_tokens_total: number | string | null;
-  prompt_cache_tokens_total: number | string | null;
-  prompt_eval_tokens_total: number | string | null;
-  speculative_accepted_tokens_total: number | string | null;
-  speculative_generated_tokens_total: number | string | null;
-  request_duration_ms_total: number | string | null;
-  task_totals_json: string | null;
-};
+const sqlNumberColumn = z.number().nullish();
+const sqlTextColumn = z.string().nullish();
 
-export type SnapshotTimeseriesRow = {
-  emitted_at_utc: string | null;
-  completed_request_count: number | string | null;
-  input_tokens_total: number | string | null;
-  output_tokens_total: number | string | null;
-  thinking_tokens_total: number | string | null;
-  tool_tokens_total: number | string | null;
-  prompt_cache_tokens_total: number | string | null;
-  prompt_eval_tokens_total: number | string | null;
-  speculative_accepted_tokens_total: number | string | null;
-  speculative_generated_tokens_total: number | string | null;
-  request_duration_ms_total: number | string | null;
-  task_totals_json: string | null;
-  tool_stats_json: string | null;
-};
+export const IdleSummarySnapshotDbRowSchema = z.object({
+  emitted_at_utc: sqlTextColumn,
+  completed_request_count: sqlNumberColumn,
+  input_characters_total: sqlNumberColumn,
+  output_characters_total: sqlNumberColumn,
+  compression_ratio: sqlNumberColumn,
+  input_tokens_total: sqlNumberColumn,
+  output_tokens_total: sqlNumberColumn,
+  thinking_tokens_total: sqlNumberColumn,
+  tool_tokens_total: sqlNumberColumn,
+  prompt_cache_tokens_total: sqlNumberColumn,
+  prompt_eval_tokens_total: sqlNumberColumn,
+  speculative_accepted_tokens_total: sqlNumberColumn,
+  speculative_generated_tokens_total: sqlNumberColumn,
+  saved_tokens: sqlNumberColumn,
+  saved_percent: sqlNumberColumn,
+  request_duration_ms_total: sqlNumberColumn,
+  wall_duration_ms_total: sqlNumberColumn,
+  stdin_wait_ms_total: sqlNumberColumn,
+  server_preflight_ms_total: sqlNumberColumn,
+  lock_wait_ms_total: sqlNumberColumn,
+  status_running_ms_total: sqlNumberColumn,
+  terminal_status_ms_total: sqlNumberColumn,
+  avg_request_ms: sqlNumberColumn,
+  avg_tokens_per_second: sqlNumberColumn,
+  prompt_cache_hit_rate: sqlNumberColumn,
+  acceptance_rate: sqlNumberColumn,
+  task_totals_json: sqlTextColumn,
+  tool_stats_json: sqlTextColumn,
+  summary_text: sqlTextColumn,
+});
 
-export type RecentSnapshotRow = {
-  emitted_at_utc: string | null;
-  completed_request_count: number | string | null;
-  input_characters_total: number | string | null;
-  output_characters_total: number | string | null;
-  input_tokens_total: number | string | null;
-  output_tokens_total: number | string | null;
-  thinking_tokens_total: number | string | null;
-  tool_tokens_total: number | string | null;
-  prompt_cache_tokens_total: number | string | null;
-  prompt_eval_tokens_total: number | string | null;
-  speculative_accepted_tokens_total: number | string | null;
-  speculative_generated_tokens_total: number | string | null;
-  task_totals_json: string | null;
-  tool_stats_json: string | null;
-  saved_tokens: number | string | null;
-  saved_percent: number | string | null;
-  compression_ratio: number | string | null;
-  request_duration_ms_total: number | string | null;
-  wall_duration_ms_total: number | string | null;
-  stdin_wait_ms_total: number | string | null;
-  server_preflight_ms_total: number | string | null;
-  lock_wait_ms_total: number | string | null;
-  status_running_ms_total: number | string | null;
-  terminal_status_ms_total: number | string | null;
-  avg_request_ms: number | string | null;
-  avg_tokens_per_second: number | string | null;
-  prompt_cache_hit_rate: number | string | null;
-  acceptance_rate: number | string | null;
-  summary_text: string | null;
-};
+export type IdleSummarySnapshotDbRow = z.infer<typeof IdleSummarySnapshotDbRowSchema>;
 
 export function querySnapshotTotalsBeforeDate(database: DatabaseInstance | null, dateKey: string): SnapshotTotals | null {
   if (!database) {
     return null;
   }
-  const row = database
+  const rawRow = database
     .prepare(`
       SELECT
         completed_request_count,
@@ -590,10 +570,11 @@ export function querySnapshotTotalsBeforeDate(database: DatabaseInstance | null,
       ORDER BY emitted_at_utc DESC, id DESC
       LIMIT 1
     `)
-    .get(`${dateKey}T00:00:00.000Z`) as SnapshotTotalsRow | undefined;
-  if (!row || typeof row !== 'object') {
+    .get(`${dateKey}T00:00:00.000Z`);
+  if (rawRow == null) {
     return null;
   }
+  const row = IdleSummarySnapshotDbRowSchema.parse(rawRow);
   return {
     completedRequestCount: Number(row.completed_request_count) || 0,
     inputTokensTotal: Number(row.input_tokens_total) || 0,
@@ -609,11 +590,11 @@ export function querySnapshotTotalsBeforeDate(database: DatabaseInstance | null,
   };
 }
 
-export function querySnapshotTimeseries(database: DatabaseInstance | null): SnapshotTimeseriesRow[] {
+export function querySnapshotTimeseries(database: DatabaseInstance | null): IdleSummarySnapshotDbRow[] {
   if (!database) {
     return [];
   }
-  return database
+  return z.array(IdleSummarySnapshotDbRowSchema).parse(database
     .prepare(`
       SELECT
         emitted_at_utc,
@@ -632,11 +613,11 @@ export function querySnapshotTimeseries(database: DatabaseInstance | null): Snap
       FROM idle_summary_snapshots
       ORDER BY emitted_at_utc ASC, id ASC
     `)
-    .all() as SnapshotTimeseriesRow[];
+    .all());
 }
 
-export function queryRecentSnapshots(database: DatabaseInstance, limit: number): RecentSnapshotRow[] {
-  return database
+export function queryRecentSnapshots(database: DatabaseInstance, limit: number): IdleSummarySnapshotDbRow[] {
+  return z.array(IdleSummarySnapshotDbRowSchema).parse(database
     .prepare(`
       SELECT emitted_at_utc, completed_request_count, input_characters_total, output_characters_total,
              input_tokens_total, output_tokens_total, thinking_tokens_total, tool_tokens_total, prompt_cache_tokens_total,
@@ -645,5 +626,5 @@ export function queryRecentSnapshots(database: DatabaseInstance, limit: number):
              request_duration_ms_total, avg_request_ms, avg_tokens_per_second
       FROM idle_summary_snapshots ORDER BY id DESC LIMIT ?
     `)
-    .all(limit) as RecentSnapshotRow[];
+    .all(limit));
 }

@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as http from 'node:http';
+import http from 'node:http';
 import { requestRepoSearchPlannerProtocolAction } from '../src/repo-search/planner-protocol.js';
+import { parseJsonValueText } from '../src/lib/json.js';
+import { asObject } from './helpers/dashboard-http.js';
+import type { JsonObject, JsonValue } from '../src/lib/json-types.js';
 
 const PREDICTED_MS = 4321;
 const PREDICTED_N = 7;
@@ -30,8 +33,8 @@ function startFakeLlamaServer(): Promise<FakeLlamaServer> {
           predicted_ms: PREDICTED_MS,
           predicted_per_second: (PREDICTED_N / PREDICTED_MS) * 1000,
         };
-        const writeChunk = (delta: Record<string, unknown>, withTimings: boolean): void => {
-          const payload: Record<string, unknown> = {
+        const writeChunk = (delta: JsonObject, withTimings: boolean): void => {
+          const payload: JsonObject = {
             choices: [{ index: 0, delta }],
             object: 'chat.completion.chunk',
           };
@@ -98,7 +101,7 @@ test('streaming planner request body sets stream and timings_per_token', async (
   const fake = await startFakeLlamaServer();
   try {
     await runStreamingPlanner(fake.baseUrl);
-    const parsed = JSON.parse(fake.lastBody()) as Record<string, unknown>;
+    const parsed = asObject(parseJsonValueText(fake.lastBody()));
     assert.equal(parsed.stream, true);
     assert.equal(parsed.timings_per_token, true);
   } finally {

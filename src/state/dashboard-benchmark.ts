@@ -1,12 +1,21 @@
 import { randomUUID } from 'node:crypto';
+import { z } from '../lib/zod.js';
 import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.js';
-import type { JsonObject, MutableJsonObject } from '../lib/json-types.js';
+import { parseJsonValueText } from '../lib/json.js';
+import { JsonObjectSchema, type JsonObject, type JsonValue, type MutableJsonObject } from '../lib/json-types.js';
 
-export type BenchmarkTaskKind = 'repo-search' | 'summary';
-export type BenchmarkSessionStatus = 'running' | 'completed' | 'failed' | 'cancelled';
-export type BenchmarkRestoreStatus = 'pending' | 'completed' | 'failed';
-export type BenchmarkAttemptStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'skipped';
-export type BenchmarkLogStreamKind = 'orchestrator' | 'attempt_stdout' | 'attempt_stderr' | 'managed_llama';
+const BenchmarkTaskKindSchema = z.enum(['repo-search', 'summary']);
+export type BenchmarkTaskKind = z.infer<typeof BenchmarkTaskKindSchema>;
+const BenchmarkSessionStatusSchema = z.enum(['running', 'completed', 'failed', 'cancelled']);
+export type BenchmarkSessionStatus = z.infer<typeof BenchmarkSessionStatusSchema>;
+const BenchmarkRestoreStatusSchema = z.enum(['pending', 'completed', 'failed']);
+export type BenchmarkRestoreStatus = z.infer<typeof BenchmarkRestoreStatusSchema>;
+const BenchmarkAttemptStatusSchema = z.enum(['pending', 'running', 'completed', 'failed', 'cancelled', 'skipped']);
+export type BenchmarkAttemptStatus = z.infer<typeof BenchmarkAttemptStatusSchema>;
+const BenchmarkLogStreamKindSchema = z.enum(['orchestrator', 'attempt_stdout', 'attempt_stderr', 'managed_llama']);
+export type BenchmarkLogStreamKind = z.infer<typeof BenchmarkLogStreamKindSchema>;
+
+const BenchmarkMaxSequenceRowSchema = z.object({ max_sequence: z.number().nullable() });
 
 export type BenchmarkQuestionPresetRecord = {
   id: string;
@@ -175,11 +184,6 @@ export const DEFAULT_BENCHMARK_QUESTION_PRESETS: Array<{
   },
 ];
 
-const TASK_KINDS = new Set<BenchmarkTaskKind>(['repo-search', 'summary']);
-const SESSION_STATUSES = new Set<BenchmarkSessionStatus>(['running', 'completed', 'failed', 'cancelled']);
-const RESTORE_STATUSES = new Set<BenchmarkRestoreStatus>(['pending', 'completed', 'failed']);
-const ATTEMPT_STATUSES = new Set<BenchmarkAttemptStatus>(['pending', 'running', 'completed', 'failed', 'cancelled', 'skipped']);
-const LOG_STREAMS = new Set<BenchmarkLogStreamKind>(['orchestrator', 'attempt_stdout', 'attempt_stderr', 'managed_llama']);
 const SPEC_OVERRIDE_KEYS = [
   'SpeculativeEnabled',
   'SpeculativeType',
@@ -198,7 +202,7 @@ function nowUtc(): string {
   return new Date().toISOString();
 }
 
-function readRequiredText(value: unknown, fieldName: string): string {
+function readRequiredText(value: JsonValue, fieldName: string): string {
   const text = String(value || '').trim();
   if (!text) {
     throw new Error(`Expected ${fieldName}.`);
@@ -206,52 +210,52 @@ function readRequiredText(value: unknown, fieldName: string): string {
   return text;
 }
 
-function normalizeTaskKind(value: unknown): BenchmarkTaskKind {
-  const taskKind = String(value || '').trim() as BenchmarkTaskKind;
-  if (!TASK_KINDS.has(taskKind)) {
+function normalizeTaskKind(value: JsonValue): BenchmarkTaskKind {
+  const result = BenchmarkTaskKindSchema.safeParse(String(value || '').trim());
+  if (!result.success) {
     throw new Error('Expected taskKind to be repo-search or summary.');
   }
-  return taskKind;
+  return result.data;
 }
 
-function normalizeSessionStatus(value: unknown): BenchmarkSessionStatus {
-  const status = String(value || '').trim() as BenchmarkSessionStatus;
-  return SESSION_STATUSES.has(status) ? status : 'running';
+function normalizeSessionStatus(value: JsonValue): BenchmarkSessionStatus {
+  const result = BenchmarkSessionStatusSchema.safeParse(String(value || '').trim());
+  return result.success ? result.data : 'running';
 }
 
-function normalizeRestoreStatus(value: unknown): BenchmarkRestoreStatus {
-  const status = String(value || '').trim() as BenchmarkRestoreStatus;
-  return RESTORE_STATUSES.has(status) ? status : 'pending';
+function normalizeRestoreStatus(value: JsonValue): BenchmarkRestoreStatus {
+  const result = BenchmarkRestoreStatusSchema.safeParse(String(value || '').trim());
+  return result.success ? result.data : 'pending';
 }
 
-function normalizeAttemptStatus(value: unknown): BenchmarkAttemptStatus {
-  const status = String(value || '').trim() as BenchmarkAttemptStatus;
-  return ATTEMPT_STATUSES.has(status) ? status : 'pending';
+function normalizeAttemptStatus(value: JsonValue): BenchmarkAttemptStatus {
+  const result = BenchmarkAttemptStatusSchema.safeParse(String(value || '').trim());
+  return result.success ? result.data : 'pending';
 }
 
-function normalizeLogStream(value: unknown): BenchmarkLogStreamKind {
-  const stream = String(value || '').trim() as BenchmarkLogStreamKind;
-  if (!LOG_STREAMS.has(stream)) {
+function normalizeLogStream(value: JsonValue): BenchmarkLogStreamKind {
+  const result = BenchmarkLogStreamKindSchema.safeParse(String(value || '').trim());
+  if (!result.success) {
     throw new Error('Expected valid benchmark log stream kind.');
   }
-  return stream;
+  return result.data;
 }
 
-function readNullableNumber(value: unknown): number | null {
+function readNullableNumber(value: JsonValue): number | null {
   return Number.isFinite(value) ? Number(value) : null;
 }
 
-function readNullableText(value: unknown): string | null {
+function readNullableText(value: JsonValue): string | null {
   return typeof value === 'string' ? value : null;
 }
 
-function parseJsonObject(value: unknown): JsonObject {
+function parseJsonObject(value: JsonValue): JsonObject {
   if (typeof value !== 'string' || !value.trim()) {
     return {};
   }
   try {
-    const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as JsonObject : {};
+    const parsed = parseJsonValueText(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
   } catch {
     return {};
   }
@@ -410,12 +414,12 @@ export function readBenchmarkQuestionPreset(id: string, databasePath?: string): 
     return null;
   }
   const database = getDatabase(databasePath);
-  const row = database.prepare(`
+  const rawRow = database.prepare(`
     SELECT id, title, task_kind, prompt, enabled, seeded_key, created_at_utc, updated_at_utc
     FROM benchmark_question_presets
     WHERE id = ?
-  `).get(presetId) as JsonObject | undefined;
-  return normalizeQuestionPreset(row);
+  `).get(presetId);
+  return normalizeQuestionPreset(rawRow == null ? undefined : JsonObjectSchema.parse(rawRow));
 }
 
 export function listBenchmarkQuestionPresets(options: {
@@ -425,7 +429,7 @@ export function listBenchmarkQuestionPresets(options: {
 } = {}): BenchmarkQuestionPresetRecord[] {
   const database = getDatabase(options.databasePath);
   const filters: string[] = [];
-  const params: unknown[] = [];
+  const params: string[] = [];
   if (options.taskKind) {
     filters.push('task_kind = ?');
     params.push(normalizeTaskKind(options.taskKind));
@@ -434,12 +438,12 @@ export function listBenchmarkQuestionPresets(options: {
     filters.push('enabled = 1');
   }
   const where = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
-  const rows = database.prepare(`
+  const rows = z.array(JsonObjectSchema).parse(database.prepare(`
     SELECT id, title, task_kind, prompt, enabled, seeded_key, created_at_utc, updated_at_utc
     FROM benchmark_question_presets
     ${where}
     ORDER BY task_kind ASC, title COLLATE NOCASE ASC, id ASC
-  `).all(...params) as JsonObject[];
+  `).all(...params));
   return rows.map((row) => normalizeQuestionPreset(row)).filter((row): row is BenchmarkQuestionPresetRecord => row !== null);
 }
 
@@ -615,18 +619,19 @@ export function listBenchmarkSessions(options: {
   const database = getDatabase(options.databasePath);
   const limit = Number.isFinite(options.limit) ? Math.max(1, Math.trunc(Number(options.limit))) : 50;
   const status = String(options.status || '').trim();
-  const rows = status && SESSION_STATUSES.has(status as BenchmarkSessionStatus)
+  const rawRows = status && BenchmarkSessionStatusSchema.safeParse(status).success
     ? database.prepare(`
       SELECT * FROM benchmark_sessions
       WHERE status = ?
       ORDER BY started_at_utc DESC, id DESC
       LIMIT ?
-    `).all(status, limit) as JsonObject[]
+    `).all(status, limit)
     : database.prepare(`
       SELECT * FROM benchmark_sessions
       ORDER BY started_at_utc DESC, id DESC
       LIMIT ?
-  `).all(limit) as JsonObject[];
+  `).all(limit);
+  const rows = z.array(JsonObjectSchema).parse(rawRows);
   return rows.map((row) => normalizeSession(row)).filter((row): row is BenchmarkSessionRecord => row !== null);
 }
 
@@ -636,15 +641,16 @@ export function readBenchmarkSessionDetail(id: string, databasePath?: string): B
     return null;
   }
   const database = getDatabase(databasePath);
-  const session = normalizeSession(database.prepare('SELECT * FROM benchmark_sessions WHERE id = ?').get(sessionId) as JsonObject | undefined);
+  const rawSessionRow = database.prepare('SELECT * FROM benchmark_sessions WHERE id = ?').get(sessionId);
+  const session = normalizeSession(rawSessionRow == null ? undefined : JsonObjectSchema.parse(rawSessionRow));
   if (!session) {
     return null;
   }
-  const cases = (database.prepare(`
+  const cases = z.array(JsonObjectSchema).parse(database.prepare(`
     SELECT * FROM benchmark_cases
     WHERE session_id = ?
     ORDER BY case_index ASC
-  `).all(sessionId) as JsonObject[])
+  `).all(sessionId))
     .map((row) => normalizeCase(row))
     .filter((row): row is BenchmarkCaseRecord => row !== null);
   const attempts = listBenchmarkAttemptsForSession(sessionId, databasePath);
@@ -656,11 +662,11 @@ export function listBenchmarkAttemptsForSession(sessionId: string, databasePath?
   if (!normalizedSessionId) {
     return [];
   }
-  const rows = getDatabase(databasePath).prepare(`
+  const rows = z.array(JsonObjectSchema).parse(getDatabase(databasePath).prepare(`
     SELECT * FROM benchmark_attempts
     WHERE session_id = ?
     ORDER BY case_index ASC, prompt_index ASC, repeat_index ASC
-  `).all(normalizedSessionId) as JsonObject[];
+  `).all(normalizedSessionId));
   return rows.map((row) => normalizeAttempt(row)).filter((row): row is BenchmarkAttemptRecord => row !== null);
 }
 
@@ -774,8 +780,8 @@ export function readBenchmarkAttempt(id: string, databasePath?: string): Benchma
   if (!attemptId) {
     return null;
   }
-  const row = getDatabase(databasePath).prepare('SELECT * FROM benchmark_attempts WHERE id = ?').get(attemptId) as JsonObject | undefined;
-  return normalizeAttempt(row);
+  const rawRow = getDatabase(databasePath).prepare('SELECT * FROM benchmark_attempts WHERE id = ?').get(attemptId);
+  return normalizeAttempt(rawRow == null ? undefined : JsonObjectSchema.parse(rawRow));
 }
 
 function normalizeScore(value: number | null | undefined, fieldName: string): number | null {
@@ -823,13 +829,14 @@ export function updateBenchmarkAttemptGrade(options: {
 }
 
 function getNextLogSequence(database: RuntimeDatabase, sessionId: string, attemptId: string | null, streamKind: BenchmarkLogStreamKind): number {
-  const row = database.prepare(`
+  const rawRow = database.prepare(`
     SELECT MAX(sequence) AS max_sequence
     FROM benchmark_logs
     WHERE session_id = ?
       AND ((attempt_id IS NULL AND ? IS NULL) OR attempt_id = ?)
       AND stream_kind = ?
-  `).get(sessionId, attemptId, attemptId, streamKind) as { max_sequence?: number | null } | undefined;
+  `).get(sessionId, attemptId, attemptId, streamKind);
+  const row = rawRow == null ? undefined : BenchmarkMaxSequenceRowSchema.parse(rawRow);
   return Number.isFinite(row?.max_sequence) ? Number(row?.max_sequence) + 1 : 0;
 }
 
@@ -877,13 +884,13 @@ export function readBenchmarkLogTextByStream(options: {
   if (!sessionId) {
     return output;
   }
-  const rows = getDatabase(options.databasePath).prepare(`
+  const rows = z.array(JsonObjectSchema).parse(getDatabase(options.databasePath).prepare(`
     SELECT stream_kind, chunk_text
     FROM benchmark_logs
     WHERE session_id = ?
       AND ((attempt_id IS NULL AND ? IS NULL) OR attempt_id = ?)
     ORDER BY stream_kind ASC, sequence ASC, id ASC
-  `).all(sessionId, attemptId, attemptId) as JsonObject[];
+  `).all(sessionId, attemptId, attemptId));
   for (const row of rows) {
     const streamKind = normalizeLogStream(row.stream_kind);
     output[streamKind] = `${output[streamKind]}${String(row.chunk_text || '')}`;

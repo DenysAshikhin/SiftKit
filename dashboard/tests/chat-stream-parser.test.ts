@@ -79,8 +79,8 @@ const SAMPLE_DONE: ChatSessionResponse = { session: SAMPLE_SESSION, contextUsage
 test('parseChatStreamPacket parses answer, done, error', () => {
   assert.deepEqual(parseChatStreamPacket('event: answer\ndata: {"answer":"hello"}'), { kind: 'answer', text: 'hello' });
   const done = parseChatStreamPacket(`event: done\ndata: ${JSON.stringify(SAMPLE_DONE)}`);
-  assert.equal(done?.kind, 'done');
-  assert.deepEqual((done as { payload: ChatSessionResponse }).payload, SAMPLE_DONE);
+  assert.ok(done?.kind === 'done');
+  assert.deepEqual(done.payload, SAMPLE_DONE);
   assert.deepEqual(parseChatStreamPacket('event: error\ndata: {"error":"boom"}'), { kind: 'error', message: 'boom' });
 });
 
@@ -101,7 +101,7 @@ test('ChatStreamReader flushes a trailing packet that ends without a blank line'
     async cancel() {},
     releaseLock() {},
     closed: Promise.resolve(undefined),
-  } as ReadableStreamDefaultReader<Uint8Array>;
+  };
   const events: ChatStreamEvent[] = [];
   for await (const event of new ChatStreamReader(mockReader).events()) {
     events.push(event);
@@ -129,7 +129,7 @@ test('ChatStreamReader yields events split across chunks', async () => {
     async cancel() {},
     releaseLock() {},
     closed: Promise.resolve(undefined),
-  } as ReadableStreamDefaultReader<Uint8Array>;
+  };
   const events: ChatStreamEvent[] = [];
   const reader = new ChatStreamReader(mockReader);
   for await (const event of reader.events()) {

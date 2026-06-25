@@ -1,5 +1,7 @@
 import { httpClient } from '../lib/http-client.js';
+import { JsonObjectSchema } from '../lib/json-types.js';
 import { getActiveManagedLlamaPreset, getFinitePositiveNumber } from './getters.js';
+import { normalizeConfigObject } from './normalization.js';
 import type { RuntimeLlamaCppConfig, SiftConfig } from './types.js';
 
 /**
@@ -43,13 +45,13 @@ async function fetchHostLlamaSettings(baseUrl: string): Promise<HostLlamaSetting
     return cached;
   }
   // `skip_ready=1` lets the host return its config without booting managed llama.
-  const hostConfig = await httpClient.requestJson<SiftConfig>({
+  const hostConfig = normalizeConfigObject(await httpClient.requestJson({
     url: `${baseUrl}/config?skip_ready=1`,
     method: 'GET',
     timeoutMs: HOST_CONFIG_TIMEOUT_MS,
-  });
-  const hostLlama: RuntimeLlamaCppConfig = hostConfig.Runtime?.LlamaCpp ?? {};
-  const hostModel = hostConfig.Runtime?.Model;
+  }, JsonObjectSchema));
+  const hostLlama: RuntimeLlamaCppConfig = hostConfig.Runtime.LlamaCpp;
+  const hostModel = hostConfig.Runtime.Model;
   const settings: HostLlamaSettings = {
     numCtx: getFinitePositiveNumber(hostLlama.NumCtx),
     reasoning: hostLlama.Reasoning === 'on' || hostLlama.Reasoning === 'off' ? hostLlama.Reasoning : null,

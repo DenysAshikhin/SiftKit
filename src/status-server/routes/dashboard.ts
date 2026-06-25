@@ -2,8 +2,19 @@
  * Dashboard routes: runs listing, run detail, metrics timeseries, and
  * idle-summary snapshots.
  */
-import * as http from 'node:http';
-import * as fs from 'node:fs';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import type {
+  MetricsResponse,
+  IdleSummaryResponse,
+  WebSearchQuotaResponse,
+  DashboardBenchmarkSessionDetail,
+  DashboardBenchmarkSessionsResponse,
+  DashboardBenchmarkQuestionPresetsResponse,
+  DashboardBenchmarkQuestionPreset,
+  DashboardBenchmarkAttempt,
+} from '@siftkit/contracts';
+import { existsSync } from 'node:fs';
+import { z } from '../../lib/zod.js';
 import { JsonRecordReader } from '../../lib/json-record-reader.js';
 import { parseJsonBody, readBody, sendJson } from '../http-utils.js';
 import {
@@ -64,7 +75,6 @@ import {
   updateBenchmarkQuestionPreset,
   type BenchmarkManagedPresetInput,
   type BenchmarkSpecOverrideInput,
-  type BenchmarkSessionStatus,
 } from '../../state/dashboard-benchmark.js';
 import {
   cancelBenchmarkJob,
@@ -72,29 +82,32 @@ import {
   startBenchmarkJob,
   subscribeBenchmarkJob,
 } from '../dashboard-benchmark-runner.js';
-import {
-  pickManagedFilePath,
-  type ManagedFilePickerTarget,
-} from '../file-picker.js';
+import { pickManagedFilePath } from '../file-picker.js';
 import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.js';
 import type { ServerContext } from '../server-types.js';
 import type { SiftConfig } from '../../config/index.js';
-import type { JsonObject } from '../../lib/json-types.js';
+import type { JsonObject, OptionalJsonValue, JsonSerializable } from '../../lib/json-types.js';
 import type { WebSearchConfig } from '../../web-search/types.js';
 import { parseDashboardRunLogDeleteRequest } from '../route-request-normalizers.js';
 
 const webSearchQuotaCache = new WebSearchQuotaCache();
 
-function writeDashboardSse(res: http.ServerResponse, eventName: string, payload: unknown): void {
+const BenchmarkTaskKindSchema = z.enum(['repo-search', 'summary']);
+const BenchmarkSessionStatusFilterSchema = z.enum(['', 'running', 'completed', 'failed', 'cancelled']).catch('');
+const ManagedLlamaRunStatusFilterSchema = z.enum(['', 'running', 'ready', 'failed', 'stopped', 'sync_completed']).catch('');
+const BenchmarkMatrixSessionStatusFilterSchema = z.enum(['', 'running', 'completed', 'failed']).catch('');
+const ManagedFilePickerTargetSchema = z.enum(['managed-llama-executable', 'managed-llama-model']);
+
+function writeDashboardSse(res: ServerResponse, eventName: string, payload: JsonSerializable): void {
   res.write(`event: ${eventName}\n`);
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
-function readArrayOfStrings(value: unknown): string[] {
+function readArrayOfStrings(value: OptionalJsonValue): string[] {
   return Array.isArray(value) ? value.map((entry) => String(entry || '').trim()).filter(Boolean) : [];
 }
 
-function readPositiveInteger(value: unknown, fallback: number): number {
+function readPositiveInteger(value: OptionalJsonValue, fallback: number): number {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
 }
@@ -114,7 +127,7 @@ function getManagedPresetInputs(config: SiftConfig, selectedIds: string[]): Benc
   });
 }
 
-function readSpecOverrides(value: unknown): BenchmarkSpecOverrideInput[] {
+function readSpecOverrides(value: OptionalJsonValue): BenchmarkSpecOverrideInput[] {
   if (!Array.isArray(value)) {
     return [{ label: 'Current spec settings' }];
   }
@@ -170,8 +183,8 @@ function parseDashboardRunLogDeleteCriteria(body: JsonObject): { criteria: Dashb
 class DashboardRunsEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -203,8 +216,8 @@ class DashboardRunsEndpoint implements RouteEndpoint {
 class DashboardRunDetailEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -226,8 +239,8 @@ class DashboardRunDetailEndpoint implements RouteEndpoint {
 class DashboardMetricsTimeseriesEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -244,7 +257,7 @@ class DashboardMetricsTimeseriesEndpoint implements RouteEndpoint {
     const taskDays = buildDashboardTaskDailyMetrics(idleSummaryDatabase, ctx.metrics);
     const toolStats = buildDashboardToolStats(idleSummaryDatabase, ctx.metrics, config);
     const webSearchUsage = readWebSearchUsage(getMetricsPath(), new Date());
-    sendJson(res, 200, { days, taskDays, toolStats, webSearchUsage });
+    sendJson(res, 200, { days, taskDays, toolStats, webSearchUsage } satisfies MetricsResponse);
     return;
   }
 }
@@ -252,8 +265,8 @@ class DashboardMetricsTimeseriesEndpoint implements RouteEndpoint {
 class DashboardWebSearchQuotaEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -262,12 +275,12 @@ class DashboardWebSearchQuotaEndpoint implements RouteEndpoint {
     const { idleSummarySnapshotsPath } = ctx;
     const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const config = readConfig(ctx.configPath);
-    const webSearchConfig = config.WebSearch ?? {
+    const webSearchConfig: WebSearchConfig = config.WebSearch ?? {
       ...DEFAULT_WEB_SEARCH_CONFIG,
       ProviderOrder: [...DEFAULT_WEB_SEARCH_CONFIG.ProviderOrder],
-    } as WebSearchConfig;
+    };
     const quotas = await webSearchQuotaCache.read(webSearchConfig);
-    sendJson(res, 200, { quotas });
+    sendJson(res, 200, { quotas } satisfies WebSearchQuotaResponse);
     return;
   }
 }
@@ -275,8 +288,8 @@ class DashboardWebSearchQuotaEndpoint implements RouteEndpoint {
 class DashboardIdleSummaryEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -284,8 +297,8 @@ class DashboardIdleSummaryEndpoint implements RouteEndpoint {
     const runtimeRoot = getRuntimeRoot();
     const { idleSummarySnapshotsPath } = ctx;
     const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
-    if (!fs.existsSync(idleSummarySnapshotsPath)) {
-      sendJson(res, 200, { latest: null, snapshots: [] });
+    if (!existsSync(idleSummarySnapshotsPath)) {
+      sendJson(res, 200, { latest: null, snapshots: [] } satisfies IdleSummaryResponse);
       return;
     }
     const limitValue = Number(requestUrl.searchParams.get('limit') || 30);
@@ -294,7 +307,7 @@ class DashboardIdleSummaryEndpoint implements RouteEndpoint {
     const snapshots = rows
       .map(normalizeIdleSummarySnapshotRow)
       .filter((entry): entry is IdleSummarySnapshotRow => entry !== null);
-    sendJson(res, 200, { latest: snapshots[0] || null, snapshots });
+    sendJson(res, 200, { latest: snapshots[0] || null, snapshots } satisfies IdleSummaryResponse);
     return;
   }
 }
@@ -302,8 +315,8 @@ class DashboardIdleSummaryEndpoint implements RouteEndpoint {
 class BenchmarkQuestionPresetListEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -312,7 +325,7 @@ class BenchmarkQuestionPresetListEndpoint implements RouteEndpoint {
     const { idleSummarySnapshotsPath } = ctx;
     const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     seedBenchmarkQuestionPresets();
-    sendJson(res, 200, { presets: listBenchmarkQuestionPresets({ includeDisabled: true }) });
+    sendJson(res, 200, { presets: listBenchmarkQuestionPresets({ includeDisabled: true }) } satisfies DashboardBenchmarkQuestionPresetsResponse);
     return;
   }
 }
@@ -320,8 +333,8 @@ class BenchmarkQuestionPresetListEndpoint implements RouteEndpoint {
 class BenchmarkQuestionPresetCreateEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -339,11 +352,11 @@ class BenchmarkQuestionPresetCreateEndpoint implements RouteEndpoint {
     try {
       const preset = createBenchmarkQuestionPreset({
         title: String(parsedBody.title || ''),
-        taskKind: String(parsedBody.taskKind || '') as 'repo-search' | 'summary',
+        taskKind: BenchmarkTaskKindSchema.parse(parsedBody.taskKind),
         prompt: String(parsedBody.prompt || ''),
         enabled: parsedBody.enabled !== false,
       });
-      sendJson(res, 200, { preset });
+      sendJson(res, 200, { preset } satisfies { preset: DashboardBenchmarkQuestionPreset });
     } catch (error) {
       sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
     }
@@ -354,8 +367,8 @@ class BenchmarkQuestionPresetCreateEndpoint implements RouteEndpoint {
 class BenchmarkQuestionPresetMutationEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -379,14 +392,14 @@ class BenchmarkQuestionPresetMutationEndpoint implements RouteEndpoint {
       const preset = updateBenchmarkQuestionPreset({
         id: presetId,
         title: typeof parsedBody.title === 'string' ? parsedBody.title : undefined,
-        taskKind: typeof parsedBody.taskKind === 'string' ? parsedBody.taskKind as 'repo-search' | 'summary' : undefined,
+        taskKind: BenchmarkTaskKindSchema.optional().catch(undefined).parse(parsedBody.taskKind),
         prompt: typeof parsedBody.prompt === 'string' ? parsedBody.prompt : undefined,
         enabled: typeof parsedBody.enabled === 'boolean' ? parsedBody.enabled : undefined,
       });
       if (!preset) {
         sendJson(res, 404, { error: 'Benchmark question preset not found.' });
       } else {
-        sendJson(res, 200, { preset });
+        sendJson(res, 200, { preset } satisfies { preset: DashboardBenchmarkQuestionPreset });
       }
     } catch (error) {
       sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
@@ -398,8 +411,8 @@ class BenchmarkQuestionPresetMutationEndpoint implements RouteEndpoint {
 class BenchmarkSessionListEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -409,8 +422,8 @@ class BenchmarkSessionListEndpoint implements RouteEndpoint {
     const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const limitValue = Number(requestUrl.searchParams.get('limit') || 50);
     const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(500, Math.trunc(limitValue))) : 50;
-    const status = String(requestUrl.searchParams.get('status') || '').trim() as BenchmarkSessionStatus | '';
-    sendJson(res, 200, { sessions: listBenchmarkSessions({ limit, status }) });
+    const status = BenchmarkSessionStatusFilterSchema.parse(String(requestUrl.searchParams.get('status') || '').trim());
+    sendJson(res, 200, { sessions: listBenchmarkSessions({ limit, status }) } satisfies DashboardBenchmarkSessionsResponse);
     return;
   }
 }
@@ -418,8 +431,8 @@ class BenchmarkSessionListEndpoint implements RouteEndpoint {
 class BenchmarkSessionCreateEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -460,8 +473,8 @@ class BenchmarkSessionCreateEndpoint implements RouteEndpoint {
 class BenchmarkSessionEventsEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -489,8 +502,8 @@ class BenchmarkSessionEventsEndpoint implements RouteEndpoint {
 class BenchmarkSessionDetailEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -504,8 +517,9 @@ class BenchmarkSessionDetailEndpoint implements RouteEndpoint {
       sendJson(res, 404, { error: 'Benchmark session not found.' });
       return;
     }
+    const conformingDetail: DashboardBenchmarkSessionDetail = detail;
     sendJson(res, 200, {
-      ...detail,
+      ...conformingDetail,
       logTextByStream: readBenchmarkLogTextByStream({ sessionId }),
     });
     return;
@@ -515,8 +529,8 @@ class BenchmarkSessionDetailEndpoint implements RouteEndpoint {
 class BenchmarkSessionCancelEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -533,8 +547,8 @@ class BenchmarkSessionCancelEndpoint implements RouteEndpoint {
 class BenchmarkAttemptGradeEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -561,7 +575,7 @@ class BenchmarkAttemptGradeEndpoint implements RouteEndpoint {
       if (!attempt) {
         sendJson(res, 404, { error: 'Benchmark attempt not found.' });
       } else {
-        sendJson(res, 200, { attempt });
+        sendJson(res, 200, { attempt } satisfies { attempt: DashboardBenchmarkAttempt });
       }
     } catch (error) {
       sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
@@ -573,8 +587,8 @@ class BenchmarkAttemptGradeEndpoint implements RouteEndpoint {
 class RunLogsPreviewEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -605,8 +619,8 @@ class RunLogsPreviewEndpoint implements RouteEndpoint {
 class RunLogsDeleteEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -637,8 +651,8 @@ class RunLogsDeleteEndpoint implements RouteEndpoint {
 class ManagedLlamaRunsEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -648,8 +662,8 @@ class ManagedLlamaRunsEndpoint implements RouteEndpoint {
     const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const limitValue = Number(requestUrl.searchParams.get('limit') || 100);
     const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(500, Math.trunc(limitValue))) : 100;
-    const status = String(requestUrl.searchParams.get('status') || '').trim();
-    const runs = listManagedLlamaRuns({ limit, status: status as '' | 'running' | 'ready' | 'failed' | 'stopped' | 'sync_completed' });
+    const status = ManagedLlamaRunStatusFilterSchema.parse(String(requestUrl.searchParams.get('status') || '').trim());
+    const runs = listManagedLlamaRuns({ limit, status });
     sendJson(res, 200, { runs });
     return;
   }
@@ -658,8 +672,8 @@ class ManagedLlamaRunsEndpoint implements RouteEndpoint {
 class ManagedLlamaRunDetailEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -682,8 +696,8 @@ class ManagedLlamaRunDetailEndpoint implements RouteEndpoint {
 class ManagedLlamaRunDeleteEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -700,8 +714,8 @@ class ManagedLlamaRunDeleteEndpoint implements RouteEndpoint {
 class BenchmarkMatrixSessionsEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -711,8 +725,8 @@ class BenchmarkMatrixSessionsEndpoint implements RouteEndpoint {
     const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const limitValue = Number(requestUrl.searchParams.get('limit') || 100);
     const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(500, Math.trunc(limitValue))) : 100;
-    const status = String(requestUrl.searchParams.get('status') || '').trim();
-    const sessions = listBenchmarkMatrixSessions({ limit, status: status as '' | 'running' | 'completed' | 'failed' });
+    const status = BenchmarkMatrixSessionStatusFilterSchema.parse(String(requestUrl.searchParams.get('status') || '').trim());
+    const sessions = listBenchmarkMatrixSessions({ limit, status });
     sendJson(res, 200, { sessions });
     return;
   }
@@ -721,8 +735,8 @@ class BenchmarkMatrixSessionsEndpoint implements RouteEndpoint {
 class BenchmarkMatrixSessionDetailEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -748,8 +762,8 @@ class BenchmarkMatrixSessionDetailEndpoint implements RouteEndpoint {
 class BenchmarkMatrixSessionDeleteEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -766,8 +780,8 @@ class BenchmarkMatrixSessionDeleteEndpoint implements RouteEndpoint {
 class BenchmarkRunsEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -785,8 +799,8 @@ class BenchmarkRunsEndpoint implements RouteEndpoint {
 class BenchmarkRunDetailEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -808,8 +822,8 @@ class BenchmarkRunDetailEndpoint implements RouteEndpoint {
 class BenchmarkRunDeleteEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -826,8 +840,8 @@ class BenchmarkRunDeleteEndpoint implements RouteEndpoint {
 class EvalResultsEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -845,8 +859,8 @@ class EvalResultsEndpoint implements RouteEndpoint {
 class EvalResultDetailEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -868,8 +882,8 @@ class EvalResultDetailEndpoint implements RouteEndpoint {
 class EvalResultDeleteEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -886,8 +900,8 @@ class EvalResultDeleteEndpoint implements RouteEndpoint {
 class RuntimeArtifactsEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -913,8 +927,8 @@ class RuntimeArtifactsEndpoint implements RouteEndpoint {
 class RuntimeArtifactDetailEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -936,8 +950,8 @@ class RuntimeArtifactDetailEndpoint implements RouteEndpoint {
 class RuntimeArtifactDeleteEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -954,8 +968,8 @@ class RuntimeArtifactDeleteEndpoint implements RouteEndpoint {
 class SystemPickFileEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
@@ -970,11 +984,12 @@ class SystemPickFileEndpoint implements RouteEndpoint {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return;
     }
-    const target = String(parsedBody.target || '').trim() as ManagedFilePickerTarget;
-    if (target !== 'managed-llama-executable' && target !== 'managed-llama-model') {
+    const parsedTarget = ManagedFilePickerTargetSchema.safeParse(String(parsedBody.target || '').trim());
+    if (!parsedTarget.success) {
       sendJson(res, 400, { error: 'Expected a valid file picker target.' });
       return;
     }
+    const target = parsedTarget.data;
     const initialPath = typeof parsedBody.initialPath === 'string' && parsedBody.initialPath.trim()
       ? parsedBody.initialPath.trim()
       : null;
@@ -1029,8 +1044,8 @@ const DASHBOARD_ROUTES = new RouteTable([
 
 export async function handleDashboardRoute(
   ctx: ServerContext,
-  req: http.IncomingMessage,
-  res: http.ServerResponse,
+  req: IncomingMessage,
+  res: ServerResponse,
   pathname: string,
   _requestUrl: URL,
 ): Promise<boolean> {

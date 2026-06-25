@@ -1,6 +1,8 @@
+import type { JsonObject, OptionalJsonValue } from './lib/json-types.js';
+
 export type ToolTranscriptAction = {
   tool_name: string;
-  args: Record<string, unknown>;
+  args: JsonObject;
 };
 
 export type ToolTranscriptMessage = {
@@ -12,7 +14,7 @@ export type ToolTranscriptMessage = {
     type?: string;
     function?: {
       name?: string;
-      arguments?: unknown;
+      arguments?: OptionalJsonValue;
     };
   }>;
   tool_call_id?: string;

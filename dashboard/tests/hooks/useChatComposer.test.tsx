@@ -4,7 +4,6 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import {
-  describeStreamError,
   parsePlanMaxTurnsOverride,
   requireSelectedSession,
   resolveRepoRoot,
@@ -52,15 +51,6 @@ test('resolveRepoRoot trims the input when present', () => {
 test('resolveRepoRoot returns the fallback when input is blank', () => {
   assert.equal(resolveRepoRoot('   ', 'fallback'), 'fallback');
   assert.equal(resolveRepoRoot('', ''), '');
-});
-
-test('describeStreamError extracts message from Error instances', () => {
-  assert.equal(describeStreamError(new Error('boom')), 'boom');
-});
-
-test('describeStreamError stringifies non-Error values', () => {
-  assert.equal(describeStreamError('plain'), 'plain');
-  assert.equal(describeStreamError({ kind: 'oops' }), '[object Object]');
 });
 
 test('requireSelectedSession throws when session is null', () => {

@@ -1,4 +1,4 @@
-import type { JsonObject, LlamaCppChatMessage, LlamaCppToolDefinition, NormalizedLlamaCppChatResponse } from '../llm-protocol/types.js';
+import type { JsonObject, JsonValue, LlamaCppChatMessage, LlamaCppToolDefinition, NormalizedLlamaCppChatResponse } from '../llm-protocol/types.js';
 
 export type AgentLoopKind = 'repo-search' | 'chat' | 'summary-planner';
 
@@ -14,7 +14,7 @@ export type AgentLoopToolAction = {
   kind: 'tool';
   callId: string;
   toolName: string;
-  args: Record<string, unknown>;
+  args: JsonObject;
 };
 
 export type AgentLoopAction = AgentLoopFinishAction | AgentLoopToolAction;
@@ -22,9 +22,9 @@ export type AgentLoopAction = AgentLoopFinishAction | AgentLoopToolAction;
 export type AgentLoopToolResult = {
   callId: string;
   toolName: string;
-  args: Record<string, unknown>;
+  args: JsonObject;
   text: string;
-  raw: unknown;
+  raw: JsonValue;
 };
 
 export type AgentLoopModelData = {

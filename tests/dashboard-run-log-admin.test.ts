@@ -11,26 +11,27 @@ import {
   deleteRunLogs,
   previewRunLogDelete,
 } from '../dashboard/src/api.js';
+import type { JsonValue } from '../src/lib/json-types.js';
 
 type MockFetchCall = {
   input: string;
   init?: RequestInit;
 };
 
-function installFetchMock(responseBody: unknown): { calls: MockFetchCall[]; restore: () => void } {
+function installFetchMock(responseBody: JsonValue): { calls: MockFetchCall[]; restore: () => void } {
   const calls: MockFetchCall[] = [];
   const previousFetch = globalThis.fetch;
-  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+  const patchedFetch: typeof fetch = async (input, init) => {
     calls.push({
       input: String(input),
       init,
     });
-    return {
-      ok: true,
-      json: async () => responseBody,
-      text: async () => JSON.stringify(responseBody),
-    } as Response;
-  }) as typeof fetch;
+    return new Response(JSON.stringify(responseBody), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  globalThis.fetch = patchedFetch;
   return {
     calls,
     restore: () => {

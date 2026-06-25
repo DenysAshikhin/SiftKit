@@ -1,5 +1,7 @@
+import { z } from '../lib/zod.js';
 import { JsonRecordReader } from '../lib/json-record-reader.js';
-import type { JsonObject } from '../lib/json-types.js';
+import { parseJsonValueText } from '../lib/json.js';
+import type { JsonObject, OptionalJsonValue } from '../lib/json-types.js';
 import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 import type { TaskKind, ToolTypeStats } from './metrics.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
@@ -7,7 +9,9 @@ import { getRuntimeDatabase } from '../state/runtime-db.js';
 export const STATUS_TRUE = 'true';
 export const STATUS_FALSE = 'false';
 
-export function normalizeStatusText(value: unknown): string {
+const StatusRowSchema = z.object({ status_text: z.string().nullable() });
+
+export function normalizeStatusText(value: OptionalJsonValue): string {
   const normalized = String(value || '').trim().toLowerCase();
   if (normalized === STATUS_TRUE || normalized === STATUS_FALSE) {
     return normalized;
@@ -17,7 +21,8 @@ export function normalizeStatusText(value: unknown): string {
 
 export function ensureStatusFile(targetPath: string): void {
   const database = getRuntimeDatabase(targetPath);
-  const row = database.prepare('SELECT status_text FROM runtime_status WHERE id = 1').get() as { status_text?: unknown } | undefined;
+  const rawRow = database.prepare('SELECT status_text FROM runtime_status WHERE id = 1').get();
+  const row = rawRow == null ? undefined : StatusRowSchema.parse(rawRow);
   const normalized = row && typeof row.status_text === 'string'
     ? normalizeStatusText(row.status_text)
     : STATUS_FALSE;
@@ -33,7 +38,8 @@ export function ensureStatusFile(targetPath: string): void {
 export function readStatusText(targetPath: string): string {
   try {
     const database = getRuntimeDatabase(targetPath);
-    const row = database.prepare('SELECT status_text FROM runtime_status WHERE id = 1').get() as { status_text?: unknown } | undefined;
+    const rawRow = database.prepare('SELECT status_text FROM runtime_status WHERE id = 1').get();
+    const row = rawRow == null ? undefined : StatusRowSchema.parse(rawRow);
     if (!row || typeof row.status_text !== 'string') {
       return STATUS_FALSE;
     }
@@ -43,7 +49,7 @@ export function readStatusText(targetPath: string): string {
   }
 }
 
-export function writeStatusText(targetPath: string, value: unknown): void {
+export function writeStatusText(targetPath: string, value: OptionalJsonValue): void {
   const database = getRuntimeDatabase(targetPath);
   database.prepare(`
     INSERT INTO runtime_status (id, status_text, updated_at_utc)
@@ -58,7 +64,7 @@ export function parseRunning(bodyText: string): boolean | null {
   if (!bodyText || !bodyText.trim()) {
     return null;
   }
-  const parseBooleanLikeStatus = (value: unknown): boolean | null => {
+  const parseBooleanLikeStatus = (value: OptionalJsonValue): boolean | null => {
     if (typeof value === 'boolean') {
       return value;
     }
@@ -71,7 +77,7 @@ export function parseRunning(bodyText: string): boolean | null {
     return null;
   };
   try {
-    const parsed = JsonRecordReader.asObject(JSON.parse(bodyText) as unknown);
+    const parsed = JsonRecordReader.asObject(parseJsonValueText(bodyText));
     if (!parsed) {
       return null;
     }
@@ -386,14 +392,14 @@ export function parseStatusMetadataRecord(parsed: JsonObject): StatusMetadata {
       && typeof parsed.artifactPayload === 'object'
       && !Array.isArray(parsed.artifactPayload)
     ) {
-      metadata.artifactPayload = parsed.artifactPayload as JsonObject;
+      metadata.artifactPayload = parsed.artifactPayload;
     }
     if (
       parsed.deferredMetadata
       && typeof parsed.deferredMetadata === 'object'
       && !Array.isArray(parsed.deferredMetadata)
     ) {
-      metadata.deferredMetadata = parsed.deferredMetadata as JsonObject;
+      metadata.deferredMetadata = parsed.deferredMetadata;
     }
     if (Array.isArray(parsed.deferredArtifacts)) {
       const deferredArtifacts = parsed.deferredArtifacts.flatMap((entry): Array<{
@@ -424,7 +430,7 @@ export function parseStatusMetadataRecord(parsed: JsonObject): StatusMetadata {
         return [{
           artifactType: record.artifactType,
           artifactRequestId: record.artifactRequestId.trim(),
-          artifactPayload: record.artifactPayload as JsonObject,
+          artifactPayload: record.artifactPayload,
         }];
       });
       metadata.deferredArtifacts = deferredArtifacts.length > 0 ? deferredArtifacts : null;
@@ -441,7 +447,7 @@ export function parseStatusMetadata(bodyText: string): StatusMetadata {
     return metadata;
   }
   try {
-    const parsed = JsonRecordReader.asObject(JSON.parse(bodyText) as unknown);
+    const parsed = JsonRecordReader.asObject(parseJsonValueText(bodyText));
     return parsed ? parseStatusMetadataRecord(parsed) : metadata;
   } catch {
     return metadata;

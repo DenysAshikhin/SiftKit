@@ -1,4 +1,4 @@
-import * as http from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type { ServerContext } from './server-types.js';
 
@@ -12,8 +12,8 @@ export type RouteMatch = {
 export interface RouteEndpoint {
   handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> | void;
 }
@@ -70,8 +70,8 @@ export class RouteTable {
 
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     pathname: string,
   ): Promise<boolean> {
     const route = this.match(req.method, pathname);

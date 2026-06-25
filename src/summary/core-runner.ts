@@ -1,4 +1,4 @@
-import { getErrorMessage } from '../lib/errors.js';
+import { getErrorMessage, toError } from '../lib/errors.js';
 import { ModelJson } from '../lib/model-json.js';
 import { logSummaryProgress } from './progress.js';
 import {
@@ -144,7 +144,7 @@ function getSummaryTokenizeOptions(requestTimeoutSeconds: number | undefined): C
   };
 }
 
-function isEmptyDecisionOutputError(error: unknown): boolean {
+function isEmptyDecisionOutputError(error: Error): boolean {
   return /Provider returned an empty SiftKit decision output\./iu.test(getErrorMessage(error));
 }
 
@@ -405,7 +405,7 @@ class SummaryCoreRunner {
         completionMetrics: this.completionMetrics(promptContext.state),
       };
     } catch (error) {
-      return this.handleProviderError(error, promptContext);
+      return this.handleProviderError(toError(error), promptContext);
     }
   }
 
@@ -414,7 +414,7 @@ class SummaryCoreRunner {
     try {
       return ModelJson.parseSummaryDecision(rawResponse);
     } catch (error) {
-      if (!isEmptyDecisionOutputError(error)) {
+      if (!isEmptyDecisionOutputError(toError(error))) {
         throw error;
       }
       traceSummary(
@@ -524,7 +524,7 @@ class SummaryCoreRunner {
   }
 
   private async handleProviderError(
-    error: unknown,
+    error: Error,
     promptContext: SummaryPromptContext,
   ): Promise<SummaryCoreResult> {
     const enrichedError = attachSummaryFailureContext(error, {
@@ -556,7 +556,7 @@ class SummaryCoreRunner {
     throw enrichedError;
   }
 
-  private shouldHandoffProviderErrorToPlanner(error: unknown, state: SummaryCoreState): boolean {
+  private shouldHandoffProviderErrorToPlanner(error: Error, state: SummaryCoreState): boolean {
     return this.options.backend === 'llama.cpp'
       && state.phase === 'leaf'
       && !this.options.chunkContext

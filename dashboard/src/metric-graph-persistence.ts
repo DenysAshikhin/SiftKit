@@ -1,10 +1,12 @@
+import type { JsonValue, JsonObject, OptionalJsonValue } from '../../src/lib/json-types.js';
+
 export type KeyValueStore = {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
   removeItem(key: string): void;
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(value: OptionalJsonValue): value is JsonObject {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
@@ -13,7 +15,7 @@ export function getMetricGraphStorageKey(graphId: string): string {
 }
 
 export function sanitizeHiddenSeriesState(
-  hiddenKeys: Record<string, unknown>,
+  hiddenKeys: JsonObject,
   validKeys: readonly string[],
 ): Record<string, true> {
   const validKeySet = new Set(validKeys);
@@ -40,7 +42,7 @@ export function readHiddenSeriesState(
     if (!raw) {
       return {};
     }
-    const parsed = JSON.parse(raw) as unknown;
+    const parsed: JsonValue = JSON.parse(raw);
     if (!isRecord(parsed)) {
       return {};
     }

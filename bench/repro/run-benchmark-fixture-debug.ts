@@ -1,6 +1,9 @@
 // @ts-nocheck
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import fs from 'node:fs';
+import path from 'node:path';
+import { getErrorMessage } from '../../src/lib/errors.js';
+import { parseJsonValueText } from '../../src/lib/json.js';
+import type { JsonObject } from '../../src/lib/json-types.js';
 import { summarizeRequest } from '../../src/summary.js';
 
 export function parseArgs(argv: string[]): {
@@ -95,21 +98,21 @@ function formatDurationMs(durationMs: number): string {
 
 function createLogger(
   logPath: string,
-  stdoutTarget: { write: (text: string) => unknown } = process.stdout,
-  stderrTarget: { write: (text: string) => unknown } = process.stderr,
+  stdoutTarget: { write: (text: string) => void } = process.stdout,
+  stderrTarget: { write: (text: string) => void } = process.stderr,
 ): { log: (message: string) => void; restore: () => void } {
   fs.mkdirSync(path.dirname(logPath), { recursive: true });
   fs.writeFileSync(logPath, '', 'utf8');
   const originalStderrWrite = process.stderr.write.bind(process.stderr);
-  process.stderr.write = ((chunk: unknown, encoding?: BufferEncoding, callback?: (error?: Error | null) => void) => {
+  process.stderr.write = ((chunk, encoding, callback) => {
     const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
     fs.appendFileSync(logPath, text, 'utf8');
     if (stderrTarget && stderrTarget !== process.stderr && typeof stderrTarget.write === 'function') {
       stderrTarget.write(text);
       return true;
     }
-    return originalStderrWrite(chunk as never, encoding, callback as never);
-  }) as typeof process.stderr.write;
+    return originalStderrWrite(chunk, encoding, callback);
+  });
 
   return {
     log(message: string) {
@@ -150,7 +153,7 @@ export function resolveWorkItem(args: {
   }
 
   const manifestPath = path.join(args.fixtureRoot, 'fixtures.json');
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Array<Record<string, unknown>>;
+  const manifest = parseJsonValueText(fs.readFileSync(manifestPath, 'utf8'));
   const fixture = manifest[args.fixtureIndex - 1];
   if (!fixture) {
     throw new Error(`Fixture ${args.fixtureIndex} not found in ${manifestPath}.`);
@@ -169,13 +172,13 @@ export function resolveWorkItem(args: {
 export async function runDebugRequest(
   argv: string[],
   options: {
-    stdout?: { write: (text: string) => unknown };
-    stderr?: { write: (text: string) => unknown };
+    stdout?: { write: (text: string) => void };
+    stderr?: { write: (text: string) => void };
   } = {},
 ): Promise<{
   exitCode: number;
   artifactPath: string;
-  artifact: Record<string, unknown>;
+  artifact: JsonObject;
 }> {
   const args = parseArgs(argv);
   const repoRoot = path.resolve(__dirname, '..', '..');
@@ -210,7 +213,7 @@ export async function runDebugRequest(
       format: workItem.format,
       policyProfile: workItem.policyProfile,
       requestTimeoutSeconds: args.requestTimeoutSeconds,
-    }) as Record<string, unknown>;
+    });
     const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
     const summary = String(result.Summary || '');
     const artifact = {
@@ -239,7 +242,7 @@ export async function runDebugRequest(
     return { exitCode: 0, artifactPath, artifact };
   } catch (error) {
     const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
-    const message = error instanceof Error ? (error.stack || error.message) : String(error);
+    const message = getErrorMessage(error);
     const artifact = {
       ok: false,
       durationMs,
@@ -264,9 +267,8 @@ async function main(): Promise<void> {
 }
 
 if (require.main === module) {
-  void main().catch((error: unknown) => {
-    const message = error instanceof Error ? (error.stack || error.message) : String(error);
-    process.stderr.write(`${message}\n`);
+  void main().catch((error) => {
+    process.stderr.write(`${getErrorMessage(error)}\n`);
     process.exit(1);
   });
 }

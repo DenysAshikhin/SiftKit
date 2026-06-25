@@ -1,3 +1,4 @@
+import { JsonObjectSchema, type JsonObject, type OptionalJsonValue } from '../lib/json-types.js';
 import type { LlamaCppToolParameterSchema } from '../llm-protocol/types.js';
 
 export type StructuredOutputToolDefinition = {
@@ -9,29 +10,31 @@ export type StructuredOutputToolDefinition = {
   };
 };
 
-type JsonSchema = Record<string, unknown>;
+type JsonSchema = JsonObject;
 
 type JsonSchemaObject = {
   type: 'object';
-  properties: Record<string, unknown>;
+  properties: JsonObject;
   required: string[];
   additionalProperties: false;
 };
 
-function getObjectRecord(value: unknown): Record<string, unknown> {
+// A tool-parameter fragment carries a `[key: string]: unknown` index, so it is
+// not directly a JsonObject; validate it into one at this build boundary.
+function getObjectRecord(value: LlamaCppToolParameterSchema | OptionalJsonValue): JsonObject {
   return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? JsonObjectSchema.parse(value)
     : {};
 }
 
-function getRequiredList(value: unknown): string[] {
+function getRequiredList(value: OptionalJsonValue): string[] {
   if (!Array.isArray(value)) {
     return [];
   }
   return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
 }
 
-function getToolArgProperties(tool: StructuredOutputToolDefinition): Record<string, unknown> {
+function getToolArgProperties(tool: StructuredOutputToolDefinition): JsonObject {
   const parameters = getObjectRecord(tool.function.parameters);
   return getObjectRecord(parameters.properties);
 }
@@ -40,6 +43,8 @@ function getToolArgRequired(tool: StructuredOutputToolDefinition): string[] {
   const parameters = getObjectRecord(tool.function.parameters);
   return getRequiredList(parameters.required);
 }
+
+
 
 function buildOneOf(values: JsonSchema[]): JsonSchema {
   if (values.length === 1) {

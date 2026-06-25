@@ -1,5 +1,7 @@
-import * as fs from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync, appendFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { createTracer } from '../lib/trace.js';
+import type { JsonObject } from '../lib/json-types.js';
 import {
   getPlannerDebugPath,
   getPlannerFailedPath,
@@ -8,54 +10,48 @@ import { getRecord } from './planner/json-filter.js';
 import type {
   SummaryClassification,
   SummaryFailureContext,
-  SummaryFailureError,
   SummarySourceKind,
 } from './types.js';
 
 // ---------- failure context ---------- //
 
-export function getSummaryFailureContext(error: unknown): SummaryFailureContext | null {
-  if (!error || typeof error !== 'object') {
-    return null;
-  }
+// Failure context rides alongside the thrown Error in a WeakMap keyed by the
+// Error identity, so the error stays a plain Error with no bolted-on field and
+// no cast is needed to read the context back out.
+const failureContextByError = new WeakMap<Error, SummaryFailureContext>();
 
-  const context = (error as SummaryFailureError).siftkitSummaryFailureContext;
-  return context && typeof context === 'object' ? context : null;
+export function getSummaryFailureContext(error: Error): SummaryFailureContext | null {
+  return failureContextByError.get(error) ?? null;
 }
 
 export function attachSummaryFailureContext(
-  error: unknown,
+  error: Error,
   context: SummaryFailureContext
-): unknown {
-  if (!error || typeof error !== 'object') {
-    const wrapped = new Error(String(error)) as SummaryFailureError;
-    wrapped.siftkitSummaryFailureContext = context;
-    return wrapped;
+): Error {
+  if (!failureContextByError.has(error)) {
+    failureContextByError.set(error, context);
   }
-
-  const typedError = error as SummaryFailureError;
-  typedError.siftkitSummaryFailureContext ??= context;
-  return typedError;
+  return error;
 }
 
 // ---------- planner debug dump (in-memory, request-scoped) ---------- //
 
-const plannerDebugPayloadByRequestId = new Map<string, Record<string, unknown>>();
+const plannerDebugPayloadByRequestId = new Map<string, JsonObject>();
 const plannerFailedArtifactByRequestId = new Set<string>();
 
 export type SummaryDeferredArtifact = {
   artifactType: 'summary_request' | 'planner_debug' | 'planner_failed';
   artifactRequestId: string;
-  artifactPayload: Record<string, unknown>;
+  artifactPayload: JsonObject;
 };
 
-export function readPlannerDebugPayload(requestId: string): Record<string, unknown> {
+export function readPlannerDebugPayload(requestId: string): JsonObject {
   return plannerDebugPayloadByRequestId.get(requestId) ?? {};
 }
 
 export function updatePlannerDebugDump(
   requestId: string,
-  update: (payload: Record<string, unknown>) => Record<string, unknown>,
+  update: (payload: JsonObject) => JsonObject,
 ): void {
   const payload = readPlannerDebugPayload(requestId);
   plannerDebugPayloadByRequestId.set(requestId, update(payload));
@@ -70,8 +66,8 @@ export function createPlannerDebugRecorder(options: {
   commandText?: string | null;
 }): {
   path: string;
-  record: (event: Record<string, unknown>) => void;
-  finish: (result: Record<string, unknown>) => void;
+  record: (event: JsonObject) => void;
+  finish: (result: JsonObject) => void;
 } {
   const debugPath = getPlannerDebugPath(options.requestId);
   updatePlannerDebugDump(options.requestId, () => ({
@@ -127,6 +123,9 @@ export function buildPlannerDebugArtifact(options: {
   if (Object.keys(payload).length === 0) {
     return null;
   }
+  const debugPath = getPlannerDebugPath(options.requestId);
+  mkdirSync(dirname(debugPath), { recursive: true });
+  writeFileSync(debugPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
   return {
     artifactType: 'planner_debug',
     artifactRequestId: options.requestId,
@@ -145,7 +144,7 @@ export async function finalizePlannerDebugDump(options: {
 }
 
 export function buildDeferredPlannerDebugPath(requestId: string): string | null {
-  return plannerDebugPayloadByRequestId.has(requestId) || fs.existsSync(getPlannerDebugPath(requestId))
+  return plannerDebugPayloadByRequestId.has(requestId) || existsSync(getPlannerDebugPath(requestId))
     ? getPlannerDebugPath(requestId)
     : null;
 }
@@ -256,13 +255,13 @@ export async function writeSummaryRequestDump(options: {
   void buildSummaryRequestArtifact(options);
 }
 
-export function appendTestProviderEvent(event: Record<string, unknown>): void {
+export function appendTestProviderEvent(event: JsonObject): void {
   const logPath = process.env.SIFTKIT_TEST_PROVIDER_LOG_PATH;
   if (!logPath || !logPath.trim()) {
     return;
   }
 
-  fs.appendFileSync(logPath, `${JSON.stringify(event)}\n`, { encoding: 'utf8' });
+  appendFileSync(logPath, `${JSON.stringify(event)}\n`, { encoding: 'utf8' });
 }
 
 export function clearSummaryArtifactState(requestId: string): void {

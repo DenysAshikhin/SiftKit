@@ -10,6 +10,7 @@ import {
   PRESET_TOOL_OPTIONS,
   togglePresetTool,
 } from '../../preset-editor';
+import { isPresetKind, isPresetOperationMode } from '../../../../src/presets.js';
 import { SettingsInlineHelpLabel } from '../../settings/SettingsFields';
 import type { SettingsSectionId } from '../../settings-sections';
 import type { DashboardConfig, DashboardPreset } from '../../types';
@@ -102,7 +103,9 @@ export function PresetsSection({
                   <select
                     value={selectedSettingsPreset.presetKind}
                     onChange={(event) => updatePresetDraft(selectedSettingsPreset.id, (next) => {
-                      applyPresetKindDefaults(next, event.target.value as DashboardPreset['presetKind']);
+                      if (isPresetKind(event.target.value)) {
+                        applyPresetKindDefaults(next, event.target.value);
+                      }
                     })}
                     disabled={selectedSettingsPreset.builtin}
                   >
@@ -117,7 +120,9 @@ export function PresetsSection({
                   <select
                     value={selectedSettingsPreset.operationMode}
                     onChange={(event) => updatePresetDraft(selectedSettingsPreset.id, (next) => {
-                      applyOperationModeDefaults(next, event.target.value as DashboardPreset['operationMode']);
+                      if (isPresetOperationMode(event.target.value)) {
+                        applyOperationModeDefaults(next, event.target.value);
+                      }
                     })}
                   >
                     <option value="summary">summary</option>

@@ -7,6 +7,7 @@ import {
   tryAcquireExecutionLease,
 } from './config/index.js';
 import { sleep } from './lib/time.js';
+import { toError } from './lib/errors.js';
 import { createTracer } from './lib/trace.js';
 
 let activeLeaseToken: string | null = null;
@@ -46,7 +47,7 @@ export function getExecutionLockTimeoutMilliseconds(): number {
   return 300_000;
 }
 
-function isExecutionAcquireUnavailableError(error: unknown): error is StatusServerUnavailableError {
+function isExecutionAcquireUnavailableError(error: Error): error is StatusServerUnavailableError {
   return error instanceof StatusServerUnavailableError && error.operation === 'execution:acquire';
 }
 
@@ -68,7 +69,7 @@ export async function acquireExecutionLock(): Promise<{
     try {
       lease = await tryAcquireExecutionLease();
     } catch (error) {
-      if (!isExecutionAcquireUnavailableError(error)) {
+      if (!isExecutionAcquireUnavailableError(toError(error))) {
         throw error;
       }
       await ensureStatusServerReachable();

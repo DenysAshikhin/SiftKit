@@ -6,7 +6,7 @@ export function createMatrixInterruptSignal(
   interrupted: Promise<never>;
   dispose: () => void;
 } {
-  let rejectInterrupted: (reason?: unknown) => void = () => {};
+  let rejectInterrupted: (reason?: Error) => void = () => {};
   const interrupted = new Promise<never>((_resolve, reject) => {
     rejectInterrupted = reject;
   });

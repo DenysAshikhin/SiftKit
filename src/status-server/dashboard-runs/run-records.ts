@@ -1,19 +1,24 @@
 import { JsonRecordReader } from '../../lib/json-record-reader.js';
-import type { JsonObject } from '../../lib/json-types.js';
+import { parseJsonValueText } from '../../lib/json.js';
+import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
 import { toNullableNonNegativeInteger } from '../../lib/telemetry-metrics.js';
 import type { JsonlEvent } from '../../state/jsonl-transcript.js';
 import type { RunLogDbRow, RunRecord } from './types.js';
+
+function optionalStringField(value: OptionalJsonValue): string | null {
+  return typeof value === 'string' && value ? value : null;
+}
 
 export function normalizeRunRecord(record: JsonObject): RunRecord {
   return {
     id: String(record.id),
     kind: String(record.kind),
     status: String(record.status),
-    startedAtUtc: (record.startedAtUtc as string) || null,
-    finishedAtUtc: (record.finishedAtUtc as string) || null,
+    startedAtUtc: optionalStringField(record.startedAtUtc),
+    finishedAtUtc: optionalStringField(record.finishedAtUtc),
     title: String(record.title || ''),
-    model: (record.model as string) || null,
-    backend: (record.backend as string) || null,
+    model: optionalStringField(record.model),
+    backend: optionalStringField(record.backend),
     inputTokens: Number.isFinite(record.inputTokens) ? Number(record.inputTokens) : null,
     outputTokens: Number.isFinite(record.outputTokens) ? Number(record.outputTokens) : null,
     thinkingTokens: Number.isFinite(record.thinkingTokens) ? Number(record.thinkingTokens) : null,
@@ -53,7 +58,7 @@ export function parseJsonlEventsFromText(text: string | null): JsonlEvent[] {
       continue;
     }
     try {
-      const parsed = JSON.parse(line) as unknown;
+      const parsed = parseJsonValueText(line);
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
         continue;
       }
@@ -84,7 +89,7 @@ export function getTranscriptDurationMsFromText(text: string | null): number | n
   return Math.max(0, Math.max(...points) - Math.min(...points));
 }
 
-export function parseOptionalIsoDate(value: unknown): string | null {
+export function parseOptionalIsoDate(value: OptionalJsonValue): string | null {
   if (typeof value !== 'string' || !value.trim()) {
     return null;
   }

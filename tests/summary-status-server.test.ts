@@ -1,19 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
-import * as http from 'node:http';
-import type { AddressInfo } from 'node:net';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
-import type { SiftConfig } from '../src/config/index.js';
 import { summarizeRequest } from '../src/summary.js';
 import { getDefaultConfig, buildRuntimeLaunchSnapshot } from '../src/status-server/config-store.js';
 import { startStatusServer } from '../src/status-server/index.js';
 import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
-
-type JsonResponse = { statusCode: number; body: Record<string, unknown> };
+import { JsonRecordReader } from '../src/lib/json-record-reader.js';
+import { requestJson, asObject, getAddressInfo } from './helpers/dashboard-http.js';
 
 async function captureStdoutLines(fn: () => Promise<void>): Promise<string[]> {
   const originalWrite = process.stdout.write.bind(process.stdout);
@@ -31,7 +28,10 @@ async function captureStdoutLines(fn: () => Promise<void>): Promise<string[]> {
     for (const line of parts) {
       if (line.trim()) lines.push(line);
     }
-    return originalWrite(chunk, encodingOrCallback as BufferEncoding, callback);
+    if (typeof encodingOrCallback === 'function') {
+      return originalWrite(chunk, encodingOrCallback);
+    }
+    return originalWrite(chunk, encodingOrCallback, callback);
   };
   try {
     await fn();
@@ -40,46 +40,6 @@ async function captureStdoutLines(fn: () => Promise<void>): Promise<string[]> {
   }
   if (buffer.trim()) lines.push(buffer.trim());
   return lines;
-}
-
-function requestJson(url: string, options: { method?: string; body?: string; timeoutMs?: number } = {}): Promise<JsonResponse> {
-  return new Promise((resolve, reject) => {
-    const target = new URL(url);
-    const request = http.request(
-      {
-        protocol: target.protocol,
-        hostname: target.hostname,
-        port: target.port,
-        path: `${target.pathname}${target.search}`,
-        method: options.method || 'GET',
-        headers: options.body ? {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(options.body, 'utf8'),
-        } : undefined,
-      },
-      (response) => {
-        let responseText = '';
-        response.setEncoding('utf8');
-        response.on('data', (chunk: string) => {
-          responseText += chunk;
-        });
-        response.on('end', () => {
-          resolve({
-            statusCode: response.statusCode || 0,
-            body: responseText ? JSON.parse(responseText) as Record<string, unknown> : {},
-          });
-        });
-      },
-    );
-    request.on('error', reject);
-    request.setTimeout(Number(options.timeoutMs || 4000), () => {
-      request.destroy(new Error('request timeout'));
-    });
-    if (options.body) {
-      request.write(options.body);
-    }
-    request.end();
-  });
 }
 
 test('summary endpoint defaults model request timeout to 240 seconds', () => {
@@ -114,7 +74,7 @@ test('summary endpoint waits behind the model request queue', async () => {
 
   const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -198,7 +158,7 @@ test('summary endpoint processes terminal status before granting next queued sum
 
   const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -279,7 +239,7 @@ test('terminal metadata route enqueues immediately and drains after idle delay',
 
   const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 80 });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -374,7 +334,7 @@ test('terminal metadata waits for managed llama flush queue to drain first', asy
   };
   const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -459,7 +419,7 @@ test('split terminal routes clear active request before next running post', asyn
 
   const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -598,7 +558,7 @@ test('legacy terminal status posts to /status are rejected', async () => {
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -660,14 +620,18 @@ test('summary endpoint returns, logs, and persists diagnostics for 500 responses
 
   let stderrText = '';
   const originalStderrWrite = process.stderr.write.bind(process.stderr);
-  process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+  process.stderr.write = (
+    chunk: string | Uint8Array,
+    _encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+    _callback?: (error?: Error | null) => void,
+  ): boolean => {
     stderrText += String(chunk);
     return true;
-  }) as typeof process.stderr.write;
+  };
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -687,7 +651,7 @@ test('summary endpoint returns, logs, and persists diagnostics for 500 responses
     assert.equal(summary.statusCode, 500);
     assert.equal(summary.body.errorName, 'Error');
     assert.equal(typeof summary.body.diagnosticId, 'string');
-    const diagnostic = summary.body.diagnostic as Record<string, unknown>;
+    const diagnostic = asObject(summary.body.diagnostic);
     assert.equal(diagnostic.name, 'Error');
     assert.equal(diagnostic.message, 'mock provider failure');
     assert.equal(typeof diagnostic.stack, 'string');
@@ -697,11 +661,11 @@ test('summary endpoint returns, logs, and persists diagnostics for 500 responses
     assert.match(stderrText, /mock provider failure/u);
 
     const database = getRuntimeDatabase();
-    const row = database.prepare(`
+    const row = JsonRecordReader.asObject(database.prepare(`
       SELECT id, route, method, status_code, error_name, error_message, error_stack, diagnostic_json
       FROM runtime_error_events
       WHERE id = ?
-    `).get(String(summary.body.diagnosticId)) as Record<string, unknown> | undefined;
+    `).get(String(summary.body.diagnosticId)));
     assert.equal(row?.route, '/summary');
     assert.equal(row?.method, 'POST');
     assert.equal(row?.status_code, 500);
@@ -753,7 +717,7 @@ test('command-output endpoint analyzes captured command output on the server', a
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
@@ -798,7 +762,7 @@ test('summarizeRequest uses explicit config without requiring config service', a
   process.env.SIFTKIT_CONFIG_SERVICE_URL = 'http://127.0.0.1:1/config';
 
   try {
-    const config = getDefaultConfig() as SiftConfig;
+    const config = getDefaultConfig();
     config.Backend = 'mock';
     const runtimeSnapshot = buildRuntimeLaunchSnapshot(config);
     config.Runtime.LlamaCpp = runtimeSnapshot.LlamaCpp;

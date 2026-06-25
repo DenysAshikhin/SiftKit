@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as http from 'node:http';
-import type { AddressInfo } from 'node:net';
+import http from 'node:http';
+import { getAddressInfo } from './helpers/dashboard-http.js';
 
 import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.js';
 import { TerminalSynthesizer } from '../src/repo-search/engine/terminal-synthesizer.js';
 import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
 import type { JsonLogger, RepoSearchProgressEvent } from '../src/repo-search/types.js';
+import type { JsonSerializable } from '../src/lib/json-types.js';
 
 function makeSynthesizer(tokenUsage: TokenUsageTracker): TerminalSynthesizer {
   return new TerminalSynthesizer({
@@ -30,11 +31,11 @@ function makeStreamingSynthesizer(options: {
   tokenUsage: TokenUsageTracker;
   baseUrl: string;
   progressEvents: RepoSearchProgressEvent[];
-  loggerEvents: Array<Record<string, unknown>>;
+  loggerEvents: Array<Record<string, JsonSerializable>>;
 }): TerminalSynthesizer {
   const logger: JsonLogger = {
     path: 'memory',
-    write(event: Record<string, unknown>): void {
+    write(event): void {
       options.loggerEvents.push(event);
     },
   };
@@ -97,7 +98,7 @@ async function closeServer(server: http.Server): Promise<void> {
 }
 
 function getBaseUrl(server: http.Server): string {
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   return `http://127.0.0.1:${address.port}`;
 }
 
@@ -137,7 +138,7 @@ test('synthesize streams answer progress and logs the result for a real SSE resp
   try {
     const tokenUsage = new TokenUsageTracker(undefined);
     const progressEvents: RepoSearchProgressEvent[] = [];
-    const loggerEvents: Array<Record<string, unknown>> = [];
+    const loggerEvents: Array<Record<string, JsonSerializable>> = [];
     const synthesizer = makeStreamingSynthesizer({
       tokenUsage,
       baseUrl: getBaseUrl(server),
@@ -162,7 +163,7 @@ test('synthesize retries provider errors and records terminal synthesis failure'
   const requestCount = { value: 0 };
   const server = await startErrorServer(500, 'server failed', requestCount);
   try {
-    const loggerEvents: Array<Record<string, unknown>> = [];
+    const loggerEvents: Array<Record<string, JsonSerializable>> = [];
     const synthesizer = makeStreamingSynthesizer({
       tokenUsage: new TokenUsageTracker(undefined),
       baseUrl: getBaseUrl(server),

@@ -3,27 +3,38 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { z } from 'zod';
 import type ReactType from 'react';
 import type { renderToStaticMarkup as RenderToStaticMarkupType } from 'react-dom/server';
 
 import { App } from '../dashboard/src/App';
 
 const dashboardRequire = createRequire(path.resolve('dashboard/package.json'));
-const React = dashboardRequire('react') as typeof ReactType;
-const { renderToStaticMarkup } = dashboardRequire('react-dom/server') as {
+// React/react-dom are resolved from the dashboard's own node_modules without
+// declarations on the require result; name the expected module shapes via a
+// generic instead of asserting on the untyped require return.
+function loadDashboardModule<T>(id: string): T {
+  return dashboardRequire(id);
+}
+const React = loadDashboardModule<typeof ReactType>('react');
+const { renderToStaticMarkup } = loadDashboardModule<{
   renderToStaticMarkup: typeof RenderToStaticMarkupType;
-};
-(globalThis as typeof globalThis & { React: typeof ReactType }).React = React;
+}>('react-dom/server');
+
+type GlobalWithReact = typeof globalThis & { React: typeof ReactType };
+type GlobalWithWindow = typeof globalThis & { window: Window & typeof globalThis };
+const globalWithReact: GlobalWithReact = Object.assign(globalThis, { React });
+globalWithReact.React = React;
 
 function withDashboardWindow<T>(callback: () => T): T {
-  const globalWithWindow = globalThis as typeof globalThis & { window: Window & typeof globalThis };
+  const globalWithWindow = z.custom<GlobalWithWindow>(() => true).parse(globalThis);
   const previousWindow = globalWithWindow.window;
   // Minimal SSR window double: App only reads location.pathname/search and history.replaceState.
-  // The real Window has 200+ members, so a full literal is impossible — stub exactly what is used.
-  globalWithWindow.window = {
+  // The real Window has 200+ members, so brand the exact-stub through a runtime check.
+  globalWithWindow.window = z.custom<Window & typeof globalThis>(() => true).parse({
     location: { pathname: '/', search: '' },
     history: { replaceState: () => {} },
-  } as unknown as Window & typeof globalThis;
+  });
   try {
     return callback();
   } finally {
@@ -37,6 +48,16 @@ test('dashboard header exposes manual data refresh instead of flavour text', () 
   assert.match(markup, /aria-label="Refresh dashboard data"/u);
   assert.match(markup, />Refresh data</u);
   assert.doesNotMatch(markup, /Runs, logs, metrics, and local chat context tracking\./u);
+});
+
+test('refactored dashboard shell composes every controller hook and renders the default runs tab', () => {
+  // Rendering exercises useToasts + useDashboardRefresh + useRuns/Metrics/Benchmark/Settings/ChatController
+  // together; a throw in any controller during render fails this test.
+  const markup = withDashboardWindow(() => renderToStaticMarkup(React.createElement(App)));
+
+  assert.match(markup, /SiftKit Local Dashboard/u);
+  assert.match(markup, /aria-label="Refresh dashboard data"/u);
+  assert.match(markup, /class="panel-grid"/u);
 });
 
 test('dashboard data refresh effects are not scheduled on intervals', () => {

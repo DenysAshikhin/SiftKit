@@ -9,6 +9,9 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
+    "paths": {
+      "@siftkit/contracts": ["./packages/contracts/src/index.ts"]
+    },
     "types": [
       "node"
     ]

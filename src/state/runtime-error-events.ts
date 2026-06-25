@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
+import { toError } from '../lib/errors.js';
 import {
   getPrimaryCauseDiagnostic,
   serializeErrorDiagnostic,
@@ -16,7 +17,7 @@ export type RuntimeErrorEventInput = {
   requestId?: string | null;
   taskKind?: string | null;
   statusCode: number;
-  error: unknown;
+  error: Error;
 };
 
 export function createRuntimeErrorEventId(): string {
@@ -52,7 +53,7 @@ export function ensureRuntimeErrorEventsTable(database: DatabaseInstance): void 
 export function insertRuntimeErrorEvent(database: DatabaseInstance, input: RuntimeErrorEventInput): string {
   ensureRuntimeErrorEventsTable(database);
   const id = input.id?.trim() || createRuntimeErrorEventId();
-  const diagnostic: ErrorDiagnostic = serializeErrorDiagnostic(input.error);
+  const diagnostic: ErrorDiagnostic = serializeErrorDiagnostic(toError(input.error));
   const cause = getPrimaryCauseDiagnostic(diagnostic);
   database.prepare(`
     INSERT INTO runtime_error_events (

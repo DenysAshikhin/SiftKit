@@ -1,14 +1,16 @@
+import { z } from '../../src/lib/zod.js';
 import type { RuntimeLlamaCppConfig } from '../../src/config/index.js';
-import type { SummaryClassification, SummaryRequest } from '../../src/summary/types.js';
+import { SummaryPolicyProfileSchema, type SummaryClassification } from '../../src/summary/types.js';
 
-export type BenchmarkFixture = {
-  Name: string;
-  File: string;
-  Question: string;
-  Format: 'text' | 'json';
-  PolicyProfile: SummaryRequest['policyProfile'];
-  SourceCommand?: string;
-};
+export const BenchmarkFixtureSchema = z.object({
+  Name: z.string(),
+  File: z.string(),
+  Question: z.string(),
+  Format: z.enum(['text', 'json']),
+  PolicyProfile: SummaryPolicyProfileSchema,
+  SourceCommand: z.string().optional(),
+});
+export type BenchmarkFixture = z.infer<typeof BenchmarkFixtureSchema>;
 
 export type BenchmarkRunnerOptions = {
   fixtureRoot?: string;

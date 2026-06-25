@@ -1,5 +1,11 @@
-import * as http from 'node:http';
-import * as https from 'node:https';
+import {
+  request as httpRequest,
+  type IncomingHttpHeaders,
+  type IncomingMessage,
+  type OutgoingHttpHeaders,
+  type ServerResponse,
+} from 'node:http';
+import { request as httpsRequest } from 'node:https';
 import { getLlamaBaseUrl, getManagedLlamaConfig, getManagedLlamaInternalBaseUrl, readConfig } from '../config-store.js';
 import { readBody, sendJson } from '../http-utils.js';
 import {
@@ -52,8 +58,8 @@ function isSelfPassthroughBaseUrl(ctx: ServerContext, baseUrl: string): boolean 
   return getOrigin(baseUrl) === getOrigin(ctx.getServiceBaseUrl());
 }
 
-function buildUpstreamRequestHeaders(req: http.IncomingMessage, bodyText: string): http.OutgoingHttpHeaders {
-  const headers: http.OutgoingHttpHeaders = {};
+function buildUpstreamRequestHeaders(req: IncomingMessage, bodyText: string): OutgoingHttpHeaders {
+  const headers: OutgoingHttpHeaders = {};
   const contentType = req.headers['content-type'];
   const accept = req.headers.accept;
   const authorization = req.headers.authorization;
@@ -72,8 +78,8 @@ function buildUpstreamRequestHeaders(req: http.IncomingMessage, bodyText: string
   return headers;
 }
 
-function buildDownstreamResponseHeaders(headers: http.IncomingHttpHeaders): http.OutgoingHttpHeaders {
-  const downstreamHeaders: http.OutgoingHttpHeaders = {};
+function buildDownstreamResponseHeaders(headers: IncomingHttpHeaders): OutgoingHttpHeaders {
+  const downstreamHeaders: OutgoingHttpHeaders = {};
   for (const [name, value] of Object.entries(headers)) {
     if (value === undefined || HOP_BY_HOP_RESPONSE_HEADERS.has(name.toLowerCase())) {
       continue;
@@ -95,8 +101,8 @@ function getPassthroughTimeoutMs(pathname: string, config: SiftConfig): number {
 
 async function proxyLlamaRequest(
   ctx: ServerContext,
-  req: http.IncomingMessage,
-  res: http.ServerResponse,
+  req: IncomingMessage,
+  res: ServerResponse,
   pathname: string,
   config: SiftConfig,
 ): Promise<void> {
@@ -112,10 +118,10 @@ async function proxyLlamaRequest(
   const baseUrl = getManagedLlamaInternalBaseUrl(config) || configuredBaseUrl;
   const bodyText = String(req.method || 'GET').toUpperCase() === 'POST' ? await readBody(req) : '';
   const upstreamUrl = buildUpstreamUrl(baseUrl, req.url);
-  const transport = upstreamUrl.protocol === 'https:' ? https : http;
+  const transportRequest = upstreamUrl.protocol === 'https:' ? httpsRequest : httpRequest;
   const timeoutMs = getPassthroughTimeoutMs(pathname, config);
   await new Promise<void>((resolve, reject) => {
-    const upstreamRequest = transport.request(
+    const upstreamRequest = transportRequest(
       {
         protocol: upstreamUrl.protocol,
         hostname: upstreamUrl.hostname,
@@ -152,8 +158,8 @@ async function proxyLlamaRequest(
 class TokenizePassthroughEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     try {
@@ -177,8 +183,8 @@ class TokenizePassthroughEndpoint implements RouteEndpoint {
 class QueuedLlamaPassthroughEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
+    req: IncomingMessage,
+    res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
     const modelRequestLock = await acquireModelRequestWithWait(ctx, getLlamaPassthroughKind(match.pathname), req, res);
@@ -214,8 +220,8 @@ const LLAMA_PASSTHROUGH_ROUTES = new RouteTable([
 
 export async function handleLlamaPassthroughRoute(
   ctx: ServerContext,
-  req: http.IncomingMessage,
-  res: http.ServerResponse,
+  req: IncomingMessage,
+  res: ServerResponse,
   pathname: string,
 ): Promise<boolean> {
   if (!isLlamaPassthroughPath(pathname)) {

@@ -1,10 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
-import * as os from 'node:os';
-import * as path from 'node:path';
-import * as fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
+import { z } from 'zod';
 import { getRuntimeDatabase } from '../src/state/runtime-db.js';
+
+const ColumnNameRowSchema = z.array(z.object({ name: z.string() }));
 
 function tempDbPath(prefix: string): string {
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), prefix)), 'runtime.sqlite');
@@ -13,7 +16,8 @@ function tempDbPath(prefix: string): string {
 function columnNames(dbPath: string): string[] {
   const db = new Database(dbPath, { readonly: true });
   try {
-    return (db.prepare("SELECT name FROM pragma_table_info('app_config')").all() as { name: string }[])
+    return ColumnNameRowSchema
+      .parse(db.prepare("SELECT name FROM pragma_table_info('app_config')").all())
       .map((r) => r.name);
   } finally {
     db.close();
@@ -68,10 +72,10 @@ test('v25->v26 migration drops columns and synthesizes a preset when presets jso
 
   const read = new Database(dbPath, { readonly: true });
   try {
-    const row = read.prepare(
+    const row = z.object({ presets: z.string(), active: z.string().nullable() }).parse(read.prepare(
       'SELECT server_llama_presets_json AS presets, server_llama_active_preset_id AS active FROM app_config WHERE id = 1',
-    ).get() as { presets: string; active: string | null };
-    const presets = JSON.parse(row.presets) as { id: string }[];
+    ).get());
+    const presets = z.array(z.object({ id: z.string() })).parse(JSON.parse(row.presets));
     assert.equal(presets.length, 1, 'synthesized exactly one preset');
     assert.equal(presets[0].id, 'default');
     assert.equal(row.active, 'default', 'active preset id set');

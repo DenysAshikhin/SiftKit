@@ -24,7 +24,27 @@ import {
   ManagedLlamaSpeculativeMetricsTracker,
 } from '../src/status-server/managed-llama-speculative-tracker.js';
 import { releaseModelRequest } from '../src/status-server/server-ops.js';
+import { z } from '../src/lib/zod.js';
+import { JsonRecordReader } from '../src/lib/json-record-reader.js';
+import type { JsonObject } from '../src/lib/json-types.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
+
+// SQLite .get()/.all() return `unknown`; narrow to JsonObject at the boundary.
+function asRow<T>(value: T): JsonObject {
+  return JsonRecordReader.asObject(value) ?? {};
+}
+
+function asRows<T>(values: readonly T[]): JsonObject[] {
+  return values.map((value) => JsonRecordReader.asObject(value) ?? {});
+}
+
+// Brand a partial server-ops context fixture at one boundary.
+const ReleaseModelRequestCtxSchema = z.custom<Parameters<typeof releaseModelRequest>[0]>(
+  (value) => typeof value === 'object' && value !== null,
+);
+function mockReleaseCtx(ctx: object): Parameters<typeof releaseModelRequest>[0] {
+  return ReleaseModelRequestCtxSchema.parse(ctx);
+}
 
 async function captureStdoutLines(fn: () => Promise<void> | void): Promise<string[]> {
   const originalWrite = process.stdout.write.bind(process.stdout);
@@ -44,7 +64,10 @@ async function captureStdoutLines(fn: () => Promise<void> | void): Promise<strin
         lines.push(line);
       }
     }
-    return originalWrite(chunk, encodingOrCallback as BufferEncoding, callback);
+    if (typeof encodingOrCallback === 'function') {
+      return originalWrite(chunk, encodingOrCallback);
+    }
+    return originalWrite(chunk, encodingOrCallback, callback);
   };
   try {
     await fn();
@@ -65,11 +88,11 @@ test('managed llama log chunks stay buffered until flushed', async () => {
     bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'startup_script_stdout', chunkText: 'first\n' });
     bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'startup_script_stdout', chunkText: 'second\n' });
 
-    const beforeFlush = database.prepare(`
+    const beforeFlush = asRow(database.prepare(`
       SELECT COUNT(*) AS count
       FROM managed_llama_log_chunks
       WHERE run_id = ?
-    `).get(run.id) as { count?: number };
+    `).get(run.id));
     assert.equal(Number(beforeFlush.count || 0), 0);
 
     const pendingText = readManagedLlamaLogTextByStream(run.id);
@@ -77,11 +100,11 @@ test('managed llama log chunks stay buffered until flushed', async () => {
 
     flushManagedLlamaLogChunks(run.id);
 
-    const afterFlush = database.prepare(`
+    const afterFlush = asRow(database.prepare(`
       SELECT COUNT(*) AS count
       FROM managed_llama_log_chunks
       WHERE run_id = ?
-    `).get(run.id) as { count?: number };
+    `).get(run.id));
     assert.equal(Number(afterFlush.count || 0), 1);
 
     const persistedText = readManagedLlamaLogTextByStream(run.id);
@@ -186,18 +209,12 @@ test('managed llama speculative tracker flushes persisted run metrics', async ()
 
     assert.equal(flushManagedLlamaSpeculativeMetricsTracker(run.id), true);
 
-    const row = database.prepare(`
+    const row = asRow(database.prepare(`
       SELECT speculative_accepted_tokens, speculative_generated_tokens,
              stdout_character_count, stderr_character_count, metrics_updated_at_utc
       FROM managed_llama_runs
       WHERE id = ?
-    `).get(run.id) as {
-      speculative_accepted_tokens?: number | null;
-      speculative_generated_tokens?: number | null;
-      stdout_character_count?: number;
-      stderr_character_count?: number;
-      metrics_updated_at_utc?: string | null;
-    };
+    `).get(run.id));
 
     assert.equal(row.speculative_accepted_tokens, 40);
     assert.equal(row.speculative_generated_tokens, 42);
@@ -220,7 +237,7 @@ test('releaseModelRequest queues buffered managed llama logs for the active host
     });
 
     const flushQueue = new ManagedLlamaFlushQueue();
-    const released = releaseModelRequest({
+    const released = releaseModelRequest(mockReleaseCtx({
       activeModelRequest: {
         token: 'token-1',
         kind: 'dashboard_chat_stream',
@@ -234,27 +251,27 @@ test('releaseModelRequest queues buffered managed llama logs for the active host
         baseUrl: 'http://127.0.0.1:8080',
       },
       managedLlamaFlushQueue: flushQueue,
-    } as unknown as Parameters<typeof releaseModelRequest>[0], 'token-1');
+    }), 'token-1');
     try {
       assert.equal(released, true);
       assert.equal(flushQueue.getSnapshot().pendingCount, 1);
       await flushQueue.waitForIdle(1000);
 
-      const row = database.prepare(`
+      const row = asRow(database.prepare(`
         SELECT COUNT(*) AS count
         FROM managed_llama_log_chunks
         WHERE run_id = ?
-      `).get(run.id) as { count?: number };
+      `).get(run.id));
       assert.equal(Number(row.count || 0), 1);
 
       const persistedText = readManagedLlamaLogTextByStream(run.id);
       assert.equal(persistedText.startup_script_stdout, 'during-request\n');
 
-      const metricsRow = database.prepare(`
+      const metricsRow = asRow(database.prepare(`
         SELECT speculative_accepted_tokens, speculative_generated_tokens
         FROM managed_llama_runs
         WHERE id = ?
-      `).get(run.id) as { speculative_accepted_tokens?: number | null; speculative_generated_tokens?: number | null };
+      `).get(run.id));
       assert.equal(metricsRow.speculative_accepted_tokens, 40);
       assert.equal(metricsRow.speculative_generated_tokens, 42);
     } finally {
@@ -274,7 +291,7 @@ test('releaseModelRequest releases the active request when managed llama log flu
     blocker.pragma('busy_timeout = 1');
     blocker.exec('BEGIN IMMEDIATE');
     const flushQueue = new ManagedLlamaFlushQueue();
-    const ctx = {
+    const ctx = mockReleaseCtx({
       activeModelRequest: {
         token: 'token-locked',
         kind: 'repo_search',
@@ -288,7 +305,7 @@ test('releaseModelRequest releases the active request when managed llama log flu
         baseUrl: 'http://127.0.0.1:8080',
       },
       managedLlamaFlushQueue: flushQueue,
-    } as unknown as Parameters<typeof releaseModelRequest>[0];
+    });
 
     try {
       try {
@@ -332,17 +349,17 @@ test('deleteManagedLlamaLogChunksOlderThan prunes old non-running chunks only', 
 
     assert.equal(deleteManagedLlamaLogChunksOlderThan({ olderThanUtc: cutoffUtc }), 3);
 
-    const remainingChunks = database.prepare(`
+    const remainingChunks = asRows(database.prepare(`
       SELECT run_id
       FROM managed_llama_log_chunks
       ORDER BY run_id ASC
-    `).all() as Array<{ run_id: string }>;
+    `).all());
     assert.deepEqual(remainingChunks.map((row) => row.run_id), [
       oldRunning.id,
       recentStopped.id,
     ]);
 
-    const runCount = database.prepare('SELECT COUNT(*) AS count FROM managed_llama_runs').get() as { count?: number };
+    const runCount = asRow(database.prepare('SELECT COUNT(*) AS count FROM managed_llama_runs').get());
     assert.equal(Number(runCount.count || 0), 5);
   });
 });
@@ -350,13 +367,13 @@ test('deleteManagedLlamaLogChunksOlderThan prunes old non-running chunks only', 
 test('managed llama log chunk retention uses created-at index', async () => {
   await withTestEnvAndServer(async () => {
     const database = getRuntimeDatabase();
-    const indexes = database.prepare("PRAGMA index_list('managed_llama_log_chunks')").all() as Array<{ name?: string }>;
+    const indexes = asRows(database.prepare("PRAGMA index_list('managed_llama_log_chunks')").all());
     assert.equal(
       indexes.some((row) => row.name === 'idx_managed_llama_log_chunks_created_at'),
       true,
     );
 
-    const planRows = database.prepare(`
+    const planRows = asRows(database.prepare(`
       EXPLAIN QUERY PLAN
       DELETE FROM managed_llama_log_chunks
       WHERE created_at_utc < ?
@@ -365,7 +382,7 @@ test('managed llama log chunk retention uses created-at index', async () => {
           FROM managed_llama_runs
           WHERE status = 'running'
         )
-    `).all('2026-04-25T00:00:00.000Z') as Array<{ detail?: string }>;
+    `).all('2026-04-25T00:00:00.000Z'));
     assert.equal(
       planRows.some((row) => String(row.detail || '').includes('idx_managed_llama_log_chunks_created_at')),
       true,

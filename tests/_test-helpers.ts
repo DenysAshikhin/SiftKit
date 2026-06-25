@@ -1,13 +1,66 @@
-import * as fs from 'node:fs';
-import * as http from 'node:http';
-import * as os from 'node:os';
-import * as path from 'node:path';
+import fs from 'node:fs';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
 import { Writable } from 'node:stream';
-import type { AddressInfo } from 'node:net';
+import { z } from '../src/lib/zod.js';
 import { getPresetsForSurface, normalizePresets } from '../src/presets.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { parseJsonValueText } from '../src/lib/json.js';
+import { isJsonObject, type JsonObject } from '../src/lib/json-types.js';
+import type { RepoSearchExecutionResult } from '../src/repo-search/types.js';
+import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 
-export type Dict = Record<string, unknown>;
+export type Dict = JsonObject;
+
+const EMPTY_READ_OVERLAP = {
+  byFile: [],
+  totalLinesRead: 0,
+  totalUniqueLinesRead: 0,
+  totalOverlapLines: 0,
+  overlapRatePct: 0,
+};
+
+// A complete, schema-valid Scorecard for repo-search mocks. The status-server
+// api-client now strictly parses /repo-search responses, so mocks must return
+// every required field rather than a partial object.
+export function buildMockScorecard(finalOutput: string): RepoSearchExecutionResult['scorecard'] {
+  return {
+    runId: 'mock-run',
+    model: 'mock-model',
+    tasks: [{
+      id: 'repo-search',
+      question: 'mock question',
+      reason: 'completed',
+      turnsUsed: 1,
+      safetyRejects: 0,
+      invalidResponses: 0,
+      commandFailures: 0,
+      commands: [],
+      turnThinking: {},
+      finalOutput,
+      passed: true,
+      missingSignals: [],
+      promptTokens: 0,
+      outputTokens: 0,
+      toolTokens: 0,
+      thinkingTokens: 0,
+      outputTokensEstimatedCount: 0,
+      thinkingTokensEstimatedCount: 0,
+      promptCacheTokens: 0,
+      promptEvalTokens: 0,
+      promptEvalDurationMs: 0,
+      generationDurationMs: 0,
+      toolStats: {},
+      readOverlapSummary: EMPTY_READ_OVERLAP,
+    }],
+    totals: { tasks: 1, passed: 1, failed: 0, commandsExecuted: 0, safetyRejects: 0, invalidResponses: 0 },
+    toolStats: {},
+    readOverlapSummary: EMPTY_READ_OVERLAP,
+    verdict: 'pass',
+    failureReasons: [],
+  };
+}
 
 export type CaptureStream = {
   stream: Writable;
@@ -18,7 +71,7 @@ export function makeCaptureStream(): CaptureStream {
   let text = '';
   return {
     stream: new Writable({
-      write(chunk: unknown, _encoding: unknown, callback: () => void) {
+      write(chunk, _encoding, callback) {
         text += String(chunk);
         callback();
       },
@@ -103,22 +156,12 @@ export function getDefaultConfig(): TestConfig {
 }
 
 export function mergeConfig<T extends Dict>(base: T, overrides: Dict): T {
-  const merged = JSON.parse(JSON.stringify(base)) as T;
+  const merged: Dict = structuredClone(base);
   for (const [key, value] of Object.entries(overrides)) {
-    const existing = (merged as Dict)[key];
-    if (
-      value
-      && typeof value === 'object'
-      && !Array.isArray(value)
-      && existing
-      && typeof existing === 'object'
-    ) {
-      (merged as Dict)[key] = mergeConfig(existing as Dict, value as Dict);
-    } else {
-      (merged as Dict)[key] = value;
-    }
+    const existing = merged[key];
+    merged[key] = isJsonObject(value) && isJsonObject(existing) ? mergeConfig(existing, value) : value;
   }
-  return merged;
+  return z.custom<T>((value) => typeof value === 'object' && value !== null).parse(merged);
 }
 
 export type StubServerMetrics = {
@@ -244,16 +287,13 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
     }
     if (req.method === 'PUT' && req.url === '/config') {
       const bodyText = await readBody(req);
-      const parsed = (bodyText ? JSON.parse(bodyText) : {}) as Dict;
-      const runtime = state.config.Runtime as Dict | undefined;
-      const runtimeLlamaCpp = runtime ? (runtime.LlamaCpp as Dict | undefined) : undefined;
-      const savedBaseUrl = runtimeLlamaCpp && typeof runtimeLlamaCpp.BaseUrl === 'string'
+      const parsed = asObject(bodyText ? parseJsonValueText(bodyText) : {});
+      const runtimeLlamaCpp = asObject(state.config.Runtime.LlamaCpp);
+      const savedBaseUrl = typeof runtimeLlamaCpp.BaseUrl === 'string'
         ? runtimeLlamaCpp.BaseUrl : undefined;
       state.config = mergeConfig(getDefaultConfig(), parsed);
       if (savedBaseUrl) {
-        state.config.Runtime = (state.config.Runtime as Dict) || {};
-        (state.config.Runtime as Dict).LlamaCpp = ((state.config.Runtime as Dict).LlamaCpp as Dict) || {};
-        ((state.config.Runtime as Dict).LlamaCpp as Dict).BaseUrl = savedBaseUrl;
+        asObject(asObject(state.config.Runtime).LlamaCpp).BaseUrl = savedBaseUrl;
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(state.config));
@@ -261,7 +301,7 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
     }
     if (req.method === 'POST' && req.url === '/summary') {
       const bodyText = await readBody(req);
-      const parsed = (bodyText ? JSON.parse(bodyText) : {}) as Dict;
+      const parsed = asObject(bodyText ? parseJsonValueText(bodyText) : {});
       state.chatRequests.push(parsed);
       const assistantContent = typeof options.assistantContent === 'function'
         ? options.assistantContent(parsed)
@@ -285,7 +325,7 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
     }
     if (req.method === 'POST' && req.url === '/command-output/analyze') {
       const bodyText = await readBody(req);
-      const parsed = (bodyText ? JSON.parse(bodyText) : {}) as Dict;
+      const parsed = asObject(bodyText ? parseJsonValueText(bodyText) : {});
       state.chatRequests.push(parsed);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
@@ -304,20 +344,20 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
     }
     if (req.method === 'POST' && req.url === '/repo-search') {
       const bodyText = await readBody(req);
-      const parsed = (bodyText ? JSON.parse(bodyText) : {}) as Dict;
+      const parsed = asObject(bodyText ? parseJsonValueText(bodyText) : {});
       state.chatRequests.push(parsed);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         requestId: 'stub-repo-search',
         transcriptPath: 'db://repo-search/transcript',
         artifactPath: 'db://repo-search/artifact',
-        scorecard: { tasks: [{ finalOutput: 'stub repo-search output' }] },
+        scorecard: buildMockScorecard('stub repo-search output'),
       }));
       return;
     }
     if (req.method === 'POST' && req.url === '/preset/run') {
       const bodyText = await readBody(req);
-      const parsed = (bodyText ? JSON.parse(bodyText) : {}) as Dict;
+      const parsed = asObject(bodyText ? parseJsonValueText(bodyText) : {});
       state.chatRequests.push(parsed);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ outputText: 'mock preset output' }));
@@ -325,7 +365,7 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
     }
     if (req.method === 'POST' && req.url === '/eval/run') {
       const bodyText = await readBody(req);
-      const parsed = (bodyText ? JSON.parse(bodyText) : {}) as Dict;
+      const parsed = asObject(bodyText ? parseJsonValueText(bodyText) : {});
       state.chatRequests.push(parsed);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
@@ -337,9 +377,9 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
       return;
     }
     if (req.method === 'GET' && req.url === '/v1/models') {
-      const runtime = state.config.Runtime as Dict | undefined;
-      const modelId = (runtime && typeof runtime.Model === 'string' ? runtime.Model : undefined)
-        || state.config.Model
+      const runtime = state.config.Runtime;
+      const modelId = (typeof runtime.Model === 'string' ? runtime.Model : undefined)
+        || (typeof state.config.Model === 'string' ? state.config.Model : undefined)
         || 'mock-model';
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ data: [{ id: modelId }] }));
@@ -347,7 +387,7 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
     }
     if (req.method === 'POST' && req.url === '/tokenize') {
       const bodyText = await readBody(req);
-      const parsed = (bodyText ? JSON.parse(bodyText) : {}) as Dict;
+      const parsed = asObject(bodyText ? parseJsonValueText(bodyText) : {});
       const content = typeof parsed.content === 'string' ? parsed.content : '';
       if (typeof options.tokenizeTokenCount === 'function') {
         const tokenCount = options.tokenizeTokenCount(content, parsed);
@@ -367,7 +407,7 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
     }
     if (req.method === 'POST' && req.url === '/v1/chat/completions') {
       const bodyText = await readBody(req);
-      const parsed = (bodyText ? JSON.parse(bodyText) : {}) as Dict;
+      const parsed = asObject(bodyText ? parseJsonValueText(bodyText) : {});
       state.chatRequests.push(parsed);
       const assistantContent = typeof options.assistantContent === 'function'
         ? options.assistantContent(parsed)
@@ -387,7 +427,7 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
     }
     if (req.method === 'POST' && req.url === '/status') {
       const bodyText = await readBody(req);
-      const parsed = (bodyText ? JSON.parse(bodyText) : {}) as Dict;
+      const parsed = asObject(bodyText ? parseJsonValueText(bodyText) : {});
       state.statusPosts.push(parsed);
       const lastPost = state.statusPosts[state.statusPosts.length - 1];
       state.running = (lastPost && typeof lastPost.running === 'boolean') ? lastPost.running : false;
@@ -404,7 +444,7 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
     }
     if (req.method === 'POST' && req.url === '/status/terminal-metadata') {
       const bodyText = await readBody(req);
-      const parsed = (bodyText ? JSON.parse(bodyText) : {}) as Dict;
+      const parsed = asObject(bodyText ? parseJsonValueText(bodyText) : {});
       state.statusPosts.push(parsed);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
@@ -416,7 +456,7 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
   });
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
   return {
     server,
@@ -496,16 +536,16 @@ export async function withTestEnvAndServer(
   process.env.SIFTKIT_STATUS_BACKEND_URL = stub.statusUrl;
   process.env.SIFTKIT_CONFIG_SERVICE_URL = stub.configUrl;
 
-  const runtime = (stub.state.config.Runtime as Dict) || {};
+  const runtime = asObject(stub.state.config.Runtime);
   stub.state.config.Runtime = runtime;
-  const runtimeLlamaCpp = (runtime.LlamaCpp as Dict) || {};
+  const runtimeLlamaCpp = asObject(runtime.LlamaCpp);
   runtime.LlamaCpp = runtimeLlamaCpp;
   runtimeLlamaCpp.BaseUrl = stub.baseUrl;
   runtime.Model = runtime.Model || 'mock-model';
   runtimeLlamaCpp.NumCtx = runtimeLlamaCpp.NumCtx || 128000;
-  const server = (stub.state.config.Server as Dict) || {};
+  const server = asObject(stub.state.config.Server);
   stub.state.config.Server = server;
-  const serverLlamaCpp = (server.LlamaCpp as Dict) || {};
+  const serverLlamaCpp = asObject(server.LlamaCpp);
   server.LlamaCpp = serverLlamaCpp;
   const stubPort = Number(new URL(stub.baseUrl).port);
   serverLlamaCpp.BaseUrl = stub.baseUrl;

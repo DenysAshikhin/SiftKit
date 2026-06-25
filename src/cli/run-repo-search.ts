@@ -28,14 +28,9 @@ export async function runRepoSearchCli(options: {
     logFile: parsed.logFile,
   });
 
-  const scorecard = response.scorecard && typeof response.scorecard === 'object'
-    ? response.scorecard as { tasks?: Array<{ finalOutput?: unknown }> }
-    : null;
-  const finalOutputs = Array.isArray(scorecard?.tasks)
-    ? scorecard.tasks
-      .map((task) => (typeof task?.finalOutput === 'string' ? task.finalOutput.trim() : ''))
-      .filter((value) => value.length > 0)
-    : [];
+  const finalOutputs = response.scorecard.tasks
+    .map((task) => task.finalOutput.trim())
+    .filter((value) => value.length > 0);
   const formattedOutput = RepoSearchOutputFormatter.formatFinalOutputs(finalOutputs);
   if (formattedOutput) {
     options.stdout.write(`${formattedOutput}\n`);

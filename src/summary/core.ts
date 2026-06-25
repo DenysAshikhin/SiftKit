@@ -1,4 +1,4 @@
-import * as fs from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { decodeTextBuffer } from '../lib/text-encoding.js';
 import { normalizeInputText } from './measure.js';
 import { SummaryRequestRunner } from './request-runner.js';
@@ -21,7 +21,7 @@ export function readSummaryInput(options: {
   }
 
   if (options.file) {
-    if (!fs.existsSync(options.file)) {
+    if (!existsSync(options.file)) {
       if (options.stdinText !== undefined) {
         return normalizeInputText(
           Buffer.isBuffer(options.stdinText)
@@ -31,7 +31,7 @@ export function readSummaryInput(options: {
       }
       throw new Error(`Input file not found: ${options.file}`);
     }
-    return normalizeInputText(decodeTextBuffer(fs.readFileSync(options.file)));
+    return normalizeInputText(decodeTextBuffer(readFileSync(options.file)));
   }
 
   if (options.stdinText !== undefined) {

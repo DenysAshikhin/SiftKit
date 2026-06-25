@@ -1,13 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
-import * as http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import {
   requestJson,
+  getAddressInfo,
   requestSse,
   writeJson,
   removeDirectoryWithRetries,
@@ -39,7 +40,7 @@ test('dashboard HTTP helpers read JSON and SSE payloads', async () => {
   });
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address() as AddressInfo;
+  const { port } = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${port}`;
 
   try {

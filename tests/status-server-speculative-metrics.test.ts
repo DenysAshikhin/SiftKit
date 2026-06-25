@@ -1,10 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import fs from 'node:fs';
+import path from 'node:path';
 import Database from 'better-sqlite3';
+import { z } from 'zod';
 
 import { writeConfig } from '../src/status-server/config-store.js';
+
+const StartupRunRowSchema = z.object({ id: z.union([z.string(), z.number()]).nullish() }).optional();
+const SpeculativeRowSchema = z
+  .object({ speculative_accepted_tokens: z.number(), speculative_generated_tokens: z.number() })
+  .optional();
 import {
   flushRunArtifactsToDbAndDelete,
   queryDashboardRunDetailFromDb,
@@ -142,12 +148,12 @@ test('real status server uses managed llama cumulative speculative delta for rep
       let startupRunId = '';
       let managedLlamaSnapshot = null;
       try {
-        const startupRun = database.prepare(`
+        const startupRun = StartupRunRowSchema.parse(database.prepare(`
           SELECT id
           FROM managed_llama_runs
           ORDER BY started_at_utc DESC, id DESC
           LIMIT 1
-        `).get() as { id?: string | number | null } | undefined;
+        `).get());
         startupRunId = String(startupRun?.id || '');
         assert.ok(startupRunId);
         await waitForAsyncExpectation(async () => {
@@ -249,11 +255,11 @@ test('real status server uses managed llama cumulative speculative delta for rep
       const verifyDb = new Database(runtimeDbPath, { readonly: true });
       try {
         await waitForAsyncExpectation(async () => {
-          const row = verifyDb.prepare(`
+          const row = SpeculativeRowSchema.parse(verifyDb.prepare(`
             SELECT speculative_accepted_tokens, speculative_generated_tokens
             FROM run_logs
             WHERE request_id = ?
-          `).get(requestId) as { speculative_accepted_tokens: number; speculative_generated_tokens: number } | undefined;
+          `).get(requestId));
           assert.ok(row);
           assert.equal(row.speculative_accepted_tokens, 58);
           assert.equal(row.speculative_generated_tokens, 258);

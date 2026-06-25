@@ -1,3 +1,4 @@
+import type { OptionalJsonValue } from '../../../src/lib/json-types.js';
 import { formatNumber } from './format';
 import type { ContextUsage } from '../types';
 
@@ -27,7 +28,7 @@ export function computeContextBarVisual(used: number, total: number): Omit<Conte
   return { ratio, percent, fillColor, titleText };
 }
 
-function getNonNegativeInteger(value: unknown): number {
+function getNonNegativeInteger(value: OptionalJsonValue): number {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) && numberValue > 0 ? Math.trunc(numberValue) : 0;
 }

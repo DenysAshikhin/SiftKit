@@ -50,9 +50,12 @@ type ShellResolution = {
   ArgumentPrefix: string[];
 };
 
-const SHELL_NAMES: ReadonlySet<ShellName> = new Set(['auto', 'pwsh', 'powershell', 'bash', 'sh', 'cmd']);
+const SHELL_NAMES: ReadonlySet<string> = new Set(['auto', 'pwsh', 'powershell', 'bash', 'sh', 'cmd']);
 
-function resolveShell(shellName: ShellName): ShellResolution {
+// shellName is a runtime-validated boundary: callers (and tests) may pass any
+// string, and unsupported values fail loud here, so the parameter is typed as
+// string rather than the closed ShellName union.
+function resolveShell(shellName: string): ShellResolution {
   if (!SHELL_NAMES.has(shellName)) {
     throw new Error(`Unsupported shell: ${shellName}`);
   }
@@ -81,7 +84,7 @@ function resolveShell(shellName: ShellName): ShellResolution {
   return { Executable: executable, ArgumentPrefix: ['-c'] };
 }
 
-export function invokeShellProcess(script: string, shellName: ShellName): InvokeProcessResult {
+export function invokeShellProcess(script: string, shellName: string): InvokeProcessResult {
   const resolution = resolveShell(shellName);
   const result = spawnSync(resolution.Executable, [...resolution.ArgumentPrefix, script], {
     encoding: 'utf8',

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { z } from 'zod';
 
 import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
 import type { ChatMessage } from '../src/repo-search/planner-protocol.js';
@@ -121,7 +122,9 @@ test('upsertTrailingUser appends then updates the same trailing user message', (
 
 test('render and renderTail produce transcripts', () => {
   const transcript = makeTranscript();
-  transcript.getMessages().push({ content: 'roleless' } as ChatMessage);
+  // Intentionally malformed (no role) to exercise the 'unknown' role fallback;
+  // brand it as ChatMessage through a runtime check instead of a cast.
+  transcript.getMessages().push(z.custom<ChatMessage>(() => true).parse({ content: 'roleless' }));
   assert.ok(transcript.render().includes('QUESTION'));
   assert.ok(transcript.messageRoles().includes('unknown'));
   assert.ok(!transcript.renderTail(2).includes('SYSTEM'));

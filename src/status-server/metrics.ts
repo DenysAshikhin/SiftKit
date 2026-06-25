@@ -1,53 +1,38 @@
 import { JsonRecordReader } from '../lib/json-record-reader.js';
+import { z } from '../lib/zod.js';
+import { JsonObjectSchema, type JsonValue } from '../lib/json-types.js';
 import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
 
+const PragmaColumnRowSchema = z.object({ name: z.string() });
+
+export type { MetricTotals, ToolTypeStats, ToolStatsByTask } from '@siftkit/contracts';
+import type { TaskMetricKind, MetricTotals, ToolTypeStats, ToolStatsByTask } from '@siftkit/contracts';
+
 export const METRICS_SCHEMA_VERSION = 2;
 export const TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
-export type TaskKind = typeof TASK_KINDS[number];
+export type TaskKind = TaskMetricKind;
 
-export type MetricTotals = {
-  inputCharactersTotal: number;
-  outputCharactersTotal: number;
-  inputTokensTotal: number;
-  outputTokensTotal: number;
-  thinkingTokensTotal: number;
-  toolTokensTotal: number;
-  promptCacheTokensTotal: number;
-  promptEvalTokensTotal: number;
-  speculativeAcceptedTokensTotal: number;
-  speculativeGeneratedTokensTotal: number;
-  requestDurationMsTotal: number;
-  wallDurationMsTotal: number;
-  stdinWaitMsTotal: number;
-  serverPreflightMsTotal: number;
-  lockWaitMsTotal: number;
-  statusRunningMsTotal: number;
-  terminalStatusMsTotal: number;
-  completedRequestCount: number;
-};
+export const ToolTypeStatsSchema = z.object({
+  calls: z.number(),
+  outputCharsTotal: z.number(),
+  outputTokensTotal: z.number(),
+  outputTokensEstimatedCount: z.number(),
+  lineReadCalls: z.number(),
+  lineReadLinesTotal: z.number(),
+  lineReadTokensTotal: z.number(),
+  finishRejections: z.number(),
+  semanticRepeatRejects: z.number(),
+  stagnationWarnings: z.number(),
+  forcedFinishFromStagnation: z.number(),
+  promptInsertedTokens: z.number(),
+  rawToolResultTokens: z.number(),
+  newEvidenceCalls: z.number(),
+  noNewEvidenceCalls: z.number(),
+  lineReadRecommendedLines: z.number().optional(),
+  lineReadAllowanceTokens: z.number().optional(),
+});
 
-export type ToolTypeStats = {
-  calls: number;
-  outputCharsTotal: number;
-  outputTokensTotal: number;
-  outputTokensEstimatedCount: number;
-  lineReadCalls: number;
-  lineReadLinesTotal: number;
-  lineReadTokensTotal: number;
-  finishRejections: number;
-  semanticRepeatRejects: number;
-  stagnationWarnings: number;
-  forcedFinishFromStagnation: number;
-  promptInsertedTokens: number;
-  rawToolResultTokens: number;
-  newEvidenceCalls: number;
-  noNewEvidenceCalls: number;
-  lineReadRecommendedLines?: number;
-  lineReadAllowanceTokens?: number;
-};
-
-export type ToolStatsByTask = Record<TaskKind, Record<string, ToolTypeStats>>;
 export type TaskTotals = Record<TaskKind, MetricTotals>;
 
 export type Metrics = {
@@ -145,11 +130,11 @@ export function getDefaultMetrics(): Metrics {
   };
 }
 
-function normalizeNonNegativeNumber(value: unknown): number | null {
+function normalizeNonNegativeNumber(value: JsonValue): number | null {
   return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : null;
 }
 
-function normalizeMetricTotals(input: unknown): MetricTotals {
+function normalizeMetricTotals(input: JsonValue): MetricTotals {
   const totals = getDefaultMetricTotals();
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return totals;
@@ -187,7 +172,7 @@ function normalizeMetricTotals(input: unknown): MetricTotals {
   return totals;
 }
 
-function normalizeToolTypeStats(input: unknown): ToolTypeStats | null {
+function normalizeToolTypeStats(input: JsonValue): ToolTypeStats | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return null;
   }
@@ -249,7 +234,7 @@ function normalizeToolTypeStats(input: unknown): ToolTypeStats | null {
   };
 }
 
-function normalizeTaskTotals(input: unknown): TaskTotals {
+function normalizeTaskTotals(input: JsonValue): TaskTotals {
   const totals = getDefaultTaskTotals();
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return totals;
@@ -264,7 +249,7 @@ function normalizeTaskTotals(input: unknown): TaskTotals {
   return totals;
 }
 
-function normalizeToolStats(input: unknown): ToolStatsByTask {
+function normalizeToolStats(input: JsonValue): ToolStatsByTask {
   const toolStats = getDefaultToolStats();
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return toolStats;
@@ -300,7 +285,7 @@ function normalizeToolStats(input: unknown): ToolStatsByTask {
   return toolStats;
 }
 
-function isCurrentSchema(input: unknown): boolean {
+function isCurrentSchema(input: JsonValue): boolean {
   return Boolean(
     input
     && typeof input === 'object'
@@ -320,33 +305,9 @@ const TIMING_TOTAL_COLUMNS: Array<{ name: string; sql: string }> = [
   { name: 'terminal_status_ms_total', sql: 'ALTER TABLE runtime_metrics_totals ADD COLUMN terminal_status_ms_total INTEGER NOT NULL DEFAULT 0;' },
 ];
 
-type RuntimeMetricsDbRow = {
-  schema_version: number | string | null;
-  input_characters_total: number | string | null;
-  output_characters_total: number | string | null;
-  input_tokens_total: number | string | null;
-  output_tokens_total: number | string | null;
-  thinking_tokens_total: number | string | null;
-  tool_tokens_total: number | string | null;
-  prompt_cache_tokens_total: number | string | null;
-  prompt_eval_tokens_total: number | string | null;
-  speculative_accepted_tokens_total: number | string | null;
-  speculative_generated_tokens_total: number | string | null;
-  request_duration_ms_total: number | string | null;
-  wall_duration_ms_total: number | string | null;
-  stdin_wait_ms_total: number | string | null;
-  server_preflight_ms_total: number | string | null;
-  lock_wait_ms_total: number | string | null;
-  status_running_ms_total: number | string | null;
-  terminal_status_ms_total: number | string | null;
-  completed_request_count: number | string | null;
-  task_totals_json: string | null;
-  tool_stats_json: string | null;
-  updated_at_utc: string | null;
-};
-
 function ensureRuntimeMetricsTimingColumns(database: RuntimeMetricsDatabase): void {
-  const columns = (database.prepare('PRAGMA table_info(runtime_metrics_totals)').all() as Array<{ name: unknown }>)
+  const columns = z.array(PragmaColumnRowSchema)
+    .parse(database.prepare('PRAGMA table_info(runtime_metrics_totals)').all())
     .map((column) => String(column.name));
   const missing = TIMING_TOTAL_COLUMNS
     .filter((column) => !columns.includes(column.name))
@@ -356,7 +317,7 @@ function ensureRuntimeMetricsTimingColumns(database: RuntimeMetricsDatabase): vo
   }
 }
 
-export function normalizeMetrics(input: unknown): Metrics {
+export function normalizeMetrics(input: JsonValue): Metrics {
   const metrics = getDefaultMetrics();
   if (!isCurrentSchema(input)) {
     return metrics;
@@ -421,45 +382,46 @@ export function readMetrics(metricsPath: string): Metrics {
       updated_at_utc
     FROM runtime_metrics_totals
     WHERE id = 1
-  `).get() as RuntimeMetricsDbRow | undefined;
-  if (!row || typeof row !== 'object') {
+  `).get();
+  if (row == null) {
     return getDefaultMetrics();
   }
+  const metricsRow = JsonObjectSchema.parse(row);
   return normalizeMetrics({
-    schemaVersion: Number(row.schema_version),
-    inputCharactersTotal: Number(row.input_characters_total),
-    outputCharactersTotal: Number(row.output_characters_total),
-    inputTokensTotal: Number(row.input_tokens_total),
-    outputTokensTotal: Number(row.output_tokens_total),
-    thinkingTokensTotal: Number(row.thinking_tokens_total),
-    toolTokensTotal: Number(row.tool_tokens_total),
-    promptCacheTokensTotal: Number(row.prompt_cache_tokens_total),
-    promptEvalTokensTotal: Number(row.prompt_eval_tokens_total),
-    speculativeAcceptedTokensTotal: Number(row.speculative_accepted_tokens_total),
-    speculativeGeneratedTokensTotal: Number(row.speculative_generated_tokens_total),
-    requestDurationMsTotal: Number(row.request_duration_ms_total),
-    wallDurationMsTotal: Number(row.wall_duration_ms_total),
-    stdinWaitMsTotal: Number(row.stdin_wait_ms_total),
-    serverPreflightMsTotal: Number(row.server_preflight_ms_total),
-    lockWaitMsTotal: Number(row.lock_wait_ms_total),
-    statusRunningMsTotal: Number(row.status_running_ms_total),
-    terminalStatusMsTotal: Number(row.terminal_status_ms_total),
-    completedRequestCount: Number(row.completed_request_count),
+    schemaVersion: Number(metricsRow.schema_version),
+    inputCharactersTotal: Number(metricsRow.input_characters_total),
+    outputCharactersTotal: Number(metricsRow.output_characters_total),
+    inputTokensTotal: Number(metricsRow.input_tokens_total),
+    outputTokensTotal: Number(metricsRow.output_tokens_total),
+    thinkingTokensTotal: Number(metricsRow.thinking_tokens_total),
+    toolTokensTotal: Number(metricsRow.tool_tokens_total),
+    promptCacheTokensTotal: Number(metricsRow.prompt_cache_tokens_total),
+    promptEvalTokensTotal: Number(metricsRow.prompt_eval_tokens_total),
+    speculativeAcceptedTokensTotal: Number(metricsRow.speculative_accepted_tokens_total),
+    speculativeGeneratedTokensTotal: Number(metricsRow.speculative_generated_tokens_total),
+    requestDurationMsTotal: Number(metricsRow.request_duration_ms_total),
+    wallDurationMsTotal: Number(metricsRow.wall_duration_ms_total),
+    stdinWaitMsTotal: Number(metricsRow.stdin_wait_ms_total),
+    serverPreflightMsTotal: Number(metricsRow.server_preflight_ms_total),
+    lockWaitMsTotal: Number(metricsRow.lock_wait_ms_total),
+    statusRunningMsTotal: Number(metricsRow.status_running_ms_total),
+    terminalStatusMsTotal: Number(metricsRow.terminal_status_ms_total),
+    completedRequestCount: Number(metricsRow.completed_request_count),
     taskTotals: (() => {
       try {
-        return JSON.parse(String(row.task_totals_json || '{}'));
+        return JSON.parse(String(metricsRow.task_totals_json || '{}'));
       } catch {
         return {};
       }
     })(),
     toolStats: (() => {
       try {
-        return JSON.parse(String(row.tool_stats_json || '{}'));
+        return JSON.parse(String(metricsRow.tool_stats_json || '{}'));
       } catch {
         return {};
       }
     })(),
-    updatedAtUtc: typeof row.updated_at_utc === 'string' ? row.updated_at_utc : null,
+    updatedAtUtc: typeof metricsRow.updated_at_utc === 'string' ? metricsRow.updated_at_utc : null,
   });
 }
 

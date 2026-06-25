@@ -1,14 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as http from 'node:http';
-import type { AddressInfo } from 'node:net';
+import http from 'node:http';
 
+import { z } from '../src/lib/zod.js';
 import {
   HttpClient,
   LlamaHttpError,
   DEFAULT_USER_AGENT,
   CONNECT_TIMEOUT_MS,
 } from '../src/lib/http-client.js';
+import { JsonObjectSchema, type JsonObject } from '../src/lib/json-types.js';
+import { asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
 
 type ServerHandle = {
   baseUrl: string;
@@ -25,7 +27,7 @@ async function startServer(
   await new Promise<void>((resolve, reject) => {
     server.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
   });
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   return {
     baseUrl: `http://127.0.0.1:${address.port}`,
     connectionCount: () => connections,
@@ -51,9 +53,9 @@ test('HttpClient.requestJsonFull opens a fresh socket per sequential call (no ke
     res.end(JSON.stringify({ ok: true }));
   });
   try {
-    await client.requestJsonFull({ url: `${server.baseUrl}/v1/models`, method: 'GET', timeoutMs: 5000 });
-    await client.requestJsonFull({ url: `${server.baseUrl}/v1/models`, method: 'GET', timeoutMs: 5000 });
-    await client.requestJsonFull({ url: `${server.baseUrl}/v1/models`, method: 'GET', timeoutMs: 5000 });
+    await client.requestJsonFull({ url: `${server.baseUrl}/v1/models`, method: 'GET', timeoutMs: 5000 }, JsonObjectSchema);
+    await client.requestJsonFull({ url: `${server.baseUrl}/v1/models`, method: 'GET', timeoutMs: 5000 }, JsonObjectSchema);
+    await client.requestJsonFull({ url: `${server.baseUrl}/v1/models`, method: 'GET', timeoutMs: 5000 }, JsonObjectSchema);
     // With keep-alive enabled these three sequential requests would reuse one
     // socket (connectionCount === 1). Pooling-disabled => one socket each.
     assert.equal(server.connectionCount(), 3);
@@ -85,14 +87,14 @@ test('HttpClient.streamSse parses SSE data packets and resolves sawDone after [D
     ]);
   });
   try {
-    const received: Record<string, unknown>[] = [];
+    const received: JsonObject[] = [];
     const result = await client.streamSse(
       { url: `${server.baseUrl}/v1/chat/completions`, body: '{}', timeoutMs: 5000 },
       (parsed) => { received.push(parsed); },
     );
     assert.equal(result.sawDone, true);
     assert.equal(received.length, 2);
-    assert.equal((received[1].choices as Array<{ delta: { content: string } }>)[0].delta.content, 'answer');
+    assert.equal(String(asObject(asObject(asObjectArray(received[1].choices)[0]).delta).content), 'answer');
   } finally {
     await server.close();
   }
@@ -107,7 +109,7 @@ test('HttpClient.streamSse rejects with LlamaHttpError carrying status and body 
   try {
     await assert.rejects(
       client.streamSse({ url: `${server.baseUrl}/v1/chat/completions`, body: '{}', timeoutMs: 5000 }, () => {}),
-      (error: unknown) => {
+      (error) => {
         assert.ok(error instanceof LlamaHttpError);
         assert.equal(error.statusCode, 503);
         assert.match(error.rawText, /model loading/u);
@@ -149,7 +151,7 @@ test('HttpClient.streamSse stops and resolves when onData returns "stop"', async
     // Never send [DONE]; the caller stops the stream itself.
   });
   try {
-    const received: Record<string, unknown>[] = [];
+    const received: JsonObject[] = [];
     const result = await client.streamSse(
       { url: `${server.baseUrl}/v1/chat/completions`, body: '{}', timeoutMs: 5000 },
       (parsed) => {
@@ -172,7 +174,7 @@ test('HttpClient.requestJson throws on >= 400', async () => {
   });
   try {
     await assert.rejects(
-      client.requestJson({ url: `${server.baseUrl}/tokenize`, method: 'POST', timeoutMs: 5000, body: '{}' }),
+      client.requestJson({ url: `${server.baseUrl}/tokenize`, method: 'POST', timeoutMs: 5000, body: '{}' }, JsonObjectSchema),
       /HTTP 500/u,
     );
   } finally {
@@ -200,9 +202,10 @@ test('HttpClient.localAgent returns shared keepAlive false agents selected by pr
   // http.Agent stores its constructor options at runtime, but @types/node does not expose
   // `.options` on the public Agent type; read it through the runtime-accurate shape.
   type AgentWithOptions = http.Agent & { options: { keepAlive: boolean } };
-  const httpAgent = client.localAgent('http://127.0.0.1:8080') as AgentWithOptions;
+  const AgentWithOptionsSchema = z.custom<AgentWithOptions>((value) => value instanceof http.Agent);
+  const httpAgent = AgentWithOptionsSchema.parse(client.localAgent('http://127.0.0.1:8080'));
   const secondHttpAgent = client.localAgent(new URL('http://127.0.0.1:8081'));
-  const httpsAgent = client.localAgent('https://127.0.0.1:8443') as AgentWithOptions;
+  const httpsAgent = AgentWithOptionsSchema.parse(client.localAgent('https://127.0.0.1:8443'));
 
   assert.equal(httpAgent, secondHttpAgent);
   assert.equal(httpAgent.options.keepAlive, false);

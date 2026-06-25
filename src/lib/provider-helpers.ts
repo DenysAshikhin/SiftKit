@@ -1,9 +1,12 @@
 /**
- * Shared helpers for provider communication — used by llama-cpp provider,
- * repo-search planner protocol, and any future provider integrations.
+ * Shared helpers for provider communication: used by llama-cpp provider,
+ * repo-search planner protocol, and future provider integrations.
  */
 import { sleep } from './time.js';
+import { toError } from './errors.js';
 import { getNormalizedCompletionTokens } from './telemetry-metrics.js';
+import { JsonRecordReader } from './json-record-reader.js';
+import type { JsonObject, JsonValue, OptionalJsonValue } from './json-types.js';
 
 // ---------------------------------------------------------------------------
 // Network error serialization
@@ -18,16 +21,38 @@ export type SerializedNetworkError = {
   port: number | null;
 };
 
-export function serializeNetworkError(error: unknown): SerializedNetworkError {
-  const source = error && typeof error === 'object' ? error as Record<string, unknown> : {};
-  const message = error instanceof Error ? error.message : String(error || '');
+function readErrorString(error: Error, key: 'code' | 'syscall' | 'address'): string | null {
+  if (!(key in error)) {
+    return null;
+  }
+  const value = Reflect.get(error, key);
+  return typeof value === 'string' ? value : null;
+}
+
+function readErrorStringOrNumber(error: Error, key: 'errno'): string | number | null {
+  if (!(key in error)) {
+    return null;
+  }
+  const value = Reflect.get(error, key);
+  return typeof value === 'number' || typeof value === 'string' ? value : null;
+}
+
+function readErrorNumber(error: Error, key: 'port'): number | null {
+  if (!(key in error)) {
+    return null;
+  }
+  const parsed = Number(Reflect.get(error, key));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function serializeNetworkError(error: Error): SerializedNetworkError {
   return {
-    message: message || 'unknown error',
-    code: typeof source.code === 'string' ? source.code : null,
-    errno: typeof source.errno === 'number' || typeof source.errno === 'string' ? source.errno as string | number : null,
-    syscall: typeof source.syscall === 'string' ? source.syscall : null,
-    address: typeof source.address === 'string' ? source.address : null,
-    port: Number.isFinite(Number(source.port)) ? Number(source.port) : null,
+    message: error.message || 'unknown error',
+    code: readErrorString(error, 'code'),
+    errno: readErrorStringOrNumber(error, 'errno'),
+    syscall: readErrorString(error, 'syscall'),
+    address: readErrorString(error, 'address'),
+    port: readErrorNumber(error, 'port'),
   };
 }
 
@@ -56,10 +81,13 @@ export function buildProviderErrorMessage(
 const TRANSIENT_PROVIDER_ERROR_CODES = ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ECONNABORTED'];
 const TRANSIENT_PROVIDER_LOADING_MODEL_CODE = 'HTTP_503_LOADING_MODEL';
 
-export function isTransientProviderError(error: unknown): boolean {
-  const source = error && typeof error === 'object' ? error as Record<string, unknown> : {};
-  const message = String(error instanceof Error ? error.message : (error ?? '')).toUpperCase();
-  const code = String(typeof source.code === 'string' ? source.code : '').toUpperCase();
+export class TransientProviderHttpError extends Error {
+  public readonly code = TRANSIENT_PROVIDER_LOADING_MODEL_CODE;
+}
+
+export function isTransientProviderError(error: Error): boolean {
+  const message = error.message.toUpperCase();
+  const code = String(readErrorString(error, 'code') ?? '').toUpperCase();
   if (TRANSIENT_PROVIDER_ERROR_CODES.some((item) => message.includes(item) || code === item)) {
     return true;
   }
@@ -80,9 +108,7 @@ export function isTransientProviderHttpResponse(statusCode: number, rawText: str
 
 export function buildTransientProviderHttpError(statusCode: number, rawText: string): Error {
   const detail = String(rawText || '').trim();
-  const error = new Error(`HTTP ${statusCode}: ${detail || 'provider temporarily unavailable'}`) as Error & { code?: string };
-  error.code = TRANSIENT_PROVIDER_LOADING_MODEL_CODE;
-  return error;
+  return new TransientProviderHttpError(`HTTP ${statusCode}: ${detail || 'provider temporarily unavailable'}`);
 }
 
 const DEFAULT_PROVIDER_RETRY_MAX_WAIT_MS = 30_000;
@@ -125,7 +151,8 @@ export async function retryProviderRequest<T>(
     try {
       return await requestFn();
     } catch (error) {
-      if (!isTransientProviderError(error)) {
+      const caughtError = toError(error);
+      if (!isTransientProviderError(caughtError)) {
         throw error;
       }
       const elapsedMs = Math.max(0, nowMs() - startedAt);
@@ -137,7 +164,7 @@ export async function retryProviderRequest<T>(
         attempt,
         elapsedMs,
         nextDelayMs,
-        error: serializeNetworkError(error),
+        error: serializeNetworkError(caughtError),
       });
       await sleepMs(nextDelayMs);
       attempt += 1;
@@ -150,19 +177,18 @@ export async function retryProviderRequest<T>(
 // ---------------------------------------------------------------------------
 
 /**
- * Normalize content from a provider response — handles both plain strings
+ * Normalize content from a provider response. Handles both plain strings
  * and arrays of `{ type?: string; text?: string }` content parts.
  */
-export function normalizeProviderText(value: unknown): string {
+export function normalizeProviderText(value?: JsonValue): string {
   if (typeof value === 'string') return value.trim();
   if (Array.isArray(value)) {
     return value
       .map((part) => {
         if (typeof part === 'string') return part;
-        if (part && typeof part === 'object' && typeof (part as { text?: string }).text === 'string') {
-          return (part as { text: string }).text;
-        }
-        return '';
+        const record = JsonRecordReader.asObject(part);
+        const text = record?.text;
+        return typeof text === 'string' ? text : '';
       })
       .join('')
       .trim();
@@ -174,7 +200,7 @@ export function normalizeProviderText(value: unknown): string {
 // Usage / token counting helpers
 // ---------------------------------------------------------------------------
 
-export function getUsageNumber(value: unknown): number | null {
+export function getUsageNumber(value: OptionalJsonValue): number | null {
   const n = Number(value);
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
@@ -198,13 +224,13 @@ export type TimingUsage = {
 };
 
 export function getProcessedPromptTokens(
-  inputTokens: unknown,
-  promptCacheTokens: unknown,
-  promptEvalTokens: unknown,
+  inputTokens: OptionalJsonValue,
+  promptCacheTokens: OptionalJsonValue,
+  promptEvalTokens: OptionalJsonValue,
 ): number | null {
-  const totalPromptTokens = getUsageNumber(inputTokens);
-  const cacheTokens = getUsageNumber(promptCacheTokens) ?? 0;
-  const evalTokens = getUsageNumber(promptEvalTokens);
+  const totalPromptTokens = Number.isFinite(Number(inputTokens)) ? Number(inputTokens) : null;
+  const cacheTokens = Number.isFinite(Number(promptCacheTokens)) ? Number(promptCacheTokens) : 0;
+  const evalTokens = Number.isFinite(Number(promptEvalTokens)) ? Number(promptEvalTokens) : null;
   if (evalTokens !== null) {
     if (evalTokens > 0) {
       return evalTokens;
@@ -223,55 +249,50 @@ export function getProcessedPromptTokens(
 }
 
 /**
- * Extract prompt token usage from a provider response body.  Handles
+ * Extract prompt token usage from a provider response body. Handles
  * llama.cpp `usage`, `timings`, and `__verbose.timings` fields as well as
  * OpenAI-style `prompt_tokens_details` / `input_tokens_details`.
  */
-export function getPromptUsageFromResponseBody(body: Record<string, unknown>): PromptUsage {
-  const usage = body?.usage as Record<string, unknown> | undefined;
-  const timings = body?.timings as Record<string, unknown> | undefined;
-  const verboseTimings = body?.__verbose && typeof body.__verbose === 'object'
-    ? (body.__verbose as Record<string, unknown>).timings as Record<string, unknown> | undefined
-    : undefined;
+export function getPromptUsageFromResponseBody(body: JsonValue): PromptUsage {
+  const record = JsonRecordReader.asObject(body) ?? {};
+  const usage = JsonRecordReader.asObject(record.usage) ?? {};
+  const timings = JsonRecordReader.asObject(record.timings) ?? {};
+  const verbose = JsonRecordReader.asObject(record.__verbose) ?? {};
+  const verboseTimings = JsonRecordReader.asObject(verbose.timings) ?? {};
+  const promptTokenDetails = JsonRecordReader.asObject(usage.prompt_tokens_details) ?? {};
+  const inputTokenDetails = JsonRecordReader.asObject(usage.input_tokens_details) ?? {};
 
-  const promptTokens = getUsageNumber(usage?.prompt_tokens);
-  const promptCacheTokens = getUsageNumber(timings?.cache_n)
-    ?? getUsageNumber(verboseTimings?.cache_n)
-    ?? getUsageNumber((usage?.prompt_tokens_details as Record<string, unknown> | undefined)?.cached_tokens)
-    ?? getUsageNumber((usage?.input_tokens_details as Record<string, unknown> | undefined)?.cached_tokens);
-  const promptEvalTokens = getUsageNumber(timings?.prompt_n)
-    ?? getUsageNumber(verboseTimings?.prompt_n)
+  const promptTokens = getUsageNumber(usage.prompt_tokens);
+  const promptCacheTokens = getUsageNumber(timings.cache_n)
+    ?? getUsageNumber(verboseTimings.cache_n)
+    ?? getUsageNumber(promptTokenDetails.cached_tokens)
+    ?? getUsageNumber(inputTokenDetails.cached_tokens);
+  const promptEvalTokens = getUsageNumber(timings.prompt_n)
+    ?? getUsageNumber(verboseTimings.prompt_n)
     ?? (promptTokens !== null && promptCacheTokens !== null ? Math.max(promptTokens - promptCacheTokens, 0) : null);
 
   return { promptTokens, promptCacheTokens, promptEvalTokens };
 }
 
-export function getTimingUsageFromResponseBody(body: Record<string, unknown>): TimingUsage {
-  const timings = body?.timings as Record<string, unknown> | undefined;
-  const verboseTimings = body?.__verbose && typeof body.__verbose === 'object'
-    ? (body.__verbose as Record<string, unknown>).timings as Record<string, unknown> | undefined
-    : undefined;
+export function getTimingUsageFromResponseBody(body: JsonValue): TimingUsage {
+  const record = JsonRecordReader.asObject(body) ?? {};
+  const timings = JsonRecordReader.asObject(record.timings) ?? {};
+  const verbose = JsonRecordReader.asObject(record.__verbose) ?? {};
+  const verboseTimings = JsonRecordReader.asObject(verbose.timings) ?? {};
   return {
-    promptEvalDurationMs: getUsageNumber(timings?.prompt_ms) ?? getUsageNumber(verboseTimings?.prompt_ms),
-    generationDurationMs: getUsageNumber(timings?.predicted_ms) ?? getUsageNumber(verboseTimings?.predicted_ms),
-    promptTokensPerSecond: getUsageNumber(timings?.prompt_per_second) ?? getUsageNumber(verboseTimings?.prompt_per_second),
-    generationTokensPerSecond: getUsageNumber(timings?.predicted_per_second) ?? getUsageNumber(verboseTimings?.predicted_per_second),
+    promptEvalDurationMs: getUsageNumber(timings.prompt_ms) ?? getUsageNumber(verboseTimings.prompt_ms),
+    generationDurationMs: getUsageNumber(timings.predicted_ms) ?? getUsageNumber(verboseTimings.predicted_ms),
+    promptTokensPerSecond: getUsageNumber(timings.prompt_per_second) ?? getUsageNumber(verboseTimings.prompt_per_second),
+    generationTokensPerSecond: getUsageNumber(timings.predicted_per_second) ?? getUsageNumber(verboseTimings.predicted_per_second),
   };
 }
 
-function getThinkingTokensFromUsage(usage: Record<string, unknown> | undefined): number | null {
-  if (!usage || typeof usage !== 'object') {
-    return null;
-  }
-  const completionDetails = usage.completion_tokens_details && typeof usage.completion_tokens_details === 'object'
-    ? usage.completion_tokens_details as Record<string, unknown>
-    : null;
-  const outputDetails = usage.output_tokens_details && typeof usage.output_tokens_details === 'object'
-    ? usage.output_tokens_details as Record<string, unknown>
-    : null;
+function getThinkingTokensFromUsage(usage: JsonObject): number | null {
+  const completionDetails = JsonRecordReader.asObject(usage.completion_tokens_details);
+  const outputDetails = JsonRecordReader.asObject(usage.output_tokens_details);
   const sources = [completionDetails, outputDetails, usage];
   for (const source of sources) {
-    if (!source || typeof source !== 'object') {
+    if (!source) {
       continue;
     }
     const reasoningTokens = getUsageNumber(source.reasoning_tokens) ?? 0;
@@ -289,22 +310,19 @@ function getThinkingTokensFromUsage(usage: Record<string, unknown> | undefined):
 /**
  * Extract completion/output usage from provider payloads.
  */
-export function getCompletionUsageFromResponseBody(body: Record<string, unknown>): CompletionUsage {
-  const usage = body?.usage as Record<string, unknown> | undefined;
-  const timings = body?.timings as Record<string, unknown> | undefined;
-  const verboseBody = body?.__verbose && typeof body.__verbose === 'object'
-    ? body.__verbose as Record<string, unknown>
-    : undefined;
-  const verboseTimings = verboseBody?.timings && typeof verboseBody.timings === 'object'
-    ? verboseBody.timings as Record<string, unknown>
-    : undefined;
+export function getCompletionUsageFromResponseBody(body: JsonValue): CompletionUsage {
+  const record = JsonRecordReader.asObject(body) ?? {};
+  const usage = JsonRecordReader.asObject(record.usage) ?? {};
+  const timings = JsonRecordReader.asObject(record.timings) ?? {};
+  const verboseBody = JsonRecordReader.asObject(record.__verbose) ?? {};
+  const verboseTimings = JsonRecordReader.asObject(verboseBody.timings) ?? {};
   return {
     completionTokens: getNormalizedCompletionTokens(
-      getUsageNumber(usage?.completion_tokens)
-      ?? getUsageNumber(usage?.output_tokens)
-      ?? getUsageNumber(timings?.predicted_n)
-      ?? getUsageNumber(verboseTimings?.predicted_n)
-      ?? getUsageNumber(verboseBody?.tokens_predicted),
+      getUsageNumber(usage.completion_tokens)
+      ?? getUsageNumber(usage.output_tokens)
+      ?? getUsageNumber(timings.predicted_n)
+      ?? getUsageNumber(verboseTimings.predicted_n)
+      ?? getUsageNumber(verboseBody.tokens_predicted),
       getThinkingTokensFromUsage(usage),
     ),
     thinkingTokens: getThinkingTokensFromUsage(usage),

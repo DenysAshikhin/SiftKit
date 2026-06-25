@@ -1,4 +1,4 @@
-import * as path from 'node:path';
+import { join } from 'node:path';
 
 export function getTimestamp(): string {
   const current = new Date();
@@ -15,5 +15,5 @@ export function getTimestamp(): string {
 export function newArtifactPath(directory: string, prefix: string, extension: string): string {
   const safeExtension = extension.replace(/^\./u, '');
   const suffix = `${getTimestamp()}_${process.pid}_${Math.random().toString(16).slice(2, 10)}`;
-  return path.join(directory, `${prefix}_${suffix}.${safeExtension}`);
+  return join(directory, `${prefix}_${suffix}.${safeExtension}`);
 }

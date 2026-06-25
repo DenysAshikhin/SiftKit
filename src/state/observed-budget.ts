@@ -1,5 +1,14 @@
+import { z } from '../lib/zod.js';
 import { getObservedBudgetStatePath } from '../config/paths.js';
 import { getRuntimeDatabase } from './runtime-db.js';
+
+const ObservedBudgetRowSchema = z.object({
+  observed_telemetry_seen: z.number().nullable(),
+  last_known_chars_per_token: z.number().nullable(),
+  observed_chars_total: z.number().nullable(),
+  observed_tokens_total: z.number().nullable(),
+  updated_at_utc: z.string().nullable(),
+});
 
 const MIN_VALID_CHARS_PER_TOKEN = 0.1;
 const MAX_VALID_CHARS_PER_TOKEN = 20;
@@ -22,46 +31,40 @@ export function getDefaultObservedBudgetState(): ObservedBudgetState {
   };
 }
 
-export function normalizeObservedBudgetState(input: unknown): ObservedBudgetState {
-  const fallback = getDefaultObservedBudgetState();
-  if (!input || typeof input !== 'object') {
-    return fallback;
-  }
-
-  const parsed = input as Record<string, unknown>;
-  const observedCharsTotal = Number(parsed.observedCharsTotal);
-  const observedTokensTotal = Number(parsed.observedTokensTotal);
-  const lastKnownCharsPerToken = Number(parsed.lastKnownCharsPerToken);
+export function normalizeObservedBudgetState(input: ObservedBudgetState): ObservedBudgetState {
+  const observedCharsTotal = Number(input.observedCharsTotal);
+  const observedTokensTotal = Number(input.observedTokensTotal);
+  const lastKnownCharsPerToken = Number(input.lastKnownCharsPerToken);
   const hasWeightedTotals = Number.isFinite(observedCharsTotal)
     && observedCharsTotal > 0
     && Number.isFinite(observedTokensTotal)
     && observedTokensTotal > 0;
   return {
     observedTelemetrySeen: hasWeightedTotals && (
-      parsed.observedTelemetrySeen === true
-      || parsed.observedTelemetrySeen === 1
+      input.observedTelemetrySeen
       || Number.isFinite(lastKnownCharsPerToken)
     ),
     lastKnownCharsPerToken: hasWeightedTotals ? (observedCharsTotal / observedTokensTotal) : null,
     observedCharsTotal: hasWeightedTotals ? observedCharsTotal : null,
     observedTokensTotal: hasWeightedTotals ? observedTokensTotal : null,
     updatedAtUtc:
-      typeof parsed.updatedAtUtc === 'string' && parsed.updatedAtUtc.trim()
-        ? parsed.updatedAtUtc
+      typeof input.updatedAtUtc === 'string' && input.updatedAtUtc.trim()
+        ? input.updatedAtUtc
         : null,
   };
 }
 
 export function readObservedBudgetState(): ObservedBudgetState {
   const database = getRuntimeDatabase(getObservedBudgetStatePath());
-  const row = database.prepare(`
+  const rawRow = database.prepare(`
     SELECT observed_telemetry_seen, last_known_chars_per_token, observed_chars_total, observed_tokens_total, updated_at_utc
     FROM observed_budget_state
     WHERE id = 1
-  `).get() as Record<string, unknown> | undefined;
-  if (!row) {
+  `).get();
+  if (rawRow === undefined || rawRow === null) {
     return getDefaultObservedBudgetState();
   }
+  const row = ObservedBudgetRowSchema.parse(rawRow);
   return normalizeObservedBudgetState({
     observedTelemetrySeen: Number(row.observed_telemetry_seen) === 1,
     lastKnownCharsPerToken: Number(row.last_known_chars_per_token),

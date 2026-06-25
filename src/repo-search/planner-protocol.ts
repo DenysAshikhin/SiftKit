@@ -1,7 +1,9 @@
 import type { SiftConfig } from '../config/types.js';
+import { getDefaultConfigObject } from '../config/defaults.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
-import type { JsonObject, LlamaCppChatMessage, LlamaCppResponseFormat, LlamaCppToolCall } from '../llm-protocol/types.js';
+import type { JsonObject, LlamaCppChatMessage, LlamaCppChatRole, LlamaCppToolCall } from '../llm-protocol/types.js';
 import { ModelJson } from '../lib/model-json.js';
+import { toError } from '../lib/errors.js';
 import {
   buildProviderErrorMessage,
   retryProviderRequest,
@@ -37,14 +39,14 @@ export type PlannerActionResponse = {
 export type ToolAction = {
   action: 'tool';
   tool_name: string;
-  args: Record<string, unknown>;
+  args: JsonObject;
 };
 
 export type ToolBatchAction = {
   action: 'tool_batch';
   tool_calls: Array<{
     tool_name: string;
-    args: Record<string, unknown>;
+    args: JsonObject;
   }>;
 };
 
@@ -61,7 +63,7 @@ export type FinishValidationResult = {
 };
 
 export type ChatMessage = {
-  role: string;
+  role: LlamaCppChatRole;
   content?: string;
   reasoning_content?: string;
   tool_calls?: Array<{
@@ -165,7 +167,7 @@ function buildRepoSearchToolDescription(commandToken: string): string {
 }
 
 const COMMAND_REPO_SEARCH_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = Object.fromEntries(
-  REPO_SEARCH_COMMAND_TOKENS.map((commandToken) => {
+  REPO_SEARCH_COMMAND_TOKENS.map((commandToken): [string, StructuredOutputToolDefinition] => {
     const toolName = commandTokenToToolName(commandToken);
     return [toolName, {
       type: 'function',
@@ -180,7 +182,7 @@ const COMMAND_REPO_SEARCH_TOOL_REGISTRY: Record<string, StructuredOutputToolDefi
       },
     }];
   }),
-) as Record<string, StructuredOutputToolDefinition>;
+);
 
 const REPO_SEARCH_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
   ...NATIVE_REPO_SEARCH_TOOL_REGISTRY,
@@ -246,9 +248,9 @@ export function buildPlannerRequestPromptReserveText(options: {
   thinkingEnabled: boolean;
   reasoningContentEnabled: boolean;
   preserveThinking: boolean;
-  responseSchema?: Record<string, unknown> | null;
+  responseSchema?: JsonObject | null;
   responseSchemaName?: string;
-  extraBody?: Record<string, unknown>;
+  extraBody?: JsonObject;
   stream?: boolean;
 }): string {
   const stage = options.stage || 'planner_action';
@@ -301,10 +303,10 @@ export type PlannerRequestOptions = {
   abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
   stage?: string;
-  responseSchema?: Record<string, unknown> | null;
+  responseSchema?: JsonObject | null;
   responseSchemaName?: string;
   toolDefinitions?: StructuredOutputToolDefinition[];
-  extraBody?: Record<string, unknown>;
+  extraBody?: JsonObject;
 };
 
 function extractInlineThinking(raw: string): { thinkingText: string; text: string } {
@@ -314,6 +316,26 @@ function extractInlineThinking(raw: string): { thinkingText: string; text: strin
     return '';
   }).trim();
   return { thinkingText: thinkingParts.join('\n').trim(), text };
+}
+
+function toLlamaChatRole(role: string): LlamaCppChatRole {
+  return role === 'system' || role === 'user' || role === 'assistant' || role === 'tool' ? role : 'user';
+}
+
+export function toProtocolChatMessages(messages: readonly ChatMessage[]): LlamaCppChatMessage[] {
+  return messages.map((message) => ({
+    role: toLlamaChatRole(message.role),
+    content: message.content ?? null,
+    ...(message.reasoning_content === undefined ? {} : { reasoning_content: message.reasoning_content }),
+    ...(message.tool_call_id === undefined ? {} : { tool_call_id: message.tool_call_id }),
+    ...(message.tool_calls === undefined ? {} : {
+      tool_calls: message.tool_calls.map((toolCall): LlamaCppToolCall => ({
+        id: toolCall.id,
+        type: 'function',
+        function: { name: toolCall.function.name, arguments: toolCall.function.arguments },
+      })),
+    }),
+  }));
 }
 
 function serializePlannerMessage(message: ChatMessage, reasoningContentEnabled: boolean): ChatMessage {
@@ -356,28 +378,38 @@ function logProviderRetry(options: {
 
 function buildPlannerRequestConfig(options: PlannerRequestOptions): SiftConfig {
   const reasoning = options.thinkingEnabled ? 'on' : 'off';
+  const base = getDefaultConfigObject();
+  const defaultPreset = base.Server.LlamaCpp.Presets[0];
   return {
+    ...base,
     Backend: 'llama.cpp',
     Runtime: {
+      ...base.Runtime,
       Model: options.model,
       LlamaCpp: {
+        ...base.Runtime.LlamaCpp,
         BaseUrl: options.baseUrl,
         Reasoning: reasoning,
       },
     },
     Server: {
+      ...base.Server,
       LlamaCpp: {
+        ...base.Server.LlamaCpp,
         ActivePresetId: 'planner',
         Presets: [{
+          ...defaultPreset,
           id: 'planner',
-          name: 'planner',
+          label: 'planner',
+          Model: options.model,
+          BaseUrl: options.baseUrl,
           Reasoning: reasoning,
           ReasoningContent: options.reasoningContentEnabled === true,
           PreserveThinking: options.preserveThinking === true,
         }],
       },
     },
-  } as unknown as SiftConfig;
+  };
 }
 
 function actionFromProtocolToolCalls(toolCalls: readonly LlamaCppToolCall[], allowedToolNames: readonly string[]): string | null {
@@ -449,19 +481,19 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
         config: buildPlannerRequestConfig(options),
         baseUrl: options.baseUrl,
         model: options.model,
-        messages: options.messages.map((message) => serializePlannerMessage(message, options.reasoningContentEnabled === true) as LlamaCppChatMessage),
+        messages: toProtocolChatMessages(options.messages.map((message) => serializePlannerMessage(message, options.reasoningContentEnabled === true))),
         tools: [],
         maxTokens: options.maxTokens,
         temperature: 0.1,
         slotId: options.slotId,
         stream: options.stream === true,
-        responseFormat: responseFormat as LlamaCppResponseFormat | undefined,
+        responseFormat: responseFormat ?? undefined,
         reasoningOverride: options.thinkingEnabled ? 'on' : 'off',
         allowedToolNames,
         requestTimeoutSeconds: options.timeoutMs / 1000,
         retryMaxWaitMs: 0,
         abortSignal: options.abortSignal,
-        extraBody: { top_p: 0.95, ...(options.extraBody || {}) } as JsonObject,
+        extraBody: { top_p: 0.95, ...(options.extraBody || {}) },
         onThinkingDelta: options.onThinkingDelta,
         onContentDelta: options.onContentDelta,
       }),
@@ -483,7 +515,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
       },
     );
   } catch (error) {
-    const serialized = serializeNetworkError(error);
+    const serialized = serializeNetworkError(toError(error));
     options.logger?.write({
       kind: 'provider_request_error',
       stage,

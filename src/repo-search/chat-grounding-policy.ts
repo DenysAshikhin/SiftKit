@@ -1,9 +1,12 @@
+import { z } from '../lib/zod.js';
+import type { JsonObject } from '../lib/json-types.js';
 import {
   parseWebToolCommand,
   type RetainedWebToolCall,
 } from '../web-search/web-tool-command.js';
 
-export type ChatGroundingStatus = 'ungrounded' | 'snippet_only' | 'fetched';
+export const ChatGroundingStatusSchema = z.enum(['ungrounded', 'snippet_only', 'fetched']);
+export type ChatGroundingStatus = z.infer<typeof ChatGroundingStatusSchema>;
 
 export type ChatGroundingToolResult = {
   toolName: string;
@@ -69,7 +72,7 @@ export class ChatGroundingPolicy {
     }
   }
 
-  evaluateToolCall(toolName: string, args: Record<string, unknown>): ChatGroundingToolDecision {
+  evaluateToolCall(toolName: string, args: JsonObject): ChatGroundingToolDecision {
     if (!this.enabled) {
       return { kind: 'allow' };
     }

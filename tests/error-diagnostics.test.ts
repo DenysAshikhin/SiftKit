@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import {
   StatusServerUnavailableError,
@@ -20,6 +20,7 @@ import {
   closeRuntimeDatabase,
   getRuntimeDatabase,
 } from '../src/state/runtime-db.js';
+import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 
 test('StatusServerUnavailableError preserves diagnostic cause and service context', () => {
   const cause = new Error('Request timed out after 130000 ms.');
@@ -83,12 +84,12 @@ test('runtime error events schema stores serialized diagnostics', () => {
       error,
     });
 
-    const row = database.prepare(`
+    const row = JsonRecordReader.asObject(database.prepare(`
       SELECT id, source, route, method, request_id, task_kind, status_code,
              error_name, error_message, cause_name, cause_message, diagnostic_json
       FROM runtime_error_events
       WHERE id = ?
-    `).get(diagnosticId) as Record<string, unknown> | undefined;
+    `).get(diagnosticId));
 
     assert.equal(row?.source, 'status-server');
     assert.equal(row?.route, '/summary');

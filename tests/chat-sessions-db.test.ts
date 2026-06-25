@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   saveChatSession,
   readChatSessions,
@@ -120,9 +120,10 @@ test('chat sessions persist webSearchEnabled', () => {
     });
 
     const loaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
-    assert.equal(loaded?.webSearchEnabled, true);
+    assert.ok(loaded);
+    assert.equal(loaded.webSearchEnabled, true);
 
-    saveChatSession(runtimeRoot, { ...loaded, webSearchEnabled: false } as Parameters<typeof saveChatSession>[1]);
+    saveChatSession(runtimeRoot, { ...loaded, webSearchEnabled: false });
     const reloaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
     assert.equal(reloaded?.webSearchEnabled, false);
   });

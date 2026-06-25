@@ -15,8 +15,9 @@ import type { RepoSearchChatStep } from '../lib/chat-steps';
 import type { RunDetailResponse, RunGroupFilter, RunRecord } from '../types';
 
 type RunGroupKey = Exclude<RunGroupFilter, ''>;
+const RUN_GROUP_KEYS = ['summary', 'repo_search', 'planner', 'chat', 'other'] as const satisfies readonly RunGroupKey[];
 
-type RunsTabProps = {
+export type RunsTabProps = {
   search: string;
   statusFilter: string;
   kindFilter: RunGroupFilter;
@@ -106,7 +107,7 @@ export function RunsTab({
         </div>
         {runsLoading && <p className="hint">Loading runs...</p>}
         {runsError && <p className="error">{runsError}</p>}
-        {(Object.keys(groupedRuns) as RunGroupKey[]).map((group) => {
+        {RUN_GROUP_KEYS.map((group) => {
           const items = groupedRuns[group];
           if (items.length === 0) {
             return null;

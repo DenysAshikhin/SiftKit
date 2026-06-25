@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import {
   loadConfig,
@@ -14,11 +14,12 @@ import {
   withTempEnv,
   withStubServer,
 } from './_runtime-helpers.js';
+import type { JsonValue } from '../src/lib/json-types.js';
 
 interface PlannerDebugEvent {
   kind?: string;
   command?: string;
-  thinkingProcess?: unknown;
+  thinkingProcess?: JsonValue;
   output?: { text?: string };
 }
 

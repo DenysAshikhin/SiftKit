@@ -1,7 +1,8 @@
 import type { ServerContext } from './server-types.js';
 import { normalizeConfig, readConfig, writeConfig } from './config-store.js';
 import { buildDashboardRunDetail, type RunRecord } from './dashboard-runs.js';
-import type { JsonObject } from '../lib/json-types.js';
+import { JsonObjectSchema, type JsonObject } from '../lib/json-types.js';
+import { parseJsonValueText } from '../lib/json.js';
 import type { SiftConfig } from '../config/types.js';
 import {
   getAcceptanceRate,
@@ -67,7 +68,7 @@ function applyCaseConfig(originalConfig: SiftConfig, attempt: BenchmarkAttemptRe
   if (!benchmarkCase) {
     throw new Error(`Benchmark case not found for attempt ${attempt.id}.`);
   }
-  const config = JSON.parse(JSON.stringify(originalConfig)) as SiftConfig;
+  const config = structuredClone(originalConfig);
   const server = config.Server;
   const llama = server.LlamaCpp;
   const presets = llama.Presets.map((entry) => ({ ...entry }));
@@ -110,12 +111,12 @@ async function invokeAttempt(ctx: ServerContext, attempt: BenchmarkAttemptRecord
   const baseUrl = ctx.getServiceBaseUrl();
   const started = Date.now();
   const response = attempt.taskKind === 'repo-search'
-    ? await httpClient.requestJsonFull<JsonObject>({
+    ? await httpClient.requestJsonFull({
       url: `${baseUrl}/repo-search`,
       method: 'POST',
       body: JSON.stringify({ prompt: attempt.prompt }),
-    })
-    : await httpClient.requestJsonFull<JsonObject>({
+    }, JsonObjectSchema)
+    : await httpClient.requestJsonFull({
       url: `${baseUrl}/summary`,
       method: 'POST',
       body: JSON.stringify({
@@ -125,7 +126,7 @@ async function invokeAttempt(ctx: ServerContext, attempt: BenchmarkAttemptRecord
         policyProfile: 'general',
         sourceKind: 'standalone',
       }),
-    });
+    }, JsonObjectSchema);
   if (response.statusCode < 200 || response.statusCode >= 300) {
     throw new Error(`Benchmark ${attempt.taskKind} request failed (${response.statusCode}): ${response.rawText}`);
   }
@@ -169,7 +170,7 @@ async function runBenchmarkJob(ctx: ServerContext, sessionId: string): Promise<v
     activeJobs.delete(sessionId);
     return;
   }
-  const originalConfig = normalizeConfig(JSON.parse(detail.session.originalConfigJson || '{}') as unknown);
+  const originalConfig = normalizeConfig(parseJsonValueText(detail.session.originalConfigJson || '{}'));
   let currentCaseIndex: number | null = null;
   try {
     log(job, sessionId, null, `Benchmark session ${sessionId} started.\n`);

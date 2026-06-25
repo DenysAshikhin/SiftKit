@@ -1,9 +1,11 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import { existsSync, statSync, readFileSync, readdirSync } from 'node:fs';
+import { resolve, relative, isAbsolute, join, posix } from 'node:path';
 import { type IgnorePolicy } from '../command-safety.js';
 import { estimateTokenCount } from '../prompt-budget.js';
 import { findContiguousUnreadRange, type ToolOutputTruncationUnit } from '../../tool-output-fit.js';
 import { getOrCreateFileReadState, type FileReadState } from './read-overlap.js';
+import { parseJsonValueText } from '../../lib/json.js';
+import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
 import type { ToolTranscriptAction } from '../../tool-call-messages.js';
 import { WebResearchTools } from '../../web-search/web-research-tools.js';
 import type { WebFetchToolArgs, WebSearchToolArgs } from '../../web-search/types.js';
@@ -61,19 +63,20 @@ export function isFailedRepoReadFilePlan(
 
 type EffectiveTranscriptActionOptions = {
   toolName: string;
-  rawArgs: Record<string, unknown>;
+  rawArgs: JsonObject;
   isNativeTool: boolean;
   commandToRun: string;
 };
 
-function parseEffectiveReadFileArgs(command: string, fallbackArgs: Record<string, unknown>): Record<string, unknown> {
+function parseEffectiveReadFileArgs(command: string, fallbackArgs: JsonObject): JsonObject {
   const match = /^repo_read_file path=("(?:(?:\\")|[^"])*"|\S+) startLine=(\d+)(?: endLine=(\d+))?/u.exec(command.trim());
   if (!match) {
     return fallbackArgs;
   }
   let pathText = String(fallbackArgs.path || '');
   try {
-    pathText = JSON.parse(match[1]) as string;
+    const parsedPath = parseJsonValueText(match[1]);
+    pathText = typeof parsedPath === 'string' ? parsedPath : String(fallbackArgs.path || '');
   } catch {
     pathText = String(fallbackArgs.path || '');
   }
@@ -123,7 +126,7 @@ function isRepoRelativePathIgnored(relativePath: string, ignorePolicy: IgnorePol
   ));
 }
 
-function resolveRepoScopedPath(repoRoot: string, rawPath: unknown): {
+function resolveRepoScopedPath(repoRoot: string, rawPath: OptionalJsonValue): {
   absolutePath: string;
   relativePath: string;
 } | null {
@@ -131,9 +134,9 @@ function resolveRepoScopedPath(repoRoot: string, rawPath: unknown): {
   if (!pathText) {
     return null;
   }
-  const absolutePath = path.resolve(repoRoot, pathText);
-  const relativePath = path.relative(repoRoot, absolutePath);
-  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+  const absolutePath = resolve(repoRoot, pathText);
+  const relativePath = relative(repoRoot, absolutePath);
+  if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
     return null;
   }
   return {
@@ -176,7 +179,7 @@ function matchesRepoListGlob(relativePath: string, globText: string): boolean {
   if (!normalizedGlob) {
     return true;
   }
-  const target = normalizedGlob.includes('/') ? normalizedPath : path.posix.basename(normalizedPath);
+  const target = normalizedGlob.includes('/') ? normalizedPath : posix.basename(normalizedPath);
   return globToRegExp(normalizedGlob).test(target);
 }
 
@@ -190,14 +193,14 @@ export function buildRepoReadFileCommand(pathText: string, startLine: number, en
   return `repo_read_file path=${JSON.stringify(pathText)} startLine=${boundedStartLine}${boundedEndLine > 0 ? ` endLine=${boundedEndLine}` : ''}`;
 }
 
-export function buildRepoListFilesCommand(args: Record<string, unknown>): string {
+export function buildRepoListFilesCommand(args: JsonObject): string {
   const pathText = typeof args.path === 'string' && args.path.trim() ? args.path.trim() : '.';
   const recurse = args.recurse === undefined ? true : args.recurse === true;
   const globText = typeof args.glob === 'string' ? args.glob.trim() : '';
   return `repo_list_files path=${JSON.stringify(pathText)}${globText ? ` glob=${JSON.stringify(globText)}` : ''} recurse=${recurse}`;
 }
 
-export function buildNativeRepoToolRequestedCommand(toolName: string, args: Record<string, unknown>): string {
+export function buildNativeRepoToolRequestedCommand(toolName: string, args: JsonObject): string {
   if (toolName === 'repo_read_file') {
     const startLine = Math.max(1, Math.trunc(Number(args.startLine) || 1));
     const endLineCandidate = Math.trunc(Number(args.endLine) || 0);
@@ -213,7 +216,7 @@ export function buildNativeRepoToolRequestedCommand(toolName: string, args: Reco
 }
 
 export function planRepoReadFile(
-  args: Record<string, unknown>,
+  args: JsonObject,
   repoRoot: string,
   ignorePolicy: IgnorePolicy,
   fileReadStateByPath?: Map<string, FileReadState>,
@@ -229,11 +232,11 @@ export function planRepoReadFile(
   if (isRepoRelativePathIgnored(resolvedPath.relativePath, ignorePolicy)) {
     return { ok: false, command: requestedCommand, reason: 'path is ignored by runtime policy' };
   }
-  if (!fs.existsSync(resolvedPath.absolutePath) || !fs.statSync(resolvedPath.absolutePath).isFile()) {
+  if (!existsSync(resolvedPath.absolutePath) || !statSync(resolvedPath.absolutePath).isFile()) {
     return { ok: false, command: requestedCommand, reason: 'path is not a readable file' };
   }
 
-  const lines = fs.readFileSync(resolvedPath.absolutePath, 'utf8').replace(/\r\n/gu, '\n').split('\n');
+  const lines = readFileSync(resolvedPath.absolutePath, 'utf8').replace(/\r\n/gu, '\n').split('\n');
   const pathKey = normalizeRepoRelativePathForDisplay(resolvedPath.relativePath).toLowerCase();
   const displayPath = normalizeRepoRelativePathForDisplay(resolvedPath.relativePath);
   const totalEndLineExclusive = (lines.length || 0) + 1;
@@ -332,14 +335,14 @@ function listRepoFilesRecursive(
   includeFiles: string[],
   recurse: boolean,
 ): void {
-  for (const entry of fs.readdirSync(currentAbsolutePath, { withFileTypes: true })) {
+  for (const entry of readdirSync(currentAbsolutePath, { withFileTypes: true })) {
     const nextRelativePath = currentRelativePath
       ? `${currentRelativePath}/${entry.name}`
       : entry.name;
     if (isRepoRelativePathIgnored(nextRelativePath, ignorePolicy)) {
       continue;
     }
-    const nextAbsolutePath = path.join(currentAbsolutePath, entry.name);
+    const nextAbsolutePath = join(currentAbsolutePath, entry.name);
     if (entry.isDirectory()) {
       if (recurse) {
         listRepoFilesRecursive(nextAbsolutePath, nextRelativePath, ignorePolicy, includeFiles, recurse);
@@ -352,9 +355,23 @@ function listRepoFilesRecursive(
   }
 }
 
+function toWebSearchToolArgs(args: JsonObject): WebSearchToolArgs {
+  const timeFilter = args.timeFilter;
+  return {
+    query: typeof args.query === 'string' ? args.query : '',
+    ...(timeFilter === 'day' || timeFilter === 'week' || timeFilter === 'month' || timeFilter === 'year'
+      ? { timeFilter }
+      : {}),
+  };
+}
+
+function toWebFetchToolArgs(args: JsonObject): WebFetchToolArgs {
+  return { url: typeof args.url === 'string' ? args.url : '' };
+}
+
 export async function executeNativeRepoTool(
   toolName: string,
-  args: Record<string, unknown>,
+  args: JsonObject,
   repoRoot: string,
   ignorePolicy: IgnorePolicy,
   webTools: WebResearchTools,
@@ -370,7 +387,7 @@ export async function executeNativeRepoTool(
 
   if (toolName === 'web_search') {
     try {
-      const result = await webTools.search(args as WebSearchToolArgs);
+      const result = await webTools.search(toWebSearchToolArgs(args));
       return { ok: true, command: result.command, exitCode: 0, output: result.output, toolType: 'web_search', outputUnit: 'results' };
     } catch (error) {
       return { ok: false, command: `web_search query=${JSON.stringify(String(args.query || '').trim())}`, reason: error instanceof Error ? error.message : String(error), toolType: 'web_search' };
@@ -378,7 +395,7 @@ export async function executeNativeRepoTool(
   }
   if (toolName === 'web_fetch') {
     try {
-      const result = await webTools.fetch(args as WebFetchToolArgs);
+      const result = await webTools.fetch(toWebFetchToolArgs(args));
       return { ok: true, command: result.command, exitCode: 0, output: result.output, toolType: 'web_fetch', outputUnit: 'characters' };
     } catch (error) {
       return { ok: false, command: `web_fetch url=${JSON.stringify(String(args.url || '').trim())}`, reason: error instanceof Error ? error.message : String(error), toolType: 'web_fetch' };
@@ -396,7 +413,7 @@ export async function executeNativeRepoTool(
   if (isRepoRelativePathIgnored(resolvedPath.relativePath, ignorePolicy)) {
     return { ok: false, command, reason: 'path is ignored by runtime policy', toolType: toolName };
   }
-  if (!fs.existsSync(resolvedPath.absolutePath) || !fs.statSync(resolvedPath.absolutePath).isDirectory()) {
+  if (!existsSync(resolvedPath.absolutePath) || !statSync(resolvedPath.absolutePath).isDirectory()) {
     return { ok: false, command, reason: 'path is not a readable directory', toolType: toolName };
   }
   const matches: string[] = [];

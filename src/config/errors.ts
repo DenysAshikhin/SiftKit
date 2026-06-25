@@ -6,7 +6,7 @@ export class StatusServerUnavailableError extends Error {
   constructor(
     healthUrl: string,
     options: {
-      cause?: unknown;
+      cause?: Error;
       operation?: string;
       serviceUrl?: string;
     } = {},
@@ -14,7 +14,7 @@ export class StatusServerUnavailableError extends Error {
     const context = [
       options.operation ? `Operation: ${options.operation}.` : '',
       options.serviceUrl ? `Service URL: ${options.serviceUrl}.` : '',
-      options.cause === undefined ? '' : `Cause: ${options.cause instanceof Error ? options.cause.message : String(options.cause)}.`,
+      options.cause === undefined ? '' : `Cause: ${options.cause.message}.`,
     ].filter(Boolean).join(' ');
     super([
       `SiftKit status/config server is not reachable at ${healthUrl}.`,

@@ -1,23 +1,26 @@
+import { parseJsonValueText } from '../../lib/json.js';
+import type { JsonValue, JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
+
 export const MAX_JSON_FALLBACK_PREVIEW_CHARACTERS = 200;
 
-export function getRecord(value: unknown): Record<string, unknown> | null {
+export function getRecord(value: OptionalJsonValue): JsonObject | null {
   return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? value
     : null;
 }
 
-export function getFiniteInteger(value: unknown): number | null {
+export function getFiniteInteger(value: OptionalJsonValue): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
 }
 
-export function getValueByPath(value: unknown, pathText: string): unknown {
+export function getValueByPath(value: OptionalJsonValue, pathText: string): OptionalJsonValue {
   if (!pathText.trim()) {
     return value;
   }
 
   const segments = pathText.split('.').map((segment) => segment.trim()).filter(Boolean);
-  let current: unknown = value;
+  let current: OptionalJsonValue = value;
   for (const segment of segments) {
     if (Array.isArray(current)) {
       const index = Number.parseInt(segment, 10);
@@ -32,23 +35,23 @@ export function getValueByPath(value: unknown, pathText: string): unknown {
       return undefined;
     }
 
-    current = (current as Record<string, unknown>)[segment];
+    current = current[segment];
   }
 
   return current;
 }
 
 export function setValueByPath(
-  target: Record<string, unknown>,
+  target: JsonObject,
   pathText: string,
-  value: unknown
+  value: OptionalJsonValue
 ): void {
   const segments = pathText.split('.').map((segment) => segment.trim()).filter(Boolean);
   if (segments.length === 0) {
     return;
   }
 
-  let current: Record<string, unknown> = target;
+  let current: JsonObject = target;
   for (let index = 0; index < segments.length - 1; index += 1) {
     const segment = segments[index];
     const next = getRecord(current[segment]);
@@ -57,17 +60,20 @@ export function setValueByPath(
       continue;
     }
 
-    current[segment] = {};
-    current = current[segment] as Record<string, unknown>;
+    const created: JsonObject = {};
+    current[segment] = created;
+    current = created;
   }
 
-  current[segments[segments.length - 1]] = value;
+  if (value !== undefined) {
+    current[segments[segments.length - 1]] = value;
+  }
 }
 
 export function normalizeJsonFilterFilters(
-  filters: Record<string, unknown>[]
-): Record<string, unknown>[] {
-  const normalized: Record<string, unknown>[] = [];
+  filters: JsonObject[]
+): JsonObject[] {
+  const normalized: JsonObject[] = [];
 
   for (const filter of filters) {
     const pathText = typeof filter.path === 'string' ? filter.path : '';
@@ -105,8 +111,8 @@ export function normalizeJsonFilterFilters(
 }
 
 export function compareJsonFilterOrdered(
-  actual: unknown,
-  expected: unknown,
+  actual: OptionalJsonValue,
+  expected: OptionalJsonValue,
   op: 'gt' | 'gte' | 'lt' | 'lte'
 ): boolean {
   if (getRecord(expected) || Array.isArray(expected)) {
@@ -148,7 +154,7 @@ export function compareJsonFilterOrdered(
   }
 }
 
-export function matchesJsonFilter(item: unknown, filter: Record<string, unknown>): boolean {
+export function matchesJsonFilter(item: OptionalJsonValue, filter: JsonObject): boolean {
   const pathText = typeof filter.path === 'string' ? filter.path : '';
   const op = typeof filter.op === 'string' ? filter.op : '';
   const expected = filter.value;
@@ -178,12 +184,12 @@ export function matchesJsonFilter(item: unknown, filter: Record<string, unknown>
   }
 }
 
-export function projectJsonFilterItem(item: unknown, select: string[] | null): unknown {
+export function projectJsonFilterItem(item: OptionalJsonValue, select: string[] | null): OptionalJsonValue {
   if (!select || select.length === 0) {
     return item;
   }
 
-  const projected: Record<string, unknown> = {};
+  const projected: JsonObject = {};
   for (const pathText of select) {
     setValueByPath(projected, pathText, getValueByPath(item, pathText));
   }
@@ -248,14 +254,14 @@ export function findBalancedJsonEndIndex(inputText: string, startIndex: number):
 }
 
 export function parseJsonForJsonFilter(inputText: string): {
-  parsed: unknown;
+  parsed: JsonValue;
   usedFallback: boolean;
   ignoredPrefixPreview: string | null;
   parsedSectionPreview: string | null;
 } {
   try {
     return {
-      parsed: JSON.parse(inputText) as unknown,
+      parsed: parseJsonValueText(inputText),
       usedFallback: false,
       ignoredPrefixPreview: null,
       parsedSectionPreview: null,
@@ -277,7 +283,7 @@ export function parseJsonForJsonFilter(inputText: string): {
 
     const candidate = inputText.slice(startIndex, endIndex);
     try {
-      const parsed = JSON.parse(candidate) as unknown;
+      const parsed = parseJsonValueText(candidate);
       return {
         parsed,
         usedFallback: true,

@@ -1,10 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as http from 'node:http';
-import type { AddressInfo } from 'node:net';
+import http from 'node:http';
 
 import { runCli } from '../src/cli/index.js';
-import { makeCaptureStream } from './_test-helpers.js';
+import { parseJsonValueText } from '../src/lib/json.js';
+import type { JsonObject } from '../src/lib/json-types.js';
+import type { RepoSearchExecutionResult } from '../src/repo-search/types.js';
+import { buildMockScorecard, makeCaptureStream } from './_test-helpers.js';
+import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 
 async function runMockRepoSearchCli(port: number): Promise<{ stdout: string; stderr: string }> {
   const oldStatusUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
@@ -16,15 +19,19 @@ async function runMockRepoSearchCli(port: number): Promise<{ stdout: string; std
     const stderr = makeCaptureStream();
     const originalStderrWrite = process.stderr.write;
     let processStderr = '';
-    process.stderr.write = ((chunk: unknown, encoding?: BufferEncoding | ((error?: Error | null) => void), callback?: (error?: Error | null) => void): boolean => {
+    process.stderr.write = (
+      chunk: string | Uint8Array,
+      encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+      callback?: (error?: Error | null) => void,
+    ): boolean => {
       processStderr += String(chunk);
-      if (typeof encoding === 'function') {
-        encoding();
+      if (typeof encodingOrCallback === 'function') {
+        encodingOrCallback();
       } else if (callback) {
         callback();
       }
       return true;
-    }) as typeof process.stderr.write;
+    };
     try {
       const code = await runCli({
         argv: ['repo-search', '--prompt', 'find planner tools'],
@@ -52,35 +59,17 @@ async function runMockRepoSearchCli(port: number): Promise<{ stdout: string; std
 
 function writeMockRepoSearchResponse(res: http.ServerResponse, finalOutput = 'Found planner tools in src/summary.ts'): void {
   res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({
+  const result: RepoSearchExecutionResult = {
     requestId: 'req-1',
     transcriptPath: 'C:\\tmp\\repo-search.jsonl',
     artifactPath: 'C:\\tmp\\repo-search.json',
-    scorecard: {
-      runId: 'run-1',
-      model: 'mock-model',
-      tasks: [
-        {
-          id: 'repo-search',
-          finalOutput,
-        },
-      ],
-      totals: {
-        tasks: 1,
-        passed: 1,
-        failed: 0,
-        commandsExecuted: 2,
-        safetyRejects: 0,
-        invalidResponses: 0,
-      },
-      verdict: 'pass',
-      failureReasons: [],
-    },
-  }));
+    scorecard: buildMockScorecard(finalOutput),
+  };
+  res.end(JSON.stringify(result));
 }
 
 test('repo-search delegates execution to status server', async () => {
-  const received: unknown[] = [];
+  const received: JsonObject[] = [];
   const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -95,7 +84,7 @@ test('repo-search delegates execution to status server', async () => {
         body += chunk;
       });
       req.on('end', () => {
-        const parsed = JSON.parse(body || '{}');
+        const parsed = asObject(parseJsonValueText(body || '{}'));
         received.push(parsed);
         writeMockRepoSearchResponse(res);
       });
@@ -107,13 +96,13 @@ test('repo-search delegates execution to status server', async () => {
   });
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const port = Number(address.port);
 
   try {
     const output = await runMockRepoSearchCli(port);
     assert.equal(received.length, 1);
-    const first = received[0] as { prompt: string; repoRoot: string };
+    const first = received[0];
     assert.equal(first.prompt, 'find planner tools');
     assert.equal(first.repoRoot, process.cwd());
     assert.equal(output.stdout, 'Found planner tools in src/summary.ts\n');
@@ -154,7 +143,7 @@ test('repo-search CLI leaves prompt timeout to server after queue admission', as
   });
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const port = Number(address.port);
   try {
     const output = await runMockRepoSearchCli(port);
@@ -207,7 +196,7 @@ test('repo-search CLI collapses exact repeated final output blocks', async () =>
   });
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const port = Number(address.port);
   try {
     const output = await runMockRepoSearchCli(port);

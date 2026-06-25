@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { z } from '../src/lib/zod.js';
+import type { JsonSerializable } from '../src/lib/json-types.js';
 import { assertPublicHttpUrl } from '../src/web-search/url-safety.js';
 import { clampQuota } from '../src/web-search/web-search-provider-base.js';
 import { WebSearchService } from '../src/web-search/web-search-service.js';
@@ -36,12 +38,16 @@ class StubHttpClient implements Pick<HttpClient, 'fetch'> {
   }
 }
 
-function jsonResponse(value: unknown, status = 200): Response {
+// StubHttpClient implements only the `fetch` slice of HttpClient the web-search
+// providers exercise; it is branded to the full type at this single test boundary.
+const StubHttpClientSchema = z.custom<HttpClient>((value) => value instanceof StubHttpClient);
+
+function jsonResponse(value: JsonSerializable, status = 200): Response {
   return new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 }
 
 function opts(client: StubHttpClient): WebSearchProviderOptions {
-  return { resultCount: 2, timeoutMs: 15000, client: client as unknown as HttpClient };
+  return { resultCount: 2, timeoutMs: 15000, client: StubHttpClientSchema.parse(client) };
 }
 
 test('assertPublicHttpUrl rejects non-http schemes', () => {
@@ -222,7 +228,7 @@ test('WebSearchService rejects an empty query', async () => {
 test('WebFetchService converts HTML to markdown via Readability', async () => {
   const html = '<html><head><title>Example Title</title></head><body><article><h1>Heading</h1><p>Hello world paragraph for readability extraction.</p></article></body></html>';
   const client = new StubHttpClient(async () => new Response(html, { status: 200, headers: { 'content-type': 'text/html' } }));
-  const service = new WebFetchService(webConfig, client as unknown as HttpClient);
+  const service = new WebFetchService(webConfig, StubHttpClientSchema.parse(client));
 
   const result = await service.fetch({ url: 'https://example.com/page' });
 
@@ -234,7 +240,7 @@ test('WebFetchService converts HTML to markdown via Readability', async () => {
 
 test('WebFetchService passes through plain text and truncates', async () => {
   const client = new StubHttpClient(async () => new Response('plain body text', { status: 200, headers: { 'content-type': 'text/plain' } }));
-  const service = new WebFetchService({ ...webConfig, FetchMaxCharacters: 5 }, client as unknown as HttpClient);
+  const service = new WebFetchService({ ...webConfig, FetchMaxCharacters: 5 }, StubHttpClientSchema.parse(client));
   const result = await service.fetch({ url: 'https://example.com/p.txt' });
   assert.equal(result.text, 'plain');
   assert.equal(result.truncated, true);
@@ -242,7 +248,7 @@ test('WebFetchService passes through plain text and truncates', async () => {
 
 test('WebFetchService rejects redirects to private hosts', async () => {
   const client = new StubHttpClient(async () => new Response('', { status: 302, headers: { location: 'http://127.0.0.1/' } }));
-  const service = new WebFetchService(webConfig, client as unknown as HttpClient);
+  const service = new WebFetchService(webConfig, StubHttpClientSchema.parse(client));
   await assert.rejects(() => service.fetch({ url: 'https://example.com/redir' }), /private|internal|local/i);
 });
 

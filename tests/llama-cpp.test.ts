@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as http from 'node:http';
-import type { AddressInfo } from 'node:net';
+import http from 'node:http';
 
 import {
   countLlamaCppTokens,
@@ -10,7 +9,10 @@ import {
   getLlamaCppProviderStatus,
 } from '../src/providers/llama-cpp.js';
 import { loadConfig } from '../src/config/index.js';
+import { getErrorMessage } from '../src/lib/errors.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
+import { getAddressInfo } from './helpers/dashboard-http.js';
+import { mockSiftConfig } from './helpers/mock-config.js';
 
 test('listLlamaCppModels returns model list from server', async () => {
   await withTestEnvAndServer(async () => {
@@ -48,7 +50,7 @@ test('getLlamaCppProviderStatus returns unreachable when server is down', async 
     Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },
     Interactive: { Enabled: true, WrappedCommands: [], IdleTimeoutMs: 900000, MaxTranscriptCharacters: 60000, TranscriptRetention: true },
   };
-  const status = await getLlamaCppProviderStatus(config as unknown as Parameters<typeof getLlamaCppProviderStatus>[0]);
+  const status = await getLlamaCppProviderStatus(mockSiftConfig(config));
   assert.equal(status.Available, true);
   assert.equal(status.Reachable, false);
   assert.equal(typeof status.Error, 'string');
@@ -61,7 +63,7 @@ test('countLlamaCppTokens returns count from server', async () => {
       const count = await countLlamaCppTokens(config, 'hello world');
       assert.equal(typeof count, 'number');
     } catch (error) {
-      assert.ok((error as Error).message.length > 0);
+      assert.ok(getErrorMessage(error).length > 0);
     }
   });
 });
@@ -86,7 +88,7 @@ test('countLlamaCppTokens respects a bounded transient retry timeout', { timeout
     res.end(JSON.stringify({ error: 'not found' }));
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const config = {
     Backend: 'llama.cpp',
     Runtime: {
@@ -106,7 +108,7 @@ test('countLlamaCppTokens respects a bounded transient retry timeout', { timeout
   try {
     const startedAt = Date.now();
     const count = await countLlamaCppTokens(
-      config as unknown as Parameters<typeof countLlamaCppTokens>[0],
+      mockSiftConfig(config),
       'hello world',
       { timeoutMs: 200, retryMaxWaitMs: 200 },
     );

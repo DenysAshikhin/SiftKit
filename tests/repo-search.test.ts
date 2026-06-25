@@ -1,10 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as fs from 'node:fs';
-import * as http from 'node:http';
-import * as path from 'node:path';
-import { createRequire } from 'node:module';
-import type { AddressInfo } from 'node:net';
+import fs from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
+import Database from 'better-sqlite3';
 
 import { executeRepoSearchRequest } from '../src/repo-search/index.js';
 import {
@@ -12,13 +11,31 @@ import {
   parseRuntimeArtifactUri,
   readRuntimeArtifact,
 } from '../src/state/runtime-artifacts.js';
-import { withTestEnvAndServer } from './_test-helpers.js';
+import { JsonRecordReader } from '../src/lib/json-record-reader.js';
+import { parseJsonValueText } from '../src/lib/json.js';
+import { getErrorMessage } from '../src/lib/errors.js';
+import type { JsonObject } from '../src/lib/json-types.js';
+import { withTestEnvAndServer, mergeConfig } from './_test-helpers.js';
+import { asRuntimeSiftConfig } from './helpers/mock-config.js';
+import { asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
+import { z } from 'zod';
 
-const requireFromHere = createRequire(__filename);
-const Database = requireFromHere('better-sqlite3') as new (path: string, options?: { readonly?: boolean }) => {
-  prepare: (sql: string) => { get: (...args: unknown[]) => Record<string, unknown> | undefined };
-  close: () => void;
-};
+// Thrown repo-search errors carry artifact/transcript URIs as own properties
+// alongside non-JSON Error internals; validate just those string fields with a
+// passthrough schema so unrelated enumerable props don't fail the parse.
+const ErrorArtifactPathsSchema = z
+  .object({ artifactPath: z.string(), transcriptPath: z.string() })
+  .partial()
+  .passthrough();
+
+function readErrorArtifactPaths<T>(error: T): { artifactPath: string; transcriptPath: string } {
+  const parsed = ErrorArtifactPathsSchema.safeParse(error);
+  const data = parsed.success ? parsed.data : {};
+  return {
+    artifactPath: typeof data.artifactPath === 'string' ? data.artifactPath : '',
+    transcriptPath: typeof data.transcriptPath === 'string' ? data.transcriptPath : '',
+  };
+}
 
 async function captureStdoutLines(fn: () => Promise<void>): Promise<string[]> {
   const originalWrite = process.stdout.write.bind(process.stdout);
@@ -38,7 +55,10 @@ async function captureStdoutLines(fn: () => Promise<void>): Promise<string[]> {
         lines.push(line);
       }
     }
-    return originalWrite(chunk, encodingOrCallback as BufferEncoding, callback);
+    if (typeof encodingOrCallback === 'function') {
+      return originalWrite(chunk, encodingOrCallback);
+    }
+    return originalWrite(chunk, encodingOrCallback, callback);
   };
   try {
     await fn();
@@ -54,31 +74,27 @@ async function captureStdoutLines(fn: () => Promise<void>): Promise<string[]> {
 async function waitForRepoSearchRunLogRow(
   databasePath: string,
   requestId: string,
-): Promise<Record<string, unknown>> {
+): Promise<JsonObject> {
   const deadline = Date.now() + 2000;
-  let lastError: unknown = null;
   while (Date.now() < deadline) {
     try {
       const database = new Database(databasePath, { readonly: true });
       try {
-        const row = database.prepare(`
+        const row = JsonRecordReader.asObject(database.prepare(`
           SELECT prompt_eval_duration_ms, generation_duration_ms
           FROM run_logs
           WHERE request_id = ?
-        `).get(requestId) as Record<string, unknown> | undefined;
+        `).get(requestId));
         if (row) {
           return row;
         }
       } finally {
         database.close();
       }
-    } catch (error) {
-      lastError = error;
+    } catch {
+      // Row not ready yet; retry until the deadline.
     }
     await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  if (lastError) {
-    throw lastError;
   }
   throw new Error(`Timed out waiting for repo-search run log row: ${requestId}`);
 }
@@ -118,7 +134,7 @@ async function startDelayedStatusServer(options: { runningDelayMs?: number; term
     for await (const chunk of req) {
       bodyText += String(chunk);
     }
-    const parsed = bodyText ? JSON.parse(bodyText) as Record<string, unknown> : {};
+    const parsed = bodyText ? asObject(parseJsonValueText(bodyText)) : {};
     if (parsed.running === true) {
       runningPosts += 1;
       await new Promise((resolve) => setTimeout(resolve, runningDelayMs));
@@ -130,7 +146,7 @@ async function startDelayedStatusServer(options: { runningDelayMs?: number; term
     res.end(JSON.stringify({ ok: true }));
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   return {
     statusUrl: `http://127.0.0.1:${address.port}/status`,
     runningPostCount() {
@@ -217,14 +233,14 @@ test('executeRepoSearchRequest success path writes transcript and artifact', asy
 
     const transcriptId = parseRuntimeArtifactUri(result.transcriptPath);
     assert.ok(transcriptId);
-    const transcript = readRuntimeArtifact(transcriptId as string);
+    const transcript = readRuntimeArtifact(transcriptId);
     assert.equal(listRuntimeArtifacts({ artifactKind: 'repo_search_transcript' }).length, 1);
     assert.match(String(transcript?.contentText || ''), /"kind":"run_start"/u);
     assert.match(String(transcript?.contentText || ''), /"kind":"run_done"/u);
 
     const artifactId = parseRuntimeArtifactUri(result.artifactPath);
     assert.ok(artifactId);
-    const artifact = readRuntimeArtifact(artifactId as string);
+    const artifact = readRuntimeArtifact(artifactId);
     assert.equal(artifact?.contentJson?.prompt, 'find test patterns');
     assert.equal(typeof artifact?.contentJson?.verdict, 'string');
     assert.equal(artifact?.contentJson?.transcriptPath, result.transcriptPath);
@@ -295,22 +311,23 @@ test('executeRepoSearchRequest error path flushes transcript once and exposes fi
         repoRoot: tempRoot,
         allowedTools: [],
       }),
-      (error: unknown) => {
+      (error) => {
+        const errorRecord = readErrorArtifactPaths(error);
         assert.equal(listRuntimeArtifacts({ artifactKind: 'repo_search_transcript' }).length, 1);
-        assert.equal(typeof (error as { artifactPath?: unknown }).artifactPath, 'string');
-        assert.equal(typeof (error as { transcriptPath?: unknown }).transcriptPath, 'string');
+        assert.equal(typeof errorRecord.artifactPath, 'string');
+        assert.equal(typeof errorRecord.transcriptPath, 'string');
 
-        const transcriptId = parseRuntimeArtifactUri(String((error as { transcriptPath?: string }).transcriptPath || ''));
+        const transcriptId = parseRuntimeArtifactUri(String(errorRecord.transcriptPath || ''));
         assert.ok(transcriptId);
-        const transcript = readRuntimeArtifact(transcriptId as string);
+        const transcript = readRuntimeArtifact(transcriptId);
         assert.equal(transcript?.artifactKind, 'repo_search_transcript');
 
-        const artifactId = parseRuntimeArtifactUri(String((error as { artifactPath?: string }).artifactPath || ''));
+        const artifactId = parseRuntimeArtifactUri(String(errorRecord.artifactPath || ''));
         assert.ok(artifactId);
-        const artifact = readRuntimeArtifact(artifactId as string);
+        const artifact = readRuntimeArtifact(artifactId);
         assert.equal(
           artifact?.contentJson?.transcriptPath,
-          (error as { transcriptPath?: string }).transcriptPath,
+          errorRecord.transcriptPath,
         );
         return true;
       },
@@ -372,7 +389,7 @@ test('executeRepoSearchRequest logs repo-search preflight tokenization timing', 
       await executeRepoSearchRequest({
         prompt: 'find tokenize timing logs',
         repoRoot: tempRoot,
-        config: stub.state.config,
+        config: asRuntimeSiftConfig(stub.state.config),
         maxTurns: 1,
         mockCommandResults: {},
       });
@@ -409,10 +426,7 @@ test('executeRepoSearchRequest does not force finish from elapsed tool-loop time
       },
     });
 
-    const task = (result.scorecard.tasks as Array<{
-      finalOutput: string;
-      commands: Array<{ command: string; safe: boolean; output: string; reason: string | null }>;
-    }>)[0];
+    const task = result.scorecard.tasks[0];
 
     assert.equal(task.finalOutput, 'budget answer');
     assert.equal(task.commands.length, 2);
@@ -446,10 +460,7 @@ test('executeRepoSearchRequest fits native reads using per-tool context limits',
       },
     });
 
-    const task = (result.scorecard.tasks as Array<{
-      finalOutput: string;
-      commands: Array<{ command: string; safe: boolean; output: string; reason: string | null }>;
-    }>)[0];
+    const task = result.scorecard.tasks[0];
 
     assert.equal(task.finalOutput, 'budget answer');
     assert.equal(task.commands.length, 2);
@@ -506,19 +517,12 @@ test('executeRepoSearchRequest persists summed prompt-eval and generation durati
       modelServer.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
     });
     try {
-      const address = modelServer.address() as AddressInfo;
+      const address = getAddressInfo(modelServer);
       const baseUrl = `http://127.0.0.1:${address.port}`;
-      const config = structuredClone(stub.state.config) as Record<string, unknown>;
-      const runtime = (config.Runtime as Record<string, unknown>) || {};
-      config.Runtime = runtime;
-      const runtimeLlama = (runtime.LlamaCpp as Record<string, unknown>) || {};
-      runtime.LlamaCpp = runtimeLlama;
-      runtimeLlama.BaseUrl = baseUrl;
-      runtime.Model = 'mock-model';
-      const topLlama = (config.LlamaCpp as Record<string, unknown>) || {};
-      config.LlamaCpp = topLlama;
-      topLlama.BaseUrl = baseUrl;
-      topLlama.Reasoning = 'on';
+      const config = asRuntimeSiftConfig(mergeConfig(structuredClone(stub.state.config), {
+        Runtime: { Model: 'mock-model', LlamaCpp: { BaseUrl: baseUrl } },
+        LlamaCpp: { BaseUrl: baseUrl, Reasoning: 'on' },
+      }));
 
       const result = await executeRepoSearchRequest({
         prompt: 'find build scripts',
@@ -549,7 +553,7 @@ test('executeRepoSearchRequest persists summed prompt-eval and generation durati
 
 test('executeRepoSearchRequest hard-fails when no mock responses are available and persists a failed artifact', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
-    let thrown: Error & { artifactPath?: string } | null = null;
+    let thrown: { message: string; artifactPath: string } | null = null;
     try {
       await executeRepoSearchRequest({
         prompt: 'find something',
@@ -559,19 +563,22 @@ test('executeRepoSearchRequest hard-fails when no mock responses are available a
         mockCommandResults: {},
       });
     } catch (error) {
-      thrown = error as Error & { artifactPath?: string };
+      thrown = {
+        message: getErrorMessage(error),
+        artifactPath: readErrorArtifactPaths(error).artifactPath,
+      };
     }
     assert.ok(thrown, 'expected executeRepoSearchRequest to throw');
-    assert.match(thrown!.message, /Terminal synthesis produced no usable output after 3 attempts/u);
-    const artifactId = parseRuntimeArtifactUri(thrown!.artifactPath || '');
+    assert.match(thrown.message, /Terminal synthesis produced no usable output after 3 attempts/u);
+    const artifactId = parseRuntimeArtifactUri(thrown.artifactPath || '');
     assert.ok(artifactId);
-    assert.ok(readRuntimeArtifact(artifactId as string));
+    assert.ok(readRuntimeArtifact(artifactId));
   });
 });
 
 test('executeRepoSearchRequest hard-fails on invalid mock response and persists a failed artifact', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
-    let thrown: Error & { artifactPath?: string } | null = null;
+    let thrown: { message: string; artifactPath: string } | null = null;
     try {
       await executeRepoSearchRequest({
         prompt: 'trigger error handling',
@@ -583,13 +590,16 @@ test('executeRepoSearchRequest hard-fails on invalid mock response and persists 
         mockCommandResults: {},
       });
     } catch (error) {
-      thrown = error as Error & { artifactPath?: string };
+      thrown = {
+        message: getErrorMessage(error),
+        artifactPath: readErrorArtifactPaths(error).artifactPath,
+      };
     }
     assert.ok(thrown, 'expected executeRepoSearchRequest to throw');
-    assert.match(thrown!.message, /Terminal synthesis produced no usable output after 3 attempts/u);
-    const artifactId = parseRuntimeArtifactUri(thrown!.artifactPath || '');
+    assert.match(thrown.message, /Terminal synthesis produced no usable output after 3 attempts/u);
+    const artifactId = parseRuntimeArtifactUri(thrown.artifactPath || '');
     assert.ok(artifactId);
-    assert.ok(readRuntimeArtifact(artifactId as string));
+    assert.ok(readRuntimeArtifact(artifactId));
   });
 });
 

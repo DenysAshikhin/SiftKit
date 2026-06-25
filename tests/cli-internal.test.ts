@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import { runCli } from '../src/cli/index.js';
+import { parseJsonValueText } from '../src/lib/json.js';
 import { makeCaptureStream, withTestEnvAndServer } from './_test-helpers.js';
+import { asObject, asObjectArray } from './helpers/dashboard-http.js';
 
 function toUtf16BeBuffer(text: string, withBom = true): Buffer {
   const le = Buffer.from(text, 'utf16le');
@@ -127,7 +129,7 @@ test('internal op find-files reads request file and returns results', async () =
       stderr: stderr.stream,
     });
     assert.equal(code, 0);
-    const output = JSON.parse(stdout.read().trim()) as Array<{ Name: string }>;
+    const output = asObjectArray(parseJsonValueText(stdout.read().trim()));
     assert.ok(Array.isArray(output));
     assert.equal(output.length, 1);
     assert.equal(output[0].Name, 'found.js');
@@ -153,7 +155,7 @@ test('internal op find-files supports UTF-16 request file', async () => {
       stderr: stderr.stream,
     });
     assert.equal(code, 0);
-    const output = JSON.parse(stdout.read().trim()) as Array<{ Name: string }>;
+    const output = asObjectArray(parseJsonValueText(stdout.read().trim()));
     assert.ok(Array.isArray(output));
     assert.equal(output[0].Name, 'found.js');
   });
@@ -171,7 +173,7 @@ test('internal op config-get returns config object', async () => {
       stderr: stderr.stream,
     });
     assert.equal(code, 0);
-    const parsed = JSON.parse(stdout.read().trim()) as { Backend: string };
+    const parsed = asObject(parseJsonValueText(stdout.read().trim()));
     assert.equal(typeof parsed.Backend, 'string');
   });
 });
@@ -188,7 +190,7 @@ test('internal op test returns test result', async () => {
       stderr: stderr.stream,
     });
     assert.equal(code, 0);
-    const parsed = JSON.parse(stdout.read().trim()) as { Ready: boolean };
+    const parsed = asObject(parseJsonValueText(stdout.read().trim()));
     assert.equal(typeof parsed.Ready, 'boolean');
   });
 });
@@ -277,7 +279,7 @@ test('internal op summary via request file produces output', async () => {
       stderr: stderr.stream,
     });
     assert.equal(code, 0);
-    const parsed = JSON.parse(stdout.read().trim()) as { Summary: string };
+    const parsed = asObject(parseJsonValueText(stdout.read().trim()));
     assert.equal(typeof parsed.Summary, 'string');
   });
 });
@@ -301,9 +303,9 @@ test('internal op summary supports UTF-16 TextFile payload', async () => {
       stderr: stderr.stream,
     });
     assert.equal(code, 0);
-    const parsed = JSON.parse(stdout.read().trim()) as { Summary: string };
+    const parsed = asObject(parseJsonValueText(stdout.read().trim()));
     assert.equal(typeof parsed.Summary, 'string');
-    assert.equal(parsed.Summary.includes('\u0000'), false);
+    assert.equal(String(parsed.Summary).includes('\u0000'), false);
   });
 });
 
@@ -324,7 +326,7 @@ test('internal op command via request file runs command', async () => {
       stderr: stderr.stream,
     });
     assert.equal(code, 0);
-    const parsed = JSON.parse(stdout.read().trim()) as { ExitCode: number };
+    const parsed = asObject(parseJsonValueText(stdout.read().trim()));
     assert.equal(parsed.ExitCode, 0);
   });
 });
@@ -346,7 +348,7 @@ test('internal op command-analyze via request file analyzes output', async () =>
       stderr: stderr.stream,
     });
     assert.equal(code, 0);
-    const parsed = JSON.parse(stdout.read().trim()) as { ExitCode: number };
+    const parsed = asObject(parseJsonValueText(stdout.read().trim()));
     assert.equal(typeof parsed.ExitCode, 'number');
   });
 });
@@ -381,7 +383,7 @@ test('internal op install via request file returns installation info', async () 
       stderr: stderr.stream,
     });
     assert.equal(code, 0);
-    const parsed = JSON.parse(stdout.read().trim()) as { Installed: true };
+    const parsed = asObject(parseJsonValueText(stdout.read().trim()));
     assert.equal(parsed.Installed, true);
   });
 });
@@ -399,7 +401,7 @@ test('internal op codex-policy via request file installs policy', async () => {
       stderr: stderr.stream,
     });
     assert.equal(code, 0);
-    const parsed = JSON.parse(stdout.read().trim()) as { Installed: true };
+    const parsed = asObject(parseJsonValueText(stdout.read().trim()));
     assert.equal(parsed.Installed, true);
   });
 });

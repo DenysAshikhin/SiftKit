@@ -4,8 +4,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import Database from 'better-sqlite3';
+import { z } from 'zod';
 
 import { loadConfig, getConfigPath } from '../src/config/index.js';
+
+const TextRowSchema = z.object({ text: z.string().nullish() }).optional();
+const RequestJsonRowSchema = z.object({ request_json: z.string().nullish() }).optional();
+const SpeculativeRowSchema = z
+  .object({ speculative_accepted_tokens: z.number(), speculative_generated_tokens: z.number() })
+  .optional();
 import { startStatusServer } from '../src/status-server/index.js';
 import { writeConfig } from '../src/status-server/config-store.js';
 import { readStatusText } from '../src/status-server/status-file.js';
@@ -319,11 +326,11 @@ test('managed llama live stream logs flush after idle without model request rele
       await waitForAsyncExpectation(async () => {
         const database = new Database(runtimeDbPath, { readonly: true });
         try {
-          const row = database.prepare(`
+          const row = TextRowSchema.parse(database.prepare(`
             SELECT GROUP_CONCAT(chunk_text, '') AS text
             FROM managed_llama_log_chunks
             WHERE stream_kind = 'startup_script_stderr'
-          `).get() as { text?: string | null } | undefined;
+          `).get());
           assert.ok(String(row?.text || '').includes(deferredLogLine));
         } finally {
           database.close();
@@ -425,11 +432,11 @@ test('real status server accepts deferred summary artifacts on terminal posts an
 
       const immediateDb = new Database(runtimeDbPath, { readonly: true });
       try {
-        const immediateRow = immediateDb.prepare(`
+        const immediateRow = RequestJsonRowSchema.parse(immediateDb.prepare(`
           SELECT request_json
           FROM run_logs
           WHERE request_id = ?
-        `).get(requestId) as { request_json?: string | null } | undefined;
+        `).get(requestId));
         assert.equal(immediateRow?.request_json ?? null, null);
       } finally {
         immediateDb.close();
@@ -448,11 +455,11 @@ test('real status server accepts deferred summary artifacts on terminal posts an
         assert.equal(eventualStatus.metrics.outputTokensTotal, 25);
         const verifyDb = new Database(runtimeDbPath, { readonly: true });
         try {
-          const row = verifyDb.prepare(`
+          const row = RequestJsonRowSchema.parse(verifyDb.prepare(`
             SELECT request_json
             FROM run_logs
             WHERE request_id = ?
-          `).get(requestId) as { request_json?: string | null } | undefined;
+          `).get(requestId));
           assert.equal(typeof row?.request_json, 'string');
           assert.match(String(row?.request_json || ''), /mock summary/u);
         } finally {
@@ -1007,11 +1014,11 @@ test('real status server patches speculative acceptance onto an existing repo-se
       await waitForAsyncExpectation(() => {
         const verifyDb = new Database(runtimeDbPath, { readonly: true });
         try {
-          const row = verifyDb.prepare(`
+          const row = SpeculativeRowSchema.parse(verifyDb.prepare(`
             SELECT speculative_accepted_tokens, speculative_generated_tokens
             FROM run_logs
             WHERE request_id = ?
-          `).get(requestId) as { speculative_accepted_tokens: number; speculative_generated_tokens: number } | undefined;
+          `).get(requestId));
           assert.equal(row?.speculative_accepted_tokens, 12);
           assert.equal(row?.speculative_generated_tokens, 18);
         } finally {

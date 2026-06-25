@@ -1,16 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { z } from 'zod';
 
 import viteConfig from '../dashboard/vite.config.js';
 
-type ProxyEntry = {
-  target: string;
-  changeOrigin?: boolean;
-};
+const ProxyTableSchema = z.record(
+  z.string(),
+  z.object({ target: z.string(), changeOrigin: z.boolean().optional() }).passthrough(),
+);
 
 test('dashboard dev server proxies config requests to the status server', () => {
-  const proxy = viteConfig.server?.proxy as Record<string, ProxyEntry> | undefined;
-  assert.ok(proxy);
+  const proxy = ProxyTableSchema.parse(viteConfig.server?.proxy);
   assert.deepEqual(proxy['/config'], {
     target: 'http://127.0.0.1:4765',
     changeOrigin: false,

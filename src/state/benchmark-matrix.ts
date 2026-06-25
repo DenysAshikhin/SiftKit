@@ -1,24 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import type { Dict } from '../lib/types.js';
+import { z } from '../lib/zod.js';
+import { parseJsonValueText } from '../lib/json.js';
+import { JsonObjectSchema, type JsonObject, type JsonValue } from '../lib/json-types.js';
 import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.js';
 
-export type BenchmarkMatrixSessionStatus = 'running' | 'completed' | 'failed';
-export type BenchmarkMatrixBaselineRestoreStatus = 'pending' | 'completed' | 'failed';
-export type BenchmarkMatrixRunStatus = 'running' | 'completed' | 'failed';
-export type BenchmarkMatrixLogStreamKind =
-  | 'launcher_stdout'
-  | 'launcher_stderr'
-  | 'benchmark_stdout'
-  | 'benchmark_stderr'
-  | 'stop_stdout'
-  | 'stop_stderr'
-  | 'force_stop_stdout'
-  | 'force_stop_stderr';
-
-const SESSION_STATUSES = new Set<BenchmarkMatrixSessionStatus>(['running', 'completed', 'failed']);
-const BASELINE_STATUSES = new Set<BenchmarkMatrixBaselineRestoreStatus>(['pending', 'completed', 'failed']);
-const RUN_STATUSES = new Set<BenchmarkMatrixRunStatus>(['running', 'completed', 'failed']);
-const LOG_STREAMS = new Set<BenchmarkMatrixLogStreamKind>([
+const BenchmarkMatrixSessionStatusSchema = z.enum(['running', 'completed', 'failed']);
+export type BenchmarkMatrixSessionStatus = z.infer<typeof BenchmarkMatrixSessionStatusSchema>;
+const BenchmarkMatrixBaselineRestoreStatusSchema = z.enum(['pending', 'completed', 'failed']);
+export type BenchmarkMatrixBaselineRestoreStatus = z.infer<typeof BenchmarkMatrixBaselineRestoreStatusSchema>;
+const BenchmarkMatrixRunStatusSchema = z.enum(['running', 'completed', 'failed']);
+export type BenchmarkMatrixRunStatus = z.infer<typeof BenchmarkMatrixRunStatusSchema>;
+const BenchmarkMatrixLogStreamKindSchema = z.enum([
   'launcher_stdout',
   'launcher_stderr',
   'benchmark_stdout',
@@ -28,6 +20,9 @@ const LOG_STREAMS = new Set<BenchmarkMatrixLogStreamKind>([
   'force_stop_stdout',
   'force_stop_stderr',
 ]);
+export type BenchmarkMatrixLogStreamKind = z.infer<typeof BenchmarkMatrixLogStreamKindSchema>;
+
+const BenchmarkMatrixMaxSequenceRowSchema = z.object({ max_sequence: z.number().nullable() });
 
 export type BenchmarkMatrixSessionRecord = {
   id: string;
@@ -56,7 +51,7 @@ export type BenchmarkMatrixRunRecord = {
   startScript: string;
   promptPrefixFile: string | null;
   reasoning: 'on' | 'off' | 'auto';
-  sampling: Dict | null;
+  sampling: JsonObject | null;
   status: BenchmarkMatrixRunStatus;
   errorMessage: string | null;
   benchmarkRunUri: string | null;
@@ -69,37 +64,37 @@ function getDatabase(databasePath?: string): RuntimeDatabase {
   return getRuntimeDatabase(databasePath);
 }
 
-function normalizeSessionStatus(value: unknown): BenchmarkMatrixSessionStatus {
-  const normalized = String(value || '').trim() as BenchmarkMatrixSessionStatus;
-  return SESSION_STATUSES.has(normalized) ? normalized : 'running';
+function normalizeSessionStatus(value: JsonValue): BenchmarkMatrixSessionStatus {
+  const result = BenchmarkMatrixSessionStatusSchema.safeParse(String(value || '').trim());
+  return result.success ? result.data : 'running';
 }
 
-function normalizeBaselineStatus(value: unknown): BenchmarkMatrixBaselineRestoreStatus {
-  const normalized = String(value || '').trim() as BenchmarkMatrixBaselineRestoreStatus;
-  return BASELINE_STATUSES.has(normalized) ? normalized : 'pending';
+function normalizeBaselineStatus(value: JsonValue): BenchmarkMatrixBaselineRestoreStatus {
+  const result = BenchmarkMatrixBaselineRestoreStatusSchema.safeParse(String(value || '').trim());
+  return result.success ? result.data : 'pending';
 }
 
-function normalizeRunStatus(value: unknown): BenchmarkMatrixRunStatus {
-  const normalized = String(value || '').trim() as BenchmarkMatrixRunStatus;
-  return RUN_STATUSES.has(normalized) ? normalized : 'running';
+function normalizeRunStatus(value: JsonValue): BenchmarkMatrixRunStatus {
+  const result = BenchmarkMatrixRunStatusSchema.safeParse(String(value || '').trim());
+  return result.success ? result.data : 'running';
 }
 
-function normalizeStream(value: unknown): BenchmarkMatrixLogStreamKind {
-  const normalized = String(value || '').trim() as BenchmarkMatrixLogStreamKind;
-  if (!LOG_STREAMS.has(normalized)) {
+function normalizeStream(value: JsonValue): BenchmarkMatrixLogStreamKind {
+  const result = BenchmarkMatrixLogStreamKindSchema.safeParse(String(value || '').trim());
+  if (!result.success) {
     throw new Error(`Unsupported benchmark-matrix stream kind: ${String(value || '')}`);
   }
-  return normalized;
+  return result.data;
 }
 
-function parseJsonObject(value: unknown): Dict | null {
+function parseJsonObject(value: JsonValue): JsonObject | null {
   if (typeof value !== 'string' || !value.trim()) {
     return null;
   }
   try {
-    const parsed = JSON.parse(value) as unknown;
+    const parsed = parseJsonValueText(value);
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed as Dict;
+      return parsed;
     }
   } catch {
     // Ignore malformed JSON.
@@ -107,12 +102,12 @@ function parseJsonObject(value: unknown): Dict | null {
   return null;
 }
 
-function parseStringArray(value: unknown): string[] {
+function parseStringArray(value: JsonValue): string[] {
   if (typeof value !== 'string' || !value.trim()) {
     return [];
   }
   try {
-    const parsed = JSON.parse(value) as unknown;
+    const parsed = parseJsonValueText(value);
     if (Array.isArray(parsed)) {
       return parsed.map((entry) => String(entry || '').trim()).filter(Boolean);
     }
@@ -122,7 +117,7 @@ function parseStringArray(value: unknown): string[] {
   return [];
 }
 
-function normalizeSessionRecord(row: Record<string, unknown> | undefined): BenchmarkMatrixSessionRecord | null {
+function normalizeSessionRecord(row: JsonObject | undefined): BenchmarkMatrixSessionRecord | null {
   if (!row || typeof row.id !== 'string') {
     return null;
   }
@@ -143,7 +138,7 @@ function normalizeSessionRecord(row: Record<string, unknown> | undefined): Bench
   };
 }
 
-function normalizeRunRecord(row: Record<string, unknown> | undefined): BenchmarkMatrixRunRecord | null {
+function normalizeRunRecord(row: JsonObject | undefined): BenchmarkMatrixRunRecord | null {
   if (!row || typeof row.id !== 'string' || typeof row.session_id !== 'string') {
     return null;
   }
@@ -276,7 +271,7 @@ export function createBenchmarkMatrixRun(options: {
   startScript: string;
   promptPrefixFile?: string | null;
   reasoning: 'on' | 'off' | 'auto';
-  sampling?: Dict | null;
+  sampling?: JsonObject | null;
   databasePath?: string;
 }): BenchmarkMatrixRunRecord {
   const database = getDatabase(options.databasePath);
@@ -358,11 +353,12 @@ function getNextLogSequence(
   runId: string,
   streamKind: BenchmarkMatrixLogStreamKind,
 ): number {
-  const row = database.prepare(`
+  const rawRow = database.prepare(`
     SELECT MAX(sequence) AS max_sequence
     FROM benchmark_matrix_logs
     WHERE run_id = ? AND stream_kind = ?
-  `).get(runId, streamKind) as { max_sequence?: number | null } | undefined;
+  `).get(runId, streamKind);
+  const row = rawRow == null ? undefined : BenchmarkMatrixMaxSequenceRowSchema.parse(rawRow);
   const current = Number.isFinite(row?.max_sequence) ? Number(row?.max_sequence) : -1;
   return current + 1;
 }
@@ -415,8 +411,8 @@ export function readBenchmarkMatrixSession(id: string, databasePath?: string): B
            started_at_utc, completed_at_utc, updated_at_utc
     FROM benchmark_matrix_sessions
     WHERE id = ?
-  `).get(sessionId) as Record<string, unknown> | undefined;
-  return normalizeSessionRecord(row);
+  `).get(sessionId);
+  return normalizeSessionRecord(row == null ? undefined : JsonObjectSchema.parse(row));
 }
 
 export function readBenchmarkMatrixRun(id: string, databasePath?: string): BenchmarkMatrixRunRecord | null {
@@ -431,8 +427,8 @@ export function readBenchmarkMatrixRun(id: string, databasePath?: string): Bench
            error_message, benchmark_run_uri, started_at_utc, completed_at_utc, updated_at_utc
     FROM benchmark_matrix_runs
     WHERE id = ?
-  `).get(runId) as Record<string, unknown> | undefined;
-  return normalizeRunRecord(row);
+  `).get(runId);
+  return normalizeRunRecord(row == null ? undefined : JsonObjectSchema.parse(row));
 }
 
 export function listBenchmarkMatrixSessions(options: {
@@ -443,8 +439,8 @@ export function listBenchmarkMatrixSessions(options: {
   const database = getDatabase(options.databasePath);
   const limit = Number.isFinite(options.limit) ? Math.max(1, Math.trunc(Number(options.limit))) : 50;
   const status = String(options.status || '').trim();
-  if (status && SESSION_STATUSES.has(status as BenchmarkMatrixSessionStatus)) {
-    const rows = database.prepare(`
+  if (status && BenchmarkMatrixSessionStatusSchema.safeParse(status).success) {
+    const rows = z.array(JsonObjectSchema).parse(database.prepare(`
       SELECT id, manifest_path, fixture_root, config_url, prompt_prefix_file,
              request_timeout_seconds, selected_run_ids_json,
              baseline_restore_status, baseline_restore_error, status,
@@ -453,10 +449,10 @@ export function listBenchmarkMatrixSessions(options: {
       WHERE status = ?
       ORDER BY started_at_utc DESC, id DESC
       LIMIT ?
-    `).all(status, limit) as Array<Record<string, unknown>>;
+    `).all(status, limit));
     return rows.map((row) => normalizeSessionRecord(row)).filter((row): row is BenchmarkMatrixSessionRecord => row !== null);
   }
-  const rows = database.prepare(`
+  const rows = z.array(JsonObjectSchema).parse(database.prepare(`
     SELECT id, manifest_path, fixture_root, config_url, prompt_prefix_file,
            request_timeout_seconds, selected_run_ids_json,
            baseline_restore_status, baseline_restore_error, status,
@@ -464,7 +460,7 @@ export function listBenchmarkMatrixSessions(options: {
     FROM benchmark_matrix_sessions
     ORDER BY started_at_utc DESC, id DESC
     LIMIT ?
-  `).all(limit) as Array<Record<string, unknown>>;
+  `).all(limit));
   return rows.map((row) => normalizeSessionRecord(row)).filter((row): row is BenchmarkMatrixSessionRecord => row !== null);
 }
 
@@ -477,14 +473,14 @@ export function listBenchmarkMatrixRunsForSession(
     return [];
   }
   const database = getDatabase(databasePath);
-  const rows = database.prepare(`
+  const rows = z.array(JsonObjectSchema).parse(database.prepare(`
     SELECT id, session_id, run_index, run_identifier, label, model_id, model_path,
            start_script, prompt_prefix_file, reasoning, sampling_json, status,
            error_message, benchmark_run_uri, started_at_utc, completed_at_utc, updated_at_utc
     FROM benchmark_matrix_runs
     WHERE session_id = ?
     ORDER BY run_index ASC, run_identifier ASC
-  `).all(normalizedSessionId) as Array<Record<string, unknown>>;
+  `).all(normalizedSessionId));
   return rows.map((row) => normalizeRunRecord(row)).filter((row): row is BenchmarkMatrixRunRecord => row !== null);
 }
 
@@ -507,12 +503,12 @@ export function readBenchmarkMatrixRunLogTextByStream(
     return output;
   }
   const database = getDatabase(databasePath);
-  const rows = database.prepare(`
+  const rows = z.array(JsonObjectSchema).parse(database.prepare(`
     SELECT stream_kind, chunk_text
     FROM benchmark_matrix_logs
     WHERE run_id = ?
     ORDER BY stream_kind ASC, sequence ASC, id ASC
-  `).all(normalizedRunId) as Array<{ stream_kind?: unknown; chunk_text?: unknown }>;
+  `).all(normalizedRunId));
   for (const row of rows) {
     const stream = normalizeStream(row.stream_kind);
     output[stream] = `${output[stream]}${typeof row.chunk_text === 'string' ? row.chunk_text : ''}`;

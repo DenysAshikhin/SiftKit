@@ -1,4 +1,5 @@
-import type { SummaryClassification } from './summary/types.js';
+import { z } from './lib/zod.js';
+import { SummaryClassificationSchema } from './summary/types.js';
 
 export type EvalRequest = {
   FixtureRoot?: string;
@@ -7,27 +8,29 @@ export type EvalRequest = {
   Model?: string;
 };
 
-export type EvalCaseResult = {
-  Name: string;
-  SourcePath: string;
-  WasSummarized: boolean;
-  PolicyDecision: string;
-  Classification: SummaryClassification;
-  RawReviewRequired: boolean;
-  ModelCallSucceeded: boolean;
-  Summary: string;
-  Recall: number | null;
-  Precision: number | null;
-  Faithfulness: number | null;
-  Format: number | null;
-  Compression: number | null;
-  Total: number | null;
-  Notes: string;
-};
+export const EvalCaseResultSchema = z.object({
+  Name: z.string(),
+  SourcePath: z.string(),
+  WasSummarized: z.boolean(),
+  PolicyDecision: z.string(),
+  Classification: SummaryClassificationSchema,
+  RawReviewRequired: z.boolean(),
+  ModelCallSucceeded: z.boolean(),
+  Summary: z.string(),
+  Recall: z.number().nullable(),
+  Precision: z.number().nullable(),
+  Faithfulness: z.number().nullable(),
+  Format: z.number().nullable(),
+  Compression: z.number().nullable(),
+  Total: z.number().nullable(),
+  Notes: z.string(),
+});
+export type EvalCaseResult = z.infer<typeof EvalCaseResultSchema>;
 
-export type EvaluationResult = {
-  Backend: string;
-  Model: string;
-  ResultPath: string;
-  Results: EvalCaseResult[];
-};
+export const EvaluationResultSchema = z.object({
+  Backend: z.string(),
+  Model: z.string(),
+  ResultPath: z.string(),
+  Results: z.array(EvalCaseResultSchema),
+});
+export type EvaluationResult = z.infer<typeof EvaluationResultSchema>;

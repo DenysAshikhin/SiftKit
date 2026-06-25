@@ -1,4 +1,6 @@
 import { performance } from 'node:perf_hooks';
+import { z } from '../src/lib/zod.js';
+import { getErrorMessage, toError } from '../src/lib/errors.js';
 
 type TokenRepetitionDetection = {
   totalTokens: number;
@@ -11,6 +13,13 @@ type TokenRepetitionDetection = {
 type RepetitionGuardModule = {
   detectRecentTokenRepetition: (text: string) => TokenRepetitionDetection | null;
 };
+
+const RepetitionGuardModuleSchema = z.custom<RepetitionGuardModule>(
+  (value) => typeof value === 'object'
+    && value !== null
+    && 'detectRecentTokenRepetition' in value
+    && typeof value.detectRecentTokenRepetition === 'function',
+);
 
 type BenchmarkCase = {
   name: string;
@@ -121,15 +130,15 @@ function guardModulePath(kind: 'dist' | 'src'): string {
 }
 
 async function loadRepetitionGuard(): Promise<RepetitionGuardModule> {
-  let lastError: unknown = null;
+  let lastError: Error | null = null;
   for (const modulePath of [guardModulePath('dist'), guardModulePath('src')]) {
     try {
-      return await import(modulePath) as RepetitionGuardModule;
+      return RepetitionGuardModuleSchema.parse(await import(modulePath));
     } catch (error) {
-      lastError = error;
+      lastError = toError(error);
     }
   }
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  throw lastError ?? new Error('Failed to load repetition guard module.');
 }
 
 async function main(): Promise<void> {
@@ -138,7 +147,7 @@ async function main(): Promise<void> {
   printResults(results);
 }
 
-main().catch((error: unknown) => {
-  process.stderr.write(`${error instanceof Error ? error.stack || error.message : String(error)}\n`);
+main().catch((error) => {
+  process.stderr.write(`${getErrorMessage(error)}\n`);
   process.exitCode = 1;
 });

@@ -7,8 +7,8 @@
  *   tsx scripts/delete-logs.ts --all      # delete all logs regardless of age
  */
 
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import fs from 'node:fs';
+import path from 'node:path';
 import { getRuntimeRoot } from '../src/config/paths.js';
 
 // ---------------------------------------------------------------------------

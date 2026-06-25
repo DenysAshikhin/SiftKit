@@ -1,20 +1,21 @@
-import * as fs from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { JsonRecordReader } from '../lib/json-record-reader.js';
+import { parseJsonValueText } from '../lib/json.js';
 import type { JsonObject } from '../lib/json-types.js';
 
 export type JsonlEvent = { kind: string; at: string | null; payload: JsonObject };
 
 export function readJsonlEvents(transcriptPath: string | null): JsonlEvent[] {
-  if (!transcriptPath || typeof transcriptPath !== 'string' || !fs.existsSync(transcriptPath)) {
+  if (!transcriptPath || typeof transcriptPath !== 'string' || !existsSync(transcriptPath)) {
     return [];
   }
-  const content = fs.readFileSync(transcriptPath, 'utf8');
+  const content = readFileSync(transcriptPath, 'utf8');
   const results: JsonlEvent[] = [];
   for (const raw of content.split(/\r?\n/gu)) {
     const line = raw.trim();
     if (!line) continue;
     try {
-      const parsed = JsonRecordReader.asObject(JSON.parse(line) as unknown);
+      const parsed = JsonRecordReader.asObject(parseJsonValueText(line));
       if (!parsed) {
         continue;
       }

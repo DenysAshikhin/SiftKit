@@ -1,12 +1,40 @@
-import * as fs from 'node:fs';
-import * as http from 'node:http';
-import * as path from 'node:path';
+import fs from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
+import type { AddressInfo } from 'node:net';
 
-export type Dict = Record<string, unknown>;
+import { getErrorMessage } from '../../src/lib/errors.js';
+import { parseJsonValueText } from '../../src/lib/json.js';
+import { isJsonObject, type JsonObject, type JsonValue, type JsonSerializable, type OptionalJsonValue } from '../../src/lib/json-types.js';
+
+export type Dict = JsonObject;
 export type JsonResponse = { statusCode: number; body: Dict };
 export type SseEvent = { event: string; payload: Dict | null };
 export type SseResponse = { statusCode: number; events: SseEvent[] };
 export type RequestOptions = { method?: string; body?: string; timeoutMs?: number };
+
+// Narrowing helpers shared by the HTTP-driven E2E tests: every endpoint returns
+// JSON, so response bodies and SSE payloads are JsonValue at the boundary and are
+// narrowed here without casts.
+export function asObject(value: OptionalJsonValue): Dict {
+  return isJsonObject(value) ? value : {};
+}
+
+export function asArray(value: OptionalJsonValue): JsonValue[] {
+  return Array.isArray(value) ? value : [];
+}
+
+export function asObjectArray(value: OptionalJsonValue): Dict[] {
+  return asArray(value).map((entry) => asObject(entry));
+}
+
+export function getAddressInfo(server: { address(): string | AddressInfo | null }): AddressInfo {
+  const address = server.address();
+  if (address === null || typeof address === 'string') {
+    throw new Error('server is not listening on a TCP port');
+  }
+  return address;
+}
 
 export function requestJson(url: string, options: RequestOptions = {}): Promise<JsonResponse> {
   return new Promise((resolve, reject) => {
@@ -32,7 +60,7 @@ export function requestJson(url: string, options: RequestOptions = {}): Promise<
         response.on('end', () => {
           resolve({
             statusCode: response.statusCode || 0,
-            body: responseText ? JSON.parse(responseText) as Dict : {},
+            body: responseText ? asObject(parseJsonValueText(responseText)) : {},
           });
         });
       },
@@ -86,7 +114,7 @@ export function requestSse(url: string, options: RequestOptions = {}): Promise<S
             const eventName = eventLine ? eventLine.slice(6).trim() : 'message';
             let payload: Dict | null = null;
             try {
-              payload = JSON.parse(dataLine.slice(5).trim()) as Dict;
+              payload = asObject(parseJsonValueText(dataLine.slice(5).trim()));
             } catch {
               payload = null;
             }
@@ -127,7 +155,7 @@ export function fireAndAbortJsonRequest(url: string, body: string, abortAfterMs:
     const target = new URL(url);
     let settled = false;
     let timer: NodeJS.Timeout | null = null;
-    const finish = (error?: unknown): void => {
+    const finish = (error?: Error): void => {
       if (settled) {
         return;
       }
@@ -140,7 +168,7 @@ export function fireAndAbortJsonRequest(url: string, body: string, abortAfterMs:
         resolve();
         return;
       }
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
       if (/aborted|hang up|econnreset/iu.test(message)) {
         resolve();
         return;
@@ -174,7 +202,7 @@ export function fireAndAbortJsonRequest(url: string, body: string, abortAfterMs:
   });
 }
 
-export function writeJson(targetPath: string, payload: unknown): void {
+export function writeJson(targetPath: string, payload: JsonSerializable): void {
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   fs.writeFileSync(targetPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
 }

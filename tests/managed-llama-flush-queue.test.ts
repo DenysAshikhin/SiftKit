@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
+import { z } from 'zod';
 
 import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
 import {
@@ -29,7 +30,10 @@ function createStdoutCapture(): { lines: string[]; restore: () => void } {
         lines.push(line);
       }
     }
-    return originalWrite(chunk, encodingOrCallback as BufferEncoding, callback);
+    if (typeof encodingOrCallback === 'function') {
+      return originalWrite(chunk, encodingOrCallback);
+    }
+    return originalWrite(chunk, encodingOrCallback, callback);
   };
   return {
     lines,
@@ -85,7 +89,7 @@ test('managed llama flush queue records another flush requested while the same r
       runningRunId: string | null;
       draining: boolean;
     };
-    const internals = queue as unknown as FlushQueueInternals;
+    const internals = z.custom<FlushQueueInternals>((value) => value instanceof ManagedLlamaFlushQueue).parse(queue);
     internals.runningRunId = run.id;
     internals.draining = true;
 

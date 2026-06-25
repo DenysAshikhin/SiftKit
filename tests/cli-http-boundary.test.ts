@@ -1,18 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as fs from 'node:fs';
-import * as http from 'node:http';
-import * as os from 'node:os';
-import * as path from 'node:path';
-import type { AddressInfo } from 'node:net';
+import fs from 'node:fs';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
 
 import { runCli } from '../src/cli/index.js';
 import { getDefaultConfig } from '../src/status-server/config-store.js';
-import { makeCaptureStream } from './_test-helpers.js';
+import { parseJsonValueText } from '../src/lib/json.js';
+import type { JsonObject } from '../src/lib/json-types.js';
+import { buildMockScorecard, makeCaptureStream } from './_test-helpers.js';
+import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 
 type CapturedRequest = {
   route: string;
-  body: Record<string, unknown>;
+  body: JsonObject;
 };
 
 type BoundaryServer = {
@@ -61,7 +63,7 @@ async function startBoundaryServer(): Promise<BoundaryServer> {
     }
 
     if (req.method === 'POST' && req.url === '/summary') {
-      const body = JSON.parse(await readBody(req) || '{}') as Record<string, unknown>;
+      const body = asObject(parseJsonValueText(await readBody(req) || '{}'));
       requests.push({ route: '/summary', body });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
@@ -80,7 +82,7 @@ async function startBoundaryServer(): Promise<BoundaryServer> {
     }
 
     if (req.method === 'POST' && req.url === '/command-output/analyze') {
-      const body = JSON.parse(await readBody(req) || '{}') as Record<string, unknown>;
+      const body = asObject(parseJsonValueText(await readBody(req) || '{}'));
       requests.push({ route: '/command-output/analyze', body });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
@@ -99,20 +101,20 @@ async function startBoundaryServer(): Promise<BoundaryServer> {
     }
 
     if (req.method === 'POST' && req.url === '/repo-search') {
-      const body = JSON.parse(await readBody(req) || '{}') as Record<string, unknown>;
+      const body = asObject(parseJsonValueText(await readBody(req) || '{}'));
       requests.push({ route: '/repo-search', body });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         requestId: 'repo-boundary',
         transcriptPath: 'db://repo-search/transcript',
         artifactPath: 'db://repo-search/artifact',
-        scorecard: { tasks: [{ finalOutput: 'server repo-search response' }] },
+        scorecard: buildMockScorecard('server repo-search response'),
       }));
       return;
     }
 
     if (req.method === 'POST' && req.url === '/preset/run') {
-      const body = JSON.parse(await readBody(req) || '{}') as Record<string, unknown>;
+      const body = asObject(parseJsonValueText(await readBody(req) || '{}'));
       requests.push({ route: '/preset/run', body });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ outputText: 'server preset response' }));
@@ -120,7 +122,7 @@ async function startBoundaryServer(): Promise<BoundaryServer> {
     }
 
     if (req.method === 'POST' && req.url === '/eval/run') {
-      const body = JSON.parse(await readBody(req) || '{}') as Record<string, unknown>;
+      const body = asObject(parseJsonValueText(await readBody(req) || '{}'));
       requests.push({ route: '/eval/run', body });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
@@ -137,7 +139,7 @@ async function startBoundaryServer(): Promise<BoundaryServer> {
   });
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address() as AddressInfo;
+  const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
   return {
     baseUrl,

@@ -1,8 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runMockProvider } from '../src/summary/providers/mock-provider.js';
+import { parseJsonValueText } from '../src/lib/json.js';
+import { asObject } from './helpers/dashboard-http.js';
 
-function baseOptions(overrides: Record<string, unknown> = {}) {
+function baseOptions(overrides: Partial<Parameters<typeof runMockProvider>[0]> = {}) {
   return {
     backend: 'mock',
     model: 'mock-model',
@@ -27,7 +29,7 @@ test('runMockProvider returns a decision string and mock metrics for the default
   try {
     const result = await runMockProvider(baseOptions());
     assert.equal(typeof result.text, 'string');
-    const decision = JSON.parse(result.text) as { classification: string; output: string };
+    const decision = asObject(parseJsonValueText(result.text));
     assert.equal(decision.classification, 'summary');
     assert.equal(result.metrics.outputCharacterCount, result.text.length);
     assert.equal(result.metrics.inputTokens, null);
@@ -54,7 +56,7 @@ test('runMockProvider honors SIFTKIT_TEST_PROVIDER_BEHAVIOR=recursive-merge', as
   process.env.SIFTKIT_TEST_PROVIDER_BEHAVIOR = 'recursive-merge';
   try {
     const result = await runMockProvider(baseOptions());
-    const decision = JSON.parse(result.text) as { output: string };
+    const decision = asObject(parseJsonValueText(result.text));
     assert.equal(decision.output, 'merge summary');
   } finally {
     if (prev === undefined) delete process.env.SIFTKIT_TEST_PROVIDER_BEHAVIOR;

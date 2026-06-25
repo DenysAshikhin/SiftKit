@@ -6,10 +6,11 @@
  * are exported directly. Lifecycle functions that need mutable server state
  * take a `ServerContext` as their first argument.
  */
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import type { ChildProcess, SpawnSyncReturns } from 'node:child_process';
+import { toError, getErrorMessage } from '../lib/errors.js';
 import { POWERSHELL_BASE_ARGS } from '../lib/powershell.js';
 import { formatTimestamp } from '../lib/text-format.js';
 import { sleep } from '../lib/time.js';
@@ -422,7 +423,7 @@ export type TerminateProcessTreeOptions = {
 };
 
 export function terminateProcessTree(pid: number | string, options: TerminateProcessTreeOptions = {}): boolean {
-  const processObject = options.processObject || (process as unknown as { platform: string; kill: (pid: number, signal?: string) => boolean });
+  const processObject = options.processObject || process;
   const spawnSyncImpl = options.spawnSyncImpl || spawnSync;
   const numericPid = Number(pid);
   if (!Number.isFinite(numericPid) || numericPid <= 0) {
@@ -525,9 +526,9 @@ export function resolveManagedExecutablePath(executablePath: string | null, conf
   if (!executablePath || !executablePath.trim()) {
     return null;
   }
-  return path.isAbsolute(executablePath)
-    ? path.resolve(executablePath)
-    : path.resolve(path.dirname(configPath), executablePath);
+  return isAbsolute(executablePath)
+    ? resolve(executablePath)
+    : resolve(dirname(configPath), executablePath);
 }
 
 
@@ -638,7 +639,7 @@ function getManagedLlamaStartupFailureFromLogRef(logRef: ManagedLlamaLogRef): Ma
   return parseManagedLlamaStartupFailureText(entries.map((entry) => entry.text).join('\n'));
 }
 
-export function getManagedLlamaStartupFailure(error: unknown): ManagedLlamaStartupFailure | null {
+export function getManagedLlamaStartupFailure(error: Error): ManagedLlamaStartupFailure | null {
   return error instanceof ManagedLlamaStartupError ? error.startupFailure : null;
 }
 
@@ -776,31 +777,31 @@ function getManagedExecutableInvocation(
   managed: ReturnType<typeof getManagedLlamaConfig>,
 ): { filePath: string; args: string[]; cwd: string; resolvedPath: string } {
   const resolvedPath = resolveManagedExecutablePath(managed.ExecutablePath, ctx.configPath);
-  if (!resolvedPath || !fs.existsSync(resolvedPath)) {
+  if (!resolvedPath || !existsSync(resolvedPath)) {
     throw new Error(`Configured llama.cpp executable does not exist: ${managed.ExecutablePath ?? '<missing>'}`);
   }
-  if (!managed.ModelPath || !fs.existsSync(managed.ModelPath)) {
+  if (!managed.ModelPath || !existsSync(managed.ModelPath)) {
     throw new Error(`Configured llama.cpp model file does not exist: ${managed.ModelPath ?? '<missing>'}`);
   }
-  const extension = path.extname(resolvedPath).toLowerCase();
+  const extension = extname(resolvedPath).toLowerCase();
   return extension === '.ps1'
     ? {
       filePath: 'powershell.exe',
       args: [...POWERSHELL_BASE_ARGS, '-File', resolvedPath, ...buildManagedLlamaArgs(managed)],
-      cwd: path.dirname(resolvedPath),
+      cwd: dirname(resolvedPath),
       resolvedPath,
     }
     : (extension === '.cmd' || extension === '.bat')
       ? {
         filePath: 'cmd.exe',
         args: ['/d', '/s', '/c', resolvedPath, ...buildManagedLlamaArgs(managed)],
-        cwd: path.dirname(resolvedPath),
+        cwd: dirname(resolvedPath),
         resolvedPath,
       }
     : {
       filePath: resolvedPath,
       args: buildManagedLlamaArgs(managed),
-      cwd: path.dirname(resolvedPath),
+      cwd: dirname(resolvedPath),
       resolvedPath,
     };
 }
@@ -923,8 +924,8 @@ function writeManagedLlamaStartupReviewDump(logRef: ManagedLlamaLogRef, dumpOpti
   flushManagedLlamaLogChunks(logRef.runId);
   flushManagedLlamaSpeculativeMetricsTracker(logRef.runId);
   const logRoot = getManagedLlamaLogRoot();
-  fs.mkdirSync(logRoot, { recursive: true });
-  fs.writeFileSync(path.join(logRoot, 'latest-startup.log'), `${content}\n`, 'utf8');
+  mkdirSync(logRoot, { recursive: true });
+  writeFileSync(join(logRoot, 'latest-startup.log'), `${content}\n`, 'utf8');
   const artifact = upsertRuntimeTextArtifact({
     id: `managed_llama_startup_review:${logRef.runId}`,
     artifactKind: 'managed_llama_startup_review',
@@ -958,9 +959,9 @@ function writeManagedLlamaFailureDump(logRef: ManagedLlamaLogRef, entries: LogEn
   appendManagedLlamaLogLine(logRef, 'startup_failure', `${content}\n`);
   flushManagedLlamaLogChunks(logRef.runId);
   flushManagedLlamaSpeculativeMetricsTracker(logRef.runId);
-  const logRoot = path.join(getManagedLlamaLogRoot(), logRef.runId);
-  fs.mkdirSync(logRoot, { recursive: true });
-  fs.writeFileSync(path.join(logRoot, 'startup-scan-failure.log'), `${content}\n`, 'utf8');
+  const logRoot = join(getManagedLlamaLogRoot(), logRef.runId);
+  mkdirSync(logRoot, { recursive: true });
+  writeFileSync(join(logRoot, 'startup-scan-failure.log'), `${content}\n`, 'utf8');
   const artifact = upsertRuntimeTextArtifact({
     id: `managed_llama_startup_failure:${logRef.runId}`,
     artifactKind: 'managed_llama_startup_failure',
@@ -1224,7 +1225,7 @@ export async function ensureManagedLlamaReady(ctx: ServerContext, options: Ensur
       ctx.managedLlamaReady = true;
       logLine(`llama_start ready base_url=${baseUrl}`);
     } catch (error) {
-      const startupFailure = getManagedLlamaStartupFailure(error) || getManagedLlamaStartupFailureFromLogRef(launched.logRef);
+      const startupFailure = getManagedLlamaStartupFailure(toError(error)) || getManagedLlamaStartupFailureFromLogRef(launched.logRef);
       const failure = startupFailure && !(error instanceof ManagedLlamaStartupError)
         ? new ManagedLlamaStartupError(error instanceof Error ? error.message : String(error), startupFailure)
         : error;
@@ -1345,8 +1346,8 @@ export async function shutdownManagedLlamaIfNeeded(ctx: ServerContext, shutdownO
     }
     logLine(`llama_stop offline base_url=${baseUrl}`);
     publishStatus(ctx);
-  })().catch((error: unknown) => {
-    process.stderr.write(`[siftKitStatus] Failed to stop llama.cpp server: ${error instanceof Error ? error.message : String(error)}\n`);
+  })().catch((error) => {
+    process.stderr.write(`[siftKitStatus] Failed to stop llama.cpp server: ${getErrorMessage(error)}\n`);
   }).finally(() => {
     ctx.managedLlamaShutdownPromise = null;
   });

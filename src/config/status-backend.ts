@@ -1,9 +1,31 @@
 import { httpClient } from '../lib/http-client.js';
 import { sleep } from '../lib/time.js';
 import { getStatusServerConnectHost } from '../lib/status-host.js';
+import { getErrorMessage, toError } from '../lib/errors.js';
 import { getInferenceStatusPath } from './paths.js';
 import { StatusServerUnavailableError } from './errors.js';
-import type { StatusSnapshotResponse } from './types.js';
+import { parseJsonObjectText } from '../lib/json.js';
+import { z } from '../lib/zod.js';
+import { type JsonObject, type MutableJsonObject } from '../lib/json-types.js';
+
+const StatusMetricsSnapshotSchema = z.object({
+  inputCharactersTotal: z.number().optional(),
+  inputTokensTotal: z.number().optional(),
+  promptCacheTokensTotal: z.number().optional(),
+  promptEvalTokensTotal: z.number().optional(),
+  speculativeAcceptedTokensTotal: z.number().optional(),
+  speculativeGeneratedTokensTotal: z.number().optional(),
+});
+
+const StatusSnapshotResponseSchema = z.object({
+  metrics: StatusMetricsSnapshotSchema.optional(),
+}).loose();
+
+const HealthResponseSchema = z.object({ ok: z.boolean().optional() }).loose();
+const StatusAckResponseSchema = z.object({ ok: z.boolean().optional(), busy: z.boolean().optional() }).loose();
+
+export type StatusMetricsSnapshot = z.infer<typeof StatusMetricsSnapshotSchema>;
+export type StatusSnapshotResponse = z.infer<typeof StatusSnapshotResponseSchema>;
 
 const DEFAULT_HEALTHCHECK_ATTEMPTS = 5;
 const DEFAULT_BUSY_HEALTHCHECK_ATTEMPTS = 60;
@@ -29,8 +51,8 @@ function shouldTraceHealthcheckAttempts(): boolean {
   return String(process.env.SIFTKIT_HEALTHCHECK_TRACE || '').trim() === '1';
 }
 
-function isTimedOutHealthcheck(error: unknown): boolean {
-  return error instanceof Error && error.message.startsWith('Request timed out after ');
+function isTimedOutHealthcheck(error: Error): boolean {
+  return error.message.startsWith('Request timed out after ');
 }
 
 export function deriveServiceUrl(configuredUrl: string, nextPath: string): string {
@@ -66,23 +88,27 @@ export function getStatusServerUnavailableMessage(): string {
 }
 
 export function toStatusServerUnavailableError(options: {
-  cause?: unknown;
+  cause?: Error;
   operation?: string;
   serviceUrl?: string;
 } = {}): StatusServerUnavailableError {
-  return new StatusServerUnavailableError(getStatusServerHealthUrl(), options);
+  return new StatusServerUnavailableError(getStatusServerHealthUrl(), {
+    cause: options.cause,
+    operation: options.operation,
+    serviceUrl: options.serviceUrl,
+  });
 }
 
 export async function getStatusSnapshot(): Promise<StatusSnapshotResponse> {
   try {
-    return await httpClient.requestJson<StatusSnapshotResponse>({
+    return await httpClient.requestJson({
       url: getStatusBackendUrl(),
       method: 'GET',
       timeoutMs: 2000,
-    });
+    }, StatusSnapshotResponseSchema);
   } catch (error) {
     throw toStatusServerUnavailableError({
-      cause: error,
+      cause: toError(error),
       operation: 'status:get',
       serviceUrl: getStatusBackendUrl(),
     });
@@ -100,23 +126,23 @@ export async function ensureStatusServerReachable(): Promise<void> {
   const timeoutMs = readPositiveIntegerEnv('SIFTKIT_HEALTHCHECK_TIMEOUT_MS', DEFAULT_HEALTHCHECK_TIMEOUT_MS);
   const baseBackoffMs = readNonNegativeIntegerEnv('SIFTKIT_HEALTHCHECK_BACKOFF_MS', DEFAULT_HEALTHCHECK_BACKOFF_MS);
   const maxBackoffMs = readNonNegativeIntegerEnv('SIFTKIT_HEALTHCHECK_MAX_BACKOFF_MS', DEFAULT_HEALTHCHECK_MAX_BACKOFF_MS);
-  let lastError: unknown = null;
+  let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      const response = await httpClient.requestJson<{ ok?: boolean }>({
+      const response = await httpClient.requestJson({
         url: healthUrl,
         method: 'GET',
         timeoutMs,
-      });
+      }, HealthResponseSchema);
       if (!response || response.ok !== true) {
         throw new Error('Health endpoint did not return ok=true.');
       }
       return;
     } catch (error) {
-      lastError = error;
-      const isTimeout = isTimedOutHealthcheck(error);
-      const cause = error instanceof Error ? error.message : String(error);
+      lastError = toError(error);
+      const isTimeout = isTimedOutHealthcheck(lastError);
+      const cause = getErrorMessage(error);
       if (shouldTraceHealthcheckAttempts()) {
         process.stderr.write(
           `[siftkit] healthcheck attempt ${attempt}/${isTimeout ? busyAttempts : attempts} failed `
@@ -135,7 +161,7 @@ export async function ensureStatusServerReachable(): Promise<void> {
   }
 
   throw toStatusServerUnavailableError({
-    cause: lastError,
+    cause: lastError ?? undefined,
     operation: 'health:get',
     serviceUrl: healthUrl,
   });
@@ -164,7 +190,8 @@ export type NotifyStatusBackendOptions = {
   outputTokens?: number | null;
   toolTokens?: number | null;
   thinkingTokens?: number | null;
-  toolStats?: Record<string, {
+  toolStats?: {
+    [toolType: string]: {
     calls?: number;
     outputCharsTotal?: number;
     outputTokensTotal?: number;
@@ -180,7 +207,8 @@ export type NotifyStatusBackendOptions = {
     rawToolResultTokens?: number;
     newEvidenceCalls?: number;
     noNewEvidenceCalls?: number;
-  }> | null;
+    };
+  } | null;
   promptCacheTokens?: number | null;
   promptEvalTokens?: number | null;
   speculativeAcceptedTokens?: number | null;
@@ -195,17 +223,21 @@ export type NotifyStatusBackendOptions = {
   terminalStatusMs?: number | null;
   artifactType?: 'summary_request' | 'planner_debug' | 'planner_failed' | null;
   artifactRequestId?: string | null;
-  artifactPayload?: Record<string, unknown> | null;
-  deferredMetadata?: Record<string, unknown> | null;
+  artifactPayload?: object | null;
+  deferredMetadata?: object | null;
   deferredArtifacts?: Array<{
     artifactType: 'summary_request' | 'planner_debug' | 'planner_failed';
     artifactRequestId: string;
-    artifactPayload: Record<string, unknown>;
+    artifactPayload: object;
   }> | null;
 };
 
-function buildStatusNotificationBody(options: NotifyStatusBackendOptions): Record<string, unknown> {
-  const body: Record<string, unknown> = {
+function toJsonObject(value: object): JsonObject {
+  return parseJsonObjectText(JSON.stringify(value) || '{}');
+}
+
+function buildStatusNotificationBody(options: NotifyStatusBackendOptions): JsonObject {
+  const body: MutableJsonObject = {
     running: options.running,
     status: options.running ? 'true' : 'false',
     statusPath: getInferenceStatusPath(),
@@ -277,7 +309,7 @@ function buildStatusNotificationBody(options: NotifyStatusBackendOptions): Recor
     body.thinkingTokens = options.thinkingTokens;
   }
   if (!options.running && options.toolStats && typeof options.toolStats === 'object' && !Array.isArray(options.toolStats)) {
-    body.toolStats = options.toolStats;
+    body.toolStats = toJsonObject(options.toolStats);
   }
   if (!options.running && options.promptCacheTokens !== undefined && options.promptCacheTokens !== null) {
     body.promptCacheTokens = options.promptCacheTokens;
@@ -320,14 +352,14 @@ function buildStatusNotificationBody(options: NotifyStatusBackendOptions): Recor
     && typeof options.artifactPayload === 'object'
     && !Array.isArray(options.artifactPayload)
   ) {
-    body.artifactPayload = options.artifactPayload;
+    body.artifactPayload = toJsonObject(options.artifactPayload);
   }
   if (
     options.deferredMetadata
     && typeof options.deferredMetadata === 'object'
     && !Array.isArray(options.deferredMetadata)
   ) {
-    body.deferredMetadata = options.deferredMetadata;
+    body.deferredMetadata = toJsonObject(options.deferredMetadata);
   }
   if (!options.running && options.terminalState && Array.isArray(options.deferredArtifacts) && options.deferredArtifacts.length > 0) {
     const deferredArtifacts = options.deferredArtifacts
@@ -344,7 +376,7 @@ function buildStatusNotificationBody(options: NotifyStatusBackendOptions): Recor
       .map((artifact) => ({
         artifactType: artifact.artifactType,
         artifactRequestId: artifact.artifactRequestId.trim(),
-        artifactPayload: artifact.artifactPayload,
+        artifactPayload: toJsonObject(artifact.artifactPayload),
       }));
     if (deferredArtifacts.length > 0) {
       body.deferredArtifacts = deferredArtifacts;
@@ -356,20 +388,20 @@ function buildStatusNotificationBody(options: NotifyStatusBackendOptions): Recor
 
 async function postStatusJson(options: {
   url: string;
-  body: Record<string, unknown>;
+  body: JsonObject;
   timeoutMs: number;
   operation: string;
 }): Promise<void> {
   try {
-    await httpClient.requestJson<{ ok?: boolean; busy?: boolean }>({
+    await httpClient.requestJson({
       url: options.url,
       method: 'POST',
       timeoutMs: options.timeoutMs,
       body: JSON.stringify(options.body),
-    });
+    }, StatusAckResponseSchema);
   } catch (error) {
     throw toStatusServerUnavailableError({
-      cause: error,
+      cause: toError(error),
       operation: options.operation,
       serviceUrl: options.url,
     });

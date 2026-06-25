@@ -2,7 +2,7 @@
  * HTTP route dispatcher for the status server. Delegates to domain-specific
  * route handlers in `routes/`.
  */
-import * as http from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { sendJson } from './http-utils.js';
 import { handleDashboardRoute } from './routes/dashboard.js';
 import { handleChatRoute } from './routes/chat.js';
@@ -10,7 +10,7 @@ import { handleCoreRoute } from './routes/core.js';
 import type { ServerContext } from './server-types.js';
 import { handleLlamaPassthroughRoute } from './routes/llama-passthrough.js';
 
-export function createRequestHandler(ctx: ServerContext): (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void> {
+export function createRequestHandler(ctx: ServerContext): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   return async (req, res) => {
     const requestUrl = new URL(req.url || '/', 'http://127.0.0.1');
     const pathname = requestUrl.pathname;

@@ -202,7 +202,7 @@ function getActiveManagedLlamaPreset(config: DashboardConfig): DashboardConfig['
 }
 
 export function applySpeculativeCaseToConfig(config: DashboardConfig, entry: SpecBenchmarkCase): DashboardConfig {
-  const cloned = JSON.parse(JSON.stringify(config)) as DashboardConfig;
+  const cloned = structuredClone(config);
   const activePreset = getActiveManagedLlamaPreset(cloned);
   if (!activePreset) {
     return cloned;

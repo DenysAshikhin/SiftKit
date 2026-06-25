@@ -1,4 +1,5 @@
-import type { ChatSessionResponse } from '../types.js';
+import type { JsonValue, JsonObject } from '../../../src/lib/json-types.js';
+import { ChatSessionResponseSchema, type ChatSessionResponse } from '@siftkit/contracts';
 
 export type ChatStreamToolEvent = {
   kind: 'tool_start' | 'tool_result';
@@ -20,7 +21,7 @@ export type ChatStreamEvent =
   | { kind: 'done'; payload: ChatSessionResponse }
   | { kind: 'error'; message: string };
 
-type ParsedPacket = { eventName: string; data: unknown } | null;
+type ParsedPacket = { eventName: string; data: JsonValue } | null;
 
 function readPacket(packet: string): ParsedPacket {
   const lines = packet.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
@@ -35,11 +36,11 @@ function readPacket(packet: string): ParsedPacket {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(value: JsonValue): value is JsonObject {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function buildToolEvent(kind: 'tool_start' | 'tool_result', record: Record<string, unknown>): ChatStreamToolEvent {
+function buildToolEvent(kind: 'tool_start' | 'tool_result', record: JsonObject): ChatStreamToolEvent {
   const tool: ChatStreamToolEvent = {
     kind,
     toolCallId: String(record.toolCallId ?? ''),
@@ -67,8 +68,10 @@ export function parseChatStreamPacket(packet: string): ChatStreamEvent | null {
       return { kind: 'tool', tool: buildToolEvent(parsed.eventName, record) };
     case 'answer':
       return { kind: 'answer', text: String(record.answer ?? '') };
-    case 'done':
-      return { kind: 'done', payload: record as unknown as ChatSessionResponse };
+    case 'done': {
+      const result = ChatSessionResponseSchema.safeParse(record);
+      return result.success ? { kind: 'done', payload: result.data } : null;
+    }
     case 'error':
       return { kind: 'error', message: String(record.error ?? 'stream error') };
     default:

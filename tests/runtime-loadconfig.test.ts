@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { z } from 'zod';
 
 import { readStatusText } from '../src/status-server/status-file.js';
 import type { SiftConfig } from '../src/config/index.js';
@@ -434,8 +435,9 @@ test('real status server PUT /config persists managed ExecutablePath/ModelPath a
       const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
       const database = new Database(runtimeDbPath);
       try {
-        const row = database.prepare('SELECT server_llama_presets_json FROM app_config WHERE id = 1').get() as { server_llama_presets_json?: string } | undefined;
-        const presets = JSON.parse(row?.server_llama_presets_json || '[]');
+        const row = z.object({ server_llama_presets_json: z.string().nullish() })
+          .parse(database.prepare('SELECT server_llama_presets_json FROM app_config WHERE id = 1').get());
+        const presets = JSON.parse(row.server_llama_presets_json || '[]');
         assert.ok(Array.isArray(presets) && presets.length > 0, 'expected non-empty presets in row');
         assert.equal(presets[0].ExecutablePath, dashboardExecutablePath);
         assert.equal(presets[0].ModelPath, dashboardModelPath);
