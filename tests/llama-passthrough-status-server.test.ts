@@ -134,8 +134,13 @@ test('llama passthrough wakes managed llama when the managed process is offline'
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   writeManagedConfig('managed-passthrough-model', managed, {
     StartupTimeoutMs: 10000,
-    HealthcheckTimeoutMs: 50,
-    HealthcheckIntervalMs: 25,
+    // Healthcheck timeout must stay well above realistic localhost round-trip
+    // latency under full-suite CPU contention; a sub-100ms timeout made every
+    // probe to the freshly-spawned fake llama time out, mis-reading it as
+    // offline until the 10s startup deadline expired (503). This test exercises
+    // wake-on-demand, not tight healthcheck timing.
+    HealthcheckTimeoutMs: 2000,
+    HealthcheckIntervalMs: 100,
   });
 
   const server = startStatusServer();
@@ -270,8 +275,13 @@ test('llama passthrough proxies POST /tokenize to managed llama', async () => {
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   writeManagedConfig('managed-tokenize-model', managed, {
     StartupTimeoutMs: 10000,
-    HealthcheckTimeoutMs: 50,
-    HealthcheckIntervalMs: 25,
+    // Healthcheck timeout must stay well above realistic localhost round-trip
+    // latency under full-suite CPU contention; a sub-100ms timeout made every
+    // probe to the freshly-spawned fake llama time out, mis-reading it as
+    // offline until the 10s startup deadline expired (503). This test exercises
+    // wake-on-demand, not tight healthcheck timing.
+    HealthcheckTimeoutMs: 2000,
+    HealthcheckIntervalMs: 100,
   });
 
   const server = startStatusServer();

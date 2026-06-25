@@ -179,7 +179,7 @@ async function startDelayedTerminalStatusServer(delayMs: number): Promise<{
 
 async function waitForStatusCount(readCount: () => number, expected: number): Promise<void> {
   const startedAt = Date.now();
-  while (Date.now() - startedAt < 500) {
+  while (Date.now() - startedAt < 5000) {
     if (readCount() >= expected) {
       return;
     }
@@ -249,7 +249,15 @@ test('executeRepoSearchRequest success path writes transcript and artifact', asy
 
 test('executeRepoSearchRequest does not wait for running status notification response before work starts', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
-    const statusServer = await startDelayedStatusServer({ runningDelayMs: 1000 });
+    // The running notify is awaited only at the very end of the request, so the
+    // blocking-regression signal is bounded by the 2000ms status client post
+    // timeout: hold the running response past it (5000ms) so a regressed engine
+    // that awaited the notify before starting work would surface first progress
+    // at ~2000ms. Non-blocking first progress is work-start jitter (hundreds of
+    // ms even under full-suite load), so the 1500ms threshold separates the two
+    // cases with ~900ms / ~500ms margins. Threshold must stay below the 2000ms
+    // post timeout.
+    const statusServer = await startDelayedStatusServer({ runningDelayMs: 5000 });
     try {
       let firstProgressMs: number | null = null;
       const startedAt = Date.now();
@@ -270,7 +278,7 @@ test('executeRepoSearchRequest does not wait for running status notification res
       assert.equal(typeof result.requestId, 'string');
       await waitForStatusCount(statusServer.runningPostCount, 1);
       assert.ok(firstProgressMs !== null, 'expected repo-search progress event');
-      assert.ok(firstProgressMs < 500, `expected work to start before running notify response, got ${firstProgressMs} ms`);
+      assert.ok(firstProgressMs < 1500, `expected work to start before running notify response, got ${firstProgressMs} ms`);
     } finally {
       await statusServer.close();
     }
@@ -279,7 +287,11 @@ test('executeRepoSearchRequest does not wait for running status notification res
 
 test('executeRepoSearchRequest does not wait for terminal metadata notification response', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
-    const statusServer = await startDelayedTerminalStatusServer(1000);
+    // Terminal-metadata is fire-and-forget (never awaited), so the request must
+    // return long before this delayed response. Hold it past the 2000ms status
+    // client post timeout (3000ms) so a regressed engine that awaited it would
+    // surface at ~2000ms; the 1500ms threshold leaves ~1500ms / ~500ms margins.
+    const statusServer = await startDelayedTerminalStatusServer(3000);
     try {
       const startedAt = Date.now();
       const result = await executeRepoSearchRequest({
@@ -296,7 +308,7 @@ test('executeRepoSearchRequest does not wait for terminal metadata notification 
 
       assert.equal(typeof result.requestId, 'string');
       await waitForStatusCount(statusServer.terminalPostCount, 1);
-      assert.ok(durationMs < 500, `expected terminal metadata notify to be fire-and-forget, got ${durationMs} ms`);
+      assert.ok(durationMs < 1500, `expected terminal metadata notify to be fire-and-forget, got ${durationMs} ms`);
     } finally {
       await statusServer.close();
     }

@@ -170,7 +170,11 @@ test('summary command-output pass/fail with Jest pass output is deterministic an
 
 test('summarizeRequest does not wait for terminal metadata notification response', async () => {
   await withTempEnv(async () => {
-    const statusServer = await startDelayedTerminalSummaryStatusServer(300);
+    // Terminal-metadata is fire-and-forget (never awaited), so the request must
+    // return long before this delayed response. Hold it past the 2000ms status
+    // client post timeout (3000ms) so a regressed engine that awaited it would
+    // surface at ~2000ms; the 1500ms threshold leaves ~1500ms / ~500ms margins.
+    const statusServer = await startDelayedTerminalSummaryStatusServer(3000);
     try {
       const startedAt = Date.now();
       const result = await summarizeRequest({
@@ -194,7 +198,7 @@ test('summarizeRequest does not wait for terminal metadata notification response
       await waitForAsyncExpectation(async () => {
         assert.equal(statusServer.terminalPostCount(), 1);
       }, 1000);
-      assert.ok(durationMs < 250, `expected terminal metadata notify to be asynchronous, got ${durationMs} ms`);
+      assert.ok(durationMs < 1500, `expected terminal metadata notify to be asynchronous, got ${durationMs} ms`);
     } finally {
       await statusServer.close();
     }
