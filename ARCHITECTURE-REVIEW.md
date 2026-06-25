@@ -9,17 +9,11 @@ Last pruned: 2026-06-25.
 
 ## Findings
 
-### F11. Replace execution lease/lock during the server/workspace split
-
-`src/execution-lock.ts` still wraps summary/eval/install execution, and `src/config/execution-lease.ts:50` still acquires a server-side lease (`tryAcquireExecutionLease`). The lock remains live through `src/summary/request-runner.ts:117`, `src/eval.ts:8`, `src/install.ts:6`, `src/command-output/analyzer.ts:179`, `src/status-server/preset-runner.ts:171`, and `src/status-server/routes/core.ts:1060`.
-
-Remaining work: when the server/workspace split lands, replace this cross-process single-slot lease with the new ownership model. Do not delete it as dead code before that split.
-
 ### F15. Repackage benchmark/eval code and dedupe bench harness modules
 
-`src/eval.ts:8` and `src/benchmark-spec-settings.ts:1` remain in the shipping `src/` graph. `bench/benchmark/` and `bench/benchmark-matrix/` still carry parallel `args.ts`, `interrupt.ts`, `runner.ts`, and `types.ts` roles.
+`src/eval.ts` and `src/benchmark-spec-settings.ts:1` remain in the shipping `src/` graph. `bench/benchmark/` and `bench/benchmark-matrix/` still carry parallel `args.ts`, `interrupt.ts`, `runner.ts`, and `types.ts` roles.
 
-Remaining work: move eval/benchmark runtime code to the server/workspace package boundary, then factor duplicated bench harness pieces into common bench utilities.
+Remaining work: move eval/benchmark runtime code to the server/workspace package boundary, then factor duplicated bench harness pieces into common bench utilities. As part of this, route the bench direct `summarizeRequest` callers (`bench/benchmark/runner.ts`, `bench/repro/run-benchmark-fixture-debug.ts`) through `POST /summary` — after F11 they run with no cross-process serialization.
 
 ---
 
@@ -95,6 +89,5 @@ Remaining work: require web grounding only when the answer makes external/curren
 
 ## Priority order
 
-1. Replace the execution lease/lock with the new ownership model during the server/workspace split (F11).
-2. Repackage eval/benchmark code and dedupe bench harness modules during the server/workspace split (F15).
-3. Fix repo-search/chat LLM behavior in this order: append-only/non-assistant harness messages (L4, L5, L7), finish policy and duplicate pressure (L2, L3), parser repair boundaries (L6), real chat condense and prompt accounting (L10), sampling ownership by request class (L1), default prompt and web-grounding scope (L8, L11), tool replay truncation labeling (L9).
+1. Repackage eval/benchmark code and dedupe bench harness modules during the server/workspace split (F15).
+2. Fix repo-search/chat LLM behavior in this order: append-only/non-assistant harness messages (L4, L5, L7), finish policy and duplicate pressure (L2, L3), parser repair boundaries (L6), real chat condense and prompt accounting (L10), sampling ownership by request class (L1), default prompt and web-grounding scope (L8, L11), tool replay truncation labeling (L9).

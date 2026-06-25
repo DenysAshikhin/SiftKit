@@ -95,7 +95,6 @@ The client expects these endpoints from the status server:
 
 - `GET /health`, `GET /status`, `POST /status`
 - `GET /config`, `PUT /config`
-- `GET /execution`, `POST /execution/acquire`, `POST /execution/heartbeat`, `POST /execution/release`
 
 Default URLs:
 
