@@ -21,12 +21,6 @@ Remaining work: when the server/workspace split lands, replace this cross-proces
 
 Remaining work: move eval/benchmark runtime code to the server/workspace package boundary, then factor duplicated bench harness pieces into common bench utilities.
 
-### F17. Split the remaining summary planner god method
-
-`SummaryPlannerLoopRuntime.requestProviderAction` remains in `src/summary/planner/mode.ts:477` (119 lines, above the 90-line guard) and is not covered by `tests/god-function-regression.test.ts`.
-
-Remaining work: split `requestProviderAction` below the 90-line guard threshold and add it to the regression guard.
-
 ---
 
 # Part 2 - LLM-behavior analysis
@@ -101,7 +95,6 @@ Remaining work: require web grounding only when the answer makes external/curren
 
 ## Priority order
 
-1. Split `SummaryPlannerLoopRuntime.requestProviderAction` and add it to the god-function regression guard (F17).
-2. Replace the execution lease/lock with the new ownership model during the server/workspace split (F11).
-3. Repackage eval/benchmark code and dedupe bench harness modules during the server/workspace split (F15).
-4. Fix repo-search/chat LLM behavior in this order: append-only/non-assistant harness messages (L4, L5, L7), finish policy and duplicate pressure (L2, L3), parser repair boundaries (L6), real chat condense and prompt accounting (L10), sampling ownership by request class (L1), default prompt and web-grounding scope (L8, L11), tool replay truncation labeling (L9).
+1. Replace the execution lease/lock with the new ownership model during the server/workspace split (F11).
+2. Repackage eval/benchmark code and dedupe bench harness modules during the server/workspace split (F15).
+3. Fix repo-search/chat LLM behavior in this order: append-only/non-assistant harness messages (L4, L5, L7), finish policy and duplicate pressure (L2, L3), parser repair boundaries (L6), real chat condense and prompt accounting (L10), sampling ownership by request class (L1), default prompt and web-grounding scope (L8, L11), tool replay truncation labeling (L9).
