@@ -30,6 +30,7 @@ const limits: FunctionLimit[] = [
   { filePath: 'src/summary/planner/mode.ts', symbol: 'SummaryPlannerLoopRuntime.handleDuplicateToolAction', maxLines: 90 },
   { filePath: 'src/summary/planner/mode.ts', symbol: 'SummaryPlannerLoopRuntime.executeSingleToolAction', maxLines: 90 },
   { filePath: 'src/summary/planner/mode.ts', symbol: 'SummaryPlannerLoopRuntime.executeToolBatch', maxLines: 90 },
+  { filePath: 'src/summary/planner/mode.ts', symbol: 'SummaryPlannerLoopRuntime.requestProviderAction', maxLines: 90 },
   { filePath: 'src/status-server/routes/chat.ts', symbol: 'handleChatRoute', maxLines: 60 },
   { filePath: 'src/status-server/routes/core.ts', symbol: 'handleCoreRoute', maxLines: 60 },
   { filePath: 'src/status-server/routes/core.ts', symbol: 'StatusPostEndpoint.handle', maxLines: 90 },
