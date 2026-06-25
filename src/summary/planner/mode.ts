@@ -474,12 +474,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     };
   }
 
-  private async requestProviderAction(override?: {
-    promptText: string;
-    promptTokenCount: number;
-  }): Promise<SummaryPlannerProviderResponse> {
-    const promptText = override?.promptText ?? this.prompt;
-    const promptTokenCount = override?.promptTokenCount ?? this.promptTokenCount;
+  private async notifyPlannerRunning(promptText: string, promptTokenCount: number): Promise<number> {
     traceSummary(
       `notify running=true phase=planner chunk=none raw_chars=${this.options.inputText.length} `
       + `chunk_chars=${this.options.inputText.length} prompt_chars=${promptText.length}`
@@ -508,8 +503,16 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       notifyRunningSpan?.end({ ok: false });
       traceSummary(`notify running=true failed phase=planner chunk=none request_id=${this.options.requestId}`);
     }
+    return Date.now() - statusRunningStartedAt;
+  }
 
-    const statusRunningMs = Date.now() - statusRunningStartedAt;
+  private async requestProviderAction(override?: {
+    promptText: string;
+    promptTokenCount: number;
+  }): Promise<SummaryPlannerProviderResponse> {
+    const promptText = override?.promptText ?? this.prompt;
+    const promptTokenCount = override?.promptTokenCount ?? this.promptTokenCount;
+    const statusRunningMs = await this.notifyPlannerRunning(promptText, promptTokenCount);
     const startedAt = Date.now();
     let inputTokens: number | null = null;
     let outputCharacterCount: number | null = null;
@@ -566,31 +569,53 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
         statusRunningMs,
       };
     } catch (error) {
-      traceSummary(`notify running=false phase=planner chunk=none duration_ms=${Date.now() - startedAt}`);
-      const notifyFailedSpan = this.options.timingRecorder?.start('summary.planner.status.notify_terminal', {
-        terminalState: 'failed',
+      await this.notifyPlannerRequestFailed({
+        promptText,
+        startedAt,
+        inputTokens,
+        outputCharacterCount,
+        outputTokens,
+        thinkingTokens,
+        promptCacheTokens,
+        promptEvalTokens,
       });
-      try {
-        await notifyStatusBackend({
-          running: false,
-          taskKind: 'summary',
-          requestId: this.options.requestId,
-          statusBackendUrl: this.options.statusBackendUrl,
-          promptCharacterCount: promptText.length,
-          inputTokens,
-          outputCharacterCount,
-          outputTokens,
-          thinkingTokens,
-          promptCacheTokens,
-          promptEvalTokens,
-          requestDurationMs: Date.now() - startedAt,
-        });
-        notifyFailedSpan?.end({ ok: true });
-      } catch {
-        notifyFailedSpan?.end({ ok: false });
-        traceSummary(`notify running=false failed phase=planner chunk=none request_id=${this.options.requestId}`);
-      }
       throw error;
+    }
+  }
+
+  private async notifyPlannerRequestFailed(args: {
+    promptText: string;
+    startedAt: number;
+    inputTokens: number | null;
+    outputCharacterCount: number | null;
+    outputTokens: number | null;
+    thinkingTokens: number | null;
+    promptCacheTokens: number | null;
+    promptEvalTokens: number | null;
+  }): Promise<void> {
+    traceSummary(`notify running=false phase=planner chunk=none duration_ms=${Date.now() - args.startedAt}`);
+    const notifyFailedSpan = this.options.timingRecorder?.start('summary.planner.status.notify_terminal', {
+      terminalState: 'failed',
+    });
+    try {
+      await notifyStatusBackend({
+        running: false,
+        taskKind: 'summary',
+        requestId: this.options.requestId,
+        statusBackendUrl: this.options.statusBackendUrl,
+        promptCharacterCount: args.promptText.length,
+        inputTokens: args.inputTokens,
+        outputCharacterCount: args.outputCharacterCount,
+        outputTokens: args.outputTokens,
+        thinkingTokens: args.thinkingTokens,
+        promptCacheTokens: args.promptCacheTokens,
+        promptEvalTokens: args.promptEvalTokens,
+        requestDurationMs: Date.now() - args.startedAt,
+      });
+      notifyFailedSpan?.end({ ok: true });
+    } catch {
+      notifyFailedSpan?.end({ ok: false });
+      traceSummary(`notify running=false failed phase=planner chunk=none request_id=${this.options.requestId}`);
     }
   }
 
