@@ -4,7 +4,7 @@ import {
   getGenerationTokensPerSecond,
   getPromptCacheHitRate,
   getPromptTokensPerSecond,
-} from './lib/telemetry-metrics.js';
+} from '../src/lib/telemetry-metrics.js';
 
 export type SpecBenchmarkCase = {
   speculativeEnabled?: boolean;

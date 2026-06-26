@@ -21,7 +21,7 @@ import {
   getSpeculativeLogDeltaTotals,
   getRunTelemetryStats,
   sortBenchmarkResults,
-} from '../src/benchmark-spec-settings';
+} from '../bench/spec-settings';
 
 const DEFAULT_SPEC_BENCHMARK_PROMPTS = [
   'trace the managed-llama log-delta source for speculativeAcceptedTokens and speculativeGeneratedTokens; return exact file:line anchors from log parse through benchmark output',
