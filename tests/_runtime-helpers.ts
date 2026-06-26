@@ -197,6 +197,7 @@ interface StubServerState {
   artifactPosts: StubArtifactPost[];
   chatRequests: ChatRequest[];
   tokenizeRequests: JsonObject[];
+  summaryRouteRequests: JsonObject[];
   healthChecks: number;
   running: boolean;
   metrics: StubMetrics;
@@ -516,6 +517,7 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
     artifactPosts: [],
     chatRequests: [],
     tokenizeRequests: [],
+    summaryRouteRequests: [],
     healthChecks: 0,
     running: Boolean(options.running),
     metrics: {
@@ -617,6 +619,7 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
     if (req.method === 'POST' && req.url === '/summary') {
       const bodyText = await readBody(req);
       const parsed = bodyText ? JSON.parse(bodyText) : {};
+      state.summaryRouteRequests.push(parsed);
       const address = server.address();
       const port = address && typeof address === 'object' ? address.port : 0;
       try {

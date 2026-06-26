@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { appendBenchmarkMatrixLogChunk } from '../../src/state/benchmark-matrix.js';
+import { deriveServiceUrl } from '../../src/config/status-backend.js';
 import { buildBenchmarkArgs } from './launcher.js';
 import { spawnAndWait } from './process.js';
 import {
@@ -42,7 +43,11 @@ export async function invokeBenchmarkProcess(
     filePath: nodeExe,
     args,
     cwd: repoRoot,
-    env: process.env,
+    env: {
+      ...process.env,
+      SIFTKIT_CONFIG_SERVICE_URL: manifest.configUrl,
+      SIFTKIT_STATUS_BACKEND_URL: deriveServiceUrl(manifest.configUrl, '/status'),
+    },
     interrupted,
     onStdoutChunk(chunk: string) {
       appendBenchmarkMatrixLogChunk({

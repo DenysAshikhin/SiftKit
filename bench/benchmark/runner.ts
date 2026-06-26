@@ -3,7 +3,7 @@ import path from 'node:path';
 import { getConfiguredModel, loadConfig } from '../../src/config/index.js';
 import { JsonObjectSchema } from '../../src/lib/json-types.js';
 import { toError } from '../../src/lib/errors.js';
-import { summarizeRequest } from '../../src/summary/core.js';
+import { StatusServerApiClient } from '../../src/cli/status-server-api-client.js';
 import { formatElapsed } from '../../src/lib/time.js';
 import {
   getDefaultOutputPath,
@@ -43,6 +43,7 @@ export async function runBenchmarkSuite(options: BenchmarkRunnerOptions = {}): P
   const startedAtHr = process.hrtime.bigint();
   const results: BenchmarkCaseResult[] = [];
   const interruptSignal = createInterruptSignal();
+  const apiClient = new StatusServerApiClient();
   let fatalError: string | null = null;
   let fatalException: Error | null = null;
 
@@ -65,7 +66,7 @@ export async function runBenchmarkSuite(options: BenchmarkRunnerOptions = {}): P
       process.stdout.write(`Fixture ${index + 1}/${manifest.length} [${fixtureLabel}] start\n`);
       try {
         const response = await runWithFixtureDeadline(
-          summarizeRequest({
+          apiClient.requestSummary({
             question: fixture.Question,
             inputText,
             format: fixture.Format,

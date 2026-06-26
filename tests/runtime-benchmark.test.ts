@@ -18,7 +18,7 @@ import {
 
 test('benchmark runner writes prompt, output, classification metadata, per-case duration, and total duration', async () => {
   await withTempEnv(async (tempRoot) => {
-    await withStubServer(async () => {
+    await withStubServer(async (server) => {
       const fixtureRoot = path.join(tempRoot, 'bench-fixtures');
       const outputPath = path.join(tempRoot, 'bench-output.json');
       fs.mkdirSync(fixtureRoot, { recursive: true });
@@ -63,6 +63,8 @@ test('benchmark runner writes prompt, output, classification metadata, per-case 
       assert.ok(artifact.TotalDurationMs >= 0);
       assert.equal(Array.isArray(artifact.Results), true);
       assert.equal(artifact.Results.length, 2);
+      assert.equal(server.state.summaryRouteRequests.length, 2);
+      assert.equal(server.state.summaryRouteRequests[0].question, 'summarize this');
       assert.equal(typeof artifact.Results[0].DurationMs, 'number');
       assert.ok(artifact.Results[0].DurationMs >= 0);
       assert.equal(artifact.Results[0].Prompt, 'Get-Content case1.txt | siftkit "summarize this"');
@@ -200,7 +202,7 @@ test('benchmark runner fails fast on provider errors and writes the fatal error 
           backend: 'mock',
           model: 'mock-model',
         }),
-        /Benchmark fixture 'provider-error-case' failed: mock provider failure/u,
+        /Benchmark fixture 'provider-error-case' failed: HTTP 500: .*mock provider failure/u,
       );
 
       const artifact = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
