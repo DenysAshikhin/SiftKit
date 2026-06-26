@@ -4,7 +4,7 @@ import path from 'node:path';
 import { getErrorMessage } from '../../src/lib/errors.js';
 import { parseJsonValueText } from '../../src/lib/json.js';
 import type { JsonObject } from '../../src/lib/json-types.js';
-import { summarizeRequest } from '../../src/summary.js';
+import { StatusServerApiClient } from '../../src/cli/status-server-api-client.js';
 import { getRepoRoot } from '../common/paths.js';
 
 export function parseArgs(argv: string[]): {
@@ -204,11 +204,11 @@ export async function runDebugRequest(
   logger.log(`Format: ${workItem.format}`);
   logger.log(`Policy profile: ${workItem.policyProfile}`);
   logger.log(`Request timeout seconds: ${args.requestTimeoutSeconds}`);
-  logger.log('Calling summarizeRequest...');
+  logger.log('Calling requestSummary...');
 
   const startedAt = process.hrtime.bigint();
   try {
-    const result = await summarizeRequest({
+    const result = await new StatusServerApiClient().requestSummary({
       question: workItem.question,
       inputText: workItem.inputText,
       format: workItem.format,
@@ -234,7 +234,7 @@ export async function runDebugRequest(
     fs.mkdirSync(outputRoot, { recursive: true });
     fs.writeFileSync(summaryPath, summary, 'utf8');
     fs.writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
-    logger.log(`summarizeRequest completed in ${formatDurationMs(durationMs)}`);
+    logger.log(`requestSummary completed in ${formatDurationMs(durationMs)}`);
     logger.log(`Request id: ${String(result.RequestId || '')}`);
     logger.log(`Result classification: ${String(result.Classification || '')}`);
     logger.log(`Summary path: ${summaryPath}`);
@@ -253,7 +253,7 @@ export async function runDebugRequest(
     };
     fs.mkdirSync(outputRoot, { recursive: true });
     fs.writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
-    logger.log(`summarizeRequest failed in ${formatDurationMs(durationMs)}`);
+    logger.log(`requestSummary failed in ${formatDurationMs(durationMs)}`);
     logger.log(`Artifact path: ${artifactPath}`);
     stderrTarget.write(`${message}\n`);
     return { exitCode: 1, artifactPath, artifact };
