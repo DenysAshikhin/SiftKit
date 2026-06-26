@@ -1,13 +1,14 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve, join, basename } from 'node:path';
-import { z } from './lib/zod.js';
-import { JsonObjectSchema } from './lib/json-types.js';
-import { parseJsonValueText } from './lib/json.js';
-import { getConfiguredModel, initializeRuntime, loadConfig } from './config/index.js';
-import { summarizeRequest } from './summary/core.js';
-import { upsertRuntimeJsonArtifact } from './state/runtime-artifacts.js';
-import { persistEvalResult } from './state/runtime-results.js';
-import type { EvalCaseResult, EvalRequest, EvaluationResult } from './eval-types.js';
+import { join, basename } from 'node:path';
+import { z } from '../lib/zod.js';
+import { JsonObjectSchema } from '../lib/json-types.js';
+import { parseJsonValueText } from '../lib/json.js';
+import { getConfiguredModel, initializeRuntime, loadConfig } from '../config/index.js';
+import { summarizeRequest } from '../summary/core.js';
+import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
+import { persistEvalResult } from '../state/runtime-results.js';
+import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
+import type { EvalCaseResult, EvalRequest, EvaluationResult } from '../eval-types.js';
 
 const FixtureSchema = z.object({
   Name: z.string(),
@@ -19,10 +20,6 @@ const FixtureSchema = z.object({
   ForbiddenTerms: z.array(z.string()).optional(),
 });
 type Fixture = z.infer<typeof FixtureSchema>;
-
-function getRepoRoot(): string {
-  return resolve(__dirname, '..', '..');
-}
 
 function getFixtureManifest(fixtureRoot: string): Fixture[] {
   const manifestPath = join(fixtureRoot, 'fixtures.json');
@@ -74,7 +71,11 @@ export async function runEvaluation(request: EvalRequest): Promise<EvaluationRes
   const config = await loadConfig({ ensure: true });
   const backend = request.Backend || config.Backend;
   const model = request.Model || getConfiguredModel(config);
-  const fixtureRoot = request.FixtureRoot || join(getRepoRoot(), 'eval', 'fixtures');
+  const repoRoot = findNearestSiftKitRepoRoot(__dirname);
+  if (repoRoot === null) {
+    throw new Error('Unable to locate the SiftKit repo root for eval fixtures.');
+  }
+  const fixtureRoot = request.FixtureRoot || join(repoRoot, 'eval', 'fixtures');
   const manifest = getFixtureManifest(fixtureRoot);
   const results: EvalCaseResult[] = [];
 

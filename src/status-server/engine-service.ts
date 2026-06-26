@@ -3,7 +3,7 @@ import type {
   CommandOutputAnalyzeRequest,
   CommandOutputAnalyzeResult,
 } from '../command-output/types.js';
-import { runEvaluation } from '../eval.js';
+import { runEvaluation } from './eval.js';
 import type { EvalRequest, EvaluationResult } from '../eval-types.js';
 import { executeRepoSearchRequest } from '../repo-search/index.js';
 import type {
