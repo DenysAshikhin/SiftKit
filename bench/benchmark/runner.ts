@@ -8,11 +8,11 @@ import { formatElapsed } from '../../src/lib/time.js';
 import {
   getDefaultOutputPath,
   getPromptLabel,
-  getRepoRoot,
   getValidatedRequestTimeoutSeconds,
   parseArguments,
   resolvePromptPrefix,
 } from './args.js';
+import { getRepoRoot } from '../common/paths.js';
 import { getFixtureManifest } from './fixtures.js';
 import {
   createFixtureHeartbeat,

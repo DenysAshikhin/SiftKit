@@ -18,6 +18,7 @@ import { getErrorMessage } from '../../src/lib/errors.js';
 import { parseJsonValueText } from '../../src/lib/json.js';
 import type { JsonObject, JsonSerializable } from '../../src/lib/json-types.js';
 import type { SiftConfig } from '../../src/config/index.js';
+import { getRepoRoot } from '../common/paths.js';
 
 const LLAMA_CPP_NON_THINKING_PROMPT_TOKEN_RESERVE = 10_000;
 const LLAMA_CPP_THINKING_PROMPT_TOKEN_RESERVE = 15_000;
@@ -229,7 +230,7 @@ export async function runFixture60MalformedJsonRepro(
 }> {
   const args = parseArgs(argv);
   const { fixtureStartIndex, fixtureEndIndex } = getFixtureBounds(args);
-  const repoRoot = path.resolve(__dirname, '..', '..');
+  const repoRoot = getRepoRoot();
   const fixtureRoot = options.fixtureRoot || path.join(repoRoot, 'eval', 'fixtures', 'ai_core_60_tests');
   const outputRoot = args.outputRoot || path.join(repoRoot, 'tmp-find', `fixture60_malformed_json_${getTimestamp()}`);
   const logPath = path.join(outputRoot, 'debug.log');

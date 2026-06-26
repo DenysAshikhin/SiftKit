@@ -5,6 +5,7 @@ import { getErrorMessage } from '../../src/lib/errors.js';
 import { parseJsonValueText } from '../../src/lib/json.js';
 import type { JsonObject } from '../../src/lib/json-types.js';
 import { summarizeRequest } from '../../src/summary.js';
+import { getRepoRoot } from '../common/paths.js';
 
 export function parseArgs(argv: string[]): {
   fixtureIndex: number;
@@ -181,7 +182,7 @@ export async function runDebugRequest(
   artifact: JsonObject;
 }> {
   const args = parseArgs(argv);
-  const repoRoot = path.resolve(__dirname, '..', '..');
+  const repoRoot = getRepoRoot();
   const outputRoot = args.outputRoot || path.join(repoRoot, 'tmp-find', `fixture_debug_${getTimestamp()}`);
   const logPath = path.join(outputRoot, 'debug.log');
   const artifactPath = path.join(outputRoot, 'result.json');

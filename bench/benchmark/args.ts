@@ -9,10 +9,6 @@ import {
   type BenchmarkRunnerOptions,
 } from './types.js';
 
-export function getRepoRoot(): string {
-  return path.resolve(__dirname, '..', '..', '..');
-}
-
 export function parseArguments(argv: string[]): BenchmarkRunnerOptions {
   const parsed: BenchmarkRunnerOptions = {};
 

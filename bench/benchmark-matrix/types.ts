@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { z } from '../../src/lib/zod.js';
 import { JsonObjectSchema, type JsonObject } from '../../src/lib/json-types.js';
+import { getRepoRoot } from '../common/paths.js';
 
 export const RawMatrixManifestSchema = z.object({
   fixtureRoot: z.string(),
@@ -139,7 +140,7 @@ export class MatrixInterruptedError extends Error {
   }
 }
 
-export const repoRoot = path.resolve(__dirname, '..', '..');
+export const repoRoot = getRepoRoot();
 export const defaultManifestPath = path.join(repoRoot, 'eval', 'benchmark-matrices', 'ai_core_60_tests.6run.json');
 export const powerShellExe = process.env.ComSpec?.toLowerCase().includes('cmd.exe')
   ? 'powershell.exe'
