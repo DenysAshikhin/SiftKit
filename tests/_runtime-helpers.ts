@@ -627,6 +627,10 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
           policyProfile: parsed.policyProfile || 'general',
           backend: typeof parsed.backend === 'string' ? parsed.backend : undefined,
           model: typeof parsed.model === 'string' ? parsed.model : undefined,
+          promptPrefix: typeof parsed.promptPrefix === 'string' ? parsed.promptPrefix : undefined,
+          llamaCppOverrides: parsed.llamaCppOverrides && typeof parsed.llamaCppOverrides === 'object' && !Array.isArray(parsed.llamaCppOverrides) && Number.isFinite(Number(parsed.llamaCppOverrides.MaxTokens))
+            ? { MaxTokens: Number(parsed.llamaCppOverrides.MaxTokens) }
+            : undefined,
           sourceKind: parsed.sourceKind === 'command-output' ? 'command-output' : 'standalone',
           commandExitCode: Number.isFinite(Number(parsed.commandExitCode)) ? Number(parsed.commandExitCode) : undefined,
           timing: parsed.timing && typeof parsed.timing === 'object' && !Array.isArray(parsed.timing) ? parsed.timing : undefined,

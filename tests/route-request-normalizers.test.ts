@@ -78,3 +78,29 @@ test('chat route request normalizers return typed values', () => {
     repoRoot: 'C:/repo',
   });
 });
+
+test('parseSummaryRequest carries promptPrefix and llamaCppOverrides.MaxTokens', () => {
+  const parsed = parseSummaryRequest({
+    question: 'q',
+    inputText: 'some input text',
+    promptPrefix: 'benchmark prefix',
+    llamaCppOverrides: { MaxTokens: 256 },
+  });
+  assert.notEqual(parsed, null);
+  assert.equal(parsed?.promptPrefix, 'benchmark prefix');
+  assert.deepEqual(parsed?.llamaCppOverrides, { MaxTokens: 256 });
+});
+
+test('parseSummaryRequest omits llamaCppOverrides when MaxTokens is absent', () => {
+  const parsed = parseSummaryRequest({ question: 'q', inputText: 'some input text' });
+  assert.equal(parsed?.promptPrefix, undefined);
+  assert.equal(parsed?.llamaCppOverrides, undefined);
+});
+
+test('parseSummaryRequest preserves an explicit empty promptPrefix as an override', () => {
+  // SummaryRequest semantics (request-runner.ts:290): undefined => use the
+  // configured prefix; a string (including "") => explicit override. The HTTP
+  // contract must mirror that, so "" must NOT collapse to undefined.
+  const parsed = parseSummaryRequest({ question: 'q', inputText: 'some input text', promptPrefix: '' });
+  assert.equal(parsed?.promptPrefix, '');
+});

@@ -956,6 +956,8 @@ class SummaryEndpoint implements RouteEndpoint {
         commandExitCode: summaryRequest.commandExitCode,
         requestTimeoutSeconds: summaryRequest.requestTimeoutSeconds,
         timing: summaryRequest.timing,
+        promptPrefix: summaryRequest.promptPrefix,
+        llamaCppOverrides: summaryRequest.llamaCppOverrides,
         statusBackendUrl: `${serviceBaseUrl}/status`,
         config: readConfig(configPath),
       });

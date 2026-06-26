@@ -6,6 +6,7 @@ import type {
   SummaryTimingInput,
 } from '../summary/types.js';
 import type { DashboardRunLogType } from './dashboard-runs.js';
+import type { RuntimeLlamaCppConfig } from '../config/index.js';
 
 export type RepoSearchRouteRequest = {
   prompt: string;
@@ -25,6 +26,8 @@ export type SummaryRouteRequest = {
   commandExitCode: number | undefined;
   requestTimeoutSeconds: number;
   timing: SummaryTimingInput | undefined;
+  promptPrefix: string | undefined;
+  llamaCppOverrides: Pick<RuntimeLlamaCppConfig, 'MaxTokens'> | undefined;
 };
 
 export type DashboardRunLogDeleteRequest =
@@ -102,6 +105,15 @@ export function parseRepoSearchRequest(body: JsonObject): RepoSearchRouteRequest
   };
 }
 
+function parseLlamaCppOverrides(reader: JsonRecordReader): Pick<RuntimeLlamaCppConfig, 'MaxTokens'> | undefined {
+  const overrides = reader.object('llamaCppOverrides');
+  if (overrides === null) {
+    return undefined;
+  }
+  const maxTokens = new JsonRecordReader(overrides).number('MaxTokens');
+  return maxTokens === null ? undefined : { MaxTokens: maxTokens };
+}
+
 export function parseSummaryRequest(body: JsonObject): SummaryRouteRequest | null {
   const reader = new JsonRecordReader(body);
   const question = reader.optionalString('question');
@@ -110,6 +122,8 @@ export function parseSummaryRequest(body: JsonObject): SummaryRouteRequest | nul
   if (!question || !inputText.trim()) {
     return null;
   }
+  const promptPrefixValue = reader.value('promptPrefix');
+  const promptPrefix = typeof promptPrefixValue === 'string' ? promptPrefixValue : undefined;
   return {
     question,
     inputText,
@@ -121,6 +135,8 @@ export function parseSummaryRequest(body: JsonObject): SummaryRouteRequest | nul
     commandExitCode: optionalNumber(reader, 'commandExitCode'),
     requestTimeoutSeconds: reader.positiveNumber('requestTimeoutSeconds', DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_SECONDS),
     timing: readSummaryTiming(reader.value('timing')),
+    promptPrefix,
+    llamaCppOverrides: parseLlamaCppOverrides(reader),
   };
 }
 
