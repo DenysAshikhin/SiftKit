@@ -39,6 +39,8 @@ test('core route request normalizers return typed values', () => {
     commandExitCode: 1,
     requestTimeoutSeconds: 5,
     timing: undefined,
+    promptPrefix: undefined,
+    llamaCppOverrides: undefined,
   });
 
   assert.deepEqual(parseDashboardRunLogDeleteRequest({ mode: 'count', type: 'summary', count: '4' }), {

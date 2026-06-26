@@ -3,19 +3,11 @@
 Remaining work items only. Resolved findings are deleted or narrowed as they are fixed, so finding numbers (F-series) and LLM-behavior items (L-series) have gaps. Re-verify every item against current code before acting.
 
 Original audit date: 2026-06-09.
-Last pruned: 2026-06-25.
+Last pruned: 2026-06-26.
 
 ---
 
 ## Findings
-
-### F15. Repackage benchmark/eval code and dedupe bench harness modules
-
-`src/eval.ts` and `src/benchmark-spec-settings.ts:1` remain in the shipping `src/` graph. `bench/benchmark/` and `bench/benchmark-matrix/` still carry parallel `args.ts`, `interrupt.ts`, `runner.ts`, and `types.ts` roles.
-
-Remaining work: move eval/benchmark runtime code to the server/workspace package boundary, then factor duplicated bench harness pieces into common bench utilities. As part of this, route the bench direct `summarizeRequest` callers (`bench/benchmark/runner.ts`, `bench/repro/run-benchmark-fixture-debug.ts`) through `POST /summary` — after F11 they run with no cross-process serialization.
-
----
 
 # Part 2 - LLM-behavior analysis
 
@@ -89,5 +81,4 @@ Remaining work: require web grounding only when the answer makes external/curren
 
 ## Priority order
 
-1. Repackage eval/benchmark code and dedupe bench harness modules during the server/workspace split (F15).
-2. Fix repo-search/chat LLM behavior in this order: append-only/non-assistant harness messages (L4, L5, L7), finish policy and duplicate pressure (L2, L3), parser repair boundaries (L6), real chat condense and prompt accounting (L10), sampling ownership by request class (L1), default prompt and web-grounding scope (L8, L11), tool replay truncation labeling (L9).
+1. Fix repo-search/chat LLM behavior in this order: append-only/non-assistant harness messages (L4, L5, L7), finish policy and duplicate pressure (L2, L3), parser repair boundaries (L6), real chat condense and prompt accounting (L10), sampling ownership by request class (L1), default prompt and web-grounding scope (L8, L11), tool replay truncation labeling (L9).
