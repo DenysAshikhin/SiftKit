@@ -2,6 +2,8 @@ import {
   getActiveManagedLlamaPreset,
   getConfiguredLlamaBaseUrl,
   getConfiguredLlamaSetting,
+  getSelectedBackend,
+  type InferenceBackendId,
   type SiftConfig,
 } from '../config/index.js';
 import { httpClient, LlamaHttpError, type FullJsonResponse } from '../lib/http-client.js';
@@ -27,6 +29,7 @@ import type {
   NormalizedLlamaCppChatResponse,
 } from './types.js';
 import { LlamaCppToolCallParser } from './tool-call-parser.js';
+import { InferenceRequestBuilder } from './inference-request-builder.js';
 
 type LlamaCppHttpClient = Pick<typeof httpClient, 'requestJsonFull' | 'streamSse'>;
 
@@ -98,6 +101,7 @@ const RawModelListResponseSchema = z.object({
   models: z.array(z.string()).optional(),
 });
 type RawModelListResponse = z.infer<typeof RawModelListResponseSchema>;
+const inferenceRequestBuilder = new InferenceRequestBuilder();
 
 export type LlamaCppModelProbeResult = {
   statusCode: number;
@@ -106,6 +110,7 @@ export type LlamaCppModelProbeResult = {
 };
 
 export type LlamaCppChatOptions = {
+  backend?: InferenceBackendId;
   config: SiftConfig;
   baseUrl?: string;
   model: string;
@@ -241,22 +246,25 @@ export class LlamaCppClient {
     const reasoningContentEnabled = resolvedReasoning === 'on' && activePreset?.ReasoningContent === true;
     const preserveThinkingEnabled = reasoningContentEnabled && activePreset?.PreserveThinking === true;
     return {
-      model: options.model,
-      messages: options.messages,
-      cache_prompt: options.cachePrompt ?? true,
-      ...(Number.isInteger(options.slotId) ? { id_slot: Number(options.slotId) } : {}),
-      ...(typeof options.temperature === 'number' ? { temperature: options.temperature } : {}),
-      ...(options.tools.length > 0 ? { tools: options.tools, parallel_tool_calls: true } : {}),
-      max_tokens: options.maxTokens,
-      stream: options.stream,
-      ...(resolvedReasoning === undefined ? {} : {
-        chat_template_kwargs: {
-          enable_thinking: resolvedReasoning === 'on',
-          ...(reasoningContentEnabled ? { reasoning_content: true } : {}),
-          ...(preserveThinkingEnabled ? { preserve_thinking: true } : {}),
+      ...inferenceRequestBuilder.build({
+        backend: options.backend ?? getSelectedBackend(options.config),
+        model: options.model,
+        messages: options.messages,
+        tools: options.tools,
+        maxTokens: options.maxTokens,
+        ...(typeof options.temperature === 'number' ? { temperature: options.temperature } : {}),
+        stream: options.stream,
+        ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}),
+        thinking: {
+          ...(resolvedReasoning === undefined ? {} : { enabled: resolvedReasoning === 'on' }),
+          reasoningContent: reasoningContentEnabled,
+          preserve: preserveThinkingEnabled,
+        },
+        llama: {
+          cachePrompt: options.cachePrompt ?? true,
+          ...(Number.isInteger(options.slotId) ? { slotId: Number(options.slotId) } : {}),
         },
       }),
-      ...(options.responseFormat ? { response_format: options.responseFormat } : {}),
       ...(options.extraBody || {}),
     };
   }
@@ -264,7 +272,7 @@ export class LlamaCppClient {
   private async streamChatAtBaseUrl(baseUrl: string, options: LlamaCppChatOptions): Promise<NormalizedLlamaCppChatResponse> {
     const startedAt = Date.now();
     const url = `${baseUrl.replace(/\/$/u, '')}/v1/chat/completions`;
-    const body = JSON.stringify({ ...this.buildChatRequest(options), stream: true, timings_per_token: true });
+    const body = JSON.stringify(this.buildChatRequest(options));
     const parser = new LlamaCppToolCallParser(options.allowedToolNames);
     const toolChunks = new Map<number, { id: string; name: string; argumentsText: string }>();
     let contentText = '';
