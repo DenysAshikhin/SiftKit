@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { getDefaultConfig, normalizeConfig, normalizeWebSearchConfig } from '../src/status-server/config-store';
 import { JsonValueSchema, type JsonObject } from '../src/lib/json-types';
-import type { SiftConfig, ServerManagedLlamaPreset } from '../src/config/types';
+import type { SiftConfig, ModelRuntimePreset } from '../src/config/types';
 import { asObject, asObjectArray } from './helpers/dashboard-http';
 
 test('normalizeWebSearchConfig produces provider defaults and clamps ResultCount to 20', () => {
@@ -29,14 +29,14 @@ function defaultConfigObject(): JsonObject {
 }
 
 // Typed active preset for reading normalized output.
-function activePreset(config: SiftConfig): ServerManagedLlamaPreset {
-  return config.Server.LlamaCpp.Presets[0];
+function activePreset(config: SiftConfig): ModelRuntimePreset {
+  return config.Server.ModelPresets.Presets[0];
 }
 
 // Mutable JSON view of the active preset, for tests that inject invalid values.
 function activePresetObject(config: JsonObject): JsonObject {
-  const llama = asObject(asObject(config.Server).LlamaCpp);
-  return asObjectArray(llama.Presets)[0];
+  const modelPresets = asObject(asObject(config.Server).ModelPresets);
+  return asObjectArray(modelPresets.Presets)[0];
 }
 
 function configWithSpeculativeType(speculativeType: string): JsonObject {
@@ -61,15 +61,46 @@ test('normalizeConfig produces default WebSearch config', () => {
   });
 });
 
-test('normalizeConfig supplies the default inference backend and EXL3 profile', () => {
+test('normalization rejects removed global and backend-specific configuration shapes', () => {
+  const defaults = defaultConfigObject();
+  assert.throws(
+    () => normalizeConfig(JsonValueSchema.parse({
+      ...defaults,
+      Inference: { SelectedBackend: 'exl3', Thinking: { Enabled: false, Preserve: false } },
+    })),
+    /Unsupported configuration field Inference\.SelectedBackend; select Backend on each model preset\./u,
+  );
+  assert.throws(
+    () => normalizeConfig(JsonValueSchema.parse({
+      ...defaults,
+      Server: { ...asObject(defaults.Server), LlamaCpp: {} },
+    })),
+    /Unsupported configuration field Server\.LlamaCpp; use Server\.ModelPresets\./u,
+  );
+  assert.throws(
+    () => normalizeConfig(JsonValueSchema.parse({
+      ...defaults,
+      Runtime: { ...asObject(defaults.Runtime), Model: 'legacy-model' },
+    })),
+    /Unsupported configuration field Runtime\.Model; use the active model preset/u,
+  );
+  assert.throws(
+    () => normalizeConfig(JsonValueSchema.parse({
+      ...defaults,
+      Server: { ...asObject(defaults.Server), Exl3: {} },
+    })),
+    /Unsupported configuration field Server\.Exl3; use Server\.Engines\.Exl3\./u,
+  );
+});
+
+test('normalizeConfig supplies the default preset backend and EXL3 engine', () => {
   const normalized = normalizeConfig({});
   const serialized = JSON.stringify(normalized);
 
-  assert.match(serialized, /"SelectedBackend":"llama"/u);
-  assert.match(serialized, /"BaseUrl":"http:\/\/127\.0\.0\.1:8098"/u);
+  assert.match(serialized, /"Backend":"llama"/u);
   assert.match(serialized, /"WorkingDirectory":"C:\\\\Users\\\\denys\\\\Documents\\\\GitHub\\\\TabbyAPI"/u);
   assert.match(serialized, /"PythonPath":"C:\\\\envs\\\\rl310\\\\Scripts\\\\python\.exe"/u);
-  assert.match(serialized, /"ModelId":"3\.6_27B"/u);
+  assert.match(serialized, /"ModelRoot":"D:\\\\personal\\\\models\\\\elx3"/u);
 });
 
 test('normalizeConfig clamps WebSearch bounds, trims keys, and repairs ProviderOrder', () => {
@@ -101,9 +132,9 @@ test('normalizeConfig clamps WebSearch bounds, trims keys, and repairs ProviderO
   });
 });
 
-test('normalizeConfig keeps Server.LlamaCpp as a presets-only shape', () => {
+test('normalizeConfig keeps Server.ModelPresets as a presets-only shape', () => {
   const normalized = normalizeConfig(getDefaultConfig());
-  const llama = normalized.Server.LlamaCpp;
+  const llama = normalized.Server.ModelPresets;
 
   assert.deepEqual(Object.keys(llama).sort(), ['ActivePresetId', 'Presets']);
   assert.ok(Array.isArray(llama.Presets));
@@ -112,10 +143,10 @@ test('normalizeConfig keeps Server.LlamaCpp as a presets-only shape', () => {
 
 test('normalizeConfig falls back an unknown ActivePresetId to the first preset', () => {
   const config = defaultConfigObject();
-  asObject(asObject(config.Server).LlamaCpp).ActivePresetId = 'does-not-exist';
+  asObject(asObject(config.Server).ModelPresets).ActivePresetId = 'does-not-exist';
 
   const normalized = normalizeConfig(JsonValueSchema.parse(config));
-  const llama = normalized.Server.LlamaCpp;
+  const llama = normalized.Server.ModelPresets;
 
   assert.equal(llama.ActivePresetId, llama.Presets[0].id);
 });

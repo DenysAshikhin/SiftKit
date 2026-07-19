@@ -3,7 +3,7 @@ import path from 'node:path';
 import { z } from '../../src/lib/zod.js';
 import { UNSUPPORTED_INPUT_MESSAGE } from '../../src/summary/measure.js';
 import { getDefaultOperationModeAllowedTools, normalizePresets } from '../../src/presets.js';
-import { normalizeManagedLlamaPresetArray } from '../../src/config/normalization.js';
+import { normalizeModelRuntimePresetArray } from '../../src/config/normalization.js';
 import {
   JsonValueSchema,
   JsonObjectSchema,
@@ -12,7 +12,7 @@ import {
   type JsonValue,
   type MutableJsonObject,
 } from '../../src/lib/json-types.js';
-import type { Exl3Profile, InferenceConfig, SiftConfig } from '../../src/config/types.js';
+import type { Exl3EngineConfig, InferenceConfig, SiftConfig } from '../../src/config/types.js';
 
 // Chat-request view types are derived from runtime schemas so the JSON catchall
 // (tests read arbitrary keys like cache_prompt/id_slot/max_tokens off captured
@@ -60,23 +60,18 @@ export function deriveServiceUrl(configuredUrl: string, nextPath: string): strin
 
 export function getTestInferenceConfig(): InferenceConfig {
   return {
-    SelectedBackend: 'llama',
     Thinking: { Enabled: false, Preserve: false },
   };
 }
 
-export function getTestExl3Profile(): Exl3Profile {
+export function getTestExl3Engine(): Exl3EngineConfig {
   return {
     Managed: true,
-    BaseUrl: 'http://127.0.0.1:8098',
     WorkingDirectory: 'C:\\Users\\denys\\Documents\\GitHub\\TabbyAPI',
     PythonPath: 'C:\\envs\\rl310\\Scripts\\python.exe',
     Entrypoint: 'main.py',
     ConfigPath: 'config.yml',
-    ModelId: '3.6_27B',
-    StartupTimeoutMs: 600_000,
-    HealthcheckTimeoutMs: 2_000,
-    HealthcheckIntervalMs: 1_000,
+    ModelRoot: 'D:\\personal\\models\\elx3',
     ShutdownTimeoutMs: 30_000,
   };
 }
@@ -92,7 +87,6 @@ export function getDefaultConfig(): SiftConfig {
     ExpandReads: true,
     Inference: getTestInferenceConfig(),
     Runtime: {
-      Model: 'qwen3.5-9b-instruct-q4_k_m',
       LlamaCpp: {
         BaseUrl: 'http://127.0.0.1:8080',
         NumCtx: 128000,
@@ -111,17 +105,18 @@ export function getDefaultConfig(): SiftConfig {
       },
     },
     Server: {
-      LlamaCpp: {
+      ModelPresets: {
         ActivePresetId: 'default',
-        Presets: normalizeManagedLlamaPresetArray([{
+        Presets: normalizeModelRuntimePresetArray([{
           id: 'default',
           label: 'Default',
+          Backend: 'llama',
           Model: 'qwen3.5-9b-instruct-q4_k_m',
           BaseUrl: 'http://127.0.0.1:8080',
           NumCtx: 128000,
         }], {}),
       },
-      Exl3: getTestExl3Profile(),
+      Engines: { Exl3: getTestExl3Engine() },
     },
     Thresholds: {
       MinCharactersForSummary: 500,
@@ -205,7 +200,7 @@ export function getChatRequestText(request: ChatRequest | null | undefined): str
 
 export function setManagedLlamaBaseUrl(config: SiftConfig, baseUrl: string): void {
   config.Runtime.LlamaCpp.BaseUrl = baseUrl;
-  for (const preset of config.Server.LlamaCpp.Presets) {
+  for (const preset of config.Server.ModelPresets.Presets) {
     preset.BaseUrl = baseUrl;
   }
 }

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  getActiveManagedLlamaPreset,
+  getActiveModelPreset,
   getManagedLlamaConfig,
 } from '../src/status-server/config-store.js';
 import { mockConfig } from './_runtime-helpers.js';
@@ -10,7 +10,7 @@ import type { SiftConfig } from '../src/config/index.js';
 function configWithPresets(): SiftConfig {
   return mockConfig({
     Server: {
-      LlamaCpp: {
+      ModelPresets: {
         ActivePresetId: 'b',
         Presets: [
           { id: 'a', label: 'A', Model: 'a.gguf', NumCtx: 1000 },
@@ -21,16 +21,16 @@ function configWithPresets(): SiftConfig {
   });
 }
 
-test('getActiveManagedLlamaPreset returns the preset matching ActivePresetId', () => {
-  const preset = getActiveManagedLlamaPreset(configWithPresets());
+test('getActiveModelPreset returns the preset matching ActivePresetId', () => {
+  const preset = getActiveModelPreset(configWithPresets());
   assert.equal(preset.id, 'b');
   assert.equal(preset.NumCtx, 85000);
 });
 
-test('getActiveManagedLlamaPreset falls back to the first preset', () => {
+test('getActiveModelPreset falls back to the first preset', () => {
   const config = configWithPresets();
-  config.Server.LlamaCpp.ActivePresetId = 'missing';
-  assert.equal(getActiveManagedLlamaPreset(config).id, 'a');
+  config.Server.ModelPresets.ActivePresetId = 'missing';
+  assert.equal(getActiveModelPreset(config).id, 'a');
 });
 
 test('getManagedLlamaConfig resolves NumCtx and Model from the active preset', () => {

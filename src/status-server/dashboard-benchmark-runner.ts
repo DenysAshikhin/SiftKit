@@ -70,17 +70,18 @@ function applyCaseConfig(originalConfig: SiftConfig, attempt: BenchmarkAttemptRe
   }
   const config = structuredClone(originalConfig);
   const server = config.Server;
-  const llama = server.LlamaCpp;
-  const presets = llama.Presets.map((entry) => ({ ...entry }));
+  const modelPresets = server.ModelPresets;
+  const presets = modelPresets.Presets.map((entry) => ({ ...entry }));
   const selectedPreset = presets.find((entry) => String(entry.id || '') === benchmarkCase.managedPresetId) || benchmarkCase.managedPreset;
-  const merged = { ...llama, ...selectedPreset, ...benchmarkCase.specOverride };
-  merged.Presets = presets.map((entry) => (
+  const updatedPresets = presets.map((entry) => (
     String(entry.id || '') === benchmarkCase.managedPresetId
       ? { ...entry, ...benchmarkCase.specOverride }
       : entry
   ));
-  merged.ActivePresetId = benchmarkCase.managedPresetId;
-  server.LlamaCpp = merged;
+  server.ModelPresets = {
+    Presets: updatedPresets,
+    ActivePresetId: benchmarkCase.managedPresetId,
+  };
   config.Server = server;
   return normalizeConfig(config);
 }

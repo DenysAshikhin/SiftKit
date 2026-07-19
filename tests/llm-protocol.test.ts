@@ -186,13 +186,13 @@ function jsonResponse(body: JsonValue, statusCode = 200, rawText = JSON.stringif
 
 function buildProtocolConfig(preserveThinking = false): SiftConfig {
   const config = getDefaultConfigObject();
-  config.Runtime.Model = 'local';
+  config.Server.ModelPresets.Presets[0].Model = 'local';
   config.Runtime.LlamaCpp = {
     ...config.Runtime.LlamaCpp,
     BaseUrl: 'http://127.0.0.1:8097',
     Reasoning: 'on',
   };
-  const preset = config.Server.LlamaCpp.Presets[0];
+  const preset = config.Server.ModelPresets.Presets[0];
   if (!preset) {
     throw new Error('default config must include a managed llama preset');
   }
@@ -203,7 +203,7 @@ function buildProtocolConfig(preserveThinking = false): SiftConfig {
   preset.Reasoning = 'on';
   preset.ReasoningContent = true;
   preset.PreserveThinking = preserveThinking;
-  config.Server.LlamaCpp.ActivePresetId = 'p1';
+  config.Server.ModelPresets.ActivePresetId = 'p1';
   return config;
 }
 
@@ -348,8 +348,8 @@ test('tool-call parser extracts Qwen XML tool calls from plain text', () => {
 
 test('EXL3 token counting uses the Tabby OpenAI token endpoint', async () => {
   const config = buildProtocolConfig();
-  config.Inference.SelectedBackend = 'exl3';
-  config.Server.Exl3.BaseUrl = 'http://127.0.0.1:8098';
+  config.Server.ModelPresets.Presets[0].Backend = 'exl3';
+  config.Server.ModelPresets.Presets[0].BaseUrl = 'http://127.0.0.1:8098';
   const http = new CapturingHttpClient([jsonResponse({ length: 50106, tokens: [1, 2] })]);
 
   const response = await new LlamaCppClient(http).countTokens(config, 'large prompt');
@@ -361,8 +361,8 @@ test('EXL3 token counting uses the Tabby OpenAI token endpoint', async () => {
 
 test('EXL3 omits Tabby grammar inputs and parses Qwen XML tool calls', async () => {
   const config = buildProtocolConfig();
-  config.Inference.SelectedBackend = 'exl3';
-  config.Server.Exl3.BaseUrl = 'http://127.0.0.1:8098';
+  config.Server.ModelPresets.Presets[0].Backend = 'exl3';
+  config.Server.ModelPresets.Presets[0].BaseUrl = 'http://127.0.0.1:8098';
   const http = new CapturingHttpClient([
     jsonResponse({
       choices: [{
@@ -405,8 +405,8 @@ test('EXL3 omits Tabby grammar inputs and parses Qwen XML tool calls', async () 
 
 test('EXL3 chat requests are serialized for a single Tabby cache slot', async () => {
   const config = buildProtocolConfig();
-  config.Inference.SelectedBackend = 'exl3';
-  config.Server.Exl3.BaseUrl = 'http://127.0.0.1:8098';
+  config.Server.ModelPresets.Presets[0].Backend = 'exl3';
+  config.Server.ModelPresets.Presets[0].BaseUrl = 'http://127.0.0.1:8098';
   const http = new BlockingHttpClient();
   const client = new LlamaCppClient(http);
   const options = {
@@ -574,8 +574,7 @@ test('llama client covers timing cache, top-level thinking tokens, and top-level
 test('llama client covers prompt-token cache fallback, empty response normalization, and disabled reasoning kwargs', async () => {
   const noReasoningConfig = buildProtocolConfig();
   noReasoningConfig.Runtime.LlamaCpp.Reasoning = null;
-  noReasoningConfig.Server.LlamaCpp.Presets = [];
-  noReasoningConfig.Server.LlamaCpp.ActivePresetId = 'missing';
+  noReasoningConfig.Server.ModelPresets.Presets[0].Reasoning = 'off';
   const http = new CapturingHttpClient([
     jsonResponse({
       choices: [{
@@ -606,7 +605,7 @@ test('llama client covers prompt-token cache fallback, empty response normalizat
     allowedToolNames: [],
   });
   const body = JSON.parse(String(http.requests[0]?.body || '{}'));
-  assert.equal(body.chat_template_kwargs, undefined);
+  assert.deepEqual(body.chat_template_kwargs, { enable_thinking: false });
   assert.equal(response.text, 'answer');
   assert.equal(response.reasoningText, 'trace');
   assert.equal(response.usage.promptCacheTokens, 3);

@@ -17,13 +17,14 @@ import {
 } from './constants.js';
 import { initializeRuntime } from './paths.js';
 import { getDefaultOperationModeAllowedTools, normalizePresets } from '../presets.js';
-import type { ServerManagedLlamaPreset, SiftConfig } from './types.js';
+import type { ModelRuntimePreset, SiftConfig } from './types.js';
 
 export function getDefaultConfigObject(): SiftConfig {
   const runtimePaths = initializeRuntime();
-  const defaultManagedLlamaPreset: ServerManagedLlamaPreset = {
+  const defaultModelPreset: ModelRuntimePreset = {
     id: 'default',
     label: 'Default',
+    Backend: 'llama',
     Model: SIFT_DEFAULT_LLAMA_MODEL,
     ExternalServerEnabled: false,
     ExecutablePath: null,
@@ -81,11 +82,9 @@ export function getDefaultConfigObject(): SiftConfig {
     ExpandReads: true,
     PromptPrefix: SIFT_DEFAULT_PROMPT_PREFIX,
     Inference: {
-      SelectedBackend: 'llama',
       Thinking: { Enabled: false, Preserve: false },
     },
     Runtime: {
-      Model: SIFT_DEFAULT_LLAMA_MODEL,
       LlamaCpp: {},
     },
     Thresholds: {
@@ -100,22 +99,20 @@ export function getDefaultConfigObject(): SiftConfig {
       TranscriptRetention: true,
     },
     Server: {
-      LlamaCpp: {
-        Presets: [defaultManagedLlamaPreset],
-        ActivePresetId: defaultManagedLlamaPreset.id,
+      ModelPresets: {
+        Presets: [defaultModelPreset],
+        ActivePresetId: defaultModelPreset.id,
       },
-      Exl3: {
-        Managed: true,
-        BaseUrl: 'http://127.0.0.1:8098',
-        WorkingDirectory: 'C:\\Users\\denys\\Documents\\GitHub\\TabbyAPI',
-        PythonPath: 'C:\\envs\\rl310\\Scripts\\python.exe',
-        Entrypoint: 'main.py',
-        ConfigPath: 'config.yml',
-        ModelId: '3.6_27B',
-        StartupTimeoutMs: 600_000,
-        HealthcheckTimeoutMs: 2_000,
-        HealthcheckIntervalMs: 1_000,
-        ShutdownTimeoutMs: 30_000,
+      Engines: {
+        Exl3: {
+          Managed: true,
+          WorkingDirectory: 'C:\\Users\\denys\\Documents\\GitHub\\TabbyAPI',
+          PythonPath: 'C:\\envs\\rl310\\Scripts\\python.exe',
+          Entrypoint: 'main.py',
+          ConfigPath: 'config.yml',
+          ModelRoot: 'D:\\personal\\models\\elx3',
+          ShutdownTimeoutMs: 30_000,
+        },
       },
     },
     OperationModeAllowedTools: getDefaultOperationModeAllowedTools(),

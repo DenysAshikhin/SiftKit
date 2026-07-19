@@ -222,7 +222,6 @@ test('repo-search reports only processed prompt tokens to the status backend whe
           ...server.state.config,
           Runtime: {
             ...server.state.config.Runtime,
-            Model: 'mock-model',
             LlamaCpp: {
               ...server.state.config.Runtime.LlamaCpp,
               BaseUrl: `http://127.0.0.1:${server.port}`,

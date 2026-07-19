@@ -6,7 +6,7 @@ import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 
 const MOCK_CONFIG = mockSiftConfig({
-  Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
+  Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
 });
 
 test('executeRepoSearchRequest chat kind returns finalOutput in scorecard, no tools', async () => {
@@ -41,7 +41,7 @@ test('executeRepoSearchRequest chat with web tools runs native web_search', asyn
     availableModels: ['mock'],
     model: 'mock',
     config: mockSiftConfig({
-      Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
+      Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
       WebSearch: { EnabledDefault: true, Providers: { tavily: { Enabled: true, ApiKey: 'test-key' }, firecrawl: { Enabled: false, ApiKey: '' } }, ProviderOrder: ['tavily', 'firecrawl'], ResultCount: 5, FetchMaxPages: 3, TimeoutMs: 15000, FetchMaxCharacters: 12000 },
     }),
     mockResponses: [
@@ -277,7 +277,7 @@ test('chat executor with thinking off yields zero thinking tokens', async () => 
     allowedTools: [],
     availableModels: ['mock'],
     model: 'mock',
-    config: mockSiftConfig({ Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000, Reasoning: 'on' } } }),
+    config: mockSiftConfig({ Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000, Reasoning: 'on' } } }),
     mockResponses: ['{"action":"finish","output":"Hello"}'],
   });
   const tasks = result.scorecard.tasks;

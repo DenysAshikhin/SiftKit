@@ -19,7 +19,7 @@ import type {
   ChatSession,
   ContextUsage,
   DashboardConfig,
-  DashboardManagedLlamaPreset,
+  DashboardModelRuntimePreset,
   DashboardBenchmarkAttempt,
   DashboardBenchmarkQuestionPreset,
   DashboardBenchmarkSession,
@@ -134,6 +134,7 @@ const BENCHMARK_ATTEMPT = {
 const MANAGED_PRESET = {
   id: 'managed',
   label: 'Managed',
+  Backend: 'llama',
   Model: 'test-model',
   ExternalServerEnabled: false,
   ExecutablePath: null,
@@ -180,7 +181,7 @@ const MANAGED_PRESET = {
   HealthcheckIntervalMs: 500,
   SleepIdleSeconds: 600,
   VerboseLogging: false,
-} satisfies DashboardManagedLlamaPreset & {
+} satisfies DashboardModelRuntimePreset & {
   SpeculativeEnabled: boolean;
   SpeculativeType: string;
   SpeculativeMtpEnabled: boolean;
@@ -219,35 +220,16 @@ const DASHBOARD_CONFIG = {
   IncludeRepoFileListing: true,
   ExpandReads: true,
   PromptPrefix: '',
+  Inference: {
+    Thinking: { Enabled: false, Preserve: false },
+  },
   OperationModeAllowedTools: {
     summary: ['read_lines'],
     'read-only': ['read_lines'],
     full: ['read_lines'],
   },
   Presets: [PRESET],
-  LlamaCpp: {
-    BaseUrl: 'http://127.0.0.1:8080',
-    NumCtx: 4096,
-    ModelPath: null,
-    Temperature: 0.7,
-    TopP: 0.9,
-    TopK: 40,
-    MinP: 0.05,
-    PresencePenalty: 0,
-    RepetitionPenalty: 1.1,
-    MaxTokens: 512,
-    GpuLayers: 0,
-    Threads: 4,
-    NcpuMoe: 0,
-    FlashAttention: false,
-    ParallelSlots: 1,
-    Reasoning: 'off',
-    ReasoningContent: false,
-    PreserveThinking: false,
-    MaintainPerStepThinking: false,
-  },
   Runtime: {
-    Model: 'test-model',
     LlamaCpp: {
       BaseUrl: 'http://127.0.0.1:8080',
       NumCtx: 4096,
@@ -282,9 +264,20 @@ const DASHBOARD_CONFIG = {
     TranscriptRetention: true,
   },
   Server: {
-    LlamaCpp: {
+    ModelPresets: {
       Presets: [MANAGED_PRESET],
       ActivePresetId: MANAGED_PRESET.id,
+    },
+    Engines: {
+      Exl3: {
+        Managed: true,
+        WorkingDirectory: '',
+        PythonPath: 'python',
+        Entrypoint: 'tabbyAPI/main.py',
+        ConfigPath: 'tabbyAPI/config.yml',
+        ModelRoot: '',
+        ShutdownTimeoutMs: 10000,
+      },
     },
   },
   WebSearch: {
@@ -919,7 +912,7 @@ test('managed llama section turns maintain per step thinking on when reasoning i
     updateSettingsDraft: () => {},
     updateManagedLlamaDraft: (updater) => {
       const nextConfig = structuredClone(DASHBOARD_CONFIG);
-      const preset = nextConfig.Server.LlamaCpp.Presets[0];
+      const preset = nextConfig.Server.ModelPresets.Presets[0];
       updater(preset);
       updatedConfig = nextConfig;
     },
@@ -933,8 +926,8 @@ test('managed llama section turns maintain per step thinking on when reasoning i
   select.props.onChange?.({ target: { value: 'on' } });
 
   assert.ok(updatedConfig);
-  assert.equal(updatedConfig.Server.LlamaCpp.Presets[0]?.Reasoning, 'on');
-  assert.equal(updatedConfig.Server.LlamaCpp.Presets[0]?.MaintainPerStepThinking, true);
+  assert.equal(updatedConfig.Server.ModelPresets.Presets[0]?.Reasoning, 'on');
+  assert.equal(updatedConfig.Server.ModelPresets.Presets[0]?.MaintainPerStepThinking, true);
 });
 
 test('managed llama section hides speculative controls until n-gram speculation is enabled', () => {
@@ -963,7 +956,7 @@ test('managed llama section hides speculative controls until n-gram speculation 
   assert.equal(capturedFields.includes('SpeculativeDraftMax'), false);
 });
 
-function captureManagedLlamaFields(preset: DashboardManagedLlamaPreset): string[] {
+function captureManagedLlamaFields(preset: DashboardModelRuntimePreset): string[] {
   const capturedFields: string[] = [];
   renderToStaticMarkup(
     <ManagedLlamaSection
@@ -1001,7 +994,7 @@ test('managed llama section shows ngram-mod controls for ngram-mod speculation',
   const fields = captureManagedLlamaFields({
     ...MANAGED_PRESET,
     SpeculativeEnabled: true,
-    SpeculativeType: 'ngram-mod' satisfies DashboardManagedLlamaPreset['SpeculativeType'],
+    SpeculativeType: 'ngram-mod' satisfies DashboardModelRuntimePreset['SpeculativeType'],
   });
 
   assert.equal(fields.includes('SpeculativeNgramModNMatch'), true);
@@ -1015,7 +1008,7 @@ test('managed llama section shows draft-token controls when MTP combination is e
   const fields = captureManagedLlamaFields({
     ...MANAGED_PRESET,
     SpeculativeEnabled: true,
-    SpeculativeType: 'ngram-mod' satisfies DashboardManagedLlamaPreset['SpeculativeType'],
+    SpeculativeType: 'ngram-mod' satisfies DashboardModelRuntimePreset['SpeculativeType'],
     SpeculativeMtpEnabled: true,
   });
 
@@ -1029,7 +1022,7 @@ test('managed llama section hides the Combine with MTP toggle for draft speculat
   const fields = captureManagedLlamaFields({
     ...MANAGED_PRESET,
     SpeculativeEnabled: true,
-    SpeculativeType: 'draft-mtp' satisfies DashboardManagedLlamaPreset['SpeculativeType'],
+    SpeculativeType: 'draft-mtp' satisfies DashboardModelRuntimePreset['SpeculativeType'],
   });
 
   assert.equal(fields.includes('Combine with MTP'), false);
@@ -1039,7 +1032,7 @@ test('managed llama section shows only draft-token controls for draft-mtp specul
   const fields = captureManagedLlamaFields({
     ...MANAGED_PRESET,
     SpeculativeEnabled: true,
-    SpeculativeType: 'draft-mtp' satisfies DashboardManagedLlamaPreset['SpeculativeType'],
+    SpeculativeType: 'draft-mtp' satisfies DashboardModelRuntimePreset['SpeculativeType'],
   });
 
   assert.equal(fields.includes('Speculative type'), true);
@@ -1056,7 +1049,7 @@ test('managed llama section warns when an MTP combination uses parallel slots', 
       selectedManagedLlamaPreset={{
         ...MANAGED_PRESET,
         SpeculativeEnabled: true,
-        SpeculativeType: 'ngram-mod' satisfies DashboardManagedLlamaPreset['SpeculativeType'],
+        SpeculativeType: 'ngram-mod' satisfies DashboardModelRuntimePreset['SpeculativeType'],
         SpeculativeMtpEnabled: true,
         ParallelSlots: 2,
       }}
@@ -1082,7 +1075,7 @@ test('managed llama section warns when mtp speculation uses parallel slots', () 
       selectedManagedLlamaPreset={{
         ...MANAGED_PRESET,
         SpeculativeEnabled: true,
-        SpeculativeType: 'draft-mtp' satisfies DashboardManagedLlamaPreset['SpeculativeType'],
+        SpeculativeType: 'draft-mtp' satisfies DashboardModelRuntimePreset['SpeculativeType'],
         ParallelSlots: 2,
       }}
       settingsActionBusy={false}
@@ -1134,9 +1127,9 @@ test('managed llama model name is derived from model path and model field is hid
   assert.ok(modelPathInput?.props.onChange);
   modelPathInput.props.onChange({ target: { value: 'D:\\personal\\models\\Qwen3.5-27B-Q4_K_M.gguf' } });
   assert.ok(updatedConfig);
-  assert.equal(updatedConfig.Server.LlamaCpp.Presets[0]?.Model, 'Qwen3.5-27B-Q4_K_M.gguf');
-  assert.equal(updatedConfig.Runtime.Model, 'Qwen3.5-27B-Q4_K_M.gguf');
-  assert.equal(updatedConfig.Server.LlamaCpp.Presets[0]?.ModelPath, 'D:\\personal\\models\\Qwen3.5-27B-Q4_K_M.gguf');
+  assert.equal(updatedConfig.Server.ModelPresets.Presets[0]?.Model, 'Qwen3.5-27B-Q4_K_M.gguf');
+  assert.equal(updatedConfig.Server.ModelPresets.Presets[0].Model, 'Qwen3.5-27B-Q4_K_M.gguf');
+  assert.equal(updatedConfig.Server.ModelPresets.Presets[0]?.ModelPath, 'D:\\personal\\models\\Qwen3.5-27B-Q4_K_M.gguf');
 });
 
 test('managed llama external server setting updates active preset and server config', () => {
@@ -1166,7 +1159,7 @@ test('managed llama external server setting updates active preset and server con
   updatedConfig = nextConfig;
 
   assert.ok(updatedConfig);
-  assert.equal(updatedConfig.Server.LlamaCpp.Presets[0]?.ExternalServerEnabled, true);
+  assert.equal(updatedConfig.Server.ModelPresets.Presets[0]?.ExternalServerEnabled, true);
 });
 
 test('managed llama section renders external server controls', () => {

@@ -1,4 +1,4 @@
-import { getSelectedBackend, type SiftConfig } from '../../config/index.js';
+import { getActiveInferenceBackend, type SiftConfig } from '../../config/index.js';
 import { getDynamicMaxOutputTokens } from '../../lib/dynamic-output-cap.js';
 import { requestTerminalSynthesis } from '../planner-protocol.js';
 import { countTokensWithFallback } from '../prompt-budget.js';
@@ -62,7 +62,7 @@ export class TerminalSynthesizer {
     for (let attempt = 1; attempt <= MAX_SYNTHESIS_ATTEMPTS; attempt += 1) {
       try {
         const synthesisResponse = await requestTerminalSynthesis({
-          backend: this.options.config ? getSelectedBackend(this.options.config) : undefined,
+          backend: this.options.config ? getActiveInferenceBackend(this.options.config) : undefined,
           baseUrl: this.options.baseUrl,
           model: this.options.model,
           prompt: synthesisPrompt,

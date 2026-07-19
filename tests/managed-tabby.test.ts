@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.js';
+import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { getFreePort } from './_runtime-helpers.js';
 
 async function assertPortClosed(port: number): Promise<void> {
@@ -39,18 +40,24 @@ server.listen(${port}, '127.0.0.1');
 process.on('SIGTERM', () => server.close(() => process.exit(0)));
 `, 'utf8');
 
+  const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('Default model preset is missing');
   const runtime = new ManagedTabbyRuntime({
     Managed: true,
-    BaseUrl: `http://127.0.0.1:${port}`,
     WorkingDirectory: root,
     PythonPath: process.execPath,
     Entrypoint: path.basename(scriptPath),
     ConfigPath: 'config.yml',
-    ModelId: '3.6_27B',
+    ModelRoot: root,
+    ShutdownTimeoutMs: 5_000,
+  }, {
+    ...preset,
+    Backend: 'exl3',
+    BaseUrl: `http://127.0.0.1:${port}`,
+    Model: '3.6_27B',
     StartupTimeoutMs: 5_000,
     HealthcheckTimeoutMs: 500,
     HealthcheckIntervalMs: 20,
-    ShutdownTimeoutMs: 5_000,
   });
 
   try {
@@ -78,18 +85,24 @@ const server = http.createServer((request, response) => {
 });
 server.listen(${port}, '127.0.0.1');
 `, 'utf8');
+  const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('Default model preset is missing');
   const runtime = new ManagedTabbyRuntime({
     Managed: true,
-    BaseUrl: `http://127.0.0.1:${port}`,
     WorkingDirectory: root,
     PythonPath: process.execPath,
     Entrypoint: path.basename(scriptPath),
     ConfigPath: 'config.yml',
-    ModelId: '3.6_27B',
+    ModelRoot: root,
+    ShutdownTimeoutMs: 2_000,
+  }, {
+    ...preset,
+    Backend: 'exl3',
+    BaseUrl: `http://127.0.0.1:${port}`,
+    Model: '3.6_27B',
     StartupTimeoutMs: 150,
     HealthcheckTimeoutMs: 50,
     HealthcheckIntervalMs: 20,
-    ShutdownTimeoutMs: 2_000,
   });
 
   try {

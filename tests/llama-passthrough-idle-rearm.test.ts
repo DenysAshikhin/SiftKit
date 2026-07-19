@@ -51,7 +51,6 @@ function createPassthroughHarness(tempRoot: string): Promise<TestHarness> {
       writeConfig(configPath, mockConfig({
         Backend: 'llama.cpp',
         Runtime: {
-          Model: 'test-model',
           LlamaCpp: {
             BaseUrl: upstreamBaseUrl,
             ModelPath: path.join(tempRoot, 'fake-model.gguf'),
@@ -59,7 +58,7 @@ function createPassthroughHarness(tempRoot: string): Promise<TestHarness> {
           },
         },
         Server: {
-          LlamaCpp: {
+          ModelPresets: {
             ActivePresetId: 'default',
             Presets: [{
               id: 'default',

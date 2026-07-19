@@ -380,13 +380,13 @@ function logProviderRetry(options: {
 function buildPlannerRequestConfig(options: PlannerRequestOptions): SiftConfig {
   const reasoning = options.thinkingEnabled ? 'on' : 'off';
   const base = getDefaultConfigObject();
-  const defaultPreset = base.Server.LlamaCpp.Presets[0];
+  const defaultPreset = base.Server.ModelPresets.Presets[0];
+  if (!defaultPreset) throw new Error('Default model preset is missing.');
   return {
     ...base,
     Backend: 'llama.cpp',
     Runtime: {
       ...base.Runtime,
-      Model: options.model,
       LlamaCpp: {
         ...base.Runtime.LlamaCpp,
         BaseUrl: options.baseUrl,
@@ -395,8 +395,8 @@ function buildPlannerRequestConfig(options: PlannerRequestOptions): SiftConfig {
     },
     Server: {
       ...base.Server,
-      LlamaCpp: {
-        ...base.Server.LlamaCpp,
+      ModelPresets: {
+        ...base.Server.ModelPresets,
         ActivePresetId: 'planner',
         Presets: [{
           ...defaultPreset,

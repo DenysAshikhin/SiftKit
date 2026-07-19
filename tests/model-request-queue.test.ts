@@ -16,23 +16,11 @@ import {
   releaseModelRequest,
 } from '../src/status-server/server-ops.js';
 import type { ServerContext } from '../src/status-server/server-types.js';
-import { BackendSwitchCoordinator, type BackendSelectionStore } from '../src/status-server/backend-switch-coordinator.js';
+import { BackendSwitchCoordinator } from '../src/status-server/backend-switch-coordinator.js';
 import { ManagedInferenceRuntime } from '../src/status-server/managed-inference-runtime.js';
 import type { InferenceBackendId } from '../src/config/types.js';
 
 type StdoutLine = string;
-
-class QueueSelectionStore implements BackendSelectionStore {
-  selected: InferenceBackendId = 'llama';
-
-  getSelectedBackend(): InferenceBackendId {
-    return this.selected;
-  }
-
-  saveSelectedBackend(backend: InferenceBackendId): void {
-    this.selected = backend;
-  }
-}
 
 class QueueRuntime extends ManagedInferenceRuntime {
   constructor(id: InferenceBackendId, private readonly events: string[]) {
@@ -145,7 +133,7 @@ test('backend transition pauses queued admission until the new runtime is ready'
   const coordinator = new BackendSwitchCoordinator(
     new QueueRuntime('llama', events),
     new QueueRuntime('exl3', events),
-    new QueueSelectionStore(),
+    'llama',
   );
   ctx.backendSwitchCoordinator = coordinator;
   await coordinator.initialize();

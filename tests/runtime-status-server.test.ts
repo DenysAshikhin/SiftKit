@@ -269,7 +269,7 @@ test('real status server starts managed llama.cpp during server startup before s
         const loadedConfig = await loadConfig({ ensure: true });
         assert.equal(loadedConfig.Runtime.LlamaCpp.BaseUrl, managed.baseUrl);
         assert.equal(
-          loadedConfig.Server.LlamaCpp.Presets[0].ExecutablePath,
+          loadedConfig.Server.ModelPresets.Presets[0].ExecutablePath,
           managed.startupScriptPath,
         );
       } finally {

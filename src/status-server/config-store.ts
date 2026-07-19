@@ -9,8 +9,8 @@ import {
   type SiftPreset,
 } from '../presets.js';
 import { getDefaultConfigObject } from '../config/defaults.js';
+import { getActiveModelPreset } from '../config/getters.js';
 import {
-  getActiveManagedLlamaPreset,
   getFinitePositiveInteger,
   getLlamaBaseUrl,
   getManagedLlamaConfig,
@@ -20,14 +20,14 @@ import {
   getRuntimeLlamaCpp,
   mergeConfig,
   normalizeConfigObject,
-  normalizeManagedLlamaPresetArray,
+  normalizeModelRuntimePresetArray,
   normalizeWebSearchConfig,
   type ManagedLlamaConfig,
 } from '../config/normalization.js';
 import { SIFT_DEFAULT_LLAMA_MODEL } from '../config/constants.js';
 import type {
   RuntimeLlamaCppConfig,
-  ServerManagedLlamaPreset,
+  ModelRuntimePreset,
   SiftConfig,
   WebSearchConfig,
 } from '../config/types.js';
@@ -116,12 +116,12 @@ function parseOperationModeAllowedTools(text: OptionalJsonValue): ReturnType<typ
   }
 }
 
-function parseManagedLlamaPresetArray(text: OptionalJsonValue): ServerManagedLlamaPreset[] {
+function parseModelRuntimePresetArray(text: OptionalJsonValue): ModelRuntimePreset[] {
   if (typeof text !== 'string' || !text.trim()) {
     return [];
   }
   try {
-    return normalizeManagedLlamaPresetArray(parseJsonValueText(text), {});
+    return normalizeModelRuntimePresetArray(parseJsonValueText(text), {});
   } catch {
     return [];
   }
@@ -132,7 +132,8 @@ function normalizeConfigToRow(config: SiftConfig): AppConfigRow {
   const runtime = normalized.Runtime;
   const thresholds = normalized.Thresholds;
   const interactive = normalized.Interactive;
-  const serverLlama = normalized.Server.LlamaCpp;
+  const modelPresets = normalized.Server.ModelPresets;
+  const activePreset = getActiveModelPreset(normalized);
 
   return {
     version: String(normalized.Version || '0.1.0'),
@@ -142,7 +143,7 @@ function normalizeConfigToRow(config: SiftConfig): AppConfigRow {
     include_agents_md: normalized.IncludeAgentsMd === false ? 0 : 1,
     include_repo_file_listing: normalized.IncludeRepoFileListing === false ? 0 : 1,
     prompt_prefix: typeof normalized.PromptPrefix === 'string' ? normalized.PromptPrefix : null,
-    runtime_model: typeof runtime.Model === 'string' && runtime.Model.trim() ? runtime.Model.trim() : null,
+    runtime_model: activePreset.Model,
     thresholds_min_characters_for_summary: getFinitePositiveInteger(thresholds.MinCharactersForSummary, 500),
     thresholds_min_lines_for_summary: getFinitePositiveInteger(thresholds.MinLinesForSummary, 16),
     interactive_enabled: interactive.Enabled === false ? 0 : 1,
@@ -152,13 +153,13 @@ function normalizeConfigToRow(config: SiftConfig): AppConfigRow {
     interactive_idle_timeout_ms: getFinitePositiveInteger(interactive.IdleTimeoutMs, 900000),
     interactive_max_transcript_characters: getFinitePositiveInteger(interactive.MaxTranscriptCharacters, 60000),
     interactive_transcript_retention: interactive.TranscriptRetention === false ? 0 : 1,
-    server_external_server_enabled: getActiveManagedLlamaPreset(normalized).ExternalServerEnabled === true ? 1 : 0,
+    server_external_server_enabled: activePreset.ExternalServerEnabled === true ? 1 : 0,
     server_llama_presets_json: JSON.stringify(
-      Array.isArray(serverLlama.Presets) ? serverLlama.Presets : [],
+      modelPresets.Presets,
     ),
-    server_llama_active_preset_id: getNullableTrimmedString(serverLlama.ActivePresetId),
+    server_llama_active_preset_id: getNullableTrimmedString(modelPresets.ActivePresetId),
     inference_json: JSON.stringify(normalized.Inference),
-    server_exl3_json: JSON.stringify(normalized.Server.Exl3),
+    server_exl3_json: JSON.stringify(normalized.Server.Engines.Exl3),
     operation_mode_allowed_tools_json: JSON.stringify(
       normalizeOperationModeAllowedTools(normalized.OperationModeAllowedTools)
     ),
@@ -177,7 +178,6 @@ function rowToConfig(row: AppConfigRow): SiftConfig {
     IncludeRepoFileListing: row.include_repo_file_listing !== 0,
     PromptPrefix: row.prompt_prefix,
     Runtime: {
-      Model: row.runtime_model,
       LlamaCpp: {},
     },
     Thresholds: {
@@ -192,11 +192,11 @@ function rowToConfig(row: AppConfigRow): SiftConfig {
       TranscriptRetention: row.interactive_transcript_retention === 1,
     },
     Server: {
-      LlamaCpp: {
-        Presets: parseManagedLlamaPresetArray(row.server_llama_presets_json),
+      ModelPresets: {
+        Presets: parseModelRuntimePresetArray(row.server_llama_presets_json),
         ActivePresetId: row.server_llama_active_preset_id,
       },
-      Exl3: parseJsonValueText(row.server_exl3_json),
+      Engines: { Exl3: parseJsonValueText(row.server_exl3_json) },
     },
     Inference: parseJsonValueText(row.inference_json),
     OperationModeAllowedTools: parseOperationModeAllowedTools(row.operation_mode_allowed_tools_json),
@@ -310,9 +310,7 @@ export function readConfig(configPath: string): SiftConfig {
   // the preset afterwards). Before any launch there is no snapshot, so the
   // active preset is the best available source for the runtime config.
   const snapshot = readRuntimeLaunchSnapshot(configPath) ?? buildRuntimeLaunchSnapshot(config);
-  const runtime = config.Runtime;
-  runtime.Model = snapshot.Model;
-  runtime.LlamaCpp = snapshot.LlamaCpp;
+  config.Runtime.LlamaCpp = snapshot.LlamaCpp;
   return config;
 }
 
@@ -352,7 +350,7 @@ export function writeConfig(configPath: string, config: SiftConfig): void {
 }
 
 export {
-  getActiveManagedLlamaPreset,
+  getActiveModelPreset,
   getFinitePositiveInteger,
   getLlamaBaseUrl,
   getManagedLlamaConfig,

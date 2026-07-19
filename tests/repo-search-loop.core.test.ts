@@ -36,17 +36,16 @@ const MOCK_LOOP_DEFAULTS = {
   baseUrl: 'http://127.0.0.1:1',
 };
 
-// These mock-mode loops read only Runtime.{Model,LlamaCpp}. Build a real default config
-// and override just those fields so the value is fully typed (no casts).
+// These mock-mode loops read only Runtime.LlamaCpp. Build a real default config
+// and override those fields so the value is fully typed (no casts).
 function mockConfig(overrides: {
-  Runtime: { Model: string; LlamaCpp: Partial<SiftConfig['Runtime']['LlamaCpp']> };
+  Runtime: { LlamaCpp: Partial<SiftConfig['Runtime']['LlamaCpp']> };
 }): SiftConfig {
   const base = getDefaultConfigObject();
   return {
     ...base,
     Runtime: {
       ...base.Runtime,
-      Model: overrides.Runtime.Model,
       LlamaCpp: { ...base.Runtime.LlamaCpp, ...overrides.Runtime.LlamaCpp },
     },
   };
@@ -98,7 +97,6 @@ test('runRepoSearch does not fail on model inventory mismatch', async () => {
   const scorecard = await runRepoSearch({
     config: mockSiftConfig({
       Runtime: {
-        Model: 'Qwen3.5-9B-Q8_0.gguf',
         LlamaCpp: {
           BaseUrl: 'http://127.0.0.1:8097',
           NumCtx: 70000,
@@ -123,7 +121,7 @@ test('repo-search executes a native web_search tool when allowed', async () => {
   const events: JsonObject[] = [];
   const scorecard = await runRepoSearch({
     config: mockSiftConfig({
-      Runtime: { Model: 'Qwen3.5-9B-Q8_0.gguf', LlamaCpp: { BaseUrl: 'http://127.0.0.1:8097', NumCtx: 70000 } },
+      Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:8097', NumCtx: 70000 } },
       WebSearch: {
         EnabledDefault: true,
         Providers: { tavily: { Enabled: true, ApiKey: 'test-key' }, firecrawl: { Enabled: false, ApiKey: '' } },
@@ -544,7 +542,6 @@ test('runTaskLoop reuses preflight prompt token count for tool progress and allo
         model: 'mock-model',
         config: mockConfig({
           Runtime: {
-            Model: 'mock-model',
             LlamaCpp: { BaseUrl: baseUrl, NumCtx: 128000 },
           },
         }),
@@ -1344,7 +1341,6 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
         model: 'mock-model',
         config: mockConfig({
           Runtime: {
-            Model: 'mock-model',
             LlamaCpp: {
               BaseUrl: baseUrl,
               NumCtx: 70000,
@@ -1460,7 +1456,6 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
         model: 'mock-model',
         config: mockConfig({
           Runtime: {
-            Model: 'mock-model',
             LlamaCpp: {
               BaseUrl: baseUrl,
               NumCtx: 70000,

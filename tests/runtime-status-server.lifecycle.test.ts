@@ -147,7 +147,7 @@ test('real status server with disableManagedLlamaStartup does not trigger manage
 
     await withRealStatusServer(async ({ configUrl }) => {
       const loadedConfig = await requestJson<SiftConfig>(configUrl);
-      assert.equal(loadedConfig.Server.LlamaCpp.Presets[0].BaseUrl, managed.baseUrl);
+      assert.equal(loadedConfig.Server.ModelPresets.Presets[0].BaseUrl, managed.baseUrl);
       await sleep(50);
       assert.equal(fs.existsSync(managed.readyFilePath), false);
     }, {
@@ -168,14 +168,20 @@ test('real status server accepts partial PUT /config updates and preserves unspe
 
     await withRealStatusServer(async ({ configUrl }) => {
       const before = await requestJson<SiftConfig>(configUrl);
+      const activePreset = before.Server.ModelPresets.Presets[0];
+      if (!activePreset) throw new Error('Active model preset is missing');
       const updated = await requestJson<SiftConfig>(configUrl, {
         method: 'PUT',
         body: JSON.stringify({
           Backend: 'llama.cpp',
           Server: {
-            LlamaCpp: {
-              BaseUrl: 'http://127.0.0.1:18097',
-              NumCtx: 123456,
+            ModelPresets: {
+              ActivePresetId: activePreset.id,
+              Presets: [{
+                ...activePreset,
+                BaseUrl: 'http://127.0.0.1:18097',
+                NumCtx: 123456,
+              }],
             },
           },
         }),
@@ -184,7 +190,26 @@ test('real status server accepts partial PUT /config updates and preserves unspe
       assert.equal(updated.Backend, 'llama.cpp');
       assert.equal(updated.Thresholds.MinCharactersForSummary, before.Thresholds.MinCharactersForSummary);
       assert.equal(updated.Interactive.IdleTimeoutMs, before.Interactive.IdleTimeoutMs);
-      assert.equal(updated.Server.LlamaCpp.Presets[0].HealthcheckTimeoutMs, before.Server.LlamaCpp.Presets[0].HealthcheckTimeoutMs);
+      assert.equal(updated.Server.ModelPresets.Presets[0].HealthcheckTimeoutMs, before.Server.ModelPresets.Presets[0].HealthcheckTimeoutMs);
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+});
+
+test('real status server rejects removed config fields without leaving the request open', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, 'config.json');
+    fs.writeFileSync(configPath, JSON.stringify(getDefaultConfig(), null, 2), 'utf8');
+
+    await withRealStatusServer(async ({ configUrl }) => {
+      await assert.rejects(requestJson(configUrl, {
+        method: 'PUT',
+        body: JSON.stringify({ Server: { LlamaCpp: {} } }),
+      }), /HTTP 400:.*Unsupported configuration field Server\.LlamaCpp/u);
     }, {
       statusPath,
       configPath,

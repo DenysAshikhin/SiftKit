@@ -1,4 +1,4 @@
-import type { DashboardConfig, DashboardManagedLlamaPreset } from './types.js';
+import type { DashboardConfig, DashboardModelRuntimePreset } from './types.js';
 
 function createPresetIdFromLabel(label: string): string {
   const normalized = String(label || '')
@@ -10,7 +10,7 @@ function createPresetIdFromLabel(label: string): string {
 }
 
 function getUniqueManagedLlamaPresetId(
-  presets: DashboardManagedLlamaPreset[],
+  presets: DashboardModelRuntimePreset[],
   label: string,
 ): string {
   const baseId = createPresetIdFromLabel(label);
@@ -24,54 +24,54 @@ function getUniqueManagedLlamaPresetId(
   return `${baseId}-${counter}`;
 }
 
-export function getActiveManagedLlamaPreset(config: DashboardConfig): DashboardManagedLlamaPreset {
-  const presets = config.Server.LlamaCpp.Presets;
-  const activePreset = presets.find((preset) => preset.id === config.Server.LlamaCpp.ActivePresetId)
+export function getActiveModelPreset(config: DashboardConfig): DashboardModelRuntimePreset {
+  const presets = config.Server.ModelPresets.Presets;
+  const activePreset = presets.find((preset) => preset.id === config.Server.ModelPresets.ActivePresetId)
     ?? presets[0];
   if (!activePreset) {
     throw new Error('Managed llama preset list is empty.');
   }
-  config.Server.LlamaCpp.ActivePresetId = activePreset.id;
+  config.Server.ModelPresets.ActivePresetId = activePreset.id;
   return activePreset;
 }
 
 export function applyManagedLlamaPresetSelection(config: DashboardConfig, presetId: string): void {
-  const preset = config.Server.LlamaCpp.Presets.find((entry) => entry.id === presetId);
+  const preset = config.Server.ModelPresets.Presets.find((entry) => entry.id === presetId);
   if (!preset) {
     return;
   }
-  config.Server.LlamaCpp.ActivePresetId = preset.id;
+  config.Server.ModelPresets.ActivePresetId = preset.id;
 }
 
 export function updateActiveManagedLlamaPreset(
   config: DashboardConfig,
-  updater: (preset: DashboardManagedLlamaPreset) => void,
+  updater: (preset: DashboardModelRuntimePreset) => void,
 ): void {
-  updater(getActiveManagedLlamaPreset(config));
+  updater(getActiveModelPreset(config));
 }
 
 export function addManagedLlamaPreset(config: DashboardConfig): string {
-  const presets = config.Server.LlamaCpp.Presets;
-  const activePreset = getActiveManagedLlamaPreset(config);
+  const presets = config.Server.ModelPresets.Presets;
+  const activePreset = getActiveModelPreset(config);
   const nextId = getUniqueManagedLlamaPresetId(presets, activePreset.label);
   presets.push({ ...activePreset, id: nextId, label: activePreset.label });
-  config.Server.LlamaCpp.ActivePresetId = nextId;
+  config.Server.ModelPresets.ActivePresetId = nextId;
   return nextId;
 }
 
 export function deleteManagedLlamaPreset(config: DashboardConfig, presetId: string): void {
-  const presets = config.Server.LlamaCpp.Presets;
+  const presets = config.Server.ModelPresets.Presets;
   if (presets.length <= 1) {
     return;
   }
   const remaining = presets.filter((preset) => preset.id !== presetId);
-  config.Server.LlamaCpp.Presets = remaining;
-  const nextPreset = remaining.find((preset) => preset.id === config.Server.LlamaCpp.ActivePresetId)
+  config.Server.ModelPresets.Presets = remaining;
+  const nextPreset = remaining.find((preset) => preset.id === config.Server.ModelPresets.ActivePresetId)
     ?? remaining[0];
   if (!nextPreset) {
     throw new Error('Managed llama preset list is empty.');
   }
-  config.Server.LlamaCpp.ActivePresetId = nextPreset.id;
+  config.Server.ModelPresets.ActivePresetId = nextPreset.id;
 }
 
-export type { DashboardManagedLlamaPreset };
+export type { DashboardModelRuntimePreset };

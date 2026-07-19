@@ -1,9 +1,8 @@
 import { SIFT_DEFAULT_NUM_CTX, type RuntimeOwnedLlamaCppKey } from './constants.js';
 import type {
-  Exl3Profile,
   InferenceBackendId,
+  ModelRuntimePreset,
   RuntimeLlamaCppConfig,
-  ServerManagedLlamaPreset,
   SiftConfig,
 } from './types.js';
 
@@ -13,26 +12,19 @@ export function getDefaultNumCtx(): number {
   return SIFT_DEFAULT_NUM_CTX;
 }
 
-export function getSelectedBackend(config: SiftConfig): InferenceBackendId {
-  return config.Inference.SelectedBackend;
-}
-
-export function getLlamaProfile(config: SiftConfig): ServerManagedLlamaPreset | undefined {
-  return getActiveManagedLlamaPreset(config);
-}
-
-export function getExl3Profile(config: SiftConfig): Exl3Profile {
-  return config.Server.Exl3;
-}
-
 export function getRuntimeLlamaCpp(config: SiftConfig): RuntimeLlamaCppConfig {
-  return config.Runtime?.LlamaCpp ?? EMPTY_RUNTIME_LLAMA_CPP_CONFIG;
+  return config.Runtime.LlamaCpp ?? EMPTY_RUNTIME_LLAMA_CPP_CONFIG;
 }
 
-export function getActiveManagedLlamaPreset(config: SiftConfig): ServerManagedLlamaPreset | undefined {
-  const serverLlama = config.Server?.LlamaCpp;
-  const presets = Array.isArray(serverLlama?.Presets) ? serverLlama.Presets : [];
-  return presets.find((preset) => preset.id === serverLlama?.ActivePresetId) ?? presets[0];
+export function getActiveModelPreset(config: SiftConfig): ModelRuntimePreset {
+  const presets = config.Server.ModelPresets.Presets;
+  const preset = presets.find((entry) => entry.id === config.Server.ModelPresets.ActivePresetId) ?? presets[0];
+  if (!preset) throw new Error('Model preset list is empty.');
+  return preset;
+}
+
+export function getActiveInferenceBackend(config: SiftConfig): InferenceBackendId {
+  return getActiveModelPreset(config).Backend;
 }
 
 export function getFinitePositiveNumber(value?: number | string | null): number | null {
@@ -41,10 +33,7 @@ export function getFinitePositiveNumber(value?: number | string | null): number 
 }
 
 export function getConfiguredModel(config: SiftConfig): string {
-  if (config.Inference.SelectedBackend === 'exl3') {
-    return config.Server.Exl3.ModelId;
-  }
-  const model = config.Runtime?.Model;
+  const model = getActiveModelPreset(config).Model;
   if (typeof model === 'string' && model.trim()) {
     return model.trim();
   }
@@ -58,10 +47,10 @@ export function getConfiguredPromptPrefix(config: SiftConfig): string | undefine
 }
 
 export function getConfiguredLlamaBaseUrl(config: SiftConfig): string {
-  if (config.Inference.SelectedBackend === 'exl3') {
-    return config.Server.Exl3.BaseUrl;
-  }
-  const baseUrl = getRuntimeLlamaCpp(config).BaseUrl;
+  const activePreset = getActiveModelPreset(config);
+  const baseUrl = activePreset.Backend === 'exl3'
+    ? activePreset.BaseUrl
+    : getRuntimeLlamaCpp(config).BaseUrl ?? activePreset.BaseUrl;
   if (typeof baseUrl === 'string' && baseUrl.trim()) {
     return baseUrl.trim();
   }
@@ -70,7 +59,12 @@ export function getConfiguredLlamaBaseUrl(config: SiftConfig): string {
 }
 
 export function getConfiguredLlamaNumCtx(config: SiftConfig): number {
-  const numCtx = getFinitePositiveNumber(getRuntimeLlamaCpp(config).NumCtx);
+  const activePreset = getActiveModelPreset(config);
+  const numCtx = getFinitePositiveNumber(
+    activePreset.Backend === 'exl3'
+      ? activePreset.NumCtx
+      : getRuntimeLlamaCpp(config).NumCtx ?? activePreset.NumCtx,
+  );
   if (numCtx !== null) {
     return numCtx;
   }
@@ -89,7 +83,7 @@ export function getConfiguredLlamaSetting(
   if (!config) {
     return undefined;
   }
-  if (config.Inference.SelectedBackend === 'exl3') {
+  if (getActiveInferenceBackend(config) === 'exl3') {
     return undefined;
   }
   const runtimeValue = getRuntimeLlamaCpp(config)[key];

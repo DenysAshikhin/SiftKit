@@ -1,7 +1,7 @@
 export * from '@siftkit/contracts';
 import type {
   RuntimeLlamaCppConfig,
-  ServerManagedLlamaPreset,
+  ModelRuntimePreset,
   OperationModeAllowedTools,
   SiftPreset,
   ManagedLlamaSpeculativeType,
@@ -14,7 +14,7 @@ import type {
 
 // Dashboard-local aliases over the shared contract types (no contract-name equivalent).
 export type DashboardLlamaCppConfig = RuntimeLlamaCppConfig;
-export type DashboardManagedLlamaPreset = ServerManagedLlamaPreset;
+export type DashboardModelRuntimePreset = ModelRuntimePreset;
 export type DashboardOperationModeAllowedTools = OperationModeAllowedTools;
 export type DashboardPreset = SiftPreset;
 export type DashboardManagedLlamaSpeculativeType = ManagedLlamaSpeculativeType;

@@ -112,11 +112,9 @@ export function getDefaultConfig(): TestConfig {
     PolicyMode: 'conservative',
     RawLogRetention: true,
     Inference: {
-      SelectedBackend: 'llama',
       Thinking: { Enabled: false, Preserve: false },
     },
     Runtime: {
-      Model: 'mock-model',
       LlamaCpp: {
         BaseUrl: 'http://127.0.0.1:8080',
         NumCtx: 128000,
@@ -135,19 +133,27 @@ export function getDefaultConfig(): TestConfig {
       },
     },
     Server: {
-      Exl3: {
-        BaseUrl: 'http://127.0.0.1:8098',
-        ModelId: 'mock-exl3-model',
-      },
-      LlamaCpp: {
+      ModelPresets: {
         ActivePresetId: 'default',
         Presets: [{
           id: 'default',
           label: 'Default',
+          Backend: 'llama',
           Model: 'mock-model',
           BaseUrl: 'http://127.0.0.1:8080',
           NumCtx: 128000,
         }],
+      },
+      Engines: {
+        Exl3: {
+          Managed: true,
+          WorkingDirectory: 'C:\\TabbyAPI',
+          PythonPath: 'C:\\TabbyAPI\\python.exe',
+          Entrypoint: 'main.py',
+          ConfigPath: 'config.yml',
+          ModelRoot: 'D:\\models\\elx3',
+          ShutdownTimeoutMs: 30_000,
+        },
       },
     },
     Thresholds: {
@@ -348,10 +354,12 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
       return;
     }
     if (req.method === 'GET' && req.url === '/v1/models') {
-      const runtime = state.config.Runtime;
-      const modelId = (typeof runtime.Model === 'string' ? runtime.Model : undefined)
-        || (typeof state.config.Model === 'string' ? state.config.Model : undefined)
-        || 'mock-model';
+      const modelPresets = asObject(asObject(state.config.Server).ModelPresets);
+      const presets = Array.isArray(modelPresets.Presets) ? modelPresets.Presets : [];
+      const activePreset = asObject(presets.find((entry) => (
+        asObject(entry).id === modelPresets.ActivePresetId
+      )) ?? presets[0]);
+      const modelId = typeof activePreset.Model === 'string' ? activePreset.Model : 'mock-model';
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ data: [{ id: modelId }] }));
       return;
@@ -512,20 +520,18 @@ export async function withTestEnvAndServer(
   const runtimeLlamaCpp = asObject(runtime.LlamaCpp);
   runtime.LlamaCpp = runtimeLlamaCpp;
   runtimeLlamaCpp.BaseUrl = stub.baseUrl;
-  runtime.Model = runtime.Model || 'mock-model';
   runtimeLlamaCpp.NumCtx = runtimeLlamaCpp.NumCtx || 128000;
   const server = asObject(stub.state.config.Server);
   stub.state.config.Server = server;
-  const serverLlamaCpp = asObject(server.LlamaCpp);
-  server.LlamaCpp = serverLlamaCpp;
+  const modelPresets = asObject(server.ModelPresets);
+  server.ModelPresets = modelPresets;
   const stubPort = Number(new URL(stub.baseUrl).port);
-  serverLlamaCpp.BaseUrl = stub.baseUrl;
-  serverLlamaCpp.Port = stubPort;
-  serverLlamaCpp.NumCtx = 128000;
-  serverLlamaCpp.ActivePresetId = 'default';
-  serverLlamaCpp.Presets = [{
+  modelPresets.ActivePresetId = 'default';
+  modelPresets.Presets = [{
     id: 'default',
     label: 'Default',
+    Backend: 'llama',
+    Model: 'mock-model',
     BaseUrl: stub.baseUrl,
     Port: stubPort,
     NumCtx: 128000,

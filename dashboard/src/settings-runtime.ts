@@ -10,8 +10,8 @@ export function deriveRuntimeModelId(modelPath: string | null): string {
 }
 
 export function syncDerivedSettingsFields(config: DashboardConfig): DashboardConfig {
-  const presets = config.Server.LlamaCpp.Presets;
-  const activePreset = presets.find((preset) => preset.id === config.Server.LlamaCpp.ActivePresetId)
+  const presets = config.Server.ModelPresets.Presets;
+  const activePreset = presets.find((preset) => preset.id === config.Server.ModelPresets.ActivePresetId)
     ?? presets[0];
   if (!activePreset) {
     return config;
@@ -36,6 +36,6 @@ export function syncDerivedSettingsFields(config: DashboardConfig): DashboardCon
   const runtimeModelId = String(
     activePreset.Model || deriveRuntimeModelId(activePreset.ModelPath),
   ).trim();
-  config.Runtime.Model = runtimeModelId;
+  activePreset.Model = runtimeModelId;
   return config;
 }

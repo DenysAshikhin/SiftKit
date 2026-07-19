@@ -10,7 +10,7 @@ import { asObject } from './helpers/dashboard-http.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 
 const MOCK_CONFIG = mockSiftConfig({
-  Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
+  Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
 });
 
 async function closeServer(server: http.Server): Promise<void> {
@@ -155,7 +155,7 @@ test('chat answer streaming waits for extractable finish output instead of emitt
       { id: 'chat', question: 'Greet me.', signals: [] },
       {
         repoRoot: os.tmpdir(),
-        config: mockSiftConfig({ Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } } }),
+        config: mockSiftConfig({ Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } } }),
         baseUrl: baseUrl,
         model: 'mock',
         maxTurns: 1,
@@ -229,7 +229,7 @@ test('chat terminal synthesis streams answer deltas before the final answer even
       { id: 'chat', question: 'Answer from terminal synthesis.', signals: [] },
       {
         repoRoot: os.tmpdir(),
-        config: mockSiftConfig({ Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } } }),
+        config: mockSiftConfig({ Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } } }),
         baseUrl,
         model: 'mock',
         maxTurns: 1,
@@ -364,7 +364,7 @@ test('thinkingEnabledOverride=false forces enable_thinking:false in the planner 
       streamFinishAsAnswer: true,
       thinkingEnabledOverride: false,
       // Force config reasoning ON so the override is what matters:
-      config: mockSiftConfig({ Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000, Reasoning: 'on' } } }),
+      config: mockSiftConfig({ Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000, Reasoning: 'on' } } }),
       mockResponses: ['{"action":"finish","output":"hi"}'],
       mockCommandResults: {},
       logger: { path: '', write: (event) => {

@@ -11,7 +11,9 @@ import type { AddressInfo } from 'node:net';
 import Database from 'better-sqlite3';
 import { z } from '../src/lib/zod.js';
 import { toError } from '../src/lib/errors.js';
-import { isJsonObject, type JsonObject, type JsonValue } from '../src/lib/json-types.js';
+import { isJsonObject, JsonValueSchema, type JsonObject, type JsonValue } from '../src/lib/json-types.js';
+import { getActiveModelPreset } from '../src/config/getters.js';
+import { normalizeConfigObject } from '../src/config/normalization.js';
 import { mockSiftConfig, asRuntimeSiftConfig } from './helpers/mock-config.js';
 import {
   deriveServiceUrl,
@@ -87,7 +89,7 @@ import { writeConfig } from '../src/status-server/config-store.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { runDebugRequest } from '../bench/repro/run-benchmark-fixture-debug.js';
 import { runFixture60MalformedJsonRepro } from '../bench/repro/repro-fixture60-malformed-json.js';
-import type { SiftConfig, ServerManagedLlamaPreset } from '../src/config/types.js';
+import type { SiftConfig, ModelRuntimePreset } from '../src/config/types.js';
 import type { TaskKind, ToolTypeStats, Metrics } from '../src/status-server/metrics.js';
 
 // Shared view types for the runtime status-server HTTP responses these tests read.
@@ -118,12 +120,12 @@ interface StatusPostAck {
 function applyManagedScriptConfig(
   config: SiftConfig,
   managed: ReturnType<typeof writeManagedLlamaScripts>,
-  overrides: Partial<ServerManagedLlamaPreset> = {},
+  overrides: Partial<ModelRuntimePreset> = {},
 ): void {
-  const defaultPreset = config.Server.LlamaCpp.Presets[0];
+  const defaultPreset = config.Server.ModelPresets.Presets[0];
   setManagedLlamaBaseUrl(config, managed.baseUrl);
   config.Server = {
-    LlamaCpp: {
+    ModelPresets: {
       ActivePresetId: 'default',
       Presets: [{
         ...defaultPreset,
@@ -138,7 +140,7 @@ function applyManagedScriptConfig(
         ...overrides,
       }],
     },
-    Exl3: config.Server.Exl3,
+    Engines: config.Server.Engines,
   };
 }
 
@@ -653,7 +655,7 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
     if (req.method === 'GET' && req.url === '/v1/models') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
-        data: [{ id: state.config.Runtime?.Model }],
+        data: [{ id: getActiveModelPreset(state.config).Model }],
       }));
       return;
     }
@@ -923,12 +925,12 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
   const port = typeof address === 'object' && address ? address.port : 0;
   const stubBaseUrl = `http://127.0.0.1:${port}`;
   state.config.Runtime.LlamaCpp.BaseUrl = stubBaseUrl;
-  if (state.config.Server.LlamaCpp.Presets.length === 0) {
-    const defaultPreset = getDefaultConfig().Server.LlamaCpp.Presets[0];
-    state.config.Server.LlamaCpp.Presets.push({ ...defaultPreset, id: 'default', label: 'Default' });
-    state.config.Server.LlamaCpp.ActivePresetId = 'default';
+  if (state.config.Server.ModelPresets.Presets.length === 0) {
+    const defaultPreset = getDefaultConfig().Server.ModelPresets.Presets[0];
+    state.config.Server.ModelPresets.Presets.push({ ...defaultPreset, id: 'default', label: 'Default' });
+    state.config.Server.ModelPresets.ActivePresetId = 'default';
   }
-  for (const preset of state.config.Server.LlamaCpp.Presets) {
+  for (const preset of state.config.Server.ModelPresets.Presets) {
     preset.BaseUrl = stubBaseUrl;
   }
 
@@ -1016,28 +1018,14 @@ function seedRuntimeConfigFromJson(configPath: string): void {
   if (!configPath || !fs.existsSync(configPath) || path.extname(configPath).toLowerCase() !== '.json') {
     return;
   }
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  const serverLlama = config?.Server?.LlamaCpp;
-  if (serverLlama && typeof serverLlama === 'object') {
-    if (!serverLlama.BaseUrl && config?.Runtime?.LlamaCpp?.BaseUrl) {
-      serverLlama.BaseUrl = config.Runtime.LlamaCpp.BaseUrl;
+  const config = normalizeConfigObject(JsonValueSchema.parse(JSON.parse(fs.readFileSync(configPath, 'utf8'))));
+  const activePreset = getActiveModelPreset(config);
+  if (!activePreset.ModelPath && activePreset.ExecutablePath) {
+    const modelPath = path.join(path.dirname(activePreset.ExecutablePath), 'managed-test-model.gguf');
+    if (!fs.existsSync(modelPath)) {
+      fs.writeFileSync(modelPath, 'fake model', 'utf8');
     }
-    if (!serverLlama.ModelPath && serverLlama.ExecutablePath) {
-      const modelPath = path.join(path.dirname(serverLlama.ExecutablePath), 'managed-test-model.gguf');
-      if (!fs.existsSync(modelPath)) {
-        fs.writeFileSync(modelPath, 'fake model', 'utf8');
-      }
-      serverLlama.ModelPath = modelPath;
-    }
-    // Managed-llama settings live on the active preset. Wrap any flat
-    // Server.LlamaCpp.* fields from legacy-shaped test fixtures into one preset.
-    if (!Array.isArray(serverLlama.Presets) || serverLlama.Presets.length === 0) {
-      const { Presets, ActivePresetId, ...managedFields } = serverLlama;
-      config.Server.LlamaCpp = {
-        ActivePresetId: 'default',
-        Presets: [{ id: 'default', label: 'Default', ...managedFields }],
-      };
-    }
+    activePreset.ModelPath = modelPath;
   }
   writeConfig(getConfigPath(), config);
 }

@@ -12,7 +12,7 @@ import { getDefaultConfig, writeConfig } from '../src/status-server/config-store
 import { getConfigPath } from '../src/config/index.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import type { JsonValue } from '../src/lib/json-types.js';
-import { asObject, getAddressInfo, type JsonResponse } from './helpers/dashboard-http.js';
+import { asObject, getAddressInfo, removeDirectoryWithRetries, type JsonResponse } from './helpers/dashboard-http.js';
 
 function writeManagedConfig(
   model: string,
@@ -20,7 +20,7 @@ function writeManagedConfig(
   timeouts: { StartupTimeoutMs: number; HealthcheckTimeoutMs: number; HealthcheckIntervalMs: number },
 ): void {
   const config = getDefaultConfig();
-  const preset = config.Server.LlamaCpp.Presets[0];
+  const preset = config.Server.ModelPresets.Presets[0];
   preset.Model = model;
   preset.BaseUrl = managed.baseUrl;
   preset.NumCtx = 32000;
@@ -168,7 +168,7 @@ test('llama passthrough wakes managed llama when the managed process is offline'
         process.env[key] = value;
       }
     }
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    await removeDirectoryWithRetries(tempRoot);
   }
 });
 
@@ -239,7 +239,7 @@ test('llama passthrough waits through 503 Loading model responses without timing
         process.env[key] = value;
       }
     }
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    await removeDirectoryWithRetries(tempRoot);
   }
 });
 
@@ -308,6 +308,6 @@ test('llama passthrough proxies POST /tokenize to managed llama', async () => {
         process.env[key] = value;
       }
     }
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    await removeDirectoryWithRetries(tempRoot);
   }
 });

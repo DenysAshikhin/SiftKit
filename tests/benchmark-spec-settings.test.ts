@@ -290,7 +290,7 @@ test('getRunTelemetryStats leaves speculative totals null when managed-log delta
 test('applySpeculativeCaseToConfig updates only the approved speculative settings', () => {
   const config = mockConfig({
     Server: {
-      LlamaCpp: {
+      ModelPresets: {
         ActivePresetId: 'active',
         Presets: [
           {
@@ -317,7 +317,7 @@ test('applySpeculativeCaseToConfig updates only the approved speculative setting
     speculativeDraftMin: 4,
   });
 
-  const preset = updated.Server.LlamaCpp.Presets[0];
+  const preset = updated.Server.ModelPresets.Presets[0];
   assert.equal(preset.SpeculativeEnabled, true);
   assert.equal(preset.SpeculativeType, 'ngram-mod');
   assert.equal(preset.SpeculativeNgramSizeN, 24);
@@ -331,7 +331,7 @@ test('applySpeculativeCaseToConfig updates only the approved speculative setting
 test('applySpeculativeCaseToConfig updates the active managed llama preset used on restart', () => {
   const config = mockConfig({
     Server: {
-      LlamaCpp: {
+      ModelPresets: {
         ActivePresetId: 'active',
         Presets: [
           {
@@ -357,17 +357,17 @@ test('applySpeculativeCaseToConfig updates the active managed llama preset used 
     speculativeDraftMin: 2,
   });
 
-  assert.equal(updated.Server.LlamaCpp.Presets?.[0]?.SpeculativeNgramSizeN, 16);
-  assert.equal(updated.Server.LlamaCpp.Presets?.[0]?.SpeculativeNgramSizeM, 48);
-  assert.equal(updated.Server.LlamaCpp.Presets?.[0]?.SpeculativeNgramMinHits, 1);
-  assert.equal(updated.Server.LlamaCpp.Presets?.[0]?.SpeculativeDraftMax, 32);
-  assert.equal(updated.Server.LlamaCpp.Presets?.[0]?.SpeculativeDraftMin, 2);
+  assert.equal(updated.Server.ModelPresets.Presets?.[0]?.SpeculativeNgramSizeN, 16);
+  assert.equal(updated.Server.ModelPresets.Presets?.[0]?.SpeculativeNgramSizeM, 48);
+  assert.equal(updated.Server.ModelPresets.Presets?.[0]?.SpeculativeNgramMinHits, 1);
+  assert.equal(updated.Server.ModelPresets.Presets?.[0]?.SpeculativeDraftMax, 32);
+  assert.equal(updated.Server.ModelPresets.Presets?.[0]?.SpeculativeDraftMin, 2);
 });
 
 test('applySpeculativeCaseToConfig can disable speculative decoding for the baseline run', () => {
   const config = mockConfig({
     Server: {
-      LlamaCpp: {
+      ModelPresets: {
         ActivePresetId: 'active',
         Presets: [
           {
@@ -393,8 +393,8 @@ test('applySpeculativeCaseToConfig can disable speculative decoding for the base
     speculativeDraftMin: 4,
   });
 
-  assert.equal(updated.Server.LlamaCpp.Presets[0].SpeculativeEnabled, false);
-  assert.equal(updated.Server.LlamaCpp.Presets[0].SpeculativeNgramSizeN, 24);
+  assert.equal(updated.Server.ModelPresets.Presets[0].SpeculativeEnabled, false);
+  assert.equal(updated.Server.ModelPresets.Presets[0].SpeculativeNgramSizeN, 24);
 });
 
 test('sortBenchmarkResults orders by generation tokens per second descending', () => {
@@ -575,11 +575,11 @@ test('spec benchmark script supports Focused3 with the next throughput candidate
   assert.match(script, /SpeculativeNgramSizeM\s*=\s*-1;\s*SpeculativeNgramMinHits\s*=\s*-1;\s*SpeculativeDraftMax\s*=\s*64;\s*SpeculativeDraftMin\s*=\s*48/u);
 });
 
-test('spec benchmark script updates the active managed llama preset before restart', () => {
+test('spec benchmark script updates the active model preset before restart', () => {
   const script = fs.readFileSync('scripts/benchmark-siftkit-spec-settings.ps1', 'utf8');
 
-  assert.match(script, /function\s+Get-ActiveManagedPreset/u);
-  assert.match(script, /\$ServerLlamaCpp\.ActivePresetId/u);
+  assert.match(script, /function\s+Get-ActiveModelPreset/u);
+  assert.match(script, /\$ModelPresets\.ActivePresetId/u);
   assert.match(script, /\$activePreset\.SpeculativeNgramSizeN/u);
 });
 

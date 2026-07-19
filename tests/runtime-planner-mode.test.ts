@@ -915,8 +915,8 @@ test('planner keeps the first real tool output and rewrites one duplicate warnin
       const threshold = getChunkThresholdCharacters(config);
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
       config.Runtime.LlamaCpp.Reasoning = 'on';
-      if (Array.isArray(config.Server.LlamaCpp.Presets) && config.Server.LlamaCpp.Presets[0]) {
-        config.Server.LlamaCpp.Presets[0].Reasoning = 'on';
+      if (Array.isArray(config.Server.ModelPresets.Presets) && config.Server.ModelPresets.Presets[0]) {
+        config.Server.ModelPresets.Presets[0].Reasoning = 'on';
       }
       await saveConfig(config);
 

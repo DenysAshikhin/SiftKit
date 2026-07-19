@@ -1,4 +1,5 @@
 import type { SiftConfig } from '../config/types.js';
+import { getActiveModelPreset } from '../config/getters.js';
 import { ManagedInferenceRuntime } from './managed-inference-runtime.js';
 import {
   ensureManagedLlamaReady,
@@ -16,17 +17,11 @@ const llamaCapabilities = {
 } as const;
 
 function resolveLlamaBaseUrl(config: SiftConfig): string {
-  const activePreset = config.Server.LlamaCpp.Presets.find(
-    (preset) => preset.id === config.Server.LlamaCpp.ActivePresetId,
-  ) ?? config.Server.LlamaCpp.Presets[0];
-  return activePreset?.BaseUrl ?? 'http://127.0.0.1:8097';
+  return getActiveModelPreset(config).BaseUrl ?? 'http://127.0.0.1:8097';
 }
 
 function resolveLlamaModel(config: SiftConfig): string {
-  const activePreset = config.Server.LlamaCpp.Presets.find(
-    (preset) => preset.id === config.Server.LlamaCpp.ActivePresetId,
-  ) ?? config.Server.LlamaCpp.Presets[0];
-  return activePreset?.Model ?? config.Runtime.Model ?? 'llama';
+  return getActiveModelPreset(config).Model ?? 'llama';
 }
 
 export class ManagedLlamaRuntime extends ManagedInferenceRuntime {

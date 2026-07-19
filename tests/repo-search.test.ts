@@ -532,7 +532,7 @@ test('executeRepoSearchRequest persists summed prompt-eval and generation durati
       const address = getAddressInfo(modelServer);
       const baseUrl = `http://127.0.0.1:${address.port}`;
       const config = asRuntimeSiftConfig(mergeConfig(structuredClone(stub.state.config), {
-        Runtime: { Model: 'mock-model', LlamaCpp: { BaseUrl: baseUrl } },
+        Runtime: { LlamaCpp: { BaseUrl: baseUrl } },
         LlamaCpp: { BaseUrl: baseUrl, Reasoning: 'on' },
       }));
 

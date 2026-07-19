@@ -30,7 +30,6 @@ function mockChatSession(session: object): ChatSession {
 function createConfig(overrides: JsonObject = {}): SiftConfig {
   return normalizeConfig({
     Runtime: {
-      Model: 'managed.gguf',
       LlamaCpp: {
         BaseUrl: 'http://127.0.0.1:8080',
         NumCtx: 8192,
@@ -46,12 +45,13 @@ function createConfig(overrides: JsonObject = {}): SiftConfig {
     },
     Presets: [],
     Server: {
-      LlamaCpp: {
+      ModelPresets: {
         ActivePresetId: 'default',
-        BaseUrl: 'http://127.0.0.1:8080',
         Presets: [{
           id: 'default',
           label: 'Default',
+          Backend: 'llama',
+          Model: 'managed.gguf',
           LlamaCppPath: '',
           ModelPath: 'managed.gguf',
           Host: '127.0.0.1',
@@ -79,7 +79,7 @@ function createConfig(overrides: JsonObject = {}): SiftConfig {
 function createNoThinkingReplayConfig(): SiftConfig {
   return createConfig({
     Server: {
-      LlamaCpp: {
+      ModelPresets: {
         ActivePresetId: 'default',
         Presets: [{
           id: 'default',
@@ -638,7 +638,7 @@ test('buildChatHistoryMessages omits retained thinking when preserve thinking is
   });
   const config = createConfig({
     Server: {
-      LlamaCpp: {
+      ModelPresets: {
         ActivePresetId: 'default',
         Presets: [{
           id: 'default',

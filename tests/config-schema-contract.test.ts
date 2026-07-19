@@ -17,12 +17,22 @@ test('status-server config-store exposes the shared typed config contract', () =
   const sharedDefault: SiftConfig = getDefaultConfigObject();
 
   assert.equal(defaultConfig.Version, sharedDefault.Version);
-  assert.equal(defaultConfig.Server.LlamaCpp.ActivePresetId, sharedDefault.Server.LlamaCpp.ActivePresetId);
-  assert.match(JSON.stringify(defaultConfig), /"SelectedBackend":"llama"/u);
+  assert.equal(defaultConfig.Server.ModelPresets.ActivePresetId, sharedDefault.Server.ModelPresets.ActivePresetId);
+  assert.doesNotMatch(JSON.stringify(defaultConfig), /SelectedBackend/u);
   assert.equal(normalizedConfig.WebSearch?.ProviderOrder[0], 'tavily');
 
   assert.equal(typeof readConfig, 'function');
   assert.equal(typeof writeConfig, 'function');
+});
+
+test('configuration owns backend selection only through the active model preset', () => {
+  const config = getDefaultConfig();
+  assert.equal(config.Server.ModelPresets.Presets[0]?.Backend, 'llama');
+  assert.equal('SelectedBackend' in config.Inference, false);
+  assert.equal('LlamaCpp' in config.Server, false);
+  assert.equal('Exl3' in config.Server, false);
+  assert.equal('Model' in config.Runtime, false);
+  assert.equal(config.Server.Engines.Exl3.ModelRoot, 'D:\\personal\\models\\elx3');
 });
 
 test('config-store does not define untyped config defaults or Dict signatures', () => {

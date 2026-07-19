@@ -31,14 +31,23 @@ function buildStubLlamaConfig(port: number): SiftConfig {
   return mockConfig({
     Backend: 'llama.cpp',
     Inference: {
-      SelectedBackend: 'llama',
       Thinking: { Enabled: true, Preserve: false },
     },
     Runtime: {
-      Model: 'warmup-model',
       LlamaCpp: {
         BaseUrl: `http://127.0.0.1:${port}`,
         NumCtx: 10000,
+      },
+    },
+    Server: {
+      ModelPresets: {
+        ActivePresetId: 'default',
+        Presets: [{
+          id: 'default',
+          Backend: 'llama',
+          Model: 'warmup-model',
+          BaseUrl: `http://127.0.0.1:${port}`,
+        }],
       },
     },
     Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },
@@ -79,12 +88,12 @@ test('llama.cpp provider lists models and parses chat completions from the stub 
       const models = await listLlamaCppModels(config);
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model ?? '',
+        model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
 
-      assert.deepEqual(models, [config.Runtime.Model]);
+      assert.deepEqual(models, [config.Server.ModelPresets.Presets[0].Model]);
       assert.match(summary.text, /^summary:/u);
       assert.deepEqual(summary.usage, {
         promptTokens: 123,
@@ -104,7 +113,7 @@ test('llama.cpp provider returns null usage when the server omits token usage', 
       const config = await loadConfig({ ensure: true });
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model ?? '',
+        model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -123,7 +132,7 @@ test('llama.cpp provider records thinking tokens separately from completion usag
       const config = await loadConfig({ ensure: true });
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model ?? '',
+        model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -151,7 +160,7 @@ test('llama.cpp provider forwards reasoning mode to chat template kwargs', async
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model ?? '',
+        model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -170,15 +179,15 @@ test('llama.cpp provider forwards thinking preservation flags when enabled', asy
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
       config.Runtime.LlamaCpp.Reasoning = 'on';
-      const thinkingPreset = config.Server.LlamaCpp.Presets.find(
-        (preset) => preset.id === config.Server.LlamaCpp.ActivePresetId,
-      ) ?? config.Server.LlamaCpp.Presets[0];
+      const thinkingPreset = config.Server.ModelPresets.Presets.find(
+        (preset) => preset.id === config.Server.ModelPresets.ActivePresetId,
+      ) ?? config.Server.ModelPresets.Presets[0];
       thinkingPreset.ReasoningContent = true;
       thinkingPreset.PreserveThinking = true;
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model ?? '',
+        model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -202,7 +211,7 @@ test('llama.cpp provider per-call reasoning override takes precedence over confi
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model ?? '',
+        model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
         reasoningOverride: 'off',
@@ -230,7 +239,7 @@ test('llama.cpp provider omits sampling knobs from the chat request body', async
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model ?? '',
+        model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -255,7 +264,7 @@ test('llama.cpp provider enables explicit prompt caching on a supplied slot', as
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model ?? '',
+        model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
         slotId: 7,
@@ -275,7 +284,7 @@ test('llama.cpp provider includes per-request response_format json_schema when s
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model ?? '',
+        model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
         structuredOutput: { kind: 'siftkit-decision-json' },
@@ -299,7 +308,7 @@ test('llama.cpp provider omits native tools for structured planner JSON', async 
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model ?? '',
+        model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
         structuredOutput: {
@@ -319,12 +328,12 @@ test('EXL3 provider omits Tabby grammar inputs for structured planner output', a
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
-      config.Inference.SelectedBackend = 'exl3';
-      config.Server.Exl3.BaseUrl = `http://127.0.0.1:${server.port}`;
+      config.Server.ModelPresets.Presets[0].Backend = 'exl3';
+      config.Server.ModelPresets.Presets[0].BaseUrl = `http://127.0.0.1:${server.port}`;
 
       await generateLlamaCppResponse({
         config,
-        model: config.Server.Exl3.ModelId,
+        model: config.Server.ModelPresets.Presets[0].Model ?? 'exl3',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
         structuredOutput: {
@@ -348,7 +357,7 @@ test('llama.cpp provider does not enable parallel tool calls when no tools are s
 
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model ?? '',
+        model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -367,7 +376,7 @@ test('llama.cpp provider gets answer content from qwen-style servers when reason
 
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model ?? '',
+        model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
       });
@@ -433,7 +442,7 @@ test('llama.cpp chat responses update observed-budget weighted totals from exact
       const prompt = 'B'.repeat(500);
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model ?? '',
+        model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt,
         timeoutSeconds: 5,
       });
@@ -462,7 +471,7 @@ test('estimated token fallback does not mutate observed-budget state', async () 
       const config = await loadConfig({ ensure: true });
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model ?? '',
+        model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'C'.repeat(500),
         timeoutSeconds: 5,
       });
@@ -494,7 +503,7 @@ test('exact char-token observations accumulate as a weighted average', async () 
       await countLlamaCppTokens(config, 'A'.repeat(100));
       await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model ?? '',
+        model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'B'.repeat(500),
         timeoutSeconds: 5,
       });
@@ -530,7 +539,7 @@ test('llama.cpp provider surfaces HTTP 400 errors when json-schema constrained r
         await assert.rejects(
           () => generateLlamaCppResponse({
             config,
-            model: config.Runtime.Model ?? '',
+            model: config.Server.ModelPresets.Presets[0].Model ?? '',
             prompt: 'test prompt body',
             timeoutSeconds: 5,
             structuredOutput: { kind: 'siftkit-decision-json' },

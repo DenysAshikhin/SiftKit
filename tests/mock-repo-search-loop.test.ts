@@ -24,6 +24,7 @@ import {
   compactPlannerMessagesOnce,
 } from '../src/repo-search/prompt-budget.js';
 import type { SiftConfig } from '../src/config/types.js';
+import { mockSiftConfig } from './helpers/mock-config.js';
 
 // Mock-mode runTaskLoop calls never reach a real provider or repo; these defaults
 // satisfy the required RunTaskLoopOptions fields. Per-test options override them.
@@ -42,12 +43,10 @@ type DeepPartial<T> = T extends (infer U)[]
   : T extends object
     ? { [K in keyof T]?: DeepPartial<T[K]> }
     : T;
-const MockSiftConfigSchema = z.custom<SiftConfig>((value) => typeof value === 'object' && value !== null);
 function mockLoopConfig(config: DeepPartial<SiftConfig>): SiftConfig {
-  return MockSiftConfigSchema.parse({
+  return mockSiftConfig({
     ...config,
     Inference: {
-      SelectedBackend: 'llama',
       Thinking: { Enabled: false, Preserve: false },
       ...config.Inference,
     },
@@ -2304,9 +2303,9 @@ test('runTaskLoop keeps only latest planner thinking when per-step thinking is d
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       config: mockLoopConfig({
-        Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000, Reasoning: 'on' } },
+        Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000, Reasoning: 'on' } },
         Server: {
-          LlamaCpp: {
+          ModelPresets: {
             ActivePresetId: 'thinking-off',
             Presets: [{
               id: 'thinking-off',

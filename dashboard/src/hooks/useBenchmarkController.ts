@@ -15,7 +15,7 @@ import type {
   DashboardBenchmarkSession,
   DashboardBenchmarkSortKey,
   DashboardBenchmarkStartRequest,
-  DashboardManagedLlamaPreset,
+  DashboardModelRuntimePreset,
   JsonObject,
 } from '../types';
 import type { BenchmarkTabProps } from '../tabs/BenchmarkTab';
@@ -47,7 +47,7 @@ export function useBenchmarkController(deps: {
   refreshToken: number;
   requestDashboardDataRefresh: () => void;
   tab: string;
-  managedPresets: DashboardManagedLlamaPreset[];
+  managedPresets: DashboardModelRuntimePreset[];
 }): BenchmarkController {
   const params = readSearchParams();
   const [benchmarkQuestionPresets, setBenchmarkQuestionPresets] = useState<DashboardBenchmarkQuestionPreset[]>([]);

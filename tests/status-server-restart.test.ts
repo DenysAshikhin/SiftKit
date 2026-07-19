@@ -25,7 +25,7 @@ interface RestartResponse {
   ok: boolean;
   restarted: boolean;
   config: {
-    Server: { LlamaCpp: { Presets: { BaseUrl: string; ExecutablePath: string }[] } };
+    Server: { ModelPresets: { Presets: { BaseUrl: string; ExecutablePath: string }[] } };
   };
 }
 
@@ -87,11 +87,11 @@ test('real status server backend restart endpoint restarts managed llama.cpp and
     const llamaPort = await getFreePort();
     const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
-    const defaultPreset = config.Server.LlamaCpp.Presets[0];
+    const defaultPreset = config.Server.ModelPresets.Presets[0];
 
     setManagedLlamaBaseUrl(config, managed.baseUrl);
     config.Server = {
-      LlamaCpp: {
+      ModelPresets: {
         ActivePresetId: 'default',
         Presets: [{
           ...defaultPreset,
@@ -127,7 +127,7 @@ test('real status server backend restart endpoint restarts managed llama.cpp and
           VerboseLogging: false,
         }],
       },
-      Exl3: config.Server.Exl3,
+      Engines: config.Server.Engines,
     };
     writeConfig(runtimeDbPath, config);
 
@@ -161,8 +161,8 @@ test('real status server backend restart endpoint restarts managed llama.cpp and
 
       assert.equal(restartResponse.ok, true);
       assert.equal(restartResponse.restarted, true);
-      assert.equal(restartResponse.config.Server.LlamaCpp.Presets[0].BaseUrl, managed.baseUrl);
-      assert.equal(restartResponse.config.Server.LlamaCpp.Presets[0].ExecutablePath, managed.executablePath);
+      assert.equal(restartResponse.config.Server.ModelPresets.Presets[0].BaseUrl, managed.baseUrl);
+      assert.equal(restartResponse.config.Server.ModelPresets.Presets[0].ExecutablePath, managed.executablePath);
 
       await waitForAsyncExpectation(async () => {
         const nextPid = fs.readFileSync(managed.readyFilePath, 'utf8').trim();
@@ -189,11 +189,11 @@ test('real status server backend restart endpoint returns structured GPU OOM det
       exitCode: 7,
     });
     const config = getDefaultConfig();
-    const defaultPreset = config.Server.LlamaCpp.Presets[0];
+    const defaultPreset = config.Server.ModelPresets.Presets[0];
 
     setManagedLlamaBaseUrl(config, managed.baseUrl);
     config.Server = {
-      LlamaCpp: {
+      ModelPresets: {
         ActivePresetId: 'default',
         Presets: [{
           ...defaultPreset,
@@ -229,7 +229,7 @@ test('real status server backend restart endpoint returns structured GPU OOM det
           VerboseLogging: false,
         }],
       },
-      Exl3: config.Server.Exl3,
+      Engines: config.Server.Engines,
     };
     writeConfig(runtimeDbPath, config);
 
@@ -257,11 +257,11 @@ test('real status server omits -t when the active managed preset sets Threads to
     const llamaPort = await getFreePort();
     const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
-    const defaultPreset = config.Server.LlamaCpp.Presets[0];
+    const defaultPreset = config.Server.ModelPresets.Presets[0];
 
     setManagedLlamaBaseUrl(config, managed.baseUrl);
     config.Server = {
-      LlamaCpp: {
+      ModelPresets: {
         Presets: [
           {
             ...defaultPreset,
@@ -299,7 +299,7 @@ test('real status server omits -t when the active managed preset sets Threads to
         ],
         ActivePresetId: 'default',
       },
-      Exl3: config.Server.Exl3,
+      Engines: config.Server.Engines,
     };
     writeConfig(runtimeDbPath, config);
 

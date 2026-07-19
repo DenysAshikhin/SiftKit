@@ -1,8 +1,8 @@
 import {
-  getActiveManagedLlamaPreset,
+  getActiveInferenceBackend,
+  getActiveModelPreset,
   getConfiguredLlamaBaseUrl,
   getConfiguredLlamaSetting,
-  getSelectedBackend,
   type InferenceBackendId,
   type SiftConfig,
 } from '../config/index.js';
@@ -165,7 +165,7 @@ export class LlamaCppClient {
     options: { requestTimeoutSeconds?: number; retryMaxWaitMs?: number } = {},
   ): Promise<{ tokenCount: number; raw: JsonObject }> {
     const baseUrl = getConfiguredLlamaBaseUrl(config);
-    const isExl3 = getSelectedBackend(config) === 'exl3';
+    const isExl3 = getActiveInferenceBackend(config) === 'exl3';
     const response = await retryProviderRequest(async () => {
       const nextResponse = await this.client.requestJsonFull({
         url: `${baseUrl.replace(/\/$/u, '')}${isExl3 ? '/v1/token/encode' : '/tokenize'}`,
@@ -236,7 +236,7 @@ export class LlamaCppClient {
 
   async chat(options: LlamaCppChatOptions): Promise<NormalizedLlamaCppChatResponse> {
     const baseUrl = options.baseUrl || getConfiguredLlamaBaseUrl(options.config);
-    const backend = options.backend ?? getSelectedBackend(options.config);
+    const backend = options.backend ?? getActiveInferenceBackend(options.config);
     if (backend !== 'exl3') {
       return this.chatAtBaseUrl(baseUrl, options);
     }
@@ -278,15 +278,15 @@ export class LlamaCppClient {
   }
 
   private buildChatRequest(options: LlamaCppChatOptions): LlamaCppChatRequest {
-    const activePreset = getActiveManagedLlamaPreset(options.config);
+    const activePreset = getActiveModelPreset(options.config);
     const resolvedReasoning = options.reasoningOverride
       ?? getConfiguredLlamaSetting(options.config, 'Reasoning')
-      ?? activePreset?.Reasoning;
-    const reasoningContentEnabled = resolvedReasoning === 'on' && activePreset?.ReasoningContent === true;
-    const preserveThinkingEnabled = reasoningContentEnabled && activePreset?.PreserveThinking === true;
+      ?? activePreset.Reasoning;
+    const reasoningContentEnabled = resolvedReasoning === 'on' && activePreset.ReasoningContent;
+    const preserveThinkingEnabled = reasoningContentEnabled && activePreset.PreserveThinking;
     return {
       ...inferenceRequestBuilder.build({
-        backend: options.backend ?? getSelectedBackend(options.config),
+        backend: options.backend ?? getActiveInferenceBackend(options.config),
         model: options.model,
         messages: options.messages,
         tools: options.tools,

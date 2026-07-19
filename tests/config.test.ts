@@ -36,6 +36,7 @@ import {
 } from '../src/config/index.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import type { SiftConfig } from '../src/config/index.js';
+import type { ModelRuntimePreset, RuntimeLlamaCppConfig } from '../src/config/types.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import type { JsonObject } from '../src/lib/json-types.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
@@ -44,6 +45,26 @@ import { withTestEnvAndServer, type Dict } from './_test-helpers.js';
 
 function makeConfig(overrides: Partial<SiftConfig>): SiftConfig {
   return { ...getDefaultConfigObject(), ...overrides };
+}
+
+function makePresetConfig(
+  presetOverrides: Partial<ModelRuntimePreset>,
+  runtimeOverrides: RuntimeLlamaCppConfig = {},
+): SiftConfig {
+  const base = getDefaultConfigObject();
+  const preset = base.Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('Default model preset is missing');
+  return {
+    ...base,
+    Runtime: { LlamaCpp: runtimeOverrides },
+    Server: {
+      ...base.Server,
+      ModelPresets: {
+        ActivePresetId: preset.id,
+        Presets: [{ ...preset, ...presetOverrides }],
+      },
+    },
+  };
 }
 
 test('SIFTKIT_VERSION matches package.json version', () => {
@@ -163,42 +184,40 @@ test('initializeRuntime returns runtime paths', () => {
 
 test('getConfiguredModel throws when model is missing', () => {
   assert.throws(
-    () => getConfiguredModel(makeConfig({ Runtime: { Model: null, LlamaCpp: {} } })),
+    () => getConfiguredModel(makePresetConfig({ Model: null })),
     /missing Model/u,
   );
 });
 
-test('getConfiguredModel returns Runtime.Model', () => {
+test('getConfiguredModel returns the active preset model', () => {
   assert.equal(
-    getConfiguredModel(makeConfig({ Runtime: { Model: 'test-model', LlamaCpp: {} } })),
+    getConfiguredModel(makePresetConfig({ Model: 'test-model' })),
     'test-model',
   );
 });
 
 test('getConfiguredLlamaBaseUrl throws when BaseUrl is missing', () => {
   assert.throws(
-    () => getConfiguredLlamaBaseUrl(makeConfig({ Runtime: { Model: null, LlamaCpp: {} } })),
+    () => getConfiguredLlamaBaseUrl(makePresetConfig({ BaseUrl: null })),
     /missing LlamaCpp\.BaseUrl/u,
   );
 });
 
 test('getConfiguredLlamaBaseUrl returns Runtime.LlamaCpp.BaseUrl', () => {
   assert.equal(
-    getConfiguredLlamaBaseUrl(makeConfig({ Runtime: { Model: null, LlamaCpp: { BaseUrl: 'http://test:8080' } } })),
+    getConfiguredLlamaBaseUrl(makePresetConfig({}, { BaseUrl: 'http://test:8080' })),
     'http://test:8080',
   );
 });
 
-test('getConfiguredLlamaNumCtx throws when NumCtx is missing', () => {
-  assert.throws(
-    () => getConfiguredLlamaNumCtx(makeConfig({ Runtime: { Model: null, LlamaCpp: {} } })),
-    /missing LlamaCpp\.NumCtx/u,
-  );
+test('getConfiguredLlamaNumCtx falls back to the active preset', () => {
+  const config = makePresetConfig({ NumCtx: 75_008 });
+  assert.equal(getConfiguredLlamaNumCtx(config), 75_008);
 });
 
 test('getConfiguredLlamaNumCtx returns Runtime.LlamaCpp.NumCtx', () => {
   assert.equal(
-    getConfiguredLlamaNumCtx(makeConfig({ Runtime: { Model: null, LlamaCpp: { NumCtx: 65000 } } })),
+    getConfiguredLlamaNumCtx(makePresetConfig({}, { NumCtx: 65000 })),
     65000,
   );
 });
@@ -217,12 +236,12 @@ test('getConfiguredPromptPrefix returns trimmed prefix', () => {
 });
 
 test('getConfiguredLlamaSetting returns value from Runtime.LlamaCpp', () => {
-  const config = makeConfig({ Runtime: { Model: null, LlamaCpp: { Temperature: 0.5 } } });
+  const config = makePresetConfig({}, { Temperature: 0.5 });
   assert.equal(getConfiguredLlamaSetting<number>(config, 'Temperature'), 0.5);
 });
 
 test('getConfiguredLlamaSetting returns undefined for missing key', () => {
-  const config = makeConfig({ Runtime: { Model: null, LlamaCpp: {} } });
+  const config = makePresetConfig({});
   assert.equal(getConfiguredLlamaSetting<number>(config, 'Temperature'), undefined);
 });
 
@@ -704,16 +723,16 @@ test('getInferenceStatusPath returns a path string', () => {
 test('saveConfig preserves managed llama external server settings on the active preset', async () => {
   await withTestEnvAndServer(async () => {
     const config = await loadConfig({ ensure: true });
-    const preset = config.Server.LlamaCpp.Presets[0];
+    const preset = config.Server.ModelPresets.Presets[0];
     preset.ExternalServerEnabled = true;
     preset.BaseUrl = 'http://192.168.1.50:8097';
-    config.Server.LlamaCpp.ActivePresetId = preset.id;
+    config.Server.ModelPresets.ActivePresetId = preset.id;
 
     await saveConfig(config);
     const loaded = await loadConfig({ ensure: true });
 
-    assert.equal(loaded.Server.LlamaCpp.Presets[0].ExternalServerEnabled, true);
-    assert.equal(loaded.Server.LlamaCpp.Presets[0].BaseUrl, 'http://192.168.1.50:8097');
+    assert.equal(loaded.Server.ModelPresets.Presets[0].ExternalServerEnabled, true);
+    assert.equal(loaded.Server.ModelPresets.Presets[0].BaseUrl, 'http://192.168.1.50:8097');
   });
 });
 
@@ -722,15 +741,15 @@ test('saveConfig persists managed llama ExecutablePath and ModelPath that the da
     const config = await loadConfig({ ensure: true });
     const dashboardExecutablePath = 'C:\\\\Users\\\\test\\\\llamacpp\\\\llama-server.exe';
     const dashboardModelPath = 'D:\\\\models\\\\some-model.gguf';
-    const preset = config.Server.LlamaCpp.Presets[0];
+    const preset = config.Server.ModelPresets.Presets[0];
     preset.ExecutablePath = dashboardExecutablePath;
     preset.ModelPath = dashboardModelPath;
 
     await saveConfig(config);
     const loaded = await loadConfig({ ensure: true });
 
-    assert.equal(loaded.Server.LlamaCpp.Presets[0].ExecutablePath, dashboardExecutablePath);
-    assert.equal(loaded.Server.LlamaCpp.Presets[0].ModelPath, dashboardModelPath);
+    assert.equal(loaded.Server.ModelPresets.Presets[0].ExecutablePath, dashboardExecutablePath);
+    assert.equal(loaded.Server.ModelPresets.Presets[0].ModelPath, dashboardModelPath);
   });
 });
 
@@ -743,30 +762,33 @@ test('saveConfig round-trips through the config service', async () => {
   });
 });
 
-test('configured inference endpoint and model follow the selected EXL3 backend', () => {
-  const config = getDefaultConfigObject();
-  config.Inference.SelectedBackend = 'exl3';
-  config.Server.Exl3.BaseUrl = 'http://127.0.0.1:18098';
-  config.Server.Exl3.ModelId = 'selected-exl3';
+test('configured inference endpoint and model follow the active EXL3 preset', () => {
+  const config = makePresetConfig({
+    Backend: 'exl3',
+    BaseUrl: 'http://127.0.0.1:18098',
+    Model: 'selected-exl3',
+  });
 
   assert.equal(getConfiguredLlamaBaseUrl(config), 'http://127.0.0.1:18098');
   assert.equal(getConfiguredModel(config), 'selected-exl3');
 });
 
-test('saveConfig persists inference selection and the EXL3 process profile', async () => {
+test('saveConfig persists the preset backend and EXL3 request target', async () => {
   await withTestEnvAndServer(async () => {
     const config = await loadConfig({ ensure: true });
-    config.Inference.SelectedBackend = 'exl3';
+    const activePreset = config.Server.ModelPresets.Presets[0];
+    if (!activePreset) throw new Error('Active model preset is missing');
+    activePreset.Backend = 'exl3';
+    activePreset.Model = 'custom-exl3';
+    activePreset.BaseUrl = 'http://127.0.0.1:18098';
     config.Inference.Thinking.Enabled = false;
-    config.Server.Exl3.ModelId = 'custom-exl3';
-    config.Server.Exl3.BaseUrl = 'http://127.0.0.1:18098';
 
     await saveConfig(config);
     const loaded = await loadConfig({ ensure: true });
 
-    assert.equal(loaded.Inference.SelectedBackend, 'exl3');
+    assert.equal(loaded.Server.ModelPresets.Presets[0]?.Backend, 'exl3');
     assert.equal(loaded.Inference.Thinking.Enabled, false);
-    assert.equal(loaded.Server.Exl3.ModelId, 'custom-exl3');
-    assert.equal(loaded.Server.Exl3.BaseUrl, 'http://127.0.0.1:18098');
+    assert.equal(loaded.Server.ModelPresets.Presets[0]?.Model, 'custom-exl3');
+    assert.equal(loaded.Server.ModelPresets.Presets[0]?.BaseUrl, 'http://127.0.0.1:18098');
   });
 });

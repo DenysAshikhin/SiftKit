@@ -190,20 +190,20 @@ export function getRunTelemetryStats(
   };
 }
 
-function getActiveManagedLlamaPreset(config: DashboardConfig): DashboardConfig['Server']['LlamaCpp']['Presets'][number] | null {
-  const presets = Array.isArray(config.Server.LlamaCpp.Presets) ? config.Server.LlamaCpp.Presets : [];
+function getActiveModelPreset(config: DashboardConfig): DashboardConfig['Server']['ModelPresets']['Presets'][number] | null {
+  const presets = Array.isArray(config.Server.ModelPresets.Presets) ? config.Server.ModelPresets.Presets : [];
   if (presets.length === 0) {
     return null;
   }
-  const activePresetId = typeof config.Server.LlamaCpp.ActivePresetId === 'string'
-    ? config.Server.LlamaCpp.ActivePresetId.trim()
+  const activePresetId = typeof config.Server.ModelPresets.ActivePresetId === 'string'
+    ? config.Server.ModelPresets.ActivePresetId.trim()
     : '';
   return presets.find((entry) => entry.id === activePresetId) ?? presets[0] ?? null;
 }
 
 export function applySpeculativeCaseToConfig(config: DashboardConfig, entry: SpecBenchmarkCase): DashboardConfig {
   const cloned = structuredClone(config);
-  const activePreset = getActiveManagedLlamaPreset(cloned);
+  const activePreset = getActiveModelPreset(cloned);
   if (!activePreset) {
     return cloned;
   }

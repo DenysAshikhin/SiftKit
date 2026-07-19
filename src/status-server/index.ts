@@ -28,7 +28,7 @@ import {
   buildIdleSummarySnapshot,
   buildIdleMetricsLogMessage,
 } from './idle-summary.js';
-import { readConfig, writeConfig } from './config-store.js';
+import { getActiveModelPreset, readConfig, writeConfig } from './config-store.js';
 import {
   buildStatusRequestLogMessage,
   buildRepoSearchProgressLogMessage,
@@ -60,7 +60,6 @@ import {
 } from './managed-llama.js';
 import { createRequestHandler } from './routes.js';
 import { BackendSwitchCoordinator } from './backend-switch-coordinator.js';
-import { ConfigBackendSelectionStore } from './config-backend-selection-store.js';
 import { ManagedLlamaRuntime } from './managed-llama-runtime.js';
 import { ManagedTabbyRuntime } from './managed-tabby.js';
 import type {
@@ -262,11 +261,12 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     ensureManagedLlamaReady: (opts) => ensureManagedLlamaReady(ctx, opts),
   };
   const initialConfig = readConfig(configPath);
-  const managedTabbyRuntime = new ManagedTabbyRuntime(initialConfig.Server.Exl3);
+  const initialPreset = getActiveModelPreset(initialConfig);
+  const managedTabbyRuntime = new ManagedTabbyRuntime(initialConfig.Server.Engines.Exl3, initialPreset);
   const backendSwitchCoordinator = new BackendSwitchCoordinator(
     new ManagedLlamaRuntime(ctx, initialConfig),
     managedTabbyRuntime,
-    new ConfigBackendSelectionStore(configPath),
+    initialPreset.Backend,
   );
   if (!disableManagedLlamaStartup) {
     ctx.backendSwitchCoordinator = backendSwitchCoordinator;

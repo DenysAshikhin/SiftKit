@@ -4,7 +4,7 @@ import type {
   DashboardBenchmarkQuestionPreset,
   DashboardBenchmarkSession,
   DashboardBenchmarkSortKey,
-  DashboardManagedLlamaPreset,
+  DashboardModelRuntimePreset,
 } from '../types';
 
 export type BenchmarkTabProps = {
@@ -13,7 +13,7 @@ export type BenchmarkTabProps = {
   selectedSession: DashboardBenchmarkSession | null;
   attempts: DashboardBenchmarkAttempt[];
   liveLogLines: string[];
-  managedPresets: DashboardManagedLlamaPreset[];
+  managedPresets: DashboardModelRuntimePreset[];
   selectedQuestionPresetIds: string[];
   selectedManagedPresetIds: string[];
   repetitions: number;

@@ -127,7 +127,7 @@ test('real status server uses managed llama cumulative speculative delta for rep
     });
     const config = getDefaultConfig();
     setManagedLlamaBaseUrl(config, managed.baseUrl);
-    const speculativePreset = config.Server.LlamaCpp.Presets[0];
+    const speculativePreset = config.Server.ModelPresets.Presets[0];
     speculativePreset.BaseUrl = managed.baseUrl;
     speculativePreset.BindHost = '127.0.0.1';
     speculativePreset.Port = llamaPort;

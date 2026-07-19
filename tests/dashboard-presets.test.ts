@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { getPresetById, getPresetFamily } from '../dashboard/src/dashboard-presets.js';
 import type { ChatSession, DashboardConfig, DashboardPreset } from '../dashboard/src/types.js';
 import { normalizeConfigObject } from '../src/config/normalization.js';
-import { getTestExl3Profile, getTestInferenceConfig } from './helpers/runtime-config.js';
+import { getTestExl3Engine, getTestInferenceConfig } from './helpers/runtime-config.js';
 
 function createPreset(id: string, overrides: Partial<DashboardPreset> = {}): DashboardPreset {
   return {
@@ -46,7 +46,6 @@ function createConfig(presets: DashboardPreset[]): DashboardConfig {
     },
     Presets: presets,
     Runtime: {
-      Model: 'mock-model',
       LlamaCpp: {
         BaseUrl: 'http://127.0.0.1:8097',
         NumCtx: 150000,
@@ -88,11 +87,11 @@ function createConfig(presets: DashboardPreset[]): DashboardConfig {
       FetchMaxCharacters: 12000,
     },
     Server: {
-      LlamaCpp: {
+      ModelPresets: {
         Presets: [],
         ActivePresetId: 'default',
       },
-      Exl3: getTestExl3Profile(),
+      Engines: { Exl3: getTestExl3Engine() },
     },
   };
 }

@@ -6,7 +6,7 @@ import { mockConfig } from './_runtime-helpers.js';
 test('buildRuntimeLaunchSnapshot copies runtime-relevant fields from the active preset', () => {
   const config = mockConfig({
     Server: {
-      LlamaCpp: {
+      ModelPresets: {
         ActivePresetId: 'p',
         Presets: [{
           id: 'p', label: 'P', Model: 'm.gguf', BaseUrl: 'http://127.0.0.1:8097',

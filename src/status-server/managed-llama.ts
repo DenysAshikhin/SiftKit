@@ -1185,7 +1185,7 @@ export async function ensureManagedLlamaReady(ctx: ServerContext, options: Ensur
       ...(!managed.ExecutablePath ? ['ExecutablePath'] : []),
       ...(!managed.ModelPath ? ['ModelPath'] : []),
     ].join(', ');
-    const message = `Managed llama.cpp is not configured; missing config.Server.LlamaCpp.${missingFields}. Set ExecutablePath and ModelPath in the dashboard's Managed llama.cpp section, or enable an external llama.cpp server.`;
+    const message = `Managed llama.cpp is not configured; missing config.Server.ModelPresets.${missingFields}. Set ExecutablePath and ModelPath in the dashboard's Managed llama.cpp section, or enable an external llama.cpp server.`;
     ctx.managedLlamaStartupWarning = message;
     ctx.managedLlamaReady = false;
     publishStatus(ctx);

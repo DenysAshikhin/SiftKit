@@ -21,7 +21,7 @@ import {
   type SettingsSectionId,
 } from '../settings-sections';
 import { SettingsField, SettingsInlineHelpLabel } from '../settings/SettingsFields';
-import type { DashboardConfig, DashboardManagedLlamaPreset, DashboardPreset, ProviderQuota, WebSearchUsage } from '../types';
+import type { DashboardConfig, DashboardModelRuntimePreset, DashboardPreset, ProviderQuota, WebSearchUsage } from '../types';
 import { PresetsSection } from './settings/PresetsSection';
 import { ManagedLlamaSection } from './settings/ManagedLlamaSection';
 import { InferenceBackendSection } from './settings/InferenceBackendSection';
@@ -30,7 +30,7 @@ export type SettingsTabProps = {
   activeSettingsSection: SettingsSectionId;
   dashboardConfig: DashboardConfig | null;
   selectedSettingsPreset: DashboardPreset | null;
-  selectedManagedLlamaPreset: DashboardManagedLlamaPreset | null;
+  selectedManagedLlamaPreset: DashboardModelRuntimePreset | null;
   selectedSettingsPresetId: string | null;
   webSearchUsage: WebSearchUsage | null;
   webSearchQuota: ProviderQuota[] | null;
@@ -47,7 +47,7 @@ export type SettingsTabProps = {
   requestSettingsAction(continuation: DirtyContinuation): void;
   updateSettingsDraft(updater: (next: DashboardConfig) => void): void;
   updatePresetDraft(presetId: string, updater: (preset: DashboardPreset) => void): void;
-  updateManagedLlamaDraft(updater: (preset: DashboardManagedLlamaPreset) => void): void;
+  updateManagedLlamaDraft(updater: (preset: DashboardModelRuntimePreset) => void): void;
   onAddPreset(): void;
   onDeletePreset(presetId: string): void;
   onAddManagedLlamaPreset(): void;

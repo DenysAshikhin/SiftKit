@@ -876,23 +876,23 @@ function Format-Duration {
     return '{0:00}:{1:00}:{2:00}' -f [int]$Duration.TotalHours, $Duration.Minutes, $Duration.Seconds
 }
 
-function Get-ActiveManagedPreset {
+function Get-ActiveModelPreset {
     param(
         [Parameter(Mandatory = $true)]
-        [psobject]$ServerLlamaCpp
+        [psobject]$ModelPresets
     )
 
-    if ($null -eq $ServerLlamaCpp.Presets -or $ServerLlamaCpp.Presets.Count -eq 0) {
+    if ($null -eq $ModelPresets.Presets -or $ModelPresets.Presets.Count -eq 0) {
         return $null
     }
 
-    $activePresetId = if ($null -ne $ServerLlamaCpp.ActivePresetId) { [string]$ServerLlamaCpp.ActivePresetId } else { '' }
-    $activePreset = @($ServerLlamaCpp.Presets | Where-Object { $_.id -eq $activePresetId } | Select-Object -First 1)
+    $activePresetId = if ($null -ne $ModelPresets.ActivePresetId) { [string]$ModelPresets.ActivePresetId } else { '' }
+    $activePreset = @($ModelPresets.Presets | Where-Object { $_.id -eq $activePresetId } | Select-Object -First 1)
     if ($activePreset.Count -gt 0) {
         return $activePreset[0]
     }
 
-    return $ServerLlamaCpp.Presets[0]
+    return $ModelPresets.Presets[0]
 }
 
 function Set-SpeculativeCaseOnConfig {
@@ -907,9 +907,7 @@ function Set-SpeculativeCaseOnConfig {
     if ($Case.ContainsKey('SpeculativeEnabled')) {
         $specEnabled = [bool]$Case.SpeculativeEnabled
     }
-    $activePreset = Get-ActiveManagedPreset -ServerLlamaCpp $Config.Server.LlamaCpp
-    $Config.Server.LlamaCpp.SpeculativeEnabled = $specEnabled
-    $Config.Server.LlamaCpp.SpeculativeType = 'ngram-mod'
+    $activePreset = Get-ActiveModelPreset -ModelPresets $Config.Server.ModelPresets
     if ($null -ne $activePreset) {
         $activePreset.SpeculativeEnabled = $specEnabled
         $activePreset.SpeculativeType = 'ngram-mod'
@@ -917,11 +915,6 @@ function Set-SpeculativeCaseOnConfig {
     if (-not $specEnabled) {
         return
     }
-    $Config.Server.LlamaCpp.SpeculativeNgramSizeN = $Case.SpeculativeNgramSizeN
-    $Config.Server.LlamaCpp.SpeculativeNgramSizeM = $Case.SpeculativeNgramSizeM
-    $Config.Server.LlamaCpp.SpeculativeNgramMinHits = $Case.SpeculativeNgramMinHits
-    $Config.Server.LlamaCpp.SpeculativeDraftMax = $Case.SpeculativeDraftMax
-    $Config.Server.LlamaCpp.SpeculativeDraftMin = $Case.SpeculativeDraftMin
     if ($null -ne $activePreset) {
         $activePreset.SpeculativeNgramSizeN = $Case.SpeculativeNgramSizeN
         $activePreset.SpeculativeNgramSizeM = $Case.SpeculativeNgramSizeM

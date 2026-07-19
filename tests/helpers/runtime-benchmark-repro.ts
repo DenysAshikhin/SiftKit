@@ -35,9 +35,9 @@ export async function saveFixture60ChunkingConfig(): Promise<void> {
     BaseUrl: stubLlama.baseUrl,
     NumCtx: 12_000,
   };
-  const basePreset = config.Server.LlamaCpp.Presets[0];
-  config.Server.LlamaCpp.ActivePresetId = 'default';
-  config.Server.LlamaCpp.Presets = [{
+  const basePreset = config.Server.ModelPresets.Presets[0];
+  config.Server.ModelPresets.ActivePresetId = 'default';
+  config.Server.ModelPresets.Presets = [{
     ...basePreset,
     id: 'default',
     label: 'Default',

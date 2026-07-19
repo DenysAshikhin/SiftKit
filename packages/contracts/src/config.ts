@@ -37,25 +37,9 @@ export const InferenceThinkingConfigSchema = z.object({
 export type InferenceThinkingConfig = z.infer<typeof InferenceThinkingConfigSchema>;
 
 export const InferenceConfigSchema = z.object({
-  SelectedBackend: InferenceBackendIdSchema,
   Thinking: InferenceThinkingConfigSchema,
 });
 export type InferenceConfig = z.infer<typeof InferenceConfigSchema>;
-
-export const Exl3ProfileSchema = z.object({
-  Managed: z.boolean(),
-  BaseUrl: z.string(),
-  WorkingDirectory: z.string(),
-  PythonPath: z.string(),
-  Entrypoint: z.string(),
-  ConfigPath: z.string(),
-  ModelId: z.string(),
-  StartupTimeoutMs: z.number(),
-  HealthcheckTimeoutMs: z.number(),
-  HealthcheckIntervalMs: z.number(),
-  ShutdownTimeoutMs: z.number(),
-});
-export type Exl3Profile = z.infer<typeof Exl3ProfileSchema>;
 
 export const RuntimeLlamaCppConfigSchema = z.object({
   BaseUrl: z.string().nullable().optional(), NumCtx: z.number().nullable().optional(),
@@ -101,11 +85,6 @@ export type ModelPresetField = z.infer<typeof ModelPresetFieldSchema>;
 export const ManagedLlamaSettingsSchema = z.object(ManagedLlamaSettingsShape);
 export type ManagedLlamaSettings = z.infer<typeof ManagedLlamaSettingsSchema>;
 
-export const ServerManagedLlamaPresetSchema = z.object({
-  id: z.string(), label: z.string(), Model: z.string().nullable(), ...ManagedLlamaSettingsShape,
-});
-export type ServerManagedLlamaPreset = z.infer<typeof ServerManagedLlamaPresetSchema>;
-
 export const ModelRuntimePresetSchema = z.object({
   id: z.string(), label: z.string(), Backend: InferenceBackendIdSchema, Model: z.string().nullable(),
   ...ManagedLlamaSettingsShape,
@@ -127,11 +106,6 @@ export const Exl3EngineConfigSchema = z.object({
   ShutdownTimeoutMs: z.number().positive(),
 });
 export type Exl3EngineConfig = z.infer<typeof Exl3EngineConfigSchema>;
-
-export const ServerLlamaCppConfigSchema = z.object({
-  Presets: z.array(ServerManagedLlamaPresetSchema), ActivePresetId: z.string(),
-});
-export type ServerLlamaCppConfig = z.infer<typeof ServerLlamaCppConfigSchema>;
 
 export const WebSearchProviderIdSchema = z.enum(['tavily', 'firecrawl']);
 export type WebSearchProviderId = z.infer<typeof WebSearchProviderIdSchema>;
@@ -177,13 +151,16 @@ export const SiftConfigSchema = z.object({
   IncludeAgentsMd: z.boolean(), IncludeRepoFileListing: z.boolean(), ExpandReads: z.boolean(),
   PromptPrefix: z.string().nullable().optional(),
   Inference: InferenceConfigSchema,
-  Runtime: z.object({ Model: z.string().nullable(), LlamaCpp: RuntimeLlamaCppConfigSchema }),
+  Runtime: z.object({ LlamaCpp: RuntimeLlamaCppConfigSchema }),
   Thresholds: z.object({ MinCharactersForSummary: z.number(), MinLinesForSummary: z.number() }),
   Interactive: z.object({
     Enabled: z.boolean(), WrappedCommands: z.array(z.string()), IdleTimeoutMs: z.number(),
     MaxTranscriptCharacters: z.number(), TranscriptRetention: z.boolean(),
   }),
-  Server: z.object({ LlamaCpp: ServerLlamaCppConfigSchema, Exl3: Exl3ProfileSchema }),
+  Server: z.object({
+    ModelPresets: ServerModelPresetsConfigSchema,
+    Engines: z.object({ Exl3: Exl3EngineConfigSchema }),
+  }),
   OperationModeAllowedTools: OperationModeAllowedToolsSchema,
   Presets: z.array(SiftPresetSchema),
   WebSearch: WebSearchConfigSchema,

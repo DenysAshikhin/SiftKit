@@ -18,43 +18,37 @@ test('RestartBackendResponseSchema accepts ok with no config', () => {
   assert.doesNotThrow(() => RestartBackendResponseSchema.parse({ ok: true, restarted: false }));
 });
 
-test('SiftConfigSchema preserves typed inference and EXL3 configuration', () => {
+test('SiftConfigSchema preserves per-preset backend and EXL3 engine configuration', () => {
   const defaults = getDefaultConfigObject();
+  const preset = defaults.Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('Default model preset is missing');
   const parsed = SiftConfigSchema.parse({
     ...defaults,
     Inference: {
-      SelectedBackend: 'exl3',
       Thinking: { Enabled: true, Preserve: true },
     },
     Server: {
       ...defaults.Server,
-      Exl3: {
-        Managed: true,
-        BaseUrl: 'http://127.0.0.1:8098',
-        WorkingDirectory: 'C:\\Users\\denys\\Documents\\GitHub\\TabbyAPI',
-        PythonPath: 'C:\\envs\\rl310\\Scripts\\python.exe',
-        Entrypoint: 'main.py',
-        ConfigPath: 'config.yml',
-        ModelId: '3.6_27B',
-        StartupTimeoutMs: 600_000,
-        HealthcheckTimeoutMs: 2_000,
-        HealthcheckIntervalMs: 1_000,
-        ShutdownTimeoutMs: 30_000,
+      ModelPresets: {
+        ActivePresetId: preset.id,
+        Presets: [{ ...preset, Backend: 'exl3', BaseUrl: 'http://127.0.0.1:8098', Model: '3.6_27B' }],
       },
     },
   });
 
-  assert.match(JSON.stringify(parsed), /"SelectedBackend":"exl3"/u);
-  assert.match(JSON.stringify(parsed), /"ModelId":"3\.6_27B"/u);
+  assert.equal(parsed.Server.ModelPresets.Presets[0]?.Backend, 'exl3');
+  assert.equal(parsed.Server.ModelPresets.Presets[0]?.Model, '3.6_27B');
 });
 
-test('SiftConfigSchema rejects an invalid selected inference backend', () => {
+test('SiftConfigSchema rejects an invalid preset backend', () => {
   const defaults = getDefaultConfigObject();
+  const preset = defaults.Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('Default model preset is missing');
   const result = SiftConfigSchema.safeParse({
     ...defaults,
-    Inference: {
-      SelectedBackend: 'unknown-backend',
-      Thinking: { Enabled: true, Preserve: true },
+    Server: {
+      ...defaults.Server,
+      ModelPresets: { ActivePresetId: preset.id, Presets: [{ ...preset, Backend: 'unknown-backend' }] },
     },
   });
 
@@ -62,8 +56,10 @@ test('SiftConfigSchema rejects an invalid selected inference backend', () => {
 });
 
 test('ModelRuntimePresetSchema requires a backend on every preset', () => {
-  const preset = getDefaultConfigObject().Server.LlamaCpp.Presets[0];
-  assert.equal(ModelRuntimePresetSchema.safeParse(preset).success, false);
+  const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('Default model preset is missing');
+  const { Backend: _Backend, ...withoutBackend } = preset;
+  assert.equal(ModelRuntimePresetSchema.safeParse(withoutBackend).success, false);
   assert.equal(ModelRuntimePresetSchema.safeParse({ ...preset, Backend: 'exl3' }).success, true);
 });
 

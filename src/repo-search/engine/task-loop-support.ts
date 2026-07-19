@@ -1,5 +1,5 @@
 import {
-  getActiveManagedLlamaPreset,
+  getActiveModelPreset,
   getConfiguredLlamaSetting,
   type SiftConfig,
 } from '../../config/index.js';
@@ -177,17 +177,17 @@ export function isPlannerReasoningEnabled(config: SiftConfig | undefined): boole
 
 export function isPlannerReasoningContentEnabled(config: SiftConfig | undefined): boolean {
   return isPlannerReasoningEnabled(config)
-    && (config ? getActiveManagedLlamaPreset(config)?.ReasoningContent === true : false);
+    && (config ? getActiveModelPreset(config).ReasoningContent : false);
 }
 
 export function isPlannerPreserveThinkingEnabled(config: SiftConfig | undefined): boolean {
   return isPlannerReasoningContentEnabled(config)
-    && (config ? getActiveManagedLlamaPreset(config)?.PreserveThinking === true : false);
+    && (config ? getActiveModelPreset(config).PreserveThinking : false);
 }
 
 export function isPlannerMaintainPerStepThinkingEnabled(config: SiftConfig | undefined): boolean {
   return isPlannerReasoningEnabled(config)
-    && (config ? getActiveManagedLlamaPreset(config)?.MaintainPerStepThinking !== false : true);
+    && (config ? getActiveModelPreset(config).MaintainPerStepThinking : true);
 }
 
 export function buildAssistantReplayMessage(content: string, thinkingText: string): ChatMessage {

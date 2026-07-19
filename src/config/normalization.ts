@@ -22,13 +22,13 @@ import {
   type SiftPreset,
 } from '../presets.js';
 import type {
+  Exl3EngineConfig,
   ManagedLlamaKvCacheQuantization,
   ManagedLlamaSpeculativeType,
+  ModelRuntimePreset,
   NormalizationInfo,
-  Exl3Profile,
   InferenceBackendId,
   RuntimeLlamaCppConfig,
-  ServerManagedLlamaPreset,
   SiftConfig,
   WebSearchConfig,
   WebSearchProviderId,
@@ -111,10 +111,10 @@ function getDefaultWebSearchConfig(): WebSearchConfig {
   return getDefaultConfigObject().WebSearch;
 }
 
-function getDefaultManagedLlamaPreset(): ServerManagedLlamaPreset {
-  const preset = getDefaultConfigObject().Server.LlamaCpp.Presets[0];
+function getDefaultModelPreset(): ModelRuntimePreset {
+  const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
   if (!preset) {
-    throw new Error('Default managed llama preset is missing.');
+    throw new Error('Default model preset is missing.');
   }
   return preset;
 }
@@ -124,20 +124,16 @@ function normalizeInferenceBackend(value: JsonValue): InferenceBackendId {
   return INFERENCE_BACKEND_IDS.find((backend) => backend === candidate) ?? 'llama';
 }
 
-function normalizeExl3Profile(value: JsonValue): Exl3Profile {
+function normalizeExl3Engine(value: JsonValue): Exl3EngineConfig {
   const input = getRecord(value);
-  const defaults = getDefaultConfigObject().Server.Exl3;
+  const defaults = getDefaultConfigObject().Server.Engines.Exl3;
   return {
     Managed: input.Managed !== false,
-    BaseUrl: getNullableTrimmedString(input.BaseUrl) ?? defaults.BaseUrl,
     WorkingDirectory: getNullableTrimmedString(input.WorkingDirectory) ?? defaults.WorkingDirectory,
     PythonPath: getNullableTrimmedString(input.PythonPath) ?? defaults.PythonPath,
     Entrypoint: getNullableTrimmedString(input.Entrypoint) ?? defaults.Entrypoint,
     ConfigPath: getNullableTrimmedString(input.ConfigPath) ?? defaults.ConfigPath,
-    ModelId: getNullableTrimmedString(input.ModelId) ?? defaults.ModelId,
-    StartupTimeoutMs: getFinitePositiveInteger(input.StartupTimeoutMs, defaults.StartupTimeoutMs),
-    HealthcheckTimeoutMs: getFinitePositiveInteger(input.HealthcheckTimeoutMs, defaults.HealthcheckTimeoutMs),
-    HealthcheckIntervalMs: getFinitePositiveInteger(input.HealthcheckIntervalMs, defaults.HealthcheckIntervalMs),
+    ModelRoot: getNullableTrimmedString(input.ModelRoot) ?? defaults.ModelRoot,
     ShutdownTimeoutMs: getFinitePositiveInteger(input.ShutdownTimeoutMs, defaults.ShutdownTimeoutMs),
   };
 }
@@ -311,26 +307,27 @@ export function mergeConfig(baseValue: JsonValue, patchValue: JsonValue): JsonVa
   return JsonValueSchema.parse(patchValue ?? null);
 }
 
-export function normalizeManagedLlamaPresetRecord(
+export function normalizeModelRuntimePresetRecord(
   input: JsonValue,
   fallbackId: string,
   fallbackLabel: string,
-): ServerManagedLlamaPreset {
+): ModelRuntimePreset {
   const record = getRecord(input);
   return {
     id: getNullableTrimmedString(record.id) || fallbackId,
     label: getNullableTrimmedString(record.label) || fallbackLabel,
+    Backend: normalizeInferenceBackend(record.Backend),
     Model: getNullableTrimmedString(record.Model) || deriveModelIdFromPath(record.ModelPath) || SIFT_DEFAULT_LLAMA_MODEL,
     ...resolveManagedLlamaSettings(record),
   };
 }
 
-export function normalizeManagedLlamaPresetArray(value: JsonValue, fallbackSource: JsonValue): ServerManagedLlamaPreset[] {
+export function normalizeModelRuntimePresetArray(value: JsonValue, fallbackSource: JsonValue): ModelRuntimePreset[] {
   const records = Array.isArray(value) ? value : [];
-  const normalized: ServerManagedLlamaPreset[] = [];
+  const normalized: ModelRuntimePreset[] = [];
   const seen = new Set<string>();
   for (let index = 0; index < records.length; index += 1) {
-    const candidate = normalizeManagedLlamaPresetRecord(records[index], `preset-${index + 1}`, `Preset ${index + 1}`);
+    const candidate = normalizeModelRuntimePresetRecord(records[index], `preset-${index + 1}`, `Preset ${index + 1}`);
     if (seen.has(candidate.id)) {
       continue;
     }
@@ -340,7 +337,7 @@ export function normalizeManagedLlamaPresetArray(value: JsonValue, fallbackSourc
   if (normalized.length > 0) {
     return normalized;
   }
-  return [normalizeManagedLlamaPresetRecord({
+  return [normalizeModelRuntimePresetRecord({
     id: 'default',
     label: 'Default',
     ...getRecord(fallbackSource),
@@ -355,7 +352,7 @@ function resolveOperationModeAllowedTools(value: JsonValue): OperationModeAllowe
 }
 
 function resolveManagedLlamaSettings(input: MutableJsonObject): ManagedLlamaConfig {
-  const defaults = getDefaultManagedLlamaPreset();
+  const defaults = getDefaultModelPreset();
   const reasoning = getNullableTrimmedString(input.Reasoning);
   const reasoningEnabled = reasoning === 'on';
   const reasoningContentEnabled = reasoningEnabled && input.ReasoningContent === true;
@@ -419,6 +416,23 @@ function resolveManagedLlamaSettings(input: MutableJsonObject): ManagedLlamaConf
 }
 
 export function normalizeConfigObject(input: JsonValue): SiftConfig {
+  const inputRecord = getRecord(input);
+  const inputInference = getRecord(inputRecord.Inference);
+  if ('SelectedBackend' in inputInference) {
+    throw new Error('Unsupported configuration field Inference.SelectedBackend; select Backend on each model preset.');
+  }
+  const inputRuntime = getRecord(inputRecord.Runtime);
+  if ('Model' in inputRuntime) {
+    throw new Error('Unsupported configuration field Runtime.Model; use the active model preset Model field.');
+  }
+  const inputServer = getRecord(inputRecord.Server);
+  if ('LlamaCpp' in inputServer) {
+    throw new Error('Unsupported configuration field Server.LlamaCpp; use Server.ModelPresets.');
+  }
+  if ('Exl3' in inputServer) {
+    throw new Error('Unsupported configuration field Server.Exl3; use Server.Engines.Exl3.');
+  }
+
   const merged = getRecord(mergeConfig(JsonValueSchema.parse(getDefaultConfigObject()), input ?? {}));
   if (merged.Backend === 'ollama') {
     merged.Backend = 'llama.cpp';
@@ -430,7 +444,6 @@ export function normalizeConfigObject(input: JsonValue): SiftConfig {
 
   const runtime = getRecord(merged.Runtime);
   delete runtime.PromptPrefix;
-  runtime.Model = getNullableTrimmedString(runtime.Model);
   runtime.LlamaCpp = getRecord(runtime.LlamaCpp);
   merged.Runtime = runtime;
 
@@ -442,7 +455,6 @@ export function normalizeConfigObject(input: JsonValue): SiftConfig {
   const inference = getRecord(merged.Inference);
   const thinking = getRecord(inference.Thinking);
   merged.Inference = {
-    SelectedBackend: normalizeInferenceBackend(inference.SelectedBackend),
     Thinking: {
       Enabled: Boolean(thinking.Enabled),
       Preserve: Boolean(thinking.Preserve),
@@ -455,15 +467,16 @@ export function normalizeConfigObject(input: JsonValue): SiftConfig {
   merged.Thresholds = thresholds;
 
   const server = getRecord(merged.Server);
-  const serverLlama = getRecord(server.LlamaCpp);
-  const presets = normalizeManagedLlamaPresetArray(serverLlama.Presets, {});
-  const activeId = getNullableTrimmedString(serverLlama.ActivePresetId);
+  const modelPresets = getRecord(server.ModelPresets);
+  const presets = normalizeModelRuntimePresetArray(modelPresets.Presets, {});
+  const activeId = getNullableTrimmedString(modelPresets.ActivePresetId);
   const activePreset = presets.find((preset) => preset.id === activeId) || presets[0];
   if (!activePreset) {
-    throw new Error('Managed llama preset normalization produced no presets.');
+    throw new Error('Model preset normalization produced no presets.');
   }
-  server.LlamaCpp = { Presets: presets, ActivePresetId: activePreset.id };
-  server.Exl3 = normalizeExl3Profile(server.Exl3);
+  const engines = getRecord(server.Engines);
+  server.ModelPresets = { Presets: presets, ActivePresetId: activePreset.id };
+  server.Engines = { Exl3: normalizeExl3Engine(engines.Exl3) };
   merged.Server = server;
 
   merged.OperationModeAllowedTools = resolveOperationModeAllowedTools(merged.OperationModeAllowedTools);
@@ -480,14 +493,12 @@ export function getRuntimeLlamaCpp(config: SiftConfig): RuntimeLlamaCppConfig {
   return config.Runtime.LlamaCpp;
 }
 
-export function getActiveManagedLlamaPreset(config: SiftConfig): ServerManagedLlamaPreset {
-  const normalized = normalizeConfigObject(JsonValueSchema.parse(config));
-  const serverLlama = normalized.Server.LlamaCpp;
-  return serverLlama.Presets.find((preset) => preset.id === serverLlama.ActivePresetId) || serverLlama.Presets[0];
-}
-
 export function getManagedLlamaConfig(config: SiftConfig): ManagedLlamaConfig {
-  const preset = getActiveManagedLlamaPreset(config);
+  const normalized = normalizeConfigObject(JsonValueSchema.parse(config));
+  const modelPresets = normalized.Server.ModelPresets;
+  const preset = modelPresets.Presets.find((entry) => entry.id === modelPresets.ActivePresetId)
+    ?? modelPresets.Presets[0];
+  if (!preset) throw new Error('Model preset list is empty.');
   return {
     Model: getNullableTrimmedString(preset.Model),
     ...resolveManagedLlamaSettings(getRecord(preset)),

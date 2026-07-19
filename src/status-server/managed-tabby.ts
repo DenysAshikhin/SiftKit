@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type { Exl3Profile } from '../config/types.js';
+import type { Exl3EngineConfig, ModelRuntimePreset } from '../config/types.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
 import { ManagedInferenceRuntime } from './managed-inference-runtime.js';
 import { terminateProcessTree } from './managed-llama.js';
@@ -28,13 +28,16 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   private startupError: Error | null = null;
   private readonly logPath: string;
 
-  constructor(private readonly profile: Exl3Profile) {
-    super('exl3', profile.BaseUrl, profile.ModelId, tabbyCapabilities);
+  constructor(
+    private readonly engine: Exl3EngineConfig,
+    private readonly preset: ModelRuntimePreset,
+  ) {
+    super('exl3', preset.BaseUrl ?? 'http://127.0.0.1:8098', preset.Model ?? 'exl3', tabbyCapabilities);
     this.logPath = path.join(getManagedTabbyLogRoot(), 'latest-startup.log');
   }
 
   async start(): Promise<void> {
-    if (!this.profile.Managed) {
+    if (!this.engine.Managed) {
       this.transitionTo('starting');
       await this.waitUntilReady();
       return;
@@ -49,8 +52,8 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     this.startupError = null;
     fs.mkdirSync(path.dirname(this.logPath), { recursive: true });
     fs.writeFileSync(this.logPath, '', 'utf8');
-    const child = spawn(this.profile.PythonPath, [this.profile.Entrypoint], {
-      cwd: this.profile.WorkingDirectory,
+    const child = spawn(this.engine.PythonPath, [this.engine.Entrypoint], {
+      cwd: this.engine.WorkingDirectory,
       shell: false,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -82,27 +85,27 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   }
 
   async waitUntilReady(): Promise<void> {
-    const deadline = Date.now() + this.profile.StartupTimeoutMs;
+    const deadline = Date.now() + this.preset.StartupTimeoutMs;
     while (Date.now() < deadline) {
       if (this.startupError) {
         throw this.startupError;
       }
       try {
         const response = await this.client.probeModelsAtBaseUrl(
-          this.profile.BaseUrl,
-          this.profile.HealthcheckTimeoutMs,
+          this.preset.BaseUrl ?? 'http://127.0.0.1:8098',
+          this.preset.HealthcheckTimeoutMs,
         );
-        if (response.statusCode < 400 && response.models.includes(this.profile.ModelId)) {
+        if (response.statusCode < 400 && this.preset.Model !== null && response.models.includes(this.preset.Model)) {
           this.transitionTo('ready');
           return;
         }
       } catch {
         // Cold model loading can reject connections until the API is ready.
       }
-      await delay(this.profile.HealthcheckIntervalMs);
+      await delay(this.preset.HealthcheckIntervalMs);
     }
     this.transitionTo('failed');
-    throw new Error(`Timed out waiting for TabbyAPI model '${this.profile.ModelId}'.`);
+    throw new Error(`Timed out waiting for TabbyAPI model '${this.preset.Model ?? 'exl3'}'.`);
   }
 
   async stop(): Promise<void> {
@@ -117,7 +120,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     if (child.pid) {
       terminateProcessTree(child.pid);
     }
-    const deadline = Date.now() + this.profile.ShutdownTimeoutMs;
+    const deadline = Date.now() + this.engine.ShutdownTimeoutMs;
     while (child.exitCode === null && Date.now() < deadline) {
       await delay(25);
     }

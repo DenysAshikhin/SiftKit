@@ -7,7 +7,7 @@ import path from 'node:path';
 import { getConfigPath } from '../src/config/index.js';
 import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
 import { readStatusText } from '../src/status-server/status-file.js';
-import type { SiftConfig, ServerManagedLlamaPreset } from '../src/config/types.js';
+import type { SiftConfig, ModelRuntimePreset } from '../src/config/types.js';
 import {
   getFreePort,
   requestJson,
@@ -20,8 +20,8 @@ interface StatusResponse {
   status: string;
 }
 
-function activePreset(config: SiftConfig): ServerManagedLlamaPreset {
-  const serverLlama = config.Server.LlamaCpp;
+function activePreset(config: SiftConfig): ModelRuntimePreset {
+  const serverLlama = config.Server.ModelPresets;
   return serverLlama.Presets.find((preset) => preset.id === serverLlama.ActivePresetId)
     || serverLlama.Presets[0];
 }

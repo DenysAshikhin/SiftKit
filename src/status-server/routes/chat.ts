@@ -29,7 +29,7 @@ import {
 import { readConfig } from '../config-store.js';
 import {
   applyHostLlamaRuntimeSettings,
-  getActiveManagedLlamaPreset,
+  getActiveModelPreset,
   notifyStatusBackend,
   SIFT_DEFAULT_LLAMA_BASE_URL,
   type SiftConfig,
@@ -185,9 +185,9 @@ function forwardRepoSearchToolEvent(
 }
 
 function shouldMaintainPerStepThinking(config: SiftConfig, session: ChatSession): boolean {
-  const activePreset = getActiveManagedLlamaPreset(config);
+  const activePreset = getActiveModelPreset(config);
   return session.thinkingEnabled !== false
-    && activePreset?.Reasoning === 'on'
+    && activePreset.Reasoning === 'on'
     && activePreset.MaintainPerStepThinking !== false;
 }
 
@@ -368,7 +368,7 @@ function getMockTokenConfig(config: SiftConfig, mockResponses: string[] | undefi
 }
 
 function getLocalTokenConfig(config: SiftConfig): SiftConfig | undefined {
-  const baseUrl = getActiveManagedLlamaPreset(config)?.BaseUrl ?? config.Runtime?.LlamaCpp?.BaseUrl ?? null;
+  const baseUrl = getActiveModelPreset(config).BaseUrl ?? config.Runtime.LlamaCpp.BaseUrl ?? null;
   return baseUrl === SIFT_DEFAULT_LLAMA_BASE_URL ? undefined : config;
 }
 
@@ -676,7 +676,7 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
     const session: ChatSession = {
       id: randomUUID(),
       title: createRequest.title || 'New Session',
-      model: createRequest.model || currentConfig.Runtime.Model || null,
+      model: createRequest.model || getActiveModelPreset(currentConfig).Model,
       contextWindowTokens: Number(runtimeLlamaCfg.NumCtx || 150000),
       thinkingEnabled: runtimeLlamaCfg.Reasoning !== 'off',
       webSearchEnabled: currentConfig.WebSearch.EnabledDefault === true,

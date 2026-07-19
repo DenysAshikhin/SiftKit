@@ -6,10 +6,10 @@ import {
   buildManagedLlamaArgs,
   parseManagedLlamaSpeculativeMetricsText,
 } from '../src/status-server/managed-llama';
-import type { ServerManagedLlamaPreset, SiftConfig } from '../src/config/index.js';
+import type { ModelRuntimePreset, SiftConfig } from '../src/config/index.js';
 
-function activePreset(config: SiftConfig): ServerManagedLlamaPreset {
-  const llama = config.Server.LlamaCpp;
+function activePreset(config: SiftConfig): ModelRuntimePreset {
+  const llama = config.Server.ModelPresets;
   return llama.Presets.find((preset) => preset.id === llama.ActivePresetId) ?? llama.Presets[0];
 }
 
@@ -21,7 +21,7 @@ function createConfig(ncpuMoe: number): SiftConfig {
   return config;
 }
 
-function createSpeculativeConfig(overrides: Partial<ServerManagedLlamaPreset>): SiftConfig {
+function createSpeculativeConfig(overrides: Partial<ModelRuntimePreset>): SiftConfig {
   const config = createConfig(0);
   Object.assign(activePreset(config), { SpeculativeEnabled: true }, overrides);
   return config;
@@ -29,14 +29,14 @@ function createSpeculativeConfig(overrides: Partial<ServerManagedLlamaPreset>): 
 
 // Returns just the speculative-decoding flags: from `--spec-type` up to the
 // trailing `-fa` flag that buildManagedLlamaArgs always appends afterwards.
-function speculativeArgs(overrides: Partial<ServerManagedLlamaPreset>): string[] {
+function speculativeArgs(overrides: Partial<ModelRuntimePreset>): string[] {
   const args = buildManagedLlamaArgs(getManagedLlamaConfig(createSpeculativeConfig(overrides)));
   const start = args.indexOf('--spec-type');
   const end = args.indexOf('-fa', start);
   return args.slice(start, end === -1 ? undefined : end);
 }
 
-function draftCacheArgs(overrides: Partial<ServerManagedLlamaPreset>): string[] {
+function draftCacheArgs(overrides: Partial<ModelRuntimePreset>): string[] {
   const args = buildManagedLlamaArgs(getManagedLlamaConfig(createSpeculativeConfig(overrides)));
   const start = args.indexOf('-ctkd');
   return start === -1 ? [] : args.slice(start, start + 4);

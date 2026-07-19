@@ -126,7 +126,7 @@ test('dashboard benchmark session plan creates case-prompt-repeat attempts in or
           SpeculativeDraftMin: 4,
         },
       ],
-      originalConfigJson: JSON.stringify({ Server: { LlamaCpp: { ActivePresetId: 'fast' } } }),
+      originalConfigJson: JSON.stringify({ Server: { ModelPresets: { ActivePresetId: 'fast' } } }),
     });
 
     assert.equal(session.session.questionPresetCount, 1);

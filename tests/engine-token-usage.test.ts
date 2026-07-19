@@ -95,7 +95,7 @@ test('recordModelResponse uses llama tokenizer for missing completion and thinki
 
   try {
     const tracker = new TokenUsageTracker(mockConfig({
-      Runtime: { Model: 'mock', LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } },
+      Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } },
     }));
     const resolved = await tracker.recordModelResponse({
       text: 'exact answer',

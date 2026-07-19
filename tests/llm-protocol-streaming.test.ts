@@ -46,13 +46,13 @@ class StreamingHttpClient {
 
 function buildStreamingConfig(): SiftConfig {
   const config = getDefaultConfigObject();
-  config.Runtime.Model = 'local';
+  config.Server.ModelPresets.Presets[0].Model = 'local';
   config.Runtime.LlamaCpp = {
     ...config.Runtime.LlamaCpp,
     BaseUrl: 'http://127.0.0.1:8097',
     Reasoning: 'on',
   };
-  const preset = config.Server.LlamaCpp.Presets[0];
+  const preset = config.Server.ModelPresets.Presets[0];
   if (!preset) {
     throw new Error('default config must include a managed llama preset');
   }
@@ -63,7 +63,7 @@ function buildStreamingConfig(): SiftConfig {
   preset.Reasoning = 'on';
   preset.ReasoningContent = true;
   preset.PreserveThinking = true;
-  config.Server.LlamaCpp.ActivePresetId = 'p1';
+  config.Server.ModelPresets.ActivePresetId = 'p1';
   return config;
 }
 

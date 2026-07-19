@@ -23,7 +23,7 @@ import { type SettingsSectionId } from '../settings-sections';
 import { buildManagedLlamaRestartFailureModal } from '../managed-llama-restart';
 import { deriveRuntimeModelId, syncDerivedSettingsFields } from '../settings-runtime';
 import { cloneDashboardConfig, getDashboardConfigSignature } from '../lib/format';
-import type { DashboardConfig, DashboardManagedLlamaPreset, DashboardPreset, ProviderQuota, WebSearchUsage } from '../types';
+import type { DashboardConfig, DashboardModelRuntimePreset, DashboardPreset, ProviderQuota, WebSearchUsage } from '../types';
 import type { SettingsTabProps } from '../tabs/SettingsTab';
 import type { ToastLevel } from './useToasts';
 
@@ -44,7 +44,7 @@ export function createUniquePresetId(existingPresets: ReadonlyArray<{ id: string
 export type SettingsController = {
   tabProps: SettingsTabProps;
   dashboardConfig: DashboardConfig | null;
-  selectedManagedLlamaPreset: DashboardManagedLlamaPreset | null;
+  selectedManagedLlamaPreset: DashboardModelRuntimePreset | null;
   maintainPerStepThinkingForCurrentPreset: boolean;
   settingsDirty: boolean;
   restartFailureModal: { title: string; message: string } | null;
@@ -92,8 +92,8 @@ export function useSettingsController(deps: {
     ? dashboardConfig.Presets.find((preset) => preset.id === selectedSettingsPresetId) ?? dashboardConfig.Presets[0] ?? null
     : null;
   const selectedManagedLlamaPreset = dashboardConfig
-    ? dashboardConfig.Server.LlamaCpp.Presets.find((preset) => preset.id === dashboardConfig.Server.LlamaCpp.ActivePresetId)
-      ?? dashboardConfig.Server.LlamaCpp.Presets[0]
+    ? dashboardConfig.Server.ModelPresets.Presets.find((preset) => preset.id === dashboardConfig.Server.ModelPresets.ActivePresetId)
+      ?? dashboardConfig.Server.ModelPresets.Presets[0]
       ?? null
     : null;
   const maintainPerStepThinkingForCurrentPreset = selectedManagedLlamaPreset?.Reasoning === 'on'
@@ -169,7 +169,7 @@ export function useSettingsController(deps: {
     });
   }
 
-  function updateManagedLlamaDraft(updater: (preset: DashboardManagedLlamaPreset) => void): void {
+  function updateManagedLlamaDraft(updater: (preset: DashboardModelRuntimePreset) => void): void {
     updateSettingsDraft((next) => {
       updateActiveManagedLlamaPreset(next, updater);
     });

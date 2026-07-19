@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ContextUsage } from '@siftkit/contracts';
-import type { ServerManagedLlamaPreset, SiftConfig } from '../config/types.js';
+import { getActiveModelPreset } from '../config/getters.js';
+import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
 import type { ChatMessage as PlannerChatMessage } from '../repo-search/planner-protocol.js';
 import type { ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
@@ -165,8 +166,11 @@ export function resolveActiveChatModel(config: SiftConfig | null | undefined, se
   if (typeof session?.model === 'string' && session.model.trim()) {
     return session.model.trim();
   }
-  if (typeof config?.Runtime.Model === 'string' && config.Runtime.Model.trim()) {
-    return config.Runtime.Model.trim();
+  if (config) {
+    const model = getActiveModelPreset(config).Model;
+    if (typeof model === 'string' && model.trim()) {
+      return model.trim();
+    }
   }
   return DEFAULT_LLAMA_MODEL;
 }
@@ -181,13 +185,13 @@ type BuildChatOptions = {
   webActionInstruction?: string;
 };
 
-function getActiveServerLlamaPreset(config: SiftConfig): ServerManagedLlamaPreset | null {
-  const serverLlama = config.Server.LlamaCpp;
-  const presets = serverLlama.Presets;
+function getActiveServerLlamaPreset(config: SiftConfig): ModelRuntimePreset | null {
+  const modelPresets = config.Server.ModelPresets;
+  const presets = modelPresets.Presets;
   if (presets.length === 0) {
     return null;
   }
-  const activePresetId = serverLlama.ActivePresetId;
+  const activePresetId = modelPresets.ActivePresetId;
   return presets.find((preset) => preset.id === activePresetId) || presets[0] || null;
 }
 

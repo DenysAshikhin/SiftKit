@@ -9,7 +9,7 @@ const SNAPSHOT_KEY = 'runtime_llama_launch_snapshot';
 /**
  * Snapshot of the active managed-llama preset taken when the managed server
  * boots. The config service reads this to populate `Runtime.LlamaCpp` /
- * `Runtime.Model`, so prompt-budget math matches the server that was launched.
+ * active preset model, so prompt-budget math matches the server that was launched.
  */
 export type RuntimeLaunchSnapshot = {
   Model: string | null;

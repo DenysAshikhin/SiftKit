@@ -1,4 +1,4 @@
-import { getConfiguredLlamaNumCtx, getSelectedBackend } from '../../config/index.js';
+import { getActiveInferenceBackend, getConfiguredLlamaNumCtx } from '../../config/index.js';
 import { AgentLoop } from '../../agent-loop/agent-loop.js';
 import type {
   AgentLoopFinishAction,
@@ -481,7 +481,7 @@ export class TaskLoop {
     });
     try {
       return await requestRepoSearchPlannerProtocolAction({
-        backend: this.options.config ? getSelectedBackend(this.options.config) : undefined,
+        backend: this.options.config ? getActiveInferenceBackend(this.options.config) : undefined,
         baseUrl: this.options.baseUrl,
         model: this.options.model,
         messages: this.transcript.getMessages(),

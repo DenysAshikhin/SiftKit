@@ -3,21 +3,12 @@ import test from 'node:test';
 
 import {
   BackendSwitchCoordinator,
-  type BackendSelectionStore,
 } from '../src/status-server/backend-switch-coordinator.js';
 import { ManagedInferenceRuntime } from '../src/status-server/managed-inference-runtime.js';
 import type { InferenceBackendId } from '../src/config/types.js';
 
-class MemorySelectionStore implements BackendSelectionStore {
+class MemorySelectionStore {
   selected: InferenceBackendId = 'llama';
-
-  getSelectedBackend(): InferenceBackendId {
-    return this.selected;
-  }
-
-  saveSelectedBackend(backend: InferenceBackendId): void {
-    this.selected = backend;
-  }
 }
 
 class RecordingRuntime extends ManagedInferenceRuntime {
@@ -100,7 +91,7 @@ test('backend switch drains the active request before stopping llama and startin
   const coordinator = new BackendSwitchCoordinator(
     new RecordingRuntime('llama', events),
     new RecordingRuntime('exl3', events),
-    store,
+    store.selected,
   );
   await coordinator.initialize();
   coordinator.setModelRequestActive(true);
@@ -128,7 +119,7 @@ test('selecting the active backend while draining cancels the pending switch', a
   const coordinator = new BackendSwitchCoordinator(
     new RecordingRuntime('llama', events),
     new RecordingRuntime('exl3', events),
-    store,
+    store.selected,
   );
   await coordinator.initialize();
   coordinator.setModelRequestActive(true);
@@ -148,7 +139,7 @@ test('idle switch is immediate and duplicate selection is idempotent', async () 
   const store = new MemorySelectionStore();
   const llama = new RecordingRuntime('llama', events);
   const exl3 = new RecordingRuntime('exl3', events);
-  const coordinator = new BackendSwitchCoordinator(llama, exl3, store);
+  const coordinator = new BackendSwitchCoordinator(llama, exl3, store.selected);
   await coordinator.initialize();
 
   assert.equal(await coordinator.select('exl3'), 'ready');
@@ -156,17 +147,16 @@ test('idle switch is immediate and duplicate selection is idempotent', async () 
 
   assert.deepEqual(events, ['start:llama', 'stop:llama', 'start:exl3']);
   assert.equal(exl3.getStartCount(), 1);
-  assert.equal(store.selected, 'exl3');
 });
 
-test('startup restores the persisted selected backend', async () => {
+test('startup uses the active preset backend', async () => {
   const events: string[] = [];
   const store = new MemorySelectionStore();
   store.selected = 'exl3';
   const coordinator = new BackendSwitchCoordinator(
     new RecordingRuntime('llama', events),
     new RecordingRuntime('exl3', events),
-    store,
+    store.selected,
   );
 
   await coordinator.initialize();
@@ -181,7 +171,7 @@ test('failed startup can retry the selected backend while its request owns admis
   const coordinator = new BackendSwitchCoordinator(
     new FailingRuntime('llama', events, 1),
     new RecordingRuntime('exl3', events),
-    store,
+    store.selected,
   );
   await assert.rejects(coordinator.initialize(), /llama start 1 failed/u);
   assert.equal(coordinator.canGrantModelRequest(), true);
@@ -201,7 +191,7 @@ test('failed target startup rolls back once and resumes the previous backend', a
   const coordinator = new BackendSwitchCoordinator(
     new RecordingRuntime('llama', events),
     new FailingRuntime('exl3', events, 1),
-    store,
+    store.selected,
   );
   await coordinator.initialize();
 
@@ -222,7 +212,7 @@ test('failed target and failed rollback leave the coordinator failed', async () 
   const coordinator = new BackendSwitchCoordinator(
     new FailingRuntime('llama', events, 2),
     new FailingRuntime('exl3', events, 1),
-    store,
+    store.selected,
   );
   await coordinator.initialize();
 

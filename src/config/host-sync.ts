@@ -1,6 +1,6 @@
 import { httpClient } from '../lib/http-client.js';
 import { JsonObjectSchema } from '../lib/json-types.js';
-import { getActiveManagedLlamaPreset, getFinitePositiveNumber } from './getters.js';
+import { getActiveModelPreset, getFinitePositiveNumber } from './getters.js';
 import { normalizeConfigObject } from './normalization.js';
 import type { RuntimeLlamaCppConfig, SiftConfig } from './types.js';
 
@@ -28,11 +28,11 @@ type HostLlamaSettings = {
 const hostSettingsCache = new Map<string, HostLlamaSettings>();
 
 function isPassThroughMode(config: SiftConfig): boolean {
-  return getActiveManagedLlamaPreset(config)?.ExternalServerEnabled === true;
+  return getActiveModelPreset(config).ExternalServerEnabled;
 }
 
 function getHostBaseUrl(config: SiftConfig): string | null {
-  const candidate = getActiveManagedLlamaPreset(config)?.BaseUrl ?? config.Runtime.LlamaCpp.BaseUrl;
+  const candidate = getActiveModelPreset(config).BaseUrl ?? config.Runtime.LlamaCpp.BaseUrl;
   if (typeof candidate !== 'string' || !candidate.trim()) {
     return null;
   }
@@ -51,7 +51,7 @@ async function fetchHostLlamaSettings(baseUrl: string): Promise<HostLlamaSetting
     timeoutMs: HOST_CONFIG_TIMEOUT_MS,
   }, JsonObjectSchema));
   const hostLlama: RuntimeLlamaCppConfig = hostConfig.Runtime.LlamaCpp;
-  const hostModel = hostConfig.Runtime.Model;
+  const hostModel = getActiveModelPreset(hostConfig).Model;
   const settings: HostLlamaSettings = {
     numCtx: getFinitePositiveNumber(hostLlama.NumCtx),
     reasoning: hostLlama.Reasoning === 'on' || hostLlama.Reasoning === 'off' ? hostLlama.Reasoning : null,
@@ -97,9 +97,19 @@ export async function applyHostLlamaRuntimeSettings(config: SiftConfig): Promise
   }
   return {
     ...config,
+    Server: {
+      ...config.Server,
+      ModelPresets: {
+        ...config.Server.ModelPresets,
+        Presets: config.Server.ModelPresets.Presets.map((preset) => (
+          preset.id === config.Server.ModelPresets.ActivePresetId && hostSettings.model !== null
+            ? { ...preset, Model: hostSettings.model }
+            : preset
+        )),
+      },
+    },
     Runtime: {
       ...config.Runtime,
-      ...(hostSettings.model !== null ? { Model: hostSettings.model } : {}),
       LlamaCpp: { ...config.Runtime.LlamaCpp, ...overlay },
     },
   };

@@ -16,6 +16,14 @@ export type ChatController = {
   selectedSessionId: string;
 };
 
+function getActiveModel(config: DashboardConfig | null): string {
+  if (!config) return 'Qwen3.5-9B-Q8_0.gguf';
+  const modelPresets = config.Server.ModelPresets;
+  const preset = modelPresets.Presets.find((entry) => entry.id === modelPresets.ActivePresetId)
+    ?? modelPresets.Presets[0];
+  return preset?.Model || 'Qwen3.5-9B-Q8_0.gguf';
+}
+
 export function useChatController(deps: {
   refreshToken: number;
   dashboardConfig: DashboardConfig | null;
@@ -35,7 +43,7 @@ export function useChatController(deps: {
     refreshToken: deps.refreshToken,
     buildCreateSessionRequest: () => ({
       title: `Session ${new Date().toLocaleTimeString()}`,
-      model: deps.dashboardConfig?.Runtime.Model || 'Qwen3.5-9B-Q8_0.gguf',
+      model: getActiveModel(deps.dashboardConfig),
       presetId: getDefaultWebPresetId(deps.dashboardConfig),
     }),
     confirmDeleteSession: () => window.confirm('Delete this chat session permanently?'),

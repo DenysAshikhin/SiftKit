@@ -36,9 +36,8 @@ test('getLlamaCppProviderStatus returns reachable status', async () => {
 
 test('getLlamaCppProviderStatus returns unreachable when server is down', async () => {
   const config = {
-    Backend: 'llama.cpp',
+    Backend: 'llama' as const,
     Runtime: {
-      Model: 'test-model',
       LlamaCpp: {
         BaseUrl: 'http://127.0.0.1:1',
         NumCtx: 10000,
@@ -46,6 +45,12 @@ test('getLlamaCppProviderStatus returns unreachable when server is down', async 
     },
     LlamaCpp: {
       BaseUrl: 'http://127.0.0.1:1',
+    },
+    Server: {
+      ModelPresets: {
+        ActivePresetId: 'default',
+        Presets: [{ id: 'default', Model: 'test-model', Backend: 'llama' as const }],
+      },
     },
     Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },
     Interactive: { Enabled: true, WrappedCommands: [], IdleTimeoutMs: 900000, MaxTranscriptCharacters: 60000, TranscriptRetention: true },
@@ -90,9 +95,8 @@ test('countLlamaCppTokens respects a bounded transient retry timeout', { timeout
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = getAddressInfo(server);
   const config = {
-    Backend: 'llama.cpp',
+    Backend: 'llama' as const,
     Runtime: {
-      Model: 'test-model',
       LlamaCpp: {
         BaseUrl: `http://127.0.0.1:${address.port}`,
         NumCtx: 10000,
@@ -100,6 +104,12 @@ test('countLlamaCppTokens respects a bounded transient retry timeout', { timeout
     },
     LlamaCpp: {
       BaseUrl: `http://127.0.0.1:${address.port}`,
+    },
+    Server: {
+      ModelPresets: {
+        ActivePresetId: 'default',
+        Presets: [{ id: 'default', Model: 'test-model', Backend: 'llama' as const }],
+      },
     },
     Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },
     Interactive: { Enabled: true, WrappedCommands: [], IdleTimeoutMs: 900000, MaxTranscriptCharacters: 60000, TranscriptRetention: true },

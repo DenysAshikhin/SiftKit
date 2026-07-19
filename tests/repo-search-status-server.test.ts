@@ -29,8 +29,8 @@ function writeManagedLlamaReadinessTestConfig(managed: {
 }, startupTimeoutMs: number): void {
   const config = getDefaultConfig();
   const server = config.Server;
-  server.LlamaCpp.Presets = [{
-    ...server.LlamaCpp.Presets[0],
+  server.ModelPresets.Presets = [{
+    ...server.ModelPresets.Presets[0],
     id: 'default',
     label: 'Managed Test',
     Model: 'managed-test-model',
@@ -42,7 +42,7 @@ function writeManagedLlamaReadinessTestConfig(managed: {
     HealthcheckTimeoutMs: 20,
     HealthcheckIntervalMs: 20,
   }];
-  server.LlamaCpp.ActivePresetId = 'default';
+  server.ModelPresets.ActivePresetId = 'default';
   writeConfig(getConfigPath(), config);
 }
 

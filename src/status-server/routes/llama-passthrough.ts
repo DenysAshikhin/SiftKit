@@ -112,7 +112,7 @@ async function proxyLlamaRequest(
     return;
   }
   if (isSelfPassthroughBaseUrl(ctx, configuredBaseUrl)) {
-    sendJson(res, 500, { error: 'Server.LlamaCpp.BaseUrl points at the SiftKit passthrough server.' });
+    sendJson(res, 500, { error: 'The active model preset BaseUrl points at the SiftKit passthrough server.' });
     return;
   }
   const baseUrl = getManagedLlamaInternalBaseUrl(config) || configuredBaseUrl;

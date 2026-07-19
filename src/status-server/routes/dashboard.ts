@@ -113,7 +113,7 @@ function readPositiveInteger(value: OptionalJsonValue, fallback: number): number
 }
 
 function getManagedPresetInputs(config: SiftConfig, selectedIds: string[]): BenchmarkManagedPresetInput[] {
-  const presets = config.Server.LlamaCpp.Presets;
+  const presets = config.Server.ModelPresets.Presets;
   return selectedIds.map((id) => {
     const preset = presets.find((entry) => entry.id === id);
     if (!preset) {

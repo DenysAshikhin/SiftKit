@@ -3,11 +3,6 @@ import type { BackendRuntimeStatus } from '@siftkit/contracts';
 import type { InferenceBackendId, InferenceRuntimeState } from '../config/types.js';
 import type { ManagedInferenceRuntime } from './managed-inference-runtime.js';
 
-export type BackendSelectionStore = {
-  getSelectedBackend(): InferenceBackendId;
-  saveSelectedBackend(backend: InferenceBackendId): void;
-};
-
 export class BackendSwitchCoordinator {
   private activeBackend: InferenceBackendId | null = null;
   private selectedBackend: InferenceBackendId;
@@ -21,9 +16,9 @@ export class BackendSwitchCoordinator {
   constructor(
     private readonly llamaRuntime: ManagedInferenceRuntime,
     private readonly exl3Runtime: ManagedInferenceRuntime,
-    private readonly store: BackendSelectionStore,
+    selectedBackend: InferenceBackendId,
   ) {
-    this.selectedBackend = store.getSelectedBackend();
+    this.selectedBackend = selectedBackend;
   }
 
   async initialize(): Promise<void> {
@@ -57,7 +52,6 @@ export class BackendSwitchCoordinator {
       this.selectedBackend = backend;
       this.pendingBackend = null;
       this.state = 'ready';
-      this.store.saveSelectedBackend(backend);
       return 'ready';
     }
     if (this.state === 'stopping' || this.state === 'starting') {
@@ -65,7 +59,6 @@ export class BackendSwitchCoordinator {
     }
     this.selectedBackend = backend;
     this.pendingBackend = backend;
-    this.store.saveSelectedBackend(backend);
     this.error = null;
     this.rollback = null;
     if (this.modelRequestActive) {

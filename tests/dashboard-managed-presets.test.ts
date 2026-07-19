@@ -5,17 +5,18 @@ import {
   addManagedLlamaPreset,
   applyManagedLlamaPresetSelection,
   deleteManagedLlamaPreset,
-  getActiveManagedLlamaPreset,
-  type DashboardManagedLlamaPreset,
+  getActiveModelPreset,
+  type DashboardModelRuntimePreset,
 } from '../dashboard/src/managed-llama-presets.js';
 import type { DashboardConfig, DashboardLlamaCppConfig } from '../dashboard/src/types.js';
 import { normalizeConfigObject } from '../src/config/normalization.js';
-import { getTestExl3Profile, getTestInferenceConfig } from './helpers/runtime-config.js';
+import { getTestExl3Engine, getTestInferenceConfig } from './helpers/runtime-config.js';
 
-function createPreset(overrides: Partial<DashboardManagedLlamaPreset> = {}): DashboardManagedLlamaPreset {
+function createPreset(overrides: Partial<DashboardModelRuntimePreset> = {}): DashboardModelRuntimePreset {
   return {
     id: 'default',
     label: 'Default',
+    Backend: 'llama',
     Model: 'default.gguf',
     ExternalServerEnabled: false,
     ExecutablePath: null,
@@ -66,7 +67,7 @@ function createPreset(overrides: Partial<DashboardManagedLlamaPreset> = {}): Das
   };
 }
 
-function presetToLlamaCpp(preset: DashboardManagedLlamaPreset): DashboardLlamaCppConfig {
+function presetToLlamaCpp(preset: DashboardModelRuntimePreset): DashboardLlamaCppConfig {
   return {
     BaseUrl: preset.BaseUrl,
     NumCtx: preset.NumCtx,
@@ -115,7 +116,6 @@ function createConfig(): DashboardConfig {
     },
     Presets: [],
     Runtime: {
-      Model: '',
       LlamaCpp: presetToLlamaCpp(defaultPreset),
     },
     Thresholds: {
@@ -142,18 +142,18 @@ function createConfig(): DashboardConfig {
       FetchMaxCharacters: 12000,
     },
     Server: {
-      LlamaCpp: {
+      ModelPresets: {
         Presets: [defaultPreset, qwenPreset],
         ActivePresetId: 'default',
       },
-      Exl3: getTestExl3Profile(),
+      Engines: { Exl3: getTestExl3Engine() },
     },
   };
 }
 
 test('applyManagedLlamaPresetSelection switches the active managed preset', () => {
   const config = createConfig();
-  Object.assign(config.Server.LlamaCpp.Presets[1], {
+  Object.assign(config.Server.ModelPresets.Presets[1], {
     NcpuMoe: 8,
     ReasoningContent: true,
     PreserveThinking: true,
@@ -164,8 +164,8 @@ test('applyManagedLlamaPresetSelection switches the active managed preset', () =
 
   applyManagedLlamaPresetSelection(config, 'qwen-27b');
 
-  assert.equal(config.Server.LlamaCpp.ActivePresetId, 'qwen-27b');
-  const active = getActiveManagedLlamaPreset(config);
+  assert.equal(config.Server.ModelPresets.ActivePresetId, 'qwen-27b');
+  const active = getActiveModelPreset(config);
   assert.equal(active.ModelPath, 'D:\\models\\qwen-27b.gguf');
   assert.equal(active.Threads, 0);
   assert.equal(active.NcpuMoe, 8);
@@ -182,7 +182,7 @@ test('applyManagedLlamaPresetSelection switches the active managed preset', () =
 test('managed llama preset defaults MaintainPerStepThinking on when reasoning is enabled', () => {
   const config = normalizeConfigObject({
     Server: {
-      LlamaCpp: {
+      ModelPresets: {
         Presets: [{
           id: 'thinking-on',
           label: 'Thinking On',
@@ -195,7 +195,7 @@ test('managed llama preset defaults MaintainPerStepThinking on when reasoning is
     },
   });
 
-  const preset = config.Server.LlamaCpp.Presets[0];
+  const preset = config.Server.ModelPresets.Presets[0];
   assert.equal(preset.Reasoning, 'on');
   assert.equal(preset.MaintainPerStepThinking, true);
 });
@@ -203,7 +203,7 @@ test('managed llama preset defaults MaintainPerStepThinking on when reasoning is
 test('managed llama preset honors explicit MaintainPerStepThinking false when reasoning is enabled', () => {
   const config = normalizeConfigObject({
     Server: {
-      LlamaCpp: {
+      ModelPresets: {
         Presets: [{
           id: 'thinking-on-last-only',
           label: 'Thinking On Last Only',
@@ -217,13 +217,13 @@ test('managed llama preset honors explicit MaintainPerStepThinking false when re
     },
   });
 
-  assert.equal(config.Server.LlamaCpp.Presets[0].MaintainPerStepThinking, false);
+  assert.equal(config.Server.ModelPresets.Presets[0].MaintainPerStepThinking, false);
 });
 
 test('managed llama preset disables MaintainPerStepThinking when reasoning is disabled', () => {
   const config = normalizeConfigObject({
     Server: {
-      LlamaCpp: {
+      ModelPresets: {
         Presets: [{
           id: 'thinking-off',
           label: 'Thinking Off',
@@ -235,12 +235,12 @@ test('managed llama preset disables MaintainPerStepThinking when reasoning is di
     },
   });
 
-  assert.equal(config.Server.LlamaCpp.Presets[0].MaintainPerStepThinking, false);
+  assert.equal(config.Server.ModelPresets.Presets[0].MaintainPerStepThinking, false);
 });
 
 test('applyManagedLlamaPresetSelection exposes ngram-mod MTP fields of the selected preset', () => {
   const config = createConfig();
-  Object.assign(config.Server.LlamaCpp.Presets[1], {
+  Object.assign(config.Server.ModelPresets.Presets[1], {
     SpeculativeEnabled: true,
     SpeculativeType: 'ngram-mod',
     SpeculativeMtpEnabled: true,
@@ -251,7 +251,7 @@ test('applyManagedLlamaPresetSelection exposes ngram-mod MTP fields of the selec
 
   applyManagedLlamaPresetSelection(config, 'qwen-27b');
 
-  const active = getActiveManagedLlamaPreset(config);
+  const active = getActiveModelPreset(config);
   assert.equal(active.SpeculativeMtpEnabled, true);
   assert.equal(active.SpeculativeNgramModNMatch, 24);
   assert.equal(active.SpeculativeNgramModNMin, 12);
@@ -264,8 +264,8 @@ test('addManagedLlamaPreset clones the active preset and creates a unique id', (
   const addedPresetId = addManagedLlamaPreset(config);
 
   assert.equal(addedPresetId, 'default-2');
-  assert.equal(config.Server.LlamaCpp.ActivePresetId, 'default-2');
-  assert.equal(config.Server.LlamaCpp.Presets.some((preset) => preset.id === 'default-2'), true);
+  assert.equal(config.Server.ModelPresets.ActivePresetId, 'default-2');
+  assert.equal(config.Server.ModelPresets.Presets.some((preset) => preset.id === 'default-2'), true);
 });
 
 test('deleteManagedLlamaPreset removes the preset and falls back to another preset', () => {
@@ -273,7 +273,7 @@ test('deleteManagedLlamaPreset removes the preset and falls back to another pres
 
   deleteManagedLlamaPreset(config, 'default');
 
-  assert.equal(config.Server.LlamaCpp.Presets.some((preset) => preset.id === 'default'), false);
-  assert.equal(config.Server.LlamaCpp.ActivePresetId, 'qwen-27b');
-  assert.equal(getActiveManagedLlamaPreset(config).ModelPath, 'D:\\models\\qwen-27b.gguf');
+  assert.equal(config.Server.ModelPresets.Presets.some((preset) => preset.id === 'default'), false);
+  assert.equal(config.Server.ModelPresets.ActivePresetId, 'qwen-27b');
+  assert.equal(getActiveModelPreset(config).ModelPath, 'D:\\models\\qwen-27b.gguf');
 });

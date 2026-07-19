@@ -1,6 +1,8 @@
 import { z } from '../../src/lib/zod.js';
-import type { OptionalJsonValue } from '../../src/lib/json-types.js';
+import { JsonValueSchema, type OptionalJsonValue } from '../../src/lib/json-types.js';
 import type { SiftConfig } from '../../src/config/types.js';
+import { getDefaultConfigObject } from '../../src/config/defaults.js';
+import { mergeConfig, normalizeConfigObject } from '../../src/config/normalization.js';
 
 // Deliberately-partial SiftConfig fixtures: the input is structurally checked
 // against a DeepPartial view (catching typos / wrong nesting) while the runtime
@@ -15,14 +17,8 @@ type DeepPartial<T> = T extends (infer U)[]
 const MockSiftConfigSchema = z.custom<SiftConfig>((value) => typeof value === 'object' && value !== null);
 
 export function mockSiftConfig(partial: DeepPartial<SiftConfig>): SiftConfig {
-  return MockSiftConfigSchema.parse({
-    ...partial,
-    Inference: {
-      SelectedBackend: 'llama',
-      Thinking: { Enabled: false, Preserve: false },
-      ...partial.Inference,
-    },
-  });
+  const merged = mergeConfig(JsonValueSchema.parse(getDefaultConfigObject()), JsonValueSchema.parse(partial));
+  return normalizeConfigObject(merged);
 }
 
 // Brand an already-constructed runtime config object (e.g. a stub server's live

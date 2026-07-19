@@ -32,6 +32,7 @@ import {
 import { normalizeMetrics, writeMetrics, type TaskKind, type ToolTypeStats } from '../metrics.js';
 import { recordWebSearchUsage } from '../web-search-usage.js';
 import {
+  getActiveModelPreset,
   readConfig,
   writeConfig,
   normalizeConfig,
@@ -1598,10 +1599,8 @@ class ConfigReadEndpoint implements RouteEndpoint {
         const backendStatus = ctx.backendSwitchCoordinator.getStatus();
         if (backendStatus.state === 'failed') {
           const config = readConfig(configPath);
-          const llamaPreset = config.Server.LlamaCpp.Presets.find(
-            (preset) => preset.id === config.Server.LlamaCpp.ActivePresetId,
-          ) ?? config.Server.LlamaCpp.Presets[0];
-          if (backendStatus.selected !== 'llama' || llamaPreset?.ExternalServerEnabled !== true) {
+          const activePreset = getActiveModelPreset(config);
+          if (backendStatus.selected !== 'llama' || !activePreset.ExternalServerEnabled) {
             sendJson(res, 200, config);
             return;
           }
@@ -1635,10 +1634,16 @@ class ConfigUpdateEndpoint implements RouteEndpoint {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
       return;
     }
-    const baseConfig = readConfig(configPath);
-    const nextConfig = isStrictConfigPayload(parsedBody)
-      ? normalizeConfig(parsedBody)
-      : normalizeConfig(mergeConfig(JsonValueSchema.parse(baseConfig), parsedBody));
+    let nextConfig: ReturnType<typeof normalizeConfig>;
+    try {
+      const baseConfig = readConfig(configPath);
+      nextConfig = isStrictConfigPayload(parsedBody)
+        ? normalizeConfig(parsedBody)
+        : normalizeConfig(mergeConfig(JsonValueSchema.parse(baseConfig), parsedBody));
+    } catch (error) {
+      sendJson(res, 400, { error: toError(error).message });
+      return;
+    }
     writeConfig(configPath, nextConfig);
     sendJson(res, 200, nextConfig);
     return;

@@ -6,7 +6,7 @@ import { deriveRuntimeModelId } from '../../settings-runtime';
 import { parseFloatInput, parseIntegerInput } from '../../lib/format';
 import { SettingsInlineHelpLabel } from '../../settings/SettingsFields';
 import type { SettingsSectionId } from '../../settings-sections';
-import type { DashboardConfig, DashboardManagedLlamaPreset, DashboardManagedLlamaSpeculativeType } from '../../types';
+import type { DashboardConfig, DashboardModelRuntimePreset, DashboardManagedLlamaSpeculativeType } from '../../types';
 
 const KV_CACHE_QUANT_OPTIONS = ['f32', 'f16', 'bf16', 'q8_0', 'q4_0', 'q4_1', 'iq4_nl', 'q5_0', 'q5_1', 'q8_0/q4_0', 'q8_0/q5_0'] as const;
 const SPECULATIVE_TYPE_OPTIONS = ['draft-simple', 'draft-eagle3', 'draft-mtp', 'ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod', 'ngram-cache'] as const;
@@ -21,12 +21,12 @@ type RenderField = (
 
 type ManagedLlamaSectionProps = {
   dashboardConfig: DashboardConfig | null;
-  selectedManagedLlamaPreset: DashboardManagedLlamaPreset | null;
+  selectedManagedLlamaPreset: DashboardModelRuntimePreset | null;
   settingsActionBusy: boolean;
   settingsPathPickerBusyTarget: 'ExecutablePath' | 'ModelPath' | null;
   renderField: RenderField;
   updateSettingsDraft(updater: (next: DashboardConfig) => void): void;
-  updateManagedLlamaDraft(updater: (preset: DashboardManagedLlamaPreset) => void): void;
+  updateManagedLlamaDraft(updater: (preset: DashboardModelRuntimePreset) => void): void;
   onAddManagedLlamaPreset(): void;
   onDeleteManagedLlamaPreset(presetId: string): void;
   onPickManagedLlamaPath(target: 'ExecutablePath' | 'ModelPath'): Promise<void>;
@@ -97,13 +97,13 @@ export function ManagedLlamaSection({
               <label className="settings-preset-selector">
                 <span className="settings-preset-inline-label"><SettingsInlineHelpLabel label="Preset" helpText="Pick which managed llama launcher preset to edit and launch." /></span>
                 <select
-                  value={dashboardConfig.Server.LlamaCpp.ActivePresetId}
+                  value={dashboardConfig.Server.ModelPresets.ActivePresetId}
                   onChange={(event) => updateSettingsDraft((next) => {
                     applyManagedLlamaPresetSelection(next, event.target.value);
                   })}
-                  disabled={dashboardConfig.Server.LlamaCpp.Presets.length === 0}
+                  disabled={dashboardConfig.Server.ModelPresets.Presets.length === 0}
                 >
-                  {dashboardConfig.Server.LlamaCpp.Presets.map((preset) => (
+                  {dashboardConfig.Server.ModelPresets.Presets.map((preset) => (
                     <option key={preset.id} value={preset.id}>{preset.label}</option>
                   ))}
                 </select>
@@ -113,7 +113,7 @@ export function ManagedLlamaSection({
                 <button
                   type="button"
                   onClick={() => { onDeleteManagedLlamaPreset(selectedManagedLlamaPreset.id); }}
-                  disabled={dashboardConfig.Server.LlamaCpp.Presets.length <= 1}
+                  disabled={dashboardConfig.Server.ModelPresets.Presets.length <= 1}
                 >
                   Delete
                 </button>

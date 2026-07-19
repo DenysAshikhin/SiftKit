@@ -59,7 +59,7 @@ function DashboardApp() {
     refreshToken: refresh.refreshToken,
     requestDashboardDataRefresh: refresh.requestDashboardDataRefresh,
     tab,
-    managedPresets: dashboardConfig?.Server.LlamaCpp.Presets ?? [],
+    managedPresets: dashboardConfig?.Server.ModelPresets.Presets ?? [],
   });
 
   const chat = useChatController({

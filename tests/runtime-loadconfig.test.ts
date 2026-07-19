@@ -326,17 +326,13 @@ test('real status server passes managed startup env flag to startup scripts', as
     });
     const config = getDefaultConfig();
     setManagedLlamaBaseUrl(config, managed.baseUrl);
-    fs.writeFileSync(configPath, JSON.stringify({
-      ...config,
-      Server: {
-        LlamaCpp: {
-          ExecutablePath: managed.startupScriptPath,
-          StartupTimeoutMs: 5000,
-          HealthcheckTimeoutMs: 100,
-          HealthcheckIntervalMs: 10,
-        },
-      },
-    }, null, 2), 'utf8');
+    const preset = config.Server.ModelPresets.Presets[0];
+    if (!preset) throw new Error('Default model preset is missing');
+    preset.ExecutablePath = managed.startupScriptPath;
+    preset.StartupTimeoutMs = 5000;
+    preset.HealthcheckTimeoutMs = 100;
+    preset.HealthcheckIntervalMs = 10;
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async () => {
       const startupDumpPath = path.join(tempRoot, '.siftkit', 'logs', 'managed-llama', 'latest-startup.log');
@@ -361,18 +357,14 @@ test('real status server passes managed verbose env settings to startup scripts'
     });
     const config = getDefaultConfig();
     setManagedLlamaBaseUrl(config, managed.baseUrl);
-    fs.writeFileSync(configPath, JSON.stringify({
-      ...config,
-      Server: {
-        LlamaCpp: {
-          ExecutablePath: managed.startupScriptPath,
-          StartupTimeoutMs: 5000,
-          HealthcheckTimeoutMs: 100,
-          HealthcheckIntervalMs: 10,
-          VerboseLogging: true,
-        },
-      },
-    }, null, 2), 'utf8');
+    const preset = config.Server.ModelPresets.Presets[0];
+    if (!preset) throw new Error('Default model preset is missing');
+    preset.ExecutablePath = managed.startupScriptPath;
+    preset.StartupTimeoutMs = 5000;
+    preset.HealthcheckTimeoutMs = 100;
+    preset.HealthcheckIntervalMs = 10;
+    preset.VerboseLogging = true;
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async () => {
       const startupDumpPath = path.join(tempRoot, '.siftkit', 'logs', 'managed-llama', 'latest-startup.log');
@@ -396,7 +388,7 @@ test('real status server defaults new config to no managed ExecutablePath', asyn
     await withRealStatusServer(async ({ configUrl }) => {
       const loadedConfig = await requestJson<SiftConfig>(configUrl);
 
-      assert.equal(loadedConfig.Server.LlamaCpp.Presets[0].ExecutablePath, null);
+      assert.equal(loadedConfig.Server.ModelPresets.Presets[0].ExecutablePath, null);
     }, {
       statusPath,
       configPath,
@@ -417,20 +409,20 @@ test('real status server PUT /config persists managed ExecutablePath/ModelPath a
     await withRealStatusServer(async ({ configUrl }) => {
       const initial = await requestJson(configUrl);
       const dashboardPayload = JSON.parse(JSON.stringify(initial));
-      dashboardPayload.Server.LlamaCpp.Presets[0].ExecutablePath = dashboardExecutablePath;
-      dashboardPayload.Server.LlamaCpp.Presets[0].ModelPath = dashboardModelPath;
+      dashboardPayload.Server.ModelPresets.Presets[0].ExecutablePath = dashboardExecutablePath;
+      dashboardPayload.Server.ModelPresets.Presets[0].ModelPath = dashboardModelPath;
 
       const putResponse = await requestJson<SiftConfig>(configUrl, {
         method: 'PUT',
         body: JSON.stringify(dashboardPayload),
       });
-      assert.equal(putResponse.Server.LlamaCpp.Presets[0].ExecutablePath, dashboardExecutablePath);
-      assert.equal(putResponse.Server.LlamaCpp.Presets[0].ModelPath, dashboardModelPath);
+      assert.equal(putResponse.Server.ModelPresets.Presets[0].ExecutablePath, dashboardExecutablePath);
+      assert.equal(putResponse.Server.ModelPresets.Presets[0].ModelPath, dashboardModelPath);
 
       const reloaded = await requestJson<SiftConfig>(configUrl);
-      assert.ok(Array.isArray(reloaded.Server.LlamaCpp.Presets));
-      assert.equal(reloaded.Server.LlamaCpp.Presets[0].ExecutablePath, dashboardExecutablePath);
-      assert.equal(reloaded.Server.LlamaCpp.Presets[0].ModelPath, dashboardModelPath);
+      assert.ok(Array.isArray(reloaded.Server.ModelPresets.Presets));
+      assert.equal(reloaded.Server.ModelPresets.Presets[0].ExecutablePath, dashboardExecutablePath);
+      assert.equal(reloaded.Server.ModelPresets.Presets[0].ModelPath, dashboardModelPath);
 
       const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
       const database = new Database(runtimeDbPath);
@@ -462,17 +454,13 @@ test('real status server allows startup scripts to call config before launch and
     });
     const config = getDefaultConfig();
     setManagedLlamaBaseUrl(config, managed.baseUrl);
-    fs.writeFileSync(configPath, JSON.stringify({
-      ...config,
-      Server: {
-        LlamaCpp: {
-          ExecutablePath: managed.startupScriptPath,
-          StartupTimeoutMs: 5000,
-          HealthcheckTimeoutMs: 100,
-          HealthcheckIntervalMs: 10,
-        },
-      },
-    }, null, 2), 'utf8');
+    const preset = config.Server.ModelPresets.Presets[0];
+    if (!preset) throw new Error('Default model preset is missing');
+    preset.ExecutablePath = managed.startupScriptPath;
+    preset.StartupTimeoutMs = 5000;
+    preset.HealthcheckTimeoutMs = 100;
+    preset.HealthcheckIntervalMs = 10;
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ statusUrl }) => {
       assert.equal(readStatusText(getConfigPath()), 'false');

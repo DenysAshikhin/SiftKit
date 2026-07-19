@@ -24,15 +24,16 @@ function makeClientConfig(options: {
     Backend: 'llama.cpp',
     PolicyMode: 'conservative',
     RawLogRetention: true,
-    Runtime: { Model: 'mock-model', LlamaCpp: { ...llama } },
+    Runtime: { LlamaCpp: { ...llama } },
     Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },
     Server: {
-      LlamaCpp: {
+      ModelPresets: {
         ActivePresetId: 'default',
         Presets: [
           {
             id: 'default',
             label: 'Default',
+            Model: 'mock-model',
             ExternalServerEnabled: options.externalServer,
             BaseUrl: options.baseUrl,
           },
@@ -88,9 +89,16 @@ test('applyHostLlamaRuntimeSettings leaves the config untouched when this SiftKi
 
 test('applyHostLlamaRuntimeSettings overlays the host SiftKit NumCtx/Reasoning/Model in pass-through mode', async () => {
   resetHostLlamaSettingsCacheForTests();
-  const host = await startHostConfigServer({
-    Runtime: { Model: 'host-loaded-model.gguf', LlamaCpp: { NumCtx: 75_008, Reasoning: 'off' } },
+  const hostConfig = makeClientConfig({
+    externalServer: false,
+    baseUrl: 'http://127.0.0.1:1',
+    localNumCtx: 75_008,
   });
+  const hostPreset = hostConfig.Server.ModelPresets.Presets[0];
+  if (!hostPreset) throw new Error('Host model preset is missing');
+  hostPreset.Model = 'host-loaded-model.gguf';
+  hostConfig.Runtime.LlamaCpp.Reasoning = 'off';
+  const host = await startHostConfigServer(hostConfig);
   try {
     const config = makeClientConfig({
       externalServer: true,

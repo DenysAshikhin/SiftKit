@@ -324,13 +324,18 @@ test('chat session creation uses pass-through host context window', async () => 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const host = await startHostConfigServer({
     Runtime: {
-      Model: 'host-loaded-model.gguf',
       LlamaCpp: { NumCtx: 75_008, Reasoning: 'off' },
+    },
+    Server: {
+      ModelPresets: {
+        ActivePresetId: 'host',
+        Presets: [{ id: 'host', Model: 'host-loaded-model.gguf', Backend: 'llama' }],
+      },
     },
   });
   const config = getDefaultConfig();
   const serverConfig = d(config.Server);
-  const llamaServerConfig = d(serverConfig.LlamaCpp);
+  const llamaServerConfig = d(serverConfig.ModelPresets);
   const presets = asObjectArray(llamaServerConfig.Presets);
   const activePreset = d(presets[0]);
   activePreset.ExternalServerEnabled = true;
@@ -705,7 +710,7 @@ test('dashboard chat message route stores exact user tokens from llama tokenizer
   const tokenizerAddress = getAddressInfo(tokenizerServer);
   const tokenizerBaseUrl = `http://127.0.0.1:${tokenizerAddress.port}`;
   const config = getDefaultConfig();
-  const serverLlama = config.Server.LlamaCpp;
+  const serverLlama = config.Server.ModelPresets;
   serverLlama.Presets = [{
     ...serverLlama.Presets[0],
     id: 'default',
@@ -784,9 +789,16 @@ test('dashboard metrics expose line-read stats and prompt-baseline recommendatio
       PromptTokenReserve: 4000,
     },
     Server: {
-      LlamaCpp: {
-        BaseUrl: 'http://127.0.0.1:8080',
-        NumCtx: 32000,
+      ModelPresets: {
+        ActivePresetId: 'default',
+        Presets: [{
+          id: 'default',
+          label: 'Default',
+          Backend: 'llama',
+          Model: 'mock-model.gguf',
+          BaseUrl: 'http://127.0.0.1:8080',
+          NumCtx: 32000,
+        }],
       },
     },
   }, null, 2));
@@ -1672,7 +1684,7 @@ test('repo-search auto-append preview prefers llama tokenizer when available', a
   const tokenizerAddress = getAddressInfo(tokenizerServer);
   const tokenizerBaseUrl = `http://127.0.0.1:${tokenizerAddress.port}`;
   const config = getDefaultConfig();
-  const serverLlama = config.Server.LlamaCpp;
+  const serverLlama = config.Server.ModelPresets;
   serverLlama.Presets = [{
     ...serverLlama.Presets[0],
     id: 'default',
@@ -2150,7 +2162,7 @@ test('chat completion replays prior tool evidence without hidden system context'
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const chatConfig = getDefaultConfig();
-  const chatPreset = chatConfig.Server.LlamaCpp.Presets;
+  const chatPreset = chatConfig.Server.ModelPresets.Presets;
   chatPreset[0].Model = 'Qwen3.5-9B-Q8_0.gguf';
   chatPreset[0].BaseUrl = `http://127.0.0.1:${llamaAddress.port}`;
   chatPreset[0].NumCtx = 85000;
@@ -2294,7 +2306,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const chatConfig = getDefaultConfig();
-  const chatPreset = chatConfig.Server.LlamaCpp.Presets;
+  const chatPreset = chatConfig.Server.ModelPresets.Presets;
   chatPreset[0].Model = 'Qwen3.5-9B-Q8_0.gguf';
   chatPreset[0].BaseUrl = `http://127.0.0.1:${llamaAddress.port}`;
   chatPreset[0].NumCtx = 85000;

@@ -285,7 +285,7 @@ test('llama.cpp provider reconstructs planner tool actions from empty-content to
 
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model ?? '',
+        model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
         structuredOutput: {
@@ -337,7 +337,7 @@ test('llama.cpp provider reconstructs planner tool batches from empty-content to
 
       const summary = await generateLlamaCppResponse({
         config,
-        model: config.Runtime.Model ?? '',
+        model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
         timeoutSeconds: 5,
         structuredOutput: {
@@ -590,8 +590,8 @@ test('summary below planner threshold disables thinking for fully ingested one-s
       const inputText = 'A'.repeat(Math.max(plannerThreshold - 10, 1));
 
       config.Runtime.LlamaCpp.Reasoning = 'on';
-      if (Array.isArray(config.Server.LlamaCpp.Presets) && config.Server.LlamaCpp.Presets[0]) {
-        config.Server.LlamaCpp.Presets[0].Reasoning = 'on';
+      if (Array.isArray(config.Server.ModelPresets.Presets) && config.Server.ModelPresets.Presets[0]) {
+        config.Server.ModelPresets.Presets[0].Reasoning = 'on';
       }
       await saveConfig(config);
 
@@ -628,8 +628,8 @@ test('summary above planner threshold respects runtime reasoning for planner req
       const inputText = buildOversizedTransitionsInput(plannerThreshold + 100);
 
       config.Runtime.LlamaCpp.Reasoning = 'on';
-      if (Array.isArray(config.Server.LlamaCpp.Presets) && config.Server.LlamaCpp.Presets[0]) {
-        config.Server.LlamaCpp.Presets[0].Reasoning = 'on';
+      if (Array.isArray(config.Server.ModelPresets.Presets) && config.Server.ModelPresets.Presets[0]) {
+        config.Server.ModelPresets.Presets[0].Reasoning = 'on';
       }
       await saveConfig(config);
 

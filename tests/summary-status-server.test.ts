@@ -772,7 +772,7 @@ test('summarizeRequest uses explicit config without requiring config service', a
     config.Backend = 'mock';
     const runtimeSnapshot = buildRuntimeLaunchSnapshot(config);
     config.Runtime.LlamaCpp = runtimeSnapshot.LlamaCpp;
-    config.Runtime.Model = 'mock-model';
+    config.Server.ModelPresets.Presets[0].Model = 'mock-model';
     const result = await summarizeRequest({
       question: 'summarize this',
       inputText: 'Build output: warning appeared.'.repeat(50),
