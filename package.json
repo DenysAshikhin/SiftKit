@@ -66,6 +66,9 @@
   },
   "license": "UNLICENSED",
   "workspaces": ["packages/contracts", "dashboard"],
+  "bundleDependencies": [
+    "@siftkit/contracts"
+  ],
   "dependencies": {
     "@siftkit/contracts": "*",
     "@mozilla/readability": "^0.6.0",
