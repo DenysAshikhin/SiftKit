@@ -77,14 +77,14 @@ SiftKit is split into two processes:
 
 The client preflights `GET /health` on every server-dependent command and fails closed if the server is unreachable. There is no local config fallback and no local status-file fallback — the server is the single source of truth.
 
-### `llama.cpp` supervision
-The status server can manage `llama-server` automatically. On startup it clears stale managed processes, runs `Server.LlamaCpp.StartupScript`, waits for `/v1/models`, scans captured startup logs for warning/error markers, and only then serves as ready. After the idle summary block is emitted the server runs `Server.LlamaCpp.ShutdownScript`.
+### Inference supervision
+The status server can manage `llama-server` and TabbyAPI automatically. Each model preset selects its backend and keeps the shared inference options. At runtime SiftKit translates those options to llama.cpp launch/request parameters or Tabby load/request parameters. Active work drains before a preset switch; only the selected preset is resident.
 
 If you want the status server without managed startup (e.g., you launch `llama-server` yourself), run it with `--disable-managed-llama-startup`. In that mode it still serves health, status, and config but skips process lifecycle work, and `GET /health` advertises `disableManagedLlamaStartup: true` so external launchers can verify safely.
 
-### Toggleable EXL3 backend
+### EXL3 presets
 
-SiftKit can also manage TabbyAPI/ExLlamaV3. Use `siftkit backend status` and `siftkit backend use <llama|exl3> --wait`, or the selector in Dashboard Settings. Only one managed GPU runtime is loaded at a time; active work drains before a switch. See [EXL3 setup](docs/exl3-backend-setup.md) and [validation evidence](docs/exl3-backend-validation.md).
+Choose `EXL3 (TabbyAPI)` on an individual preset in Dashboard Settings. Fields without a per-preset Tabby equivalent remain visible but disabled. SiftKit supplies Tabby's missing idle unload/reload lifecycle: workload routes wake the configured model, including requests from another SiftKit instance, while `GET /v1/models` reports the configured model without waking it. See [EXL3 setup](docs/exl3-backend-setup.md) and [validation evidence](docs/exl3-backend-validation.md).
 
 ### Status protocol
 The published status file uses a simple boolean-like activity signal:
@@ -99,7 +99,8 @@ The client expects these endpoints from the status server:
 
 - `GET /health`, `GET /status`, `POST /status`
 - `GET /config`, `PUT /config`
-- `GET /runtime/backend`, `PUT /runtime/backend`
+- `GET /runtime/inference` (read-only runtime status)
+- `GET /v1/models`, `POST /v1/chat/completions`, `POST /tokenize`, `POST /v1/token/encode`
 
 Default URLs:
 
@@ -117,7 +118,6 @@ Overrides: `SIFTKIT_STATUS_BACKEND_URL`, `SIFTKIT_CONFIG_SERVICE_URL`, `SIFTKIT_
 - `siftkit repo-search` — constrained repo exploration
 - `siftkit preset list` — list available presets
 - `siftkit run` — execute a command or a preset
-- `siftkit backend` — inspect or switch the managed inference runtime
 - `siftkit install` — bootstrap runtime folders and verify the server
 - `siftkit install-global` — install PowerShell shims user-scoped
 - `siftkit config-get` / `siftkit config-set` — live config edit via the server

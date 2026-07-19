@@ -69,7 +69,7 @@ import {
   scheduleIdleSummaryIfNeeded,
   acquireModelRequestWithWait,
   releaseModelRequest,
-  ensureManagedLlamaReadyForModelRequest,
+  ensureActivePresetReadyForModelRequest,
   enqueueDeferredArtifacts,
   getResolvedRequestId,
   clearRunState,
@@ -674,7 +674,7 @@ class CommandOutputAnalyzeEndpoint implements RouteEndpoint {
     }
     try {
       try {
-        await ensureManagedLlamaReadyForModelRequest(ctx);
+        await ensureActivePresetReadyForModelRequest(ctx);
       } catch (error) {
         sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
         return;
@@ -749,7 +749,7 @@ class PresetRunEndpoint implements RouteEndpoint {
     }
     try {
       try {
-        await ensureManagedLlamaReadyForModelRequest(ctx);
+        await ensureActivePresetReadyForModelRequest(ctx);
       } catch (error) {
         sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
         return;
@@ -807,7 +807,7 @@ class EvalRunEndpoint implements RouteEndpoint {
     }
     try {
       try {
-        await ensureManagedLlamaReadyForModelRequest(ctx);
+        await ensureActivePresetReadyForModelRequest(ctx);
       } catch (error) {
         sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
         return;
@@ -863,7 +863,7 @@ class RepoSearchEndpoint implements RouteEndpoint {
     }
     try {
       try {
-        await ensureManagedLlamaReadyForModelRequest(ctx);
+        await ensureActivePresetReadyForModelRequest(ctx);
       } catch (error) {
         markRepoSearchAdmissionFailed(admission, error instanceof Error ? error.message : String(error));
         sendServerErrorJson(req, res, 503, error, { taskKind: 'repo-search' });
@@ -941,7 +941,7 @@ class SummaryEndpoint implements RouteEndpoint {
     }
     try {
       try {
-        await ensureManagedLlamaReadyForModelRequest(ctx);
+        await ensureActivePresetReadyForModelRequest(ctx);
       } catch (error) {
         sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
         return;
@@ -1595,18 +1595,18 @@ class ConfigReadEndpoint implements RouteEndpoint {
         sendJson(res, 200, readConfig(configPath));
         return;
       }
-      if (ctx.backendSwitchCoordinator) {
-        const backendStatus = ctx.backendSwitchCoordinator.getStatus();
-        if (backendStatus.state === 'failed') {
-          const config = readConfig(configPath);
-          const activePreset = getActiveModelPreset(config);
-          if (backendStatus.selected !== 'llama' || !activePreset.ExternalServerEnabled) {
-            sendJson(res, 200, config);
-            return;
-          }
+      if (ctx.presetRuntimeCoordinator) {
+        const config = readConfig(configPath);
+        const activePreset = getActiveModelPreset(config);
+        const runtimeStatus = ctx.presetRuntimeCoordinator.getStatus();
+        if (
+          (runtimeStatus.processState === 'failed' || runtimeStatus.modelState === 'failed')
+          && (activePreset.Backend !== 'llama' || !activePreset.ExternalServerEnabled)
+        ) {
+          sendJson(res, 200, config);
+          return;
         }
-        const selectedBackend = backendStatus.selected;
-        await ctx.backendSwitchCoordinator.waitForBackend(selectedBackend);
+        await ctx.presetRuntimeCoordinator.ensureActivePresetReady();
         sendJson(res, 200, readConfig(configPath));
         return;
       }
@@ -1644,7 +1644,12 @@ class ConfigUpdateEndpoint implements RouteEndpoint {
       sendJson(res, 400, { error: toError(error).message });
       return;
     }
-    writeConfig(configPath, nextConfig);
+    if (ctx.presetRuntimeCoordinator) {
+      ctx.modelIdleController?.cancelForPresetChange();
+      await ctx.presetRuntimeCoordinator.applyConfig(nextConfig);
+    } else {
+      writeConfig(configPath, nextConfig);
+    }
     sendJson(res, 200, nextConfig);
     return;
   }
@@ -1685,73 +1690,28 @@ class StatusRestartEndpoint implements RouteEndpoint {
   }
 }
 
-class BackendRuntimeReadEndpoint implements RouteEndpoint {
+class InferenceRuntimeReadEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
     _req: IncomingMessage,
     res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
-    const coordinator = ctx.backendSwitchCoordinator;
+    const coordinator = ctx.presetRuntimeCoordinator;
     if (!coordinator) {
-      sendJson(res, 503, { error: 'Inference backend coordinator is unavailable.' });
+      sendJson(res, 503, { error: 'Inference runtime coordinator is unavailable.' });
       return;
     }
     sendJson(res, 200, coordinator.getStatus());
   }
 }
 
-class BackendRuntimeUpdateEndpoint implements RouteEndpoint {
-  async handle(
-    ctx: ServerContext,
-    req: IncomingMessage,
-    res: ServerResponse,
-    _match: RouteMatch,
-  ): Promise<void> {
-    const coordinator = ctx.backendSwitchCoordinator;
-    if (!coordinator) {
-      sendJson(res, 503, { error: 'Inference backend coordinator is unavailable.' });
-      return;
-    }
-    let body: ReturnType<typeof parseJsonBody>;
-    try {
-      body = parseJsonBody(await readBody(req));
-    } catch {
-      sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return;
-    }
-    const backend = body.backend === 'llama' || body.backend === 'exl3' ? body.backend : null;
-    const wait = body.wait === undefined ? false : body.wait;
-    if (!backend || typeof wait !== 'boolean') {
-      sendJson(res, 400, { error: 'Expected backend to be llama or exl3 and wait to be boolean.' });
-      return;
-    }
-    const previousStatus = coordinator.getStatus();
-    try {
-      const result = await coordinator.select(backend);
-      const outcome = previousStatus.active === backend && previousStatus.state === 'ready'
-        ? 'already_active'
-        : result === 'queued' ? 'queued' : 'switched';
-      if (wait) {
-        await coordinator.waitForBackend(backend);
-      }
-      sendJson(res, outcome === 'queued' ? 202 : 200, { outcome, status: coordinator.getStatus() });
-    } catch (error) {
-      sendJson(res, 503, {
-        outcome: 'failed',
-        status: coordinator.getStatus(),
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-}
 const STATUS_POST_ENDPOINT = new StatusPostEndpoint();
 
 const CORE_ROUTES = new RouteTable([
   { method: 'GET', path: '/health', endpoint: new HealthEndpoint() },
   { method: 'GET', path: '/status', endpoint: new StatusReadEndpoint() },
-  { method: 'GET', path: '/runtime/backend', endpoint: new BackendRuntimeReadEndpoint() },
-  { method: 'PUT', path: '/runtime/backend', endpoint: new BackendRuntimeUpdateEndpoint() },
+  { method: 'GET', path: '/runtime/inference', endpoint: new InferenceRuntimeReadEndpoint() },
   { method: 'POST', path: '/command-output/analyze', endpoint: new CommandOutputAnalyzeEndpoint() },
   { method: 'GET', path: '/preset/list', endpoint: new PresetListEndpoint() },
   { method: 'POST', path: '/preset/run', endpoint: new PresetRunEndpoint() },

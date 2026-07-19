@@ -59,9 +59,10 @@ import {
   dumpManagedLlamaStartupReviewToConsole,
 } from './managed-llama.js';
 import { createRequestHandler } from './routes.js';
-import { BackendSwitchCoordinator } from './backend-switch-coordinator.js';
+import { PresetRuntimeCoordinator } from './preset-runtime-coordinator.js';
 import { ManagedLlamaRuntime } from './managed-llama-runtime.js';
 import { ManagedTabbyRuntime } from './managed-tabby.js';
+import { ModelIdleController } from './model-idle-controller.js';
 import type {
   ExtendedServer,
   StartStatusServerOptions,
@@ -263,13 +264,14 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   const initialConfig = readConfig(configPath);
   const initialPreset = getActiveModelPreset(initialConfig);
   const managedTabbyRuntime = new ManagedTabbyRuntime(initialConfig.Server.Engines.Exl3, initialPreset);
-  const backendSwitchCoordinator = new BackendSwitchCoordinator(
+  const presetRuntimeCoordinator = new PresetRuntimeCoordinator(
+    configPath,
     new ManagedLlamaRuntime(ctx, initialConfig),
     managedTabbyRuntime,
-    initialPreset.Backend,
   );
   if (!disableManagedLlamaStartup) {
-    ctx.backendSwitchCoordinator = backendSwitchCoordinator;
+    ctx.presetRuntimeCoordinator = presetRuntimeCoordinator;
+    ctx.modelIdleController = new ModelIdleController(ctx);
   }
 
   // Migrate any file-based run logs left by older runtimes into the run_logs
@@ -316,7 +318,8 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       return server;
     }
     closeRequested = true;
-    void backendSwitchCoordinator.shutdown().catch((error) => {
+    ctx.modelIdleController?.cancelForPresetChange();
+    void presetRuntimeCoordinator.shutdown().catch((error) => {
       process.stderr.write(`[siftKitStatus] Failed to stop inference runtime: ${error instanceof Error ? error.message : String(error)}\n`);
     }).finally(() => {
       originalClose(finalCallback);
@@ -332,7 +335,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
           await clearPreexistingManagedLlamaIfNeeded(ctx);
           ctx.bootstrapManagedLlamaStartup = true;
           try {
-            await backendSwitchCoordinator.initialize();
+            await presetRuntimeCoordinator.initialize();
             ctx.managedLlamaStartupWarning = null;
           } finally {
             ctx.bootstrapManagedLlamaStartup = false;

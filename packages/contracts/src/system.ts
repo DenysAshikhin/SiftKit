@@ -3,7 +3,6 @@ import {
   InferenceBackendIdSchema,
   InferenceModelStateSchema,
   InferenceProcessStateSchema,
-  InferenceRuntimeStateSchema,
   WebSearchProviderIdSchema,
 } from './config.js';
 
@@ -26,29 +25,6 @@ export const LlamaCppConnectionTestResponseSchema = z.object({
 });
 export type LlamaCppConnectionTestResponse = z.infer<typeof LlamaCppConnectionTestResponseSchema>;
 
-export const BackendRuntimeStatusSchema = z.object({
-  active: InferenceBackendIdSchema.nullable(),
-  selected: InferenceBackendIdSchema,
-  pending: InferenceBackendIdSchema.nullable(),
-  state: InferenceRuntimeStateSchema,
-  model: z.string().nullable(),
-  error: z.string().nullable(),
-  rollback: z.string().nullable(),
-});
-export type BackendRuntimeStatus = z.infer<typeof BackendRuntimeStatusSchema>;
-
-export const BackendRuntimeUpdateRequestSchema = z.object({
-  backend: InferenceBackendIdSchema,
-  wait: z.boolean().optional().default(false),
-});
-export type BackendRuntimeUpdateRequest = z.infer<typeof BackendRuntimeUpdateRequestSchema>;
-
-export const BackendRuntimeUpdateResponseSchema = z.object({
-  outcome: z.enum(['already_active', 'switched', 'queued', 'failed']),
-  status: BackendRuntimeStatusSchema,
-});
-export type BackendRuntimeUpdateResponse = z.infer<typeof BackendRuntimeUpdateResponseSchema>;
-
 export const InferenceRuntimeErrorPhaseSchema = z.enum([
   'process-start', 'process-stop', 'model-load', 'model-unload', 'preset-switch',
 ]);
@@ -60,7 +36,7 @@ export const InferenceRuntimeStatusSchema = z.object({
   backend: InferenceBackendIdSchema,
   processState: InferenceProcessStateSchema,
   modelState: InferenceModelStateSchema,
-  modelId: z.string().nullable(),
+  model: z.string().nullable(),
   idleDeadlineUtc: z.string().nullable(),
   errorPhase: InferenceRuntimeErrorPhaseSchema.nullable(),
   error: z.string().nullable(),

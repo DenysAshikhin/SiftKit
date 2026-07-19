@@ -3,17 +3,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import type { Exl3EngineConfig, ModelRuntimePreset } from '../config/types.js';
-import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
+import { Exl3PresetAdapter } from '../inference-presets/exl3-preset-adapter.js';
 import { ManagedInferenceRuntime } from './managed-inference-runtime.js';
 import { terminateProcessTree } from './managed-llama.js';
 import { getManagedTabbyLogRoot } from './paths.js';
+import { TabbyModelClient } from './tabby-model-client.js';
 
 const tabbyCapabilities = {
   chatTemplateKwargs: true,
   reasoningContent: true,
   toolCalling: true,
   jsonSchema: true,
-  speculativeMode: 'mtp',
+  speculativeMode: 'none',
   reusablePrefixCache: 'unknown',
 } as const;
 
@@ -21,38 +22,135 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+function getBaseUrl(preset: ModelRuntimePreset): string {
+  return preset.BaseUrl ?? 'http://127.0.0.1:8098';
+}
+
 export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   private child: ChildProcess | null = null;
-  private readonly client = new LlamaCppClient();
   private stopping = false;
   private startupError: Error | null = null;
   private readonly logPath: string;
+  private currentPreset: ModelRuntimePreset;
+  private processBaseUrl: string | null = null;
+  private processManaged: boolean | null = null;
+  private residentPresetId: string | null = null;
+  private loadPromise: Promise<void> | null = null;
 
   constructor(
     private readonly engine: Exl3EngineConfig,
-    private readonly preset: ModelRuntimePreset,
+    initialPreset: ModelRuntimePreset,
+    private readonly client = new TabbyModelClient(),
   ) {
-    super('exl3', preset.BaseUrl ?? 'http://127.0.0.1:8098', preset.Model ?? 'exl3', tabbyCapabilities);
+    super('exl3', tabbyCapabilities);
+    this.currentPreset = initialPreset;
     this.logPath = path.join(getManagedTabbyLogRoot(), 'latest-startup.log');
   }
 
-  async start(): Promise<void> {
-    if (!this.engine.Managed) {
-      this.transitionTo('starting');
-      await this.waitUntilReady();
+  async startProcess(): Promise<void> {
+    if (this.getProcessState() === 'ready') return;
+    this.transitionProcessTo('starting');
+    if (!this.shouldManage(this.currentPreset)) {
+      await this.waitForProcess();
       return;
     }
-    if (this.child && this.child.exitCode === null) {
-      await this.waitUntilReady();
-      return;
+    if (!this.child || this.child.exitCode !== null) this.spawnProcess();
+    try {
+      await this.waitForProcess();
+    } catch (error) {
+      try {
+        await this.stopProcess();
+      } finally {
+        this.transitionProcessTo('failed');
+      }
+      throw error;
     }
+  }
 
-    this.transitionTo('starting');
+  async ensurePresetReady(preset: ModelRuntimePreset): Promise<void> {
+    if (preset.Backend !== 'exl3') {
+      throw new Error(`Preset '${preset.id}' cannot be loaded by the EXL3 runtime.`);
+    }
+    if (
+      this.getProcessState() === 'ready'
+      && (
+        this.processBaseUrl !== getBaseUrl(preset)
+        || this.processManaged !== this.shouldManage(preset)
+      )
+    ) await this.stopProcess();
+    this.currentPreset = preset;
+    if (this.getProcessState() !== 'ready') await this.startProcess();
+    if (this.residentPresetId === preset.id && this.getModelState() === 'ready') return;
+    if (this.loadPromise) return this.loadPromise;
+    this.loadPromise = this.loadPreset(preset);
+    try {
+      await this.loadPromise;
+    } finally {
+      this.loadPromise = null;
+    }
+  }
+
+  async unloadPreset(): Promise<void> {
+    if (this.loadPromise) await this.loadPromise;
+    if (this.getModelState() === 'unloaded') return;
+    this.transitionModelTo('unloading');
+    try {
+      await this.client.unload(getBaseUrl(this.currentPreset), this.currentPreset.HealthcheckTimeoutMs);
+      this.residentPresetId = null;
+      this.transitionModelTo('unloaded');
+    } catch (error) {
+      this.transitionModelTo('failed');
+      throw error;
+    }
+  }
+
+  async stopProcess(): Promise<void> {
+    const child = this.child;
+    if (!child || child.exitCode !== null) {
+      this.child = null;
+      this.processBaseUrl = null;
+      this.processManaged = null;
+      this.residentPresetId = null;
+      this.transitionModelTo('unloaded');
+      this.transitionProcessTo('stopped');
+      return;
+    }
+    this.stopping = true;
+    this.transitionProcessTo('stopping');
+    if (child.pid) terminateProcessTree(child.pid);
+    const deadline = Date.now() + this.engine.ShutdownTimeoutMs;
+    while (child.exitCode === null && Date.now() < deadline) await delay(25);
+    if (child.exitCode === null) {
+      this.transitionProcessTo('failed');
+      throw new Error('Timed out stopping TabbyAPI.');
+    }
+    this.child = null;
+    this.processBaseUrl = null;
+    this.processManaged = null;
+    this.residentPresetId = null;
+    this.transitionModelTo('unloaded');
+    this.transitionProcessTo('stopped');
+  }
+
+  stopForProcessExitSync(): void {
+    const child = this.child;
+    this.stopping = true;
+    if (child?.pid && child.exitCode === null) terminateProcessTree(child.pid);
+    this.child = null;
+    this.processBaseUrl = null;
+    this.processManaged = null;
+    this.residentPresetId = null;
+    this.transitionModelTo('unloaded');
+    this.transitionProcessTo('stopped');
+  }
+
+  private spawnProcess(): void {
     this.stopping = false;
     this.startupError = null;
     fs.mkdirSync(path.dirname(this.logPath), { recursive: true });
     fs.writeFileSync(this.logPath, '', 'utf8');
-    const child = spawn(this.engine.PythonPath, [this.engine.Entrypoint], {
+    const configPath = path.resolve(this.engine.WorkingDirectory, this.engine.ConfigPath);
+    const child = spawn(this.engine.PythonPath, [this.engine.Entrypoint, '--config', configPath], {
       cwd: this.engine.WorkingDirectory,
       shell: false,
       windowsHide: true,
@@ -63,83 +161,53 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     child.stderr?.on('data', (chunk) => this.appendLog('stderr', chunk));
     child.once('error', (error) => {
       this.startupError = error;
-      this.transitionTo('failed');
+      this.transitionProcessTo('failed');
     });
     child.once('exit', (code, signal) => {
-      if (this.stopping) {
-        return;
-      }
+      if (this.stopping) return;
       this.startupError = new Error(`TabbyAPI exited unexpectedly (code=${String(code)}, signal=${String(signal)}).`);
-      this.transitionTo('failed');
+      this.processBaseUrl = null;
+      this.processManaged = null;
+      this.transitionModelTo('unloaded');
+      this.transitionProcessTo('failed');
     });
-    try {
-      await this.waitUntilReady();
-    } catch (error) {
+  }
+
+  private async waitForProcess(): Promise<void> {
+    const deadline = Date.now() + this.currentPreset.StartupTimeoutMs;
+    while (Date.now() < deadline) {
+      if (this.startupError) throw this.startupError;
       try {
-        await this.stop();
-      } finally {
-        this.transitionTo('failed');
+        await fetch(new URL('/v1/models', getBaseUrl(this.currentPreset)), {
+          signal: AbortSignal.timeout(this.currentPreset.HealthcheckTimeoutMs),
+        });
+        this.processBaseUrl = getBaseUrl(this.currentPreset);
+        this.processManaged = this.shouldManage(this.currentPreset);
+        this.transitionProcessTo('ready');
+        return;
+      } catch {
+        await delay(this.currentPreset.HealthcheckIntervalMs);
       }
+    }
+    this.transitionProcessTo('failed');
+    throw new Error('Timed out waiting for the TabbyAPI process.');
+  }
+
+  private async loadPreset(preset: ModelRuntimePreset): Promise<void> {
+    this.transitionModelTo('loading');
+    try {
+      const request = new Exl3PresetAdapter(this.engine.ModelRoot).buildLoadRequest(preset);
+      await this.client.load(getBaseUrl(preset), request, preset.StartupTimeoutMs);
+      this.residentPresetId = preset.id;
+      this.transitionModelTo('ready');
+    } catch (error) {
+      this.transitionModelTo('failed');
       throw error;
     }
   }
 
-  async waitUntilReady(): Promise<void> {
-    const deadline = Date.now() + this.preset.StartupTimeoutMs;
-    while (Date.now() < deadline) {
-      if (this.startupError) {
-        throw this.startupError;
-      }
-      try {
-        const response = await this.client.probeModelsAtBaseUrl(
-          this.preset.BaseUrl ?? 'http://127.0.0.1:8098',
-          this.preset.HealthcheckTimeoutMs,
-        );
-        if (response.statusCode < 400 && this.preset.Model !== null && response.models.includes(this.preset.Model)) {
-          this.transitionTo('ready');
-          return;
-        }
-      } catch {
-        // Cold model loading can reject connections until the API is ready.
-      }
-      await delay(this.preset.HealthcheckIntervalMs);
-    }
-    this.transitionTo('failed');
-    throw new Error(`Timed out waiting for TabbyAPI model '${this.preset.Model ?? 'exl3'}'.`);
-  }
-
-  async stop(): Promise<void> {
-    const child = this.child;
-    if (!child || child.exitCode !== null) {
-      this.child = null;
-      this.transitionTo('stopped');
-      return;
-    }
-    this.stopping = true;
-    this.transitionTo('stopping');
-    if (child.pid) {
-      terminateProcessTree(child.pid);
-    }
-    const deadline = Date.now() + this.engine.ShutdownTimeoutMs;
-    while (child.exitCode === null && Date.now() < deadline) {
-      await delay(25);
-    }
-    if (child.exitCode === null) {
-      this.transitionTo('failed');
-      throw new Error('Timed out stopping TabbyAPI.');
-    }
-    this.child = null;
-    this.transitionTo('stopped');
-  }
-
-  stopForProcessExitSync(): void {
-    const child = this.child;
-    this.stopping = true;
-    if (child?.pid && child.exitCode === null) {
-      terminateProcessTree(child.pid);
-    }
-    this.child = null;
-    this.transitionTo('stopped');
+  private shouldManage(preset: ModelRuntimePreset): boolean {
+    return this.engine.Managed && !preset.ExternalServerEnabled;
   }
 
   private appendLog(stream: 'stdout' | 'stderr', chunk: string | Buffer): void {

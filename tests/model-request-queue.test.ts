@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import { getDefaultMetrics } from '../src/status-server/metrics.js';
@@ -16,15 +19,18 @@ import {
   releaseModelRequest,
 } from '../src/status-server/server-ops.js';
 import type { ServerContext } from '../src/status-server/server-types.js';
-import { BackendSwitchCoordinator } from '../src/status-server/backend-switch-coordinator.js';
+import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.js';
 import { ManagedInferenceRuntime } from '../src/status-server/managed-inference-runtime.js';
-import type { InferenceBackendId } from '../src/config/types.js';
+import { ModelIdleController } from '../src/status-server/model-idle-controller.js';
+import type { InferenceBackendId, ModelRuntimePreset } from '../src/config/types.js';
+import { writeConfig } from '../src/status-server/config-store.js';
+import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 
 type StdoutLine = string;
 
 class QueueRuntime extends ManagedInferenceRuntime {
   constructor(id: InferenceBackendId, private readonly events: string[]) {
-    super(id, `http://127.0.0.1:${id === 'llama' ? '8097' : '8098'}`, `${id}-model`, {
+    super(id, {
       chatTemplateKwargs: true,
       reasoningContent: true,
       toolCalling: true,
@@ -34,23 +40,33 @@ class QueueRuntime extends ManagedInferenceRuntime {
     });
   }
 
-  async start(): Promise<void> {
+  async startProcess(): Promise<void> {
     this.events.push(`start:${this.id}`);
-    this.transitionTo('ready');
+    this.transitionProcessTo('ready');
   }
 
-  async stop(): Promise<void> {
+  async stopProcess(): Promise<void> {
     this.events.push(`stop:${this.id}`);
-    this.transitionTo('stopped');
+    this.transitionModelTo('unloaded');
+    this.transitionProcessTo('stopped');
   }
 
-  async waitUntilReady(): Promise<void> {}
+  async ensurePresetReady(preset: ModelRuntimePreset): Promise<void> {
+    if (this.getProcessState() !== 'ready') await this.startProcess();
+    this.events.push(`load:${preset.id}`);
+    this.transitionModelTo('ready');
+  }
+
+  async unloadPreset(): Promise<void> {
+    this.events.push(`unload:${this.id}`);
+    this.transitionModelTo('unloaded');
+  }
 }
 
-function createQueueContext(): ServerContext & { readonly wakeCount: number } {
+function createQueueContext(configPath = 'config.json'): ServerContext & { readonly wakeCount: number } {
   let wakeCount = 0;
   const context: ServerContext & { readonly wakeCount: number } = {
-    configPath: 'config.json',
+    configPath,
     statusPath: 'status.txt',
     metricsPath: 'metrics.sqlite',
     idleSummarySnapshotsPath: 'idle.sqlite',
@@ -128,30 +144,98 @@ test('model request queue timeout default is fifteen minutes', () => {
 });
 
 test('backend transition pauses queued admission until the new runtime is ready', async () => {
-  const ctx = createQueueContext();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-model-queue-preset-'));
+  const configPath = path.join(root, 'runtime.sqlite');
+  const config = getDefaultConfig();
+  const basePreset = config.Server.ModelPresets.Presets[0];
+  if (!basePreset) throw new Error('Default model preset is missing');
+  config.Server.ModelPresets = {
+    ActivePresetId: 'llama-main',
+    Presets: [
+      { ...basePreset, id: 'llama-main', Backend: 'llama' },
+      { ...basePreset, id: 'exl3-main', Backend: 'exl3', SleepIdleSeconds: 1 },
+    ],
+  };
+  writeConfig(configPath, config);
+  const ctx = createQueueContext(configPath);
   const events: string[] = [];
-  const coordinator = new BackendSwitchCoordinator(
+  const coordinator = new PresetRuntimeCoordinator(
+    configPath,
     new QueueRuntime('llama', events),
     new QueueRuntime('exl3', events),
-    'llama',
   );
-  ctx.backendSwitchCoordinator = coordinator;
+  ctx.presetRuntimeCoordinator = coordinator;
+  ctx.modelIdleController = new ModelIdleController(ctx);
   await coordinator.initialize();
   try {
     const activeLock = await acquireModelRequestWithWait(ctx, 'summary');
     assert.ok(activeLock);
-    assert.equal(await coordinator.select('exl3'), 'queued');
+    assert.equal(await coordinator.applyPreset('exl3-main'), 'queued');
     const queuedLockPromise = acquireModelRequestWithWait(ctx, 'repo_search');
 
     assert.equal(releaseModelRequest(ctx, activeLock.token), true);
     const queuedLock = await queuedLockPromise;
 
     assert.ok(queuedLock);
-    assert.equal(coordinator.getStatus().active, 'exl3');
-    assert.deepEqual(events, ['start:llama', 'stop:llama', 'start:exl3']);
+    assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
+    assert.deepEqual(events, ['start:llama', 'load:llama-main', 'stop:llama', 'start:exl3', 'load:exl3-main']);
     assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
   } finally {
+    ctx.modelIdleController.cancelForPresetChange();
     await ctx.managedLlamaFlushQueue.close();
+    await coordinator.shutdown();
+    closeRuntimeDatabase();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('preset switch arms idle only for the runtime that becomes active', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-model-idle-switch-'));
+  const configPath = path.join(root, 'runtime.sqlite');
+  const config = getDefaultConfig();
+  const basePreset = config.Server.ModelPresets.Presets[0];
+  if (!basePreset) throw new Error('Default model preset is missing');
+  config.Server.ModelPresets = {
+    ActivePresetId: 'llama-main',
+    Presets: [
+      { ...basePreset, id: 'llama-main', Backend: 'llama' },
+      { ...basePreset, id: 'exl3-main', Backend: 'exl3', SleepIdleSeconds: 1 },
+    ],
+  };
+  writeConfig(configPath, config);
+  const ctx = createQueueContext(configPath);
+  const coordinator = new PresetRuntimeCoordinator(
+    configPath,
+    new QueueRuntime('llama', []),
+    new QueueRuntime('exl3', []),
+  );
+  ctx.presetRuntimeCoordinator = coordinator;
+  ctx.modelIdleController = new ModelIdleController(ctx);
+  await coordinator.initialize();
+  try {
+    const llamaLock = await acquireModelRequestWithWait(ctx, 'summary');
+    assert.ok(llamaLock);
+    assert.equal(await coordinator.applyPreset('exl3-main'), 'queued');
+    assert.equal(releaseModelRequest(ctx, llamaLock.token), true);
+    while (coordinator.getStatus().activePresetId !== 'exl3-main') {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.notEqual(ctx.modelIdleController.getIdleDeadlineUtc(), null);
+
+    const exl3Lock = await acquireModelRequestWithWait(ctx, 'summary');
+    assert.ok(exl3Lock);
+    assert.equal(await coordinator.applyPreset('llama-main'), 'queued');
+    assert.equal(releaseModelRequest(ctx, exl3Lock.token), true);
+    while (coordinator.getStatus().activePresetId !== 'llama-main') {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(ctx.modelIdleController.getIdleDeadlineUtc(), null);
+  } finally {
+    ctx.modelIdleController.cancelForPresetChange();
+    await ctx.managedLlamaFlushQueue.close();
+    await coordinator.shutdown();
+    closeRuntimeDatabase();
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
 

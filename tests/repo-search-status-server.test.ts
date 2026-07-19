@@ -446,8 +446,8 @@ test('managed llama readiness wait is serialized by the model request queue', as
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
-    const backendStatus = await requestJson(`${baseUrl}/runtime/backend`, { timeoutMs: 1000 });
-    assert.equal(backendStatus.body.state, 'failed');
+    const backendStatus = await requestJson(`${baseUrl}/runtime/inference`, { timeoutMs: 1000 });
+    assert.equal(backendStatus.body.processState, 'failed');
     const firstRequest = requestJson(`${baseUrl}/repo-search`, {
       method: 'POST',
       timeoutMs: 15000,

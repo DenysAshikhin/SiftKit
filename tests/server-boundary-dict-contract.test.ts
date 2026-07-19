@@ -22,7 +22,7 @@ const TARGETS = [
   'src/status-server/routes/chat.ts',
   'src/status-server/routes/core.ts',
   'src/status-server/routes/dashboard.ts',
-  'src/status-server/routes/llama-passthrough.ts',
+  'src/status-server/routes/inference-passthrough.ts',
   'src/status-server/server-types.ts',
   'src/status-server/status-file.ts',
   'src/status-server/tool-command-display.ts',

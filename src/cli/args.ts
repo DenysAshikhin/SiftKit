@@ -59,7 +59,6 @@ export const KNOWN_COMMANDS = new Set([
   'run',
   'find-files',
   'internal',
-  'backend',
 ]);
 
 export const BLOCKED_PUBLIC_COMMANDS = new Set([
@@ -83,7 +82,6 @@ export const SERVER_DEPENDENT_COMMANDS = new Set([
   'config-set',
   'capture-internal',
   'repo-search',
-  'backend',
 ]);
 
 export const SERVER_DEPENDENT_INTERNAL_OPS = new Set([

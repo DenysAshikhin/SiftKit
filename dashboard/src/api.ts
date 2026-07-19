@@ -31,11 +31,8 @@ import {
   type DashboardBenchmarkStartRequest,
   type RepoSearchAutoAppendPreview,
   type WebSearchQuotaResponse,
-  BackendRuntimeStatusSchema,
-  BackendRuntimeUpdateResponseSchema,
-  type BackendRuntimeStatus,
-  type BackendRuntimeUpdateResponse,
-  type InferenceBackendId,
+  InferenceRuntimeStatusSchema,
+  type InferenceRuntimeStatus,
 } from '@siftkit/contracts';
 import { ChatStreamReader, type ChatStreamToolEvent } from './lib/chat-stream-parser.js';
 import type { JsonValue, JsonSerializable } from '../../src/lib/json-types.js';
@@ -151,19 +148,8 @@ export function getDashboardHealth(): Promise<DashboardHealth> {
   return fetchJson('/health', DashboardHealthSchema);
 }
 
-export function getBackendRuntimeStatus(): Promise<BackendRuntimeStatus> {
-  return fetchJson('/runtime/backend', BackendRuntimeStatusSchema);
-}
-
-export function updateBackendRuntime(
-  backend: InferenceBackendId,
-  wait = false,
-): Promise<BackendRuntimeUpdateResponse> {
-  return fetchJson('/runtime/backend', BackendRuntimeUpdateResponseSchema, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ backend, wait }),
-  });
+export function getInferenceRuntimeStatus(): Promise<InferenceRuntimeStatus> {
+  return fetchJson('/runtime/inference', InferenceRuntimeStatusSchema);
 }
 
 export function getBenchmarkQuestionPresets(): Promise<DashboardBenchmarkQuestionPresetsResponse> {

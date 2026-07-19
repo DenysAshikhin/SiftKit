@@ -67,6 +67,8 @@ export function getPresetFieldAvailability(
 
   switch (field) {
     case 'ExecutablePath':
+    case 'BindHost':
+    case 'Port':
     case 'GpuLayers':
     case 'Threads':
     case 'NcpuMoe':
@@ -76,7 +78,11 @@ export function getPresetFieldAvailability(
     case 'CacheRam':
     case 'ReasoningBudget':
     case 'ReasoningBudgetMessage':
+    case 'ParallelSlots':
+    case 'SpeculativeEnabled':
+    case 'SpeculativeType':
     case 'SpeculativeMtpEnabled':
+    case 'SpeculativeDraftMax':
     case 'SpeculativeDraftMin':
     case 'SpeculativeNgramSizeN':
     case 'SpeculativeNgramSizeM':
@@ -88,16 +94,11 @@ export function getPresetFieldAvailability(
       return { enabled: false, reason: 'Not supported by EXL3' };
     case 'KvCacheQuantization':
       return { enabled: true, reason: 'Only EXL3-compatible cache modes are available' };
-    case 'SpeculativeType':
-      return { enabled: true, reason: 'Only draft-mtp is supported by EXL3' };
     case 'Model':
     case 'ExternalServerEnabled':
     case 'BaseUrl':
-    case 'BindHost':
-    case 'Port':
     case 'ModelPath':
     case 'NumCtx':
-    case 'ParallelSlots':
     case 'MaxTokens':
     case 'Temperature':
     case 'TopP':
@@ -109,8 +110,6 @@ export function getPresetFieldAvailability(
     case 'ReasoningContent':
     case 'PreserveThinking':
     case 'MaintainPerStepThinking':
-    case 'SpeculativeEnabled':
-    case 'SpeculativeDraftMax':
     case 'StartupTimeoutMs':
     case 'HealthcheckTimeoutMs':
     case 'HealthcheckIntervalMs':

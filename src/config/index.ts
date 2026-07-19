@@ -24,7 +24,6 @@ export type {
   Exl3EngineConfig,
   InferenceBackendId,
   InferenceConfig,
-  InferenceRuntimeState,
   InferenceThinkingConfig,
   RuntimeLlamaCppConfig,
   ManagedLlamaSettings,

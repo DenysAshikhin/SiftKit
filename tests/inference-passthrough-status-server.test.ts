@@ -106,7 +106,7 @@ function requestJsonPost(url: string, body: JsonValue, timeoutMs = 5000): Promis
 }
 
 test('llama passthrough wakes managed llama when the managed process is offline', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llama-passthrough-'));
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-inference-passthrough-'));
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -154,7 +154,7 @@ test('llama passthrough wakes managed llama when the managed process is offline'
     const response = await requestJson(`${baseUrl}/v1/models`, 30_000);
 
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(response.body, { data: [{ id: 'managed-passthrough-model' }] });
+    assert.deepEqual(response.body, { data: [{ id: 'managed-passthrough-model', object: 'model' }] });
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
@@ -173,7 +173,7 @@ test('llama passthrough wakes managed llama when the managed process is offline'
 });
 
 test('llama passthrough waits through 503 Loading model responses without timing out', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llama-passthrough-503-'));
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-inference-passthrough-503-'));
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -225,7 +225,7 @@ test('llama passthrough waits through 503 Loading model responses without timing
     const response = await requestJson(`${baseUrl}/v1/models`, 30_000);
 
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(response.body, { data: [{ id: 'managed-passthrough-503-model' }] });
+    assert.deepEqual(response.body, { data: [{ id: 'managed-passthrough-503-model', object: 'model' }] });
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
@@ -244,7 +244,7 @@ test('llama passthrough waits through 503 Loading model responses without timing
 });
 
 test('llama passthrough proxies POST /tokenize to managed llama', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llama-passthrough-tokenize-'));
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-inference-passthrough-tokenize-'));
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),

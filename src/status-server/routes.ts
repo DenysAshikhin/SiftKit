@@ -8,7 +8,7 @@ import { handleDashboardRoute } from './routes/dashboard.js';
 import { handleChatRoute } from './routes/chat.js';
 import { handleCoreRoute } from './routes/core.js';
 import type { ServerContext } from './server-types.js';
-import { handleLlamaPassthroughRoute } from './routes/llama-passthrough.js';
+import { handleInferencePassthroughRoute } from './routes/inference-passthrough.js';
 
 export function createRequestHandler(ctx: ServerContext): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   return async (req, res) => {
@@ -17,7 +17,7 @@ export function createRequestHandler(ctx: ServerContext): (req: IncomingMessage,
 
     if (await handleDashboardRoute(ctx, req, res, pathname, requestUrl)) return;
     if (await handleChatRoute(ctx, req, res, pathname)) return;
-    if (await handleLlamaPassthroughRoute(ctx, req, res, pathname)) return;
+    if (await handleInferencePassthroughRoute(ctx, req, res, pathname)) return;
     if (await handleCoreRoute(ctx, req, res)) return;
 
     sendJson(res, 404, { error: 'Not found' });

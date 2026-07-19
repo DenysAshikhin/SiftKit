@@ -1,4 +1,9 @@
-import type { InferenceBackendId, InferenceRuntimeState } from '../config/types.js';
+import type {
+  InferenceBackendId,
+  InferenceModelState,
+  InferenceProcessState,
+  ModelRuntimePreset,
+} from '../config/types.js';
 
 export type BackendCapabilities = {
   chatTemplateKwargs: boolean;
@@ -10,36 +15,36 @@ export type BackendCapabilities = {
 };
 
 export abstract class ManagedInferenceRuntime {
-  private state: InferenceRuntimeState = 'stopped';
+  private processState: InferenceProcessState = 'stopped';
+  private modelState: InferenceModelState = 'unloaded';
 
   protected constructor(
     readonly id: InferenceBackendId,
-    private readonly baseUrl: string,
-    private readonly modelId: string,
     private readonly capabilities: BackendCapabilities,
   ) {}
 
-  abstract start(): Promise<void>;
-  abstract stop(): Promise<void>;
-  abstract waitUntilReady(): Promise<void>;
+  abstract startProcess(): Promise<void>;
+  abstract stopProcess(): Promise<void>;
+  abstract ensurePresetReady(preset: ModelRuntimePreset): Promise<void>;
+  abstract unloadPreset(): Promise<void>;
 
-  getState(): InferenceRuntimeState {
-    return this.state;
+  getProcessState(): InferenceProcessState {
+    return this.processState;
   }
 
-  getBaseUrl(): string {
-    return this.baseUrl;
-  }
-
-  getModelId(): string {
-    return this.modelId;
+  getModelState(): InferenceModelState {
+    return this.modelState;
   }
 
   getCapabilities(): BackendCapabilities {
     return this.capabilities;
   }
 
-  protected transitionTo(state: InferenceRuntimeState): void {
-    this.state = state;
+  protected transitionProcessTo(state: InferenceProcessState): void {
+    this.processState = state;
+  }
+
+  protected transitionModelTo(state: InferenceModelState): void {
+    this.modelState = state;
   }
 }

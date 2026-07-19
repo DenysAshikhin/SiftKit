@@ -98,7 +98,7 @@ import {
 import {
   acquireModelRequestWithWait,
   releaseModelRequest,
-  ensureManagedLlamaReadyForModelRequest,
+  ensureActivePresetReadyForModelRequest,
 } from '../server-ops.js';
 import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.js';
 import type { ServerContext } from '../server-types.js';
@@ -736,7 +736,7 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
     }
     if (!usesProvidedAssistantContent) {
       try {
-        await ensureManagedLlamaReadyForModelRequest(ctx);
+        await ensureActivePresetReadyForModelRequest(ctx);
       } catch (error) {
         releaseModelRequest(ctx, modelRequestLock.token);
         sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
@@ -896,7 +896,7 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
       return;
     }
     try {
-      await ensureManagedLlamaReadyForModelRequest(ctx);
+      await ensureActivePresetReadyForModelRequest(ctx);
     } catch (error) {
       releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
@@ -1101,7 +1101,7 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
     }
     try {
       try {
-        await ensureManagedLlamaReadyForModelRequest(ctx);
+        await ensureActivePresetReadyForModelRequest(ctx);
       } catch (error) {
         sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
         return;
@@ -1253,7 +1253,7 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
       return;
     }
     try {
-      await ensureManagedLlamaReadyForModelRequest(ctx);
+      await ensureActivePresetReadyForModelRequest(ctx);
     } catch (error) {
       releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
@@ -1485,7 +1485,7 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
       return;
     }
     try {
-      await ensureManagedLlamaReadyForModelRequest(ctx);
+      await ensureActivePresetReadyForModelRequest(ctx);
     } catch (error) {
       releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });

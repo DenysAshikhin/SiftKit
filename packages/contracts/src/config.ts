@@ -15,11 +15,6 @@ const ReasoningSchema = z.enum(['on', 'off']);
 export const InferenceBackendIdSchema = z.enum(['llama', 'exl3']);
 export type InferenceBackendId = z.infer<typeof InferenceBackendIdSchema>;
 
-export const InferenceRuntimeStateSchema = z.enum([
-  'stopped', 'starting', 'ready', 'draining', 'stopping', 'failed',
-]);
-export type InferenceRuntimeState = z.infer<typeof InferenceRuntimeStateSchema>;
-
 export const InferenceProcessStateSchema = z.enum([
   'stopped', 'starting', 'ready', 'stopping', 'failed',
 ]);

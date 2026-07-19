@@ -20,7 +20,6 @@ import { runPresetCli } from './run-preset.js';
 import { runRepoSearchCli } from './run-repo-search.js';
 import { runSummary } from './run-summary.js';
 import { runTest } from './run-test.js';
-import { runBackend } from './run-backend.js';
 
 export async function runCli(options: CliRunOptions): Promise<number> {
   const stdout = options.stdout || process.stdout;
@@ -33,7 +32,7 @@ export async function runCli(options: CliRunOptions): Promise<number> {
 
   const commandName = getCommandName(options.argv);
   if (BLOCKED_PUBLIC_COMMANDS.has(options.argv[0])) {
-    stderr.write(`Command '${options.argv[0]}' is not exposed in this CLI build. Available commands: summary, repo-search, preset, run, backend, help.\n`);
+    stderr.write(`Command '${options.argv[0]}' is not exposed in this CLI build. Available commands: summary, repo-search, preset, run, help.\n`);
     return 1;
   }
   const commandArgs = getCommandArgs(options.argv);
@@ -100,8 +99,6 @@ export async function runCli(options: CliRunOptions): Promise<number> {
         return await runTest(stdout);
       case 'internal':
         return await runInternal({ argv: options.argv, stdout });
-      case 'backend':
-        return await runBackend({ argv: options.argv, stdout });
       default:
         return 127;
     }

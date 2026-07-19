@@ -10,7 +10,8 @@ type SourceFile = {
 
 const LLAMA_ENDPOINT_LITERAL_ALLOWLIST = new Set<string>([
   'src/llm-protocol/llama-cpp-client.ts',
-  'src/status-server/routes/llama-passthrough.ts',
+  'src/status-server/managed-tabby.ts',
+  'src/status-server/routes/inference-passthrough.ts',
 ]);
 
 function listTypeScriptFiles(root: string): SourceFile[] {

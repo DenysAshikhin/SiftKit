@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import type { ModelRuntimePreset } from '../src/config/types.js';
 import {
   ManagedInferenceRuntime,
   type BackendCapabilities,
@@ -17,39 +18,40 @@ const capabilities: BackendCapabilities = {
 
 class TestRuntime extends ManagedInferenceRuntime {
   constructor() {
-    super('exl3', 'http://127.0.0.1:8098', '3.6_27B', capabilities);
+    super('exl3', capabilities);
   }
 
-  async start(): Promise<void> {
-    this.transitionTo('starting');
-    this.transitionTo('ready');
+  async startProcess(): Promise<void> {
+    this.transitionProcessTo('starting');
+    this.transitionProcessTo('ready');
   }
 
-  async stop(): Promise<void> {
-    this.transitionTo('stopping');
-    this.transitionTo('stopped');
+  async stopProcess(): Promise<void> {
+    this.transitionProcessTo('stopping');
+    this.transitionModelTo('unloaded');
+    this.transitionProcessTo('stopped');
   }
 
-  async waitUntilReady(): Promise<void> {
-    if (this.getState() !== 'ready') {
-      throw new Error('Runtime is not ready.');
-    }
+  async ensurePresetReady(_preset: ModelRuntimePreset): Promise<void> {
+    this.transitionModelTo('loading');
+    this.transitionModelTo('ready');
+  }
+
+  async unloadPreset(): Promise<void> {
+    this.transitionModelTo('unloading');
+    this.transitionModelTo('unloaded');
   }
 }
 
-test('managed inference runtime exposes identity, endpoint, model, capabilities, and state', async () => {
+test('managed inference runtime exposes separate process and model state', async () => {
   const runtime = new TestRuntime();
 
   assert.equal(runtime.id, 'exl3');
-  assert.equal(runtime.getBaseUrl(), 'http://127.0.0.1:8098');
-  assert.equal(runtime.getModelId(), '3.6_27B');
   assert.deepEqual(runtime.getCapabilities(), capabilities);
-  assert.equal(runtime.getState(), 'stopped');
+  assert.equal(runtime.getProcessState(), 'stopped');
+  assert.equal(runtime.getModelState(), 'unloaded');
 
-  await runtime.start();
-  await runtime.waitUntilReady();
-  assert.equal(runtime.getState(), 'ready');
-
-  await runtime.stop();
-  assert.equal(runtime.getState(), 'stopped');
+  await runtime.startProcess();
+  assert.equal(runtime.getProcessState(), 'ready');
+  assert.equal(runtime.getModelState(), 'unloaded');
 });

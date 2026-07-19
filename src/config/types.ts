@@ -3,7 +3,8 @@ import type {
   Exl3EngineConfig as ContractExl3EngineConfig,
   InferenceBackendId as ContractInferenceBackendId,
   InferenceConfig as ContractInferenceConfig,
-  InferenceRuntimeState as ContractInferenceRuntimeState,
+  InferenceProcessState as ContractInferenceProcessState,
+  InferenceModelState as ContractInferenceModelState,
   InferenceThinkingConfig as ContractInferenceThinkingConfig,
   ManagedLlamaKvCacheQuantization as ContractManagedLlamaKvCacheQuantization,
   ManagedLlamaSettings as ContractManagedLlamaSettings,
@@ -16,7 +17,8 @@ import type {
 import type { OperationModeAllowedTools, SiftPreset } from '../presets.js';
 
 export type InferenceBackendId = ContractInferenceBackendId;
-export type InferenceRuntimeState = ContractInferenceRuntimeState;
+export type InferenceProcessState = ContractInferenceProcessState;
+export type InferenceModelState = ContractInferenceModelState;
 export type InferenceThinkingConfig = ContractInferenceThinkingConfig;
 export type InferenceConfig = ContractInferenceConfig;
 export type Exl3EngineConfig = ContractExl3EngineConfig;

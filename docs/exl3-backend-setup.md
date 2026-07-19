@@ -18,15 +18,15 @@ The Tabby profile uses `max_seq_len: 84992`, `cache_size: 84992`, main `cache_mo
 
 TabbyAPI/ExLlamaV3 `1.1.0` can abort generation inside Formatron/KBNF when OpenAI `tools` or `response_format` constraints are supplied for this model. The EXL3 request adapter therefore sends neither field. SiftKit keeps the tool schemas in its prompt and parses Qwen `<tool_call>` output locally. The llama.cpp backend continues to use its existing native tools and JSON-schema constraints.
 
-## Selecting the backend
+## Configuring a preset
 
-```powershell
-siftkit backend status
-siftkit backend use exl3 --wait
-siftkit backend use llama --wait
-```
+In Dashboard Settings, create or edit a model preset and select `EXL3 (TabbyAPI)` as that preset's backend. Set its Tabby base URL, model path, context size, cache mode, and idle-unload delay. Selecting the preset makes it active; there is no global backend switch.
 
-The status server persists the selection. A switch requested during inference drains the active request, pauses queued admission, stops the old process, starts and verifies the target model, then resumes the queue. Target startup failure attempts one visible rollback.
+The status server persists the active preset only after its runtime is ready. A selection made during inference drains the active request, pauses queued admission, stops or unloads the old runtime, starts and verifies the target model, then resumes the queue. Target startup failure restores the prior preset definition and runtime. Runtime state is available from `GET /runtime/inference`.
+
+Tabby's per-load API supports model, context/cache size, and cache mode. The shared preset fields that have no per-preset EXL3 equivalent remain visible but disabled: executable path, bind host/port, GPU/CPU placement, batch/ubatch sizes, parallel slots, cache RAM, llama reasoning-budget controls, speculative decoding controls, flash attention, and verbose logging. EXL3-compatible cache modes are `FP16`, `8,8`, `4,4`, `5,5`, `8,4`, and `8,5`.
+
+When `SleepIdleSeconds` elapses, SiftKit unloads the EXL3 model while leaving Tabby running. The next chat or tokenization request reloads it before proxying. This also applies to remote callers and other SiftKit instances. `GET /v1/models` is deliberately no-wake.
 
 ## Shared-environment warning
 

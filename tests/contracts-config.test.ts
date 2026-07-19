@@ -86,7 +86,7 @@ test('InferenceRuntimeStatusSchema represents process and model residency indepe
     backend: 'exl3',
     processState: 'ready',
     modelState: 'unloaded',
-    modelId: null,
+    model: null,
     idleDeadlineUtc: null,
     errorPhase: null,
     error: null,

@@ -12,10 +12,6 @@ export const Exl3LoadRequestSchema = z.object({
   max_seq_len: z.number(),
   cache_size: z.number(),
   cache_mode: z.string(),
-  max_batch_size: z.number(),
-  reasoning: z.boolean(),
-  draft_mode: z.enum(['disabled', 'mtp']),
-  draft_num_tokens: z.number().optional(),
 });
 export type Exl3LoadRequest = z.infer<typeof Exl3LoadRequestSchema>;
 
@@ -28,27 +24,16 @@ export class Exl3PresetAdapter {
     }
     this.getRelativeModelPath(preset);
     this.getCacheMode(preset);
-    if (preset.SpeculativeEnabled && preset.SpeculativeType !== 'draft-mtp') {
-      throw new Error(
-        `preset=${preset.id} backend=exl3 SpeculativeType=${preset.SpeculativeType} is not supported`,
-      );
-    }
   }
 
   buildLoadRequest(preset: ModelRuntimePreset): Exl3LoadRequest {
     this.validatePreset(preset);
-    const baseRequest = {
+    return {
       model_name: this.getRelativeModelPath(preset).replaceAll('\\', '/'),
       max_seq_len: preset.NumCtx,
       cache_size: Math.ceil(preset.NumCtx / 256) * 256,
       cache_mode: this.getCacheMode(preset),
-      max_batch_size: preset.ParallelSlots,
-      reasoning: preset.Reasoning === 'on',
-      draft_mode: preset.SpeculativeEnabled ? 'mtp' : 'disabled',
-    } as const;
-    return preset.SpeculativeEnabled
-      ? { ...baseRequest, draft_num_tokens: preset.SpeculativeDraftMax }
-      : baseRequest;
+    };
   }
 
   buildRequestDefaults(preset: ModelRuntimePreset): PresetRequestDefaults {

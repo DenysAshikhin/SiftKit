@@ -37,7 +37,7 @@ const limits: FunctionLimit[] = [
   { filePath: 'src/status-server/routes/core.ts', symbol: 'StatusPostRequestHandler.handle', maxLines: 90 },
   { filePath: 'src/status-server/routes/core.ts', symbol: 'StatusPostRequestHandler.updateStatusMetrics', maxLines: 90 },
   { filePath: 'src/status-server/routes/dashboard.ts', symbol: 'handleDashboardRoute', maxLines: 70 },
-  { filePath: 'src/status-server/routes/llama-passthrough.ts', symbol: 'handleLlamaPassthroughRoute', maxLines: 60 },
+  { filePath: 'src/status-server/routes/inference-passthrough.ts', symbol: 'handleInferencePassthroughRoute', maxLines: 60 },
   { filePath: 'src/summary/core.ts', symbol: 'summarizeRequest', maxLines: 10 },
   { filePath: 'src/summary/core-runner.ts', symbol: 'invokeSummaryCore', maxLines: 10 },
   { filePath: 'src/summary/core-runner.ts', symbol: 'SummaryCoreRunner.run', maxLines: 35 },

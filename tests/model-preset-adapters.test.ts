@@ -39,10 +39,6 @@ test('EXL3 adapter translates the shared preset without emitting unsupported fie
     max_seq_len: 84_993,
     cache_size: 85_248,
     cache_mode: '8,4',
-    max_batch_size: 1,
-    reasoning: false,
-    draft_mode: 'mtp',
-    draft_num_tokens: 3,
   });
   assert.equal('gpu_layers' in translated, false);
   assert.equal('batch_size' in translated, false);
@@ -62,13 +58,10 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
     max_seq_len: preset.NumCtx,
     cache_size: preset.NumCtx,
     cache_mode: 'FP16',
-    max_batch_size: preset.ParallelSlots,
-    reasoning: false,
-    draft_mode: 'disabled',
   });
 });
 
-test('EXL3 adapter rejects incompatible cache and speculative choices', () => {
+test('EXL3 adapter rejects incompatible cache choices', () => {
   const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
   assert.throws(
     () => adapter.validatePreset(createModelPreset({
@@ -77,15 +70,6 @@ test('EXL3 adapter rejects incompatible cache and speculative choices', () => {
       KvCacheQuantization: 'bf16',
     })),
     /preset=default.*backend=exl3.*KvCacheQuantization=bf16/u,
-  );
-  assert.throws(
-    () => adapter.validatePreset(createModelPreset({
-      Backend: 'exl3',
-      ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B',
-      SpeculativeEnabled: true,
-      SpeculativeType: 'ngram-map-k',
-    })),
-    /SpeculativeType=ngram-map-k/u,
   );
 });
 
@@ -143,7 +127,11 @@ test('EXL3 availability disables fields without equivalents and keeps wake setti
     'CacheRam',
     'ReasoningBudget',
     'ReasoningBudgetMessage',
+    'ParallelSlots',
+    'SpeculativeEnabled',
+    'SpeculativeType',
     'SpeculativeMtpEnabled',
+    'SpeculativeDraftMax',
     'SpeculativeDraftMin',
     'SpeculativeNgramSizeN',
     'SpeculativeNgramSizeM',
@@ -152,6 +140,8 @@ test('EXL3 availability disables fields without equivalents and keeps wake setti
     'SpeculativeNgramModNMin',
     'SpeculativeNgramModNMax',
     'VerboseLogging',
+    'BindHost',
+    'Port',
   ] satisfies ModelPresetField[];
 
   for (const field of unsupported) {
@@ -165,19 +155,12 @@ test('EXL3 availability disables fields without equivalents and keeps wake setti
     enabled: true,
     reason: 'Only EXL3-compatible cache modes are available',
   });
-  assert.deepEqual(getPresetFieldAvailability('exl3', 'SpeculativeType'), {
-    enabled: true,
-    reason: 'Only draft-mtp is supported by EXL3',
-  });
   const supported = [
     'Model',
     'ExternalServerEnabled',
     'BaseUrl',
-    'BindHost',
-    'Port',
     'ModelPath',
     'NumCtx',
-    'ParallelSlots',
     'MaxTokens',
     'Temperature',
     'TopP',
@@ -189,8 +172,6 @@ test('EXL3 availability disables fields without equivalents and keeps wake setti
     'ReasoningContent',
     'PreserveThinking',
     'MaintainPerStepThinking',
-    'SpeculativeEnabled',
-    'SpeculativeDraftMax',
     'StartupTimeoutMs',
     'HealthcheckTimeoutMs',
     'HealthcheckIntervalMs',
@@ -211,7 +192,6 @@ test('EXL3 adapter returns common request defaults', () => {
   });
   const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
 
-  assert.equal(adapter.buildLoadRequest(preset).reasoning, true);
   assert.deepEqual(adapter.buildRequestDefaults(preset), {
     maxTokens: 73,
     temperature: preset.Temperature,

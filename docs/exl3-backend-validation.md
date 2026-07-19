@@ -14,7 +14,7 @@ Validated on 2026-07-19 with an NVIDIA GeForce RTX 4090 and driver `610.47`.
 - Long-context prefill was `1214.54 tokens/s`; short generation was `90.19 tokens/s`.
 - MTP accepted `3 / 3` drafted tokens for the long-context request.
 - `/props` reported `total_slots: 1` and `n_ctx: 84992`.
-- SiftKit managed Tabby as `active=exl3`, `selected=exl3`, `state=ready`, model `3.6_27B`.
+- SiftKit managed the EXL3 preset with process/model state reported independently and model `3.6_27B`.
 - A real `siftkit repo-search` request completed through the managed EXL3 endpoint with the expected test name and `file:line` evidence. EXL3 token preflight uses Tabby's `/v1/token/encode` endpoint, and SiftKit accepts Tabby's CRLF-delimited SSE stream.
 - Final validation passed `1,307` tests with `1` skipped and `0` failures; typecheck, lint, and the production build also passed.
 - Steady observed GPU allocation after load was `20,250 MiB / 24,564 MiB`.
@@ -27,8 +27,4 @@ Reusable prefix-cache behavior and comparative MTP-on/off benefit were not class
 
 ## Recovery
 
-If EXL3 startup fails, inspect `.siftkit/logs/managed-tabby/latest-startup.log` and `siftkit backend status`. A successful automatic rollback leaves the requested EXL3 selection visible while restoring the prior active runtime. Select the desired working backend explicitly to clear the mismatch:
-
-```powershell
-siftkit backend use llama --wait
-```
+If EXL3 startup fails, inspect `.siftkit/logs/managed-tabby/latest-startup.log` and `GET /runtime/inference`. A successful automatic rollback restores the previous preset definition and runtime. Correct the EXL3 preset in Dashboard Settings, or select a working llama.cpp preset.

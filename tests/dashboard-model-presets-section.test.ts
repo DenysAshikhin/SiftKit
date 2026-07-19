@@ -12,6 +12,8 @@ function renderExl3Preset(kvCacheQuantization: 'bf16' | 'f16' = 'f16'): string {
   if (!preset) throw new Error('Default config must include a model preset.');
   preset.Backend = 'exl3';
   preset.KvCacheQuantization = kvCacheQuantization;
+  preset.SpeculativeEnabled = true;
+  preset.SpeculativeType = 'draft-mtp';
 
   return renderToStaticMarkup(React.createElement(ModelPresetsSection, {
     dashboardConfig: config,
@@ -33,6 +35,11 @@ test('EXL3 preset keeps unsupported controls visible and disabled', () => {
 
   assert.match(markup, /aria-label="Preset backend"/u);
   assert.match(markup, /data-label="GpuLayers"[\s\S]*?disabled/u);
+  assert.match(markup, /data-label="ParallelSlots"[\s\S]*?disabled/u);
+  assert.match(markup, /data-label="Bind host"[\s\S]*?disabled/u);
+  assert.match(markup, /data-label="Port"[\s\S]*?disabled/u);
+  assert.match(markup, /data-label="Enable speculative decoding"[\s\S]*?disabled/u);
+  assert.match(markup, /data-label="SpeculativeDraftMax"[\s\S]*?disabled/u);
   assert.match(markup, /Not supported by EXL3/u);
   assert.doesNotMatch(markup, /aria-label="Inference backend"/u);
 });

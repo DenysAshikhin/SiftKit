@@ -6,6 +6,8 @@ import { deriveRuntimeModelId } from '../../settings-runtime';
 import { parseFloatInput, parseIntegerInput } from '../../lib/format';
 import { SettingsInlineHelpLabel } from '../../settings/SettingsFields';
 import { getExl3CacheMode, getPresetFieldAvailability } from '../../../../src/inference-presets/preset-compatibility.js';
+import { getInferenceRuntimeStatus } from '../../api';
+import type { InferenceRuntimeStatus } from '@siftkit/contracts';
 import type { SettingsSectionId } from '../../settings-sections';
 import type {
   DashboardConfig,
@@ -89,13 +91,21 @@ export function ModelPresetsSection({
   onPickModelPresetPath,
   onTestLlamaCppBaseUrl,
 }: ModelPresetsSectionProps) {
+  const [runtimeStatus, setRuntimeStatus] = React.useState<InferenceRuntimeStatus | null>(null);
+  React.useEffect(() => {
+    let mounted = true;
+    void getInferenceRuntimeStatus()
+      .then((status) => { if (mounted) setRuntimeStatus(status); })
+      .catch(() => { if (mounted) setRuntimeStatus(null); });
+    return () => { mounted = false; };
+  }, [dashboardConfig?.Server.ModelPresets.ActivePresetId]);
   if (!dashboardConfig || !selectedModelPreset) {
     return null;
   }
   const reasoningEnabled = selectedModelPreset.Reasoning === 'on';
   const reasoningContentEnabled = reasoningEnabled && selectedModelPreset.ReasoningContent;
   const baseUrl = selectedModelPreset.BaseUrl || '';
-  const remoteLlamaBaseUrl = isRemoteLlamaBaseUrl(baseUrl);
+  const remoteLlamaBaseUrl = selectedModelPreset.Backend === 'llama' && isRemoteLlamaBaseUrl(baseUrl);
   const speculativeType = selectedModelPreset.SpeculativeType;
   const speculativeEnabled = selectedModelPreset.SpeculativeEnabled;
   const draftSpeculativeType = speculativeEnabled && isDraftSpeculativeType(speculativeType);
@@ -111,6 +121,11 @@ export function ModelPresetsSection({
   return (
     <div className="settings-live-grid">
       <div className="model-presets-top-row">
+        {runtimeStatus ? (
+          <p className="hint" role="status">
+            Runtime: {runtimeStatus.activePresetLabel} · {runtimeStatus.backend} · {runtimeStatus.processState}/{runtimeStatus.modelState}
+          </p>
+        ) : null}
         {renderField('model-presets', 'Model preset', (
           <div className="settings-preset-library">
             <div className="settings-preset-toolbar">
@@ -211,10 +226,14 @@ export function ModelPresetsSection({
         </div>
       ), remoteLlamaBaseUrl ? 'settings-live-field-danger' : undefined)}
       {renderField('model-presets', 'Bind host', (
-        <input value={selectedModelPreset.BindHost} onChange={(event) => updateModelPresetDraft((preset) => { preset.BindHost = event.target.value; })} />
+        renderCompatibilityControl(selectedModelPreset, 'BindHost', (
+          <input value={selectedModelPreset.BindHost} onChange={(event) => updateModelPresetDraft((preset) => { preset.BindHost = event.target.value; })} />
+        ))
       ))}
       {renderField('model-presets', 'Port', (
-        <input type="number" value={selectedModelPreset.Port} onChange={(event) => updateModelPresetDraft((preset) => { preset.Port = parseIntegerInput(event.target.value, preset.Port); })} />
+        renderCompatibilityControl(selectedModelPreset, 'Port', (
+          <input type="number" value={selectedModelPreset.Port} onChange={(event) => updateModelPresetDraft((preset) => { preset.Port = parseIntegerInput(event.target.value, preset.Port); })} />
+        ))
       ))}
       {!selectedModelPreset.ExternalServerEnabled ? renderField(
         'model-presets',
@@ -262,7 +281,9 @@ export function ModelPresetsSection({
         ))
       ))}
       {renderField('model-presets', 'ParallelSlots', (
-        <input type="number" value={selectedModelPreset.ParallelSlots} onChange={(event) => updateModelPresetDraft((preset) => { preset.ParallelSlots = parseIntegerInput(event.target.value, preset.ParallelSlots); })} />
+        renderCompatibilityControl(selectedModelPreset, 'ParallelSlots', (
+          <input type="number" value={selectedModelPreset.ParallelSlots} onChange={(event) => updateModelPresetDraft((preset) => { preset.ParallelSlots = parseIntegerInput(event.target.value, preset.ParallelSlots); })} />
+        ))
       ))}
       {renderField('model-presets', 'BatchSize', (
         renderCompatibilityControl(selectedModelPreset, 'BatchSize', (
@@ -363,20 +384,22 @@ export function ModelPresetsSection({
         </label>
       )) : null}
       {renderField('model-presets', 'Enable speculative decoding', (
-        <label className="settings-live-toggle-control">
-          <input
-            type="checkbox"
-            checked={selectedModelPreset.SpeculativeEnabled}
-            onChange={(event) => updateModelPresetDraft((preset) => { preset.SpeculativeEnabled = event.target.checked; })}
-          />
-          <span>{selectedModelPreset.SpeculativeEnabled ? 'Enabled' : 'Disabled'}</span>
-        </label>
+        renderCompatibilityControl(selectedModelPreset, 'SpeculativeEnabled', (
+          <label className="settings-live-toggle-control">
+            <input
+              type="checkbox"
+              checked={selectedModelPreset.SpeculativeEnabled}
+              onChange={(event) => updateModelPresetDraft((preset) => { preset.SpeculativeEnabled = event.target.checked; })}
+            />
+            <span>{selectedModelPreset.SpeculativeEnabled ? 'Enabled' : 'Disabled'}</span>
+          </label>
+        ))
       ))}
       {selectedModelPreset.SpeculativeEnabled ? renderField('model-presets', 'Speculative type', (
         renderCompatibilityControl(selectedModelPreset, 'SpeculativeType', (
           <select value={selectedModelPreset.SpeculativeType} onChange={(event) => updateModelPresetDraft((preset) => { const next = SPECULATIVE_TYPE_OPTIONS.find((option) => option === event.target.value); if (next) preset.SpeculativeType = next; })}>
             {SPECULATIVE_TYPE_OPTIONS.map((option) => (
-              <option key={option} value={option} disabled={selectedModelPreset.Backend === 'exl3' && option !== 'draft-mtp'}>{option}</option>
+              <option key={option} value={option}>{option}</option>
             ))}
           </select>
         ))
@@ -429,7 +452,9 @@ export function ModelPresetsSection({
         ))
       )) : null}
       {draftTokenFields ? renderField('model-presets', 'SpeculativeDraftMax', (
-        <input type="number" value={selectedModelPreset.SpeculativeDraftMax} onChange={(event) => updateModelPresetDraft((preset) => { preset.SpeculativeDraftMax = parseIntegerInput(event.target.value, preset.SpeculativeDraftMax); })} />
+        renderCompatibilityControl(selectedModelPreset, 'SpeculativeDraftMax', (
+          <input type="number" value={selectedModelPreset.SpeculativeDraftMax} onChange={(event) => updateModelPresetDraft((preset) => { preset.SpeculativeDraftMax = parseIntegerInput(event.target.value, preset.SpeculativeDraftMax); })} />
+        ))
       )) : null}
       {draftTokenFields ? renderField('model-presets', 'SpeculativeDraftMin', (
         renderCompatibilityControl(selectedModelPreset, 'SpeculativeDraftMin', (

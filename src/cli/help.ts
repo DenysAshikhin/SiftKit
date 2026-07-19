@@ -11,8 +11,6 @@ export function showHelp(stdout: NodeJS.WritableStream): void {
     '  siftkit run --preset <id> ...',
     '  siftkit run --command <cmd> [--arg <a> ...] --question "..."',
     '  siftkit run --shell <auto|pwsh|powershell|bash|sh|cmd> --command "<script>" --question "..."',
-    '  siftkit backend status',
-    '  siftkit backend use <llama|exl3> [--wait]',
     '',
     'Run `siftkit preset list` to read server-managed CLI presets.',
     '',

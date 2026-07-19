@@ -1,5 +1,4 @@
-import type { SiftConfig } from '../config/types.js';
-import { getActiveModelPreset } from '../config/getters.js';
+import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
 import { ManagedInferenceRuntime } from './managed-inference-runtime.js';
 import {
   ensureManagedLlamaReady,
@@ -16,47 +15,54 @@ const llamaCapabilities = {
   reusablePrefixCache: 'in-process-partial',
 } as const;
 
-function resolveLlamaBaseUrl(config: SiftConfig): string {
-  return getActiveModelPreset(config).BaseUrl ?? 'http://127.0.0.1:8097';
-}
-
-function resolveLlamaModel(config: SiftConfig): string {
-  return getActiveModelPreset(config).Model ?? 'llama';
-}
-
 export class ManagedLlamaRuntime extends ManagedInferenceRuntime {
-  constructor(private readonly ctx: ServerContext, config: SiftConfig) {
-    super('llama', resolveLlamaBaseUrl(config), resolveLlamaModel(config), llamaCapabilities);
+  private residentPresetId: string | null = null;
+
+  constructor(private readonly ctx: ServerContext, _config: SiftConfig) {
+    super('llama', llamaCapabilities);
   }
 
-  async start(): Promise<void> {
-    this.transitionTo('starting');
+  async startProcess(): Promise<void> {
+    if (this.getProcessState() === 'ready') return;
+    this.transitionProcessTo('starting');
     try {
       await ensureManagedLlamaReady(this.ctx, { allowUnconfigured: true });
       if (!this.ctx.managedLlamaReady) {
         throw new Error(this.ctx.managedLlamaStartupWarning ?? 'Managed llama.cpp did not become ready.');
       }
-      this.transitionTo('ready');
+      this.transitionProcessTo('ready');
     } catch (error) {
-      this.transitionTo('failed');
+      this.transitionProcessTo('failed');
       throw error;
     }
   }
 
-  async stop(): Promise<void> {
-    this.transitionTo('stopping');
+  async ensurePresetReady(preset: ModelRuntimePreset): Promise<void> {
+    if (preset.Backend !== 'llama') {
+      throw new Error(`Preset '${preset.id}' cannot be loaded by the llama.cpp runtime.`);
+    }
+    if (this.residentPresetId !== null && this.residentPresetId !== preset.id) {
+      await this.stopProcess();
+    }
+    if (this.getProcessState() !== 'ready') await this.startProcess();
+    this.residentPresetId = preset.id;
+    this.transitionModelTo('ready');
+  }
+
+  async unloadPreset(): Promise<void> {
+    // llama.cpp owns sleep-idle residency and transparently reloads its configured model.
+  }
+
+  async stopProcess(): Promise<void> {
+    this.transitionProcessTo('stopping');
     try {
       await shutdownManagedLlamaIfNeeded(this.ctx);
-      this.transitionTo('stopped');
+      this.residentPresetId = null;
+      this.transitionModelTo('unloaded');
+      this.transitionProcessTo('stopped');
     } catch (error) {
-      this.transitionTo('failed');
+      this.transitionProcessTo('failed');
       throw error;
-    }
-  }
-
-  async waitUntilReady(): Promise<void> {
-    if (this.getState() !== 'ready') {
-      throw new Error('Managed llama.cpp is not ready.');
     }
   }
 }
