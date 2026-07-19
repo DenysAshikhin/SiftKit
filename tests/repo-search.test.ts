@@ -531,10 +531,13 @@ test('executeRepoSearchRequest persists summed prompt-eval and generation durati
     try {
       const address = getAddressInfo(modelServer);
       const baseUrl = `http://127.0.0.1:${address.port}`;
-      const config = asRuntimeSiftConfig(mergeConfig(structuredClone(stub.state.config), {
-        Runtime: { LlamaCpp: { BaseUrl: baseUrl } },
-        LlamaCpp: { BaseUrl: baseUrl, Reasoning: 'on' },
-      }));
+      const configValue = structuredClone(asRuntimeSiftConfig(stub.state.config));
+      configValue.Runtime.LlamaCpp.BaseUrl = baseUrl;
+      const activePreset = configValue.Server.ModelPresets.Presets[0];
+      if (!activePreset) throw new Error('Stub config must include a model preset.');
+      activePreset.BaseUrl = baseUrl;
+      activePreset.Reasoning = 'on';
+      const config = asRuntimeSiftConfig(configValue);
 
       const result = await executeRepoSearchRequest({
         prompt: 'find build scripts',

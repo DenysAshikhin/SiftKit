@@ -1,4 +1,4 @@
-import { SIFT_DEFAULT_NUM_CTX, type RuntimeOwnedLlamaCppKey } from './constants.js';
+import { SIFT_DEFAULT_NUM_CTX } from './constants.js';
 import type {
   InferenceBackendId,
   ModelRuntimePreset,
@@ -70,24 +70,6 @@ export function getConfiguredLlamaNumCtx(config: SiftConfig): number {
   }
 
   throw new Error('SiftKit runtime config is missing LlamaCpp.NumCtx. Start a launcher script first.');
-}
-
-export function getConfiguredLlamaSetting<TValue>(
-  config: SiftConfig | undefined,
-  key: RuntimeOwnedLlamaCppKey
-): TValue | undefined;
-export function getConfiguredLlamaSetting(
-  config: SiftConfig | undefined,
-  key: RuntimeOwnedLlamaCppKey
-): RuntimeLlamaCppConfig[RuntimeOwnedLlamaCppKey] | undefined {
-  if (!config) {
-    return undefined;
-  }
-  if (getActiveInferenceBackend(config) === 'exl3') {
-    return undefined;
-  }
-  const runtimeValue = getRuntimeLlamaCpp(config)[key];
-  return (runtimeValue === undefined || runtimeValue === null) ? undefined : runtimeValue;
 }
 
 export function getMissingRuntimeFields(config: SiftConfig): string[] {

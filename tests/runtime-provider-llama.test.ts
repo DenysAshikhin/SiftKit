@@ -156,7 +156,7 @@ test('llama.cpp provider forwards reasoning mode to chat template kwargs', async
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
-      config.Runtime.LlamaCpp.Reasoning = 'off';
+      config.Server.ModelPresets.Presets[0].Reasoning = 'off';
 
       await generateLlamaCppResponse({
         config,
@@ -178,10 +178,10 @@ test('llama.cpp provider forwards thinking preservation flags when enabled', asy
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
-      config.Runtime.LlamaCpp.Reasoning = 'on';
       const thinkingPreset = config.Server.ModelPresets.Presets.find(
         (preset) => preset.id === config.Server.ModelPresets.ActivePresetId,
       ) ?? config.Server.ModelPresets.Presets[0];
+      thinkingPreset.Reasoning = 'on';
       thinkingPreset.ReasoningContent = true;
       thinkingPreset.PreserveThinking = true;
 
@@ -207,7 +207,7 @@ test('llama.cpp provider per-call reasoning override takes precedence over confi
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
-      config.Runtime.LlamaCpp.Reasoning = 'on';
+      config.Server.ModelPresets.Presets[0].Reasoning = 'on';
 
       await generateLlamaCppResponse({
         config,
@@ -226,16 +226,17 @@ test('llama.cpp provider per-call reasoning override takes precedence over confi
   });
 });
 
-test('llama.cpp provider omits sampling knobs from the chat request body', async () => {
+test('llama.cpp provider emits sampling defaults from the active model preset', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
-      config.Runtime.LlamaCpp.Temperature = 0.8;
-      config.Runtime.LlamaCpp.TopP = 0.9;
-      config.Runtime.LlamaCpp.TopK = 25;
-      config.Runtime.LlamaCpp.MinP = 0.05;
-      config.Runtime.LlamaCpp.PresencePenalty = 0.5;
-      config.Runtime.LlamaCpp.RepetitionPenalty = 1.1;
+      const preset = config.Server.ModelPresets.Presets[0];
+      preset.Temperature = 0.8;
+      preset.TopP = 0.9;
+      preset.TopK = 25;
+      preset.MinP = 0.05;
+      preset.PresencePenalty = 0.5;
+      preset.RepetitionPenalty = 1.1;
 
       await generateLlamaCppResponse({
         config,
@@ -246,12 +247,13 @@ test('llama.cpp provider omits sampling knobs from the chat request body', async
 
       assert.equal(server.state.chatRequests.length, 1);
       const requestBody = server.state.chatRequests[0];
-      assert.equal('temperature' in requestBody, false);
-      assert.equal('top_p' in requestBody, false);
-      assert.equal('top_k' in requestBody, false);
-      assert.equal('min_p' in requestBody, false);
-      assert.equal('presence_penalty' in requestBody, false);
-      assert.equal('repeat_penalty' in requestBody, false);
+      assert.equal(requestBody.temperature, 0.8);
+      assert.equal(requestBody.top_p, 0.9);
+      assert.equal(requestBody.top_k, 25);
+      assert.equal(requestBody.min_p, 0.05);
+      assert.equal(requestBody.presence_penalty, 0.5);
+      assert.equal(requestBody.repeat_penalty, 1.1);
+      assert.equal(requestBody.repetition_penalty, undefined);
       assert.equal('extra_body' in requestBody, false);
     });
   });

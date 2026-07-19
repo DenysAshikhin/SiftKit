@@ -55,7 +55,6 @@ export {
   getActiveInferenceBackend,
   getConfiguredLlamaBaseUrl,
   getConfiguredLlamaNumCtx,
-  getConfiguredLlamaSetting,
   getConfiguredModel,
   getConfiguredPromptPrefix,
   getDefaultNumCtx,

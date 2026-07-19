@@ -26,6 +26,7 @@ import {
   withStubServer,
 } from './_runtime-helpers.js';
 import type { SiftConfig } from '../src/config/types.js';
+import { getActiveModelPreset } from '../src/config/getters.js';
 import type { SummaryPolicyProfile } from '../src/summary/types.js';
 
 interface FixtureManifestEntry {
@@ -359,8 +360,8 @@ test('token-aware llama.cpp chunk planning leaves a 15k token reserve when reaso
         ...(config.Runtime.LlamaCpp || {}),
         BaseUrl: baseUrl,
         NumCtx: 17_000,
-        Reasoning: 'on',
       };
+      getActiveModelPreset(config).Reasoning = 'on';
       const inputText = 'A'.repeat(3_000);
       const decision = getSummaryDecision(inputText, 'summarize this', 'informational', config);
       const chunks = await planTokenAwareLlamaCppChunks({
@@ -455,8 +456,9 @@ test('live llama token-aware chunk planning preserves the 5m benchmark fixture w
   assert.ok(chunks.every((chunk) => chunk.length > 0));
   assert.ok(chunks.some((chunk) => chunk.length > chunkThreshold));
 
-  const promptReserve = config.Runtime.LlamaCpp.Reasoning === 'off' ? 10000 : 15000;
-  const numCtx = config.Runtime.LlamaCpp.NumCtx;
+  const activePreset = getActiveModelPreset(config);
+  const promptReserve = activePreset.Reasoning === 'off' ? 10000 : 15000;
+  const numCtx = activePreset.NumCtx;
   assert.ok(numCtx != null);
   const effectivePromptLimit = numCtx - promptReserve;
   for (const chunk of chunks) {
@@ -482,15 +484,16 @@ test('live llama token-aware chunk planning preserves the 5m benchmark fixture w
     } catch {
       liveConfig = null;
     }
-    const liveBaseUrl = liveConfig?.Runtime?.LlamaCpp?.BaseUrl || LIVE_LLAMA_BASE_URL;
-    const liveNumCtx = Number(liveConfig?.Runtime?.LlamaCpp?.NumCtx) || getDefaultConfig().Runtime.LlamaCpp.NumCtx;
     const config = getDefaultConfig();
+    const liveBaseUrl = liveConfig?.Runtime?.LlamaCpp?.BaseUrl || LIVE_LLAMA_BASE_URL;
+    const liveNumCtx = Number(liveConfig?.Runtime?.LlamaCpp?.NumCtx) || getActiveModelPreset(config).NumCtx;
     setManagedLlamaBaseUrl(config, liveBaseUrl);
     config.Runtime.LlamaCpp = {
       ...(config.Runtime.LlamaCpp || {}),
       BaseUrl: liveBaseUrl,
       NumCtx: liveNumCtx,
     };
+    getActiveModelPreset(config).NumCtx = liveNumCtx;
     await runFixtureCheck(config);
     return;
   }
@@ -510,7 +513,7 @@ test('live llama token-aware chunk planning preserves the 5m benchmark fixture w
 test('getPlannerPromptBudget leaves 27k headroom for a 190k non-thinking context', () => {
   const config = getDefaultConfig();
   config.Runtime.LlamaCpp.NumCtx = 190000;
-  config.Runtime.LlamaCpp.Reasoning = 'off';
+  getActiveModelPreset(config).Reasoning = 'off';
 
   const budget = getPlannerPromptBudget(config);
   assert.deepEqual(budget, {
@@ -525,7 +528,7 @@ test('getPlannerPromptBudget leaves 27k headroom for a 190k non-thinking context
 test('getPlannerPromptBudget leaves 26,250 tokens of headroom for a 190k thinking context', () => {
   const config = getDefaultConfig();
   config.Runtime.LlamaCpp.NumCtx = 190000;
-  config.Runtime.LlamaCpp.Reasoning = 'on';
+  getActiveModelPreset(config).Reasoning = 'on';
 
   const budget = getPlannerPromptBudget(config);
   assert.deepEqual(budget, {

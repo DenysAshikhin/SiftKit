@@ -1,8 +1,8 @@
 import type { SiftConfig } from '../config/index.js';
 import {
   getChunkThresholdCharacters,
+  getActiveModelPreset,
   getConfiguredLlamaNumCtx,
-  getConfiguredLlamaSetting,
   getEffectiveInputCharactersPerContextToken,
 } from '../config/index.js';
 import { countLlamaCppTokens } from '../providers/llama-cpp.js';
@@ -203,14 +203,14 @@ export function shouldRetryWithSmallerChunks(options: {
 }
 
 export function getLlamaCppPromptTokenReserve(config: SiftConfig): number {
-  const reasoning = getConfiguredLlamaSetting(config, 'Reasoning');
+  const reasoning = getActiveModelPreset(config).Reasoning;
   return reasoning === 'off'
     ? LLAMA_CPP_NON_THINKING_PROMPT_TOKEN_RESERVE
     : LLAMA_CPP_THINKING_PROMPT_TOKEN_RESERVE;
 }
 
 export function allocateLlamaCppSlotId(config: SiftConfig): number {
-  const configuredSlots = getConfiguredLlamaSetting(config, 'ParallelSlots');
+  const configuredSlots = getActiveModelPreset(config).ParallelSlots;
   const slotCount = Math.max(1, Math.floor(Number(configuredSlots) || 1));
   const slotId = nextLlamaCppSlotId % slotCount;
   nextLlamaCppSlotId = (nextLlamaCppSlotId + 1) % slotCount;

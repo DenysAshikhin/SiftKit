@@ -5,8 +5,7 @@ import path from 'node:path';
 import {
   loadConfig,
   getChunkThresholdCharacters,
-  getConfiguredLlamaNumCtx,
-  getConfiguredLlamaSetting,
+  getActiveModelPreset,
   getConfiguredModel,
   getConfiguredPromptPrefix,
   getEffectiveInputCharactersPerContextToken,
@@ -157,7 +156,7 @@ function splitTextIntoChunks(text: string, chunkSize: number): string[] {
 }
 
 function getLlamaCppPromptTokenReserve(config: SiftConfig): number {
-  const reasoning = getConfiguredLlamaSetting(config, 'Reasoning');
+  const reasoning = getActiveModelPreset(config).Reasoning;
   return reasoning === 'off'
     ? LLAMA_CPP_NON_THINKING_PROMPT_TOKEN_RESERVE
     : LLAMA_CPP_THINKING_PROMPT_TOKEN_RESERVE;
@@ -290,7 +289,7 @@ export async function runFixture60MalformedJsonRepro(
       const riskLevel = workItem.fixture.PolicyProfile === 'risky-operation' ? 'risky' : 'informational';
       const decision = getSummaryDecision(workItem.inputText, workItem.fixture.Question, riskLevel, config);
       const chunkThreshold = getLlamaCppChunkThresholdCharacters(config);
-      const effectivePromptLimit = getConfiguredLlamaNumCtx(config) - getLlamaCppPromptTokenReserve(config);
+      const effectivePromptLimit = getActiveModelPreset(config).NumCtx - getLlamaCppPromptTokenReserve(config);
       const chunks = workItem.inputText.length > chunkThreshold
         ? (await planTokenAwareLlamaCppChunks({
           question: workItem.fixture.Question,

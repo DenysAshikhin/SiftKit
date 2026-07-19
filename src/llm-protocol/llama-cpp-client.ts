@@ -2,10 +2,9 @@ import {
   getActiveInferenceBackend,
   getActiveModelPreset,
   getConfiguredLlamaBaseUrl,
-  getConfiguredLlamaSetting,
-  type InferenceBackendId,
   type SiftConfig,
 } from '../config/index.js';
+import { buildPresetRequestDefaults } from '../inference-presets/preset-compatibility.js';
 import { httpClient, LlamaHttpError, type FullJsonResponse } from '../lib/http-client.js';
 import {
   buildTransientProviderHttpError,
@@ -134,7 +133,6 @@ export type LlamaCppModelProbeResult = {
 };
 
 export type LlamaCppChatOptions = {
-  backend?: InferenceBackendId;
   config: SiftConfig;
   baseUrl?: string;
   model: string;
@@ -142,6 +140,11 @@ export type LlamaCppChatOptions = {
   tools: LlamaCppToolDefinition[];
   maxTokens: number;
   temperature?: number;
+  topP?: number;
+  topK?: number;
+  minP?: number;
+  presencePenalty?: number;
+  repetitionPenalty?: number;
   cachePrompt?: boolean;
   slotId?: number;
   stream: boolean;
@@ -151,7 +154,6 @@ export type LlamaCppChatOptions = {
   requestTimeoutSeconds?: number;
   retryMaxWaitMs?: number;
   abortSignal?: AbortSignal;
-  extraBody?: JsonObject;
   onThinkingDelta?: (accumulatedThinking: string) => void;
   onContentDelta?: (accumulatedContent: string) => void;
 };
@@ -236,7 +238,7 @@ export class LlamaCppClient {
 
   async chat(options: LlamaCppChatOptions): Promise<NormalizedLlamaCppChatResponse> {
     const baseUrl = options.baseUrl || getConfiguredLlamaBaseUrl(options.config);
-    const backend = options.backend ?? getActiveInferenceBackend(options.config);
+    const backend = getActiveInferenceBackend(options.config);
     if (backend !== 'exl3') {
       return this.chatAtBaseUrl(baseUrl, options);
     }
@@ -279,19 +281,27 @@ export class LlamaCppClient {
 
   private buildChatRequest(options: LlamaCppChatOptions): LlamaCppChatRequest {
     const activePreset = getActiveModelPreset(options.config);
+    const defaults = buildPresetRequestDefaults(activePreset);
     const resolvedReasoning = options.reasoningOverride
-      ?? getConfiguredLlamaSetting(options.config, 'Reasoning')
-      ?? activePreset.Reasoning;
+      ?? defaults.reasoning;
     const reasoningContentEnabled = resolvedReasoning === 'on' && activePreset.ReasoningContent;
     const preserveThinkingEnabled = reasoningContentEnabled && activePreset.PreserveThinking;
     return {
       ...inferenceRequestBuilder.build({
-        backend: options.backend ?? getActiveInferenceBackend(options.config),
+        backend: activePreset.Backend,
         model: options.model,
         messages: options.messages,
         tools: options.tools,
-        maxTokens: options.maxTokens,
-        ...(typeof options.temperature === 'number' ? { temperature: options.temperature } : {}),
+        defaults,
+        overrides: {
+          maxTokens: options.maxTokens,
+          ...(typeof options.temperature === 'number' ? { temperature: options.temperature } : {}),
+          ...(typeof options.topP === 'number' ? { topP: options.topP } : {}),
+          ...(typeof options.topK === 'number' ? { topK: options.topK } : {}),
+          ...(typeof options.minP === 'number' ? { minP: options.minP } : {}),
+          ...(typeof options.presencePenalty === 'number' ? { presencePenalty: options.presencePenalty } : {}),
+          ...(typeof options.repetitionPenalty === 'number' ? { repetitionPenalty: options.repetitionPenalty } : {}),
+        },
         stream: options.stream,
         ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}),
         thinking: {
@@ -304,7 +314,6 @@ export class LlamaCppClient {
           ...(Number.isInteger(options.slotId) ? { slotId: Number(options.slotId) } : {}),
         },
       }),
-      ...(options.extraBody || {}),
     };
   }
 

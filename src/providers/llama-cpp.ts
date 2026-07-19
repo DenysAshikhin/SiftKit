@@ -1,4 +1,5 @@
 import {
+  getActiveModelPreset,
   getConfiguredLlamaBaseUrl,
   getConfiguredLlamaNumCtx,
   type RuntimeLlamaCppConfig,
@@ -455,12 +456,17 @@ export async function generateLlamaCppChatResponse(options: {
   const promptChars = options.messages.reduce((total, message) => {
     return total + getTextContent(message.content).length;
   }, 0);
-  const maxTokens = getDynamicMaxOutputTokens({
+  const dynamicMaxTokens = getDynamicMaxOutputTokens({
     totalContextTokens: Math.max(1, Number(getConfiguredLlamaNumCtx(options.config) || 0)),
     promptTokenCount: Number.isFinite(options.promptTokenCount) && Number(options.promptTokenCount) > 0
       ? Number(options.promptTokenCount)
       : estimatePromptTokenCountFromCharacters(options.config, promptChars),
   });
+  const configuredMaxTokens = Math.max(
+    1,
+    Math.floor(Number(options.overrides?.MaxTokens ?? getActiveModelPreset(options.config).MaxTokens) || 1),
+  );
+  const maxTokens = Math.min(dynamicMaxTokens, configuredMaxTokens);
 
   let response: NormalizedLlamaCppChatResponse;
   const startedAt = Date.now();

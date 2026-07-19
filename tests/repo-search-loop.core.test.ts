@@ -40,13 +40,30 @@ const MOCK_LOOP_DEFAULTS = {
 // and override those fields so the value is fully typed (no casts).
 function mockConfig(overrides: {
   Runtime: { LlamaCpp: Partial<SiftConfig['Runtime']['LlamaCpp']> };
+  Server?: {
+    ModelPresets: {
+      ActivePresetId: string;
+      Presets: Array<Partial<SiftConfig['Server']['ModelPresets']['Presets'][number]> & { id: string }>;
+    };
+  };
 }): SiftConfig {
   const base = getDefaultConfigObject();
+  const basePreset = base.Server.ModelPresets.Presets[0];
+  if (!basePreset) throw new Error('Default config must include a model preset.');
   return {
     ...base,
     Runtime: {
       ...base.Runtime,
       LlamaCpp: { ...base.Runtime.LlamaCpp, ...overrides.Runtime.LlamaCpp },
+    },
+    Server: {
+      ...base.Server,
+      ModelPresets: overrides.Server
+        ? {
+            ActivePresetId: overrides.Server.ModelPresets.ActivePresetId,
+            Presets: overrides.Server.ModelPresets.Presets.map((preset) => ({ ...basePreset, ...preset })),
+          }
+        : base.Server.ModelPresets,
     },
   };
 }
@@ -1344,8 +1361,12 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
             LlamaCpp: {
               BaseUrl: baseUrl,
               NumCtx: 70000,
-              ParallelSlots: 4,
-              Reasoning: 'off',
+            },
+          },
+          Server: {
+            ModelPresets: {
+              ActivePresetId: 'default',
+              Presets: [{ id: 'default', ParallelSlots: 4, Reasoning: 'off' }],
             },
           },
         }),
@@ -1459,8 +1480,12 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
             LlamaCpp: {
               BaseUrl: baseUrl,
               NumCtx: 70000,
-              ParallelSlots: 4,
-              Reasoning: 'off',
+            },
+          },
+          Server: {
+            ModelPresets: {
+              ActivePresetId: 'default',
+              Presets: [{ id: 'default', ParallelSlots: 4, Reasoning: 'off' }],
             },
           },
         }),

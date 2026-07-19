@@ -364,7 +364,10 @@ test('thinkingEnabledOverride=false forces enable_thinking:false in the planner 
       streamFinishAsAnswer: true,
       thinkingEnabledOverride: false,
       // Force config reasoning ON so the override is what matters:
-      config: mockSiftConfig({ Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000, Reasoning: 'on' } } }),
+      config: mockSiftConfig({
+        Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
+        Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', Reasoning: 'on' }] } },
+      }),
       mockResponses: ['{"action":"finish","output":"hi"}'],
       mockCommandResults: {},
       logger: { path: '', write: (event) => {

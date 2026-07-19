@@ -277,7 +277,10 @@ test('chat executor with thinking off yields zero thinking tokens', async () => 
     allowedTools: [],
     availableModels: ['mock'],
     model: 'mock',
-    config: mockSiftConfig({ Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000, Reasoning: 'on' } } }),
+    config: mockSiftConfig({
+      Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
+      Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', Reasoning: 'on' }] } },
+    }),
     mockResponses: ['{"action":"finish","output":"Hello"}'],
   });
   const tasks = result.scorecard.tasks;

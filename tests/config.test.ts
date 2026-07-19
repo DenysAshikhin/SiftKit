@@ -19,7 +19,6 @@ import {
   getConfiguredPromptPrefix,
   getDerivedMaxInputCharacters,
   getDefaultNumCtx,
-  getConfiguredLlamaSetting,
   getStatusBackendUrl,
   getConfigServiceUrl,
   getInferenceStatusPath,
@@ -233,16 +232,6 @@ test('getConfiguredPromptPrefix returns trimmed prefix', () => {
     getConfiguredPromptPrefix(makeConfig({ PromptPrefix: 'test prefix' })),
     'test prefix',
   );
-});
-
-test('getConfiguredLlamaSetting returns value from Runtime.LlamaCpp', () => {
-  const config = makePresetConfig({}, { Temperature: 0.5 });
-  assert.equal(getConfiguredLlamaSetting<number>(config, 'Temperature'), 0.5);
-});
-
-test('getConfiguredLlamaSetting returns undefined for missing key', () => {
-  const config = makePresetConfig({});
-  assert.equal(getConfiguredLlamaSetting<number>(config, 'Temperature'), undefined);
 });
 
 test('getStatusBackendUrl uses env var when set', () => {

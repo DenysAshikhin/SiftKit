@@ -71,6 +71,12 @@ export type LlamaCppChatRequest = {
   model: string;
   messages: LlamaCppChatMessage[];
   temperature?: number;
+  top_p?: number;
+  top_k?: number;
+  min_p?: number;
+  presence_penalty?: number;
+  repeat_penalty?: number;
+  repetition_penalty?: number;
   max_tokens?: number;
   cache_prompt?: boolean;
   id_slot?: number;

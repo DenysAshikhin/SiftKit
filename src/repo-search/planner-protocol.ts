@@ -250,7 +250,6 @@ export function buildPlannerRequestPromptReserveText(options: {
   preserveThinking: boolean;
   responseSchema?: JsonObject | null;
   responseSchemaName?: string;
-  extraBody?: JsonObject;
   stream?: boolean;
 }): string {
   const stage = options.stage || 'planner_action';
@@ -270,6 +269,8 @@ export function buildPlannerRequestPromptReserveText(options: {
     stage,
     model: options.model,
     max_tokens: options.maxTokens,
+    temperature: 0.1,
+    top_p: 0.95,
     chat_template_kwargs: {
       enable_thinking: Boolean(options.thinkingEnabled),
       ...(options.thinkingEnabled && options.reasoningContentEnabled ? { reasoning_content: true } : {}),
@@ -281,7 +282,6 @@ export function buildPlannerRequestPromptReserveText(options: {
       role: String(role || 'unknown'),
       template: '<|im_start|>role\\ncontent<|im_end|>',
     })),
-    ...options.extraBody,
   });
 }
 
@@ -307,7 +307,6 @@ export type PlannerRequestOptions = {
   responseSchema?: JsonObject | null;
   responseSchemaName?: string;
   toolDefinitions?: StructuredOutputToolDefinition[];
-  extraBody?: JsonObject;
 };
 
 function extractInlineThinking(raw: string): { thinkingText: string; text: string } {
@@ -402,6 +401,7 @@ function buildPlannerRequestConfig(options: PlannerRequestOptions): SiftConfig {
           ...defaultPreset,
           id: 'planner',
           label: 'planner',
+          Backend: options.backend ?? 'llama',
           Model: options.model,
           BaseUrl: options.baseUrl,
           Reasoning: reasoning,
@@ -479,7 +479,6 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
   try {
     response = await retryProviderRequest(
       () => new LlamaCppClient().chat({
-        backend: options.backend,
         config: buildPlannerRequestConfig(options),
         baseUrl: options.baseUrl,
         model: options.model,
@@ -487,6 +486,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
         tools: [],
         maxTokens: options.maxTokens,
         temperature: 0.1,
+        topP: 0.95,
         slotId: options.slotId,
         stream: options.stream === true,
         responseFormat: responseFormat ?? undefined,
@@ -495,7 +495,6 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
         requestTimeoutSeconds: options.timeoutMs / 1000,
         retryMaxWaitMs: 0,
         abortSignal: options.abortSignal,
-        extraBody: { top_p: 0.95, ...(options.extraBody || {}) },
         onThinkingDelta: options.onThinkingDelta,
         onContentDelta: options.onContentDelta,
       }),

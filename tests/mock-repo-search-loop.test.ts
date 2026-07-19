@@ -53,6 +53,17 @@ function mockLoopConfig(config: DeepPartial<SiftConfig>): SiftConfig {
   });
 }
 
+function modelPresetReasoning(reasoning: 'on' | 'off'): DeepPartial<SiftConfig> {
+  return {
+    Server: {
+      ModelPresets: {
+        ActivePresetId: 'default',
+        Presets: [{ id: 'default', Reasoning: reasoning }],
+      },
+    },
+  };
+}
+
 // buildScorecard reads only the tallying fields of each TaskResult; the rest are
 // irrelevant, so partial literals are structurally checked and cast in one place.
 const MockTaskResultSchema = z.custom<TaskResult>((value) => typeof value === 'object' && value !== null);
@@ -928,7 +939,7 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
       maxTurns: 10,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
-      totalContextTokens: 7000,
+      totalContextTokens: 7200,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['repo_rg']),
       mockResponses: [
         "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
@@ -1137,10 +1148,10 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is off
     {
       ...MOCK_LOOP_DEFAULTS,
       config: mockLoopConfig({
+        ...modelPresetReasoning('off'),
         Runtime: {
           LlamaCpp: {
             NumCtx: 32000,
-            Reasoning: 'off',
           },
         },
       }),
@@ -1181,10 +1192,10 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is on'
     {
       ...MOCK_LOOP_DEFAULTS,
       config: mockLoopConfig({
+        ...modelPresetReasoning('on'),
         Runtime: {
           LlamaCpp: {
             NumCtx: 32000,
-            Reasoning: 'on',
           },
         },
       }),
@@ -1249,10 +1260,10 @@ test('runTaskLoop does not emit follow-up finish events after many reasoning-off
     {
       ...MOCK_LOOP_DEFAULTS,
       config: mockLoopConfig({
+        ...modelPresetReasoning('off'),
         Runtime: {
           LlamaCpp: {
             NumCtx: 32000,
-            Reasoning: 'off',
           },
         },
       }),
@@ -1291,10 +1302,10 @@ test('runTaskLoop keeps reasoning disabled across max-turn exhaustion when runti
     {
       ...MOCK_LOOP_DEFAULTS,
       config: mockLoopConfig({
+        ...modelPresetReasoning('off'),
         Runtime: {
           LlamaCpp: {
             NumCtx: 32000,
-            Reasoning: 'off',
           },
         },
       }),
@@ -2117,10 +2128,10 @@ test('runTaskLoop enables thinking on every tool-call turn when runtime reasonin
     {
       ...MOCK_LOOP_DEFAULTS,
       config: mockLoopConfig({
+        ...modelPresetReasoning('on'),
         Runtime: {
           LlamaCpp: {
             NumCtx: 32000,
-            Reasoning: 'on',
           },
         },
       }),
@@ -2174,10 +2185,10 @@ test('runTaskLoop disables thinking on every tool-call turn when runtime reasoni
     {
       ...MOCK_LOOP_DEFAULTS,
       config: mockLoopConfig({
+        ...modelPresetReasoning('off'),
         Runtime: {
           LlamaCpp: {
             NumCtx: 32000,
-            Reasoning: 'off',
           },
         },
       }),
@@ -2303,7 +2314,7 @@ test('runTaskLoop keeps only latest planner thinking when per-step thinking is d
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       config: mockLoopConfig({
-        Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000, Reasoning: 'on' } },
+        Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
         Server: {
           ModelPresets: {
             ActivePresetId: 'thinking-off',

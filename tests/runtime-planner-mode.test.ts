@@ -1069,20 +1069,21 @@ function buildOversizedMultilinePlannerInput(targetCharacters: number): string {
   return lines.join('\n');
 }
 
+function createPlannerConfig(reasoning: 'on' | 'off'): JsonObject {
+  return {
+    Runtime: { LlamaCpp: { NumCtx: 190000 } },
+    Server: {
+      ModelPresets: {
+        ActivePresetId: 'default',
+        Presets: [{ id: 'default', NumCtx: 190000, Reasoning: reasoning }],
+      },
+    },
+  };
+}
+
 test('planner keeps short read_lines output when reported token count is high', async () => {
   await withTempEnv(async () => {
-    const plannerConfig = {
-      LlamaCpp: {
-        NumCtx: 190000,
-        Reasoning: 'off',
-      },
-      Runtime: {
-        LlamaCpp: {
-          NumCtx: 190000,
-          Reasoning: 'off',
-        },
-      },
-    };
+    const plannerConfig = createPlannerConfig('off');
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
       const threshold = getChunkThresholdCharacters(config);
@@ -1135,18 +1136,7 @@ test('planner keeps short read_lines output when reported token count is high', 
 
 test('planner keeps tool results when they stay within 70 percent of remaining stop-line tokens', async () => {
   await withTempEnv(async () => {
-    const plannerConfig = {
-      LlamaCpp: {
-        NumCtx: 190000,
-        Reasoning: 'off',
-      },
-      Runtime: {
-        LlamaCpp: {
-          NumCtx: 190000,
-          Reasoning: 'off',
-        },
-      },
-    };
+    const plannerConfig = createPlannerConfig('off');
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
       const threshold = getChunkThresholdCharacters(config);
@@ -1200,18 +1190,7 @@ test('planner keeps tool results when they stay within 70 percent of remaining s
 
 test('planner keeps read_lines output when tokenize is unavailable', async () => {
   await withTempEnv(async () => {
-    const plannerConfig = {
-      LlamaCpp: {
-        NumCtx: 190000,
-        Reasoning: 'off',
-      },
-      Runtime: {
-        LlamaCpp: {
-          NumCtx: 190000,
-          Reasoning: 'off',
-        },
-      },
-    };
+    const plannerConfig = createPlannerConfig('off');
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
       const threshold = getChunkThresholdCharacters(config);
@@ -1268,18 +1247,7 @@ test('planner keeps read_lines output when tokenize is unavailable', async () =>
 
 test('planner fits oversized read_lines output and reports omitted lines', async () => {
   await withTempEnv(async () => {
-    const plannerConfig = {
-      LlamaCpp: {
-        NumCtx: 190000,
-        Reasoning: 'off',
-      },
-      Runtime: {
-        LlamaCpp: {
-          NumCtx: 190000,
-          Reasoning: 'off',
-        },
-      },
-    };
+    const plannerConfig = createPlannerConfig('off');
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
       const threshold = getChunkThresholdCharacters(config);
@@ -1337,18 +1305,7 @@ test('planner fits oversized read_lines output and reports omitted lines', async
 
 test('planner advances repeated read_lines calls to one unread span', async () => {
   await withTempEnv(async () => {
-    const plannerConfig = {
-      LlamaCpp: {
-        NumCtx: 190000,
-        Reasoning: 'off',
-      },
-      Runtime: {
-        LlamaCpp: {
-          NumCtx: 190000,
-          Reasoning: 'off',
-        },
-      },
-    };
+    const plannerConfig = createPlannerConfig('off');
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
       const threshold = getChunkThresholdCharacters(config);
@@ -1401,18 +1358,7 @@ test('planner advances repeated read_lines calls to one unread span', async () =
 
 test('planner advances repeated read_lines calls from fitted returned lines only', async () => {
   await withTempEnv(async () => {
-    const plannerConfig = {
-      LlamaCpp: {
-        NumCtx: 190000,
-        Reasoning: 'off',
-      },
-      Runtime: {
-        LlamaCpp: {
-          NumCtx: 190000,
-          Reasoning: 'off',
-        },
-      },
-    };
+    const plannerConfig = createPlannerConfig('off');
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
       const threshold = getChunkThresholdCharacters(config);
@@ -1525,18 +1471,7 @@ test('planner forced finish rejects read_lines before unread expansion', async (
 
 test('planner fits oversized find_text output and reports omitted results', async () => {
   await withTempEnv(async () => {
-    const plannerConfig = {
-      LlamaCpp: {
-        NumCtx: 190000,
-        Reasoning: 'off',
-      },
-      Runtime: {
-        LlamaCpp: {
-          NumCtx: 190000,
-          Reasoning: 'off',
-        },
-      },
-    };
+    const plannerConfig = createPlannerConfig('off');
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
       const threshold = getChunkThresholdCharacters(config);
@@ -1662,18 +1597,7 @@ test('planner allows up to thirty tool calls while prompt headroom remains witho
       assert.doesNotMatch(getChatRequestText(server.state.chatRequests[0]), /Tool-call budget remaining:/u);
       assert.doesNotMatch(getChatRequestText(server.state.chatRequests[1]), /Tool-call budget remaining:/u);
     }, {
-      config: {
-        LlamaCpp: {
-          NumCtx: 190000,
-          Reasoning: 'off',
-        },
-        Runtime: {
-          LlamaCpp: {
-            NumCtx: 190000,
-            Reasoning: 'off',
-          },
-        },
-      },
+      config: createPlannerConfig('off'),
       tokenizeTokenCount(content) {
         if (/Planner mode:/u.test(content)) {
           return 1000;
@@ -1797,18 +1721,7 @@ test('planner fails fast when the next planner turn would exceed non-thinking he
         false,
       );
     }, {
-      config: {
-        LlamaCpp: {
-          NumCtx: 190000,
-          Reasoning: 'off',
-        },
-        Runtime: {
-          LlamaCpp: {
-            NumCtx: 190000,
-            Reasoning: 'off',
-          },
-        },
-      },
+      config: createPlannerConfig('off'),
       tokenizeTokenCount(content) {
         if (/Planner mode:/u.test(content) && /\[tool\]/u.test(content)) {
           return 154000;
@@ -1857,18 +1770,7 @@ test('planner fails fast when the next planner turn would exceed thinking headro
         false,
       );
     }, {
-      config: {
-        LlamaCpp: {
-          NumCtx: 190000,
-          Reasoning: 'on',
-        },
-        Runtime: {
-          LlamaCpp: {
-            NumCtx: 190000,
-            Reasoning: 'on',
-          },
-        },
-      },
+      config: createPlannerConfig('on'),
       tokenizeTokenCount(content) {
         if (/Planner mode:/u.test(content) && /\[tool\]/u.test(content)) {
           return 149000;

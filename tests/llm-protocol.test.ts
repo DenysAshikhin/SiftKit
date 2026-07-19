@@ -303,7 +303,6 @@ test('llama client covers non-streaming request and response normalization branc
     reasoningOverride: 'off',
     retryMaxWaitMs: 0,
     allowedToolNames: ['finish'],
-    extraBody: { custom_value: 'kept' },
   });
 
   const body = JSON.parse(String(http.requests[0]?.body || '{}'));
@@ -313,7 +312,7 @@ test('llama client covers non-streaming request and response normalization branc
   assert.equal(body.tools, undefined);
   assert.deepEqual(body.chat_template_kwargs, { enable_thinking: false });
   assert.deepEqual(body.response_format, { type: 'json_object' });
-  assert.equal(body.custom_value, 'kept');
+  assert.equal(body.custom_value, undefined);
   assert.equal(response.text, 'fallback text');
   assert.equal(response.reasoningText, 'reason trace');
   assert.equal(response.toolCalls[0]?.function.name, 'finish');
@@ -432,6 +431,9 @@ test('EXL3 chat requests are serialized for a single Tabby cache slot', async ()
 });
 
 test('OpenAI response normalization accepts Tabby nullable optional fields', async () => {
+  const config = buildProtocolConfig();
+  config.Server.ModelPresets.Presets[0].Backend = 'exl3';
+  config.Server.ModelPresets.Presets[0].BaseUrl = 'http://127.0.0.1:8098';
   const http = new CapturingHttpClient([
     jsonResponse({
       choices: [{
@@ -446,8 +448,7 @@ test('OpenAI response normalization accepts Tabby nullable optional fields', asy
   ]);
 
   const response = await new LlamaCppClient(http).chat({
-    backend: 'exl3',
-    config: protocolConfig,
+    config,
     baseUrl: 'http://127.0.0.1:8098',
     model: '3.6_27B',
     messages: [{ role: 'user', content: 'hello' }],

@@ -1,4 +1,5 @@
 import type { InferenceBackendId } from '../config/types.js';
+import type { PresetRequestDefaults } from '../inference-presets/preset-compatibility.js';
 import type {
   LlamaCppChatMessage,
   LlamaCppChatTemplateKwargs,
@@ -17,8 +18,16 @@ export type InferenceRequestInput = {
   model: string;
   messages: LlamaCppChatMessage[];
   tools: LlamaCppToolDefinition[];
-  maxTokens: number;
-  temperature?: number;
+  defaults: PresetRequestDefaults;
+  overrides: {
+    maxTokens?: number;
+    temperature?: number;
+    topP?: number;
+    topK?: number;
+    minP?: number;
+    presencePenalty?: number;
+    repetitionPenalty?: number;
+  };
   stream: boolean;
   responseFormat?: LlamaCppResponseFormat;
   thinking: InferenceThinkingPolicy;
@@ -32,6 +41,12 @@ export type InferenceChatRequest = {
   model: string;
   messages: LlamaCppChatMessage[];
   temperature?: number;
+  top_p?: number;
+  top_k?: number;
+  min_p?: number;
+  presence_penalty?: number;
+  repeat_penalty?: number;
+  repetition_penalty?: number;
   max_tokens: number;
   stream: boolean;
   tools?: LlamaCppToolDefinition[];

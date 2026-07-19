@@ -1,6 +1,5 @@
 import {
   getActiveModelPreset,
-  getConfiguredLlamaSetting,
   type SiftConfig,
 } from '../../config/index.js';
 import { ModelJson } from '../../lib/model-json.js';
@@ -76,7 +75,7 @@ export function applyToolOutputRepetitionGuard(text: string): string {
 let nextLlamaCppSlotId = 0;
 
 export function allocateLlamaCppSlotId(config: SiftConfig): number {
-  const configuredSlots = getConfiguredLlamaSetting(config, 'ParallelSlots');
+  const configuredSlots = getActiveModelPreset(config).ParallelSlots;
   const slotCount = Math.max(1, Math.floor(Number(configuredSlots) || 1));
   const slotId = nextLlamaCppSlotId % slotCount;
   nextLlamaCppSlotId = (nextLlamaCppSlotId + 1) % slotCount;
@@ -172,7 +171,7 @@ export type RunTaskLoopOptions = {
 };
 
 export function isPlannerReasoningEnabled(config: SiftConfig | undefined): boolean {
-  return getConfiguredLlamaSetting(config, 'Reasoning') === 'on';
+  return config ? getActiveModelPreset(config).Reasoning === 'on' : false;
 }
 
 export function isPlannerReasoningContentEnabled(config: SiftConfig | undefined): boolean {
