@@ -21,6 +21,11 @@ export {
 
 export type {
   ManagedLlamaKvCacheQuantization,
+  Exl3Profile,
+  InferenceBackendId,
+  InferenceConfig,
+  InferenceRuntimeState,
+  InferenceThinkingConfig,
   RuntimeLlamaCppConfig,
   ManagedLlamaSettings,
   ServerManagedLlamaPreset,
@@ -46,6 +51,9 @@ export {
 
 export {
   getRuntimeLlamaCpp,
+  getSelectedBackend,
+  getLlamaProfile,
+  getExl3Profile,
   getActiveManagedLlamaPreset,
   getConfiguredLlamaBaseUrl,
   getConfiguredLlamaNumCtx,

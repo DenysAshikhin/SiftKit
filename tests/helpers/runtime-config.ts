@@ -12,7 +12,7 @@ import {
   type JsonValue,
   type MutableJsonObject,
 } from '../../src/lib/json-types.js';
-import type { SiftConfig } from '../../src/config/types.js';
+import type { Exl3Profile, InferenceConfig, SiftConfig } from '../../src/config/types.js';
 
 // Chat-request view types are derived from runtime schemas so the JSON catchall
 // (tests read arbitrary keys like cache_prompt/id_slot/max_tokens off captured
@@ -58,6 +58,29 @@ export function deriveServiceUrl(configuredUrl: string, nextPath: string): strin
   return target.toString();
 }
 
+export function getTestInferenceConfig(): InferenceConfig {
+  return {
+    SelectedBackend: 'llama',
+    Thinking: { Enabled: false, Preserve: false },
+  };
+}
+
+export function getTestExl3Profile(): Exl3Profile {
+  return {
+    Managed: true,
+    BaseUrl: 'http://127.0.0.1:8098',
+    WorkingDirectory: 'C:\\Users\\denys\\Documents\\GitHub\\TabbyAPI',
+    PythonPath: 'C:\\envs\\rl310\\Scripts\\python.exe',
+    Entrypoint: 'main.py',
+    ConfigPath: 'config.yml',
+    ModelId: '3.6_27B',
+    StartupTimeoutMs: 600_000,
+    HealthcheckTimeoutMs: 2_000,
+    HealthcheckIntervalMs: 1_000,
+    ShutdownTimeoutMs: 30_000,
+  };
+}
+
 export function getDefaultConfig(): SiftConfig {
   return {
     Version: '0.1.0',
@@ -67,6 +90,7 @@ export function getDefaultConfig(): SiftConfig {
     IncludeAgentsMd: true,
     IncludeRepoFileListing: true,
     ExpandReads: true,
+    Inference: getTestInferenceConfig(),
     Runtime: {
       Model: 'qwen3.5-9b-instruct-q4_k_m',
       LlamaCpp: {
@@ -97,6 +121,7 @@ export function getDefaultConfig(): SiftConfig {
           NumCtx: 128000,
         }], {}),
       },
+      Exl3: getTestExl3Profile(),
     },
     Thresholds: {
       MinCharactersForSummary: 500,

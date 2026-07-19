@@ -1,10 +1,28 @@
 import { SIFT_DEFAULT_NUM_CTX, type RuntimeOwnedLlamaCppKey } from './constants.js';
-import type { RuntimeLlamaCppConfig, ServerManagedLlamaPreset, SiftConfig } from './types.js';
+import type {
+  Exl3Profile,
+  InferenceBackendId,
+  RuntimeLlamaCppConfig,
+  ServerManagedLlamaPreset,
+  SiftConfig,
+} from './types.js';
 
 const EMPTY_RUNTIME_LLAMA_CPP_CONFIG: RuntimeLlamaCppConfig = {};
 
 export function getDefaultNumCtx(): number {
   return SIFT_DEFAULT_NUM_CTX;
+}
+
+export function getSelectedBackend(config: SiftConfig): InferenceBackendId {
+  return config.Inference.SelectedBackend;
+}
+
+export function getLlamaProfile(config: SiftConfig): ServerManagedLlamaPreset | undefined {
+  return getActiveManagedLlamaPreset(config);
+}
+
+export function getExl3Profile(config: SiftConfig): Exl3Profile {
+  return config.Server.Exl3;
 }
 
 export function getRuntimeLlamaCpp(config: SiftConfig): RuntimeLlamaCppConfig {

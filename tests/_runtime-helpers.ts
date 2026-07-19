@@ -137,6 +137,7 @@ function applyManagedScriptConfig(
         ...overrides,
       }],
     },
+    Exl3: config.Server.Exl3,
   };
 }
 

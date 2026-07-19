@@ -1,5 +1,18 @@
 import type { OperationModeAllowedTools, SiftPreset } from '../presets.js';
 import type { WebSearchConfig } from '../web-search/types.js';
+import type {
+  Exl3Profile as ContractExl3Profile,
+  InferenceBackendId as ContractInferenceBackendId,
+  InferenceConfig as ContractInferenceConfig,
+  InferenceRuntimeState as ContractInferenceRuntimeState,
+  InferenceThinkingConfig as ContractInferenceThinkingConfig,
+} from '@siftkit/contracts';
+
+export type InferenceBackendId = ContractInferenceBackendId;
+export type InferenceRuntimeState = ContractInferenceRuntimeState;
+export type InferenceThinkingConfig = ContractInferenceThinkingConfig;
+export type InferenceConfig = ContractInferenceConfig;
+export type Exl3Profile = ContractExl3Profile;
 
 export type RuntimeLlamaCppConfig = {
   BaseUrl?: string | null;
@@ -117,6 +130,7 @@ export type SiftConfig = {
   IncludeRepoFileListing: boolean;
   ExpandReads: boolean;
   PromptPrefix?: string | null;
+  Inference: InferenceConfig;
   Runtime: {
     Model: string | null;
     LlamaCpp: RuntimeLlamaCppConfig;
@@ -134,6 +148,7 @@ export type SiftConfig = {
   };
   Server: {
     LlamaCpp: ServerLlamaCppConfig;
+    Exl3: Exl3Profile;
   };
   OperationModeAllowedTools: OperationModeAllowedTools;
   Presets: SiftPreset[];

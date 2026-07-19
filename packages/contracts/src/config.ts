@@ -12,6 +12,41 @@ export type ManagedLlamaSpeculativeType = z.infer<typeof ManagedLlamaSpeculative
 
 const ReasoningSchema = z.enum(['on', 'off']);
 
+export const InferenceBackendIdSchema = z.enum(['llama', 'exl3']);
+export type InferenceBackendId = z.infer<typeof InferenceBackendIdSchema>;
+
+export const InferenceRuntimeStateSchema = z.enum([
+  'stopped', 'starting', 'ready', 'draining', 'stopping', 'failed',
+]);
+export type InferenceRuntimeState = z.infer<typeof InferenceRuntimeStateSchema>;
+
+export const InferenceThinkingConfigSchema = z.object({
+  Enabled: z.boolean(),
+  Preserve: z.boolean(),
+});
+export type InferenceThinkingConfig = z.infer<typeof InferenceThinkingConfigSchema>;
+
+export const InferenceConfigSchema = z.object({
+  SelectedBackend: InferenceBackendIdSchema,
+  Thinking: InferenceThinkingConfigSchema,
+});
+export type InferenceConfig = z.infer<typeof InferenceConfigSchema>;
+
+export const Exl3ProfileSchema = z.object({
+  Managed: z.boolean(),
+  BaseUrl: z.string(),
+  WorkingDirectory: z.string(),
+  PythonPath: z.string(),
+  Entrypoint: z.string(),
+  ConfigPath: z.string(),
+  ModelId: z.string(),
+  StartupTimeoutMs: z.number(),
+  HealthcheckTimeoutMs: z.number(),
+  HealthcheckIntervalMs: z.number(),
+  ShutdownTimeoutMs: z.number(),
+});
+export type Exl3Profile = z.infer<typeof Exl3ProfileSchema>;
+
 export const RuntimeLlamaCppConfigSchema = z.object({
   BaseUrl: z.string().nullable().optional(), NumCtx: z.number().nullable().optional(),
   ModelPath: z.string().nullable().optional(), Temperature: z.number().nullable().optional(),
@@ -96,13 +131,14 @@ export const SiftConfigSchema = z.object({
   Version: z.string(), Backend: z.string(), PolicyMode: z.string(), RawLogRetention: z.boolean(),
   IncludeAgentsMd: z.boolean(), IncludeRepoFileListing: z.boolean(), ExpandReads: z.boolean(),
   PromptPrefix: z.string().nullable().optional(),
+  Inference: InferenceConfigSchema,
   Runtime: z.object({ Model: z.string().nullable(), LlamaCpp: RuntimeLlamaCppConfigSchema }),
   Thresholds: z.object({ MinCharactersForSummary: z.number(), MinLinesForSummary: z.number() }),
   Interactive: z.object({
     Enabled: z.boolean(), WrappedCommands: z.array(z.string()), IdleTimeoutMs: z.number(),
     MaxTranscriptCharacters: z.number(), TranscriptRetention: z.boolean(),
   }),
-  Server: z.object({ LlamaCpp: ServerLlamaCppConfigSchema }),
+  Server: z.object({ LlamaCpp: ServerLlamaCppConfigSchema, Exl3: Exl3ProfileSchema }),
   OperationModeAllowedTools: OperationModeAllowedToolsSchema,
   Presets: z.array(SiftPresetSchema),
   WebSearch: WebSearchConfigSchema,

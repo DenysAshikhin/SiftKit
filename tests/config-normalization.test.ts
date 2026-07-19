@@ -61,6 +61,17 @@ test('normalizeConfig produces default WebSearch config', () => {
   });
 });
 
+test('normalizeConfig supplies the default inference backend and EXL3 profile', () => {
+  const normalized = normalizeConfig({});
+  const serialized = JSON.stringify(normalized);
+
+  assert.match(serialized, /"SelectedBackend":"llama"/u);
+  assert.match(serialized, /"BaseUrl":"http:\/\/127\.0\.0\.1:8098"/u);
+  assert.match(serialized, /"WorkingDirectory":"C:\\\\Users\\\\denys\\\\Documents\\\\GitHub\\\\TabbyAPI"/u);
+  assert.match(serialized, /"PythonPath":"C:\\\\envs\\\\rl310\\\\Scripts\\\\python\.exe"/u);
+  assert.match(serialized, /"ModelId":"3\.6_27B"/u);
+});
+
 test('normalizeConfig clamps WebSearch bounds, trims keys, and repairs ProviderOrder', () => {
   const config = defaultConfigObject();
   config.WebSearch = {

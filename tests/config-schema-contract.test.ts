@@ -18,6 +18,7 @@ test('status-server config-store exposes the shared typed config contract', () =
 
   assert.equal(defaultConfig.Version, sharedDefault.Version);
   assert.equal(defaultConfig.Server.LlamaCpp.ActivePresetId, sharedDefault.Server.LlamaCpp.ActivePresetId);
+  assert.match(JSON.stringify(defaultConfig), /"SelectedBackend":"llama"/u);
   assert.equal(normalizedConfig.WebSearch?.ProviderOrder[0], 'tavily');
 
   assert.equal(typeof readConfig, 'function');

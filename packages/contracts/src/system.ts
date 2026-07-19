@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import { WebSearchProviderIdSchema } from './config.js';
+import {
+  InferenceBackendIdSchema,
+  InferenceRuntimeStateSchema,
+  WebSearchProviderIdSchema,
+} from './config.js';
 
 export const DashboardHealthSchema = z.object({
   ok: z.boolean(), disableManagedLlamaStartup: z.boolean(), statusPath: z.string(), configPath: z.string(),
@@ -19,6 +23,17 @@ export const LlamaCppConnectionTestResponseSchema = z.object({
   ok: z.boolean(), statusCode: z.number(), baseUrl: z.string().optional(), error: z.string().optional(),
 });
 export type LlamaCppConnectionTestResponse = z.infer<typeof LlamaCppConnectionTestResponseSchema>;
+
+export const BackendRuntimeStatusSchema = z.object({
+  active: InferenceBackendIdSchema.nullable(),
+  selected: InferenceBackendIdSchema,
+  pending: InferenceBackendIdSchema.nullable(),
+  state: InferenceRuntimeStateSchema,
+  model: z.string().nullable(),
+  error: z.string().nullable(),
+  rollback: z.string().nullable(),
+});
+export type BackendRuntimeStatus = z.infer<typeof BackendRuntimeStatusSchema>;
 
 // Provider id comes from the config contract (single source of truth); src/web-search/types.ts
 // derives WebSearchProviderId from the same schema so the contract and producer cannot drift.

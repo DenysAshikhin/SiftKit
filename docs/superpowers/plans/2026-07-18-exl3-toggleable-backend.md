@@ -15,7 +15,8 @@
 - Use ExLlamaV3 `1.1.0` and the matching CPython 3.10 Windows/Torch 2.9.0/CUDA 12.8 wheel.
 - Load the existing checkpoint from `D:\personal\models\elx3\3.6_27B`; do not download another model.
 - The existing checkpoint is a 4.00-bit `mul1` EXL3 quant with one MTP layer and internal architecture `Qwen3_5ForConditionalGeneration`.
-- Use built-in MTP, `max_batch_size: 1`, explicit `vision: false`, no mmproj/vision-tower loading, and initial `84992`/`8,8` KV configuration.
+- Use built-in MTP, `max_batch_size: 1` for one active KV allocation, explicit `vision: false`, no mmproj/vision-tower loading, and initial `84992`/`8,8` KV configuration with 8-bit K/V as the default.
+- Real-machine acceptance requires one successful EXL3 request containing at least 50,000 input-context tokens.
 - Never load managed llama.cpp and TabbyAPI concurrently.
 - Preserve current llama.cpp launch, logs, metrics, idle sleep, request behavior, and tests.
 - Do not add a proxy, dynamic provider registry, DFlash, vision, model conversion, or unmeasured persistent-cache claim.
@@ -462,7 +463,7 @@ Persist the exact Tabby path, `rl310` interpreter, entrypoint, model ID, and bas
 
 - [ ] **Step 2: Run live switch acceptance**
 
-Run a representative llama task, request EXL3 during the active task, verify drain and queue behavior, verify llama VRAM/process release before Tabby starts, run EXL3 chat/tool/structured/stream/cancel/reasoning cases, restart SiftKit, and switch back to llama.
+Run a representative llama task, request EXL3 during the active task, verify drain and queue behavior, verify llama VRAM/process release before Tabby starts, run EXL3 chat/tool/structured/stream/cancel/reasoning cases, complete one request with at least 50,000 input-context tokens, restart SiftKit, and switch back to llama.
 
 - [ ] **Step 3: Measure performance and prefix reuse**
 

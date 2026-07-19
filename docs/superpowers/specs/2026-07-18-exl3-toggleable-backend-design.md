@@ -15,7 +15,7 @@ The selected backend is persisted and controlled through the status/config API, 
 
 TabbyAPI will be installed at `C:\Users\denys\Documents\GitHub\TabbyAPI` and launched directly with `C:\envs\rl310\Scripts\python.exe`. These paths are initial deployment values, not source-code constants. TabbyAPI remains authoritative for EXL3 model, context, cache, batching, reasoning, vision, and MTP configuration through its `config.yml`.
 
-The initial real-machine profile loads the existing EXL3 checkpoint at `D:\personal\models\elx3\3.6_27B`, with built-in MTP, one-request batching, vision disabled, and a conservative 84,992-token `8,8` KV cache. Its files identify a 4.00-bit `mul1` quant with one MTP layer and the internal architecture `Qwen3_5ForConditionalGeneration`. Current upstream TabbyAPI and ExLlamaV3 `1.1.0` are the required target. Exact installed versions and commit identities must be recorded after setup.
+The initial real-machine profile loads the existing EXL3 checkpoint at `D:\personal\models\elx3\3.6_27B`, with built-in MTP, `max_batch_size: 1`, vision disabled, and a conservative 84,992-token `8,8` KV cache. This reserves capacity for one active request and uses 8-bit K/V storage by default. Its files identify a 4.00-bit `mul1` quant with one MTP layer and the internal architecture `Qwen3_5ForConditionalGeneration`. Current upstream TabbyAPI and ExLlamaV3 `1.1.0` are the required target. Exact installed versions and commit identities must be recorded after setup.
 
 The checkpoint contains vision/preprocessor metadata but no separate `mmproj` file. TabbyAPI must be configured with `vision: false`, and startup evidence must confirm that no multimodal projector or vision tower is loaded.
 
@@ -216,7 +216,7 @@ Use controllable fake HTTP servers and child processes. Tests verify startup rea
 
 ### Real-machine acceptance
 
-On the RTX 4090, verify standalone Tabby first, then run both directions of a live SiftKit switch. Cover normal completion, streaming, cancellation, tool calls, JSON-schema output, reasoning enabled/disabled, reasoning preservation enabled/disabled, built-in MTP, restart persistence, and single-runtime VRAM ownership.
+On the RTX 4090, verify standalone Tabby first, then run both directions of a live SiftKit switch. Cover normal completion, streaming, cancellation, tool calls, JSON-schema output, reasoning enabled/disabled, reasoning preservation enabled/disabled, built-in MTP, restart persistence, single-runtime VRAM ownership, and one successful request with at least 50,000 input-context tokens.
 
 Measure cold load time, prompt ingestion, first-token latency, generation speed, peak VRAM, steady VRAM, MTP benefit, and repeated-prefix behavior. Run repeated-prefix tests warm, with an early-token change, and after restart before classifying prefix-cache capability.
 

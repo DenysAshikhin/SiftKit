@@ -10,6 +10,7 @@ import {
 } from '../dashboard/src/managed-llama-presets.js';
 import type { DashboardConfig, DashboardLlamaCppConfig } from '../dashboard/src/types.js';
 import { normalizeConfigObject } from '../src/config/normalization.js';
+import { getTestExl3Profile, getTestInferenceConfig } from './helpers/runtime-config.js';
 
 function createPreset(overrides: Partial<DashboardManagedLlamaPreset> = {}): DashboardManagedLlamaPreset {
   return {
@@ -106,6 +107,7 @@ function createConfig(): DashboardConfig {
     IncludeRepoFileListing: true,
     ExpandReads: true,
     PromptPrefix: 'prompt',
+    Inference: getTestInferenceConfig(),
     OperationModeAllowedTools: {
       summary: ['find_text', 'read_lines', 'json_filter'],
       'read-only': [],
@@ -144,6 +146,7 @@ function createConfig(): DashboardConfig {
         Presets: [defaultPreset, qwenPreset],
         ActivePresetId: 'default',
       },
+      Exl3: getTestExl3Profile(),
     },
   };
 }

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { getPresetById, getPresetFamily } from '../dashboard/src/dashboard-presets.js';
 import type { ChatSession, DashboardConfig, DashboardPreset } from '../dashboard/src/types.js';
 import { normalizeConfigObject } from '../src/config/normalization.js';
+import { getTestExl3Profile, getTestInferenceConfig } from './helpers/runtime-config.js';
 
 function createPreset(id: string, overrides: Partial<DashboardPreset> = {}): DashboardPreset {
   return {
@@ -37,6 +38,7 @@ function createConfig(presets: DashboardPreset[]): DashboardConfig {
     IncludeRepoFileListing: true,
     ExpandReads: true,
     PromptPrefix: '',
+    Inference: getTestInferenceConfig(),
     OperationModeAllowedTools: {
       summary: ['find_text', 'read_lines', 'json_filter'],
       'read-only': ['repo_rg'],
@@ -90,6 +92,7 @@ function createConfig(presets: DashboardPreset[]): DashboardConfig {
         Presets: [],
         ActivePresetId: 'default',
       },
+      Exl3: getTestExl3Profile(),
     },
   };
 }

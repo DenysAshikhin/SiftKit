@@ -80,6 +80,10 @@ export function getDefaultConfigObject(): SiftConfig {
     IncludeRepoFileListing: true,
     ExpandReads: true,
     PromptPrefix: SIFT_DEFAULT_PROMPT_PREFIX,
+    Inference: {
+      SelectedBackend: 'llama',
+      Thinking: { Enabled: false, Preserve: false },
+    },
     Runtime: {
       Model: SIFT_DEFAULT_LLAMA_MODEL,
       LlamaCpp: {},
@@ -99,6 +103,19 @@ export function getDefaultConfigObject(): SiftConfig {
       LlamaCpp: {
         Presets: [defaultManagedLlamaPreset],
         ActivePresetId: defaultManagedLlamaPreset.id,
+      },
+      Exl3: {
+        Managed: true,
+        BaseUrl: 'http://127.0.0.1:8098',
+        WorkingDirectory: 'C:\\Users\\denys\\Documents\\GitHub\\TabbyAPI',
+        PythonPath: 'C:\\envs\\rl310\\Scripts\\python.exe',
+        Entrypoint: 'main.py',
+        ConfigPath: 'config.yml',
+        ModelId: '3.6_27B',
+        StartupTimeoutMs: 600_000,
+        HealthcheckTimeoutMs: 2_000,
+        HealthcheckIntervalMs: 1_000,
+        ShutdownTimeoutMs: 30_000,
       },
     },
     OperationModeAllowedTools: getDefaultOperationModeAllowedTools(),

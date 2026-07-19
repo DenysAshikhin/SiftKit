@@ -127,6 +127,7 @@ test('real status server backend restart endpoint restarts managed llama.cpp and
           VerboseLogging: false,
         }],
       },
+      Exl3: config.Server.Exl3,
     };
     writeConfig(runtimeDbPath, config);
 
@@ -228,6 +229,7 @@ test('real status server backend restart endpoint returns structured GPU OOM det
           VerboseLogging: false,
         }],
       },
+      Exl3: config.Server.Exl3,
     };
     writeConfig(runtimeDbPath, config);
 
@@ -297,6 +299,7 @@ test('real status server omits -t when the active managed preset sets Threads to
         ],
         ActivePresetId: 'default',
       },
+      Exl3: config.Server.Exl3,
     };
     writeConfig(runtimeDbPath, config);
 

@@ -25,6 +25,8 @@ import type {
   ManagedLlamaKvCacheQuantization,
   ManagedLlamaSpeculativeType,
   NormalizationInfo,
+  Exl3Profile,
+  InferenceBackendId,
   RuntimeLlamaCppConfig,
   ServerManagedLlamaPreset,
   SiftConfig,
@@ -48,6 +50,7 @@ const MANAGED_LLAMA_SPECULATIVE_TYPES: readonly ManagedLlamaSpeculativeType[] = 
   'ngram-cache',
 ];
 const MAX_LLAMA_STARTUP_TIMEOUT_MS = 600_000;
+const INFERENCE_BACKEND_IDS: readonly InferenceBackendId[] = ['llama', 'exl3'];
 const SiftConfigSchema = z.custom<SiftConfig>((value) => JsonObjectSchema.safeParse(value).success);
 
 export type ManagedLlamaConfig = {
@@ -114,6 +117,29 @@ function getDefaultManagedLlamaPreset(): ServerManagedLlamaPreset {
     throw new Error('Default managed llama preset is missing.');
   }
   return preset;
+}
+
+function normalizeInferenceBackend(value: JsonValue): InferenceBackendId {
+  const candidate = getNullableTrimmedString(value);
+  return INFERENCE_BACKEND_IDS.find((backend) => backend === candidate) ?? 'llama';
+}
+
+function normalizeExl3Profile(value: JsonValue): Exl3Profile {
+  const input = getRecord(value);
+  const defaults = getDefaultConfigObject().Server.Exl3;
+  return {
+    Managed: input.Managed !== false,
+    BaseUrl: getNullableTrimmedString(input.BaseUrl) ?? defaults.BaseUrl,
+    WorkingDirectory: getNullableTrimmedString(input.WorkingDirectory) ?? defaults.WorkingDirectory,
+    PythonPath: getNullableTrimmedString(input.PythonPath) ?? defaults.PythonPath,
+    Entrypoint: getNullableTrimmedString(input.Entrypoint) ?? defaults.Entrypoint,
+    ConfigPath: getNullableTrimmedString(input.ConfigPath) ?? defaults.ConfigPath,
+    ModelId: getNullableTrimmedString(input.ModelId) ?? defaults.ModelId,
+    StartupTimeoutMs: getFinitePositiveInteger(input.StartupTimeoutMs, defaults.StartupTimeoutMs),
+    HealthcheckTimeoutMs: getFinitePositiveInteger(input.HealthcheckTimeoutMs, defaults.HealthcheckTimeoutMs),
+    HealthcheckIntervalMs: getFinitePositiveInteger(input.HealthcheckIntervalMs, defaults.HealthcheckIntervalMs),
+    ShutdownTimeoutMs: getFinitePositiveInteger(input.ShutdownTimeoutMs, defaults.ShutdownTimeoutMs),
+  };
 }
 
 function clampInteger(value: JsonValue, fallback: number, minValue: number, maxValue: number): number {
@@ -413,6 +439,16 @@ export function normalizeConfigObject(input: JsonValue): SiftConfig {
   }
   merged.ExpandReads = merged.ExpandReads !== false;
 
+  const inference = getRecord(merged.Inference);
+  const thinking = getRecord(inference.Thinking);
+  merged.Inference = {
+    SelectedBackend: normalizeInferenceBackend(inference.SelectedBackend),
+    Thinking: {
+      Enabled: Boolean(thinking.Enabled),
+      Preserve: Boolean(thinking.Preserve),
+    },
+  };
+
   const thresholds = getRecord(merged.Thresholds);
   delete thresholds.MaxInputCharacters;
   delete thresholds.ChunkThresholdRatio;
@@ -427,6 +463,7 @@ export function normalizeConfigObject(input: JsonValue): SiftConfig {
     throw new Error('Managed llama preset normalization produced no presets.');
   }
   server.LlamaCpp = { Presets: presets, ActivePresetId: activePreset.id };
+  server.Exl3 = normalizeExl3Profile(server.Exl3);
   merged.Server = server;
 
   merged.OperationModeAllowedTools = resolveOperationModeAllowedTools(merged.OperationModeAllowedTools);
