@@ -135,33 +135,6 @@ function Get-SiftKitPackageTarballName {
     '{0}-{1}.tgz' -f $packageName, $package.version
 }
 
-function Install-SiftKitViaShellIntegration {
-    $manifestPath = Join-Path $PSScriptRoot '..\SiftKit\SiftKit.psd1'
-    Import-Module $manifestPath -Force
-
-    $binDir = Join-Path $env:USERPROFILE 'bin'
-    $moduleInstallRoot = Join-Path $env:USERPROFILE '.siftkit\modules'
-    if (-not (Test-Path -LiteralPath $binDir)) {
-        New-Item -ItemType Directory -Path $binDir -Force | Out-Null
-    }
-    if (-not (Test-Path -LiteralPath $moduleInstallRoot)) {
-        New-Item -ItemType Directory -Path $moduleInstallRoot -Force | Out-Null
-    }
-
-    $installResult = Install-SiftKitShellIntegration -BinDir $binDir -ModuleInstallRoot $moduleInstallRoot -Force
-    $env:PSModulePath = '{0};{1}' -f $moduleInstallRoot, $env:PSModulePath
-
-    if ($installResult.CmdShim -and (Test-Path -LiteralPath $installResult.CmdShim)) {
-        return $installResult.CmdShim
-    }
-
-    if ($installResult.PowerShellShim -and (Test-Path -LiteralPath $installResult.PowerShellShim)) {
-        return $installResult.PowerShellShim
-    }
-
-    throw 'Install-SiftKitShellIntegration completed but no runnable shim was found.'
-}
-
 function Get-GlobalSiftKitCommandPath {
     $globalPrefix = (npm prefix -g 2>$null | Select-Object -First 1).ToString().Trim()
     if (-not $globalPrefix) {
@@ -202,25 +175,18 @@ function Stop-ExistingGlobalSiftKitStatusServer {
     }
 }
 
-try {
-    $tarballName = Get-SiftKitPackageTarballName
+$tarballName = Get-SiftKitPackageTarballName
 
-    Write-Host 'Packing current repo...'
-    Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('pack', '--loglevel', 'error') -Description 'Packing current repo'
+Write-Host 'Packing current repo...'
+Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('pack', '--loglevel', 'error') -Description 'Packing current repo'
 
-    Stop-ExistingGlobalSiftKitStatusServer
+Stop-ExistingGlobalSiftKitStatusServer
 
-    Write-Host 'Installing packed tarball globally...'
-    Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('i', '-g', $tarballName, '--force', '--loglevel', 'error') -Description 'Installing packed tarball globally'
+Write-Host 'Installing packed tarball globally...'
+Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('i', '-g', $tarballName, '--force', '--loglevel', 'error') -Description 'Installing packed tarball globally'
 
-    Write-Host 'Resolving freshly installed global siftkit command...'
-    $globalSiftKit = Get-GlobalSiftKitCommandPath
-}
-catch {
-    Write-Warning ('npm-based global refresh failed. Falling back to Install-SiftKitShellIntegration. Root cause: {0}' -f $_.Exception.Message)
-    $globalSiftKit = Install-SiftKitViaShellIntegration
-    Write-Host ('Using fallback global shim: {0}' -f $globalSiftKit)
-}
+Write-Host 'Resolving freshly installed global siftkit command...'
+$globalSiftKit = Get-GlobalSiftKitCommandPath
 
 Write-Host 'Running public CLI smoke checks...'
 & $globalSiftKit --help | Out-Host
