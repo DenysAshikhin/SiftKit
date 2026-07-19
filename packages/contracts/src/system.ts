@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import {
   InferenceBackendIdSchema,
+  InferenceModelStateSchema,
+  InferenceProcessStateSchema,
   InferenceRuntimeStateSchema,
   WebSearchProviderIdSchema,
 } from './config.js';
@@ -46,6 +48,25 @@ export const BackendRuntimeUpdateResponseSchema = z.object({
   status: BackendRuntimeStatusSchema,
 });
 export type BackendRuntimeUpdateResponse = z.infer<typeof BackendRuntimeUpdateResponseSchema>;
+
+export const InferenceRuntimeErrorPhaseSchema = z.enum([
+  'process-start', 'process-stop', 'model-load', 'model-unload', 'preset-switch',
+]);
+export type InferenceRuntimeErrorPhase = z.infer<typeof InferenceRuntimeErrorPhaseSchema>;
+
+export const InferenceRuntimeStatusSchema = z.object({
+  activePresetId: z.string(),
+  activePresetLabel: z.string(),
+  backend: InferenceBackendIdSchema,
+  processState: InferenceProcessStateSchema,
+  modelState: InferenceModelStateSchema,
+  modelId: z.string().nullable(),
+  idleDeadlineUtc: z.string().nullable(),
+  errorPhase: InferenceRuntimeErrorPhaseSchema.nullable(),
+  error: z.string().nullable(),
+  rollback: z.string().nullable(),
+});
+export type InferenceRuntimeStatus = z.infer<typeof InferenceRuntimeStatusSchema>;
 
 // Provider id comes from the config contract (single source of truth); src/web-search/types.ts
 // derives WebSearchProviderId from the same schema so the contract and producer cannot drift.

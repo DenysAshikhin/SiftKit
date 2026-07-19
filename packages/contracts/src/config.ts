@@ -20,6 +20,16 @@ export const InferenceRuntimeStateSchema = z.enum([
 ]);
 export type InferenceRuntimeState = z.infer<typeof InferenceRuntimeStateSchema>;
 
+export const InferenceProcessStateSchema = z.enum([
+  'stopped', 'starting', 'ready', 'stopping', 'failed',
+]);
+export type InferenceProcessState = z.infer<typeof InferenceProcessStateSchema>;
+
+export const InferenceModelStateSchema = z.enum([
+  'unloaded', 'loading', 'ready', 'unloading', 'failed',
+]);
+export type InferenceModelState = z.infer<typeof InferenceModelStateSchema>;
+
 export const InferenceThinkingConfigSchema = z.object({
   Enabled: z.boolean(),
   Preserve: z.boolean(),
@@ -75,6 +85,19 @@ const ManagedLlamaSettingsShape = {
   HealthcheckIntervalMs: z.number(), SleepIdleSeconds: z.number(), VerboseLogging: z.boolean(),
 };
 
+export const ModelPresetFieldSchema = z.enum([
+  'Model', 'ExternalServerEnabled', 'ExecutablePath', 'BaseUrl', 'BindHost', 'Port', 'ModelPath', 'NumCtx',
+  'GpuLayers', 'Threads', 'NcpuMoe', 'FlashAttention', 'ParallelSlots', 'BatchSize', 'UBatchSize', 'CacheRam',
+  'KvCacheQuantization', 'MaxTokens', 'Temperature', 'TopP', 'TopK', 'MinP', 'PresencePenalty',
+  'RepetitionPenalty', 'Reasoning', 'ReasoningContent', 'PreserveThinking', 'MaintainPerStepThinking',
+  'SpeculativeEnabled', 'SpeculativeType', 'SpeculativeMtpEnabled', 'SpeculativeNgramSizeN',
+  'SpeculativeNgramSizeM', 'SpeculativeNgramMinHits', 'SpeculativeNgramModNMatch', 'SpeculativeNgramModNMin',
+  'SpeculativeNgramModNMax', 'SpeculativeDraftMax', 'SpeculativeDraftMin', 'ReasoningBudget',
+  'ReasoningBudgetMessage', 'StartupTimeoutMs', 'HealthcheckTimeoutMs', 'HealthcheckIntervalMs',
+  'SleepIdleSeconds', 'VerboseLogging',
+]);
+export type ModelPresetField = z.infer<typeof ModelPresetFieldSchema>;
+
 export const ManagedLlamaSettingsSchema = z.object(ManagedLlamaSettingsShape);
 export type ManagedLlamaSettings = z.infer<typeof ManagedLlamaSettingsSchema>;
 
@@ -82,6 +105,28 @@ export const ServerManagedLlamaPresetSchema = z.object({
   id: z.string(), label: z.string(), Model: z.string().nullable(), ...ManagedLlamaSettingsShape,
 });
 export type ServerManagedLlamaPreset = z.infer<typeof ServerManagedLlamaPresetSchema>;
+
+export const ModelRuntimePresetSchema = z.object({
+  id: z.string(), label: z.string(), Backend: InferenceBackendIdSchema, Model: z.string().nullable(),
+  ...ManagedLlamaSettingsShape,
+});
+export type ModelRuntimePreset = z.infer<typeof ModelRuntimePresetSchema>;
+
+export const ServerModelPresetsConfigSchema = z.object({
+  Presets: z.array(ModelRuntimePresetSchema).min(1), ActivePresetId: z.string(),
+});
+export type ServerModelPresetsConfig = z.infer<typeof ServerModelPresetsConfigSchema>;
+
+export const Exl3EngineConfigSchema = z.object({
+  Managed: z.boolean(),
+  WorkingDirectory: z.string(),
+  PythonPath: z.string(),
+  Entrypoint: z.string(),
+  ConfigPath: z.string(),
+  ModelRoot: z.string(),
+  ShutdownTimeoutMs: z.number().positive(),
+});
+export type Exl3EngineConfig = z.infer<typeof Exl3EngineConfigSchema>;
 
 export const ServerLlamaCppConfigSchema = z.object({
   Presets: z.array(ServerManagedLlamaPresetSchema), ActivePresetId: z.string(),
