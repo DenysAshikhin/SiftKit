@@ -15,7 +15,9 @@ The selected backend is persisted and controlled through the status/config API, 
 
 TabbyAPI will be installed at `C:\Users\denys\Documents\GitHub\TabbyAPI` and launched directly with `C:\envs\rl310\Scripts\python.exe`. These paths are initial deployment values, not source-code constants. TabbyAPI remains authoritative for EXL3 model, context, cache, batching, reasoning, vision, and MTP configuration through its `config.yml`.
 
-The initial real-machine profile uses `turboderp/Qwen3.6-27B-exl3`, revision `4.00bpw`, built-in MTP, one-request batching, vision disabled, and a conservative 84,992-token `8,8` KV cache. Current upstream TabbyAPI and ExLlamaV3 `1.1.0` are the required target. Exact installed versions and commit identities must be recorded after setup.
+The initial real-machine profile loads the existing EXL3 checkpoint at `D:\personal\models\elx3\3.6_27B`, with built-in MTP, one-request batching, vision disabled, and a conservative 84,992-token `8,8` KV cache. Its files identify a 4.00-bit `mul1` quant with one MTP layer and the internal architecture `Qwen3_5ForConditionalGeneration`. Current upstream TabbyAPI and ExLlamaV3 `1.1.0` are the required target. Exact installed versions and commit identities must be recorded after setup.
+
+The checkpoint contains vision/preprocessor metadata but no separate `mmproj` file. TabbyAPI must be configured with `vision: false`, and startup evidence must confirm that no multimodal projector or vision tower is loaded.
 
 The selected `rl310` environment currently contains Python `3.10.11` and Torch `2.8.0+cu126`. TabbyAPI's ExLlamaV3 `1.1.0` CPython 3.10 Windows wheel targets Torch `2.9.0+cu128`, so dependency setup must upgrade the environment to the matching Torch/CUDA build before ExLlamaV3 is loaded. The resulting environment identity must be verified after installation.
 
@@ -225,7 +227,7 @@ Record:
 - TabbyAPI commit SHA;
 - ExLlamaV3 version;
 - Python, Torch, and CUDA versions;
-- model repository, revision, and directory;
+- model source identity and directory;
 - `config.yml` path;
 - managed launch command;
 - observed load-log model identity;
@@ -247,4 +249,4 @@ Record:
 
 ## Acceptance Criteria
 
-The feature is complete when existing llama.cpp behavior remains green; EXL3 is managed through the same UI, API, and CLI selection; active work drains without cancellation; queued work pauses and resumes; process overlap is impossible; one visible rollback is attempted on startup failure; selection survives restart; normalized chat, streaming, tools, structured output, and reasoning work on both backends; the Qwen3.6 4.00 BPW model runs with built-in MTP on the RTX 4090; and exact dependency and cache-behavior evidence is documented.
+The feature is complete when existing llama.cpp behavior remains green; EXL3 is managed through the same UI, API, and CLI selection; active work drains without cancellation; queued work pauses and resumes; process overlap is impossible; one visible rollback is attempted on startup failure; selection survives restart; normalized chat, streaming, tools, structured output, and reasoning work on both backends; the existing 4.00-bit `mul1` checkpoint runs with built-in MTP and without vision/mmproj loading on the RTX 4090; and exact dependency and cache-behavior evidence is documented.
