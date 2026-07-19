@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 
 import type {
@@ -146,6 +147,35 @@ class StringThrowingHttpClient extends CapturingHttpClient {
   }
 }
 
+class BlockingHttpClient extends CapturingHttpClient {
+  calls = 0;
+  activeCalls = 0;
+  maxActiveCalls = 0;
+  private holdFirst = true;
+
+  releaseFirst(): void {
+    this.holdFirst = false;
+  }
+
+  async requestJsonFull<T>(options: RequestJsonOptions, schema: z.ZodType<T>): Promise<FullJsonResponse<T>> {
+    this.requests.push(options);
+    this.calls += 1;
+    const callNumber = this.calls;
+    this.activeCalls += 1;
+    this.maxActiveCalls = Math.max(this.maxActiveCalls, this.activeCalls);
+    while (callNumber === 1 && this.holdFirst) {
+      await delay(1);
+    }
+    this.activeCalls -= 1;
+    const body = { choices: [{ message: { content: `response ${callNumber}` } }] };
+    return {
+      statusCode: 200,
+      rawText: JSON.stringify(body),
+      body: schema.parse(body),
+    };
+  }
+}
+
 function jsonResponse(body: JsonValue, statusCode = 200, rawText = JSON.stringify(body)): FullJsonResponse<JsonValue> {
   return {
     statusCode,
@@ -289,6 +319,148 @@ test('llama client covers non-streaming request and response normalization branc
   assert.equal(response.toolCalls[0]?.function.name, 'finish');
   assert.equal(response.usage.promptEvalTokens, 7);
   assert.equal(response.usage.thinkingTokens, 3);
+});
+
+test('tool-call parser extracts Qwen XML tool calls from plain text', () => {
+  const parser = new LlamaCppToolCallParser(['find_text', 'read_lines']);
+  const calls = parser.parseFromText(`
+<tool_call>
+<function=find_text>
+<parameter=pattern>InferenceRequestBuilder</parameter>
+<parameter=max_results>20</parameter>
+</function>
+</tool_call>
+<tool_call>
+<function=read_lines>
+<parameter=path>src/providers/llama-cpp.ts</parameter>
+</function>
+</tool_call>`);
+
+  assert.deepEqual(calls.map((call) => call.function.name), ['find_text', 'read_lines']);
+  assert.deepEqual(JSON.parse(calls[0]?.function.arguments || '{}'), {
+    pattern: 'InferenceRequestBuilder',
+    max_results: 20,
+  });
+  assert.deepEqual(JSON.parse(calls[1]?.function.arguments || '{}'), {
+    path: 'src/providers/llama-cpp.ts',
+  });
+});
+
+test('EXL3 token counting uses the Tabby OpenAI token endpoint', async () => {
+  const config = buildProtocolConfig();
+  config.Inference.SelectedBackend = 'exl3';
+  config.Server.Exl3.BaseUrl = 'http://127.0.0.1:8098';
+  const http = new CapturingHttpClient([jsonResponse({ length: 50106, tokens: [1, 2] })]);
+
+  const response = await new LlamaCppClient(http).countTokens(config, 'large prompt');
+
+  assert.equal(response.tokenCount, 50106);
+  assert.equal(http.requests[0]?.url, 'http://127.0.0.1:8098/v1/token/encode');
+  assert.deepEqual(JSON.parse(String(http.requests[0]?.body)), { text: 'large prompt' });
+});
+
+test('EXL3 omits Tabby grammar inputs and parses Qwen XML tool calls', async () => {
+  const config = buildProtocolConfig();
+  config.Inference.SelectedBackend = 'exl3';
+  config.Server.Exl3.BaseUrl = 'http://127.0.0.1:8098';
+  const http = new CapturingHttpClient([
+    jsonResponse({
+      choices: [{
+        message: {
+          content: '<tool_call><function=repo_rg><parameter=pattern>SelectedBackend</parameter></function></tool_call>',
+          reasoning_content: null,
+          tool_calls: null,
+        },
+      }],
+      usage: null,
+    }),
+  ]);
+  const tool: LlamaCppToolDefinition = {
+    type: 'function',
+    function: {
+      name: 'repo_rg',
+      description: 'Search repository text.',
+      parameters: { type: 'object', properties: { pattern: { type: 'string' } }, required: ['pattern'] },
+    },
+  };
+
+  const response = await new LlamaCppClient(http).chat({
+    config,
+    model: '3.6_27B',
+    messages: [{ role: 'user', content: 'find it' }],
+    tools: [tool],
+    maxTokens: 32,
+    stream: false,
+    responseFormat: { type: 'json_object' },
+    allowedToolNames: ['repo_rg'],
+  });
+
+  const body = JSON.parse(String(http.requests[0]?.body || '{}'));
+  assert.equal(body.tools, undefined);
+  assert.equal(body.parallel_tool_calls, undefined);
+  assert.equal(body.response_format, undefined);
+  assert.equal(response.toolCalls[0]?.function.name, 'repo_rg');
+  assert.deepEqual(JSON.parse(response.toolCalls[0]?.function.arguments || '{}'), { pattern: 'SelectedBackend' });
+});
+
+test('EXL3 chat requests are serialized for a single Tabby cache slot', async () => {
+  const config = buildProtocolConfig();
+  config.Inference.SelectedBackend = 'exl3';
+  config.Server.Exl3.BaseUrl = 'http://127.0.0.1:8098';
+  const http = new BlockingHttpClient();
+  const client = new LlamaCppClient(http);
+  const options = {
+    config,
+    model: '3.6_27B',
+    messages: [{ role: 'user' as const, content: 'hello' }],
+    tools: [],
+    maxTokens: 4,
+    stream: false,
+    allowedToolNames: [],
+  };
+
+  const first = client.chat(options);
+  while (http.calls === 0) await delay(1);
+  const second = client.chat(options);
+  await delay(20);
+  const callsBeforeRelease = http.calls;
+  http.releaseFirst();
+  await Promise.all([first, second]);
+
+  assert.equal(callsBeforeRelease, 1);
+  assert.equal(http.maxActiveCalls, 1);
+});
+
+test('OpenAI response normalization accepts Tabby nullable optional fields', async () => {
+  const http = new CapturingHttpClient([
+    jsonResponse({
+      choices: [{
+        message: {
+          content: 'EXL3 response',
+          reasoning_content: null,
+          tool_calls: null,
+        },
+      }],
+      usage: null,
+    }),
+  ]);
+
+  const response = await new LlamaCppClient(http).chat({
+    backend: 'exl3',
+    config: protocolConfig,
+    baseUrl: 'http://127.0.0.1:8098',
+    model: '3.6_27B',
+    messages: [{ role: 'user', content: 'hello' }],
+    tools: [],
+    maxTokens: 16,
+    stream: false,
+    allowedToolNames: [],
+  });
+
+  assert.equal(response.text, 'EXL3 response');
+  assert.equal(response.reasoningText, '');
+  assert.deepEqual(response.toolCalls, []);
+  assert.equal(response.usage.promptTokens, null);
 });
 
 test('tool-call parser covers fallback ids, default arguments, quoted replay values, and empty quotes', () => {

@@ -742,3 +742,31 @@ test('saveConfig round-trips through the config service', async () => {
     assert.equal(typeof saved, 'object');
   });
 });
+
+test('configured inference endpoint and model follow the selected EXL3 backend', () => {
+  const config = getDefaultConfigObject();
+  config.Inference.SelectedBackend = 'exl3';
+  config.Server.Exl3.BaseUrl = 'http://127.0.0.1:18098';
+  config.Server.Exl3.ModelId = 'selected-exl3';
+
+  assert.equal(getConfiguredLlamaBaseUrl(config), 'http://127.0.0.1:18098');
+  assert.equal(getConfiguredModel(config), 'selected-exl3');
+});
+
+test('saveConfig persists inference selection and the EXL3 process profile', async () => {
+  await withTestEnvAndServer(async () => {
+    const config = await loadConfig({ ensure: true });
+    config.Inference.SelectedBackend = 'exl3';
+    config.Inference.Thinking.Enabled = false;
+    config.Server.Exl3.ModelId = 'custom-exl3';
+    config.Server.Exl3.BaseUrl = 'http://127.0.0.1:18098';
+
+    await saveConfig(config);
+    const loaded = await loadConfig({ ensure: true });
+
+    assert.equal(loaded.Inference.SelectedBackend, 'exl3');
+    assert.equal(loaded.Inference.Thinking.Enabled, false);
+    assert.equal(loaded.Server.Exl3.ModelId, 'custom-exl3');
+    assert.equal(loaded.Server.Exl3.BaseUrl, 'http://127.0.0.1:18098');
+  });
+});

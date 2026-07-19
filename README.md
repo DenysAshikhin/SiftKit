@@ -82,6 +82,10 @@ The status server can manage `llama-server` automatically. On startup it clears 
 
 If you want the status server without managed startup (e.g., you launch `llama-server` yourself), run it with `--disable-managed-llama-startup`. In that mode it still serves health, status, and config but skips process lifecycle work, and `GET /health` advertises `disableManagedLlamaStartup: true` so external launchers can verify safely.
 
+### Toggleable EXL3 backend
+
+SiftKit can also manage TabbyAPI/ExLlamaV3. Use `siftkit backend status` and `siftkit backend use <llama|exl3> --wait`, or the selector in Dashboard Settings. Only one managed GPU runtime is loaded at a time; active work drains before a switch. See [EXL3 setup](docs/exl3-backend-setup.md) and [validation evidence](docs/exl3-backend-validation.md).
+
 ### Status protocol
 The published status file uses a simple boolean-like activity signal:
 
@@ -95,6 +99,7 @@ The client expects these endpoints from the status server:
 
 - `GET /health`, `GET /status`, `POST /status`
 - `GET /config`, `PUT /config`
+- `GET /runtime/backend`, `PUT /runtime/backend`
 
 Default URLs:
 
@@ -112,6 +117,7 @@ Overrides: `SIFTKIT_STATUS_BACKEND_URL`, `SIFTKIT_CONFIG_SERVICE_URL`, `SIFTKIT_
 - `siftkit repo-search` — constrained repo exploration
 - `siftkit preset list` — list available presets
 - `siftkit run` — execute a command or a preset
+- `siftkit backend` — inspect or switch the managed inference runtime
 - `siftkit install` — bootstrap runtime folders and verify the server
 - `siftkit install-global` — install PowerShell shims user-scoped
 - `siftkit config-get` / `siftkit config-set` — live config edit via the server
@@ -199,6 +205,6 @@ Run-level artifacts (summaries, repo-search sessions, benchmark matrices, eval r
 ## Notes
 
 - TypeScript is the runtime authority. PowerShell exists only as a shell-surface compatibility layer.
-- External inference is `llama.cpp` over HTTP on the configured `LlamaCpp.BaseUrl`. No other providers ship as runtime behavior.
+- Inference uses the selected managed llama.cpp or TabbyAPI/EXL3 OpenAI-compatible endpoint.
 - The runtime is deliberately conservative: short output stays raw, error-dense output stays raw-first, only long/noisy output is compressed, and managed command execution always preserves raw logs.
 - Mock provider hooks and related environment variables are test seams, not a public extensibility surface.

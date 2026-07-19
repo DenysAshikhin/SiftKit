@@ -24,6 +24,7 @@ import { SettingsField, SettingsInlineHelpLabel } from '../settings/SettingsFiel
 import type { DashboardConfig, DashboardManagedLlamaPreset, DashboardPreset, ProviderQuota, WebSearchUsage } from '../types';
 import { PresetsSection } from './settings/PresetsSection';
 import { ManagedLlamaSection } from './settings/ManagedLlamaSection';
+import { InferenceBackendSection } from './settings/InferenceBackendSection';
 
 export type SettingsTabProps = {
   activeSettingsSection: SettingsSectionId;
@@ -115,6 +116,7 @@ export function SettingsTab(props: SettingsTabProps) {
     }
     return (
       <div className="settings-live-grid">
+        {renderField('general', 'Inference backend', <InferenceBackendSection />, 'settings-live-field-full')}
         {renderField('general', 'Version', (
           <input
             value={dashboardConfig.Version}

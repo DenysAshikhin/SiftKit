@@ -33,6 +33,28 @@ import { InferenceRequestBuilder } from './inference-request-builder.js';
 
 type LlamaCppHttpClient = Pick<typeof httpClient, 'requestJsonFull' | 'streamSse'>;
 
+class SingleRequestGate {
+  private active = false;
+  private readonly waiters: Array<() => void> = [];
+
+  async acquire(): Promise<void> {
+    if (!this.active) {
+      this.active = true;
+      return;
+    }
+    await new Promise<void>((resolve) => this.waiters.push(resolve));
+  }
+
+  release(): void {
+    const next = this.waiters.shift();
+    if (next) {
+      next();
+      return;
+    }
+    this.active = false;
+  }
+}
+
 const RawContentPartSchema = z.object({
   type: z.string().optional(),
   text: z.string().optional(),
@@ -61,8 +83,8 @@ const RawChatResponseSchema = z.object({
     text: z.string().optional(),
     message: z.object({
       content: z.union([z.string(), z.array(RawContentPartSchema)]).optional(),
-      reasoning_content: z.union([z.string(), z.array(RawContentPartSchema)]).optional(),
-      tool_calls: z.array(RawToolCallSchema).optional(),
+      reasoning_content: z.union([z.string(), z.array(RawContentPartSchema)]).nullable().optional(),
+      tool_calls: z.array(RawToolCallSchema).nullable().optional(),
       function_call: z.object({
         name: z.string().optional(),
         arguments: z.string().optional(),
@@ -80,7 +102,7 @@ const RawChatResponseSchema = z.object({
     prompt_tokens_details: RawCachedTokenDetailsSchema.optional(),
     input_tokens_details: RawCachedTokenDetailsSchema.optional(),
     output_tokens_details: RawTokenDetailsSchema.optional(),
-  }).optional(),
+  }).nullable().optional(),
   timings: z.object({
     cache_n: z.number().optional(),
     prompt_n: z.number().optional(),
@@ -89,6 +111,7 @@ const RawChatResponseSchema = z.object({
 type RawChatResponse = z.infer<typeof RawChatResponseSchema>;
 
 const RawTokenizeResponseSchema = z.object({
+  length: z.number().optional(),
   count: z.number().optional(),
   token_count: z.number().optional(),
   n_tokens: z.number().optional(),
@@ -102,6 +125,7 @@ const RawModelListResponseSchema = z.object({
 });
 type RawModelListResponse = z.infer<typeof RawModelListResponseSchema>;
 const inferenceRequestBuilder = new InferenceRequestBuilder();
+const exl3RequestGate = new SingleRequestGate();
 
 export type LlamaCppModelProbeResult = {
   statusCode: number;
@@ -141,12 +165,13 @@ export class LlamaCppClient {
     options: { requestTimeoutSeconds?: number; retryMaxWaitMs?: number } = {},
   ): Promise<{ tokenCount: number; raw: JsonObject }> {
     const baseUrl = getConfiguredLlamaBaseUrl(config);
+    const isExl3 = getSelectedBackend(config) === 'exl3';
     const response = await retryProviderRequest(async () => {
       const nextResponse = await this.client.requestJsonFull({
-        url: `${baseUrl.replace(/\/$/u, '')}/tokenize`,
+        url: `${baseUrl.replace(/\/$/u, '')}${isExl3 ? '/v1/token/encode' : '/tokenize'}`,
         method: 'POST',
         timeoutMs: Math.max(1, options.requestTimeoutSeconds ?? 30) * 1000,
-        body: JSON.stringify({ content }),
+        body: JSON.stringify(isExl3 ? { text: content } : { content }),
       }, RawTokenizeResponseSchema);
       if (isTransientProviderHttpResponse(nextResponse.statusCode, nextResponse.rawText)) {
         throw buildTransientProviderHttpError(nextResponse.statusCode, nextResponse.rawText);
@@ -156,7 +181,8 @@ export class LlamaCppClient {
     if (response.statusCode >= 400) {
       throw new Error(`HTTP ${response.statusCode}: ${response.rawText.trim()}`);
     }
-    const tokenCount = getUsageValue(response.body.count)
+    const tokenCount = getUsageValue(response.body.length)
+      ?? getUsageValue(response.body.count)
       ?? getUsageValue(response.body.token_count)
       ?? getUsageValue(response.body.n_tokens)
       ?? (Array.isArray(response.body.tokens) ? response.body.tokens.length : null)
@@ -210,6 +236,19 @@ export class LlamaCppClient {
 
   async chat(options: LlamaCppChatOptions): Promise<NormalizedLlamaCppChatResponse> {
     const baseUrl = options.baseUrl || getConfiguredLlamaBaseUrl(options.config);
+    const backend = options.backend ?? getSelectedBackend(options.config);
+    if (backend !== 'exl3') {
+      return this.chatAtBaseUrl(baseUrl, options);
+    }
+    await exl3RequestGate.acquire();
+    try {
+      return await this.chatAtBaseUrl(baseUrl, options);
+    } finally {
+      exl3RequestGate.release();
+    }
+  }
+
+  private async chatAtBaseUrl(baseUrl: string, options: LlamaCppChatOptions): Promise<NormalizedLlamaCppChatResponse> {
     if (options.stream) {
       return this.streamChatAtBaseUrl(baseUrl, options);
     }
@@ -366,7 +405,7 @@ export class LlamaCppClient {
     }
 
     const finishedAt = Date.now();
-    const toolCalls = Array.from(toolChunks.entries())
+    const protocolToolCalls = Array.from(toolChunks.entries())
       .sort(([left], [right]) => left - right)
       .map(([, toolCall]) => parser.parseToolCall({
         id: toolCall.id,
@@ -374,6 +413,7 @@ export class LlamaCppClient {
         function: { name: toolCall.name, arguments: toolCall.argumentsText },
       }))
       .filter((toolCall): toolCall is NonNullable<typeof toolCall> => toolCall !== null);
+    const toolCalls = protocolToolCalls.length > 0 ? protocolToolCalls : parser.parseFromText(contentText);
     const promptEvalDuration = promptEvalDurationMs ?? (generationStartedAt === null ? null : Math.max(generationStartedAt - startedAt, 0));
     const generationDuration = generationDurationMs ?? (generationStartedAt === null ? null : Math.max(finishedAt - generationStartedAt, 0));
     return {
@@ -417,10 +457,12 @@ export class LlamaCppClient {
       promptEvalTokens: getUsageValue(response.body.timings?.prompt_n)
         ?? (promptTokens !== null && promptCacheTokens !== null ? Math.max(promptTokens - promptCacheTokens, 0) : null),
     };
+    const parser = new LlamaCppToolCallParser(allowedToolNames);
+    const protocolToolCalls = parser.parseFromChoice(firstChoice);
     return {
       text,
       reasoningText,
-      toolCalls: new LlamaCppToolCallParser(allowedToolNames).parseFromChoice(firstChoice),
+      toolCalls: protocolToolCalls.length > 0 ? protocolToolCalls : parser.parseFromText(text),
       usage,
       raw: toJsonObject(response.body),
       stoppedEarly: false,
@@ -428,7 +470,7 @@ export class LlamaCppClient {
   }
 }
 
-function getTextContent(content: string | Array<{ type?: string; text?: string }> | undefined): string {
+function getTextContent(content: string | Array<{ type?: string; text?: string }> | null | undefined): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
   return content.map((part) => typeof part.text === 'string' ? part.text : '').join('');

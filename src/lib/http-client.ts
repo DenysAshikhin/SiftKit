@@ -248,11 +248,11 @@ export class HttpClient {
         response.setEncoding('utf8');
         response.on('data', (chunk: string) => {
           rawBuffer += chunk;
-          let boundary = rawBuffer.indexOf('\n\n');
-          while (boundary >= 0) {
-            const packet = rawBuffer.slice(0, boundary);
-            rawBuffer = rawBuffer.slice(boundary + 2);
-            boundary = rawBuffer.indexOf('\n\n');
+          let boundary = /\r?\n\r?\n/u.exec(rawBuffer);
+          while (boundary) {
+            const packet = rawBuffer.slice(0, boundary.index);
+            rawBuffer = rawBuffer.slice(boundary.index + boundary[0].length);
+            boundary = /\r?\n\r?\n/u.exec(rawBuffer);
             const dataLine = packet
               .split(/\r?\n/gu)
               .map((line) => line.trim())

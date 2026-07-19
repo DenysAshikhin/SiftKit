@@ -247,6 +247,11 @@
   opacity: 0.95;
 }
 
+.inference-backend-section {
+  display: grid;
+  gap: 8px;
+}
+
 .settings-preset-library {
   display: grid;
   gap: 12px;

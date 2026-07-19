@@ -49,6 +49,7 @@ export type ParsedArgs = {
   repoRoot?: string;
   maxTurns?: number;
   shell?: string;
+  wait?: boolean;
 };
 
 export const KNOWN_COMMANDS = new Set([
@@ -58,6 +59,7 @@ export const KNOWN_COMMANDS = new Set([
   'run',
   'find-files',
   'internal',
+  'backend',
 ]);
 
 export const BLOCKED_PUBLIC_COMMANDS = new Set([
@@ -81,6 +83,7 @@ export const SERVER_DEPENDENT_COMMANDS = new Set([
   'config-set',
   'capture-internal',
   'repo-search',
+  'backend',
 ]);
 
 export const SERVER_DEPENDENT_INTERNAL_OPS = new Set([
@@ -243,6 +246,9 @@ export function parseArguments(tokens: string[]): ParsedArgs {
         break;
       case '--shell':
         parsed.shell = tokens[++index];
+        break;
+      case '--wait':
+        parsed.wait = true;
         break;
       default:
         parsed.positionals.push(token);

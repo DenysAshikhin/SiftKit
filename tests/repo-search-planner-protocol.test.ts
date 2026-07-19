@@ -429,6 +429,37 @@ test('requestRepoSearchPlannerProtocolAction sends json_schema response_format w
   });
 });
 
+test('requestRepoSearchPlannerProtocolAction keeps EXL3 requests grammar-free', async () => {
+  let capturedBody: JsonObject | null = null;
+  await withServer((req, res) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      capturedBody = JSON.parse(body || '{}');
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({
+        choices: [{ message: { content: '{"action":"finish","output":"done"}' } }],
+      }));
+    });
+  }, async (baseUrl) => {
+    await requestRepoSearchPlannerProtocolAction({
+      backend: 'exl3',
+      baseUrl,
+      model: 'mock-model',
+      messages: [{ role: 'user', content: 'find plan and repo-search' }],
+      timeoutMs: 5000,
+      maxTokens: 512,
+    });
+
+    const captured = asObject(capturedBody);
+    assert.equal('response_format' in captured, false);
+    assert.equal('tools' in captured, false);
+    assert.equal('cache_prompt' in captured, false);
+    assert.equal('id_slot' in captured, false);
+  });
+});
+
 test('requestRepoSearchPlannerProtocolAction assembles planner schema dynamically from provided tool definitions', async () => {
   let capturedBody: JsonObject | null = null;
   await withServer((req, res) => {

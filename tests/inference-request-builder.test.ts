@@ -30,6 +30,7 @@ test('EXL3 request omits llama-only fields and maps thinking policy', () => {
     tools: [],
     maxTokens: 128,
     stream: true,
+    responseFormat: { type: 'json_schema', json_schema: { name: 'answer', schema: { type: 'object' } } },
     thinking: { enabled: true, preserve: true, reasoningContent: true },
     llama: { cachePrompt: true, slotId: 2 },
   });
@@ -37,6 +38,7 @@ test('EXL3 request omits llama-only fields and maps thinking policy', () => {
   assert.equal(request.cache_prompt, undefined);
   assert.equal(request.id_slot, undefined);
   assert.equal(request.timings_per_token, undefined);
+  assert.equal(request.response_format, undefined);
   assert.deepEqual(request.chat_template_kwargs, {
     enable_thinking: true,
     preserve_thinking: true,

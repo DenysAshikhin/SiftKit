@@ -1,4 +1,4 @@
-import type { SiftConfig } from '../config/types.js';
+import type { InferenceBackendId, SiftConfig } from '../config/types.js';
 import { getDefaultConfigObject } from '../config/defaults.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
 import type { JsonObject, LlamaCppChatMessage, LlamaCppChatRole, LlamaCppToolCall } from '../llm-protocol/types.js';
@@ -286,6 +286,7 @@ export function buildPlannerRequestPromptReserveText(options: {
 }
 
 export type PlannerRequestOptions = {
+  backend?: InferenceBackendId;
   baseUrl: string;
   model: string;
   messages: ChatMessage[];
@@ -478,6 +479,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
   try {
     response = await retryProviderRequest(
       () => new LlamaCppClient().chat({
+        backend: options.backend,
         config: buildPlannerRequestConfig(options),
         baseUrl: options.baseUrl,
         model: options.model,
@@ -565,6 +567,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
 }
 
 export async function requestFinishValidation(options: {
+  backend?: InferenceBackendId;
   baseUrl: string;
   model: string;
   prompt: string;
@@ -578,6 +581,7 @@ export async function requestFinishValidation(options: {
   logger?: JsonLogger | null;
 }): Promise<PlannerActionResponse> {
   return requestRepoSearchPlannerProtocolAction({
+    backend: options.backend,
     baseUrl: options.baseUrl,
     model: options.model,
     messages: [{ role: 'user', content: options.prompt }],
@@ -597,6 +601,7 @@ export async function requestFinishValidation(options: {
 }
 
 export async function requestTerminalSynthesis(options: {
+  backend?: InferenceBackendId;
   baseUrl: string;
   model: string;
   prompt: string;
@@ -612,6 +617,7 @@ export async function requestTerminalSynthesis(options: {
   onContentDelta?: (accumulatedContent: string) => void;
 }): Promise<PlannerActionResponse> {
   return requestRepoSearchPlannerProtocolAction({
+    backend: options.backend,
     baseUrl: options.baseUrl,
     model: options.model,
     messages: [{ role: 'user', content: options.prompt }],

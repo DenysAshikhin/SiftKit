@@ -44,7 +44,14 @@ type DeepPartial<T> = T extends (infer U)[]
     : T;
 const MockSiftConfigSchema = z.custom<SiftConfig>((value) => typeof value === 'object' && value !== null);
 function mockLoopConfig(config: DeepPartial<SiftConfig>): SiftConfig {
-  return MockSiftConfigSchema.parse(config);
+  return MockSiftConfigSchema.parse({
+    ...config,
+    Inference: {
+      SelectedBackend: 'llama',
+      Thinking: { Enabled: false, Preserve: false },
+      ...config.Inference,
+    },
+  });
 }
 
 // buildScorecard reads only the tallying fields of each TaskResult; the rest are

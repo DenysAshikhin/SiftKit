@@ -59,6 +59,10 @@ import {
   dumpManagedLlamaStartupReviewToConsole,
 } from './managed-llama.js';
 import { createRequestHandler } from './routes.js';
+import { BackendSwitchCoordinator } from './backend-switch-coordinator.js';
+import { ConfigBackendSelectionStore } from './config-backend-selection-store.js';
+import { ManagedLlamaRuntime } from './managed-llama-runtime.js';
+import { ManagedTabbyRuntime } from './managed-tabby.js';
 import type {
   ExtendedServer,
   StartStatusServerOptions,
@@ -257,6 +261,16 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     shutdownManagedLlamaIfNeeded: (opts) => shutdownManagedLlamaIfNeeded(ctx, opts),
     ensureManagedLlamaReady: (opts) => ensureManagedLlamaReady(ctx, opts),
   };
+  const initialConfig = readConfig(configPath);
+  const managedTabbyRuntime = new ManagedTabbyRuntime(initialConfig.Server.Exl3);
+  const backendSwitchCoordinator = new BackendSwitchCoordinator(
+    new ManagedLlamaRuntime(ctx, initialConfig),
+    managedTabbyRuntime,
+    new ConfigBackendSelectionStore(configPath),
+  );
+  if (!disableManagedLlamaStartup) {
+    ctx.backendSwitchCoordinator = backendSwitchCoordinator;
+  }
 
   // Migrate any file-based run logs left by older runtimes into the run_logs
   // table so the dashboard surfaces them, then delete the migrated files.
@@ -302,7 +316,9 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       return server;
     }
     closeRequested = true;
-    void shutdownManagedLlamaForServerExit(ctx).finally(() => {
+    void backendSwitchCoordinator.shutdown().catch((error) => {
+      process.stderr.write(`[siftKitStatus] Failed to stop inference runtime: ${error instanceof Error ? error.message : String(error)}\n`);
+    }).finally(() => {
       originalClose(finalCallback);
     });
     return server;
@@ -316,7 +332,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
           await clearPreexistingManagedLlamaIfNeeded(ctx);
           ctx.bootstrapManagedLlamaStartup = true;
           try {
-            await ensureManagedLlamaReady(ctx, { resetStatusBeforeCheck: false, allowUnconfigured: true });
+            await backendSwitchCoordinator.initialize();
             ctx.managedLlamaStartupWarning = null;
           } finally {
             ctx.bootstrapManagedLlamaStartup = false;
@@ -328,7 +344,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
           ctx.managedLlamaReady = false;
           ctx.bootstrapManagedLlamaStartup = false;
           dumpManagedLlamaStartupReviewToConsole(ctx.managedLlamaLastStartupLogs);
-          process.stderr.write(`[siftKitStatus] Managed llama startup failed; continuing in degraded mode: ${message}\n`);
+          process.stderr.write(`[siftKitStatus] Inference backend startup failed; continuing in degraded mode: ${message}\n`);
         }
       }
       publishStatus(ctx);
@@ -365,7 +381,10 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     closeRuntimeDatabase();
   });
   server.shutdownManagedLlamaForServerExit = () => shutdownManagedLlamaForServerExit(ctx);
-  server.shutdownManagedLlamaForProcessExitSync = () => shutdownManagedLlamaForProcessExitSync(ctx);
+  server.shutdownManagedLlamaForProcessExitSync = () => {
+    managedTabbyRuntime.stopForProcessExitSync();
+    shutdownManagedLlamaForProcessExitSync(ctx);
+  };
   server.startupPromise = startupPromise;
 
   return server;

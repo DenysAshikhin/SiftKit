@@ -7,6 +7,19 @@ import test from 'node:test';
 import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.js';
 import { getFreePort } from './_runtime-helpers.js';
 
+async function assertPortClosed(port: number): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    try {
+      await fetch(`http://127.0.0.1:${port}/v1/models`);
+    } catch {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.fail(`Port ${port} remained reachable.`);
+}
+
 test('managed Tabby starts in its configured working directory and requires the expected model', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-managed-tabby-'));
   const port = await getFreePort();
@@ -50,4 +63,41 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)));
   }
 
   assert.equal(runtime.getState(), 'stopped');
+  await assertPortClosed(port);
+});
+
+test('failed readiness terminates Tabby before rollback can start another runtime', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-managed-tabby-failure-'));
+  const port = await getFreePort();
+  const scriptPath = path.join(root, 'wrong-model.cjs');
+  fs.writeFileSync(scriptPath, `
+const http = require('node:http');
+const server = http.createServer((request, response) => {
+  response.setHeader('content-type', 'application/json');
+  response.end(JSON.stringify({ data: [{ id: 'wrong-model' }] }));
+});
+server.listen(${port}, '127.0.0.1');
+`, 'utf8');
+  const runtime = new ManagedTabbyRuntime({
+    Managed: true,
+    BaseUrl: `http://127.0.0.1:${port}`,
+    WorkingDirectory: root,
+    PythonPath: process.execPath,
+    Entrypoint: path.basename(scriptPath),
+    ConfigPath: 'config.yml',
+    ModelId: '3.6_27B',
+    StartupTimeoutMs: 150,
+    HealthcheckTimeoutMs: 50,
+    HealthcheckIntervalMs: 20,
+    ShutdownTimeoutMs: 2_000,
+  });
+
+  try {
+    await assert.rejects(runtime.start(), /Timed out waiting for TabbyAPI model/u);
+    await assertPortClosed(port);
+    assert.equal(runtime.getState(), 'failed');
+  } finally {
+    runtime.stopForProcessExitSync();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

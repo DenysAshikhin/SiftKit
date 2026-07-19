@@ -98,6 +98,7 @@ export type TestConfig = Dict & {
   Backend: string;
   PolicyMode: string;
   RawLogRetention: boolean;
+  Inference: Dict;
   Runtime: Dict;
   Server: Dict;
   Thresholds: Dict;
@@ -110,6 +111,10 @@ export function getDefaultConfig(): TestConfig {
     Backend: 'llama.cpp',
     PolicyMode: 'conservative',
     RawLogRetention: true,
+    Inference: {
+      SelectedBackend: 'llama',
+      Thinking: { Enabled: false, Preserve: false },
+    },
     Runtime: {
       Model: 'mock-model',
       LlamaCpp: {
@@ -130,6 +135,10 @@ export function getDefaultConfig(): TestConfig {
       },
     },
     Server: {
+      Exl3: {
+        BaseUrl: 'http://127.0.0.1:8098',
+        ModelId: 'mock-exl3-model',
+      },
       LlamaCpp: {
         ActivePresetId: 'default',
         Presets: [{

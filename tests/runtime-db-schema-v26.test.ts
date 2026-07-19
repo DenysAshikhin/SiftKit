@@ -28,6 +28,7 @@ const KEPT_SERVER_COLUMNS = new Set([
   'server_llama_presets_json',
   'server_llama_active_preset_id',
   'server_external_server_enabled',
+  'server_exl3_json',
 ]);
 
 test('fresh DB base schema has no redundant managed-llama columns', () => {

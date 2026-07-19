@@ -8,6 +8,7 @@ import type { ManagedLlamaStreamKind } from '../state/managed-llama-runs.js';
 import type { ManagedLlamaFlushQueue } from './managed-llama-flush-queue.js';
 import type { StatusEngineService } from './engine-service.js';
 import type { SiftConfig } from '../config/types.js';
+import type { BackendSwitchCoordinator } from './backend-switch-coordinator.js';
 
 export type DatabaseInstance = InstanceType<typeof Database>;
 
@@ -104,6 +105,7 @@ export type ServerContext = {
   readonly idleSummarySnapshotsPath: string;
   readonly disableManagedLlamaStartup: boolean;
   readonly engineService: StatusEngineService;
+  backendSwitchCoordinator?: BackendSwitchCoordinator;
 
   server: ExtendedServer | null;
   getServiceBaseUrl(): string;

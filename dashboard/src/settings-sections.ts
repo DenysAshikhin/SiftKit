@@ -40,8 +40,9 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
     title: 'General',
     summary: 'Version, backend policy, and default prompt framing.',
     fields: [
+      { label: 'Inference backend', layout: 'full', helpText: 'Selects the managed llama.cpp or TabbyAPI/EXL3 runtime. Active work drains before the old model unloads.' },
       { label: 'Version', layout: 'quarter', helpText: 'Stored config schema version for this SiftKit installation.' },
-      { label: 'Backend', layout: 'half', helpText: 'Active inference backend. This dashboard is currently wired to llama.cpp.' },
+      { label: 'Backend', layout: 'half', helpText: 'Protocol family used by SiftKit. Runtime selection is controlled above.' },
       { label: 'Policy Mode', layout: 'quarter', helpText: 'Controls how assertive SiftKit should be. Conservative favors visible evidence and lower-risk compression; aggressive allows bolder decisions.' },
       { label: 'Raw log retention', layout: 'quarter', helpText: 'Keeps raw runtime logs and request artifacts instead of trimming them more aggressively.' },
       { label: 'AGENTS.md', layout: 'quarter', helpText: 'Adds root-level AGENTS.md instructions to repo-search and planner tool prompts.' },

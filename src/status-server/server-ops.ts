@@ -442,7 +442,7 @@ function syncManagedLlamaFlushQueueModelState(ctx: ServerContext, lastFinishedAt
 }
 
 export function wakeManagedLlamaForIncomingModelRequest(ctx: ServerContext): void {
-  if (ctx.disableManagedLlamaStartup) {
+  if (ctx.disableManagedLlamaStartup || ctx.backendSwitchCoordinator) {
     return;
   }
   void ctx.ensureManagedLlamaReady({ allowUnconfigured: true }).catch((error) => {
@@ -454,11 +454,16 @@ export function wakeManagedLlamaForIncomingModelRequest(ctx: ServerContext): voi
 }
 
 export function acquireModelRequest(ctx: ServerContext, kind: string): ModelRequestLock | null {
-  if (ctx.activeModelRequest || ctx.modelRequestQueue.length > 0) {
+  if (
+    ctx.activeModelRequest
+    || ctx.modelRequestQueue.length > 0
+    || ctx.backendSwitchCoordinator?.canGrantModelRequest() === false
+  ) {
     return null;
   }
   const lock = createModelRequestLock(kind);
   ctx.activeModelRequest = lock;
+  ctx.backendSwitchCoordinator?.setModelRequestActive(true);
   syncManagedLlamaFlushQueueModelState(ctx);
   return lock;
 }
@@ -548,7 +553,7 @@ function cancelModelRequestWaiter(
 }
 
 function grantNextModelRequest(ctx: ServerContext): boolean {
-  if (ctx.activeModelRequest) {
+  if (ctx.activeModelRequest || ctx.backendSwitchCoordinator?.canGrantModelRequest() === false) {
     return false;
   }
   while (ctx.modelRequestQueue.length > 0) {
@@ -559,6 +564,7 @@ function grantNextModelRequest(ctx: ServerContext): boolean {
     const lock = createModelRequestLock(waiter.kind);
     waiter.grantedLock = lock;
     ctx.activeModelRequest = lock;
+    ctx.backendSwitchCoordinator?.setModelRequestActive(true);
     clearModelRequestWaiterTimeout(waiter);
     logModelRequestLockAcquired(lock, getElapsedMsSinceIso(waiter.enqueuedAtUtc));
     syncManagedLlamaFlushQueueModelState(ctx);
@@ -655,11 +661,29 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
   }
   const releasedLock = ctx.activeModelRequest;
   ctx.activeModelRequest = null;
+  ctx.backendSwitchCoordinator?.setModelRequestActive(false);
   const finishedAtMs = Date.now();
   ctx.terminalMetadataLastModelRequestFinishedAtMs = finishedAtMs;
   syncManagedLlamaFlushQueueModelState(ctx, finishedAtMs);
   logModelRequestLockReleased(releasedLock, ctx.modelRequestQueue.length);
-  grantNextModelRequest(ctx);
+  const coordinator = ctx.backendSwitchCoordinator;
+  if (coordinator?.getStatus().pending) {
+    for (const waiter of ctx.modelRequestQueue) {
+      restartModelRequestWaiterTimeout(ctx, waiter);
+    }
+    void coordinator.onModelRequestReleased().then(() => {
+      for (const waiter of ctx.modelRequestQueue) {
+        restartModelRequestWaiterTimeout(ctx, waiter);
+      }
+      grantNextModelRequest(ctx);
+      syncManagedLlamaFlushQueueModelState(ctx, finishedAtMs);
+      scheduleIdleSummaryIfNeeded(ctx);
+    }).catch((error) => {
+      process.stderr.write(`[siftKitStatus] Backend transition failed: ${getErrorMessage(error)}\n`);
+    });
+  } else {
+    grantNextModelRequest(ctx);
+  }
   syncManagedLlamaFlushQueueModelState(ctx, finishedAtMs);
   if (ctx.managedLlamaLastStartupLogs?.runId) {
     ctx.managedLlamaFlushQueue.enqueue(ctx.managedLlamaLastStartupLogs.runId);
@@ -669,6 +693,20 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
 }
 
 export async function ensureManagedLlamaReadyForModelRequest(ctx: ServerContext): Promise<void> {
+  const coordinator = ctx.backendSwitchCoordinator;
+  if (coordinator) {
+    const backendStatus = coordinator.getStatus();
+    const selectedBackend = backendStatus.selected;
+    if (backendStatus.state === 'failed') {
+      await coordinator.retrySelectedBackend();
+      return;
+    } else {
+      await coordinator.waitForBackend(selectedBackend);
+    }
+    if (selectedBackend === 'exl3') {
+      return;
+    }
+  }
   if (ctx.disableManagedLlamaStartup) {
     return;
   }

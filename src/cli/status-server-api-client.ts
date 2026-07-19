@@ -31,6 +31,26 @@ import {
   type PresetRunResult,
 } from '../command-output/types.js';
 import { EvaluationResultSchema, type EvalRequest, type EvaluationResult } from '../eval-types.js';
+import {
+  type BackendRuntimeStatus,
+  type BackendRuntimeUpdateRequest,
+  type BackendRuntimeUpdateResponse,
+} from '@siftkit/contracts';
+import { z } from '../lib/zod.js';
+
+const BackendRuntimeStatusWireSchema = z.object({
+  active: z.enum(['llama', 'exl3']).nullable(),
+  selected: z.enum(['llama', 'exl3']),
+  pending: z.enum(['llama', 'exl3']).nullable(),
+  state: z.enum(['stopped', 'starting', 'ready', 'draining', 'stopping', 'failed']),
+  model: z.string().nullable(),
+  error: z.string().nullable(),
+  rollback: z.string().nullable(),
+});
+const BackendRuntimeUpdateResponseWireSchema = z.object({
+  outcome: z.enum(['already_active', 'switched', 'queued', 'failed']),
+  status: BackendRuntimeStatusWireSchema,
+});
 
 const DEFAULT_SERVER_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -43,6 +63,31 @@ export class StatusServerApiClient {
 
   getConfig(): Promise<SiftConfig> {
     return this.requestConfig();
+  }
+
+  async getBackendStatus(): Promise<BackendRuntimeStatus> {
+    try {
+      return await this.client.requestJson({
+        url: this.getServiceUrl('/runtime/backend'),
+        method: 'GET',
+        timeoutMs: DEFAULT_SERVER_REQUEST_TIMEOUT_MS,
+      }, BackendRuntimeStatusWireSchema);
+    } catch (error) {
+      throw this.normalizeError(toError(error));
+    }
+  }
+
+  async selectBackend(request: BackendRuntimeUpdateRequest): Promise<BackendRuntimeUpdateResponse> {
+    try {
+      return await this.client.requestJson({
+        url: this.getServiceUrl('/runtime/backend'),
+        method: 'PUT',
+        timeoutMs: DEFAULT_SERVER_REQUEST_TIMEOUT_MS,
+        body: JSON.stringify(request),
+      }, BackendRuntimeUpdateResponseWireSchema);
+    } catch (error) {
+      throw this.normalizeError(toError(error));
+    }
   }
 
   async requestSummary(request: SummaryRequest): Promise<SummaryResult> {

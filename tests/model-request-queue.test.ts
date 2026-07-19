@@ -16,8 +16,48 @@ import {
   releaseModelRequest,
 } from '../src/status-server/server-ops.js';
 import type { ServerContext } from '../src/status-server/server-types.js';
+import { BackendSwitchCoordinator, type BackendSelectionStore } from '../src/status-server/backend-switch-coordinator.js';
+import { ManagedInferenceRuntime } from '../src/status-server/managed-inference-runtime.js';
+import type { InferenceBackendId } from '../src/config/types.js';
 
 type StdoutLine = string;
+
+class QueueSelectionStore implements BackendSelectionStore {
+  selected: InferenceBackendId = 'llama';
+
+  getSelectedBackend(): InferenceBackendId {
+    return this.selected;
+  }
+
+  saveSelectedBackend(backend: InferenceBackendId): void {
+    this.selected = backend;
+  }
+}
+
+class QueueRuntime extends ManagedInferenceRuntime {
+  constructor(id: InferenceBackendId, private readonly events: string[]) {
+    super(id, `http://127.0.0.1:${id === 'llama' ? '8097' : '8098'}`, `${id}-model`, {
+      chatTemplateKwargs: true,
+      reasoningContent: true,
+      toolCalling: true,
+      jsonSchema: true,
+      speculativeMode: 'none',
+      reusablePrefixCache: 'unknown',
+    });
+  }
+
+  async start(): Promise<void> {
+    this.events.push(`start:${this.id}`);
+    this.transitionTo('ready');
+  }
+
+  async stop(): Promise<void> {
+    this.events.push(`stop:${this.id}`);
+    this.transitionTo('stopped');
+  }
+
+  async waitUntilReady(): Promise<void> {}
+}
 
 function createQueueContext(): ServerContext & { readonly wakeCount: number } {
   let wakeCount = 0;
@@ -97,6 +137,34 @@ test('completed status request ids are bounded and cleared when a status path is
 
 test('model request queue timeout default is fifteen minutes', () => {
   assert.equal(DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS, 900_000);
+});
+
+test('backend transition pauses queued admission until the new runtime is ready', async () => {
+  const ctx = createQueueContext();
+  const events: string[] = [];
+  const coordinator = new BackendSwitchCoordinator(
+    new QueueRuntime('llama', events),
+    new QueueRuntime('exl3', events),
+    new QueueSelectionStore(),
+  );
+  ctx.backendSwitchCoordinator = coordinator;
+  await coordinator.initialize();
+  try {
+    const activeLock = await acquireModelRequestWithWait(ctx, 'summary');
+    assert.ok(activeLock);
+    assert.equal(await coordinator.select('exl3'), 'queued');
+    const queuedLockPromise = acquireModelRequestWithWait(ctx, 'repo_search');
+
+    assert.equal(releaseModelRequest(ctx, activeLock.token), true);
+    const queuedLock = await queuedLockPromise;
+
+    assert.ok(queuedLock);
+    assert.equal(coordinator.getStatus().active, 'exl3');
+    assert.deepEqual(events, ['start:llama', 'stop:llama', 'start:exl3']);
+    assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
+  } finally {
+    await ctx.managedLlamaFlushQueue.close();
+  }
 });
 
 async function captureStdoutLines(fn: (lines: StdoutLine[]) => Promise<void>): Promise<StdoutLine[]> {

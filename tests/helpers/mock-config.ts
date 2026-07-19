@@ -15,7 +15,14 @@ type DeepPartial<T> = T extends (infer U)[]
 const MockSiftConfigSchema = z.custom<SiftConfig>((value) => typeof value === 'object' && value !== null);
 
 export function mockSiftConfig(partial: DeepPartial<SiftConfig>): SiftConfig {
-  return MockSiftConfigSchema.parse(partial);
+  return MockSiftConfigSchema.parse({
+    ...partial,
+    Inference: {
+      SelectedBackend: 'llama',
+      Thinking: { Enabled: false, Preserve: false },
+      ...partial.Inference,
+    },
+  });
 }
 
 // Brand an already-constructed runtime config object (e.g. a stub server's live

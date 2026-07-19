@@ -41,6 +41,9 @@ export function getFinitePositiveNumber(value?: number | string | null): number 
 }
 
 export function getConfiguredModel(config: SiftConfig): string {
+  if (config.Inference.SelectedBackend === 'exl3') {
+    return config.Server.Exl3.ModelId;
+  }
   const model = config.Runtime?.Model;
   if (typeof model === 'string' && model.trim()) {
     return model.trim();
@@ -55,6 +58,9 @@ export function getConfiguredPromptPrefix(config: SiftConfig): string | undefine
 }
 
 export function getConfiguredLlamaBaseUrl(config: SiftConfig): string {
+  if (config.Inference.SelectedBackend === 'exl3') {
+    return config.Server.Exl3.BaseUrl;
+  }
   const baseUrl = getRuntimeLlamaCpp(config).BaseUrl;
   if (typeof baseUrl === 'string' && baseUrl.trim()) {
     return baseUrl.trim();
@@ -81,6 +87,9 @@ export function getConfiguredLlamaSetting(
   key: RuntimeOwnedLlamaCppKey
 ): RuntimeLlamaCppConfig[RuntimeOwnedLlamaCppKey] | undefined {
   if (!config) {
+    return undefined;
+  }
+  if (config.Inference.SelectedBackend === 'exl3') {
     return undefined;
   }
   const runtimeValue = getRuntimeLlamaCpp(config)[key];

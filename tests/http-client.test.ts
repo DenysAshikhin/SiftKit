@@ -100,6 +100,27 @@ test('HttpClient.streamSse parses SSE data packets and resolves sawDone after [D
   }
 });
 
+test('HttpClient.streamSse parses CRLF-delimited Tabby SSE packets', async () => {
+  const client = new HttpClient();
+  const server = await startServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
+    res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'tabby' } }] })}\r\n\r\n`);
+    res.end('data: [DONE]\r\n\r\n');
+  });
+  try {
+    const received: JsonObject[] = [];
+    const result = await client.streamSse(
+      { url: `${server.baseUrl}/v1/chat/completions`, body: '{}', timeoutMs: 5000 },
+      (parsed) => { received.push(parsed); },
+    );
+    assert.equal(result.sawDone, true);
+    assert.equal(received.length, 1);
+    assert.equal(String(asObject(asObject(asObjectArray(received[0].choices)[0]).delta).content), 'tabby');
+  } finally {
+    await server.close();
+  }
+});
+
 test('HttpClient.streamSse rejects with LlamaHttpError carrying status and body on >= 400', async () => {
   const client = new HttpClient();
   const server = await startServer((req, res) => {

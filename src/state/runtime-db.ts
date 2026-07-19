@@ -21,7 +21,7 @@ const MetadataValueRowSchema = z.object({ value: z.string().nullable() });
 const FreelistRowSchema = z.object({ freelist_count: z.number().nullable() });
 const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
 
-export const CURRENT_SCHEMA_VERSION = 30;
+export const CURRENT_SCHEMA_VERSION = 31;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["repo_rg","repo_read_file","repo_list_files","repo_git","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}';
 const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
@@ -134,6 +134,8 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       server_llama_presets_json TEXT NOT NULL DEFAULT '[]',
       server_llama_active_preset_id TEXT,
       server_external_server_enabled INTEGER NOT NULL DEFAULT 0 CHECK (server_external_server_enabled IN (0, 1)),
+      inference_json TEXT NOT NULL DEFAULT '{}',
+      server_exl3_json TEXT NOT NULL DEFAULT '{}',
       operation_mode_allowed_tools_json TEXT NOT NULL DEFAULT '${DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON}',
       presets_json TEXT NOT NULL,
       web_search_json TEXT NOT NULL DEFAULT '{}',
@@ -1127,6 +1129,16 @@ function ensureSchema(database: RuntimeDatabase): void {
     }
     setSchemaVersion(database, 30);
     currentVersion = 30;
+  }
+  if (currentVersion < 31) {
+    if (!tableHasColumn(database, 'app_config', 'inference_json')) {
+      database.exec("ALTER TABLE app_config ADD COLUMN inference_json TEXT NOT NULL DEFAULT '{}';");
+    }
+    if (!tableHasColumn(database, 'app_config', 'server_exl3_json')) {
+      database.exec("ALTER TABLE app_config ADD COLUMN server_exl3_json TEXT NOT NULL DEFAULT '{}';");
+    }
+    setSchemaVersion(database, 31);
+    currentVersion = 31;
   }
   ensureChatMessageTimelineSchema(database);
   ensureRuntimeArtifactsSchema(database);

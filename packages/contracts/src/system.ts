@@ -35,6 +35,18 @@ export const BackendRuntimeStatusSchema = z.object({
 });
 export type BackendRuntimeStatus = z.infer<typeof BackendRuntimeStatusSchema>;
 
+export const BackendRuntimeUpdateRequestSchema = z.object({
+  backend: InferenceBackendIdSchema,
+  wait: z.boolean().optional().default(false),
+});
+export type BackendRuntimeUpdateRequest = z.infer<typeof BackendRuntimeUpdateRequestSchema>;
+
+export const BackendRuntimeUpdateResponseSchema = z.object({
+  outcome: z.enum(['already_active', 'switched', 'queued', 'failed']),
+  status: BackendRuntimeStatusSchema,
+});
+export type BackendRuntimeUpdateResponse = z.infer<typeof BackendRuntimeUpdateResponseSchema>;
+
 // Provider id comes from the config contract (single source of truth); src/web-search/types.ts
 // derives WebSearchProviderId from the same schema so the contract and producer cannot drift.
 // Matches src/web-search/types.ts ProviderQuota exactly (provider is the typed id union, not a bare string).

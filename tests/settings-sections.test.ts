@@ -19,6 +19,7 @@ test('settings tooltip labels include the documented fields', () => {
   assert.deepEqual(
     SETTINGS_TOOLTIP_LABELS,
     [
+      'Inference backend',
       'Version',
       'Backend',
       'Policy Mode',

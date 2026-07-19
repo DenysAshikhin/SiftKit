@@ -69,7 +69,16 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       this.startupError = new Error(`TabbyAPI exited unexpectedly (code=${String(code)}, signal=${String(signal)}).`);
       this.transitionTo('failed');
     });
-    await this.waitUntilReady();
+    try {
+      await this.waitUntilReady();
+    } catch (error) {
+      try {
+        await this.stop();
+      } finally {
+        this.transitionTo('failed');
+      }
+      throw error;
+    }
   }
 
   async waitUntilReady(): Promise<void> {
@@ -115,6 +124,16 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     if (child.exitCode === null) {
       this.transitionTo('failed');
       throw new Error('Timed out stopping TabbyAPI.');
+    }
+    this.child = null;
+    this.transitionTo('stopped');
+  }
+
+  stopForProcessExitSync(): void {
+    const child = this.child;
+    this.stopping = true;
+    if (child?.pid && child.exitCode === null) {
+      terminateProcessTree(child.pid);
     }
     this.child = null;
     this.transitionTo('stopped');

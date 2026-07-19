@@ -1594,6 +1594,23 @@ class ConfigReadEndpoint implements RouteEndpoint {
         sendJson(res, 200, readConfig(configPath));
         return;
       }
+      if (ctx.backendSwitchCoordinator) {
+        const backendStatus = ctx.backendSwitchCoordinator.getStatus();
+        if (backendStatus.state === 'failed') {
+          const config = readConfig(configPath);
+          const llamaPreset = config.Server.LlamaCpp.Presets.find(
+            (preset) => preset.id === config.Server.LlamaCpp.ActivePresetId,
+          ) ?? config.Server.LlamaCpp.Presets[0];
+          if (backendStatus.selected !== 'llama' || llamaPreset?.ExternalServerEnabled !== true) {
+            sendJson(res, 200, config);
+            return;
+          }
+        }
+        const selectedBackend = backendStatus.selected;
+        await ctx.backendSwitchCoordinator.waitForBackend(selectedBackend);
+        sendJson(res, 200, readConfig(configPath));
+        return;
+      }
       sendJson(res, 200, await ctx.ensureManagedLlamaReady({ allowUnconfigured: true }));
     } catch (error) {
       sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
@@ -1662,11 +1679,74 @@ class StatusRestartEndpoint implements RouteEndpoint {
     return;
   }
 }
+
+class BackendRuntimeReadEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    _req: IncomingMessage,
+    res: ServerResponse,
+    _match: RouteMatch,
+  ): Promise<void> {
+    const coordinator = ctx.backendSwitchCoordinator;
+    if (!coordinator) {
+      sendJson(res, 503, { error: 'Inference backend coordinator is unavailable.' });
+      return;
+    }
+    sendJson(res, 200, coordinator.getStatus());
+  }
+}
+
+class BackendRuntimeUpdateEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: IncomingMessage,
+    res: ServerResponse,
+    _match: RouteMatch,
+  ): Promise<void> {
+    const coordinator = ctx.backendSwitchCoordinator;
+    if (!coordinator) {
+      sendJson(res, 503, { error: 'Inference backend coordinator is unavailable.' });
+      return;
+    }
+    let body: ReturnType<typeof parseJsonBody>;
+    try {
+      body = parseJsonBody(await readBody(req));
+    } catch {
+      sendJson(res, 400, { error: 'Expected valid JSON object.' });
+      return;
+    }
+    const backend = body.backend === 'llama' || body.backend === 'exl3' ? body.backend : null;
+    const wait = body.wait === undefined ? false : body.wait;
+    if (!backend || typeof wait !== 'boolean') {
+      sendJson(res, 400, { error: 'Expected backend to be llama or exl3 and wait to be boolean.' });
+      return;
+    }
+    const previousStatus = coordinator.getStatus();
+    try {
+      const result = await coordinator.select(backend);
+      const outcome = previousStatus.active === backend && previousStatus.state === 'ready'
+        ? 'already_active'
+        : result === 'queued' ? 'queued' : 'switched';
+      if (wait) {
+        await coordinator.waitForBackend(backend);
+      }
+      sendJson(res, outcome === 'queued' ? 202 : 200, { outcome, status: coordinator.getStatus() });
+    } catch (error) {
+      sendJson(res, 503, {
+        outcome: 'failed',
+        status: coordinator.getStatus(),
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
 const STATUS_POST_ENDPOINT = new StatusPostEndpoint();
 
 const CORE_ROUTES = new RouteTable([
   { method: 'GET', path: '/health', endpoint: new HealthEndpoint() },
   { method: 'GET', path: '/status', endpoint: new StatusReadEndpoint() },
+  { method: 'GET', path: '/runtime/backend', endpoint: new BackendRuntimeReadEndpoint() },
+  { method: 'PUT', path: '/runtime/backend', endpoint: new BackendRuntimeUpdateEndpoint() },
   { method: 'POST', path: '/command-output/analyze', endpoint: new CommandOutputAnalyzeEndpoint() },
   { method: 'GET', path: '/preset/list', endpoint: new PresetListEndpoint() },
   { method: 'POST', path: '/preset/run', endpoint: new PresetRunEndpoint() },
