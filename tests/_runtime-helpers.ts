@@ -81,6 +81,7 @@ import {
   formatElapsed,
   getIdleSummarySnapshotsPath,
   startStatusServer,
+  terminateProcessTree,
 } from '../src/status-server/index.js';
 import { writeConfig } from '../src/status-server/config-store.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
@@ -1355,6 +1356,17 @@ async function startStatusServerProcess(options: StatusServerProcessOptions) {
     },
     async close() {
       if (child.exitCode !== null || child.killed) {
+        return;
+      }
+
+      if (process.platform === 'win32' && child.pid) {
+        assert.equal(terminateProcessTree(child.pid), true);
+        await Promise.race([
+          closePromise,
+          sleep(5000).then(() => {
+            throw new Error('Timed out waiting for Windows status-server process-tree termination.');
+          }),
+        ]);
         return;
       }
 

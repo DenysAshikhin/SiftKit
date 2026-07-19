@@ -162,6 +162,11 @@ test('real status server leaves managed llama.cpp running after the idle summary
     } finally {
       await server.close();
     }
+
+    await waitForAsyncExpectation(
+      async () => assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`)),
+      5000,
+    );
   });
 });
 
