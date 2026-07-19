@@ -14,6 +14,7 @@
   "include": [
     "src",
     "../src/config/types.ts",
+    "../src/types/better-sqlite3.d.ts",
     "../src/web-search/types.ts",
     "../src/presets.ts",
     "../tests/dashboard-app-refresh.test.ts",
@@ -21,6 +22,7 @@
     "../tests/dashboard-toasts.test.ts",
     "../tests/dashboard-benchmark-controller.test.ts",
     "../tests/dashboard-settings-controller.test.ts",
+    "../tests/dashboard-model-presets-section.test.ts",
     "../tests/dashboard-runs-controller-e2e.test.ts"
   ]
 }

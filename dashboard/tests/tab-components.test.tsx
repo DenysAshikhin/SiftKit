@@ -11,8 +11,8 @@ import { buildRepoSearchAutoAppendPayload } from '../src/lib/repo-append-control
 import { AGENTS_MD_PROMPT_DELIMITER } from '../src/lib/chatMessages';
 import { BenchmarkTab } from '../src/tabs/BenchmarkTab';
 import { PresetsSection } from '../src/tabs/settings/PresetsSection';
-import { ManagedLlamaSection } from '../src/tabs/settings/ManagedLlamaSection';
-import { updateActiveManagedLlamaPreset } from '../src/managed-llama-presets';
+import { ModelPresetsSection } from '../src/tabs/settings/ModelPresetsSection';
+import { updateActiveModelPreset } from '../src/model-runtime-presets';
 import { syncDerivedSettingsFields } from '../src/settings-runtime';
 import type {
   ChatMessage,
@@ -576,7 +576,7 @@ test('settings tab renders section chrome and fields', () => {
       activeSettingsSection="general"
       dashboardConfig={DASHBOARD_CONFIG}
       selectedSettingsPreset={PRESET}
-      selectedManagedLlamaPreset={MANAGED_PRESET}
+      selectedModelPreset={MANAGED_PRESET}
       selectedSettingsPresetId={PRESET.id}
       webSearchUsage={null}
       webSearchQuota={null}
@@ -593,12 +593,12 @@ test('settings tab renders section chrome and fields', () => {
       requestSettingsAction={() => {}}
       updateSettingsDraft={() => {}}
       updatePresetDraft={() => {}}
-      updateManagedLlamaDraft={() => {}}
+      updateModelPresetDraft={() => {}}
       onAddPreset={() => {}}
       onDeletePreset={() => {}}
-      onAddManagedLlamaPreset={() => {}}
-      onDeleteManagedLlamaPreset={() => {}}
-      onPickManagedLlamaPath={async () => {}}
+      onAddModelPreset={() => {}}
+      onDeleteModelPreset={() => {}}
+      onPickModelPresetPath={async () => {}}
       onReloadDashboardSettings={async () => {}}
       restartDashboardBackendCore={async () => true}
       onSaveDashboardSettings={async () => {}}
@@ -623,7 +623,7 @@ test('settings tab general section renders Expand reads toggle', () => {
         ExpandReads: false,
       }}
       selectedSettingsPreset={PRESET}
-      selectedManagedLlamaPreset={MANAGED_PRESET}
+      selectedModelPreset={MANAGED_PRESET}
       selectedSettingsPresetId={PRESET.id}
       webSearchUsage={null}
       webSearchQuota={null}
@@ -640,12 +640,12 @@ test('settings tab general section renders Expand reads toggle', () => {
       requestSettingsAction={() => {}}
       updateSettingsDraft={() => {}}
       updatePresetDraft={() => {}}
-      updateManagedLlamaDraft={() => {}}
+      updateModelPresetDraft={() => {}}
       onAddPreset={() => {}}
       onDeletePreset={() => {}}
-      onAddManagedLlamaPreset={() => {}}
-      onDeleteManagedLlamaPreset={() => {}}
-      onPickManagedLlamaPath={async () => {}}
+      onAddModelPreset={() => {}}
+      onDeleteModelPreset={() => {}}
+      onPickModelPresetPath={async () => {}}
       onTestLlamaCppBaseUrl={async () => {}}
       onReloadDashboardSettings={async () => {}}
       restartDashboardBackendCore={async () => true}
@@ -678,7 +678,7 @@ test('settings tab web-search section renders provider keys (masked), usage, and
       activeSettingsSection="web-search"
       dashboardConfig={config}
       selectedSettingsPreset={PRESET}
-      selectedManagedLlamaPreset={MANAGED_PRESET}
+      selectedModelPreset={MANAGED_PRESET}
       selectedSettingsPresetId={PRESET.id}
       webSearchUsage={{ currentMonth: '2026-06', currentMonthCount: 12, allTimeCount: 99 }}
       webSearchQuota={[{ provider: 'tavily', used: 8, limit: 100, remaining: 92 }]}
@@ -695,12 +695,12 @@ test('settings tab web-search section renders provider keys (masked), usage, and
       requestSettingsAction={() => {}}
       updateSettingsDraft={() => {}}
       updatePresetDraft={() => {}}
-      updateManagedLlamaDraft={() => {}}
+      updateModelPresetDraft={() => {}}
       onAddPreset={() => {}}
       onDeletePreset={() => {}}
-      onAddManagedLlamaPreset={() => {}}
-      onDeleteManagedLlamaPreset={() => {}}
-      onPickManagedLlamaPath={async () => {}}
+      onAddModelPreset={() => {}}
+      onDeleteModelPreset={() => {}}
+      onPickModelPresetPath={async () => {}}
       onTestLlamaCppBaseUrl={async () => {}}
       onReloadDashboardSettings={async () => {}}
       restartDashboardBackendCore={async () => true}
@@ -776,7 +776,7 @@ test('settings tab renders ncpu moe field in model presets section', () => {
       activeSettingsSection="model-presets"
       dashboardConfig={DASHBOARD_CONFIG}
       selectedSettingsPreset={PRESET}
-      selectedManagedLlamaPreset={MANAGED_PRESET}
+      selectedModelPreset={MANAGED_PRESET}
       selectedSettingsPresetId={PRESET.id}
       webSearchUsage={null}
       webSearchQuota={null}
@@ -793,12 +793,12 @@ test('settings tab renders ncpu moe field in model presets section', () => {
       requestSettingsAction={() => {}}
       updateSettingsDraft={() => {}}
       updatePresetDraft={() => {}}
-      updateManagedLlamaDraft={() => {}}
+      updateModelPresetDraft={() => {}}
       onAddPreset={() => {}}
       onDeletePreset={() => {}}
-      onAddManagedLlamaPreset={() => {}}
-      onDeleteManagedLlamaPreset={() => {}}
-      onPickManagedLlamaPath={async () => {}}
+      onAddModelPreset={() => {}}
+      onDeleteModelPreset={() => {}}
+      onPickModelPresetPath={async () => {}}
       onReloadDashboardSettings={async () => {}}
       restartDashboardBackendCore={async () => true}
       onSaveDashboardSettings={async () => {}}
@@ -830,9 +830,9 @@ test('presets section renders library controls and effective tools', () => {
 test('managed llama section renders launcher fields and browse controls', () => {
   const capturedFields: string[] = [];
   const markup = renderToStaticMarkup(
-    <ManagedLlamaSection
+    <ModelPresetsSection
       dashboardConfig={DASHBOARD_CONFIG}
-      selectedManagedLlamaPreset={MANAGED_PRESET}
+      selectedModelPreset={MANAGED_PRESET}
       settingsActionBusy={false}
       settingsPathPickerBusyTarget={null}
       renderField={(_, label, children) => {
@@ -840,10 +840,10 @@ test('managed llama section renders launcher fields and browse controls', () => 
         return <div>{children}</div>;
       }}
       updateSettingsDraft={() => {}}
-      updateManagedLlamaDraft={() => {}}
-      onAddManagedLlamaPreset={() => {}}
-      onDeleteManagedLlamaPreset={() => {}}
-      onPickManagedLlamaPath={async () => {}}
+      updateModelPresetDraft={() => {}}
+      onAddModelPreset={() => {}}
+      onDeleteModelPreset={() => {}}
+      onPickModelPresetPath={async () => {}}
     />,
   );
 
@@ -856,12 +856,55 @@ test('managed llama section renders launcher fields and browse controls', () => 
   assert.doesNotMatch(markup, /value="test-model"/);
 });
 
+test('EXL3 preset keeps unsupported controls visible and disabled', () => {
+  const markup = renderToStaticMarkup(
+    <ModelPresetsSection
+      dashboardConfig={DASHBOARD_CONFIG}
+      selectedModelPreset={{ ...MANAGED_PRESET, Backend: 'exl3' }}
+      settingsActionBusy={false}
+      settingsPathPickerBusyTarget={null}
+      renderField={(_, label, children) => <div data-label={label}>{children}</div>}
+      updateSettingsDraft={() => {}}
+      updateModelPresetDraft={() => {}}
+      onAddModelPreset={() => {}}
+      onDeleteModelPreset={() => {}}
+      onPickModelPresetPath={async () => {}}
+    />,
+  );
+
+  assert.match(markup, /aria-label="Preset backend"/u);
+  assert.match(markup, /data-label="GpuLayers"[\s\S]*?disabled/u);
+  assert.match(markup, /Not supported by EXL3/u);
+  assert.doesNotMatch(markup, /aria-label="Inference backend"/u);
+});
+
+test('EXL3 enum controls disable incompatible values without changing the preset', () => {
+  const preset = { ...MANAGED_PRESET, Backend: 'exl3', KvCacheQuantization: 'bf16' } satisfies DashboardModelRuntimePreset;
+  const markup = renderToStaticMarkup(
+    <ModelPresetsSection
+      dashboardConfig={DASHBOARD_CONFIG}
+      selectedModelPreset={preset}
+      settingsActionBusy={false}
+      settingsPathPickerBusyTarget={null}
+      renderField={(_, label, children) => <div data-label={label}>{children}</div>}
+      updateSettingsDraft={() => {}}
+      updateModelPresetDraft={() => {}}
+      onAddModelPreset={() => {}}
+      onDeleteModelPreset={() => {}}
+      onPickModelPresetPath={async () => {}}
+    />,
+  );
+
+  assert.match(markup, /<option value="bf16"[^>]*disabled=""[^>]*>bf16<\/option>/u);
+  assert.equal(preset.KvCacheQuantization, 'bf16');
+});
+
 test('managed llama section shows thinking preservation controls only when reasoning is enabled', () => {
   const capturedFields: string[] = [];
   const markup = renderToStaticMarkup(
-    <ManagedLlamaSection
+    <ModelPresetsSection
       dashboardConfig={DASHBOARD_CONFIG}
-      selectedManagedLlamaPreset={{
+      selectedModelPreset={{
         ...MANAGED_PRESET,
         Reasoning: 'on',
         ReasoningContent: true,
@@ -875,10 +918,10 @@ test('managed llama section shows thinking preservation controls only when reaso
         return <div>{children}</div>;
       }}
       updateSettingsDraft={() => {}}
-      updateManagedLlamaDraft={() => {}}
-      onAddManagedLlamaPreset={() => {}}
-      onDeleteManagedLlamaPreset={() => {}}
-      onPickManagedLlamaPath={async () => {}}
+      updateModelPresetDraft={() => {}}
+      onAddModelPreset={() => {}}
+      onDeleteModelPreset={() => {}}
+      onPickModelPresetPath={async () => {}}
     />,
   );
 
@@ -892,9 +935,9 @@ test('managed llama section turns maintain per step thinking on when reasoning i
   let updatedConfig: DashboardConfig | null = null;
   let reasoningField: ReactNode = null;
 
-  ManagedLlamaSection({
+  ModelPresetsSection({
     dashboardConfig: DASHBOARD_CONFIG,
-    selectedManagedLlamaPreset: {
+    selectedModelPreset: {
       ...MANAGED_PRESET,
       Reasoning: 'off',
       ReasoningContent: false,
@@ -910,15 +953,15 @@ test('managed llama section turns maintain per step thinking on when reasoning i
       return <div>{children}</div>;
     },
     updateSettingsDraft: () => {},
-    updateManagedLlamaDraft: (updater) => {
+    updateModelPresetDraft: (updater) => {
       const nextConfig = structuredClone(DASHBOARD_CONFIG);
       const preset = nextConfig.Server.ModelPresets.Presets[0];
       updater(preset);
       updatedConfig = nextConfig;
     },
-    onAddManagedLlamaPreset: () => {},
-    onDeleteManagedLlamaPreset: () => {},
-    onPickManagedLlamaPath: async () => {},
+    onAddModelPreset: () => {},
+    onDeleteModelPreset: () => {},
+    onPickModelPresetPath: async () => {},
   });
 
   const select = findElementByType<InputElementProps>(reasoningField, 'select');
@@ -934,9 +977,9 @@ test('managed llama section hides speculative controls until n-gram speculation 
   const capturedFields: string[] = [];
 
   renderToStaticMarkup(
-    <ManagedLlamaSection
+    <ModelPresetsSection
       dashboardConfig={DASHBOARD_CONFIG}
-      selectedManagedLlamaPreset={MANAGED_PRESET}
+      selectedModelPreset={MANAGED_PRESET}
       settingsActionBusy={false}
       settingsPathPickerBusyTarget={null}
       renderField={(_, label, children) => {
@@ -944,10 +987,10 @@ test('managed llama section hides speculative controls until n-gram speculation 
         return <div>{children}</div>;
       }}
       updateSettingsDraft={() => {}}
-      updateManagedLlamaDraft={() => {}}
-      onAddManagedLlamaPreset={() => {}}
-      onDeleteManagedLlamaPreset={() => {}}
-      onPickManagedLlamaPath={async () => {}}
+      updateModelPresetDraft={() => {}}
+      onAddModelPreset={() => {}}
+      onDeleteModelPreset={() => {}}
+      onPickModelPresetPath={async () => {}}
     />,
   );
 
@@ -959,9 +1002,9 @@ test('managed llama section hides speculative controls until n-gram speculation 
 function captureManagedLlamaFields(preset: DashboardModelRuntimePreset): string[] {
   const capturedFields: string[] = [];
   renderToStaticMarkup(
-    <ManagedLlamaSection
+    <ModelPresetsSection
       dashboardConfig={DASHBOARD_CONFIG}
-      selectedManagedLlamaPreset={preset}
+      selectedModelPreset={preset}
       settingsActionBusy={false}
       settingsPathPickerBusyTarget={null}
       renderField={(_, label, children) => {
@@ -969,10 +1012,10 @@ function captureManagedLlamaFields(preset: DashboardModelRuntimePreset): string[
         return <div>{children}</div>;
       }}
       updateSettingsDraft={() => {}}
-      updateManagedLlamaDraft={() => {}}
-      onAddManagedLlamaPreset={() => {}}
-      onDeleteManagedLlamaPreset={() => {}}
-      onPickManagedLlamaPath={async () => {}}
+      updateModelPresetDraft={() => {}}
+      onAddModelPreset={() => {}}
+      onDeleteModelPreset={() => {}}
+      onPickModelPresetPath={async () => {}}
     />,
   );
   return capturedFields;
@@ -1044,9 +1087,9 @@ test('managed llama section shows only draft-token controls for draft-mtp specul
 
 test('managed llama section warns when an MTP combination uses parallel slots', () => {
   const markup = renderToStaticMarkup(
-    <ManagedLlamaSection
+    <ModelPresetsSection
       dashboardConfig={DASHBOARD_CONFIG}
-      selectedManagedLlamaPreset={{
+      selectedModelPreset={{
         ...MANAGED_PRESET,
         SpeculativeEnabled: true,
         SpeculativeType: 'ngram-mod' satisfies DashboardModelRuntimePreset['SpeculativeType'],
@@ -1057,10 +1100,10 @@ test('managed llama section warns when an MTP combination uses parallel slots', 
       settingsPathPickerBusyTarget={null}
       renderField={(_, __, children) => <div>{children}</div>}
       updateSettingsDraft={() => {}}
-      updateManagedLlamaDraft={() => {}}
-      onAddManagedLlamaPreset={() => {}}
-      onDeleteManagedLlamaPreset={() => {}}
-      onPickManagedLlamaPath={async () => {}}
+      updateModelPresetDraft={() => {}}
+      onAddModelPreset={() => {}}
+      onDeleteModelPreset={() => {}}
+      onPickModelPresetPath={async () => {}}
     />,
   );
 
@@ -1070,9 +1113,9 @@ test('managed llama section warns when an MTP combination uses parallel slots', 
 
 test('managed llama section warns when mtp speculation uses parallel slots', () => {
   const markup = renderToStaticMarkup(
-    <ManagedLlamaSection
+    <ModelPresetsSection
       dashboardConfig={DASHBOARD_CONFIG}
-      selectedManagedLlamaPreset={{
+      selectedModelPreset={{
         ...MANAGED_PRESET,
         SpeculativeEnabled: true,
         SpeculativeType: 'draft-mtp' satisfies DashboardModelRuntimePreset['SpeculativeType'],
@@ -1082,10 +1125,10 @@ test('managed llama section warns when mtp speculation uses parallel slots', () 
       settingsPathPickerBusyTarget={null}
       renderField={(_, __, children) => <div>{children}</div>}
       updateSettingsDraft={() => {}}
-      updateManagedLlamaDraft={() => {}}
-      onAddManagedLlamaPreset={() => {}}
-      onDeleteManagedLlamaPreset={() => {}}
-      onPickManagedLlamaPath={async () => {}}
+      updateModelPresetDraft={() => {}}
+      onAddModelPreset={() => {}}
+      onDeleteModelPreset={() => {}}
+      onPickModelPresetPath={async () => {}}
     />,
   );
 
@@ -1098,9 +1141,9 @@ test('managed llama model name is derived from model path and model field is hid
   const capturedFields: CapturedField[] = [];
   let updatedConfig: DashboardConfig | null = null;
 
-  const section = ManagedLlamaSection({
+  const section = ModelPresetsSection({
     dashboardConfig: DASHBOARD_CONFIG,
-    selectedManagedLlamaPreset: MANAGED_PRESET,
+    selectedModelPreset: MANAGED_PRESET,
     settingsActionBusy: false,
     settingsPathPickerBusyTarget: null,
     renderField: (_, label, children) => {
@@ -1108,14 +1151,14 @@ test('managed llama model name is derived from model path and model field is hid
       return <div>{children}</div>;
     },
     updateSettingsDraft: () => {},
-    updateManagedLlamaDraft: (updater) => {
+    updateModelPresetDraft: (updater) => {
       const nextConfig = structuredClone(DASHBOARD_CONFIG);
-      updateActiveManagedLlamaPreset(nextConfig, updater);
+      updateActiveModelPreset(nextConfig, updater);
       updatedConfig = syncDerivedSettingsFields(nextConfig);
     },
-    onAddManagedLlamaPreset: () => {},
-    onDeleteManagedLlamaPreset: () => {},
-    onPickManagedLlamaPath: async () => {},
+    onAddModelPreset: () => {},
+    onDeleteModelPreset: () => {},
+    onPickModelPresetPath: async () => {},
   });
 
   const markup = renderToStaticMarkup(section);
@@ -1135,25 +1178,25 @@ test('managed llama model name is derived from model path and model field is hid
 test('managed llama external server setting updates active preset and server config', () => {
   let updatedConfig: DashboardConfig | null = null;
 
-  ManagedLlamaSection({
+  ModelPresetsSection({
     dashboardConfig: DASHBOARD_CONFIG,
-    selectedManagedLlamaPreset: MANAGED_PRESET,
+    selectedModelPreset: MANAGED_PRESET,
     settingsActionBusy: false,
     settingsPathPickerBusyTarget: null,
     renderField: (_, __, children) => <div>{children}</div>,
     updateSettingsDraft: () => {},
-    updateManagedLlamaDraft: (updater) => {
+    updateModelPresetDraft: (updater) => {
       const nextConfig = structuredClone(DASHBOARD_CONFIG);
-      updateActiveManagedLlamaPreset(nextConfig, updater);
+      updateActiveModelPreset(nextConfig, updater);
       updatedConfig = syncDerivedSettingsFields(nextConfig);
     },
-    onAddManagedLlamaPreset: () => {},
-    onDeleteManagedLlamaPreset: () => {},
-    onPickManagedLlamaPath: async () => {},
+    onAddModelPreset: () => {},
+    onDeleteModelPreset: () => {},
+    onPickModelPresetPath: async () => {},
   });
 
   const nextConfig = structuredClone(DASHBOARD_CONFIG);
-  updateActiveManagedLlamaPreset(nextConfig, (preset) => {
+  updateActiveModelPreset(nextConfig, (preset) => {
     preset.ExternalServerEnabled = true;
   });
   updatedConfig = nextConfig;
@@ -1165,9 +1208,9 @@ test('managed llama external server setting updates active preset and server con
 test('managed llama section renders external server controls', () => {
   const capturedFields: string[] = [];
   const markup = renderToStaticMarkup(
-    <ManagedLlamaSection
+    <ModelPresetsSection
       dashboardConfig={DASHBOARD_CONFIG}
-      selectedManagedLlamaPreset={{ ...MANAGED_PRESET, ExternalServerEnabled: true }}
+      selectedModelPreset={{ ...MANAGED_PRESET, ExternalServerEnabled: true }}
       settingsActionBusy={false}
       settingsPathPickerBusyTarget={null}
       renderField={(_, label, children) => {
@@ -1175,10 +1218,10 @@ test('managed llama section renders external server controls', () => {
         return <div>{children}</div>;
       }}
       updateSettingsDraft={() => {}}
-      updateManagedLlamaDraft={() => {}}
-      onAddManagedLlamaPreset={() => {}}
-      onDeleteManagedLlamaPreset={() => {}}
-      onPickManagedLlamaPath={async () => {}}
+      updateModelPresetDraft={() => {}}
+      onAddModelPreset={() => {}}
+      onDeleteModelPreset={() => {}}
+      onPickModelPresetPath={async () => {}}
       onTestLlamaCppBaseUrl={async () => {}}
     />,
   );
@@ -1191,9 +1234,9 @@ test('managed llama section renders external server controls', () => {
 test('managed llama section warns when llama base url is remote', () => {
   const capturedFields: { label: string; className?: string }[] = [];
   const markup = renderToStaticMarkup(
-    <ManagedLlamaSection
+    <ModelPresetsSection
       dashboardConfig={DASHBOARD_CONFIG}
-      selectedManagedLlamaPreset={{ ...MANAGED_PRESET, BaseUrl: 'http://192.168.1.20:8097' }}
+      selectedModelPreset={{ ...MANAGED_PRESET, BaseUrl: 'http://192.168.1.20:8097' }}
       settingsActionBusy={false}
       settingsPathPickerBusyTarget={null}
       renderField={(_, label, children, className) => {
@@ -1201,10 +1244,10 @@ test('managed llama section warns when llama base url is remote', () => {
         return <div>{children}</div>;
       }}
       updateSettingsDraft={() => {}}
-      updateManagedLlamaDraft={() => {}}
-      onAddManagedLlamaPreset={() => {}}
-      onDeleteManagedLlamaPreset={() => {}}
-      onPickManagedLlamaPath={async () => {}}
+      updateModelPresetDraft={() => {}}
+      onAddModelPreset={() => {}}
+      onDeleteModelPreset={() => {}}
+      onPickModelPresetPath={async () => {}}
       onTestLlamaCppBaseUrl={async () => {}}
     />,
   );
@@ -1217,9 +1260,9 @@ test('managed llama section warns when llama base url is remote', () => {
 test('managed llama section does not warn for local llama base url', () => {
   const capturedFields: { label: string; className?: string }[] = [];
   const markup = renderToStaticMarkup(
-    <ManagedLlamaSection
+    <ModelPresetsSection
       dashboardConfig={DASHBOARD_CONFIG}
-      selectedManagedLlamaPreset={{ ...MANAGED_PRESET, BaseUrl: 'http://localhost:8097' }}
+      selectedModelPreset={{ ...MANAGED_PRESET, BaseUrl: 'http://localhost:8097' }}
       settingsActionBusy={false}
       settingsPathPickerBusyTarget={null}
       renderField={(_, label, children, className) => {
@@ -1227,10 +1270,10 @@ test('managed llama section does not warn for local llama base url', () => {
         return <div>{children}</div>;
       }}
       updateSettingsDraft={() => {}}
-      updateManagedLlamaDraft={() => {}}
-      onAddManagedLlamaPreset={() => {}}
-      onDeleteManagedLlamaPreset={() => {}}
-      onPickManagedLlamaPath={async () => {}}
+      updateModelPresetDraft={() => {}}
+      onAddModelPreset={() => {}}
+      onDeleteModelPreset={() => {}}
+      onPickModelPresetPath={async () => {}}
       onTestLlamaCppBaseUrl={async () => {}}
     />,
   );

@@ -11,7 +11,7 @@ import {
   togglePresetTool,
 } from '../preset-editor';
 import { formatDate, formatNumber, parseFloatInput, parseIntegerInput } from '../lib/format';
-import { applyManagedLlamaPresetSelection } from '../managed-llama-presets';
+import { applyModelPresetSelection } from '../model-runtime-presets';
 import type { DirtyContinuation } from '../settings-flow';
 import {
   POLICY_MODE_OPTIONS,
@@ -23,14 +23,13 @@ import {
 import { SettingsField, SettingsInlineHelpLabel } from '../settings/SettingsFields';
 import type { DashboardConfig, DashboardModelRuntimePreset, DashboardPreset, ProviderQuota, WebSearchUsage } from '../types';
 import { PresetsSection } from './settings/PresetsSection';
-import { ManagedLlamaSection } from './settings/ManagedLlamaSection';
-import { InferenceBackendSection } from './settings/InferenceBackendSection';
+import { ModelPresetsSection } from './settings/ModelPresetsSection';
 
 export type SettingsTabProps = {
   activeSettingsSection: SettingsSectionId;
   dashboardConfig: DashboardConfig | null;
   selectedSettingsPreset: DashboardPreset | null;
-  selectedManagedLlamaPreset: DashboardModelRuntimePreset | null;
+  selectedModelPreset: DashboardModelRuntimePreset | null;
   selectedSettingsPresetId: string | null;
   webSearchUsage: WebSearchUsage | null;
   webSearchQuota: ProviderQuota[] | null;
@@ -47,12 +46,12 @@ export type SettingsTabProps = {
   requestSettingsAction(continuation: DirtyContinuation): void;
   updateSettingsDraft(updater: (next: DashboardConfig) => void): void;
   updatePresetDraft(presetId: string, updater: (preset: DashboardPreset) => void): void;
-  updateManagedLlamaDraft(updater: (preset: DashboardModelRuntimePreset) => void): void;
+  updateModelPresetDraft(updater: (preset: DashboardModelRuntimePreset) => void): void;
   onAddPreset(): void;
   onDeletePreset(presetId: string): void;
-  onAddManagedLlamaPreset(): void;
-  onDeleteManagedLlamaPreset(presetId: string): void;
-  onPickManagedLlamaPath(target: 'ExecutablePath' | 'ModelPath'): Promise<void>;
+  onAddModelPreset(): void;
+  onDeleteModelPreset(presetId: string): void;
+  onPickModelPresetPath(target: 'ExecutablePath' | 'ModelPath'): Promise<void>;
   onTestLlamaCppBaseUrl(baseUrl: string, timeoutMs: number): Promise<void>;
   onReloadDashboardSettings(): Promise<void>;
   restartDashboardBackendCore(): Promise<boolean>;
@@ -64,7 +63,7 @@ export function SettingsTab(props: SettingsTabProps) {
     activeSettingsSection,
     dashboardConfig,
     selectedSettingsPreset,
-    selectedManagedLlamaPreset,
+    selectedModelPreset,
     selectedSettingsPresetId,
     webSearchUsage,
     webSearchQuota,
@@ -81,12 +80,12 @@ export function SettingsTab(props: SettingsTabProps) {
     requestSettingsAction,
     updateSettingsDraft,
     updatePresetDraft,
-    updateManagedLlamaDraft,
+    updateModelPresetDraft,
     onAddPreset,
     onDeletePreset,
-    onAddManagedLlamaPreset,
-    onDeleteManagedLlamaPreset,
-    onPickManagedLlamaPath,
+    onAddModelPreset,
+    onDeleteModelPreset,
+    onPickModelPresetPath,
     onTestLlamaCppBaseUrl,
     onReloadDashboardSettings,
     restartDashboardBackendCore,
@@ -116,7 +115,6 @@ export function SettingsTab(props: SettingsTabProps) {
     }
     return (
       <div className="settings-live-grid">
-        {renderField('general', 'Inference backend', <InferenceBackendSection />, 'settings-live-field-full')}
         {renderField('general', 'Version', (
           <input
             value={dashboardConfig.Version}
@@ -457,17 +455,17 @@ export function SettingsTab(props: SettingsTabProps) {
     if (activeSettingsSection === 'interactive') return renderInteractiveSection();
     if (activeSettingsSection === 'web-search') return renderWebSearchSection();
     return (
-      <ManagedLlamaSection
+      <ModelPresetsSection
         dashboardConfig={dashboardConfig}
-        selectedManagedLlamaPreset={selectedManagedLlamaPreset}
+        selectedModelPreset={selectedModelPreset}
         settingsActionBusy={settingsActionBusy}
         settingsPathPickerBusyTarget={settingsPathPickerBusyTarget}
         renderField={renderField}
         updateSettingsDraft={updateSettingsDraft}
-        updateManagedLlamaDraft={updateManagedLlamaDraft}
-        onAddManagedLlamaPreset={onAddManagedLlamaPreset}
-        onDeleteManagedLlamaPreset={onDeleteManagedLlamaPreset}
-        onPickManagedLlamaPath={onPickManagedLlamaPath}
+        updateModelPresetDraft={updateModelPresetDraft}
+        onAddModelPreset={onAddModelPreset}
+        onDeleteModelPreset={onDeleteModelPreset}
+        onPickModelPresetPath={onPickModelPresetPath}
         onTestLlamaCppBaseUrl={onTestLlamaCppBaseUrl}
       />
     );

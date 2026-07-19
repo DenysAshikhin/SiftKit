@@ -9,10 +9,10 @@ import {
 } from '../api';
 import { createPresetIdFromLabel } from '../dashboard-presets';
 import {
-  addManagedLlamaPreset,
-  deleteManagedLlamaPreset,
-  updateActiveManagedLlamaPreset,
-} from '../managed-llama-presets';
+  addModelPreset,
+  deleteModelPreset,
+  updateActiveModelPreset,
+} from '../model-runtime-presets';
 import {
   getDefaultToolsForOperationMode,
   getFallbackPresetId,
@@ -44,7 +44,7 @@ export function createUniquePresetId(existingPresets: ReadonlyArray<{ id: string
 export type SettingsController = {
   tabProps: SettingsTabProps;
   dashboardConfig: DashboardConfig | null;
-  selectedManagedLlamaPreset: DashboardModelRuntimePreset | null;
+  selectedModelPreset: DashboardModelRuntimePreset | null;
   maintainPerStepThinkingForCurrentPreset: boolean;
   settingsDirty: boolean;
   restartFailureModal: { title: string; message: string } | null;
@@ -91,13 +91,13 @@ export function useSettingsController(deps: {
   const selectedSettingsPreset = dashboardConfig
     ? dashboardConfig.Presets.find((preset) => preset.id === selectedSettingsPresetId) ?? dashboardConfig.Presets[0] ?? null
     : null;
-  const selectedManagedLlamaPreset = dashboardConfig
+  const selectedModelPreset = dashboardConfig
     ? dashboardConfig.Server.ModelPresets.Presets.find((preset) => preset.id === dashboardConfig.Server.ModelPresets.ActivePresetId)
       ?? dashboardConfig.Server.ModelPresets.Presets[0]
       ?? null
     : null;
-  const maintainPerStepThinkingForCurrentPreset = selectedManagedLlamaPreset?.Reasoning === 'on'
-    ? selectedManagedLlamaPreset.MaintainPerStepThinking !== false
+  const maintainPerStepThinkingForCurrentPreset = selectedModelPreset?.Reasoning === 'on'
+    ? selectedModelPreset.MaintainPerStepThinking !== false
     : false;
 
   useEffect(() => {
@@ -169,9 +169,9 @@ export function useSettingsController(deps: {
     });
   }
 
-  function updateManagedLlamaDraft(updater: (preset: DashboardModelRuntimePreset) => void): void {
+  function updateModelPresetDraft(updater: (preset: DashboardModelRuntimePreset) => void): void {
     updateSettingsDraft((next) => {
-      updateActiveManagedLlamaPreset(next, updater);
+      updateActiveModelPreset(next, updater);
     });
   }
 
@@ -211,15 +211,15 @@ export function useSettingsController(deps: {
     setSelectedSettingsPresetId(nextPresetId);
   }
 
-  function onAddManagedLlamaPreset(): void {
+  function onAddModelPreset(): void {
     updateSettingsDraft((next) => {
-      addManagedLlamaPreset(next);
+      addModelPreset(next);
     });
   }
 
-  function onDeleteManagedLlamaPreset(presetId: string): void {
+  function onDeleteModelPreset(presetId: string): void {
     updateSettingsDraft((next) => {
-      deleteManagedLlamaPreset(next, presetId);
+      deleteModelPreset(next, presetId);
     });
   }
 
@@ -270,13 +270,13 @@ export function useSettingsController(deps: {
     await reloadDashboardSettingsCore();
   }
 
-  async function onPickManagedLlamaPath(target: 'ExecutablePath' | 'ModelPath'): Promise<void> {
-    if (!dashboardConfig || !selectedManagedLlamaPreset) {
+  async function onPickModelPresetPath(target: 'ExecutablePath' | 'ModelPath'): Promise<void> {
+    if (!dashboardConfig || !selectedModelPreset) {
       return;
     }
     const initialPath = target === 'ExecutablePath'
-      ? selectedManagedLlamaPreset.ExecutablePath
-      : selectedManagedLlamaPreset.ModelPath;
+      ? selectedModelPreset.ExecutablePath
+      : selectedModelPreset.ModelPath;
     setSettingsPathPickerBusyTarget(target);
     setSettingsError(null);
     try {
@@ -287,7 +287,7 @@ export function useSettingsController(deps: {
       if (response.cancelled || !response.path) {
         return;
       }
-      updateManagedLlamaDraft((preset) => {
+      updateModelPresetDraft((preset) => {
         if (target === 'ExecutablePath') {
           preset.ExecutablePath = response.path;
           return;
@@ -425,7 +425,7 @@ export function useSettingsController(deps: {
     activeSettingsSection,
     dashboardConfig,
     selectedSettingsPreset,
-    selectedManagedLlamaPreset,
+    selectedModelPreset,
     selectedSettingsPresetId,
     webSearchUsage: deps.webSearchUsage,
     webSearchQuota: deps.webSearchQuota,
@@ -442,12 +442,12 @@ export function useSettingsController(deps: {
     requestSettingsAction,
     updateSettingsDraft,
     updatePresetDraft,
-    updateManagedLlamaDraft,
+    updateModelPresetDraft,
     onAddPreset,
     onDeletePreset,
-    onAddManagedLlamaPreset,
-    onDeleteManagedLlamaPreset,
-    onPickManagedLlamaPath,
+    onAddModelPreset,
+    onDeleteModelPreset,
+    onPickModelPresetPath,
     onTestLlamaCppBaseUrl,
     onReloadDashboardSettings,
     restartDashboardBackendCore,
@@ -457,7 +457,7 @@ export function useSettingsController(deps: {
   return {
     tabProps,
     dashboardConfig,
-    selectedManagedLlamaPreset,
+    selectedModelPreset,
     maintainPerStepThinkingForCurrentPreset,
     settingsDirty,
     restartFailureModal: settingsRestartFailureModal,

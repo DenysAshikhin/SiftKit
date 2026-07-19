@@ -19,7 +19,6 @@ test('settings tooltip labels include the documented fields', () => {
   assert.deepEqual(
     SETTINGS_TOOLTIP_LABELS,
     [
-      'Inference backend',
       'Version',
       'Backend',
       'Policy Mode',
@@ -50,13 +49,15 @@ test('settings tooltip labels include the documented fields', () => {
       'Usage',
       'Model preset',
       'Preset name',
+      'Preset backend',
       'Model',
       'Executable path',
-      'External llama.cpp server',
+      'External inference server',
       'Base URL',
       'Bind host',
       'Port',
       'Model path (.gguf)',
+      'Model directory (EXL3)',
       'NumCtx',
       'GpuLayers',
       'Threads',
@@ -95,7 +96,7 @@ test('settings tooltip labels include the documented fields', () => {
       'HealthcheckTimeoutMs',
       'HealthcheckIntervalMs',
       'SleepIdleSeconds',
-      'Managed llama verbose logging',
+      'Verbose logging',
     ],
   );
 });

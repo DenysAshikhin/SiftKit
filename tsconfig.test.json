@@ -12,6 +12,7 @@
     "tests/dashboard-toasts.test.ts",
     "tests/dashboard-benchmark-controller.test.ts",
     "tests/dashboard-settings-controller.test.ts",
+    "tests/dashboard-model-presets-section.test.ts",
     "tests/dashboard-runs-controller-e2e.test.ts"
   ]
 }

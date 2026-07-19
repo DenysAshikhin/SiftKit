@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  addManagedLlamaPreset,
-  applyManagedLlamaPresetSelection,
-  deleteManagedLlamaPreset,
+  addModelPreset,
+  applyModelPresetSelection,
+  deleteModelPreset,
   getActiveModelPreset,
   type DashboardModelRuntimePreset,
-} from '../dashboard/src/managed-llama-presets.js';
+} from '../dashboard/src/model-runtime-presets.js';
 import type { DashboardConfig, DashboardLlamaCppConfig } from '../dashboard/src/types.js';
 import { normalizeConfigObject } from '../src/config/normalization.js';
 import { getTestExl3Engine, getTestInferenceConfig } from './helpers/runtime-config.js';
@@ -151,7 +151,7 @@ function createConfig(): DashboardConfig {
   };
 }
 
-test('applyManagedLlamaPresetSelection switches the active managed preset', () => {
+test('applyModelPresetSelection switches the active managed preset', () => {
   const config = createConfig();
   Object.assign(config.Server.ModelPresets.Presets[1], {
     NcpuMoe: 8,
@@ -162,7 +162,7 @@ test('applyManagedLlamaPresetSelection switches the active managed preset', () =
     SpeculativeDraftMax: 32,
   });
 
-  applyManagedLlamaPresetSelection(config, 'qwen-27b');
+  applyModelPresetSelection(config, 'qwen-27b');
 
   assert.equal(config.Server.ModelPresets.ActivePresetId, 'qwen-27b');
   const active = getActiveModelPreset(config);
@@ -177,6 +177,19 @@ test('applyManagedLlamaPresetSelection switches the active managed preset', () =
   assert.equal(active.SpeculativeType, 'ngram-simple');
   assert.equal(active.SpeculativeDraftMax, 32);
   assert.equal(active.SleepIdleSeconds, 120);
+});
+
+test('changing a preset backend preserves backend-incompatible saved values', () => {
+  const config = createConfig();
+  const preset = config.Server.ModelPresets.Presets[0];
+  preset.KvCacheQuantization = 'bf16';
+  preset.GpuLayers = 37;
+
+  preset.Backend = 'exl3';
+
+  assert.equal(preset.Backend, 'exl3');
+  assert.equal(preset.KvCacheQuantization, 'bf16');
+  assert.equal(preset.GpuLayers, 37);
 });
 
 test('managed llama preset defaults MaintainPerStepThinking on when reasoning is enabled', () => {
@@ -238,7 +251,7 @@ test('managed llama preset disables MaintainPerStepThinking when reasoning is di
   assert.equal(config.Server.ModelPresets.Presets[0].MaintainPerStepThinking, false);
 });
 
-test('applyManagedLlamaPresetSelection exposes ngram-mod MTP fields of the selected preset', () => {
+test('applyModelPresetSelection exposes ngram-mod MTP fields of the selected preset', () => {
   const config = createConfig();
   Object.assign(config.Server.ModelPresets.Presets[1], {
     SpeculativeEnabled: true,
@@ -249,7 +262,7 @@ test('applyManagedLlamaPresetSelection exposes ngram-mod MTP fields of the selec
     SpeculativeNgramModNMax: 48,
   });
 
-  applyManagedLlamaPresetSelection(config, 'qwen-27b');
+  applyModelPresetSelection(config, 'qwen-27b');
 
   const active = getActiveModelPreset(config);
   assert.equal(active.SpeculativeMtpEnabled, true);
@@ -258,20 +271,20 @@ test('applyManagedLlamaPresetSelection exposes ngram-mod MTP fields of the selec
   assert.equal(active.SpeculativeNgramModNMax, 48);
 });
 
-test('addManagedLlamaPreset clones the active preset and creates a unique id', () => {
+test('addModelPreset clones the active preset and creates a unique id', () => {
   const config = createConfig();
 
-  const addedPresetId = addManagedLlamaPreset(config);
+  const addedPresetId = addModelPreset(config);
 
   assert.equal(addedPresetId, 'default-2');
   assert.equal(config.Server.ModelPresets.ActivePresetId, 'default-2');
   assert.equal(config.Server.ModelPresets.Presets.some((preset) => preset.id === 'default-2'), true);
 });
 
-test('deleteManagedLlamaPreset removes the preset and falls back to another preset', () => {
+test('deleteModelPreset removes the preset and falls back to another preset', () => {
   const config = createConfig();
 
-  deleteManagedLlamaPreset(config, 'default');
+  deleteModelPreset(config, 'default');
 
   assert.equal(config.Server.ModelPresets.Presets.some((preset) => preset.id === 'default'), false);
   assert.equal(config.Server.ModelPresets.ActivePresetId, 'qwen-27b');
