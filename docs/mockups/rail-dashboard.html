@@ -1,0 +1,847 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SiftKit — Rail dashboard mockup</title>
+<style>
+  :root {
+    --bg: #0e141b; --panel: #121a23; --panel2: #0b1118;
+    --ink: #dfe9f3; --dim: #879bb0; --line: #223040;
+    --acc: #2fbfa0; --ok: #4fca8f; --bad: #ef7d7d; --run: #e6b566;
+    --ch-teal: #17997e; --ch-blue: #3d8fd6; --ch-red: #d95f5f; --ch-amber: #b8822e;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+    font-size: 0.85rem; line-height: 1.45; overflow: hidden;
+  }
+  .app { display: flex; height: 100vh; }
+
+  /* ---- rail ---- */
+  .rail {
+    width: 66px; flex: none; display: flex; flex-direction: column; align-items: center;
+    padding: 12px 0; gap: 4px; border-right: 1px solid var(--line); background: var(--panel2);
+  }
+  .logo {
+    width: 30px; height: 30px; border-radius: 8px; background: var(--acc);
+    color: #06251e; font-weight: 800; display: grid; place-items: center;
+    font-size: 0.95rem; margin-bottom: 12px;
+  }
+  .rail button {
+    width: 54px; border: none; background: none; color: var(--dim); cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 8px 0 7px; border-radius: 9px; font: inherit; font-size: 0.6rem; letter-spacing: 0.03em;
+  }
+  .rail button svg { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .rail button.on { background: #17222e; color: var(--acc); }
+  .rail button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .rail .spacer { flex: 1; }
+  .rail .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); margin-bottom: 8px; }
+
+  /* ---- shell ---- */
+  .body { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .top {
+    height: 44px; flex: none; display: flex; align-items: center; gap: 12px;
+    padding: 0 16px; border-bottom: 1px solid var(--line);
+  }
+  .top h1 { font-size: 0.9rem; font-weight: 600; margin: 0; }
+  .top .crumb { color: var(--dim); }
+  .top .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .ghost-btn {
+    font: inherit; font-size: 0.76rem; color: var(--dim); background: none; cursor: pointer;
+    border: 1px solid var(--line); border-radius: 7px; padding: 4px 10px;
+  }
+  .ghost-btn.acc { color: var(--acc); border-color: #23443c; }
+
+  .view { flex: 1; min-height: 0; display: none; }
+  .view.on { display: flex; }
+
+  /* ---- logs ---- */
+  .list-pane { width: 292px; flex: none; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .list-tools { padding: 10px 12px 8px; display: grid; gap: 7px; border-bottom: 1px solid var(--line); }
+  .search {
+    display: flex; align-items: center; gap: 7px; background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 7px; padding: 5px 9px; color: var(--dim); font-size: 0.78rem;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .chip { font-size: 0.68rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); background: none; }
+  .chip.on { border-color: var(--acc); color: var(--acc); }
+  .runs { overflow-y: auto; flex: 1; }
+  .rgroup { font-size: 0.64rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--dim); padding: 10px 12px 4px; }
+  .run { padding: 7px 12px; border-left: 2px solid transparent; cursor: pointer; }
+  .run:hover { background: #131e29; }
+  .run.sel { background: #14202c; border-left-color: var(--acc); }
+  .run .t { display: block; font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .run .m { display: flex; gap: 8px; font-size: 0.68rem; color: var(--dim); align-items: center; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; flex: none; }
+  .dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); } .dot.run { background: var(--run); }
+
+  .detail { flex: 1; min-width: 0; overflow-y: auto; padding: 16px 20px; }
+  .detail h2 { margin: 0 0 2px; font-size: 1.02rem; font-weight: 600; }
+  .meta-line { color: var(--dim); font-size: 0.74rem; display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+  .card { border: 1px solid var(--line); border-radius: 9px; background: var(--panel); margin-bottom: 10px; overflow: hidden; }
+  .card > header { display: flex; justify-content: space-between; padding: 8px 12px; font-size: 0.76rem; color: var(--dim); cursor: pointer; }
+  .card > header b { color: var(--ink); font-weight: 600; }
+  .card .cbody { border-top: 1px solid var(--line); padding: 10px 12px; font-size: 0.79rem; }
+  .card.final { border-color: #23443c; }
+  .card.final > header b { color: var(--acc); }
+  pre.mono {
+    margin: 6px 0 0; background: var(--panel2); border-radius: 6px; padding: 8px 10px;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.72rem;
+    color: #b9cbdd; white-space: pre-wrap; overflow-x: auto;
+  }
+  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.92em; color: #b9cbdd; }
+
+  /* ---- metrics ---- */
+  .metrics { flex: 1; min-width: 0; overflow-y: auto; padding: 16px 20px; }
+  .graph-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  @media (max-width: 980px) { .graph-grid { grid-template-columns: 1fr; } }
+  .graph-card { border: 1px solid var(--line); border-radius: 9px; background: var(--panel); padding: 12px 14px; }
+  .graph-card h3 { margin: 0 0 2px; font-size: 0.84rem; font-weight: 600; }
+  .graph-card .sub { color: var(--dim); font-size: 0.7rem; margin-bottom: 8px; }
+  .legend { display: flex; gap: 14px; font-size: 0.7rem; color: var(--dim); margin-top: 6px; }
+  .legend i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; margin-right: 5px; vertical-align: -1px; font-style: normal; }
+  .graph-card svg { width: 100%; height: auto; display: block; }
+  .mtable { width: 100%; border-collapse: collapse; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .mtable th { text-align: left; font-size: 0.64rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); padding: 7px 10px; border-bottom: 1px solid var(--line); }
+  .mtable td { padding: 6px 10px; border-bottom: 1px solid var(--line); }
+  .mtable td.num, .mtable th.num { text-align: right; }
+
+  /* ---- benchmark ---- */
+  .bench { flex: 1; min-width: 0; overflow-y: auto; padding: 16px 20px; }
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px; }
+  @media (max-width: 900px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+  .tile { border: 1px solid var(--line); border-radius: 9px; background: var(--panel); padding: 10px 12px; }
+  .tile label { display: block; font-size: 0.64rem; letter-spacing: 0.07em; text-transform: uppercase; color: var(--dim); margin-bottom: 3px; }
+  .tile .n { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .tile .n small { font-size: 0.7rem; font-weight: 400; color: var(--dim); }
+
+  /* ---- chat ---- */
+  .chat-lane { width: 240px; flex: none; border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+  .chat-lane .new { margin: 10px 12px; }
+  .chat-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .chat-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-bottom: 1px solid var(--line); font-size: 0.78rem; color: var(--dim); }
+  .chat-head b { color: var(--ink); font-weight: 600; }
+  .msgs { flex: 1; overflow-y: auto; padding: 14px 18px; display: grid; gap: 10px; align-content: start; }
+  .msg { max-width: 72%; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 0.81rem; }
+  .msg.user { justify-self: end; background: #17222e; border-color: #2a3b4d; }
+  .msg.ai { justify-self: start; background: var(--panel); }
+  .msg .who { font-size: 0.62rem; letter-spacing: 0.07em; text-transform: uppercase; color: var(--dim); margin-bottom: 3px; }
+  .composer { flex: none; border-top: 1px solid var(--line); padding: 10px 16px; display: grid; gap: 7px; }
+  .ctx { height: 4px; border-radius: 999px; background: #1a2634; overflow: hidden; }
+  .ctx i { display: block; height: 100%; width: 62%; background: var(--acc); }
+  .composer .row { display: flex; gap: 8px; align-items: center; }
+  .composer .input { flex: 1; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px; color: var(--dim); font-size: 0.8rem; }
+  .send { font: inherit; font-size: 0.78rem; background: var(--acc); color: #06251e; font-weight: 700; border: none; border-radius: 7px; padding: 7px 14px; cursor: pointer; }
+
+  /* ---- settings ---- */
+  .set-nav { width: 190px; flex: none; border-right: 1px solid var(--line); padding: 14px 10px; }
+  .set-nav a { display: block; padding: 6px 10px; border-radius: 7px; color: var(--dim); font-size: 0.8rem; text-decoration: none; cursor: pointer; }
+  .set-nav a.on { background: #17222e; color: var(--acc); }
+  .set-main { flex: 1; overflow-y: auto; padding: 16px 20px; min-width: 0; }
+  .set-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .set-head h2 { margin: 0; font-size: 1rem; }
+  .set-head .save { margin-left: auto; }
+  .save { font: inherit; font-size: 0.78rem; background: var(--acc); color: #06251e; font-weight: 700; border: none; border-radius: 7px; padding: 6px 14px; cursor: pointer; }
+  .fgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
+  @media (max-width: 900px) { .fgrid { grid-template-columns: repeat(2, 1fr); } .field.w2, .field.w4 { grid-column: span 2; } }
+  .field { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 8px 10px; }
+  .field.w2 { grid-column: span 2; } .field.w4 { grid-column: span 4; }
+  .field label { display: block; font-size: 0.66rem; letter-spacing: 0.04em; color: var(--dim); margin-bottom: 4px; }
+  .field .val { font-size: 0.8rem; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+  .tgl { width: 26px; height: 15px; border-radius: 999px; background: #24313f; position: relative; display: inline-block; vertical-align: middle; }
+  .tgl.on { background: var(--acc); }
+  .tgl i { position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: #dfe9f3; }
+  .tgl.on i { left: 13px; background: #06251e; }
+  .subhead { font-size: 0.66rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--dim); margin: 16px 0 8px; }
+
+  /* settings: sections */
+  .set-sec { display: none; }
+  .set-sec.on { display: block; }
+  .sec-hint { color: var(--dim); font-size: 0.76rem; margin: 0 0 12px; max-width: 78ch; }
+  .dirty-pill { font-size: 0.68rem; color: var(--run); border: 1px solid #5a4a2a; border-radius: 999px; padding: 2px 8px; }
+  .sgrp { margin-bottom: 22px; }
+  .sgrp > h3 {
+    font-size: 0.68rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--dim);
+    margin: 0 0 8px; display: flex; align-items: center; gap: 10px; font-weight: 600;
+  }
+  .sgrp > h3::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  .sgrp > h3 .ghint { font-weight: 400; letter-spacing: 0; text-transform: none; color: #5f7288; }
+  .field .fhint { display: block; font-size: 0.64rem; color: #5f7288; margin-top: 3px; }
+
+  /* settings: tool policy matrix */
+  .tp-table { width: 100%; border-collapse: collapse; font-size: 0.76rem; }
+  .tp-table th { text-align: left; font-size: 0.64rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); padding: 7px 10px; border-bottom: 1px solid var(--line); }
+  .tp-table th.c, .tp-table td.c { text-align: center; width: 90px; }
+  .tp-table td { padding: 5px 10px; border-bottom: 1px solid var(--line); font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+  .tp-table tr.grp td { font-family: inherit; font-size: 0.64rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); padding-top: 12px; border-bottom-color: transparent; }
+  .cb { width: 15px; height: 15px; border: 1px solid var(--line); border-radius: 4px; display: inline-block; position: relative; }
+  .cb.on { background: var(--acc); border-color: var(--acc); }
+  .cb.on::after { content: "✓"; position: absolute; inset: 0; color: #06251e; font-size: 0.68rem; line-height: 15px; text-align: center; font-weight: 700; }
+
+  /* settings: presets library */
+  .plib { display: grid; grid-template-columns: 225px 1fr; gap: 12px; align-items: start; }
+  @media (max-width: 900px) { .plib { grid-template-columns: 1fr; } }
+  .plist { border: 1px solid var(--line); border-radius: 9px; background: var(--panel); overflow: hidden; }
+  .prow { padding: 8px 11px; border-left: 2px solid transparent; cursor: pointer; border-bottom: 1px solid var(--line); }
+  .prow:last-child { border-bottom: none; }
+  .prow:hover { background: #131e29; }
+  .prow.sel { background: #14202c; border-left-color: var(--acc); }
+  .prow .t { display: block; font-size: 0.8rem; }
+  .prow .badges { display: flex; gap: 5px; margin-top: 2px; }
+  .bdg { font-size: 0.6rem; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); }
+  .bdg.custom { border-color: #4a5f3a; color: #a8d08a; }
+  .plist-add { width: 100%; border: none; background: none; color: var(--acc); font: inherit; font-size: 0.74rem; padding: 8px; cursor: pointer; }
+  .pcard { border: 1px solid var(--line); border-radius: 9px; background: var(--panel); padding: 12px 14px; }
+  .pcard .pmeta { color: var(--dim); font-size: 0.7rem; font-family: ui-monospace, Consolas, monospace; margin-bottom: 10px; }
+  .tool-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .tchip { font-size: 0.66rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); font-family: ui-monospace, Consolas, monospace; }
+  .tchip.on { border-color: var(--acc); color: var(--acc); }
+  .tchip.blocked { text-decoration: line-through; opacity: 0.55; }
+
+  /* settings: model presets */
+  .mp-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+  .mp-select { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel2); padding: 5px 10px; font-size: 0.78rem; }
+  .mp-select b { font-weight: 600; }
+  .active-pill { font-size: 0.62rem; color: var(--ok); border: 1px solid #2a5a41; border-radius: 999px; padding: 1px 7px; }
+  .segc { display: flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+  .segc button { font: inherit; font-size: 0.74rem; border: none; background: none; color: var(--dim); padding: 5px 12px; cursor: pointer; }
+  .segc button + button { border-left: 1px solid var(--line); }
+  .segc button.on { background: #17222e; color: var(--acc); }
+  .keyrow { display: flex; gap: 6px; align-items: center; }
+  .keyrow .val { flex: 1; }
+  .mini-btn { font: inherit; font-size: 0.68rem; color: var(--dim); background: none; border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; cursor: pointer; flex: none; }
+  #mp-body.exl3 .be-l { display: none; }
+  #mp-body:not(.exl3) .be-x { display: none; }
+  .mpg { border: 1px solid var(--line); border-radius: 9px; background: var(--panel); margin-bottom: 8px; overflow: hidden; }
+  .mpg > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 9px 12px; }
+  .mpg > summary::-webkit-details-marker { display: none; }
+  .mpg > summary .chev { color: var(--dim); font-size: 0.66rem; transition: transform 0.15s; }
+  .mpg[open] > summary .chev { transform: rotate(90deg); }
+  .mpg > summary .gt { font-size: 0.78rem; font-weight: 600; }
+  .mpg > summary .gsum {
+    margin-left: auto; color: var(--dim); font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: 0.68rem; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .mpg[open] > summary { border-bottom: 1px solid var(--line); }
+  .mpg[open] > summary .gsum { display: none; }
+  .mpg .gbody { padding: 10px 12px; }
+  .fgrid.flat { gap: 4px 14px; }
+  .fgrid.flat .field { border: none; background: none; border-radius: 0; padding: 5px 4px; }
+  @media (prefers-reduced-motion: reduce) { .mpg > summary .chev { transition: none; } }
+  .cond-note { font-size: 0.7rem; color: #5f7288; border: 1px dashed var(--line); border-radius: 7px; padding: 6px 10px; margin-top: 8px; }
+
+  /* chat: states + animations */
+  .chat-pane { display: none; flex: 1; min-width: 0; flex-direction: column; }
+  .chat-pane.on { display: flex; }
+  .hchip { font-size: 0.66rem; border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; color: var(--dim); }
+  .hchip.on { border-color: var(--acc); color: var(--acc); }
+  .sp {
+    width: 10px; height: 10px; border: 2px solid var(--line); border-top-color: var(--run);
+    border-radius: 50%; animation: spin 0.9s linear infinite; display: inline-block; flex: none;
+  }
+  .typing { display: inline-flex; gap: 3px; align-items: center; }
+  .typing i { width: 4px; height: 4px; border-radius: 50%; background: var(--dim); animation: tdots 1.2s infinite; }
+  .typing i:nth-child(2) { animation-delay: 0.2s; }
+  .typing i:nth-child(3) { animation-delay: 0.4s; }
+  .caret::after { content: "▌"; color: var(--acc); animation: blink 1s steps(1) infinite; }
+  .dot.run { animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes tdots { 0%, 60%, 100% { opacity: 0.25; } 30% { opacity: 1; } }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+  @media (prefers-reduced-motion: reduce) {
+    .sp, .typing i, .caret::after, .dot.run { animation: none; }
+  }
+  .tcall { border: 1px solid var(--line); border-radius: 8px; background: var(--panel2); margin-top: 8px; font-size: 0.74rem; overflow: hidden; }
+  .tcall > header { display: flex; gap: 8px; align-items: center; padding: 6px 10px; color: var(--dim); font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.7rem; }
+  .tcall > header .tn { color: #b9cbdd; }
+  .tcall > header .tok { color: var(--ok); }
+  .tcall pre { margin: 0; border-top: 1px solid var(--line); border-radius: 0; background: none; }
+  .think { border-left: 2px solid #3a4c61; color: var(--dim); padding: 2px 0 2px 10px; font-size: 0.74rem; margin-top: 8px; font-style: italic; }
+  .err-banner { border: 1px solid #5a2f33; background: #2a1517; color: #ffb4b4; border-radius: 8px; padding: 8px 12px; font-size: 0.78rem; display: flex; gap: 10px; align-items: center; justify-self: start; max-width: 80%; }
+  .ctx.warn i { background: var(--run); }
+  .ctx-label { font-size: 0.64rem; color: var(--dim); font-family: ui-monospace, Consolas, monospace; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="rail">
+    <div class="logo">S</div>
+    <button class="on" data-v="logs" title="Logs">
+      <svg viewBox="0 0 20 20"><path d="M3 5h14M3 10h14M3 15h9"/></svg>Logs
+    </button>
+    <button data-v="metrics" title="Metrics">
+      <svg viewBox="0 0 20 20"><path d="M3 16l4-6 3 3 4-8 3 5"/></svg>Metrics
+    </button>
+    <button data-v="bench" title="Benchmark">
+      <svg viewBox="0 0 20 20"><circle cx="10" cy="11" r="7"/><path d="M10 11l4-4"/></svg>Bench
+    </button>
+    <button data-v="chat" title="Chat">
+      <svg viewBox="0 0 20 20"><path d="M3 4h14v9H8l-4 4v-4H3z"/></svg>Chat
+    </button>
+    <button data-v="set" title="Settings">
+      <svg viewBox="0 0 20 20"><path d="M4 6h12M4 10h12M4 14h12"/><circle cx="8" cy="6" r="1.6"/><circle cx="13" cy="10" r="1.6"/><circle cx="6" cy="14" r="1.6"/></svg>Settings
+    </button>
+    <div class="spacer"></div>
+    <div class="pulse" title="server healthy"></div>
+  </div>
+
+  <div class="body">
+    <div class="top">
+      <h1><span class="crumb">SiftKit /</span> <span id="cur">Logs</span></h1>
+      <div class="right">
+        <button class="ghost-btn">Delete logs</button>
+        <button class="ghost-btn acc">⟳ Refresh</button>
+      </div>
+    </div>
+
+    <!-- ================= Logs ================= -->
+    <div class="view on" data-view="logs">
+      <div class="list-pane">
+        <div class="list-tools">
+          <div class="search">⌕ Search runs…</div>
+          <div class="chips">
+            <span class="chip on">All</span><span class="chip">Summary</span><span class="chip">Repo Search</span><span class="chip">Planner</span><span class="chip">Chat</span>
+            <span class="chip">✓ Done</span><span class="chip">✗ Failed</span><span class="chip">● Running</span>
+          </div>
+        </div>
+        <div class="runs">
+          <div class="rgroup">Repo Search · 2</div>
+          <div class="run sel"><span class="t">Locate EXL3 preset controls</span><span class="m"><span class="dot ok"></span>completed · 2m 14s · 11:42</span></div>
+          <div class="run"><span class="t">Trace Tabby restart flow</span><span class="m"><span class="dot ok"></span>completed · 4m 02s · 10:58</span></div>
+          <div class="rgroup">Summary · 2</div>
+          <div class="run"><span class="t">vitest run — dashboard hooks</span><span class="m"><span class="dot bad"></span>failed · 38s · 10:31</span></div>
+          <div class="run"><span class="t">git diff — behavioral changes</span><span class="m"><span class="dot ok"></span>completed · 51s · 09:47</span></div>
+          <div class="rgroup">Chat · 1</div>
+          <div class="run"><span class="t">Session 2026-07-19</span><span class="m"><span class="dot run"></span>running · 12m · 09:12</span></div>
+        </div>
+      </div>
+      <div class="detail">
+        <h2>Locate EXL3 preset controls</h2>
+        <div class="meta-line"><span>run_01j8x…9f2</span><span>repo_search</span><span>completed</span><span>started 11:42:07</span><span>2m 14s</span></div>
+        <div class="card final">
+          <header><b>Final Output</b><span>▾</span></header>
+          <div class="cbody">
+            <p style="margin:0">EXL3 preset controls are defined in <code>settings-sections.ts</code> under <code>model-presets</code> and rendered by <code>ModelPresetsSection.tsx</code>. Runtime mapping lives in <code>model-runtime-presets.ts</code>.</p>
+          </div>
+        </div>
+        <div class="card">
+          <header><b>Step 1</b><span>ctx 18.4k / 32k</span></header>
+          <div class="cbody">
+            <pre class="mono">$ rg "EXL3" --type ts -l
+dashboard/src/settings-sections.ts
+dashboard/src/model-runtime-presets.ts
+dashboard/src/tabs/settings/ModelPresetsSection.tsx</pre>
+          </div>
+        </div>
+        <div class="card">
+          <header><b>Step 2</b><span>ctx 24.1k / 32k</span></header>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= Metrics ================= -->
+    <div class="view" data-view="metrics">
+      <div class="metrics">
+        <div class="graph-grid">
+          <div class="graph-card">
+            <h3>Daily Runs</h3>
+            <div class="sub">last 14 days</div>
+            <svg viewBox="0 0 320 110" role="img" aria-label="Daily runs line chart">
+              <g stroke="#1a2634" stroke-width="1">
+                <line x1="0" y1="20" x2="320" y2="20"/><line x1="0" y1="50" x2="320" y2="50"/><line x1="0" y1="80" x2="320" y2="80"/>
+              </g>
+              <polyline fill="none" stroke="#17997e" stroke-width="2" points="0,72 24,60 48,66 72,44 96,52 120,36 144,42 168,28 192,38 216,24 240,32 264,20 288,30 312,18"/>
+              <polyline fill="none" stroke="#3d8fd6" stroke-width="2" points="0,80 24,70 48,74 72,56 96,62 120,48 144,54 168,40 192,50 216,38 240,44 264,32 288,42 312,30"/>
+              <polyline fill="none" stroke="#d95f5f" stroke-width="2" points="0,98 24,96 48,99 72,94 96,97 120,95 144,98 168,93 192,97 216,96 240,94 264,97 288,95 312,92"/>
+              <circle cx="312" cy="18" r="3" fill="#17997e"/><circle cx="312" cy="30" r="3" fill="#3d8fd6"/><circle cx="312" cy="92" r="3" fill="#d95f5f"/>
+              <line x1="0" y1="104" x2="320" y2="104" stroke="#223040" stroke-width="1"/>
+            </svg>
+            <div class="legend">
+              <span><i style="background:#17997e"></i>Runs</span>
+              <span><i style="background:#3d8fd6"></i>Completed</span>
+              <span><i style="background:#d95f5f"></i>Failed</span>
+            </div>
+          </div>
+          <div class="graph-card">
+            <h3>Daily Token Usage</h3>
+            <div class="sub">last 14 days · tokens</div>
+            <svg viewBox="0 0 320 110" role="img" aria-label="Daily token usage line chart">
+              <g stroke="#1a2634" stroke-width="1">
+                <line x1="0" y1="20" x2="320" y2="20"/><line x1="0" y1="50" x2="320" y2="50"/><line x1="0" y1="80" x2="320" y2="80"/>
+              </g>
+              <polyline fill="none" stroke="#3d8fd6" stroke-width="2" points="0,64 24,50 48,58 72,38 96,46 120,30 144,40 168,26 192,36 216,22 240,34 264,20 288,28 312,16"/>
+              <polyline fill="none" stroke="#b8822e" stroke-width="2" points="0,92 24,86 48,90 72,80 96,84 120,74 144,80 168,70 192,78 216,66 240,74 264,62 288,70 312,58"/>
+              <circle cx="312" cy="16" r="3" fill="#3d8fd6"/><circle cx="312" cy="58" r="3" fill="#b8822e"/>
+              <line x1="0" y1="104" x2="320" y2="104" stroke="#223040" stroke-width="1"/>
+            </svg>
+            <div class="legend">
+              <span><i style="background:#3d8fd6"></i>Processed input</span>
+              <span><i style="background:#b8822e"></i>Output</span>
+            </div>
+          </div>
+        </div>
+        <div class="graph-card">
+          <h3>Tool metrics</h3>
+          <div class="sub">30-day totals</div>
+          <table class="mtable">
+            <thead><tr><th>Tool</th><th class="num">Calls</th><th class="num">Avg duration</th><th class="num">Avg input</th><th class="num">Avg output</th></tr></thead>
+            <tbody>
+              <tr><td>summary</td><td class="num">412</td><td class="num">41s</td><td class="num">18.2k tok</td><td class="num">0.9k tok</td></tr>
+              <tr><td>repo-search</td><td class="num">168</td><td class="num">2m 51s</td><td class="num">26.4k tok</td><td class="num">1.4k tok</td></tr>
+              <tr><td>planner</td><td class="num">57</td><td class="num">3m 12s</td><td class="num">30.1k tok</td><td class="num">2.2k tok</td></tr>
+              <tr><td>web-search</td><td class="num">44</td><td class="num">18s</td><td class="num">2.1k tok</td><td class="num">0.4k tok</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= Benchmark ================= -->
+    <div class="view" data-view="bench">
+      <div class="bench">
+        <div class="tiles">
+          <div class="tile"><label>Last session</label><span class="n">glm-4.7-air</span></div>
+          <div class="tile"><label>Cases passed</label><span class="n">18<small> / 20</small></span></div>
+          <div class="tile"><label>Prompt speed</label><span class="n">412<small> tok/s</small></span></div>
+          <div class="tile"><label>Generation speed</label><span class="n">38.6<small> tok/s</small></span></div>
+        </div>
+        <div class="graph-card">
+          <h3>Benchmark cases</h3>
+          <div class="sub">session bench_2026-07-19 · preset glm-4.7-air</div>
+          <table class="mtable">
+            <thead><tr><th>Case</th><th>Result</th><th class="num">Duration</th><th class="num">Tokens</th></tr></thead>
+            <tbody>
+              <tr><td>buried_critical</td><td><span class="dot ok"></span> pass</td><td class="num">34s</td><td class="num">12.1k</td></tr>
+              <tr><td>pass_fail</td><td><span class="dot ok"></span> pass</td><td class="num">22s</td><td class="num">8.4k</td></tr>
+              <tr><td>unique_errors</td><td><span class="dot bad"></span> fail</td><td class="num">41s</td><td class="num">14.0k</td></tr>
+              <tr><td>diff_summary</td><td><span class="dot ok"></span> pass</td><td class="num">29s</td><td class="num">10.6k</td></tr>
+              <tr><td>stack_trace</td><td><span class="dot ok"></span> pass</td><td class="num">26s</td><td class="num">9.2k</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= Chat ================= -->
+    <div class="view" data-view="chat">
+      <div class="chat-lane">
+        <button class="ghost-btn acc new">+ New session</button>
+        <div class="runs">
+          <div class="run sel" data-chat="c1"><span class="t">Refactor settings flow</span><span class="m"><span class="typing"><i></i><i></i><i></i></span>streaming · glm-4.7-air</span></div>
+          <div class="run" data-chat="c2"><span class="t">vitest hooks failure</span><span class="m"><span class="sp"></span>tool running · qwen-35b</span></div>
+          <div class="run" data-chat="c3"><span class="t">Tabby restart debugging</span><span class="m"><span class="dot bad"></span>failed · 09:02</span></div>
+          <div class="run" data-chat="c4"><span class="t">EXL3 tuning questions</span><span class="m"><span class="dot ok"></span>yesterday</span></div>
+        </div>
+      </div>
+      <div class="chat-main">
+
+        <!-- c1: assistant streaming -->
+        <div class="chat-pane on" data-chat-pane="c1">
+          <div class="chat-head">Preset <b>glm-4.7-air ▾</b>
+            <span class="hchip on">web search</span>
+            <span class="hchip on">per-step thinking</span>
+            <span class="hchip">simple flow</span>
+          </div>
+          <div class="msgs">
+            <div class="msg user"><div class="who">You</div>Where is the settings dirty-check flow implemented, and what triggers the unsaved-changes modal?</div>
+            <div class="msg ai"><div class="who">SiftKit</div>
+              Let me check the flow modules first.
+              <div class="tcall">
+                <header><span class="tn">repo_rg</span><span>"DirtyContinuation" dashboard/src</span><span class="tok">✓ 1.1s · 8.2k tok loaded</span></header>
+                <pre class="mono">dashboard/src/settings-flow.ts:14: export type DirtyContinuation =
+dashboard/src/tabs/SettingsTab.tsx:15: import type { DirtyContinuation }
+dashboard/src/hooks/useSettingsController.ts:88: requestSettingsAction(</pre>
+              </div>
+              <div class="think">Reading settings-flow.ts to trace how continuations queue behind the confirm modal…</div>
+            </div>
+            <div class="msg ai"><div class="who">SiftKit</div><span class="caret">The dirty check lives in <code>settings-flow.ts</code>: every tab switch or restart request is wrapped in a <code>DirtyContinuation</code>. When the draft differs from the saved config, <code>useSettingsController</code> holds the continuation and opens the</span></div>
+          </div>
+          <div class="composer">
+            <div class="ctx" title="context 19.8k / 32k"><i style="width:62%"></i></div>
+            <div class="row">
+              <span class="input">Message SiftKit…</span>
+              <span class="ctx-label">19.8k / 32k</span>
+              <button class="send">Stop</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- c2: waiting on a tool -->
+        <div class="chat-pane" data-chat-pane="c2">
+          <div class="chat-head">Preset <b>qwen-35b ▾</b>
+            <span class="hchip on">web search</span>
+            <span class="hchip">per-step thinking</span>
+            <span class="hchip on">simple flow</span>
+          </div>
+          <div class="msgs">
+            <div class="msg user"><div class="who">You</div>Summarize why the useChatSessions tests fail.</div>
+            <div class="msg ai"><div class="who">SiftKit</div>
+              Pulling the failing test file.
+              <div class="tcall">
+                <header><span class="sp"></span><span class="tn">repo_read_file</span><span>dashboard/tests/hooks/useChatSessions.test.tsx</span><span>running · 4s</span></header>
+              </div>
+            </div>
+            <div class="msg ai"><div class="who">SiftKit</div><span class="typing"><i></i><i></i><i></i></span></div>
+          </div>
+          <div class="composer">
+            <div class="ctx" title="context 10.9k / 32k"><i style="width:34%"></i></div>
+            <div class="row">
+              <span class="input">Message SiftKit…</span>
+              <span class="ctx-label">10.9k / 32k</span>
+              <button class="send">Stop</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- c3: failed backend -->
+        <div class="chat-pane" data-chat-pane="c3">
+          <div class="chat-head">Preset <b>glm-4.7-air ▾</b>
+            <span class="hchip">web search</span>
+            <span class="hchip">per-step thinking</span>
+            <span class="hchip">simple flow</span>
+          </div>
+          <div class="msgs">
+            <div class="msg user"><div class="who">You</div>Restart Tabby and rerun the EXL3 healthcheck.</div>
+            <div class="err-banner">
+              <span>Backend restart failed — connection refused at <code>http://127.0.0.1:5000</code> after 120s (StartupTimeoutMs).</span>
+              <button class="mini-btn">Retry</button>
+              <button class="mini-btn">Open logs</button>
+            </div>
+          </div>
+          <div class="composer">
+            <div class="ctx warn" title="context 28.2k / 32k"><i style="width:88%"></i></div>
+            <div class="row">
+              <span class="input">Message SiftKit…</span>
+              <span class="ctx-label">28.2k / 32k</span>
+              <button class="send">Send</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- c4: completed -->
+        <div class="chat-pane" data-chat-pane="c4">
+          <div class="chat-head">Preset <b>qwen-35b ▾</b>
+            <span class="hchip">web search</span>
+            <span class="hchip on">per-step thinking</span>
+            <span class="hchip">simple flow</span>
+          </div>
+          <div class="msgs">
+            <div class="msg user"><div class="who">You</div>What UBatchSize should I use for EXL3 on a 4090?</div>
+            <div class="msg ai"><div class="who">SiftKit</div>For EXL3, UBatchSize maps to chunk size. On a 24GB 4090 with a 4.0bpw 35B model, 512 is a safe default; 1024 speeds up prompt ingestion if you keep NumCtx ≤ 64k. Your current preset (chunk 512, max batch 1) leaves headroom for the KV cache at 128k context.</div>
+          </div>
+          <div class="composer">
+            <div class="ctx" title="context 13.1k / 32k"><i style="width:41%"></i></div>
+            <div class="row">
+              <span class="input">Message SiftKit…</span>
+              <span class="ctx-label">13.1k / 32k</span>
+              <button class="send">Send</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ================= Settings ================= -->
+    <div class="view" data-view="set">
+      <div class="set-nav">
+        <a class="on" data-s="general">General</a>
+        <a data-s="tool-policy">Tool Policy</a>
+        <a data-s="presets">Presets</a>
+        <a data-s="interactive">Interactive</a>
+        <a data-s="web-search">Web Search</a>
+        <a data-s="model-presets">Model Presets</a>
+      </div>
+      <div class="set-main">
+        <div class="set-head">
+          <h2 id="set-title">General</h2>
+          <span class="dirty-pill">2 unsaved</span>
+          <span style="flex:1"></span>
+          <button class="ghost-btn">Reload</button>
+          <button class="ghost-btn">Restart backend</button>
+          <button class="save">Save settings</button>
+        </div>
+
+        <!-- General -->
+        <section class="set-sec on" data-sec="general">
+          <div class="fgrid">
+            <div class="field"><label>Version</label><span class="val">0.1.0</span></div>
+            <div class="field w2"><label>Backend</label><div class="keyrow"><span class="val">llama.cpp</span><button class="mini-btn">Open Model Presets</button></div><span class="fhint">Read-only — the runtime comes from the active model preset.</span></div>
+            <div class="field"><label>Policy Mode</label><span class="val">conservative ▾</span></div>
+            <div class="field"><label>Raw log retention</label><span class="tgl on"><i></i></span></div>
+            <div class="field"><label>AGENTS.md</label><span class="tgl on"><i></i></span><span class="fhint">Adds root AGENTS.md to tool prompts.</span></div>
+            <div class="field"><label>Initial repo file scan</label><span class="tgl"><i></i></span></div>
+            <div class="field"><label>Expand reads</label><span class="tgl on"><i></i></span></div>
+            <div class="field w4"><label>Prompt prefix</label><span class="val">Preserve exact technical anchors from paths, function names, symbols, commands, numbers, or code references when that precision should survive summarization.</span></div>
+          </div>
+        </section>
+
+        <!-- Tool Policy -->
+        <section class="set-sec" data-sec="tool-policy">
+          <p class="sec-hint">Global tool allowlist per operation mode, applied before each preset's own whitelist. A preset can only use tools that are also checked here for its mode.</p>
+          <table class="tp-table">
+            <thead><tr><th>Tool</th><th class="c">summary</th><th class="c">read-only</th><th class="c">full</th></tr></thead>
+            <tbody>
+              <tr class="grp"><td colspan="4">Text &amp; JSON</td></tr>
+              <tr><td>find_text</td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td></tr>
+              <tr><td>read_lines</td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td></tr>
+              <tr><td>json_filter</td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td></tr>
+              <tr><td>json_get</td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td></tr>
+              <tr class="grp"><td colspan="4">Repository</td></tr>
+              <tr><td>repo_rg</td><td class="c"><span class="cb"></span></td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td></tr>
+              <tr><td>repo_read_file</td><td class="c"><span class="cb"></span></td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td></tr>
+              <tr><td>repo_list_files</td><td class="c"><span class="cb"></span></td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td></tr>
+              <tr><td>repo_git</td><td class="c"><span class="cb"></span></td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td></tr>
+              <tr class="grp"><td colspan="4">Object pipeline</td></tr>
+              <tr><td>repo_select_object</td><td class="c"><span class="cb"></span></td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td></tr>
+              <tr><td>repo_where_object</td><td class="c"><span class="cb"></span></td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td></tr>
+              <tr><td>repo_sort_object</td><td class="c"><span class="cb"></span></td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td></tr>
+              <tr><td>repo_group_object</td><td class="c"><span class="cb"></span></td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td></tr>
+              <tr><td>repo_measure_object</td><td class="c"><span class="cb"></span></td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td></tr>
+              <tr><td>repo_foreach_object</td><td class="c"><span class="cb"></span></td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td></tr>
+              <tr><td>repo_get_unique</td><td class="c"><span class="cb"></span></td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td></tr>
+              <tr class="grp"><td colspan="4">Formatting</td></tr>
+              <tr><td>repo_format_table</td><td class="c"><span class="cb"></span></td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td></tr>
+              <tr><td>repo_format_list</td><td class="c"><span class="cb"></span></td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td></tr>
+              <tr><td>repo_out_string</td><td class="c"><span class="cb"></span></td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td></tr>
+              <tr><td>repo_convertto_json</td><td class="c"><span class="cb"></span></td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td></tr>
+              <tr><td>repo_convertfrom_json</td><td class="c"><span class="cb"></span></td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td></tr>
+              <tr><td>repo_join_string</td><td class="c"><span class="cb"></span></td><td class="c"><span class="cb on"></span></td><td class="c"><span class="cb on"></span></td></tr>
+              <tr class="grp"><td colspan="4">Web</td></tr>
+              <tr><td>web_search</td><td class="c"><span class="cb"></span></td><td class="c"><span class="cb"></span></td><td class="c"><span class="cb on"></span></td></tr>
+              <tr><td>web_fetch</td><td class="c"><span class="cb"></span></td><td class="c"><span class="cb"></span></td><td class="c"><span class="cb on"></span></td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <!-- Presets -->
+        <section class="set-sec" data-sec="presets">
+          <p class="sec-hint">Execution presets for CLI and web surfaces. Built-in presets can be edited but not deleted; custom presets are fully editable.</p>
+          <div class="plib">
+            <div class="plist">
+              <div class="prow"><span class="t">Summary</span><span class="badges"><span class="bdg">summary</span><span class="bdg">summary mode</span><span class="bdg">builtin</span></span></div>
+              <div class="prow"><span class="t">Repo Search</span><span class="badges"><span class="bdg">repo-search</span><span class="bdg">read-only</span><span class="bdg">builtin</span></span></div>
+              <div class="prow"><span class="t">Planner</span><span class="badges"><span class="bdg">plan</span><span class="bdg">read-only</span><span class="bdg">builtin</span></span></div>
+              <div class="prow"><span class="t">Chat</span><span class="badges"><span class="bdg">chat</span><span class="bdg">full</span><span class="bdg">builtin</span></span></div>
+              <div class="prow sel"><span class="t">Deep Dive</span><span class="badges"><span class="bdg">repo-search</span><span class="bdg">read-only</span><span class="bdg custom">custom</span></span></div>
+              <button class="plist-add">+ Add preset</button>
+            </div>
+            <div class="pcard">
+              <div class="pmeta">preset_deep_dive · custom · deletable</div>
+              <div class="fgrid">
+                <div class="field w2"><label>Name</label><span class="val">Deep Dive</span></div>
+                <div class="field"><label>Preset kind</label><span class="val">repo-search ▾</span></div>
+                <div class="field"><label>Operation mode</label><span class="val">read-only ▾</span></div>
+                <div class="field w4">
+                  <label>Tool whitelist · 10 enabled of 21 allowed by read-only mode</label>
+                  <div class="tool-chips">
+                    <span class="tchip on">find_text</span><span class="tchip on">read_lines</span><span class="tchip on">repo_rg</span><span class="tchip on">repo_read_file</span><span class="tchip on">repo_list_files</span><span class="tchip on">repo_git</span><span class="tchip on">repo_select_object</span><span class="tchip on">repo_where_object</span><span class="tchip on">repo_format_table</span><span class="tchip on">repo_out_string</span>
+                    <span class="tchip">json_filter</span><span class="tchip">json_get</span><span class="tchip">repo_sort_object</span><span class="tchip">repo_group_object</span><span class="tchip">repo_measure_object</span><span class="tchip">repo_foreach_object</span><span class="tchip">repo_get_unique</span><span class="tchip">repo_format_list</span><span class="tchip">repo_convertto_json</span><span class="tchip">repo_convertfrom_json</span><span class="tchip">repo_join_string</span>
+                    <span class="tchip blocked">web_search</span><span class="tchip blocked">web_fetch</span>
+                  </div>
+                  <span class="fhint">Struck-out tools are blocked by the read-only mode policy regardless of this whitelist.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Interactive -->
+        <section class="set-sec" data-sec="interactive">
+          <p class="sec-hint">Thresholds and transcript behavior for interactive (wrapped) shell sessions.</p>
+          <div class="fgrid">
+            <div class="field"><label>MinCharsForSummary</label><span class="val">500</span></div>
+            <div class="field"><label>MinLinesForSummary</label><span class="val">12</span></div>
+            <div class="field"><label>Interactive IdleTimeoutMs</label><span class="val">900000</span><span class="fhint">15 minutes</span></div>
+            <div class="field"><label>MaxTranscriptChars</label><span class="val">120000</span></div>
+            <div class="field w4"><label>Wrapped commands</label><span class="val">git, less, vim, sqlite3</span></div>
+            <div class="field w2"><label>Interactive enabled</label><span class="tgl on"><i></i></span></div>
+            <div class="field w2"><label>Interactive transcript retention</label><span class="tgl on"><i></i></span></div>
+          </div>
+        </section>
+
+        <!-- Web Search -->
+        <section class="set-sec" data-sec="web-search">
+          <p class="sec-hint">Tavily + Firecrawl with failover. The primary provider is tried first; the other takes over on errors or exhausted credits.</p>
+          <div class="fgrid">
+            <div class="field w2"><label>Primary provider</label><span class="val">tavily ▾</span></div>
+            <div class="field w2"><label>Web search enabled by default</label><span class="tgl"><i></i></span></div>
+            <div class="field"><label>Tavily enabled</label><span class="tgl on"><i></i></span></div>
+            <div class="field w2"><label>Tavily API key</label><div class="keyrow"><span class="val">tvly-••••••••••••••••</span><button class="mini-btn">Show</button></div></div>
+            <div class="field"><label>Firecrawl enabled</label><span class="tgl on"><i></i></span></div>
+            <div class="field w2"><label>Firecrawl API key</label><div class="keyrow"><span class="val">fc-••••••••••••••••</span><button class="mini-btn">Show</button></div></div>
+            <div class="field w2"><label>&nbsp;</label></div>
+            <div class="field"><label>Result count</label><span class="val">5</span></div>
+            <div class="field"><label>Timeout ms</label><span class="val">20000</span></div>
+            <div class="field"><label>Fetch max pages</label><span class="val">3</span></div>
+            <div class="field"><label>Fetch max characters</label><span class="val">40000</span></div>
+            <div class="field w4"><label>Usage</label>
+              <span class="val">214 this month (2026-07) · 1,982 all-time</span>
+              <span class="fhint">tavily: 622 left of 1,000 (used 378) · firecrawl: 412 left of 500 (used 88)</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Model Presets -->
+        <section class="set-sec" data-sec="model-presets">
+          <p class="sec-hint">Named model/runtime combinations. The selected preset is the draft; saving settings makes it the active runtime config and restarts the backend.</p>
+          <div class="mp-toolbar">
+            <div class="mp-select">Preset <b>Qwen 35B ▾</b><span class="active-pill">active</span></div>
+            <button class="ghost-btn">Add</button>
+            <button class="ghost-btn">Delete</button>
+            <span style="flex:1"></span>
+            <div class="segc" id="mp-backend">
+              <button class="on" data-be="llama">llama.cpp</button>
+              <button data-be="exl3">EXL3</button>
+            </div>
+          </div>
+
+          <div id="mp-body">
+            <details class="mpg" open>
+              <summary><span class="chev">▶</span><span class="gt">Identity &amp; launch</span><span class="gsum">Qwen3.5-35B Q4_K_L · managed · 127.0.0.1:8097</span></summary>
+              <div class="gbody">
+                <div class="fgrid flat">
+                  <div class="field w2"><label>Preset name</label><span class="val">Qwen 35B</span></div>
+                  <div class="field w2"><label>Model</label><span class="val">Qwen3.5-35B-A3B-UD-Q4_K_L.gguf</span></div>
+                  <div class="field w4 be-l"><label>Executable path</label><div class="keyrow"><span class="val">C:\Users\denys\Documents\GitHub\llamacpp\llama-server.exe</span><button class="mini-btn">Browse</button></div></div>
+                  <div class="field w4 be-l"><label>Model path (.gguf)</label><div class="keyrow"><span class="val">D:\personal\models\Qwen3.5-35B-A3B-UD-Q4_K_L.gguf</span><button class="mini-btn">Browse</button></div></div>
+                  <div class="field w4 be-x"><label>Model directory (EXL3)</label><span class="val">Qwen3.5-35B-exl3-4.0bpw</span><span class="fhint">Resolved beneath the configured Tabby model root.</span></div>
+                  <div class="field"><label>External inference server</label><span class="tgl"><i></i></span></div>
+                  <div class="field w2"><label>Base URL</label><div class="keyrow"><span class="val">http://127.0.0.1:8097</span><button class="mini-btn">Test</button></div></div>
+                  <div class="field"><label>Bind host</label><span class="val">127.0.0.1</span></div>
+                  <div class="field"><label>Port</label><span class="val">8097</span></div>
+                </div>
+              </div>
+            </details>
+
+            <details class="mpg">
+              <summary><span class="chev">▶</span><span class="gt">Memory &amp; compute</span><span class="gsum"><span class="be-l">ctx 128k · GPU 999 · batch 512/512 · KV f16</span><span class="be-x">ctx 128k · chunk 512 · KV f16</span></span></summary>
+              <div class="gbody">
+                <div class="fgrid flat">
+                  <div class="field"><label>NumCtx</label><span class="val">128000</span></div>
+                  <div class="field be-l"><label>GpuLayers</label><span class="val">999</span></div>
+                  <div class="field be-l"><label>Threads</label><span class="val">0</span><span class="fhint">0 = llama.cpp default</span></div>
+                  <div class="field be-l"><label>NcpuMoe</label><span class="val">0</span><span class="fhint">0 = omit --n-cpu-moe</span></div>
+                  <div class="field be-l"><label>Flash attention</label><span class="tgl on"><i></i></span></div>
+                  <div class="field"><label>ParallelSlots</label><span class="val">1</span><span class="fhint">EXL3: max batch size</span></div>
+                  <div class="field be-l"><label>BatchSize</label><span class="val">512</span></div>
+                  <div class="field"><label>UBatchSize</label><span class="val">512</span><span class="fhint">EXL3: chunk size</span></div>
+                  <div class="field be-l"><label>CacheRam</label><span class="val">8192</span><span class="fhint">MiB</span></div>
+                  <div class="field"><label>KV cache quant</label><span class="val">f16 ▾</span></div>
+                </div>
+              </div>
+            </details>
+
+            <details class="mpg">
+              <summary><span class="chev">▶</span><span class="gt">Sampling</span><span class="gsum">temp 0.7 · top-p 0.8 · top-k 20 · max 15k</span></summary>
+              <div class="gbody">
+                <div class="fgrid flat">
+                  <div class="field"><label>MaxTokens</label><span class="val">15000</span></div>
+                  <div class="field"><label>Temperature</label><span class="val">0.7</span></div>
+                  <div class="field"><label>TopP</label><span class="val">0.8</span></div>
+                  <div class="field"><label>TopK</label><span class="val">20</span></div>
+                  <div class="field"><label>MinP</label><span class="val">0</span></div>
+                  <div class="field"><label>PresencePenalty</label><span class="val">1.5</span></div>
+                  <div class="field"><label>RepetitionPenalty</label><span class="val">1</span></div>
+                </div>
+              </div>
+            </details>
+
+            <details class="mpg">
+              <summary><span class="chev">▶</span><span class="gt">Reasoning</span><span class="gsum">off · per-step thinking on · budget 10k</span></summary>
+              <div class="gbody">
+                <div class="fgrid flat">
+                  <div class="field"><label>Reasoning</label><span class="val">off ▾</span></div>
+                  <div class="field"><label>Reasoning content</label><span class="tgl"><i></i></span></div>
+                  <div class="field"><label>Preserve thinking</label><span class="tgl"><i></i></span></div>
+                  <div class="field"><label>Maintain per step thinking</label><span class="tgl on"><i></i></span></div>
+                  <div class="field"><label>ReasoningBudget</label><span class="val">10000</span></div>
+                  <div class="field w4"><label>ReasoningBudgetMessage</label><span class="val">Thinking budget exhausted. You have to provide the answer now.</span></div>
+                </div>
+              </div>
+            </details>
+
+            <details class="mpg">
+              <summary><span class="chev">▶</span><span class="gt">Speculative decoding</span><span class="gsum"><span class="be-l">on · ngram-map-k · N12 M4</span><span class="be-x">on · draft-mtp · 2–8</span></span></summary>
+              <div class="gbody">
+                <div class="fgrid flat">
+                  <div class="field"><label>Enable speculative decoding</label><span class="tgl on"><i></i></span></div>
+                  <div class="field be-l"><label>Speculative type</label><span class="val">ngram-map-k ▾</span></div>
+                  <div class="field be-l"><label>Combine with MTP</label><span class="tgl"><i></i></span></div>
+                  <div class="field be-l"><label>SpeculativeNgramSizeN</label><span class="val">12</span></div>
+                  <div class="field be-l"><label>SpeculativeNgramSizeM</label><span class="val">4</span></div>
+                  <div class="field be-l"><label>SpeculativeNgramMinHits</label><span class="val">1</span></div>
+                  <div class="field be-x"><label>Speculative type</label><span class="val">draft-mtp ▾</span></div>
+                  <div class="field be-x"><label>SpeculativeDraftMax</label><span class="val">8</span></div>
+                  <div class="field be-x"><label>SpeculativeDraftMin</label><span class="val">2</span></div>
+                </div>
+                <div class="cond-note be-l">Fields for ngram-mod and draft-model methods are hidden while the type is ngram-map-k. Changing the type reveals only its own flags.</div>
+                <div class="cond-note be-x">EXL3 supports draft-mtp only. Requires a model with MTP heads and ParallelSlots = 1.</div>
+              </div>
+            </details>
+
+            <details class="mpg">
+              <summary><span class="chev">▶</span><span class="gt">Lifecycle &amp; health</span><span class="gsum">startup 120s · probe 5s/1s · idle unload 600s</span></summary>
+              <div class="gbody">
+                <div class="fgrid flat">
+                  <div class="field"><label>StartupTimeoutMs</label><span class="val">120000</span></div>
+                  <div class="field"><label>HealthcheckTimeoutMs</label><span class="val">5000</span></div>
+                  <div class="field"><label>HealthcheckIntervalMs</label><span class="val">1000</span></div>
+                  <div class="field"><label>SleepIdleSeconds</label><span class="val">600</span></div>
+                  <div class="field"><label>Verbose logging</label><span class="tgl on"><i></i></span></div>
+                </div>
+                <div class="cond-note">Runtime changes take effect on Save settings → backend restart.</div>
+              </div>
+            </details>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.rail button[data-v]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.rail button[data-v]').forEach(function (b) { b.classList.remove('on'); });
+      btn.classList.add('on');
+      document.querySelectorAll('.view').forEach(function (v) { v.classList.remove('on'); });
+      document.querySelector('.view[data-view="' + btn.dataset.v + '"]').classList.add('on');
+      document.getElementById('cur').textContent = btn.title;
+    });
+  });
+
+  document.querySelectorAll('.set-nav a[data-s]').forEach(function (link) {
+    link.addEventListener('click', function () {
+      document.querySelectorAll('.set-nav a[data-s]').forEach(function (a) { a.classList.remove('on'); });
+      link.classList.add('on');
+      document.querySelectorAll('.set-sec').forEach(function (sec) { sec.classList.remove('on'); });
+      document.querySelector('.set-sec[data-sec="' + link.dataset.s + '"]').classList.add('on');
+      document.getElementById('set-title').textContent = link.textContent;
+    });
+  });
+
+  document.querySelectorAll('#mp-backend button[data-be]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('#mp-backend button[data-be]').forEach(function (b) { b.classList.remove('on'); });
+      btn.classList.add('on');
+      document.getElementById('mp-body').classList.toggle('exl3', btn.dataset.be === 'exl3');
+    });
+  });
+
+  document.querySelectorAll('.chat-lane .run[data-chat]').forEach(function (row) {
+    row.addEventListener('click', function () {
+      document.querySelectorAll('.chat-lane .run[data-chat]').forEach(function (r) { r.classList.remove('sel'); });
+      row.classList.add('sel');
+      document.querySelectorAll('.chat-pane').forEach(function (pane) { pane.classList.remove('on'); });
+      document.querySelector('.chat-pane[data-chat-pane="' + row.dataset.chat + '"]').classList.add('on');
+    });
+  });
+</script>
+</body>
+</html>
