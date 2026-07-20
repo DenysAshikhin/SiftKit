@@ -68,15 +68,19 @@ test('ServerModelPresetsConfigSchema requires at least one preset', () => {
 });
 
 test('Exl3EngineConfigSchema accepts process-level configuration', () => {
-  assert.doesNotThrow(() => Exl3EngineConfigSchema.parse({
+  const config = {
     Managed: true,
     WorkingDirectory: 'C:\\TabbyAPI',
     PythonPath: 'C:\\envs\\tabby\\python.exe',
     Entrypoint: 'main.py',
     ConfigPath: 'config.yml',
     ModelRoot: 'D:\\models\\exl3',
+    AdminApiKey: 'secret',
     ShutdownTimeoutMs: 30_000,
-  }));
+  };
+  assert.doesNotThrow(() => Exl3EngineConfigSchema.parse(config));
+  const { AdminApiKey: _AdminApiKey, ...withoutAdminApiKey } = config;
+  assert.equal(Exl3EngineConfigSchema.safeParse(withoutAdminApiKey).success, false);
 });
 
 test('InferenceRuntimeStatusSchema represents process and model residency independently', () => {

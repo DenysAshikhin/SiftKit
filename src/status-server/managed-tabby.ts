@@ -40,7 +40,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   constructor(
     private readonly engine: Exl3EngineConfig,
     initialPreset: ModelRuntimePreset,
-    private readonly client = new TabbyModelClient(),
+    private readonly client = new TabbyModelClient(engine.AdminApiKey),
   ) {
     super('exl3', tabbyCapabilities);
     this.currentPreset = initialPreset;
@@ -177,17 +177,16 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     const deadline = Date.now() + this.currentPreset.StartupTimeoutMs;
     while (Date.now() < deadline) {
       if (this.startupError) throw this.startupError;
-      try {
-        await fetch(new URL('/v1/models', getBaseUrl(this.currentPreset)), {
-          signal: AbortSignal.timeout(this.currentPreset.HealthcheckTimeoutMs),
-        });
+      if (await this.client.isProcessReady(
+        getBaseUrl(this.currentPreset),
+        this.currentPreset.HealthcheckTimeoutMs,
+      )) {
         this.processBaseUrl = getBaseUrl(this.currentPreset);
         this.processManaged = this.shouldManage(this.currentPreset);
         this.transitionProcessTo('ready');
         return;
-      } catch {
-        await delay(this.currentPreset.HealthcheckIntervalMs);
       }
+      await delay(this.currentPreset.HealthcheckIntervalMs);
     }
     this.transitionProcessTo('failed');
     throw new Error('Timed out waiting for the TabbyAPI process.');

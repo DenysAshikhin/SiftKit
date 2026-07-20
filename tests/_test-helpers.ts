@@ -152,6 +152,7 @@ export function getDefaultConfig(): TestConfig {
           Entrypoint: 'main.py',
           ConfigPath: 'config.yml',
           ModelRoot: 'D:\\models\\elx3',
+          AdminApiKey: '',
           ShutdownTimeoutMs: 30_000,
         },
       },

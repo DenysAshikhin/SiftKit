@@ -58,6 +58,7 @@ test('concurrent Tabby readiness calls perform one model load and unload explici
     Entrypoint: 'unused',
     ConfigPath: 'config.yml',
     ModelRoot: root,
+    AdminApiKey: '',
     ShutdownTimeoutMs: 2_000,
   }, {
     ...preset,
@@ -109,6 +110,7 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)));
     Entrypoint: path.basename(scriptPath),
     ConfigPath: 'config.yml',
     ModelRoot: root,
+    AdminApiKey: '',
     ShutdownTimeoutMs: 5_000,
   }, { ...preset, Backend: 'exl3', BaseUrl: `http://127.0.0.1:${port}` });
   try {
@@ -178,6 +180,7 @@ setInterval(() => {}, 1000);
     Entrypoint: path.basename(scriptPath),
     ConfigPath: 'config.yml',
     ModelRoot: root,
+    AdminApiKey: '',
     ShutdownTimeoutMs: 2_000,
   }, externalPreset);
   try {

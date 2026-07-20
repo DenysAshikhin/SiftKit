@@ -23,17 +23,42 @@ function buildEndpoint(baseUrl: string, pathname: string): string {
   return url.toString();
 }
 
+function buildHeaders(adminApiKey: string, json: boolean): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (json) headers['content-type'] = 'application/json';
+  if (adminApiKey) headers.authorization = `Bearer ${adminApiKey}`;
+  return headers;
+}
+
 async function readError(response: Response): Promise<string> {
   const text = (await response.text()).trim();
   return text ? `: ${text}` : '';
 }
 
 export class TabbyModelClient {
+  constructor(private readonly adminApiKey: string) {}
+
+  async isProcessReady(baseUrl: string, timeoutMs: number): Promise<boolean> {
+    let response: Response;
+    try {
+      response = await fetch(buildEndpoint(baseUrl, '/v1/models'), {
+        headers: buildHeaders(this.adminApiKey, false),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch {
+      return false;
+    }
+    if (!response.ok) {
+      throw new Error(`Tabby process readiness probe failed with HTTP ${response.status}${await readError(response)}`);
+    }
+    return true;
+  }
+
   async load(baseUrl: string, request: Exl3LoadRequest, timeoutMs: number): Promise<void> {
     const expected = Exl3LoadRequestSchema.parse(request).model_name;
     const response = await fetch(buildEndpoint(baseUrl, '/v1/model/load'), {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: buildHeaders(this.adminApiKey, true),
       body: JSON.stringify(request),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -60,6 +85,7 @@ export class TabbyModelClient {
   async unload(baseUrl: string, timeoutMs: number): Promise<void> {
     const response = await fetch(buildEndpoint(baseUrl, '/v1/model/unload'), {
       method: 'POST',
+      headers: buildHeaders(this.adminApiKey, false),
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!response.ok) {
@@ -73,11 +99,10 @@ export class TabbyModelClient {
 
   async listModels(baseUrl: string, timeoutMs: number): Promise<string[]> {
     const response = await fetch(buildEndpoint(baseUrl, '/v1/model'), {
+      headers: buildHeaders(this.adminApiKey, false),
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (response.status === 400 || response.status === 404 || response.status === 503) {
-      return [];
-    }
+    if (response.status === 503) return [];
     if (!response.ok) {
       throw new Error(`Tabby current-model probe failed with HTTP ${response.status}${await readError(response)}`);
     }

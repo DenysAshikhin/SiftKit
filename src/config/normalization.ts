@@ -134,6 +134,7 @@ function normalizeExl3Engine(value: JsonValue): Exl3EngineConfig {
     Entrypoint: getNullableTrimmedString(input.Entrypoint) ?? defaults.Entrypoint,
     ConfigPath: getNullableTrimmedString(input.ConfigPath) ?? defaults.ConfigPath,
     ModelRoot: getNullableTrimmedString(input.ModelRoot) ?? defaults.ModelRoot,
+    AdminApiKey: getNullableTrimmedString(input.AdminApiKey) ?? '',
     ShutdownTimeoutMs: getFinitePositiveInteger(input.ShutdownTimeoutMs, defaults.ShutdownTimeoutMs),
   };
 }

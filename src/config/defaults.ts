@@ -111,6 +111,7 @@ export function getDefaultConfigObject(): SiftConfig {
           Entrypoint: 'main.py',
           ConfigPath: 'config.yml',
           ModelRoot: 'D:\\personal\\models\\elx3',
+          AdminApiKey: '',
           ShutdownTimeoutMs: 30_000,
         },
       },

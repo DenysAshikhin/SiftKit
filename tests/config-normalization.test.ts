@@ -101,6 +101,17 @@ test('normalizeConfig supplies the default preset backend and EXL3 engine', () =
   assert.match(serialized, /"WorkingDirectory":"C:\\\\Users\\\\denys\\\\Documents\\\\GitHub\\\\TabbyAPI"/u);
   assert.match(serialized, /"PythonPath":"C:\\\\envs\\\\rl310\\\\Scripts\\\\python\.exe"/u);
   assert.match(serialized, /"ModelRoot":"D:\\\\personal\\\\models\\\\elx3"/u);
+  assert.equal(normalized.Server.Engines.Exl3.AdminApiKey, '');
+});
+
+test('normalizeConfig trims the EXL3 admin API key', () => {
+  const config = defaultConfigObject();
+  const server = asObject(config.Server);
+  const engines = asObject(server.Engines);
+  const exl3 = asObject(engines.Exl3);
+  exl3.AdminApiKey = '  secret  ';
+
+  assert.equal(normalizeConfig(JsonValueSchema.parse(config)).Server.Engines.Exl3.AdminApiKey, 'secret');
 });
 
 test('normalizeConfig clamps WebSearch bounds, trims keys, and repairs ProviderOrder', () => {

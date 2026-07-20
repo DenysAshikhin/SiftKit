@@ -26,6 +26,7 @@ async function waitFor(check: () => boolean | Promise<boolean>, timeoutMs = 3_50
 
 test('remote chat wakes idle-unloaded EXL3 while model catalog remains no-wake', async () => {
   await withTempEnv(async (tempRoot) => {
+    const adminAuthorization = 'Bearer admin-secret';
     let resident = false;
     let loadCount = 0;
     let unloadCount = 0;
@@ -34,6 +35,14 @@ test('remote chat wakes idle-unloaded EXL3 while model catalog remains no-wake',
     let unloadMayFinish = false;
     const tokenBodies: JsonValue[] = [];
     const tabby = http.createServer(async (request, response) => {
+      if (
+        ['/v1/models', '/v1/model', '/v1/model/load', '/v1/model/unload'].includes(request.url ?? '')
+        && request.headers.authorization !== adminAuthorization
+      ) {
+        response.statusCode = 401;
+        response.end('admin authorization required');
+        return;
+      }
       if (request.url === '/v1/models') {
         response.setHeader('content-type', 'application/json');
         response.end('{"data":[]}');
@@ -41,7 +50,7 @@ test('remote chat wakes idle-unloaded EXL3 while model catalog remains no-wake',
       }
       if (request.url === '/v1/model' && request.method === 'GET') {
         if (!resident) {
-          response.statusCode = 400;
+          response.statusCode = 503;
           response.end();
           return;
         }
@@ -98,6 +107,7 @@ test('remote chat wakes idle-unloaded EXL3 while model catalog remains no-wake',
         Entrypoint: 'unused',
         ConfigPath: 'config.yml',
         ModelRoot: tempRoot,
+        AdminApiKey: 'admin-secret',
         ShutdownTimeoutMs: 1_000,
       };
       config.Server.ModelPresets.Presets = [{
@@ -230,7 +240,7 @@ test('chat queued during a preset switch is translated for the target backend', 
         return;
       }
       if (request.url === '/v1/model' && request.method === 'GET') {
-        response.statusCode = tabbyResident ? 200 : 400;
+        response.statusCode = tabbyResident ? 200 : 503;
         response.setHeader('content-type', 'application/json');
         response.end(tabbyResident ? '{"id":"tabby-model"}' : '{}');
         return;
@@ -294,6 +304,7 @@ test('chat queued during a preset switch is translated for the target backend', 
         Entrypoint: 'unused',
         ConfigPath: 'config.yml',
         ModelRoot: tempRoot,
+        AdminApiKey: '',
         ShutdownTimeoutMs: 1_000,
       };
       config.Server.ModelPresets = {

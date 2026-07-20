@@ -98,6 +98,7 @@ export const Exl3EngineConfigSchema = z.object({
   Entrypoint: z.string(),
   ConfigPath: z.string(),
   ModelRoot: z.string(),
+  AdminApiKey: z.string(),
   ShutdownTimeoutMs: z.number().positive(),
 });
 export type Exl3EngineConfig = z.infer<typeof Exl3EngineConfigSchema>;
