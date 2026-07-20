@@ -20,25 +20,39 @@ function createModelPreset(overrides: Partial<ModelRuntimePreset> = {}): ModelRu
   return ModelRuntimePresetSchema.parse({ ...preset, Backend: 'llama', ...overrides });
 }
 
-test('EXL3 adapter translates the shared preset without emitting unsupported fields', () => {
+test('EXL3 adapter translates shared batching and MTP settings for managed Tabby', () => {
   const preset = createModelPreset({
     Backend: 'exl3',
     ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B',
-    NumCtx: 84_993,
-    ParallelSlots: 1,
+    NumCtx: 30_000,
+    ParallelSlots: 4,
+    UBatchSize: 1_024,
     KvCacheQuantization: 'q8_0/q4_0',
     SpeculativeEnabled: true,
     SpeculativeType: 'draft-mtp',
-    SpeculativeDraftMax: 3,
+    SpeculativeDraftMax: 5,
   });
+  const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
 
-  const translated = new Exl3PresetAdapter('D:\\personal\\models\\exl3').buildLoadRequest(preset);
+  const translated = adapter.buildLoadRequest(preset);
 
   assert.deepEqual(translated, {
     model_name: '3.6_27B',
-    max_seq_len: 84_993,
-    cache_size: 85_248,
+    max_seq_len: 30_000,
+    cache_size: 30_208,
     cache_mode: '8,4',
+    chunk_size: 1_024,
+  });
+  assert.deepEqual(adapter.buildLaunchEnvironment(preset), {
+    TABBY_MODEL_MODEL_DIR: 'D:\\personal\\models\\exl3',
+    TABBY_MODEL_MODEL_NAME: '3.6_27B',
+    TABBY_MODEL_MAX_SEQ_LEN: '30000',
+    TABBY_MODEL_CACHE_SIZE: '30208',
+    TABBY_MODEL_CACHE_MODE: '8,4',
+    TABBY_MODEL_MAX_BATCH_SIZE: '4',
+    TABBY_MODEL_CHUNK_SIZE: '1024',
+    TABBY_DRAFT_MODEL_DRAFT_MODE: 'mtp',
+    TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: '5',
   });
   assert.equal('gpu_layers' in translated, false);
   assert.equal('batch_size' in translated, false);
@@ -53,12 +67,28 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
     SpeculativeType: 'ngram-map-k',
   });
 
-  assert.deepEqual(new Exl3PresetAdapter('D:\\personal\\models\\exl3').buildLoadRequest(preset), {
+  const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
+  assert.deepEqual(adapter.buildLoadRequest(preset), {
     model_name: '3.6_27B',
     max_seq_len: preset.NumCtx,
     cache_size: preset.NumCtx,
     cache_mode: 'FP16',
+    chunk_size: preset.UBatchSize,
   });
+  assert.equal(adapter.buildLaunchEnvironment(preset).TABBY_DRAFT_MODEL_DRAFT_MODE, 'disabled');
+});
+
+test('EXL3 managed launch rejects speculative modes other than MTP', () => {
+  const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
+  assert.throws(
+    () => adapter.buildLaunchEnvironment(createModelPreset({
+      Backend: 'exl3',
+      ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B',
+      SpeculativeEnabled: true,
+      SpeculativeType: 'ngram-map-k',
+    })),
+    /SpeculativeType=ngram-map-k.*draft-mtp/u,
+  );
 });
 
 test('EXL3 adapter rejects incompatible cache choices', () => {
