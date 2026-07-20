@@ -28,3 +28,13 @@
 .tile label { display: block; font-size: 0.64rem; letter-spacing: 0.07em; text-transform: uppercase; color: var(--dim); margin-bottom: 3px; }
 .tile .n { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .tile .n small { font-size: 0.7rem; font-weight: 400; color: var(--dim); }
+
+/* ---- benchmark ---- */
+.bench { flex: 1; min-width: 0; overflow-y: auto; padding: 16px 20px; }
+.bench-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+.bench-opt { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--ink); border: 1px solid var(--line); border-radius: 7px; padding: 4px 9px; }
+.bench-opt input { width: auto; }
+.bench-opt .hint { color: var(--dim); font-size: 0.66rem; }
+.bench-field { display: grid; gap: 4px; font-size: 0.72rem; color: var(--dim); max-width: 340px; margin-bottom: 8px; }
+.bench-actions { display: flex; gap: 8px; margin-top: 10px; }
+.benchmark-notes-cell { max-width: 220px; }

@@ -162,15 +162,18 @@ input,
 textarea,
 select {
   width: 100%;
-  border: 1px solid var(--stroke);
-  border-radius: 10px;
-  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel2);
   color: var(--ink);
-  padding: 8px 10px;
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 0.8rem;
 }
 
 .hint {
-  color: var(--ink-dim);
+  color: var(--dim);
+  font-size: 0.76rem;
 }
 
 .error {
