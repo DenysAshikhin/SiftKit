@@ -197,6 +197,14 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)));
       TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: '5',
     });
     assert.equal(fs.existsSync(loadRequestsPath), false);
+
+    await runtime.unloadPreset();
+    assert.equal(runtime.getProcessState(), 'stopped');
+    assert.equal(runtime.getModelState(), 'unloaded');
+    await runtime.ensurePresetReady(exl3Preset);
+    assert.equal(runtime.getProcessState(), 'ready');
+    assert.equal(runtime.getModelState(), 'ready');
+    assert.equal(fs.existsSync(loadRequestsPath), false);
   } finally {
     await runtime.stopProcess();
     fs.rmSync(root, { recursive: true, force: true });

@@ -103,6 +103,10 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     if (this.getModelState() === 'unloaded') return;
     const preset = this.currentPreset;
     if (!preset) throw new Error('Cannot unload EXL3 without a validated current preset.');
+    if (this.shouldManage(preset)) {
+      await this.stopProcess();
+      return;
+    }
     this.transitionModelTo('unloading');
     try {
       await this.client.unload(getBaseUrl(preset), preset.HealthcheckTimeoutMs);
