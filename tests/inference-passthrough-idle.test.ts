@@ -318,10 +318,30 @@ test('chat queued during a preset switch is translated for the target backend', 
         body: JSON.stringify(config),
       });
       assert.equal(update.status, 200);
+      const tools = [{
+        type: 'function',
+        function: {
+          name: 'get_weather',
+          description: 'Get weather.',
+          parameters: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] },
+        },
+      }];
+      const responseFormat = {
+        type: 'json_schema',
+        json_schema: { name: 'answer', schema: { type: 'object' } },
+      };
       const queuedChatPromise = fetch(`${siftBaseUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ messages: [{ role: 'user', content: 'queued' }] }),
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'queued' }],
+          tools,
+          parallel_tool_calls: true,
+          response_format: responseFormat,
+          cache_prompt: true,
+          id_slot: 4,
+          timings_per_token: true,
+        }),
       });
       await new Promise((resolve) => setTimeout(resolve, 50));
       releaseLlamaChat = true;
@@ -331,6 +351,12 @@ test('chat queued during a preset switch is translated for the target backend', 
       assert.equal(tabbyChatBodies.length, 1);
       assert.equal(tabbyChatBodies[0]?.repetition_penalty, 1.23);
       assert.equal(tabbyChatBodies[0]?.repeat_penalty, undefined);
+      assert.deepEqual(tabbyChatBodies[0]?.tools, tools);
+      assert.equal(tabbyChatBodies[0]?.parallel_tool_calls, true);
+      assert.deepEqual(tabbyChatBodies[0]?.response_format, responseFormat);
+      assert.equal(tabbyChatBodies[0]?.cache_prompt, undefined);
+      assert.equal(tabbyChatBodies[0]?.id_slot, undefined);
+      assert.equal(tabbyChatBodies[0]?.timings_per_token, undefined);
       assert.deepEqual(tabbyChatBodies[0]?.chat_template_kwargs, {
         enable_thinking: true,
         preserve_thinking: true,

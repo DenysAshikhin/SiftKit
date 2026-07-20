@@ -13,6 +13,7 @@ import { isJsonObject, type JsonObject, type JsonValue } from '../../lib/json-ty
 import { parseJsonValueText } from '../../lib/json.js';
 import { httpClient } from '../../lib/http-client.js';
 import { buildPresetRequestDefaults } from '../../inference-presets/preset-compatibility.js';
+import { getInferenceRequestCompatibility } from '../../inference-presets/request-compatibility.js';
 import { getActiveModelPreset, getManagedLlamaInternalBaseUrl, readConfig } from '../config-store.js';
 import { readBody, sendJson } from '../http-utils.js';
 import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.js';
@@ -72,6 +73,7 @@ function setNumberDefault(body: JsonObject, key: string, value: number): void {
 }
 
 function applyThinkingDefaults(body: JsonObject, preset: ModelRuntimePreset): void {
+  const compatibility = getInferenceRequestCompatibility(preset.Backend);
   if (!isJsonObject(body.chat_template_kwargs)) body.chat_template_kwargs = {};
   const template = body.chat_template_kwargs;
   const thinkingEnabled = preset.Reasoning === 'on';
@@ -80,7 +82,7 @@ function applyThinkingDefaults(body: JsonObject, preset: ModelRuntimePreset): vo
     template.preserve_thinking = true;
   }
   if (
-    preset.Backend === 'llama'
+    compatibility.reasoningContent
     && thinkingEnabled
     && preset.ReasoningContent
     && typeof template.reasoning_content !== 'boolean'
@@ -108,19 +110,9 @@ function translateChatBody(bodyText: string, preset: ModelRuntimePreset): string
   setNumberDefault(parsed, 'min_p', defaults.minP);
   setNumberDefault(parsed, 'presence_penalty', defaults.presencePenalty);
   applyThinkingDefaults(parsed, preset);
-  if (preset.Backend === 'llama') {
-    setNumberDefault(parsed, 'repeat_penalty', defaults.repetitionPenalty);
-    delete parsed.repetition_penalty;
-  } else {
-    setNumberDefault(parsed, 'repetition_penalty', defaults.repetitionPenalty);
-    delete parsed.repeat_penalty;
-    delete parsed.cache_prompt;
-    delete parsed.id_slot;
-    delete parsed.timings_per_token;
-    delete parsed.response_format;
-    delete parsed.tools;
-    delete parsed.parallel_tool_calls;
-  }
+  const compatibility = getInferenceRequestCompatibility(preset.Backend);
+  setNumberDefault(parsed, compatibility.repetitionPenaltyKey, defaults.repetitionPenalty);
+  for (const field of compatibility.removedFields) delete parsed[field];
   return JSON.stringify(parsed);
 }
 

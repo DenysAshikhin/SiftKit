@@ -4,6 +4,14 @@ import test from 'node:test';
 import { InferenceRequestBuilder } from '../src/llm-protocol/inference-request-builder.js';
 
 const messages = [{ role: 'user' as const, content: 'hello' }];
+const tools = [{
+  type: 'function' as const,
+  function: {
+    name: 'get_weather',
+    description: 'Get weather.',
+    parameters: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] },
+  },
+}];
 const defaults = {
   maxTokens: 128,
   temperature: 0.7,
@@ -41,7 +49,7 @@ test('EXL3 request omits llama-only fields and maps thinking policy', () => {
     backend: 'exl3',
     model: '3.6_27B',
     messages,
-    tools: [],
+    tools,
     defaults,
     overrides: {},
     stream: true,
@@ -53,7 +61,12 @@ test('EXL3 request omits llama-only fields and maps thinking policy', () => {
   assert.equal(request.cache_prompt, undefined);
   assert.equal(request.id_slot, undefined);
   assert.equal(request.timings_per_token, undefined);
-  assert.equal(request.response_format, undefined);
+  assert.deepEqual(request.tools, tools);
+  assert.equal(request.parallel_tool_calls, true);
+  assert.deepEqual(request.response_format, {
+    type: 'json_schema',
+    json_schema: { name: 'answer', schema: { type: 'object' } },
+  });
   assert.deepEqual(request.chat_template_kwargs, {
     enable_thinking: true,
     preserve_thinking: true,
