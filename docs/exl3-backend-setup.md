@@ -16,11 +16,13 @@ The checkpoint reports `Qwen3_5ForConditionalGeneration`, EXL3 4.00-bit `mul1` q
 
 The Tabby profile uses `max_seq_len: 84992`, `cache_size: 84992`, main `cache_mode: 8,8`, `max_batch_size: 1`, MTP drafting, and a `Q8` draft cache. `/props` must report `total_slots: 1` and `n_ctx: 84992`. SiftKit serializes all EXL3 chat calls at the provider boundary so deferred metadata and top-level requests cannot overlap against that single cache slot.
 
-TabbyAPI/ExLlamaV3 `1.1.0` can abort generation inside Formatron/KBNF when OpenAI `tools` or `response_format` constraints are supplied for this model. The EXL3 request adapter therefore sends neither field. SiftKit keeps the tool schemas in its prompt and parses Qwen `<tool_call>` output locally. The llama.cpp backend continues to use its existing native tools and JSON-schema constraints.
+Tabby loads the model folder's `chat_template.jinja`. SiftKit forwards OpenAI `tools` and `response_format` unchanged to both backends. This Qwen template emits tool calls as `<tool_call>` XML, which SiftKit parses locally into the standard tool-call representation. JSON-schema output is also native; when thinking is enabled, constrained content may begin only after reasoning, so the request needs enough output tokens for both.
 
 ## Configuring a preset
 
 In Dashboard Settings, create or edit a model preset and select `EXL3 (TabbyAPI)` as that preset's backend. Set its Tabby base URL, model path, context size, cache mode, and idle-unload delay. Selecting the preset makes it active; there is no global backend switch.
+
+Set `Server.Engines.Exl3.AdminApiKey` to Tabby's admin API bearer token. SiftKit uses it for readiness checks, model inspection, load, and unload, including idle wake/reload. Leave it empty only when Tabby authentication is disabled. Caller authorization on proxied inference requests remains separate.
 
 The status server persists the active preset only after its runtime is ready. A selection made during inference drains the active request, pauses queued admission, stops or unloads the old runtime, starts and verifies the target model, then resumes the queue. Target startup failure restores the prior preset definition and runtime. Runtime state is available from `GET /runtime/inference`.
 
