@@ -60,7 +60,7 @@
   height: 34px;
   padding: 0;
   border-radius: 999px;
-  color: var(--ink-dim);
+  color: var(--dim);
   flex: none;
 }
 
@@ -75,8 +75,8 @@
 }
 
 .run-delete-mode-row button.active {
-  border-color: var(--accent-danger);
-  box-shadow: inset 0 0 0 1px var(--accent-danger);
+  border-color: var(--bad);
+  box-shadow: inset 0 0 0 1px var(--bad);
   color: #ffd0c8;
 }
 
@@ -108,7 +108,7 @@
 
 .run-delete-fields span {
   font-size: 0.82rem;
-  color: var(--ink-dim);
+  color: var(--dim);
   letter-spacing: 0.02em;
 }
 

@@ -13,7 +13,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  border: 1px solid var(--stroke);
+  border: 1px solid var(--line);
   border-radius: 10px;
   padding: 10px 12px;
   background: #102132f2;
@@ -26,7 +26,7 @@
 }
 
 .toast.warning {
-  border-color: var(--accent-warn);
+  border-color: var(--run);
 }
 
 .toast.error {
@@ -36,7 +36,7 @@
 .toast-dismiss {
   border: none !important;
   background: transparent !important;
-  color: var(--ink-dim);
+  color: var(--dim);
   cursor: pointer;
   padding: 0 !important;
   line-height: 1;
@@ -52,23 +52,4 @@ button {
   cursor: pointer;
   font: inherit;
   font-size: 0.78rem;
-}
-
-.panel-grid {
-  display: grid;
-  grid-template-columns: 340px 1fr;
-  gap: 14px;
-  flex: 1;
-  min-height: 0;
-}
-
-.panel {
-  border: 1px solid var(--stroke);
-  border-radius: 14px;
-  background: #132537cc;
-  backdrop-filter: blur(4px);
-  padding: 14px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
 }
