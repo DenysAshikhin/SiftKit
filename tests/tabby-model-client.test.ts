@@ -59,6 +59,7 @@ test('Tabby model client loads and unloads through validated lifecycle packets',
       max_seq_len: 8192,
       cache_size: 8192,
       cache_mode: 'FP16',
+      chunk_size: 512,
     }, 1_000);
     assert.deepEqual(await client.listModels(baseUrl, 1_000), ['model-a']);
     assert.deepEqual(loadBodies, [{
@@ -66,6 +67,7 @@ test('Tabby model client loads and unloads through validated lifecycle packets',
       max_seq_len: 8192,
       cache_size: 8192,
       cache_mode: 'FP16',
+      chunk_size: 512,
     }]);
     await client.unload(baseUrl, 1_000);
     assert.deepEqual(await client.listModels(baseUrl, 1_000), []);
@@ -138,6 +140,7 @@ test('Tabby model client propagates operation-specific authorization failures', 
         max_seq_len: 8192,
         cache_size: 8192,
         cache_mode: 'FP16',
+        chunk_size: 512,
       }, 1_000),
       /Tabby model load failed with HTTP 401: load denied/u,
     );
@@ -172,6 +175,7 @@ test('Tabby model client rejects successful load when the model is not resident'
       max_seq_len: 8192,
       cache_size: 8192,
       cache_mode: 'FP16',
+      chunk_size: 512,
     }, 1_000), /model 'model-a' is not resident/u);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -218,6 +222,7 @@ test('Tabby model client rejects a load stream without terminal completion', asy
       max_seq_len: 8192,
       cache_size: 8192,
       cache_mode: 'FP16',
+      chunk_size: 512,
     }, 1_000), /without a terminal finished event/u);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
