@@ -1,23 +1,24 @@
 import type { ModelRuntimePreset } from '../config/types.js';
 import { ManagedInferenceRuntime } from './managed-inference-runtime.js';
 import {
-  ensureManagedLlamaReady,
-  shutdownManagedLlamaIfNeeded,
+  ensureManagedLlamaPresetReady,
+  shutdownManagedLlamaPresetIfNeeded,
 } from './managed-llama.js';
 import type { ServerContext } from './server-types.js';
 
 export class ManagedLlamaRuntime extends ManagedInferenceRuntime {
   private residentPresetId: string | null = null;
+  private currentPreset: ModelRuntimePreset | null = null;
 
   constructor(private readonly ctx: ServerContext) {
     super('llama');
   }
 
-  private async startProcess(): Promise<void> {
+  private async startProcess(preset: ModelRuntimePreset): Promise<void> {
     if (this.getProcessState() === 'ready') return;
     this.transitionProcessTo('starting');
     try {
-      await ensureManagedLlamaReady(this.ctx, { allowUnconfigured: true });
+      await ensureManagedLlamaPresetReady(this.ctx, preset, { allowUnconfigured: true });
       if (!this.ctx.managedLlamaReady) {
         throw new Error(this.ctx.managedLlamaStartupWarning ?? 'Managed llama.cpp did not become ready.');
       }
@@ -35,7 +36,8 @@ export class ManagedLlamaRuntime extends ManagedInferenceRuntime {
     if (this.residentPresetId !== null && this.residentPresetId !== preset.id) {
       await this.stopProcess();
     }
-    if (this.getProcessState() !== 'ready') await this.startProcess();
+    this.currentPreset = preset;
+    if (this.getProcessState() !== 'ready') await this.startProcess(preset);
     this.residentPresetId = preset.id;
     this.transitionModelTo('ready');
   }
@@ -45,10 +47,14 @@ export class ManagedLlamaRuntime extends ManagedInferenceRuntime {
   }
 
   async stopProcess(): Promise<void> {
+    const preset = this.currentPreset;
+    if (!preset && this.getProcessState() === 'stopped') return;
+    if (!preset) throw new Error('Cannot stop llama.cpp without its current preset.');
     this.transitionProcessTo('stopping');
     try {
-      await shutdownManagedLlamaIfNeeded(this.ctx);
+      await shutdownManagedLlamaPresetIfNeeded(this.ctx, preset);
       this.residentPresetId = null;
+      this.currentPreset = null;
       this.transitionModelTo('unloaded');
       this.transitionProcessTo('stopped');
     } catch (error) {

@@ -215,11 +215,14 @@ test('chat queued during a preset switch is translated for the target backend', 
   await withTempEnv(async (tempRoot) => {
     let releaseLlamaChat = false;
     let llamaChatCount = 0;
+    let llamaModelProbeCount = 0;
     let tabbyResident = false;
     let tabbyRequestCount = 0;
+    let tabbyModelProbeCount = 0;
     const tabbyChatBodies: JsonObject[] = [];
     const llama = http.createServer(async (request, response) => {
       if (request.url === '/v1/models') {
+        llamaModelProbeCount += 1;
         response.setHeader('content-type', 'application/json');
         response.end('{"data":[{"id":"llama-model"}]}');
         return;
@@ -237,6 +240,7 @@ test('chat queued during a preset switch is translated for the target backend', 
     const tabby = http.createServer(async (request, response) => {
       tabbyRequestCount += 1;
       if (request.url === '/v1/models') {
+        tabbyModelProbeCount += 1;
         response.setHeader('content-type', 'application/json');
         response.end('{"data":[]}');
         return;
@@ -375,6 +379,23 @@ test('chat queued during a preset switch is translated for the target backend', 
         enable_thinking: true,
         preserve_thinking: true,
       });
+
+      const llamaProbesBeforeReverseSwitch = llamaModelProbeCount;
+      const tabbyModelProbesBeforeReverseSwitch = tabbyModelProbeCount;
+      config.Server.ModelPresets.ActivePresetId = llamaPreset.id;
+      const reverseUpdate = await fetch(`${siftBaseUrl}/config`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(config),
+      });
+      assert.equal(reverseUpdate.status, 200);
+      const runtimeStatus = InferenceRuntimeStatusSchema.parse(
+        await (await fetch(`${siftBaseUrl}/runtime/inference`)).json(),
+      );
+      assert.equal(runtimeStatus.activePresetId, llamaPreset.id);
+      assert.equal(runtimeStatus.backend, 'llama');
+      assert.ok(llamaModelProbeCount > llamaProbesBeforeReverseSwitch);
+      assert.equal(tabbyModelProbeCount, tabbyModelProbesBeforeReverseSwitch);
     } finally {
       releaseLlamaChat = true;
       const serverToClose = statusServer;

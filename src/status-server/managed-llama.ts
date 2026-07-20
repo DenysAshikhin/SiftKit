@@ -35,7 +35,7 @@ import {
 } from './config-store.js';
 import { writeRuntimeLaunchSnapshot } from './runtime-launch-snapshot.js';
 import { getRuntimeDatabasePath } from '../config/paths.js';
-import type { SiftConfig } from '../config/types.js';
+import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
 import type {
   ManagedLlamaLogRef,
   EnsureManagedLlamaOptions,
@@ -1118,8 +1118,32 @@ function dumpManagedLlamaStartupReviewToConsole(logRef: ManagedLlamaLogRef | nul
 // High-level lifecycle: ensure ready / shutdown
 // ---------------------------------------------------------------------------
 
-export async function ensureManagedLlamaReady(ctx: ServerContext, options: EnsureManagedLlamaOptions = {}): Promise<SiftConfig> {
-  const config = readConfig(ctx.configPath);
+function selectManagedLlamaPreset(config: SiftConfig, preset: ModelRuntimePreset): SiftConfig {
+  if (preset.Backend !== 'llama') {
+    throw new Error(`Preset '${preset.id}' cannot configure the llama.cpp lifecycle.`);
+  }
+  if (!config.Server.ModelPresets.Presets.some((candidate) => candidate.id === preset.id)) {
+    throw new Error(`Model preset '${preset.id}' does not exist.`);
+  }
+  return {
+    ...config,
+    Server: {
+      ...config.Server,
+      ModelPresets: {
+        ActivePresetId: preset.id,
+        Presets: config.Server.ModelPresets.Presets.map(
+          (candidate) => candidate.id === preset.id ? preset : candidate,
+        ),
+      },
+    },
+  };
+}
+
+async function ensureManagedLlamaConfigReady(
+  ctx: ServerContext,
+  config: SiftConfig,
+  options: EnsureManagedLlamaOptions,
+): Promise<SiftConfig> {
   if (config.Backend !== 'llama.cpp') {
     ctx.managedLlamaStartupWarning = null;
     return config;
@@ -1258,13 +1282,35 @@ export async function ensureManagedLlamaReady(ctx: ServerContext, options: Ensur
   return readConfig(ctx.configPath);
 }
 
-export async function shutdownManagedLlamaIfNeeded(ctx: ServerContext, shutdownOptions: ShutdownManagedLlamaOptions = {}): Promise<void> {
+export async function ensureManagedLlamaReady(
+  ctx: ServerContext,
+  options: EnsureManagedLlamaOptions = {},
+): Promise<SiftConfig> {
+  return ensureManagedLlamaConfigReady(ctx, readConfig(ctx.configPath), options);
+}
+
+export async function ensureManagedLlamaPresetReady(
+  ctx: ServerContext,
+  preset: ModelRuntimePreset,
+  options: EnsureManagedLlamaOptions = {},
+): Promise<SiftConfig> {
+  return ensureManagedLlamaConfigReady(
+    ctx,
+    selectManagedLlamaPreset(readConfig(ctx.configPath), preset),
+    options,
+  );
+}
+
+async function shutdownManagedLlamaConfigIfNeeded(
+  ctx: ServerContext,
+  config: SiftConfig,
+  shutdownOptions: ShutdownManagedLlamaOptions,
+): Promise<void> {
   if (ctx.disableManagedLlamaStartup) {
     ctx.managedLlamaReady = false;
     publishStatus(ctx);
     return;
   }
-  const config = readConfig(ctx.configPath);
   if (config.Backend !== 'llama.cpp') {
     return;
   }
@@ -1351,6 +1397,25 @@ export async function shutdownManagedLlamaIfNeeded(ctx: ServerContext, shutdownO
     ctx.managedLlamaShutdownPromise = null;
   });
   return ctx.managedLlamaShutdownPromise;
+}
+
+export async function shutdownManagedLlamaIfNeeded(
+  ctx: ServerContext,
+  shutdownOptions: ShutdownManagedLlamaOptions = {},
+): Promise<void> {
+  return shutdownManagedLlamaConfigIfNeeded(ctx, readConfig(ctx.configPath), shutdownOptions);
+}
+
+export async function shutdownManagedLlamaPresetIfNeeded(
+  ctx: ServerContext,
+  preset: ModelRuntimePreset,
+  shutdownOptions: ShutdownManagedLlamaOptions = {},
+): Promise<void> {
+  return shutdownManagedLlamaConfigIfNeeded(
+    ctx,
+    selectManagedLlamaPreset(readConfig(ctx.configPath), preset),
+    shutdownOptions,
+  );
 }
 
 export function shutdownManagedLlamaForProcessExitSync(ctx: ServerContext): void {
