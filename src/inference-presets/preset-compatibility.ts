@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import type {
-  InferenceBackendId,
   ManagedLlamaKvCacheQuantization,
   ModelPresetField,
   ModelRuntimePreset,
@@ -60,10 +59,22 @@ export function getExl3CacheMode(value: ManagedLlamaKvCacheQuantization): string
 }
 
 export function getPresetFieldAvailability(
-  backend: InferenceBackendId,
+  preset: ModelRuntimePreset,
   field: ModelPresetField,
 ): PresetFieldAvailability {
-  if (backend === 'llama') return { enabled: true, reason: null };
+  if (preset.Backend === 'llama') return { enabled: true, reason: null };
+
+  if (field === 'UBatchSize') return { enabled: true, reason: null };
+  if (
+    field === 'ParallelSlots'
+    || field === 'SpeculativeEnabled'
+    || field === 'SpeculativeType'
+    || field === 'SpeculativeDraftMax'
+  ) {
+    return preset.ExternalServerEnabled
+      ? { enabled: false, reason: 'Requires SiftKit-managed TabbyAPI' }
+      : { enabled: true, reason: null };
+  }
 
   switch (field) {
     case 'ExecutablePath':
@@ -74,15 +85,10 @@ export function getPresetFieldAvailability(
     case 'NcpuMoe':
     case 'FlashAttention':
     case 'BatchSize':
-    case 'UBatchSize':
     case 'CacheRam':
     case 'ReasoningBudget':
     case 'ReasoningBudgetMessage':
-    case 'ParallelSlots':
-    case 'SpeculativeEnabled':
-    case 'SpeculativeType':
     case 'SpeculativeMtpEnabled':
-    case 'SpeculativeDraftMax':
     case 'SpeculativeDraftMin':
     case 'SpeculativeNgramSizeN':
     case 'SpeculativeNgramSizeM':

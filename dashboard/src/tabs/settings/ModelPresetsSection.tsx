@@ -18,6 +18,7 @@ import type {
 
 const KV_CACHE_QUANT_OPTIONS = ['f32', 'f16', 'bf16', 'q8_0', 'q4_0', 'q4_1', 'iq4_nl', 'q5_0', 'q5_1', 'q8_0/q4_0', 'q8_0/q5_0'] as const;
 const SPECULATIVE_TYPE_OPTIONS = ['draft-simple', 'draft-eagle3', 'draft-mtp', 'ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod', 'ngram-cache'] as const;
+const EXL3_SPECULATIVE_TYPE_OPTIONS = ['draft-mtp'] as const;
 const LOCAL_LLAMA_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]', '0.0.0.0']);
 
 type RenderField = (
@@ -69,7 +70,7 @@ function renderCompatibilityControl(
   field: ModelPresetField,
   control: ReactNode,
 ): ReactNode {
-  const availability = getPresetFieldAvailability(preset.Backend, field);
+  const availability = getPresetFieldAvailability(preset, field);
   return (
     <div className="settings-live-stack">
       <fieldset className="settings-compatibility-control" disabled={!availability.enabled}>{control}</fieldset>
@@ -107,6 +108,9 @@ export function ModelPresetsSection({
   const baseUrl = selectedModelPreset.BaseUrl || '';
   const remoteLlamaBaseUrl = selectedModelPreset.Backend === 'llama' && isRemoteLlamaBaseUrl(baseUrl);
   const speculativeType = selectedModelPreset.SpeculativeType;
+  const speculativeTypeOptions = selectedModelPreset.Backend === 'exl3'
+    ? EXL3_SPECULATIVE_TYPE_OPTIONS
+    : SPECULATIVE_TYPE_OPTIONS;
   const speculativeEnabled = selectedModelPreset.SpeculativeEnabled;
   const draftSpeculativeType = speculativeEnabled && isDraftSpeculativeType(speculativeType);
   const ngramModSpeculativeType = speculativeEnabled && speculativeType === 'ngram-mod';
@@ -114,7 +118,8 @@ export function ModelPresetsSection({
   const mtpCombineAvailable = speculativeEnabled && isNgramSpeculativeType(speculativeType);
   const mtpCombineEnabled = mtpCombineAvailable && selectedModelPreset.SpeculativeMtpEnabled;
   const draftTokenFields = draftSpeculativeType || mtpCombineEnabled;
-  const mtpParallelSlotsWarning = speculativeEnabled
+  const mtpParallelSlotsWarning = selectedModelPreset.Backend === 'llama'
+    && speculativeEnabled
     && (speculativeType === 'draft-mtp' || mtpCombineEnabled)
     && selectedModelPreset.ParallelSlots > 1;
 
@@ -168,6 +173,10 @@ export function ModelPresetsSection({
             value={selectedModelPreset.Backend}
             onChange={(event) => updateModelPresetDraft((preset) => {
               preset.Backend = event.target.value === 'exl3' ? 'exl3' : 'llama';
+              if (preset.Backend === 'exl3') {
+                preset.SpeculativeType = 'draft-mtp';
+                preset.SpeculativeMtpEnabled = false;
+              }
             })}
           >
             <option value="llama">llama.cpp</option>
@@ -398,7 +407,7 @@ export function ModelPresetsSection({
       {selectedModelPreset.SpeculativeEnabled ? renderField('model-presets', 'Speculative type', (
         renderCompatibilityControl(selectedModelPreset, 'SpeculativeType', (
           <select value={selectedModelPreset.SpeculativeType} onChange={(event) => updateModelPresetDraft((preset) => { const next = SPECULATIVE_TYPE_OPTIONS.find((option) => option === event.target.value); if (next) preset.SpeculativeType = next; })}>
-            {SPECULATIVE_TYPE_OPTIONS.map((option) => (
+            {speculativeTypeOptions.map((option) => (
               <option key={option} value={option}>{option}</option>
             ))}
           </select>

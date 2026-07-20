@@ -146,6 +146,8 @@ test('EXL3 cache compatibility is exhaustive', () => {
 });
 
 test('EXL3 availability disables fields without equivalents and keeps wake settings enabled', () => {
+  const managedExl3 = createModelPreset({ Backend: 'exl3', ExternalServerEnabled: false });
+  const externalExl3 = createModelPreset({ Backend: 'exl3', ExternalServerEnabled: true });
   const unsupported = [
     'ExecutablePath',
     'GpuLayers',
@@ -153,15 +155,10 @@ test('EXL3 availability disables fields without equivalents and keeps wake setti
     'NcpuMoe',
     'FlashAttention',
     'BatchSize',
-    'UBatchSize',
     'CacheRam',
     'ReasoningBudget',
     'ReasoningBudgetMessage',
-    'ParallelSlots',
-    'SpeculativeEnabled',
-    'SpeculativeType',
     'SpeculativeMtpEnabled',
-    'SpeculativeDraftMax',
     'SpeculativeDraftMin',
     'SpeculativeNgramSizeN',
     'SpeculativeNgramSizeM',
@@ -175,13 +172,34 @@ test('EXL3 availability disables fields without equivalents and keeps wake setti
   ] satisfies ModelPresetField[];
 
   for (const field of unsupported) {
-    assert.deepEqual(getPresetFieldAvailability('exl3', field), {
+    assert.deepEqual(getPresetFieldAvailability(managedExl3, field), {
       enabled: false,
       reason: 'Not supported by EXL3',
     });
   }
-  assert.deepEqual(getPresetFieldAvailability('exl3', 'SleepIdleSeconds'), { enabled: true, reason: null });
-  assert.deepEqual(getPresetFieldAvailability('exl3', 'KvCacheQuantization'), {
+  for (const field of [
+    'ParallelSlots',
+    'UBatchSize',
+    'SpeculativeEnabled',
+    'SpeculativeType',
+    'SpeculativeDraftMax',
+  ] satisfies ModelPresetField[]) {
+    assert.deepEqual(getPresetFieldAvailability(managedExl3, field), { enabled: true, reason: null });
+  }
+  assert.deepEqual(getPresetFieldAvailability(externalExl3, 'UBatchSize'), { enabled: true, reason: null });
+  for (const field of [
+    'ParallelSlots',
+    'SpeculativeEnabled',
+    'SpeculativeType',
+    'SpeculativeDraftMax',
+  ] satisfies ModelPresetField[]) {
+    assert.deepEqual(getPresetFieldAvailability(externalExl3, field), {
+      enabled: false,
+      reason: 'Requires SiftKit-managed TabbyAPI',
+    });
+  }
+  assert.deepEqual(getPresetFieldAvailability(managedExl3, 'SleepIdleSeconds'), { enabled: true, reason: null });
+  assert.deepEqual(getPresetFieldAvailability(managedExl3, 'KvCacheQuantization'), {
     enabled: true,
     reason: 'Only EXL3-compatible cache modes are available',
   });
@@ -208,9 +226,9 @@ test('EXL3 availability disables fields without equivalents and keeps wake setti
     'SleepIdleSeconds',
   ] satisfies ModelPresetField[];
   for (const field of supported) {
-    assert.deepEqual(getPresetFieldAvailability('exl3', field), { enabled: true, reason: null });
+    assert.deepEqual(getPresetFieldAvailability(managedExl3, field), { enabled: true, reason: null });
   }
-  assert.deepEqual(getPresetFieldAvailability('llama', 'GpuLayers'), { enabled: true, reason: null });
+  assert.deepEqual(getPresetFieldAvailability(createModelPreset(), 'GpuLayers'), { enabled: true, reason: null });
 });
 
 test('EXL3 adapter returns common request defaults', () => {
