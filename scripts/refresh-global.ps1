@@ -178,7 +178,7 @@ function Stop-ExistingGlobalSiftKitStatusServer {
 $tarballName = Get-SiftKitPackageTarballName
 
 Write-Host 'Packing current repo...'
-Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('pack', '--loglevel', 'error') -Description 'Packing current repo'
+Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('pack', '--workspaces=false', '--loglevel', 'error') -Description 'Packing current repo'
 
 Stop-ExistingGlobalSiftKitStatusServer
 

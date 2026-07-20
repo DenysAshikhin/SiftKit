@@ -16,3 +16,12 @@ test('global refresh uses only the npm tarball installation path', () => {
     /Invoke-RetryableCommand[^\r\n]+@\('i', '-g', \$tarballName, '--force', '--loglevel', 'error'\)/u,
   );
 });
+
+test('global refresh packs only the root package without workspace traversal', () => {
+  const script = fs.readFileSync(scriptPath, 'utf8');
+
+  assert.match(
+    script,
+    /Invoke-RetryableCommand[^\r\n]+@\('pack', '--workspaces=false', '--loglevel', 'error'\)/u,
+  );
+});
