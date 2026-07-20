@@ -268,6 +268,28 @@ test('llama client covers token-count fallbacks, model fallbacks, and status err
   assert.deepEqual(status, { ok: false, models: [], error: 'HTTP 500: server exploded' });
 });
 
+test('llama client accepts current object-valued model lists', async () => {
+  const client = new LlamaCppClient(new CapturingHttpClient([
+    jsonResponse({
+      models: [{
+        name: 'Qwen3.6-27B-IQ4_NL_mtp.gguf',
+        model: 'Qwen3.6-27B-IQ4_NL_mtp.gguf',
+      }],
+      data: [{ id: 'Qwen3.6-27B-IQ4_NL_mtp.gguf' }],
+    }),
+    jsonResponse({
+      models: [{ name: 'fallback-name.gguf' }],
+    }),
+  ]));
+
+  const current = await client.probeModelsAtBaseUrl('http://127.0.0.1:8097');
+  assert.equal(current.statusCode, 200);
+  assert.deepEqual(current.models, ['Qwen3.6-27B-IQ4_NL_mtp.gguf']);
+
+  const fallback = await client.probeModelsAtBaseUrl('http://127.0.0.1:8097');
+  assert.deepEqual(fallback.models, ['fallback-name.gguf']);
+});
+
 test('llama client covers non-streaming request and response normalization branches', async () => {
   const http = new CapturingHttpClient([
     jsonResponse({

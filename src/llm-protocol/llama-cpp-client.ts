@@ -118,13 +118,26 @@ const RawTokenizeResponseSchema = z.object({
 });
 type RawTokenizeResponse = z.infer<typeof RawTokenizeResponseSchema>;
 
-const RawModelListResponseSchema = z.object({
-  data: z.array(z.object({ id: z.string().optional(), model: z.string().optional() })).optional(),
-  models: z.array(z.string()).optional(),
+const RawModelReferenceSchema = z.object({
+  id: z.string().optional(),
+  model: z.string().optional(),
+  name: z.string().optional(),
 });
+const RawModelEntrySchema = z.union([z.string(), RawModelReferenceSchema]);
+const RawModelListResponseSchema = z.object({
+  data: z.array(RawModelReferenceSchema).optional(),
+  models: z.array(RawModelEntrySchema).optional(),
+});
+type RawModelEntry = z.infer<typeof RawModelEntrySchema>;
 type RawModelListResponse = z.infer<typeof RawModelListResponseSchema>;
 const inferenceRequestBuilder = new InferenceRequestBuilder();
 const exl3RequestGate = new SingleRequestGate();
+
+function getRawModelIdentifier(entry: RawModelEntry): string {
+  return typeof entry === 'string'
+    ? entry
+    : entry.id || entry.model || entry.name || '';
+}
 
 export type LlamaCppModelProbeResult = {
   statusCode: number;
@@ -217,13 +230,20 @@ export class LlamaCppClient {
       method: 'GET',
       timeoutMs,
     }, RawModelListResponseSchema);
-    const dataModels = (response.body.data || [])
-      .map((model) => model.id || model.model || '')
-      .filter((model) => model.trim());
+    const dataModels: string[] = [];
+    for (const model of response.body.data || []) {
+      const identifier = getRawModelIdentifier(model);
+      if (identifier.trim()) dataModels.push(identifier);
+    }
+    const fallbackModels: string[] = [];
+    for (const model of response.body.models || []) {
+      const identifier = getRawModelIdentifier(model);
+      if (identifier.trim()) fallbackModels.push(identifier);
+    }
     return {
       statusCode: response.statusCode,
       rawText: response.rawText,
-      models: dataModels.length > 0 ? dataModels : (response.body.models || []).filter((model) => model.trim()),
+      models: dataModels.length > 0 ? dataModels : fallbackModels,
     };
   }
 
