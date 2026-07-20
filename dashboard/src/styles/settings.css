@@ -623,3 +623,29 @@
 .tchip { font: inherit; font-size: 0.66rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); background: none; cursor: pointer; font-family: ui-monospace, Consolas, monospace; }
 .tchip.on { border-color: var(--acc); color: var(--acc); }
 .tchip.blocked { text-decoration: line-through; opacity: 0.55; cursor: not-allowed; }
+
+/* ---- model presets ---- */
+.mp-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+.mp-select { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel2); padding: 5px 10px; font-size: 0.78rem; }
+.mp-select select { width: auto; border: none; background: none; padding: 0; }
+.active-pill { font-size: 0.62rem; color: var(--ok); border: 1px solid #2a5a41; border-radius: 999px; padding: 1px 7px; }
+.segc { display: flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.segc button { font: inherit; font-size: 0.74rem; border: none; background: none; color: var(--dim); padding: 5px 12px; cursor: pointer; border-radius: 0; }
+.segc button + button { border-left: 1px solid var(--line); }
+.segc button.on { background: #17222e; color: var(--acc); }
+#mp-body.exl3 .be-l { display: none; }
+#mp-body:not(.exl3) .be-x { display: none; }
+.mpg { border: 1px solid var(--line); border-radius: 9px; background: var(--panel); margin-bottom: 8px; overflow: hidden; }
+.mpg > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 9px 12px; }
+.mpg > summary::-webkit-details-marker { display: none; }
+.mpg > summary .chev { color: var(--dim); font-size: 0.66rem; transition: transform 0.15s; }
+.mpg[open] > summary .chev { transform: rotate(90deg); }
+.mpg > summary .gt { font-size: 0.78rem; font-weight: 600; }
+.mpg > summary .gsum { margin-left: auto; color: var(--dim); font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.68rem; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mpg[open] > summary { border-bottom: 1px solid var(--line); }
+.mpg[open] > summary .gsum { display: none; }
+.mpg .gbody { padding: 10px 12px; }
+.fgrid.flat { gap: 4px 14px; }
+.fgrid.flat .field { border: none; background: none; border-radius: 0; padding: 5px 4px; }
+@media (prefers-reduced-motion: reduce) { .mpg > summary .chev { transition: none; } }
+.cond-note { font-size: 0.7rem; color: #5f7288; border: 1px dashed var(--line); border-radius: 7px; padding: 6px 10px; margin-top: 8px; }
