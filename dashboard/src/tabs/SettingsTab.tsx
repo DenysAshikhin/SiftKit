@@ -1,17 +1,7 @@
 import React from 'react';
 import type { ReactNode } from 'react';
 
-import {
-  applyOperationModeDefaults,
-  applyPresetKindDefaults,
-  getEffectivePresetTools,
-  PRESET_TOOL_DESCRIPTIONS,
-  PRESET_TOOL_OPTIONS,
-  getPresetToolsSummary,
-  togglePresetTool,
-} from '../preset-editor';
-import { formatDate, formatNumber, parseFloatInput, parseIntegerInput } from '../lib/format';
-import { applyModelPresetSelection } from '../model-runtime-presets';
+import { formatDate, formatNumber, parseIntegerInput } from '../lib/format';
 import type { DirtyContinuation } from '../settings-flow';
 import {
   POLICY_MODE_OPTIONS,
@@ -20,10 +10,11 @@ import {
   getSettingsFieldDescriptor,
   type SettingsSectionId,
 } from '../settings-sections';
-import { SettingsField, SettingsInlineHelpLabel } from '../settings/SettingsFields';
+import { SettingsField } from '../settings/SettingsFields';
 import type { DashboardConfig, DashboardModelRuntimePreset, DashboardPreset, ProviderQuota, WebSearchUsage } from '../types';
 import { PresetsSection } from './settings/PresetsSection';
 import { ModelPresetsSection } from './settings/ModelPresetsSection';
+import { ToolPolicyMatrix } from './settings/ToolPolicyMatrix';
 
 export type SettingsTabProps = {
   activeSettingsSection: SettingsSectionId;
@@ -198,43 +189,7 @@ export function SettingsTab(props: SettingsTabProps) {
       return null;
     }
     return (
-      <div className="fgrid">
-        {renderField('tool-policy', 'Operation mode tool policy', (
-          <div className="settings-preset-mode-grid">
-            {(['summary', 'read-only', 'full'] as const).map((operationMode) => (
-              <div key={operationMode} className="settings-preset-mode-card">
-                <span className="settings-preset-mode-title">
-                  <SettingsInlineHelpLabel
-                    label={operationMode}
-                    helpText={`Globally allowed tools for ${operationMode} mode.`}
-                  />
-                </span>
-                <div className="settings-preset-tools-list compact">
-                  {PRESET_TOOL_OPTIONS.map((tool) => (
-                    <label key={`${operationMode}-${tool}`} className="settings-preset-tools-option" tabIndex={0}>
-                      <input
-                        type="checkbox"
-                        checked={dashboardConfig.OperationModeAllowedTools[operationMode].includes(tool)}
-                        onChange={() => updateSettingsDraft((next) => {
-                          next.OperationModeAllowedTools[operationMode] = togglePresetTool(
-                            next.OperationModeAllowedTools[operationMode],
-                            tool,
-                          );
-                        })}
-                      />
-                      <span className="settings-preset-tools-option-label">{tool}</span>
-                      <span className="settings-preset-tools-option-popover" role="tooltip">
-                        <strong>{tool}</strong>
-                        {PRESET_TOOL_DESCRIPTIONS[tool]}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>
+      <ToolPolicyMatrix allowed={dashboardConfig.OperationModeAllowedTools} updateSettingsDraft={updateSettingsDraft} />
     );
   };
 

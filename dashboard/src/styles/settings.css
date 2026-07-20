@@ -593,3 +593,13 @@
 .settings-live-help-trigger { border: 1px solid var(--line); background: var(--panel2); color: var(--dim); border-radius: 999px; width: 16px; height: 16px; padding: 0; font-size: 0.62rem; cursor: help; }
 .settings-live-help-popover { display: none; position: absolute; z-index: 20; top: 120%; left: 0; width: 240px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 0.72rem; color: var(--ink); }
 .settings-live-help:hover .settings-live-help-popover, .settings-live-help:focus-within .settings-live-help-popover { display: block; }
+
+/* ---- tool policy matrix ---- */
+.tp-table { width: 100%; border-collapse: collapse; font-size: 0.76rem; }
+.tp-table th { text-align: left; font-size: 0.64rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); padding: 7px 10px; border-bottom: 1px solid var(--line); }
+.tp-table th.c, .tp-table td.c { text-align: center; width: 90px; }
+.tp-table td { padding: 5px 10px; border-bottom: 1px solid var(--line); font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+.tp-table tr.grp td { font-family: inherit; font-size: 0.64rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); padding-top: 12px; border-bottom-color: transparent; }
+.cb { width: 15px; height: 15px; border: 1px solid var(--line); border-radius: 4px; display: inline-block; position: relative; background: none; padding: 0; cursor: pointer; }
+.cb.on { background: var(--acc); border-color: var(--acc); }
+.cb.on::after { content: "✓"; position: absolute; inset: 0; color: #06251e; font-size: 0.68rem; line-height: 15px; text-align: center; font-weight: 700; }
