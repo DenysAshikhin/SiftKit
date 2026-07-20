@@ -603,3 +603,23 @@
 .cb { width: 15px; height: 15px; border: 1px solid var(--line); border-radius: 4px; display: inline-block; position: relative; background: none; padding: 0; cursor: pointer; }
 .cb.on { background: var(--acc); border-color: var(--acc); }
 .cb.on::after { content: "✓"; position: absolute; inset: 0; color: #06251e; font-size: 0.68rem; line-height: 15px; text-align: center; font-weight: 700; }
+
+/* ---- presets library ---- */
+.plib { display: grid; grid-template-columns: 225px 1fr; gap: 12px; align-items: start; }
+@media (max-width: 900px) { .plib { grid-template-columns: 1fr; } }
+.plist { border: 1px solid var(--line); border-radius: 9px; background: var(--panel); overflow: hidden; }
+.prow { padding: 8px 11px; border-left: 2px solid transparent; cursor: pointer; border-bottom: 1px solid var(--line); }
+.prow:last-of-type { border-bottom: none; }
+.prow:hover { background: #131e29; }
+.prow.sel { background: #14202c; border-left-color: var(--acc); }
+.prow .t { display: block; font-size: 0.8rem; }
+.prow .badges { display: flex; gap: 5px; margin-top: 2px; flex-wrap: wrap; }
+.bdg { font-size: 0.6rem; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); }
+.bdg.custom { border-color: #4a5f3a; color: #a8d08a; }
+.plist-add { width: 100%; border: none; background: none; color: var(--acc); font: inherit; font-size: 0.74rem; padding: 8px; cursor: pointer; }
+.pcard { border: 1px solid var(--line); border-radius: 9px; background: var(--panel); padding: 12px 14px; }
+.pcard .pmeta { color: var(--dim); font-size: 0.7rem; font-family: ui-monospace, Consolas, monospace; margin-bottom: 10px; display: flex; align-items: center; }
+.tool-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.tchip { font: inherit; font-size: 0.66rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); background: none; cursor: pointer; font-family: ui-monospace, Consolas, monospace; }
+.tchip.on { border-color: var(--acc); color: var(--acc); }
+.tchip.blocked { text-decoration: line-through; opacity: 0.55; cursor: not-allowed; }

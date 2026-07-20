@@ -398,7 +398,6 @@ export function SettingsTab(props: SettingsTabProps) {
           dashboardConfig={dashboardConfig}
           selectedSettingsPreset={selectedSettingsPreset}
           selectedSettingsPresetId={selectedSettingsPresetId}
-          renderField={renderField}
           setSelectedSettingsPresetId={setSelectedSettingsPresetId}
           updateSettingsDraft={updateSettingsDraft}
           updatePresetDraft={updatePresetDraft}
