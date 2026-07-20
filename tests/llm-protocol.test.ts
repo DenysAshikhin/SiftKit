@@ -358,7 +358,7 @@ test('EXL3 token counting uses the Tabby OpenAI token endpoint', async () => {
   assert.deepEqual(JSON.parse(String(http.requests[0]?.body)), { text: 'large prompt' });
 });
 
-test('EXL3 omits Tabby grammar inputs and parses Qwen XML tool calls', async () => {
+test('EXL3 forwards native tools and response format while parsing Qwen XML tool calls', async () => {
   const config = buildProtocolConfig();
   config.Server.ModelPresets.Presets[0].Backend = 'exl3';
   config.Server.ModelPresets.Presets[0].BaseUrl = 'http://127.0.0.1:8098';
@@ -395,9 +395,9 @@ test('EXL3 omits Tabby grammar inputs and parses Qwen XML tool calls', async () 
   });
 
   const body = JSON.parse(String(http.requests[0]?.body || '{}'));
-  assert.equal(body.tools, undefined);
-  assert.equal(body.parallel_tool_calls, undefined);
-  assert.equal(body.response_format, undefined);
+  assert.deepEqual(body.tools, [tool]);
+  assert.equal(body.parallel_tool_calls, true);
+  assert.deepEqual(body.response_format, { type: 'json_object' });
   assert.equal(response.toolCalls[0]?.function.name, 'repo_rg');
   assert.deepEqual(JSON.parse(response.toolCalls[0]?.function.arguments || '{}'), { pattern: 'SelectedBackend' });
 });

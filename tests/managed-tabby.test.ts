@@ -79,13 +79,35 @@ test('concurrent Tabby readiness calls perform one model load and unload explici
     assert.equal(runtime.getProcessState(), 'ready');
     assert.equal(loadRequests, 1);
     assert.equal(runtime.getModelState(), 'ready');
+    await runtime.ensurePresetReady(exl3Preset);
+    assert.equal(loadRequests, 1);
     await runtime.unloadPreset();
     assert.equal(runtime.getModelState(), 'unloaded');
+    await runtime.unloadPreset();
   } finally {
     await runtime.stopProcess();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('Tabby runtime rejects a llama preset before lifecycle work', async () => {
+  const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('Default model preset is missing');
+  const runtime = new ManagedTabbyRuntime({
+    Managed: false,
+    WorkingDirectory: '.',
+    PythonPath: process.execPath,
+    Entrypoint: 'unused',
+    ConfigPath: 'config.yml',
+    ModelRoot: '.',
+    AdminApiKey: '',
+    ShutdownTimeoutMs: 100,
+  });
+
+  await assert.rejects(runtime.ensurePresetReady(preset), /cannot be loaded by the EXL3 runtime/u);
+  assert.equal(runtime.getProcessState(), 'stopped');
+  assert.equal(runtime.getModelState(), 'unloaded');
 });
 
 test('managed Tabby launches with the resolved ConfigPath and loads the validated preset', async () => {

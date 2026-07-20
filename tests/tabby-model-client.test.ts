@@ -154,6 +154,52 @@ test('Tabby process readiness returns false for connection failures', async () =
   assert.equal(await new TabbyModelClient('admin-secret').isProcessReady('http://127.0.0.1:1', 50), false);
 });
 
+test('Tabby model client rejects successful load when the model is not resident', async () => {
+  const server = http.createServer((request, response) => {
+    if (request.url === '/v1/model/load') {
+      response.writeHead(200, { 'content-type': 'text/event-stream' });
+      response.end('data: {"model_type":"model","module":1,"modules":1,"status":"finished"}\n\n');
+      return;
+    }
+    response.statusCode = 503;
+    response.end('No models are currently loaded');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
+  try {
+    await assert.rejects(new TabbyModelClient('').load(baseUrl, {
+      model_name: 'model-a',
+      max_seq_len: 8192,
+      cache_size: 8192,
+      cache_mode: 'FP16',
+    }, 1_000), /model 'model-a' is not resident/u);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test('Tabby model client rejects successful unload when a model remains resident', async () => {
+  const server = http.createServer((request, response) => {
+    if (request.url === '/v1/model/unload') {
+      response.statusCode = 200;
+      response.end();
+      return;
+    }
+    response.setHeader('content-type', 'application/json');
+    response.end('{"id":"model-a"}');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
+  try {
+    await assert.rejects(
+      new TabbyModelClient('').unload(baseUrl, 1_000),
+      /unload completed but 'model-a' is still resident/u,
+    );
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test('Tabby model client rejects a load stream without terminal completion', async () => {
   const server = http.createServer((request, response) => {
     if (request.url === '/v1/model/load') {

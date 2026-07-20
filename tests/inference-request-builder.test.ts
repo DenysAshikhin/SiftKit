@@ -140,3 +140,39 @@ test('explicit request samplers override active preset defaults', () => {
   assert.equal(request.repeat_penalty, 1);
   assert.equal(request.repetition_penalty, undefined);
 });
+
+test('request builder omits thinking kwargs when no thinking override is supplied', () => {
+  const request = new InferenceRequestBuilder().build({
+    backend: 'exl3',
+    model: '3.6_27B',
+    messages,
+    tools: [],
+    defaults,
+    overrides: {},
+    stream: false,
+    thinking: { enabled: undefined, preserve: false, reasoningContent: false },
+    llama: { cachePrompt: false },
+  });
+
+  assert.equal(request.chat_template_kwargs, undefined);
+});
+
+test('llama request includes reasoning content when requested', () => {
+  const request = new InferenceRequestBuilder().build({
+    backend: 'llama',
+    model: 'llama-model',
+    messages,
+    tools: [],
+    defaults,
+    overrides: {},
+    stream: false,
+    thinking: { enabled: true, preserve: true, reasoningContent: true },
+    llama: { cachePrompt: false },
+  });
+
+  assert.deepEqual(request.chat_template_kwargs, {
+    enable_thinking: true,
+    reasoning_content: true,
+    preserve_thinking: true,
+  });
+});

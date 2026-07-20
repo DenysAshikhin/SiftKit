@@ -326,7 +326,7 @@ test('llama.cpp provider omits native tools for structured planner JSON', async 
   });
 });
 
-test('EXL3 provider omits Tabby grammar inputs for structured planner output', async () => {
+test('EXL3 provider forwards native structured planner output', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -345,7 +345,7 @@ test('EXL3 provider omits Tabby grammar inputs for structured planner output', a
       });
 
       assert.equal(server.state.chatRequests.length, 1);
-      assert.equal(server.state.chatRequests[0]?.response_format, undefined);
+      assert.equal(server.state.chatRequests[0]?.response_format?.type, 'json_schema');
       assert.equal(server.state.chatRequests[0]?.tools, undefined);
       assert.equal(server.state.chatRequests[0]?.parallel_tool_calls, undefined);
     });

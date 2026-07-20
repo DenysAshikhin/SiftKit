@@ -429,7 +429,7 @@ test('requestRepoSearchPlannerProtocolAction sends json_schema response_format w
   });
 });
 
-test('requestRepoSearchPlannerProtocolAction keeps EXL3 requests grammar-free', async () => {
+test('requestRepoSearchPlannerProtocolAction forwards native EXL3 structured output', async () => {
   let capturedBody: JsonObject | null = null;
   await withServer((req, res) => {
     let body = '';
@@ -453,7 +453,7 @@ test('requestRepoSearchPlannerProtocolAction keeps EXL3 requests grammar-free', 
     });
 
     const captured = asObject(capturedBody);
-    assert.equal('response_format' in captured, false);
+    assert.equal(asObject(captured.response_format).type, 'json_schema');
     assert.equal('tools' in captured, false);
     assert.equal('cache_prompt' in captured, false);
     assert.equal('id_slot' in captured, false);
