@@ -1646,7 +1646,12 @@ class ConfigUpdateEndpoint implements RouteEndpoint {
     }
     if (ctx.presetRuntimeCoordinator) {
       ctx.modelIdleController?.cancelForPresetChange();
-      await ctx.presetRuntimeCoordinator.applyConfig(nextConfig);
+      try {
+        await ctx.presetRuntimeCoordinator.applyConfig(nextConfig);
+      } catch (error) {
+        sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
+        return;
+      }
     } else {
       writeConfig(configPath, nextConfig);
     }

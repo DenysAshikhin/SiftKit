@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 
 import { summarizeRequest } from '../src/summary.js';
-import { writeConfig } from '../src/status-server/config-store.js';
+import { readConfig, writeConfig } from '../src/status-server/config-store.js';
 import { readStatusText } from '../src/status-server/status-file.js';
 import type { SiftConfig } from '../src/config/types.js';
 
@@ -16,6 +17,7 @@ import {
   getFreePort,
   requestJson,
   sleep,
+  startStatusServerProcess,
   waitForAsyncExpectation,
   withRealStatusServer,
   withStubServer,
@@ -25,6 +27,7 @@ import {
   type HealthCheckResponse,
   type LlamaModelsResponse,
 } from './_runtime-helpers.js';
+import { getAddressInfo } from './helpers/dashboard-http.js';
 
 test('summary status notification failures do not abort provider work', async () => {
   await withTempEnv(async () => {
@@ -215,6 +218,97 @@ test('real status server rejects removed config fields without leaving the reque
       configPath,
       disableManagedLlamaStartup: true,
     });
+  });
+});
+
+test('failed preset switch returns 503 and keeps the status server alive', async () => {
+  await withTempEnv(async (tempRoot) => {
+    let tabbyResident = false;
+    const tabby = http.createServer((request, response) => {
+      if (request.url === '/v1/models') {
+        response.setHeader('content-type', 'application/json');
+        response.end('{"data":[]}');
+        return;
+      }
+      if (request.url === '/v1/model/load' && request.method === 'POST') {
+        tabbyResident = true;
+        response.writeHead(200, { 'content-type': 'text/event-stream' });
+        response.end('data: {"model_type":"model","module":1,"modules":1,"status":"finished"}\n\n');
+        return;
+      }
+      if (request.url === '/v1/model' && request.method === 'GET') {
+        response.statusCode = tabbyResident ? 200 : 503;
+        response.setHeader('content-type', 'application/json');
+        response.end(tabbyResident ? '{"id":"tabby-model"}' : '{}');
+        return;
+      }
+      if (request.url === '/v1/model/unload' && request.method === 'POST') {
+        tabbyResident = false;
+        response.statusCode = 200;
+        response.end();
+        return;
+      }
+      response.statusCode = 404;
+      response.end();
+    });
+    await new Promise<void>((resolve) => tabby.listen(0, '127.0.0.1', resolve));
+
+    const configPath = getConfigPath();
+    const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+    const unreachableLlamaPort = await getFreePort();
+    const config = getDefaultConfig();
+    const basePreset = config.Server.ModelPresets.Presets[0];
+    if (!basePreset) throw new Error('Default model preset is missing');
+    const exl3Preset = {
+      ...basePreset,
+      id: 'exl3-main',
+      Backend: 'exl3' as const,
+      BaseUrl: `http://127.0.0.1:${getAddressInfo(tabby).port}`,
+      Model: 'tabby-model',
+      ModelPath: path.join(tempRoot, 'tabby-model'),
+    };
+    const llamaPreset = {
+      ...basePreset,
+      id: 'llama-main',
+      Backend: 'llama' as const,
+      ExternalServerEnabled: true,
+      BaseUrl: `http://127.0.0.1:${unreachableLlamaPort}`,
+      Model: 'llama-model',
+      HealthcheckTimeoutMs: 50,
+    };
+    config.Server.Engines.Exl3 = {
+      Managed: false,
+      WorkingDirectory: tempRoot,
+      PythonPath: process.execPath,
+      Entrypoint: 'unused',
+      ConfigPath: 'config.yml',
+      ModelRoot: tempRoot,
+      AdminApiKey: '',
+      ShutdownTimeoutMs: 1_000,
+    };
+    config.Server.ModelPresets = {
+      ActivePresetId: exl3Preset.id,
+      Presets: [exl3Preset, llamaPreset],
+    };
+    writeConfig(configPath, config);
+    const statusServer = await startStatusServerProcess({ statusPath, configPath, workingDirectory: tempRoot });
+
+    try {
+      await new Promise<void>((resolve) => tabby.close(() => resolve()));
+      config.Server.ModelPresets.ActivePresetId = llamaPreset.id;
+      const update = await fetch(statusServer.configUrl, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(config),
+      });
+
+      assert.equal(update.status, 503);
+      assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, exl3Preset.id);
+      assert.equal((await fetch(`http://127.0.0.1:${statusServer.port}/health`)).status, 200);
+    } finally {
+      if (tabby.listening) await new Promise<void>((resolve) => tabby.close(() => resolve()));
+      await statusServer.close();
+    }
   });
 });
 
