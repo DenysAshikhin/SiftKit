@@ -1,4 +1,4 @@
-import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
+import type { ModelRuntimePreset } from '../config/types.js';
 import { ManagedInferenceRuntime } from './managed-inference-runtime.js';
 import {
   ensureManagedLlamaReady,
@@ -6,23 +6,14 @@ import {
 } from './managed-llama.js';
 import type { ServerContext } from './server-types.js';
 
-const llamaCapabilities = {
-  chatTemplateKwargs: true,
-  reasoningContent: true,
-  toolCalling: true,
-  jsonSchema: true,
-  speculativeMode: 'ngram',
-  reusablePrefixCache: 'in-process-partial',
-} as const;
-
 export class ManagedLlamaRuntime extends ManagedInferenceRuntime {
   private residentPresetId: string | null = null;
 
-  constructor(private readonly ctx: ServerContext, _config: SiftConfig) {
-    super('llama', llamaCapabilities);
+  constructor(private readonly ctx: ServerContext) {
+    super('llama');
   }
 
-  async startProcess(): Promise<void> {
+  private async startProcess(): Promise<void> {
     if (this.getProcessState() === 'ready') return;
     this.transitionProcessTo('starting');
     try {

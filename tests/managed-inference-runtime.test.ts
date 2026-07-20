@@ -2,23 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { ModelRuntimePreset } from '../src/config/types.js';
-import {
-  ManagedInferenceRuntime,
-  type BackendCapabilities,
-} from '../src/status-server/managed-inference-runtime.js';
-
-const capabilities: BackendCapabilities = {
-  chatTemplateKwargs: true,
-  reasoningContent: true,
-  toolCalling: true,
-  jsonSchema: true,
-  speculativeMode: 'mtp',
-  reusablePrefixCache: 'unknown',
-};
+import { ManagedInferenceRuntime } from '../src/status-server/managed-inference-runtime.js';
 
 class TestRuntime extends ManagedInferenceRuntime {
   constructor() {
-    super('exl3', capabilities);
+    super('exl3');
   }
 
   async startProcess(): Promise<void> {
@@ -47,7 +35,7 @@ test('managed inference runtime exposes separate process and model state', async
   const runtime = new TestRuntime();
 
   assert.equal(runtime.id, 'exl3');
-  assert.deepEqual(runtime.getCapabilities(), capabilities);
+  assert.equal('getCapabilities' in runtime, false);
   assert.equal(runtime.getProcessState(), 'stopped');
   assert.equal(runtime.getModelState(), 'unloaded');
 

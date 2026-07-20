@@ -10,6 +10,10 @@ import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.js';
 import { getFreePort } from './_runtime-helpers.js';
 import { getAddressInfo } from './helpers/dashboard-http.js';
 
+test('ManagedTabbyRuntime construction requires only engine configuration', () => {
+  assert.equal(ManagedTabbyRuntime.length, 1);
+});
+
 test('concurrent Tabby readiness calls perform one model load and unload explicitly', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-tabby-model-'));
   let resident = false;
@@ -37,7 +41,7 @@ test('concurrent Tabby readiness calls perform one model load and unload explici
     }
     if (request.url === '/v1/model') {
       if (!resident) {
-        response.statusCode = 400;
+        response.statusCode = 503;
         response.end();
         return;
       }
@@ -51,6 +55,15 @@ test('concurrent Tabby readiness calls perform one model load and unload explici
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
   if (!preset) throw new Error('Default model preset is missing');
+  const exl3Preset = {
+    ...preset,
+    id: 'exl3-a',
+    Backend: 'exl3' as const,
+    BaseUrl: `http://127.0.0.1:${getAddressInfo(server).port}`,
+    Model: 'model-a',
+    ModelPath: path.join(root, 'model-a'),
+    HealthcheckIntervalMs: 10,
+  };
   const runtime = new ManagedTabbyRuntime({
     Managed: false,
     WorkingDirectory: root,
@@ -60,20 +73,10 @@ test('concurrent Tabby readiness calls perform one model load and unload explici
     ModelRoot: root,
     AdminApiKey: '',
     ShutdownTimeoutMs: 2_000,
-  }, {
-    ...preset,
-    id: 'exl3-a',
-    Backend: 'exl3',
-    BaseUrl: `http://127.0.0.1:${getAddressInfo(server).port}`,
-    Model: 'model-a',
-    ModelPath: path.join(root, 'model-a'),
-    HealthcheckIntervalMs: 10,
   });
   try {
-    await runtime.startProcess();
+    await Promise.all([runtime.ensurePresetReady(exl3Preset), runtime.ensurePresetReady(exl3Preset)]);
     assert.equal(runtime.getProcessState(), 'ready');
-    assert.equal(runtime.getModelState(), 'unloaded');
-    await Promise.all([runtime.ensurePresetReady({ ...preset, id: 'exl3-a', Backend: 'exl3', BaseUrl: `http://127.0.0.1:${getAddressInfo(server).port}`, Model: 'model-a', ModelPath: path.join(root, 'model-a') }), runtime.ensurePresetReady({ ...preset, id: 'exl3-a', Backend: 'exl3', BaseUrl: `http://127.0.0.1:${getAddressInfo(server).port}`, Model: 'model-a', ModelPath: path.join(root, 'model-a') })]);
     assert.equal(loadRequests, 1);
     assert.equal(runtime.getModelState(), 'ready');
     await runtime.unloadPreset();
@@ -85,7 +88,7 @@ test('concurrent Tabby readiness calls perform one model load and unload explici
   }
 });
 
-test('managed Tabby launches with the resolved ConfigPath while process readiness permits no loaded model', async () => {
+test('managed Tabby launches with the resolved ConfigPath and loads the validated preset', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-managed-tabby-'));
   const port = await getFreePort();
   const scriptPath = path.join(root, 'fake-tabby.cjs');
@@ -94,7 +97,20 @@ test('managed Tabby launches with the resolved ConfigPath while process readines
 const fs = require('node:fs');
 const http = require('node:http');
 fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(process.argv.slice(2)));
+let resident = false;
 const server = http.createServer((request, response) => {
+  if (request.url === '/v1/model/load' && request.method === 'POST') {
+    resident = true;
+    response.writeHead(200, { 'content-type': 'text/event-stream' });
+    response.end('data: {"model_type":"model","module":1,"modules":1,"status":"finished"}\\n\\n');
+    return;
+  }
+  if (request.url === '/v1/model' && request.method === 'GET') {
+    response.statusCode = resident ? 200 : 503;
+    response.setHeader('content-type', 'application/json');
+    response.end(resident ? '{"id":"model-a"}' : '{}');
+    return;
+  }
   response.setHeader('content-type', 'application/json');
   response.end('{"object":"list","data":[]}');
 });
@@ -103,6 +119,13 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)));
 `, 'utf8');
   const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
   if (!preset) throw new Error('Default model preset is missing');
+  const exl3Preset = {
+    ...preset,
+    Backend: 'exl3' as const,
+    BaseUrl: `http://127.0.0.1:${port}`,
+    Model: 'model-a',
+    ModelPath: path.join(root, 'model-a'),
+  };
   const runtime = new ManagedTabbyRuntime({
     Managed: true,
     WorkingDirectory: root,
@@ -112,11 +135,11 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)));
     ModelRoot: root,
     AdminApiKey: '',
     ShutdownTimeoutMs: 5_000,
-  }, { ...preset, Backend: 'exl3', BaseUrl: `http://127.0.0.1:${port}` });
+  });
   try {
-    await runtime.startProcess();
+    await runtime.ensurePresetReady(exl3Preset);
     assert.equal(runtime.getProcessState(), 'ready');
-    assert.equal(runtime.getModelState(), 'unloaded');
+    assert.equal(runtime.getModelState(), 'ready');
     assert.deepEqual(JSON.parse(fs.readFileSync(argsPath, 'utf8')), ['--config', path.join(root, 'config.yml')]);
   } finally {
     await runtime.stopProcess();
@@ -141,7 +164,7 @@ setInterval(() => {}, 1000);
       return;
     }
     if (request.url === '/v1/model' && request.method === 'GET') {
-      response.statusCode = resident ? 200 : 400;
+      response.statusCode = resident ? 200 : 503;
       response.setHeader('content-type', 'application/json');
       response.end(resident ? '{"id":"model-a"}' : '{}');
       return;
@@ -182,7 +205,7 @@ setInterval(() => {}, 1000);
     ModelRoot: root,
     AdminApiKey: '',
     ShutdownTimeoutMs: 2_000,
-  }, externalPreset);
+  });
   try {
     await runtime.ensurePresetReady(externalPreset);
     await new Promise((resolve) => setTimeout(resolve, 100));

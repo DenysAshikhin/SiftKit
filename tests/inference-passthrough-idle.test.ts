@@ -216,6 +216,7 @@ test('chat queued during a preset switch is translated for the target backend', 
     let releaseLlamaChat = false;
     let llamaChatCount = 0;
     let tabbyResident = false;
+    let tabbyRequestCount = 0;
     const tabbyChatBodies: JsonObject[] = [];
     const llama = http.createServer(async (request, response) => {
       if (request.url === '/v1/models') {
@@ -234,6 +235,7 @@ test('chat queued during a preset switch is translated for the target backend', 
       response.end();
     });
     const tabby = http.createServer(async (request, response) => {
+      tabbyRequestCount += 1;
       if (request.url === '/v1/models') {
         response.setHeader('content-type', 'application/json');
         response.end('{"data":[]}');
@@ -314,6 +316,7 @@ test('chat queued during a preset switch is translated for the target backend', 
       writeConfig(getConfigPath(), config);
       statusServer = startStatusServer();
       await statusServer.startupPromise;
+      assert.equal(tabbyRequestCount, 0);
       const siftBaseUrl = `http://127.0.0.1:${getAddressInfo(statusServer).port}`;
 
       const activeChatPromise = fetch(`${siftBaseUrl}/v1/chat/completions`, {

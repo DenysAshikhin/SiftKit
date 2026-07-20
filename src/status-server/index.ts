@@ -28,7 +28,7 @@ import {
   buildIdleSummarySnapshot,
   buildIdleMetricsLogMessage,
 } from './idle-summary.js';
-import { getActiveModelPreset, readConfig, writeConfig } from './config-store.js';
+import { readConfig, writeConfig } from './config-store.js';
 import {
   buildStatusRequestLogMessage,
   buildRepoSearchProgressLogMessage,
@@ -262,11 +262,10 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     ensureManagedLlamaReady: (opts) => ensureManagedLlamaReady(ctx, opts),
   };
   const initialConfig = readConfig(configPath);
-  const initialPreset = getActiveModelPreset(initialConfig);
-  const managedTabbyRuntime = new ManagedTabbyRuntime(initialConfig.Server.Engines.Exl3, initialPreset);
+  const managedTabbyRuntime = new ManagedTabbyRuntime(initialConfig.Server.Engines.Exl3);
   const presetRuntimeCoordinator = new PresetRuntimeCoordinator(
     configPath,
-    new ManagedLlamaRuntime(ctx, initialConfig),
+    new ManagedLlamaRuntime(ctx),
     managedTabbyRuntime,
   );
   if (!disableManagedLlamaStartup) {

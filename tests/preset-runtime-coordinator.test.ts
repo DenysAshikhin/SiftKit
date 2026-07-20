@@ -11,22 +11,13 @@ import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-co
 import { readConfig, writeConfig } from '../src/status-server/config-store.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 
-const capabilities = {
-  chatTemplateKwargs: true,
-  reasoningContent: true,
-  toolCalling: true,
-  jsonSchema: true,
-  speculativeMode: 'none',
-  reusablePrefixCache: 'unknown',
-} as const;
-
 class RecordingRuntime extends ManagedInferenceRuntime {
   constructor(
     id: InferenceBackendId,
     private readonly events: string[],
     private readonly failingPresetIds = new Set<string>(),
   ) {
-    super(id, capabilities);
+    super(id);
   }
 
   async startProcess(): Promise<void> {

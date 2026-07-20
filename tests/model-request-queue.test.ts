@@ -30,14 +30,7 @@ type StdoutLine = string;
 
 class QueueRuntime extends ManagedInferenceRuntime {
   constructor(id: InferenceBackendId, private readonly events: string[]) {
-    super(id, {
-      chatTemplateKwargs: true,
-      reasoningContent: true,
-      toolCalling: true,
-      jsonSchema: true,
-      speculativeMode: 'none',
-      reusablePrefixCache: 'unknown',
-    });
+    super(id);
   }
 
   async startProcess(): Promise<void> {
