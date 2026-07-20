@@ -3,7 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import type { Exl3EngineConfig, ModelRuntimePreset } from '../config/types.js';
-import { Exl3PresetAdapter } from '../inference-presets/exl3-preset-adapter.js';
+import {
+  Exl3PresetAdapter,
+  type Exl3LaunchEnvironment,
+} from '../inference-presets/exl3-preset-adapter.js';
 import { ManagedInferenceRuntime } from './managed-inference-runtime.js';
 import { terminateProcessTree } from './managed-llama.js';
 import { getManagedTabbyLogRoot } from './paths.js';
@@ -25,27 +28,37 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   private currentPreset: ModelRuntimePreset | null = null;
   private processBaseUrl: string | null = null;
   private processManaged: boolean | null = null;
+  private processSignature: string | null = null;
   private residentPresetId: string | null = null;
   private loadPromise: Promise<void> | null = null;
+  private readonly adapter: Exl3PresetAdapter;
 
   constructor(
     private readonly engine: Exl3EngineConfig,
     private readonly client = new TabbyModelClient(engine.AdminApiKey),
   ) {
     super('exl3');
+    this.adapter = new Exl3PresetAdapter(engine.ModelRoot);
     this.logPath = path.join(getManagedTabbyLogRoot(), 'latest-startup.log');
   }
 
-  private async startProcess(preset: ModelRuntimePreset): Promise<void> {
+  private async startProcess(
+    preset: ModelRuntimePreset,
+    launchEnvironment: Exl3LaunchEnvironment | null,
+    processSignature: string | null,
+  ): Promise<void> {
     if (this.getProcessState() === 'ready') return;
     this.transitionProcessTo('starting');
     if (!this.shouldManage(preset)) {
-      await this.waitForProcess(preset);
+      await this.waitForProcess(preset, processSignature);
       return;
     }
-    if (!this.child || this.child.exitCode !== null) this.spawnProcess();
+    if (launchEnvironment === null) {
+      throw new Error('Managed TabbyAPI requires a launch environment.');
+    }
+    if (!this.child || this.child.exitCode !== null) this.spawnProcess(launchEnvironment);
     try {
-      await this.waitForProcess(preset);
+      await this.waitForProcess(preset, processSignature);
     } catch (error) {
       try {
         await this.stopProcess();
@@ -60,15 +73,21 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     if (preset.Backend !== 'exl3') {
       throw new Error(`Preset '${preset.id}' cannot be loaded by the EXL3 runtime.`);
     }
+    const managed = this.shouldManage(preset);
+    const launchEnvironment = managed ? this.adapter.buildLaunchEnvironment(preset) : null;
+    const processSignature = launchEnvironment ? JSON.stringify(launchEnvironment) : null;
     if (
       this.getProcessState() === 'ready'
       && (
         this.processBaseUrl !== getBaseUrl(preset)
-        || this.processManaged !== this.shouldManage(preset)
+        || this.processManaged !== managed
+        || this.processSignature !== processSignature
       )
     ) await this.stopProcess();
     this.currentPreset = preset;
-    if (this.getProcessState() !== 'ready') await this.startProcess(preset);
+    if (this.getProcessState() !== 'ready') {
+      await this.startProcess(preset, launchEnvironment, processSignature);
+    }
     if (this.residentPresetId === preset.id && this.getModelState() === 'ready') return;
     if (this.loadPromise) return this.loadPromise;
     this.loadPromise = this.loadPreset(preset);
@@ -101,6 +120,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       this.child = null;
       this.processBaseUrl = null;
       this.processManaged = null;
+      this.processSignature = null;
       this.currentPreset = null;
       this.residentPresetId = null;
       this.transitionModelTo('unloaded');
@@ -119,6 +139,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     this.child = null;
     this.processBaseUrl = null;
     this.processManaged = null;
+    this.processSignature = null;
     this.currentPreset = null;
     this.residentPresetId = null;
     this.transitionModelTo('unloaded');
@@ -132,13 +153,14 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     this.child = null;
     this.processBaseUrl = null;
     this.processManaged = null;
+    this.processSignature = null;
     this.currentPreset = null;
     this.residentPresetId = null;
     this.transitionModelTo('unloaded');
     this.transitionProcessTo('stopped');
   }
 
-  private spawnProcess(): void {
+  private spawnProcess(launchEnvironment: Exl3LaunchEnvironment): void {
     this.stopping = false;
     this.startupError = null;
     fs.mkdirSync(path.dirname(this.logPath), { recursive: true });
@@ -146,6 +168,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     const configPath = path.resolve(this.engine.WorkingDirectory, this.engine.ConfigPath);
     const child = spawn(this.engine.PythonPath, [this.engine.Entrypoint, '--config', configPath], {
       cwd: this.engine.WorkingDirectory,
+      env: { ...process.env, ...launchEnvironment },
       shell: false,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -162,23 +185,31 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       this.startupError = new Error(`TabbyAPI exited unexpectedly (code=${String(code)}, signal=${String(signal)}).`);
       this.processBaseUrl = null;
       this.processManaged = null;
+      this.processSignature = null;
       this.transitionModelTo('unloaded');
       this.transitionProcessTo('failed');
     });
   }
 
-  private async waitForProcess(preset: ModelRuntimePreset): Promise<void> {
+  private async waitForProcess(preset: ModelRuntimePreset, processSignature: string | null): Promise<void> {
     const deadline = Date.now() + preset.StartupTimeoutMs;
+    const baseUrl = getBaseUrl(preset);
+    const expectedModel = this.shouldManage(preset)
+      ? this.adapter.buildLoadRequest(preset).model_name
+      : null;
     while (Date.now() < deadline) {
       if (this.startupError) throw this.startupError;
-      if (await this.client.isProcessReady(
-        getBaseUrl(preset),
-        preset.HealthcheckTimeoutMs,
-      )) {
-        this.processBaseUrl = getBaseUrl(preset);
-        this.processManaged = this.shouldManage(preset);
-        this.transitionProcessTo('ready');
-        return;
+      const processReady = await this.client.isProcessReady(baseUrl, preset.HealthcheckTimeoutMs);
+      if (processReady) {
+        const modelReady = expectedModel === null
+          || (await this.client.listModels(baseUrl, preset.HealthcheckTimeoutMs)).includes(expectedModel);
+        if (modelReady) {
+          this.processBaseUrl = baseUrl;
+          this.processManaged = this.shouldManage(preset);
+          this.processSignature = processSignature;
+          this.transitionProcessTo('ready');
+          return;
+        }
       }
       await delay(preset.HealthcheckIntervalMs);
     }
@@ -189,8 +220,15 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   private async loadPreset(preset: ModelRuntimePreset): Promise<void> {
     this.transitionModelTo('loading');
     try {
-      const request = new Exl3PresetAdapter(this.engine.ModelRoot).buildLoadRequest(preset);
-      await this.client.load(getBaseUrl(preset), request, preset.StartupTimeoutMs);
+      const request = this.adapter.buildLoadRequest(preset);
+      if (this.shouldManage(preset)) {
+        const models = await this.client.listModels(getBaseUrl(preset), preset.HealthcheckTimeoutMs);
+        if (!models.includes(request.model_name)) {
+          throw new Error(`TabbyAPI started without requested model '${request.model_name}' resident.`);
+        }
+      } else {
+        await this.client.load(getBaseUrl(preset), request, preset.StartupTimeoutMs);
+      }
       this.residentPresetId = preset.id;
       this.transitionModelTo('ready');
     } catch (error) {

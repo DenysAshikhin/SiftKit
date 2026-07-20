@@ -110,27 +110,42 @@ test('Tabby runtime rejects a llama preset before lifecycle work', async () => {
   assert.equal(runtime.getModelState(), 'unloaded');
 });
 
-test('managed Tabby launches with the resolved ConfigPath and loads the validated preset', async () => {
+test('managed Tabby launches with preset environment and uses its startup-loaded model', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-managed-tabby-'));
   const port = await getFreePort();
   const scriptPath = path.join(root, 'fake-tabby.cjs');
   const argsPath = path.join(root, 'args.json');
+  const environmentPath = path.join(root, 'environment.json');
+  const loadRequestsPath = path.join(root, 'load-requests.txt');
   fs.writeFileSync(scriptPath, `
 const fs = require('node:fs');
 const http = require('node:http');
 fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(process.argv.slice(2)));
-let resident = false;
+const environment = {
+  TABBY_MODEL_MODEL_DIR: process.env.TABBY_MODEL_MODEL_DIR,
+  TABBY_MODEL_MODEL_NAME: process.env.TABBY_MODEL_MODEL_NAME,
+  TABBY_MODEL_MAX_SEQ_LEN: process.env.TABBY_MODEL_MAX_SEQ_LEN,
+  TABBY_MODEL_CACHE_SIZE: process.env.TABBY_MODEL_CACHE_SIZE,
+  TABBY_MODEL_CACHE_MODE: process.env.TABBY_MODEL_CACHE_MODE,
+  TABBY_MODEL_MAX_BATCH_SIZE: process.env.TABBY_MODEL_MAX_BATCH_SIZE,
+  TABBY_MODEL_CHUNK_SIZE: process.env.TABBY_MODEL_CHUNK_SIZE,
+  TABBY_DRAFT_MODEL_DRAFT_MODE: process.env.TABBY_DRAFT_MODEL_DRAFT_MODE,
+  TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: process.env.TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS,
+};
+fs.writeFileSync(${JSON.stringify(environmentPath)}, JSON.stringify(environment));
 const server = http.createServer((request, response) => {
   if (request.url === '/v1/model/load' && request.method === 'POST') {
-    resident = true;
-    response.writeHead(200, { 'content-type': 'text/event-stream' });
-    response.end('data: {"model_type":"model","module":1,"modules":1,"status":"finished"}\\n\\n');
+    fs.appendFileSync(${JSON.stringify(loadRequestsPath)}, 'load\\n');
+    response.statusCode = 500;
+    response.end();
     return;
   }
   if (request.url === '/v1/model' && request.method === 'GET') {
-    response.statusCode = resident ? 200 : 503;
+    response.statusCode = environment.TABBY_MODEL_MODEL_NAME ? 200 : 503;
     response.setHeader('content-type', 'application/json');
-    response.end(resident ? '{"id":"model-a"}' : '{}');
+    response.end(environment.TABBY_MODEL_MODEL_NAME
+      ? JSON.stringify({ id: environment.TABBY_MODEL_MODEL_NAME })
+      : '{}');
     return;
   }
   response.setHeader('content-type', 'application/json');
@@ -147,6 +162,13 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)));
     BaseUrl: `http://127.0.0.1:${port}`,
     Model: 'model-a',
     ModelPath: path.join(root, 'model-a'),
+    NumCtx: 30_000,
+    ParallelSlots: 4,
+    UBatchSize: 1_024,
+    KvCacheQuantization: 'q8_0/q4_0' as const,
+    SpeculativeEnabled: true,
+    SpeculativeType: 'draft-mtp' as const,
+    SpeculativeDraftMax: 5,
   };
   const runtime = new ManagedTabbyRuntime({
     Managed: true,
@@ -163,6 +185,81 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)));
     assert.equal(runtime.getProcessState(), 'ready');
     assert.equal(runtime.getModelState(), 'ready');
     assert.deepEqual(JSON.parse(fs.readFileSync(argsPath, 'utf8')), ['--config', path.join(root, 'config.yml')]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(environmentPath, 'utf8')), {
+      TABBY_MODEL_MODEL_DIR: root,
+      TABBY_MODEL_MODEL_NAME: 'model-a',
+      TABBY_MODEL_MAX_SEQ_LEN: '30000',
+      TABBY_MODEL_CACHE_SIZE: '30208',
+      TABBY_MODEL_CACHE_MODE: '8,4',
+      TABBY_MODEL_MAX_BATCH_SIZE: '4',
+      TABBY_MODEL_CHUNK_SIZE: '1024',
+      TABBY_DRAFT_MODEL_DRAFT_MODE: 'mtp',
+      TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: '5',
+    });
+    assert.equal(fs.existsSync(loadRequestsPath), false);
+  } finally {
+    await runtime.stopProcess();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('managed Tabby reuses identical launch settings and restarts when UBatch size changes', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-managed-tabby-restart-'));
+  const port = await getFreePort();
+  const scriptPath = path.join(root, 'fake-tabby.cjs');
+  const startsPath = path.join(root, 'starts.txt');
+  fs.writeFileSync(scriptPath, `
+const fs = require('node:fs');
+const http = require('node:http');
+fs.appendFileSync(${JSON.stringify(startsPath)}, process.pid + '\\n');
+const modelName = process.env.TABBY_MODEL_MODEL_NAME || '';
+const server = http.createServer((request, response) => {
+  if (request.url === '/v1/model/load' && request.method === 'POST') {
+    response.statusCode = 500;
+    response.end();
+    return;
+  }
+  if (request.url === '/v1/model' && request.method === 'GET') {
+    response.statusCode = modelName ? 200 : 503;
+    response.setHeader('content-type', 'application/json');
+    response.end(modelName ? JSON.stringify({ id: modelName }) : '{}');
+    return;
+  }
+  response.setHeader('content-type', 'application/json');
+  response.end('{"object":"list","data":[]}');
+});
+server.listen(${port}, '127.0.0.1');
+process.on('SIGTERM', () => server.close(() => process.exit(0)));
+`, 'utf8');
+  const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('Default model preset is missing');
+  const exl3Preset = {
+    ...preset,
+    Backend: 'exl3' as const,
+    BaseUrl: `http://127.0.0.1:${port}`,
+    Model: 'model-a',
+    ModelPath: path.join(root, 'model-a'),
+    UBatchSize: 1_024,
+    SpeculativeEnabled: true,
+    SpeculativeType: 'draft-mtp' as const,
+  };
+  const runtime = new ManagedTabbyRuntime({
+    Managed: true,
+    WorkingDirectory: root,
+    PythonPath: process.execPath,
+    Entrypoint: path.basename(scriptPath),
+    ConfigPath: 'config.yml',
+    ModelRoot: root,
+    AdminApiKey: '',
+    ShutdownTimeoutMs: 5_000,
+  });
+  try {
+    await runtime.ensurePresetReady(exl3Preset);
+    await runtime.ensurePresetReady(exl3Preset);
+    assert.equal(fs.readFileSync(startsPath, 'utf8').trim().split(/\r?\n/u).length, 1);
+
+    await runtime.ensurePresetReady({ ...exl3Preset, UBatchSize: 2_048 });
+    assert.equal(fs.readFileSync(startsPath, 'utf8').trim().split(/\r?\n/u).length, 2);
   } finally {
     await runtime.stopProcess();
     fs.rmSync(root, { recursive: true, force: true });
