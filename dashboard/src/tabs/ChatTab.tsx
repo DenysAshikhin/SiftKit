@@ -3,9 +3,9 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import {
+  formatCompactTokenCount,
   formatDate,
   formatNumber,
-  formatPercent,
   formatTokenLabel,
   getMessageKnownTokenCount,
   getMessageTokenCount,
@@ -16,8 +16,9 @@ import {
   buildFallbackPromptContext,
   buildLiveMessageScrollSignature,
 } from '../lib/chatMessages';
-import { resolveContextBarVisual } from '../lib/contextBar';
-import { getToolRunningLabel } from '../lib/tool-status';
+import { getContextBarFillTone } from '../lib/context-bar-tone';
+import { deriveSessionIndicator, type SessionIndicator } from '../lib/chat-session-state';
+import { ToolCallCard } from '../components/ToolCallCard';
 import { useChatScroll } from '../hooks/useChatScroll';
 import { groupMessagesIntoTurns, normalizeMessageKind, type ChatTurn } from '../lib/chatTurns';
 import type {
@@ -121,11 +122,34 @@ export type ChatTabProps = {
   onSendMessage(): Promise<void>;
 };
 
+const SESSION_INDICATOR_LABELS: Record<SessionIndicator, string> = {
+  streaming: 'streaming',
+  tool: 'tool running',
+  failed: 'failed',
+  completed: 'idle',
+};
+
+function SessionIndicatorMark({ indicator }: { indicator: SessionIndicator }) {
+  if (indicator === 'streaming') {
+    return <span className="typing"><i /><i /><i /></span>;
+  }
+  if (indicator === 'tool') {
+    return <span className="sp" />;
+  }
+  return <span className={indicator === 'failed' ? 'dot bad' : 'dot ok'} />;
+}
+
+function getSendLabel(chatMode: DashboardPresetExecutionFamily): string {
+  if (chatMode === 'plan') { return 'Generate Plan'; }
+  if (chatMode === 'repo-search') { return 'Search'; }
+  if (chatMode === 'summary') { return 'Summarize'; }
+  return 'Send';
+}
+
 export function ChatTab({
   sessions,
   selectedSessionId,
   selectedSession,
-  sessionPromptCacheStats,
   webPresets,
   selectedChatPreset,
   chatMode,
@@ -176,73 +200,107 @@ export function ChatTab({
   const visibleMessageIds = visibleMessages.map((message) => message.id).join('|');
   const liveMessageScrollSignature = buildLiveMessageScrollSignature(liveMessages);
   const { chatLogRef } = useChatScroll(visibleMessageIds, liveMessageScrollSignature);
+
+  function dispatchSend(): void {
+    if (chatMode === 'plan') { void onSendPlan(); return; }
+    if (chatMode === 'repo-search') { void onSendRepoSearch(); return; }
+    void onSendMessage();
+  }
+
+  const usedRatio = contextUsage && contextUsage.contextWindowTokens > 0
+    ? Math.max(0, Math.min(1, contextUsage.totalUsedTokens / contextUsage.contextWindowTokens))
+    : 0;
+  const contextTone = getContextBarFillTone(usedRatio);
+
   return (
-    <section className="panel-grid chat-layout">
-      <section className="panel">
-        <div className="chat-header">
-          <h2>Sessions</h2>
-          <div className="chat-actions">
-            <button onClick={() => { void onCreateSession(); }} disabled={chatBusy}>New</button>
-            <button onClick={() => { void onDeleteSession(); }} disabled={chatBusy || !selectedSessionId}>Delete</button>
-          </div>
+    <>
+      <div className="chat-lane">
+        <button type="button" className="ghost-btn acc new" onClick={() => { void onCreateSession(); }} disabled={chatBusy}>
+          + New session
+        </button>
+        <div className="runs">
+          {sessions.map((session) => {
+            const indicator = deriveSessionIndicator(session, {
+              isActive: session.id === selectedSessionId,
+              chatBusy,
+              liveMessages,
+            });
+            return (
+              <div
+                key={session.id}
+                className={selectedSessionId === session.id ? 'run sel' : 'run'}
+                role="button"
+                tabIndex={0}
+                onClick={() => onSelectSession(session.id)}
+              >
+                <span className="t">{session.title}</span>
+                <span className="m">
+                  <SessionIndicatorMark indicator={indicator} /> {SESSION_INDICATOR_LABELS[indicator]} · {formatDate(session.updatedAtUtc)}
+                </span>
+              </div>
+            );
+          })}
         </div>
-        <ul className="run-list">
-          {sessions.map((session) => (
-            <li key={session.id}>
-              <button className={selectedSessionId === session.id ? 'selected' : ''} onClick={() => onSelectSession(session.id)}>
-                <span>{session.title}</span>
-                <span>{formatDate(session.updatedAtUtc)}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </section>
-      <section className="panel">
+      </div>
+      <div className="chat-main">
         {selectedSession ? (
           <>
-            <div className="session-header-row">
-              <h2>{selectedSession.title}</h2>
-              <span className="hint">
-                Cache: {formatPercent(sessionPromptCacheStats.cacheHitRate)}
-                {' | '}
-                Acceptance: {formatPercent(sessionPromptCacheStats.acceptanceRate)}
-                {' | '}
-                Prompt/s: {formatNumber(sessionPromptCacheStats.promptTokensPerSecond)}
-                {' | '}
-                Generation/s: {formatNumber(sessionPromptCacheStats.generationTokensPerSecond)}
-                {' | '}
-                {formatNumber(sessionPromptCacheStats.promptCacheTokens)} cached
-                {' | '}
-                {formatNumber(sessionPromptCacheStats.promptEvalTokens)} eval
-              </span>
+            <div className="chat-head">
+              <span>Preset</span>
+              <select
+                value={selectedChatPreset?.id || ''}
+                onChange={(event) => { void onUpdateSessionPreset(event.target.value); }}
+                disabled={chatBusy || webPresets.length === 0}
+              >
+                {webPresets.length === 0 ? <option value="">No presets</option> : null}
+                {webPresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>{preset.label}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className={webSearchEnabled ? 'hchip on' : 'hchip'}
+                onClick={() => { void onToggleWebSearchEnabled(!webSearchEnabled); }}
+                disabled={chatBusy}
+              >
+                web search
+              </button>
+              {isDirectChatMode ? (
+                <button
+                  type="button"
+                  className={isThinkingEnabledForCurrentSession ? 'hchip on' : 'hchip'}
+                  onClick={() => { void onToggleThinking(!isThinkingEnabledForCurrentSession); }}
+                  disabled={chatBusy}
+                >
+                  per-step thinking
+                </button>
+              ) : null}
+              <button type="button" className="ghost-btn" onClick={() => { void onDeleteSession(); }} disabled={chatBusy || !selectedSessionId}>
+                Delete
+              </button>
             </div>
+
             {selectedSession.condensedSummary && (
-              <details className="detail-card">
+              <details className="card">
                 <summary>Condensed Summary</summary>
-                <pre>{selectedSession.condensedSummary}</pre>
+                <pre className="mono">{selectedSession.condensedSummary}</pre>
               </details>
             )}
-            <div className="chat-log" ref={chatLogRef}>
+
+            <div className="msgs" ref={chatLogRef}>
               {promptContext && displayedSystemPromptContent.trim() ? (
-                <article className="msg system system_context">
-                  <header className="msg-header">
-                    <span>system | first message</span>
-                    <span className="msg-meta">
-                      <span className="msg-tokens">
-                        {formatTokenLabel(null)}
-                      </span>
-                    </span>
-                  </header>
+                <article className="msg ai system_context">
+                  <div className="who">system · first message</div>
                   <details className="system-context-bubble">
                     <summary>{promptContext.label}</summary>
-                    <pre>{displayedSystemPromptContent}</pre>
+                    <pre className="mono">{displayedSystemPromptContent}</pre>
                   </details>
                 </article>
               ) : null}
               {groupMessagesIntoTurns(visibleMessages, new Set(liveMessages.map((message) => message.id))).map((turn) => {
                 if (turn.steps.length === 0) {
                   const message = turn.main;
-                  if (!message) return null;
+                  if (!message) { return null; }
                   return (
                     <MessageBubble
                       key={message.id}
@@ -266,6 +324,15 @@ export function ChatTab({
                 );
               })}
             </div>
+
+            {chatError ? (
+              <div className="err-banner">
+                <span>{chatError}</span>
+                <button type="button" className="mini-btn" onClick={dispatchSend} disabled={chatBusy || !chatInput.trim()}>Retry</button>
+                <a className="mini-btn" href="?tab=runs">Open logs</a>
+              </div>
+            ) : null}
+
             <div className="composer">
               {showSettings ? (
                 <SettingsPopover
@@ -322,140 +389,61 @@ export function ChatTab({
                   />
                 </div>
               ) : null}
-              <textarea
-                placeholder={chatMode === 'plan' ? 'Describe the feature to plan (plan mode runs repo-search)...' : chatMode === 'repo-search' ? 'Enter a repo search query...' : chatMode === 'summary' ? 'Enter a summary request...' : 'Send a local chat message...'}
-                value={chatInput}
-                onChange={(event) => onChangeChatInput(event.target.value)}
-                rows={4}
-              />
-              <div className="composer-toolbar">
-                <div className="composer-toolbar-left">
-                  <button
-                    type="button"
-                    className={showSettings ? 'composer-pill settings-toggle active' : 'composer-pill settings-toggle'}
-                    onClick={onToggleSettings}
-                    title="Toggle settings"
-                    aria-label="Toggle settings"
-                  >
-                    &#9881;
-                  </button>
-                  {isDirectChatMode ? (
-                    <button
-                      type="button"
-                      className={isThinkingEnabledForCurrentSession ? 'composer-pill thinking-toggle active' : 'composer-pill thinking-toggle'}
-                      onClick={() => { void onToggleThinking(!isThinkingEnabledForCurrentSession); }}
-                      disabled={chatBusy}
-                      title={isThinkingEnabledForCurrentSession ? 'Disable thinking for this session' : 'Enable thinking for this session'}
-                    >
-                      <span aria-hidden="true">&#128173;</span>
-                      <span>Thinking</span>
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    className={`composer-pill web-toggle ${webSearchEnabled ? 'active' : ''}`}
-                    onClick={() => { void onToggleWebSearchEnabled(!webSearchEnabled); }}
+              {isRepoToolMode ? (
+                <div className="composer-plan-row">
+                  <input
+                    className="composer-plan-root"
+                    placeholder="Repo folder path…"
+                    value={planRepoRootInput}
+                    onChange={(event) => onChangePlanRepoRoot(event.target.value)}
                     disabled={chatBusy}
-                    title={webSearchEnabled ? 'Disable web search for this chat' : 'Enable web search for this chat'}
-                  >
-                    <span aria-hidden="true">W</span>
-                    <span>Web</span>
-                  </button>
-                  <select
-                    value={selectedChatPreset?.id || ''}
-                    onChange={(event) => { void onUpdateSessionPreset(event.target.value); }}
-                    disabled={chatBusy || webPresets.length === 0}
-                  >
-                    {webPresets.length === 0 ? <option value="">No presets</option> : null}
-                    {webPresets.map((preset) => (
-                      <option key={preset.id} value={preset.id}>
-                        {preset.label}
-                      </option>
-                    ))}
-                  </select>
-                  {isRepoToolMode ? (
-                    <>
-                      <input
-                        className="composer-plan-root"
-                        placeholder="Repo folder path..."
-                        value={planRepoRootInput}
-                        onChange={(event) => onChangePlanRepoRoot(event.target.value)}
-                        disabled={chatBusy}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => { void onSavePlanRepoRoot(); }}
-                        disabled={chatBusy || !planRepoRootInput.trim()}
-                      >
-                        Directory
-                      </button>
-                    </>
-                  ) : null}
-                </div>
-                <div className="composer-toolbar-context">
-                  <ContextBar
-                    usage={contextUsage}
-                    sessionContextWindowTokens={selectedSession.contextWindowTokens}
-                    liveToolPromptTokenCount={liveToolPromptTokenCount}
-                    chatBusy={chatBusy}
                   />
-                </div>
-                <div className="composer-toolbar-right">
-                  <button
-                    type="button"
-                    className="composer-send"
-                    onClick={() => {
-                      if (chatMode === 'plan') {
-                        void onSendPlan();
-                        return;
-                      }
-                      if (chatMode === 'repo-search') {
-                        void onSendRepoSearch();
-                        return;
-                      }
-                      void onSendMessage();
-                    }}
-                    disabled={chatBusy || !chatInput.trim()}
-                  >
-                    {chatMode === 'plan' ? 'Generate Plan' : chatMode === 'repo-search' ? 'Search' : chatMode === 'summary' ? 'Summarize' : 'Send'}
+                  <button type="button" className="ghost-btn" onClick={() => { void onSavePlanRepoRoot(); }} disabled={chatBusy || !planRepoRootInput.trim()}>
+                    Directory
                   </button>
                 </div>
+              ) : null}
+              {contextUsage ? (
+                <div className={contextTone === 'warn' ? 'ctx warn' : 'ctx'} title={`context ${formatNumber(contextUsage.totalUsedTokens)} / ${formatNumber(contextUsage.contextWindowTokens)}`}>
+                  <i style={{ width: `${usedRatio * 100}%` }} />
+                </div>
+              ) : null}
+              <div className="row">
+                <button
+                  type="button"
+                  className={showSettings ? 'settings-toggle active' : 'settings-toggle'}
+                  onClick={onToggleSettings}
+                  aria-label="Toggle settings"
+                  title="Toggle settings"
+                >
+                  &#9881;
+                </button>
+                <textarea
+                  className="input"
+                  placeholder={chatMode === 'plan' ? 'Describe the feature to plan…' : chatMode === 'repo-search' ? 'Enter a repo search query…' : chatMode === 'summary' ? 'Enter a summary request…' : 'Message SiftKit…'}
+                  value={chatInput}
+                  onChange={(event) => onChangeChatInput(event.target.value)}
+                  rows={2}
+                />
+                {contextUsage ? (
+                  <span className="ctx-label">{formatCompactTokenCount(contextUsage.totalUsedTokens)} / {formatCompactTokenCount(contextUsage.contextWindowTokens)}</span>
+                ) : null}
+                <button
+                  type="button"
+                  className="send"
+                  onClick={dispatchSend}
+                  disabled={chatBusy || !chatInput.trim()}
+                >
+                  {chatBusy ? 'Stop' : getSendLabel(chatMode)}
+                </button>
               </div>
             </div>
-            {chatError && <p className="error">{chatError}</p>}
           </>
         ) : (
           <p className="hint">Create or pick a session.</p>
         )}
-      </section>
-    </section>
-  );
-}
-
-function ContextBar({ usage, sessionContextWindowTokens, liveToolPromptTokenCount, chatBusy }: {
-  usage: ContextUsage | null;
-  sessionContextWindowTokens: number;
-  liveToolPromptTokenCount: number | null;
-  chatBusy: boolean;
-}) {
-  const visual = resolveContextBarVisual(usage, sessionContextWindowTokens, liveToolPromptTokenCount, chatBusy);
-  if (!visual) return null;
-  return (
-    <div className="context-bar" title={visual.titleText} aria-label={visual.titleText}>
-      {visual.sections.map((section) => (
-        <div
-          key={section.kind}
-          className={`context-bar-section ${section.kind}`}
-          style={{ width: `${section.percent}%`, background: section.kind === 'used' ? visual.fillColor : undefined }}
-          tabIndex={section.kind === 'provider-overhead' || section.kind === 'warn' ? 0 : -1}
-          aria-label={section.titleText}
-        >
-          {section.kind === 'provider-overhead' || section.kind === 'warn' ? (
-            <span className="context-bar-tooltip" role="tooltip">{section.titleText}</span>
-          ) : null}
-        </div>
-      ))}
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -467,7 +455,7 @@ function SettingsPopover(props: {
   onCondense(): Promise<void>;
 }) {
   const { contextUsage, liveToolPromptTokenCount, isRepoToolMode, chatBusy, onCondense } = props;
-  if (!contextUsage) return null;
+  if (!contextUsage) { return null; }
   const hasEstimatedUsage = Number(contextUsage.estimatedTokenFallbackTokens || 0) > 0;
   return (
     <div className={contextUsage.shouldCondense ? 'composer-settings-popover usage warning' : 'composer-settings-popover usage'}>
@@ -506,7 +494,7 @@ function SettingsPopover(props: {
         </span>
       ) : null}
       {contextUsage.shouldCondense && (
-        <button onClick={() => { void onCondense(); }} disabled={chatBusy}>Condense Now</button>
+        <button type="button" onClick={() => { void onCondense(); }} disabled={chatBusy}>Condense Now</button>
       )}
     </div>
   );
@@ -530,7 +518,7 @@ function RepoAutoAppendButton(props: {
       ? `${formatNumber(props.tokenCount)} tokens`
       : props.available
         ? 'tokens unavailable'
-      : 'not found';
+        : 'not found';
   const title = props.enabled ? props.disableTitle : props.enableTitle;
   return (
     <button
@@ -561,10 +549,10 @@ function MessageHeader({ message, isLive, chatBusy, onDeleteMessage }: {
     ? 'assistant thinking'
     : messageKind === 'assistant_tool_call'
       ? 'assistant tool'
-      : message.role;
+      : message.role === 'user' ? 'You' : 'SiftKit';
   return (
-    <header className="msg-header">
-      <span>{messageLabel} | {isLive ? 'live' : formatDate(message.createdAtUtc)}</span>
+    <div className="who">
+      <span>{messageLabel} · {isLive ? 'live' : formatDate(message.createdAtUtc)}</span>
       <span className="msg-meta">
         <span className="msg-tokens">{formatTokenLabel(getReplayDisplayTokenCount(message))}</span>
         {!isLive ? (
@@ -580,52 +568,36 @@ function MessageHeader({ message, isLive, chatBusy, onDeleteMessage }: {
           </button>
         ) : null}
       </span>
-    </header>
+    </div>
   );
 }
 
-function renderMessageBody(message: ChatMessage, isDirectChatMode: boolean) {
+function renderMessageBody(message: ChatMessage, isDirectChatMode: boolean, isLive: boolean) {
   const messageKind = normalizeMessageKind(message);
-  const toolCommand = typeof message.toolCallCommand === 'string' ? message.toolCallCommand.trim() : '';
-  const toolOutput = message.toolCallOutput || message.toolCallOutputSnippet || '';
   const groundingStatusLabel = messageKind === 'assistant_answer'
     ? getGroundingStatusLabel(message.groundingStatus)
     : null;
-  return (
-    <>
-      {isDirectChatMode && message.role === 'assistant' && message.thinkingContent ? (
-        <details className="thinking-box">
-          <summary>Thinking</summary>
-          <pre>{message.thinkingContent}</pre>
-        </details>
-      ) : null}
-      {messageKind === 'assistant_thinking' ? (
-        <pre className="thinking-message">{message.content}</pre>
-      ) : messageKind === 'assistant_tool_call' ? (
-        <div className="tool-message">
-          <code>{toolCommand}</code>
-          {message.toolCallStatus === 'running' ? <span className="tool-spinner"> {getToolRunningLabel(toolCommand)}</span> : null}
-          {toolOutput ? (
-            <details className="tool-result">
-              <summary aria-label="Show tool result" title="Show tool result">+ result</summary>
-              <pre>{toolOutput}</pre>
-            </details>
-          ) : null}
-        </div>
-      ) : message.role === 'assistant' ? (
-        <div className="markdown-body">
-          {groundingStatusLabel ? (
-            <span className="chat-grounding-badge">{groundingStatusLabel}</span>
-          ) : null}
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {message.content}
-          </ReactMarkdown>
-        </div>
-      ) : (
-        <p className="user-message">{message.content}</p>
-      )}
-    </>
-  );
+  if (messageKind === 'assistant_tool_call') {
+    return <ToolCallCard message={message} />;
+  }
+  if (messageKind === 'assistant_thinking') {
+    return <div className="think">{message.content}</div>;
+  }
+  if (message.role === 'assistant') {
+    return (
+      <div className={isLive ? 'markdown-body caret' : 'markdown-body'}>
+        {groundingStatusLabel ? <span className="chat-grounding-badge">{groundingStatusLabel}</span> : null}
+        {isDirectChatMode && message.thinkingContent ? (
+          <details className="thinking-box">
+            <summary>Thinking</summary>
+            <pre className="mono">{message.thinkingContent}</pre>
+          </details>
+        ) : null}
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+      </div>
+    );
+  }
+  return <p className="user-message">{message.content}</p>;
 }
 
 function MessageBubble({ message, isLive, isDirectChatMode, chatBusy, onDeleteMessage, extraClass }: {
@@ -637,10 +609,11 @@ function MessageBubble({ message, isLive, isDirectChatMode, chatBusy, onDeleteMe
   extraClass?: string;
 }) {
   const messageKind = normalizeMessageKind(message);
+  const tone = message.role === 'user' ? 'user' : 'ai';
   return (
-    <article className={`msg ${message.role} ${messageKind}${extraClass ? ` ${extraClass}` : ''}${isLive ? ' live' : ''}`}>
+    <article className={`msg ${tone} ${messageKind}${extraClass ? ` ${extraClass}` : ''}${isLive ? ' live' : ''}`}>
       <MessageHeader message={message} isLive={isLive} chatBusy={chatBusy} onDeleteMessage={onDeleteMessage} />
-      {renderMessageBody(message, isDirectChatMode)}
+      {renderMessageBody(message, isDirectChatMode, isLive)}
     </article>
   );
 }
@@ -665,13 +638,11 @@ function ChatTurnBubble({ turn, isDirectChatMode, chatBusy, onDeleteMessage, onD
       ? `${formatNumber(aggregateTokens.tokenCount)} internal run tokens`
       : `${formatNumber(aggregateTokens.tokenCount)} known exact tokens; some token components are unavailable`;
   return (
-    <article className={`msg assistant turn${turn.isLive ? ' live' : ''}`}>
-      <header className="msg-header">
-        <span>assistant turn | {turn.isLive ? 'live' : formatDate(headerTimestamp)}</span>
+    <article className={`msg ai turn${turn.isLive ? ' live' : ''}`}>
+      <div className="who">
+        <span>SiftKit · {turn.isLive ? 'live' : formatDate(headerTimestamp)}</span>
         <span className="msg-meta">
-          <span className="msg-tokens" title={tokenTitle}>
-            {tokenLabel}
-          </span>
+          <span className="msg-tokens" title={tokenTitle}>{tokenLabel}</span>
           {!turn.isLive ? (
             <button
               type="button"
@@ -685,7 +656,7 @@ function ChatTurnBubble({ turn, isDirectChatMode, chatBusy, onDeleteMessage, onD
             </button>
           ) : null}
         </span>
-      </header>
+      </div>
       <details className="internal-logic">
         <summary>Internal Logic ({turn.steps.length})</summary>
         <div className="internal-logic-steps">
