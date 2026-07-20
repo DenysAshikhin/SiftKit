@@ -64,6 +64,10 @@ body {
 .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; flex: none; }
 .dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); } .dot.run { background: var(--run); }
 
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip { font: inherit; font-size: 0.68rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); background: none; cursor: pointer; }
+.chip.on { border-color: var(--acc); color: var(--acc); }
+
 .card { border: 1px solid var(--line); border-radius: 9px; background: var(--panel); margin-bottom: 10px; overflow: hidden; }
 .card > header { display: flex; justify-content: space-between; padding: 8px 12px; font-size: 0.76rem; color: var(--dim); cursor: pointer; }
 .card > header b { color: var(--ink); font-weight: 600; }
