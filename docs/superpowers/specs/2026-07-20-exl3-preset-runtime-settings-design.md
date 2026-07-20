@@ -47,7 +47,7 @@ Before spawning managed TabbyAPI, SiftKit derives an immutable launch environmen
 | Engine model root | `TABBY_MODEL_MODEL_DIR` |
 | Relative model name | `TABBY_MODEL_MODEL_NAME` |
 | `NumCtx` | `TABBY_MODEL_MAX_SEQ_LEN` |
-| `CacheSize` | `TABBY_MODEL_CACHE_SIZE` |
+| `NumCtx` rounded up to a multiple of 256 | `TABBY_MODEL_CACHE_SIZE` |
 | `CacheTypeK` | `TABBY_MODEL_CACHE_MODE` |
 | `ParallelSlots` | `TABBY_MODEL_MAX_BATCH_SIZE` |
 | `UBatchSize` | `TABBY_MODEL_CHUNK_SIZE` |
