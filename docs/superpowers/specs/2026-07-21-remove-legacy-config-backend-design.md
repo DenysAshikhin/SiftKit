@@ -21,14 +21,30 @@ Two independent `Backend` axes coexist:
 
 Conflating these two into one always-constant production field is the smell. This cleanup un-conflates them onto explicit, already-existing first-class mechanisms and deletes the field.
 
+## The third axis: summary provider identity (do NOT collapse)
+
+There is a **third** `backend` concept, distinct from both axes above: the lowercase `backend: string` threaded through the summary pipeline. Its value domain is `'llama.cpp'` (the real, fully-capable provider) and `'mock'` (test double). It is **not** the engine axis, and it is load-bearing across 16 comparison sites:
+
+- `src/summary/chunking.ts:194` — `shouldRetryWithSmallerChunks` returns false for non-`'llama.cpp'`
+- `src/summary/core-runner.ts:185,190,198,206,273,283,379,386,429,560` — chunk threshold, planner prompt budget, planner activation threshold, top-level-llama-pass flag, reasoning override
+- `src/summary/planner/mode.ts:1329` — planner handoff
+- `src/summary/provider-invoke.ts:135` — `allowUnsupportedInput`
+- `src/summary/request-runner.ts:289` — llama.cpp slot allocation
+
+Both `src/command-output/analyzer.ts:174` and `src/status-server/eval.ts:89` pass their resolved `backend` straight into `summarizeRequest`, so they feed the same pipeline.
+
+**Therefore this cleanup must preserve `'llama.cpp'` as the summary provider default.** Re-defaulting it to `getActiveInferenceBackend(config)` (`'llama'`/`'exl3'`) would silently flip every site above to the degraded branch — regressing chunking, planner handoff, slot allocation, prompt budgeting, and unsupported-input handling. Normalizing the summary provider axis onto the engine axis is a genuinely separate project (it requires deciding exl3 semantics per site) and is explicitly **out of scope**.
+
+What this cleanup does instead: decouple the summary provider default from the deleted config field by making it an explicit named constant, and validate its two-value domain with a runtime schema.
+
 ## Non-goal / confirmed non-bug
 
-`config.Backend` being always `'llama.cpp'` does **not** hide an exl3 behavioral divergence. The two summary checks that looked backend-specific are actually generic-across-real-backends by design:
+`config.Backend` being always `'llama.cpp'` does **not** hide an exl3 behavioral divergence in the two checks that are being removed:
 
 - Host-settings sync (`applyHostLlamaRuntimeSettings`) self-gates on `ExternalServerEnabled` (`src/config/host-sync.ts:30-31`), not on backend. It syncs generic terms (NumCtx, Reasoning, Model). Backend-agnostic.
-- Chunking is shared by real backends; only `mock` cannot chunk.
+- Oversized-input rejection only ever fired for `mock`, since production was always `'llama.cpp'`.
 
-So there is no exl3 fix folded in. Behavior is preserved exactly; only test-double routing moves to explicit seams.
+The remaining 16 `'llama.cpp'` comparisons stay exactly as they are.
 
 ## Design
 
@@ -37,7 +53,11 @@ So there is no exl3 fix folded in. Behavior is preserved exactly; only test-doub
 - `packages/contracts/src/config.ts:146` — remove `Backend: z.string()` from the top-level config schema.
 - `src/config/defaults.ts:77` — remove `Backend: 'llama.cpp'`.
 - `src/config/normalization.ts:438-439` — remove the dead `ollama → llama.cpp` remap (ollama is gone).
-- `src/status-server/config-store.ts:54,140,174` — remove the sqlite `backend` column: schema field, write, and read. Fail-loud; no migration shim (existing DBs recreate per repo convention).
+- `src/status-server/config-store.ts:54,140,174` — remove the sqlite `backend` column: schema field, write, and read.
+- `src/state/runtime-db.ts` — remove `backend TEXT NOT NULL` from the `app_config` DDL, bump `CURRENT_SCHEMA_VERSION` 31 → 32, and add a v32 migration that drops the column, mirroring the existing `ALTER TABLE app_config DROP COLUMN` pattern at line 721.
+
+  A migration is **required**, not optional: runtime DBs are only auto-recreated when the file is corrupt (`/not a database|SQLITE_NOTADB/` at `src/state/runtime-db.ts:1194`). An existing DB keeps its `backend TEXT NOT NULL` column, so once the writer stops supplying a value the INSERT would fail the NOT NULL constraint.
+- `src/status-server/routes/core.ts:244` — remove `'Backend'` from the `topLevelRequired` list in `isStrictConfigPayload`. Without this, a complete config payload stops qualifying as strict and is silently treated as a partial update, merging with stale stored state.
 
 ### 2. Lifecycle gate collapses to one axis
 
@@ -67,53 +87,87 @@ Affected tests (each passes `disableManagedLlamaStartup` through its real-server
 - `tests/runtime-status-server.test.ts` (5 sites)
 - `tests/execution-ownership.test.ts:19`
 
-### 4. Summary provider axis → request-only mock seam
+### 4. Summary provider axis → named constant + validated two-value domain
 
-The summary pipeline's `backend: string` (`= request.backend || config.Backend`, i.e. `'llama.cpp'` prod / `'mock'` test) becomes a boundary enum, defaulting to the active engine, with `'mock'` reachable only via the request override — never a preset/config value:
+The summary pipeline's `backend` keeps its meaning and its values. Only its *source* changes: the default stops coming from the deleted config field and becomes an explicit constant.
 
-- Boundary schema: `z.enum(['llama','exl3','mock'])` for the summary/eval request `backend` field and internal threading (type via `z.infer`). Mock exists only at this request boundary.
-- Default when no override: `getActiveInferenceBackend(config)`.
+- New runtime schema in `src/summary/types.ts`:
 
-Behavioral rewrites (the `backend` value's only real role is the mock switch):
+  ```ts
+  export const SummaryProviderIdSchema = z.enum(['llama.cpp', 'mock']);
+  export type SummaryProviderId = z.infer<typeof SummaryProviderIdSchema>;
+  export const DEFAULT_SUMMARY_PROVIDER: SummaryProviderId = 'llama.cpp';
+  ```
 
-- `src/summary/request-runner.ts:198` — delete the `if (backend === 'llama.cpp')` guard; call `applyHostLlamaSettings` unconditionally (it self-gates on `ExternalServerEnabled`). Backend removed from that decision.
-- `src/summary/request-runner.ts:77-79` (`isOversizedNonLlamaInput`, `!== 'llama.cpp'`) — becomes `backend === 'mock'` only; rename to reflect "mock cannot chunk."
-- `src/summary/provider-invoke.ts:96` (`=== 'mock'`) — unchanged; now sourced only from the request override.
+- `SummaryRequest.backend` and `EvalRequest.Backend` are typed `SummaryProviderId` (was `string`), inferred from the schema — no hand-written unions, no casts.
+- Default when no override: `DEFAULT_SUMMARY_PROVIDER`, **not** the active engine.
+- HTTP boundaries that accept a caller-supplied backend (`src/status-server/routes/core.ts:693`, the `--backend` CLI arg via `src/cli/run-eval.ts`) parse through `SummaryProviderIdSchema` and reject invalid values instead of passing arbitrary strings through.
+- The 16 `backend === 'llama.cpp'` comparison sites are **unchanged**.
 
-Net: no `'llama'`/`'exl3'` branching anywhere in the summary path; the axis reduces to real-vs-mock.
+Behavioral rewrites (only the two checks that were genuinely mock-vs-real):
 
-### 5. Label sites source from the active engine
+- `src/summary/request-runner.ts:198` — delete the `if (backend === 'llama.cpp')` guard; call `applyHostLlamaSettings` unconditionally (it self-gates on `ExternalServerEnabled`).
+- `src/summary/request-runner.ts:77-79` (`isOversizedNonLlamaInput`, `!== 'llama.cpp'`) — becomes `backend === 'mock'` only; rename to `isOversizedMockInput`.
+- `src/summary/provider-invoke.ts:96` (`=== 'mock'`) — unchanged.
 
-Everywhere `config.Backend` was carried as a reporting label, read `getActiveInferenceBackend(config)` instead:
+### 5. Label and probe sites
 
-- `src/status-server/eval.ts:72` — `request.Backend || getActiveInferenceBackend(config)`.
-- `src/command-output/analyzer.ts:114` — `request.backend || getActiveInferenceBackend(config)`.
-- `src/install.ts:102`, `src/cli/run-test.ts:70` — DTO `Backend` label from active engine.
-- Hardcoded `'llama.cpp'` label fills: `src/repo-search/planner-protocol.ts:386`, `src/status-server/routes/core.ts:133,178`, `src/status-server/dashboard-runs/artifact-upserts.ts:326` — source from active engine (or request backend where one exists).
-- Behavioral `config.Backend === 'llama.cpp'` probes in `src/cli/run-test.ts:38,46` and `src/install.ts:87` — these gate the llama provider probe. Replace with `getActiveInferenceBackend(config) === 'llama'` (probe only when the active engine is managed-llama).
+Split by whether the value feeds the summary pipeline:
 
-Output DTO schemas `Backend: z.string()` (`src/eval-types.ts:31`, `src/summary/types.ts:53`) stay string labels; values now come from the active engine.
+**Feeds `summarizeRequest` — must default to `DEFAULT_SUMMARY_PROVIDER`:**
+- `src/status-server/eval.ts:72` — `request.Backend || DEFAULT_SUMMARY_PROVIDER` (flows to `summarizeRequest` at line 89).
+- `src/command-output/analyzer.ts:114` — `request.backend || DEFAULT_SUMMARY_PROVIDER` (flows to `summarizeRequest` at line 174).
+
+**Pure display DTOs — source from the active engine:**
+- `src/install.ts:102`, `src/cli/run-test.ts:70` — DTO `Backend` label from `getActiveInferenceBackend(config)`.
+
+**Provider probes — gate on the engine axis:**
+- `src/cli/run-test.ts:38,46` and `src/install.ts:87` — replace `config.Backend === 'llama.cpp'` with `getActiveInferenceBackend(config) === 'llama'` (probe only when the active engine is managed-llama).
+
+**Compile-forced deletion:**
+- `src/repo-search/planner-protocol.ts:386` — sets the top-level `Backend` on a synthesized `SiftConfig`; delete the line.
+
+**Explicitly unchanged:** the hardcoded run-log labels `backend: 'llama.cpp'` in `src/status-server/routes/core.ts:133,178` and `src/status-server/dashboard-runs/artifact-upserts.ts:326`. These do not read `config.Backend`, compile fine after removal, and threading the active engine into them requires unrelated `config` plumbing. Out of scope.
+
+Output DTO schemas `Backend: z.string()` (`src/eval-types.ts:31`, `src/summary/types.ts:53`) stay string labels.
 
 ## Behavior preservation
 
 Every production path resolved `config.Backend` to `'llama.cpp'`. Each rewrite keeps production identical:
 - Lifecycle gate: prod active engine is `'llama'` → still true; exl3 → still false (unchanged).
-- Summary: prod never hit the mock route and never rejected oversized input → still true after the mock-only rewrite; host-settings still self-gate on `ExternalServerEnabled`.
-- Labels: value string changes from `'llama.cpp'` to `'llama'`/`'exl3'`, which is strictly more accurate; no logic branches on the label.
+- Summary: the provider default stays the literal `'llama.cpp'`, so all 16 comparison sites take the same branch as today. Prod never hit the mock route and never rejected oversized input → still true after the mock-only rewrite; host-settings still self-gate on `ExternalServerEnabled`.
+- Display labels in `install`/`run-test` change from `'llama.cpp'` to `'llama'`/`'exl3'` — strictly more accurate, and no logic branches on them.
 
 ## Testing (TDD)
 
-Each numbered change lands test-first. The 4 uncommitted test files are updated to the new seams:
-- `tests/managed-llama-lifecycle-gate.test.ts` — drop the `config.Backend='noop'` case (that scenario no longer exists); assert the gate = active-engine-is-llama.
-- `tests/managed-llama-config-backend-guard.test.ts` — retarget to guard the new invariant (no top-level `Backend`; seam is `disableManagedLlamaStartup`).
-- `tests/managed-llama-exl3-shared-port.test.ts`, `tests/managed-llama-process-exit-sync-guard.test.ts` — update `config.Backend='llama.cpp'` setup (now implied by an active llama preset).
+Each numbered change lands test-first where behavior changes; behavior-preserving refactors land behind characterization tests that are green before and after (labelled as such, not as red-green).
 
-Full suite must pass with production behavior unchanged; new/updated tests assert the two seams are explicit and independent.
+Required new tests:
+- **Default summary provider** — assert that a summary run with no `backend` override resolves to `'llama.cpp'`, so the 16 comparison sites keep their branch. This is the regression guard for the highest-risk change; it must be written against the default path, not a path where a test explicitly passes `'llama.cpp'`.
+- **Strict config payload** — assert a complete config payload still qualifies as strict (full replace, not partial merge) after `'Backend'` leaves `topLevelRequired`.
+- **v31 → v32 persistence** — assert a seeded v31 DB migrates, drops the `backend` column, and reads back a valid config; and that a fresh DB is created at v32 without the column.
+- **No top-level Backend** — assert the field is absent from the default config and stripped by normalization.
+
+Updated tests:
+- `tests/managed-llama-lifecycle-gate.test.ts` — assert the gate ignores any top-level `Backend` value (genuinely red before the gate change), then that it keys on the active engine.
+- `tests/managed-llama-exl3-shared-port.test.ts`, `tests/managed-llama-process-exit-sync-guard.test.ts`, `tests/helpers/runtime-benchmark-repro.ts` — drop `config.Backend='llama.cpp'` setup (implied by an active llama preset).
+- `tests/managed-llama-config-backend-guard.test.ts` — verified to touch only per-preset `Backend`; no change expected, confirm it still compiles.
+- `tests/runtime-db-schema-v31.test.ts` — the `CURRENT_SCHEMA_VERSION === 31` assertion at line 31 must move to 32 (rename the file/tests to v32).
+- All 16 test fixtures that set a top-level `Backend:` must drop it (see inventory).
+
+Full suite must pass with production behavior unchanged.
 
 ## Consumer inventory (removal checklist)
 
 Behavioral: `getters.ts:39`, `provider-invoke.ts:96`, `request-runner.ts:77/198`, `run-test.ts:38/46`, `install.ts:87`.
-Label: `eval.ts:72`, `analyzer.ts:114`, `install.ts:102`, `run-test.ts:70`, `planner-protocol.ts:386`, `core.ts:133/178`, `artifact-upserts.ts:326`.
-Persistence: `config-store.ts:54/140/174`.
+Summary-provider default (must stay `'llama.cpp'`): `eval.ts:72`, `analyzer.ts:114`, `request-runner.ts:195`.
+Display label (active engine): `install.ts:102`, `run-test.ts:70`.
+Compile-forced deletion: `planner-protocol.ts:386`.
+Strict-payload gate: `core.ts:244` (`'Backend'` in `topLevelRequired`).
+Persistence: `config-store.ts:54/140/174/224/257`; `runtime-db.ts:24` (version), `:120` (DDL), migration tail (~`:1142`).
 Schema/default/normalize: `contracts/config.ts:146`, `defaults.ts:77`, `normalization.ts:438-439`.
-Test seams migrated: `runtime-status-server.lifecycle.test.ts`, `runtime-status-server.test.ts`, `execution-ownership.test.ts`, `summary-status-server.test.ts:772` (`='mock'` → request override), plus the 4 uncommitted managed-llama tests.
+Unchanged by design: `core.ts:133/178`, `artifact-upserts.ts:326` (hardcoded run-log labels), and the 16 `backend === 'llama.cpp'` summary comparison sites.
+
+Test fixtures setting a top-level `Backend:` (all must drop it): `cli-http-boundary.test.ts:73,129`; `dashboard-managed-presets.test.ts:104`; `dashboard-presets.test.ts:34`; `helpers/runtime-config.ts:83`; `host-sync.test.ts:24`; `runtime-provider-llama.test.ts:32`; `runtime-results-db.test.ts:39,57`; `runtime-status-server.lifecycle.test.ts:179`; `runtime-summarize.test.ts:462,809`; `summary-cli.test.ts:33`; `_test-helpers.ts:111,294,350`. Fixtures using `Backend: 'mock'` that feed a summary run must instead pass `backend: 'mock'` on the request.
+
+Test seams migrated: `runtime-status-server.lifecycle.test.ts`, `runtime-status-server.test.ts`, `execution-ownership.test.ts` (→ `disableManagedLlamaStartup`), `summary-status-server.test.ts:772` (`='mock'` → request override), plus `config.test.ts:275`.
