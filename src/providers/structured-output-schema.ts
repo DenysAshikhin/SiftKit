@@ -1,4 +1,10 @@
-import { JsonObjectSchema, type JsonObject, type OptionalJsonValue } from '../lib/json-types.js';
+import {
+  JsonObjectSchema,
+  isJsonObject,
+  type JsonObject,
+  type MutableJsonObject,
+  type OptionalJsonValue,
+} from '../lib/json-types.js';
 import type { LlamaCppToolParameterSchema } from '../llm-protocol/types.js';
 
 export type StructuredOutputToolDefinition = {
@@ -34,14 +40,32 @@ function getRequiredList(value: OptionalJsonValue): string[] {
   return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
 }
 
-function getToolArgProperties(tool: StructuredOutputToolDefinition): JsonObject {
-  const parameters = getObjectRecord(tool.function.parameters);
-  return getObjectRecord(parameters.properties);
+function normalizePlannerParameterSchema(schema: JsonObject): JsonObject {
+  const normalized: MutableJsonObject = { ...schema };
+  if (isJsonObject(schema.items)) {
+    normalized.items = normalizePlannerParameterSchema(schema.items);
+  }
+
+  const properties = getObjectRecord(schema.properties);
+  if (Object.keys(properties).length === 0) {
+    return normalized;
+  }
+
+  const originalRequired = new Set(getRequiredList(schema.required));
+  const normalizedProperties: MutableJsonObject = {};
+  for (const [name, value] of Object.entries(properties)) {
+    const propertySchema = normalizePlannerParameterSchema(getObjectRecord(value));
+    normalizedProperties[name] = originalRequired.has(name)
+      ? propertySchema
+      : { anyOf: [propertySchema, { type: 'null' }] };
+  }
+  normalized.properties = normalizedProperties;
+  normalized.required = Object.keys(properties);
+  return normalized;
 }
 
-function getToolArgRequired(tool: StructuredOutputToolDefinition): string[] {
-  const parameters = getObjectRecord(tool.function.parameters);
-  return getRequiredList(parameters.required);
+function getNormalizedToolParameters(tool: StructuredOutputToolDefinition): JsonObject {
+  return normalizePlannerParameterSchema(getObjectRecord(tool.function.parameters));
 }
 
 
@@ -58,26 +82,15 @@ function buildAnyOf(values: JsonSchema[]): JsonSchema {
   return { anyOf: values };
 }
 
-function buildPlannerToolActionSchema(tool: StructuredOutputToolDefinition): JsonSchemaObject {
+function buildPlannerToolCallSchema(tool: StructuredOutputToolDefinition): JsonSchemaObject {
+  const parameters = getNormalizedToolParameters(tool);
   return {
     type: 'object',
     properties: {
       action: { const: tool.function.name },
-      ...getToolArgProperties(tool),
+      ...getObjectRecord(parameters.properties),
     },
-    required: ['action', ...getToolArgRequired(tool)],
-    additionalProperties: false,
-  };
-}
-
-function buildPlannerToolBatchItemSchema(tool: StructuredOutputToolDefinition): JsonSchemaObject {
-  return {
-    type: 'object',
-    properties: {
-      action: { const: tool.function.name },
-      ...getToolArgProperties(tool),
-    },
-    required: ['action', ...getToolArgRequired(tool)],
+    required: ['action', ...getRequiredList(parameters.required)],
     additionalProperties: false,
   };
 }
@@ -89,8 +102,7 @@ function buildPlannerToolBatchActionSchema(toolDefinitions: StructuredOutputTool
       action: { const: 'tool_batch' },
       calls: {
         type: 'array',
-        minItems: 1,
-        items: buildAnyOf(toolDefinitions.map((tool) => buildPlannerToolBatchItemSchema(tool))),
+        items: buildAnyOf(toolDefinitions.map((tool) => buildPlannerToolCallSchema(tool))),
       },
     },
     required: ['action', 'calls'],
@@ -136,7 +148,7 @@ function buildPlannerActionSchema(options: {
   const actionSchemas: JsonSchema[] = [options.finishActionSchema];
   if (options.toolDefinitions.length > 0) {
     actionSchemas.unshift(
-      ...options.toolDefinitions.map((tool) => buildPlannerToolActionSchema(tool)),
+      ...options.toolDefinitions.map((tool) => buildPlannerToolCallSchema(tool)),
       buildPlannerToolBatchActionSchema(options.toolDefinitions),
     );
   }
