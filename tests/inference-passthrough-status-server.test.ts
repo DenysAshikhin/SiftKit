@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import { getFreePort, writeManagedLlamaScripts } from './_runtime-helpers.js';
+import { captureStdout, getFreePort, writeManagedLlamaScripts } from './_runtime-helpers.js';
 
 import { startStatusServer } from '../src/status-server/index.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
@@ -226,6 +226,77 @@ test('llama passthrough waits through 503 Loading model responses without timing
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual(response.body, { data: [{ id: 'managed-passthrough-503-model', object: 'model' }] });
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    process.chdir(previousCwd);
+    closeRuntimeDatabase();
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
+test('chat passthrough logs every forwarded /v1/chat/completions request', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-inference-passthrough-chat-log-'));
+  const previousCwd = process.cwd();
+  fs.writeFileSync(
+    path.join(tempRoot, 'package.json'),
+    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+    'utf8',
+  );
+  process.chdir(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup: Record<string, string | undefined> = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+
+  const llamaPort = await getFreePort();
+  const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-chat-log-model');
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  writeManagedConfig('managed-chat-log-model', managed, {
+    StartupTimeoutMs: 10000,
+    HealthcheckTimeoutMs: 2000,
+    HealthcheckIntervalMs: 100,
+  });
+
+  const server = startStatusServer();
+  await server.startupPromise;
+  const address = getAddressInfo(server);
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const lines = await captureStdout(async () => {
+      const response = await requestJsonPost(`${baseUrl}/v1/chat/completions`, {
+        messages: [
+          { role: 'system', content: 'You are terse.' },
+          { role: 'user', content: 'hello' },
+        ],
+      }, 30_000);
+      assert.equal(response.statusCode, 200);
+    });
+
+    const forwardLine = lines.find((line) => line.includes('inference_passthrough forward'));
+    assert.ok(forwardLine, `expected a forward log line, got:\n${lines.join('\n')}`);
+    assert.match(forwardLine, /path=\/v1\/chat\/completions/u);
+    assert.match(forwardLine, /messages=2/u);
+    assert.match(forwardLine, /body_chars=\d+/u);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

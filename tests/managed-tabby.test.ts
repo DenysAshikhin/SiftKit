@@ -119,7 +119,12 @@ interface FakeTabbyFiles {
  * resident-parameter verification is exercised end to end. `appliedMaxSeqLen` simulates a server
  * that silently clamps the requested context.
  */
-function writeFakeTabby(root: string, port: number, appliedMaxSeqLen: number | null): FakeTabbyFiles {
+function writeFakeTabby(
+  root: string,
+  port: number,
+  appliedMaxSeqLen: number | null,
+  options: { announceDrafting: boolean } = { announceDrafting: true },
+): FakeTabbyFiles {
   const files: FakeTabbyFiles = {
     scriptPath: path.join(root, 'fake-tabby.cjs'),
     argsPath: path.join(root, 'args.json'),
@@ -145,6 +150,9 @@ const environment = {
   TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: process.env.TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE,
 };
 fs.writeFileSync(${JSON.stringify(files.environmentPath)}, JSON.stringify(environment));
+if (${JSON.stringify(options.announceDrafting)} && environment.TABBY_DRAFT_MODEL_DRAFT_MODE === 'mtp') {
+  console.log('INFO: Using main model MTP component for drafting');
+}
 const card = environment.TABBY_MODEL_MODEL_NAME ? {
   id: environment.TABBY_MODEL_MODEL_NAME,
   parameters: {
@@ -303,6 +311,63 @@ test('managed Tabby reuses identical launch settings and restarts when UBatch si
 
     await runtime.ensurePresetReady({ ...exl3Preset, UBatchSize: 2_048 });
     assert.equal(fs.readFileSync(startsPath, 'utf8').trim().split(/\r?\n/u).length, 2);
+  } finally {
+    await runtime.stopProcess();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('unmanaged EXL3 preset with speculation fails loud instead of silently losing MTP', async () => {
+  const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('Default model preset is missing');
+  const runtime = new ManagedTabbyRuntime({
+    Managed: false,
+    WorkingDirectory: '.',
+    PythonPath: process.execPath,
+    Entrypoint: 'unused',
+    ModelRoot: '.',
+    AdminApiKey: '',
+    ShutdownTimeoutMs: 100,
+  });
+
+  await assert.rejects(runtime.ensurePresetReady({
+    ...preset,
+    id: 'external-mtp',
+    Backend: 'exl3' as const,
+    BaseUrl: 'http://127.0.0.1:1',
+    Model: 'model-a',
+    ModelPath: path.join('.', 'model-a'),
+    SpeculativeEnabled: true,
+    SpeculativeType: 'draft-mtp' as const,
+  }), /cannot enable MTP drafting/u);
+});
+
+test('managed Tabby rejects a speculative preset when the startup log never reports MTP drafting', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-managed-tabby-no-mtp-'));
+  const port = await getFreePort();
+  const { scriptPath } = writeFakeTabby(root, port, null, { announceDrafting: false });
+  const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('Default model preset is missing');
+  const runtime = new ManagedTabbyRuntime({
+    Managed: true,
+    WorkingDirectory: root,
+    PythonPath: process.execPath,
+    Entrypoint: path.basename(scriptPath),
+    ModelRoot: root,
+    AdminApiKey: '',
+    ShutdownTimeoutMs: 5_000,
+  });
+  try {
+    await assert.rejects(runtime.ensurePresetReady({
+      ...preset,
+      Backend: 'exl3' as const,
+      BaseUrl: `http://127.0.0.1:${port}`,
+      Model: 'model-a',
+      ModelPath: path.join(root, 'model-a'),
+      SpeculativeEnabled: true,
+      SpeculativeType: 'draft-mtp' as const,
+    }), /startup log never reported the MTP draft component/u);
+    assert.equal(runtime.getModelState(), 'failed');
   } finally {
     await runtime.stopProcess();
     fs.rmSync(root, { recursive: true, force: true });

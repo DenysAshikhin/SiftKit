@@ -15,6 +15,7 @@ import { httpClient } from '../../lib/http-client.js';
 import { buildPresetRequestDefaults } from '../../inference-presets/preset-compatibility.js';
 import { getInferenceRequestCompatibility } from '../../inference-presets/request-compatibility.js';
 import { getActiveModelPreset, getManagedLlamaInternalBaseUrl, readConfig } from '../config-store.js';
+import { logLine } from '../managed-llama.js';
 import { readBody, sendJson } from '../http-utils.js';
 import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.js';
 import {
@@ -89,11 +90,12 @@ function applyThinkingDefaults(body: JsonObject, preset: ModelRuntimePreset): vo
   ) template.reasoning_content = true;
 }
 
-function validateChatBody(bodyText: string): void {
+function validateChatBody(bodyText: string): number {
   const parsed = parseJsonValueText(bodyText);
   if (!isJsonObject(parsed) || !Array.isArray(parsed.messages)) {
     throw new Error('Expected a JSON object with a messages array.');
   }
+  return parsed.messages.length;
 }
 
 function translateChatBody(bodyText: string, preset: ModelRuntimePreset): string {
@@ -215,9 +217,10 @@ class WorkloadEndpoint implements RouteEndpoint {
   async handle(ctx: ServerContext, req: IncomingMessage, res: ServerResponse, match: RouteMatch): Promise<void> {
     let bodyText: string;
     let requestText: string | null = null;
+    let chatMessageCount = 0;
     try {
       bodyText = await readBody(req);
-      if (match.pathname === CHAT_PATH) validateChatBody(bodyText);
+      if (match.pathname === CHAT_PATH) chatMessageCount = validateChatBody(bodyText);
       else requestText = readTokenizeText(bodyText, match.pathname);
     } catch (error) {
       sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
@@ -236,6 +239,10 @@ class WorkloadEndpoint implements RouteEndpoint {
       }
       if (match.pathname === CHAT_PATH) {
         const translatedBody = translateChatBody(bodyText, currentPreset);
+        logLine(
+          `inference_passthrough forward path=${CHAT_PATH} base_url=${baseUrl} `
+          + `messages=${chatMessageCount} body_chars=${translatedBody.length}`,
+        );
         await proxyStreamingRequest(ctx, req, res, baseUrl, CHAT_PATH, translatedBody);
       } else if (requestText !== null) {
         await proxyTokenizeRequest(req, res, baseUrl, currentPreset, match.pathname, requestText);

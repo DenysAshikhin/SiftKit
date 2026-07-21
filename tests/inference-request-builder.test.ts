@@ -42,6 +42,39 @@ test('llama request includes llama-only cache and slot controls', () => {
   assert.equal(request.cache_prompt, true);
   assert.equal(request.id_slot, 2);
   assert.equal(request.timings_per_token, true);
+  assert.deepEqual(request.stream_options, { include_usage: true });
+});
+
+test('streamed EXL3 request asks the server for usage in the final chunk', () => {
+  const request = new InferenceRequestBuilder().build({
+    backend: 'exl3',
+    model: '3.6_27B',
+    messages,
+    tools: [],
+    defaults,
+    overrides: {},
+    stream: true,
+    thinking: { enabled: false, preserve: false, reasoningContent: false },
+    llama: { cachePrompt: true },
+  });
+
+  assert.deepEqual(request.stream_options, { include_usage: true });
+});
+
+test('non-streamed request omits stream_options', () => {
+  const request = new InferenceRequestBuilder().build({
+    backend: 'exl3',
+    model: '3.6_27B',
+    messages,
+    tools: [],
+    defaults,
+    overrides: {},
+    stream: false,
+    thinking: { enabled: false, preserve: false, reasoningContent: false },
+    llama: { cachePrompt: true },
+  });
+
+  assert.equal(request.stream_options, undefined);
 });
 
 test('EXL3 request omits llama-only fields and maps thinking policy', () => {

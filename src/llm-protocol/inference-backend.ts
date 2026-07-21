@@ -49,6 +49,7 @@ export type InferenceChatRequest = {
   repetition_penalty?: number;
   max_tokens: number;
   stream: boolean;
+  stream_options?: { include_usage: boolean };
   tools?: LlamaCppToolDefinition[];
   parallel_tool_calls?: boolean;
   response_format?: LlamaCppResponseFormat;

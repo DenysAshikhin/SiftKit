@@ -36,6 +36,7 @@ export class InferenceRequestBuilder {
       messages: input.messages,
       ...sampling,
       stream: input.stream,
+      ...(input.stream ? { stream_options: { include_usage: true } } : {}),
       ...(input.tools.length > 0 ? { tools: input.tools, parallel_tool_calls: true } : {}),
       ...(input.responseFormat ? { response_format: input.responseFormat } : {}),
     };

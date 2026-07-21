@@ -165,6 +165,38 @@ test('llama streaming client assembles deltas, callbacks, timings, tool chunks, 
   assert.deepEqual(contentUpdates, ['answer ']);
 });
 
+test('streaming client requests include_usage and captures a final usage-only chunk', async () => {
+  const http = new StreamingHttpClient([
+    { choices: [{ delta: { reasoning_content: 'thinking ' } }] },
+    { choices: [{ delta: { content: 'answer' } }] },
+    {
+      choices: [],
+      usage: {
+        prompt_tokens: 22232,
+        completion_tokens: 40,
+        prompt_tokens_details: { cached_tokens: 21421 },
+      },
+    },
+  ]);
+
+  const response = await new LlamaCppClient(http).chat({
+    config: streamingConfig,
+    model: 'local',
+    messages: [{ role: 'user', content: 'hello' }],
+    tools: [],
+    maxTokens: 64,
+    stream: true,
+    allowedToolNames: [],
+  });
+
+  const body = JSON.parse(http.requests[0]?.body || '{}');
+  assert.deepEqual(body.stream_options, { include_usage: true });
+  assert.equal(response.usage.promptTokens, 22232);
+  assert.equal(response.usage.completionTokens, 40);
+  assert.equal(response.usage.promptCacheTokens, 21421);
+  assert.equal(response.usage.promptEvalTokens, 811);
+});
+
 test('llama streaming client stops on completed planner action in reasoning', async () => {
   const http = new StreamingHttpClient([
     { choices: [{ delta: { reasoning: 'prefix {"action":"finish","output":"done"} suffix' } }] },

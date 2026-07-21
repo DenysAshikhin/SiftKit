@@ -81,6 +81,7 @@ export type LlamaCppChatRequest = {
   cache_prompt?: boolean;
   id_slot?: number;
   stream?: boolean;
+  stream_options?: { include_usage: boolean };
   tools?: LlamaCppToolDefinition[];
   tool_choice?: 'auto' | 'none' | { type: 'function'; function: { name: string } };
   parallel_tool_calls?: boolean;

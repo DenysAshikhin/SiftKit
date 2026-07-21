@@ -85,6 +85,19 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === 'POST' && req.url === '/v1/chat/completions') {
+    let bodyText = '';
+    req.on('data', (chunk) => { bodyText += chunk; });
+    req.on('end', () => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{ message: { content: 'ok' } }],
+        usage: { prompt_tokens: 3, completion_tokens: 1 },
+      }));
+    });
+    return;
+  }
+
   if (req.method === 'GET' && req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));

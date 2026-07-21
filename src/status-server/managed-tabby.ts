@@ -74,6 +74,12 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       throw new Error(`Preset '${preset.id}' cannot be loaded by the EXL3 runtime.`);
     }
     const managed = this.shouldManage(preset);
+    if (!managed && preset.SpeculativeEnabled) {
+      throw new Error(
+        `Preset '${preset.id}' requires speculative drafting, but TabbyAPI's /v1/model/load cannot enable MTP drafting `
+        + 'on a server SiftKit did not launch. Use a managed launch or disable SpeculativeEnabled.',
+      );
+    }
     const launchEnvironment = managed ? this.adapter.buildLaunchEnvironment(preset) : null;
     const processSignature = launchEnvironment ? JSON.stringify(launchEnvironment) : null;
     if (
@@ -226,6 +232,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       const request = this.adapter.buildLoadRequest(preset);
       if (this.shouldManage(preset)) {
         await this.client.verifyResident(getBaseUrl(preset), request, preset.HealthcheckTimeoutMs);
+        if (preset.SpeculativeEnabled) this.assertDraftingActive(preset);
       } else {
         await this.client.load(getBaseUrl(preset), request, preset.StartupTimeoutMs);
       }
@@ -234,6 +241,20 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     } catch (error) {
       this.transitionModelTo('failed');
       throw error;
+    }
+  }
+
+  /**
+   * TabbyAPI's /v1/model card reports `draft: null` even while MTP drafting is active, so the
+   * startup log line from the exllamav3 backend is the only signal that drafting engaged.
+   */
+  private assertDraftingActive(preset: ModelRuntimePreset): void {
+    const startupLog = fs.existsSync(this.logPath) ? fs.readFileSync(this.logPath, 'utf8') : '';
+    if (!startupLog.includes('Using main model MTP component for drafting')) {
+      throw new Error(
+        `Preset '${preset.id}' requires MTP drafting, but the TabbyAPI startup log never reported the MTP draft `
+        + 'component loading. Decode speed would be silently halved.',
+      );
     }
   }
 
