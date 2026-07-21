@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getIdleSummary, getMetrics, getWebSearchQuota } from '../api';
 import { buildTaskRunsSeries, buildToolMetricRows } from '../metrics-view';
-import type { InteractiveSeries } from '../components/InteractiveGraph';
+import type { MetricSeries } from '../components/MetricChart';
 import type { IdleSummarySnapshot, MetricDay, ProviderQuota, TaskMetricDay, ToolStatsByTask, WebSearchUsage } from '../types';
 import type { MetricsTabProps } from '../tabs/MetricsTab';
 
@@ -70,7 +70,7 @@ export function useMetricsController(deps: { refreshToken: number; tab: string }
   const latestIdleSnapshot = idleSummarySnapshots[0] || null;
   const recentIdlePoints = idleSummarySnapshots.slice(0, 20).reverse();
   const sortedToolMetricRows = buildToolMetricRows(toolMetrics);
-  const taskRunsGraphSeries: InteractiveSeries[] = buildTaskRunsSeries(taskMetrics).map((entry) => ({
+  const taskRunsGraphSeries: MetricSeries[] = buildTaskRunsSeries(taskMetrics).map((entry) => ({
     key: entry.key,
     title: entry.title,
     unit: '',

@@ -19,10 +19,16 @@ const {
 export type RunGroupKey = Exclude<RunGroupFilter, ''>;
 
 export function readSearchParams(): URLSearchParams {
+  if (typeof window === 'undefined') {
+    return new URLSearchParams();
+  }
   return new URLSearchParams(window.location.search);
 }
 
 export function writeSearchParams(update: Record<string, string | null>): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
   const params = readSearchParams();
   for (const [key, value] of Object.entries(update)) {
     if (value && value.trim()) {

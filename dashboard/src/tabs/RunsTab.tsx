@@ -1,13 +1,16 @@
+import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-import { RUN_LOG_TYPE_PRESETS } from '../run-log-admin';
+import { RUN_LOG_TYPE_PRESETS, normalizeRunLogTypeFilter } from '../run-log-admin';
+import { StatusDot } from '../components/StatusDot';
+import { FilterChips, type FilterChipItem } from '../components/FilterChips';
 import {
-  classifyRunGroup,
   extractRunFinalOutput,
   formatDate,
   formatDurationHms,
   formatRunEventPayload,
+  formatShortTime,
   normalizeFinalOutputText,
   runGroupLabel,
 } from '../lib/format';
@@ -16,6 +19,11 @@ import type { RunDetailResponse, RunGroupFilter, RunRecord } from '../types';
 
 type RunGroupKey = Exclude<RunGroupFilter, ''>;
 const RUN_GROUP_KEYS = ['summary', 'repo_search', 'planner', 'chat', 'other'] as const satisfies readonly RunGroupKey[];
+const STATUS_CHIPS = [
+  { value: 'completed', label: 'Done' },
+  { value: 'failed', label: 'Failed' },
+  { value: 'running', label: 'Running' },
+] as const;
 
 export type RunsTabProps = {
   search: string;
@@ -50,128 +58,112 @@ export function RunsTab({
   repoSearchSimpleFlow,
   repoSearchChatSteps,
   onChangeSearch,
-  onOpenRunDeleteModal,
   onChangeStatusFilter,
   onToggleKindFilter,
   onSelectRun,
   onChangeRepoSearchSimpleFlow,
 }: RunsTabProps) {
+  const chipItems: FilterChipItem[] = [
+    ...RUN_LOG_TYPE_PRESETS.map((preset) => ({
+      value: `kind:${preset.value}`,
+      label: preset.label,
+      active: kindFilter === preset.value,
+    })),
+    ...STATUS_CHIPS.map((chip) => ({
+      value: `status:${chip.value}`,
+      label: chip.label,
+      active: statusFilter === chip.value,
+    })),
+  ];
+
+  function onToggleChip(value: string): void {
+    if (value.startsWith('kind:')) {
+      onToggleKindFilter(normalizeRunLogTypeFilter(value.slice('kind:'.length)));
+      return;
+    }
+    const nextStatus = value.slice('status:'.length);
+    onChangeStatusFilter(statusFilter === nextStatus ? '' : nextStatus);
+  }
+
   return (
-    <section className="panel-grid">
-      <section className="panel">
-        <div className="filters">
-          <div className="run-filter-toolbar">
-            <input placeholder="Search runs" value={search} onChange={(event) => onChangeSearch(event.target.value)} />
-            <button type="button" className="run-delete-button" onClick={onOpenRunDeleteModal}>
-              Delete Logs
-            </button>
-          </div>
-          <input placeholder="Status filter" value={statusFilter} onChange={(event) => onChangeStatusFilter(event.target.value)} />
-          <div className="filter-pill-row">
-            <span className="filter-pill-label">Type</span>
-            {RUN_LOG_TYPE_PRESETS.map((preset) => (
-              <button
-                key={preset.label}
-                type="button"
-                className={`filter-pill kind ${preset.tone} ${kindFilter === preset.value ? 'active' : ''}`}
-                onClick={() => onToggleKindFilter(preset.value)}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-          <div className="filter-pill-row">
-            <span className="filter-pill-label">Status</span>
-            <button
-              type="button"
-              className={`filter-pill status completed ${statusFilter === 'completed' ? 'active' : ''}`}
-              onClick={() => onChangeStatusFilter(statusFilter === 'completed' ? '' : 'completed')}
-            >
-              Completed
-            </button>
-            <button
-              type="button"
-              className={`filter-pill status failed ${statusFilter === 'failed' ? 'active' : ''}`}
-              onClick={() => onChangeStatusFilter(statusFilter === 'failed' ? '' : 'failed')}
-            >
-              Failed
-            </button>
-            <button
-              type="button"
-              className={`filter-pill status running ${statusFilter === 'running' ? 'active' : ''}`}
-              onClick={() => onChangeStatusFilter(statusFilter === 'running' ? '' : 'running')}
-            >
-              Running
-            </button>
-          </div>
+    <>
+      <div className="list-pane">
+        <div className="list-tools">
+          <label className="search">
+            ⌕
+            <input placeholder="Search runs…" value={search} onChange={(event) => onChangeSearch(event.target.value)} />
+          </label>
+          <FilterChips items={chipItems} onToggle={onToggleChip} />
         </div>
-        {runsLoading && <p className="hint">Loading runs...</p>}
-        {runsError && <p className="error">{runsError}</p>}
-        {RUN_GROUP_KEYS.map((group) => {
-          const items = groupedRuns[group];
-          if (items.length === 0) {
-            return null;
-          }
-          return (
-            <section key={group} className="run-group">
-              <header>{runGroupLabel(group)} ({items.length})</header>
-              <ul className="run-list">
+        <div className="runs">
+          {runsLoading && <p className="hint">Loading runs…</p>}
+          {runsError && <p className="error">{runsError}</p>}
+          {RUN_GROUP_KEYS.map((group) => {
+            const items = groupedRuns[group];
+            if (items.length === 0) {
+              return null;
+            }
+            return (
+              <React.Fragment key={group}>
+                <div className="rgroup">{runGroupLabel(group)} · {items.length}</div>
                 {items.map((run) => (
-                  <li key={run.id}>
-                    <button className={selectedRunId === run.id ? 'selected' : ''} onClick={() => onSelectRun(run.id)}>
-                      <span>{run.title}</span>
-                      <span className="run-meta-line">
-                        <span className={`run-chip kind ${classifyRunGroup(run.kind)}`}>{run.kind}</span>
-                        <span className={`run-chip status ${String(run.status).toLowerCase()}`}>{run.status}</span>
-                      </span>
-                    </button>
-                  </li>
+                  <div
+                    key={run.id}
+                    className={selectedRunId === run.id ? 'run sel' : 'run'}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => onSelectRun(run.id)}
+                  >
+                    <span className="t">{run.title}</span>
+                    <span className="m">
+                      <StatusDot status={run.status} /> · {formatDurationHms(run.durationMs)} · {formatShortTime(run.startedAtUtc)}
+                    </span>
+                  </div>
                 ))}
-              </ul>
-            </section>
-          );
-        })}
-      </section>
-      <section className="panel">
+              </React.Fragment>
+            );
+          })}
+        </div>
+      </div>
+      <div className="detail">
         {selectedRunDetail ? (
           <>
             <h2>{selectedRunDetail.run.title}</h2>
-            <p className="hint">
-              {selectedRunDetail.run.id}
-              {' | '}
-              <span className={`run-chip kind ${classifyRunGroup(selectedRunDetail.run.kind)}`}>{selectedRunDetail.run.kind}</span>
-              {' '}
-              <span className={`run-chip status ${String(selectedRunDetail.run.status).toLowerCase()}`}>{selectedRunDetail.run.status}</span>
-            </p>
-            <p className="hint">Started: {formatDate(selectedRunDetail.run.startedAtUtc)} | Duration: {formatDurationHms(selectedRunDetail.run.durationMs)}</p>
+            <div className="meta-line">
+              <span>{selectedRunDetail.run.id}</span>
+              <span>{selectedRunDetail.run.kind}</span>
+              <span>{selectedRunDetail.run.status}</span>
+              <span>started {formatShortTime(selectedRunDetail.run.startedAtUtc)}</span>
+              <span>{formatDurationHms(selectedRunDetail.run.durationMs)}</span>
+            </div>
             {(() => {
               const finalOutput = extractRunFinalOutput(selectedRunDetail);
               if (!finalOutput) {
                 return null;
               }
               return (
-                <details className="detail-card final-output-card" open>
-                  <summary>Final Output</summary>
-                  <div className="markdown-body">
+                <div className="card final">
+                  <header><b>Final Output</b></header>
+                  <div className="cbody markdown-body">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
                       {normalizeFinalOutputText(finalOutput)}
                     </ReactMarkdown>
                   </div>
-                </details>
+                </div>
               );
             })()}
             {isRepoSearchRunSelected ? (
               <div className="run-view-toggle-row">
                 <button
                   type="button"
-                  className={repoSearchSimpleFlow ? 'active' : ''}
+                  className={repoSearchSimpleFlow ? 'chip on' : 'chip'}
                   onClick={() => onChangeRepoSearchSimpleFlow(true)}
                 >
                   Simplified Flow
                 </button>
                 <button
                   type="button"
-                  className={!repoSearchSimpleFlow ? 'active' : ''}
+                  className={!repoSearchSimpleFlow ? 'chip on' : 'chip'}
                   onClick={() => onChangeRepoSearchSimpleFlow(false)}
                 >
                   Raw Events
@@ -181,49 +173,46 @@ export function RunsTab({
             {isRepoSearchRunSelected && repoSearchSimpleFlow ? (
               repoSearchChatSteps.length > 0 ? (
                 repoSearchChatSteps.map((step, index) => (
-                  <details key={step.id} className="detail-card simple-flow-card" open={index === 0}>
-                    <summary className="simple-flow-summary">
-                      <span>Step {index + 1}</span>
-                      <span className="simple-flow-summary-meta">{step.contextUsed || '-'}</span>
-                    </summary>
-                    <div className="simple-flow-body">
+                  <div key={step.id} className="card">
+                    <header><b>Step {index + 1}</b><span>{step.contextUsed || '-'}</span></header>
+                    <div className="cbody simple-flow-body">
                       {step.prompt ? (
                         <section className="simple-flow-section">
                           <h4>Prompt</h4>
-                          <pre>{step.prompt}</pre>
+                          <pre className="mono">{step.prompt}</pre>
                         </section>
                       ) : null}
                       <section className="simple-flow-section">
                         <h4>Command</h4>
-                        <pre className="simple-flow-command">{step.command}</pre>
+                        <pre className="mono simple-flow-command">{step.command}</pre>
                       </section>
                       <section className="simple-flow-section">
                         <h4>Output</h4>
-                        <pre>{step.output}</pre>
+                        <pre className="mono">{step.output}</pre>
                       </section>
                     </div>
-                  </details>
+                  </div>
                 ))
               ) : (
                 <p className="hint">No simplified steps found. Switch to Raw Events for full transcript details.</p>
               )
             ) : (
               selectedRunDetail.events.map((event, index) => (
-                <details key={`${event.kind}-${index}`} className="detail-card" open={index === 0}>
-                  <summary>{event.kind} {event.at ? `| ${formatDate(event.at)}` : ''}</summary>
-                  <div className="markdown-body">
+                <div key={`${event.kind}-${index}`} className="card">
+                  <header><b>{event.kind}</b><span>{event.at ? formatDate(event.at) : ''}</span></header>
+                  <div className="cbody markdown-body">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
                       {formatRunEventPayload(event)}
                     </ReactMarkdown>
                   </div>
-                </details>
+                </div>
               ))
             )}
           </>
         ) : (
           <p className="hint">Select a run to inspect details.</p>
         )}
-      </section>
-    </section>
+      </div>
+    </>
   );
 }

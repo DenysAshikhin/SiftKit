@@ -1,17 +1,7 @@
 import React from 'react';
 import type { ReactNode } from 'react';
 
-import {
-  applyOperationModeDefaults,
-  applyPresetKindDefaults,
-  getEffectivePresetTools,
-  PRESET_TOOL_DESCRIPTIONS,
-  PRESET_TOOL_OPTIONS,
-  getPresetToolsSummary,
-  togglePresetTool,
-} from '../preset-editor';
-import { formatDate, formatNumber, parseFloatInput, parseIntegerInput } from '../lib/format';
-import { applyModelPresetSelection } from '../model-runtime-presets';
+import { formatDate, formatNumber, parseIntegerInput } from '../lib/format';
 import type { DirtyContinuation } from '../settings-flow';
 import {
   POLICY_MODE_OPTIONS,
@@ -20,10 +10,11 @@ import {
   getSettingsFieldDescriptor,
   type SettingsSectionId,
 } from '../settings-sections';
-import { SettingsField, SettingsInlineHelpLabel } from '../settings/SettingsFields';
+import { SettingsField } from '../settings/SettingsFields';
 import type { DashboardConfig, DashboardModelRuntimePreset, DashboardPreset, ProviderQuota, WebSearchUsage } from '../types';
 import { PresetsSection } from './settings/PresetsSection';
 import { ModelPresetsSection } from './settings/ModelPresetsSection';
+import { ToolPolicyMatrix } from './settings/ToolPolicyMatrix';
 
 export type SettingsTabProps = {
   activeSettingsSection: SettingsSectionId;
@@ -114,7 +105,7 @@ export function SettingsTab(props: SettingsTabProps) {
       return null;
     }
     return (
-      <div className="settings-live-grid">
+      <div className="fgrid">
         {renderField('general', 'Version', (
           <input
             value={dashboardConfig.Version}
@@ -198,43 +189,7 @@ export function SettingsTab(props: SettingsTabProps) {
       return null;
     }
     return (
-      <div className="settings-live-grid">
-        {renderField('tool-policy', 'Operation mode tool policy', (
-          <div className="settings-preset-mode-grid">
-            {(['summary', 'read-only', 'full'] as const).map((operationMode) => (
-              <div key={operationMode} className="settings-preset-mode-card">
-                <span className="settings-preset-mode-title">
-                  <SettingsInlineHelpLabel
-                    label={operationMode}
-                    helpText={`Globally allowed tools for ${operationMode} mode.`}
-                  />
-                </span>
-                <div className="settings-preset-tools-list compact">
-                  {PRESET_TOOL_OPTIONS.map((tool) => (
-                    <label key={`${operationMode}-${tool}`} className="settings-preset-tools-option" tabIndex={0}>
-                      <input
-                        type="checkbox"
-                        checked={dashboardConfig.OperationModeAllowedTools[operationMode].includes(tool)}
-                        onChange={() => updateSettingsDraft((next) => {
-                          next.OperationModeAllowedTools[operationMode] = togglePresetTool(
-                            next.OperationModeAllowedTools[operationMode],
-                            tool,
-                          );
-                        })}
-                      />
-                      <span className="settings-preset-tools-option-label">{tool}</span>
-                      <span className="settings-preset-tools-option-popover" role="tooltip">
-                        <strong>{tool}</strong>
-                        {PRESET_TOOL_DESCRIPTIONS[tool]}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>
+      <ToolPolicyMatrix allowed={dashboardConfig.OperationModeAllowedTools} updateSettingsDraft={updateSettingsDraft} />
     );
   };
 
@@ -243,7 +198,7 @@ export function SettingsTab(props: SettingsTabProps) {
       return null;
     }
     return (
-      <div className="settings-live-grid">
+      <div className="fgrid">
         {renderField('interactive', 'MinCharsForSummary', (
           <input
             type="number"
@@ -322,7 +277,7 @@ export function SettingsTab(props: SettingsTabProps) {
     }
     const web = dashboardConfig.WebSearch;
     return (
-      <div className="settings-live-grid">
+      <div className="fgrid">
         {renderField('web-search', 'Primary provider', (
           <select
             value={web.ProviderOrder[0]}
@@ -443,7 +398,6 @@ export function SettingsTab(props: SettingsTabProps) {
           dashboardConfig={dashboardConfig}
           selectedSettingsPreset={selectedSettingsPreset}
           selectedSettingsPresetId={selectedSettingsPresetId}
-          renderField={renderField}
           setSelectedSettingsPresetId={setSelectedSettingsPresetId}
           updateSettingsDraft={updateSettingsDraft}
           updatePresetDraft={updatePresetDraft}
@@ -471,59 +425,43 @@ export function SettingsTab(props: SettingsTabProps) {
     );
   };
 
+  const activeSection = SETTINGS_SECTIONS[activeSettingsSection];
+
   return (
-    <section className="panel-grid settings-live-layout">
-      <section className="panel settings-live-rail-panel">
-        <h2>Settings</h2>
-        <p className="hint">One section at a time. Unsaved changes are guarded before switching away.</p>
-        <div className="settings-live-rail">
-          {SETTINGS_SECTION_ORDER.map((sectionId) => {
-            const section = SETTINGS_SECTIONS[sectionId];
-            return (
-              <button
-                key={section.id}
-                type="button"
-                className={activeSettingsSection === section.id ? 'settings-live-rail-button active' : 'settings-live-rail-button'}
-                onClick={() => {
-                  if (activeSettingsSection !== section.id) {
-                    requestSettingsAction({ kind: 'switch-section', nextSection: section.id });
-                  }
-                }}
-              >
-                <span className="settings-live-section-icon">{section.icon}</span>
-                <span>
-                  <strong>{section.title}</strong>
-                  <span>{section.summary}</span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-      <section className="panel settings-live-panel">
-        {settingsLoading && <p className="hint">Loading config...</p>}
+    <>
+      <div className="set-nav">
+        {SETTINGS_SECTION_ORDER.map((sectionId) => {
+          const section = SETTINGS_SECTIONS[sectionId];
+          return (
+            <a
+              key={section.id}
+              role="button"
+              tabIndex={0}
+              className={activeSettingsSection === section.id ? 'on' : ''}
+              onClick={() => {
+                if (activeSettingsSection !== section.id) {
+                  requestSettingsAction({ kind: 'switch-section', nextSection: section.id });
+                }
+              }}
+            >
+              {section.title}
+            </a>
+          );
+        })}
+      </div>
+      <div className="set-main">
+        {settingsLoading && <p className="hint">Loading config…</p>}
         {settingsError && <p className="error">{settingsError}</p>}
         {dashboardConfig && (
           <>
-            <div className="settings-live-section-header">
-              <div>
-                <span className="settings-live-section-icon active">{SETTINGS_SECTIONS[activeSettingsSection].icon}</span>
-                <div>
-                  <h2>{SETTINGS_SECTIONS[activeSettingsSection].title}</h2>
-                  <p className="hint">{SETTINGS_SECTIONS[activeSettingsSection].summary}</p>
-                </div>
-              </div>
-              <div className="settings-live-status">
-                <span className={settingsDirty ? 'settings-live-dirty on' : 'settings-live-dirty'}>
-                  {settingsDirty ? 'Unsaved changes' : 'All changes saved'}
-                </span>
-                {settingsSavedAtUtc && <span className="hint">Saved {formatDate(settingsSavedAtUtc)}</span>}
-              </div>
-            </div>
-            <div className="settings-live-section-body">{renderSettingsSection()}</div>
-            <div className="settings-live-actionbar">
+            <div className="set-head">
+              <h2>{activeSection.title}</h2>
+              {settingsDirty ? <span className="dirty-pill">Unsaved changes</span> : null}
+              {settingsSavedAtUtc ? <span className="hint">Saved {formatDate(settingsSavedAtUtc)}</span> : null}
+              <span style={{ flex: 1 }} />
               <button
                 type="button"
+                className="ghost-btn"
                 onClick={() => {
                   if (settingsDirty) {
                     requestSettingsAction({ kind: 'reload-settings' });
@@ -537,6 +475,7 @@ export function SettingsTab(props: SettingsTabProps) {
               </button>
               <button
                 type="button"
+                className="ghost-btn"
                 onClick={() => {
                   if (settingsDirty) {
                     requestSettingsAction({ kind: 'restart-backend' });
@@ -546,15 +485,17 @@ export function SettingsTab(props: SettingsTabProps) {
                 }}
                 disabled={settingsActionBusy || !settingsRestartSupported}
               >
-                {settingsRestarting ? 'Restarting...' : 'Restart Backend'}
+                {settingsRestarting ? 'Restarting…' : 'Restart backend'}
               </button>
-              <button type="button" className="settings-live-save-button" onClick={() => { void onSaveDashboardSettings(); }} disabled={settingsActionBusy}>
-                {settingsSaving ? 'Saving...' : 'Save Settings'}
+              <button type="button" className="save" onClick={() => { void onSaveDashboardSettings(); }} disabled={settingsActionBusy}>
+                {settingsSaving ? 'Saving…' : 'Save settings'}
               </button>
             </div>
+            <p className="sec-hint">{activeSection.summary}</p>
+            <div className="set-sec on">{renderSettingsSection()}</div>
           </>
         )}
-      </section>
-    </section>
+      </div>
+    </>
   );
 }
