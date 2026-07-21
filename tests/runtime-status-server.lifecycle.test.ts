@@ -28,6 +28,7 @@ import {
   type LlamaModelsResponse,
 } from './_runtime-helpers.js';
 import { getAddressInfo } from './helpers/dashboard-http.js';
+import { FakeTabbyModelState } from './helpers/tabby-fake.js';
 
 test('summary status notification failures do not abort provider work', async () => {
   await withTempEnv(async () => {
@@ -219,7 +220,7 @@ test('real status server rejects removed config fields without leaving the reque
 
 test('failed preset switch returns 503 and keeps the status server alive', async () => {
   await withTempEnv(async (tempRoot) => {
-    let tabbyResident = false;
+    const tabbyModel = new FakeTabbyModelState();
     const tabby = http.createServer((request, response) => {
       if (request.url === '/v1/models') {
         response.setHeader('content-type', 'application/json');
@@ -227,19 +228,22 @@ test('failed preset switch returns 503 and keeps the status server alive', async
         return;
       }
       if (request.url === '/v1/model/load' && request.method === 'POST') {
-        tabbyResident = true;
-        response.writeHead(200, { 'content-type': 'text/event-stream' });
-        response.end('data: {"model_type":"model","module":1,"modules":1,"status":"finished"}\n\n');
+        let body = '';
+        request.setEncoding('utf8');
+        request.on('data', (chunk) => { body += chunk; });
+        request.on('end', () => {
+          tabbyModel.applyLoad(body);
+          response.writeHead(200, { 'content-type': 'text/event-stream' });
+          response.end('data: {"model_type":"model","module":1,"modules":1,"status":"finished"}\n\n');
+        });
         return;
       }
       if (request.url === '/v1/model' && request.method === 'GET') {
-        response.statusCode = tabbyResident ? 200 : 503;
-        response.setHeader('content-type', 'application/json');
-        response.end(tabbyResident ? '{"id":"tabby-model"}' : '{}');
+        tabbyModel.respondCurrentModel(response);
         return;
       }
       if (request.url === '/v1/model/unload' && request.method === 'POST') {
-        tabbyResident = false;
+        tabbyModel.clear();
         response.statusCode = 200;
         response.end();
         return;

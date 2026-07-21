@@ -14,6 +14,7 @@ import { startStatusServer } from '../src/status-server/index.js';
 import { writeConfig } from '../src/status-server/config-store.js';
 import { readBody } from '../src/status-server/http-utils.js';
 import { getAddressInfo } from './helpers/dashboard-http.js';
+import { FakeTabbyModelState } from './helpers/tabby-fake.js';
 import { getFreePort, withTempEnv } from './_runtime-helpers.js';
 
 async function waitFor(check: () => boolean | Promise<boolean>, timeoutMs = 3_500): Promise<void> {
@@ -27,7 +28,7 @@ async function waitFor(check: () => boolean | Promise<boolean>, timeoutMs = 3_50
 test('remote chat wakes idle-unloaded EXL3 while model catalog remains no-wake', async () => {
   await withTempEnv(async (tempRoot) => {
     const adminAuthorization = 'Bearer admin-secret';
-    let resident = false;
+    const model = new FakeTabbyModelState();
     let loadCount = 0;
     let unloadCount = 0;
     let chatCount = 0;
@@ -49,18 +50,12 @@ test('remote chat wakes idle-unloaded EXL3 while model catalog remains no-wake',
         return;
       }
       if (request.url === '/v1/model' && request.method === 'GET') {
-        if (!resident) {
-          response.statusCode = 503;
-          response.end();
-          return;
-        }
-        response.setHeader('content-type', 'application/json');
-        response.end('{"id":"model-a"}');
+        model.respondCurrentModel(response);
         return;
       }
       if (request.url === '/v1/model/load' && request.method === 'POST') {
         loadCount += 1;
-        resident = true;
+        model.applyLoad(await readBody(request));
         response.writeHead(200, { 'content-type': 'text/event-stream' });
         response.end('data: {"model_type":"model","module":1,"modules":1,"status":"finished"}\n\n');
         return;
@@ -71,7 +66,7 @@ test('remote chat wakes idle-unloaded EXL3 while model catalog remains no-wake',
           while (!unloadMayFinish) await new Promise((resolve) => setTimeout(resolve, 10));
           blockNextUnload = false;
         }
-        resident = false;
+        model.clear();
         response.statusCode = 200;
         response.end();
         return;
@@ -215,7 +210,7 @@ test('chat queued during a preset switch is translated for the target backend', 
     let releaseLlamaChat = false;
     let llamaChatCount = 0;
     let llamaModelProbeCount = 0;
-    let tabbyResident = false;
+    const tabbyModel = new FakeTabbyModelState();
     let tabbyRequestCount = 0;
     let tabbyModelProbeCount = 0;
     const tabbyChatBodies: JsonObject[] = [];
@@ -245,19 +240,17 @@ test('chat queued during a preset switch is translated for the target backend', 
         return;
       }
       if (request.url === '/v1/model' && request.method === 'GET') {
-        response.statusCode = tabbyResident ? 200 : 503;
-        response.setHeader('content-type', 'application/json');
-        response.end(tabbyResident ? '{"id":"tabby-model"}' : '{}');
+        tabbyModel.respondCurrentModel(response);
         return;
       }
       if (request.url === '/v1/model/load' && request.method === 'POST') {
-        tabbyResident = true;
+        tabbyModel.applyLoad(await readBody(request));
         response.writeHead(200, { 'content-type': 'text/event-stream' });
         response.end('data: {"model_type":"model","module":1,"modules":1,"status":"finished"}\n\n');
         return;
       }
       if (request.url === '/v1/model/unload' && request.method === 'POST') {
-        tabbyResident = false;
+        tabbyModel.clear();
         response.statusCode = 200;
         response.end();
         return;

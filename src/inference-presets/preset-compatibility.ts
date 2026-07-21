@@ -41,35 +41,25 @@ export function buildPresetRequestDefaults(preset: ModelRuntimePreset): PresetRe
   };
 }
 
-export function getExl3CacheMode(value: ManagedLlamaKvCacheQuantization): string | null {
-  switch (value) {
-    case 'f16': return 'FP16';
-    case 'q8_0': return '8,8';
-    case 'q4_0': return '4,4';
-    case 'q5_0': return '5,5';
-    case 'q8_0/q4_0': return '8,4';
-    case 'q8_0/q5_0': return '8,5';
-    case 'f32':
-    case 'bf16':
-    case 'q4_1':
-    case 'iq4_nl':
-    case 'q5_1':
-      return null;
-  }
+export interface Exl3CacheModes {
+  /** TabbyAPI `cache_mode`; null overall when EXL3 cannot express the quantization at all. */
+  cache: string;
+  /** TabbyAPI `draft_cache_mode`; null when EXL3 has no draft equivalent for the quantization. */
+  draft: string | null;
 }
 
-export function getExl3DraftCacheMode(value: ManagedLlamaKvCacheQuantization): string | null {
+export function getExl3CacheModes(value: ManagedLlamaKvCacheQuantization): Exl3CacheModes | null {
   switch (value) {
-    case 'f16': return 'FP16';
-    case 'q8_0':
-    case 'q8_0/q4_0':
-    case 'q8_0/q5_0': return 'Q8';
-    case 'q4_0': return 'Q4';
+    case 'f16': return { cache: 'FP16', draft: 'FP16' };
+    case 'q8_0': return { cache: '8,8', draft: 'Q8' };
+    case 'q4_0': return { cache: '4,4', draft: 'Q4' };
+    case 'q5_0': return { cache: '5,5', draft: null };
+    case 'q8_0/q4_0': return { cache: '8,4', draft: 'Q8' };
+    case 'q8_0/q5_0': return { cache: '8,5', draft: 'Q8' };
     case 'f32':
     case 'bf16':
     case 'q4_1':
     case 'iq4_nl':
-    case 'q5_0':
     case 'q5_1':
       return null;
   }

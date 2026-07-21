@@ -5,7 +5,16 @@ import {
   type Exl3LoadRequest,
 } from '../inference-presets/exl3-preset-adapter.js';
 
-const TabbyModelCardSchema = z.object({ id: z.string() });
+const TabbyModelCardSchema = z.object({
+  id: z.string(),
+  /** TabbyAPI reports the parameters it actually applied; absent before a model finishes loading. */
+  parameters: z.object({
+    max_seq_len: z.number(),
+    cache_size: z.number(),
+    chunk_size: z.number(),
+  }).nullish(),
+});
+export type TabbyModelCard = z.infer<typeof TabbyModelCardSchema>;
 const TabbyLoadProgressSchema = z.object({
   model_type: z.string(),
   module: z.number().int().nonnegative(),
@@ -55,7 +64,7 @@ export class TabbyModelClient {
   }
 
   async load(baseUrl: string, request: Exl3LoadRequest, timeoutMs: number): Promise<void> {
-    const expected = Exl3LoadRequestSchema.parse(request).model_name;
+    Exl3LoadRequestSchema.parse(request);
     const response = await fetch(buildEndpoint(baseUrl, '/v1/model/load'), {
       method: 'POST',
       headers: buildHeaders(this.adminApiKey, true),
@@ -76,10 +85,7 @@ export class TabbyModelClient {
     if (!packets.some((packet) => packet.status === 'finished' && packet.module === packet.modules)) {
       throw new Error('Tabby model load ended without a terminal finished event.');
     }
-    const models = await this.listModels(baseUrl, timeoutMs);
-    if (!models.includes(expected)) {
-      throw new Error(`Tabby reported load completion but model '${expected}' is not resident.`);
-    }
+    await this.verifyResident(baseUrl, request, timeoutMs);
   }
 
   async unload(baseUrl: string, timeoutMs: number): Promise<void> {
@@ -91,21 +97,44 @@ export class TabbyModelClient {
     if (!response.ok) {
       throw new Error(`Tabby model unload failed with HTTP ${response.status}${await readError(response)}`);
     }
-    const models = await this.listModels(baseUrl, timeoutMs);
-    if (models.length > 0) {
-      throw new Error(`Tabby model unload completed but '${models[0]}' is still resident.`);
+    const card = await this.getResidentModel(baseUrl, timeoutMs);
+    if (card !== null) {
+      throw new Error(`Tabby model unload completed but '${card.id}' is still resident.`);
     }
   }
 
-  async listModels(baseUrl: string, timeoutMs: number): Promise<string[]> {
+  async getResidentModel(baseUrl: string, timeoutMs: number): Promise<TabbyModelCard | null> {
     const response = await fetch(buildEndpoint(baseUrl, '/v1/model'), {
       headers: buildHeaders(this.adminApiKey, false),
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (response.status === 503) return [];
+    if (response.status === 503) return null;
     if (!response.ok) {
       throw new Error(`Tabby current-model probe failed with HTTP ${response.status}${await readError(response)}`);
     }
-    return [TabbyModelCardSchema.parse(await response.json()).id];
+    return TabbyModelCardSchema.parse(await response.json());
+  }
+
+  /** Proves the server is serving exactly what the preset asked for, not a clamped or stale variant. */
+  async verifyResident(baseUrl: string, request: Exl3LoadRequest, timeoutMs: number): Promise<void> {
+    const card = await this.getResidentModel(baseUrl, timeoutMs);
+    if (card === null || card.id !== request.model_name) {
+      throw new Error(
+        `Tabby model '${request.model_name}' is not resident (resident=${card === null ? 'none' : card.id}).`,
+      );
+    }
+    if (card.parameters === null || card.parameters === undefined) {
+      throw new Error(`Tabby model '${card.id}' reports no applied parameters.`);
+    }
+    const divergences = [
+      { field: 'max_seq_len', expected: request.max_seq_len, applied: card.parameters.max_seq_len },
+      { field: 'cache_size', expected: request.cache_size, applied: card.parameters.cache_size },
+      { field: 'chunk_size', expected: request.chunk_size, applied: card.parameters.chunk_size },
+    ].filter((entry) => entry.expected !== entry.applied);
+    if (divergences.length > 0) {
+      throw new Error(`Tabby model '${card.id}' diverges from the preset: ${divergences
+        .map((entry) => `${entry.field} expected ${entry.expected} but Tabby applied ${entry.applied}`)
+        .join('; ')}.`);
+    }
   }
 }

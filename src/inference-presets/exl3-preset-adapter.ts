@@ -3,8 +3,8 @@ import { z } from 'zod';
 import type { ModelRuntimePreset } from '@siftkit/contracts';
 import {
   buildPresetRequestDefaults,
-  getExl3CacheMode,
-  getExl3DraftCacheMode,
+  getExl3CacheModes,
+  type Exl3CacheModes,
   type PresetRequestDefaults,
 } from './preset-compatibility.js';
 
@@ -27,7 +27,8 @@ export const Exl3LaunchEnvironmentSchema = z.object({
   TABBY_MODEL_CHUNK_SIZE: z.string(),
   TABBY_DRAFT_MODEL_DRAFT_MODE: z.enum(['disabled', 'mtp']),
   TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: z.string(),
-  TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: z.string(),
+  /** Omitted when speculation is off: the preset owns no draft cache, so config.yml keeps its value. */
+  TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: z.string().optional(),
 });
 export type Exl3LaunchEnvironment = z.infer<typeof Exl3LaunchEnvironmentSchema>;
 
@@ -39,7 +40,7 @@ export class Exl3PresetAdapter {
       throw new Error(`preset=${preset.id} backend=${preset.Backend} cannot use the EXL3 adapter`);
     }
     this.getRelativeModelPath(preset);
-    this.getCacheMode(preset);
+    this.getCacheModes(preset);
   }
 
   buildLoadRequest(preset: ModelRuntimePreset): Exl3LoadRequest {
@@ -48,7 +49,7 @@ export class Exl3PresetAdapter {
       model_name: this.getRelativeModelPath(preset).replaceAll('\\', '/'),
       max_seq_len: preset.NumCtx,
       cache_size: Math.ceil(preset.NumCtx / 256) * 256,
-      cache_mode: this.getCacheMode(preset),
+      cache_mode: this.getCacheModes(preset).cache,
       chunk_size: preset.UBatchSize,
     };
   }
@@ -60,6 +61,7 @@ export class Exl3PresetAdapter {
         `preset=${preset.id} backend=exl3 SpeculativeType=${preset.SpeculativeType} must be draft-mtp`,
       );
     }
+    const draftCacheMode = preset.SpeculativeEnabled ? this.getCacheModes(preset).draft : null;
     return Exl3LaunchEnvironmentSchema.parse({
       TABBY_MODEL_MODEL_DIR: win32.resolve(this.modelRoot),
       TABBY_MODEL_MODEL_NAME: request.model_name,
@@ -70,9 +72,7 @@ export class Exl3PresetAdapter {
       TABBY_MODEL_CHUNK_SIZE: String(request.chunk_size),
       TABBY_DRAFT_MODEL_DRAFT_MODE: preset.SpeculativeEnabled ? 'mtp' : 'disabled',
       TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: String(preset.SpeculativeDraftMax),
-      TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: preset.SpeculativeEnabled
-        ? this.getDraftCacheMode(preset)
-        : 'FP16',
+      ...(draftCacheMode === null ? {} : { TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: draftCacheMode }),
     });
   }
 
@@ -97,23 +97,18 @@ export class Exl3PresetAdapter {
     return relativePath;
   }
 
-  private getDraftCacheMode(preset: ModelRuntimePreset): string {
-    const draftCacheMode = getExl3DraftCacheMode(preset.KvCacheQuantization);
-    if (draftCacheMode === null) {
-      throw new Error(
-        `preset=${preset.id} backend=exl3 KvCacheQuantization=${preset.KvCacheQuantization} has no EXL3 draft cache mode`,
-      );
-    }
-    return draftCacheMode;
-  }
-
-  private getCacheMode(preset: ModelRuntimePreset): string {
-    const cacheMode = getExl3CacheMode(preset.KvCacheQuantization);
-    if (cacheMode === null) {
+  private getCacheModes(preset: ModelRuntimePreset): Exl3CacheModes {
+    const cacheModes = getExl3CacheModes(preset.KvCacheQuantization);
+    if (cacheModes === null) {
       throw new Error(
         `preset=${preset.id} backend=exl3 KvCacheQuantization=${preset.KvCacheQuantization} is not supported`,
       );
     }
-    return cacheMode;
+    if (preset.SpeculativeEnabled && cacheModes.draft === null) {
+      throw new Error(
+        `preset=${preset.id} backend=exl3 KvCacheQuantization=${preset.KvCacheQuantization} has no EXL3 draft cache mode`,
+      );
+    }
+    return cacheModes;
   }
 }

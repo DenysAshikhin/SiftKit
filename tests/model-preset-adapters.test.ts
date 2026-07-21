@@ -10,8 +10,7 @@ import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { Exl3PresetAdapter } from '../src/inference-presets/exl3-preset-adapter.js';
 import { LlamaPresetAdapter } from '../src/inference-presets/llama-preset-adapter.js';
 import {
-  getExl3CacheMode,
-  getExl3DraftCacheMode,
+  getExl3CacheModes,
   getPresetFieldAvailability,
 } from '../src/inference-presets/preset-compatibility.js';
 
@@ -77,21 +76,35 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
     cache_mode: 'FP16',
     chunk_size: preset.UBatchSize,
   });
-  assert.equal(adapter.buildLaunchEnvironment(preset).TABBY_DRAFT_MODEL_DRAFT_MODE, 'disabled');
-  assert.equal(adapter.buildLaunchEnvironment(preset).TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE, 'FP16');
+  assert.deepEqual(adapter.buildLaunchEnvironment(preset), {
+    TABBY_MODEL_MODEL_DIR: 'D:\\personal\\models\\exl3',
+    TABBY_MODEL_MODEL_NAME: '3.6_27B',
+    TABBY_MODEL_MAX_SEQ_LEN: String(preset.NumCtx),
+    TABBY_MODEL_CACHE_SIZE: String(preset.NumCtx),
+    TABBY_MODEL_CACHE_MODE: 'FP16',
+    TABBY_MODEL_MAX_BATCH_SIZE: String(preset.ParallelSlots),
+    TABBY_MODEL_CHUNK_SIZE: String(preset.UBatchSize),
+    TABBY_DRAFT_MODEL_DRAFT_MODE: 'disabled',
+    TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: String(preset.SpeculativeDraftMax),
+  });
+  assert.equal('TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE' in adapter.buildLaunchEnvironment(preset), false);
 });
 
-test('EXL3 managed launch rejects MTP with a draft cache quantization Tabby cannot express', () => {
+test('EXL3 preset validation rejects MTP with a draft cache quantization Tabby cannot express', () => {
   const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
-  assert.throws(
-    () => adapter.buildLaunchEnvironment(createModelPreset({
-      Backend: 'exl3',
-      ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B',
-      KvCacheQuantization: 'q5_0',
-      SpeculativeEnabled: true,
-      SpeculativeType: 'draft-mtp',
-    })),
-    /KvCacheQuantization=q5_0 has no EXL3 draft cache mode/u,
+  const preset = createModelPreset({
+    Backend: 'exl3',
+    ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B',
+    KvCacheQuantization: 'q5_0',
+    SpeculativeEnabled: true,
+    SpeculativeType: 'draft-mtp',
+  });
+  assert.throws(() => adapter.validatePreset(preset), /KvCacheQuantization=q5_0 has no EXL3 draft cache mode/u);
+  assert.throws(() => adapter.buildLoadRequest(preset), /KvCacheQuantization=q5_0 has no EXL3 draft cache mode/u);
+  assert.throws(() => adapter.buildLaunchEnvironment(preset), /KvCacheQuantization=q5_0 has no EXL3 draft cache mode/u);
+  assert.deepEqual(
+    adapter.buildLoadRequest({ ...preset, SpeculativeEnabled: false }).cache_mode,
+    '5,5',
   );
 });
 
@@ -146,36 +159,32 @@ test('EXL3 adapter rejects a missing model path and paths outside the model root
   }
 });
 
-test('EXL3 cache compatibility is exhaustive', () => {
+test('EXL3 cache compatibility resolves model and draft modes together', () => {
   assert.deepEqual([
-    getExl3CacheMode('f32'),
-    getExl3CacheMode('f16'),
-    getExl3CacheMode('bf16'),
-    getExl3CacheMode('q8_0'),
-    getExl3CacheMode('q4_0'),
-    getExl3CacheMode('q4_1'),
-    getExl3CacheMode('iq4_nl'),
-    getExl3CacheMode('q5_0'),
-    getExl3CacheMode('q5_1'),
-    getExl3CacheMode('q8_0/q4_0'),
-    getExl3CacheMode('q8_0/q5_0'),
-  ], [null, 'FP16', null, '8,8', '4,4', null, null, '5,5', null, '8,4', '8,5']);
-});
-
-test('EXL3 draft cache compatibility is exhaustive', () => {
-  assert.deepEqual([
-    getExl3DraftCacheMode('f32'),
-    getExl3DraftCacheMode('f16'),
-    getExl3DraftCacheMode('bf16'),
-    getExl3DraftCacheMode('q8_0'),
-    getExl3DraftCacheMode('q4_0'),
-    getExl3DraftCacheMode('q4_1'),
-    getExl3DraftCacheMode('iq4_nl'),
-    getExl3DraftCacheMode('q5_0'),
-    getExl3DraftCacheMode('q5_1'),
-    getExl3DraftCacheMode('q8_0/q4_0'),
-    getExl3DraftCacheMode('q8_0/q5_0'),
-  ], [null, 'FP16', null, 'Q8', 'Q4', null, null, null, null, 'Q8', 'Q8']);
+    getExl3CacheModes('f32'),
+    getExl3CacheModes('f16'),
+    getExl3CacheModes('bf16'),
+    getExl3CacheModes('q8_0'),
+    getExl3CacheModes('q4_0'),
+    getExl3CacheModes('q4_1'),
+    getExl3CacheModes('iq4_nl'),
+    getExl3CacheModes('q5_0'),
+    getExl3CacheModes('q5_1'),
+    getExl3CacheModes('q8_0/q4_0'),
+    getExl3CacheModes('q8_0/q5_0'),
+  ], [
+    null,
+    { cache: 'FP16', draft: 'FP16' },
+    null,
+    { cache: '8,8', draft: 'Q8' },
+    { cache: '4,4', draft: 'Q4' },
+    null,
+    null,
+    { cache: '5,5', draft: null },
+    null,
+    { cache: '8,4', draft: 'Q8' },
+    { cache: '8,5', draft: 'Q8' },
+  ]);
 });
 
 test('EXL3 availability disables fields without equivalents and keeps wake settings enabled', () => {

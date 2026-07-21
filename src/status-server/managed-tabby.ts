@@ -205,7 +205,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       const processReady = await this.client.isProcessReady(baseUrl, preset.HealthcheckTimeoutMs);
       if (processReady) {
         const modelReady = expectedModel === null
-          || (await this.client.listModels(baseUrl, preset.HealthcheckTimeoutMs)).includes(expectedModel);
+          || (await this.client.getResidentModel(baseUrl, preset.HealthcheckTimeoutMs))?.id === expectedModel;
         if (modelReady) {
           this.processBaseUrl = baseUrl;
           this.processManaged = this.shouldManage(preset);
@@ -225,10 +225,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     try {
       const request = this.adapter.buildLoadRequest(preset);
       if (this.shouldManage(preset)) {
-        const models = await this.client.listModels(getBaseUrl(preset), preset.HealthcheckTimeoutMs);
-        if (!models.includes(request.model_name)) {
-          throw new Error(`TabbyAPI started without requested model '${request.model_name}' resident.`);
-        }
+        await this.client.verifyResident(getBaseUrl(preset), request, preset.HealthcheckTimeoutMs);
       } else {
         await this.client.load(getBaseUrl(preset), request, preset.StartupTimeoutMs);
       }

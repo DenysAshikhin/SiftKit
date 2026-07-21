@@ -18,19 +18,40 @@ function writeVictimScript(root: string, port: number): string {
   const scriptPath = path.join(root, 'victim-tabby.cjs');
   fs.writeFileSync(scriptPath, `
 const http = require('node:http');
+let card = { id: 'model-a', parameters: null };
 const server = http.createServer((request, response) => {
   if (request.url === '/v1/model' && request.method === 'GET') {
+    if (!card) {
+      response.statusCode = 503;
+      response.end('No models are currently loaded');
+      return;
+    }
     response.statusCode = 200;
     response.setHeader('content-type', 'application/json');
-    response.end('{"id":"model-a"}');
+    response.end(JSON.stringify(card));
     return;
   }
   if (request.url === '/v1/model/load' && request.method === 'POST') {
-    response.writeHead(200, { 'content-type': 'text/event-stream' });
-    response.end('data: {"model_type":"model","module":1,"modules":1,"status":"finished"}\\n\\n');
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk) => { body += chunk; });
+    request.on('end', () => {
+      const applied = JSON.parse(body);
+      card = {
+        id: applied.model_name,
+        parameters: {
+          max_seq_len: applied.max_seq_len,
+          cache_size: applied.cache_size,
+          chunk_size: applied.chunk_size,
+        },
+      };
+      response.writeHead(200, { 'content-type': 'text/event-stream' });
+      response.end('data: {"model_type":"model","module":1,"modules":1,"status":"finished"}\\n\\n');
+    });
     return;
   }
   if (request.url === '/v1/model/unload' && request.method === 'POST') {
+    card = null;
     response.statusCode = 200;
     response.end();
     return;

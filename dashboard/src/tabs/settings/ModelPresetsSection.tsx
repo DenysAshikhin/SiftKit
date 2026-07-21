@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { applyModelPresetSelection } from '../../model-runtime-presets';
 import { deriveRuntimeModelId } from '../../settings-runtime';
 import { parseFloatInput, parseIntegerInput } from '../../lib/format';
-import { getExl3CacheMode, getPresetFieldAvailability } from '../../../../src/inference-presets/preset-compatibility.js';
+import { getExl3CacheModes, getPresetFieldAvailability } from '../../../../src/inference-presets/preset-compatibility.js';
 import { getInferenceRuntimeStatus } from '../../api';
 import { MODEL_PRESET_GROUPS, summarizeModelPresetGroup, type ModelPresetGroupId } from './model-preset-groups';
 import { SettingsSectionField } from '../../settings/SettingsFields';
@@ -332,7 +332,7 @@ export function ModelPresetsSection({
             {renderCompatibilityControl(preset, 'KvCacheQuantization', (
               <select value={preset.KvCacheQuantization} onChange={(event) => updateModelPresetDraft((next) => { const value = KV_CACHE_QUANT_OPTIONS.find((option) => option === event.target.value); if (value) next.KvCacheQuantization = value; })}>
                 {KV_CACHE_QUANT_OPTIONS.map((option) => (
-                  <option key={option} value={option} disabled={preset.Backend === 'exl3' && getExl3CacheMode(option) === null}>{option}</option>
+                  <option key={option} value={option} disabled={preset.Backend === 'exl3' && getExl3CacheModes(option) === null}>{option}</option>
                 ))}
               </select>
             ))}
