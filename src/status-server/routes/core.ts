@@ -235,19 +235,17 @@ function normalizeCommandOutputReducerProfile(value: OptionalJsonValue): 'smart'
   return value === 'smart' || value === 'errors' || value === 'tail' || value === 'diff' || value === 'none' ? value : undefined;
 }
 
-function isStrictConfigPayload(value: OptionalJsonValue): boolean {
+export function isStrictConfigPayload(value: OptionalJsonValue): boolean {
   const record = JsonRecordReader.asObject(value);
   if (!record) {
     return false;
   }
   const topLevelRequired = [
     'Version',
-    'Backend',
     'PolicyMode',
     'RawLogRetention',
     'IncludeRepoFileListing',
     'PromptPrefix',
-    'LlamaCpp',
     'Runtime',
     'Thresholds',
     'Interactive',
@@ -265,8 +263,7 @@ function isStrictConfigPayload(value: OptionalJsonValue): boolean {
   if (!runtime || !thresholds || !interactive || !server) {
     return false;
   }
-  return Object.prototype.hasOwnProperty.call(runtime, 'Model')
-    && Object.prototype.hasOwnProperty.call(runtime, 'LlamaCpp')
+  return Object.prototype.hasOwnProperty.call(runtime, 'LlamaCpp')
     && Object.prototype.hasOwnProperty.call(thresholds, 'MinCharactersForSummary')
     && Object.prototype.hasOwnProperty.call(thresholds, 'MinLinesForSummary')
     && Object.prototype.hasOwnProperty.call(interactive, 'Enabled')
@@ -274,7 +271,7 @@ function isStrictConfigPayload(value: OptionalJsonValue): boolean {
     && Object.prototype.hasOwnProperty.call(interactive, 'IdleTimeoutMs')
     && Object.prototype.hasOwnProperty.call(interactive, 'MaxTranscriptCharacters')
     && Object.prototype.hasOwnProperty.call(interactive, 'TranscriptRetention')
-    && Object.prototype.hasOwnProperty.call(server, 'LlamaCpp');
+    && Object.prototype.hasOwnProperty.call(server, 'ModelPresets');
 }
 
 function buildToolStatsLogMessages(taskKind: TaskKind, stats: Record<string, ToolTypeStats> | null): string[] {
