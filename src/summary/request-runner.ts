@@ -35,6 +35,7 @@ import { getSummaryDecision, getPolicyDecision } from './decision.js';
 import { logSummaryProgress } from './progress.js';
 import { invokeSummaryCore, type SummaryCoreResult } from './core-runner.js';
 import { parseDeterministicTestOutput } from './test-output.js';
+import { resolveSummaryProvider } from './types.js';
 import type {
   SummaryRequest,
   SummaryResult,
@@ -73,9 +74,9 @@ function getSummaryWallDurationMs(request: SummaryRequest, fallbackStartedAtMs: 
   return Math.max(0, Date.now() - startedAt);
 }
 
-/** Non-llama backends cannot chunk, so input above `maxInputCharacters` is rejected; llama.cpp is exempt. */
-export function isOversizedNonLlamaInput(backend: string, inputLength: number, maxInputCharacters: number): boolean {
-  return backend !== 'llama.cpp' && inputLength > maxInputCharacters;
+/** Only the mock provider cannot chunk, so mock input above `maxInputCharacters` is rejected. */
+export function isOversizedMockInput(backend: string, inputLength: number, maxInputCharacters: number): boolean {
+  return backend === 'mock' && inputLength > maxInputCharacters;
 }
 
 export class SummaryRequestRunner {
@@ -192,16 +193,14 @@ export class SummaryRequestRunner {
     configSpan?.end();
     getConfiguredLlamaBaseUrl(this.config);
     getConfiguredLlamaNumCtx(this.config);
-    this.backend = this.request.backend || this.config.Backend;
+    this.backend = resolveSummaryProvider(this.request.backend);
     this.model = this.request.model || getConfiguredModel(this.config);
     logSummaryProgress(`config_done request_id=${this.requestId} backend=${this.backend} model=${this.model}`);
-    if (this.backend === 'llama.cpp') {
-      this.config = await this.applyHostLlamaSettings(this.config);
-    }
+    this.config = await this.applyHostLlamaSettings(this.config);
 
     const riskLevel = this.request.policyProfile === 'risky-operation' ? 'risky' : 'informational';
     const sourceKind = this.request.sourceKind || 'standalone';
-    this.rejectOversizedNonLlamaInput(this.config, this.backend);
+    this.rejectOversizedMockInput(this.config, this.backend);
     const decisionSpan = this.timingRecorder?.start('summary.decision');
     const decision = getSummaryDecision(this.inputText, this.request.question, riskLevel, this.config, {
       sourceKind,
@@ -236,9 +235,9 @@ export class SummaryRequestRunner {
     return hostConfig;
   }
 
-  private rejectOversizedNonLlamaInput(config: SiftConfig, backend: string): void {
+  private rejectOversizedMockInput(config: SiftConfig, backend: string): void {
     const maxInputCharacters = getChunkThresholdCharacters(config) * 4;
-    if (isOversizedNonLlamaInput(backend, this.inputText.length, maxInputCharacters)) {
+    if (isOversizedMockInput(backend, this.inputText.length, maxInputCharacters)) {
       throw new Error(`Error: recieved input of ${this.inputText.length} characters, current maximum is ${maxInputCharacters} chars`);
     }
   }

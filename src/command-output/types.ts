@@ -4,6 +4,7 @@ import type { SiftConfig } from '../config/index.js';
 import {
   SummaryClassificationSchema,
   type SummaryPolicyProfile,
+  type SummaryProviderId,
   type SummarySourceKind,
 } from '../summary/types.js';
 
@@ -23,7 +24,7 @@ export type CommandOutputAnalyzeRequest = {
   reducerProfile?: CommandOutputReducerProfile;
   format?: 'text' | 'json';
   policyProfile?: SummaryPolicyProfile;
-  backend?: string;
+  backend?: SummaryProviderId;
   model?: string;
   noSummarize?: boolean;
   shell?: ShellName;
@@ -50,7 +51,7 @@ export type PresetRunRequest = {
   question?: string;
   inputText?: string;
   format?: 'text' | 'json';
-  backend?: string;
+  backend?: SummaryProviderId;
   model?: string;
   profile?: string;
   sourceKind?: SummarySourceKind;

@@ -1,10 +1,11 @@
 import { z } from './lib/zod.js';
 import { SummaryClassificationSchema } from './summary/types.js';
+import type { SummaryProviderId } from './summary/types.js';
 
 export type EvalRequest = {
   FixtureRoot?: string;
   RealLogPath?: string[];
-  Backend?: string;
+  Backend?: SummaryProviderId;
   Model?: string;
 };
 

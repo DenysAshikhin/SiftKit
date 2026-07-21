@@ -1,6 +1,10 @@
 import { z } from '../../src/lib/zod.js';
 import type { RuntimeLlamaCppConfig } from '../../src/config/index.js';
-import { SummaryPolicyProfileSchema, type SummaryClassification } from '../../src/summary/types.js';
+import {
+  SummaryPolicyProfileSchema,
+  type SummaryClassification,
+  type SummaryProviderId,
+} from '../../src/summary/types.js';
 
 export const BenchmarkFixtureSchema = z.object({
   Name: z.string(),
@@ -15,7 +19,7 @@ export type BenchmarkFixture = z.infer<typeof BenchmarkFixtureSchema>;
 export type BenchmarkRunnerOptions = {
   fixtureRoot?: string;
   outputPath?: string;
-  backend?: string;
+  backend?: SummaryProviderId;
   model?: string;
   promptPrefix?: string;
   promptPrefixFile?: string;

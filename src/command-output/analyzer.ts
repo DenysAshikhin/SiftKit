@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { getConfiguredModel, initializeRuntime, loadConfig } from '../config/index.js';
 import { summarizeRequest } from '../summary/core.js';
+import { resolveSummaryProvider } from '../summary/types.js';
 import { getDeterministicExcerpt } from '../summary/measure.js';
 import { getSummaryDecision } from '../summary/decision.js';
 import { upsertRuntimeTextArtifact } from '../state/runtime-artifacts.js';
@@ -111,7 +112,7 @@ function reduceText(text: string, reducerProfile: CommandOutputReducerProfile): 
 export class CommandOutputAnalyzer {
   async analyze(request: CommandOutputAnalyzeRequest): Promise<CommandOutputAnalyzeResult> {
     const config = request.config || await loadConfig({ ensure: true });
-    const backend = request.backend || config.Backend;
+    const backend = resolveSummaryProvider(request.backend);
     const model = request.model || getConfiguredModel(config);
     void initializeRuntime();
 

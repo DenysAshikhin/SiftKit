@@ -3,6 +3,29 @@ import type { RuntimeLlamaCppConfig, SiftConfig } from '../config/index.js';
 import type { JsonObject } from '../lib/json-types.js';
 import type { LlamaCppToolParameterSchema } from '../llm-protocol/types.js';
 
+/**
+ * Summary provider identity. NOT the inference engine axis: 'llama.cpp' means the
+ * real, fully-capable provider (chunking, planner, slots) and is what 16 downstream
+ * sites compare against. 'mock' is the test double. Never set this to 'llama'/'exl3'.
+ */
+export const SummaryProviderIdSchema = z.enum(['llama.cpp', 'mock']);
+export type SummaryProviderId = z.infer<typeof SummaryProviderIdSchema>;
+export const DEFAULT_SUMMARY_PROVIDER: SummaryProviderId = 'llama.cpp';
+
+export function resolveSummaryProvider(requested: SummaryProviderId | undefined): SummaryProviderId {
+  return requested ?? DEFAULT_SUMMARY_PROVIDER;
+}
+
+/** IO-boundary parse: an absent provider stays absent, an unknown one fails loud. */
+export function parseOptionalSummaryProvider(value: string | undefined): SummaryProviderId | undefined {
+  if (value === undefined) return undefined;
+  const parsed = SummaryProviderIdSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error(`Unsupported backend '${value}'; expected one of: llama.cpp, mock.`);
+  }
+  return parsed.data;
+}
+
 export const SummaryPolicyProfileSchema = z.enum([
   'general',
   'pass-fail',
@@ -32,7 +55,7 @@ export type SummaryRequest = {
   inputText: string;
   format: 'text' | 'json';
   policyProfile: SummaryPolicyProfile;
-  backend?: string;
+  backend?: SummaryProviderId;
   model?: string;
   promptPrefix?: string;
   sourceKind?: SummarySourceKind;

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { initializeRuntime } from '../../src/config/index.js';
 import { buildPrompt } from '../../src/summary/prompt.js';
+import { parseOptionalSummaryProvider } from '../../src/summary/types.js';
 import { getLocalTimestamp } from '../../src/lib/time.js';
 import {
   DEFAULT_REQUEST_TIMEOUT_SECONDS,
@@ -22,7 +23,7 @@ export function parseArguments(argv: string[]): BenchmarkRunnerOptions {
         parsed.outputPath = argv[++index];
         break;
       case '--backend':
-        parsed.backend = argv[++index];
+        parsed.backend = parseOptionalSummaryProvider(argv[++index]);
         break;
       case '--model':
         parsed.model = argv[++index];

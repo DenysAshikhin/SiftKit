@@ -5,6 +5,7 @@ import { JsonObjectSchema } from '../../src/lib/json-types.js';
 import { toError } from '../../src/lib/errors.js';
 import { StatusServerApiClient } from '../../src/cli/status-server-api-client.js';
 import { formatElapsed } from '../../src/lib/time.js';
+import { resolveSummaryProvider } from '../../src/summary/types.js';
 import {
   getDefaultOutputPath,
   getPromptLabel,
@@ -35,7 +36,7 @@ export async function runBenchmarkSuite(options: BenchmarkRunnerOptions = {}): P
   const outputPath = path.resolve(options.outputPath || getDefaultOutputPath(fixtureRoot));
   const manifest = getFixtureManifest(fixtureRoot);
   const config = await loadConfig({ ensure: true });
-  const backend = options.backend || config.Backend;
+  const backend = resolveSummaryProvider(options.backend);
   const model = options.model || getConfiguredModel(config);
   const promptPrefix = resolvePromptPrefix(options);
   const requestTimeoutSeconds = getValidatedRequestTimeoutSeconds(options);

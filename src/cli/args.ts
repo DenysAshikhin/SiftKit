@@ -4,6 +4,8 @@ import {
   normalizeCliReducerProfile,
   normalizeCliRiskLevel,
 } from './request-normalizers.js';
+import { parseOptionalSummaryProvider } from '../summary/types.js';
+import type { SummaryProviderId } from '../summary/types.js';
 
 export type CliRunOptions = {
   argv: string[];
@@ -22,7 +24,7 @@ export type ParsedArgs = {
   question?: string;
   text?: string;
   file?: string;
-  backend?: string;
+  backend?: SummaryProviderId;
   model?: string;
   profile?: string;
   format?: string;
@@ -159,7 +161,7 @@ export function parseArguments(tokens: string[]): ParsedArgs {
         parsed.file = tokens[++index];
         break;
       case '--backend':
-        parsed.backend = tokens[++index];
+        parsed.backend = parseOptionalSummaryProvider(tokens[++index]);
         break;
       case '--model':
         parsed.model = tokens[++index];

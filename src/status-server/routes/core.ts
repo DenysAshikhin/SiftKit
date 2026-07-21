@@ -9,6 +9,7 @@ import { JsonRecordReader } from '../../lib/json-record-reader.js';
 import { parseJsonValueText } from '../../lib/json.js';
 import { JsonValueSchema, type JsonValue, type OptionalJsonValue } from '../../lib/json-types.js';
 import { LlamaCppClient } from '../../llm-protocol/llama-cpp-client.js';
+import { parseOptionalSummaryProvider } from '../../summary/types.js';
 import type {
   SummaryPolicyProfile,
   SummarySourceKind,
@@ -690,7 +691,7 @@ class CommandOutputAnalyzeEndpoint implements RouteEndpoint {
         reducerProfile: normalizeCommandOutputReducerProfile(parsedBody.reducerProfile),
         format: parsedBody.format === 'json' ? 'json' : 'text',
         policyProfile: normalizeSummaryPolicyProfile(parsedBody.policyProfile),
-        backend: reader.optionalString('backend'),
+        backend: parseOptionalSummaryProvider(reader.optionalString('backend')),
         model: reader.optionalString('model'),
         noSummarize: parsedBody.noSummarize === true,
         config: readConfig(configPath),
@@ -761,7 +762,7 @@ class PresetRunEndpoint implements RouteEndpoint {
         question: reader.optionalString('question'),
         inputText: typeof parsedBody.inputText === 'string' ? parsedBody.inputText : undefined,
         format: parsedBody.format === 'json' ? 'json' : 'text',
-        backend: reader.optionalString('backend'),
+        backend: parseOptionalSummaryProvider(reader.optionalString('backend')),
         model: reader.optionalString('model'),
         profile: reader.optionalString('profile'),
         sourceKind: normalizeSummarySourceKind(parsedBody.sourceKind),
@@ -816,7 +817,7 @@ class EvalRunEndpoint implements RouteEndpoint {
       const result = await ctx.engineService.runEvaluation({
         FixtureRoot: reader.optionalString('FixtureRoot'),
         RealLogPath: Array.isArray(parsedBody.RealLogPath) ? parsedBody.RealLogPath.map((value) => String(value)) : [],
-        Backend: reader.optionalString('Backend'),
+        Backend: parseOptionalSummaryProvider(reader.optionalString('Backend')),
         Model: reader.optionalString('Model'),
       });
       sendJson(res, 200, result);

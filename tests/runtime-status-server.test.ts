@@ -204,7 +204,6 @@ test('real status server persists aggregate metrics and exposes them from GET /s
       statusPath,
       configPath,
       disableManagedLlamaStartup: true,
-      disableManagedLlamaStartup: true,
     });
 
     await withRealStatusServer(async ({ statusUrl }) => {

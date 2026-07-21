@@ -1,4 +1,4 @@
-import { getConfigPath, getConfiguredModel, loadConfig } from '../config/index.js';
+import { getActiveInferenceBackend, getConfigPath, getConfiguredModel, loadConfig } from '../config/index.js';
 import { getLlamaCppProviderStatus, listLlamaCppModels } from '../providers/llama-cpp.js';
 import { formatPsList } from './args.js';
 
@@ -35,7 +35,8 @@ export async function buildTestResult(): Promise<TestResult> {
   } catch (error) {
     modelError = error instanceof Error ? error.message : String(error);
   }
-  const providerStatus = config.Backend === 'llama.cpp'
+  const usesManagedLlama = getActiveInferenceBackend(config) === 'llama';
+  const providerStatus = usesManagedLlama
     ? await getLlamaCppProviderStatus(config)
     : {
         Available: true,
@@ -43,7 +44,7 @@ export async function buildTestResult(): Promise<TestResult> {
         BaseUrl: 'mock://local',
         Error: null,
       };
-  const models = config.Backend === 'llama.cpp' && providerStatus.Reachable ? await listLlamaCppModels(config) : ['mock-model'];
+  const models = usesManagedLlama && providerStatus.Reachable ? await listLlamaCppModels(config) : ['mock-model'];
   const modelPresent = model === null || models.length === 0 ? null : models.includes(model);
   const issues: string[] = [];
 
@@ -67,7 +68,7 @@ export async function buildTestResult(): Promise<TestResult> {
     LogsPath: config.Paths?.Logs,
     EvalFixturesPath: config.Paths?.EvalFixtures,
     EvalResultsPath: config.Paths?.EvalResults,
-    Backend: config.Backend,
+    Backend: getActiveInferenceBackend(config),
     Model: model,
     LlamaCppBaseUrl: providerStatus.BaseUrl,
     LlamaCppReachable: providerStatus.Reachable,

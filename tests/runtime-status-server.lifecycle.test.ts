@@ -108,7 +108,6 @@ test('real status server health reports disableManagedLlamaStartup mode when fla
       statusPath,
       configPath,
       disableManagedLlamaStartup: true,
-      disableManagedLlamaStartup: true,
     });
   });
 });
@@ -196,7 +195,6 @@ test('real status server accepts partial PUT /config updates and preserves unspe
     }, {
       statusPath,
       configPath,
-      disableManagedLlamaStartup: true,
       disableManagedLlamaStartup: true,
     });
   });

@@ -1,7 +1,9 @@
 import { JsonRecordReader } from '../lib/json-record-reader.js';
 import type { JsonObject, OptionalJsonValue } from '../lib/json-types.js';
+import { parseOptionalSummaryProvider } from '../summary/types.js';
 import type {
   SummaryPolicyProfile,
+  SummaryProviderId,
   SummarySourceKind,
   SummaryTimingInput,
 } from '../summary/types.js';
@@ -20,7 +22,7 @@ export type SummaryRouteRequest = {
   inputText: string;
   format: 'text' | 'json';
   policyProfile: SummaryPolicyProfile;
-  backend: string | undefined;
+  backend: SummaryProviderId | undefined;
   model: string | undefined;
   sourceKind: SummarySourceKind | undefined;
   commandExitCode: number | undefined;
@@ -129,7 +131,7 @@ export function parseSummaryRequest(body: JsonObject): SummaryRouteRequest | nul
     inputText,
     format: reader.value('format') === 'json' ? 'json' : 'text',
     policyProfile: normalizeSummaryPolicyProfile(reader.value('policyProfile')),
-    backend: reader.optionalString('backend'),
+    backend: parseOptionalSummaryProvider(reader.optionalString('backend')),
     model: reader.optionalString('model'),
     sourceKind: normalizeSummarySourceKind(reader.value('sourceKind')),
     commandExitCode: optionalNumber(reader, 'commandExitCode'),

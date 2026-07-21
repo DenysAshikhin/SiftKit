@@ -16,6 +16,7 @@ import {
   normalizeCliRiskLevel,
   normalizeCliShell,
 } from './request-normalizers.js';
+import { parseOptionalSummaryProvider } from '../summary/types.js';
 import { buildTestResult } from './run-test.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
 
@@ -62,7 +63,7 @@ export async function runInternal(options: {
         inputText: text,
         format: (request.Format === 'json' ? 'json' : 'text'),
         policyProfile: normalizeCliPolicyProfileOrDefault(request.PolicyProfile),
-        backend: request.Backend ? String(request.Backend) : undefined,
+        backend: parseOptionalSummaryProvider(request.Backend ? String(request.Backend) : undefined),
         model: request.Model ? String(request.Model) : undefined,
       });
       break;
@@ -87,7 +88,7 @@ export async function runInternal(options: {
         reducerProfile: normalizeCliReducerProfile(request.ReducerProfile),
         format: normalizeCliFormat(request.Format),
         policyProfile: normalizeCliPolicyProfile(request.PolicyProfile),
-        backend: request.Backend ? String(request.Backend) : undefined,
+        backend: parseOptionalSummaryProvider(request.Backend ? String(request.Backend) : undefined),
         model: request.Model ? String(request.Model) : undefined,
         noSummarize: Boolean(request.NoSummarize),
         shell,
@@ -106,7 +107,7 @@ export async function runInternal(options: {
         reducerProfile: normalizeCliReducerProfile(request.ReducerProfile),
         format: normalizeCliFormat(request.Format),
         policyProfile: normalizeCliPolicyProfile(request.PolicyProfile),
-        backend: request.Backend ? String(request.Backend) : undefined,
+        backend: parseOptionalSummaryProvider(request.Backend ? String(request.Backend) : undefined),
         model: request.Model ? String(request.Model) : undefined,
         noSummarize: Boolean(request.NoSummarize),
       });
@@ -116,7 +117,7 @@ export async function runInternal(options: {
       result = await apiClient.runEvaluation({
         FixtureRoot: request.FixtureRoot ? String(request.FixtureRoot) : undefined,
         RealLogPath: Array.isArray(request.RealLogPath) ? request.RealLogPath.map(String) : [],
-        Backend: request.Backend ? String(request.Backend) : undefined,
+        Backend: parseOptionalSummaryProvider(request.Backend ? String(request.Backend) : undefined),
         Model: request.Model ? String(request.Model) : undefined,
       });
       break;
@@ -149,7 +150,7 @@ export async function runInternal(options: {
         question: request.Question ? String(request.Question) : undefined,
         format: normalizeCliFormat(request.Format),
         policyProfile: normalizeCliPolicyProfile(request.PolicyProfile),
-        backend: request.Backend ? String(request.Backend) : undefined,
+        backend: parseOptionalSummaryProvider(request.Backend ? String(request.Backend) : undefined),
         model: request.Model ? String(request.Model) : undefined,
       });
       break;
