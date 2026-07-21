@@ -83,7 +83,6 @@ export function getDefaultConfig(): SiftConfig {
     RawLogRetention: true,
     IncludeAgentsMd: true,
     IncludeRepoFileListing: true,
-    ExpandReads: true,
     Inference: getTestInferenceConfig(),
     Runtime: {
       LlamaCpp: {

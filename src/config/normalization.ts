@@ -448,7 +448,6 @@ export function normalizeConfigObject(input: JsonValue): SiftConfig {
   if (!merged.PromptPrefix || !String(merged.PromptPrefix).trim()) {
     merged.PromptPrefix = getDefaultConfigObject().PromptPrefix ?? null;
   }
-  merged.ExpandReads = merged.ExpandReads !== false;
 
   const inference = getRecord(merged.Inference);
   const thinking = getRecord(inference.Thinking);

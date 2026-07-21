@@ -35,12 +35,11 @@ function createConfig(presets: DashboardPreset[]): DashboardConfig {
     RawLogRetention: true,
     IncludeAgentsMd: true,
     IncludeRepoFileListing: true,
-    ExpandReads: true,
     PromptPrefix: '',
     Inference: getTestInferenceConfig(),
     OperationModeAllowedTools: {
       summary: ['find_text', 'read_lines', 'json_filter'],
-      'read-only': ['repo_rg'],
+      'read-only': ['grep'],
       full: [],
     },
     Presets: presets,
@@ -115,28 +114,6 @@ function createSession(presetId: string, mode: ChatSession['mode'] = 'chat'): Ch
 test('getPresetById resolves presets by normalized id', () => {
   const config = createConfig([createPreset('repo-search', { presetKind: 'repo-search', operationMode: 'read-only', executionFamily: 'repo-search' })]);
   assert.equal(getPresetById(config, 'Repo Search')?.id, 'repo-search');
-});
-
-test('config defaults ExpandReads to true', () => {
-  const config = normalizeConfigObject({});
-
-  assert.equal(config.ExpandReads, true);
-});
-
-test('config honors explicit ExpandReads false', () => {
-  const config = normalizeConfigObject({
-    ExpandReads: false,
-  });
-
-  assert.equal(config.ExpandReads, false);
-});
-
-test('config normalizes non-false ExpandReads values to true', () => {
-  const config = normalizeConfigObject({
-    ExpandReads: 'no',
-  });
-
-  assert.equal(config.ExpandReads, true);
 });
 
 test('getPresetFamily routes from preset kind instead of legacy session mode', () => {

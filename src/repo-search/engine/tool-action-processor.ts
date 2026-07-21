@@ -1,14 +1,11 @@
 import type { SiftConfig } from '../../config/index.js';
 import { getRepoSearchLineReadStats } from '../../line-read-guidance.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
-import type { ToolTypeStats } from '../../status-server/metrics.js';
 import {
   classifySearchExit,
   evaluateCommandSafety,
   getFirstCommandToken,
   type IgnorePolicy,
-  type NormalizedCommand,
-  normalizePlannerCommand,
 } from '../command-safety.js';
 import {
   getRepoSearchCommandTokenForToolName,
@@ -17,11 +14,6 @@ import {
   type ToolAction,
 } from '../planner-protocol.js';
 import { estimateTokenCount } from '../prompt-budget.js';
-import {
-  type LineReadAdjustment,
-  type ParsedGetContentReadWindow,
-  parseGetContentReadWindowCommand,
-} from './read-overlap.js';
 import type { TaskCommand } from '../prompts.js';
 import {
   buildRepeatedToolCallSummary,
@@ -36,18 +28,18 @@ import { WebResearchTools } from '../../web-search/web-research-tools.js';
 import { executeRepoCommand, normalizeToolTypeFromCommand } from './command-execution.js';
 import {
   buildEffectiveTranscriptAction,
-  buildNativeRepoToolRequestedCommand,
-  buildRepoReadFileCommand,
-  buildRepoReadFileExecution,
-  executeNativeRepoTool,
-  isFailedRepoReadFilePlan,
-  planRepoReadFile,
-  type NativeRepoToolExecution,
-} from './native-tools.js';
+  buildReadCommand,
+  buildReadExecution,
+  buildRepoToolRequestedCommand,
+  executeRepoTool,
+  isFailedReadPlan,
+  planRead,
+  type RepoToolExecution,
+} from './repo-tools.js';
 import { DuplicateTracker } from './duplicate-tracker.js';
 import { FORCED_FINISH_MAX_ATTEMPTS, FORCED_FINISH_MODE_MESSAGE, ForcedFinishController } from './forced-finish.js';
 import { ProgressReporter } from './progress-reporter.js';
-import { ReadWindowGovernor, type ReadExecutionMetrics } from './read-window-governor.js';
+import { ReadWindowGovernor } from './read-window-governor.js';
 import { applyToolOutputRepetitionGuard, type LoopCounters, type TaskDefinition, type TurnOutcome } from './task-loop-support.js';
 import { ToolResultBudgeter } from './tool-result-budgeter.js';
 import { TokenUsageTracker } from './token-usage.js';
@@ -74,26 +66,20 @@ type ValidatedToolAction = {
 
 type AcceptedToolContext = ValidatedToolAction & {
   toolAction: ToolAction;
-  normalized: NormalizedCommand;
   fingerprint: string;
   normalizedKey: string;
-  nativeExecution: NativeRepoToolExecution | null;
+  nativeExecution: RepoToolExecution | null;
 };
 
 type PreparedCommand = {
   requestedCommand: string;
   commandToRun: string;
-  lineReadAdjustment: LineReadAdjustment | null;
-  parsedReadWindow: ParsedGetContentReadWindow | null;
 };
 
 type ExecutedToolContext = AcceptedToolContext & PreparedCommand & {
-  executedReadWindow: ParsedGetContentReadWindow | null;
   executed: { exitCode: number; output: string };
   baseOutput: string;
   searchExit: ReturnType<typeof classifySearchExit>;
-  readMetrics: ReadExecutionMetrics;
-  outputWithRewriteNote: string;
   outputForPrompt: string;
   zeroOutputWarningText: string;
   progressToolCallId: string;
@@ -124,7 +110,6 @@ export type ToolActionProcessorDeps = {
   chatWebGroundingPolicy: ChatGroundingPolicy;
   ignorePolicy: IgnorePolicy;
   webTools: WebResearchTools;
-  historicalToolStats: Record<string, ToolTypeStats>;
   budget: TurnBudget;
   tokenUsage: TokenUsageTracker;
   toolStats: ToolStatsRecorder;
@@ -132,7 +117,6 @@ export type ToolActionProcessorDeps = {
   forcedFinish: ForcedFinishController;
   resultBudgeter: ToolResultBudgeter;
   readWindows: ReadWindowGovernor;
-  expandReads: boolean;
   maintainPerStepThinking: boolean;
   progress: ProgressReporter;
   transcript: TranscriptManager;
@@ -234,32 +218,13 @@ export class ToolActionProcessor {
       return 'next';
     }
 
-    const normalized: NormalizedCommand = isNativeTool
-      ? { command, rewritten: false, note: '', rejected: false }
-      : normalizePlannerCommand(command, { repoRoot: this.deps.repoRoot, ignorePolicy: this.deps.ignorePolicy });
-    const fingerprint = isNativeTool
-      ? fingerprintToolCall({ toolName: normalizedToolName, command })
-      : normalized.rejected
-        ? ''
-        : fingerprintToolCall({ toolName: normalizedToolName, command: normalized.command });
-    const prospectiveToolType = isNativeTool
-      ? normalizedToolName
-      : normalized.rejected
-        ? 'loop'
-        : normalizeToolTypeFromCommand(normalized.command);
-
-    // Duplicate check on the normalized command so auto-appended flags don't confuse dedup
-    const normalizedKey = isNativeTool
-      ? command
-      : normalized.rejected
-        ? command
-        : normalized.command;
+    const fingerprint = fingerprintToolCall({ toolName: normalizedToolName, command });
+    const prospectiveToolType = isNativeTool ? normalizedToolName : normalizeToolTypeFromCommand(command);
     const screened = this.screenWebAndDuplicates(turn, {
       ...validated,
       toolAction,
-      normalized,
       fingerprint,
-      normalizedKey,
+      normalizedKey: command,
       nativeExecution: null,
     }, prospectiveToolType, state);
     if (screened !== null) {
@@ -272,9 +237,8 @@ export class ToolActionProcessor {
     const context: AcceptedToolContext = {
       ...validated,
       toolAction,
-      normalized,
       fingerprint,
-      normalizedKey,
+      normalizedKey: command,
       nativeExecution,
     };
     const rejection = this.screenRejection(turn, context, state);
@@ -302,7 +266,7 @@ export class ToolActionProcessor {
     }
     const command = isCommandTool
       ? (typeof toolAction.args.command === 'string' ? toolAction.args.command : '')
-      : buildNativeRepoToolRequestedCommand(normalizedToolName, toolAction.args);
+      : buildRepoToolRequestedCommand(normalizedToolName, toolAction.args);
     if (isCommandTool && !command.trim()) {
       counters.invalidResponses += 1;
       const invalidCommandMessage = `Invalid action: ${normalizedToolName} requires args.command.`;
@@ -352,15 +316,16 @@ export class ToolActionProcessor {
     prospectiveToolType: string,
     state: TurnBatchState,
   ): ToolActionOutcome | null {
-    const { toolAction, normalizedToolName, isNativeTool, command, normalized, fingerprint, normalizedKey } = context;
+    const { toolAction, normalizedToolName, isNativeTool, command, fingerprint, normalizedKey } = context;
     const { commands, counters, duplicates, forcedFinish, toolStats, transcript } = this.deps;
     const { isExactDuplicate, isSemanticDuplicate, duplicateFingerprint } = duplicates.classify({
       toolName: normalizedToolName,
       normalizedKey,
       fingerprint,
-      rejected: Boolean(normalized.rejected),
+      rejected: false,
     });
-    const canAdvanceRepeatedRead = normalizedToolName === 'repo_read_file' || Boolean(!isNativeTool && parseGetContentReadWindowCommand(normalizedKey));
+    // A repeated `read` is legitimate: planRead advances past already-returned lines each time.
+    const canAdvanceRepeatedRead = normalizedToolName === 'read';
     if (this.deps.chatWebGroundingEnabled && (normalizedToolName === 'web_search' || normalizedToolName === 'web_fetch')) {
       const duplicateDecision = this.deps.chatWebGroundingPolicy.evaluateToolCall(normalizedToolName, toolAction.args);
       if (duplicateDecision.kind === 'reject') {
@@ -435,12 +400,12 @@ export class ToolActionProcessor {
     return null;
   }
 
-  private async runNativeExecution(normalizedToolName: string, toolAction: ToolAction, command: string): Promise<NativeRepoToolExecution> {
-    if (normalizedToolName === 'repo_read_file') {
-      const nativeReadPlan = planRepoReadFile(toolAction.args, this.deps.repoRoot, this.deps.ignorePolicy, this.deps.readWindows.stateMap);
-      return isFailedRepoReadFilePlan(nativeReadPlan)
-        ? { ok: false, command: nativeReadPlan.command, reason: nativeReadPlan.reason, toolType: normalizedToolName }
-        : buildRepoReadFileExecution(normalizedToolName, nativeReadPlan, null);
+  private async runNativeExecution(normalizedToolName: string, toolAction: ToolAction, command: string): Promise<RepoToolExecution> {
+    if (normalizedToolName === 'read') {
+      const readPlan = planRead(toolAction.args, this.deps.repoRoot, this.deps.ignorePolicy, this.deps.readWindows.stateMap);
+      return isFailedReadPlan(readPlan)
+        ? { ok: false, command: readPlan.command, reason: readPlan.reason, toolType: normalizedToolName }
+        : buildReadExecution(normalizedToolName, readPlan, null);
     }
     if (this.deps.mockCommandResults && this.deps.mockCommandResults[command]) {
       const mockResult = this.deps.mockCommandResults[command];
@@ -455,73 +420,44 @@ export class ToolActionProcessor {
         toolType: normalizedToolName,
       };
     }
-    return executeNativeRepoTool(normalizedToolName, toolAction.args, this.deps.repoRoot, this.deps.ignorePolicy, this.deps.webTools, this.deps.readWindows.stateMap);
+    return executeRepoTool(normalizedToolName, toolAction.args, {
+      repoRoot: this.deps.repoRoot,
+      ignorePolicy: this.deps.ignorePolicy,
+      webTools: this.deps.webTools,
+      fileReadStateByPath: this.deps.readWindows.stateMap,
+      abortSignal: this.deps.abortSignal,
+    });
   }
 
   private screenRejection(turn: number, context: AcceptedToolContext, state: TurnBatchState): ToolActionOutcome | null {
-    const { toolAction, normalizedToolName, isNativeTool, command, normalized, nativeExecution } = context;
+    const { toolAction, normalizedToolName, isNativeTool, command, nativeExecution } = context;
     const { commands, counters } = this.deps;
-    if (isNativeTool && nativeExecution && !nativeExecution.ok) {
-      counters.safetyRejects += 1;
-      const rejection = `Rejected command: ${nativeExecution.reason}`;
-      commands.push({ command, turn, safe: false, reason: nativeExecution.reason, exitCode: null, output: rejection });
-      state.batchOutcomes.push({
-        action: buildEffectiveTranscriptAction({
-          toolName: normalizedToolName,
-          rawArgs: toolAction.args,
-          isNativeTool,
-          commandToRun: nativeExecution.command,
-        }),
-        toolCallId: `rejected_call_${commands.length}`,
-        toolContent: rejection,
-      });
-      return 'next';
+    if (!nativeExecution || nativeExecution.ok) {
+      return null;
     }
-    if (!isNativeTool && normalized.rejected) {
-      counters.safetyRejects += 1;
-      const rejection = `Rejected command: ${normalized.rejectedReason}`;
-      commands.push({ command, turn, safe: false, reason: normalized.rejectedReason || null, exitCode: null, output: rejection });
-      state.batchOutcomes.push({
-        action: buildEffectiveTranscriptAction({
-          toolName: normalizedToolName,
-          rawArgs: toolAction.args,
-          isNativeTool,
-          commandToRun: command,
-        }),
-        toolCallId: `rejected_call_${commands.length}`,
-        toolContent: rejection,
-      });
-      return 'next';
-    }
-    return null;
+    counters.safetyRejects += 1;
+    const rejection = `Rejected command: ${nativeExecution.reason}`;
+    commands.push({ command, turn, safe: false, reason: nativeExecution.reason, exitCode: null, output: rejection });
+    state.batchOutcomes.push({
+      action: buildEffectiveTranscriptAction({
+        toolName: normalizedToolName,
+        rawArgs: toolAction.args,
+        isNativeTool,
+        commandToRun: nativeExecution.command,
+      }),
+      toolCallId: `rejected_call_${commands.length}`,
+      toolContent: rejection,
+    });
+    return 'next';
   }
 
   private prepareCommandToRun(turn: number, context: AcceptedToolContext, state: TurnBatchState): PreparedCommand | 'next' {
-    const { toolAction, normalizedToolName, isNativeTool, command, normalized, nativeExecution } = context;
+    const { toolAction, normalizedToolName, isNativeTool, command, nativeExecution } = context;
     const { commands, counters } = this.deps;
-    const requestedCommand = isNativeTool && nativeExecution?.ok
-      ? nativeExecution.requestedCommand || command
-      : command;
-    const normalizedCommand = isNativeTool && nativeExecution?.ok ? nativeExecution.command : isNativeTool ? command : normalized.command;
-    const preExecutionPerToolCapTokens = this.deps.budget.perToolCapTokens(commands.length);
-    const parsedReadWindow = isNativeTool ? null : parseGetContentReadWindowCommand(normalizedCommand);
-    let commandToRun = normalizedCommand;
-    let lineReadAdjustment: LineReadAdjustment | null = null;
+    const requestedCommand = nativeExecution?.ok ? nativeExecution.requestedCommand || command : command;
+    const commandToRun = nativeExecution?.ok ? nativeExecution.command : command;
 
-    if (parsedReadWindow) {
-      const planned = this.deps.readWindows.planAdjustment({
-        parsedReadWindow,
-        perToolCapTokens: preExecutionPerToolCapTokens,
-        currentGetContentStats: this.deps.toolStats.get('get-content'),
-        historicalGetContentStats: this.deps.historicalToolStats['get-content'] || null,
-        expandReads: this.deps.expandReads,
-      });
-      if (planned) {
-        commandToRun = planned.commandToRun;
-        lineReadAdjustment = planned.adjustment;
-      }
-    }
-
+    // Native tools validate their own typed args; only `git` carries a raw command string.
     const safety = isNativeTool
       ? { safe: true, reason: null }
       : evaluateCommandSafety(commandToRun, this.deps.repoRoot);
@@ -531,22 +467,19 @@ export class ToolActionProcessor {
       counters.safetyRejects += 1;
       const rejection = `Rejected command: ${safety.reason}`;
       commands.push({ command: commandToRun, turn, safe: false, reason: safety.reason, exitCode: null, output: rejection });
-      const rejectedModelVisibleCommand = isNativeTool || lineReadAdjustment || !normalized.rewritten
-        ? commandToRun
-        : requestedCommand;
       state.batchOutcomes.push({
         action: buildEffectiveTranscriptAction({
           toolName: normalizedToolName,
           rawArgs: toolAction.args,
           isNativeTool,
-          commandToRun: rejectedModelVisibleCommand,
+          commandToRun,
         }),
         toolCallId: `rejected_call_${commands.length}`,
         toolContent: rejection,
       });
       return 'next';
     }
-    return { requestedCommand, commandToRun, lineReadAdjustment, parsedReadWindow };
+    return { requestedCommand, commandToRun };
   }
 
   private async executeAcceptedTool(
@@ -555,13 +488,13 @@ export class ToolActionProcessor {
     state: TurnBatchState,
     promptTokenCount: number,
   ): Promise<ToolActionOutcome> {
-    const { normalizedToolName, isNativeTool, normalized, nativeExecution } = context;
+    const { normalizedToolName, isNativeTool, nativeExecution } = context;
     const { counters, forcedFinish } = this.deps;
     const preparedCommand = this.prepareCommandToRun(turn, context, state);
     if (preparedCommand === 'next') {
       return 'next';
     }
-    const { requestedCommand, commandToRun, lineReadAdjustment, parsedReadWindow } = preparedCommand;
+    const { requestedCommand, commandToRun } = preparedCommand;
 
     const progressToolCallId = `tc_${this.progressToolCallSeq}`;
     this.progressToolCallSeq += 1;
@@ -574,7 +507,7 @@ export class ToolActionProcessor {
       commandChars: commandToRun.length,
       native: isNativeTool,
     });
-    const executed = isNativeTool && nativeExecution && nativeExecution.ok
+    const executed = nativeExecution && nativeExecution.ok
       ? { exitCode: nativeExecution.exitCode, output: nativeExecution.output }
       : await executeRepoCommand(commandToRun, this.deps.repoRoot, this.deps.mockCommandResults || null, this.deps.abortSignal);
     toolExecutionSpan?.end({
@@ -594,34 +527,6 @@ export class ToolActionProcessor {
     const promptedBaseOutput = searchExit.syntaxFailure && searchExit.message
       ? `${searchExit.message}\n${baseOutput}`.trim()
       : baseOutput;
-    const executedReadWindow = isNativeTool ? null : parseGetContentReadWindowCommand(commandToRun);
-    let readMetrics: ReadExecutionMetrics = { overlapLines: 0, newLinesCovered: 0, cumulativeUniqueLines: 0 };
-    if (parsedReadWindow) {
-      readMetrics = this.deps.readWindows.recordExecution({
-        parsedReadWindow,
-        executedReadWindow,
-        turn,
-        adjusted: Boolean(lineReadAdjustment),
-      });
-    }
-
-    const rewriteNotesForLogs: string[] = [];
-    const rewriteNotesForPrompt: string[] = [];
-    if (normalized.rewritten && normalized.note) {
-      rewriteNotesForLogs.push(normalized.note);
-    }
-    if (lineReadAdjustment) {
-      rewriteNotesForLogs.push(
-        `note: repeated file read window adjusted; requested start=${lineReadAdjustment.requestedStart} end=${lineReadAdjustment.requestedEnd}; adjusted start=${lineReadAdjustment.adjustedStart} end=${lineReadAdjustment.adjustedEnd}; reason=${lineReadAdjustment.reason}; ran '${lineReadAdjustment.executedCommand}' instead`
-      );
-    }
-    const outputWithRewriteNote = rewriteNotesForLogs.length > 0
-      ? `${rewriteNotesForLogs.join('\n')}\n${promptedBaseOutput}`.trim()
-      : promptedBaseOutput;
-    const outputForPrompt = rewriteNotesForPrompt.length > 0
-      ? `${rewriteNotesForPrompt.join('\n')}\n${promptedBaseOutput}`.trim()
-      : promptedBaseOutput;
-
     if (Number(executed.exitCode) !== 0 && !searchExit.noMatch) {
       counters.commandFailures += 1;
     }
@@ -647,15 +552,10 @@ export class ToolActionProcessor {
       ...context,
       requestedCommand,
       commandToRun,
-      lineReadAdjustment,
-      parsedReadWindow,
-      executedReadWindow,
       executed,
       baseOutput,
       searchExit,
-      readMetrics,
-      outputWithRewriteNote,
-      outputForPrompt,
+      outputForPrompt: promptedBaseOutput,
       zeroOutputWarningText,
       progressToolCallId,
     }, state, promptTokenCount);
@@ -668,9 +568,8 @@ export class ToolActionProcessor {
     promptTokenCount: number,
   ): Promise<FittedToolOutcome> {
     const {
-      normalizedToolName, isNativeTool, normalized, nativeExecution,
-      requestedCommand, lineReadAdjustment, parsedReadWindow, executedReadWindow,
-      executed, baseOutput, searchExit, readMetrics, outputForPrompt, zeroOutputWarningText,
+      normalizedToolName, nativeExecution,
+      executed, baseOutput, searchExit, outputForPrompt, zeroOutputWarningText,
     } = context;
     let { commandToRun } = context;
 
@@ -682,12 +581,9 @@ export class ToolActionProcessor {
     const rawResultText = suppressExitCode
       ? outputForPrompt
       : `exit_code=${executed.exitCode}\n${outputForPrompt}`.trim();
-    const promptVisibleCommand = isNativeTool || lineReadAdjustment || !normalized.rewritten
-      ? commandToRun
-      : requestedCommand;
     let resultText = buildPromptToolResult({
       toolName: normalizedToolName,
-      command: isNativeTool ? commandToRun : promptVisibleCommand,
+      command: commandToRun,
       exitCode: executed.exitCode,
       rawOutput: rawResultText,
     });
@@ -711,34 +607,32 @@ export class ToolActionProcessor {
     resultText = fitted.resultText;
     const fittedReturnedSegmentCount = fitted.fittedReturnedSegmentCount;
     const rawResultTokenCount = fitted.rawResultTokenCount;
-    let lineReadStats = isNativeTool && nativeExecution && nativeExecution.ok && nativeExecution.lineReadStats
+    let lineReadStats = nativeExecution && nativeExecution.ok && nativeExecution.lineReadStats
       ? nativeExecution.lineReadStats
       : getRepoSearchLineReadStats(commandToRun, baseOutput, rawResultTokenCount);
     if (nativeExecution && nativeExecution.ok && nativeExecution.readFile && nativeExecution.lineReadStats && nativeExecution.lineReadStats.lineReadLinesTotal > 0) {
+      // Output fitting may have truncated the window; record only what the model actually saw.
       const returnedLineCount = Math.min(
         nativeExecution.lineReadStats.lineReadLinesTotal,
         fittedReturnedSegmentCount ?? resultText.split(/\r?\n/u).filter((line) => /^\d+:/u.test(line)).length,
       );
       if (returnedLineCount > 0) {
-        const returnedEndLineExclusive = nativeExecution.readFile.startLine + returnedLineCount;
-        commandToRun = buildRepoReadFileCommand(
-          nativeExecution.readFile.commandPath,
-          nativeExecution.readFile.startLine,
-          returnedEndLineExclusive - 1,
-        );
+        const { readFile } = nativeExecution;
+        commandToRun = buildReadCommand(readFile.commandPath, readFile.startLine, returnedLineCount);
         lineReadStats = {
           lineReadCalls: 1,
           lineReadLinesTotal: returnedLineCount,
           lineReadTokensTotal: Math.max(1, estimateTokenCount(this.deps.config, resultText)),
         };
-        this.deps.readWindows.recordNativeReturnedRange(nativeExecution.readFile.pathKey, {
-          start: nativeExecution.readFile.startLine,
-          end: returnedEndLineExclusive,
+        this.deps.readWindows.recordNativeRead({
+          pathKey: readFile.pathKey,
+          turn,
+          requestedStart: readFile.startLine,
+          requestedEndExclusive: readFile.endLineExclusive,
+          returnedStart: readFile.startLine,
+          returnedEndExclusive: readFile.startLine + returnedLineCount,
         });
       }
-    }
-    if (!isNativeTool && parsedReadWindow && executedReadWindow) {
-      this.deps.readWindows.applyFitTruncation({ parsedReadWindow, executedReadWindow, fittedReturnedSegmentCount, metrics: readMetrics });
     }
     return {
       commandToRun,
@@ -759,9 +653,8 @@ export class ToolActionProcessor {
     promptTokenCount: number,
   ): Promise<ToolActionOutcome> {
     const {
-      toolAction, normalizedToolName, isNativeTool, normalized, fingerprint, normalizedKey, nativeExecution,
-      requestedCommand, lineReadAdjustment, parsedReadWindow, executedReadWindow,
-      executed, baseOutput, searchExit, readMetrics, outputWithRewriteNote, progressToolCallId,
+      toolAction, normalizedToolName, isNativeTool, fingerprint, normalizedKey,
+      requestedCommand, executed, baseOutput, searchExit, outputForPrompt, progressToolCallId,
     } = context;
     const { commands, duplicates, progress, recentEvidenceKeys, successfulToolCalls, tokenUsage, toolStats } = this.deps;
 
@@ -796,15 +689,12 @@ export class ToolActionProcessor {
       successfulToolCalls.push({ toolName: toolType, promptResultText: resultText });
     }
 
-    const modelVisibleCommand = isNativeTool || lineReadAdjustment || !normalized.rewritten
-      ? commandToRun
-      : requestedCommand;
     if (progress.enabled) {
       const snippet = resultText.length > 200 ? `${resultText.slice(0, 200)}...` : resultText;
       progress.toolResult({
         toolCallId: progressToolCallId,
         turn,
-        command: modelVisibleCommand,
+        command: commandToRun,
         exitCode: executed.exitCode,
         outputSnippet: snippet,
         outputTokens: resultTokenCount,
@@ -812,25 +702,12 @@ export class ToolActionProcessor {
         promptTokenCount,
       });
     }
-    const commandOutputText = isNativeTool && nativeExecution?.ok ? resultText : outputWithRewriteNote;
+    const commandOutputText = isNativeTool ? resultText : outputForPrompt;
 
     this.deps.logger?.write({
       kind: 'turn_command_result', taskId: this.deps.task.id, turn, command: commandToRun,
       requestedCommand,
       executedCommand: commandToRun,
-      modelVisibleCommand,
-      lineReadAdjusted: Boolean(lineReadAdjustment),
-      lineReadRequestedStart: parsedReadWindow?.requestedStart,
-      lineReadRequestedEnd: parsedReadWindow?.requestedEnd,
-      lineReadAdjustedStart: lineReadAdjustment?.adjustedStart,
-      lineReadAdjustedEnd: lineReadAdjustment?.adjustedEnd,
-      lineReadMinLinesFromCap: lineReadAdjustment?.minLinesFromCap,
-      lineReadPerToolCapTokens: lineReadAdjustment?.perToolCapTokens,
-      lineReadExecutedStart: executedReadWindow?.requestedStart,
-      lineReadExecutedEnd: executedReadWindow?.requestedEnd,
-      lineReadOverlapLines: executedReadWindow ? readMetrics.overlapLines : undefined,
-      lineReadNewLinesCovered: executedReadWindow ? readMetrics.newLinesCovered : undefined,
-      lineReadCumulativeUniqueLines: executedReadWindow ? readMetrics.cumulativeUniqueLines : undefined,
       exitCode: executed.exitCode, output: commandOutputText,
       promptTokenCount, resultTokenCount, perToolCapTokens, remainingTokenAllowance,
       insertedResultText: resultText,
@@ -840,7 +717,7 @@ export class ToolActionProcessor {
     commands.push({
       command: commandToRun,
       turn,
-      modelVisibleCommand,
+      modelVisibleCommand: commandToRun,
       safe: true,
       reason: null,
       exitCode: executed.exitCode,
@@ -859,7 +736,7 @@ export class ToolActionProcessor {
         toolName: normalizedToolName,
         rawArgs: toolAction.args,
         isNativeTool,
-        commandToRun: modelVisibleCommand,
+        commandToRun,
       }),
       toolCallId,
       toolContent: resultText,

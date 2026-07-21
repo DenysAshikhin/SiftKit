@@ -82,7 +82,7 @@ test('getFallbackPresetId defaults to the first preset when selection is missing
 });
 
 test('getPresetToolsSummary returns a comma-separated list in supported-option order', () => {
-  assert.equal(getPresetToolsSummary(['repo_rg', 'find_text']), 'find_text, repo_rg');
+  assert.equal(getPresetToolsSummary(['grep', 'find_text']), 'find_text, repo_rg');
 });
 
 test('togglePresetTool adds missing tools and removes existing ones', () => {
@@ -148,7 +148,7 @@ test('getEffectivePresetTools intersects preset allowlist with operation-mode po
 
   assert.deepEqual(
     getEffectivePresetTools({
-      allowedTools: ['find_text', 'repo_rg'],
+      allowedTools: ['find_text', 'grep'],
       operationMode: 'summary',
     }, operationModeAllowedTools),
     ['find_text'],

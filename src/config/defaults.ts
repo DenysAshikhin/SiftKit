@@ -78,7 +78,6 @@ export function getDefaultConfigObject(): SiftConfig {
     RawLogRetention: true,
     IncludeAgentsMd: true,
     IncludeRepoFileListing: true,
-    ExpandReads: true,
     PromptPrefix: SIFT_DEFAULT_PROMPT_PREFIX,
     Inference: {
       Thinking: { Enabled: false, Preserve: false },

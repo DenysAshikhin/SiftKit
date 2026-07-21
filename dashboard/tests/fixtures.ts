@@ -31,7 +31,7 @@ export const MANAGED_PRESET = {
 
 export const DASHBOARD_CONFIG = {
   Version: '1', Backend: 'llama.cpp', PolicyMode: 'conservative',
-  RawLogRetention: true, IncludeAgentsMd: true, IncludeRepoFileListing: true, ExpandReads: true, PromptPrefix: '',
+  RawLogRetention: true, IncludeAgentsMd: true, IncludeRepoFileListing: true, PromptPrefix: '',
   Inference: { Thinking: { Enabled: false, Preserve: false } },
   OperationModeAllowedTools: { summary: ['read_lines'], 'read-only': ['read_lines'], full: ['read_lines'] },
   Presets: [PRESET, CUSTOM_PRESET],

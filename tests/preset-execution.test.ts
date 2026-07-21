@@ -56,10 +56,10 @@ test('effective tool allowlist intersects operation-mode policy with preset whit
   assert.deepEqual(
     resolvePresetAllowedTools({
       operationMode: 'summary',
-      allowedTools: ['find_text', 'repo_rg'],
+      allowedTools: ['find_text', 'grep'],
     }, {
       summary: ['find_text', 'read_lines', 'json_filter'],
-      'read-only': ['repo_rg'],
+      'read-only': ['grep'],
       full: [],
     }),
     ['find_text'],

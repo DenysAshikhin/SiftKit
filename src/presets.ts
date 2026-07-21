@@ -1,5 +1,8 @@
+import { PresetToolNameSchema, type PresetToolName } from '@siftkit/contracts';
 import { JsonRecordReader } from './lib/json-record-reader.js';
 import type { JsonObject, JsonValue, OptionalJsonValue } from './lib/json-types.js';
+
+export type { PresetToolName };
 
 export type PresetKind = 'summary' | 'chat' | 'plan' | 'repo-search';
 export type PresetExecutionFamily = PresetKind;
@@ -7,33 +10,18 @@ export type PresetOperationMode = 'summary' | 'read-only' | 'full';
 export type PresetSurface = 'cli' | 'web';
 
 const SUMMARY_TOOLS = ['find_text', 'read_lines', 'json_filter', 'json_get'] as const;
-export const REPO_SEARCH_TOOLS = [
-  'repo_rg',
-  'repo_read_file',
-  'repo_list_files',
-  'repo_git',
-  'repo_select_object',
-  'repo_where_object',
-  'repo_sort_object',
-  'repo_group_object',
-  'repo_measure_object',
-  'repo_foreach_object',
-  'repo_format_table',
-  'repo_format_list',
-  'repo_out_string',
-  'repo_convertto_json',
-  'repo_convertfrom_json',
-  'repo_get_unique',
-  'repo_join_string',
-] as const;
+export const REPO_SEARCH_TOOLS = ['read', 'grep', 'find', 'ls', 'git'] as const;
 
 export const WEB_RESEARCH_TOOLS = ['web_search', 'web_fetch'] as const;
-const PRESET_TOOL_NAMES = [...SUMMARY_TOOLS, ...REPO_SEARCH_TOOLS, ...WEB_RESEARCH_TOOLS] as const;
-const PRESET_TOOL_NAME_SET = new Set<string>(PRESET_TOOL_NAMES);
-const LEGACY_REPO_SEARCH_TOOL_ALIAS = 'run_repo_cmd';
+// PresetToolNameSchema in @siftkit/contracts is the single source of truth for the tool-name union;
+// the groupings above are subsets of it, checked by the satisfies below.
+const PRESET_TOOL_NAME_SET = new Set<string>(PresetToolNameSchema.options);
 const READ_ONLY_TOOLS = [...REPO_SEARCH_TOOLS] as const;
 
-export type PresetToolName = (typeof PRESET_TOOL_NAMES)[number];
+SUMMARY_TOOLS satisfies readonly PresetToolName[];
+REPO_SEARCH_TOOLS satisfies readonly PresetToolName[];
+WEB_RESEARCH_TOOLS satisfies readonly PresetToolName[];
+
 export type OperationModeAllowedTools = Record<PresetOperationMode, PresetToolName[]>;
 
 function isPresetToolName(value: string): value is PresetToolName {
@@ -113,32 +101,10 @@ function normalizeToolList(value: OptionalJsonValue, fallback: readonly PresetTo
     return [...fallback];
   }
   const seen = new Set<PresetToolName>();
-  const pushTool = (toolName: PresetToolName): void => {
-    if (!seen.has(toolName)) {
-      seen.add(toolName);
-    }
-  };
   for (const item of value) {
     const normalized = String(item);
-    if (normalized === LEGACY_REPO_SEARCH_TOOL_ALIAS) {
-      for (const repoToolName of REPO_SEARCH_TOOLS) {
-        pushTool(repoToolName);
-      }
-      continue;
-    }
-    const mappedToolNames = normalized === 'repo_get_content'
-      ? ['repo_read_file']
-      : normalized === 'repo_get_childitem' || normalized === 'repo_ls'
-        ? ['repo_list_files']
-        : normalized === 'repo_select_string'
-          ? ['repo_rg']
-          : normalized === 'repo_pwd'
-            ? []
-            : [normalized];
-    for (const mappedToolName of mappedToolNames) {
-      if (isPresetToolName(mappedToolName)) {
-        pushTool(mappedToolName);
-      }
+    if (isPresetToolName(normalized)) {
+      seen.add(normalized);
     }
   }
   return seen.size > 0 ? Array.from(seen) : [...fallback];

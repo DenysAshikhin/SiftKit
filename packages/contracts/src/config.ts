@@ -122,9 +122,7 @@ export const PresetSurfaceSchema = z.enum(['cli', 'web']);
 export type PresetSurface = z.infer<typeof PresetSurfaceSchema>;
 export const PresetToolNameSchema = z.enum([
   'find_text', 'read_lines', 'json_filter', 'json_get',
-  'repo_rg', 'repo_read_file', 'repo_list_files', 'repo_git', 'repo_select_object', 'repo_where_object',
-  'repo_sort_object', 'repo_group_object', 'repo_measure_object', 'repo_foreach_object', 'repo_format_table',
-  'repo_format_list', 'repo_out_string', 'repo_convertto_json', 'repo_convertfrom_json', 'repo_get_unique', 'repo_join_string',
+  'read', 'grep', 'find', 'ls', 'git',
   'web_search', 'web_fetch',
 ]);
 export type PresetToolName = z.infer<typeof PresetToolNameSchema>;
@@ -143,7 +141,7 @@ export type OperationModeAllowedTools = z.infer<typeof OperationModeAllowedTools
 
 export const SiftConfigSchema = z.object({
   Version: z.string(), PolicyMode: z.string(), RawLogRetention: z.boolean(),
-  IncludeAgentsMd: z.boolean(), IncludeRepoFileListing: z.boolean(), ExpandReads: z.boolean(),
+  IncludeAgentsMd: z.boolean(), IncludeRepoFileListing: z.boolean(),
   PromptPrefix: z.string().nullable().optional(),
   Inference: InferenceConfigSchema,
   Runtime: z.object({ LlamaCpp: RuntimeLlamaCppConfigSchema }),

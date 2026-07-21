@@ -93,6 +93,30 @@ test('buildRepoSearchPlannerActionJsonSchema enforces command args and output-on
   assert.match(schemaText, /"additionalProperties":false/u);
 });
 
+test('planner schemas never emit oneOf at any depth', () => {
+  // kbnf (via formatron, via exllamav3) mis-handles `oneOf`: it masks logits to an allowed token
+  // set, samples from that set, then rejects the same token when asked to accept it. That single
+  // rejection permanently wedges the TabbyAPI inference server. See
+  // docs/handoff-oneof-grammar-wedge.md. Every variant is discriminated by a `const` action name
+  // and carries additionalProperties:false, so anyOf is equivalent here, not a loosening.
+  const schemas = [
+    buildRepoSearchPlannerActionJsonSchema({ toolDefinitions: SUMMARY_TOOLS }),
+    buildRepoSearchPlannerActionJsonSchema({ toolDefinitions: [] }),
+    buildSummaryPlannerActionJsonSchema({ toolDefinitions: SUMMARY_TOOLS, allowUnsupportedInput: true }),
+    buildSummaryPlannerActionJsonSchema({ toolDefinitions: [], allowUnsupportedInput: false }),
+  ];
+  for (const schema of schemas) {
+    assert.doesNotMatch(JSON.stringify(schema), /"oneOf"/u);
+  }
+});
+
+test('multi-tool planner schema unions variants with anyOf, including inside tool_batch', () => {
+  const schema = buildRepoSearchPlannerActionJsonSchema({ toolDefinitions: SUMMARY_TOOLS });
+  const schemaText = JSON.stringify(schema);
+  // top-level union plus the tool_batch calls[] item union
+  assert.equal(schemaText.match(/"anyOf"/gu)?.length, 2);
+});
+
 test('buildFinishValidationJsonSchema enforces verdict and reason', () => {
   const schema = buildFinishValidationJsonSchema();
   const schemaText = JSON.stringify(schema);

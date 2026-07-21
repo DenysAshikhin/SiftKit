@@ -46,11 +46,16 @@ function getToolArgRequired(tool: StructuredOutputToolDefinition): string[] {
 
 
 
-function buildOneOf(values: JsonSchema[]): JsonSchema {
+// `anyOf`, never `oneOf`: the kbnf grammar engine behind TabbyAPI mis-handles `oneOf` and
+// permanently wedges the inference server on the first constrained turn. See
+// docs/handoff-oneof-grammar-wedge.md. Variants are discriminated by a `const` action name and
+// carry additionalProperties:false, so they are mutually exclusive by construction and anyOf
+// validates identically.
+function buildAnyOf(values: JsonSchema[]): JsonSchema {
   if (values.length === 1) {
     return values[0];
   }
-  return { oneOf: values };
+  return { anyOf: values };
 }
 
 function buildPlannerToolActionSchema(tool: StructuredOutputToolDefinition): JsonSchemaObject {
@@ -85,7 +90,7 @@ function buildPlannerToolBatchActionSchema(toolDefinitions: StructuredOutputTool
       calls: {
         type: 'array',
         minItems: 1,
-        items: buildOneOf(toolDefinitions.map((tool) => buildPlannerToolBatchItemSchema(tool))),
+        items: buildAnyOf(toolDefinitions.map((tool) => buildPlannerToolBatchItemSchema(tool))),
       },
     },
     required: ['action', 'calls'],
@@ -135,9 +140,7 @@ function buildPlannerActionSchema(options: {
       buildPlannerToolBatchActionSchema(options.toolDefinitions),
     );
   }
-  return {
-    oneOf: actionSchemas,
-  };
+  return buildAnyOf(actionSchemas);
 }
 
 export function buildSummaryDecisionJsonSchema(options: {

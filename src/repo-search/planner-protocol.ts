@@ -15,11 +15,7 @@ import {
   buildRepoSearchPlannerActionJsonSchema,
   type StructuredOutputToolDefinition,
 } from '../providers/structured-output-schema.js';
-import {
-  getFirstCommandToken,
-  REPO_SEARCH_PIPE_COMMANDS,
-  REPO_SEARCH_PRODUCER_COMMANDS,
-} from './command-safety.js';
+import { getFirstCommandToken } from './command-safety.js';
 import type { JsonLogger } from './types.js';
 
 export type PlannerActionResponse = {
@@ -74,36 +70,145 @@ export type ChatMessage = {
   tool_call_id?: string;
 };
 
-const NATIVE_REPO_SEARCH_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
-  repo_read_file: {
+// The tool surface mirrors pi.dev: read, write, edit, run, grep, find, ls — plus `git` (the only
+// command-string tool) and the two web tools. `write`, `edit` and `run` are implemented and tested
+// in engine/repo-tools.ts but deliberately absent from EXPOSED_REPO_TOOL_NAMES, so they never reach
+// a model. See docs/plan-pi-tool-surface.md.
+const REPO_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
+  read: {
     type: 'function',
     function: {
-      name: 'repo_read_file',
-      description: 'Read one repository file with optional 1-based line bounds.',
+      name: 'read',
+      description: 'Read the contents of a repository file. Lines are returned numbered. Use offset/limit for large files; when you need the full file, continue with offset until complete. Lines already returned in this task are skipped automatically.',
       parameters: {
         type: 'object',
         properties: {
-          path: { type: 'string' },
-          startLine: { type: 'integer' },
-          endLine: { type: 'integer' },
+          path: { type: 'string', description: 'Path to the file to read, relative to the repository root' },
+          offset: { type: 'integer', description: 'Line number to start reading from (1-indexed)' },
+          limit: { type: 'integer', description: 'Maximum number of lines to read' },
         },
         required: ['path'],
       },
     },
   },
-  repo_list_files: {
+  grep: {
     type: 'function',
     function: {
-      name: 'repo_list_files',
-      description: 'List repository files under an optional path, with optional glob filtering and recursion control.',
+      name: 'grep',
+      description: 'Search file contents for a pattern. Returns matching lines with file paths and line numbers. Ignored paths are excluded automatically. Output is capped at limit matches (default 100).',
       parameters: {
         type: 'object',
         properties: {
-          path: { type: 'string' },
-          glob: { type: 'string' },
-          recurse: { type: 'boolean' },
+          pattern: { type: 'string', description: 'Search pattern (regex, or literal string when literal=true)' },
+          path: { type: 'string', description: 'Directory or file to search (default: repository root)' },
+          glob: { type: 'string', description: "Filter files by glob pattern, e.g. '*.ts' or 'src/**/*.test.ts'" },
+          ignoreCase: { type: 'boolean', description: 'Case-insensitive search (default: true)' },
+          literal: { type: 'boolean', description: 'Treat pattern as a literal string instead of a regex (default: false)' },
+          context: { type: 'integer', description: 'Number of lines to show before and after each match (default: 0)' },
+          limit: { type: 'integer', description: 'Maximum number of matches to return (default: 100)' },
+        },
+        required: ['pattern'],
+      },
+    },
+  },
+  find: {
+    type: 'function',
+    function: {
+      name: 'find',
+      description: "Find files by glob pattern. Returns matching paths relative to the search directory. Ignored paths are excluded automatically. Output is capped at limit results (default 1000).",
+      parameters: {
+        type: 'object',
+        properties: {
+          pattern: { type: 'string', description: "Glob pattern to match files, e.g. '*.ts', '**/*.json', or 'src/**/*.test.ts'" },
+          path: { type: 'string', description: 'Directory to search in (default: repository root)' },
+          limit: { type: 'integer', description: 'Maximum number of results (default: 1000)' },
+        },
+        required: ['pattern'],
+      },
+    },
+  },
+  ls: {
+    type: 'function',
+    function: {
+      name: 'ls',
+      description: "List directory contents one level deep. Entries are sorted alphabetically with a '/' suffix on directories, dotfiles included. Output is capped at limit entries (default 500).",
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Directory to list (default: repository root)' },
+          limit: { type: 'integer', description: 'Maximum number of entries to return (default: 500)' },
         },
         required: [],
+      },
+    },
+  },
+  write: {
+    type: 'function',
+    function: {
+      name: 'write',
+      description: "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.",
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Path to the file to write, relative to the repository root' },
+          content: { type: 'string', description: 'Content to write to the file' },
+        },
+        required: ['path', 'content'],
+      },
+    },
+  },
+  edit: {
+    type: 'function',
+    function: {
+      name: 'edit',
+      description: 'Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Path to the file to edit, relative to the repository root' },
+          edits: {
+            type: 'array',
+            description: 'One or more targeted replacements. Each edit is matched against the original file, not incrementally.',
+            items: {
+              type: 'object',
+              properties: {
+                oldText: { type: 'string', description: 'Exact text for one targeted replacement. Must be unique in the original file and must not overlap any other edits[].oldText in the same call.' },
+                newText: { type: 'string', description: 'Replacement text for this targeted edit.' },
+              },
+              required: ['oldText', 'newText'],
+            },
+          },
+        },
+        required: ['path', 'edits'],
+      },
+    },
+  },
+  run: {
+    type: 'function',
+    function: {
+      name: 'run',
+      description: 'Execute a shell command in the repository root. Returns stdout and stderr.',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', description: 'Command to execute' },
+          timeout: { type: 'integer', description: 'Timeout in seconds (optional, no default timeout)' },
+        },
+        required: ['command'],
+      },
+    },
+  },
+  git: {
+    type: 'function',
+    function: {
+      name: 'git',
+      description: "Run one read-only git command in the repository, e.g. 'git status --short', 'git log -n 20 --oneline', 'git show <ref>:<path>', 'git blame -L 40,80 <path>'. History and working-tree inspection only; commands that mutate the repository are rejected.",
+      parameters: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', description: "The full git command line, starting with 'git'" },
+        },
+        required: ['command'],
       },
     },
   },
@@ -136,105 +241,62 @@ const NATIVE_REPO_SEARCH_TOOL_REGISTRY: Record<string, StructuredOutputToolDefin
   },
 };
 
-const REPO_SEARCH_EXCLUDED_COMMAND_TOKENS = new Set<string>([
-  'get-content',
-  'get-childitem',
-  'select-string',
-  'pwd',
-  'ls',
-]);
+/** Tools a model may be offered. `write`, `edit` and `run` are implemented but withheld. */
+export const EXPOSED_REPO_TOOL_NAMES = ['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch'] as const;
 
-const ACCEPTED_REPO_SEARCH_COMMAND_TOKENS: readonly string[] = [
-  ...new Set<string>([
-    ...REPO_SEARCH_PRODUCER_COMMANDS,
-    ...REPO_SEARCH_PIPE_COMMANDS,
-  ]),
-];
+/** `git` is the only tool whose args carry a raw command string; everything else is native. */
+export const REPO_COMMAND_TOOL_NAME = 'git';
 
-const REPO_SEARCH_COMMAND_TOKENS: readonly string[] = [
-  ...new Set<string>([
-    ...REPO_SEARCH_PRODUCER_COMMANDS.filter((commandToken) => !REPO_SEARCH_EXCLUDED_COMMAND_TOKENS.has(commandToken)),
-    ...REPO_SEARCH_PIPE_COMMANDS.filter((commandToken) => !REPO_SEARCH_EXCLUDED_COMMAND_TOKENS.has(commandToken)),
-  ]),
-];
+const EXPOSED_REPO_TOOL_NAME_SET = new Set<string>(EXPOSED_REPO_TOOL_NAMES);
+const WEB_TOOL_NAMES = new Set<string>(['web_search', 'web_fetch']);
 
-function commandTokenToToolName(commandToken: string): string {
-  return `repo_${String(commandToken || '').trim().toLowerCase().replace(/[^a-z0-9]+/gu, '_')}`;
+function normalizeToolName(toolName: string): string {
+  return String(toolName || '').trim().toLowerCase();
 }
-
-function buildRepoSearchToolDescription(commandToken: string): string {
-  return `Run one read-only repo command that starts with '${commandToken}'.`;
-}
-
-const COMMAND_REPO_SEARCH_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = Object.fromEntries(
-  REPO_SEARCH_COMMAND_TOKENS.map((commandToken): [string, StructuredOutputToolDefinition] => {
-    const toolName = commandTokenToToolName(commandToken);
-    return [toolName, {
-      type: 'function',
-      function: {
-        name: toolName,
-        description: buildRepoSearchToolDescription(commandToken),
-        parameters: {
-          type: 'object',
-          properties: { command: { type: 'string' } },
-          required: ['command'],
-        },
-      },
-    }];
-  }),
-);
-
-const REPO_SEARCH_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
-  ...NATIVE_REPO_SEARCH_TOOL_REGISTRY,
-  ...COMMAND_REPO_SEARCH_TOOL_REGISTRY,
-};
-
-const WEB_NATIVE_TOOL_NAMES = new Set<string>(['web_search', 'web_fetch']);
-const REPO_SEARCH_TOOL_NAME_BY_COMMAND_TOKEN = new Map<string, string>(
-  ACCEPTED_REPO_SEARCH_COMMAND_TOKENS.map((commandToken) => [commandToken, commandTokenToToolName(commandToken)]),
-);
-const REPO_SEARCH_COMMAND_TOKEN_BY_TOOL_NAME = new Map<string, string>(
-  ACCEPTED_REPO_SEARCH_COMMAND_TOKENS.map((commandToken) => [commandTokenToToolName(commandToken), commandToken]),
-);
 
 export function getRepoSearchToolNames(): string[] {
-  return Object.keys(REPO_SEARCH_TOOL_REGISTRY);
+  return [...EXPOSED_REPO_TOOL_NAMES];
 }
 
 export function getRepoSearchToolNamesForParsing(): string[] {
-  return Array.from(new Set<string>([
-    ...Object.keys(REPO_SEARCH_TOOL_REGISTRY).filter((toolName) => !WEB_NATIVE_TOOL_NAMES.has(toolName)),
-    ...Array.from(REPO_SEARCH_COMMAND_TOKEN_BY_TOOL_NAME.keys()),
-  ]));
-}
-
-export function isRepoSearchNativeToolName(toolName: string): boolean {
-  return Object.prototype.hasOwnProperty.call(
-    NATIVE_REPO_SEARCH_TOOL_REGISTRY,
-    String(toolName || '').trim().toLowerCase(),
-  );
+  return EXPOSED_REPO_TOOL_NAMES.filter((toolName) => !WEB_TOOL_NAMES.has(toolName));
 }
 
 export function isRepoSearchCommandToolName(toolName: string): boolean {
-  return REPO_SEARCH_COMMAND_TOKEN_BY_TOOL_NAME.has(String(toolName || '').trim().toLowerCase());
+  return normalizeToolName(toolName) === REPO_COMMAND_TOOL_NAME;
+}
+
+export function isRepoSearchNativeToolName(toolName: string): boolean {
+  const normalized = normalizeToolName(toolName);
+  return EXPOSED_REPO_TOOL_NAME_SET.has(normalized) && normalized !== REPO_COMMAND_TOOL_NAME;
 }
 
 export function getRepoSearchCommandTokenForToolName(toolName: string): string | null {
-  return REPO_SEARCH_COMMAND_TOKEN_BY_TOOL_NAME.get(String(toolName || '').trim().toLowerCase()) || null;
+  return isRepoSearchCommandToolName(toolName) ? REPO_COMMAND_TOOL_NAME : null;
 }
 
 export function getRepoSearchToolNameForCommand(command: string): string | null {
-  const commandToken = getFirstCommandToken(String(command || '').trim());
-  return REPO_SEARCH_TOOL_NAME_BY_COMMAND_TOKEN.get(commandToken) || null;
+  return getFirstCommandToken(String(command || '').trim()) === REPO_COMMAND_TOOL_NAME
+    ? REPO_COMMAND_TOOL_NAME
+    : null;
 }
 
 export function resolveRepoSearchPlannerToolDefinitions(
   allowedToolNames?: readonly string[],
 ): StructuredOutputToolDefinition[] {
-  if (!Array.isArray(allowedToolNames)) return Object.values(REPO_SEARCH_TOOL_REGISTRY);
-  return allowedToolNames
-    .map((toolName) => REPO_SEARCH_TOOL_REGISTRY[String(toolName || '').trim().toLowerCase()])
-    .filter((toolDefinition): toolDefinition is StructuredOutputToolDefinition => Boolean(toolDefinition));
+  const requested = Array.isArray(allowedToolNames)
+    ? allowedToolNames.map(normalizeToolName)
+    : [...EXPOSED_REPO_TOOL_NAMES];
+  const seen = new Set<string>();
+  const definitions: StructuredOutputToolDefinition[] = [];
+  for (const toolName of requested) {
+    if (seen.has(toolName) || !EXPOSED_REPO_TOOL_NAME_SET.has(toolName)) {
+      continue;
+    }
+    seen.add(toolName);
+    definitions.push(REPO_TOOL_REGISTRY[toolName]);
+  }
+  return definitions;
 }
 
 export const TOOL_DEFINITIONS = resolveRepoSearchPlannerToolDefinitions();

@@ -15,7 +15,6 @@ import type {
 import type { NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
 import { JsonObjectSchema } from '../../lib/json-types.js';
 import { toProtocolTools } from '../../providers/llama-cpp.js';
-import { readLatestIdleSummaryToolStats } from '../../line-read-guidance.js';
 import { ModelJson } from '../../lib/model-json.js';
 import { buildIgnorePolicy, type IgnorePolicy } from '../command-safety.js';
 import {
@@ -125,7 +124,6 @@ export class TaskLoop {
   private readonly minToolCallsBeforeFinish: number;
   private readonly budget: TurnBudget;
   private readonly useEstimatedTokensOnly: boolean;
-  private readonly expandReads: boolean;
   private readonly plannerThinkingEnabled: boolean;
   private readonly plannerReasoningContentEnabled: boolean;
   private readonly plannerPreserveThinkingEnabled: boolean;
@@ -167,7 +165,6 @@ export class TaskLoop {
     this.maxInvalidResponses = Math.max(1, Number(options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES));
     this.webTools = buildWebToolsForTaskLoop(options.config);
     this.useEstimatedTokensOnly = Array.isArray(options.mockResponses);
-    this.expandReads = options.config?.ExpandReads !== false;
     this.tokenUsage = new TokenUsageTracker(options.config, this.useEstimatedTokensOnly);
     this.toolStats = new ToolStatsRecorder();
     this.minToolCallsBeforeFinish = Math.max(0, Number(options.minToolCallsBeforeFinish ?? MIN_TOOL_CALLS_BEFORE_FINISH));
@@ -272,7 +269,6 @@ export class TaskLoop {
       chatWebGroundingPolicy: this.chatWebGroundingPolicy,
       ignorePolicy: this.ignorePolicy,
       webTools: this.webTools,
-      historicalToolStats: readLatestIdleSummaryToolStats(),
       budget: this.budget,
       tokenUsage: this.tokenUsage,
       toolStats: this.toolStats,
@@ -284,7 +280,6 @@ export class TaskLoop {
         timingRecorder: options.timingRecorder || null,
       }),
       readWindows: this.readWindows,
-      expandReads: this.expandReads,
       maintainPerStepThinking: this.plannerMaintainPerStepThinking,
       progress: this.progress,
       transcript: this.transcript,

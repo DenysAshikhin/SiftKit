@@ -4,30 +4,27 @@ import { z } from 'zod';
 import { buildRepoSearchPlannerActionJsonSchema } from '../src/providers/structured-output-schema.js';
 import { buildPlannerRequestPromptReserveText } from '../src/repo-search/planner-protocol.js';
 
-const ActionOneOfSchema = z
+// With no tools there is exactly one action variant, so the schema collapses to that variant
+// directly — no union wrapper at all. See docs/handoff-oneof-grammar-wedge.md: single-variant
+// unions wedge the kbnf grammar engine just as multi-variant ones do.
+const FinishActionSchema = z
   .object({
-    oneOf: z.array(
-      z
-        .object({
-          properties: z
-            .object({ action: z.object({ const: z.string().optional() }).passthrough().optional() })
-            .passthrough()
-            .optional(),
-        })
-        .passthrough(),
-    ),
+    properties: z
+      .object({ action: z.object({ const: z.string().optional() }).passthrough() })
+      .passthrough(),
   })
   .passthrough();
 const PlannerRequestBodySchema = z
   .object({
-    response_format: z.object({ json_schema: z.object({ schema: ActionOneOfSchema }) }),
+    response_format: z.object({ json_schema: z.object({ schema: FinishActionSchema }) }),
   })
   .passthrough();
 
-test('zero tool definitions produce a finish-only action schema', () => {
-  const schema = ActionOneOfSchema.parse(buildRepoSearchPlannerActionJsonSchema({ toolDefinitions: [] }));
-  assert.equal(schema.oneOf.length, 1);
-  assert.equal(schema.oneOf[0].properties?.action?.const, 'finish');
+test('zero tool definitions produce a finish-only action schema with no union wrapper', () => {
+  const rawSchema = buildRepoSearchPlannerActionJsonSchema({ toolDefinitions: [] });
+  assert.doesNotMatch(JSON.stringify(rawSchema), /"(?:one|any)Of"/u);
+  const schema = FinishActionSchema.parse(rawSchema);
+  assert.equal(schema.properties.action.const, 'finish');
 });
 
 test('planner request with empty toolDefinitions emits a finish-only schema (no repo tools)', () => {
@@ -41,7 +38,5 @@ test('planner request with empty toolDefinitions emits a finish-only schema (no 
     preserveThinking: false,
     toolDefinitions: [],
   })));
-  const actionSchemas = body.response_format.json_schema.schema.oneOf;
-  assert.equal(actionSchemas.length, 1);
-  assert.equal(actionSchemas[0].properties?.action?.const, 'finish');
+  assert.equal(body.response_format.json_schema.schema.properties.action.const, 'finish');
 });
