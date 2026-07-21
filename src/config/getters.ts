@@ -82,6 +82,13 @@ export function getConfiguredLlamaNumCtx(config: SiftConfig): number {
   throw new Error('SiftKit runtime config is missing LlamaCpp.NumCtx. Start a launcher script first.');
 }
 
+export function getConfiguredReasoning(config: SiftConfig): ModelRuntimePreset['Reasoning'] {
+  const activePreset = getActiveModelPreset(config);
+  return activePreset.Backend === 'exl3'
+    ? activePreset.Reasoning
+    : getRuntimeLlamaCpp(config).Reasoning ?? activePreset.Reasoning;
+}
+
 export function getMissingRuntimeFields(config: SiftConfig): string[] {
   const missing: string[] = [];
   try {

@@ -13,6 +13,7 @@ import { startStatusServer } from '../src/status-server/index.js';
 import { writeConfig, getDefaultConfig } from '../src/status-server/config-store.js';
 import { getConfigPath } from '../src/config/index.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { readChatSessions, saveChatSession } from '../src/state/chat-sessions.js';
 import {
   asArray,
   asObject,
@@ -370,6 +371,100 @@ test('chat session creation uses pass-through host context window', async () => 
       server.close((error) => (error ? reject(error) : resolve()));
     });
     await host.close();
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    restoreDashboardTestRepo(previousCwd);
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
+test('chat sessions synchronize active EXL3 metadata without rewriting historical snapshots', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-exl3-context-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const runtimeRoot = path.join(tempRoot, '.siftkit');
+  const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
+  const configPath = getConfigPath();
+  fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+  fs.writeFileSync(statusPath, 'false', 'utf8');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const config = getDefaultConfig();
+  const serverConfig = d(config.Server);
+  const modelPresets = d(serverConfig.ModelPresets);
+  const activePreset = d(asObjectArray(modelPresets.Presets)[0]);
+  activePreset.Backend = 'exl3';
+  activePreset.Model = 'active-model';
+  activePreset.NumCtx = 150_000;
+  activePreset.Reasoning = 'off';
+  const runtimeLlama = d(d(config.Runtime).LlamaCpp);
+  runtimeLlama.NumCtx = 30_000;
+  runtimeLlama.Reasoning = 'on';
+  writeConfig(configPath, config);
+
+  saveChatSession(runtimeRoot, {
+    id: 'stale-active',
+    title: 'Stale active session',
+    model: 'active-model',
+    contextWindowTokens: 30_000,
+    thinkingEnabled: true,
+    condensedSummary: '',
+    createdAtUtc: '2026-07-21T00:00:00.000Z',
+    updatedAtUtc: '2026-07-21T00:00:00.000Z',
+    messages: [],
+  });
+  saveChatSession(runtimeRoot, {
+    id: 'historical',
+    title: 'Historical session',
+    model: 'historical-model',
+    contextWindowTokens: 30_000,
+    thinkingEnabled: true,
+    condensedSummary: '',
+    createdAtUtc: '2026-07-20T00:00:00.000Z',
+    updatedAtUtc: '2026-07-20T00:00:00.000Z',
+    messages: [],
+  });
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = getAddressInfo(server);
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({ title: 'EXL3 session' }),
+    });
+    assert.equal(createSession.statusCode, 200);
+    const createdSession = d(createSession.body.session);
+    assert.equal(createdSession.contextWindowTokens, 150_000);
+    assert.equal(createdSession.thinkingEnabled, false);
+    assert.equal(d(createSession.body.contextUsage).contextWindowTokens, 150_000);
+
+    const listResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions`);
+    const listedSessions = asObjectArray(listResponse.body.sessions);
+    const listedActive = listedSessions.find((session) => session.id === 'stale-active');
+    const listedHistorical = listedSessions.find((session) => session.id === 'historical');
+    assert.equal(listedActive?.contextWindowTokens, 150_000);
+    assert.equal(listedHistorical?.contextWindowTokens, 30_000);
+
+    const activeResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/stale-active`);
+    assert.equal(d(activeResponse.body.session).contextWindowTokens, 150_000);
+    assert.equal(d(activeResponse.body.contextUsage).contextWindowTokens, 150_000);
+
+    const historicalResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/historical`);
+    assert.equal(d(historicalResponse.body.session).contextWindowTokens, 30_000);
+    assert.equal(d(historicalResponse.body.contextUsage).contextWindowTokens, 30_000);
+
+    const persistedActive = readChatSessions(runtimeRoot).find((session) => session.id === 'stale-active');
+    assert.equal(persistedActive?.contextWindowTokens, 30_000);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -2408,5 +2503,4 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
     await removeDirectoryWithRetries(tempRoot);
   }
 });
-
 

@@ -30,6 +30,8 @@ import { readConfig } from '../config-store.js';
 import {
   applyHostLlamaRuntimeSettings,
   getActiveModelPreset,
+  getConfiguredLlamaNumCtx,
+  getConfiguredReasoning,
   notifyStatusBackend,
   SIFT_DEFAULT_LLAMA_BASE_URL,
   type SiftConfig,
@@ -41,6 +43,7 @@ import {
 } from '../dashboard-runs.js';
 import {
   buildContextUsage,
+  resolveChatSessionContextWindow,
   type ContextUsage,
   type ChatUsage,
   type PersistToolMessage,
@@ -202,12 +205,12 @@ function toWireChatMessage(message: PersistedChatMessage): WireChatMessage {
   return { ...message, sourceRunId: message.sourceRunId ?? null };
 }
 
-function toWireChatSession(session: ChatSession): WireChatSession {
+function toWireChatSession(config: SiftConfig, session: ChatSession): WireChatSession {
   return {
     id: session.id,
     title: session.title ?? '',
     model: session.model ?? null,
-    contextWindowTokens: session.contextWindowTokens ?? 0,
+    contextWindowTokens: resolveChatSessionContextWindow(config, session),
     thinkingEnabled: session.thinkingEnabled,
     webSearchEnabled: session.webSearchEnabled,
     presetId: session.presetId,
@@ -223,7 +226,7 @@ function toWireChatSession(session: ChatSession): WireChatSession {
 
 function buildChatSessionResponse(config: SiftConfig, session: ChatSession): ChatSessionResponse {
   return {
-    session: toWireChatSession(withPromptContext(config, session)),
+    session: toWireChatSession(config, withPromptContext(config, session)),
     contextUsage: buildContextUsage(config, session),
   };
 }
@@ -515,7 +518,7 @@ class ListChatSessionsEndpoint implements RouteEndpoint {
     const runtimeRoot = getRuntimeRoot();
     const config = readConfig(configPath);
     const sessionsResponse: ChatSessionsResponse = {
-      sessions: readChatSessions(runtimeRoot).map((session) => toWireChatSession(withPromptContext(config, session))),
+      sessions: readChatSessions(runtimeRoot).map((session) => toWireChatSession(config, withPromptContext(config, session))),
     };
     sendJson(res, 200, sessionsResponse);
     return;
@@ -671,14 +674,14 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
     const now = new Date().toISOString();
     const currentConfig = await readEffectiveChatRouteConfig(configPath);
     const presets = normalizePresets(currentConfig.Presets);
-    const runtimeLlamaCfg = currentConfig.Runtime.LlamaCpp;
+    const activePreset = getActiveModelPreset(currentConfig);
     const presetId = findPresetById(presets, createRequest.presetId)?.id || 'chat';
     const session: ChatSession = {
       id: randomUUID(),
       title: createRequest.title || 'New Session',
-      model: createRequest.model || getActiveModelPreset(currentConfig).Model,
-      contextWindowTokens: Number(runtimeLlamaCfg.NumCtx || 150000),
-      thinkingEnabled: runtimeLlamaCfg.Reasoning !== 'off',
+      model: createRequest.model || activePreset.Model,
+      contextWindowTokens: getConfiguredLlamaNumCtx(currentConfig),
+      thinkingEnabled: getConfiguredReasoning(currentConfig) !== 'off',
       webSearchEnabled: currentConfig.WebSearch.EnabledDefault === true,
       presetId,
       mode: mapPresetIdToLegacyMode(presetId, presets),

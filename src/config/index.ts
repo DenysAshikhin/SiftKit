@@ -55,6 +55,7 @@ export {
   managesManagedLlamaLifecycle,
   getConfiguredLlamaBaseUrl,
   getConfiguredLlamaNumCtx,
+  getConfiguredReasoning,
   getConfiguredModel,
   getConfiguredPromptPrefix,
   getDefaultNumCtx,
