@@ -365,7 +365,7 @@ export class ModelJson {
   private static getDirectToolArgs(parsed: JsonObject): JsonObject {
     const args: MutableJsonObject = {};
     for (const [key, value] of Object.entries(parsed)) {
-      if (key !== 'action') {
+      if (key !== 'action' && value !== null) {
         args[key] = value;
       }
     }

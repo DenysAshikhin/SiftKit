@@ -130,6 +130,36 @@ test('ModelJson parses direct summary planner tool actions', () => {
   });
 });
 
+test('ModelJson omits explicit null placeholders from summary planner tool arguments', () => {
+  const action = ModelJson.parseSummaryPlannerAction(JSON.stringify({
+    action: 'find_text',
+    query: 'needle',
+    mode: 'literal',
+    maxHits: null,
+    contextLines: null,
+  }));
+  assert.deepEqual(action, {
+    action: 'tool',
+    tool_name: 'find_text',
+    args: { query: 'needle', mode: 'literal' },
+  });
+});
+
+test('ModelJson preserves nested null data while omitting top-level null placeholders', () => {
+  const action = ModelJson.parseSummaryPlannerAction(JSON.stringify({
+    action: 'json_filter',
+    collectionPath: null,
+    filters: [{ path: 'deletedAt', op: 'eq', value: null }],
+    select: null,
+    limit: null,
+  }));
+  assert.deepEqual(action, {
+    action: 'tool',
+    tool_name: 'json_filter',
+    args: { filters: [{ path: 'deletedAt', op: 'eq', value: null }] },
+  });
+});
+
 test('ModelJson rejects wrapped summary planner tool actions', () => {
   assert.throws(
     () => ModelJson.parseSummaryPlannerAction(JSON.stringify({
@@ -159,6 +189,49 @@ test('ModelJson parses direct repo-search planner tool actions', () => {
       glob: '*.ts',
     },
   });
+});
+
+test('ModelJson omits explicit null placeholders from repo-search tool batches', () => {
+  const action = ModelJson.parseRepoSearchPlannerAction(JSON.stringify({
+    action: 'tool_batch',
+    calls: [
+      {
+        action: 'grep',
+        pattern: 'planner',
+        path: null,
+        glob: null,
+        ignoreCase: null,
+        literal: null,
+        context: null,
+        limit: null,
+      },
+      { action: 'ls', path: '.', limit: null },
+    ],
+  }), { allowedToolNames: ['grep', 'ls'] });
+  assert.deepEqual(action, {
+    action: 'tool_batch',
+    tool_calls: [
+      { tool_name: 'grep', args: { pattern: 'planner' } },
+      { tool_name: 'ls', args: { path: '.' } },
+    ],
+  });
+});
+
+test('ModelJson rejects null required repo-search arguments and empty batches', () => {
+  assert.throws(
+    () => ModelJson.parseRepoSearchPlannerAction(
+      JSON.stringify({ action: 'grep', pattern: null }),
+      { allowedToolNames: ['grep'] },
+    ),
+    /invalid planner tool action/u,
+  );
+  assert.throws(
+    () => ModelJson.parseRepoSearchPlannerAction(
+      JSON.stringify({ action: 'tool_batch', calls: [] }),
+      { allowedToolNames: ['grep'] },
+    ),
+    /invalid planner tool batch action/u,
+  );
 });
 
 test('ModelJson rejects a native repo tool call missing its required argument', () => {
