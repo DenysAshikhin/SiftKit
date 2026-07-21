@@ -1,6 +1,7 @@
 import { extname, join, resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { sleep } from '../lib/time.js';
+import { moduleDirname, moduleFilename } from '../lib/paths.js';
 import {
   consumeManagedLlamaPendingLogChunks,
   getManagedLlamaPendingLogChunkStats,
@@ -271,14 +272,16 @@ export class ManagedLlamaFlushQueue {
     }
     // A Worker thread needs a loadable module. Compiled production runs from
     // dist where the sibling .js exists. When the status server runs from source
-    // via tsx (the typed test harness), __dirname is src/ where only the .ts
+    // via tsx (the typed test harness), the module dir is src/ where only the .ts
     // exists; loading it would require a per-worker tsx subprocess, which does
     // not scale across many short-lived servers. The worker is internal
     // log-flush plumbing (not code under test), so load the compiled artifact
     // from dist in that case — a lightweight Worker thread, no tsx subprocess.
-    const workerPath = extname(__filename) === '.ts'
-      ? resolve(__dirname, '..', '..', 'dist', 'status-server', 'managed-llama-flush-worker.js')
-      : join(__dirname, 'managed-llama-flush-worker.js');
+    const currentFile = moduleFilename(import.meta.url);
+    const currentDir = moduleDirname(import.meta.url);
+    const workerPath = extname(currentFile) === '.ts'
+      ? resolve(currentDir, '..', '..', 'dist', 'status-server', 'managed-llama-flush-worker.js')
+      : join(currentDir, 'managed-llama-flush-worker.js');
     this.worker = new Worker(workerPath);
     this.worker.unref();
     this.worker.on('exit', () => {

@@ -23,6 +23,7 @@ import {
 } from '../lib/text-format.js';
 import { ensureStatusFile } from './status-file.js';
 import { getStatusServerBindHost, getStatusServerConnectHost } from '../lib/status-host.js';
+import { isMainModule } from '../lib/paths.js';
 import { readMetricsWithResetDecision, writeMetrics } from './metrics.js';
 import {
   buildIdleSummarySnapshot,
@@ -396,7 +397,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
 // Direct-run entry point
 // ---------------------------------------------------------------------------
 
-if (require.main === module) {
+if (isMainModule(import.meta.url)) {
   const server = startStatusServer({
     disableManagedLlamaStartup: process.argv.includes('--disable-managed-llama-startup'),
   });

@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { moduleDirname } from '../lib/paths.js';
 import { z } from '../lib/zod.js';
 
 const PackageJsonSchema = z.object({ version: z.string() });
 
 const packageJson = PackageJsonSchema.parse(JSON.parse(
-  readFileSync(resolve(__dirname, '..', '..', 'package.json'), 'utf8'),
+  readFileSync(resolve(moduleDirname(import.meta.url), '..', '..', 'package.json'), 'utf8'),
 ));
 
 export const SIFTKIT_VERSION = packageJson.version;

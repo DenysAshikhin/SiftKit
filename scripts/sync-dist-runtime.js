@@ -31,7 +31,18 @@ function removeDeletedRuntimeEntrypoints(sourceRoot, targetRoot) {
 
 if (require.main === module) {
   const repoRoot = path.resolve(__dirname, '..');
-  syncDistRuntime(path.join(repoRoot, 'dist', 'src'), path.join(repoRoot, 'dist'));
+  const distRoot = path.join(repoRoot, 'dist');
+  syncDistRuntime(path.join(distRoot, 'src'), distRoot);
+  // The src-derived output in dist/** is ES modules (src/package.json is
+  // type:module), but tsc writes no package.json into the output dir. Without one
+  // Node treats each file as typeless: it prints MODULE_TYPELESS_PACKAGE_JSON to
+  // stderr and re-parses every module as ESM on load (a per-invocation perf hit
+  // for the spawned CLI/status server). Mark dist as ESM so it loads cleanly.
+  fs.writeFileSync(path.join(distRoot, 'package.json'), '{\n  "type": "module"\n}\n', 'utf8');
+  // dist/scripts/** is compiled from scripts/ via tsconfig.scripts.json, which
+  // has no type:module, so tsc emits CommonJS there. Override the ESM marker for
+  // that subtree so run-tests.js and the other CJS dev scripts keep working.
+  fs.writeFileSync(path.join(distRoot, 'scripts', 'package.json'), '{\n  "type": "commonjs"\n}\n', 'utf8');
 }
 
 module.exports = {

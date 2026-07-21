@@ -3,8 +3,9 @@
 export { runCli } from './dispatch.js';
 export type { CliRunOptions } from './args.js';
 import { commandReadsStdin, readStdinToEnd } from './stdin-input.js';
+import { isMainModule } from '../lib/paths.js';
 
-if (require.main === module) {
+if (isMainModule(import.meta.url)) {
   void (async () => {
     const argv = process.argv.slice(2);
     let stdinText: string | undefined;

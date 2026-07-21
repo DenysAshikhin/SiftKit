@@ -177,6 +177,13 @@ function Stop-ExistingGlobalSiftKitStatusServer {
 
 $tarballName = Get-SiftKitPackageTarballName
 
+# Reconcile node_modules and the hidden node_modules/.package-lock.json before packing.
+# Workspace package.json edits (e.g. dashboard) leave that lockfile stale, which drops the
+# @siftkit/contracts workspace link's resolved target and makes `npm pack` crash inside
+# npm-packlist with a silent exit 1 while gathering bundleDependencies.
+Write-Host 'Reconciling workspace install before packing...'
+Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('install', '--loglevel', 'error') -Description 'Reconciling workspace install'
+
 Write-Host 'Packing current repo...'
 Invoke-RetryableCommand -FilePath 'npm.cmd' -ArgumentList @('pack', '--workspaces=false', '--loglevel', 'error') -Description 'Packing current repo'
 

@@ -1,8 +1,36 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { z } from './zod.js';
 
 const PackageJsonNameSchema = z.object({ name: z.string().optional() });
+
+/**
+ * ESM-safe replacement for the CommonJS `__filename`. The compiled `dist/**`
+ * runs as ES modules (no `type: commonjs`), where `__filename`/`__dirname` do
+ * not exist. Pass `import.meta.url` from the calling module.
+ */
+export function moduleFilename(moduleUrl: string): string {
+  return fileURLToPath(moduleUrl);
+}
+
+/** ESM-safe replacement for the CommonJS `__dirname`. Pass `import.meta.url`. */
+export function moduleDirname(moduleUrl: string): string {
+  return dirname(fileURLToPath(moduleUrl));
+}
+
+/**
+ * ESM-safe replacement for the CommonJS `require.main === module` direct-run
+ * check. Returns true when the module identified by `moduleUrl` is the process
+ * entry point. Pass `import.meta.url`.
+ */
+export function isMainModule(moduleUrl: string): boolean {
+  const entryPath = process.argv[1];
+  if (!entryPath) {
+    return false;
+  }
+  return moduleUrl === pathToFileURL(entryPath).href;
+}
 
 export function normalizeWindowsPath(value: string): string {
   return value.replace(/\//gu, '\\').toLowerCase();

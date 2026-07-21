@@ -7,7 +7,7 @@ import { getConfiguredModel, initializeRuntime, loadConfig } from '../config/ind
 import { summarizeRequest } from '../summary/core.js';
 import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
 import { persistEvalResult } from '../state/runtime-results.js';
-import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
+import { findNearestSiftKitRepoRoot, moduleDirname } from '../lib/paths.js';
 import type { EvalCaseResult, EvalRequest, EvaluationResult } from '../eval-types.js';
 
 const FixtureSchema = z.object({
@@ -71,7 +71,7 @@ export async function runEvaluation(request: EvalRequest): Promise<EvaluationRes
   const config = await loadConfig({ ensure: true });
   const backend = request.Backend || config.Backend;
   const model = request.Model || getConfiguredModel(config);
-  const repoRoot = findNearestSiftKitRepoRoot(__dirname);
+  const repoRoot = findNearestSiftKitRepoRoot(moduleDirname(import.meta.url));
   if (repoRoot === null) {
     throw new Error('Unable to locate the SiftKit repo root for eval fixtures.');
   }
