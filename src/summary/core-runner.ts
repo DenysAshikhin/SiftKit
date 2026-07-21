@@ -41,6 +41,7 @@ import type {
   ChunkPromptContext,
   StructuredModelDecision,
   SummaryPhase,
+  SummaryProviderId,
   SummaryRequest,
   SummarySourceKind,
 } from './types.js';
@@ -71,7 +72,7 @@ export type InvokeSummaryCoreOptions = {
   inputText: string;
   format: 'text' | 'json';
   policyProfile: SummaryRequest['policyProfile'];
-  backend: string;
+  backend: SummaryProviderId;
   model: string;
   config: SiftConfig;
   rawReviewRequired: boolean;

@@ -24,6 +24,11 @@ function readRequestFile(filePath: string): JsonObject {
   return JsonRecordReader.asObject(parseJsonValueText(readTextFileWithEncoding(filePath))) ?? {};
 }
 
+/** Single Backend boundary parse for every internal op; an unknown provider fails loud. */
+function readRequestBackend(request: JsonObject) {
+  return parseOptionalSummaryProvider(new JsonRecordReader(request).optionalString('Backend'));
+}
+
 export async function runInternal(options: {
   argv: string[];
   stdout: NodeJS.WritableStream;
@@ -63,7 +68,7 @@ export async function runInternal(options: {
         inputText: text,
         format: (request.Format === 'json' ? 'json' : 'text'),
         policyProfile: normalizeCliPolicyProfileOrDefault(request.PolicyProfile),
-        backend: parseOptionalSummaryProvider(request.Backend ? String(request.Backend) : undefined),
+        backend: readRequestBackend(request),
         model: request.Model ? String(request.Model) : undefined,
       });
       break;
@@ -88,7 +93,7 @@ export async function runInternal(options: {
         reducerProfile: normalizeCliReducerProfile(request.ReducerProfile),
         format: normalizeCliFormat(request.Format),
         policyProfile: normalizeCliPolicyProfile(request.PolicyProfile),
-        backend: parseOptionalSummaryProvider(request.Backend ? String(request.Backend) : undefined),
+        backend: readRequestBackend(request),
         model: request.Model ? String(request.Model) : undefined,
         noSummarize: Boolean(request.NoSummarize),
         shell,
@@ -107,7 +112,7 @@ export async function runInternal(options: {
         reducerProfile: normalizeCliReducerProfile(request.ReducerProfile),
         format: normalizeCliFormat(request.Format),
         policyProfile: normalizeCliPolicyProfile(request.PolicyProfile),
-        backend: parseOptionalSummaryProvider(request.Backend ? String(request.Backend) : undefined),
+        backend: readRequestBackend(request),
         model: request.Model ? String(request.Model) : undefined,
         noSummarize: Boolean(request.NoSummarize),
       });
@@ -117,7 +122,7 @@ export async function runInternal(options: {
       result = await apiClient.runEvaluation({
         FixtureRoot: request.FixtureRoot ? String(request.FixtureRoot) : undefined,
         RealLogPath: Array.isArray(request.RealLogPath) ? request.RealLogPath.map(String) : [],
-        Backend: parseOptionalSummaryProvider(request.Backend ? String(request.Backend) : undefined),
+        Backend: readRequestBackend(request),
         Model: request.Model ? String(request.Model) : undefined,
       });
       break;
@@ -150,7 +155,7 @@ export async function runInternal(options: {
         question: request.Question ? String(request.Question) : undefined,
         format: normalizeCliFormat(request.Format),
         policyProfile: normalizeCliPolicyProfile(request.PolicyProfile),
-        backend: parseOptionalSummaryProvider(request.Backend ? String(request.Backend) : undefined),
+        backend: readRequestBackend(request),
         model: request.Model ? String(request.Model) : undefined,
       });
       break;

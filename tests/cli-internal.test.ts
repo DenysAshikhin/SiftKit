@@ -285,6 +285,49 @@ test('internal op summary via request file produces output', async () => {
   });
 });
 
+test('internal op summary rejects an unknown Backend from the request file', async () => {
+  await withTestEnvAndServer(async ({ tempRoot }) => {
+    const requestFile = path.join(tempRoot, 'req-summary-bad-backend.json');
+    fs.writeFileSync(requestFile, JSON.stringify({
+      Question: 'Summarize the build output',
+      Text: 'Build output: all 42 tests passed.\n'.repeat(30),
+      Format: 'text',
+      Backend: 'llama',
+    }), 'utf8');
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const code = await runCli({
+      argv: ['internal', '--op', 'summary', '--request-file', requestFile],
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+    });
+    assert.equal(code, 1);
+    assert.match(stderr.read(), /Unsupported backend 'llama'/u);
+  });
+});
+
+test('internal op summary accepts a known Backend from the request file', async () => {
+  await withTestEnvAndServer(async ({ tempRoot }) => {
+    const requestFile = path.join(tempRoot, 'req-summary-mock-backend.json');
+    fs.writeFileSync(requestFile, JSON.stringify({
+      Question: 'Summarize the build output',
+      Text: 'Build output: all 42 tests passed.\n'.repeat(30),
+      Format: 'text',
+      Backend: 'mock',
+    }), 'utf8');
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const code = await runCli({
+      argv: ['internal', '--op', 'summary', '--request-file', requestFile],
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+    });
+    assert.equal(code, 0);
+    const parsed = asObject(parseJsonValueText(stdout.read().trim()));
+    assert.equal(parsed.Backend, 'mock');
+  });
+});
+
 test('internal op summary supports UTF-16 TextFile payload', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
     const textFile = path.join(tempRoot, 'summary-input-utf16be.txt');

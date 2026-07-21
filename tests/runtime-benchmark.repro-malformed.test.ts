@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 
 import {
   fs,
+  loadConfig,
   path,
   runFixture60MalformedJsonRepro,
+  saveConfig,
   withTempEnv,
   withStubServer,
 } from './_runtime-helpers.js';
@@ -85,5 +87,43 @@ test('repro-fixture60-malformed-json repairs malformed chunk payloads and comple
         });
       },
     });
+  });
+});
+
+test('repro-fixture60-malformed-json refuses to run under a non-llama active preset', async () => {
+  await withTempEnv(async (tempRoot) => {
+    await withStubServer(async () => {
+      const fixtureRoot = path.join(tempRoot, 'bench-fixtures-exl3');
+      const outputRoot = path.join(tempRoot, 'fixture60-repro-output-exl3');
+      fs.mkdirSync(fixtureRoot, { recursive: true });
+      fs.writeFileSync(path.join(fixtureRoot, 'case1.txt'), 'A'.repeat(11_000), 'utf8');
+      fs.writeFileSync(path.join(fixtureRoot, 'fixtures.json'), JSON.stringify([
+        {
+          Name: 'fixture60-repro-case',
+          File: 'case1.txt',
+          Question: 'summarize this',
+          Format: 'text',
+          PolicyProfile: 'general',
+        },
+      ], null, 2), 'utf8');
+
+      await saveFixture60ChunkingConfig();
+      const config = await loadConfig({ ensure: true });
+      config.Server.ModelPresets.Presets[0].Backend = 'exl3';
+      await saveConfig(config);
+
+      let stderrText = '';
+      const result = await runFixture60MalformedJsonRepro([
+        '--fixture-index', '1',
+        '--output-root', outputRoot,
+      ], {
+        fixtureRoot,
+        stderr: { write: (text) => { stderrText += String(text); return true; } },
+      });
+
+      assert.equal(result.exitCode, 1);
+      assert.match(stderrText, /requires a llama-backed active preset\. Active engine: exl3\./u);
+      assert.equal(result.manifest.ok, false);
+    }, { metrics: STABLE_CHUNK_BUDGET_METRICS });
   });
 });

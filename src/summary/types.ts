@@ -4,9 +4,11 @@ import type { JsonObject } from '../lib/json-types.js';
 import type { LlamaCppToolParameterSchema } from '../llm-protocol/types.js';
 
 /**
- * Summary provider identity. NOT the inference engine axis: 'llama.cpp' means the
- * real, fully-capable provider (chunking, planner, slots) and is what 16 downstream
- * sites compare against. 'mock' is the test double. Never set this to 'llama'/'exl3'.
+ * Summary provider identity. NOT the inference engine axis ('llama'/'exl3', see
+ * getActiveInferenceBackend): 'llama.cpp' means the real, fully-capable provider
+ * (chunking, planner, slots) and is what the downstream summary gates compare
+ * against; 'mock' is the test double. The two axes are unrelated, so this type is
+ * threaded end-to-end and an engine id is a compile error wherever it is expected.
  */
 export const SummaryProviderIdSchema = z.enum(['llama.cpp', 'mock']);
 export type SummaryProviderId = z.infer<typeof SummaryProviderIdSchema>;
@@ -73,7 +75,7 @@ export const SummaryResultSchema = z.object({
   RequestId: z.string(),
   WasSummarized: z.boolean(),
   PolicyDecision: z.string(),
-  Backend: z.string(),
+  Backend: SummaryProviderIdSchema,
   Model: z.string(),
   Summary: z.string(),
   Classification: SummaryClassificationSchema,

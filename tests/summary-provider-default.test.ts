@@ -32,9 +32,11 @@ test('the default provider keeps the llama.cpp branch in downstream gates', () =
     inputText: 'x'.repeat(4096),
     chunkThreshold: 2048,
   }), true);
-  // Same call with an engine-id backend returns false — this is exactly the regression.
+  // The engine-id regression is now unreachable: the gate takes SummaryProviderId, so
+  // passing 'llama' is a compile error. @ts-expect-error fails loud if that ban regresses.
   assert.equal(shouldRetryWithSmallerChunks({
     error: retryableError,
+    // @ts-expect-error engine ids are not summary providers
     backend: 'llama',
     inputText: 'x'.repeat(4096),
     chunkThreshold: 2048,

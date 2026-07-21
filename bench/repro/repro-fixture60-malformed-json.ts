@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   loadConfig,
+  getActiveInferenceBackend,
   getChunkThresholdCharacters,
   getActiveModelPreset,
   getConfiguredModel,
@@ -268,6 +269,13 @@ export async function runFixture60MalformedJsonRepro(
   try {
     const workItems = resolveWorkItems(fixtureRoot, fixtureStartIndex, fixtureEndIndex);
     const config = await loadConfig({ ensure: true });
+    // The whole script is llama.cpp-specific: it hardcodes the llama.cpp chunk/reserve
+    // budget math and calls countLlamaCppTokens/generateLlamaCppResponse directly, so an
+    // exl3-backed preset would produce a repro that does not reproduce anything.
+    const engine = getActiveInferenceBackend(config);
+    if (engine !== 'llama') {
+      throw new Error(`This repro script requires a llama-backed active preset. Active engine: ${engine}.`);
+    }
     const backend = DEFAULT_SUMMARY_PROVIDER;
     const model = getConfiguredModel(config);
     const promptPrefix = getConfiguredPromptPrefix(config);

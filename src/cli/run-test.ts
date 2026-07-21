@@ -35,7 +35,8 @@ export async function buildTestResult(): Promise<TestResult> {
   } catch (error) {
     modelError = error instanceof Error ? error.message : String(error);
   }
-  const usesManagedLlama = getActiveInferenceBackend(config) === 'llama';
+  const engine = getActiveInferenceBackend(config);
+  const usesManagedLlama = engine === 'llama';
   const providerStatus = usesManagedLlama
     ? await getLlamaCppProviderStatus(config)
     : {
@@ -68,7 +69,7 @@ export async function buildTestResult(): Promise<TestResult> {
     LogsPath: config.Paths?.Logs,
     EvalFixturesPath: config.Paths?.EvalFixtures,
     EvalResultsPath: config.Paths?.EvalResults,
-    Backend: getActiveInferenceBackend(config),
+    Backend: engine,
     Model: model,
     LlamaCppBaseUrl: providerStatus.BaseUrl,
     LlamaCppReachable: providerStatus.Reachable,

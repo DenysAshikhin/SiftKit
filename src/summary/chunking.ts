@@ -12,6 +12,7 @@ import type {
   PlannerPromptBudget,
   SummaryPhase,
   SummaryPolicyProfile,
+  SummaryProviderId,
   SummarySourceKind,
 } from './types.js';
 
@@ -187,7 +188,7 @@ export async function planTokenAwareLlamaCppChunks(options: {
 
 export function shouldRetryWithSmallerChunks(options: {
   error: Error;
-  backend: string;
+  backend: SummaryProviderId;
   inputText: string;
   chunkThreshold: number;
 }): boolean {

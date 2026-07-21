@@ -37,6 +37,7 @@ import { invokeSummaryCore, type SummaryCoreResult } from './core-runner.js';
 import { parseDeterministicTestOutput } from './test-output.js';
 import { resolveSummaryProvider } from './types.js';
 import type {
+  SummaryProviderId,
   SummaryRequest,
   SummaryResult,
   SummarySourceKind,
@@ -44,7 +45,7 @@ import type {
 
 type SummaryExecutionContext = {
   config: SiftConfig;
-  backend: string;
+  backend: SummaryProviderId;
   model: string;
   sourceKind: SummarySourceKind;
   decision: ReturnType<typeof getSummaryDecision>;
@@ -75,7 +76,11 @@ function getSummaryWallDurationMs(request: SummaryRequest, fallbackStartedAtMs: 
 }
 
 /** Only the mock provider cannot chunk, so mock input above `maxInputCharacters` is rejected. */
-export function isOversizedMockInput(backend: string, inputLength: number, maxInputCharacters: number): boolean {
+export function isOversizedMockInput(
+  backend: SummaryProviderId,
+  inputLength: number,
+  maxInputCharacters: number,
+): boolean {
   return backend === 'mock' && inputLength > maxInputCharacters;
 }
 
@@ -87,11 +92,12 @@ export class SummaryRequestRunner {
   private readonly timingRecorder: TemporaryTimingRecorder | null;
   private timingStatus: 'completed' | 'failed' = 'failed';
   private config: SiftConfig | null = null;
-  private backend = 'unknown';
+  private readonly backend: SummaryProviderId;
   private model = 'unknown';
 
   constructor(request: SummaryRequest) {
     this.request = request;
+    this.backend = resolveSummaryProvider(request.backend);
     this.inputText = normalizeInputText(request.inputText) ?? '';
     this.timingRecorder = createTemporaryTimingRecorderFromEnv({
       kind: 'summary',
@@ -141,13 +147,12 @@ export class SummaryRequestRunner {
       return null;
     }
 
-    const backend = this.request.backend || 'unknown';
     const model = this.request.model || 'unknown';
     const result: SummaryResult = {
       RequestId: this.requestId,
       WasSummarized: true,
       PolicyDecision: 'deterministic-test-output',
-      Backend: backend,
+      Backend: this.backend,
       Model: model,
       Summary: deterministicTestSummary.summary,
       Classification: deterministicTestSummary.verdict === 'PASS' ? 'summary' : 'command_failure',
@@ -155,7 +160,7 @@ export class SummaryRequestRunner {
       ModelCallSucceeded: true,
       ProviderError: null,
     };
-    await this.notifyDeterministicCompletion(result, backend, model);
+    await this.notifyDeterministicCompletion(result);
     await this.flushCompletedTiming();
     this.completeRequest(result);
     return result;
@@ -193,7 +198,6 @@ export class SummaryRequestRunner {
     configSpan?.end();
     getConfiguredLlamaBaseUrl(this.config);
     getConfiguredLlamaNumCtx(this.config);
-    this.backend = resolveSummaryProvider(this.request.backend);
     this.model = this.request.model || getConfiguredModel(this.config);
     logSummaryProgress(`config_done request_id=${this.requestId} backend=${this.backend} model=${this.model}`);
     this.config = await this.applyHostLlamaSettings(this.config);
@@ -235,7 +239,7 @@ export class SummaryRequestRunner {
     return hostConfig;
   }
 
-  private rejectOversizedMockInput(config: SiftConfig, backend: string): void {
+  private rejectOversizedMockInput(config: SiftConfig, backend: SummaryProviderId): void {
     const maxInputCharacters = getChunkThresholdCharacters(config) * 4;
     if (isOversizedMockInput(backend, this.inputText.length, maxInputCharacters)) {
       throw new Error(`Error: recieved input of ${this.inputText.length} characters, current maximum is ${maxInputCharacters} chars`);
@@ -272,7 +276,7 @@ export class SummaryRequestRunner {
       ModelCallSucceeded: true,
       ProviderError: null,
     };
-    await this.notifyDeterministicCompletion(result, context.backend, context.model);
+    await this.notifyDeterministicCompletion(result);
     this.completeRequest(result);
     return result;
   }
@@ -326,11 +330,7 @@ export class SummaryRequestRunner {
     return result;
   }
 
-  private async notifyDeterministicCompletion(
-    result: SummaryResult,
-    backend: string,
-    model: string,
-  ): Promise<void> {
+  private async notifyDeterministicCompletion(result: SummaryResult): Promise<void> {
     await notifySummaryTerminalStatus({
       running: false,
       taskKind: 'summary',
@@ -354,8 +354,8 @@ export class SummaryRequestRunner {
           question: this.request.question,
           inputText: this.inputText,
           command: this.request.debugCommand ?? null,
-          backend,
-          model,
+          backend: result.Backend,
+          model: result.Model,
           classification: result.Classification,
           rawReviewRequired: result.RawReviewRequired,
           summary: result.Summary,

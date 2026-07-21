@@ -72,6 +72,7 @@ import type {
   PlannerToolName,
   SummaryClassification,
   StructuredModelDecision,
+  SummaryProviderId,
   SummaryRequest,
   SummarySourceKind,
 } from '../types.js';
@@ -162,7 +163,7 @@ export type InvokePlannerModeOptions = {
   question: string;
   inputText: string;
   format: 'text' | 'json';
-  backend: string;
+  backend: SummaryProviderId;
   model: string;
   config: SiftConfig;
   rawReviewRequired: boolean;

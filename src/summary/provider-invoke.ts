@@ -7,6 +7,7 @@ import { runMockProvider } from './providers/mock-provider.js';
 import { traceSummary } from './artifacts.js';
 import type {
   SummaryPhase,
+  SummaryProviderId,
   SummaryRequest,
 } from './types.js';
 
@@ -29,7 +30,7 @@ export type ProviderSummaryMetrics = {
 export async function invokeProviderSummary(options: {
   requestId: string;
   slotId: number | null;
-  backend: string;
+  backend: SummaryProviderId;
   config: SiftConfig;
   model: string;
   prompt: string;

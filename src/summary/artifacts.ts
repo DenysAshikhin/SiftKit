@@ -10,6 +10,7 @@ import { getRecord } from './planner/json-filter.js';
 import type {
   SummaryClassification,
   SummaryFailureContext,
+  SummaryProviderId,
   SummarySourceKind,
 } from './types.js';
 
@@ -204,7 +205,7 @@ export function buildSummaryRequestArtifact(options: {
   question: string;
   inputText: string;
   command?: string | null;
-  backend: string;
+  backend: SummaryProviderId;
   model: string;
   classification?: SummaryClassification | null;
   rawReviewRequired?: boolean | null;
@@ -244,7 +245,7 @@ export async function writeSummaryRequestDump(options: {
   question: string;
   inputText: string;
   command?: string | null;
-  backend: string;
+  backend: SummaryProviderId;
   model: string;
   classification?: SummaryClassification | null;
   rawReviewRequired?: boolean | null;

@@ -80,11 +80,12 @@ export async function installSiftKit(force?: boolean): Promise<InstallSiftKitRes
   void force;
   const paths = initializeRuntime();
   const config = await loadConfig({ ensure: true });
+  const engine = getActiveInferenceBackend(config);
 
   let models: string[] = [];
   let providerReachable = false;
   try {
-    if (getActiveInferenceBackend(config) === 'llama') {
+    if (engine === 'llama') {
       const providerStatus = await getLlamaCppProviderStatus(config);
       providerReachable = Boolean(providerStatus.Reachable);
       models = providerReachable ? await listLlamaCppModels(config) : [];
@@ -99,7 +100,7 @@ export async function installSiftKit(force?: boolean): Promise<InstallSiftKitRes
     RuntimeRoot: paths.RuntimeRoot,
     LogsPath: paths.Logs,
     EvalResultsPath: paths.EvalResults,
-    Backend: getActiveInferenceBackend(config),
+    Backend: engine,
     Model: getConfiguredModel(config),
     LlamaCppBaseUrl: getConfiguredLlamaBaseUrl(config),
     LlamaCppReachable: providerReachable,
