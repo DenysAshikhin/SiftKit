@@ -101,9 +101,10 @@ test('a running tool message renders a ToolCallCard with spinner', () => {
   assert.match(markup, /class="sp"/);
 });
 
-test('send button flips to Stop while busy and shows a warn context bar over 85%', () => {
+test('send button keeps its honest label and is disabled while busy, over an 85% warn context bar', () => {
   const markup = render({ chatBusy: true });
-  assert.match(markup, /class="send"[^>]*>Stop/);
+  assert.match(markup, /class="send"[^>]*disabled[^>]*>Send/);
+  assert.doesNotMatch(markup, /class="send"[^>]*>Stop/);
   assert.match(markup, /class="ctx warn"/);
 });
 

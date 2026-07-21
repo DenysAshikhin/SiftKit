@@ -1,22 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
-import type { ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ModelPresetsSection } from '../src/tabs/settings/ModelPresetsSection';
 import { DASHBOARD_CONFIG, MANAGED_PRESET } from './fixtures';
 import type { DashboardModelRuntimePreset } from '../src/types';
 
 type ModelPresetsSectionProps = React.ComponentProps<typeof ModelPresetsSection>;
-
-function renderField(_section: string, label: string, children: ReactNode, className?: string): ReactNode {
-  return (
-    <div className={['field', className].filter(Boolean).join(' ')} key={label}>
-      <label>{label}</label>
-      {children}
-    </div>
-  );
-}
 
 function render(preset: DashboardModelRuntimePreset): string {
   const config = JSON.parse(JSON.stringify(DASHBOARD_CONFIG));
@@ -27,7 +17,6 @@ function render(preset: DashboardModelRuntimePreset): string {
     selectedModelPreset: preset,
     settingsActionBusy: false,
     settingsPathPickerBusyTarget: null,
-    renderField,
     updateSettingsDraft: () => {},
     updateModelPresetDraft: () => {},
     onAddModelPreset: () => {},

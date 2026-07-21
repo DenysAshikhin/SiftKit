@@ -8,6 +8,7 @@ import {
   togglePresetTool,
 } from '../../preset-editor';
 import { isPresetKind, isPresetOperationMode } from '../../../../src/presets.js';
+import { SettingsField } from '../../settings/SettingsFields';
 import type { DashboardConfig, DashboardPreset } from '../../types';
 
 type PresetsSectionProps = {
@@ -78,12 +79,10 @@ export function PresetsSection({
             </button>
           </div>
           <div className="fgrid">
-            <div className="field w2">
-              <label>Name</label>
+            <SettingsField label="Name" layout="half">
               <input value={preset.label} onChange={(event) => updatePresetDraft(preset.id, (next) => { next.label = event.target.value; })} />
-            </div>
-            <div className="field">
-              <label>Preset kind</label>
+            </SettingsField>
+            <SettingsField label="Preset kind" layout="quarter">
               <select
                 value={preset.presetKind}
                 onChange={(event) => updatePresetDraft(preset.id, (next) => {
@@ -98,9 +97,8 @@ export function PresetsSection({
                 <option value="plan">plan</option>
                 <option value="repo-search">repo-search</option>
               </select>
-            </div>
-            <div className="field">
-              <label>Operation mode</label>
+            </SettingsField>
+            <SettingsField label="Operation mode" layout="quarter">
               <select
                 value={preset.operationMode}
                 onChange={(event) => updatePresetDraft(preset.id, (next) => {
@@ -113,9 +111,8 @@ export function PresetsSection({
                 <option value="read-only">read-only</option>
                 <option value="full">full</option>
               </select>
-            </div>
-            <div className="field w4">
-              <label>Tool whitelist · {effectiveTools.length} enabled of {modeAllowedTools.length} allowed by {preset.operationMode} mode</label>
+            </SettingsField>
+            <SettingsField label={`Tool whitelist · ${effectiveTools.length} enabled of ${modeAllowedTools.length} allowed by ${preset.operationMode} mode`} layout="full">
               <div className="tool-chips">
                 {PRESET_TOOL_OPTIONS.map((tool) => {
                   const blocked = !modeAllowedTools.includes(tool);
@@ -135,17 +132,14 @@ export function PresetsSection({
                 })}
               </div>
               <span className="fhint">Struck-out tools are blocked by the {preset.operationMode} mode policy regardless of this whitelist.</span>
-            </div>
-            <div className="field w4">
-              <label>Description</label>
+            </SettingsField>
+            <SettingsField label="Description" layout="full">
               <input value={preset.description} onChange={(event) => updatePresetDraft(preset.id, (next) => { next.description = event.target.value; })} />
-            </div>
-            <div className="field w4">
-              <label>Prompt override</label>
+            </SettingsField>
+            <SettingsField label="Prompt override" layout="full">
               <textarea rows={3} value={preset.promptPrefix} onChange={(event) => updatePresetDraft(preset.id, (next) => { next.promptPrefix = event.target.value; })} />
-            </div>
-            <div className="field">
-              <label>CLI surface</label>
+            </SettingsField>
+            <SettingsField label="CLI surface" layout="quarter">
               <input
                 type="checkbox"
                 checked={preset.surfaces.includes('cli')}
@@ -155,9 +149,8 @@ export function PresetsSection({
                     : next.surfaces.filter((surface) => surface !== 'cli');
                 })}
               />
-            </div>
-            <div className="field">
-              <label>Web surface</label>
+            </SettingsField>
+            <SettingsField label="Web surface" layout="quarter">
               <input
                 type="checkbox"
                 checked={preset.surfaces.includes('web')}
@@ -167,29 +160,26 @@ export function PresetsSection({
                     : next.surfaces.filter((surface) => surface !== 'web');
                 })}
               />
-            </div>
+            </SettingsField>
             {preset.operationMode === 'read-only' ? (
               <>
-                <div className="field">
-                  <label>Include AGENTS.md</label>
+                <SettingsField label="Include AGENTS.md" layout="quarter">
                   <input
                     type="checkbox"
                     checked={preset.includeAgentsMd}
                     onChange={(event) => updatePresetDraft(preset.id, (next) => { next.includeAgentsMd = event.target.checked; })}
                   />
-                </div>
-                <div className="field">
-                  <label>Include repo file list</label>
+                </SettingsField>
+                <SettingsField label="Include repo file list" layout="quarter">
                   <input
                     type="checkbox"
                     checked={preset.includeRepoFileListing}
                     onChange={(event) => updatePresetDraft(preset.id, (next) => { next.includeRepoFileListing = event.target.checked; })}
                   />
-                </div>
+                </SettingsField>
               </>
             ) : null}
-            <div className="field">
-              <label>Use for default summary</label>
+            <SettingsField label="Use for default summary" layout="quarter">
               <input
                 type="checkbox"
                 checked={preset.useForSummary}
@@ -200,7 +190,7 @@ export function PresetsSection({
                 })}
                 disabled={preset.presetKind !== 'summary'}
               />
-            </div>
+            </SettingsField>
           </div>
         </div>
       ) : null}

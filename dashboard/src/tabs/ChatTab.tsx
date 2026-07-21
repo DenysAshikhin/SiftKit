@@ -434,7 +434,7 @@ export function ChatTab({
                   onClick={dispatchSend}
                   disabled={chatBusy || !chatInput.trim()}
                 >
-                  {chatBusy ? 'Stop' : getSendLabel(chatMode)}
+                  {getSendLabel(chatMode)}
                 </button>
               </div>
             </div>

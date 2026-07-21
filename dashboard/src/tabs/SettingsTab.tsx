@@ -7,10 +7,9 @@ import {
   POLICY_MODE_OPTIONS,
   SETTINGS_SECTION_ORDER,
   SETTINGS_SECTIONS,
-  getSettingsFieldDescriptor,
   type SettingsSectionId,
 } from '../settings-sections';
-import { SettingsField } from '../settings/SettingsFields';
+import { SettingsSectionField } from '../settings/SettingsFields';
 import type { DashboardConfig, DashboardModelRuntimePreset, DashboardPreset, ProviderQuota, WebSearchUsage } from '../types';
 import { PresetsSection } from './settings/PresetsSection';
 import { ModelPresetsSection } from './settings/ModelPresetsSection';
@@ -91,14 +90,11 @@ export function SettingsTab(props: SettingsTabProps) {
     label: string,
     children: ReactNode,
     className?: string,
-  ): ReactNode => {
-    const field = getSettingsFieldDescriptor(sectionId, label);
-    return (
-      <SettingsField key={label} label={label} layout={field.layout} helpText={field.helpText} className={className}>
-        {children}
-      </SettingsField>
-    );
-  };
+  ): ReactNode => (
+    <SettingsSectionField key={label} sectionId={sectionId} label={label} className={className}>
+      {children}
+    </SettingsSectionField>
+  );
 
   const renderGeneralSection = (): ReactNode => {
     if (!dashboardConfig) {
@@ -414,7 +410,6 @@ export function SettingsTab(props: SettingsTabProps) {
         selectedModelPreset={selectedModelPreset}
         settingsActionBusy={settingsActionBusy}
         settingsPathPickerBusyTarget={settingsPathPickerBusyTarget}
-        renderField={renderField}
         updateSettingsDraft={updateSettingsDraft}
         updateModelPresetDraft={updateModelPresetDraft}
         onAddModelPreset={onAddModelPreset}

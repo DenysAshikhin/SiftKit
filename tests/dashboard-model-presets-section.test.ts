@@ -28,7 +28,6 @@ function renderExl3Preset(options: Exl3RenderOptions = {}): string {
     selectedModelPreset: preset,
     settingsActionBusy: false,
     settingsPathPickerBusyTarget: null,
-    renderField: (_, label, children) => React.createElement('div', { 'data-label': label }, children),
     updateSettingsDraft: () => {},
     updateModelPresetDraft: () => {},
     onAddModelPreset: () => {},
@@ -39,19 +38,18 @@ function renderExl3Preset(options: Exl3RenderOptions = {}): string {
 }
 
 function getRenderedField(markup: string, label: string): string {
-  const start = markup.indexOf(`data-label="${label}"`);
-  if (start < 0) throw new Error(`Rendered field '${label}' is missing.`);
-  const end = markup.indexOf('data-label="', start + label.length + 13);
-  return markup.slice(start, end < 0 ? markup.length : end);
+  const chunk = markup.split('<div class="field').find((entry) => entry.includes(`<label>${label}<`));
+  if (chunk === undefined) throw new Error(`Rendered field '${label}' is missing.`);
+  return chunk;
 }
 
 test('managed EXL3 enables supported runtime controls and exposes only MTP drafting', () => {
   const markup = renderExl3Preset({ parallelSlots: 2 });
 
   assert.match(markup, /aria-label="Preset backend"/u);
-  assert.match(markup, /data-label="GpuLayers"[\s\S]*?disabled/u);
-  assert.match(markup, /data-label="Bind host"[\s\S]*?disabled/u);
-  assert.match(markup, /data-label="Port"[\s\S]*?disabled/u);
+  assert.match(getRenderedField(markup, 'GpuLayers'), /disabled/u);
+  assert.match(getRenderedField(markup, 'Bind host'), /disabled/u);
+  assert.match(getRenderedField(markup, 'Port'), /disabled/u);
   assert.doesNotMatch(getRenderedField(markup, 'ParallelSlots'), /disabled/u);
   assert.doesNotMatch(getRenderedField(markup, 'UBatchSize'), /disabled/u);
   assert.doesNotMatch(getRenderedField(markup, 'Enable speculative decoding'), /disabled/u);

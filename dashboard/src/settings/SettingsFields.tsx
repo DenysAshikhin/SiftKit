@@ -1,7 +1,7 @@
 import React from 'react';
 import type { ReactNode } from 'react';
 
-import type { SettingsFieldLayout } from '../settings-sections';
+import { getSettingsFieldDescriptor, type SettingsFieldLayout, type SettingsSectionId } from '../settings-sections';
 
 export type SettingsFieldProps = {
   label: string;
@@ -33,6 +33,22 @@ export function SettingsField({ label, layout, helpText, className, children }: 
       {children}
       {inline ? <span className="fhint">{helpText}</span> : null}
     </div>
+  );
+}
+
+export type SettingsSectionFieldProps = {
+  sectionId: SettingsSectionId;
+  label: string;
+  className?: string | undefined;
+  children: ReactNode;
+};
+
+export function SettingsSectionField({ sectionId, label, className, children }: SettingsSectionFieldProps) {
+  const field = getSettingsFieldDescriptor(sectionId, label);
+  return (
+    <SettingsField label={label} layout={field.layout} helpText={field.helpText} className={className}>
+      {children}
+    </SettingsField>
   );
 }
 
