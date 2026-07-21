@@ -1,8 +1,17 @@
 # Handoff — repo-search turn latency (~19 s/turn, GPU idle)
 
-**Date:** 2026-07-21 (continuation addendum in §7, same day)
-**Status:** Cache-eviction framing superseded by §7 — degradation is host/process-level, flat-time,
-and also halves decode. Both side defects fixed; instrumentation landed.
+**Date:** 2026-07-21 (continuation addenda in §7 and §8, same day)
+**Status:** **FIXED AND VALIDATED (§9).** Root cause (§8): TabbyAPI/exllamav3 compiled a
+formatron/kbnf grammar engine from scratch on every request carrying `response_format: json_schema`
+— ~15 s of CPU per planner turn, GPU idle, no caching. §7.3's CPU-starvation hypothesis is refuted.
+Fix B (engine prototype cache in TabbyAPI) is implemented, unit-tested, and validated live:
+per-turn 16–20 s → **1.9–3.5 s**, run wall clock 223 s → 98 s. Spec: §8.6 (one claim corrected in
+§9.1). Results: §9.3.
+**Open follow-up, and it is a correctness problem before it is a perf one: §9.4–§9.6.** Two
+formatron defects that only this schema's shape triggers — optional properties cost 2^k to compile
+*and* compile to a grammar that cannot omit a key (the planner has been fabricating tool arguments;
+SiftKit's `jsonrepair` hides it), and `minItems: 1` compiles `tool_batch` into an unsatisfiable
+dead end while discarding its item type. Fixing both takes the build to 1.48 s as a side effect.
 **Backend at time of investigation:** exl3 (TabbyAPI + exllamav3 1.1.0), preset `exl3-3-6-27b`, model `3.6_27B`, RTX 4090 24 GB.
 
 ---
@@ -384,3 +393,467 @@ burn during sampling — next live session must sample **host-wide** per-process
    attach `py-spy dump` to the Tabby PID (this is the decisive step either way).
 3. Watch status-server stdout for `inference_passthrough forward` lines during the run — the
    passthrough is now observable, closing the last §4 "not yet ruled out" item.
+
+---
+
+## 8. Continuation — 2026-07-21 (third session, same day): ROOT CAUSE
+
+### 8.1 Live run — degradation reproduced on a quiescent box
+
+Executed §7.4 step 1: status server + managed Tabby (launch env, startup log confirmed
+`Using main model MTP component for drafting`), one repo-search
+(run `7b1d9f2f-00b4-4266-bbb1-528cd9814a4c`), **no test suite, no dashboard, box otherwise idle**:
+
+```
+turn=1 wall=30.9s promptTokens=1088   turn=5 wall=18.3s promptTokens=2848
+turn=2 wall=33.5s promptTokens=2045   turn=9 wall=20.0s promptTokens=6346
+turn=3 wall=16.1s promptTokens=1379   turn=11 wall=18.0s promptTokens=7557
+```
+
+Flat ~16–20 s/turn at 1–7.5k prompt tokens. GPU sampled in-flight: 9 %/69 W (idle signature).
+Host-wide per-process CPU (10 s delta): Tabby python **9.30 cores**; nothing else above 0.9.
+**§7.3's npm-test CPU-starvation hypothesis is refuted** — the burn is inside Tabby with the box quiet.
+
+### 8.2 py-spy — the smoking gun
+
+Two `py-spy dump --nonblocking` snapshots 4 s apart, both identical, main thread active+gil:
+
+```
+__init__ (kbnf\engine.py:109)                       ← kbnf Engine build (vocab processing)
+build (formatron\formatter.py:495)
+__init__ (exllamav3\generator\filter\formatron.py:73)
+add_json_schema_filter (grammar.py:76)              ← TabbyAPI backends/exllamav3/grammar.py
+generate_gen (model.py:1267)
+```
+
+TabbyAPI's `add_json_schema_filter` (`backends/exllamav3/grammar.py:73-93`) constructs **two fresh
+`FormatronFilter`s per request** — no cache at any layer (TabbyAPI, exllamav3, formatron).
+
+### 8.3 A/B proof
+
+Same 41-token prompt, streamed, direct to `:8098`, `max_tokens 200`:
+
+| request | TTFT | decode |
+|---|---|---|
+| plain ×3 | 461–487 ms | 88–95 tok/s |
+| + planner `response_format` (5,323-char schema) ×2 | **14,859 / 14,907 ms** | 95 tok/s |
+| plain again | 476 ms | 93 tok/s |
+
+The identical schema on the second call is equally slow → no warm path. Decode is NOT slowed once
+generation starts (per-token filter masking is cheap; §7.2's "halved decode" figure was the
+client-side wall-clock split misattributing grammar-build time to generation). SiftKit sends
+`response_format: json_schema` on **every** planner turn
+(`src/repo-search/planner-protocol.ts:341` via `buildRepoSearchPlannerActionJsonSchema`), so every
+turn pays ~15 s of CPU-bound kbnf engine construction. This also explains §4's non-repro: the
+replay harness isolated `tools`, samplers, and `chat_template_kwargs` — **it never replayed
+`response_format`** (it is added at request-build time and absent from `turn_new_messages`).
+
+### 8.4 §7.4 checklist outcomes
+
+1. **Usage telemetry (5.2 fix): works.** Every turn now records `promptTokens`/`completionTokens`
+   (previously all null). `promptCacheTokens` stays null because Tabby's final usage chunk carries
+   only `prompt_tokens/prompt_time/completion_tokens/completion_time/*_per_sec` — **no
+   `prompt_tokens_details.cached_tokens`**. That is a TabbyAPI limitation, not a SiftKit bug; the
+   parse path exists and is correct. `prompt_time` (server-side prefill: 0.07 s for 41 tok) is
+   available and worth mapping into `promptEvalDurationMs` — notably it **excludes** grammar-build
+   time, more evidence the stall is pre-prefill.
+2. **npm-test repro: skipped as moot** — degradation reproduces with the suite off (§8.1).
+3. **Passthrough: 0 `inference_passthrough forward` lines** during the run. Closed.
+
+### 8.5 Fix options (decision needed)
+
+- **A. SiftKit-side, immediate:** stop sending `response_format` on exl3 planner turns (rely on
+  prompt + existing JSON repair/parse). llama.cpp GBNF (`:8097`) is unaffected and can keep it.
+- **B. Upstream, correct:** cache the compiled kbnf engine in TabbyAPI's `ExLlamaV3Grammar` —
+  full implementation spec in §8.6. Local TabbyAPI checkout:
+  `C:\Users\denys\Documents\GitHub\TabbyAPI`, running under env `C:\envs\rl310`.
+- Note MTP interaction: the A/B decode ran ~95 tok/s with the filter active, so constrained
+  decoding coexists fine with drafting once the engine exists.
+
+### 8.6 Implementation spec for fix B (engine cache in TabbyAPI)
+
+#### Where the 15 s lives, precisely
+
+`backends/exllamav3/grammar.py` `add_json_schema_filter` → new `FormatterBuilder` → exllamav3
+`FormatronFilter.__init__` (`exllamav3/generator/filter/formatron.py:73`) →
+`formatter_builder.build()` (`formatron/formatter.py:495`) → **`kbnf.Engine(grammar_str,
+vocabulary)`** — Rust-side compilation of the schema grammar into token-level automata over the
+full vocab. Nothing in the chain memoizes the engine. (exllamav3 *does* already cache the
+vocabulary step: `@lru_cache(10)` on `create_engine_vocabulary`, `formatron.py:44` — that is the
+one-time ~1.6 s, not the per-request cost.)
+
+Measured with the real tokenizer (vocab 248,077) and the real planner schema
+(`C:\envs\rl310\Scripts\python.exe`, `exllamav3.Config.from_directory` +
+`Tokenizer.from_config` on `D:\personal\models\elx3\3.6_27B` — no GPU/weights needed):
+
+```
+tokenizer_load_s=1.07  vocab=248077
+vocab_build_s=1.64
+engine_build_s=14.76        ← the per-turn penalty
+engine_rebuild_s=14.69      ← identical grammar, second build: no warm path anywhere
+engine_shallow_copy_ms=0.05
+engine_deepcopy_ms=0.03
+copy_accepts_fresh_start=Ongoing   ← a copy starts from clean parse state
+```
+
+#### Design: cache the engine as an immutable prototype, hand each request a copy
+
+kbnf `Engine` implements `__copy__`/`__deepcopy__` down in Rust (`kbnf/engine.py:236-246`).
+A copy costs ~0.05 ms and starts from **fresh parse state** (verified: original advanced with
+tokens, copy still accepted from scratch). Therefore:
+
+- Do **NOT** cache `FormatronFilter` instances and `reset()` them — filters mutate during decode,
+  and two in-flight requests with the same schema (`max_batch_size > 1`) would share parse state.
+- **DO** cache a prototype and give each request a copy. No shared mutable state → correct under
+  concurrency, no reset bookkeeping.
+
+Patch sketch for `backends/exllamav3/grammar.py` (~25 lines):
+
+```python
+import json as _json
+from copy import copy as _shallow, deepcopy as _deep
+
+_filter_cache: dict[tuple, FormatronFilter] = {}   # prototype filters (module level or on the model container)
+
+def add_json_schema_filter(self, schema, tokenizer, trigger_token_id=None):
+    key = (_json.dumps(schema, sort_keys=True), trigger_token_id, id(tokenizer))
+    proto = _filter_cache.get(key)
+    if proto is None:
+        ...existing build code producing the schema filter...   # pays ~15 s once
+        _filter_cache[key] = schema_filter
+        self.filters.append(schema_filter)
+    else:
+        clone = _shallow(proto)                # shares tokenizer/config refs
+        clone._formatter = _deep(proto._formatter)   # engine deepcopy = 0.03 ms
+        clone._zeros = None
+        self.filters.append(clone)
+    ...same treatment for the second (leading-character) filter...
+```
+
+Details that matter:
+
+- `deepcopy` of the `Formatter` is safe and sub-ms: it recurses into the engine (0.03 ms, Rust
+  `__deepcopy__`), the small extractor objects, and the capture dict; Python treats the `decode`
+  lambda as atomic, so the tokenizer behind it is shared, not copied.
+- **Key on the inner `schema` object, canonicalized** (`json.dumps(..., sort_keys=True)`).
+  `add_json_schema_filter` already unwraps the OAI `{name, strict, schema}` envelope, so the
+  `name` field must not fragment the key. Note the existing code **mutates** the incoming dict
+  (injects `$id`/`$schema`) — compute the key before, or after, consistently.
+- **Include tokenizer identity** (`id(tokenizer)`) in the key, or clear the cache on model
+  load/unload — a model swap via `/v1/model/load` must not serve automata compiled against the
+  old vocab. Hanging the dict off the model container (dies with the model) also works.
+- **LRU cap ~8.** Each engine holds vocab-sized automata (tens–hundreds of MB plausible;
+  `engine.shrink_to_fit()` exists). 8 never evicts in practice (see inventory below) and guards
+  against unbounded growth.
+- The second filter (forces the leading `{`/`[`) has a trivial grammar and builds fast — that is
+  why one request costs ~15 s and not ~30 s. Cache it identically anyway.
+
+#### Cache-key inventory: no thrash from interleaved summary/repo-search
+
+All SiftKit schemas are static — built from fixed catalogs in
+`src/providers/structured-output-schema.ts`; nothing embeds question text, input, file paths, or
+per-run data (tool descriptions are string literals, `src/summary/planner/tools.ts:73`):
+
+| schema | source | variants |
+|---|---|---|
+| repo-search `planner_action` | static `TOOL_DEFINITIONS` (planner-protocol.ts:302) | 1 — the big ~15 s union |
+| repo-search `finish_validation` | fully static literal | 1, tiny → fast build |
+| summary `siftkit_decision` | static + `allowUnsupportedInput` flag | ≤2, tiny |
+| summary `siftkit_summary_planner_action` | fixed tool catalog filtered by preset `allowedTools` + flag | 1 per preset config |
+
+≈4–6 distinct schemas total, all resident simultaneously in the dict. Interleaving summary and
+repo-search requests hits two different keys — no eviction, no rebuild. Each distinct schema pays
+its compile once per Tabby process; only the two planner unions cost real seconds.
+
+#### Consequence + optional prewarm
+
+After every Tabby (re)start, the *first* request per schema eats the one-time build (~15 s for the
+planner unions). If that matters, the status server can fire one throwaway constrained request per
+known schema right after model load to prewarm.
+
+#### Validation procedure
+
+1. Patch `grammar.py`, restart Tabby (preset switch or status-server restart).
+2. Direct A/B against `:8098` (same harness as §8.3): `with_schema_1` ≈ 15 s (miss),
+   `with_schema_2` ≈ 0.5 s TTFT (hit) proves the cache.
+3. One repo-search run: turn 1 ~15 s, turns 2+ at ~1–3 s (grammar cached + prefix-cache reuse,
+   already verified working in §4/§8.4). Per-turn `promptTokens` telemetry from §7.1 makes this
+   visible in `run_logs` without extra instrumentation.
+
+#### Upstream PRs worth filing
+
+- **TabbyAPI:** the cache above.
+- **formatron:** `FormatterBuilder.build` could memoize transparently, keyed on
+  `(grammar_str, id(vocabulary))`, returning engine copies — every consumer benefits; kbnf's
+  cheap-copy semantics exist precisely to enable this.
+
+---
+
+## 9. Continuation — 2026-07-21 (fourth session): fix B implemented and validated
+
+### 9.1 §8.6 corrections found during validation
+
+One claim in §8.6 is **wrong** and the patch sketch must not be followed literally:
+
+- **"A copy starts from fresh parse state" is false.** The `copy_accepts_fresh_start=Ongoing`
+  measurement was ambiguous — `Ongoing` only says a token was accepted, not that the state was
+  clean. Measured directly (advance a formatter, deep-copy it, compare allowed-token sets): the
+  copy **inherits** the source's parse state. Consequence: the sketch's cache-miss branch, which
+  appends the prototype itself to `self.filters`, would let the first request dirty the prototype
+  and hand every later request a mid-parse clone.
+  Implemented instead: the prototype is **never** handed to a job — both the miss and hit paths
+  return a clone — and each clone gets `_formatter.reset()` (0.006 ms).
+
+Everything else in §8.6 held up. Re-measured on the real tokenizer (vocab 248,070):
+
+```
+build_s=16.15   first_clone_ms=0.126   clone_avg_ms=0.044   reset_ms=0.006
+rss: 895 MB before build -> 1049 MB after build -> 1051 MB after 20 clones
+```
+
+Clones share the compiled automata (Rust-side), so the LRU cap guards prototypes only: ~150 MB per
+distinct schema, ~8 max.
+
+### 9.2 What landed (TabbyAPI, `C:\Users\denys\Documents\GitHub\TabbyAPI`)
+
+`backends/exllamav3/grammar.py`:
+- `clone_filter(prototype)` — request-local copy of a built `FormatronFilter`.
+- `FilterPrototypeCache` — LRU (`MAX_CACHED_FILTER_PROTOTYPES = 8`) of prototypes; `get`/`put` both
+  return clones; `clear()` for model swaps.
+- `ExLlamaV3Grammar._add_cached_filter` — single build/clone path shared by **all four** filters
+  (json schema, leading character, regex, kbnf), so regex/kbnf users get the same win.
+- Cache keys: `(kind, canonical_grammar, trigger_token_id, id(tokenizer))`. The JSON key is
+  `json.dumps(schema, sort_keys=True)` computed after the OAI envelope is unwrapped and after
+  `$id`/`$schema` injection, so property ordering and the `{name, strict, schema}` wrapper do not
+  fragment it. `id(tokenizer)` cannot be recycled while an entry lives because the prototype holds
+  a strong reference to that tokenizer.
+
+`backends/exllamav3/model.py`: `unload()` calls `schema_filter_cache.clear()` before
+`self.model.unload()` — automata are only valid for the vocabulary they were compiled against.
+
+**Incidental bug fixed:** `leading_character` was computed from the *outer* dict, before the OAI
+envelope was unwrapped. A `response_format` carrying an array schema has no top-level `"type"`, so
+it always forced `{`, making every wrapped array schema unsatisfiable. Now computed after
+unwrapping. Covered by `test_wrapped_array_schema_forces_a_leading_bracket`.
+
+`tests/test_grammar_filter_cache.py` — 19 tests, no GPU or model required (fake GPT2-style
+tokenizer; `kbnf.Engine` construction counted via `patch.object`). Covers hit/miss, clone
+independence, prototype pristineness, key canonicalization, envelope equivalence, trigger-token
+keying and survival, tokenizer isolation, `clear()`, LRU eviction + recency refresh, regex/kbnf
+caching, and both parse-failure paths. Full TabbyAPI unit suite: **106 passed**.
+
+### 9.3 Validation (both §8.6 steps, live)
+
+Direct A/B on `:8098` (managed launch env, `Using main model MTP component for drafting` confirmed):
+
+| request | TTFT |
+|---|---|
+| plain (no schema) | 0.275 s |
+| planner schema #1 (miss) | **17.641 s** |
+| planner schema #2 (hit) | **0.545 s** |
+| planner schema #3 (hit) | 0.539 s |
+| small schema #1 (miss) | 0.605 s |
+| small schema #2 (hit) | 0.363 s |
+| planner schema #4 (hit, after interleaved small schema) | 0.532 s |
+| plain again | 0.293 s |
+
+No thrash from interleaving, as §8.6's inventory predicted.
+
+One `siftkit repo-search` run (`b6ad224b-9122-4be1-8a7d-bf2cf5320fec`):
+
+```
+turn 1 31.2s (1098 tok, 899 completion)   turn  8  1.9s (2612 tok)
+turn 2 18.7s (2045 tok, 1581 completion)  turn 10  3.3s (5317 tok)
+turn 3  2.4s (1364 tok)                   turn 12  2.7s (8304 tok)
+turn 5  2.5s (1705 tok)                   turn 14  3.5s (9330 tok)
+```
+
+Turn 1 pays the one-time build; turn 2 is generation-bound (1,581 completion tokens ≈ 18 s at
+85 tok/s), turns 3+ are **1.9–3.5 s** against the old flat 16–20 s.
+
+Against §8.1's pre-fix run on the same box (`7b1d9f2f`, near-identical output volume):
+
+| | pre-fix | post-fix |
+|---|---|---|
+| `duration_ms` | 223,120 | **98,028** |
+| `prompt_eval_duration_ms` (TTFT sum) | 176,119 | **34,391** |
+| `output_tokens` | 2,779 | 2,704 |
+
+### 9.4 New finding — why *this* schema costs 15 s, and a SiftKit-side fix worth ~8× more
+
+The driver is **the number of optional properties in a single object**, and the cost is 2^k. It is
+not schema size, not the `anyOf` union, not descriptions. Isolating the `grep` variant and adding
+its optional properties back one at a time (real 248k vocab):
+
+```
+optional=0  0.21s    optional=3  1.23s    optional=6  13.33s
+optional=1  0.34s    optional=4  2.71s
+optional=2  0.62s    optional=5  5.99s
+```
+
+Whole-schema breakdown:
+
+| variant | build |
+|---|---|
+| `read` alone (2 optional) | 0.59 s |
+| `grep` alone (6 optional) | 13.70 s |
+| union minus `tool_batch` | 15.05 s |
+| **FULL (as shipped)** | **16.07 s** |
+| FULL, descriptions stripped | 16.29 s — no effect |
+| FULL, `additionalProperties` removed | 16.81 s — no effect |
+| **FULL, required + nullable types** | **1.63 s** |
+
+#### Mechanism, isolated
+
+`formatron/formats/json.py:79-104` builds an object as a **fixed-order sequence with unconditional
+key and comma literals**, and makes only the *value* optional:
+
+```python
+fields.append(f"{key} colon {field_name}")   # key + colon: unconditional
+line.append(" comma ".join(fields))          # comma: unconditional
+
+def field_info(current, nonterminal):
+    if current.required:
+        return "", [(annotation, nonterminal)]
+    new_nonterminal = f"{nonterminal}_required"
+    return f"{nonterminal} ::= {new_nonterminal}?;\n", ...   # only the VALUE is nullable
+```
+
+formatron's own docs already flag the cost (`json.py:517`): *"while not required field is supported,
+they can lead to very slow performance and/or enormous memory consumption if there are too many of
+them!"*
+
+The blowup is in kbnf, not in grammar size. Synthetic grammars over the same vocab, no JSON
+semantics involved — just k optional values in one concatenation:
+
+| grammar | build |
+|---|---|
+| 8 fields, 0 nullable | 0.38 s |
+| 8 fields, 3 nullable | 1.72 s |
+| 8 fields, **6 nullable** | **11.43 s** |
+| **20** fields, 0 nullable (2.5× the grammar text) | **0.89 s** |
+| the same **6 nullables in separate alternatives** | **0.14 s** |
+
+Grammar size is linear and nearly free; six nullables *in one concatenation* cost 30× the same six
+spread across alternatives. That is nullable elimination: a sequence whose k elements are all
+nullable expands to 2^k concatenation variants, each compiled against all 248,070 tokens.
+
+Nobody else hits this because OpenAI's strict structured-output spec mandates
+`required: [every key]`, giving k=0.
+
+#### It is a correctness bug too, and it is silently masked
+
+Verified against the **real** compiled union grammar (not a reduced case):
+
+```
+REJECTED   {"action":"ls","path":"."}                       <- exactly what turn 9 recorded
+ACCEPTED   {"action":"ls","path":".","limit":}              <- invalid JSON
+ACCEPTED   {"action":"ls","path":".","limit":500}
+REJECTED   {"action":"read","path":"a.ts"}
+ACCEPTED   {"action":"read","path":"a.ts","offset":55,"limit":40}
+REJECTED   {"action":"grep",...} minus any one key
+```
+
+So the planner has exactly two legal ways to express "I don't want to set `limit`": emit a value it
+did not want, or emit `"limit":` with nothing after it. The second is invalid JSON — and SiftKit
+repairs it without a trace:
+
+```
+jsonrepair('{"action":"ls","path":".","limit":}')
+  -> {"action":"ls","path":".","limit":null}     then the null is dropped downstream
+```
+
+(`src/lib/model-json.ts:157`.) That is why turn 9 appears in the transcript as a clean
+`ls {"path":"."}` even though the grammar cannot produce it. **The corruption is invisible
+end-to-end**, which is why this survived this long.
+
+#### Measured production damage
+
+Run `b6ad224b`, raw tool-call arguments as recorded — every `grep` fully populated, never once
+partial:
+
+```
+turn  4  grep pattern="exl3|EXL3"        path="." glob="*.{py,sh,yaml,yml,json,toml,cfg,ini}" ignoreCase=true literal=false context=2 limit=100
+turn  5  grep pattern="stream_options"   path="." glob="*.{py,sh,yaml,yml,json,toml,cfg,ini}" ...
+turn  6  grep pattern="exl"              path="." glob="*.{py,sh,yaml,yml,json,toml,cfg,ini}" ...
+turn  7  grep pattern="launch.*env|..."  path="." glob="*.{py,sh,yaml,yml,json,toml,cfg,ini}" ...
+turn  8  grep pattern="inference.*..."   path="." glob="*.{py,sh,yaml,yml,json,toml,cfg,ini}" ...
+turn 10  grep ...                        path="." glob="*.{ts,tsx,js,jsx}" ...
+```
+
+SiftKit is a **TypeScript** repo. The model did not want to specify `glob`; the grammar forced it
+to, it invented a Python/config glob, and **turns 4–8 searched files that do not exist here**. It
+recovered only at turn 10 by switching to `*.{ts,tsx,js,jsx}`, and then found both answers
+immediately. Five of fourteen turns were spent on a constraint the model never chose.
+
+#### The fix
+
+In `src/providers/structured-output-schema.ts`: mark every property `required` and express
+optionality as a nullable type (`"type": ["string", "null"]`). Must be combined with §9.5 — see
+§9.6 for the joint verification.
+
+### 9.5 Second formatron defect: `minItems` breaks `tool_batch` completely
+
+`tool_batch` has **never worked on exl3**. After `{"action":"tool_batch","calls":[` the real
+grammar allows only whitespace — `{` is rejected, `]` is rejected. The model can do nothing but emit
+spaces until the job dies, which is exactly what turns 2 and 3 of run `b6ad224b` recorded:
+
+```
+turn_action_invalid  rawResponseText: '{\n  "action": "tool_batch",\n  "calls": ['
+```
+
+Both `b6ad224b` (2/14 turns) and `7b1d9f2f` (2/11 turns) lost every turn where the planner chose
+`tool_batch`, each burning 900–1,600 completion tokens and 19–31 s.
+
+The cause is `minItems`, not `anyOf` and not the nesting. Generated grammar:
+
+```
+no minItems:  __json_0_0 ::= array_begin (__json_0_0_value (comma __json_0_0_value)*)? array_end;
+              __json_0_0_value ::= object_begin ...          <- item schema enforced
+
+minItems=1:   __json_0_1 ::= array_begin  comma __json_0_1_item+ array_end;
+                                        ^^ the missing first item
+              __json_0_1_item ::= json_value;                <- item schema DISCARDED
+```
+
+Two defects in one:
+
+1. **Off-by-one on the separator.** For `minItems=n` it emits `n-1` leading items joined by commas,
+   then `comma item+`. At `n=1` that is zero leading items followed by a comma, so the only
+   accepted form is `[,{...}]` — unreachable in valid JSON. (`minItems=2` happens to come out
+   right.)
+2. **The item schema is replaced by `json_value`.** Any JSON whatsoever satisfies an item. So even
+   where `minItems` is reachable, the union it was supposed to enforce is not enforced at all —
+   `[,{"bogus":1}]` is accepted.
+
+Fix: drop `minItems: 1` from `tool_batch.calls`. It buys no safety anyway (defect 2 means it was
+never enforcing the item type), and SiftKit already validates the parsed batch.
+
+### 9.6 Joint verification of both schema fixes
+
+Neither fix alone is sufficient — verified on the real planner schema against the real payloads:
+
+| planner schema | build | after `"calls":[` | real payloads | bogus item `{"bogus":1}` |
+|---|---|---|---|---|
+| as shipped | 15.62 s | only `,` — dead end | rejected | **accepted** |
+| `minItems` dropped | 14.99 s | `{`, `]` — reachable | rejected | **accepted** |
+| **both fixes** | **1.48 s** | `{`, `]` — reachable | **accepted** | **rejected** |
+
+With both applied: single-call and two-call `tool_batch` payloads are accepted, all-null and
+all-populated object forms are accepted, and both the invalid `"key":,` form and the unconstrained
+bogus item are now correctly rejected.
+
+Not implemented — it changes the wire contract the planner parser consumes (nulls now arrive
+explicitly) and belongs in its own TDD pass.
+
+### 9.7 Remaining
+
+- File the TabbyAPI PR (§8.6's suggestion; the diff is the one described in §9.2). The formatron
+  memoization idea is superseded for our purposes but still valid upstream.
+- SiftKit schema change (§9.4 + §9.5, verified jointly in §9.6) — the biggest remaining win, and it
+  is a correctness fix first: it recovers `tool_batch`, stops the planner fabricating tool
+  arguments, restores item-type enforcement, and as a side effect drops the build to 1.48 s, which
+  makes the §8.6 prewarm idea unnecessary.
+- Two upstream formatron issues worth filing: the optional-property encoding (2^k, and cannot omit
+  a key — `formats/json.py:79-104`) and the `minItems` separator/item-type defect.
+- `prompt_time` from Tabby's usage chunk is still not mapped into `promptEvalDurationMs` (§8.4).
