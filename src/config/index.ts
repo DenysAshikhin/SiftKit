@@ -52,6 +52,7 @@ export {
   getRuntimeLlamaCpp,
   getActiveModelPreset,
   getActiveInferenceBackend,
+  managesManagedLlamaLifecycle,
   getConfiguredLlamaBaseUrl,
   getConfiguredLlamaNumCtx,
   getConfiguredModel,

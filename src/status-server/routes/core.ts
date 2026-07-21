@@ -33,6 +33,7 @@ import { normalizeMetrics, writeMetrics, type TaskKind, type ToolTypeStats } fro
 import { recordWebSearchUsage } from '../web-search-usage.js';
 import {
   getActiveModelPreset,
+  managesManagedLlamaLifecycle,
   readConfig,
   writeConfig,
   normalizeConfig,
@@ -1674,8 +1675,8 @@ class StatusRestartEndpoint implements RouteEndpoint {
       return;
     }
     const currentConfig = readConfig(configPath);
-    if (String(currentConfig.Backend || '').trim().toLowerCase() !== 'llama.cpp') {
-      sendJson(res, 400, { ok: false, restarted: false, error: 'Backend restart is only supported for llama.cpp.' });
+    if (!managesManagedLlamaLifecycle(currentConfig)) {
+      sendJson(res, 400, { ok: false, restarted: false, error: 'Backend restart is only supported for an active llama.cpp preset.' });
       return;
     }
     try {

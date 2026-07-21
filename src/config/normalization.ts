@@ -500,6 +500,11 @@ export function getManagedLlamaConfig(config: SiftConfig): ManagedLlamaConfig {
   const preset = modelPresets.Presets.find((entry) => entry.id === modelPresets.ActivePresetId)
     ?? modelPresets.Presets[0];
   if (!preset) throw new Error('Model preset list is empty.');
+  if (preset.Backend !== 'llama') {
+    throw new Error(
+      `getManagedLlamaConfig requires an active llama-backed preset, but preset '${preset.id}' is '${preset.Backend}'.`,
+    );
+  }
   return {
     Model: getNullableTrimmedString(preset.Model),
     ...resolveManagedLlamaSettings(getRecord(preset)),

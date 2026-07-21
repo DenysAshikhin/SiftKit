@@ -9,7 +9,7 @@ import {
   type SiftPreset,
 } from '../presets.js';
 import { getDefaultConfigObject } from '../config/defaults.js';
-import { getActiveModelPreset } from '../config/getters.js';
+import { getActiveModelPreset, managesManagedLlamaLifecycle } from '../config/getters.js';
 import {
   getFinitePositiveInteger,
   getLlamaBaseUrl,
@@ -321,6 +321,13 @@ export function readConfig(configPath: string): SiftConfig {
  * launch has happened.
  */
 export function buildRuntimeLaunchSnapshot(config: SiftConfig): RuntimeLaunchSnapshot {
+  const activePreset = getActiveModelPreset(config);
+  if (activePreset.Backend !== 'llama') {
+    // Non-llama presets (e.g. exl3) have no managed-llama runtime. Emitting the
+    // preset's own BaseUrl/Port as "LlamaCpp" runtime would masquerade exl3
+    // settings as llama config, so publish an empty runtime instead.
+    return { Model: getNullableTrimmedString(activePreset.Model), LlamaCpp: {} };
+  }
   const managed = getManagedLlamaConfig(config);
   return {
     Model: managed.Model ?? null,
@@ -351,6 +358,7 @@ export function writeConfig(configPath: string, config: SiftConfig): void {
 
 export {
   getActiveModelPreset,
+  managesManagedLlamaLifecycle,
   getFinitePositiveInteger,
   getLlamaBaseUrl,
   getManagedLlamaConfig,

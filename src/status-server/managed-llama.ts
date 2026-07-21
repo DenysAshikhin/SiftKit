@@ -31,6 +31,7 @@ import {
   getLlamaBaseUrl,
   getManagedLlamaConfig,
   getManagedLlamaInternalBaseUrl,
+  managesManagedLlamaLifecycle,
   buildRuntimeLaunchSnapshot,
 } from './config-store.js';
 import { writeRuntimeLaunchSnapshot } from './runtime-launch-snapshot.js';
@@ -1144,7 +1145,7 @@ async function ensureManagedLlamaConfigReady(
   config: SiftConfig,
   options: EnsureManagedLlamaOptions,
 ): Promise<SiftConfig> {
-  if (config.Backend !== 'llama.cpp') {
+  if (!managesManagedLlamaLifecycle(config)) {
     ctx.managedLlamaStartupWarning = null;
     return config;
   }
@@ -1311,7 +1312,7 @@ async function shutdownManagedLlamaConfigIfNeeded(
     publishStatus(ctx);
     return;
   }
-  if (config.Backend !== 'llama.cpp') {
+  if (!managesManagedLlamaLifecycle(config)) {
     return;
   }
   const baseUrl = getLlamaBaseUrl(config);
@@ -1430,7 +1431,7 @@ export function shutdownManagedLlamaForProcessExitSync(ctx: ServerContext): void
       return;
     }
     const config = readConfig(ctx.configPath);
-    if (config.Backend !== 'llama.cpp') {
+    if (!managesManagedLlamaLifecycle(config)) {
       publishStatus(ctx);
       return;
     }
@@ -1488,7 +1489,7 @@ export async function clearPreexistingManagedLlamaIfNeeded(ctx: ServerContext): 
     return;
   }
   const config = readConfig(ctx.configPath);
-  if (config.Backend !== 'llama.cpp') {
+  if (!managesManagedLlamaLifecycle(config)) {
     return;
   }
   const managed = getManagedLlamaConfig(config);
