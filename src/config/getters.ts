@@ -29,14 +29,12 @@ export function getActiveInferenceBackend(config: SiftConfig): InferenceBackendI
 
 /**
  * True only when SiftKit should drive the standalone managed-llama.cpp lifecycle:
- * the provider must be llama.cpp (not a mock/noop backend) AND the active preset
- * must actually be llama-backed. The exl3/TabbyAPI runtime is owned by the
- * PresetRuntimeCoordinator, so these llama-specific start/stop/reap paths must
- * no-op when an exl3 preset is active — otherwise they reap the TabbyAPI process
- * on the shared port (see the `config.Backend` legacy flag staying 'llama.cpp').
+ * the active preset must be llama-backed. The exl3/TabbyAPI runtime is owned by the
+ * PresetRuntimeCoordinator, so these llama-specific start/stop/reap paths no-op when
+ * an exl3 preset is active.
  */
 export function managesManagedLlamaLifecycle(config: SiftConfig): boolean {
-  return config.Backend === 'llama.cpp' && getActiveInferenceBackend(config) === 'llama';
+  return getActiveInferenceBackend(config) === 'llama';
 }
 
 export function getFinitePositiveNumber(value?: number | string | null): number | null {

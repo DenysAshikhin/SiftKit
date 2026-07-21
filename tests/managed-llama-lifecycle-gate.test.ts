@@ -11,17 +11,14 @@ function withActivePreset(mutate: (config: SiftConfig) => void): SiftConfig {
   return config;
 }
 
-test('managesManagedLlamaLifecycle: llama.cpp provider + active llama preset drives the lifecycle', () => {
-  const config = withActivePreset((c) => {
-    c.Backend = 'llama.cpp';
-  });
+test('managesManagedLlamaLifecycle: active llama preset drives the lifecycle', () => {
+  const config = getDefaultConfigObject();
   assert.equal(config.Server.ModelPresets.Presets[0]?.Backend, 'llama');
   assert.equal(managesManagedLlamaLifecycle(config), true);
 });
 
 test('managesManagedLlamaLifecycle: active exl3 preset must NOT drive the llama lifecycle', () => {
   const config = withActivePreset((c) => {
-    c.Backend = 'llama.cpp';
     const base = c.Server.ModelPresets.Presets[0];
     if (!base) throw new Error('default preset missing');
     const exl3Preset = { ...base, id: 'exl3-main', Backend: 'exl3' as const };
@@ -30,11 +27,11 @@ test('managesManagedLlamaLifecycle: active exl3 preset must NOT drive the llama 
   assert.equal(managesManagedLlamaLifecycle(config), false);
 });
 
-test('managesManagedLlamaLifecycle: non-llama.cpp provider (mock/noop) never drives the lifecycle', () => {
+// RED until Task 1 Step 3. Removed in Task 7 Step 9 when the field no longer exists.
+test('managesManagedLlamaLifecycle: ignores any top-level Backend value', () => {
   const config = withActivePreset((c) => {
     c.Backend = 'noop';
   });
-  // Active preset is still llama-backed, but the provider is a mock/noop backend.
   assert.equal(config.Server.ModelPresets.Presets[0]?.Backend, 'llama');
-  assert.equal(managesManagedLlamaLifecycle(config), false);
+  assert.equal(managesManagedLlamaLifecycle(config), true);
 });
