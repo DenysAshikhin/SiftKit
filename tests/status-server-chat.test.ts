@@ -159,6 +159,20 @@ test('resolveChatSessionContextWindow falls back to configured context for an in
   })), 150_000);
 });
 
+test('resolveChatSessionContextWindow preserves a valid snapshot without config', () => {
+  assert.equal(resolveChatSessionContextWindow(undefined, mockChatSession({
+    id: 'unconfigured-snapshot',
+    contextWindowTokens: 30_000,
+  })), 30_000);
+});
+
+test('resolveChatSessionContextWindow uses the default context without config or a valid snapshot', () => {
+  assert.equal(resolveChatSessionContextWindow(null, mockChatSession({
+    id: 'unconfigured-default',
+    contextWindowTokens: 0,
+  })), 150_000);
+});
+
 test('buildContextUsage uses the resolved active-model context', () => {
   const config = createConfig();
   const preset = getActiveModelPreset(config);
