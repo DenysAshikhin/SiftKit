@@ -176,45 +176,7 @@ test('repo-search executes a native web_search tool when allowed', async () => {
   assert.equal(Object.keys(scorecard.toolStats).includes('web_search'), true);
 });
 
-test('runTaskLoop rewrites mixed rg --type ts and --type tsx flags', async () => {
-  const events: JsonObject[] = [];
-  const result = await runTaskLoop(
-    {
-      id: 'task-rewrite-mixed-types',
-      question: 'Find ts and tsx hits.',
-      signals: ['mixed hit'],
-    },
-    {
-      ...MOCK_LOOP_DEFAULTS,
-      maxTurns: 2,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"foo\\\" --type ts --type tsx src\"}",
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
-      ],
-      mockCommandResults: {
-        'rg -n "foo" src --type ts': { exitCode: 0, stdout: 'mixed hit', stderr: '' },
-      },
-      logger: {
-        path: 'memory',
-        write(event) {
-          events.push(JSON.parse(JSON.stringify(event)));
-        },
-      },
-    }
-  );
-
-  const commandResult = events.find((event) => event.kind === 'turn_command_result');
-  assert.ok(String(commandResult?.command).startsWith('rg -n "foo" src --type ts'));
-  assert.match(String(commandResult?.output || ''), /rewrote unsupported --type tsx to valid types/u);
-  assert.equal(result.reason, 'finish');
-  assert.equal(result.commandFailures, 0);
-  assert.equal(result.passed, true);
-});
-
-test('runTaskLoop executes simple rg directly and preserves mixed quote regex', async () => {
+test('runTaskLoop passes a mixed-quote grep regex through to rg without shell mangling', async () => {
   const repoRoot = createTempRepoRoot();
   fs.mkdirSync(path.join(repoRoot, 'src'));
   fs.writeFileSync(
@@ -225,7 +187,7 @@ test('runTaskLoop executes simple rg directly and preserves mixed quote regex', 
 
   const result = await runTaskLoop(
     {
-      id: 'task-direct-rg-mixed-quote',
+      id: 'task-native-grep-mixed-quote',
       question: 'Find relative imports.',
       signals: ['BridgeClient'],
     },
@@ -238,7 +200,9 @@ test('runTaskLoop executes simple rg directly and preserves mixed quote regex', 
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"from ['\\\\\\\"]\\\\.\\\\./\\\" src\"}",
+        // The pattern carries both quote flavours; grep builds an rg argv directly,
+        // so nothing re-quotes it on the way to the process.
+        JSON.stringify({ action: 'grep', pattern: 'from [\'"]\\.\\./', path: 'src' }),
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -250,76 +214,6 @@ test('runTaskLoop executes simple rg directly and preserves mixed quote regex', 
   assert.equal(result.passed, true);
 });
 
-test('runTaskLoop rewrites rg --include and annotates output', async () => {
-  const events: JsonObject[] = [];
-  const result = await runTaskLoop(
-    {
-      id: 'task-rewrite-include',
-      question: 'Find imports.',
-      signals: ['import hit'],
-    },
-    {
-      repoRoot: process.cwd(),
-      model: 'mock-model',
-      baseUrl: 'http://127.0.0.1:8097',
-      maxTurns: 2,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"from \\\" src --include \\\"*.ts\\\"\"}",
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
-      ],
-      mockCommandResults: {
-        'rg -n "from " src --glob "*.ts"': { exitCode: 0, stdout: 'import hit', stderr: '' },
-      },
-      logger: {
-        path: 'memory',
-        write(event) {
-          events.push(JSON.parse(JSON.stringify(event)));
-        },
-      },
-    }
-  );
-
-  const commandResult = events.find((event) => event.kind === 'turn_command_result');
-  assert.ok(String(commandResult?.command || '').startsWith('rg -n "from " src --glob "*.ts"'));
-  assert.match(String(commandResult?.output || ''), /rewrote unsupported rg --include to --glob/u);
-  assert.equal(result.commandFailures, 0);
-  assert.equal(result.passed, true);
-});
-
-test('runTaskLoop counts rg syntax failures and gives planner guidance', async () => {
-  const result = await runTaskLoop(
-    {
-      id: 'task-rg-syntax-failure',
-      question: 'Find imports.',
-      signals: [],
-    },
-    {
-      repoRoot: process.cwd(),
-      model: 'mock-model',
-      baseUrl: 'http://127.0.0.1:8097',
-      maxTurns: 2,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"from \\\" src --bad-rg-flag\"}",
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
-      ],
-      mockCommandResults: {
-        'rg -n "from " src --bad-rg-flag': { exitCode: 1, stdout: '', stderr: 'rg: unrecognized flag --bad-rg-flag' },
-      },
-    }
-  );
-
-  assert.equal(result.commandFailures, 1);
-  assert.match(result.commands[0]?.output || '', /Command syntax failure; use a simpler rg command/u);
-});
-
-// F14: retained E2E — branches subset another case, but this uniquely asserts tool_start/
-// tool_result progress-event token/elapsed plumbing and original-command preservation.
 test('runTaskLoop reports prompt tokens and elapsed time on command progress events', async () => {
   const progressEvents: RepoSearchProgressEvent[] = [];
   const result = await runTaskLoop(
@@ -334,12 +228,12 @@ test('runTaskLoop reports prompt tokens and elapsed time on command progress eve
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "planner" src': { exitCode: 0, stdout: 'planner hit', stderr: '' },
+        'git grep -n "planner" src': { exitCode: 0, stdout: 'planner hit', stderr: '' },
       },
       onProgress(event: RepoSearchProgressEvent) {
         progressEvents.push(event);
@@ -350,8 +244,8 @@ test('runTaskLoop reports prompt tokens and elapsed time on command progress eve
   const toolStart = progressEvents.find((event) => event.kind === 'tool_start');
   const toolResult = progressEvents.find((event) => event.kind === 'tool_result');
   assert.equal(typeof toolStart?.command, 'string');
-  assert.equal(toolStart?.command, 'rg -n "planner" src');
-  assert.equal(toolResult?.command, 'rg -n "planner" src');
+  assert.equal(toolStart?.command, 'git grep -n "planner" src');
+  assert.equal(toolResult?.command, 'git grep -n "planner" src');
   assert.equal(/--no-ignore|--ignore-case|--glob/u.test(String(toolResult?.command || '')), false);
   assert.equal(Number.isFinite(toolStart?.promptTokenCount), true);
   assert.equal(Number.isFinite(toolStart?.elapsedMs), true);
@@ -377,12 +271,12 @@ test('runTaskLoop tool_result outputTokens reflects the fitted bubble output', a
       minToolCallsBeforeFinish: 0,
       totalContextTokens: 10000,
       mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "planner" src': { exitCode: 0, stdout: longStdout, stderr: '' },
+        'git grep -n "planner" src': { exitCode: 0, stdout: longStdout, stderr: '' },
       },
       onProgress(event: RepoSearchProgressEvent) {
         progressEvents.push(event);
@@ -409,12 +303,12 @@ test('runTaskLoop logs fitted tool result truncation in the full inserted output
       minToolCallsBeforeFinish: 0,
       totalContextTokens: 10000,
       mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "planner" src': { exitCode: 0, stdout: longStdout, stderr: '' },
+        'git grep -n "planner" src': { exitCode: 0, stdout: longStdout, stderr: '' },
       },
       logger: {
         path: 'memory',
@@ -447,12 +341,12 @@ test('runTaskLoop replaces long repeated tool output before inserting it into co
       minToolCallsBeforeFinish: 0,
       totalContextTokens: 10000,
       mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "planner" src': { exitCode: 0, stdout: longStdout, stderr: '' },
+        'git grep -n "planner" src': { exitCode: 0, stdout: longStdout, stderr: '' },
       },
       logger: {
         path: 'memory',
@@ -530,7 +424,7 @@ test('runTaskLoop reuses preflight prompt token count for tool progress and allo
           message: {
             role: 'assistant',
             content: chatRequestCount === 1
-              ? "{\"action\":\"repo_git\",\"command\":\"git status --short\"}"
+              ? "{\"action\":\"git\",\"command\":\"git status --short\"}"
               : '{"action":"finish","output":"done"}',
           },
         }],
@@ -584,7 +478,7 @@ test('runTaskLoop reuses preflight prompt token count for tool progress and allo
   }
 });
 
-test('runTaskLoop executes repo_list_files and repo_read_file natively', async () => {
+test('runTaskLoop executes find and read natively', async () => {
   const events: JsonObject[] = [];
   const repoRoot = createTempRepoRoot();
   try {
@@ -605,8 +499,8 @@ test('runTaskLoop executes repo_list_files and repo_read_file natively', async (
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockResponses: [
-          "{\"action\":\"repo_list_files\",\"path\":\"src\",\"glob\":\"*.ts\",\"recurse\":true}",
-          "{\"action\":\"repo_read_file\",\"path\":\"src/sample.ts\",\"startLine\":2,\"endLine\":3}",
+          "{\"action\":\"find\",\"pattern\":\"*.ts\",\"path\":\"src\"}",
+          "{\"action\":\"read\",\"path\":\"src/sample.ts\",\"offset\":2,\"limit\":2}",
           '{"action":"finish","output":"done"}',
           '{"verdict":"pass","reason":"supported"}',
         ],
@@ -622,9 +516,9 @@ test('runTaskLoop executes repo_list_files and repo_read_file natively', async (
 
     const commandResults = events.filter((event) => event.kind === 'turn_command_result');
     assert.equal(commandResults.length >= 2, true);
-    assert.match(String(commandResults[0]?.command || ''), /^repo_list_files/u);
-    assert.match(String(commandResults[0]?.insertedResultText || ''), /src[\\/]other\.ts/u);
-    assert.match(String(commandResults[1]?.command || ''), /^repo_read_file/u);
+    assert.match(String(commandResults[0]?.command || ''), /^find /u);
+    assert.match(String(commandResults[0]?.insertedResultText || ''), /other\.ts/u);
+    assert.match(String(commandResults[1]?.command || ''), /^read /u);
     assert.match(String(commandResults[1]?.insertedResultText || ''), /2: line-2/u);
     assert.match(String(commandResults[1]?.insertedResultText || ''), /3: line-3/u);
     assert.equal(result.reason, 'finish');
@@ -635,7 +529,7 @@ test('runTaskLoop executes repo_list_files and repo_read_file natively', async (
   }
 });
 
-test('runTaskLoop executes repo_list_files at repository root natively', async () => {
+test('runTaskLoop executes ls at repository root natively', async () => {
   const events: JsonObject[] = [];
   const repoRoot = createTempRepoRoot();
   try {
@@ -656,7 +550,7 @@ test('runTaskLoop executes repo_list_files at repository root natively', async (
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockResponses: [
-          "{\"action\":\"repo_list_files\",\"path\":\".\",\"recurse\":false}",
+          "{\"action\":\"ls\",\"path\":\".\"}",
           '{"action":"finish","output":"done"}',
           '{"verdict":"pass","reason":"supported"}',
         ],
@@ -672,7 +566,7 @@ test('runTaskLoop executes repo_list_files at repository root natively', async (
 
     const commandResults = events.filter((event) => event.kind === 'turn_command_result');
     const output = String(commandResults[0]?.insertedResultText || '');
-    assert.match(String(commandResults[0]?.command || ''), /^repo_list_files/u);
+    assert.match(String(commandResults[0]?.command || ''), /^ls /u);
     assert.match(output, /README\.md/u);
     assert.equal(result.commandFailures, 0);
     assert.equal(result.safetyRejects, 0);
@@ -682,7 +576,7 @@ test('runTaskLoop executes repo_list_files at repository root natively', async (
   }
 });
 
-test('runTaskLoop executes repo_list_files with runner-* glob natively', async () => {
+test('runTaskLoop executes find with a runner-* glob natively', async () => {
   const events: JsonObject[] = [];
   const repoRoot = createTempRepoRoot();
   try {
@@ -704,7 +598,7 @@ test('runTaskLoop executes repo_list_files with runner-* glob natively', async (
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockResponses: [
-          "{\"action\":\"repo_list_files\",\"path\":\"logs\",\"glob\":\"runner-*\",\"recurse\":true}",
+          "{\"action\":\"find\",\"pattern\":\"runner-*\",\"path\":\"logs\"}",
           '{"action":"finish","output":"done"}',
           '{"verdict":"pass","reason":"supported"}',
         ],
@@ -720,8 +614,8 @@ test('runTaskLoop executes repo_list_files with runner-* glob natively', async (
 
     const commandResults = events.filter((event) => event.kind === 'turn_command_result');
     const output = String(commandResults[0]?.insertedResultText || '');
-    assert.match(String(commandResults[0]?.command || ''), /^repo_list_files/u);
-    assert.match(output, /logs[\\/]runner-20260425\.ndjson/u);
+    assert.match(String(commandResults[0]?.command || ''), /^find /u);
+    assert.match(output, /runner-20260425\.ndjson/u);
     assert.doesNotMatch(output, /runner\.sqlite3/u);
     assert.doesNotMatch(output, /not-runner\.txt/u);
     assert.equal(result.reason, 'finish');
@@ -775,44 +669,6 @@ test('runTaskLoop logs provider request error details and surfaces enriched netw
   assert.equal(typeof asObject(errorEvent?.error).message, 'string');
 });
 
-test('runTaskLoop rewrites mixed --type jsx and --type tsx to --type js and --type ts', async () => {
-  const events: JsonObject[] = [];
-  const result = await runTaskLoop(
-    {
-      id: 'task-rewrite-jsx-tsx',
-      question: 'Find jsx and tsx hits.',
-      signals: ['both hit'],
-    },
-    {
-      ...MOCK_LOOP_DEFAULTS,
-      maxTurns: 2,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"foo\\\" --type jsx --type tsx src\"}",
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
-      ],
-      mockCommandResults: {
-        'rg -n "foo" src --type js --type ts': { exitCode: 0, stdout: 'both hit', stderr: '' },
-      },
-      logger: {
-        path: 'memory',
-        write(event) {
-          events.push(JSON.parse(JSON.stringify(event)));
-        },
-      },
-    }
-  );
-
-  const commandResult = events.find((event) => event.kind === 'turn_command_result');
-  assert.ok(String(commandResult?.command).startsWith('rg -n "foo" src --type js --type ts'));
-  assert.match(String(commandResult?.output || ''), /rewrote unsupported --type jsx, tsx to valid types/u);
-  assert.equal(result.reason, 'finish');
-  assert.equal(result.commandFailures, 0);
-  assert.equal(result.passed, true);
-});
-
 test('runTaskLoop counts non-zero command exits as command failures but not invalid responses', async () => {
   const task = await runTaskLoop(
     {
@@ -826,12 +682,12 @@ test('runTaskLoop counts non-zero command exits as command failures but not inva
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "planner" src': { exitCode: 2, stdout: '', stderr: 'boom' },
+        'git grep -n "planner" src': { exitCode: 2, stdout: '', stderr: 'boom' },
       },
     }
   );
@@ -849,60 +705,6 @@ test('runTaskLoop counts non-zero command exits as command failures but not inva
   assert.equal(scorecard.verdict, 'fail');
 });
 
-test('runTaskLoop does not count rg exit code 1 (no matches) as a command failure', async () => {
-  const task = await runTaskLoop(
-    {
-      id: 'task-rg-no-match',
-      question: 'Find better-sqlite3 usage.',
-      signals: [],
-    },
-    {
-      ...MOCK_LOOP_DEFAULTS,
-      maxTurns: 2,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"better-sqlite3\\\" src --type ts\"}",
-        '{"action":"finish","output":"no matches found"}',
-        '{"verdict":"pass","reason":"valid no-results answer"}',
-      ],
-      mockCommandResults: {
-        'rg -n "better-sqlite3" src --type ts': { exitCode: 1, stdout: '', stderr: '' },
-      },
-    }
-  );
-
-  assert.equal(task.commandFailures, 0);
-  assert.equal(task.passed, true);
-});
-
-test('runTaskLoop does not count grep exit code 1 (no matches) as a command failure', async () => {
-  const task = await runTaskLoop(
-    {
-      id: 'task-grep-no-match',
-      question: 'Find TODO comments.',
-      signals: [],
-    },
-    {
-      ...MOCK_LOOP_DEFAULTS,
-      maxTurns: 2,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      mockResponses: [
-        "{\"action\":\"repo_grep\",\"command\":\"grep -rn \\\"TODO\\\" src\"}",
-        '{"action":"finish","output":"no TODOs found"}',
-        '{"verdict":"pass","reason":"valid no-results answer"}',
-      ],
-      mockCommandResults: {
-        'grep -rn "TODO" src': { exitCode: 1, stdout: '', stderr: '' },
-      },
-    }
-  );
-
-  assert.equal(task.commandFailures, 0);
-  assert.equal(task.passed, true);
-});
-
 test('runTaskLoop still counts exit code 1 from non-search commands as a command failure', async () => {
   const task = await runTaskLoop(
     {
@@ -916,7 +718,7 @@ test('runTaskLoop still counts exit code 1 from non-search commands as a command
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"repo_git\",\"command\":\"git log --oneline\"}",
+        "{\"action\":\"git\",\"command\":\"git log --oneline\"}",
         '{"action":"finish","output":"failed"}',
         '{"verdict":"pass","reason":"ok"}',
       ],
@@ -972,20 +774,20 @@ test('runTaskLoop executes tool batches sequentially and counts each tool call t
         JSON.stringify({
           action: 'tool_batch',
           calls: [
-            { action: 'repo_rg', command: 'rg -n "planner prompt" src' },
-            { action: 'repo_rg', command: 'rg -n "prompt budget" src' },
+            { action: 'git', command: 'git grep -n "planner prompt" src' },
+            { action: 'git', command: 'git grep -n "prompt budget" src' },
           ],
         }),
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "planner prompt" src': {
+        'git grep -n "planner prompt" src': {
           exitCode: 0,
           stdout: 'src/repo-search/prompts.ts:228:repo-search planner prompt',
           stderr: '',
         },
-        'rg -n "prompt budget" src': {
+        'git grep -n "prompt budget" src': {
           exitCode: 0,
           stdout: 'src/repo-search/prompt-budget.ts:1:prompt budget helper',
           stderr: '',
@@ -997,8 +799,8 @@ test('runTaskLoop executes tool batches sequentially and counts each tool call t
   assert.equal(result.reason, 'finish');
   assert.equal(result.turnsUsed, 2);
   assert.equal(result.commands.length, 2);
-  assert.equal(result.commands[0].command.startsWith('rg -n "planner prompt" src'), true);
-  assert.equal(result.commands[1].command.startsWith('rg -n "prompt budget" src'), true);
+  assert.equal(result.commands[0].command.startsWith('git grep -n "planner prompt" src'), true);
+  assert.equal(result.commands[1].command.startsWith('git grep -n "prompt budget" src'), true);
 });
 
 test('runTaskLoop accepts corroborated finish before minimum tool-call depth', async () => {
@@ -1015,14 +817,14 @@ test('runTaskLoop accepts corroborated finish before minimum tool-call depth', a
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 2,
       mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
-        "{\"action\":\"repo_get_content\",\"command\":\"Get-Content src\\\\summary.ts | Select-Object -First 20\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git show HEAD:src/summary.ts\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "planner" src': { exitCode: 0, stdout: 'src\\summary.ts:10:planner hit', stderr: '' },
-        'Get-Content src\\summary.ts | Select-Object -First 20': { exitCode: 0, stdout: '10: planner hit', stderr: '' },
+        'git grep -n "planner" src': { exitCode: 0, stdout: 'src\\summary.ts:10:planner hit', stderr: '' },
+        'git show HEAD:src/summary.ts': { exitCode: 0, stdout: 'src\\summary.ts:10: planner hit', stderr: '' },
       },
       logger: {
         path: 'memory',
@@ -1051,12 +853,12 @@ test('runTaskLoop stops at max turns when model keeps asking for tools', async (
       maxTurns: 2,
       maxInvalidResponses: 3,
       mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"buildPlannerPrompt\\\" src\\\\summary.ts\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"buildPlannerPrompt\\\" src\\\\summary.ts\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"buildPlannerPrompt\\\" src\\\\summary.ts\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"buildPlannerPrompt\\\" src\\\\summary.ts\"}",
         'Synthesized best-effort answer referencing src\\summary.ts:907.',
       ],
       mockCommandResults: {
-        'rg -n "buildPlannerPrompt" src\\summary.ts': {
+        'git grep -n "buildPlannerPrompt" src\\summary.ts': {
           exitCode: 0,
           stdout: '907:function buildPlannerPrompt(options: {',
           stderr: '',
@@ -1085,13 +887,13 @@ test('runTaskLoop prompt omits visible tool-call budget counters', async () => {
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"summary\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"summary\\\" src\"}",
         '{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
-        'rg -n "planner" src': { exitCode: 0, stdout: 'planner hit', stderr: '' },
-        'rg -n "summary" src': { exitCode: 0, stdout: 'summary hit', stderr: '' },
+        'git grep -n "planner" src': { exitCode: 0, stdout: 'planner hit', stderr: '' },
+        'git grep -n "summary" src': { exitCode: 0, stdout: 'summary hit', stderr: '' },
       },
       logger: {
         path: 'memory',
@@ -1112,145 +914,18 @@ test('runTaskLoop prompt omits visible tool-call budget counters', async () => {
   assert.equal(result.reason, 'finish');
 });
 
-test('runTaskLoop records line-read stats for Get-Content windows', async () => {
-  const result = await runTaskLoop(
-    {
-      id: 'task-line-read-stats',
-      question: 'Read a file section.',
-      signals: [],
-    },
-    {
-      ...MOCK_LOOP_DEFAULTS,
-      maxTurns: 2,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      mockResponses: [
-        "{\"action\":\"repo_get_content\",\"command\":\"Get-Content src\\\\summary.ts | Select-Object -Skip 40 -First 6\"}",
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
-      ],
-      mockCommandResults: {
-        'Get-Content src\\summary.ts | Select-Object -Skip 40 -First 6': {
-          exitCode: 0,
-          stdout: ['a', 'b', 'c', 'd', 'e', 'f'].join('\n'),
-          stderr: '',
-        },
-      },
-    }
-  );
-
-  assert.equal(result.toolStats['get-content'].lineReadCalls, 1);
-  assert.equal(result.toolStats['get-content'].lineReadLinesTotal, 6);
-  assert.ok(Number(result.toolStats['get-content'].lineReadTokensTotal) > 0);
-});
-
-test('runTaskLoop rewrites Get-ChildItem recurse command to include ignore excludes', async () => {
-  const events: JsonObject[] = [];
-  const repoRoot = createTempRepoRoot('/custom_ignored\n');
+test('runTaskLoop records line-read stats for read windows', async () => {
+  const repoRoot = createTempRepoRoot();
   try {
+    fs.writeFileSync(
+      path.join(repoRoot, 'summary.ts'),
+      Array.from({ length: 60 }, (_, index) => `line-${index + 1}`).join('\n'),
+      'utf8',
+    );
     const result = await runTaskLoop(
       {
-        id: 'task-ignore-get-childitem',
-        question: 'List source files.',
-        signals: ['listed'],
-      },
-      {
-        ...MOCK_LOOP_DEFAULTS,
-        repoRoot,
-        maxTurns: 2,
-        maxInvalidResponses: 2,
-        minToolCallsBeforeFinish: 0,
-        mockResponses: [
-          "{\"action\":\"repo_get_childitem\",\"command\":\"Get-ChildItem src -Recurse -Filter *.ts\"}",
-          '{"action":"finish","output":"done"}',
-          '{"verdict":"pass","reason":"supported"}',
-        ],
-        mockCommandResults: {
-          'Get-ChildItem src -Recurse -Filter *.ts': {
-            exitCode: 0,
-            stdout: 'listed',
-            stderr: '',
-          },
-        },
-        logger: {
-          path: 'memory',
-          write(event) {
-            events.push(JSON.parse(JSON.stringify(event)));
-          },
-        },
-      }
-    );
-
-    const commandResult = events.find((event) => event.kind === 'turn_command_result');
-    assert.ok(
-      String(commandResult?.command).startsWith('Get-ChildItem src -Recurse -Filter *.ts -Exclude ')
-    );
-    assert.match(String(commandResult?.command), /node_modules/u);
-    assert.match(String(commandResult?.output || ''), /added -Exclude from ignore policy/u);
-    assert.equal(result.reason, 'finish');
-    assert.equal(result.passed, true);
-  } finally {
-    fs.rmSync(repoRoot, { recursive: true, force: true });
-  }
-});
-
-test('runTaskLoop rewrites Select-String path scan to include ignore excludes', async () => {
-  const events: JsonObject[] = [];
-  const repoRoot = createTempRepoRoot('/custom_ignored\n');
-  try {
-    const result = await runTaskLoop(
-      {
-        id: 'task-ignore-select-string',
-        question: 'Find planner text.',
-        signals: ['hit'],
-      },
-      {
-        ...MOCK_LOOP_DEFAULTS,
-        repoRoot,
-        maxTurns: 2,
-        maxInvalidResponses: 2,
-        minToolCallsBeforeFinish: 0,
-        mockResponses: [
-          "{\"action\":\"repo_select_string\",\"command\":\"Select-String -Path \\\"src\\\\*.ts\\\" -Pattern \\\"planner\\\"\"}",
-          '{"action":"finish","output":"done"}',
-          '{"verdict":"pass","reason":"supported"}',
-        ],
-        mockCommandResults: {
-          'Select-String -Path "src\\*.ts" -Pattern "planner"': {
-            exitCode: 0,
-            stdout: 'hit',
-            stderr: '',
-          },
-        },
-        logger: {
-          path: 'memory',
-          write(event) {
-            events.push(JSON.parse(JSON.stringify(event)));
-          },
-        },
-      }
-    );
-
-    const commandResult = events.find((event) => event.kind === 'turn_command_result');
-    assert.ok(
-      String(commandResult?.command).startsWith('Select-String -Path "src\\*.ts" -Pattern "planner" -Exclude ')
-    );
-    assert.match(String(commandResult?.command), /node_modules/u);
-    assert.match(String(commandResult?.output || ''), /added -Exclude from ignore policy/u);
-    assert.equal(result.reason, 'finish');
-    assert.equal(result.passed, true);
-  } finally {
-    fs.rmSync(repoRoot, { recursive: true, force: true });
-  }
-});
-
-test('runTaskLoop rejects Get-Content reads under ignored directories', async () => {
-  const repoRoot = createTempRepoRoot('');
-  try {
-    const result = await runTaskLoop(
-      {
-        id: 'task-ignore-get-content',
-        question: 'Read ignored file.',
+        id: 'task-line-read-stats',
+        question: 'Read a file section.',
         signals: [],
       },
       {
@@ -1260,7 +935,7 @@ test('runTaskLoop rejects Get-Content reads under ignored directories', async ()
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockResponses: [
-          "{\"action\":\"repo_get_content\",\"command\":\"Get-Content node_modules\\\\leftpad\\\\index.js\"}",
+          '{"action":"read","path":"summary.ts","offset":41,"limit":6}',
           '{"action":"finish","output":"done"}',
           '{"verdict":"pass","reason":"supported"}',
         ],
@@ -1268,10 +943,9 @@ test('runTaskLoop rejects Get-Content reads under ignored directories', async ()
       }
     );
 
-    assert.equal(result.reason, 'finish');
-    assert.equal(result.commands.length, 1);
-    assert.equal(result.commands[0].safe, false);
-    assert.equal(result.commands[0].reason, 'command targets a path ignored by policy');
+    assert.equal(result.toolStats.read.lineReadCalls, 1);
+    assert.equal(result.toolStats.read.lineReadLinesTotal, 6);
+    assert.ok(Number(result.toolStats.read.lineReadTokensTotal) > 0);
   } finally {
     fs.rmSync(repoRoot, { recursive: true, force: true });
   }
@@ -1308,8 +982,8 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
         chatRequests.push(parsed);
         const content = requestCount === 1
           ? JSON.stringify({
-            action: 'repo_rg',
-            command: 'rg -n "planner" src',
+            action: 'git',
+            command: 'git grep -n "planner" src',
           })
           : JSON.stringify({
             action: 'finish',
@@ -1374,7 +1048,7 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockCommandResults: {
-          'rg -n "planner" src': { exitCode: 0, stdout: 'planner hit', stderr: '' },
+          'git grep -n "planner" src': { exitCode: 0, stdout: 'planner hit', stderr: '' },
         },
       }
     );
@@ -1427,8 +1101,8 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
         chatRequests.push(parsed);
         const content = requestCount <= 5
           ? JSON.stringify({
-            action: 'repo_rg',
-            command: 'rg -n "planner" src',
+            action: 'git',
+            command: 'git grep -n "planner" src',
           })
           : JSON.stringify({
             action: 'finish',
@@ -1493,7 +1167,7 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockCommandResults: {
-          'rg -n "planner" src': { exitCode: 0, stdout: 'src\\planner.ts:10: planner hit', stderr: '' },
+          'git grep -n "planner" src': { exitCode: 0, stdout: 'src\\planner.ts:10: planner hit', stderr: '' },
         },
       }
     );
@@ -1527,11 +1201,11 @@ test('runTaskLoop synthesizes final output on terminal max_turns', async () => {
       maxTurns: 1,
       maxInvalidResponses: 3,
       mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"buildPlannerPrompt\\\" src\\\\summary.ts\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"buildPlannerPrompt\\\" src\\\\summary.ts\"}",
         'best-effort answer with evidence',
       ],
       mockCommandResults: {
-        'rg -n "buildPlannerPrompt" src\\summary.ts': {
+        'git grep -n "buildPlannerPrompt" src\\summary.ts': {
           exitCode: 0,
           stdout: '907:function buildPlannerPrompt(options: {',
           stderr: '',
@@ -1689,14 +1363,14 @@ test('runTaskLoop assigns a unique toolCallId pairing tool_start with tool_resul
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"prompt\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"prompt\\\" src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "planner" src': { exitCode: 0, stdout: 'planner hit', stderr: '' },
-        'rg -n "prompt" src': { exitCode: 0, stdout: 'prompt hit', stderr: '' },
+        'git grep -n "planner" src': { exitCode: 0, stdout: 'planner hit', stderr: '' },
+        'git grep -n "prompt" src': { exitCode: 0, stdout: 'prompt hit', stderr: '' },
       },
       onProgress(event: RepoSearchProgressEvent) {
         progressEvents.push(event);

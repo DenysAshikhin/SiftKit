@@ -32,5 +32,5 @@ test('web tool command parser rejects malformed commands without partial capture
   assert.equal(parseWebToolCommand('web_search query="foo'), null);
   assert.equal(parseWebToolCommand('web_search query="foo" extra'), null);
   assert.equal(parseWebToolCommand('web_fetch url=https://example.test'), null);
-  assert.equal(parseWebToolCommand('repo_rg pattern="web_search"'), null);
+  assert.equal(parseWebToolCommand('grep pattern="web_search"'), null);
 });

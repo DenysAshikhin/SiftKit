@@ -103,12 +103,12 @@ test('normalizePresets accepts only typed object overlays', () => {
   const presets = normalizePresets([
     null,
     ['bad'],
-    { id: 'custom', label: ' Custom ', presetKind: 'repo-search', operationMode: 'read-only', allowedTools: ['repo_rg'] },
+    { id: 'custom', label: ' Custom ', presetKind: 'repo-search', operationMode: 'read-only', allowedTools: ['grep'] },
     { id: 'bad-tools', presetKind: 'repo-search', allowedTools: ['missing-tool'] },
   ]);
 
   assert.equal(findPresetById(presets, 'custom')?.label, 'Custom');
-  assert.deepEqual(findPresetById(presets, 'custom')?.allowedTools, ['repo_rg']);
+  assert.deepEqual(findPresetById(presets, 'custom')?.allowedTools, ['grep']);
   assert.deepEqual(findPresetById(presets, 'bad-tools')?.allowedTools, REPO_SEARCH_TOOLS);
 });
 
@@ -205,38 +205,6 @@ test('default operation mode tool policy matches the builtin capability split', 
   assert.deepEqual(getDefaultOperationModeAllowedTools(), {
     summary: ['find_text', 'read_lines', 'json_filter', 'json_get'],
     'read-only': [...REPO_SEARCH_TOOLS],
-    full: [],
-  });
-});
-
-test('preset normalization rewrites legacy repo tool names to canonical native ones', () => {
-  const presets = normalizePresets([
-    {
-      id: 'custom-search',
-      label: 'Custom Search',
-      presetKind: 'repo-search',
-      operationMode: 'read-only',
-      allowedTools: ['repo_get_content', 'repo_get_childitem', 'repo_ls', 'repo_select_string', 'repo_pwd', 'repo_git'],
-      surfaces: ['web'],
-    },
-  ]);
-
-  assert.deepEqual(findPresetById(presets, 'custom-search')?.allowedTools, [
-    'repo_read_file',
-    'repo_list_files',
-    'repo_rg',
-    'repo_git',
-  ]);
-});
-
-test('operation mode tool normalization rewrites legacy repo tool names to canonical native ones', () => {
-  assert.deepEqual(normalizeOperationModeAllowedTools({
-    summary: ['find_text', 'read_lines', 'json_filter'],
-    'read-only': ['repo_get_content', 'repo_get_childitem', 'repo_ls', 'repo_select_string', 'repo_pwd', 'repo_git'],
-    full: [],
-  }), {
-    summary: ['find_text', 'read_lines', 'json_filter', 'json_get'],
-    'read-only': ['repo_read_file', 'repo_list_files', 'repo_rg', 'repo_git'],
     full: [],
   });
 });

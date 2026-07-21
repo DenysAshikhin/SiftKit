@@ -45,18 +45,20 @@ test('buildTaskInitialUserPrompt includes repository file listing when enabled',
   assert.match(prompt, /src\/index\.ts/u);
 });
 
-test('buildTaskSystemPrompt advertises native read and list tools instead of legacy PowerShell read/list commands', () => {
+test('buildTaskSystemPrompt advertises the native tool surface and no shell commands', () => {
   withTempRepo((repoRoot) => {
     const prompt = buildTaskSystemPrompt(repoRoot);
 
-    assert.match(prompt, /repo_read_file/u);
-    assert.match(prompt, /repo_list_files/u);
-    assert.doesNotMatch(prompt, /repo_get_content/u);
-    assert.doesNotMatch(prompt, /repo_get_childitem/u);
-    assert.doesNotMatch(prompt, /repo_select_string/u);
-    assert.doesNotMatch(prompt, /For current directory context: use `pwd`/u);
-    assert.doesNotMatch(prompt, /Get-Content src\\\\summary\.ts/u);
-    assert.doesNotMatch(prompt, /Get-ChildItem src/u);
+    assert.match(prompt, /Tools: grep, find, ls, read, git/u);
+    for (const toolName of ['grep', 'find', 'ls', 'read', 'git']) {
+      assert.match(prompt, new RegExp(`\\{"action":"${toolName}"`, 'u'));
+    }
+    // `git` is the only tool that still takes a command string.
+    assert.doesNotMatch(prompt, /Get-Content/u);
+    assert.doesNotMatch(prompt, /Get-ChildItem/u);
+    assert.doesNotMatch(prompt, /Select-String/u);
+    assert.doesNotMatch(prompt, /\brg\b/u);
+    assert.doesNotMatch(prompt, /repo_[a-z_]+/u);
   });
 });
 
@@ -82,19 +84,14 @@ test('buildTaskSystemPrompt preserves load-bearing planner rules after compressi
     // Output style
     assert.match(prompt, /<=20-line window/u);
 
-    // Command discipline
+    // Tool discipline
     assert.match(prompt, /read-only/u);
-    assert.match(prompt, /PowerShell/u);
     assert.match(prompt, /tiny|small/u); // do-not-tiny-slice rule survives in some form
     assert.match(prompt, /duplicate/iu);
 
-    // Auto-normalization notice (still relevant — engine appends --no-ignore)
-    assert.match(prompt, /--no-ignore/u);
-    assert.match(prompt, /--type tsx/u);
-
-    // Unix bans
-    assert.match(prompt, /head/u);
-    assert.match(prompt, /xargs/u);
+    // Native-arg contract: the non-git tools take structured fields, not shell strings
+    assert.match(prompt, /Shell syntax in tool args/u);
+    assert.match(prompt, /there is no `command` key on them/u);
   });
 });
 
@@ -112,14 +109,14 @@ test('buildTaskSystemPrompt turn-1 directive does not hardcode a "src" path', ()
   withTempRepo((repoRoot) => {
     const prompt = buildTaskSystemPrompt(repoRoot);
 
-    // The turn-1 rg recipe must not blind-guess a top-level "src" folder —
+    // The turn-1 grep recipe must not blind-guess a top-level "src" folder —
     // many repos use apps/runner/src, packages/*/src, etc. The model should
-    // search from CWD with no path so the runtime ignore-policy filters noise.
-    assert.doesNotMatch(prompt, /rg -n "k1\|k2\|k3\|k4\|k5" src/u);
+    // search from the repo root with no path so the ignore policy filters noise.
+    assert.doesNotMatch(prompt, /"k1\|k2\|k3\|k4\|k5"[^\n]*\bsrc\b/u);
 
     // Examples must not reinforce the same "src" bias.
-    assert.doesNotMatch(prompt, /rg -n \\"invokePlannerMode\\" src/u);
-    assert.doesNotMatch(prompt, /"path":"src","glob"/u);
+    assert.doesNotMatch(prompt, /"path":"src"/u);
+    assert.doesNotMatch(prompt, /"path":"src\//u);
 
     // The 5-keyword turn-1 rule itself must survive.
     assert.match(prompt, /Turn 1: pick 5 keywords/u);
@@ -131,18 +128,17 @@ test('buildTaskSystemPrompt illustrative examples do not bias toward "src/" path
   withTempRepo((repoRoot) => {
     const prompt = buildTaskSystemPrompt(repoRoot);
 
-    // Anchor-format example, JSON example for repo_read_file, and finish-output
-    // example all used to start with "src/" or "src\\". Strip that bias so repos
-    // with apps/, packages/, or arbitrary layouts are not implicitly disfavored.
+    // The anchor-format example, the `read` JSON example, and the finish-output
+    // example all used to start with "src/". Strip that bias so repos with apps/,
+    // packages/, or arbitrary layouts are not implicitly disfavored.
     assert.doesNotMatch(prompt, /src\/foo\.ts:45-60/u);
-    assert.doesNotMatch(prompt, /"path":"src\\\\summary\.ts"/u);
     assert.doesNotMatch(prompt, /src\/config\.ts:42/u);
     assert.doesNotMatch(prompt, /src\/summary\.ts:120-135/u);
 
     // The illustrative shapes themselves must still be present (path:line range,
-    // Windows-backslash JSON path, finish-output anchor-bullet format).
+    // repo-relative JSON path, finish-output anchor-bullet format).
     assert.match(prompt, /\bdir\/foo\.ts:45-60\b/u);
-    assert.match(prompt, /"path":"[^"]+\\\\[^"]+\.ts"/u);
+    assert.match(prompt, /"path":"[^"]+\/[^"]+\.ts"/u);
     assert.match(prompt, /:42 — definition/u);
     assert.match(prompt, /:120-135 — call site/u);
   });
@@ -153,11 +149,11 @@ test('buildTaskSystemPrompt includes anti-loop and larger single-file read guida
   withTempRepo((repoRoot) => {
     const prompt = buildTaskSystemPrompt(repoRoot);
     assert.match(prompt, /Anchor-before-read/u);
-    assert.match(prompt, /rg.*anchor|anchor.*rg/iu);
-    assert.match(prompt, /repo_read_file/u);
+    assert.match(prompt, /grep.*anchor|anchor.*grep/iu);
+    assert.match(prompt, /`read`/u);
     assert.match(prompt, /one large window per anchor|larger window/u);
     assert.match(prompt, /never tiny|tiny-slice/u);
-    assert.match(prompt, /Two reads of the same file must have an `rg` search between them/u);
+    assert.match(prompt, /Two reads of the same file must have a grep search between them/u);
     assert.match(prompt, /strengthen the anchor/u);
   });
 });
@@ -165,11 +161,9 @@ test('buildTaskSystemPrompt includes anti-loop and larger single-file read guida
 test('buildTaskSystemPrompt examples use larger reads and anchor-first flow', () => {
   withTempRepo((repoRoot) => {
     const prompt = buildTaskSystemPrompt(repoRoot);
-    assert.doesNotMatch(prompt, /Get-Content src\\\\summary\.ts/u);
-    assert.match(prompt, /repo_list_files/u);
-    assert.match(prompt, /rg -n \\"invokePlannerMode\\"/u);
-    assert.match(prompt, /repo_read_file/u);
-    assert.match(prompt, /"path":"dir\\\\foo\.ts","startLine":861,"endLine":1100/u);
+    assert.match(prompt, /\{"action":"grep","pattern":"invokePlannerMode"\}/u);
+    assert.match(prompt, /\{"action":"find","pattern":"\*\*\/\*\.test\.ts"\}/u);
+    assert.match(prompt, /\{"action":"read","path":"dir\/foo\.ts","offset":861,"limit":240\}/u);
     assert.match(prompt, /tiny-slice/u);
   });
 });
@@ -177,6 +171,6 @@ test('buildTaskSystemPrompt examples use larger reads and anchor-first flow', ()
 test('buildTaskSystemPrompt states ignored paths are auto-filtered by runtime policy', () => {
   withTempRepo((repoRoot) => {
     const prompt = buildTaskSystemPrompt(repoRoot);
-    assert.match(prompt, /Ignored paths are auto-filtered by runtime policy/u);
+    assert.match(prompt, /Ignored paths \(node_modules, dist, \.git, …\) are excluded from grep\/find\/ls automatically\./u);
   });
 });

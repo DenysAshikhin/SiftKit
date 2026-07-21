@@ -382,7 +382,6 @@ export function planRead(
 export function buildReadExecution(
   toolName: string,
   plan: ReadPlan,
-  noteText: string | null,
 ): RepoToolExecution {
   const readFile = {
     commandPath: plan.commandPath,
@@ -398,7 +397,7 @@ export function buildReadExecution(
       requestedCommand: plan.requestedCommand,
       command: plan.requestedCommand,
       exitCode: 0,
-      output: [noteText, plan.noUnreadOutput || ''].filter((part) => String(part || '').trim()).join('\n').trim(),
+      output: String(plan.noUnreadOutput || '').trim(),
       toolType: toolName,
       outputUnit: 'lines',
       readFile,
@@ -416,10 +415,7 @@ export function buildReadExecution(
       plan.effectiveEndLineExclusive - plan.effectiveStartLine,
     ),
     exitCode: 0,
-    output: [noteText, formatNumberedTextBlock(selectedLines, plan.effectiveStartLine)]
-      .filter((part) => String(part || '').trim())
-      .join('\n')
-      .trim(),
+    output: formatNumberedTextBlock(selectedLines, plan.effectiveStartLine).trim(),
     toolType: toolName,
     outputUnit: 'lines',
     readFile,
@@ -710,7 +706,7 @@ export async function executeRepoTool(
     const plan = planRead(args, context.repoRoot, context.ignorePolicy, context.fileReadStateByPath);
     return isFailedReadPlan(plan)
       ? failure('read', plan.command, plan.reason)
-      : buildReadExecution('read', plan, null);
+      : buildReadExecution('read', plan);
   }
   if (toolName === 'grep') {
     return executeGrep(args, context);

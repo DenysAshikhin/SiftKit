@@ -11,7 +11,7 @@ export const PRESET = {
 export const CUSTOM_PRESET = {
   id: 'deep-dive', label: 'Deep Dive', description: 'Custom repo-search preset',
   presetKind: 'repo-search', operationMode: 'read-only', executionFamily: 'repo-search',
-  promptPrefix: '', allowedTools: ['read_lines', 'repo_rg'], surfaces: ['cli', 'web'],
+  promptPrefix: '', allowedTools: ['read_lines', 'grep'], surfaces: ['cli', 'web'],
   useForSummary: false, builtin: false, deletable: true, includeAgentsMd: false,
   includeRepoFileListing: false, repoRootRequired: false, maxTurns: null,
 } satisfies DashboardPreset;

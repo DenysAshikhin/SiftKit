@@ -31,30 +31,18 @@ export class ReadWindowGovernor {
   /** Records the range actually returned to the model, after output fitting may have truncated it. */
   recordNativeRead(options: {
     pathKey: string;
-    turn: number;
-    requestedStart: number;
-    requestedEndExclusive: number;
     returnedStart: number;
     returnedEndExclusive: number;
   }): ReadExecutionMetrics {
     const fileReadState = getOrCreateFileReadState(this.fileReadStateByPath, options.pathKey);
     const returnedRange: ReadRange = { start: options.returnedStart, end: options.returnedEndExclusive };
     const linesRead = Math.max(0, returnedRange.end - returnedRange.start);
-    const overlapLines = overlapWithRanges(fileReadState.mergedExecutedRanges, returnedRange);
+    const overlapLines = overlapWithRanges(fileReadState.mergedReturnedRanges, returnedRange);
     const newLinesCovered = Math.max(0, linesRead - overlapLines);
     fileReadState.totalLinesRead += linesRead;
     fileReadState.overlapLines += overlapLines;
     fileReadState.uniqueLinesRead += newLinesCovered;
-    fileReadState.mergedExecutedRanges = mergeRange(fileReadState.mergedExecutedRanges, returnedRange);
     fileReadState.mergedReturnedRanges = mergeRange(fileReadState.mergedReturnedRanges, returnedRange);
-    fileReadState.windows.push({
-      turn: options.turn,
-      requestedStart: options.requestedStart,
-      requestedEnd: options.requestedEndExclusive,
-      executedStart: returnedRange.start,
-      executedEnd: returnedRange.end,
-      adjusted: false,
-    });
     return { overlapLines, newLinesCovered, cumulativeUniqueLines: fileReadState.uniqueLinesRead };
   }
 

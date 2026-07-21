@@ -576,13 +576,13 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
         maxTurns: 2,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"dashboard\\\" .\"}",
-          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"/dashboard/chat/sessions\\\" siftKitStatus/index.js\"}",
+          "{\"action\":\"git\",\"command\":\"git grep -n \\\"dashboard\\\" .\"}",
+          "{\"action\":\"git\",\"command\":\"git grep -n \\\"/dashboard/chat/sessions\\\" siftKitStatus/index.js\"}",
           '{"action":"finish","output":"Plan: update dashboard/src/App.tsx and siftKitStatus/index.js; include a risks section for endpoint lock contention and stale repo-root paths."}',
         ],
         mockCommandResults: {
-          'rg -n "dashboard" .': { exitCode: 0, stdout: 'dashboard/src/App.tsx:1:import { useEffect }', stderr: '' },
-          'rg -n "/dashboard/chat/sessions" siftKitStatus/index.js': { exitCode: 0, stdout: 'siftKitStatus/index.js:3068:    if (req.method === \'POST\' && pathname === \'/dashboard/chat/sessions\') {', stderr: '' },
+          'git grep -n "dashboard" .': { exitCode: 0, stdout: 'dashboard/src/App.tsx:1:import { useEffect }', stderr: '' },
+          'git grep -n "/dashboard/chat/sessions" siftKitStatus/index.js': { exitCode: 0, stdout: 'siftKitStatus/index.js:3068:    if (req.method === \'POST\' && pathname === \'/dashboard/chat/sessions\') {', stderr: '' },
         },
       }),
     });
@@ -964,11 +964,11 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"test\\\" .\"}",
+          "{\"action\":\"git\",\"command\":\"git grep -n \\\"test\\\" .\"}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
-          'rg -n "test" .': { exitCode: 0, stdout: 'tests/example.test.ts:1:test()', stderr: '' },
+          'git grep -n "test" .': { exitCode: 0, stdout: 'tests/example.test.ts:1:test()', stderr: '' },
         },
       }),
     });
@@ -977,8 +977,8 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
     const planToolResult = planSse.events.find((event) => event.event === 'tool_result');
     assert.equal(Number.isFinite(Number(planToolStart?.payload?.promptTokenCount)), true);
     assert.equal(Number.isFinite(Number(planToolResult?.payload?.promptTokenCount)), true);
-    assert.equal(planToolStart?.payload?.command, 'rg -n "test" .');
-    assert.equal(planToolResult?.payload?.command, 'rg -n "test" .');
+    assert.equal(planToolStart?.payload?.command, 'git grep -n "test" .');
+    assert.equal(planToolResult?.payload?.command, 'git grep -n "test" .');
     assert.equal(/--no-ignore|--ignore-case|--glob/u.test(String(planToolStart?.payload?.command || '')), false);
     assert.equal(/--no-ignore|--ignore-case|--glob/u.test(String(planToolResult?.payload?.command || '')), false);
     assert.equal(typeof planToolStart?.payload?.toolCallId, 'string');
@@ -1005,11 +1005,11 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"test\\\" .\"}",
+          "{\"action\":\"git\",\"command\":\"git grep -n \\\"test\\\" .\"}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
-          'rg -n "test" .': { exitCode: 0, stdout: 'tests/example.test.ts:1:test()', stderr: '' },
+          'git grep -n "test" .': { exitCode: 0, stdout: 'tests/example.test.ts:1:test()', stderr: '' },
         },
       }),
     });
@@ -1018,7 +1018,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
     const repoToolResult = repoSse.events.find((event) => event.event === 'tool_result');
     assert.equal(Number.isFinite(Number(repoToolStart?.payload?.promptTokenCount)), true);
     assert.equal(Number.isFinite(Number(repoToolResult?.payload?.promptTokenCount)), true);
-    assert.equal(repoToolStart?.payload?.command, 'rg -n "test" .');
+    assert.equal(repoToolStart?.payload?.command, 'git grep -n "test" .');
     assert.equal(/--no-ignore|--ignore-case|--glob/u.test(String(repoToolStart?.payload?.command || '')), false);
     assert.equal(typeof repoToolStart?.payload?.toolCallId, 'string');
     assert.equal(String(repoToolStart?.payload?.toolCallId || '').length > 0, true);
@@ -1784,11 +1784,11 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"x\\\" src\"}",
+          "{\"action\":\"git\",\"command\":\"git grep -n \\\"x\\\" src\"}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
-          'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
+          'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
         },
       }),
     });
@@ -1858,11 +1858,11 @@ test('model routes execute in FIFO order across mixed request kinds', async () =
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"x\\\" src\"}",
+          "{\"action\":\"git\",\"command\":\"git grep -n \\\"x\\\" src\"}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
-          'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
+          'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
         },
       }),
     });
@@ -1954,11 +1954,11 @@ test('queued model request is dropped when client disconnects before lock grant'
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"x\\\" src\"}",
+          "{\"action\":\"git\",\"command\":\"git grep -n \\\"x\\\" src\"}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
-          'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
+          'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
         },
       }),
     });
@@ -2041,11 +2041,11 @@ test('invalid model request is rejected without waiting for active model work', 
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"x\\\" src\"}",
+          "{\"action\":\"git\",\"command\":\"git grep -n \\\"x\\\" src\"}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
-          'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
+          'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
         },
       }),
     });
@@ -2191,22 +2191,22 @@ test('chat completion replays prior tool evidence without hidden system context'
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"name\\\" package.json\"}",
+          "{\"action\":\"git\",\"command\":\"git grep -n \\\"name\\\" package.json\"}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
-          'rg -n "name" package.json': { exitCode: 0, stdout: 'package.json:2:  "name": "siftkit"', stderr: '' },
+          'git grep -n "name" package.json': { exitCode: 0, stdout: 'package.json:2:  "name": "siftkit"', stderr: '' },
         },
       }),
     });
     assert.equal(planMessage.statusCode, 200);
     const planSession = d(planMessage.body.session);
     const planToolMessage = (asObjectArray(planSession.messages)).find((message) => message.kind === 'assistant_tool_call');
-    assert.match(String(planToolMessage?.toolCallCommand || ''), /rg -n "name" package\.json/u);
+    assert.match(String(planToolMessage?.toolCallCommand || ''), /git grep -n "name" package\.json/u);
     assert.match(String(planToolMessage?.toolCallOutput || ''), /"name": "siftkit"/u);
     const persistedPlanSession = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
     const persistedToolMessage = (asObjectArray(d(persistedPlanSession.body.session).messages)).find((message) => message.kind === 'assistant_tool_call');
-    assert.match(String(persistedToolMessage?.toolCallCommand || ''), /rg -n "name" package\.json/u);
+    assert.match(String(persistedToolMessage?.toolCallCommand || ''), /git grep -n "name" package\.json/u);
     assert.match(String(persistedToolMessage?.toolCallOutput || ''), /"name": "siftkit"/u);
 
     const chatReply = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
@@ -2243,7 +2243,7 @@ test('chat completion replays prior tool evidence without hidden system context'
     assert.equal(asObjectArray(captured.messages).some((message) =>
       message.role === 'assistant'
       && Array.isArray(message.tool_calls)
-      && String(asObject(asObject(asArray(message.tool_calls)[0]).function).arguments || '').includes('rg -n \\"name\\" package.json')
+      && String(asObject(asObject(asArray(message.tool_calls)[0]).function).arguments || '').includes('git grep -n \\"name\\" package.json')
     ), true);
     assert.equal(asObjectArray(captured.messages).some((message) =>
       message.role === 'tool'
@@ -2336,11 +2336,11 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"name\\\" package.json\"}",
+          "{\"action\":\"git\",\"command\":\"git grep -n \\\"name\\\" package.json\"}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
-          'rg -n "name" package.json': { exitCode: 0, stdout: 'package.json:2:  "name": "siftkit"', stderr: '' },
+          'git grep -n "name" package.json': { exitCode: 0, stdout: 'package.json:2:  "name": "siftkit"', stderr: '' },
         },
       }),
     });
@@ -2349,7 +2349,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
     const repoSession = d(repoDonePayload.session);
     const toolMessage = (asObjectArray(repoSession.messages)).find((message) => message.kind === 'assistant_tool_call');
     assert.equal(typeof toolMessage?.id, 'string');
-    assert.match(String(toolMessage?.toolCallCommand || ''), /^rg -n "name" package\.json/u);
+    assert.match(String(toolMessage?.toolCallCommand || ''), /^git grep -n "name" package\.json/u);
     assert.equal(String(toolMessage?.toolCallOutput || '').includes('"name": "siftkit"'), true);
     const runId = String(toolMessage?.sourceRunId || '');
     const storedCommandText = String(toolMessage?.toolCallCommand || '');
@@ -2388,7 +2388,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
     const captured = asObject(parseJsonValueText(capturedChatRawBody));
     assert.equal(Array.isArray(captured.messages), true);
     const capturedText = (asObjectArray(captured.messages)).map((message) => String(message.content || '')).join('\n');
-    assert.equal(capturedText.includes('rg -n "name" package.json'), false);
+    assert.equal(capturedText.includes('git grep -n "name" package.json'), false);
     assert.equal(capturedText.includes('"name": "siftkit"'), false);
   } finally {
     await new Promise<void>((resolve, reject) => {

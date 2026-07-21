@@ -8,7 +8,7 @@ import { z } from '../src/lib/zod.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { JsonObjectSchema, type JsonObject, type JsonSerializable } from '../src/lib/json-types.js';
 import { asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
-import { evaluateCommandSafety } from '../src/repo-search/command-safety.js';
+
 import { isTransientProviderError, retryProviderRequest } from '../src/lib/provider-helpers.js';
 import {
   runTaskLoop,
@@ -156,12 +156,12 @@ test('runTaskLoop repairs malformed planner payloads before executing tool calls
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"repo_rg","command":"rg -n \\"planner\\" src"',
+        '{"action":"git","command":"git grep -n \\"planner\\" src"',
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "planner" src': {
+        'git grep -n "planner" src': {
           exitCode: 0,
           stdout: 'src/repo-search/engine.ts: planner anchor',
         },
@@ -184,8 +184,8 @@ test('runTaskLoop repairs malformed planner payloads before executing tool calls
 
   assert.equal(result.reason, 'finish');
   assert.equal(result.invalidResponses, 0);
-  assert.equal(String(assistantToolCall?.function?.name || ''), 'repo_rg');
-  assert.equal(JSON.parse(String(assistantToolCall?.function?.arguments || '{}')).command, 'rg -n "planner" src');
+  assert.equal(String(assistantToolCall?.function?.name || ''), 'git');
+  assert.equal(JSON.parse(String(assistantToolCall?.function?.arguments || '{}')).command, 'git grep -n "planner" src');
   assert.match(String(toolMessage?.content || ''), /planner anchor/u);
   assert.equal(userMessages.length, 0);
 });
@@ -260,7 +260,7 @@ test('runTaskLoop cuts off runaway streamed tool JSON and reprompts once', { tim
         `data: ${JSON.stringify({
           choices: [{
             delta: {
-              content: '{"action":"tool_batch","calls":[{"action":"repo_rg","command":"rg -n \\"planner\\" src"}]}'
+              content: '{"action":"tool_batch","calls":[{"action":"git","command":"git grep -n \\"planner\\" src"}]}'
                 + '}'.repeat(220),
             },
           }],
@@ -363,12 +363,12 @@ test('runTaskLoop truncates oversized rg output to the largest fitting prefix', 
       minToolCallsBeforeFinish: 0,
       totalContextTokens,
       mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "planner" src': {
+        'git grep -n "planner" src': {
           exitCode: 0,
           stdout: oversizedOutput,
           stderr: '',
@@ -393,7 +393,7 @@ test('runTaskLoop truncates oversized rg output to the largest fitting prefix', 
   assert.equal(result.reason, 'finish');
 });
 
-test('runTaskLoop advances overlapping repo_read_file calls to the next unread span', async () => {
+test('runTaskLoop advances overlapping read calls to the next unread span', async () => {
   const repoRoot = createTempRepoRoot();
   const targetPath = path.join(repoRoot, 'target.ts');
   fs.writeFileSync(
@@ -415,10 +415,10 @@ test('runTaskLoop advances overlapping repo_read_file calls to the next unread s
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       totalContextTokens: 20000,
-      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['repo_read_file']),
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
       mockResponses: [
-        "{\"action\":\"repo_read_file\",\"path\":\"target.ts\",\"startLine\":1,\"endLine\":5}",
-        "{\"action\":\"repo_read_file\",\"path\":\"target.ts\",\"startLine\":1,\"endLine\":5}",
+        "{\"action\":\"read\",\"path\":\"target.ts\",\"offset\":1,\"limit\":5}",
+        "{\"action\":\"read\",\"path\":\"target.ts\",\"offset\":1,\"limit\":5}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -440,7 +440,7 @@ test('runTaskLoop advances overlapping repo_read_file calls to the next unread s
   assert.doesNotMatch(String(commandEvents[1]?.insertedResultText || ''), /^1: line-1/mu);
 });
 
-test('runTaskLoop replays effective repo_read_file range after native unread expansion', async () => {
+test('runTaskLoop replays effective read range after native unread expansion', async () => {
   const repoRoot = createTempRepoRoot();
   fs.mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
   fs.writeFileSync(
@@ -462,10 +462,10 @@ test('runTaskLoop replays effective repo_read_file range after native unread exp
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       totalContextTokens: 20000,
-      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['repo_read_file']),
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
       mockResponses: [
-        '{"action":"repo_read_file","path":"src/big-file.ts","startLine":1,"endLine":80}',
-        '{"action":"repo_read_file","path":"src/big-file.ts","startLine":40,"endLine":90}',
+        '{"action":"read","path":"src/big-file.ts","offset":1,"limit":80}',
+        '{"action":"read","path":"src/big-file.ts","offset":40,"limit":51}',
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -487,16 +487,15 @@ test('runTaskLoop replays effective repo_read_file range after native unread exp
   const replayedAssistantArgs = JSON.parse(String(replayedAssistantAction?.function?.arguments || '{}'));
 
   assert.equal(result.reason, 'finish');
-  assert.match(String(commandEvents[1]?.requestedCommand || ''), /startLine=40 endLine=90/u);
-  assert.match(String(commandEvents[1]?.executedCommand || ''), /startLine=81 endLine=260/u);
-  assert.equal(commandEvents[1]?.lineReadAdjusted, false);
-  assert.equal(String(replayedAssistantAction?.function?.name || ''), 'repo_read_file');
+  assert.match(String(commandEvents[1]?.requestedCommand || ''), /offset=40 limit=51/u);
+  assert.match(String(commandEvents[1]?.executedCommand || ''), /offset=81 limit=180/u);
+  assert.equal(String(replayedAssistantAction?.function?.name || ''), 'read');
   assert.equal(String(replayedAssistantArgs?.path || ''), 'src/big-file.ts');
-  assert.equal(Number(replayedAssistantArgs?.startLine), 81);
-  assert.equal(Number(replayedAssistantArgs?.endLine), 260);
+  assert.equal(Number(replayedAssistantArgs?.offset), 81);
+  assert.equal(Number(replayedAssistantArgs?.limit), 180);
 });
 
-test('runTaskLoop replays only returned repo_read_file range after fitting oversized read', async () => {
+test('runTaskLoop replays only the returned read range after fitting an oversized read', async () => {
   const repoRoot = createTempRepoRoot();
   fs.mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
   fs.writeFileSync(
@@ -518,15 +517,15 @@ test('runTaskLoop replays only returned repo_read_file range after fitting overs
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       totalContextTokens: 20000,
-      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['repo_rg', 'repo_read_file']),
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['git', 'read']),
       mockResponses: [
-        '{"action":"repo_rg","command":"rg -n \\"needle\\" src"}',
-        '{"action":"repo_read_file","path":"src/big.ts","startLine":300,"endLine":900}',
+        '{"action":"git","command":"git grep -n \\"needle\\" src"}',
+        '{"action":"read","path":"src/big.ts","offset":300,"limit":601}',
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "needle" src': { exitCode: 0, stdout: 'src/big.ts:300:needle', stderr: '', delayMs: 5 },
+        'git grep -n "needle" src': { exitCode: 0, stdout: 'src/big.ts:300:needle', stderr: '', delayMs: 5 },
       },
       logger: {
         path: 'memory',
@@ -541,8 +540,8 @@ test('runTaskLoop replays only returned repo_read_file range after fitting overs
   const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
   assert.equal(commandEvents.length, 2);
   assert.equal(result.commands[1]?.safe, true);
-  assert.match(String(commandEvents[1]?.requestedCommand || ''), /startLine=300 endLine=900/u);
-  assert.match(String(commandEvents[1]?.executedCommand || ''), /startLine=300 endLine=\d+/u);
+  assert.match(String(commandEvents[1]?.requestedCommand || ''), /offset=300 limit=601/u);
+  assert.match(String(commandEvents[1]?.executedCommand || ''), /offset=300 limit=\d+/u);
   assert.notEqual(String(commandEvents[1]?.requestedCommand || ''), String(commandEvents[1]?.executedCommand || ''));
   assert.match(String(commandEvents[1]?.insertedResultText || ''), /\d+ lines truncated due to per-tool context limit\./u);
 
@@ -553,12 +552,12 @@ test('runTaskLoop replays only returned repo_read_file range after fitting overs
   const toolCalls = asObjectArray(assistant?.tool_calls);
   const fn = asObject(toolCalls[0]?.function);
   const args = asObject(parseJsonValueText(String(fn.arguments || '{}')));
-  assert.equal(String(fn.name || ''), 'repo_read_file');
-  assert.equal(args.startLine, 300);
-  assert.equal(Number(args.endLine) < 900, true);
+  assert.equal(String(fn.name || ''), 'read');
+  assert.equal(args.offset, 300);
+  assert.equal(Number(args.limit) < 601, true);
 });
 
-test('runTaskLoop bounds repo_read_file unread span at the next returned range', async () => {
+test('runTaskLoop bounds the unread read span at the next returned range', async () => {
   const repoRoot = createTempRepoRoot();
   fs.writeFileSync(
     path.join(repoRoot, 'target.ts'),
@@ -579,10 +578,10 @@ test('runTaskLoop bounds repo_read_file unread span at the next returned range',
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       totalContextTokens: 20000,
-      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['repo_read_file']),
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
       mockResponses: [
-        "{\"action\":\"repo_read_file\",\"path\":\"target.ts\",\"startLine\":11,\"endLine\":15}",
-        "{\"action\":\"repo_read_file\",\"path\":\"target.ts\",\"startLine\":1,\"endLine\":20}",
+        "{\"action\":\"read\",\"path\":\"target.ts\",\"offset\":11,\"limit\":5}",
+        "{\"action\":\"read\",\"path\":\"target.ts\",\"offset\":1,\"limit\":20}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -602,7 +601,7 @@ test('runTaskLoop bounds repo_read_file unread span at the next returned range',
   assert.doesNotMatch(String(commandEvents[1]?.insertedResultText || ''), /^11: line-11/mu);
 });
 
-test('runTaskLoop reports when repo_read_file has no unread lines left', async () => {
+test('runTaskLoop reports when read has no unread lines left', async () => {
   const repoRoot = createTempRepoRoot();
   fs.writeFileSync(path.join(repoRoot, 'target.ts'), ['line-1', 'line-2', 'line-3'].join('\n'), 'utf8');
   const events: JsonObject[] = [];
@@ -619,10 +618,10 @@ test('runTaskLoop reports when repo_read_file has no unread lines left', async (
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       totalContextTokens: 20000,
-      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['repo_read_file']),
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
       mockResponses: [
-        "{\"action\":\"repo_read_file\",\"path\":\"target.ts\",\"startLine\":1,\"endLine\":3}",
-        "{\"action\":\"repo_read_file\",\"path\":\"target.ts\",\"startLine\":1,\"endLine\":3}",
+        "{\"action\":\"read\",\"path\":\"target.ts\",\"offset\":1,\"limit\":3}",
+        "{\"action\":\"read\",\"path\":\"target.ts\",\"offset\":1,\"limit\":3}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -640,7 +639,7 @@ test('runTaskLoop reports when repo_read_file has no unread lines left', async (
   assert.match(String(commandEvents[1]?.insertedResultText || ''), /No unread lines remain for target\.ts\./u);
 });
 
-test('runTaskLoop truncates oversized repo_list_files output with omitted file count', async () => {
+test('runTaskLoop truncates oversized find output with omitted file count', async () => {
   const repoRoot = createTempRepoRoot();
   for (let index = 1; index <= 160; index += 1) {
     fs.writeFileSync(path.join(repoRoot, `file-${String(index).padStart(3, '0')}.ts`), 'export {};\n', 'utf8');
@@ -660,9 +659,9 @@ test('runTaskLoop truncates oversized repo_list_files output with omitted file c
       minToolCallsBeforeFinish: 0,
       totalContextTokens: 7000,
       includeRepoFileListing: false,
-      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['repo_list_files']),
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['find']),
       mockResponses: [
-        "{\"action\":\"repo_list_files\",\"path\":\".\",\"recurse\":true}",
+        "{\"action\":\"find\",\"pattern\":\"*.ts\",\"path\":\".\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -681,8 +680,13 @@ test('runTaskLoop truncates oversized repo_list_files output with omitted file c
   assert.match(String(commandEvent?.insertedResultText || ''), /\d+ files truncated due to per-tool context limit\./u);
 });
 
-test('runTaskLoop preserves raw line-read stats when oversized Get-Content output is replaced', async () => {
-  const oversizedLines = Array.from({ length: 300 }, (_, index) => `line-${index + 1} ${'x'.repeat(40)}`).join('\n');
+test('runTaskLoop records line-read stats for the lines a fitted read actually returned', async () => {
+  const repoRoot = createTempRepoRoot();
+  fs.writeFileSync(
+    path.join(repoRoot, 'big.ts'),
+    Array.from({ length: 300 }, (_, index) => `line-${index + 1} ${'x'.repeat(40)}`).join('\n'),
+    'utf8',
+  );
   const result = await runTaskLoop(
     {
       id: 'task-oversized-line-read-stats',
@@ -691,29 +695,30 @@ test('runTaskLoop preserves raw line-read stats when oversized Get-Content outpu
     },
     {
       ...MOCK_LOOP_DEFAULTS,
+      repoRoot,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       totalContextTokens: 20000,
+      includeRepoFileListing: false,
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
       mockResponses: [
-        "{\"action\":\"repo_get_content\",\"command\":\"Get-Content src\\\\summary.ts | Select-Object -First 300\"}",
+        '{"action":"read","path":"big.ts","offset":1,"limit":300}',
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
-      mockCommandResults: {
-        'Get-Content src\\summary.ts | Select-Object -First 300': {
-          exitCode: 0,
-          stdout: oversizedLines,
-          stderr: '',
-        },
-      },
+      mockCommandResults: {},
     }
   );
 
-  assert.equal(result.toolStats['get-content'].lineReadCalls, 1);
-  assert.equal(result.toolStats['get-content'].lineReadLinesTotal, 300);
-  assert.ok(
-    Number(result.toolStats['get-content'].lineReadTokensTotal) > Number(result.toolStats['get-content'].outputTokensTotal)
+  // The read asked for 300 lines but per-tool fitting truncated it; stats must count
+  // only the lines the model actually saw, so the read-overlap ledger stays truthful.
+  assert.equal(result.toolStats.read.lineReadCalls, 1);
+  assert.equal(Number(result.toolStats.read.lineReadLinesTotal) > 0, true);
+  assert.equal(Number(result.toolStats.read.lineReadLinesTotal) < 300, true);
+  assert.equal(
+    Number(result.readOverlapSummary?.totalLinesRead),
+    Number(result.toolStats.read.lineReadLinesTotal),
   );
 });
 
@@ -748,12 +753,12 @@ test('runTaskLoop does not print a red console warning when successful output is
         minToolCallsBeforeFinish: 0,
         totalContextTokens,
         mockResponses: [
-          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
+          "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
           '{"action":"finish","output":"done"}',
           '{"verdict":"pass","reason":"supported"}',
         ],
         mockCommandResults: {
-          'rg -n "planner" src': {
+          'git grep -n "planner" src': {
             exitCode: 0,
             stdout: 'x'.repeat(10000),
             stderr: '',
@@ -940,26 +945,26 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       totalContextTokens: 7200,
-      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['repo_rg']),
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['git']),
       mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" lib\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" test\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" docs\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" scripts\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" examples\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" fixtures\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" lib\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" test\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" docs\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" scripts\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" examples\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" fixtures\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "planner" src': { exitCode: 0, stdout: Array.from({ length: 500 }, (_, index) => `a-${index}`).join(' '), stderr: '' },
-        'rg -n "planner" lib': { exitCode: 0, stdout: Array.from({ length: 500 }, (_, index) => `b-${index}`).join(' '), stderr: '' },
-        'rg -n "planner" test': { exitCode: 0, stdout: Array.from({ length: 500 }, (_, index) => `c-${index}`).join(' '), stderr: '' },
-        'rg -n "planner" docs': { exitCode: 0, stdout: Array.from({ length: 500 }, (_, index) => `d-${index}`).join(' '), stderr: '' },
-        'rg -n "planner" scripts': { exitCode: 0, stdout: Array.from({ length: 500 }, (_, index) => `e-${index}`).join(' '), stderr: '' },
-        'rg -n "planner" examples': { exitCode: 0, stdout: Array.from({ length: 320 }, (_, index) => `f-${index}`).join(' '), stderr: '' },
-        'rg -n "planner" fixtures': { exitCode: 0, stdout: Array.from({ length: 320 }, (_, index) => `g-${index}`).join(' '), stderr: '' },
+        'git grep -n "planner" src': { exitCode: 0, stdout: Array.from({ length: 500 }, (_, index) => `a-${index}`).join(' '), stderr: '' },
+        'git grep -n "planner" lib': { exitCode: 0, stdout: Array.from({ length: 500 }, (_, index) => `b-${index}`).join(' '), stderr: '' },
+        'git grep -n "planner" test': { exitCode: 0, stdout: Array.from({ length: 500 }, (_, index) => `c-${index}`).join(' '), stderr: '' },
+        'git grep -n "planner" docs': { exitCode: 0, stdout: Array.from({ length: 500 }, (_, index) => `d-${index}`).join(' '), stderr: '' },
+        'git grep -n "planner" scripts': { exitCode: 0, stdout: Array.from({ length: 500 }, (_, index) => `e-${index}`).join(' '), stderr: '' },
+        'git grep -n "planner" examples': { exitCode: 0, stdout: Array.from({ length: 320 }, (_, index) => `f-${index}`).join(' '), stderr: '' },
+        'git grep -n "planner" fixtures': { exitCode: 0, stdout: Array.from({ length: 320 }, (_, index) => `g-${index}`).join(' '), stderr: '' },
       },
       logger: {
         path: 'memory',
@@ -1004,16 +1009,16 @@ test('runTaskLoop increases per-tool cap as tool-call progress grows', async () 
       minToolCallsBeforeFinish: 0,
       totalContextTokens,
       mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"summary\\\" src\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"repo\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"summary\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"repo\\\" src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "planner" src': { exitCode: 0, stdout: 'planner hit', stderr: '' },
-        'rg -n "summary" src': { exitCode: 0, stdout: 'summary hit', stderr: '' },
-        'rg -n "repo" src': { exitCode: 0, stdout: 'repo hit', stderr: '' },
+        'git grep -n "planner" src': { exitCode: 0, stdout: 'planner hit', stderr: '' },
+        'git grep -n "summary" src': { exitCode: 0, stdout: 'summary hit', stderr: '' },
+        'git grep -n "repo" src': { exitCode: 0, stdout: 'repo hit', stderr: '' },
       },
       logger: {
         path: 'memory',
@@ -1052,14 +1057,14 @@ test('runTaskLoop fits tool output that exceeds remaining token allowance', asyn
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       totalContextTokens,
-      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['repo_rg']),
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['git']),
       mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "planner" src': {
+        'git grep -n "planner" src': {
           exitCode: 0,
           stdout: 'x'.repeat(10000),
           stderr: '',
@@ -1100,20 +1105,20 @@ test('runTaskLoop subtracts accepted same-turn tool results from remaining allow
         JSON.stringify({
           action: 'tool_batch',
           calls: [
-            { action: 'repo_rg', command: 'rg -n "planner prompt" src' },
-            { action: 'repo_rg', command: 'rg -n "prompt budget" src' },
+            { action: 'git', command: 'git grep -n "planner prompt" src' },
+            { action: 'git', command: 'git grep -n "prompt budget" src' },
           ],
         }),
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "planner prompt" src': {
+        'git grep -n "planner prompt" src': {
           exitCode: 0,
           stdout: 'src/repo-search/prompts.ts:228:repo-search planner prompt',
           stderr: '',
         },
-        'rg -n "prompt budget" src': {
+        'git grep -n "prompt budget" src': {
           exitCode: 0,
           stdout: 'src/repo-search/prompt-budget.ts:1:prompt budget helper',
           stderr: '',
@@ -1227,29 +1232,29 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is on'
 test('runTaskLoop does not emit follow-up finish events after many reasoning-off tool calls', async () => {
   const events: JsonObject[] = [];
   const mockResponses = [
-    "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"hit-1\\\" src\"}",
-    "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"hit-2\\\" src\"}",
-    "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"hit-3\\\" src\"}",
-    "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"hit-4\\\" src\"}",
-    "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"hit-5\\\" src\"}",
-    "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"hit-6\\\" src\"}",
-    "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"hit-7\\\" src\"}",
-    "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"hit-8\\\" src\"}",
-    "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"hit-9\\\" src\"}",
-    "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"hit-10\\\" src\"}",
+    "{\"action\":\"git\",\"command\":\"git grep -n \\\"hit-1\\\" src\"}",
+    "{\"action\":\"git\",\"command\":\"git grep -n \\\"hit-2\\\" src\"}",
+    "{\"action\":\"git\",\"command\":\"git grep -n \\\"hit-3\\\" src\"}",
+    "{\"action\":\"git\",\"command\":\"git grep -n \\\"hit-4\\\" src\"}",
+    "{\"action\":\"git\",\"command\":\"git grep -n \\\"hit-5\\\" src\"}",
+    "{\"action\":\"git\",\"command\":\"git grep -n \\\"hit-6\\\" src\"}",
+    "{\"action\":\"git\",\"command\":\"git grep -n \\\"hit-7\\\" src\"}",
+    "{\"action\":\"git\",\"command\":\"git grep -n \\\"hit-8\\\" src\"}",
+    "{\"action\":\"git\",\"command\":\"git grep -n \\\"hit-9\\\" src\"}",
+    "{\"action\":\"git\",\"command\":\"git grep -n \\\"hit-10\\\" src\"}",
     '{"action":"finish","output":"src\\\\target.ts:10"}',
   ];
   const mockCommandResults = {
-    'rg -n "hit-1" src': { exitCode: 0, stdout: 'src\\target.ts:1: hit-1', stderr: '' },
-    'rg -n "hit-2" src': { exitCode: 0, stdout: 'src\\target.ts:2: hit-2', stderr: '' },
-    'rg -n "hit-3" src': { exitCode: 0, stdout: 'src\\target.ts:3: hit-3', stderr: '' },
-    'rg -n "hit-4" src': { exitCode: 0, stdout: 'src\\target.ts:4: hit-4', stderr: '' },
-    'rg -n "hit-5" src': { exitCode: 0, stdout: 'src\\target.ts:5: hit-5', stderr: '' },
-    'rg -n "hit-6" src': { exitCode: 0, stdout: 'src\\target.ts:6: hit-6', stderr: '' },
-    'rg -n "hit-7" src': { exitCode: 0, stdout: 'src\\target.ts:7: hit-7', stderr: '' },
-    'rg -n "hit-8" src': { exitCode: 0, stdout: 'src\\target.ts:8: hit-8', stderr: '' },
-    'rg -n "hit-9" src': { exitCode: 0, stdout: 'src\\target.ts:9: hit-9', stderr: '' },
-    'rg -n "hit-10" src': { exitCode: 0, stdout: 'src\\target.ts:10: hit-10', stderr: '' },
+    'git grep -n "hit-1" src': { exitCode: 0, stdout: 'src\\target.ts:1: hit-1', stderr: '' },
+    'git grep -n "hit-2" src': { exitCode: 0, stdout: 'src\\target.ts:2: hit-2', stderr: '' },
+    'git grep -n "hit-3" src': { exitCode: 0, stdout: 'src\\target.ts:3: hit-3', stderr: '' },
+    'git grep -n "hit-4" src': { exitCode: 0, stdout: 'src\\target.ts:4: hit-4', stderr: '' },
+    'git grep -n "hit-5" src': { exitCode: 0, stdout: 'src\\target.ts:5: hit-5', stderr: '' },
+    'git grep -n "hit-6" src': { exitCode: 0, stdout: 'src\\target.ts:6: hit-6', stderr: '' },
+    'git grep -n "hit-7" src': { exitCode: 0, stdout: 'src\\target.ts:7: hit-7', stderr: '' },
+    'git grep -n "hit-8" src': { exitCode: 0, stdout: 'src\\target.ts:8: hit-8', stderr: '' },
+    'git grep -n "hit-9" src': { exitCode: 0, stdout: 'src\\target.ts:9: hit-9', stderr: '' },
+    'git grep -n "hit-10" src': { exitCode: 0, stdout: 'src\\target.ts:10: hit-10', stderr: '' },
   };
   const result = await runTaskLoop(
     {
@@ -1313,15 +1318,15 @@ test('runTaskLoop keeps reasoning disabled across max-turn exhaustion when runti
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner2\\\" src\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner3\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner2\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner3\\\" src\"}",
         'Synthesized best-effort answer.',
       ],
       mockCommandResults: {
-        'rg -n "planner" src': { exitCode: 0, stdout: 'planner', stderr: '' },
-        'rg -n "planner2" src': { exitCode: 0, stdout: 'planner2', stderr: '' },
-        'rg -n "planner3" src': { exitCode: 0, stdout: 'planner3', stderr: '' },
+        'git grep -n "planner" src': { exitCode: 0, stdout: 'planner', stderr: '' },
+        'git grep -n "planner2" src': { exitCode: 0, stdout: 'planner2', stderr: '' },
+        'git grep -n "planner3" src': { exitCode: 0, stdout: 'planner3', stderr: '' },
       },
       logger: {
         path: 'memory',
@@ -1368,7 +1373,7 @@ test('runTaskLoop retries transient provider network failures via shared retry h
       const toolIndex = requestCount <= 4 ? requestCount : null;
       const content = toolIndex === null
         ? '{"action":"finish","output":"done"}'
-        : `{"action":"repo_rg","command":"rg -n \\"q${toolIndex}\\" src"}`;
+        : `{"action":"git","command":"git grep -n \\"q${toolIndex}\\" src"}`;
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({
         choices: [
@@ -1401,10 +1406,10 @@ test('runTaskLoop retries transient provider network failures via shared retry h
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockCommandResults: {
-          'rg -n "q1" src': { exitCode: 0, stdout: 'q1', stderr: '' },
-          'rg -n "q2" src': { exitCode: 0, stdout: 'q2', stderr: '' },
-          'rg -n "q3" src': { exitCode: 0, stdout: 'q3', stderr: '' },
-          'rg -n "q4" src': { exitCode: 0, stdout: 'q4', stderr: '' },
+          'git grep -n "q1" src': { exitCode: 0, stdout: 'q1', stderr: '' },
+          'git grep -n "q2" src': { exitCode: 0, stdout: 'q2', stderr: '' },
+          'git grep -n "q3" src': { exitCode: 0, stdout: 'q3', stderr: '' },
+          'git grep -n "q4" src': { exitCode: 0, stdout: 'q4', stderr: '' },
         },
         logger: {
           path: 'memory',
@@ -1561,13 +1566,13 @@ test('runTaskLoop blocks exact duplicate commands with explicit error message', 
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "planner" src': { exitCode: 0, stdout: 'src\\planner.ts:10: planner hit', stderr: '' },
+        'git grep -n "planner" src': { exitCode: 0, stdout: 'src\\planner.ts:10: planner hit', stderr: '' },
       },
     }
   );
@@ -1594,21 +1599,16 @@ test('runTaskLoop blocks semantic duplicate repo-search commands with explicit e
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"4319\\\" apps/runner/src --glob \\\"!**/__tests__/**\\\" --glob \\\"!**/*.test.*\\\"\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"4319\\\" apps/runner/src --glob \\\"!**/__tests__/**\\\" --glob \\\"!**/*.test.*\\\" --glob \\\"!**/*.spec.*\\\" --glob \\\"!**/*.d.ts\\\"\"}",
-        "{\"action\":\"repo_get_content\",\"command\":\"Get-Content apps/runner/src/server.ts | Select-Object -Skip 195 -First 20\"}",
+        '{"action":"git","command":"git log -n 5 --oneline"}',
+        // Same command, only respaced and recased — a different raw key, the same fingerprint.
+        '{"action":"git","command":"git LOG  -n   5 --oneline"}',
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "4319" apps/runner/src --glob "!**/__tests__/**" --glob "!**/*.test.*"': {
+        'git log -n 5 --oneline': {
           exitCode: 0,
-          stdout: 'apps/runner/src\\server.ts:203:  const port = options.port ?? Number(process.env.RUNNER_PORT ?? "4319");',
-          stderr: '',
-        },
-        'Get-Content apps/runner/src/server.ts | Select-Object -Skip 195 -First 20': {
-          exitCode: 0,
-          stdout: '  const port = options.port ?? Number(process.env.RUNNER_PORT ?? "4319");',
+          stdout: 'abc1234 add runner port default',
           stderr: '',
         },
       },
@@ -1616,417 +1616,61 @@ test('runTaskLoop blocks semantic duplicate repo-search commands with explicit e
   );
 
   assert.equal(result.reason, 'finish');
-  assert.equal(result.commands.length, 3);
+  assert.equal(result.commands.length, 2);
   assert.equal(result.commands[1].safe, false);
   assert.equal(String(result.commands[1].reason || ''), 'semantic duplicate command');
   assert.equal(result.finalOutput, 'done');
 });
 
-test('runTaskLoop keeps raw rewrite notes in logs but inserts compact repo-search results into the prompt', async () => {
-  const events: JsonObject[] = [];
-  const result = await runTaskLoop(
-    {
-      id: 'task-compact-repo-search-result',
-      question: 'Find runner port.',
-      signals: ['done'],
-    },
-    {
-      ...MOCK_LOOP_DEFAULTS,
-      maxTurns: 2,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"4319\\\" apps/runner/src\"}",
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
-      ],
-      mockCommandResults: {
-        'rg -n "4319" apps/runner/src': {
-          exitCode: 0,
-          stdout: 'apps/runner/src\\server.ts:203:  const port = options.port ?? Number(process.env.RUNNER_PORT ?? "4319");',
-          stderr: '',
-        },
-      },
-      logger: {
-        path: 'memory',
-        write(event: Record<string, JsonSerializable>) {
-          events.push(parseLoggedEvent(event));
-        },
-      },
-    }
-  );
-
-  const commandEvent = events.find((event) => event.kind === 'turn_command_result');
-  assert.match(String(commandEvent?.output || ''), /^note:/mu);
-  assert.doesNotMatch(String(commandEvent?.insertedResultText || ''), /^note:/mu);
-  assert.doesNotMatch(String(commandEvent?.insertedResultText || ''), /^exit_code=0$/mu);
-  assert.match(String(commandEvent?.insertedResultText || ''), /apps\/runner\/src\\server\.ts:203/u);
-  assert.equal(result.reason, 'finish');
-});
-
-test('runTaskLoop keeps routine normalized repo_rg flags out of model replay while audit keeps effective command', async () => {
-  const events: JsonObject[] = [];
-  const result = await runTaskLoop(
-    {
-      id: 'task-hide-normalized-rg-command-from-model',
-      question: 'Find sendStatusUpdate.',
-      signals: ['done'],
-    },
-    {
-      ...MOCK_LOOP_DEFAULTS,
-      maxTurns: 2,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"sendStatusUpdate\\\" src\"}",
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
-      ],
-      mockCommandResults: {
-        'rg -n "sendStatusUpdate" src': {
-          exitCode: 1,
-          stdout: '',
-          stderr: '',
-        },
-      },
-      logger: {
-        path: 'memory',
-        write(event: Record<string, JsonSerializable>) {
-          events.push(parseLoggedEvent(event));
-        },
-      },
-    }
-  );
-
-  const commandEvent = events.find((event) => event.kind === 'turn_command_result');
-  assert.equal(String(commandEvent?.requestedCommand || ''), 'rg -n "sendStatusUpdate" src');
-  assert.match(String(commandEvent?.executedCommand || ''), /rg -n "sendStatusUpdate" src --no-ignore/u);
-  assert.match(String(commandEvent?.output || ''), /^note:/mu);
-  assert.doesNotMatch(String(commandEvent?.insertedResultText || ''), /^note:/mu);
-  assert.equal(String(commandEvent?.insertedResultText || '').includes('note: added --no-ignore'), false);
-  assert.match(String(commandEvent?.insertedResultText || ''), /(?:^|\n)exit_code=1$/u);
-  const turn2NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 2);
-  const turn2AssistantMessages = plannerLogMessages(turn2NewMessages).filter(
-    (message) => message.role === 'assistant',
-  );
-  const replayedAssistantAction = turn2AssistantMessages[turn2AssistantMessages.length - 1]?.tool_calls?.[0];
-  const replayedAssistantArgs = JSON.parse(String(replayedAssistantAction?.function?.arguments || '{}'));
-  assert.equal(String(replayedAssistantArgs?.command || ''), 'rg -n "sendStatusUpdate" src');
-  assert.doesNotMatch(String(replayedAssistantArgs?.command || ''), /--no-ignore/u);
-  assert.doesNotMatch(String(replayedAssistantArgs?.command || ''), /--glob/u);
-  assert.equal(result.reason, 'finish');
-});
-
-test('runTaskLoop widens repeated Get-Content reads on the same file and logs requested vs adjusted window', async () => {
-  const events: JsonObject[] = [];
-  const result = await runTaskLoop(
-    {
-      id: 'task-widen-repeated-get-content',
-      question: 'Find runner port.',
-      signals: ['done'],
-    },
-    {
-      ...MOCK_LOOP_DEFAULTS,
-      maxTurns: 5,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      mockResponses: [
-        "{\"action\":\"repo_get_content\",\"command\":\"Get-Content src\\\\summary.ts | Select-Object -First 5\"}",
-        "{\"action\":\"repo_get_content\",\"command\":\"Get-Content src\\\\summary.ts | Select-Object -Skip 0 -First 5\"}",
-        "{\"action\":\"repo_get_content\",\"command\":\"Get-Content src\\\\other.ts | Select-Object -First 5\"}",
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
-      ],
-      mockCommandResults: {
-        'Get-Content src\\summary.ts | Select-Object -First 5': {
-          exitCode: 0,
-          stdout: 'a\nb\nc\nd\ne',
-          stderr: '',
-        },
-        'Get-Content src\\summary.ts | Select-Object -Skip 0 -First ': {
-          exitCode: 0,
-          stdout: 'line\n'.repeat(600),
-          stderr: '',
-        },
-        'Get-Content src\\other.ts | Select-Object -First 5': {
-          exitCode: 0,
-          stdout: 'x\ny\nz',
-          stderr: '',
-        },
-      },
-      logger: {
-        path: 'memory',
-        write(event: Record<string, JsonSerializable>) {
-          events.push(parseLoggedEvent(event));
-        },
-      },
-    }
-  );
-
-  const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
-  assert.equal(commandEvents.length, 3);
-  assert.equal(commandEvents[0]?.lineReadAdjusted, false);
-  assert.equal(commandEvents[1]?.lineReadAdjusted, true);
-  assert.equal(commandEvents[2]?.lineReadAdjusted, false);
-  assert.match(String(commandEvents[1]?.requestedCommand || ''), /Select-Object -Skip 0 -First 5/u);
-  assert.match(String(commandEvents[1]?.executedCommand || ''), /Select-Object -Skip \d+ -First \d+/u);
-  assert.equal(Number(commandEvents[1]?.lineReadRequestedStart), 0);
-  assert.equal(Number(commandEvents[1]?.lineReadAdjustedStart) >= Number(commandEvents[0]?.lineReadExecutedEnd), true);
-  assert.equal(Number(commandEvents[1]?.lineReadRequestedEnd), 5);
-  assert.equal(Number(commandEvents[1]?.lineReadAdjustedEnd) % 10, 0);
-  assert.equal(Number(commandEvents[1]?.lineReadAdjustedEnd) > Number(commandEvents[1]?.lineReadRequestedEnd), true);
-  assert.equal(Number(commandEvents[1]?.lineReadOverlapLines), 0);
-  assert.equal(Number(commandEvents[1]?.lineReadNewLinesCovered) > 0, true);
-  assert.equal(Number(commandEvents[1]?.lineReadExecutedStart), Number(commandEvents[1]?.lineReadAdjustedStart));
-  assert.equal(Number(commandEvents[1]?.lineReadExecutedEnd), Number(commandEvents[1]?.lineReadAdjustedEnd));
-  assert.match(String(commandEvents[1]?.output || ''), /^note: repeated file read window adjusted/mu);
-  assert.doesNotMatch(String(commandEvents[1]?.insertedResultText || ''), /^note:/mu);
-  const turn3NewMessages = events.find((event) => event.kind === 'turn_new_messages' && event.turn === 3);
-  const turn3AssistantMessages = plannerLogMessages(turn3NewMessages).filter(
-    (message) => message.role === 'assistant',
-  );
-  assert.equal(turn3AssistantMessages.length > 0, true);
-  const replayedAssistantAction = turn3AssistantMessages[turn3AssistantMessages.length - 1]?.tool_calls?.[0];
-  assert.equal(String(replayedAssistantAction?.function?.name || ''), 'repo_get_content');
-  const replayedAssistantArgs = JSON.parse(String(replayedAssistantAction?.function?.arguments || '{}'));
-  assert.equal(String(replayedAssistantArgs?.command || ''), String(commandEvents[1]?.executedCommand || ''));
-  assert.notEqual(String(replayedAssistantArgs?.command || ''), String(commandEvents[1]?.requestedCommand || ''));
-  const turn3ToolMessages = plannerLogMessages(turn3NewMessages).filter(
-    (message) => message.role === 'tool',
-  );
-  const replayedToolResultForPrompt = String(turn3ToolMessages[turn3ToolMessages.length - 1]?.content || '');
-  assert.doesNotMatch(replayedToolResultForPrompt, /requested start=/u);
-  assert.doesNotMatch(replayedToolResultForPrompt, /adjusted start=/u);
-  assert.equal(result.reason, 'finish');
-});
-
-test('runTaskLoop records adjusted Get-Content coverage from fitted returned lines only', async () => {
-  const events: JsonObject[] = [];
-  const result = await runTaskLoop(
-    {
-      id: 'task-fit-adjusted-get-content',
-      question: 'Read a large adjusted file window.',
-      signals: ['done'],
-    },
-    {
-      ...MOCK_LOOP_DEFAULTS,
-      maxTurns: 4,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      totalContextTokens: 20000,
-      mockResponses: [
-        '{"action":"repo_get_content","command":"Get-Content src\\\\big.ts | Select-Object -First 10"}',
-        '{"action":"repo_get_content","command":"Get-Content src\\\\big.ts | Select-Object -Skip 0 -First 900"}',
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
-      ],
-      mockCommandResults: {
-        'Get-Content src\\big.ts | Select-Object -First 10': {
-          exitCode: 0,
-          stdout: Array.from({ length: 10 }, (_, index) => `${index + 1}: a`).join('\n'),
-          stderr: '',
-        },
-        'Get-Content src\\big.ts | Select-Object -Skip ': {
-          exitCode: 0,
-          stdout: Array.from({ length: 900 }, (_, index) => `${index + 11}: ${'b'.repeat(120)}`).join('\n'),
-          stderr: '',
-        },
-      },
-      logger: {
-        path: 'memory',
-        write(event: Record<string, JsonSerializable>) {
-          events.push(parseLoggedEvent(event));
-        },
-      },
-    }
-  );
-
-  assert.equal(result.reason, 'finish');
-  const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
-  const returnedLineCount = String(commandEvents[1]?.insertedResultText || '')
-    .split(/\r?\n/u)
-    .filter((line) => /^\d+:/u.test(line)).length;
-  assert.equal(commandEvents[1]?.lineReadAdjusted, true);
-  assert.match(String(commandEvents[1]?.insertedResultText || ''), /\d+ lines truncated due to per-tool context limit\./u);
-  assert.equal(Number(commandEvents[1]?.lineReadNewLinesCovered), returnedLineCount);
-  assert.equal(Number(commandEvents[1]?.lineReadCumulativeUniqueLines), 10 + returnedLineCount);
-});
-
-test('runTaskLoop clamps adjusted repeated Get-Content skip to non-negative values', async () => {
-  const events: JsonObject[] = [];
-  const result = await runTaskLoop(
-    {
-      id: 'task-widen-repeated-negative-skip',
-      question: 'Find runner port.',
-      signals: ['done'],
-    },
-    {
-      ...MOCK_LOOP_DEFAULTS,
-      maxTurns: 4,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      mockResponses: [
-        "{\"action\":\"repo_get_content\",\"command\":\"Get-Content src\\\\summary.ts | Select-Object -First 2\"}",
-        "{\"action\":\"repo_get_content\",\"command\":\"Get-Content src\\\\summary.ts | Select-Object -Skip -5 -First 2\"}",
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
-      ],
-      mockCommandResults: {
-        'Get-Content src\\summary.ts | Select-Object -First 2': {
-          exitCode: 0,
-          stdout: 'a\nb',
-          stderr: '',
-        },
-        'Get-Content src\\summary.ts | Select-Object -Skip 0 -First 340': {
-          exitCode: 0,
-          stdout: 'line\n'.repeat(340),
-          stderr: '',
-        },
-      },
-      logger: {
-        path: 'memory',
-        write(event: Record<string, JsonSerializable>) {
-          events.push(parseLoggedEvent(event));
-        },
-      },
-    }
-  );
-
-  const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
-  assert.equal(commandEvents.length, 2);
-  assert.equal(commandEvents[1]?.lineReadAdjusted, true);
-  assert.match(String(commandEvents[1]?.executedCommand || ''), /-Skip \d+ -First \d+/u);
-  assert.doesNotMatch(String(commandEvents[1]?.executedCommand || ''), /-Skip -/u);
-  assert.equal(Number(commandEvents[1]?.lineReadAdjustedStart) >= Number(commandEvents[0]?.lineReadExecutedEnd), true);
-  assert.equal(Number(commandEvents[1]?.lineReadAdjustedEnd) % 10, 0);
-  assert.equal(Number(commandEvents[1]?.lineReadAdjustedEnd) > Number(commandEvents[1]?.lineReadRequestedEnd), true);
-  assert.equal(Number(commandEvents[1]?.lineReadOverlapLines), 0);
-  assert.equal(Number(commandEvents[1]?.lineReadExecutedStart), Number(commandEvents[1]?.lineReadAdjustedStart));
-  assert.equal(Number(commandEvents[1]?.lineReadExecutedEnd), Number(commandEvents[1]?.lineReadAdjustedEnd));
-  assert.equal(result.reason, 'finish');
-});
-
-test('runTaskLoop forces repeated backward same-file reads to non-overlapping forward windows', async () => {
-  const events: JsonObject[] = [];
-  const result = await runTaskLoop(
-    {
-      id: 'task-widen-repeated-backward-window',
-      question: 'Find runner port.',
-      signals: ['done'],
-    },
-    {
-      ...MOCK_LOOP_DEFAULTS,
-      maxTurns: 4,
-      maxInvalidResponses: 2,
-      minToolCallsBeforeFinish: 0,
-      mockResponses: [
-        "{\"action\":\"repo_get_content\",\"command\":\"Get-Content src\\\\summary.ts | Select-Object -Skip 500 -First 40\"}",
-        "{\"action\":\"repo_get_content\",\"command\":\"Get-Content src\\\\summary.ts | Select-Object -Skip 450 -First 40\"}",
-        '{"action":"finish","output":"done"}',
-        '{"verdict":"pass","reason":"supported"}',
-      ],
-      mockCommandResults: {
-        'Get-Content src\\summary.ts | Select-Object -Skip 500 -First 40': {
-          exitCode: 0,
-          stdout: 'line\n'.repeat(40),
-          stderr: '',
-        },
-        'Get-Content src\\summary.ts | Select-Object -Skip ': {
-          exitCode: 0,
-          stdout: 'line\n'.repeat(400),
-          stderr: '',
-        },
-      },
-      logger: {
-        path: 'memory',
-        write(event: Record<string, JsonSerializable>) {
-          events.push(parseLoggedEvent(event));
-        },
-      },
-    }
-  );
-
-  const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
-  assert.equal(commandEvents.length, 2);
-  assert.equal(commandEvents[1]?.lineReadAdjusted, true);
-  assert.equal(Number(commandEvents[1]?.lineReadExecutedStart) >= Number(commandEvents[0]?.lineReadExecutedEnd), true);
-  assert.equal(Number(commandEvents[1]?.lineReadOverlapLines), 0);
-  assert.equal(result.reason, 'finish');
-});
-
 test('runTaskLoop tracks per-file overlap telemetry and isolates histories across files', async () => {
-  const events: JsonObject[] = [];
+  const repoRoot = createTempRepoRoot();
+  for (const fileName of ['a.ts', 'b.ts']) {
+    fs.writeFileSync(
+      path.join(repoRoot, fileName),
+      Array.from({ length: 200 }, (_, index) => `${fileName}-line-${index + 1}`).join('\n'),
+      'utf8',
+    );
+  }
   const result = await runTaskLoop(
     {
       id: 'task-line-read-overlap-metrics',
-      question: 'Find runner port.',
+      question: 'Read two files.',
       signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
+      repoRoot,
       maxTurns: 6,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
+      totalContextTokens: 20000,
+      includeRepoFileListing: false,
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
       mockResponses: [
-        "{\"action\":\"repo_get_content\",\"command\":\"Get-Content src\\\\a.ts | Select-Object -Skip 100 -First 20\"}",
-        "{\"action\":\"repo_get_content\",\"command\":\"Get-Content src\\\\b.ts | Select-Object -Skip 50 -First 20\"}",
-        "{\"action\":\"repo_get_content\",\"command\":\"Get-Content src\\\\a.ts | Select-Object -Skip 110 -First 20\"}",
+        '{"action":"read","path":"a.ts","offset":100,"limit":20}',
+        '{"action":"read","path":"b.ts","offset":50,"limit":20}',
+        '{"action":"read","path":"a.ts","offset":110,"limit":20}',
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
-      mockCommandResults: {
-        'Get-Content src\\a.ts | Select-Object -Skip 100 -First 20': {
-          exitCode: 0,
-          stdout: 'line\n'.repeat(20),
-          stderr: '',
-        },
-        'Get-Content src\\b.ts | Select-Object -Skip 50 -First 20': {
-          exitCode: 0,
-          stdout: 'line\n'.repeat(20),
-          stderr: '',
-        },
-        'Get-Content src\\a.ts | Select-Object -Skip ': {
-          exitCode: 0,
-          stdout: 'line\n'.repeat(400),
-          stderr: '',
-        },
-      },
-      logger: {
-        path: 'memory',
-        write(event: Record<string, JsonSerializable>) {
-          events.push(parseLoggedEvent(event));
-        },
-      },
+      mockCommandResults: {},
     }
   );
 
-  const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
-  assert.equal(commandEvents.length, 3);
-  for (const commandEvent of commandEvents) {
-    assert.equal(typeof commandEvent?.lineReadRequestedStart, 'number');
-    assert.equal(typeof commandEvent?.lineReadRequestedEnd, 'number');
-    assert.equal(typeof commandEvent?.lineReadExecutedStart, 'number');
-    assert.equal(typeof commandEvent?.lineReadExecutedEnd, 'number');
-    assert.equal(typeof commandEvent?.lineReadOverlapLines, 'number');
-    assert.equal(typeof commandEvent?.lineReadNewLinesCovered, 'number');
-    assert.equal(typeof commandEvent?.lineReadCumulativeUniqueLines, 'number');
-  }
-
-  assert.equal(Number(commandEvents[2]?.lineReadExecutedStart) >= Number(commandEvents[0]?.lineReadExecutedEnd), true);
-  assert.equal(Number(commandEvents[2]?.lineReadOverlapLines), 0);
-
-  const overlapSummary = result.readOverlapSummary;
-  assert.equal(typeof overlapSummary?.totalLinesRead, 'number');
-  assert.equal(typeof overlapSummary?.totalUniqueLinesRead, 'number');
-  assert.equal(typeof overlapSummary?.totalOverlapLines, 'number');
-  assert.equal(Number(overlapSummary?.totalLinesRead) >= Number(overlapSummary?.totalUniqueLinesRead), true);
-  assert.equal(
-    Number(overlapSummary?.totalOverlapLines),
-    Number(overlapSummary?.totalLinesRead) - Number(overlapSummary?.totalUniqueLinesRead)
-  );
-  assert.equal(Number(overlapSummary?.totalOverlapLines), 0);
-  assert.equal(Array.isArray(overlapSummary?.byFile), true);
   assert.equal(result.reason, 'finish');
+  const overlapSummary = result.readOverlapSummary;
+  assert.deepEqual(overlapSummary?.byFile.map((entry) => entry.pathKey), ['a.ts', 'b.ts']);
+  // The third read overlaps a.ts lines 110-119, but planRead advances past ranges
+  // already returned, so nothing is read twice.
+  assert.equal(Number(overlapSummary?.totalOverlapLines), 0);
+  assert.equal(
+    Number(overlapSummary?.totalLinesRead),
+    Number(overlapSummary?.totalUniqueLinesRead),
+  );
+  // b.ts keeps its own history: one 20-line window, untouched by either a.ts read.
+  const bFile = overlapSummary?.byFile.find((entry) => entry.pathKey === 'b.ts');
+  assert.equal(Number(bFile?.totalLinesRead), 20);
+  assert.equal(Number(bFile?.overlapLines), 0);
 });
 
 test('runTaskLoop does not compact different commands that happen to return the same evidence', async () => {
@@ -2043,18 +1687,18 @@ test('runTaskLoop does not compact different commands that happen to return the 
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"alpha\\\" src\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"beta\\\" src\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"gamma\\\" src\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"delta\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"alpha\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"beta\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"gamma\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"delta\\\" src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "alpha" src': { exitCode: 0, stdout: 'src\\app.ts:10: same evidence', stderr: '' },
-        'rg -n "beta" src': { exitCode: 0, stdout: 'src\\app.ts:10: same evidence', stderr: '' },
-        'rg -n "gamma" src': { exitCode: 0, stdout: 'src\\app.ts:10: same evidence', stderr: '' },
-        'rg -n "delta" src': { exitCode: 0, stdout: 'src\\app.ts:10: same evidence', stderr: '' },
+        'git grep -n "alpha" src': { exitCode: 0, stdout: 'src\\app.ts:10: same evidence', stderr: '' },
+        'git grep -n "beta" src': { exitCode: 0, stdout: 'src\\app.ts:10: same evidence', stderr: '' },
+        'git grep -n "gamma" src': { exitCode: 0, stdout: 'src\\app.ts:10: same evidence', stderr: '' },
+        'git grep -n "delta" src': { exitCode: 0, stdout: 'src\\app.ts:10: same evidence', stderr: '' },
       },
       logger: {
         path: 'memory',
@@ -2080,11 +1724,11 @@ test('runTaskLoop forces finish mode after ten zero-output commands', async () =
   const mockResponses: string[] = [];
   const mockCommandResults: Record<string, { exitCode: number; stdout: string; stderr: string }> = {};
   for (let index = 1; index <= 10; index += 1) {
-    const command = `rg -n q${index} src`;
-    mockResponses.push(`{"action":"repo_rg","command":"${command}"}`);
+    const command = `git grep -n q${index} src`;
+    mockResponses.push(`{"action":"git","command":"${command}"}`);
     mockCommandResults[command] = { exitCode: 0, stdout: '', stderr: '' };
   }
-  mockResponses.push("{\"action\":\"repo_rg\",\"command\":\"rg -n forced src\"}");
+  mockResponses.push("{\"action\":\"git\",\"command\":\"git grep -n forced src\"}");
   mockResponses.push('{"action":"finish","output":"forced conclusion"}');
   const result = await runTaskLoop(
     {
@@ -2139,20 +1783,20 @@ test('runTaskLoop enables thinking on every tool-call turn when runtime reasonin
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"a\\\" src\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"b\\\" src\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"c\\\" src\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"d\\\" src\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"e\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"a\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"b\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"c\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"d\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"e\\\" src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'rg -n "a" src': { exitCode: 0, stdout: 'a', stderr: '' },
-        'rg -n "b" src': { exitCode: 0, stdout: 'b', stderr: '' },
-        'rg -n "c" src': { exitCode: 0, stdout: 'c', stderr: '' },
-        'rg -n "d" src': { exitCode: 0, stdout: 'd', stderr: '' },
-        'rg -n "e" src': { exitCode: 0, stdout: 'e', stderr: '' },
+        'git grep -n "a" src': { exitCode: 0, stdout: 'a', stderr: '' },
+        'git grep -n "b" src': { exitCode: 0, stdout: 'b', stderr: '' },
+        'git grep -n "c" src': { exitCode: 0, stdout: 'c', stderr: '' },
+        'git grep -n "d" src': { exitCode: 0, stdout: 'd', stderr: '' },
+        'git grep -n "e" src': { exitCode: 0, stdout: 'e', stderr: '' },
       },
       logger: {
         path: 'memory',
@@ -2196,13 +1840,13 @@ test('runTaskLoop disables thinking on every tool-call turn when runtime reasoni
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"a\\\" src\"}",
-        "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"b\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"a\\\" src\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"b\\\" src\"}",
         '{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
-        'rg -n "a" src': { exitCode: 0, stdout: 'a', stderr: '' },
-        'rg -n "b" src': { exitCode: 0, stdout: 'b', stderr: '' },
+        'git grep -n "a" src': { exitCode: 0, stdout: 'a', stderr: '' },
+        'git grep -n "b" src': { exitCode: 0, stdout: 'b', stderr: '' },
       },
       logger: {
         path: 'memory',
@@ -2287,13 +1931,13 @@ test('runTaskLoop records real planner turn per command and per-turn thinking', 
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '<think>plan step a</think>{"action":"repo_rg","command":"rg -n \\"a\\" src"}',
-        '<think>plan step b</think>{"action":"repo_rg","command":"rg -n \\"b\\" src"}',
+        '<think>plan step a</think>{"action":"git","command":"git grep -n \\"a\\" src"}',
+        '<think>plan step b</think>{"action":"git","command":"git grep -n \\"b\\" src"}',
         '<think>final reasoning</think>{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
-        'rg -n "a" src': { exitCode: 0, stdout: 'a', stderr: '' },
-        'rg -n "b" src': { exitCode: 0, stdout: 'b', stderr: '' },
+        'git grep -n "a" src': { exitCode: 0, stdout: 'a', stderr: '' },
+        'git grep -n "b" src': { exitCode: 0, stdout: 'b', stderr: '' },
       },
     }
   );
@@ -2329,13 +1973,13 @@ test('runTaskLoop keeps only latest planner thinking when per-step thinking is d
         },
       }),
       mockResponses: [
-        '<think>plan step a</think>{"action":"repo_rg","command":"rg -n \\"a\\" src"}',
-        '<think>plan step b</think>{"action":"repo_rg","command":"rg -n \\"b\\" src"}',
+        '<think>plan step a</think>{"action":"git","command":"git grep -n \\"a\\" src"}',
+        '<think>plan step b</think>{"action":"git","command":"git grep -n \\"b\\" src"}',
         '<think>final reasoning</think>{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
-        'rg -n "a" src': { exitCode: 0, stdout: 'a', stderr: '' },
-        'rg -n "b" src': { exitCode: 0, stdout: 'b', stderr: '' },
+        'git grep -n "a" src': { exitCode: 0, stdout: 'a', stderr: '' },
+        'git grep -n "b" src': { exitCode: 0, stdout: 'b', stderr: '' },
       },
     }
   );
@@ -2352,12 +1996,12 @@ test('runTaskLoop sets turn on a duplicate-rejected command push', async () => {
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"repo_rg","command":"rg -n \\"planner\\" src"}',
-        '{"action":"repo_rg","command":"rg -n \\"planner\\" src"}',
+        '{"action":"git","command":"git grep -n \\"planner\\" src"}',
+        '{"action":"git","command":"git grep -n \\"planner\\" src"}',
         '{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
-        'rg -n "planner" src': { exitCode: 0, stdout: 'hit', stderr: '' },
+        'git grep -n "planner" src': { exitCode: 0, stdout: 'hit', stderr: '' },
       },
     }
   );

@@ -29,7 +29,7 @@ import type {
 test('agent loop action parser parses repo-search and summary planner actions explicitly', () => {
   const parser = new AgentLoopActionParser();
 
-  const repo = parser.parseRepoSearchAction('{"action":"finish","output":"done"}', ['repo_rg']);
+  const repo = parser.parseRepoSearchAction('{"action":"finish","output":"done"}', ['grep']);
   const summary = parser.parseSummaryPlannerAction('{"action":"finish","classification":"summary","output":"done"}');
 
   assert.equal(repo.kind, 'finish');
@@ -43,8 +43,8 @@ test('agent loop action parser expands tool batches into explicit tool actions',
   const parser = new AgentLoopActionParser();
 
   const actions = parser.parseRepoSearchActions(
-    '{"action":"tool_batch","calls":[{"action":"repo_rg","command":"rg -n \\"AgentLoop\\" src"},{"action":"repo_read_file","path":"src/x.ts"}]}',
-    ['repo_rg', 'repo_read_file'],
+    '{"action":"tool_batch","calls":[{"action":"grep","pattern":"AgentLoop"},{"action":"read","path":"src/x.ts"}]}',
+    ['grep', 'read'],
   );
 
   assert.deepEqual(actions.map((action) => action.kind), ['tool', 'tool']);
@@ -55,7 +55,7 @@ test('agent loop action parser expands tool batches into explicit tool actions',
   if (firstAction?.kind !== 'tool' || secondAction?.kind !== 'tool') {
     throw new Error('expected tool actions');
   }
-  assert.equal(firstAction.toolName, 'repo_rg');
+  assert.equal(firstAction.toolName, 'grep');
   assert.equal(secondAction.args.path, 'src/x.ts');
 });
 
@@ -261,8 +261,8 @@ test('agent loop action parser covers single-tool repo and summary batches', () 
   const parser = new AgentLoopActionParser();
 
   const repoTool = parser.parseRepoSearchAction(
-    '{"action":"repo_read_file","path":"src/agent-loop/agent-loop.ts"}',
-    ['repo_read_file'],
+    '{"action":"read","path":"src/agent-loop/agent-loop.ts"}',
+    ['read'],
   );
   const summaryTool = parser.parseSummaryPlannerAction('{"action":"find_text","query":"needle"}');
   const summaryBatch = parser.parseSummaryPlannerActions(
@@ -271,7 +271,7 @@ test('agent loop action parser covers single-tool repo and summary batches', () 
 
   assert.equal(repoTool.kind, 'tool');
   assert.equal(repoTool.callId, 'call_1');
-  assert.equal(repoTool.toolName, 'repo_read_file');
+  assert.equal(repoTool.toolName, 'read');
   assert.equal(repoTool.args.path, 'src/agent-loop/agent-loop.ts');
   if (summaryTool.kind !== 'tool') {
     throw new Error('expected summary action to be a tool');

@@ -95,7 +95,7 @@ test('session lane shows a streaming indicator for the active busy session', () 
 test('a running tool message renders a ToolCallCard with spinner', () => {
   const markup = render({
     chatBusy: true,
-    liveMessages: [msg({ id: 'tool', kind: 'assistant_tool_call', toolCallCommand: 'repo_rg "x"', toolCallStatus: 'running' })],
+    liveMessages: [msg({ id: 'tool', kind: 'assistant_tool_call', toolCallCommand: 'grep "x"', toolCallStatus: 'running' })],
   });
   assert.match(markup, /class="tcall"/);
   assert.match(markup, /class="sp"/);

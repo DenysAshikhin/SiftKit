@@ -7,13 +7,10 @@ function recordRead(
   governor: ReadWindowGovernor,
   start: number,
   endExclusive: number,
-  options: { returnedEndExclusive?: number; turn?: number; pathKey?: string } = {},
+  options: { returnedEndExclusive?: number; pathKey?: string } = {},
 ) {
   return governor.recordNativeRead({
     pathKey: options.pathKey ?? 'src/a.ts',
-    turn: options.turn ?? 1,
-    requestedStart: start,
-    requestedEndExclusive: endExclusive,
     returnedStart: start,
     returnedEndExclusive: options.returnedEndExclusive ?? endExclusive,
   });
@@ -42,7 +39,7 @@ test('a first read counts every line as unique with no overlap', () => {
 test('a disjoint follow-up read stays overlap-free', () => {
   const governor = new ReadWindowGovernor();
   recordRead(governor, 1, 51);
-  const metrics = recordRead(governor, 51, 101, { turn: 2 });
+  const metrics = recordRead(governor, 51, 101);
   assert.equal(metrics.overlapLines, 0);
   assert.equal(metrics.newLinesCovered, 50);
   assert.equal(metrics.cumulativeUniqueLines, 100);
@@ -52,7 +49,7 @@ test('a disjoint follow-up read stays overlap-free', () => {
 test('a re-read of covered lines is counted as overlap, not new coverage', () => {
   const governor = new ReadWindowGovernor();
   recordRead(governor, 1, 51);
-  const metrics = recordRead(governor, 26, 76, { turn: 2 });
+  const metrics = recordRead(governor, 26, 76);
   assert.equal(metrics.overlapLines, 25);
   assert.equal(metrics.newLinesCovered, 25);
   assert.equal(metrics.cumulativeUniqueLines, 75);
@@ -85,7 +82,7 @@ test('read state is tracked per file', () => {
 test('returned ranges are exposed so planRead can skip them', () => {
   const governor = new ReadWindowGovernor();
   recordRead(governor, 1, 11);
-  recordRead(governor, 21, 31, { turn: 2 });
+  recordRead(governor, 21, 31);
   assert.deepEqual(governor.stateMap.get('src/a.ts')?.mergedReturnedRanges, [
     { start: 1, end: 11 },
     { start: 21, end: 31 },

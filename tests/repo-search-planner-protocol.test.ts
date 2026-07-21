@@ -34,26 +34,26 @@ test('ModelJson parses repo-search tool batches', () => {
   const action = ModelJson.parseRepoSearchPlannerAction(JSON.stringify({
     action: 'tool_batch',
     calls: [
-      { action: 'repo_rg', command: 'rg -n "plan" src' },
-      { action: 'repo_rg', command: 'rg -n "repo-search" src' },
+      { action: 'grep', pattern: 'plan' },
+      { action: 'grep', pattern: 'repo-search' },
     ],
   }), { allowedToolNames: getRepoSearchToolNamesForParsing() });
 
   assert.deepEqual(action, {
     action: 'tool_batch',
     tool_calls: [
-      { tool_name: 'repo_rg', args: { command: 'rg -n "plan" src' } },
-      { tool_name: 'repo_rg', args: { command: 'rg -n "repo-search" src' } },
+      { tool_name: 'grep', args: { pattern: 'plan' } },
+      { tool_name: 'grep', args: { pattern: 'repo-search' } },
     ],
   });
 });
 
 test('resolveRepoSearchPlannerToolDefinitions only emits web tool schemas when explicitly allowed', () => {
-  const withoutWeb = resolveRepoSearchPlannerToolDefinitions(['repo_rg']);
+  const withoutWeb = resolveRepoSearchPlannerToolDefinitions(['grep']);
   assert.equal(withoutWeb.some((tool) => tool.function.name === 'web_search'), false);
   assert.equal(withoutWeb.some((tool) => tool.function.name === 'web_fetch'), false);
 
-  const withWeb = resolveRepoSearchPlannerToolDefinitions(['repo_rg', 'web_search', 'web_fetch']);
+  const withWeb = resolveRepoSearchPlannerToolDefinitions(['grep', 'web_search', 'web_fetch']);
   assert.equal(withWeb.some((tool) => tool.function.name === 'web_search'), true);
   assert.equal(withWeb.some((tool) => tool.function.name === 'web_fetch'), true);
   const webSearch = withWeb.find((tool) => tool.function.name === 'web_search');
@@ -68,7 +68,7 @@ test('getRepoSearchToolNamesForParsing excludes web tools so forged web actions 
 
 test('ModelJson rejects web tools unless allowed and normalizes their args when allowed', () => {
   assert.throws(
-    () => ModelJson.parseRepoSearchPlannerAction('{"action":"web_search","query":"x"}', { allowedToolNames: ['repo_rg'] }),
+    () => ModelJson.parseRepoSearchPlannerAction('{"action":"web_search","query":"x"}', { allowedToolNames: ['grep'] }),
     /unknown|invalid/i,
   );
 
@@ -86,27 +86,33 @@ test('ModelJson rejects web tools unless allowed and normalizes their args when 
   );
 });
 
-test('repo-search tool registry exposes native read/list tools and drops redundant legacy ones', () => {
+test('repo-search tool registry exposes the pi tool surface and withholds the mutating tools', () => {
   const toolNames = getRepoSearchToolNames().sort();
-  assert.equal(toolNames.includes('repo_read_file'), true);
-  assert.equal(toolNames.includes('repo_list_files'), true);
-  assert.equal(toolNames.includes('repo_get_content'), false);
-  assert.equal(toolNames.includes('repo_get_childitem'), false);
-  assert.equal(toolNames.includes('repo_select_string'), false);
-  assert.equal(toolNames.includes('repo_pwd'), false);
-  assert.equal(toolNames.includes('repo_ls'), false);
+  assert.deepEqual(toolNames, ['find', 'git', 'grep', 'ls', 'read', 'web_fetch', 'web_search']);
+  for (const withheld of ['write', 'edit', 'run']) {
+    assert.equal(toolNames.includes(withheld), false);
+  }
 
   const definitions = resolveRepoSearchPlannerToolDefinitions();
-  const readFile = definitions.find((tool) => tool.function.name === 'repo_read_file');
-  assert.deepEqual(readFile?.function?.parameters?.required, ['path']);
-  assert.equal(readFile?.function?.parameters?.properties?.startLine?.type, 'integer');
-  assert.equal(readFile?.function?.parameters?.properties?.endLine?.type, 'integer');
+  const read = definitions.find((tool) => tool.function.name === 'read');
+  assert.deepEqual(read?.function?.parameters?.required, ['path']);
+  assert.equal(read?.function?.parameters?.properties?.offset?.type, 'integer');
+  assert.equal(read?.function?.parameters?.properties?.limit?.type, 'integer');
 
-  const listFiles = definitions.find((tool) => tool.function.name === 'repo_list_files');
-  assert.deepEqual(listFiles?.function?.parameters?.required, []);
-  assert.equal(listFiles?.function?.parameters?.properties?.path?.type, 'string');
-  assert.equal(listFiles?.function?.parameters?.properties?.glob?.type, 'string');
-  assert.equal(listFiles?.function?.parameters?.properties?.recurse?.type, 'boolean');
+  const grep = definitions.find((tool) => tool.function.name === 'grep');
+  assert.deepEqual(grep?.function?.parameters?.required, ['pattern']);
+  assert.equal(grep?.function?.parameters?.properties?.glob?.type, 'string');
+  assert.equal(grep?.function?.parameters?.properties?.literal?.type, 'boolean');
+
+  const find = definitions.find((tool) => tool.function.name === 'find');
+  assert.deepEqual(find?.function?.parameters?.required, ['pattern']);
+
+  const ls = definitions.find((tool) => tool.function.name === 'ls');
+  assert.deepEqual(ls?.function?.parameters?.required, []);
+  assert.equal(ls?.function?.parameters?.properties?.path?.type, 'string');
+
+  const git = definitions.find((tool) => tool.function.name === 'git');
+  assert.deepEqual(git?.function?.parameters?.required, ['command']);
 });
 
 test('requestRepoSearchPlannerProtocolAction reconstructs a tool batch from non-streaming multi-tool responses', async () => {
@@ -128,16 +134,16 @@ test('requestRepoSearchPlannerProtocolAction reconstructs a tool batch from non-
                 id: 'call_1',
                 type: 'function',
                 function: {
-                  name: 'repo_rg',
-                  arguments: '{"command":"rg -n \\"plan\\" src"}',
+                  name: 'grep',
+                  arguments: '{"pattern":"plan"}',
                 },
               },
               {
                 id: 'call_2',
                 type: 'function',
                 function: {
-                  name: 'repo_rg',
-                  arguments: '{"command":"rg -n \\"repo-search\\" src"}',
+                  name: 'grep',
+                  arguments: '{"pattern":"repo-search"}',
                 },
               },
             ],
@@ -158,8 +164,8 @@ test('requestRepoSearchPlannerProtocolAction reconstructs a tool batch from non-
     assert.deepEqual(ModelJson.parseRepoSearchPlannerAction(result.text, { allowedToolNames: getRepoSearchToolNamesForParsing() }), {
       action: 'tool_batch',
       tool_calls: [
-        { tool_name: 'repo_rg', args: { command: 'rg -n "plan" src' } },
-        { tool_name: 'repo_rg', args: { command: 'rg -n "repo-search" src' } },
+        { tool_name: 'grep', args: { pattern: 'plan' } },
+        { tool_name: 'grep', args: { pattern: 'repo-search' } },
       ],
     });
   });
@@ -177,7 +183,7 @@ test('requestRepoSearchPlannerProtocolAction reconstructs a tool batch from stre
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
     });
-    res.write('data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"repo_rg","arguments":"{\\"command\\":\\"rg -n \\\\\\"plan\\\\\\" src\\"}"}},{"index":1,"function":{"name":"repo_rg","arguments":"{\\"command\\":\\"rg -n \\\\\\"repo-search\\\\\\" src\\"}"}}]}}]}\n\n');
+    res.write('data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"grep","arguments":"{\\"pattern\\":\\"plan\\"}"}},{"index":1,"function":{"name":"grep","arguments":"{\\"pattern\\":\\"repo-search\\"}"}}]}}]}\n\n');
     res.write('data: [DONE]\n\n');
     res.end();
   }, async (baseUrl) => {
@@ -193,15 +199,15 @@ test('requestRepoSearchPlannerProtocolAction reconstructs a tool batch from stre
     assert.deepEqual(ModelJson.parseRepoSearchPlannerAction(result.text, { allowedToolNames: getRepoSearchToolNamesForParsing() }), {
       action: 'tool_batch',
       tool_calls: [
-        { tool_name: 'repo_rg', args: { command: 'rg -n "plan" src' } },
-        { tool_name: 'repo_rg', args: { command: 'rg -n "repo-search" src' } },
+        { tool_name: 'grep', args: { pattern: 'plan' } },
+        { tool_name: 'grep', args: { pattern: 'repo-search' } },
       ],
     });
   });
 });
 
 test('requestRepoSearchPlannerProtocolAction stops streamed reasoning after a complete planner action', async () => {
-  const actionText = '{"action":"tool_batch","calls":[{"action":"repo_rg","command":"rg -n \\"planner\\" src"}]}';
+  const actionText = '{"action":"tool_batch","calls":[{"action":"grep","pattern":"planner"}]}';
   let writeCount = 0;
 
   await withServer((req, res) => {

@@ -61,11 +61,11 @@ test('chat loopKind with zero planner tools rejects repo-search tool actions', a
       plannerToolDefinitions: [],
       includeRepoFileListing: false,
       mockResponses: [
-        '{"action":"repo_rg","command":"rg -n \\"needle\\" ."}',
+        '{"action":"git","command":"git grep -n \\"needle\\" ."}',
         '{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
-        'rg -n "needle" .': { exitCode: 0, stdout: 'should not execute', stderr: '' },
+        'git grep -n "needle" .': { exitCode: 0, stdout: 'should not execute', stderr: '' },
       },
     },
   );
@@ -112,11 +112,11 @@ test('tool token totals sum command output tokens', async () => {
       maxInvalidResponses: 2,
       includeRepoFileListing: false,
       mockResponses: [
-        '{"action":"repo_rg","command":"rg -n \\"x\\" src"}',
+        '{"action":"git","command":"git grep -n \\"x\\" src"}',
         '{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
-        'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x\n'.repeat(4), stderr: '' },
+        'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x\n'.repeat(4), stderr: '' },
       },
     },
   );

@@ -1,6 +1,10 @@
 import { jsonrepair } from 'jsonrepair';
 
 import { getFirstCommandToken } from '../repo-search/command-safety.js';
+import {
+  getRepoSearchCommandTokenForToolName,
+  isRepoSearchCommandToolName,
+} from '../repo-search/planner-protocol.js';
 import type {
   FinishAction as RepoSearchFinishAction,
   FinishValidationResult,
@@ -21,6 +25,20 @@ import { stripCodeFence } from './text-format.js';
 
 type RepoSearchParserOptions = {
   allowedToolNames: readonly string[];
+};
+
+/**
+ * Per-tool argument shape for the native (non-`git`) repo tools. `requiredText` args must arrive as
+ * non-empty strings or the call is rejected; `optional` args are passed through untouched and
+ * value-validated by engine/repo-tools.ts.
+ */
+const REPO_TOOL_ARG_SPECS: Record<string, { requiredText: readonly string[]; optional: readonly string[] }> = {
+  read: { requiredText: ['path'], optional: ['offset', 'limit'] },
+  grep: { requiredText: ['pattern'], optional: ['path', 'glob', 'ignoreCase', 'literal', 'context', 'limit'] },
+  find: { requiredText: ['pattern'], optional: ['path', 'limit'] },
+  ls: { requiredText: [], optional: ['path', 'limit'] },
+  web_search: { requiredText: ['query'], optional: ['timeFilter'] },
+  web_fetch: { requiredText: ['url'], optional: [] },
 };
 
 const JSON_ESCAPE_CHARS: Record<string, string> = {
@@ -271,72 +289,34 @@ export class ModelJson {
       return null;
     }
 
-    if (this.isRepoSearchCommandToolName(toolName)) {
+    if (isRepoSearchCommandToolName(toolName)) {
       const command = this.getCommandArgValue(rawArgs);
-      if (!command) {
-        return null;
-      }
-      const expectedCommandToken = this.getRepoSearchCommandTokenForToolName(toolName);
-      const actualCommandToken = getFirstCommandToken(command);
-      if (!expectedCommandToken || actualCommandToken !== expectedCommandToken) {
+      if (!command || getFirstCommandToken(command) !== getRepoSearchCommandTokenForToolName(toolName)) {
         return null;
       }
       return { action: 'tool', tool_name: toolName, args: { command } };
     }
 
-    if (toolName === 'repo_read_file') {
-      return typeof rawArgs.path === 'string' && rawArgs.path.trim()
-        ? {
-          action: 'tool',
-          tool_name: toolName,
-          args: {
-            path: rawArgs.path,
-            ...(rawArgs.startLine === undefined ? {} : { startLine: rawArgs.startLine }),
-            ...(rawArgs.endLine === undefined ? {} : { endLine: rawArgs.endLine }),
-          },
-        }
-        : null;
+    const argSpec = REPO_TOOL_ARG_SPECS[toolName];
+    if (!argSpec) {
+      return null;
     }
-
-    if (toolName === 'repo_list_files') {
-      return {
-        action: 'tool',
-        tool_name: toolName,
-        args: {
-          ...(typeof rawArgs.path === 'string' ? { path: rawArgs.path } : {}),
-          ...(typeof rawArgs.glob === 'string' ? { glob: rawArgs.glob } : {}),
-          ...(typeof rawArgs.recurse === 'boolean' ? { recurse: rawArgs.recurse } : {}),
-        },
-      };
-    }
-
-    if (toolName === 'web_search') {
-      const query = typeof rawArgs.query === 'string' ? rawArgs.query.trim() : '';
-      if (!query) {
+    const args: MutableJsonObject = {};
+    for (const key of argSpec.requiredText) {
+      const rawValue = rawArgs[key];
+      const value = typeof rawValue === 'string' ? rawValue.trim() : '';
+      if (!value) {
         return null;
       }
-      const timeFilter = rawArgs.timeFilter === 'day'
-        || rawArgs.timeFilter === 'week'
-        || rawArgs.timeFilter === 'month'
-        || rawArgs.timeFilter === 'year'
-        ? rawArgs.timeFilter
-        : undefined;
-      return {
-        action: 'tool',
-        tool_name: toolName,
-        args: {
-          query,
-          ...(timeFilter ? { timeFilter } : {}),
-        },
-      };
+      args[key] = value;
     }
-
-    if (toolName === 'web_fetch') {
-      const url = typeof rawArgs.url === 'string' ? rawArgs.url.trim() : '';
-      return url ? { action: 'tool', tool_name: toolName, args: { url } } : null;
+    for (const key of argSpec.optional) {
+      const rawValue = rawArgs[key];
+      if (rawValue !== undefined) {
+        args[key] = rawValue;
+      }
     }
-
-    return { action: 'tool', tool_name: toolName, args: rawArgs };
+    return { action: 'tool', tool_name: toolName, args };
   }
 
   private static validateFinishValidation(parsed: JsonObject): FinishValidationResult {
@@ -407,14 +387,4 @@ export class ModelJson {
     return commandValue.trim();
   }
 
-  private static getRepoSearchCommandTokenForToolName(toolName: string): string | null {
-    const prefix = 'repo_';
-    return toolName.startsWith(prefix)
-      ? toolName.slice(prefix.length).replace(/_/gu, '-')
-      : null;
-  }
-
-  private static isRepoSearchCommandToolName(toolName: string): boolean {
-    return toolName.startsWith('repo_') && toolName !== 'repo_read_file' && toolName !== 'repo_list_files';
-  }
 }

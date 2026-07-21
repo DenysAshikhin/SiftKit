@@ -147,7 +147,7 @@ test('repo-search execution dumps temp timing json with llama and tool phases', 
         repoRoot,
         maxTurns: 2,
         mockResponses: [
-          "{\"action\":\"repo_git\",\"command\":\"git status --short\"}",
+          "{\"action\":\"git\",\"command\":\"git status --short\"}",
           '{"action":"finish","output":"Found scripts"}',
         ],
         mockCommandResults: {

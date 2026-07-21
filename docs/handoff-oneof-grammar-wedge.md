@@ -1,8 +1,9 @@
 # Handoff: `oneOf` in planner JSON schema wedges the EXL3 inference server
 
-**Status:** root cause confirmed, fix identified and verified by experiment. Not yet implemented.
-**Severity:** every repo-search run and every UI chat turn fails; the inference server stays dead until the model is reloaded.
-**Estimated work:** ~2 line change + test updates. Under an hour including tests.
+**Status:** FIXED. `buildAnyOf` in `src/providers/structured-output-schema.ts` emits `anyOf`;
+`tests/structured-output-schema.test.ts` asserts no planner schema emits `oneOf` at any depth.
+This document is kept as the root-cause record for the upstream bugs, which are still open.
+**Severity (before the fix):** every repo-search run and every UI chat turn failed; the inference server stayed dead until the model was reloaded.
 
 ---
 

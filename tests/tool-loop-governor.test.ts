@@ -10,15 +10,9 @@ import {
   fingerprintToolCall,
 } from '../src/tool-loop-governor.js';
 
-test('fingerprintToolCall collapses repo-search exclusion-glob churn', () => {
-  const first = fingerprintToolCall({
-    toolName: 'run_repo_cmd',
-    command: 'rg -n "4319" apps/runner/src --glob "!**/__tests__/**" --glob "!**/*.test.*"',
-  });
-  const second = fingerprintToolCall({
-    toolName: 'run_repo_cmd',
-    command: 'rg -n "4319" apps/runner/src --glob "!**/__tests__/**" --glob "!**/*.test.*" --glob "!**/*.spec.*" --glob "!**/*.d.ts"',
-  });
+test('fingerprintToolCall normalizes git command whitespace and case', () => {
+  const first = fingerprintToolCall({ toolName: 'git', command: 'git log -n 5 --oneline' });
+  const second = fingerprintToolCall({ toolName: 'git', command: 'git LOG  -n   5 --oneline' });
 
   assert.equal(first, second);
 });
@@ -56,11 +50,11 @@ test('evaluateFinishAttempt allows corroborated repo-search evidence before five
     finalOutput: 'apps/runner/src/server.ts:203 and apps/runner/.env.example:2',
     successfulToolCalls: [
       {
-        toolName: 'run_repo_cmd',
+        toolName: 'git',
         promptResultText: 'apps/runner/src/server.ts:203: const port = options.port ?? Number(process.env.RUNNER_PORT ?? "4319");',
       },
       {
-        toolName: 'run_repo_cmd',
+        toolName: 'git',
         promptResultText: '203: const port = options.port ?? Number(process.env.RUNNER_PORT ?? "4319");',
       },
     ],
@@ -76,7 +70,7 @@ test('evaluateFinishAttempt rejects repo-search finish without corroborating evi
     finalOutput: 'apps/runner/src/server.ts:203',
     successfulToolCalls: [
       {
-        toolName: 'run_repo_cmd',
+        toolName: 'git',
         promptResultText: 'apps/runner/src/server.ts:203: const port = options.port ?? Number(process.env.RUNNER_PORT ?? "4319");',
       },
     ],
@@ -86,44 +80,13 @@ test('evaluateFinishAttempt rejects repo-search finish without corroborating evi
   assert.match(String(evaluation.warning || ''), /Need one corroborating read or second supporting search/u);
 });
 
-test('buildPromptToolResult strips repo-search rewrite notes from model transcript output', () => {
-  const promptResult = buildPromptToolResult({
-    toolName: 'run_repo_cmd',
-    command: 'rg -n "4319" apps/runner/src',
-    exitCode: 0,
-    rawOutput: [
-      'note: added --no-ignore so rg searches gitignored paths; ran \'rg -n "4319" apps/runner/src --no-ignore\' instead',
-      'apps/runner/src\\server.ts:203:  const port = options.port ?? Number(process.env.RUNNER_PORT ?? "4319");',
-    ].join('\n'),
-  });
-
-  assert.doesNotMatch(promptResult, /^note:/mu);
-  assert.match(promptResult, /apps\/runner\/src\\server\.ts:203/u);
-  assert.doesNotMatch(promptResult, /^exit_code=0$/mu);
-});
-
-test('buildPromptToolResult strips command expansion notes but keeps real output', () => {
-  const promptResult = buildPromptToolResult({
-    toolName: 'repo_rg',
-    command: 'rg -n "needle" src --no-ignore',
-    exitCode: 0,
-    rawOutput: [
-      'note: added --no-ignore so rg searches gitignored paths',
-      'src/index.ts:1:needle',
-    ].join('\n'),
-  });
-
-  assert.doesNotMatch(promptResult, /note: added --no-ignore/u);
-  assert.match(promptResult, /src\/index\.ts:1:needle/u);
-});
-
 test('buildPromptToolResult keeps non-zero exit code but strips exit_code=0', () => {
   const okResult = buildPromptToolResult({
     toolName: 'find_text',
     rawOutput: 'exit_code=0\nhitCount=0',
   });
   const errorResult = buildPromptToolResult({
-    toolName: 'run_repo_cmd',
+    toolName: 'git',
     exitCode: 1,
     rawOutput: 'exit_code=1\npattern not found',
   });
@@ -132,20 +95,9 @@ test('buildPromptToolResult keeps non-zero exit code but strips exit_code=0', ()
   assert.match(errorResult, /^exit_code=1/mu);
 });
 
-test('buildPromptToolResult drops rewrite-only notes from repo-search no-match output', () => {
-  const promptResult = buildPromptToolResult({
-    toolName: 'run_repo_cmd',
-    command: 'rg -n "sendStatusUpdate" src',
-    exitCode: 1,
-    rawOutput: 'note: added path ignore globs from ignore policy',
-  });
-
-  assert.equal(promptResult, 'exit_code=1');
-});
-
 test('buildPromptToolResult strips http_client stderr logs from repo-search output', () => {
   const promptResult = buildPromptToolResult({
-    toolName: 'run_repo_cmd',
+    toolName: 'git',
     command: '.\\gradlew.bat test 2>&1 | siftkit summary --question "Report pass/fail"',
     exitCode: 0,
     rawOutput: [
@@ -167,11 +119,11 @@ test('buildPromptToolResult strips http_client stderr logs from repo-search outp
 
 test('buildToolReplayFingerprint normalizes equivalent replay text', () => {
   const first = buildToolReplayFingerprint({
-    toolName: 'get-content',
+    toolName: 'read',
     promptResultText: 'src\\app.ts:10: hello world',
   });
   const second = buildToolReplayFingerprint({
-    toolName: 'get-content',
+    toolName: 'read',
     promptResultText: 'src/app.ts:10:   hello   world',
   });
 
@@ -179,7 +131,7 @@ test('buildToolReplayFingerprint normalizes equivalent replay text', () => {
 });
 
 test('buildRepeatedToolCallSummary renders expected repeat text', () => {
-  assert.equal(buildRepeatedToolCallSummary('run_repo_cmd', 2), 'duplicate command requested x2. Issue a different/unique tool call');
+  assert.equal(buildRepeatedToolCallSummary('git', 2), 'duplicate command requested x2. Issue a different/unique tool call');
   assert.equal(buildRepeatedToolCallSummary('read_lines', 3), 'duplicate command requested x3. Issue a different/unique tool call');
 });
 

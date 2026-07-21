@@ -87,7 +87,7 @@ test('buildFallbackPromptContext appends repo-tool schema when in repo-tool mode
     operationMode: 'read-only',
     executionFamily: 'repo-search',
     promptPrefix: 'Use strict evidence.',
-    allowedTools: ['repo_rg', 'repo_read_file'],
+    allowedTools: ['grep', 'read'],
     surfaces: ['cli', 'web'],
     useForSummary: false,
     builtin: true,
@@ -102,7 +102,7 @@ test('buildFallbackPromptContext appends repo-tool schema when in repo-tool mode
   assert.match(result.content, /Use strict evidence/);
   assert.match(result.content, /"mode": "repo-search"/);
   assert.match(result.content, /"repoRoot": "C:\\\\repo"/);
-  assert.match(result.content, /"repo_rg"/);
+  assert.match(result.content, /"grep"/);
 });
 
 test('buildFallbackPromptContext uses default prefix when preset prefix is blank', () => {

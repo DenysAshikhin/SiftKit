@@ -27,13 +27,13 @@ test('llm protocol types model text, reasoning, and tool-call responses', () => 
     tool_calls: [{
       id: 'call_1',
       type: 'function',
-      function: { name: 'repo_rg', arguments: '{"pattern":"x"}' },
+      function: { name: 'grep', arguments: '{"pattern":"x"}' },
     }],
   };
   const tool: LlamaCppToolDefinition = {
     type: 'function',
     function: {
-      name: 'repo_rg',
+      name: 'grep',
       description: 'Search repository text.',
       parameters: { type: 'object', properties: { pattern: { type: 'string' } }, required: ['pattern'] },
     },
@@ -67,17 +67,17 @@ test('llm protocol types model text, reasoning, and tool-call responses', () => 
   };
 
   assert.equal(request.chat_template_kwargs?.reasoning_content, true);
-  assert.equal(response.toolCalls[0]?.function.name, 'repo_rg');
+  assert.equal(response.toolCalls[0]?.function.name, 'grep');
 });
 
 test('tool-call parser normalizes message, choice, and legacy function calls', () => {
-  const parser = new LlamaCppToolCallParser(['repo_rg', 'finish']);
+  const parser = new LlamaCppToolCallParser(['grep', 'finish']);
   const calls = parser.parseFromChoice({
     message: {
       tool_calls: [{
         id: 'call_1',
         type: 'function',
-        function: { name: 'repo_rg', arguments: '{"pattern":"AgentLoop"}' },
+        function: { name: 'grep', arguments: '{"pattern":"AgentLoop"}' },
       }],
       function_call: { name: 'finish', arguments: '{"answer":"done"}' },
     },
@@ -88,21 +88,24 @@ test('tool-call parser normalizes message, choice, and legacy function calls', (
     }],
   });
 
-  assert.deepEqual(calls.map((call) => call.function.name), ['repo_rg', 'finish']);
+  assert.deepEqual(calls.map((call) => call.function.name), ['grep', 'finish']);
   assert.equal(calls[0]?.function.arguments, '{"pattern":"AgentLoop"}');
 });
 
 test('replay tool-call helper emits real web tool protocol names and rejects unknown commands', () => {
-  const searchCall = buildReplayToolCall({ id: 'call_search', command: 'web_search: local llama' });
-  const fetchCall = buildReplayToolCall({ id: 'call_fetch', command: 'web_fetch: https://example.test/page' });
-  const rgCall = buildReplayToolCall({ id: 'call_rg', command: 'rg -n "name" package.json' });
+  const searchCall = buildReplayToolCall({ id: 'call_search', command: 'web_search query="local llama"' });
+  const fetchCall = buildReplayToolCall({ id: 'call_fetch', command: 'web_fetch url="https://example.test/page"' });
+  const grepCall = buildReplayToolCall({ id: 'call_grep', command: 'grep pattern="name" path="package.json" limit=20' });
+  const gitCall = buildReplayToolCall({ id: 'call_git', command: 'git status --short' });
 
   assert.equal(searchCall.function.name, 'web_search');
   assert.equal(searchCall.function.arguments, '{"query":"local llama"}');
   assert.equal(fetchCall.function.name, 'web_fetch');
   assert.equal(fetchCall.function.arguments, '{"url":"https://example.test/page"}');
-  assert.equal(rgCall.function.name, 'repo_rg');
-  assert.equal(rgCall.function.arguments, '{"command":"rg -n \\"name\\" package.json"}');
+  assert.equal(grepCall.function.name, 'grep');
+  assert.equal(grepCall.function.arguments, '{"pattern":"name","path":"package.json","limit":20}');
+  assert.equal(gitCall.function.name, 'git');
+  assert.equal(gitCall.function.arguments, '{"command":"git status --short"}');
   assert.throws(
     () => buildReplayToolCall({ id: 'call_unknown', command: 'not-a-tool: x' }),
     /Cannot replay unknown persisted tool command/u,
@@ -219,14 +222,14 @@ test('llama client builds chat request with nested reasoning_content and tools',
     tools: [{
       type: 'function',
       function: {
-        name: 'repo_rg',
+        name: 'grep',
         description: 'Search.',
         parameters: { type: 'object', properties: {}, required: [] },
       },
     }],
     maxTokens: 64,
     stream: false,
-    allowedToolNames: ['repo_rg'],
+    allowedToolNames: ['grep'],
   });
 
   const body = JSON.parse(String(http.requests[0]?.body || '{}'));
@@ -236,7 +239,7 @@ test('llama client builds chat request with nested reasoning_content and tools',
     reasoning_content: true,
   });
   assert.equal(body.parallel_tool_calls, true);
-  assert.equal(body.tools[0].function.name, 'repo_rg');
+  assert.equal(body.tools[0].function.name, 'grep');
 });
 
 test('llama client covers token-count fallbacks, model fallbacks, and status errors', async () => {
@@ -388,7 +391,7 @@ test('EXL3 forwards native tools and response format while parsing Qwen XML tool
     jsonResponse({
       choices: [{
         message: {
-          content: '<tool_call><function=repo_rg><parameter=pattern>SelectedBackend</parameter></function></tool_call>',
+          content: '<tool_call><function=grep><parameter=pattern>SelectedBackend</parameter></function></tool_call>',
           reasoning_content: null,
           tool_calls: null,
         },
@@ -399,7 +402,7 @@ test('EXL3 forwards native tools and response format while parsing Qwen XML tool
   const tool: LlamaCppToolDefinition = {
     type: 'function',
     function: {
-      name: 'repo_rg',
+      name: 'grep',
       description: 'Search repository text.',
       parameters: { type: 'object', properties: { pattern: { type: 'string' } }, required: ['pattern'] },
     },
@@ -413,14 +416,14 @@ test('EXL3 forwards native tools and response format while parsing Qwen XML tool
     maxTokens: 32,
     stream: false,
     responseFormat: { type: 'json_object' },
-    allowedToolNames: ['repo_rg'],
+    allowedToolNames: ['grep'],
   });
 
   const body = JSON.parse(String(http.requests[0]?.body || '{}'));
   assert.deepEqual(body.tools, [tool]);
   assert.equal(body.parallel_tool_calls, true);
   assert.deepEqual(body.response_format, { type: 'json_object' });
-  assert.equal(response.toolCalls[0]?.function.name, 'repo_rg');
+  assert.equal(response.toolCalls[0]?.function.name, 'grep');
   assert.deepEqual(JSON.parse(response.toolCalls[0]?.function.arguments || '{}'), { pattern: 'SelectedBackend' });
 });
 
@@ -487,37 +490,38 @@ test('OpenAI response normalization accepts Tabby nullable optional fields', asy
 });
 
 test('tool-call parser covers fallback ids, default arguments, quoted replay values, and empty quotes', () => {
-  const parser = new LlamaCppToolCallParser(['repo_rg', 'finish']);
+  const parser = new LlamaCppToolCallParser(['grep', 'finish']);
 
   assert.deepEqual(parser.parseFromChoice({}), []);
   assert.deepEqual(parser.parseToolCall({ type: 'function', function: { name: 'not_allowed', arguments: '{}' } }), null);
-  assert.deepEqual(parser.parseToolCall({ type: 'function', function: { name: 'repo_rg' } }), {
-    id: 'call_repo_rg',
+  assert.deepEqual(parser.parseToolCall({ type: 'function', function: { name: 'grep' } }), {
+    id: 'call_grep',
     type: 'function',
-    function: { name: 'repo_rg', arguments: '{}' },
+    function: { name: 'grep', arguments: '{}' },
   });
   assert.equal(parser.parseToolCall(JSON.parse('{"type":"function","function":{"name":5,"arguments":"{}"}}')), null);
   assert.equal(parser.parseFromChoice({
-    tool_calls: [{ id: 'top', type: 'function', function: { name: 'repo_rg', arguments: '{"pattern":"x"}' } }],
+    tool_calls: [{ id: 'top', type: 'function', function: { name: 'grep', arguments: '{"pattern":"x"}' } }],
   })[0]?.id, 'top');
   assert.equal(parser.parseFromChoice({
     message: { function_call: { name: 'finish' } },
   })[0]?.function.arguments, '{}');
 
   const quotedSearch = buildReplayToolCall({ id: 'quoted', command: 'web_search query="local llama"' });
-  const unquotedFetch = buildReplayToolCall({ id: 'unquoted', command: 'web_fetch url=https://example.test/page' });
+  const escapedRead = buildReplayToolCall({ id: 'escaped', command: 'read path="src/a b.ts" offset=1 limit=40' });
   assert.equal(quotedSearch.function.arguments, '{"query":"local llama"}');
-  assert.equal(unquotedFetch.function.arguments, '{"url":"https://example.test/page"}');
-  assert.throws(
-    () => buildReplayToolCall({ id: 'blank', command: 'web_search query=""' }),
-    /Cannot replay unknown persisted tool command/u,
-  );
+  assert.equal(escapedRead.function.arguments, '{"path":"src/a b.ts","offset":1,"limit":40}');
+  // A native tool call with no parseable arguments is not replayable.
   assert.throws(
     () => buildReplayToolCall({ id: 'spaces', command: 'web_search query=   ' }),
     /Cannot replay unknown persisted tool command/u,
   );
   assert.throws(
-    () => buildReplayToolCall({ id: 'empty-fetch', command: 'web_fetch:' }),
+    () => buildReplayToolCall({ id: 'bare', command: 'web_fetch' }),
+    /Cannot replay unknown persisted tool command/u,
+  );
+  assert.throws(
+    () => buildReplayToolCall({ id: 'unknown', command: 'Get-Content src/a.ts' }),
     /Cannot replay unknown persisted tool command/u,
   );
   assert.throws(
@@ -564,7 +568,7 @@ test('llama client covers timing cache, top-level thinking tokens, and top-level
     jsonResponse({
       choices: [{
         message: { content: 'answer', reasoning_content: 'think' },
-        tool_calls: [{ id: 'top', type: 'function', function: { name: 'repo_rg', arguments: '{"pattern":"x"}' } }],
+        tool_calls: [{ id: 'top', type: 'function', function: { name: 'grep', arguments: '{"pattern":"x"}' } }],
       }],
       usage: {
         prompt_tokens: 9,
@@ -584,7 +588,7 @@ test('llama client covers timing cache, top-level thinking tokens, and top-level
     maxTokens: 16,
     stream: false,
     retryMaxWaitMs: 0,
-    allowedToolNames: ['repo_rg'],
+    allowedToolNames: ['grep'],
   });
 
   assert.equal(response.toolCalls[0]?.id, 'top');

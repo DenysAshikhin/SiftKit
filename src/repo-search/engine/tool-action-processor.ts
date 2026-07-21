@@ -2,7 +2,6 @@ import type { SiftConfig } from '../../config/index.js';
 import { getRepoSearchLineReadStats } from '../../line-read-guidance.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
 import {
-  classifySearchExit,
   evaluateCommandSafety,
   getFirstCommandToken,
   type IgnorePolicy,
@@ -79,8 +78,6 @@ type PreparedCommand = {
 type ExecutedToolContext = AcceptedToolContext & PreparedCommand & {
   executed: { exitCode: number; output: string };
   baseOutput: string;
-  searchExit: ReturnType<typeof classifySearchExit>;
-  outputForPrompt: string;
   zeroOutputWarningText: string;
   progressToolCallId: string;
 };
@@ -405,7 +402,7 @@ export class ToolActionProcessor {
       const readPlan = planRead(toolAction.args, this.deps.repoRoot, this.deps.ignorePolicy, this.deps.readWindows.stateMap);
       return isFailedReadPlan(readPlan)
         ? { ok: false, command: readPlan.command, reason: readPlan.reason, toolType: normalizedToolName }
-        : buildReadExecution(normalizedToolName, readPlan, null);
+        : buildReadExecution(normalizedToolName, readPlan);
     }
     if (this.deps.mockCommandResults && this.deps.mockCommandResults[command]) {
       const mockResult = this.deps.mockCommandResults[command];
@@ -523,11 +520,7 @@ export class ToolActionProcessor {
         output: baseOutput,
       });
     }
-    const searchExit = classifySearchExit(commandToRun, Number(executed.exitCode), baseOutput);
-    const promptedBaseOutput = searchExit.syntaxFailure && searchExit.message
-      ? `${searchExit.message}\n${baseOutput}`.trim()
-      : baseOutput;
-    if (Number(executed.exitCode) !== 0 && !searchExit.noMatch) {
+    if (Number(executed.exitCode) !== 0) {
       counters.commandFailures += 1;
     }
 
@@ -554,8 +547,6 @@ export class ToolActionProcessor {
       commandToRun,
       executed,
       baseOutput,
-      searchExit,
-      outputForPrompt: promptedBaseOutput,
       zeroOutputWarningText,
       progressToolCallId,
     }, state, promptTokenCount);
@@ -569,18 +560,11 @@ export class ToolActionProcessor {
   ): Promise<FittedToolOutcome> {
     const {
       normalizedToolName, nativeExecution,
-      executed, baseOutput, searchExit, outputForPrompt, zeroOutputWarningText,
+      executed, baseOutput, zeroOutputWarningText,
     } = context;
     let { commandToRun } = context;
 
-    // For search commands (rg/grep), exit_code=1 means "no match" — but when there IS output it
-    // means the pipeline was terminated early (e.g. `| Select-Object -First N` closed the pipe
-    // before rg finished, causing a broken-pipe exit). In that case the output is valid truncated
-    // results, not an error, so don't prepend a misleading `exit_code=1` prefix.
-    const suppressExitCode = searchExit.noMatch && outputForPrompt.length > 0;
-    const rawResultText = suppressExitCode
-      ? outputForPrompt
-      : `exit_code=${executed.exitCode}\n${outputForPrompt}`.trim();
+    const rawResultText = `exit_code=${executed.exitCode}\n${baseOutput}`.trim();
     let resultText = buildPromptToolResult({
       toolName: normalizedToolName,
       command: commandToRun,
@@ -601,7 +585,7 @@ export class ToolActionProcessor {
       rawResultText,
       perToolCapTokens,
       remainingTokenAllowance,
-      commandSucceededForFitting: Number(executed.exitCode) === 0 || searchExit.noMatch,
+      commandSucceededForFitting: Number(executed.exitCode) === 0,
       outputUnit: nativeExecution && nativeExecution.ok && nativeExecution.outputUnit ? nativeExecution.outputUnit : 'lines',
     });
     resultText = fitted.resultText;
@@ -626,9 +610,6 @@ export class ToolActionProcessor {
         };
         this.deps.readWindows.recordNativeRead({
           pathKey: readFile.pathKey,
-          turn,
-          requestedStart: readFile.startLine,
-          requestedEndExclusive: readFile.endLineExclusive,
           returnedStart: readFile.startLine,
           returnedEndExclusive: readFile.startLine + returnedLineCount,
         });
@@ -654,7 +635,7 @@ export class ToolActionProcessor {
   ): Promise<ToolActionOutcome> {
     const {
       toolAction, normalizedToolName, isNativeTool, fingerprint, normalizedKey,
-      requestedCommand, executed, baseOutput, searchExit, outputForPrompt, progressToolCallId,
+      requestedCommand, executed, baseOutput, progressToolCallId,
     } = context;
     const { commands, duplicates, progress, recentEvidenceKeys, successfulToolCalls, tokenUsage, toolStats } = this.deps;
 
@@ -702,7 +683,7 @@ export class ToolActionProcessor {
         promptTokenCount,
       });
     }
-    const commandOutputText = isNativeTool ? resultText : outputForPrompt;
+    const commandOutputText = isNativeTool ? resultText : baseOutput;
 
     this.deps.logger?.write({
       kind: 'turn_command_result', taskId: this.deps.task.id, turn, command: commandToRun,
@@ -726,7 +707,7 @@ export class ToolActionProcessor {
       outputTokens: resultTokenCount,
       outputTokensEstimated: resultTokenCountEstimated,
     });
-    const commandSucceeded = Number(executed.exitCode) === 0 || searchExit.noMatch;
+    const commandSucceeded = Number(executed.exitCode) === 0;
     if (commandSucceeded) {
       duplicates.recordSuccess(normalizedKey, fingerprint || null);
     }

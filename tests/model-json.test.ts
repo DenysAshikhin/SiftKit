@@ -86,7 +86,7 @@ test('ModelJson ignores a trailing incomplete escape in a streaming finish outpu
 
 test('ModelJson returns null for a streaming tool action (no finish output)', () => {
   const output = ModelJson.extractStreamingFinishOutput(
-    '{"action":"repo_read_file","args":{"path":"a.ts"}}',
+    '{"action":"read","args":{"path":"a.ts"}}',
   );
 
   assert.equal(output, null);
@@ -146,28 +146,40 @@ test('ModelJson rejects wrapped summary planner tool actions', () => {
 
 test('ModelJson parses direct repo-search planner tool actions', () => {
   const action = ModelJson.parseRepoSearchPlannerAction(JSON.stringify({
-    action: 'repo_rg',
-    command: 'rg -n "plan" src',
-  }), { allowedToolNames: ['repo_rg'] });
+    action: 'grep',
+    pattern: 'plan',
+    glob: '*.ts',
+  }), { allowedToolNames: ['grep'] });
 
   assert.deepEqual(action, {
     action: 'tool',
-    tool_name: 'repo_rg',
+    tool_name: 'grep',
     args: {
-      command: 'rg -n "plan" src',
+      pattern: 'plan',
+      glob: '*.ts',
     },
   });
+});
+
+test('ModelJson rejects a native repo tool call missing its required argument', () => {
+  assert.throws(
+    () => ModelJson.parseRepoSearchPlannerAction(
+      JSON.stringify({ action: 'grep', glob: '*.ts' }),
+      { allowedToolNames: ['grep'] },
+    ),
+    /invalid planner tool action/u,
+  );
 });
 
 test('ModelJson rejects wrapped repo-search planner tool actions', () => {
   assert.throws(
     () => ModelJson.parseRepoSearchPlannerAction(JSON.stringify({
       action: 'tool',
-      tool_name: 'repo_rg',
+      tool_name: 'grep',
       args: {
-        command: 'rg -n "plan" src',
+        pattern: 'plan',
       },
-    }), { allowedToolNames: ['repo_rg'] }),
+    }), { allowedToolNames: ['grep'] }),
     /unknown planner action/u,
   );
 });
@@ -176,7 +188,7 @@ test('ModelJson rejects unknown repo-search tools after repair', () => {
   assert.throws(
     () => ModelJson.parseRepoSearchPlannerAction(
       "{'action':'repo_delete_everything','command':'echo no'}",
-      { allowedToolNames: ['repo_rg'] },
+      { allowedToolNames: ['grep'] },
     ),
     /unknown planner action/u,
   );
@@ -190,12 +202,19 @@ test('ModelJson rejects unrecoverable model JSON', () => {
 });
 
 test('ModelJson parses valid repo-search tool action', () => {
-  const action = parseRepoSearchPlannerAction("{\"action\":\"repo_rg\",\"command\":\"rg planner src\"}");
+  const action = parseRepoSearchPlannerAction("{\"action\":\"git\",\"command\":\"git status --short\"}");
   assert.deepEqual(action, {
     action: 'tool',
-    tool_name: 'repo_rg',
-    args: { command: 'rg planner src' },
+    tool_name: 'git',
+    args: { command: 'git status --short' },
   });
+});
+
+test('ModelJson rejects a git tool call whose command is not git', () => {
+  assert.throws(
+    () => parseRepoSearchPlannerAction("{\"action\":\"git\",\"command\":\"rm -rf .\"}"),
+    /invalid planner tool action/u,
+  );
 });
 
 test('ModelJson parses valid repo-search finish action', () => {
@@ -226,11 +245,11 @@ test('ModelJson rejects invalid repo-search planner payloads', () => {
 });
 
 test('ModelJson repairs malformed escaped command payloads', () => {
-  const malformed = '{"action":"repo_rg","command":"rg -n \\"D:\\\\\\\\|C:\\\\\\\\|\\\\\\\\\\\\\\\\" src --type ts | Select-Object -First 30"';
+  const malformed = '{"action":"grep","pattern":"rg -n \\"D:\\\\\\\\|C:\\\\\\\\|\\\\\\\\\\\\\\\\" src --type ts | Select-Object -First 30"';
   const action = parseRepoSearchPlannerAction(malformed);
   assert.deepEqual(action, {
     action: 'tool',
-    tool_name: 'repo_rg',
-    args: { command: 'rg -n "D:\\\\|C:\\\\|\\\\\\\\" src --type ts | Select-Object -First 30' },
+    tool_name: 'grep',
+    args: { pattern: 'rg -n "D:\\\\|C:\\\\|\\\\\\\\" src --type ts | Select-Object -First 30' },
   });
 });

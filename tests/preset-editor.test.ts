@@ -42,9 +42,7 @@ function createPreset(id: string, overrides: Partial<DashboardPreset> = {}): Das
 }
 
 const SUMMARY_TOOL_OPTIONS: DashboardPresetToolName[] = ['find_text', 'read_lines', 'json_filter', 'json_get'];
-const REPO_TOOL_OPTIONS: DashboardPresetToolName[] = PRESET_TOOL_OPTIONS.filter(
-  (tool): tool is DashboardPresetToolName => tool.startsWith('repo_'),
-);
+const REPO_TOOL_OPTIONS: DashboardPresetToolName[] = ['read', 'grep', 'find', 'ls', 'git'];
 const WEB_TOOL_OPTIONS: DashboardPresetToolName[] = ['web_search', 'web_fetch'];
 
 test('PRESET_TOOL_OPTIONS exposes every supported tool exactly once', () => {
@@ -82,7 +80,7 @@ test('getFallbackPresetId defaults to the first preset when selection is missing
 });
 
 test('getPresetToolsSummary returns a comma-separated list in supported-option order', () => {
-  assert.equal(getPresetToolsSummary(['grep', 'find_text']), 'find_text, repo_rg');
+  assert.equal(getPresetToolsSummary(['grep', 'find_text']), 'find_text, grep');
 });
 
 test('togglePresetTool adds missing tools and removes existing ones', () => {

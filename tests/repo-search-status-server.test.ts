@@ -146,11 +146,11 @@ test('status server stays responsive while repo-search is running', async () => 
         maxTurns: 2,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"x\\\" src\"}",
+          "{\"action\":\"git\",\"command\":\"git grep -n \\\"x\\\" src\"}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
-          'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 2000 },
+          'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 2000 },
         },
       }),
     });
@@ -184,7 +184,7 @@ test('status server stays responsive while repo-search is running', async () => 
       assert.ok(Number(repoTaskTotals.toolTokensTotal || 0) > 0);
       const toolStats = asObject(finalMetrics.toolStats);
       const repoToolStats = asObject(toolStats['repo-search']);
-      assert.ok(Number(asObject(repoToolStats.rg).calls || 0) >= 1);
+      assert.ok(Number(asObject(repoToolStats.git).calls || 0) >= 1);
       assert.ok(Number(finalMetrics.inputCharactersTotal || 0) >= baselineInputChars + 'find x'.length);
       assert.ok(Number(finalMetrics.requestDurationMsTotal || 0) > baselineDurationMs);
     }, 5000);
@@ -326,11 +326,11 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
           maxTurns: 2,
           availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
           mockResponses: [
-            "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"x\\\" src\"}",
+            "{\"action\":\"git\",\"command\":\"git grep -n \\\"x\\\" src\"}",
             '{"action":"finish","output":"done"}',
           ],
           mockCommandResults: {
-            'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 300 },
+            'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 300 },
           },
         }),
       });
@@ -713,11 +713,11 @@ test('repo-search endpoint logs one model-requested command line per tool call',
           maxTurns: 2,
           availableModels: ['mock-model'],
           mockResponses: [
-            "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"planner\\\" src\"}",
+            "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
             '{"action":"finish","output":"done"}',
           ],
           mockCommandResults: {
-            'rg -n "planner" src': { exitCode: 0, stdout: 'src/example.ts:1:planner', stderr: '' },
+            'git grep -n "planner" src': { exitCode: 0, stdout: 'src/example.ts:1:planner', stderr: '' },
           },
         }),
       });
@@ -726,7 +726,7 @@ test('repo-search endpoint logs one model-requested command line per tool call',
 
     const commandLines = lines.filter((line) => /repo_search command turn=/u.test(line));
     assert.equal(commandLines.length, 1, lines.join('\n'));
-    assert.match(commandLines[0], /command=rg -n "planner" src$/u);
+    assert.match(commandLines[0], /command=git grep -n "planner" src$/u);
     assert.equal(/--no-ignore|--ignore-case|--glob/u.test(commandLines[0]), false, commandLines[0]);
     assert.equal(lines.some((line) => /repo_search llm_start/u.test(line)), false, lines.join('\n'));
     assert.equal(lines.some((line) => /repo_search llm_end/u.test(line)), false, lines.join('\n'));
@@ -754,20 +754,20 @@ test('buildRepoSearchProgressLogMessage formats planner and repo-search command 
     maxTurns: 9,
     promptTokenCount: 1234,
     elapsedMs: 2500,
-    command: 'rg -n "planner" src',
+    command: 'git grep -n "planner" src',
   }, 'repo_search');
   assert.ok(msg1);
-  assert.match(msg1, /^repo_search command turn=2\/9 prompt_tokens=1,234 elapsed=2s command=rg -n "planner" src$/u);
+  assert.match(msg1, /^repo_search command turn=2\/9 prompt_tokens=1,234 elapsed=2s command=git grep -n "planner" src$/u);
   const msg2 = buildRepoSearchProgressLogMessage({
     kind: 'command',
     turn: 1,
     maxTurns: 2,
     promptTokenCount: 88,
     elapsedMs: 0,
-    command: 'rg -n "dashboard" .',
+    command: 'git grep -n "dashboard" .',
   }, 'planner');
   assert.ok(msg2);
-  assert.match(msg2, /^planner command turn=1\/2 prompt_tokens=88 elapsed=0s command=rg -n "dashboard" \.$/u);
+  assert.match(msg2, /^planner command turn=1\/2 prompt_tokens=88 elapsed=0s command=git grep -n "dashboard" \.$/u);
   const msg3 = buildRepoSearchProgressLogMessage({
     kind: 'llm_start',
     turn: 18,
@@ -831,11 +831,11 @@ test('repo-search transcript artifact keeps routine normalized flags out of tool
         maxTurns: 2,
         availableModels: ['mock-model'],
         mockResponses: [
-          '{"action":"repo_rg","command":"rg -n \\"needle\\" src"}',
+          '{"action":"git","command":"git grep -n \\"needle\\" src"}',
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
-          'rg -n "needle" src': { exitCode: 0, stdout: 'src/index.ts:1:needle', stderr: '' },
+          'git grep -n "needle" src': { exitCode: 0, stdout: 'src/index.ts:1:needle', stderr: '' },
         },
       }),
     });
@@ -862,8 +862,8 @@ test('repo-search transcript artifact keeps routine normalized flags out of tool
       const toolCalls = asObjectArray(assistantMessage?.tool_calls);
       const firstCallFunction = asObject(toolCalls[0]?.function);
       const firstCallArgs = asObject(parseJsonValueText(String(firstCallFunction.arguments || '{}')));
-      assert.equal(String(firstCallFunction.name || ''), 'repo_rg');
-      assert.equal(String(firstCallArgs.command || ''), 'rg -n "needle" src');
+      assert.equal(String(firstCallFunction.name || ''), 'git');
+      assert.equal(String(firstCallArgs.command || ''), 'git grep -n "needle" src');
       assert.doesNotMatch(String(firstCallArgs.command || ''), /--no-ignore|--ignore-case|--glob/u);
     } finally {
       database.close();
@@ -885,7 +885,7 @@ test('repo-search transcript artifact keeps routine normalized flags out of tool
   }
 });
 
-test('repo-search transcript artifact replays fitted repo_read_file range using per-tool context limits', async () => {
+test('repo-search transcript artifact replays the fitted read range using per-tool context limits', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-bounded-transcript-'));
   const previousCwd = process.cwd();
   fs.writeFileSync(
@@ -932,8 +932,8 @@ test('repo-search transcript artifact replays fitted repo_read_file range using 
         maxTurns: 4,
         availableModels: ['mock-model'],
         mockResponses: [
-          '{"action":"repo_git","command":"git status --short"}',
-          '{"action":"repo_read_file","path":"src/big.ts","startLine":300,"endLine":900}',
+          '{"action":"git","command":"git status --short"}',
+          '{"action":"read","path":"src/big.ts","offset":300,"limit":601}',
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
@@ -965,11 +965,11 @@ test('repo-search transcript artifact replays fitted repo_read_file range using 
       const toolCalls = asObjectArray(assistantMessage?.tool_calls);
       const firstCallFunction = asObject(toolCalls[0]?.function);
       const firstCallArgs = asObject(parseJsonValueText(String(firstCallFunction.arguments || '{}')));
-      assert.equal(String(firstCallFunction.name || ''), 'repo_read_file');
+      assert.equal(String(firstCallFunction.name || ''), 'read');
       assert.equal(firstCallArgs.path, 'src/big.ts');
-      assert.equal(firstCallArgs.startLine, 300);
-      assert.equal(typeof firstCallArgs.endLine, 'number');
-      assert.equal(Number(firstCallArgs.endLine) < 900, true);
+      assert.equal(firstCallArgs.offset, 300);
+      assert.equal(typeof firstCallArgs.limit, 'number');
+      assert.equal(Number(firstCallArgs.limit) < 601, true);
       assert.match(String(toolMessage?.content || ''), /\d+ lines truncated due to per-tool context limit\./u);
     } finally {
       database.close();
@@ -1073,11 +1073,11 @@ test('repo-search endpoint reloads executor module per request', async () => {
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"repo_rg\",\"command\":\"rg -n \\\"x\\\" src\"}",
+          "{\"action\":\"git\",\"command\":\"git grep -n \\\"x\\\" src\"}",
           'Terminal synthesis answer: src/example.ts:1.',
         ],
         mockCommandResults: {
-          'rg -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '' },
+          'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '' },
         },
       }),
     });
@@ -1144,7 +1144,7 @@ test('repo-search endpoint rejects duplicated final output before sending succes
     '',
     'Conclusion: enough evidence was found.',
   ].join('\n');
-  const commands = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'].map((term) => `rg -n "${term}" src`);
+  const commands = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'].map((term) => `git grep -n "${term}" src`);
   const mockCommandResults = Object.fromEntries(commands.map((command, index) => [
     command,
     { exitCode: 0, stdout: `src/${index}.ts:1:${command}`, stderr: '' },
@@ -1167,7 +1167,7 @@ test('repo-search endpoint rejects duplicated final output before sending succes
         availableModels: ['mock-model'],
         mockResponses: [
           ...commands.map((command) => JSON.stringify({
-            action: 'repo_rg',
+            action: 'git',
             command,
           })),
           JSON.stringify({ action: 'finish', output: duplicatedFinalOutput }),

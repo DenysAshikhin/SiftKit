@@ -7,9 +7,7 @@ import type {
 
 export const TOOL_POLICY_GROUPS = [
   { title: 'Text & JSON', tools: ['find_text', 'read_lines', 'json_filter', 'json_get'] },
-  { title: 'Repository', tools: ['repo_rg', 'repo_read_file', 'repo_list_files', 'repo_git'] },
-  { title: 'Object pipeline', tools: ['repo_select_object', 'repo_where_object', 'repo_sort_object', 'repo_group_object', 'repo_measure_object', 'repo_foreach_object', 'repo_get_unique'] },
-  { title: 'Formatting', tools: ['repo_format_table', 'repo_format_list', 'repo_out_string', 'repo_convertto_json', 'repo_convertfrom_json', 'repo_join_string'] },
+  { title: 'Repository', tools: ['read', 'grep', 'find', 'ls', 'git'] },
   { title: 'Web', tools: ['web_search', 'web_fetch'] },
 ] as const satisfies readonly { title: string; tools: readonly DashboardPresetToolName[] }[];
 

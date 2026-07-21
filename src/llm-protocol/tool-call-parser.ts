@@ -1,4 +1,4 @@
-import type { OptionalJsonValue } from '../lib/json-types.js';
+import type { MutableJsonObject, OptionalJsonValue } from '../lib/json-types.js';
 import type { LlamaCppToolCall } from './types.js';
 
 const QWEN_TOOL_CALL_PATTERN = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/gu;
@@ -31,32 +31,18 @@ export type ReplayToolCallInput = {
 
 type ParsedReplayCommand = {
   toolName: string;
-  argumentName: 'query' | 'url' | 'command';
-  value: string;
+  args: MutableJsonObject;
 };
 
-const REPLAY_REPO_COMMAND_TOKENS = new Set<string>([
-  'rg',
-  'git',
-  'get-content',
-  'get-childitem',
-  'select-string',
-  'pwd',
-  'ls',
-  'select-object',
-  'where-object',
-  'sort-object',
-  'group-object',
-  'measure-object',
-  'foreach-object',
-  'format-table',
-  'format-list',
-  'out-string',
-  'convertto-json',
-  'convertfrom-json',
-  'get-unique',
-  'join-string',
-]);
+/**
+ * Persisted tool commands replay as the tool call that produced them. Native tools persist the
+ * synthetic `<tool> key=<json>` form built by buildRepoToolRequestedCommand; `git` persists its raw
+ * command line. Kept in step with EXPOSED_REPO_TOOL_NAMES in repo-search/planner-protocol.ts —
+ * importing it here would close an import cycle.
+ */
+const REPLAY_NATIVE_TOOL_NAMES = new Set<string>(['read', 'grep', 'find', 'ls', 'web_search', 'web_fetch']);
+const REPLAY_COMMAND_TOOL_NAME = 'git';
+const REPLAY_ARGUMENT_PATTERN = /([A-Za-z][A-Za-z0-9_]*)=("(?:\\.|[^"\\])*"|true|false|-?\d+(?:\.\d+)?)/gu;
 
 export class LlamaCppToolCallParser {
   private readonly allowedToolNames: Set<string>;
@@ -158,62 +144,39 @@ export function buildReplayToolCall(input: ReplayToolCallInput): LlamaCppToolCal
     type: 'function',
     function: {
       name: parsed.toolName,
-      arguments: JSON.stringify({ [parsed.argumentName]: parsed.value }),
+      arguments: JSON.stringify(parsed.args),
     },
   };
 }
 
 function parseReplayCommand(command: string): ParsedReplayCommand | null {
   const text = command.trim();
-  const search = parseNamedReplayCommand(text, 'web_search', 'query');
-  if (search) return search;
-  const fetch = parseNamedReplayCommand(text, 'web_fetch', 'url');
-  if (fetch) return fetch;
-  const repo = parseRepoReplayCommand(text);
-  if (repo) return repo;
-  return null;
+  const toolName = getFirstCommandToken(text);
+  if (toolName === REPLAY_COMMAND_TOOL_NAME) {
+    return { toolName, args: { command: text } };
+  }
+  if (!REPLAY_NATIVE_TOOL_NAMES.has(toolName)) {
+    return null;
+  }
+  const args = parseNativeReplayArguments(text.slice(toolName.length));
+  return args ? { toolName, args } : null;
 }
 
-function parseNamedReplayCommand(
-  text: string,
-  toolName: 'web_search' | 'web_fetch',
-  argumentName: 'query' | 'url',
-): ParsedReplayCommand | null {
-  const assignmentPrefix = `${toolName} ${argumentName}=`;
-  if (text.startsWith(assignmentPrefix)) {
-    const value = parseQuotedReplayValue(text.slice(assignmentPrefix.length));
-    return value ? { toolName, argumentName, value } : null;
+function parseNativeReplayArguments(argumentText: string): MutableJsonObject | null {
+  const args: MutableJsonObject = {};
+  let matched = false;
+  for (const match of argumentText.matchAll(REPLAY_ARGUMENT_PATTERN)) {
+    try {
+      args[match[1]] = JSON.parse(match[2]);
+    } catch {
+      return null;
+    }
+    matched = true;
   }
-  const colonPrefix = `${toolName}:`;
-  if (text.startsWith(colonPrefix)) {
-    const value = text.slice(colonPrefix.length).trim();
-    return value ? { toolName, argumentName, value } : null;
-  }
-  return null;
-}
-
-function parseRepoReplayCommand(text: string): ParsedReplayCommand | null {
-  const commandToken = getFirstCommandToken(text);
-  if (!REPLAY_REPO_COMMAND_TOKENS.has(commandToken)) return null;
-  return {
-    toolName: `repo_${commandToken.replace(/[^a-z0-9]+/gu, '_')}`,
-    argumentName: 'command',
-    value: text,
-  };
+  return matched ? args : null;
 }
 
 function getFirstCommandToken(command: string): string {
   const match = /^\s*(\S+)/u.exec(command);
   return match ? match[1].toLowerCase() : '';
-}
-
-function parseQuotedReplayValue(value: string): string | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  try {
-    const parsed = JSON.parse(trimmed);
-    return typeof parsed === 'string' && parsed.trim() ? parsed : null;
-  } catch {
-    return trimmed;
-  }
 }

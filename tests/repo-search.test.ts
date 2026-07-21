@@ -354,7 +354,7 @@ test('executeRepoSearchRequest with mock command executes and returns scorecard'
       repoRoot: tempRoot,
       maxTurns: 2,
       mockResponses: [
-        "{\"action\":\"repo_git\",\"command\":\"git status --short\"}",
+        "{\"action\":\"git\",\"command\":\"git status --short\"}",
         '{"action":"finish","output":"Found scripts"}',
       ],
       mockCommandResults: {
@@ -428,8 +428,8 @@ test('executeRepoSearchRequest does not force finish from elapsed tool-loop time
       repoRoot: tempRoot,
       maxTurns: 3,
       mockResponses: [
-        "{\"action\":\"repo_git\",\"command\":\"git status --short\"}",
-        "{\"action\":\"repo_git\",\"command\":\"git status --porcelain\"}",
+        "{\"action\":\"git\",\"command\":\"git status --short\"}",
+        "{\"action\":\"git\",\"command\":\"git status --porcelain\"}",
         '{"action":"finish","output":"budget answer"}',
       ],
       mockCommandResults: {
@@ -463,8 +463,8 @@ test('executeRepoSearchRequest fits native reads using per-tool context limits',
       repoRoot: tempRoot,
       maxTurns: 4,
       mockResponses: [
-        '{"action":"repo_git","command":"git status --short"}',
-        '{"action":"repo_read_file","path":"src/big.ts","startLine":300,"endLine":900}',
+        '{"action":"git","command":"git status --short"}',
+        '{"action":"read","path":"src/big.ts","offset":300,"limit":601}',
         '{"action":"finish","output":"budget answer"}',
       ],
       mockCommandResults: {
@@ -477,7 +477,7 @@ test('executeRepoSearchRequest fits native reads using per-tool context limits',
     assert.equal(task.finalOutput, 'budget answer');
     assert.equal(task.commands.length, 2);
     assert.equal(task.commands[1].safe, true);
-    assert.match(task.commands[1].command, /^repo_read_file path="src\/big\.ts" startLine=300 endLine=\d+$/u);
+    assert.match(task.commands[1].command, /^read path="src\/big\.ts" offset=300 limit=\d+$/u);
     assert.match(task.commands[1].output, /\d+ lines truncated due to per-tool context limit\./u);
     assert.match(task.commands[1].output, /^300: /mu);
   });
@@ -507,7 +507,7 @@ test('executeRepoSearchRequest persists summed prompt-eval and generation durati
       });
       if (requestCount === 1) {
         setTimeout(() => {
-          res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"repo_git\\",\\"command\\":\\"git status --short\\"}"}}]}\n\n');
+          res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"git\\",\\"command\\":\\"git status --short\\"}"}}]}\n\n');
           setTimeout(() => {
             res.write('data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":30,"completion_tokens":4,"completion_tokens_details":{"reasoning_tokens":6},"prompt_tokens_details":{"cached_tokens":20}}}\n\n');
             res.write('data: [DONE]\n\n');

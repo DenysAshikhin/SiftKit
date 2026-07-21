@@ -25,7 +25,7 @@ test('running tool call shows a spinner and no result', () => {
 
 test('completed tool call shows a token-loaded header and collapsible output', () => {
   const markup = renderToStaticMarkup(
-    <ToolCallCard message={msg({ toolCallCommand: 'repo_rg "x"', toolCallStatus: 'done', toolCallOutput: 'line1\nline2', toolCallPromptTokenCount: 8200 })} />,
+    <ToolCallCard message={msg({ toolCallCommand: 'grep "x"', toolCallStatus: 'done', toolCallOutput: 'line1\nline2', toolCallPromptTokenCount: 8200 })} />,
   );
   assert.match(markup, /✓/);
   assert.match(markup, /loaded/);

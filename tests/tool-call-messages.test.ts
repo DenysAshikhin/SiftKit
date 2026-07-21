@@ -15,7 +15,7 @@ test('appendToolCallExchange appends assistant tool_call and tool result message
   appendToolCallExchange(
     messages,
     {
-      tool_name: 'repo_rg',
+      tool_name: 'grep',
       args: { command: 'rg -n "planner" src' },
     },
     'call_1',
@@ -26,7 +26,7 @@ test('appendToolCallExchange appends assistant tool_call and tool result message
   assert.equal(messages.length, 2);
   assert.equal(messages[0]?.role, 'assistant');
   assert.equal(messages[1]?.role, 'tool');
-  assert.equal(String(messages[0]?.tool_calls?.[0]?.function?.name || ''), 'repo_rg');
+  assert.equal(String(messages[0]?.tool_calls?.[0]?.function?.name || ''), 'grep');
   assert.equal(String(messages[1]?.tool_call_id || ''), 'call_1');
   assert.equal(String(messages[1]?.content || ''), 'Invalid action: example');
 });
@@ -35,7 +35,7 @@ test('appendToolBatchExchange emits one assistant message with all tool_calls fo
   const messages: ToolTranscriptMessage[] = [];
   const outcomes: ToolBatchOutcome[] = [
     {
-      action: { tool_name: 'repo_rg', args: { command: 'rg foo' } },
+      action: { tool_name: 'grep', args: { pattern: 'foo' } },
       toolCallId: 'call_a',
       toolContent: 'result a',
     },
@@ -60,7 +60,7 @@ test('appendToolBatchExchange emits one assistant message with all tool_calls fo
   assert.equal(messages[0]?.tool_calls?.[0]?.id, 'call_a');
   assert.equal(messages[0]?.tool_calls?.[1]?.id, 'call_b');
   assert.equal(messages[0]?.tool_calls?.[2]?.id, 'call_c');
-  assert.equal(messages[0]?.tool_calls?.[0]?.function?.name, 'repo_rg');
+  assert.equal(messages[0]?.tool_calls?.[0]?.function?.name, 'grep');
   assert.equal(messages[0]?.tool_calls?.[1]?.function?.name, 'read_lines');
   assert.equal(messages[0]?.tool_calls?.[2]?.function?.name, 'json_filter');
 
@@ -82,7 +82,7 @@ test('appendToolBatchExchange is a no-op for an empty outcome list', () => {
 test('appendToolBatchExchange omits reasoning_content when thinking text is empty', () => {
   const messages: ToolTranscriptMessage[] = [];
   appendToolBatchExchange(messages, [
-    { action: { tool_name: 'repo_rg', args: {} }, toolCallId: 'call_1', toolContent: 'r' },
+    { action: { tool_name: 'grep', args: {} }, toolCallId: 'call_1', toolContent: 'r' },
   ], '');
   assert.equal(messages.length, 2);
   assert.equal('reasoning_content' in (messages[0] || {}), false);

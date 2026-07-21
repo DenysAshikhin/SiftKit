@@ -1,4 +1,5 @@
 import type { JsonObject } from './lib/json-types.js';
+import { isRepoSearchCommandToolName } from './repo-search/planner-protocol.js';
 
 type ToolLoopKind = 'repo-search' | 'planner' | 'chat';
 
@@ -62,20 +63,9 @@ function isHttpClientLogLine(line: string): boolean {
   return /^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+http_client\b/u.test(line.trim());
 }
 
-function isNegativeGlobToken(token: string): boolean {
-  return /^["']?!/u.test(token) || /^![^\s]+/u.test(token);
-}
-
+/** `git` is the only repo tool whose call is a command string rather than typed args. */
 function normalizeRepoSearchFingerprint(command: string): string {
-  let normalized = normalizeWhitespace(String(command || '').toLowerCase());
-  normalized = normalized.replace(/\s--no-ignore\b/gu, '');
-  normalized = normalized.replace(/\s(?:--glob|-g)\s+(?:"![^"]*"|'![^']*'|![^\s]+)/gu, '');
-  return normalizeWhitespace(normalized);
-}
-
-function isRepoSearchCommandTool(toolName: string): boolean {
-  const normalized = String(toolName || '').trim().toLowerCase();
-  return normalized === 'run_repo_cmd' || normalized.startsWith('repo_');
+  return normalizeWhitespace(String(command || '').toLowerCase());
 }
 
 function buildJsonFilterFingerprint(args: JsonObject): string {
@@ -109,7 +99,7 @@ function buildReadLinesFingerprint(args: JsonObject): string {
 }
 
 export function fingerprintToolCall(options: FingerprintToolCallOptions): string {
-  if (isRepoSearchCommandTool(options.toolName)) {
+  if (isRepoSearchCommandToolName(options.toolName)) {
     return normalizeRepoSearchFingerprint(String(options.command || ''));
   }
   if (options.toolName === 'find_text') {
@@ -139,7 +129,6 @@ function extractEvidenceKeys(promptResultText: string): string[] {
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
-    .filter((line) => !/^note:/iu.test(line))
     .filter((line) => !isHttpClientLogLine(line))
     .filter((line) => !/^exit_code=\d+$/iu.test(line))
     .filter((line) => !/^(read_lines|find_text|json_filter)\b.*=/iu.test(line))
@@ -159,13 +148,12 @@ export function classifyToolResultNovelty(options: ClassifyToolResultNoveltyOpti
 }
 
 export function buildPromptToolResult(options: BuildPromptToolResultOptions): string {
-  if (!isRepoSearchCommandTool(options.toolName)) {
+  if (!isRepoSearchCommandToolName(options.toolName)) {
     return stripLeadingSuccessExitCode(String(options.rawOutput || '').trim());
   }
   const meaningfulLines = String(options.rawOutput || '')
     .replace(/\r\n/gu, '\n')
     .split('\n')
-    .filter((line) => !/^note:/iu.test(line.trim()))
     .filter((line) => !isHttpClientLogLine(line))
     .filter((line) => line.trim().length > 0);
   const trimmed = meaningfulLines.join('\n').trim();

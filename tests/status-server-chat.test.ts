@@ -195,7 +195,7 @@ test('appendChatMessagesWithUsage marks explicit estimated tool tokens as estima
     {
       turns: [
         { thinkingText: '', toolMessages: [{
-          id: 'tool-a', content: 'repo_read_file path="src/x.ts"', toolCallCommand: 'repo_read_file path="src/x.ts"',
+          id: 'tool-a', content: 'read path="src/x.ts"', toolCallCommand: 'read path="src/x.ts"',
           toolCallTurn: 1, toolCallMaxTurns: 1, toolCallExitCode: 0,
           toolCallOutputSnippet: 'snippet', toolCallOutput: 'x'.repeat(10_000), outputTokens: 9048, outputTokensEstimated: true,
         }] },
@@ -249,7 +249,7 @@ test('buildChatPromptContext exposes repo-search tool schema', () => {
       label: 'Repo Search',
       presetKind: 'repo-search',
       operationMode: 'read-only',
-      allowedTools: ['repo_rg'],
+      allowedTools: ['grep'],
       promptPrefix: 'extra repo instruction',
     }],
   }), session);
@@ -260,8 +260,8 @@ test('buildChatPromptContext exposes repo-search tool schema', () => {
   assert.match(context.content, /extra repo instruction/u);
   assert.match(context.content, /Tool schema/u);
   const toolSchemaSection = context.content.split('## Tool schema')[1] || '';
-  assert.match(toolSchemaSection, /repo_rg/u);
-  assert.doesNotMatch(toolSchemaSection, /repo_read_file/u);
+  assert.match(toolSchemaSection, /"grep"/u);
+  assert.doesNotMatch(toolSchemaSection, /"read"/u);
 });
 
 test('buildRepoSearchMarkdown collapses exact repeated final output blocks for display', () => {
@@ -509,8 +509,8 @@ test('buildChatHistoryMessages replays persisted repo tool calls with real proto
         id: 'tool-2',
         role: 'assistant',
         kind: 'assistant_tool_call',
-        content: 'rg -n "buildChatHistoryMessages" src',
-        toolCallCommand: 'rg -n "buildChatHistoryMessages" src',
+        content: 'grep pattern="buildChatHistoryMessages" path="src"',
+        toolCallCommand: 'grep pattern="buildChatHistoryMessages" path="src"',
         toolCallOutput: 'src/status-server/chat.ts:181:export function buildChatHistoryMessages',
       },
     ],
@@ -524,8 +524,8 @@ test('buildChatHistoryMessages replays persisted repo tool calls with real proto
         id: 'chat_tool_tool-2',
         type: 'function',
         function: {
-          name: 'repo_rg',
-          arguments: JSON.stringify({ command: 'rg -n "buildChatHistoryMessages" src' }),
+          name: 'grep',
+          arguments: JSON.stringify({ pattern: 'buildChatHistoryMessages', path: 'src' }),
         },
       }],
     },

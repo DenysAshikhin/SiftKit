@@ -15,10 +15,8 @@ export {
 } from './engine.js';
 export {
   evaluateCommandSafety,
-  normalizePlannerCommand,
   buildIgnorePolicy,
   type IgnorePolicy,
-  type NormalizedCommand,
   type SafetyResult,
 } from './command-safety.js';
 export {

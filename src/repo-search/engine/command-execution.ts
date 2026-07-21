@@ -1,6 +1,4 @@
-import { spawnDirectCommand } from '../../lib/command-spawn.js';
 import { spawnPowerShellAsync } from '../../lib/powershell.js';
-import { parseDirectRgCommand } from '../command-safety.js';
 import type { RepoSearchMockCommandResult } from '../types.js';
 import { getAbortError, throwIfAborted } from './abort.js';
 
@@ -11,8 +9,8 @@ export function findMockResult(
   if (Object.prototype.hasOwnProperty.call(mockCommandResults, command)) {
     return mockCommandResults[command];
   }
-  // Prefix match: find the longest mock key that the command starts with.
-  // This allows mock keys to omit auto-appended flags (--no-ignore, --glob, etc.)
+  // Prefix match: find the longest mock key that the command starts with, so a
+  // mock key can omit trailing arguments it does not care about.
   let bestKey: string | null = null;
   for (const key of Object.keys(mockCommandResults)) {
     if (command.startsWith(key) && (!bestKey || key.length > bestKey.length)) {
@@ -63,14 +61,6 @@ export function executeRepoCommand(
         complete();
       }
     });
-  }
-
-  const directRg = parseDirectRgCommand(command);
-  if (directRg) {
-    return spawnDirectCommand('rg', directRg.args, { cwd: repoRoot, abortSignal }).then((result) => ({
-      exitCode: result.exitCode,
-      output: result.output,
-    }));
   }
 
   return spawnPowerShellAsync(command, { cwd: repoRoot }).then((result) => ({

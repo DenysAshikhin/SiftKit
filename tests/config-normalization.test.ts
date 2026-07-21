@@ -214,7 +214,7 @@ test('normalizeConfig returns the typed live config fields used by server and da
     IncludeRepoFileListing: false,
     OperationModeAllowedTools: {
       summary: ['find_text'],
-      'read-only': ['repo_rg'],
+      'read-only': ['grep'],
       full: [],
     },
     Presets: [{

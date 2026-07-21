@@ -8,8 +8,8 @@ import { DASHBOARD_CONFIG } from './fixtures';
 
 const ALLOWED: DashboardOperationModeAllowedTools = {
   summary: ['find_text'],
-  'read-only': ['find_text', 'repo_rg'],
-  full: ['find_text', 'repo_rg', 'web_search'],
+  'read-only': ['find_text', 'grep'],
+  full: ['find_text', 'grep', 'web_search'],
 };
 
 test('renders a tp-table with mode columns and checkbox cells', () => {

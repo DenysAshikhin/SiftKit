@@ -128,7 +128,7 @@ test('planRead returns a numbered window and honours limit as a line count', () 
   assert.equal(plan.effectiveStartLine, 2);
   assert.equal(plan.effectiveEndLineExclusive, 4);
   assert.equal(plan.hasUnread, true);
-  const execution = buildReadExecution('read', plan, null);
+  const execution = buildReadExecution('read', plan);
   assert.ok(execution.ok);
   assert.equal(execution.output, '2: alpha\n3: line3');
 });
@@ -345,7 +345,7 @@ test('run requires a command', async () => {
 
 test('executeRepoTool rejects an unknown tool name', async () => {
   const root = makeRepo();
-  const result = await executeRepoTool('repo_rg', { command: 'rg x' }, makeContext(root));
+  const result = await executeRepoTool('rg', { command: 'rg x' }, makeContext(root));
   assert.ok(!result.ok);
   assert.match(result.reason, /unknown/iu);
 });

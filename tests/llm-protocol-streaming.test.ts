@@ -70,12 +70,12 @@ function buildStreamingConfig(): SiftConfig {
 const streamingConfig = buildStreamingConfig();
 
 test('streaming assembler accumulates content, reasoning, and tool-call deltas', () => {
-  const assembler = new LlamaCppStreamingResponseAssembler(['repo_rg']);
+  const assembler = new LlamaCppStreamingResponseAssembler(['grep']);
 
   assembler.ingestChoiceDelta({ delta: { reasoning_content: 'think ', content: 'ans' } });
   assembler.ingestChoiceDelta({
     delta: {
-      tool_calls: [{ index: 0, id: 'call_1', function: { name: 'repo_rg', arguments: '{"pattern":' } }],
+      tool_calls: [{ index: 0, id: 'call_1', function: { name: 'grep', arguments: '{"pattern":' } }],
     },
   });
   assembler.ingestChoiceDelta({
@@ -135,7 +135,7 @@ test('llama streaming client assembles deltas, callbacks, timings, tool chunks, 
       choices: [{ delta: { reasoning_content: 'thinking ' } }],
     },
     { choices: [{ delta: { content: 'answer ' } }] },
-    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'tool_1', function: { name: 'repo_rg', arguments: '{"pattern":' } }] } }] },
+    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'tool_1', function: { name: 'grep', arguments: '{"pattern":' } }] } }] },
     { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '"x"}' } }] } }] },
   ]);
 
@@ -143,10 +143,10 @@ test('llama streaming client assembles deltas, callbacks, timings, tool chunks, 
     config: streamingConfig,
     model: 'local',
     messages: [{ role: 'user', content: 'hello' }],
-    tools: [{ type: 'function', function: { name: 'repo_rg', description: 'Search.', parameters: { type: 'object' } } }],
+    tools: [{ type: 'function', function: { name: 'grep', description: 'Search.', parameters: { type: 'object' } } }],
     maxTokens: 64,
     stream: true,
-    allowedToolNames: ['repo_rg'],
+    allowedToolNames: ['grep'],
     onThinkingDelta: (value) => thinkingUpdates.push(value),
     onContentDelta: (value) => contentUpdates.push(value),
   });
@@ -281,7 +281,7 @@ test('llama streaming client wraps non-error stream failures', async () => {
 });
 
 test('streaming assembler ignores packets after early stop and covers empty delta branches', () => {
-  const assembler = new LlamaCppStreamingResponseAssembler(['repo_rg'], { structuralRepeatLimit: 2 });
+  const assembler = new LlamaCppStreamingResponseAssembler(['grep'], { structuralRepeatLimit: 2 });
 
   assembler.ingestChoiceDelta({});
   assembler.ingestChoiceDelta({ delta: { content: '}}' } });
@@ -302,9 +302,9 @@ test('streaming assembler ignores packets after early stop and covers empty delt
 });
 
 test('streaming assembler covers fallback tool index and filters disallowed calls', () => {
-  const assembler = new LlamaCppStreamingResponseAssembler(['repo_rg']);
+  const assembler = new LlamaCppStreamingResponseAssembler(['grep']);
 
-  assembler.ingestChoiceDelta({ delta: { tool_calls: [{ function: { name: 'repo_rg', arguments: '{"pattern":"x"}' } }] } });
+  assembler.ingestChoiceDelta({ delta: { tool_calls: [{ function: { name: 'grep', arguments: '{"pattern":"x"}' } }] } });
   assembler.ingestChoiceDelta({ delta: { tool_calls: [{ function: { name: 'not_allowed', arguments: '{}' } }] } });
 
   const response = assembler.toResponse({
@@ -322,13 +322,13 @@ test('streaming assembler covers fallback tool index and filters disallowed call
 });
 
 test('streaming assembler covers thinking fallback, non-string deltas, and default tool arguments', () => {
-  const assembler = new LlamaCppStreamingResponseAssembler(['repo_rg']);
+  const assembler = new LlamaCppStreamingResponseAssembler(['grep']);
 
   assembler.ingestChoiceDelta({
     delta: {
       content: 5,
       thinking: 'think ',
-      tool_calls: [{ id: 'tool', function: { name: 'repo_rg' } }],
+      tool_calls: [{ id: 'tool', function: { name: 'grep' } }],
     },
   });
 
@@ -348,7 +348,7 @@ test('streaming assembler covers thinking fallback, non-string deltas, and defau
 });
 
 test('streaming assembler covers non-runaway punctuation and word-tail branches', () => {
-  const punctuation = new LlamaCppStreamingResponseAssembler(['repo_rg'], { structuralRepeatLimit: 2 });
+  const punctuation = new LlamaCppStreamingResponseAssembler(['grep'], { structuralRepeatLimit: 2 });
   punctuation.ingestChoiceDelta({ delta: { content: '}!' } });
   const punctuationResponse = punctuation.toResponse({
     promptTokens: null,
@@ -361,7 +361,7 @@ test('streaming assembler covers non-runaway punctuation and word-tail branches'
   });
   assert.equal(punctuationResponse.stoppedEarly, false);
 
-  const wordTail = new LlamaCppStreamingResponseAssembler(['repo_rg'], { structuralRepeatLimit: 2 });
+  const wordTail = new LlamaCppStreamingResponseAssembler(['grep'], { structuralRepeatLimit: 2 });
   wordTail.ingestChoiceDelta({ delta: { content: 'aa' } });
   const wordTailResponse = wordTail.toResponse({
     promptTokens: null,
