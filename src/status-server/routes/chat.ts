@@ -30,6 +30,7 @@ import { readConfig } from '../config-store.js';
 import {
   applyHostLlamaRuntimeSettings,
   getActiveModelPreset,
+  getConfiguredLlamaBaseUrl,
   getConfiguredLlamaNumCtx,
   getConfiguredReasoning,
   notifyStatusBackend,
@@ -371,7 +372,7 @@ function getMockTokenConfig(config: SiftConfig, mockResponses: string[] | undefi
 }
 
 function getLocalTokenConfig(config: SiftConfig): SiftConfig | undefined {
-  const baseUrl = getActiveModelPreset(config).BaseUrl ?? config.Runtime.LlamaCpp.BaseUrl ?? null;
+  const baseUrl = getConfiguredLlamaBaseUrl(config);
   return baseUrl === SIFT_DEFAULT_LLAMA_BASE_URL ? undefined : config;
 }
 

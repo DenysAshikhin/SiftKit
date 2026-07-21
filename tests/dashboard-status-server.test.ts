@@ -11,9 +11,10 @@ import { parseJsonValueText } from '../src/lib/json.js';
 import type { JsonValue, OptionalJsonValue } from '../src/lib/json-types.js';
 import { startStatusServer } from '../src/status-server/index.js';
 import { writeConfig, getDefaultConfig } from '../src/status-server/config-store.js';
-import { getConfigPath } from '../src/config/index.js';
+import { getConfigPath, SIFT_DEFAULT_LLAMA_BASE_URL } from '../src/config/index.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { readChatSessions, saveChatSession } from '../src/state/chat-sessions.js';
+import { writeRuntimeLaunchSnapshot } from '../src/status-server/runtime-launch-snapshot.js';
 import {
   asArray,
   asObject,
@@ -776,7 +777,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
   }
 });
 
-test('dashboard chat message route stores exact user tokens from llama tokenizer', async () => {
+test('dashboard chat message route uses the runtime BaseUrl for exact llama tokens', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-chat-tokenize-'));
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
@@ -810,11 +811,19 @@ test('dashboard chat message route stores exact user tokens from llama tokenizer
     ...serverLlama.Presets[0],
     id: 'default',
     label: 'Default',
-    ExternalServerEnabled: true,
-    BaseUrl: tokenizerBaseUrl,
+    ExternalServerEnabled: false,
+    BaseUrl: SIFT_DEFAULT_LLAMA_BASE_URL,
   }];
   serverLlama.ActivePresetId = 'default';
   writeConfig(configPath, config);
+  writeRuntimeLaunchSnapshot(configPath, {
+    Model: serverLlama.Presets[0]?.Model ?? null,
+    LlamaCpp: {
+      BaseUrl: tokenizerBaseUrl,
+      NumCtx: serverLlama.Presets[0]?.NumCtx,
+      Reasoning: serverLlama.Presets[0]?.Reasoning,
+    },
+  });
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
@@ -2503,4 +2512,3 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
     await removeDirectoryWithRetries(tempRoot);
   }
 });
-
