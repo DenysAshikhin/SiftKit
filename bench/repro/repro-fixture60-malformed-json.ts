@@ -11,6 +11,7 @@ import {
   getEffectiveInputCharactersPerContextToken,
 } from '../../src/config/index.js';
 import { buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks } from '../../src/summary.js';
+import { DEFAULT_SUMMARY_PROVIDER } from '../../src/summary/types.js';
 import { countLlamaCppTokens, generateLlamaCppResponse } from '../../src/providers/llama-cpp.js';
 import { ModelJson } from '../../src/lib/model-json.js';
 import { getErrorMessage } from '../../src/lib/errors.js';
@@ -267,11 +268,8 @@ export async function runFixture60MalformedJsonRepro(
   try {
     const workItems = resolveWorkItems(fixtureRoot, fixtureStartIndex, fixtureEndIndex);
     const config = await loadConfig({ ensure: true });
-    const backend = config.Backend;
+    const backend = DEFAULT_SUMMARY_PROVIDER;
     const model = getConfiguredModel(config);
-    if (backend !== 'llama.cpp') {
-      throw new Error(`This repro script requires backend=llama.cpp. Current backend: ${backend}.`);
-    }
     const promptPrefix = getConfiguredPromptPrefix(config);
     manifest.backend = backend;
     manifest.model = model;

@@ -272,7 +272,6 @@ test('loadConfig returns a valid config object', async () => {
   await withTestEnvAndServer(async () => {
     const config = await loadConfig({ ensure: true });
     assert.equal(typeof config.Version, 'string');
-    assert.equal(typeof config.Backend, 'string');
     assert.ok(config.Effective !== undefined);
     assert.equal(typeof config.Effective.ConfigAuthoritative, 'boolean');
   });

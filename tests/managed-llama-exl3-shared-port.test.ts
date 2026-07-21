@@ -69,8 +69,8 @@ test('managed llama startup cleanup does not reap the TabbyAPI process on the sh
     const scriptPath = writeVictimScript(tempRoot, port);
 
     // Long-lived external "TabbyAPI" process on the shared port. Before the fix, the
-    // legacy config.Backend='llama.cpp' gate made the managed-llama startup cleanup
-    // reap whatever listened on this port — killing this process.
+    // managed-llama startup cleanup reaped whatever listened on this port while an
+    // exl3 preset was active — killing this process.
     const victim: ChildProcess = spawn(process.execPath, [scriptPath], {
       stdio: 'ignore',
       windowsHide: true,
@@ -95,7 +95,6 @@ test('managed llama startup cleanup does not reap the TabbyAPI process on the sh
         HealthcheckTimeoutMs: 500,
         HealthcheckIntervalMs: 25,
       };
-      config.Backend = 'llama.cpp';
       config.Server.Engines.Exl3 = {
         Managed: false,
         WorkingDirectory: tempRoot,

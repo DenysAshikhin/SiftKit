@@ -72,7 +72,6 @@ async function waitForExit(child: ChildProcess, timeoutMs: number): Promise<bool
 
 function activeExl3Config(): SiftConfig {
   const config = getDefaultConfig();
-  config.Backend = 'llama.cpp';
   const base = config.Server.ModelPresets.Presets[0];
   if (!base) throw new Error('default preset missing');
   const exl3Preset = { ...base, id: 'exl3-main', Backend: 'exl3' as const };
@@ -100,7 +99,6 @@ test('shutdownManagedLlamaForProcessExitSync: reaps the host process under an ac
   try {
     await withExitSyncEnvAsync(async (configPath, statusRoot) => {
       const config = getDefaultConfig();
-      config.Backend = 'llama.cpp';
       assert.equal(config.Server.ModelPresets.Presets[0]?.Backend, 'llama');
       writeConfig(configPath, config);
       const ctx = createExitSyncContext(configPath, statusRoot, child);

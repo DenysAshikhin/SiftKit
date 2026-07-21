@@ -80,7 +80,6 @@ export function getTestExl3Engine(): Exl3EngineConfig {
 export function getDefaultConfig(): SiftConfig {
   return {
     Version: '0.1.0',
-    Backend: 'llama.cpp',
     PolicyMode: 'conservative',
     RawLogRetention: true,
     IncludeAgentsMd: true,

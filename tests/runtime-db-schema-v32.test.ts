@@ -24,17 +24,17 @@ function columnNames(dbPath: string): string[] {
   }
 }
 
-test('schema v31 persists inference and EXL3 configuration JSON', () => {
-  const dbPath = tempDbPath('sk-v31-fresh-');
+test('schema v32 persists inference and EXL3 configuration JSON', () => {
+  const dbPath = tempDbPath('sk-v32-fresh-');
   getRuntimeDatabase(dbPath);
 
-  assert.equal(CURRENT_SCHEMA_VERSION, 31);
+  assert.equal(CURRENT_SCHEMA_VERSION, 32);
   assert.ok(columnNames(dbPath).includes('inference_json'));
   assert.ok(columnNames(dbPath).includes('server_exl3_json'));
 });
 
 test('v30 migration adds inference and EXL3 configuration columns', () => {
-  const dbPath = tempDbPath('sk-v31-migrate-');
+  const dbPath = tempDbPath('sk-v32-migrate-');
   const seed = new Database(dbPath);
   seed.exec(`
     CREATE TABLE runtime_schema (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL);

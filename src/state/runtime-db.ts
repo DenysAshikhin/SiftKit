@@ -21,7 +21,7 @@ const MetadataValueRowSchema = z.object({ value: z.string().nullable() });
 const FreelistRowSchema = z.object({ freelist_count: z.number().nullable() });
 const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
 
-export const CURRENT_SCHEMA_VERSION = 31;
+export const CURRENT_SCHEMA_VERSION = 32;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["repo_rg","repo_read_file","repo_list_files","repo_git","repo_select_object","repo_where_object","repo_sort_object","repo_group_object","repo_measure_object","repo_foreach_object","repo_format_table","repo_format_list","repo_out_string","repo_convertto_json","repo_convertfrom_json","repo_get_unique","repo_join_string"],"full":[]}';
 const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
@@ -117,7 +117,6 @@ function applyBaseSchema(database: RuntimeDatabase): void {
     CREATE TABLE IF NOT EXISTS app_config (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       version TEXT NOT NULL,
-      backend TEXT NOT NULL,
       policy_mode TEXT NOT NULL,
       raw_log_retention INTEGER NOT NULL CHECK (raw_log_retention IN (0, 1)),
       include_agents_md INTEGER NOT NULL DEFAULT 1 CHECK (include_agents_md IN (0, 1)),
@@ -1139,6 +1138,13 @@ function ensureSchema(database: RuntimeDatabase): void {
     }
     setSchemaVersion(database, 31);
     currentVersion = 31;
+  }
+  if (currentVersion < 32) {
+    if (tableHasColumn(database, 'app_config', 'backend')) {
+      database.exec('ALTER TABLE app_config DROP COLUMN backend;');
+    }
+    setSchemaVersion(database, 32);
+    currentVersion = 32;
   }
   ensureChatMessageTimelineSchema(database);
   ensureRuntimeArtifactsSchema(database);

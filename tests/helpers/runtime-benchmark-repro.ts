@@ -29,7 +29,6 @@ function getStubLlamaBaseUrl(): StubLlamaTarget {
 export async function saveFixture60ChunkingConfig(): Promise<void> {
   const config = await loadConfig({ ensure: true });
   const stubLlama = getStubLlamaBaseUrl();
-  config.Backend = 'llama.cpp';
   config.Runtime.LlamaCpp = {
     ...config.Runtime.LlamaCpp,
     BaseUrl: stubLlama.baseUrl,

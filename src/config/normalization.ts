@@ -435,9 +435,7 @@ export function normalizeConfigObject(input: JsonValue): SiftConfig {
   }
 
   const merged = getRecord(mergeConfig(JsonValueSchema.parse(getDefaultConfigObject()), input ?? {}));
-  if (merged.Backend === 'ollama') {
-    merged.Backend = 'llama.cpp';
-  }
+  delete merged.Backend;
   delete merged.Paths;
   delete merged.Ollama;
   delete merged.Model;

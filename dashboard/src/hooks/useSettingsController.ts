@@ -87,7 +87,6 @@ export function useSettingsController(deps: {
     && savedDashboardConfig !== null
     && getDashboardConfigSignature(dashboardConfig) !== getDashboardConfigSignature(savedDashboardConfig);
   const settingsActionBusy = settingsLoading || settingsSaving || settingsRestarting || settingsPathPickerBusyTarget !== null;
-  const settingsRestartSupported = dashboardConfig?.Backend === 'llama.cpp';
   const selectedSettingsPreset = dashboardConfig
     ? dashboardConfig.Presets.find((preset) => preset.id === selectedSettingsPresetId) ?? dashboardConfig.Presets[0] ?? null
     : null;
@@ -96,6 +95,8 @@ export function useSettingsController(deps: {
       ?? dashboardConfig.Server.ModelPresets.Presets[0]
       ?? null
     : null;
+  // Only the managed llama.cpp runtime is restartable from here; exl3 is owned by TabbyAPI.
+  const settingsRestartSupported = selectedModelPreset?.Backend === 'llama';
   const maintainPerStepThinkingForCurrentPreset = selectedModelPreset?.Reasoning === 'on'
     ? selectedModelPreset.MaintainPerStepThinking !== false
     : false;

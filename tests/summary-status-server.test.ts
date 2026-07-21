@@ -769,7 +769,6 @@ test('summarizeRequest uses explicit config without requiring config service', a
 
   try {
     const config = getDefaultConfig();
-    config.Backend = 'mock';
     const runtimeSnapshot = buildRuntimeLaunchSnapshot(config);
     config.Runtime.LlamaCpp = runtimeSnapshot.LlamaCpp;
     config.Server.ModelPresets.Presets[0].Model = 'mock-model';

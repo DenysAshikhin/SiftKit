@@ -51,7 +51,6 @@ export function normalizeConfig(input: JsonValue): SiftConfig {
 
 const AppConfigRowSchema = z.object({
   version: z.string(),
-  backend: z.string(),
   policy_mode: z.string(),
   raw_log_retention: z.number(),
   include_agents_md: z.number(),
@@ -137,7 +136,6 @@ function normalizeConfigToRow(config: SiftConfig): AppConfigRow {
 
   return {
     version: String(normalized.Version || '0.1.0'),
-    backend: String(normalized.Backend || 'llama.cpp'),
     policy_mode: String(normalized.PolicyMode || 'conservative'),
     raw_log_retention: normalized.RawLogRetention === false ? 0 : 1,
     include_agents_md: normalized.IncludeAgentsMd === false ? 0 : 1,
@@ -171,7 +169,6 @@ function normalizeConfigToRow(config: SiftConfig): AppConfigRow {
 function rowToConfig(row: AppConfigRow): SiftConfig {
   return normalizeConfig({
     Version: row.version,
-    Backend: row.backend,
     PolicyMode: row.policy_mode,
     RawLogRetention: row.raw_log_retention === 1,
     IncludeAgentsMd: row.include_agents_md !== 0,
@@ -221,7 +218,6 @@ function readConfigRow(databasePath: string): AppConfigRow | null {
   const row = database.prepare(`
     SELECT
       version,
-      backend,
       policy_mode,
       raw_log_retention,
       include_agents_md,
@@ -254,7 +250,6 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
   const columns = [
     'id',
     'version',
-    'backend',
     'policy_mode',
     'raw_log_retention',
     'include_agents_md',

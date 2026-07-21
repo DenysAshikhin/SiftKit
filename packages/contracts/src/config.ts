@@ -143,7 +143,7 @@ export const OperationModeAllowedToolsSchema = z.record(PresetOperationModeSchem
 export type OperationModeAllowedTools = z.infer<typeof OperationModeAllowedToolsSchema>;
 
 export const SiftConfigSchema = z.object({
-  Version: z.string(), Backend: z.string(), PolicyMode: z.string(), RawLogRetention: z.boolean(),
+  Version: z.string(), PolicyMode: z.string(), RawLogRetention: z.boolean(),
   IncludeAgentsMd: z.boolean(), IncludeRepoFileListing: z.boolean(), ExpandReads: z.boolean(),
   PromptPrefix: z.string().nullable().optional(),
   Inference: InferenceConfigSchema,

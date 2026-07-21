@@ -101,7 +101,6 @@ function createConfig(): DashboardConfig {
   });
   return {
     Version: '0.1.0',
-    Backend: 'llama.cpp',
     PolicyMode: 'conservative',
     RawLogRetention: true,
     IncludeAgentsMd: true,

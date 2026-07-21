@@ -25,7 +25,7 @@ test('core route request normalizers return typed values', () => {
     inputText: ' text ',
     requestTimeoutSeconds: '5',
     format: 'json',
-    backend: 'b',
+    backend: 'mock',
     model: 'm',
     commandExitCode: 1,
   }), {
@@ -33,7 +33,7 @@ test('core route request normalizers return typed values', () => {
     inputText: ' text ',
     format: 'json',
     policyProfile: 'general',
-    backend: 'b',
+    backend: 'mock',
     model: 'm',
     sourceKind: undefined,
     commandExitCode: 1,
@@ -42,6 +42,11 @@ test('core route request normalizers return typed values', () => {
     promptPrefix: undefined,
     llamaCppOverrides: undefined,
   });
+
+  assert.throws(
+    () => parseSummaryRequest({ question: 'q', inputText: 'text', backend: 'llama' }),
+    /Unsupported backend 'llama'/u,
+  );
 
   assert.deepEqual(parseDashboardRunLogDeleteRequest({ mode: 'count', type: 'summary', count: '4' }), {
     mode: 'count',

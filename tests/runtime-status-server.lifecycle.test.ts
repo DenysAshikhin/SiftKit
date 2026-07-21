@@ -174,7 +174,6 @@ test('real status server accepts partial PUT /config updates and preserves unspe
       const updated = await requestJson<SiftConfig>(configUrl, {
         method: 'PUT',
         body: JSON.stringify({
-          Backend: 'llama.cpp',
           Server: {
             ModelPresets: {
               ActivePresetId: activePreset.id,
@@ -188,7 +187,6 @@ test('real status server accepts partial PUT /config updates and preserves unspe
         }),
       });
 
-      assert.equal(updated.Backend, 'llama.cpp');
       assert.equal(updated.Thresholds.MinCharactersForSummary, before.Thresholds.MinCharactersForSummary);
       assert.equal(updated.Interactive.IdleTimeoutMs, before.Interactive.IdleTimeoutMs);
       assert.equal(updated.Server.ModelPresets.Presets[0].HealthcheckTimeoutMs, before.Server.ModelPresets.Presets[0].HealthcheckTimeoutMs);

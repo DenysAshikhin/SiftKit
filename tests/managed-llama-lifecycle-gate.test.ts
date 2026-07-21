@@ -26,12 +26,3 @@ test('managesManagedLlamaLifecycle: active exl3 preset must NOT drive the llama 
   });
   assert.equal(managesManagedLlamaLifecycle(config), false);
 });
-
-// RED until Task 1 Step 3. Removed in Task 7 Step 9 when the field no longer exists.
-test('managesManagedLlamaLifecycle: ignores any top-level Backend value', () => {
-  const config = withActivePreset((c) => {
-    c.Backend = 'noop';
-  });
-  assert.equal(config.Server.ModelPresets.Presets[0]?.Backend, 'llama');
-  assert.equal(managesManagedLlamaLifecycle(config), true);
-});

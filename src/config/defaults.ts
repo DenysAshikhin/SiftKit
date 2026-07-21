@@ -74,7 +74,6 @@ export function getDefaultConfigObject(): SiftConfig {
   };
   return {
     Version: SIFTKIT_VERSION,
-    Backend: 'llama.cpp',
     PolicyMode: 'conservative',
     RawLogRetention: true,
     IncludeAgentsMd: true,

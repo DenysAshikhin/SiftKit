@@ -29,7 +29,6 @@ const ObservedBudgetRowSchema = z.object({
 
 function buildStubLlamaConfig(port: number): SiftConfig {
   return mockConfig({
-    Backend: 'llama.cpp',
     Inference: {
       Thinking: { Enabled: true, Preserve: false },
     },

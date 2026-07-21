@@ -31,7 +31,6 @@ function createPreset(id: string, overrides: Partial<DashboardPreset> = {}): Das
 function createConfig(presets: DashboardPreset[]): DashboardConfig {
   return {
     Version: '0.1.0',
-    Backend: 'llama.cpp',
     PolicyMode: 'conservative',
     RawLogRetention: true,
     IncludeAgentsMd: true,

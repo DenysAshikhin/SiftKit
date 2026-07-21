@@ -95,7 +95,6 @@ export function readBody(req: http.IncomingMessage): Promise<string> {
 
 export type TestConfig = Dict & {
   Version: string;
-  Backend: string;
   PolicyMode: string;
   RawLogRetention: boolean;
   Inference: Dict;
@@ -108,7 +107,6 @@ export type TestConfig = Dict & {
 export function getDefaultConfig(): TestConfig {
   return {
     Version: '0.1.0',
-    Backend: 'llama.cpp',
     PolicyMode: 'conservative',
     RawLogRetention: true,
     Inference: {

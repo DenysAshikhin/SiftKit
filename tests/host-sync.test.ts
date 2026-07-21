@@ -21,7 +21,6 @@ function makeClientConfig(options: {
 }): SiftConfig {
   const llama = { BaseUrl: options.baseUrl, NumCtx: options.localNumCtx, Reasoning: 'on' } as const;
   return mockConfig({
-    Backend: 'llama.cpp',
     PolicyMode: 'conservative',
     RawLogRetention: true,
     Runtime: { LlamaCpp: { ...llama } },

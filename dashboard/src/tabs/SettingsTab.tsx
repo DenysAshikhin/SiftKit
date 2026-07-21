@@ -110,7 +110,7 @@ export function SettingsTab(props: SettingsTabProps) {
         ))}
         {renderField('general', 'Backend', (
           <div className="settings-live-nav-control">
-            <input value={dashboardConfig.Backend} readOnly />
+            <input value={selectedModelPreset?.Backend ?? ''} readOnly />
             <button
               type="button"
               onClick={() => requestSettingsAction({ kind: 'switch-section', nextSection: 'model-presets' })}

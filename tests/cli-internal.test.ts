@@ -174,7 +174,8 @@ test('internal op config-get returns config object', async () => {
     });
     assert.equal(code, 0);
     const parsed = asObject(parseJsonValueText(stdout.read().trim()));
-    assert.equal(typeof parsed.Backend, 'string');
+    assert.equal(typeof parsed.Version, 'string');
+    assert.equal('Backend' in parsed, false);
   });
 });
 
