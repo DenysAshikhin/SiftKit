@@ -383,7 +383,6 @@ function buildPlannerRequestConfig(options: PlannerRequestOptions): SiftConfig {
   if (!defaultPreset) throw new Error('Default model preset is missing.');
   return {
     ...base,
-    Backend: 'llama.cpp',
     Runtime: {
       ...base.Runtime,
       LlamaCpp: {
