@@ -16,7 +16,6 @@ test('the status server exposes no execution-lease routes', async () => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = getConfigPath();
     const config = getDefaultConfig();
-    config.Backend = 'noop';
     fs.mkdirSync(path.dirname(statusPath), { recursive: true });
     writeConfig(configPath, config);
 
@@ -25,6 +24,6 @@ test('the status server exposes no execution-lease routes', async () => {
       await assert.rejects(() => requestJson(`${base}/execution`));
       await assert.rejects(() => requestJson(`${base}/execution/acquire`, { method: 'POST', body: '{}' }));
       await assert.rejects(() => requestJson(`${base}/execution/release`, { method: 'POST', body: '{"token":"x"}' }));
-    }, { statusPath, configPath });
+    }, { statusPath, configPath, disableManagedLlamaStartup: true });
   });
 });

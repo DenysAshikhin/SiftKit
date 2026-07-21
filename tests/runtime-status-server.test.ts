@@ -53,7 +53,6 @@ test('real status server normalizes legacy non-boolean status text to false', as
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
     const configPath = getConfigPath();
     const config = getDefaultConfig();
-    config.Backend = 'noop';
     fs.mkdirSync(path.dirname(statusPath), { recursive: true });
     fs.writeFileSync(statusPath, 'foreign_lock', 'utf8');
     writeConfig(configPath, config);
@@ -68,6 +67,7 @@ test('real status server normalizes legacy non-boolean status text to false', as
     }, {
       statusPath,
       configPath,
+      disableManagedLlamaStartup: true,
     });
   });
 });
@@ -77,7 +77,6 @@ test('real status server normalizes non-boolean statuses in POST /status payload
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const config = getDefaultConfig();
-    config.Backend = 'noop';
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ statusUrl }) => {
@@ -90,6 +89,7 @@ test('real status server normalizes non-boolean statuses in POST /status payload
     }, {
       statusPath,
       configPath,
+      disableManagedLlamaStartup: true,
     });
   });
 });
@@ -99,7 +99,6 @@ test('real status server accepts boolean-like running payload variants', async (
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const config = getDefaultConfig();
-    config.Backend = 'noop';
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ statusUrl }) => {
@@ -121,6 +120,7 @@ test('real status server accepts boolean-like running payload variants', async (
     }, {
       statusPath,
       configPath,
+      disableManagedLlamaStartup: true,
     });
   });
 });
@@ -130,7 +130,6 @@ test('real status server preserves true status while an active request is tracke
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const config = getDefaultConfig();
-    config.Backend = 'noop';
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ statusUrl }) => {
@@ -148,6 +147,7 @@ test('real status server preserves true status while an active request is tracke
     }, {
       statusPath,
       configPath,
+      disableManagedLlamaStartup: true,
     });
   });
 });
@@ -158,7 +158,6 @@ test('real status server persists aggregate metrics and exposes them from GET /s
     const configPath = path.join(tempRoot, 'config.json');
     const metricsPath = path.join(tempRoot, 'metrics', 'compression.json');
     const config = getDefaultConfig();
-    config.Backend = 'noop';
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ statusUrl }) => {
@@ -204,6 +203,7 @@ test('real status server persists aggregate metrics and exposes them from GET /s
     }, {
       statusPath,
       configPath,
+      disableManagedLlamaStartup: true,
       disableManagedLlamaStartup: true,
     });
 

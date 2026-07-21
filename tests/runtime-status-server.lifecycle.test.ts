@@ -54,7 +54,6 @@ test('real status server clears stale true status once during startup', async ()
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const config = getDefaultConfig();
-    config.Backend = 'noop';
     fs.mkdirSync(path.dirname(statusPath), { recursive: true });
     fs.writeFileSync(statusPath, 'true', 'utf8');
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
@@ -70,6 +69,7 @@ test('real status server clears stale true status once during startup', async ()
     }, {
       statusPath,
       configPath,
+      disableManagedLlamaStartup: true,
     });
   });
 });
@@ -79,7 +79,6 @@ test('real status server initializes a missing status file to false', async () =
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const config = getDefaultConfig();
-    config.Backend = 'noop';
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ statusUrl }) => {
@@ -89,6 +88,7 @@ test('real status server initializes a missing status file to false', async () =
     }, {
       statusPath,
       configPath,
+      disableManagedLlamaStartup: true,
     });
   });
 });
@@ -98,7 +98,6 @@ test('real status server health reports disableManagedLlamaStartup mode when fla
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const config = getDefaultConfig();
-    config.Backend = 'noop';
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ healthUrl }) => {
@@ -108,6 +107,7 @@ test('real status server health reports disableManagedLlamaStartup mode when fla
     }, {
       statusPath,
       configPath,
+      disableManagedLlamaStartup: true,
       disableManagedLlamaStartup: true,
     });
   });
@@ -166,7 +166,6 @@ test('real status server accepts partial PUT /config updates and preserves unspe
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const config = getDefaultConfig();
-    config.Backend = 'noop';
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
     await withRealStatusServer(async ({ configUrl }) => {
@@ -197,6 +196,7 @@ test('real status server accepts partial PUT /config updates and preserves unspe
     }, {
       statusPath,
       configPath,
+      disableManagedLlamaStartup: true,
       disableManagedLlamaStartup: true,
     });
   });
