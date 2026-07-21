@@ -100,7 +100,6 @@ test('managed llama startup cleanup does not reap the TabbyAPI process on the sh
         WorkingDirectory: tempRoot,
         PythonPath: process.execPath,
         Entrypoint: 'unused',
-        ConfigPath: 'config.yml',
         ModelRoot: tempRoot,
         AdminApiKey: '',
         ShutdownTimeoutMs: 1_000,

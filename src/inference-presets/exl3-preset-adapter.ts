@@ -4,6 +4,7 @@ import type { ModelRuntimePreset } from '@siftkit/contracts';
 import {
   buildPresetRequestDefaults,
   getExl3CacheMode,
+  getExl3DraftCacheMode,
   type PresetRequestDefaults,
 } from './preset-compatibility.js';
 
@@ -26,6 +27,7 @@ export const Exl3LaunchEnvironmentSchema = z.object({
   TABBY_MODEL_CHUNK_SIZE: z.string(),
   TABBY_DRAFT_MODEL_DRAFT_MODE: z.enum(['disabled', 'mtp']),
   TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: z.string(),
+  TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: z.string(),
 });
 export type Exl3LaunchEnvironment = z.infer<typeof Exl3LaunchEnvironmentSchema>;
 
@@ -68,6 +70,9 @@ export class Exl3PresetAdapter {
       TABBY_MODEL_CHUNK_SIZE: String(request.chunk_size),
       TABBY_DRAFT_MODEL_DRAFT_MODE: preset.SpeculativeEnabled ? 'mtp' : 'disabled',
       TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: String(preset.SpeculativeDraftMax),
+      TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: preset.SpeculativeEnabled
+        ? this.getDraftCacheMode(preset)
+        : 'FP16',
     });
   }
 
@@ -90,6 +95,16 @@ export class Exl3PresetAdapter {
       throw new Error(`preset=${preset.id} backend=exl3 ModelPath must be inside ModelRoot`);
     }
     return relativePath;
+  }
+
+  private getDraftCacheMode(preset: ModelRuntimePreset): string {
+    const draftCacheMode = getExl3DraftCacheMode(preset.KvCacheQuantization);
+    if (draftCacheMode === null) {
+      throw new Error(
+        `preset=${preset.id} backend=exl3 KvCacheQuantization=${preset.KvCacheQuantization} has no EXL3 draft cache mode`,
+      );
+    }
+    return draftCacheMode;
   }
 
   private getCacheMode(preset: ModelRuntimePreset): string {

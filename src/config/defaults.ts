@@ -108,7 +108,6 @@ export function getDefaultConfigObject(): SiftConfig {
           WorkingDirectory: 'C:\\Users\\denys\\Documents\\GitHub\\TabbyAPI',
           PythonPath: 'C:\\envs\\rl310\\Scripts\\python.exe',
           Entrypoint: 'main.py',
-          ConfigPath: 'config.yml',
           ModelRoot: 'D:\\personal\\models\\elx3',
           AdminApiKey: '',
           ShutdownTimeoutMs: 30_000,

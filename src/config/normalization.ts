@@ -132,7 +132,6 @@ function normalizeExl3Engine(value: JsonValue): Exl3EngineConfig {
     WorkingDirectory: getNullableTrimmedString(input.WorkingDirectory) ?? defaults.WorkingDirectory,
     PythonPath: getNullableTrimmedString(input.PythonPath) ?? defaults.PythonPath,
     Entrypoint: getNullableTrimmedString(input.Entrypoint) ?? defaults.Entrypoint,
-    ConfigPath: getNullableTrimmedString(input.ConfigPath) ?? defaults.ConfigPath,
     ModelRoot: getNullableTrimmedString(input.ModelRoot) ?? defaults.ModelRoot,
     AdminApiKey: getNullableTrimmedString(input.AdminApiKey) ?? '',
     ShutdownTimeoutMs: getFinitePositiveInteger(input.ShutdownTimeoutMs, defaults.ShutdownTimeoutMs),

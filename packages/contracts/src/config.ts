@@ -96,7 +96,6 @@ export const Exl3EngineConfigSchema = z.object({
   WorkingDirectory: z.string(),
   PythonPath: z.string(),
   Entrypoint: z.string(),
-  ConfigPath: z.string(),
   ModelRoot: z.string(),
   AdminApiKey: z.string(),
   ShutdownTimeoutMs: z.number().positive(),

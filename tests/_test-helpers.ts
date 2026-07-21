@@ -148,7 +148,6 @@ export function getDefaultConfig(): TestConfig {
           WorkingDirectory: 'C:\\TabbyAPI',
           PythonPath: 'C:\\TabbyAPI\\python.exe',
           Entrypoint: 'main.py',
-          ConfigPath: 'config.yml',
           ModelRoot: 'D:\\models\\elx3',
           AdminApiKey: '',
           ShutdownTimeoutMs: 30_000,

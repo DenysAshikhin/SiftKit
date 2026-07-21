@@ -69,7 +69,6 @@ test('concurrent Tabby readiness calls perform one model load and unload explici
     WorkingDirectory: root,
     PythonPath: process.execPath,
     Entrypoint: 'unused',
-    ConfigPath: 'config.yml',
     ModelRoot: root,
     AdminApiKey: '',
     ShutdownTimeoutMs: 2_000,
@@ -99,7 +98,6 @@ test('Tabby runtime rejects a llama preset before lifecycle work', async () => {
     WorkingDirectory: '.',
     PythonPath: process.execPath,
     Entrypoint: 'unused',
-    ConfigPath: 'config.yml',
     ModelRoot: '.',
     AdminApiKey: '',
     ShutdownTimeoutMs: 100,
@@ -131,6 +129,7 @@ const environment = {
   TABBY_MODEL_CHUNK_SIZE: process.env.TABBY_MODEL_CHUNK_SIZE,
   TABBY_DRAFT_MODEL_DRAFT_MODE: process.env.TABBY_DRAFT_MODEL_DRAFT_MODE,
   TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: process.env.TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS,
+  TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: process.env.TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE,
 };
 fs.writeFileSync(${JSON.stringify(environmentPath)}, JSON.stringify(environment));
 const server = http.createServer((request, response) => {
@@ -175,7 +174,6 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)));
     WorkingDirectory: root,
     PythonPath: process.execPath,
     Entrypoint: path.basename(scriptPath),
-    ConfigPath: 'config.yml',
     ModelRoot: root,
     AdminApiKey: '',
     ShutdownTimeoutMs: 5_000,
@@ -184,7 +182,7 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)));
     await runtime.ensurePresetReady(exl3Preset);
     assert.equal(runtime.getProcessState(), 'ready');
     assert.equal(runtime.getModelState(), 'ready');
-    assert.deepEqual(JSON.parse(fs.readFileSync(argsPath, 'utf8')), ['--config', path.join(root, 'config.yml')]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(argsPath, 'utf8')), []);
     assert.deepEqual(JSON.parse(fs.readFileSync(environmentPath, 'utf8')), {
       TABBY_MODEL_MODEL_DIR: root,
       TABBY_MODEL_MODEL_NAME: 'model-a',
@@ -195,6 +193,7 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)));
       TABBY_MODEL_CHUNK_SIZE: '1024',
       TABBY_DRAFT_MODEL_DRAFT_MODE: 'mtp',
       TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: '5',
+      TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: 'Q8',
     });
     assert.equal(fs.existsSync(loadRequestsPath), false);
 
@@ -256,7 +255,6 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)));
     WorkingDirectory: root,
     PythonPath: process.execPath,
     Entrypoint: path.basename(scriptPath),
-    ConfigPath: 'config.yml',
     ModelRoot: root,
     AdminApiKey: '',
     ShutdownTimeoutMs: 5_000,
@@ -328,7 +326,6 @@ setInterval(() => {}, 1000);
     WorkingDirectory: root,
     PythonPath: process.execPath,
     Entrypoint: path.basename(scriptPath),
-    ConfigPath: 'config.yml',
     ModelRoot: root,
     AdminApiKey: '',
     ShutdownTimeoutMs: 2_000,

@@ -58,6 +58,23 @@ export function getExl3CacheMode(value: ManagedLlamaKvCacheQuantization): string
   }
 }
 
+export function getExl3DraftCacheMode(value: ManagedLlamaKvCacheQuantization): string | null {
+  switch (value) {
+    case 'f16': return 'FP16';
+    case 'q8_0':
+    case 'q8_0/q4_0':
+    case 'q8_0/q5_0': return 'Q8';
+    case 'q4_0': return 'Q4';
+    case 'f32':
+    case 'bf16':
+    case 'q4_1':
+    case 'iq4_nl':
+    case 'q5_0':
+    case 'q5_1':
+      return null;
+  }
+}
+
 export function getPresetFieldAvailability(
   preset: ModelRuntimePreset,
   field: ModelPresetField,

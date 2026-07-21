@@ -169,8 +169,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     this.startupError = null;
     fs.mkdirSync(path.dirname(this.logPath), { recursive: true });
     fs.writeFileSync(this.logPath, '', 'utf8');
-    const configPath = path.resolve(this.engine.WorkingDirectory, this.engine.ConfigPath);
-    const child = spawn(this.engine.PythonPath, [this.engine.Entrypoint, '--config', configPath], {
+    const child = spawn(this.engine.PythonPath, [this.engine.Entrypoint], {
       cwd: this.engine.WorkingDirectory,
       env: { ...process.env, ...launchEnvironment },
       shell: false,

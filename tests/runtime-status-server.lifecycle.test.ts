@@ -277,7 +277,6 @@ test('failed preset switch returns 503 and keeps the status server alive', async
       WorkingDirectory: tempRoot,
       PythonPath: process.execPath,
       Entrypoint: 'unused',
-      ConfigPath: 'config.yml',
       ModelRoot: tempRoot,
       AdminApiKey: '',
       ShutdownTimeoutMs: 1_000,

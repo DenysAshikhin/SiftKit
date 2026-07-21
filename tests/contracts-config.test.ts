@@ -73,7 +73,6 @@ test('Exl3EngineConfigSchema accepts process-level configuration', () => {
     WorkingDirectory: 'C:\\TabbyAPI',
     PythonPath: 'C:\\envs\\tabby\\python.exe',
     Entrypoint: 'main.py',
-    ConfigPath: 'config.yml',
     ModelRoot: 'D:\\models\\exl3',
     AdminApiKey: 'secret',
     ShutdownTimeoutMs: 30_000,
