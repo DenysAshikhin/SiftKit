@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ContextUsage } from '@siftkit/contracts';
-import { getActiveModelPreset } from '../config/getters.js';
+import { getActiveModelPreset, getConfiguredLlamaNumCtx } from '../config/getters.js';
 import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
 import type { ChatMessage as PlannerChatMessage } from '../repo-search/planner-protocol.js';
@@ -92,6 +92,25 @@ type ContextUsageTokenTotals = {
 
 export type { ContextUsage } from '@siftkit/contracts';
 
+export function resolveChatSessionContextWindow(
+  config: SiftConfig | null | undefined,
+  session: ChatSession,
+): number {
+  if (config) {
+    const activeModel = getActiveModelPreset(config).Model?.trim() ?? '';
+    const sessionModel = typeof session.model === 'string' ? session.model.trim() : '';
+    if (sessionModel && sessionModel === activeModel) {
+      return getConfiguredLlamaNumCtx(config);
+    }
+  }
+
+  const persistedContextWindow = Number(session.contextWindowTokens);
+  if (Number.isFinite(persistedContextWindow) && persistedContextWindow > 0) {
+    return persistedContextWindow;
+  }
+  return config ? getConfiguredLlamaNumCtx(config) : 150_000;
+}
+
 class ContextUsageBuilder {
   constructor(
     private readonly config: SiftConfig | null | undefined,
@@ -117,7 +136,7 @@ class ContextUsageBuilder {
   }
 
   private buildTokenTotals(): ContextUsageTokenTotals {
-    const contextWindowTokens = Math.max(1, Number(this.session.contextWindowTokens || 150000));
+    const contextWindowTokens = resolveChatSessionContextWindow(this.config, this.session);
     const messages = Array.isArray(this.session.messages) ? this.session.messages : [];
     const messageTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + getMessageContextTokenEstimate(message), 0);
     const thinkingUsedTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + getMessageThinkingTokenEstimate(message), 0);

@@ -12,7 +12,9 @@ import {
   buildRetainedWebToolCalls,
   buildRepoSearchMarkdown,
   buildPersistTurnsFromRepoSearchResult,
+  resolveChatSessionContextWindow,
 } from '../src/status-server/chat.js';
+import { getActiveModelPreset } from '../src/config/getters.js';
 import { buildChatPromptContext } from '../src/status-server/chat-prompt-context.js';
 import { normalizeConfig } from '../src/status-server/config-store.js';
 import { estimateTokenCount, type ChatSession } from '../src/state/chat-sessions.js';
@@ -117,6 +119,60 @@ function createSession(): ChatSession {
     ],
   });
 }
+
+test('resolveChatSessionContextWindow uses configured context for the active model', () => {
+  const config = createConfig();
+  const preset = getActiveModelPreset(config);
+  preset.Backend = 'exl3';
+  preset.Model = 'active-model';
+  preset.NumCtx = 150_000;
+  config.Runtime.LlamaCpp.NumCtx = 30_000;
+
+  assert.equal(resolveChatSessionContextWindow(config, mockChatSession({
+    id: 'active',
+    model: ' active-model ',
+    contextWindowTokens: 30_000,
+  })), 150_000);
+});
+
+test('resolveChatSessionContextWindow preserves an inactive model snapshot', () => {
+  const config = createConfig();
+  getActiveModelPreset(config).Model = 'active-model';
+
+  assert.equal(resolveChatSessionContextWindow(config, mockChatSession({
+    id: 'historical',
+    model: 'historical-model',
+    contextWindowTokens: 30_000,
+  })), 30_000);
+});
+
+test('resolveChatSessionContextWindow falls back to configured context for an invalid snapshot', () => {
+  const config = createConfig();
+  const preset = getActiveModelPreset(config);
+  preset.Backend = 'exl3';
+  preset.NumCtx = 150_000;
+
+  assert.equal(resolveChatSessionContextWindow(config, mockChatSession({
+    id: 'invalid',
+    model: 'historical-model',
+    contextWindowTokens: 0,
+  })), 150_000);
+});
+
+test('buildContextUsage uses the resolved active-model context', () => {
+  const config = createConfig();
+  const preset = getActiveModelPreset(config);
+  preset.Backend = 'exl3';
+  preset.Model = 'active-model';
+  preset.NumCtx = 150_000;
+
+  assert.equal(buildContextUsage(config, mockChatSession({
+    id: 'usage',
+    model: 'active-model',
+    contextWindowTokens: 30_000,
+    messages: [],
+  })).contextWindowTokens, 150_000);
+});
 
 
 test('appendChatMessagesWithUsage persists interleaved per-turn thinking and tools', () => {
