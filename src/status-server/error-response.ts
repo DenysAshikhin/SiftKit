@@ -13,6 +13,13 @@ export type ServerErrorResponseOptions = {
   requestId?: string | null;
 };
 
+export type ServerErrorPayload = {
+  error: string;
+  errorName: string;
+  diagnosticId: string;
+  diagnostic: ReturnType<typeof serializeErrorDiagnostic>;
+};
+
 function normalizeLogValue(value: string | null | undefined): string {
   return String(value ?? '').replace(/\s+/gu, ' ').trim();
 }
@@ -25,13 +32,12 @@ function getRequestRoute(req: IncomingMessage): string {
   }
 }
 
-export function sendServerErrorJson(
+export function recordServerError(
   req: IncomingMessage,
-  res: ServerResponse,
   statusCode: number,
   error: unknown,
   options: ServerErrorResponseOptions = {},
-): void {
+): ServerErrorPayload {
   const diagnosticId = createRuntimeErrorEventId();
   const diagnostic = serializeErrorDiagnostic(toError(error));
   const cause = getPrimaryCauseDiagnostic(diagnostic);
@@ -68,10 +74,20 @@ export function sendServerErrorJson(
       + ` error=${normalizeLogValue(dbMessage)}\n`,
     );
   }
-  sendJson(res, statusCode, {
+  return {
     error: errorMessage,
     errorName: diagnostic.name,
     diagnosticId,
     diagnostic,
-  });
+  };
+}
+
+export function sendServerErrorJson(
+  req: IncomingMessage,
+  res: ServerResponse,
+  statusCode: number,
+  error: unknown,
+  options: ServerErrorResponseOptions = {},
+): void {
+  sendJson(res, statusCode, recordServerError(req, statusCode, error, options));
 }
