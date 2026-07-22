@@ -33,7 +33,7 @@ const ChatModelPresetMigrationSessionSchema = z.object({
   model: z.string().nullable(),
 });
 
-export const CURRENT_SCHEMA_VERSION = 33;
+export const CURRENT_SCHEMA_VERSION = 34;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["read","grep","find","ls","git"],"full":[]}';
 const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
@@ -386,12 +386,14 @@ function ensureChatMessageTimelineSchema(database: RuntimeDatabase): void {
   }
 }
 
-function ensureManagedLlamaAndBenchmarkMatrixSchema(database: RuntimeDatabase): void {
+function ensureInferenceRunAndBenchmarkMatrixSchema(database: RuntimeDatabase): void {
   database.exec(`
-    CREATE TABLE IF NOT EXISTS managed_llama_runs (
+    CREATE TABLE IF NOT EXISTS inference_runs (
       id TEXT PRIMARY KEY,
+      backend TEXT NOT NULL
+        CHECK (backend IN ('llama', 'exl3')),
       purpose TEXT NOT NULL,
-      script_path TEXT,
+      entrypoint_path TEXT,
       base_url TEXT,
       status TEXT NOT NULL
         CHECK (status IN ('running', 'ready', 'failed', 'stopped', 'sync_completed')),
@@ -406,20 +408,22 @@ function ensureManagedLlamaAndBenchmarkMatrixSchema(database: RuntimeDatabase): 
       stderr_character_count INTEGER NOT NULL DEFAULT 0,
       metrics_updated_at_utc TEXT
     );
-    CREATE INDEX IF NOT EXISTS idx_managed_llama_runs_started
-      ON managed_llama_runs(started_at_utc DESC);
-    CREATE INDEX IF NOT EXISTS idx_managed_llama_runs_status_started
-      ON managed_llama_runs(status, started_at_utc DESC);
+    CREATE INDEX IF NOT EXISTS idx_inference_runs_started
+      ON inference_runs(started_at_utc DESC);
+    CREATE INDEX IF NOT EXISTS idx_inference_runs_status_started
+      ON inference_runs(status, started_at_utc DESC);
+    CREATE INDEX IF NOT EXISTS idx_inference_runs_backend_started
+      ON inference_runs(backend, started_at_utc DESC);
 
-    CREATE TABLE IF NOT EXISTS managed_llama_log_chunks (
+    CREATE TABLE IF NOT EXISTS inference_run_log_chunks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id TEXT NOT NULL REFERENCES managed_llama_runs(id) ON DELETE CASCADE,
+      run_id TEXT NOT NULL REFERENCES inference_runs(id) ON DELETE CASCADE,
       stream_kind TEXT NOT NULL
         CHECK (stream_kind IN (
-          'startup_script_stdout',
-          'startup_script_stderr',
-          'llama_stdout',
-          'llama_stderr',
+          'launcher_stdout',
+          'launcher_stderr',
+          'engine_stdout',
+          'engine_stderr',
           'startup_review',
           'startup_failure'
         )),
@@ -428,10 +432,10 @@ function ensureManagedLlamaAndBenchmarkMatrixSchema(database: RuntimeDatabase): 
       created_at_utc TEXT NOT NULL,
       UNIQUE(run_id, stream_kind, sequence)
     );
-    CREATE INDEX IF NOT EXISTS idx_managed_llama_log_chunks_run_stream
-      ON managed_llama_log_chunks(run_id, stream_kind, sequence ASC);
-    CREATE INDEX IF NOT EXISTS idx_managed_llama_log_chunks_created_at
-      ON managed_llama_log_chunks(created_at_utc);
+    CREATE INDEX IF NOT EXISTS idx_inference_run_log_chunks_run_stream
+      ON inference_run_log_chunks(run_id, stream_kind, sequence ASC);
+    CREATE INDEX IF NOT EXISTS idx_inference_run_log_chunks_created_at
+      ON inference_run_log_chunks(created_at_utc);
 
     CREATE TABLE IF NOT EXISTS benchmark_matrix_sessions (
       id TEXT PRIMARY KEY,
@@ -869,7 +873,7 @@ function ensureSchema(database: RuntimeDatabase): void {
   if (currentVersion <= 0) {
     applyBaseSchema(database);
     ensureChatMessageTimelineSchema(database);
-    ensureManagedLlamaAndBenchmarkMatrixSchema(database);
+    ensureInferenceRunAndBenchmarkMatrixSchema(database);
     ensureDashboardBenchmarkSchema(database);
     ensureRuntimeErrorEventsSchema(database);
     setSchemaVersion(database, CURRENT_SCHEMA_VERSION);
@@ -883,7 +887,7 @@ function ensureSchema(database: RuntimeDatabase): void {
     currentVersion = 2;
   }
   if (currentVersion < 3) {
-    ensureManagedLlamaAndBenchmarkMatrixSchema(database);
+    ensureInferenceRunAndBenchmarkMatrixSchema(database);
     setSchemaVersion(database, 3);
     currentVersion = 3;
   }
@@ -1288,9 +1292,19 @@ function ensureSchema(database: RuntimeDatabase): void {
     setSchemaVersion(database, 33);
     currentVersion = 33;
   }
+  if (currentVersion < 34) {
+    // No backward compatibility: managed llama run history is disposable local telemetry
+    // and its schema is llama-shaped. Drop it and let the backend-neutral tables be created.
+    database.exec(`
+      DROP TABLE IF EXISTS managed_llama_log_chunks;
+      DROP TABLE IF EXISTS managed_llama_runs;
+    `);
+    setSchemaVersion(database, 34);
+    currentVersion = 34;
+  }
   ensureChatMessageTimelineSchema(database);
   ensureRuntimeArtifactsSchema(database);
-  ensureManagedLlamaAndBenchmarkMatrixSchema(database);
+  ensureInferenceRunAndBenchmarkMatrixSchema(database);
   ensureDashboardBenchmarkSchema(database);
   ensureRuntimeErrorEventsSchema(database);
 }
