@@ -665,12 +665,6 @@ export class LlamaRunRecorder extends InferenceRunRecorder {
 Confirm the import path and exported name of `appendManagedLlamaSpeculativeMetricsChunk` first:
 
 ```bash
-node -e "const{execSync}=require('child_process');" 
-```
-
-then:
-
-```bash
 npx rg -n "export function appendManagedLlamaSpeculativeMetricsChunk" src
 ```
 
@@ -750,6 +744,8 @@ function spawnManagedLlamaProcess(
 ```
 
 The launcher is a script that in turn runs llama-server, so its piped stdio is `launcher_*`. `engine_*` stays reserved for TabbyAPI, whose stdio is the engine itself.
+
+Adjust the imports at the top of `managed-llama.ts`: drop `createManagedLlamaRun`, `updateManagedLlamaRun`, `bufferManagedLlamaLogChunk`, `flushManagedLlamaLogChunks` and `ManagedLlamaStreamKind`; add `import { LlamaRunRecorder } from './llama-run-recorder.js';` and `import type { InferenceRunStatus, InferenceRunStreamKind } from '../state/inference-runs.js';`.
 
 - [ ] **Step 4: Update the startup path**
 

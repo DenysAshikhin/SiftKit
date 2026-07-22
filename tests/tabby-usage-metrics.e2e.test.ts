@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { executeRepoSearchRequest } from '../src/repo-search/index.js';
+import type { JsonObject } from '../src/lib/json-types.js';
 import {
   summarizeRequest,
   buildStructuredStubDecision,
@@ -63,13 +64,12 @@ test('repo-search carries TabbyAPI draft stats and second-based timings into the
       assert.equal(result.scorecard.totals.speculativeAcceptedTokens, EXPECTED_SPECULATIVE_ACCEPTED_TOKENS);
       assert.equal(result.scorecard.totals.speculativeGeneratedTokens, EXPECTED_SPECULATIVE_GENERATED_TOKENS);
 
-      let completionPost;
       await waitForAsyncExpectation(async () => {
-        completionPost = server.state.statusPosts.filter(
-          (post) => post.running === false && post.taskKind === 'repo-search',
-        ).at(-1);
-        assert.ok(completionPost);
+        assert.ok(server.state.statusPosts.some((post) => post.running === false && post.taskKind === 'repo-search'));
       }, 1000);
+      const completionPost = server.state.statusPosts.filter(
+        (post) => post.running === false && post.taskKind === 'repo-search',
+      ).at(-1);
       assert.ok(completionPost);
       assert.equal(completionPost.speculativeAcceptedTokens, EXPECTED_SPECULATIVE_ACCEPTED_TOKENS);
       assert.equal(completionPost.speculativeGeneratedTokens, EXPECTED_SPECULATIVE_GENERATED_TOKENS);
@@ -104,15 +104,13 @@ test('summary carries TabbyAPI draft stats into terminal status metadata', async
       });
 
       assert.equal(result.WasSummarized, true);
-      let completionPost;
+      const isSummaryCompletionPost = (post: JsonObject): boolean => (
+        post.running === false && post.taskKind === 'summary' && post.terminalState === 'completed'
+      );
       await waitForAsyncExpectation(async () => {
-        completionPost = server.state.statusPosts.slice().reverse().find(
-          (post) => post.running === false
-            && post.taskKind === 'summary'
-            && post.terminalState === 'completed',
-        );
-        assert.ok(completionPost);
+        assert.ok(server.state.statusPosts.some(isSummaryCompletionPost));
       }, 2000);
+      const completionPost = server.state.statusPosts.slice().reverse().find(isSummaryCompletionPost);
       assert.ok(completionPost);
       const deferredMetadata = asObject(completionPost.deferredMetadata);
       assert.equal(deferredMetadata.speculativeAcceptedTokens, EXPECTED_SPECULATIVE_ACCEPTED_TOKENS);

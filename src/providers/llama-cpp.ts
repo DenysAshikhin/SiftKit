@@ -17,6 +17,7 @@ import type {
   LlamaCppResponseFormat,
   LlamaCppToolCall,
   LlamaCppToolDefinition,
+  LlamaCppUsage,
   NormalizedLlamaCppChatResponse,
 } from '../llm-protocol/types.js';
 import {
@@ -48,19 +49,6 @@ export type LlamaCppTokenCountResult = {
   status: 'completed' | 'empty' | 'http_error' | 'error';
   httpStatusCode: number | null;
   errorMessage: string | null;
-};
-
-export type LlamaCppUsage = {
-  promptTokens: number | null;
-  completionTokens: number | null;
-  totalTokens: number | null;
-  thinkingTokens: number | null;
-  promptCacheTokens: number | null;
-  promptEvalTokens: number | null;
-  promptEvalDurationMs: number | null;
-  generationDurationMs: number | null;
-  speculativeAcceptedTokens: number | null;
-  speculativeGeneratedTokens: number | null;
 };
 
 export type LlamaCppGenerateResult = {
@@ -531,19 +519,10 @@ export async function generateLlamaCppChatResponse(options: {
   }
   const thinkingTokens = response.usage.thinkingTokens
     ?? (response.reasoningText.trim() ? await countLlamaCppTokens(options.config, response.reasoningText) : null);
-  const usage = hasUsageValue(response.usage) || thinkingTokens !== null
-    ? {
-      promptTokens,
-      completionTokens: response.usage.completionTokens,
-      totalTokens: response.usage.totalTokens,
-      thinkingTokens,
-      promptCacheTokens: response.usage.promptCacheTokens,
-      promptEvalTokens: response.usage.promptEvalTokens,
-      promptEvalDurationMs: response.usage.promptEvalDurationMs ?? null,
-      generationDurationMs: response.usage.generationDurationMs ?? null,
-      speculativeAcceptedTokens: response.usage.speculativeAcceptedTokens ?? null,
-      speculativeGeneratedTokens: response.usage.speculativeGeneratedTokens ?? null,
-    }
+  // The protocol usage passes through untouched apart from thinkingTokens, which the
+  // provider may have to derive by tokenizing the reasoning text when the server omits it.
+  const usage: LlamaCppUsage | null = hasUsageValue(response.usage) || thinkingTokens !== null
+    ? { ...response.usage, thinkingTokens }
     : null;
 
   traceLlamaCpp(

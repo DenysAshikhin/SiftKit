@@ -15,6 +15,7 @@ import {
   buildRepoSearchPlannerActionJsonSchema,
   type StructuredOutputToolDefinition,
 } from '../providers/structured-output-schema.js';
+import { lowerResponseFormatForBackend } from '../providers/formatron-schema-lowering.js';
 import { getFirstCommandToken } from './command-safety.js';
 import type { JsonLogger } from './types.js';
 
@@ -30,6 +31,8 @@ export type PlannerActionResponse = {
   promptEvalTokens?: number | null;
   promptEvalDurationMs?: number | null;
   generationDurationMs?: number | null;
+  speculativeAcceptedTokens?: number | null;
+  speculativeGeneratedTokens?: number | null;
 };
 
 export type ToolAction = {
@@ -115,7 +118,7 @@ const REPO_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
     type: 'function',
     function: {
       name: 'find',
-      description: "Find files by glob pattern. Returns matching paths relative to the search directory. Ignored paths are excluded automatically. Output is capped at limit results (default 1000).",
+      description: 'Find files by glob pattern. Returns matching paths relative to the search directory. Ignored paths are excluded automatically. Output is capped at limit results (default 1000).',
       parameters: {
         type: 'object',
         properties: {
@@ -302,6 +305,7 @@ export function resolveRepoSearchPlannerToolDefinitions(
 export const TOOL_DEFINITIONS = resolveRepoSearchPlannerToolDefinitions();
 
 export function buildPlannerRequestPromptReserveText(options: {
+  backend: InferenceBackendId;
   stage?: string;
   model: string;
   messageRoles: readonly string[];
@@ -322,10 +326,10 @@ export function buildPlannerRequestPromptReserveText(options: {
       ? buildFinishValidationJsonSchema()
       : null;
   const responseSchema = options.responseSchema === undefined ? defaultResponseSchema : options.responseSchema;
-  const responseFormat = responseSchema === null ? null : buildLlamaJsonSchemaResponseFormat({
+  const responseFormat = responseSchema === null ? null : lowerResponseFormatForBackend(options.backend, buildLlamaJsonSchemaResponseFormat({
     name: options.responseSchemaName || (stage === 'finish_validation' ? 'siftkit_finish_validation' : 'siftkit_repo_search_planner_action'),
     schema: responseSchema,
-  });
+  }));
 
   return JSON.stringify({
     stage,
@@ -474,7 +478,11 @@ function buildPlannerRequestConfig(options: PlannerRequestOptions): SiftConfig {
   };
 }
 
-function actionFromProtocolToolCalls(toolCalls: readonly LlamaCppToolCall[], allowedToolNames: readonly string[]): string | null {
+function actionFromProtocolToolCalls(
+  toolCalls: readonly LlamaCppToolCall[],
+  toolDefinitions: readonly StructuredOutputToolDefinition[],
+): string | null {
+  const allowedToolNames = toolDefinitions.map((toolDefinition) => toolDefinition.function.name);
   const parsedToolCalls = toolCalls
     .map((toolCall): ToolAction | null => {
       const args = ModelJson.parseToolArguments(toolCall.function.arguments);
@@ -483,7 +491,7 @@ function actionFromProtocolToolCalls(toolCalls: readonly LlamaCppToolCall[], all
         const action = ModelJson.parseRepoSearchPlannerAction(JSON.stringify({
           action: toolCall.function.name,
           ...args,
-        }), { allowedToolNames });
+        }), { toolDefinitions });
         return action.action === 'tool' ? action : null;
       } catch {
         return null;
@@ -605,7 +613,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
     : null;
   const rawChoiceText = inlineThinking ? inlineThinking.text : response.text;
   const thinkingText = inlineThinking ? inlineThinking.thinkingText : response.reasoningText;
-  const synthesized = actionFromProtocolToolCalls(response.toolCalls, allowedToolNames);
+  const synthesized = actionFromProtocolToolCalls(response.toolCalls, toolDefinitions);
   const text = response.earlyStopReason === 'planner action completed in streamed reasoning'
     ? rawChoiceText
     : response.stoppedEarly && response.earlyStopReason
@@ -623,6 +631,8 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
     promptEvalTokens: response.usage.promptEvalTokens,
     promptEvalDurationMs: response.usage.promptEvalDurationMs ?? null,
     generationDurationMs: response.usage.generationDurationMs ?? null,
+    speculativeAcceptedTokens: response.usage.speculativeAcceptedTokens ?? null,
+    speculativeGeneratedTokens: response.usage.speculativeGeneratedTokens ?? null,
   };
 }
 
