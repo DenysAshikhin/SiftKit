@@ -4,6 +4,7 @@ import { Agent as UndiciAgent, fetch as undiciFetch } from 'undici';
 import { z } from './zod.js';
 import { parseJsonObjectText, parseJsonText } from './json.js';
 import type { JsonObject } from './json-types.js';
+import { SseFrameParser } from './sse-frame-parser.js';
 import { formatTimestamp } from './text-format.js';
 
 export const CONNECT_TIMEOUT_MS = 20_000;
@@ -244,31 +245,17 @@ export class HttpClient {
           response.on('error', () => { settleReject(new LlamaHttpError(statusCode, body)); });
           return;
         }
-        let rawBuffer = '';
+        const parser = new SseFrameParser();
         response.setEncoding('utf8');
         response.on('data', (chunk: string) => {
-          rawBuffer += chunk;
-          let boundary = /\r?\n\r?\n/u.exec(rawBuffer);
-          while (boundary) {
-            const packet = rawBuffer.slice(0, boundary.index);
-            rawBuffer = rawBuffer.slice(boundary.index + boundary[0].length);
-            boundary = /\r?\n\r?\n/u.exec(rawBuffer);
-            const dataLine = packet
-              .split(/\r?\n/gu)
-              .map((line) => line.trim())
-              .filter(Boolean)
-              .find((line) => line.startsWith('data:'));
-            if (!dataLine) {
-              continue;
-            }
-            const dataValue = dataLine.slice(5).trim();
-            if (dataValue === '[DONE]') {
+          for (const frame of parser.push(chunk)) {
+            if (frame.data === '[DONE]') {
               sawDone = true;
               continue;
             }
             let parsed: SseStreamPacket;
             try {
-              parsed = parseJsonObjectText(dataValue);
+              parsed = parseJsonObjectText(frame.data);
             } catch {
               continue;
             }
