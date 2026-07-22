@@ -8,6 +8,7 @@ import type { InferenceRunStreamKind } from '../state/inference-runs.js';
 import type { LlamaRunRecorder } from './llama-run-recorder.js';
 import type { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
 import type { StatusEngineService } from './engine-service.js';
+import type { ApprovalGate } from '../repo-search/engine/approval-gate.js';
 import type { SiftConfig } from '../config/types.js';
 import type { PresetRuntimeCoordinator } from './preset-runtime-coordinator.js';
 import type { ModelIdleController } from './model-idle-controller.js';
@@ -97,6 +98,7 @@ export type ServerContext = {
 
   // Run state
   activeRunsByRequestId: Map<string, ActiveRunState>;
+  approvalGates: Map<string, ApprovalGate>;
   activeRequestIdByStatusPath: Map<string, string>;
   completedRequestIdByStatusPath: Map<string, string>;
   activeModelRequest: ModelRequestLock | null;

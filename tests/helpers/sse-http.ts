@@ -16,7 +16,11 @@ export type CollectedSseResponse = {
 
 export function requestSse(
   url: string,
-  options: { body: JsonSerializable; timeoutMs?: number },
+  options: {
+    body: JsonSerializable;
+    timeoutMs?: number;
+    onProgress?: (event: JsonObject) => void | Promise<void>;
+  },
 ): Promise<CollectedSseResponse> {
   return new Promise((resolve, reject) => {
     const bodyText = JSON.stringify(options.body);
@@ -45,6 +49,9 @@ export function requestSse(
           collected.frames.push(frame);
           const data = asObject(parseJsonValueText(frame.data));
           if (frame.event === 'progress') {
+            if (options.onProgress) {
+              void Promise.resolve(options.onProgress(data)).catch(reject);
+            }
             collected.progress.push(data);
           } else if (frame.event === 'result') {
             collected.result = data;

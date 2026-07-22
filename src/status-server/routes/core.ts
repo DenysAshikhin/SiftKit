@@ -55,6 +55,15 @@ import {
   updateRunLogSpeculativeMetricsByRequestId,
 } from '../dashboard-runs.js';
 import { RepoSearchResponseSanityChecker } from '../../repo-search/response-sanity.js';
+import {
+  INTERACTIVE_REPO_TOOL_NAMES,
+  sanitizeNonInteractiveAllowedTools,
+} from '../../repo-search/planner-protocol.js';
+import {
+  ApprovalGate,
+  RepoSearchApprovalRequestSchema,
+  toApprovalDecision,
+} from '../../repo-search/engine/approval-gate.js';
 import { StatusPresetRunner } from '../preset-runner.js';
 import {
   LoggedRepoSearchSseProgressWriter,
@@ -854,29 +863,88 @@ class RepoSearchEndpoint extends StreamedOperationEndpoint<ParsedRepoSearchRoute
       await sleep(Math.max(1, Math.trunc(Number(parsedBody.simulateWorkMs))));
     }
     const config = readConfig(ctx.configPath);
-    const result = await ctx.engineService.executeRepoSearch({
-      taskKind: 'repo-search',
-      prompt: repoSearchRequest.prompt,
-      requestId: admission.requestId,
-      startedAtUtc: admission.startedAtUtc,
-      promptPrefix: reader.optionalString('promptPrefix'),
-      repoRoot: admission.repoRoot,
-      statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
-      config,
-      allowedTools: Array.isArray(parsedBody.allowedTools) ? parsedBody.allowedTools.map((value) => String(value)) : undefined,
-      includeAgentsMd: resolveEffectiveAgentsMd(config, null),
-      includeRepoFileListing: resolveEffectiveRepoFileListing(config, null),
-      model: reader.optionalString('model'),
-      maxTurns: reader.number('maxTurns') ?? undefined,
-      logFile: reader.optionalString('logFile'),
-      availableModels: Array.isArray(parsedBody.availableModels) ? parsedBody.availableModels.map((value) => String(value)) : undefined,
-      mockResponses: Array.isArray(parsedBody.mockResponses) ? parsedBody.mockResponses.map((value) => String(value)) : undefined,
-      mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
-      abortSignal: stream.abortSignal,
-      progressWriter: new LoggedRepoSearchSseProgressWriter(stream, admission.requestId),
-    });
-    RepoSearchResponseSanityChecker.assertSafeToSend(result);
-    return result;
+    const interactive = parsedBody.interactive === true;
+    const requestedAllowedTools = Array.isArray(parsedBody.allowedTools)
+      ? parsedBody.allowedTools.map((value) => String(value))
+      : undefined;
+    const allowedTools = interactive
+      ? [...INTERACTIVE_REPO_TOOL_NAMES]
+      : sanitizeNonInteractiveAllowedTools(requestedAllowedTools);
+    const progressWriter = new LoggedRepoSearchSseProgressWriter(stream, admission.requestId);
+    const approvalGate = interactive
+      ? new ApprovalGate({
+        requestId: admission.requestId,
+        progressWriter,
+        timeoutMs: readApprovalTimeoutMs(),
+      })
+      : undefined;
+    if (approvalGate) {
+      ctx.approvalGates.set(admission.requestId, approvalGate);
+    }
+    try {
+      const result = await ctx.engineService.executeRepoSearch({
+        taskKind: 'repo-search',
+        prompt: repoSearchRequest.prompt,
+        requestId: admission.requestId,
+        startedAtUtc: admission.startedAtUtc,
+        promptPrefix: reader.optionalString('promptPrefix'),
+        repoRoot: admission.repoRoot,
+        statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
+        config,
+        allowedTools,
+        includeAgentsMd: resolveEffectiveAgentsMd(config, null),
+        includeRepoFileListing: resolveEffectiveRepoFileListing(config, null),
+        model: reader.optionalString('model'),
+        maxTurns: reader.number('maxTurns') ?? undefined,
+        logFile: reader.optionalString('logFile'),
+        availableModels: Array.isArray(parsedBody.availableModels) ? parsedBody.availableModels.map((value) => String(value)) : undefined,
+        mockResponses: Array.isArray(parsedBody.mockResponses) ? parsedBody.mockResponses.map((value) => String(value)) : undefined,
+        mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
+        abortSignal: stream.abortSignal,
+        progressWriter,
+        approvalGate,
+      });
+      RepoSearchResponseSanityChecker.assertSafeToSend(result);
+      return result;
+    } finally {
+      if (approvalGate) {
+        ctx.approvalGates.delete(admission.requestId);
+      }
+    }
+  }
+}
+
+const DEFAULT_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;
+
+function readApprovalTimeoutMs(): number {
+  const raw = Number(process.env.SIFTKIT_APPROVAL_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? Math.trunc(raw) : DEFAULT_APPROVAL_TIMEOUT_MS;
+}
+
+class RepoSearchApprovalEndpoint implements RouteEndpoint {
+  async handle(ctx: ServerContext, req: IncomingMessage, res: ServerResponse, _match: RouteMatch): Promise<void> {
+    let parsedBody: JsonObject;
+    try {
+      parsedBody = parseJsonBody(await readBody(req));
+    } catch {
+      sendJson(res, 400, { error: 'Expected valid JSON object.' });
+      return;
+    }
+    const parsedRequest = RepoSearchApprovalRequestSchema.safeParse(parsedBody);
+    if (!parsedRequest.success) {
+      sendJson(res, 400, { error: 'Expected requestId, approvalId, and decision (approve|deny|abort).' });
+      return;
+    }
+    const gate = ctx.approvalGates.get(parsedRequest.data.requestId);
+    if (!gate) {
+      sendJson(res, 404, { error: `No interactive run with requestId ${parsedRequest.data.requestId}.` });
+      return;
+    }
+    if (!gate.submit(parsedRequest.data.approvalId, toApprovalDecision(parsedRequest.data))) {
+      sendJson(res, 409, { error: 'Approval already resolved or unknown approvalId.' });
+      return;
+    }
+    sendJson(res, 200, { accepted: true });
   }
 }
 
@@ -1680,6 +1748,7 @@ const CORE_ROUTES = new RouteTable([
   { method: 'GET', path: '/preset/list', endpoint: new PresetListEndpoint() },
   { method: 'POST', path: '/preset/run', endpoint: new PresetRunEndpoint() },
   { method: 'POST', path: '/eval/run', endpoint: new EvalRunEndpoint() },
+  { method: 'POST', path: '/repo-search/approval', endpoint: new RepoSearchApprovalEndpoint() },
   { method: 'POST', path: '/repo-search', endpoint: new RepoSearchEndpoint() },
   { method: 'POST', path: '/summary', endpoint: new SummaryEndpoint() },
   { method: 'POST', path: /^\/status\/complete(?:\?.*)?$/u, endpoint: new StatusCompleteEndpoint() },

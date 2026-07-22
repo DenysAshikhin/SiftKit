@@ -238,6 +238,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     },
     metrics,
     activeRunsByRequestId: new Map(),
+    approvalGates: new Map(),
     activeRequestIdByStatusPath: new Map(),
     completedRequestIdByStatusPath: new Map(),
     activeModelRequest: null,
