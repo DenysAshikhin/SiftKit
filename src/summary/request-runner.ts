@@ -13,6 +13,7 @@ import {
 } from '../config/index.js';
 import type { NotifyStatusBackendOptions } from '../config/status-backend.js';
 import { getErrorMessage, toError } from '../lib/errors.js';
+import { throwIfAborted } from '../lib/abort.js';
 import { createTemporaryTimingRecorderFromEnv, type TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
 import {
   getDeterministicExcerpt,
@@ -32,7 +33,7 @@ import {
   allocateLlamaCppSlotId,
 } from './chunking.js';
 import { getSummaryDecision, getPolicyDecision } from './decision.js';
-import { logSummaryProgress } from './progress.js';
+import { SummaryProgressReporter } from './progress-reporter.js';
 import { invokeSummaryCore, type SummaryCoreResult } from './core-runner.js';
 import { parseDeterministicTestOutput } from './test-output.js';
 import { resolveSummaryProvider } from './types.js';
@@ -93,12 +94,17 @@ export class SummaryRequestRunner {
   private timingStatus: 'completed' | 'failed' = 'failed';
   private config: SiftConfig | null = null;
   private readonly backend: SummaryProviderId;
+  private readonly progress: SummaryProgressReporter;
   private model = 'unknown';
 
   constructor(request: SummaryRequest) {
     this.request = request;
     this.backend = resolveSummaryProvider(request.backend);
     this.inputText = normalizeInputText(request.inputText) ?? '';
+    this.progress = new SummaryProgressReporter({
+      requestId: this.requestId,
+      onProgress: request.onProgress ?? null,
+    });
     this.timingRecorder = createTemporaryTimingRecorderFromEnv({
       kind: 'summary',
       requestId: this.requestId,
@@ -132,7 +138,7 @@ export class SummaryRequestRunner {
 
   private logStart(): void {
     traceSummary(`summarizeRequest start input_chars=${this.inputText.length}`);
-    logSummaryProgress(`start request_id=${this.requestId} input_chars=${this.inputText.length}`);
+    this.progress.start(this.inputText.length);
   }
 
   private async tryDeterministicTestOutput(): Promise<SummaryResult | null> {
@@ -168,11 +174,13 @@ export class SummaryRequestRunner {
 
   private async runRequest(): Promise<SummaryResult> {
     try {
+      throwIfAborted(this.request.abortSignal);
       const context = await this.loadExecutionContext();
       const deterministicPassFailResult = await this.tryDeterministicPassFail(context);
       if (deterministicPassFailResult) {
         return deterministicPassFailResult;
       }
+      throwIfAborted(this.request.abortSignal);
       return await this.invokeModelSummary(context);
     } catch (error) {
       await this.handleFailure(toError(error));
@@ -186,12 +194,12 @@ export class SummaryRequestRunner {
     });
     if (this.request.config) {
       traceSummary('normalize provided config start');
-      logSummaryProgress(`config_start request_id=${this.requestId} source=provided`);
+      this.progress.configStart('provided');
       this.config = await normalizeLoadedConfig(this.request.config);
       traceSummary('normalize provided config done');
     } else {
       traceSummary('loadConfig start');
-      logSummaryProgress(`config_start request_id=${this.requestId} source=load`);
+      this.progress.configStart('load');
       this.config = await loadConfig({ ensure: true });
       traceSummary('loadConfig done');
     }
@@ -199,7 +207,7 @@ export class SummaryRequestRunner {
     getConfiguredLlamaBaseUrl(this.config);
     getConfiguredLlamaNumCtx(this.config);
     this.model = this.request.model || getConfiguredModel(this.config);
-    logSummaryProgress(`config_done request_id=${this.requestId} backend=${this.backend} model=${this.model}`);
+    this.progress.configDone(this.backend, this.model);
     this.config = await this.applyHostLlamaSettings(this.config);
 
     const riskLevel = this.request.policyProfile === 'risky-operation' ? 'risky' : 'informational';
@@ -214,10 +222,7 @@ export class SummaryRequestRunner {
       rawReviewRequired: decision.RawReviewRequired,
       characterCount: decision.CharacterCount,
     });
-    logSummaryProgress(
-      `decision_done request_id=${this.requestId} backend=${this.backend} `
-      + `raw_review_required=${decision.RawReviewRequired} chars=${decision.CharacterCount}`,
-    );
+    this.progress.decisionDone(this.backend, decision.RawReviewRequired, decision.CharacterCount);
     return {
       config: this.config,
       backend: this.backend,
@@ -232,9 +237,7 @@ export class SummaryRequestRunner {
     const hostConfig = await applyHostLlamaRuntimeSettings(config);
     const effectiveNumCtx = getConfiguredLlamaNumCtx(hostConfig);
     if (effectiveNumCtx !== localNumCtx) {
-      logSummaryProgress(
-        `host_sync request_id=${this.requestId} num_ctx_local=${localNumCtx} num_ctx_host=${effectiveNumCtx}`,
-      );
+      this.progress.hostSync(localNumCtx, effectiveNumCtx);
     }
     return hostConfig;
   }
@@ -294,7 +297,7 @@ export class SummaryRequestRunner {
       ? this.request.promptPrefix
       : getConfiguredPromptPrefix(context.config);
     traceSummary('invokeSummaryCore start');
-    logSummaryProgress(`core_start request_id=${this.requestId} backend=${context.backend}`);
+    this.progress.coreStart(context.backend);
     const coreSpan = this.timingRecorder?.start('summary.core');
     let summaryCore: SummaryCoreResult;
     try {
@@ -318,11 +321,12 @@ export class SummaryRequestRunner {
         llamaCppOverrides: this.request.llamaCppOverrides,
         statusBackendUrl: this.request.statusBackendUrl,
         timingRecorder: this.timingRecorder,
+        progress: this.progress,
       });
     } finally {
       coreSpan?.end();
     }
-    logSummaryProgress(`core_done request_id=${this.requestId} backend=${context.backend}`);
+    this.progress.coreDone(context.backend);
     traceSummary(`invokeSummaryCore done classification=${summaryCore.decision.classification}`);
     await this.notifyModelCompletion(summaryCore, context);
     const result = this.buildModelResult(summaryCore, context);
@@ -476,7 +480,7 @@ export class SummaryRequestRunner {
       });
     }
     clearSummaryArtifactState(this.requestId);
-    logSummaryProgress(`failed request_id=${this.requestId} error=${getErrorMessage(error)}`);
+    this.progress.failed(getErrorMessage(error));
   }
 
   private buildFailureArtifacts(error: Error): NonNullable<NotifyStatusBackendOptions['deferredArtifacts']> {
@@ -504,7 +508,7 @@ export class SummaryRequestRunner {
   private completeRequest(result: SummaryResult): void {
     this.timingStatus = 'completed';
     clearSummaryArtifactState(this.requestId);
-    logSummaryProgress(`completed request_id=${this.requestId} classification=${result.Classification}`);
+    this.progress.completed(result.Classification);
   }
 
   private async flushCompletedTiming(): Promise<void> {

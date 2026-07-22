@@ -2,34 +2,37 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { summarizeRequest } from '../src/summary.js';
+import type { SummaryProgressEvent } from '../src/summary/progress-reporter.js';
 import {
-  captureStdout,
   withStubServer,
   withTempEnv,
 } from './_runtime-helpers.js';
 
-test('summary logs preflight tokenization timing source and retry count', async () => {
+test('summary emits preflight tokenization progress', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
-      const lines = await captureStdout(async () => {
-        await summarizeRequest({
-          question: 'summarize this',
-          inputText: 'A'.repeat(5_000),
-          format: 'text',
-          policyProfile: 'general',
-          backend: 'llama.cpp',
-          model: 'mock-model',
-        });
+      const events: SummaryProgressEvent[] = [];
+      await summarizeRequest({
+        question: 'summarize this',
+        inputText: 'A'.repeat(5_000),
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        model: 'mock-model',
+        onProgress(event) {
+          events.push(event);
+        },
       });
 
-      assert.ok(
-        lines.some((line) => /summary preflight_tokenize_start request_id=.* phase=leaf chunk=undefined\/undefined prompt_chars=\d+ timeout_ms=10000 retry_max_wait_ms=30000/u.test(line)),
-        lines.join('\n'),
-      );
-      assert.ok(
-        lines.some((line) => /summary preflight_tokenize_done request_id=.* phase=leaf chunk=undefined\/undefined prompt_tokens=456 source=llama\.cpp elapsed_ms=\d+ retry_count=0/u.test(line)),
-        lines.join('\n'),
-      );
+      const kinds = events.map((event) => event.kind);
+      assert.deepEqual(kinds.slice(0, 2), ['start', 'config_start']);
+      assert.ok(kinds.includes('completed'));
+      const tokenizeStart = events.find((event) => event.kind === 'tokenize_start');
+      assert.equal(tokenizeStart?.phase, 'leaf');
+      assert.ok((tokenizeStart?.promptChars ?? 0) > 0);
+      const tokenizeDone = events.find((event) => event.kind === 'tokenize_done');
+      assert.equal(tokenizeDone?.promptTokens, 456);
+      assert.equal(tokenizeDone?.tokenSource, 'llama.cpp');
     }, {
       tokenizeTokenCount: () => 456,
       metrics: {
@@ -43,4 +46,20 @@ test('summary logs preflight tokenization timing source and retry count', async 
       },
     });
   });
+});
+
+test('summary rejects before loading configuration when already aborted', async () => {
+  const controller = new AbortController();
+  controller.abort(new Error('client disconnected'));
+  await assert.rejects(
+    () => summarizeRequest({
+      question: 'summarize this',
+      inputText: 'ordinary input',
+      format: 'text',
+      policyProfile: 'general',
+      backend: 'mock',
+      abortSignal: controller.signal,
+    }),
+    /client disconnected/u,
+  );
 });

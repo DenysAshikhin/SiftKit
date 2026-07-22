@@ -1,9 +1,6 @@
 import { getErrorMessage, toError } from '../lib/errors.js';
 import { ModelJson } from '../lib/model-json.js';
-import { logSummaryProgress } from './progress.js';
 import {
-  DEFAULT_LLAMA_CPP_TOKENIZE_RETRY_MAX_WAIT_MS,
-  DEFAULT_LLAMA_CPP_TOKENIZE_TIMEOUT_MS,
   countLlamaCppTokensDetailed,
   type CountLlamaCppTokensOptions,
 } from '../providers/llama-cpp.js';
@@ -11,6 +8,7 @@ import type { SiftConfig } from '../config/index.js';
 import {
   getChunkThresholdCharacters,
 } from '../config/index.js';
+import type { SummaryProgressReporter } from './progress-reporter.js';
 import {
   buildCompactPrompt,
   buildPrompt,
@@ -96,6 +94,7 @@ export type InvokeSummaryCoreOptions = {
   statusBackendUrl?: string | null;
   chunkContext?: ChunkPromptContext;
   timingRecorder?: TemporaryTimingRecorder | null;
+  progress?: SummaryProgressReporter;
 };
 
 type SummaryCoreState = {
@@ -354,13 +353,7 @@ class SummaryCoreRunner {
     prompt: string,
   ): Promise<Awaited<ReturnType<typeof countLlamaCppTokensDetailed>>> {
     const tokenizeOptions = getSummaryTokenizeOptions(this.options.requestTimeoutSeconds);
-    const tokenizeTimeoutMs = tokenizeOptions?.timeoutMs ?? DEFAULT_LLAMA_CPP_TOKENIZE_TIMEOUT_MS;
-    const tokenizeRetryMaxWaitMs = tokenizeOptions?.retryMaxWaitMs ?? DEFAULT_LLAMA_CPP_TOKENIZE_RETRY_MAX_WAIT_MS;
-    logSummaryProgress(
-      `preflight_tokenize_start request_id=${this.options.requestId} phase=${state.phase} `
-      + `chunk=${state.chunkLabel} prompt_chars=${prompt.length} timeout_ms=${tokenizeTimeoutMs} `
-      + `retry_max_wait_ms=${tokenizeRetryMaxWaitMs}`,
-    );
+    this.options.progress?.tokenizeStart(state.phase, state.chunkLabel, prompt.length);
     return countLlamaCppTokensDetailed(this.options.config, prompt, tokenizeOptions);
   }
 
@@ -374,14 +367,7 @@ class SummaryCoreRunner {
     }
     const promptTokenCount = tokenCountResult?.tokenCount ?? null;
     const tokenSource = promptTokenCount === null ? 'unavailable' : 'llama.cpp';
-    const tokenErrorSuffix = tokenCountResult?.errorMessage ? ` error=${JSON.stringify(tokenCountResult.errorMessage)}` : '';
-    logSummaryProgress(
-      `preflight_tokenize_done request_id=${this.options.requestId} phase=${state.phase} `
-      + `chunk=${state.chunkLabel} prompt_tokens=${promptTokenCount ?? 'null'} source=${tokenSource} `
-      + `elapsed_ms=${tokenCountResult?.elapsedMs ?? 0} retry_count=${tokenCountResult?.retryCount ?? 0} `
-      + `status=${tokenCountResult?.status ?? 'unknown'}`
-      + tokenErrorSuffix,
-    );
+    this.options.progress?.tokenizeDone(state.phase, state.chunkLabel, promptTokenCount, tokenSource);
   }
 
   private effectivePromptLimit(state: SummaryCoreState): number | null {
