@@ -80,19 +80,17 @@ test('dim events emit at normal level with the dim SGR', () => {
   assert.ok(sink.lines[0].includes('\x1b[2m'), 'queue lines must be dim');
 });
 
-test('continuation lines are indented to the field column and gated at quiet level', () => {
-  const normal = collect();
-  new ServerLogger({ level: 'normal', colour: false, write: normal.write })
-    .continuation('read  tests/runtime-db-schema-v29.test.ts  1+120');
-  assert.equal(normal.lines.length, 1);
-  assert.equal(
-    normal.lines[0],
-    `${' '.repeat(35)}read  tests/runtime-db-schema-v29.test.ts  1+120\n`,
-  );
+test('emitBody colours and gates by the declared severity, not the display verb', () => {
+  const sink = collect();
+  const logger = new ServerLogger({ level: 'quiet', colour: true, write: sink.write });
 
-  const quiet = collect();
-  new ServerLogger({ level: 'quiet', colour: false, write: quiet.write }).continuation('read  x');
-  assert.equal(quiet.lines.length, 0);
+  logger.emitBody('st', 'abcdef12', { event: 'ready', fields: 'x=1', severity: 'ok' });
+  logger.emitBody('st', 'abcdef12', { event: 'aborted', fields: 'x=2', severity: 'error' });
+  logger.emitBody('st', 'abcdef12', { event: 'done', fields: 'x=3', severity: 'normal' });
+
+  assert.equal(sink.lines.length, 2, 'normal bodies stay suppressed at quiet level');
+  assert.ok(sink.lines[0].includes('\x1b[32m'), 'ok severity is green regardless of the verb');
+  assert.ok(sink.lines[1].includes('\x1b[31m'), 'error severity is red regardless of the verb');
 });
 
 test('fieldless events omit the trailing separator', () => {

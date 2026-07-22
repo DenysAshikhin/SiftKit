@@ -424,7 +424,7 @@ test('request status log groups large running counts and uses colon elapsed dura
       inputCharactersPerContextToken: 1.856,
       chunkThresholdCharacters: 237_565,
     }),
-    { event: 'start', fields: 'raw_chars=101,891 prompt=102,584 (55,271)' },
+    { event: 'start', fields: 'raw_chars=101,891 prompt=102,584 (55,271)', severity: 'normal' },
   );
   assert.deepEqual(
     buildStatusRequestLogBody({
@@ -440,7 +440,7 @@ test('request status log groups large running counts and uses colon elapsed dura
       chunkTotal: 2,
       chunkPath: '1/50 -> 1/2',
     }),
-    { event: 'start', fields: 'raw_chars=37,947,467 prompt=560,315 (135,016) chunk 1/50 -> 1/2' },
+    { event: 'start', fields: 'raw_chars=37,947,467 prompt=560,315 (135,016) chunk 1/50 -> 1/2', severity: 'normal' },
   );
   assert.deepEqual(
     buildStatusRequestLogBody({
@@ -448,19 +448,19 @@ test('request status log groups large running counts and uses colon elapsed dura
       rawInputCharacterCount: 300,
       promptCharacterCount: 420,
     }),
-    { event: 'start', fields: 'raw_chars=300 prompt=420' },
+    { event: 'start', fields: 'raw_chars=300 prompt=420', severity: 'normal' },
   );
   assert.deepEqual(
     buildStatusRequestLogBody({ running: false, elapsedMs: 12_000, outputTokens: 7 }),
-    { event: 'done', fields: 'elapsed=12s output_tokens=7' },
+    { event: 'done', fields: 'elapsed=12s output_tokens=7', severity: 'ok' },
   );
   assert.deepEqual(
     buildStatusRequestLogBody({ running: false, totalElapsedMs: 187_000, totalOutputTokens: 19 }),
-    { event: 'done', fields: 'total_elapsed=3:07 output_tokens=19' },
+    { event: 'done', fields: 'total_elapsed=3:07 output_tokens=19', severity: 'ok' },
   );
   assert.deepEqual(
     buildStatusRequestLogBody({ running: false, taskKind: 'summary', elapsedMs: 12_000, toolTokens: 5 }),
-    { event: 'done', fields: 'task=summary elapsed=12s tool_tokens=5' },
+    { event: 'done', fields: 'task=summary elapsed=12s tool_tokens=5', severity: 'ok' },
   );
   assert.deepEqual(
     buildStatusRequestLogBody({
@@ -477,6 +477,7 @@ test('request status log groups large running counts and uses colon elapsed dura
       event: 'failed',
       fields: 'raw_chars=3,322,607 prompt=342,395 (147,694) chunk 1/10 elapsed=1:31 '
         + 'error=Provider returned an invalid SiftKit decision payload: Unexpected token',
+      severity: 'error',
     },
   );
 });

@@ -141,7 +141,7 @@ export function buildStatusRequestLogBody(input: StatusRequestLogInput): ServerL
   }
   if (running) {
     parts.push(...buildStatusPromptParts(input, promptCharacterCount ?? characterCount));
-    return { event: 'start', fields: parts.join(' ') };
+    return { event: 'start', fields: parts.join(' '), severity: 'normal' };
   }
   if (terminalState === 'failed') {
     parts.push(...buildStatusPromptParts(input, promptCharacterCount));
@@ -155,7 +155,7 @@ export function buildStatusRequestLogBody(input: StatusRequestLogInput): ServerL
     if (toolTokens !== null) {
       parts.push(`tool_tokens=${formatInteger(toolTokens)}`);
     }
-    return { event: 'failed', fields: parts.join(' ') };
+    return { event: 'failed', fields: parts.join(' '), severity: 'error' };
   }
   if (totalElapsedMs !== null) {
     parts.push(`total_elapsed=${formatElapsed(totalElapsedMs)}`);
@@ -171,7 +171,7 @@ export function buildStatusRequestLogBody(input: StatusRequestLogInput): ServerL
   if (toolTokens !== null && (totalElapsedMs !== null || elapsedMs !== null)) {
     parts.push(`tool_tokens=${formatInteger(toolTokens)}`);
   }
-  return { event: 'done', fields: parts.join(' ') };
+  return { event: 'done', fields: parts.join(' '), severity: 'ok' };
 }
 
 import type { RepoSearchProgressEvent } from '../repo-search/types.js';
@@ -197,13 +197,13 @@ export function buildRepoSearchProgressLogBody(event: RepoSearchProgressEvent | 
   const kind = event?.kind;
   const fields = `${turnLabel}  prompt=${promptTokenCount}tok  elapsed=${formatElapsed(elapsedMs)}`;
   if (kind === 'llm_start' || kind === 'llm_end') {
-    return { event: kind, fields };
+    return { event: kind, fields, severity: 'normal' };
   }
   const commandText = normalizeRepoSearchCommandForLog(event?.command);
   if (!commandText) {
     return null;
   }
-  return { event: 'command', fields: `${fields}  ${commandText}` };
+  return { event: 'command', fields: `${fields}  ${commandText}`, severity: 'normal' };
 }
 
 export function getStatusArtifactPath(metadata: StatusMetadata): string | null {

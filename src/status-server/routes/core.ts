@@ -929,7 +929,7 @@ class RepoSearchEndpoint implements RouteEndpoint {
           if (event.kind === 'tool_start') {
             const body = buildRepoSearchProgressLogBody(event);
             if (body) {
-              serverLogger.event({ scope: 'rs', id: admission.requestId, event: body.event, fields: body.fields });
+              serverLogger.emitBody('rs', admission.requestId, body);
             }
           }
         },

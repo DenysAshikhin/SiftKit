@@ -5,9 +5,6 @@ export type LogLevel = z.infer<typeof LogLevelSchema>;
 
 const LEVEL_RANK: Record<LogLevel, number> = { quiet: 0, normal: 1, debug: 2 };
 
-/** Column at which continuation lines align with the field group of an event line. */
-const CONTINUATION_INDENT = 35;
-
 export const Ansi = {
   reset: '\x1b[0m',
   dim: '\x1b[2m',
@@ -15,7 +12,6 @@ export const Ansi = {
   timestamp: '\x1b[2;37m',
   scope: '\x1b[36m',
   id: '\x1b[2;35m',
-  slow: '\x1b[33m',
   ok: '\x1b[32m',
   error: '\x1b[31m',
 } as const;
@@ -28,10 +24,14 @@ export type ServerLogEvent = {
   date?: Date;
 };
 
+/** How a builder-produced body is coloured and level-gated, independent of its display verb. */
+export type LogSeverity = 'normal' | 'ok' | 'error';
+
 /** The scope-and-id-free part of a log line, produced by the message builders. */
 export type ServerLogBody = {
   event: string;
   fields: string;
+  severity: LogSeverity;
 };
 
 export function shortenRequestId(requestId: string): string {
@@ -107,17 +107,14 @@ export class ServerLogger {
     this.emit(event, 'quiet', Ansi.error);
   }
 
-  /**
-   * Emits a builder-produced body, picking the colour from its verb: `failed` is an
-   * error, `done` is a terminal success, anything else is ordinary progress.
-   */
+  /** Emits a builder-produced body at the severity the builder declared. */
   emitBody(scope: string, id: string, body: ServerLogBody): void {
     const line = { scope, id, event: body.event, fields: body.fields };
-    if (body.event === 'failed') {
+    if (body.severity === 'error') {
       this.error(line);
       return;
     }
-    if (body.event === 'done') {
+    if (body.severity === 'ok') {
       this.ok(line);
       return;
     }
@@ -130,14 +127,6 @@ export class ServerLogger {
       return;
     }
     this.writeText(`${this.paint(formatClock(date), Ansi.timestamp)}  ${text}\n`);
-  }
-
-  /** Continuation lines for grouped events; indented to the field column, never coloured. */
-  continuation(text: string): void {
-    if (LEVEL_RANK[this.level] < LEVEL_RANK.normal) {
-      return;
-    }
-    this.writeText(`${' '.repeat(CONTINUATION_INDENT)}${text}\n`);
   }
 
   private paint(text: string, code: string): string {

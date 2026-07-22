@@ -162,7 +162,7 @@ function forwardRepoSearchToolEvent(
 ): void {
   if (event.kind === 'tool_start') {
     const body = buildRepoSearchProgressLogBody(event);
-    if (body) serverLogger.event({ scope, id: requestId, event: body.event, fields: body.fields });
+    if (body) serverLogger.emitBody(scope, requestId, body);
     writeSse('tool_start', {
       toolCallId: requireToolCallId(event),
       turn: event.turn,
@@ -958,7 +958,9 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
           : activeSession.webSearchEnabled === true;
       const mockResponses = readRouteStringArray(reader, 'mockResponses');
       const mockTokenConfig = getMockTokenConfig(config, mockResponses);
+      const engineRequestId = randomUUID();
       const result = await ctx.engineService.executeRepoSearch({
+        requestId: engineRequestId,
         taskKind: 'chat',
         prompt: userContent,
         repoRoot: process.cwd(),
@@ -985,7 +987,7 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
             writeSse('answer', { answer: event.answerText || '' });
             return;
           }
-          forwardRepoSearchToolEvent(writeSse, event, 'plan', '');
+          forwardRepoSearchToolEvent(writeSse, event, 'plan', engineRequestId);
         },
       });
       const scorecardTasks = normalizeRepoSearchScorecard(result.scorecard).tasks;
@@ -1102,6 +1104,7 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
         'plan',
       );
       const autoAppend = resolveRepoSearchAutoAppendOverrides(config, preset, parsedBody);
+      const engineRequestId = randomUUID();
       const result = await ctx.engineService.executeRepoSearch({
         taskKind: 'plan',
         prompt: buildPlanRequestPrompt(content),
@@ -1121,10 +1124,11 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
         availableModels: readRouteStringArray(reader, 'availableModels'),
         mockResponses,
         mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
+        requestId: engineRequestId,
         onProgress(event: RepoSearchProgressEvent) {
           if (event.kind === 'tool_start') {
             const body = buildRepoSearchProgressLogBody(event);
-            if (body) serverLogger.event({ scope: 'plan', id: '', event: body.event, fields: body.fields });
+            if (body) serverLogger.emitBody('plan', engineRequestId, body);
           }
         },
       });
@@ -1271,6 +1275,7 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
         'plan',
       );
       const autoAppend = resolveRepoSearchAutoAppendOverrides(config, preset, parsedBody);
+      const engineRequestId = randomUUID();
       const result = await ctx.engineService.executeRepoSearch({
         taskKind: 'plan',
         prompt: buildPlanRequestPrompt(content),
@@ -1290,13 +1295,14 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
         availableModels: readRouteStringArray(reader, 'availableModels'),
         mockResponses,
         mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
+        requestId: engineRequestId,
         onProgress(event: RepoSearchProgressEvent) {
           if (event.kind === 'thinking') {
             phaseTracker.observeThinking(event.thinkingText || '');
             writeSse('thinking', { thinking: event.thinkingText || '' });
             return;
           }
-          forwardRepoSearchToolEvent(writeSse, event, 'plan', '');
+          forwardRepoSearchToolEvent(writeSse, event, 'plan', engineRequestId);
         },
       });
       const assistantContent = buildPlanMarkdownFromRepoSearch(content, resolvedRepoRoot, result);
@@ -1505,6 +1511,7 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
         'repo-search',
       );
       const autoAppend = resolveRepoSearchAutoAppendOverrides(config, preset, parsedBody);
+      const engineRequestId = randomUUID();
       const result = await ctx.engineService.executeRepoSearch({
         taskKind: 'repo-search',
         prompt: content,
@@ -1524,13 +1531,14 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
         availableModels: readRouteStringArray(reader, 'availableModels'),
         mockResponses,
         mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
+        requestId: engineRequestId,
         onProgress(event: RepoSearchProgressEvent) {
           if (event.kind === 'thinking') {
             phaseTracker.observeThinking(event.thinkingText || '');
             writeSse('answer', { answer: event.thinkingText || '' });
             return;
           }
-          forwardRepoSearchToolEvent(writeSse, event, 'rs', '');
+          forwardRepoSearchToolEvent(writeSse, event, 'rs', engineRequestId);
         },
       });
       const assistantContent = buildRepoSearchMarkdown(content, resolvedRepoRoot, result);

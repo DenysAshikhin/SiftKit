@@ -729,7 +729,7 @@ test('buildRepoSearchProgressLogBody formats command and llm progress bodies', (
       elapsedMs: 2500,
       command: 'git grep -n "planner" src',
     }),
-    { event: 'command', fields: 't2/9  prompt=1,234tok  elapsed=2s  git grep -n "planner" src' },
+    { event: 'command', fields: 't2/9  prompt=1,234tok  elapsed=2s  git grep -n "planner" src', severity: 'normal' },
   );
   assert.deepEqual(
     buildRepoSearchProgressLogBody({
@@ -740,7 +740,7 @@ test('buildRepoSearchProgressLogBody formats command and llm progress bodies', (
       elapsedMs: 0,
       command: 'git grep -n "dashboard" .',
     }),
-    { event: 'command', fields: 't1/2  prompt=88tok  elapsed=0s  git grep -n "dashboard" .' },
+    { event: 'command', fields: 't1/2  prompt=88tok  elapsed=0s  git grep -n "dashboard" .', severity: 'normal' },
   );
   assert.deepEqual(
     buildRepoSearchProgressLogBody({
@@ -750,7 +750,7 @@ test('buildRepoSearchProgressLogBody formats command and llm progress bodies', (
       promptTokenCount: 312345,
       elapsedMs: 4200,
     }),
-    { event: 'llm_start', fields: 't18/45  prompt=312,345tok  elapsed=4s' },
+    { event: 'llm_start', fields: 't18/45  prompt=312,345tok  elapsed=4s', severity: 'normal' },
   );
   assert.deepEqual(
     buildRepoSearchProgressLogBody({
@@ -760,7 +760,7 @@ test('buildRepoSearchProgressLogBody formats command and llm progress bodies', (
       promptTokenCount: 312345,
       elapsedMs: 7800,
     }),
-    { event: 'llm_end', fields: 't18/45  prompt=312,345tok  elapsed=7s' },
+    { event: 'llm_end', fields: 't18/45  prompt=312,345tok  elapsed=7s', severity: 'normal' },
   );
   assert.equal(buildRepoSearchProgressLogBody({ kind: 'command', turn: 1, maxTurns: 2 }), null);
 });

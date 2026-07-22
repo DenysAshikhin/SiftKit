@@ -12,7 +12,7 @@ import { getNumericTotal, getOutputCharacterCount } from './scorecard.js';
 import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../state/runtime-db.js';
 import { upsertRepoSearchRun } from '../status-server/dashboard-runs.js';
-import { serverLogger, type ServerLogger } from '../status-server/server-logger.js';
+import { serverLogger, type ServerLogBody } from '../status-server/server-logger.js';
 import { JsonObjectSchema } from '../lib/json-types.js';
 import { formatInteger } from '../lib/text-format.js';
 import { formatElapsed } from '../lib/time.js';
@@ -46,29 +46,23 @@ function formatKiloCharacters(characters: number): string {
 }
 
 /**
- * The four preflight progress events collapse into this one line, emitted when
+ * The four preflight progress events collapse into this one line, built when
  * tokenization finishes. The events themselves still reach the dashboard.
  */
-export function logRepoSearchPreflight(
-  logger: ServerLogger,
-  requestId: string,
-  summary: RepoSearchPreflightSummary,
-): void {
+export function buildRepoSearchPreflightLogBody(summary: RepoSearchPreflightSummary): ServerLogBody {
   const retries = summary.tokenizeRetryCount > 0 ? `  retries=${summary.tokenizeRetryCount}` : '';
   const fields = `t${summary.turn}/${summary.maxTurns}`
     + `  prompt=${formatInteger(summary.promptTokenCount)}tok/${formatKiloCharacters(summary.promptChars)}`
     + `  tokenize=${summary.tokenizeElapsedMs}ms(${summary.tokenCountSource})`
     + `  elapsed=${formatElapsed(summary.elapsedMs)}${retries}`;
   if (summary.tokenizeStatus !== 'completed') {
-    logger.error({
-      scope: 'rs',
-      id: requestId,
+    return {
       event: 'preflight',
       fields: `${fields}  status=${summary.tokenizeStatus}  ${summary.errorMessage ?? ''}`.trimEnd(),
-    });
-    return;
+      severity: 'error',
+    };
   }
-  logger.event({ scope: 'rs', id: requestId, event: 'preflight', fields });
+  return { event: 'preflight', fields, severity: 'normal' };
 }
 
 function logRepoSearchExecutionProgress(requestId: string, event: RepoSearchProgressEvent, startedAt: number): void {
@@ -113,7 +107,7 @@ function logRepoSearchExecutionProgress(requestId: string, event: RepoSearchProg
         + `retry_max_wait_ms=${Math.max(0, Math.trunc(Number(event.tokenizeRetryMaxWaitMs || 0)))}`,
     });
   } else if (event.kind === 'preflight_tokenize_done') {
-    logRepoSearchPreflight(serverLogger, requestId, {
+    serverLogger.emitBody('rs', requestId, buildRepoSearchPreflightLogBody({
       turn: Math.max(1, Math.trunc(Number(event.turn || 1))),
       maxTurns: Math.max(1, Math.trunc(Number(event.maxTurns || 1))),
       promptChars: Math.max(0, Math.trunc(Number(event.promptChars || 0))),
@@ -124,7 +118,7 @@ function logRepoSearchExecutionProgress(requestId: string, event: RepoSearchProg
       tokenizeStatus: String(event.tokenizeStatus || 'unknown'),
       elapsedMs,
       ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
-    });
+    }));
   }
 }
 
