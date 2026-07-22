@@ -17,6 +17,7 @@ import {
   startStatusServerProcess,
 } from './_runtime-helpers.js';
 import { requestJson, asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
+import { captureStdoutLines } from './helpers/stdout-capture.js';
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 
@@ -70,35 +71,6 @@ async function stopManagedTestProcess(pidFilePath: string): Promise<void> {
   }
 }
 
-async function captureStdoutLines(fn: () => Promise<void>): Promise<string[]> {
-  const originalWrite = process.stdout.write.bind(process.stdout);
-  const lines: string[] = [];
-  let buffer = '';
-  process.stdout.write = (
-    chunk: string | Uint8Array,
-    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
-    callback?: (error?: Error | null) => void,
-  ): boolean => {
-    const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
-    buffer += text;
-    const parts = buffer.split(/\r?\n/u);
-    buffer = parts.pop() || '';
-    for (const line of parts) {
-      if (line.trim()) lines.push(line);
-    }
-    if (typeof encodingOrCallback === 'function') {
-      return originalWrite(chunk, encodingOrCallback);
-    }
-    return originalWrite(chunk, encodingOrCallback, callback);
-  };
-  try {
-    await fn();
-  } finally {
-    process.stdout.write = originalWrite;
-  }
-  if (buffer.trim()) lines.push(buffer.trim());
-  return lines;
-}
 
 test('status server stays responsive while repo-search is running', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-status-'));

@@ -64,6 +64,8 @@ import {
   getManagedLlamaStartupFailure,
 } from '../managed-llama.js';
 import { serverLogger, shortenRequestId } from '../server-logger.js';
+import { RepeatSuppressor } from '../repeat-suppressor.js';
+import { formatElapsed } from '../../lib/time.js';
 import {
   getPublishedStatusText,
   writePublishedStatus,
@@ -92,6 +94,8 @@ import type {
 } from '../server-types.js';
 
 const llamaCppClient = new LlamaCppClient();
+/** Folds the per-cycle terminal-metadata drain wait into an entry and a resume line. */
+const terminalMetadataDrainSuppressor = new RepeatSuppressor();
 const DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_SECONDS = 240;
 
 type RepoSearchAdmissionRecord = {
@@ -567,17 +571,30 @@ function drainTerminalMetadataQueue(ctx: ServerContext): void {
     return;
   }
   const waitMs = getTerminalMetadataIdleWaitMs(ctx, nextItem.capturedAtMs);
+  const drainKey = `drain:${nextItem.requestId}:${nextItem.terminalState}`;
   if (waitMs > 0) {
+    if (terminalMetadataDrainSuppressor.observe(drainKey, Date.now()).shouldLog) {
+      serverLogger.dim({
+        scope: 'st',
+        id: nextItem.requestId,
+        event: 'drain_wait',
+        fields: `state=${nextItem.terminalState} wait_ms=${Math.max(1, Math.trunc(waitMs))} `
+          + `active=${ctx.activeModelRequest ? 'true' : 'false'} `
+          + `q=${ctx.terminalMetadataQueue.length} model_q=${ctx.modelRequestQueue.length}`,
+      });
+    }
+    scheduleTerminalMetadataDrain(ctx, waitMs);
+    return;
+  }
+  const drainRelease = terminalMetadataDrainSuppressor.release(drainKey, Date.now());
+  if (drainRelease) {
     serverLogger.dim({
       scope: 'st',
       id: nextItem.requestId,
-      event: 'drain_wait',
-      fields: `state=${nextItem.terminalState} wait_ms=${Math.max(1, Math.trunc(waitMs))} `
-        + `active=${ctx.activeModelRequest ? 'true' : 'false'} `
-        + `q=${ctx.terminalMetadataQueue.length} model_q=${ctx.modelRequestQueue.length}`,
+      event: 'drain_resume',
+      fields: `waited=${formatElapsed(drainRelease.elapsedMs)}  cycles=${drainRelease.repeatCount + 1}  `
+        + `q=${ctx.terminalMetadataQueue.length}`,
     });
-    scheduleTerminalMetadataDrain(ctx, waitMs);
-    return;
   }
   ctx.terminalMetadataDrainRunning = true;
   const item = ctx.terminalMetadataQueue.shift();
