@@ -756,15 +756,19 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
     const requestStartedAtUtc = new Date(startedAt).toISOString();
     const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
     try {
-      try {
-        await notifyChatStatus({
-          ctx,
-          requestId,
-          running: true,
-          promptChars: userContent.length,
-        });
-      } catch {
-        // Best-effort metrics notification.
+      // Engine-backed turns are reported to /status by executeRepoSearchRequest itself;
+      // only the client-supplied-assistant-content path has no engine call to report for.
+      if (usesProvidedAssistantContent) {
+        try {
+          await notifyChatStatus({
+            ctx,
+            requestId,
+            running: true,
+            promptChars: userContent.length,
+          });
+        } catch {
+          // Best-effort metrics notification.
+        }
       }
       let assistantContent: string;
       let usage: Partial<ChatUsage>;
@@ -809,27 +813,29 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
         };
         persistTurns = await countPersistTurnThinkingTokens(tokenConfig, buildPersistTurnsFromRepoSearchResult(result));
       }
-      try {
-        await notifyChatStatus({
-          ctx,
-          requestId,
-          running: false,
-          promptChars: userContent.length,
-          terminalState: 'completed',
-          inputTokens: getProcessedPromptTokens(
-            usage.promptTokens,
-            usage.promptCacheTokens,
-            usage.promptEvalTokens,
-          ),
-          outputChars: assistantContent.length,
-          outputTokens: Number.isFinite(Number(usage.completionTokens)) ? Number(usage.completionTokens) : null,
-          thinkingTokens: Number.isFinite(Number(usage.thinkingTokens)) ? Number(usage.thinkingTokens) : null,
-          promptCacheTokens: Number.isFinite(Number(usage.promptCacheTokens)) ? Number(usage.promptCacheTokens) : null,
-          promptEvalTokens: Number.isFinite(Number(usage.promptEvalTokens)) ? Number(usage.promptEvalTokens) : null,
-          requestDurationMs: Date.now() - startedAt,
-        });
-      } catch {
-        // Best-effort metrics notification.
+      if (usesProvidedAssistantContent) {
+        try {
+          await notifyChatStatus({
+            ctx,
+            requestId,
+            running: false,
+            promptChars: userContent.length,
+            terminalState: 'completed',
+            inputTokens: getProcessedPromptTokens(
+              usage.promptTokens,
+              usage.promptCacheTokens,
+              usage.promptEvalTokens,
+            ),
+            outputChars: assistantContent.length,
+            outputTokens: Number.isFinite(Number(usage.completionTokens)) ? Number(usage.completionTokens) : null,
+            thinkingTokens: Number.isFinite(Number(usage.thinkingTokens)) ? Number(usage.thinkingTokens) : null,
+            promptCacheTokens: Number.isFinite(Number(usage.promptCacheTokens)) ? Number(usage.promptCacheTokens) : null,
+            promptEvalTokens: Number.isFinite(Number(usage.promptEvalTokens)) ? Number(usage.promptEvalTokens) : null,
+            requestDurationMs: Date.now() - startedAt,
+          });
+        } catch {
+          // Best-effort metrics notification.
+        }
       }
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
       const inputTokenCount = await countPersistedInputTokens(tokenConfig, userContent);
@@ -847,19 +853,21 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
       });
       sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), sessionWithTelemetry));
     } catch (error) {
-      try {
-        await notifyChatStatus({
-          ctx,
-          requestId,
-          running: false,
-          promptChars: userContent.length,
-          terminalState: 'failed',
-          errorMessage: error instanceof Error ? error.message : String(error),
-          outputChars: 0,
-          requestDurationMs: Date.now() - startedAt,
-        });
-      } catch {
-        // Best-effort metrics notification.
+      if (usesProvidedAssistantContent) {
+        try {
+          await notifyChatStatus({
+            ctx,
+            requestId,
+            running: false,
+            promptChars: userContent.length,
+            terminalState: 'failed',
+            errorMessage: error instanceof Error ? error.message : String(error),
+            outputChars: 0,
+            requestDurationMs: Date.now() - startedAt,
+          });
+        } catch {
+          // Best-effort metrics notification.
+        }
       }
       sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
     } finally {
