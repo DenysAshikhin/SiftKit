@@ -1,9 +1,9 @@
 import { parentPort } from 'node:worker_threads';
 import {
-  appendManagedLlamaLogChunk,
-  updateManagedLlamaRunSpeculativeMetrics,
-  type ManagedLlamaPendingLogChunkEntry,
-} from '../state/managed-llama-runs.js';
+  appendInferenceRunLogChunk,
+  updateInferenceRunSpeculativeMetrics,
+  type InferenceRunPendingLogChunkEntry,
+} from '../state/inference-runs.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
 import type { ManagedLlamaSpeculativeMetricsSnapshot } from './managed-llama-speculative-tracker.js';
 
@@ -11,7 +11,7 @@ type FlushWorkerRequest = {
   id: number;
   runId: string;
   databasePath: string;
-  entries: ManagedLlamaPendingLogChunkEntry[];
+  entries: InferenceRunPendingLogChunkEntry[];
   metricsSnapshot: ManagedLlamaSpeculativeMetricsSnapshot | null;
 };
 
@@ -26,7 +26,7 @@ function handleFlushRequest(message: FlushWorkerRequest): FlushWorkerResponse {
   const database = getRuntimeDatabase(message.databasePath);
   database.exec('PRAGMA busy_timeout = 1;');
   for (const entry of message.entries) {
-    appendManagedLlamaLogChunk({
+    appendInferenceRunLogChunk({
       runId: message.runId,
       streamKind: entry.streamKind,
       chunkText: entry.chunkText,
@@ -34,7 +34,7 @@ function handleFlushRequest(message: FlushWorkerRequest): FlushWorkerResponse {
     });
   }
   const metricsFlushed = message.metricsSnapshot
-    ? updateManagedLlamaRunSpeculativeMetrics({
+    ? updateInferenceRunSpeculativeMetrics({
       runId: message.runId,
       speculativeAcceptedTokens: message.metricsSnapshot.latestSpeculativeAcceptedTokens,
       speculativeGeneratedTokens: message.metricsSnapshot.latestSpeculativeGeneratedTokens,

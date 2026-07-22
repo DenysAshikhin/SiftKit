@@ -3,22 +3,25 @@ import { z } from '../lib/zod.js';
 import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.js';
 import { formatTimestamp } from '../lib/text-format.js';
 
-const ManagedLlamaRunStatusSchema = z.enum(['running', 'ready', 'failed', 'stopped', 'sync_completed']);
-export type ManagedLlamaRunStatus = z.infer<typeof ManagedLlamaRunStatusSchema>;
-const ManagedLlamaStreamKindSchema = z.enum([
-  'startup_script_stdout',
-  'startup_script_stderr',
-  'llama_stdout',
-  'llama_stderr',
+const InferenceRunStatusSchema = z.enum(['running', 'ready', 'failed', 'stopped', 'sync_completed']);
+export type InferenceRunStatus = z.infer<typeof InferenceRunStatusSchema>;
+const InferenceBackendSchema = z.enum(['llama', 'exl3']);
+export type InferenceRunBackend = z.infer<typeof InferenceBackendSchema>;
+const InferenceRunStreamKindSchema = z.enum([
+  'launcher_stdout',
+  'launcher_stderr',
+  'engine_stdout',
+  'engine_stderr',
   'startup_review',
   'startup_failure',
 ]);
-export type ManagedLlamaStreamKind = z.infer<typeof ManagedLlamaStreamKindSchema>;
+export type InferenceRunStreamKind = z.infer<typeof InferenceRunStreamKindSchema>;
 
-const ManagedLlamaRunRowSchema = z.object({
+const InferenceRunRowSchema = z.object({
   id: z.string().nullable(),
+  backend: z.string().nullable(),
   purpose: z.string().nullable(),
-  script_path: z.string().nullable(),
+  entrypoint_path: z.string().nullable(),
   base_url: z.string().nullable(),
   status: z.string().nullable(),
   exit_code: z.number().nullable(),
@@ -32,42 +35,48 @@ const ManagedLlamaRunRowSchema = z.object({
   stderr_character_count: z.number().nullable(),
   metrics_updated_at_utc: z.string().nullable(),
 });
-type ManagedLlamaRunRow = z.infer<typeof ManagedLlamaRunRowSchema>;
+type InferenceRunRow = z.infer<typeof InferenceRunRowSchema>;
+
+const RUN_COLUMNS = `id, backend, purpose, entrypoint_path, base_url, status,
+           exit_code, error_message, started_at_utc, finished_at_utc, updated_at_utc,
+           speculative_accepted_tokens, speculative_generated_tokens,
+           stdout_character_count, stderr_character_count, metrics_updated_at_utc`;
 
 const MaxSequenceRowSchema = z.object({ max_sequence: z.number().nullable() });
 
-const ManagedLlamaLogChunkRowSchema = z.object({
+const InferenceRunLogChunkRowSchema = z.object({
   stream_kind: z.string().nullable(),
   chunk_text: z.string().nullable(),
 });
 
 const PENDING_LOG_PEAK_MIN_STREAM_CHARACTER_DELTA = 1024;
-const pendingChunkTextByRunId = new Map<string, Map<ManagedLlamaStreamKind, string>>();
-const pendingLogPeakStreamCharactersByRunId = new Map<string, Map<ManagedLlamaStreamKind, number>>();
+const pendingChunkTextByRunId = new Map<string, Map<InferenceRunStreamKind, string>>();
+const pendingLogPeakStreamCharactersByRunId = new Map<string, Map<InferenceRunStreamKind, number>>();
 
-export type ManagedLlamaLogTextStatsByStream = {
-  textByStream: Record<ManagedLlamaStreamKind, string>;
-  characterCountByStream: Record<ManagedLlamaStreamKind, number>;
-  truncatedByStream: Record<ManagedLlamaStreamKind, boolean>;
+export type InferenceRunLogTextStatsByStream = {
+  textByStream: Record<InferenceRunStreamKind, string>;
+  characterCountByStream: Record<InferenceRunStreamKind, number>;
+  truncatedByStream: Record<InferenceRunStreamKind, boolean>;
 };
 
-export type ManagedLlamaPendingLogChunkStats = {
-  characterCountByStream: Record<ManagedLlamaStreamKind, number>;
+export type InferenceRunPendingLogChunkStats = {
+  characterCountByStream: Record<InferenceRunStreamKind, number>;
   totalCharacters: number;
   streamCount: number;
 };
 
-export type ManagedLlamaPendingLogChunkEntry = {
-  streamKind: ManagedLlamaStreamKind;
+export type InferenceRunPendingLogChunkEntry = {
+  streamKind: InferenceRunStreamKind;
   chunkText: string;
 };
 
-export type ManagedLlamaRunRecord = {
+export type InferenceRunRecord = {
   id: string;
+  backend: InferenceRunBackend;
   purpose: string;
-  scriptPath: string | null;
+  entrypointPath: string | null;
   baseUrl: string | null;
-  status: ManagedLlamaRunStatus;
+  status: InferenceRunStatus;
   exitCode: number | null;
   errorMessage: string | null;
   startedAtUtc: string;
@@ -84,47 +93,55 @@ function getDatabase(databasePath?: string): RuntimeDatabase {
   return getRuntimeDatabase(databasePath);
 }
 
-function normalizeStatus(value: string | null | undefined): ManagedLlamaRunStatus {
-  const result = ManagedLlamaRunStatusSchema.safeParse(String(value || '').trim());
+function normalizeStatus(value: string | null | undefined): InferenceRunStatus {
+  const result = InferenceRunStatusSchema.safeParse(String(value || '').trim());
   return result.success ? result.data : 'running';
 }
 
-function normalizeStreamKind(value: string | null | undefined): ManagedLlamaStreamKind {
-  const result = ManagedLlamaStreamKindSchema.safeParse(String(value || '').trim());
+function normalizeBackend(value: string | null | undefined): InferenceRunBackend {
+  const result = InferenceBackendSchema.safeParse(String(value || '').trim());
   if (!result.success) {
-    throw new Error(`Unsupported managed llama stream kind: ${String(value || '')}`);
+    throw new Error(`Unsupported inference run backend: ${String(value || '')}`);
   }
   return result.data;
 }
 
-function createEmptyTextByStream(): Record<ManagedLlamaStreamKind, string> {
+function normalizeStreamKind(value: string | null | undefined): InferenceRunStreamKind {
+  const result = InferenceRunStreamKindSchema.safeParse(String(value || '').trim());
+  if (!result.success) {
+    throw new Error(`Unsupported inference run stream kind: ${String(value || '')}`);
+  }
+  return result.data;
+}
+
+function createEmptyTextByStream(): Record<InferenceRunStreamKind, string> {
   return {
-    startup_script_stdout: '',
-    startup_script_stderr: '',
-    llama_stdout: '',
-    llama_stderr: '',
+    launcher_stdout: '',
+    launcher_stderr: '',
+    engine_stdout: '',
+    engine_stderr: '',
     startup_review: '',
     startup_failure: '',
   };
 }
 
-function createEmptyCountByStream(): Record<ManagedLlamaStreamKind, number> {
+function createEmptyCountByStream(): Record<InferenceRunStreamKind, number> {
   return {
-    startup_script_stdout: 0,
-    startup_script_stderr: 0,
-    llama_stdout: 0,
-    llama_stderr: 0,
+    launcher_stdout: 0,
+    launcher_stderr: 0,
+    engine_stdout: 0,
+    engine_stderr: 0,
     startup_review: 0,
     startup_failure: 0,
   };
 }
 
-function createEmptyTruncatedByStream(): Record<ManagedLlamaStreamKind, boolean> {
+function createEmptyTruncatedByStream(): Record<InferenceRunStreamKind, boolean> {
   return {
-    startup_script_stdout: false,
-    startup_script_stderr: false,
-    llama_stdout: false,
-    llama_stderr: false,
+    launcher_stdout: false,
+    launcher_stderr: false,
+    engine_stdout: false,
+    engine_stderr: false,
     startup_review: false,
     startup_failure: false,
   };
@@ -157,14 +174,15 @@ function appendCappedTail(currentText: string, chunkText: string, maxCharacters:
   return `${currentText.slice(combinedLength - maxCharacters)}${chunkText}`;
 }
 
-function normalizeRecord(row: ManagedLlamaRunRow | undefined): ManagedLlamaRunRecord | null {
+function normalizeRecord(row: InferenceRunRow | undefined): InferenceRunRecord | null {
   if (!row || typeof row.id !== 'string') {
     return null;
   }
   return {
     id: row.id,
+    backend: normalizeBackend(row.backend),
     purpose: typeof row.purpose === 'string' ? row.purpose : 'unknown',
-    scriptPath: typeof row.script_path === 'string' ? row.script_path : null,
+    entrypointPath: typeof row.entrypoint_path === 'string' ? row.entrypoint_path : null,
     baseUrl: typeof row.base_url === 'string' ? row.base_url : null,
     status: normalizeStatus(row.status),
     exitCode: Number.isFinite(row.exit_code) ? Number(row.exit_code) : null,
@@ -180,62 +198,65 @@ function normalizeRecord(row: ManagedLlamaRunRow | undefined): ManagedLlamaRunRe
   };
 }
 
-export function createManagedLlamaRun(options: {
+export function createInferenceRun(options: {
   id?: string;
+  backend: InferenceRunBackend;
   purpose: string;
-  scriptPath?: string | null;
+  entrypointPath?: string | null;
   baseUrl?: string | null;
-  status?: ManagedLlamaRunStatus;
+  status?: InferenceRunStatus;
   databasePath?: string;
-}): ManagedLlamaRunRecord {
+}): InferenceRunRecord {
   const database = getDatabase(options.databasePath);
   const id = String(options.id || '').trim() || randomUUID();
   const nowUtc = new Date().toISOString();
   const status = normalizeStatus(options.status || 'running');
   database.prepare(`
-    INSERT INTO managed_llama_runs (
-      id, purpose, script_path, base_url, status,
+    INSERT INTO inference_runs (
+      id, backend, purpose, entrypoint_path, base_url, status,
       exit_code, error_message, started_at_utc, finished_at_utc, updated_at_utc
-    ) VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, NULL, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULL, ?)
     ON CONFLICT(id) DO UPDATE SET
+      backend = excluded.backend,
       purpose = excluded.purpose,
-      script_path = excluded.script_path,
+      entrypoint_path = excluded.entrypoint_path,
       base_url = excluded.base_url,
       status = excluded.status,
       updated_at_utc = excluded.updated_at_utc
   `).run(
     id,
+    normalizeBackend(options.backend),
     String(options.purpose || '').trim() || 'unknown',
-    options.scriptPath ?? null,
+    options.entrypointPath ?? null,
     options.baseUrl ?? null,
     status,
     nowUtc,
     nowUtc,
   );
-  const inserted = readManagedLlamaRun(id, options.databasePath);
+  const inserted = readInferenceRun(id, options.databasePath);
   if (!inserted) {
-    throw new Error(`Failed to persist managed llama run: ${id}`);
+    throw new Error(`Failed to persist inference run: ${id}`);
   }
   return inserted;
 }
 
-export function updateManagedLlamaRun(options: {
+export function updateInferenceRun(options: {
   id: string;
-  status: ManagedLlamaRunStatus;
+  status: InferenceRunStatus;
   exitCode?: number | null;
   errorMessage?: string | null;
   finishedAtUtc?: string | null;
   baseUrl?: string | null;
   databasePath?: string;
-}): ManagedLlamaRunRecord {
+}): InferenceRunRecord {
   const runId = String(options.id || '').trim();
   if (!runId) {
-    throw new Error('Managed llama run id is required.');
+    throw new Error('Inference run id is required.');
   }
   const database = getDatabase(options.databasePath);
   const nowUtc = new Date().toISOString();
   database.prepare(`
-    UPDATE managed_llama_runs
+    UPDATE inference_runs
     SET status = ?,
         exit_code = ?,
         error_message = ?,
@@ -252,9 +273,9 @@ export function updateManagedLlamaRun(options: {
     nowUtc,
     runId,
   );
-  const updated = readManagedLlamaRun(runId, options.databasePath);
+  const updated = readInferenceRun(runId, options.databasePath);
   if (!updated) {
-    throw new Error(`Managed llama run not found: ${runId}`);
+    throw new Error(`Inference run not found: ${runId}`);
   }
   return updated;
 }
@@ -262,11 +283,11 @@ export function updateManagedLlamaRun(options: {
 function getNextChunkSequence(
   database: RuntimeDatabase,
   runId: string,
-  streamKind: ManagedLlamaStreamKind,
+  streamKind: InferenceRunStreamKind,
 ): number {
   const rawRow = database.prepare(`
     SELECT MAX(sequence) AS max_sequence
-    FROM managed_llama_log_chunks
+    FROM inference_run_log_chunks
     WHERE run_id = ? AND stream_kind = ?
   `).get(runId, streamKind);
   const row = rawRow == null ? undefined : MaxSequenceRowSchema.parse(rawRow);
@@ -274,16 +295,16 @@ function getNextChunkSequence(
   return current + 1;
 }
 
-function getPendingChunksForRun(runId: string): Map<ManagedLlamaStreamKind, string> {
+function getPendingChunksForRun(runId: string): Map<InferenceRunStreamKind, string> {
   let pending = pendingChunkTextByRunId.get(runId);
   if (!pending) {
-    pending = new Map<ManagedLlamaStreamKind, string>();
+    pending = new Map<InferenceRunStreamKind, string>();
     pendingChunkTextByRunId.set(runId, pending);
   }
   return pending;
 }
 
-function getPendingChunkCharacterCount(pending: Map<ManagedLlamaStreamKind, string>): number {
+function getPendingChunkCharacterCount(pending: Map<InferenceRunStreamKind, string>): number {
   let totalCharacters = 0;
   for (const chunkText of pending.values()) {
     totalCharacters += chunkText.length;
@@ -293,12 +314,12 @@ function getPendingChunkCharacterCount(pending: Map<ManagedLlamaStreamKind, stri
 
 function shouldLogPendingChunkPeak(options: {
   runId: string;
-  streamKind: ManagedLlamaStreamKind;
+  streamKind: InferenceRunStreamKind;
   streamCharacters: number;
 }): boolean {
   let characterCountByStream = pendingLogPeakStreamCharactersByRunId.get(options.runId);
   if (!characterCountByStream) {
-    characterCountByStream = new Map<ManagedLlamaStreamKind, number>();
+    characterCountByStream = new Map<InferenceRunStreamKind, number>();
     pendingLogPeakStreamCharactersByRunId.set(options.runId, characterCountByStream);
   }
   const previousStreamCharacters = characterCountByStream.get(options.streamKind) || 0;
@@ -311,29 +332,29 @@ function shouldLogPendingChunkPeak(options: {
 
 function logPendingChunkPeak(options: {
   runId: string;
-  streamKind: ManagedLlamaStreamKind;
+  streamKind: InferenceRunStreamKind;
   pendingCharacters: number;
   streamCharacters: number;
 }): void {
   process.stdout.write(
-    `${formatTimestamp()} managed_llama pending_log_peak run_id=${options.runId} `
+    `${formatTimestamp()} inference_run pending_log_peak run_id=${options.runId} `
     + `pending_chars=${options.pendingCharacters} stream=${options.streamKind} `
     + `stream_chars=${options.streamCharacters}\n`,
   );
 }
 
-function createEmptyStreamCharacterCounts(): Record<ManagedLlamaStreamKind, number> {
+function createEmptyStreamCharacterCounts(): Record<InferenceRunStreamKind, number> {
   return {
-    startup_script_stdout: 0,
-    startup_script_stderr: 0,
-    llama_stdout: 0,
-    llama_stderr: 0,
+    launcher_stdout: 0,
+    launcher_stderr: 0,
+    engine_stdout: 0,
+    engine_stderr: 0,
     startup_review: 0,
     startup_failure: 0,
   };
 }
 
-export function getManagedLlamaPendingLogChunkStats(runId: string): ManagedLlamaPendingLogChunkStats {
+export function getInferenceRunPendingLogChunkStats(runId: string): InferenceRunPendingLogChunkStats {
   const normalizedRunId = String(runId || '').trim();
   const counts = createEmptyStreamCharacterCounts();
   const pending = normalizedRunId ? pendingChunkTextByRunId.get(normalizedRunId) : null;
@@ -359,7 +380,7 @@ export function getManagedLlamaPendingLogChunkStats(runId: string): ManagedLlama
   };
 }
 
-export function consumeManagedLlamaPendingLogChunks(runId: string): ManagedLlamaPendingLogChunkEntry[] {
+export function consumeInferenceRunPendingLogChunks(runId: string): InferenceRunPendingLogChunkEntry[] {
   const normalizedRunId = String(runId || '').trim();
   if (!normalizedRunId) {
     return [];
@@ -375,13 +396,13 @@ export function consumeManagedLlamaPendingLogChunks(runId: string): ManagedLlama
     .filter((entry) => entry.chunkText.length > 0);
 }
 
-export function restoreManagedLlamaPendingLogChunks(runId: string, entries: ManagedLlamaPendingLogChunkEntry[]): void {
+export function restoreInferenceRunPendingLogChunks(runId: string, entries: InferenceRunPendingLogChunkEntry[]): void {
   const normalizedRunId = String(runId || '').trim();
   if (!normalizedRunId) {
     return;
   }
   for (const entry of entries) {
-    bufferManagedLlamaLogChunk({
+    bufferInferenceRunLogChunk({
       runId: normalizedRunId,
       streamKind: entry.streamKind,
       chunkText: entry.chunkText,
@@ -389,14 +410,14 @@ export function restoreManagedLlamaPendingLogChunks(runId: string, entries: Mana
   }
 }
 
-export function bufferManagedLlamaLogChunk(options: {
+export function bufferInferenceRunLogChunk(options: {
   runId: string;
-  streamKind: ManagedLlamaStreamKind;
+  streamKind: InferenceRunStreamKind;
   chunkText: string;
 }): void {
   const runId = String(options.runId || '').trim();
   if (!runId) {
-    throw new Error('Managed llama run id is required for log chunks.');
+    throw new Error('Inference run id is required for log chunks.');
   }
   const chunkText = String(options.chunkText || '');
   if (!chunkText) {
@@ -417,16 +438,16 @@ export function bufferManagedLlamaLogChunk(options: {
   }
 }
 
-export function appendManagedLlamaLogChunk(options: {
+export function appendInferenceRunLogChunk(options: {
   runId: string;
-  streamKind: ManagedLlamaStreamKind;
+  streamKind: InferenceRunStreamKind;
   chunkText: string;
   sequence?: number;
   databasePath?: string;
 }): void {
   const runId = String(options.runId || '').trim();
   if (!runId) {
-    throw new Error('Managed llama run id is required for log chunks.');
+    throw new Error('Inference run id is required for log chunks.');
   }
   const chunkText = String(options.chunkText || '');
   if (!chunkText) {
@@ -438,11 +459,11 @@ export function appendManagedLlamaLogChunk(options: {
     ? Math.max(0, Math.trunc(Number(options.sequence)))
     : getNextChunkSequence(database, runId, streamKind);
   database.prepare(`
-    INSERT INTO managed_llama_log_chunks (
+    INSERT INTO inference_run_log_chunks (
       run_id, stream_kind, sequence, chunk_text, created_at_utc
     ) VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(run_id, stream_kind, sequence) DO UPDATE SET
-      chunk_text = managed_llama_log_chunks.chunk_text || excluded.chunk_text
+      chunk_text = inference_run_log_chunks.chunk_text || excluded.chunk_text
   `).run(
     runId,
     streamKind,
@@ -452,7 +473,7 @@ export function appendManagedLlamaLogChunk(options: {
   );
 }
 
-export function flushManagedLlamaLogChunks(runId: string, databasePath?: string): void {
+export function flushInferenceRunLogChunks(runId: string, databasePath?: string): void {
   const normalizedRunId = String(runId || '').trim();
   if (!normalizedRunId) {
     return;
@@ -472,7 +493,7 @@ export function flushManagedLlamaLogChunks(runId: string, databasePath?: string)
   const database = getDatabase(databasePath);
   database.transaction(() => {
     for (const entry of entries) {
-      appendManagedLlamaLogChunk({
+      appendInferenceRunLogChunk({
         runId: normalizedRunId,
         streamKind: entry.streamKind,
         chunkText: entry.chunkText,
@@ -485,24 +506,21 @@ export function flushManagedLlamaLogChunks(runId: string, databasePath?: string)
   pendingLogPeakStreamCharactersByRunId.delete(normalizedRunId);
 }
 
-export function readManagedLlamaRun(id: string, databasePath?: string): ManagedLlamaRunRecord | null {
+export function readInferenceRun(id: string, databasePath?: string): InferenceRunRecord | null {
   const runId = String(id || '').trim();
   if (!runId) {
     return null;
   }
   const database = getDatabase(databasePath);
   const rawRow = database.prepare(`
-    SELECT id, purpose, script_path, base_url, status,
-           exit_code, error_message, started_at_utc, finished_at_utc, updated_at_utc,
-           speculative_accepted_tokens, speculative_generated_tokens,
-           stdout_character_count, stderr_character_count, metrics_updated_at_utc
-    FROM managed_llama_runs
+    SELECT ${RUN_COLUMNS}
+    FROM inference_runs
     WHERE id = ?
   `).get(runId);
-  return normalizeRecord(rawRow == null ? undefined : ManagedLlamaRunRowSchema.parse(rawRow));
+  return normalizeRecord(rawRow == null ? undefined : InferenceRunRowSchema.parse(rawRow));
 }
 
-export function updateManagedLlamaRunSpeculativeMetrics(options: {
+export function updateInferenceRunSpeculativeMetrics(options: {
   runId: string;
   speculativeAcceptedTokens: number | null;
   speculativeGeneratedTokens: number | null;
@@ -517,7 +535,7 @@ export function updateManagedLlamaRunSpeculativeMetrics(options: {
   const database = getDatabase(options.databasePath);
   const nowUtc = new Date().toISOString();
   const result = database.prepare(`
-    UPDATE managed_llama_runs
+    UPDATE inference_runs
     SET speculative_accepted_tokens = ?,
         speculative_generated_tokens = ?,
         stdout_character_count = ?,
@@ -537,26 +555,26 @@ export function updateManagedLlamaRunSpeculativeMetrics(options: {
   return Number(result.changes) > 0;
 }
 
-export function readManagedLlamaLogTextByStream(
+export function readInferenceRunLogTextByStream(
   runId: string,
   databasePath?: string,
-): Record<ManagedLlamaStreamKind, string> {
-  return readManagedLlamaLogTextStatsByStream(runId, { databasePath }).textByStream;
+): Record<InferenceRunStreamKind, string> {
+  return readInferenceRunLogTextStatsByStream(runId, { databasePath }).textByStream;
 }
 
-export function readManagedLlamaLogTextStatsByStream(
+export function readInferenceRunLogTextStatsByStream(
   runId: string,
   options: {
     databasePath?: string;
     maxCharactersPerStream?: number | null;
   } = {},
-): ManagedLlamaLogTextStatsByStream {
+): InferenceRunLogTextStatsByStream {
   const normalizedRunId = String(runId || '').trim();
   const maxCharactersPerStream = normalizeMaxCharactersPerStream(options.maxCharactersPerStream);
   const textByStream = createEmptyTextByStream();
   const characterCountByStream = createEmptyCountByStream();
   const truncatedByStream = createEmptyTruncatedByStream();
-  const result: ManagedLlamaLogTextStatsByStream = {
+  const result: InferenceRunLogTextStatsByStream = {
     textByStream,
     characterCountByStream,
     truncatedByStream,
@@ -565,9 +583,9 @@ export function readManagedLlamaLogTextStatsByStream(
     return result;
   }
   const database = getDatabase(options.databasePath);
-  const rows = z.array(ManagedLlamaLogChunkRowSchema).parse(database.prepare(`
+  const rows = z.array(InferenceRunLogChunkRowSchema).parse(database.prepare(`
     SELECT stream_kind, chunk_text
-    FROM managed_llama_log_chunks
+    FROM inference_run_log_chunks
     WHERE run_id = ?
     ORDER BY stream_kind ASC, sequence ASC, id ASC
   `).all(normalizedRunId));
@@ -584,46 +602,45 @@ export function readManagedLlamaLogTextStatsByStream(
       textByStream[streamKind] = appendCappedTail(textByStream[streamKind], chunkText, maxCharactersPerStream);
     }
   }
-  for (const streamKind of ManagedLlamaStreamKindSchema.options) {
+  for (const streamKind of InferenceRunStreamKindSchema.options) {
     truncatedByStream[streamKind] = textByStream[streamKind].length < characterCountByStream[streamKind];
   }
   return result;
 }
 
-export function listManagedLlamaRuns(options: {
+export function listInferenceRuns(options: {
   limit?: number;
-  status?: ManagedLlamaRunStatus | '';
+  status?: InferenceRunStatus | '';
+  backend?: InferenceRunBackend | '';
   databasePath?: string;
-} = {}): ManagedLlamaRunRecord[] {
+} = {}): InferenceRunRecord[] {
   const database = getDatabase(options.databasePath);
   const limit = Number.isFinite(options.limit) ? Math.max(1, Math.trunc(Number(options.limit))) : 100;
+  const conditions: string[] = [];
+  const params: Array<string | number> = [];
   const status = String(options.status || '').trim();
-  if (status && ManagedLlamaRunStatusSchema.safeParse(status).success) {
-    const rows = z.array(ManagedLlamaRunRowSchema).parse(database.prepare(`
-      SELECT id, purpose, script_path, base_url, status,
-             exit_code, error_message, started_at_utc, finished_at_utc, updated_at_utc,
-             speculative_accepted_tokens, speculative_generated_tokens,
-             stdout_character_count, stderr_character_count, metrics_updated_at_utc
-      FROM managed_llama_runs
-      WHERE status = ?
-      ORDER BY started_at_utc DESC, id DESC
-      LIMIT ?
-    `).all(status, limit));
-    return rows.map((row) => normalizeRecord(row)).filter((row): row is ManagedLlamaRunRecord => row !== null);
+  if (status && InferenceRunStatusSchema.safeParse(status).success) {
+    conditions.push('status = ?');
+    params.push(status);
   }
-  const rows = z.array(ManagedLlamaRunRowSchema).parse(database.prepare(`
-    SELECT id, purpose, script_path, base_url, status,
-           exit_code, error_message, started_at_utc, finished_at_utc, updated_at_utc,
-           speculative_accepted_tokens, speculative_generated_tokens,
-           stdout_character_count, stderr_character_count, metrics_updated_at_utc
-    FROM managed_llama_runs
+  const backend = String(options.backend || '').trim();
+  if (backend && InferenceBackendSchema.safeParse(backend).success) {
+    conditions.push('backend = ?');
+    params.push(backend);
+  }
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  params.push(limit);
+  const rows = z.array(InferenceRunRowSchema).parse(database.prepare(`
+    SELECT ${RUN_COLUMNS}
+    FROM inference_runs
+    ${whereClause}
     ORDER BY started_at_utc DESC, id DESC
     LIMIT ?
-  `).all(limit));
-  return rows.map((row) => normalizeRecord(row)).filter((row): row is ManagedLlamaRunRecord => row !== null);
+  `).all(...params));
+  return rows.map((row) => normalizeRecord(row)).filter((row): row is InferenceRunRecord => row !== null);
 }
 
-export function deleteManagedLlamaRun(id: string, databasePath?: string): boolean {
+export function deleteInferenceRun(id: string, databasePath?: string): boolean {
   const runId = String(id || '').trim();
   if (!runId) {
     return false;
@@ -631,11 +648,11 @@ export function deleteManagedLlamaRun(id: string, databasePath?: string): boolea
   pendingChunkTextByRunId.delete(runId);
   pendingLogPeakStreamCharactersByRunId.delete(runId);
   const database = getDatabase(databasePath);
-  const result = database.prepare('DELETE FROM managed_llama_runs WHERE id = ?').run(runId);
+  const result = database.prepare('DELETE FROM inference_runs WHERE id = ?').run(runId);
   return Number(result.changes) > 0;
 }
 
-export function deleteManagedLlamaLogChunksOlderThan(options: {
+export function deleteInferenceRunLogChunksOlderThan(options: {
   olderThanUtc: string;
   databasePath?: string;
 }): number {
@@ -645,11 +662,11 @@ export function deleteManagedLlamaLogChunksOlderThan(options: {
   }
   const database = getDatabase(options.databasePath);
   const result = database.prepare(`
-    DELETE FROM managed_llama_log_chunks
+    DELETE FROM inference_run_log_chunks
     WHERE created_at_utc < ?
       AND run_id NOT IN (
         SELECT id
-        FROM managed_llama_runs
+        FROM inference_runs
         WHERE status = 'running'
       )
   `).run(olderThanUtc);

@@ -203,9 +203,9 @@ const AUX_RUN_HISTORY_DELETE_STATEMENTS: { table: string; countSql: string; dele
     deleteSql: "DELETE FROM runtime_artifacts WHERE created_at_utc < ? AND artifact_kind != 'benchmark_run'",
   },
   {
-    table: 'managed_llama_runs',
-    countSql: "SELECT COUNT(*) AS count FROM managed_llama_runs WHERE status != 'running' AND COALESCE(finished_at_utc, started_at_utc) < ?",
-    deleteSql: "DELETE FROM managed_llama_runs WHERE status != 'running' AND COALESCE(finished_at_utc, started_at_utc) < ?",
+    table: 'inference_runs',
+    countSql: "SELECT COUNT(*) AS count FROM inference_runs WHERE status != 'running' AND COALESCE(finished_at_utc, started_at_utc) < ?",
+    deleteSql: "DELETE FROM inference_runs WHERE status != 'running' AND COALESCE(finished_at_utc, started_at_utc) < ?",
   },
   {
     table: 'idle_summary_snapshots',

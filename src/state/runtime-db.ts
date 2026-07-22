@@ -1425,7 +1425,7 @@ export function pruneRuntimeHistory(
   const database = getRuntimeDatabase(databasePath);
   const deleted: { table: string; rows: number }[] = [];
 
-  // managed_llama_log_chunks cascade-deletes via FK ON DELETE CASCADE on the runs table.
+  // inference_run_log_chunks cascade-deletes via FK ON DELETE CASCADE on the runs table.
   const deleteStatements: { table: string; sql: string }[] = [
     { table: 'runtime_artifacts', sql: 'DELETE FROM runtime_artifacts WHERE created_at_utc < ?' },
     {
@@ -1433,8 +1433,8 @@ export function pruneRuntimeHistory(
       sql: 'DELETE FROM run_logs WHERE COALESCE(finished_at_utc, started_at_utc, flushed_at_utc) < ?',
     },
     {
-      table: 'managed_llama_runs',
-      sql: "DELETE FROM managed_llama_runs WHERE status != 'running' AND COALESCE(finished_at_utc, started_at_utc) < ?",
+      table: 'inference_runs',
+      sql: "DELETE FROM inference_runs WHERE status != 'running' AND COALESCE(finished_at_utc, started_at_utc) < ?",
     },
     { table: 'idle_summary_snapshots', sql: 'DELETE FROM idle_summary_snapshots WHERE emitted_at_utc < ?' },
     { table: 'runtime_error_events', sql: 'DELETE FROM runtime_error_events WHERE created_at_utc < ?' },

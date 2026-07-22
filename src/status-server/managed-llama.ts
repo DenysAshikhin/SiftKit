@@ -16,15 +16,15 @@ import { sleep } from '../lib/time.js';
 import { serverLogger } from './server-logger.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
 import {
-  bufferManagedLlamaLogChunk,
-  createManagedLlamaRun,
-  flushManagedLlamaLogChunks,
-  readManagedLlamaLogTextStatsByStream,
-  readManagedLlamaLogTextByStream,
-  updateManagedLlamaRun,
-  type ManagedLlamaRunStatus,
-  type ManagedLlamaStreamKind,
-} from '../state/managed-llama-runs.js';
+  bufferInferenceRunLogChunk,
+  createInferenceRun,
+  flushInferenceRunLogChunks,
+  readInferenceRunLogTextStatsByStream,
+  readInferenceRunLogTextByStream,
+  updateInferenceRun,
+  type InferenceRunStatus,
+  type InferenceRunStreamKind,
+} from '../state/inference-runs.js';
 import { upsertRuntimeTextArtifact } from '../state/runtime-artifacts.js';
 import {
   readConfig,
@@ -289,7 +289,7 @@ function sliceManagedLlamaTextFromOffset(text: string, totalLength: number, offs
 
 function getManagedLlamaPrimaryStreamText(logRef: ManagedLlamaLogRef): ManagedLlamaPrimaryStreamText {
   const maxCharacters = getManagedLlamaMetricsLogTailCharacters();
-  const streamStats = readManagedLlamaLogTextStatsByStream(logRef.runId, {
+  const streamStats = readInferenceRunLogTextStatsByStream(logRef.runId, {
     maxCharactersPerStream: maxCharacters,
   });
   const stdout = joinManagedLlamaPrimaryStreamText(
@@ -532,15 +532,15 @@ export function resolveManagedExecutablePath(executablePath: string | null, conf
 }
 
 
-const MANAGED_STDOUT_STREAM: ManagedLlamaStreamKind = 'startup_script_stdout';
-const MANAGED_STDERR_STREAM: ManagedLlamaStreamKind = 'startup_script_stderr';
+const MANAGED_STDOUT_STREAM: InferenceRunStreamKind = 'startup_script_stdout';
+const MANAGED_STDERR_STREAM: InferenceRunStreamKind = 'startup_script_stderr';
 
 function createManagedLlamaLogRun(
   purpose: string,
   executablePath: string,
   baseUrl: string | null = null,
 ): ManagedLlamaLogRef {
-  const run = createManagedLlamaRun({
+  const run = createInferenceRun({
     purpose,
     scriptPath: executablePath,
     baseUrl,
@@ -561,13 +561,13 @@ function enqueueManagedLlamaLogFlush(ctx: ServerContext, logRef: ManagedLlamaLog
   ctx.managedLlamaFlushQueue.enqueue(logRef.runId);
 }
 
-function appendManagedLlamaLogLine(logRef: ManagedLlamaLogRef, streamKind: ManagedLlamaStreamKind, chunk: string): void {
+function appendManagedLlamaLogLine(logRef: ManagedLlamaLogRef, streamKind: InferenceRunStreamKind, chunk: string): void {
   appendManagedLlamaSpeculativeMetricsChunk({
     runId: logRef.runId,
     streamKind,
     chunkText: chunk,
   });
-  bufferManagedLlamaLogChunk({
+  bufferInferenceRunLogChunk({
     runId: logRef.runId,
     streamKind,
     chunkText: chunk,
@@ -577,7 +577,7 @@ function appendManagedLlamaLogLine(logRef: ManagedLlamaLogRef, streamKind: Manag
 function attachStreamCollector(
   ctx: ServerContext,
   logRef: ManagedLlamaLogRef,
-  streamKind: ManagedLlamaStreamKind,
+  streamKind: InferenceRunStreamKind,
   stream: NodeJS.ReadableStream | null,
   onProgress?: (chars: number) => void,
 ): void {
@@ -597,7 +597,7 @@ function attachStreamCollector(
         chunkText,
       });
       if (filteredChunkText) {
-        bufferManagedLlamaLogChunk({
+        bufferInferenceRunLogChunk({
           runId: logRef.runId,
           streamKind,
           chunkText: filteredChunkText,
@@ -826,14 +826,14 @@ function spawnManagedLlamaProcess(
   attachStreamCollector(ctx, logRef, MANAGED_STDERR_STREAM, child.stderr, (chars) => { progress.stderrChars += chars; });
   child.on('exit', (code: number | null) => {
     try {
-      flushManagedLlamaLogChunks(logRef.runId);
+      flushInferenceRunLogChunks(logRef.runId);
       flushManagedLlamaSpeculativeMetricsTracker(logRef.runId);
     } catch {
       // The runtime DB may already be gone during test/process teardown.
     }
-    const successStatus: ManagedLlamaRunStatus = purpose === 'shutdown' ? 'stopped' : 'ready';
+    const successStatus: InferenceRunStatus = purpose === 'shutdown' ? 'stopped' : 'ready';
     try {
-      updateManagedLlamaRun({
+      updateInferenceRun({
         id: logRef.runId,
         status: (code ?? 0) === 0 ? successStatus : 'failed',
         exitCode: Number.isFinite(code) ? Number(code) : null,
@@ -847,13 +847,13 @@ function spawnManagedLlamaProcess(
   child.on('error', (error: Error) => {
     try {
       appendManagedLlamaLogLine(logRef, MANAGED_STDERR_STREAM, `\n[spawn-error] ${error.message}\n`);
-      flushManagedLlamaLogChunks(logRef.runId);
+      flushInferenceRunLogChunks(logRef.runId);
       flushManagedLlamaSpeculativeMetricsTracker(logRef.runId);
     } catch {
       // Ignore teardown races after the test/server has already closed.
     }
     try {
-      updateManagedLlamaRun({
+      updateInferenceRun({
         id: logRef.runId,
         status: 'failed',
         errorMessage: error.message,
@@ -873,8 +873,8 @@ function spawnManagedLlamaProcess(
 // ---------------------------------------------------------------------------
 
 function collectManagedLlamaLogEntries(logRef: ManagedLlamaLogRef): LogEntry[] {
-  const streamTextByKind = readManagedLlamaLogTextByStream(logRef.runId);
-  const sources: Array<[string, ManagedLlamaStreamKind]> = [
+  const streamTextByKind = readInferenceRunLogTextByStream(logRef.runId);
+  const sources: Array<[string, InferenceRunStreamKind]> = [
     ['startup_script_stdout', 'startup_script_stdout'],
     ['startup_script_stderr', 'startup_script_stderr'],
     ['llama_stdout', 'llama_stdout'],
@@ -917,7 +917,7 @@ function writeManagedLlamaStartupReviewDump(logRef: ManagedLlamaLogRef, dumpOpti
     ]),
   ].join('\n');
   appendManagedLlamaLogLine(logRef, 'startup_review', `${content}\n`);
-  flushManagedLlamaLogChunks(logRef.runId);
+  flushInferenceRunLogChunks(logRef.runId);
   flushManagedLlamaSpeculativeMetricsTracker(logRef.runId);
   const logRoot = getManagedLlamaLogRoot();
   mkdirSync(logRoot, { recursive: true });
@@ -953,7 +953,7 @@ function writeManagedLlamaFailureDump(logRef: ManagedLlamaLogRef, entries: LogEn
     ]),
   ].join('\n');
   appendManagedLlamaLogLine(logRef, 'startup_failure', `${content}\n`);
-  flushManagedLlamaLogChunks(logRef.runId);
+  flushInferenceRunLogChunks(logRef.runId);
   flushManagedLlamaSpeculativeMetricsTracker(logRef.runId);
   const logRoot = join(getManagedLlamaLogRoot(), logRef.runId);
   mkdirSync(logRoot, { recursive: true });
@@ -1113,7 +1113,7 @@ function dumpManagedLlamaStartupReviewToConsole(logRef: ManagedLlamaLogRef | nul
   if (!logRef) {
     return;
   }
-  const streamText = readManagedLlamaLogTextByStream(logRef.runId);
+  const streamText = readInferenceRunLogTextByStream(logRef.runId);
   const dumpText = streamText.startup_review || streamText.startup_failure || '';
   if (!dumpText.trim()) {
     return;
@@ -1245,7 +1245,7 @@ async function ensureManagedLlamaConfigReady(
       await waitForManagedLlamaStartup(config, launched.child, launched.logRef, spawnStartupDeadline, launched.progress);
       await scanManagedLlamaStartupLogsOrFail(launched.logRef);
       writeManagedLlamaStartupReviewDump(launched.logRef, { result: 'ready', baseUrl });
-      updateManagedLlamaRun({
+      updateInferenceRun({
         id: launched.logRef.runId,
         status: 'ready',
         baseUrl,
@@ -1269,7 +1269,7 @@ async function ensureManagedLlamaConfigReady(
         baseUrl,
         errorMessage,
       });
-      updateManagedLlamaRun({
+      updateInferenceRun({
         id: launched.logRef.runId,
         status: 'failed',
         errorMessage,

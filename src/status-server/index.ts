@@ -42,7 +42,7 @@ import {
   getRunLogMigrationTimeoutMs,
 } from './dashboard-runs.js';
 import { closeRuntimeDatabase, pruneRuntimeHistory } from '../state/runtime-db.js';
-import { deleteManagedLlamaLogChunksOlderThan } from '../state/managed-llama-runs.js';
+import { deleteInferenceRunLogChunksOlderThan } from '../state/inference-runs.js';
 import { ManagedLlamaFlushQueue } from './managed-llama-flush-queue.js';
 import {
   publishStatus,
@@ -184,7 +184,7 @@ function getManagedLlamaFlushIdleDelayMs(options: StartStatusServerOptions): num
 
 function pruneManagedLlamaLogChunks(): void {
   const cutoff = new Date(Date.now() - MANAGED_LLAMA_LOG_RETENTION_MS).toISOString();
-  deleteManagedLlamaLogChunksOlderThan({ olderThanUtc: cutoff });
+  deleteInferenceRunLogChunksOlderThan({ olderThanUtc: cutoff });
 }
 
 export function startStatusServer(options: StartStatusServerOptions = {}): ExtendedServer {

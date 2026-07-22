@@ -4,7 +4,7 @@ import type Database from 'better-sqlite3';
 import type { Metrics } from './metrics.js';
 import type { JsonObject } from '../lib/json-types.js';
 import type { ManagedLlamaSpeculativeMetricsSnapshot } from './managed-llama.js';
-import type { ManagedLlamaStreamKind } from '../state/managed-llama-runs.js';
+import type { InferenceRunStreamKind } from '../state/inference-runs.js';
 import type { ManagedLlamaFlushQueue } from './managed-llama-flush-queue.js';
 import type { StatusEngineService } from './engine-service.js';
 import type { SiftConfig } from '../config/types.js';
@@ -81,7 +81,7 @@ export type SpawnedScript = { child: ChildProcess; logRef: ManagedLlamaLogRef };
 export type EnsureManagedLlamaOptions = { resetStatusBeforeCheck?: boolean; allowUnconfigured?: boolean };
 export type ShutdownManagedLlamaOptions = { force?: boolean; timeoutMs?: number };
 export type StartupReviewOptions = { result?: string; baseUrl?: string; errorMessage?: string };
-export type LogEntry = { label: string; streamKind: ManagedLlamaStreamKind; text: string; matchingLines: string[] };
+export type LogEntry = { label: string; streamKind: InferenceRunStreamKind; text: string; matchingLines: string[] };
 
 export type ExtendedServer = Server & {
   shutdownManagedLlamaForServerExit?: () => Promise<void>;

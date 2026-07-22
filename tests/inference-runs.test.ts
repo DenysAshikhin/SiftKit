@@ -4,13 +4,15 @@ import Database from 'better-sqlite3';
 
 import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
 import {
-  bufferManagedLlamaLogChunk,
-  createManagedLlamaRun,
-  deleteManagedLlamaLogChunksOlderThan,
-  flushManagedLlamaLogChunks,
-  readManagedLlamaLogTextByStream,
-  readManagedLlamaLogTextStatsByStream,
-} from '../src/state/managed-llama-runs.js';
+  bufferInferenceRunLogChunk,
+  createInferenceRun,
+  deleteInferenceRunLogChunksOlderThan,
+  flushInferenceRunLogChunks,
+  listInferenceRuns,
+  readInferenceRun,
+  readInferenceRunLogTextByStream,
+  readInferenceRunLogTextStatsByStream,
+} from '../src/state/inference-runs.js';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
 import {
   captureManagedLlamaSpeculativeMetricsSnapshot,
@@ -80,55 +82,68 @@ async function captureStdoutLines(fn: () => Promise<void> | void): Promise<strin
   return lines;
 }
 
+test('inference runs are recorded per backend', async () => {
+  await withTestEnvAndServer(async () => {
+    const llama = createInferenceRun({ backend: 'llama', purpose: 'startup' });
+    const exl3 = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
+
+    assert.equal(readInferenceRun(llama.id)?.backend, 'llama');
+    assert.equal(readInferenceRun(exl3.id)?.backend, 'exl3');
+    assert.equal(listInferenceRuns({ backend: 'exl3' }).length, 1);
+    assert.equal(listInferenceRuns({ backend: 'llama' }).length, 1);
+    assert.equal(listInferenceRuns({ backend: 'exl3', status: 'ready' }).length, 0);
+  });
+});
+
 test('managed llama log chunks stay buffered until flushed', async () => {
   await withTestEnvAndServer(async () => {
-    const run = createManagedLlamaRun({ purpose: 'startup' });
+    const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
     const database = getRuntimeDatabase();
 
-    bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'startup_script_stdout', chunkText: 'first\n' });
-    bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'startup_script_stdout', chunkText: 'second\n' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'first\n' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'second\n' });
 
     const beforeFlush = asRow(database.prepare(`
       SELECT COUNT(*) AS count
-      FROM managed_llama_log_chunks
+      FROM inference_run_log_chunks
       WHERE run_id = ?
     `).get(run.id));
     assert.equal(Number(beforeFlush.count || 0), 0);
 
-    const pendingText = readManagedLlamaLogTextByStream(run.id);
-    assert.equal(pendingText.startup_script_stdout, 'first\nsecond\n');
+    const pendingText = readInferenceRunLogTextByStream(run.id);
+    assert.equal(pendingText.launcher_stdout, 'first\nsecond\n');
 
-    flushManagedLlamaLogChunks(run.id);
+    flushInferenceRunLogChunks(run.id);
 
     const afterFlush = asRow(database.prepare(`
       SELECT COUNT(*) AS count
-      FROM managed_llama_log_chunks
+      FROM inference_run_log_chunks
       WHERE run_id = ?
     `).get(run.id));
     assert.equal(Number(afterFlush.count || 0), 1);
 
-    const persistedText = readManagedLlamaLogTextByStream(run.id);
-    assert.equal(persistedText.startup_script_stdout, 'first\nsecond\n');
+    const persistedText = readInferenceRunLogTextByStream(run.id);
+    assert.equal(persistedText.launcher_stdout, 'first\nsecond\n');
   });
 });
 
 test('managed llama pending log chunks emit peak size logs only after one-kilobyte stream deltas', async () => {
   await withTestEnvAndServer(async () => {
-    const run = createManagedLlamaRun({ purpose: 'startup' });
+    const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
 
     const lines = await captureStdoutLines(() => {
-      bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'llama_stdout', chunkText: 'a'.repeat(1023) });
-      bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'llama_stdout', chunkText: 'b' });
-      bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'llama_stdout', chunkText: 'c'.repeat(1023) });
-      bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'llama_stdout', chunkText: 'd' });
+      bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'engine_stdout', chunkText: 'a'.repeat(1023) });
+      bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'engine_stdout', chunkText: 'b' });
+      bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'engine_stdout', chunkText: 'c'.repeat(1023) });
+      bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'engine_stdout', chunkText: 'd' });
     });
 
-    const peakLines = lines.filter((line) => line.includes(`managed_llama pending_log_peak run_id=${run.id}`));
+    const peakLines = lines.filter((line) => line.includes(`inference_run pending_log_peak run_id=${run.id}`));
     assert.deepEqual(
-      peakLines.map((line) => line.replace(/^.*managed_llama/u, 'managed_llama')),
+      peakLines.map((line) => line.replace(/^.*inference_run/u, 'inference_run')),
       [
-        `managed_llama pending_log_peak run_id=${run.id} pending_chars=1024 stream=llama_stdout stream_chars=1024`,
-        `managed_llama pending_log_peak run_id=${run.id} pending_chars=2048 stream=llama_stdout stream_chars=2048`,
+        `inference_run pending_log_peak run_id=${run.id} pending_chars=1024 stream=engine_stdout stream_chars=1024`,
+        `inference_run pending_log_peak run_id=${run.id} pending_chars=2048 stream=engine_stdout stream_chars=2048`,
       ],
     );
   });
@@ -136,32 +151,32 @@ test('managed llama pending log chunks emit peak size logs only after one-kiloby
 
 test('managed llama log stats cap returned text while preserving full character counts', async () => {
   await withTestEnvAndServer(async () => {
-    const run = createManagedLlamaRun({ purpose: 'startup' });
+    const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
 
-    bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'startup_script_stdout', chunkText: 'first-' });
-    flushManagedLlamaLogChunks(run.id);
-    bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'startup_script_stdout', chunkText: 'second-pending' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'first-' });
+    flushInferenceRunLogChunks(run.id);
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'second-pending' });
 
-    const stats = readManagedLlamaLogTextStatsByStream(run.id, { maxCharactersPerStream: 10 });
+    const stats = readInferenceRunLogTextStatsByStream(run.id, { maxCharactersPerStream: 10 });
 
-    assert.equal(stats.textByStream.startup_script_stdout, 'nd-pending');
-    assert.equal(stats.characterCountByStream.startup_script_stdout, 'first-second-pending'.length);
-    assert.equal(stats.truncatedByStream.startup_script_stdout, true);
-    assert.equal(stats.textByStream.llama_stderr, '');
-    assert.equal(stats.characterCountByStream.llama_stderr, 0);
-    assert.equal(stats.truncatedByStream.llama_stderr, false);
+    assert.equal(stats.textByStream.launcher_stdout, 'nd-pending');
+    assert.equal(stats.characterCountByStream.launcher_stdout, 'first-second-pending'.length);
+    assert.equal(stats.truncatedByStream.launcher_stdout, true);
+    assert.equal(stats.textByStream.engine_stderr, '');
+    assert.equal(stats.characterCountByStream.engine_stderr, 0);
+    assert.equal(stats.truncatedByStream.engine_stderr, false);
   });
 });
 
 test('managed llama speculative tracker parses split cumulative stats', () => {
   const tracker = new ManagedLlamaSpeculativeMetricsTracker();
 
-  tracker.appendChunk('startup_script_stderr', 'statistics ngram_mod: #gen tokens = 62');
+  tracker.appendChunk('launcher_stderr', 'statistics ngram_mod: #gen tokens = 62');
   const before = tracker.captureSnapshot();
   assert.equal(before.latestSpeculativeGeneratedTokens, null);
   assert.equal(before.latestSpeculativeAcceptedTokens, null);
 
-  tracker.appendChunk('startup_script_stderr', '00, #acc tokens = 5841\n');
+  tracker.appendChunk('launcher_stderr', '00, #acc tokens = 5841\n');
   const after = tracker.captureSnapshot();
   assert.equal(after.latestSpeculativeGeneratedTokens, 6200);
   assert.equal(after.latestSpeculativeAcceptedTokens, 5841);
@@ -170,9 +185,9 @@ test('managed llama speculative tracker parses split cumulative stats', () => {
 test('managed llama speculative tracker computes cumulative delta from snapshot', () => {
   const tracker = new ManagedLlamaSpeculativeMetricsTracker();
 
-  tracker.appendChunk('startup_script_stdout', 'statistics ngram_mod: #gen tokens = 6168, #acc tokens = 5837\n');
+  tracker.appendChunk('launcher_stdout', 'statistics ngram_mod: #gen tokens = 6168, #acc tokens = 5837\n');
   const snapshot = tracker.captureSnapshot();
-  tracker.appendChunk('llama_stderr', 'statistics ngram_mod: #gen tokens = 6426, #acc tokens = 5895\n');
+  tracker.appendChunk('engine_stderr', 'statistics ngram_mod: #gen tokens = 6426, #acc tokens = 5895\n');
 
   assert.deepEqual(tracker.getDelta(snapshot), {
     speculativeAcceptedTokens: 58,
@@ -189,21 +204,21 @@ test('managed llama speculative tracker ignores non-primary streams and rejects 
   assert.equal(ignored.stderrOffset, 0);
   assert.equal(ignored.latestSpeculativeGeneratedTokens, null);
 
-  tracker.appendChunk('llama_stdout', 'statistics ngram_mod: #gen tokens = 100, #acc tokens = 90\n');
+  tracker.appendChunk('engine_stdout', 'statistics ngram_mod: #gen tokens = 100, #acc tokens = 90\n');
   const snapshot = tracker.captureSnapshot();
-  tracker.appendChunk('llama_stdout', 'statistics ngram_mod: #gen tokens = 80, #acc tokens = 70\n');
+  tracker.appendChunk('engine_stdout', 'statistics ngram_mod: #gen tokens = 80, #acc tokens = 70\n');
 
   assert.equal(tracker.getDelta(snapshot), null);
 });
 
 test('managed llama speculative tracker flushes persisted run metrics', async () => {
   await withTestEnvAndServer(async () => {
-    const run = createManagedLlamaRun({ purpose: 'startup' });
+    const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
     const database = getRuntimeDatabase();
 
     appendManagedLlamaSpeculativeMetricsChunk({
       runId: run.id,
-      streamKind: 'startup_script_stdout',
+      streamKind: 'launcher_stdout',
       chunkText: 'statistics ngram_mod: #gen tokens = 42, #acc tokens = 40\n',
     });
 
@@ -212,7 +227,7 @@ test('managed llama speculative tracker flushes persisted run metrics', async ()
     const row = asRow(database.prepare(`
       SELECT speculative_accepted_tokens, speculative_generated_tokens,
              stdout_character_count, stderr_character_count, metrics_updated_at_utc
-      FROM managed_llama_runs
+      FROM inference_runs
       WHERE id = ?
     `).get(run.id));
 
@@ -226,13 +241,13 @@ test('managed llama speculative tracker flushes persisted run metrics', async ()
 
 test('releaseModelRequest queues buffered managed llama logs for the active host run', async () => {
   await withTestEnvAndServer(async () => {
-    const run = createManagedLlamaRun({ purpose: 'startup' });
+    const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
     const database = getRuntimeDatabase();
 
-    bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'startup_script_stdout', chunkText: 'during-request\n' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'during-request\n' });
     appendManagedLlamaSpeculativeMetricsChunk({
       runId: run.id,
-      streamKind: 'startup_script_stdout',
+      streamKind: 'launcher_stdout',
       chunkText: 'statistics ngram_mod: #gen tokens = 42, #acc tokens = 40\n',
     });
 
@@ -259,17 +274,17 @@ test('releaseModelRequest queues buffered managed llama logs for the active host
 
       const row = asRow(database.prepare(`
         SELECT COUNT(*) AS count
-        FROM managed_llama_log_chunks
+        FROM inference_run_log_chunks
         WHERE run_id = ?
       `).get(run.id));
       assert.equal(Number(row.count || 0), 1);
 
-      const persistedText = readManagedLlamaLogTextByStream(run.id);
-      assert.equal(persistedText.startup_script_stdout, 'during-request\n');
+      const persistedText = readInferenceRunLogTextByStream(run.id);
+      assert.equal(persistedText.launcher_stdout, 'during-request\n');
 
       const metricsRow = asRow(database.prepare(`
         SELECT speculative_accepted_tokens, speculative_generated_tokens
-        FROM managed_llama_runs
+        FROM inference_runs
         WHERE id = ?
       `).get(run.id));
       assert.equal(metricsRow.speculative_accepted_tokens, 40);
@@ -282,10 +297,10 @@ test('releaseModelRequest queues buffered managed llama logs for the active host
 
 test('releaseModelRequest releases the active request when managed llama log flush is database locked', async () => {
   await withTestEnvAndServer(async () => {
-    const run = createManagedLlamaRun({ purpose: 'startup' });
+    const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
     const database = getRuntimeDatabase();
     database.pragma('busy_timeout = 1');
-    bufferManagedLlamaLogChunk({ runId: run.id, streamKind: 'startup_script_stdout', chunkText: 'locked-write\n' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'locked-write\n' });
 
     const blocker = new Database(getRuntimeDatabasePath());
     blocker.pragma('busy_timeout = 1');
@@ -325,21 +340,21 @@ test('releaseModelRequest releases the active request when managed llama log flu
   });
 });
 
-test('deleteManagedLlamaLogChunksOlderThan prunes old non-running chunks only', async () => {
+test('deleteInferenceRunLogChunksOlderThan prunes old non-running chunks only', async () => {
   await withTestEnvAndServer(async () => {
     const database = getRuntimeDatabase();
-    const oldStopped = createManagedLlamaRun({ id: 'old-stopped-run', purpose: 'startup', status: 'stopped' });
-    const oldFailed = createManagedLlamaRun({ id: 'old-failed-run', purpose: 'startup', status: 'failed' });
-    const oldRunning = createManagedLlamaRun({ id: 'old-running-run', purpose: 'startup', status: 'running' });
-    const oldReady = createManagedLlamaRun({ id: 'old-ready-run', purpose: 'startup', status: 'ready' });
-    const recentStopped = createManagedLlamaRun({ id: 'recent-stopped-run', purpose: 'startup', status: 'stopped' });
+    const oldStopped = createInferenceRun({ id: 'old-stopped-run', backend: 'llama', purpose: 'startup', status: 'stopped' });
+    const oldFailed = createInferenceRun({ id: 'old-failed-run', backend: 'llama', purpose: 'startup', status: 'failed' });
+    const oldRunning = createInferenceRun({ id: 'old-running-run', backend: 'llama', purpose: 'startup', status: 'running' });
+    const oldReady = createInferenceRun({ id: 'old-ready-run', backend: 'llama', purpose: 'startup', status: 'ready' });
+    const recentStopped = createInferenceRun({ id: 'recent-stopped-run', backend: 'llama', purpose: 'startup', status: 'stopped' });
     const oldUtc = '2026-04-20T00:00:00.000Z';
     const recentUtc = '2026-04-27T00:00:00.000Z';
     const cutoffUtc = '2026-04-25T00:00:00.000Z';
 
     const insertChunk = database.prepare(`
-      INSERT INTO managed_llama_log_chunks (run_id, stream_kind, sequence, chunk_text, created_at_utc)
-      VALUES (?, 'startup_script_stdout', 0, 'chunk', ?)
+      INSERT INTO inference_run_log_chunks (run_id, stream_kind, sequence, chunk_text, created_at_utc)
+      VALUES (?, 'launcher_stdout', 0, 'chunk', ?)
     `);
     insertChunk.run(oldStopped.id, oldUtc);
     insertChunk.run(oldFailed.id, oldUtc);
@@ -347,11 +362,11 @@ test('deleteManagedLlamaLogChunksOlderThan prunes old non-running chunks only', 
     insertChunk.run(oldReady.id, oldUtc);
     insertChunk.run(recentStopped.id, recentUtc);
 
-    assert.equal(deleteManagedLlamaLogChunksOlderThan({ olderThanUtc: cutoffUtc }), 3);
+    assert.equal(deleteInferenceRunLogChunksOlderThan({ olderThanUtc: cutoffUtc }), 3);
 
     const remainingChunks = asRows(database.prepare(`
       SELECT run_id
-      FROM managed_llama_log_chunks
+      FROM inference_run_log_chunks
       ORDER BY run_id ASC
     `).all());
     assert.deepEqual(remainingChunks.map((row) => row.run_id), [
@@ -359,7 +374,7 @@ test('deleteManagedLlamaLogChunksOlderThan prunes old non-running chunks only', 
       recentStopped.id,
     ]);
 
-    const runCount = asRow(database.prepare('SELECT COUNT(*) AS count FROM managed_llama_runs').get());
+    const runCount = asRow(database.prepare('SELECT COUNT(*) AS count FROM inference_runs').get());
     assert.equal(Number(runCount.count || 0), 5);
   });
 });
@@ -367,24 +382,24 @@ test('deleteManagedLlamaLogChunksOlderThan prunes old non-running chunks only', 
 test('managed llama log chunk retention uses created-at index', async () => {
   await withTestEnvAndServer(async () => {
     const database = getRuntimeDatabase();
-    const indexes = asRows(database.prepare("PRAGMA index_list('managed_llama_log_chunks')").all());
+    const indexes = asRows(database.prepare("PRAGMA index_list('inference_run_log_chunks')").all());
     assert.equal(
-      indexes.some((row) => row.name === 'idx_managed_llama_log_chunks_created_at'),
+      indexes.some((row) => row.name === 'idx_inference_run_log_chunks_created_at'),
       true,
     );
 
     const planRows = asRows(database.prepare(`
       EXPLAIN QUERY PLAN
-      DELETE FROM managed_llama_log_chunks
+      DELETE FROM inference_run_log_chunks
       WHERE created_at_utc < ?
         AND run_id NOT IN (
           SELECT id
-          FROM managed_llama_runs
+          FROM inference_runs
           WHERE status = 'running'
         )
     `).all('2026-04-25T00:00:00.000Z'));
     assert.equal(
-      planRows.some((row) => String(row.detail || '').includes('idx_managed_llama_log_chunks_created_at')),
+      planRows.some((row) => String(row.detail || '').includes('idx_inference_run_log_chunks_created_at')),
       true,
     );
   });
@@ -392,7 +407,7 @@ test('managed llama log chunk retention uses created-at index', async () => {
 
 test('getManagedLlamaSpeculativeMetricsSince reads speculative totals from persisted startup script logs', async () => {
   await withTestEnvAndServer(async () => {
-    const run = createManagedLlamaRun({ purpose: 'startup' });
+    const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
     const logRef = {
       runId: run.id,
       purpose: 'startup',
@@ -400,20 +415,20 @@ test('getManagedLlamaSpeculativeMetricsSince reads speculative totals from persi
       baseUrl: 'http://127.0.0.1:8080',
     };
 
-    bufferManagedLlamaLogChunk({
+    bufferInferenceRunLogChunk({
       runId: run.id,
-      streamKind: 'startup_script_stderr',
+      streamKind: 'launcher_stderr',
       chunkText: 'llama_decode: statistics ngram_map_k: #draft tokens = 21, #gen tokens = 18, #acc tokens = 12, #res tokens = 6\n',
     });
-    flushManagedLlamaLogChunks(run.id);
+    flushInferenceRunLogChunks(run.id);
     const cursor = getManagedLlamaLogCursor(logRef);
 
-    bufferManagedLlamaLogChunk({
+    bufferInferenceRunLogChunk({
       runId: run.id,
-      streamKind: 'startup_script_stderr',
+      streamKind: 'launcher_stderr',
       chunkText: 'llama_decode: statistics ngram_map_k: #draft tokens = 21, #gen tokens = 18, #acc tokens = 12, #res tokens = 6\n',
     });
-    flushManagedLlamaLogChunks(run.id);
+    flushInferenceRunLogChunks(run.id);
 
     const parsed = getManagedLlamaSpeculativeMetricsSince(logRef, cursor);
 
@@ -426,7 +441,7 @@ test('getManagedLlamaSpeculativeMetricsSince reads speculative totals from persi
 
 test('getManagedLlamaSpeculativeMetricsSince sums multiple speculative batches without double-counting paired rate lines', async () => {
   await withTestEnvAndServer(async () => {
-    const run = createManagedLlamaRun({ purpose: 'startup' });
+    const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
     const logRef = {
       runId: run.id,
       purpose: 'startup',
@@ -436,9 +451,9 @@ test('getManagedLlamaSpeculativeMetricsSince sums multiple speculative batches w
 
     const cursor = getManagedLlamaLogCursor(logRef);
 
-    bufferManagedLlamaLogChunk({
+    bufferInferenceRunLogChunk({
       runId: run.id,
-      streamKind: 'startup_script_stderr',
+      streamKind: 'launcher_stderr',
       chunkText: [
         'llama_decode: statistics ngram_map_k: #draft tokens = 21, #gen tokens = 18, #acc tokens = 12, #res tokens = 6',
         'llama_decode: draft acceptance rate = 66.67% (12 / 18)',
@@ -458,7 +473,7 @@ test('getManagedLlamaSpeculativeMetricsSince sums multiple speculative batches w
 
 test('getManagedLlamaSpeculativeMetricsDelta subtracts the baseline from cumulative speculative totals', async () => {
   await withTestEnvAndServer(async () => {
-    const run = createManagedLlamaRun({ purpose: 'startup' });
+    const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
     const logRef = {
       runId: run.id,
       purpose: 'startup',
@@ -466,9 +481,9 @@ test('getManagedLlamaSpeculativeMetricsDelta subtracts the baseline from cumulat
       baseUrl: 'http://127.0.0.1:8080',
     };
 
-    bufferManagedLlamaLogChunk({
+    bufferInferenceRunLogChunk({
       runId: run.id,
-      streamKind: 'startup_script_stderr',
+      streamKind: 'launcher_stderr',
       chunkText: [
         'llama_decode: statistics ngram_map_k: #draft tokens = 21, #gen tokens = 18, #acc tokens = 12, #res tokens = 6',
         'llama_decode: draft acceptance rate = 66.67% (12 / 18)',
@@ -476,9 +491,9 @@ test('getManagedLlamaSpeculativeMetricsDelta subtracts the baseline from cumulat
     });
     const snapshot = captureManagedLlamaSpeculativeMetricsSnapshot(logRef);
 
-    bufferManagedLlamaLogChunk({
+    bufferInferenceRunLogChunk({
       runId: run.id,
-      streamKind: 'startup_script_stderr',
+      streamKind: 'launcher_stderr',
       chunkText: [
         'llama_decode: statistics ngram_map_k: #draft tokens = 33, #gen tokens = 30, #acc tokens = 20, #res tokens = 10',
         'llama_decode: draft acceptance rate = 66.67% (20 / 30)',
@@ -494,7 +509,7 @@ test('getManagedLlamaSpeculativeMetricsDelta subtracts the baseline from cumulat
 
 test('getManagedLlamaSpeculativeMetricsDelta handles checkpointed speculative logs without llama_decode prefix', async () => {
   await withTestEnvAndServer(async () => {
-    const run = createManagedLlamaRun({ purpose: 'startup' });
+    const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
     const logRef = {
       runId: run.id,
       purpose: 'startup',
@@ -502,18 +517,18 @@ test('getManagedLlamaSpeculativeMetricsDelta handles checkpointed speculative lo
       baseUrl: 'http://127.0.0.1:8080',
     };
 
-    bufferManagedLlamaLogChunk({
+    bufferInferenceRunLogChunk({
       runId: run.id,
-      streamKind: 'startup_script_stderr',
+      streamKind: 'launcher_stderr',
       chunkText: [
         'statistics ngram_mod: #calls(b,g,a) = 20 2985 131, #gen drafts = 131, #acc drafts = 131, #gen tokens = 6168, #acc tokens = 5837',
       ].join('\n') + '\n',
     });
     const snapshot = captureManagedLlamaSpeculativeMetricsSnapshot(logRef);
 
-    bufferManagedLlamaLogChunk({
+    bufferInferenceRunLogChunk({
       runId: run.id,
-      streamKind: 'startup_script_stderr',
+      streamKind: 'launcher_stderr',
       chunkText: [
         'draft acceptance rate = 1.00000 (   47 accepted /    47 generated)',
         'draft acceptance rate = 1.00000 (   11 accepted /    11 generated)',
@@ -530,7 +545,7 @@ test('getManagedLlamaSpeculativeMetricsDelta handles checkpointed speculative lo
 
 test('getManagedLlamaSpeculativeMetricsDelta combines startup and llama streams for checkpointed totals', async () => {
   await withTestEnvAndServer(async () => {
-    const run = createManagedLlamaRun({ purpose: 'startup' });
+    const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
     const logRef = {
       runId: run.id,
       purpose: 'startup',
@@ -538,16 +553,16 @@ test('getManagedLlamaSpeculativeMetricsDelta combines startup and llama streams 
       baseUrl: 'http://127.0.0.1:8080',
     };
 
-    bufferManagedLlamaLogChunk({
+    bufferInferenceRunLogChunk({
       runId: run.id,
-      streamKind: 'startup_script_stdout',
+      streamKind: 'launcher_stdout',
       chunkText: 'statistics ngram_mod: #calls(b,g,a) = 20 2985 131, #gen drafts = 131, #acc drafts = 131, #gen tokens = 6168, #acc tokens = 5837\n',
     });
     const snapshot = captureManagedLlamaSpeculativeMetricsSnapshot(logRef);
 
-    bufferManagedLlamaLogChunk({
+    bufferInferenceRunLogChunk({
       runId: run.id,
-      streamKind: 'llama_stderr',
+      streamKind: 'engine_stderr',
       chunkText: [
         'draft acceptance rate = 1.00000 (   47 accepted /    47 generated)',
         'draft acceptance rate = 1.00000 (   11 accepted /    11 generated)',

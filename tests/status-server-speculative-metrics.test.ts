@@ -22,11 +22,11 @@ import {
   getManagedLlamaSpeculativeMetricsDelta,
 } from '../src/status-server/managed-llama.js';
 import {
-  bufferManagedLlamaLogChunk,
-  createManagedLlamaRun,
-  readManagedLlamaLogTextByStream,
-  flushManagedLlamaLogChunks,
-} from '../src/state/managed-llama-runs.js';
+  bufferInferenceRunLogChunk,
+  createInferenceRun,
+  readInferenceRunLogTextByStream,
+  flushInferenceRunLogChunks,
+} from '../src/state/inference-runs.js';
 import {
   appendManagedLlamaSpeculativeMetricsChunk,
 } from '../src/status-server/managed-llama-speculative-tracker.js';
@@ -52,18 +52,18 @@ test('managed llama speculative delta prefers cumulative token stats over rate l
       scriptPath: 'mock-llama.exe',
       baseUrl: 'http://127.0.0.1:8097',
     };
-    bufferManagedLlamaLogChunk({
+    bufferInferenceRunLogChunk({
       runId,
-      streamKind: 'startup_script_stdout',
+      streamKind: 'launcher_stdout',
       chunkText: 'statistics ngram_mod: #calls(b,g,a) = 20 2985 131, #gen drafts = 131, #acc drafts = 131, #gen tokens = 6168, #acc tokens = 5837\n',
     });
     const snapshot = captureManagedLlamaSpeculativeMetricsSnapshot(logRef);
     assert.equal(snapshot?.latestSpeculativeAcceptedTokens, 5837);
     assert.equal(snapshot?.latestSpeculativeGeneratedTokens, 6168);
 
-    bufferManagedLlamaLogChunk({
+    bufferInferenceRunLogChunk({
       runId,
-      streamKind: 'startup_script_stderr',
+      streamKind: 'launcher_stderr',
       chunkText: [
         'draft acceptance rate = 1.00000 (    4 accepted /     4 generated)',
         'statistics ngram_mod: #calls(b,g,a) = 21 3028 132, #gen drafts = 132, #acc drafts = 132, #gen tokens = 6200, #acc tokens = 5841',
@@ -78,7 +78,7 @@ test('managed llama speculative delta prefers cumulative token stats over rate l
 
 test('managed llama speculative snapshot prefers tracker state over persisted log text', async () => {
   await withTempEnv(async () => {
-    const run = createManagedLlamaRun({ id: 'tracker-preferred-run', purpose: 'startup' });
+    const run = createInferenceRun({ id: 'tracker-preferred-run', backend: 'llama', purpose: 'startup' });
     const logRef = {
       runId: run.id,
       purpose: 'startup',
@@ -86,16 +86,16 @@ test('managed llama speculative snapshot prefers tracker state over persisted lo
       baseUrl: 'http://127.0.0.1:8097',
     };
 
-    bufferManagedLlamaLogChunk({
+    bufferInferenceRunLogChunk({
       runId: run.id,
-      streamKind: 'startup_script_stdout',
+      streamKind: 'launcher_stdout',
       chunkText: 'statistics ngram_mod: #gen tokens = 1000, #acc tokens = 900\n',
     });
-    flushManagedLlamaLogChunks(run.id);
+    flushInferenceRunLogChunks(run.id);
 
     appendManagedLlamaSpeculativeMetricsChunk({
       runId: run.id,
-      streamKind: 'startup_script_stdout',
+      streamKind: 'launcher_stdout',
       chunkText: 'statistics ngram_mod: #gen tokens = 6168, #acc tokens = 5837\n',
     });
     const snapshot = captureManagedLlamaSpeculativeMetricsSnapshot(logRef);
@@ -105,7 +105,7 @@ test('managed llama speculative snapshot prefers tracker state over persisted lo
 
     appendManagedLlamaSpeculativeMetricsChunk({
       runId: run.id,
-      streamKind: 'llama_stderr',
+      streamKind: 'engine_stderr',
       chunkText: 'statistics ngram_mod: #gen tokens = 6426, #acc tokens = 5895\n',
     });
 
@@ -157,8 +157,8 @@ test('real status server uses managed llama cumulative speculative delta for rep
         startupRunId = String(startupRun?.id || '');
         assert.ok(startupRunId);
         await waitForAsyncExpectation(async () => {
-          const startupLogs = readManagedLlamaLogTextByStream(startupRunId);
-          assert.match(String(startupLogs.startup_script_stdout || ''), /#gen tokens = 6168/u);
+          const startupLogs = readInferenceRunLogTextByStream(startupRunId);
+          assert.match(String(startupLogs.launcher_stdout || ''), /#gen tokens = 6168/u);
         }, 5000);
         managedLlamaSnapshot = captureManagedLlamaSpeculativeMetricsSnapshot({
           runId: startupRunId,
@@ -209,9 +209,9 @@ test('real status server uses managed llama cumulative speculative delta for rep
         }),
       });
 
-      bufferManagedLlamaLogChunk({
+      bufferInferenceRunLogChunk({
         runId: startupRunId,
-        streamKind: 'startup_script_stderr',
+        streamKind: 'launcher_stderr',
         chunkText: [
           'draft acceptance rate = 1.00000 (   47 accepted /    47 generated)',
           'draft acceptance rate = 1.00000 (   11 accepted /    11 generated)',
@@ -220,7 +220,7 @@ test('real status server uses managed llama cumulative speculative delta for rep
       });
       appendManagedLlamaSpeculativeMetricsChunk({
         runId: startupRunId,
-        streamKind: 'startup_script_stderr',
+        streamKind: 'launcher_stderr',
         chunkText: [
           'draft acceptance rate = 1.00000 (   47 accepted /    47 generated)',
           'draft acceptance rate = 1.00000 (   11 accepted /    11 generated)',

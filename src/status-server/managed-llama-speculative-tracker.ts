@@ -1,7 +1,7 @@
 import {
-  updateManagedLlamaRunSpeculativeMetrics,
-  type ManagedLlamaStreamKind,
-} from '../state/managed-llama-runs.js';
+  updateInferenceRunSpeculativeMetrics,
+  type InferenceRunStreamKind,
+} from '../state/inference-runs.js';
 
 export type ManagedLlamaSpeculativeMetrics = {
   speculativeAcceptedTokens: number;
@@ -23,16 +23,16 @@ export class ManagedLlamaSpeculativeMetricsTracker {
   private stderrCharacterCount = 0;
   private latestSpeculativeAcceptedTokens: number | null = null;
   private latestSpeculativeGeneratedTokens: number | null = null;
-  private readonly lineCarryByStream = new Map<ManagedLlamaStreamKind, string>();
+  private readonly lineCarryByStream = new Map<InferenceRunStreamKind, string>();
 
-  appendChunk(streamKind: ManagedLlamaStreamKind, chunkText: string): void {
+  appendChunk(streamKind: InferenceRunStreamKind, chunkText: string): void {
     const normalizedChunk = String(chunkText || '');
     if (!normalizedChunk) {
       return;
     }
-    if (streamKind === 'startup_script_stdout' || streamKind === 'llama_stdout') {
+    if (streamKind === 'launcher_stdout' || streamKind === 'engine_stdout') {
       this.stdoutCharacterCount += normalizedChunk.length;
-    } else if (streamKind === 'startup_script_stderr' || streamKind === 'llama_stderr') {
+    } else if (streamKind === 'launcher_stderr' || streamKind === 'engine_stderr') {
       this.stderrCharacterCount += normalizedChunk.length;
     } else {
       return;
@@ -96,7 +96,7 @@ const trackerByRunId = new Map<string, ManagedLlamaSpeculativeMetricsTracker>();
 
 export function appendManagedLlamaSpeculativeMetricsChunk(options: {
   runId: string;
-  streamKind: ManagedLlamaStreamKind;
+  streamKind: InferenceRunStreamKind;
   chunkText: string;
 }): void {
   const runId = String(options.runId || '').trim();
@@ -126,7 +126,7 @@ export function flushManagedLlamaSpeculativeMetricsTracker(runId: string): boole
     return false;
   }
   const snapshot = tracker.captureSnapshot();
-  return updateManagedLlamaRunSpeculativeMetrics({
+  return updateInferenceRunSpeculativeMetrics({
     runId: normalizedRunId,
     speculativeAcceptedTokens: snapshot.latestSpeculativeAcceptedTokens,
     speculativeGeneratedTokens: snapshot.latestSpeculativeGeneratedTokens,

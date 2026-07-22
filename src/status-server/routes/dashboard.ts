@@ -37,11 +37,11 @@ import { DEFAULT_WEB_SEARCH_CONFIG, readConfig } from '../config-store.js';
 import { readWebSearchUsage } from '../web-search-usage.js';
 import { WebSearchQuotaCache } from '../web-search-quota.js';
 import {
-  deleteManagedLlamaRun,
-  listManagedLlamaRuns,
-  readManagedLlamaLogTextByStream,
-  readManagedLlamaRun,
-} from '../../state/managed-llama-runs.js';
+  deleteInferenceRun,
+  listInferenceRuns,
+  readInferenceRunLogTextByStream,
+  readInferenceRun,
+} from '../../state/inference-runs.js';
 import {
   deleteBenchmarkMatrixSession,
   listBenchmarkMatrixRunsForSession,
@@ -94,7 +94,7 @@ const webSearchQuotaCache = new WebSearchQuotaCache();
 
 const BenchmarkTaskKindSchema = z.enum(['repo-search', 'summary']);
 const BenchmarkSessionStatusFilterSchema = z.enum(['', 'running', 'completed', 'failed', 'cancelled']).catch('');
-const ManagedLlamaRunStatusFilterSchema = z.enum(['', 'running', 'ready', 'failed', 'stopped', 'sync_completed']).catch('');
+const InferenceRunStatusFilterSchema = z.enum(['', 'running', 'ready', 'failed', 'stopped', 'sync_completed']).catch('');
 const BenchmarkMatrixSessionStatusFilterSchema = z.enum(['', 'running', 'completed', 'failed']).catch('');
 const ManagedFilePickerTargetSchema = z.enum(['managed-llama-executable', 'managed-llama-model']);
 
@@ -662,8 +662,8 @@ class ManagedLlamaRunsEndpoint implements RouteEndpoint {
     const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const limitValue = Number(requestUrl.searchParams.get('limit') || 100);
     const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(500, Math.trunc(limitValue))) : 100;
-    const status = ManagedLlamaRunStatusFilterSchema.parse(String(requestUrl.searchParams.get('status') || '').trim());
-    const runs = listManagedLlamaRuns({ limit, status });
+    const status = InferenceRunStatusFilterSchema.parse(String(requestUrl.searchParams.get('status') || '').trim());
+    const runs = listInferenceRuns({ limit, status });
     sendJson(res, 200, { runs });
     return;
   }
@@ -682,12 +682,12 @@ class ManagedLlamaRunDetailEndpoint implements RouteEndpoint {
     const { idleSummarySnapshotsPath } = ctx;
     const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const runId = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/managed-llama\/runs\//u, ''));
-    const run = readManagedLlamaRun(runId);
+    const run = readInferenceRun(runId);
     if (!run) {
       sendJson(res, 404, { error: 'Managed llama run not found.' });
       return;
     }
-    const logTextByStream = readManagedLlamaLogTextByStream(runId);
+    const logTextByStream = readInferenceRunLogTextByStream(runId);
     sendJson(res, 200, { run, logTextByStream });
     return;
   }
@@ -706,7 +706,7 @@ class ManagedLlamaRunDeleteEndpoint implements RouteEndpoint {
     const { idleSummarySnapshotsPath } = ctx;
     const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const runId = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/managed-llama\/runs\//u, ''));
-    sendJson(res, 200, { ok: true, deleted: deleteManagedLlamaRun(runId), id: runId });
+    sendJson(res, 200, { ok: true, deleted: deleteInferenceRun(runId), id: runId });
     return;
   }
 }

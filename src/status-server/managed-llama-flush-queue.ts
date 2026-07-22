@@ -3,11 +3,11 @@ import { Worker } from 'node:worker_threads';
 import { sleep } from '../lib/time.js';
 import { moduleDirname, moduleFilename } from '../lib/paths.js';
 import {
-  consumeManagedLlamaPendingLogChunks,
-  getManagedLlamaPendingLogChunkStats,
-  restoreManagedLlamaPendingLogChunks,
-  type ManagedLlamaPendingLogChunkEntry,
-} from '../state/managed-llama-runs.js';
+  consumeInferenceRunPendingLogChunks,
+  getInferenceRunPendingLogChunkStats,
+  restoreInferenceRunPendingLogChunks,
+  type InferenceRunPendingLogChunkEntry,
+} from '../state/inference-runs.js';
 import { getRuntimeDatabasePath } from '../state/runtime-db.js';
 import {
   getManagedLlamaSpeculativeMetricsSnapshot,
@@ -19,7 +19,7 @@ type ManagedLlamaFlushQueueItem = {
   runId: string;
   enqueuedAtMs: number;
   attempts: number;
-  entries: ManagedLlamaPendingLogChunkEntry[] | null;
+  entries: InferenceRunPendingLogChunkEntry[] | null;
   metricsSnapshot: ManagedLlamaSpeculativeMetricsSnapshot | null;
 };
 
@@ -183,11 +183,11 @@ export class ManagedLlamaFlushQueue {
         }
         this.pendingByRunId.delete(runId);
         this.runningRunId = runId;
-        const pendingStats = getManagedLlamaPendingLogChunkStats(runId);
+        const pendingStats = getInferenceRunPendingLogChunkStats(runId);
         const startedAtMs = Date.now();
         const waitMs = startedAtMs - item.enqueuedAtMs;
         try {
-          item.entries ??= consumeManagedLlamaPendingLogChunks(runId);
+          item.entries ??= consumeInferenceRunPendingLogChunks(runId);
           item.metricsSnapshot ??= getManagedLlamaSpeculativeMetricsSnapshot(runId);
           const metricsFlushed = await this.flushInWorker(runId, item.entries, item.metricsSnapshot);
           const durationMs = Date.now() - startedAtMs;
@@ -205,7 +205,7 @@ export class ManagedLlamaFlushQueue {
           const message = error instanceof Error ? error.message : String(error);
           item.attempts += 1;
           if (item.entries) {
-            restoreManagedLlamaPendingLogChunks(runId, item.entries);
+            restoreInferenceRunPendingLogChunks(runId, item.entries);
             item.entries = null;
           }
           this.failedCount += 1;
@@ -239,7 +239,7 @@ export class ManagedLlamaFlushQueue {
 
   private flushInWorker(
     runId: string,
-    entries: ManagedLlamaPendingLogChunkEntry[],
+    entries: InferenceRunPendingLogChunkEntry[],
     metricsSnapshot: ManagedLlamaSpeculativeMetricsSnapshot | null,
   ): Promise<boolean> {
     const worker = this.getWorker();
