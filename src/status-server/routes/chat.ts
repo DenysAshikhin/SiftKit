@@ -935,21 +935,12 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     res.write('\n');
     const userContent = messageRequest.content;
-    const requestId = randomUUID();
     const startedAt = Date.now();
     const requestStartedAtUtc = new Date(startedAt).toISOString();
     const phaseTracker = createChatTurnPhaseTracker(requestStartedAtUtc);
     const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
-    try {
-      await notifyChatStatus({
-        ctx,
-        requestId,
-        running: true,
-        promptChars: userContent.length,
-      });
-    } catch {
-      // Best-effort metrics notification.
-    }
+    // Status reporting for this turn belongs to executeRepoSearchRequest; there is no
+    // non-engine branch here to report for.
     try {
       const config = readConfig(configPath);
       const presets = normalizePresets(config.Presets);
@@ -1011,28 +1002,6 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
         speculativeGeneratedTokens: getScorecardTotal(result?.scorecard, 'speculativeGeneratedTokens'),
       };
       const persistTurns = await countPersistTurnThinkingTokens(mockTokenConfig, buildPersistTurnsFromRepoSearchResult(result));
-      try {
-        await notifyChatStatus({
-          ctx,
-          requestId,
-          running: false,
-          promptChars: userContent.length,
-          terminalState: 'completed',
-          inputTokens: getProcessedPromptTokens(
-            usage.promptTokens,
-            usage.promptCacheTokens,
-            usage.promptEvalTokens,
-          ),
-          outputChars: assistantContent.length,
-          outputTokens: usage.completionTokens,
-          thinkingTokens: usage.thinkingTokens,
-          promptCacheTokens: usage.promptCacheTokens,
-          promptEvalTokens: usage.promptEvalTokens,
-          requestDurationMs: Date.now() - startedAt,
-        });
-      } catch {
-        // Best-effort metrics notification.
-      }
       const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
       phaseTracker.observeAnswer(assistantContent);
       const phaseTimestamps = phaseTracker.snapshot();
@@ -1055,20 +1024,6 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
       });
       writeSse('done', buildChatSessionResponse(config, updatedSession));
     } catch (error) {
-      try {
-        await notifyChatStatus({
-          ctx,
-          requestId,
-          running: false,
-          promptChars: userContent.length,
-          terminalState: 'failed',
-          errorMessage: error instanceof Error ? error.message : String(error),
-          outputChars: 0,
-          requestDurationMs: Date.now() - startedAt,
-        });
-      } catch {
-        // Best-effort metrics notification.
-      }
       writeSse('error', { error: error instanceof Error ? error.message : String(error) });
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
