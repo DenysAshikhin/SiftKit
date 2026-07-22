@@ -488,7 +488,7 @@ test('internal op repo-search via request file executes search', async () => {
       stdout: stdout.stream,
       stderr: stderr.stream,
     });
-    assert.equal(code, 0);
+    assert.equal(code, 0, stderr.read());
   });
 });
 

@@ -8,6 +8,7 @@ import type { JsonObject } from '../src/lib/json-types.js';
 import type { RepoSearchExecutionResult } from '../src/repo-search/types.js';
 import { buildMockScorecard, makeCaptureStream } from './_test-helpers.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
+import { writeSseResult } from './helpers/sse-http.js';
 
 async function runMockRepoSearchCli(port: number): Promise<{ stdout: string; stderr: string }> {
   const oldStatusUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
@@ -58,14 +59,13 @@ async function runMockRepoSearchCli(port: number): Promise<{ stdout: string; std
 }
 
 function writeMockRepoSearchResponse(res: http.ServerResponse, finalOutput = 'Found planner tools in src/summary.ts'): void {
-  res.writeHead(200, { 'Content-Type': 'application/json' });
   const result: RepoSearchExecutionResult = {
     requestId: 'req-1',
     transcriptPath: 'C:\\tmp\\repo-search.jsonl',
     artifactPath: 'C:\\tmp\\repo-search.json',
     scorecard: buildMockScorecard(finalOutput),
   };
-  res.end(JSON.stringify(result));
+  writeSseResult(res, result, [{ kind: 'llm_start', turn: 1, maxTurns: 24, promptTokenCount: 10 }]);
 }
 
 test('repo-search delegates execution to status server', async () => {
@@ -106,6 +106,7 @@ test('repo-search delegates execution to status server', async () => {
     assert.equal(first.prompt, 'find planner tools');
     assert.equal(first.repoRoot, process.cwd());
     assert.equal(output.stdout, 'Found planner tools in src/summary.ts\n');
+    assert.match(output.stderr, /repo-search t1\/24 llm_start/u);
     assert.doesNotMatch(output.stderr, /http_client\b/u);
   } finally {
     await new Promise<void>((resolve, reject) => {
@@ -122,7 +123,9 @@ test('repo-search CLI leaves prompt timeout to server after queue admission', as
     timeout: number,
     callback?: () => void,
   ): http.ClientRequest {
-    timeouts.push(timeout);
+    if (this.path === '/repo-search') {
+      timeouts.push(timeout);
+    }
     return originalSetTimeout.call(this, timeout, callback);
   };
 
@@ -148,7 +151,8 @@ test('repo-search CLI leaves prompt timeout to server after queue admission', as
   try {
     const output = await runMockRepoSearchCli(port);
     assert.equal(output.stdout, 'Found planner tools in src/summary.ts\n');
-    assert.deepEqual(timeouts, [1000]);
+    assert.equal(timeouts.length > 0, true);
+    assert.equal(timeouts.every((timeout) => timeout === 600_000), true);
   } finally {
     http.ClientRequest.prototype.setTimeout = originalSetTimeout;
     await new Promise<void>((resolve, reject) => {

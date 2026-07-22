@@ -40,6 +40,7 @@ import {
   resolveArtifactLogPathFromStatusPost,
   requestJson,
 } from './helpers/runtime-http.js';
+import { writeSseResult } from './helpers/sse-http.js';
 import {
   toSingleQuotedPowerShellLiteral,
   writeManagedLlamaScripts,
@@ -670,8 +671,7 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
           timing: parsed.timing && typeof parsed.timing === 'object' && !Array.isArray(parsed.timing) ? parsed.timing : undefined,
           statusBackendUrl: `http://127.0.0.1:${port}/status`,
         });
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(result));
+        writeSseResult(res, result);
       } catch (error) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));

@@ -7,6 +7,7 @@ import { parseJsonValueText } from '../src/lib/json.js';
 import type { JsonObject } from '../src/lib/json-types.js';
 import { makeCaptureStream } from './_test-helpers.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
+import { writeSseResult } from './helpers/sse-http.js';
 
 test('summary delegates non-deterministic execution to status server', async () => {
   const received: JsonObject[] = [];
@@ -25,8 +26,7 @@ test('summary delegates non-deterministic execution to status server', async () 
       });
       req.on('end', () => {
         received.push(asObject(parseJsonValueText(body || '{}')));
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        writeSseResult(res, {
           RequestId: 'summary-req-1',
           WasSummarized: true,
           PolicyDecision: 'summary',
@@ -37,7 +37,7 @@ test('summary delegates non-deterministic execution to status server', async () 
           RawReviewRequired: false,
           ModelCallSucceeded: true,
           ProviderError: null,
-        }));
+        }, [{ kind: 'llm_start', promptTokenCount: 10 }]);
       });
       return;
     }
@@ -90,6 +90,7 @@ test('summary delegates non-deterministic execution to status server', async () 
     assert.equal(first.sourceKind, 'standalone');
     assert.equal(stdout.read(), 'queued summary output\n');
     const stderrText = processStderr + stderr.read();
+    assert.match(stderrText, /summary llm_start/u);
     assert.doesNotMatch(stderrText, /http_client\b/u);
   } finally {
     if (oldStatusUrl === undefined) {

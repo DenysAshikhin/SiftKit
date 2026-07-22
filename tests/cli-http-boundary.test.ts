@@ -11,6 +11,7 @@ import { parseJsonValueText } from '../src/lib/json.js';
 import type { JsonObject } from '../src/lib/json-types.js';
 import { buildMockScorecard, makeCaptureStream } from './_test-helpers.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
+import { writeSseResult } from './helpers/sse-http.js';
 
 type CapturedRequest = {
   route: string;
@@ -53,20 +54,18 @@ async function startBoundaryServer(): Promise<BoundaryServer> {
 
     if (req.method === 'GET' && req.url === '/preset/list') {
       requests.push({ route: '/preset/list', body: {} });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
+      writeSseResult(res, {
         presets: [
           { id: 'summary', presetKind: 'summary', operationMode: 'summary', deletable: false, label: 'Summary' },
         ],
-      }));
+      });
       return;
     }
 
     if (req.method === 'POST' && req.url === '/summary') {
       const body = asObject(parseJsonValueText(await readBody(req) || '{}'));
       requests.push({ route: '/summary', body });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
+      writeSseResult(res, {
         RequestId: 'summary-boundary',
         WasSummarized: false,
         PolicyDecision: 'deterministic-test-output',
@@ -77,15 +76,14 @@ async function startBoundaryServer(): Promise<BoundaryServer> {
         RawReviewRequired: false,
         ModelCallSucceeded: false,
         ProviderError: null,
-      }));
+      });
       return;
     }
 
     if (req.method === 'POST' && req.url === '/command-output/analyze') {
       const body = asObject(parseJsonValueText(await readBody(req) || '{}'));
       requests.push({ route: '/command-output/analyze', body });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
+      writeSseResult(res, {
         ExitCode: Number(body.exitCode || 0),
         RawLogPath: 'db://command-output/raw',
         ReducedLogPath: null,
@@ -96,41 +94,38 @@ async function startBoundaryServer(): Promise<BoundaryServer> {
         ModelCallSucceeded: false,
         ProviderError: null,
         Summary: 'server command analysis',
-      }));
+      });
       return;
     }
 
     if (req.method === 'POST' && req.url === '/repo-search') {
       const body = asObject(parseJsonValueText(await readBody(req) || '{}'));
       requests.push({ route: '/repo-search', body });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
+      writeSseResult(res, {
         requestId: 'repo-boundary',
         transcriptPath: 'db://repo-search/transcript',
         artifactPath: 'db://repo-search/artifact',
         scorecard: buildMockScorecard('server repo-search response'),
-      }));
+      });
       return;
     }
 
     if (req.method === 'POST' && req.url === '/preset/run') {
       const body = asObject(parseJsonValueText(await readBody(req) || '{}'));
       requests.push({ route: '/preset/run', body });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ outputText: 'server preset response' }));
+      writeSseResult(res, { outputText: 'server preset response' });
       return;
     }
 
     if (req.method === 'POST' && req.url === '/eval/run') {
       const body = asObject(parseJsonValueText(await readBody(req) || '{}'));
       requests.push({ route: '/eval/run', body });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
+      writeSseResult(res, {
         Backend: 'mock',
         Model: 'mock-model',
         ResultPath: 'db://eval/result',
         Results: [],
-      }));
+      });
       return;
     }
 
@@ -246,7 +241,7 @@ test('repo-search internal op posts to the server endpoint', async () => {
         stderr: stderr.stream,
       });
 
-      assert.equal(code, 0);
+      assert.equal(code, 0, stderr.read());
       assert.equal(stderr.read(), '');
       assert.match(stdout.read(), /repo-boundary/u);
       const repoRequest = server.requests.find((request) => request.route === '/repo-search');

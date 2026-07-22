@@ -13,7 +13,7 @@ test('preset list shows builtin and custom cli-visible presets from the server',
       stdout: stdout.stream,
       stderr: stderr.stream,
     });
-    assert.equal(code, 0);
+    assert.equal(code, 0, stderr.read());
     assert.equal(stderr.read(), '');
     const output = stdout.read();
     assert.match(output, /^summary\tsummary\tsummary\tbuiltin\tSummary/mu);

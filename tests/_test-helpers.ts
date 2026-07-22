@@ -10,6 +10,7 @@ import { parseJsonValueText } from '../src/lib/json.js';
 import { isJsonObject, type JsonObject } from '../src/lib/json-types.js';
 import type { RepoSearchExecutionResult } from '../src/repo-search/types.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
+import { writeSseResult } from './helpers/sse-http.js';
 
 export type Dict = JsonObject;
 
@@ -285,8 +286,7 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
         : (typeof options.assistantContent === 'string'
           ? options.assistantContent
           : 'mock summary output');
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
+      writeSseResult(res, {
         RequestId: 'stub-summary-request',
         WasSummarized: true,
         PolicyDecision: 'summary',
@@ -297,15 +297,14 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
         RawReviewRequired: false,
         ModelCallSucceeded: true,
         ProviderError: null,
-      }));
+      });
       return;
     }
     if (req.method === 'POST' && req.url === '/command-output/analyze') {
       const bodyText = await readBody(req);
       const parsed = asObject(bodyText ? parseJsonValueText(bodyText) : {});
       state.chatRequests.push(parsed);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
+      writeSseResult(res, {
         ExitCode: Number(parsed.exitCode || 0),
         RawLogPath: 'db://command-output/raw',
         ReducedLogPath: null,
@@ -316,41 +315,38 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
         ModelCallSucceeded: false,
         ProviderError: null,
         Summary: 'mock command output analysis',
-      }));
+      });
       return;
     }
     if (req.method === 'POST' && req.url === '/repo-search') {
       const bodyText = await readBody(req);
       const parsed = asObject(bodyText ? parseJsonValueText(bodyText) : {});
       state.chatRequests.push(parsed);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
+      writeSseResult(res, {
         requestId: 'stub-repo-search',
         transcriptPath: 'db://repo-search/transcript',
         artifactPath: 'db://repo-search/artifact',
         scorecard: buildMockScorecard('stub repo-search output'),
-      }));
+      });
       return;
     }
     if (req.method === 'POST' && req.url === '/preset/run') {
       const bodyText = await readBody(req);
       const parsed = asObject(bodyText ? parseJsonValueText(bodyText) : {});
       state.chatRequests.push(parsed);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ outputText: 'mock preset output' }));
+      writeSseResult(res, { outputText: 'mock preset output' });
       return;
     }
     if (req.method === 'POST' && req.url === '/eval/run') {
       const bodyText = await readBody(req);
       const parsed = asObject(bodyText ? parseJsonValueText(bodyText) : {});
       state.chatRequests.push(parsed);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
+      writeSseResult(res, {
         Backend: 'mock',
         Model: 'mock-model',
         ResultPath: 'db://eval/result',
         Results: [],
-      }));
+      });
       return;
     }
     if (req.method === 'GET' && req.url === '/v1/models') {
