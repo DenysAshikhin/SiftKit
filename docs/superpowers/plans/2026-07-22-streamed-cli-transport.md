@@ -4,15 +4,17 @@
 
 **Goal:** Convert the five engine-backed CLI ops (`/summary`, `/command-output/analyze`, `/preset/run`, `/eval/run`, `/repo-search`) from blocking JSON POSTs to SSE streams with live progress, lock-wait feedback, and disconnect-aborts-run semantics.
 
-**Architecture:** One shared streaming layer: `SseFrameParser` + `SseClient` (CLI side), `SseResponseWriter` + `StreamedOperationEndpoint` (server side), a three-event wire envelope (`progress` / `result` / `error`), and typed progress reporters (existing `ProgressReporter` for repo-search, new `SummaryProgressReporter` for summary/run/preset/eval). Result payload schemas are unchanged. JSON forms of the five endpoints are removed, not kept.
+**Architecture:** One shared streaming layer: `SseFrameParser` + callback-free `HttpClient.streamSse` (client side), `SseResponseWriter` + `StreamedOperationEndpoint` (server side), a three-event wire envelope (`progress` / `result` / `error`), typed progress-writer objects, and full structured error diagnostics. Result payload schemas are unchanged. JSON forms of the five endpoints are removed, not kept.
 
 **Tech Stack:** TypeScript, Node `http` module (no new deps), zod (existing `src/lib/zod.js` wrapper), `node:test`.
 
-**Spec:** `docs/superpowers/specs/2026-07-22-streamed-cli-transport-design.md`
+**Specs:** `docs/superpowers/specs/2026-07-22-streamed-cli-transport-design.md` and `docs/superpowers/specs/2026-07-22-streamed-cli-transport-corrections-design.md`
 
 **Test command pattern:** `npm run build:test; node .\dist\scripts\run-tests.js <file-name-filter>` (filter matches test file names). Full gate: `npm test`. Lint: `npm run lint`.
 
 **Repo rules that bind every task:** no `as` casts, no `any`, no `!` assertions, no namespace imports, IO-boundary types via `z.infer`. Use `JsonRecordReader` for loose JSON field access (established idiom).
+
+**Execution state:** Tasks 1-14 were completed in commits `f6290b6` through `472371e`. Do not rerun them. Execute only correction Tasks 15-19 below.
 
 ---
 
@@ -2416,3 +2418,10 @@ Expected: PASS (includes eslint gate — the repo's no-cast/no-any rules are enf
 git add -A
 git commit -m "chore: streamed transport cleanup — remove dead JSON-transport code"
 ```
+
+---
+
+## Correction implementation (execute Tasks 15-19 only)
+
+The executable correction tasks are specified in
+`docs/superpowers/plans/2026-07-22-streamed-cli-transport-corrections.md`.
