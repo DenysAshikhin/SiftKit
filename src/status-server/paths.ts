@@ -38,7 +38,3 @@ export function getIdleSummarySnapshotsPath(): string {
 export function getManagedLlamaLogRoot(): string {
   return join(getRuntimeRoot(), 'logs', 'managed-llama');
 }
-
-export function getManagedTabbyLogRoot(): string {
-  return join(getRuntimeRoot(), 'logs', 'managed-tabby');
-}

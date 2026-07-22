@@ -1,15 +1,15 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import fs from 'node:fs';
-import path from 'node:path';
 
 import type { Exl3EngineConfig, ModelRuntimePreset } from '../config/types.js';
 import {
   Exl3PresetAdapter,
   type Exl3LaunchEnvironment,
 } from '../inference-presets/exl3-preset-adapter.js';
+import { InferenceRunRecorder } from './inference-run-recorder.js';
 import { ManagedInferenceRuntime } from './managed-inference-runtime.js';
+import type { ManagedLlamaFlushQueue } from './managed-llama-flush-queue.js';
 import { terminateProcessTree } from './managed-llama.js';
-import { getManagedTabbyLogRoot } from './paths.js';
+import { readInferenceRunLogTextByStream } from '../state/inference-runs.js';
 import { TabbyModelClient } from './tabby-model-client.js';
 
 function delay(milliseconds: number): Promise<void> {
@@ -24,7 +24,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   private child: ChildProcess | null = null;
   private stopping = false;
   private startupError: Error | null = null;
-  private readonly logPath: string;
+  private recorder: InferenceRunRecorder | null = null;
   private currentPreset: ModelRuntimePreset | null = null;
   private processBaseUrl: string | null = null;
   private processManaged: boolean | null = null;
@@ -35,11 +35,11 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
 
   constructor(
     private readonly engine: Exl3EngineConfig,
+    private readonly flushQueue: ManagedLlamaFlushQueue,
     private readonly client = new TabbyModelClient(engine.AdminApiKey),
   ) {
     super('exl3');
     this.adapter = new Exl3PresetAdapter(engine.ModelRoot);
-    this.logPath = path.join(getManagedTabbyLogRoot(), 'latest-startup.log');
   }
 
   private async startProcess(
@@ -128,6 +128,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     const child = this.child;
     if (!child || child.exitCode !== null) {
       this.child = null;
+      this.recorder = null;
       this.processBaseUrl = null;
       this.processManaged = null;
       this.processSignature = null;
@@ -147,6 +148,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       throw new Error('Timed out stopping TabbyAPI.');
     }
     this.child = null;
+    this.recorder = null;
     this.processBaseUrl = null;
     this.processManaged = null;
     this.processSignature = null;
@@ -161,6 +163,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     this.stopping = true;
     if (child?.pid && child.exitCode === null) terminateProcessTree(child.pid);
     this.child = null;
+    this.recorder = null;
     this.processBaseUrl = null;
     this.processManaged = null;
     this.processSignature = null;
@@ -173,8 +176,15 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   private spawnProcess(launchEnvironment: Exl3LaunchEnvironment): void {
     this.stopping = false;
     this.startupError = null;
-    fs.mkdirSync(path.dirname(this.logPath), { recursive: true });
-    fs.writeFileSync(this.logPath, '', 'utf8');
+    const recorder = new InferenceRunRecorder({
+      backend: 'exl3',
+      purpose: 'startup',
+      entrypointPath: this.engine.Entrypoint,
+      baseUrl: null,
+      flushQueue: this.flushQueue,
+    });
+    recorder.enableFlushQueue();
+    this.recorder = recorder;
     const child = spawn(this.engine.PythonPath, [this.engine.Entrypoint], {
       cwd: this.engine.WorkingDirectory,
       env: { ...process.env, ...launchEnvironment },
@@ -183,15 +193,24 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     this.child = child;
-    child.stdout?.on('data', (chunk) => this.appendLog('stdout', chunk));
-    child.stderr?.on('data', (chunk) => this.appendLog('stderr', chunk));
+    recorder.attachEngineStdout(child.stdout);
+    recorder.attachEngineStderr(child.stderr);
     child.once('error', (error) => {
       this.startupError = error;
+      recorder.flush();
+      recorder.finish({ status: 'failed', errorMessage: error.message });
       this.transitionProcessTo('failed');
     });
     child.once('exit', (code, signal) => {
+      const exitMessage = `TabbyAPI exited unexpectedly (code=${String(code)}, signal=${String(signal)}).`;
+      recorder.flush();
+      recorder.finish({
+        status: this.stopping ? 'stopped' : 'failed',
+        exitCode: Number.isFinite(code) ? Number(code) : null,
+        errorMessage: this.stopping ? null : exitMessage,
+      });
       if (this.stopping) return;
-      this.startupError = new Error(`TabbyAPI exited unexpectedly (code=${String(code)}, signal=${String(signal)}).`);
+      this.startupError = new Error(exitMessage);
       this.processBaseUrl = null;
       this.processManaged = null;
       this.processSignature = null;
@@ -216,6 +235,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
           this.processBaseUrl = baseUrl;
           this.processManaged = this.shouldManage(preset);
           this.processSignature = processSignature;
+          this.recorder?.finish({ status: 'ready', baseUrl });
           this.transitionProcessTo('ready');
           return;
         }
@@ -249,7 +269,8 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
    * startup log line from the exllamav3 backend is the only signal that drafting engaged.
    */
   private assertDraftingActive(preset: ModelRuntimePreset): void {
-    const startupLog = fs.existsSync(this.logPath) ? fs.readFileSync(this.logPath, 'utf8') : '';
+    const runId = this.recorder?.runId;
+    const startupLog = runId ? readInferenceRunLogTextByStream(runId).engine_stdout : '';
     if (!startupLog.includes('Using main model MTP component for drafting')) {
       throw new Error(
         `Preset '${preset.id}' requires MTP drafting, but the TabbyAPI startup log never reported the MTP draft `
@@ -260,9 +281,5 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
 
   private shouldManage(preset: ModelRuntimePreset): boolean {
     return this.engine.Managed && !preset.ExternalServerEnabled;
-  }
-
-  private appendLog(stream: 'stdout' | 'stderr', chunk: string | Buffer): void {
-    fs.appendFileSync(this.logPath, `[${stream}] ${String(chunk)}`, 'utf8');
   }
 }

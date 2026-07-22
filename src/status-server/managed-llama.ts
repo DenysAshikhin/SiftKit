@@ -1164,6 +1164,8 @@ async function ensureManagedLlamaConfigReady(
       }
       ctx.managedLlamaStartupWarning = null;
       ctx.managedLlamaReady = true;
+      // Live stream chunks may only be queued once the server is ready to drain them.
+      launched.recorder.enableFlushQueue();
       serverLogger.ok({ scope: 'llama', id: '', event: 'ready', fields: `base_url=${baseUrl}` });
     } catch (error) {
       const startupFailure = getManagedLlamaStartupFailure(toError(error)) || getManagedLlamaStartupFailureFromLogRef(launched.recorder);

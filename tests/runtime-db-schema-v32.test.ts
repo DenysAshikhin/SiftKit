@@ -28,7 +28,7 @@ test('current schema persists inference and EXL3 configuration JSON', () => {
   const dbPath = tempDbPath('sk-v32-fresh-');
   getRuntimeDatabase(dbPath);
 
-  assert.equal(CURRENT_SCHEMA_VERSION, 33);
+  assert.equal(CURRENT_SCHEMA_VERSION, 34);
   assert.ok(columnNames(dbPath).includes('inference_json'));
   assert.ok(columnNames(dbPath).includes('server_exl3_json'));
 });

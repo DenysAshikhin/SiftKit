@@ -1,26 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { PassThrough } from 'node:stream';
 
 import { InferenceRunRecorder } from '../src/status-server/inference-run-recorder.js';
 import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
 import { readInferenceRun, readInferenceRunLogTextByStream } from '../src/state/inference-runs.js';
-import { getRuntimeDatabase, closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { withTempEnv } from './_runtime-helpers.js';
 
+/**
+ * `withTempEnv` chdirs into a temp root, which is what actually isolates the runtime database:
+ * persistence calls that take no explicit path re-resolve it from the working directory.
+ */
 async function withRecorderDatabase(fn: (flushQueue: ManagedLlamaFlushQueue) => Promise<void>): Promise<void> {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-recorder-'));
-  getRuntimeDatabase(path.join(root, 'runtime.sqlite'));
-  const flushQueue = new ManagedLlamaFlushQueue({ idleDelayMs: 0 });
-  try {
-    await fn(flushQueue);
-  } finally {
-    await flushQueue.close();
-    closeRuntimeDatabase();
-    fs.rmSync(root, { recursive: true, force: true });
-  }
+  await withTempEnv(async () => {
+    const flushQueue = new ManagedLlamaFlushQueue({ idleDelayMs: 0 });
+    try {
+      await fn(flushQueue);
+    } finally {
+      await flushQueue.close();
+    }
+  });
 }
 
 test('the recorder captures a run row, its stream text, and its terminal status', async () => {

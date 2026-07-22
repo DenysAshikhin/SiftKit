@@ -263,7 +263,10 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     ensureManagedLlamaReady: (opts) => ensureManagedLlamaReady(ctx, opts),
   };
   const initialConfig = readConfig(configPath);
-  const managedTabbyRuntime = new ManagedTabbyRuntime(initialConfig.Server.Engines.Exl3);
+  const managedTabbyRuntime = new ManagedTabbyRuntime(
+    initialConfig.Server.Engines.Exl3,
+    ctx.managedLlamaFlushQueue,
+  );
   const presetRuntimeCoordinator = new PresetRuntimeCoordinator(
     configPath,
     new ManagedLlamaRuntime(ctx),

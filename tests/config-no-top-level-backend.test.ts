@@ -46,15 +46,15 @@ test('normalization drops any provided top-level Backend', () => {
   assert.equal('Backend' in normalized, false);
 });
 
-test('a fresh database is created at v33 without the backend column', () => {
-  assert.equal(CURRENT_SCHEMA_VERSION, 33);
-  const dbPath = tempDbPath('sk-v33-fresh-');
+test('a fresh database is created at v34 without the backend column', () => {
+  assert.equal(CURRENT_SCHEMA_VERSION, 34);
+  const dbPath = tempDbPath('sk-v34-fresh-');
   getRuntimeDatabase(dbPath);
   assert.equal(columnNames(dbPath).includes('backend'), false);
-  assert.equal(schemaVersion(dbPath), 33);
+  assert.equal(schemaVersion(dbPath), 34);
 });
 
-test('v31 migration drops the legacy backend column before advancing to v33', () => {
+test('v31 migration drops the legacy backend column before advancing to v34', () => {
   const dbPath = tempDbPath('sk-v32-migrate-');
   const seed = new Database(dbPath);
   seed.exec(`
@@ -106,5 +106,5 @@ test('v31 migration drops the legacy backend column before advancing to v33', ()
   getRuntimeDatabase(dbPath);
 
   assert.equal(columnNames(dbPath).includes('backend'), false);
-  assert.equal(schemaVersion(dbPath), 33);
+  assert.equal(schemaVersion(dbPath), 34);
 });
