@@ -8,6 +8,7 @@ import type { JsonSerializable } from '../src/lib/json-types.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { asObject } from './helpers/dashboard-http.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 
 const MOCK_CONFIG = mockSiftConfig({
   Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
@@ -92,7 +93,7 @@ test('chat mode streams finish output as answer events', async () => {
       streamFinishAsAnswer: true,
       mockResponses: ['{"action":"finish","output":"Hello there!"}'],
       mockCommandResults: {},
-      onProgress: (event) => { events.push(event); },
+      progressWriter: new CollectingProgressWriter(events),
     },
   );
   assert.equal(result.finalOutput, 'Hello there!');
@@ -165,7 +166,7 @@ test('chat answer streaming waits for extractable finish output instead of emitt
         plannerToolDefinitions: [],
         includeRepoFileListing: false,
         streamFinishAsAnswer: true,
-        onProgress: (event) => { events.push(event); },
+        progressWriter: new CollectingProgressWriter(events),
       },
     );
 
@@ -239,7 +240,7 @@ test('chat terminal synthesis streams answer deltas before the final answer even
         plannerToolDefinitions: [],
         includeRepoFileListing: false,
         streamFinishAsAnswer: true,
-        onProgress: (event) => { events.push(event); },
+        progressWriter: new CollectingProgressWriter(events),
       },
     );
 

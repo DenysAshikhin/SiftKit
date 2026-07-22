@@ -46,6 +46,7 @@ import {
 } from '../chat-grounding-policy.js';
 import { WebResearchTools } from '../../web-search/web-research-tools.js';
 import { throwIfAborted } from '../../lib/abort.js';
+import { SilentProgressWriter } from '../../lib/progress-writer.js';
 import { DuplicateTracker } from './duplicate-tracker.js';
 import { ForcedFinishController } from './forced-finish.js';
 import { ProgressReporter } from './progress-reporter.js';
@@ -222,7 +223,7 @@ export class TaskLoop {
       ? `${baseSystemPrompt}\n\n${CHAT_GROUNDING_FINAL_ANSWER_INSTRUCTION}`
       : baseSystemPrompt;
     this.progress = new ProgressReporter({
-      onProgress: options.onProgress || null,
+      progressWriter: options.progressWriter ?? new SilentProgressWriter(),
       taskId: task.id,
       maxTurns: this.maxTurns,
       taskStartedAt: this.taskStartedAt,

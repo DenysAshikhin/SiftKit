@@ -13,6 +13,7 @@ import type { TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.j
 import { listLlamaCppModels } from '../providers/llama-cpp.js';
 import { ToolTypeStatsSchema, type ToolTypeStats } from '../status-server/metrics.js';
 import { throwIfAborted } from '../lib/abort.js';
+import { SilentProgressWriter, type ProgressWriter } from '../lib/progress-writer.js';
 import {
   mergeReadOverlapSummaries,
   ReadOverlapSummarySchema,
@@ -183,10 +184,11 @@ export async function runRepoSearch(options: {
   retainedWebToolCalls?: RetainedWebToolCall[];
   abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
-  onProgress?: ((event: RepoSearchProgressEvent) => void) | null;
+  progressWriter?: ProgressWriter<RepoSearchProgressEvent>;
   timingRecorder?: TemporaryTimingRecorder | null;
 } = {}): Promise<Scorecard> {
   throwIfAborted(options.abortSignal);
+  const progressWriter = options.progressWriter ?? new SilentProgressWriter<RepoSearchProgressEvent>();
   const plannerToolDefinitions = resolveRepoSearchPlannerToolDefinitions(options.allowedTools);
   if (plannerToolDefinitions.length === 0 && !options.allowEmptyTools) {
     throw new Error('No repo-search planner tools are enabled for the active preset.');
@@ -210,11 +212,11 @@ export async function runRepoSearch(options: {
   const inventorySpan = options.timingRecorder?.start('repo.model_inventory', {
     mock: Array.isArray(options.mockResponses),
   });
-  options.onProgress?.({ kind: 'model_inventory_start', elapsedMs: 0 });
+  progressWriter.write({ kind: 'model_inventory_start', elapsedMs: 0 });
   const availableModels = options.availableModels
     || (Array.isArray(options.mockResponses) ? [model] : await listLlamaCppModels(config));
   inventorySpan?.end({ modelCount: availableModels.length });
-  options.onProgress?.({ kind: 'model_inventory_done', modelCount: availableModels.length, elapsedMs: 0 });
+  progressWriter.write({ kind: 'model_inventory_done', modelCount: availableModels.length, elapsedMs: 0 });
   options.logger?.write({ kind: 'model_inventory', configuredModel: model, availableModels });
 
   const tasksToRun: TaskDefinition[] = options.taskPrompt
@@ -248,7 +250,7 @@ export async function runRepoSearch(options: {
       retainedWebToolCalls: options.retainedWebToolCalls,
       abortSignal: options.abortSignal,
       logger: options.logger || null,
-      onProgress: options.onProgress || null,
+      progressWriter,
       timingRecorder: options.timingRecorder || null,
     });
     tasks.push(result);

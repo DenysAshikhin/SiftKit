@@ -18,6 +18,7 @@ import { formatInteger } from '../lib/text-format.js';
 import { formatElapsed } from '../lib/time.js';
 import { getErrorMessage, toError } from '../lib/errors.js';
 import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
+import { ProgressWriter, SilentProgressWriter } from '../lib/progress-writer.js';
 import {
   createTemporaryTimingRecorderFromEnv,
   type TemporaryTimingRecorder,
@@ -65,7 +66,7 @@ export function buildRepoSearchPreflightLogBody(summary: RepoSearchPreflightSumm
   return { event: 'preflight', fields, severity: 'normal' };
 }
 
-function logRepoSearchExecutionProgress(requestId: string, event: RepoSearchProgressEvent, startedAt: number): void {
+function logRepoSearchLifecycleEvent(requestId: string, event: RepoSearchProgressEvent, startedAt: number): void {
   const elapsedMs = Number.isFinite(event.elapsedMs) ? Math.max(0, Math.trunc(Number(event.elapsedMs))) : Date.now() - startedAt;
   if (event.kind === 'model_inventory_start') {
     serverLogger.debug({
@@ -119,6 +120,28 @@ function logRepoSearchExecutionProgress(requestId: string, event: RepoSearchProg
       elapsedMs,
       ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
     }));
+  }
+}
+
+class RepoSearchLifecycleWriter extends ProgressWriter<RepoSearchProgressEvent> {
+  constructor(
+    private readonly requestId: string,
+    private readonly startedAt: number,
+    private readonly target: ProgressWriter<RepoSearchProgressEvent>,
+  ) {
+    super();
+  }
+
+  get enabled(): boolean {
+    return true;
+  }
+
+  write(event: RepoSearchProgressEvent): void {
+    logRepoSearchLifecycleEvent(this.requestId, event, this.startedAt);
+    this.target.write({
+      ...event,
+      elapsedMs: Number.isFinite(event.elapsedMs) ? Number(event.elapsedMs) : Date.now() - this.startedAt,
+    });
   }
 }
 
@@ -281,7 +304,11 @@ export async function executeRepoSearchRequest(
   const logger = createJsonLogger(tempTranscriptPath);
 
   try {
-    const progressCallback = request.onProgress;
+    const progressWriter = new RepoSearchLifecycleWriter(
+      requestId,
+      startedAt,
+      request.progressWriter ?? new SilentProgressWriter<RepoSearchProgressEvent>(),
+    );
     serverLogger.debug({ scope: 'rs', id: requestId, event: 'run_start', fields: '' });
     const scorecard = await runRepoSearch({
       repoRoot,
@@ -306,17 +333,7 @@ export async function executeRepoSearchRequest(
       retainedWebToolCalls: request.retainedWebToolCalls,
       abortSignal: request.abortSignal,
       timingRecorder,
-      onProgress: progressCallback
-        ? (event: RepoSearchProgressEvent) => {
-          logRepoSearchExecutionProgress(requestId, event, startedAt);
-          progressCallback({
-            ...event,
-            elapsedMs: Number.isFinite(event?.elapsedMs) ? Number(event.elapsedMs) : (Date.now() - startedAt),
-          });
-        }
-        : (event: RepoSearchProgressEvent) => {
-          logRepoSearchExecutionProgress(requestId, event, startedAt);
-        },
+      progressWriter,
     });
     serverLogger.debug({ scope: 'rs', id: requestId, event: 'run_done', fields: '' });
     const targetFolder = scorecard?.verdict === 'pass' ? folders.successful : folders.failed;

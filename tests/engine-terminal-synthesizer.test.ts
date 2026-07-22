@@ -8,6 +8,8 @@ import { TerminalSynthesizer } from '../src/repo-search/engine/terminal-synthesi
 import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
 import type { JsonLogger, RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import type { JsonSerializable } from '../src/lib/json-types.js';
+import { SilentProgressWriter } from '../src/lib/progress-writer.js';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 
 function makeSynthesizer(tokenUsage: TokenUsageTracker): TerminalSynthesizer {
   return new TerminalSynthesizer({
@@ -22,7 +24,12 @@ function makeSynthesizer(tokenUsage: TokenUsageTracker): TerminalSynthesizer {
     preserveThinking: false,
     streamFinishAsAnswer: false,
     logger: null,
-    progress: new ProgressReporter({ onProgress: null, taskId: 't1', maxTurns: 45, taskStartedAt: Date.now() }),
+    progress: new ProgressReporter({
+      progressWriter: new SilentProgressWriter<RepoSearchProgressEvent>(),
+      taskId: 't1',
+      maxTurns: 45,
+      taskStartedAt: Date.now(),
+    }),
     tokenUsage,
   });
 }
@@ -52,7 +59,7 @@ function makeStreamingSynthesizer(options: {
     streamFinishAsAnswer: true,
     logger,
     progress: new ProgressReporter({
-      onProgress: (event) => { options.progressEvents.push(event); },
+      progressWriter: new CollectingProgressWriter(options.progressEvents),
       taskId: 't1',
       maxTurns: 45,
       taskStartedAt: Date.now(),

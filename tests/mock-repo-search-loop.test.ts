@@ -25,6 +25,8 @@ import {
 } from '../src/repo-search/prompt-budget.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
+import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 
 // Mock-mode runTaskLoop calls never reach a real provider or repo; these defaults
 // satisfy the required RunTaskLoopOptions fields. Per-test options override them.
@@ -235,7 +237,7 @@ test('runTaskLoop replays unrecoverable invalid planner payloads through invalid
 
 test('runTaskLoop cuts off runaway streamed tool JSON and reprompts once', { timeout: 5000 }, async () => {
   const events: JsonObject[] = [];
-  const progressEvents: Array<{ kind: string; thinkingText?: string }> = [];
+  const progressEvents: RepoSearchProgressEvent[] = [];
   const controller = new AbortController();
   let requestCount = 0;
   let firstStreamClosed = false;
@@ -308,9 +310,7 @@ test('runTaskLoop cuts off runaway streamed tool JSON and reprompts once', { tim
             events.push(parseLoggedEvent(event));
           },
         },
-        onProgress(event) {
-          progressEvents.push({ kind: event.kind, thinkingText: event.thinkingText });
-        },
+        progressWriter: new CollectingProgressWriter(progressEvents),
       }
     );
 

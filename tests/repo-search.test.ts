@@ -19,6 +19,8 @@ import { withTestEnvAndServer, mergeConfig } from './_test-helpers.js';
 import { asRuntimeSiftConfig } from './helpers/mock-config.js';
 import { asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
 import { z } from 'zod';
+import { ProgressWriter, SilentProgressWriter } from '../src/lib/progress-writer.js';
+import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 
 // Thrown repo-search errors carry artifact/transcript URIs as own properties
 // alongside non-JSON Error internals; validate just those string fields with a
@@ -27,6 +29,23 @@ const ErrorArtifactPathsSchema = z
   .object({ artifactPath: z.string(), transcriptPath: z.string() })
   .partial()
   .passthrough();
+
+class ArtifactCountProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
+  public readonly counts: number[] = [];
+  get enabled(): boolean { return true; }
+  write(_event: RepoSearchProgressEvent): void {
+    this.counts.push(listRuntimeArtifacts({ artifactKind: 'repo_search_transcript' }).length);
+  }
+}
+
+class FirstProgressTimingWriter extends ProgressWriter<RepoSearchProgressEvent> {
+  public firstProgressMs: number | null = null;
+  constructor(private readonly startedAt: number) { super(); }
+  get enabled(): boolean { return true; }
+  write(_event: RepoSearchProgressEvent): void {
+    this.firstProgressMs ??= Date.now() - this.startedAt;
+  }
+}
 
 function readErrorArtifactPaths<T>(error: T): { artifactPath: string; transcriptPath: string } {
   const parsed = ErrorArtifactPathsSchema.safeParse(error);
@@ -232,7 +251,7 @@ test('executeRepoSearchRequest forwards an aborted signal to the engine', async 
 
 test('executeRepoSearchRequest success path writes transcript and artifact', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
-    const midRunTranscriptArtifactCounts: number[] = [];
+    const progressWriter = new ArtifactCountProgressWriter();
     const result = await executeRepoSearchRequest({
       prompt: 'find test patterns',
       repoRoot: tempRoot,
@@ -241,19 +260,14 @@ test('executeRepoSearchRequest success path writes transcript and artifact', asy
         '{"action":"finish","output":"Found test patterns in tests/"}',
       ],
       mockCommandResults: {},
-      onProgress(event) {
-        if (!event.kind) {
-          return;
-        }
-        midRunTranscriptArtifactCounts.push(listRuntimeArtifacts({ artifactKind: 'repo_search_transcript' }).length);
-      },
+      progressWriter,
     });
     assert.equal(typeof result.requestId, 'string');
     assert.ok(result.requestId.length > 0);
     assert.equal(typeof result.transcriptPath, 'string');
     assert.equal(typeof result.artifactPath, 'string');
-    assert.ok(midRunTranscriptArtifactCounts.length > 0);
-    assert.ok(midRunTranscriptArtifactCounts.every((count) => count === 0));
+    assert.ok(progressWriter.counts.length > 0);
+    assert.ok(progressWriter.counts.every((count) => count === 0));
 
     const transcriptId = parseRuntimeArtifactUri(result.transcriptPath);
     assert.ok(transcriptId);
@@ -283,8 +297,8 @@ test('executeRepoSearchRequest does not wait for running status notification res
     // post timeout.
     const statusServer = await startDelayedStatusServer({ runningDelayMs: 5000 });
     try {
-      let firstProgressMs: number | null = null;
       const startedAt = Date.now();
+      const progressWriter = new FirstProgressTimingWriter(startedAt);
       const result = await executeRepoSearchRequest({
         prompt: 'find async running status',
         repoRoot: tempRoot,
@@ -294,15 +308,13 @@ test('executeRepoSearchRequest does not wait for running status notification res
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {},
-        onProgress() {
-          firstProgressMs ??= Date.now() - startedAt;
-        },
+        progressWriter,
       });
 
       assert.equal(typeof result.requestId, 'string');
       await waitForStatusCount(statusServer.runningPostCount, 1);
-      assert.ok(firstProgressMs !== null, 'expected repo-search progress event');
-      assert.ok(firstProgressMs < 1500, `expected work to start before running notify response, got ${firstProgressMs} ms`);
+      assert.ok(progressWriter.firstProgressMs !== null, 'expected repo-search progress event');
+      assert.ok(progressWriter.firstProgressMs < 1500, `expected work to start before running notify response, got ${progressWriter.firstProgressMs} ms`);
     } finally {
       await statusServer.close();
     }
@@ -572,7 +584,7 @@ test('executeRepoSearchRequest persists summed prompt-eval and generation durati
         mockCommandResults: {
           'git status --short': { exitCode: 0, stdout: '', stderr: '' },
         },
-        onProgress() {},
+        progressWriter: new SilentProgressWriter<RepoSearchProgressEvent>(),
       });
 
       assert.equal(result.scorecard.verdict, 'pass');

@@ -3,20 +3,27 @@ import assert from 'node:assert/strict';
 
 import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
+import { SilentProgressWriter } from '../src/lib/progress-writer.js';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 
 function collect(): { events: RepoSearchProgressEvent[]; reporter: ProgressReporter } {
-  const events: RepoSearchProgressEvent[] = [];
+  const writer = new CollectingProgressWriter<RepoSearchProgressEvent>();
   const reporter = new ProgressReporter({
-    onProgress: (event) => { events.push(event); },
+    progressWriter: writer,
     taskId: 't1',
     maxTurns: 45,
     taskStartedAt: Date.now(),
   });
-  return { events, reporter };
+  return { events: writer.events, reporter };
 }
 
-test('enabled reflects callback presence; disabled reporter emits nothing', () => {
-  const disabled = new ProgressReporter({ onProgress: null, taskId: 't1', maxTurns: 45, taskStartedAt: Date.now() });
+test('enabled reflects writer behavior; silent writer emits nothing', () => {
+  const disabled = new ProgressReporter({
+    progressWriter: new SilentProgressWriter<RepoSearchProgressEvent>(),
+    taskId: 't1',
+    maxTurns: 45,
+    taskStartedAt: Date.now(),
+  });
   assert.equal(disabled.enabled, false);
   disabled.llmStart(1, 100);
   disabled.thinking(1, 'x');

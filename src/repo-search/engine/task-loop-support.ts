@@ -17,6 +17,7 @@ import type { ToolTranscriptAction } from '../../tool-call-messages.js';
 import { detectRecentTokenRepetition, type TokenRepetitionDetection } from '../repetition-guard.js';
 import { WebResearchTools } from '../../web-search/web-research-tools.js';
 import type { WebSearchConfig } from '../../web-search/types.js';
+import type { ProgressWriter } from '../../lib/progress-writer.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -162,7 +163,7 @@ export type RunTaskLoopOptions = {
   retainedWebToolCalls?: RetainedWebToolCall[];
   abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
-  onProgress?: ((event: RepoSearchProgressEvent) => void) | null;
+  progressWriter?: ProgressWriter<RepoSearchProgressEvent>;
   timingRecorder?: TemporaryTimingRecorder | null;
 };
 

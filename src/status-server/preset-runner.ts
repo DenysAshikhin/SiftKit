@@ -39,7 +39,7 @@ import { normalizeRepoSearchResult } from './repo-search-scorecard-types.js';
 type PresetRunOptions = {
   statusBackendUrl: string;
   summaryProgressWriter?: ProgressWriter<SummaryProgressEvent>;
-  onRepoSearchProgress?: (event: RepoSearchProgressEvent) => void;
+  repoSearchProgressWriter?: ProgressWriter<RepoSearchProgressEvent>;
   abortSignal?: AbortSignal;
 };
 
@@ -226,7 +226,7 @@ export class StatusPresetRunner {
       history: [],
       thinkingEnabled: true,
       allowedTools: [],
-      onProgress: options.onRepoSearchProgress,
+      progressWriter: options.repoSearchProgressWriter,
       abortSignal: options.abortSignal,
     });
     return { outputText: getFinalOutput(result) };
@@ -259,7 +259,7 @@ export class StatusPresetRunner {
       allowedTools: effectiveAllowedTools,
       includeAgentsMd: resolveEffectiveAgentsMd(config, preset),
       includeRepoFileListing: resolveEffectiveRepoFileListing(config, preset),
-      onProgress: options.onRepoSearchProgress,
+      progressWriter: options.repoSearchProgressWriter,
       abortSignal: options.abortSignal,
     });
     const outputText = preset.presetKind === 'plan'

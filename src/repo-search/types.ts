@@ -1,6 +1,7 @@
 import { z } from '../lib/zod.js';
 import type { JsonSerializable } from '../lib/json-types.js';
 import type { SiftConfig } from '../config/index.js';
+import type { ProgressWriter } from '../lib/progress-writer.js';
 
 export type JsonLogger = {
   path: string;
@@ -67,7 +68,7 @@ export type RepoSearchExecutionRequest = {
   mockResponses?: string[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
   retainedWebToolCalls?: RetainedWebToolCall[];
-  onProgress?: (event: RepoSearchProgressEvent) => void;
+  progressWriter?: ProgressWriter<RepoSearchProgressEvent>;
   abortSignal?: AbortSignal;
 };
 

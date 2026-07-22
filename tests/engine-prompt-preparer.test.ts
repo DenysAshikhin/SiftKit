@@ -6,6 +6,8 @@ import { PromptPreparer } from '../src/repo-search/engine/prompt-preparer.js';
 import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
 import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
+import { SilentProgressWriter } from '../src/lib/progress-writer.js';
+import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 
 function makePreparer(budget: TurnBudget, transcript: TranscriptManager): PromptPreparer {
   return new PromptPreparer({
@@ -19,7 +21,12 @@ function makePreparer(budget: TurnBudget, transcript: TranscriptManager): Prompt
     reasoningContentEnabled: false,
     preserveThinking: false,
     transcript,
-    progress: new ProgressReporter({ onProgress: null, taskId: 't1', maxTurns: 45, taskStartedAt: Date.now() }),
+    progress: new ProgressReporter({
+      progressWriter: new SilentProgressWriter<RepoSearchProgressEvent>(),
+      taskId: 't1',
+      maxTurns: 45,
+      taskStartedAt: Date.now(),
+    }),
     logger: null,
     timingRecorder: null,
   });

@@ -4,6 +4,7 @@ import os from 'node:os';
 import { executeRepoSearchRequest } from '../src/repo-search/execute.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 
 const MOCK_CONFIG = mockSiftConfig({
   Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
@@ -22,7 +23,7 @@ test('executeRepoSearchRequest chat kind returns finalOutput in scorecard, no to
     availableModels: ['mock'],
     model: 'mock',
     mockResponses: ['{"action":"finish","output":"You like green."}'],
-    onProgress: (event) => { events.push(event); },
+    progressWriter: new CollectingProgressWriter(events),
   });
   const tasks = result.scorecard.tasks;
   assert.equal(tasks[0].finalOutput, 'You like green.');
@@ -59,7 +60,7 @@ test('executeRepoSearchRequest chat with web tools runs native web_search', asyn
         stdout: 'Fetched page says an iron bar is about 150 gp per bar.',
       },
     },
-    onProgress: (event) => { events.push(event); },
+    progressWriter: new CollectingProgressWriter(events),
   });
   const tasks = result.scorecard.tasks;
   assert.equal(tasks[0].finalOutput, 'About 150 gp per bar.');

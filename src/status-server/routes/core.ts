@@ -48,9 +48,7 @@ import {
 } from '../config-store.js';
 import { resolveEffectiveAgentsMd, resolveEffectiveRepoFileListing } from './chat.js';
 import {
-  type RepoSearchProgressEvent,
   buildStatusRequestLogBody,
-  buildRepoSearchProgressLogBody,
   getStatusArtifactPath,
   upsertRunArtifactPayload,
   upsertRunLog,
@@ -58,7 +56,11 @@ import {
 } from '../dashboard-runs.js';
 import { RepoSearchResponseSanityChecker } from '../../repo-search/response-sanity.js';
 import { StatusPresetRunner } from '../preset-runner.js';
-import { SummarySseProgressWriter } from '../operation-progress-writers.js';
+import {
+  LoggedRepoSearchSseProgressWriter,
+  RepoSearchSseProgressWriter,
+  SummarySseProgressWriter,
+} from '../operation-progress-writers.js';
 import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.js';
 import {
   parseRepoSearchRequest,
@@ -102,7 +104,7 @@ import type {
 import {
   StreamedOperationEndpoint,
   type ParsedStreamedRequest,
-  type StreamedOperationStream,
+  type StreamedOperationContext,
 } from './streamed-operation-endpoint.js';
 
 const llamaCppClient = new LlamaCppClient();
@@ -705,7 +707,7 @@ class CommandOutputAnalyzeEndpoint extends StreamedOperationEndpoint<ParsedComma
   protected async execute(
     ctx: ServerContext,
     parsed: ParsedCommandOutputRoute,
-    stream: StreamedOperationStream,
+    stream: StreamedOperationContext,
   ): Promise<JsonSerializable> {
     const { parsedBody } = parsed;
     const reader = new JsonRecordReader(parsedBody);
@@ -761,7 +763,7 @@ class PresetRunEndpoint extends StreamedOperationEndpoint<ParsedPresetRunRoute> 
   protected async execute(
     ctx: ServerContext,
     parsed: ParsedPresetRunRoute,
-    stream: StreamedOperationStream,
+    stream: StreamedOperationContext,
   ): Promise<JsonSerializable> {
     const { parsedBody } = parsed;
     const reader = new JsonRecordReader(parsedBody);
@@ -783,12 +785,7 @@ class PresetRunEndpoint extends StreamedOperationEndpoint<ParsedPresetRunRoute> 
       statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
       abortSignal: stream.abortSignal,
       summaryProgressWriter: new SummarySseProgressWriter(stream),
-      onRepoSearchProgress(event) {
-        if (event.kind === 'thinking' || event.kind === 'answer') {
-          return;
-        }
-        stream.emitProgress(event);
-      },
+      repoSearchProgressWriter: new RepoSearchSseProgressWriter(stream),
     });
   }
 }
@@ -806,7 +803,7 @@ class EvalRunEndpoint extends StreamedOperationEndpoint<ParsedEvalRoute> {
   protected async execute(
     ctx: ServerContext,
     parsed: ParsedEvalRoute,
-    stream: StreamedOperationStream,
+    stream: StreamedOperationContext,
   ): Promise<JsonSerializable> {
     const { parsedBody } = parsed;
     const reader = new JsonRecordReader(parsedBody);
@@ -849,7 +846,7 @@ class RepoSearchEndpoint extends StreamedOperationEndpoint<ParsedRepoSearchRoute
   protected async execute(
     ctx: ServerContext,
     parsed: ParsedRepoSearchRoute,
-    stream: StreamedOperationStream,
+    stream: StreamedOperationContext,
   ): Promise<JsonSerializable> {
     const { parsedBody, repoSearchRequest, admission } = parsed;
     const reader = new JsonRecordReader(parsedBody);
@@ -876,18 +873,7 @@ class RepoSearchEndpoint extends StreamedOperationEndpoint<ParsedRepoSearchRoute
       mockResponses: Array.isArray(parsedBody.mockResponses) ? parsedBody.mockResponses.map((value) => String(value)) : undefined,
       mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
       abortSignal: stream.abortSignal,
-      onProgress(event: RepoSearchProgressEvent) {
-        if (event.kind === 'tool_start') {
-          const body = buildRepoSearchProgressLogBody(event);
-          if (body) {
-            serverLogger.emitBody('rs', admission.requestId, body);
-          }
-        }
-        if (event.kind === 'thinking' || event.kind === 'answer') {
-          return;
-        }
-        stream.emitProgress(event);
-      },
+      progressWriter: new LoggedRepoSearchSseProgressWriter(stream, admission.requestId),
     });
     RepoSearchResponseSanityChecker.assertSafeToSend(result);
     return result;
@@ -911,7 +897,7 @@ class SummaryEndpoint extends StreamedOperationEndpoint<ParsedSummaryRoute> {
   protected async execute(
     ctx: ServerContext,
     summaryRequest: ParsedSummaryRoute,
-    stream: StreamedOperationStream,
+    stream: StreamedOperationContext,
   ): Promise<JsonSerializable> {
     return ctx.engineService.summarize({
       question: summaryRequest.question,

@@ -25,6 +25,7 @@ import { getDefaultConfigObject } from '../src/config/defaults.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 
 // Mock-mode runTaskLoop calls do not reach a real provider or repo; these defaults
 // satisfy the required RunTaskLoopOptions fields with an empty repo root (behaviour-
@@ -165,7 +166,7 @@ test('repo-search executes a native web_search tool when allowed', async () => {
         stdout: '1. SiftKit\nURL: https://example.com/siftkit\nSnippet: web result snippet\nSource: tavily',
       },
     },
-    onProgress: (event) => events.push(event),
+    progressWriter: new CollectingProgressWriter(events),
   });
 
   assert.equal(scorecard.verdict, 'pass');
@@ -235,9 +236,7 @@ test('runTaskLoop reports prompt tokens and elapsed time on command progress eve
       mockCommandResults: {
         'git grep -n "planner" src': { exitCode: 0, stdout: 'planner hit', stderr: '' },
       },
-      onProgress(event: RepoSearchProgressEvent) {
-        progressEvents.push(event);
-      },
+      progressWriter: new CollectingProgressWriter(progressEvents),
     }
   );
 
@@ -278,9 +277,7 @@ test('runTaskLoop tool_result outputTokens reflects the fitted bubble output', a
       mockCommandResults: {
         'git grep -n "planner" src': { exitCode: 0, stdout: longStdout, stderr: '' },
       },
-      onProgress(event: RepoSearchProgressEvent) {
-        progressEvents.push(event);
-      },
+      progressWriter: new CollectingProgressWriter(progressEvents),
     }
   );
   const toolResult = progressEvents.find((event) => event.kind === 'tool_result');
@@ -354,9 +351,7 @@ test('runTaskLoop replaces long repeated tool output before inserting it into co
           events.push(JSON.parse(JSON.stringify(event)));
         },
       },
-      onProgress(event: RepoSearchProgressEvent) {
-        progressEvents.push(event);
-      },
+      progressWriter: new CollectingProgressWriter(progressEvents),
     }
   );
 
@@ -386,9 +381,7 @@ test('runTaskLoop does not replay final output as thinking progress', async () =
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {},
-      onProgress(event: RepoSearchProgressEvent) {
-        progressEvents.push(event);
-      },
+      progressWriter: new CollectingProgressWriter(progressEvents),
     }
   );
 
@@ -1372,9 +1365,7 @@ test('runTaskLoop assigns a unique toolCallId pairing tool_start with tool_resul
         'git grep -n "planner" src': { exitCode: 0, stdout: 'planner hit', stderr: '' },
         'git grep -n "prompt" src': { exitCode: 0, stdout: 'prompt hit', stderr: '' },
       },
-      onProgress(event: RepoSearchProgressEvent) {
-        progressEvents.push(event);
-      },
+      progressWriter: new CollectingProgressWriter(progressEvents),
     }
   );
 
@@ -1389,4 +1380,3 @@ test('runTaskLoop assigns a unique toolCallId pairing tool_start with tool_resul
   }
   assert.notEqual(starts[0].toolCallId, starts[1].toolCallId);
 });
-

@@ -14,7 +14,7 @@ import { existsSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { JsonRecordReader } from '../../lib/json-record-reader.js';
-import type { OptionalJsonValue, JsonSerializable } from '../../lib/json-types.js';
+import type { OptionalJsonValue } from '../../lib/json-types.js';
 import type { ChatGroundingStatus } from '../../repo-search/chat-grounding-policy.js';
 import { getRuntimeRoot } from '../paths.js';
 import { buildIgnorePolicy } from '../../repo-search/command-safety.js';
@@ -106,6 +106,7 @@ import {
 } from '../server-ops.js';
 import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.js';
 import type { ServerContext } from '../server-types.js';
+import { ProgressWriter } from '../../lib/progress-writer.js';
 
 const DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_MS = 30_000;
 
@@ -145,8 +146,6 @@ export function withEffectiveWebTools(
   return [...new Set([...allowedTools, ...WEB_RESEARCH_TOOLS])];
 }
 
-type SseWriter = (eventName: string, payload: JsonSerializable) => void;
-
 function requireToolCallId(event: RepoSearchProgressEvent): string {
   const value = typeof event.toolCallId === 'string' ? event.toolCallId.trim() : '';
   if (!value) {
@@ -156,7 +155,7 @@ function requireToolCallId(event: RepoSearchProgressEvent): string {
 }
 
 function forwardRepoSearchToolEvent(
-  writeSse: SseWriter,
+  writer: SseResponseWriter,
   event: RepoSearchProgressEvent,
   scope: 'plan' | 'rs',
   requestId: string,
@@ -164,7 +163,7 @@ function forwardRepoSearchToolEvent(
   if (event.kind === 'tool_start') {
     const body = buildRepoSearchProgressLogBody(event);
     if (body) serverLogger.emitBody(scope, requestId, body);
-    writeSse('tool_start', {
+    writer.writeEvent('tool_start', {
       toolCallId: requireToolCallId(event),
       turn: event.turn,
       maxTurns: event.maxTurns,
@@ -174,7 +173,7 @@ function forwardRepoSearchToolEvent(
     return;
   }
   if (event.kind === 'tool_result') {
-    writeSse('tool_result', {
+    writer.writeEvent('tool_result', {
       toolCallId: requireToolCallId(event),
       turn: event.turn,
       maxTurns: event.maxTurns,
@@ -451,6 +450,64 @@ function createChatTurnPhaseTracker(requestStartedAtUtc: string): {
       };
     },
   };
+}
+
+type ChatTurnPhaseTracker = ReturnType<typeof createChatTurnPhaseTracker>;
+
+class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
+  constructor(
+    private readonly writer: SseResponseWriter,
+    private readonly phaseTracker: ChatTurnPhaseTracker,
+    private readonly scope: 'plan' | 'rs',
+    private readonly requestId: string,
+    private readonly thinkingEvent: 'thinking' | 'answer',
+    private readonly streamAnswer: boolean,
+  ) {
+    super();
+  }
+
+  get enabled(): boolean {
+    return true;
+  }
+
+  write(event: RepoSearchProgressEvent): void {
+    if (event.kind === 'thinking') {
+      const text = event.thinkingText || '';
+      this.phaseTracker.observeThinking(text);
+      this.writer.writeEvent(this.thinkingEvent, this.thinkingEvent === 'thinking'
+        ? { thinking: text }
+        : { answer: text });
+      return;
+    }
+    if (event.kind === 'answer' && this.streamAnswer) {
+      const text = event.answerText || '';
+      this.phaseTracker.observeAnswer(text);
+      this.writer.writeEvent('answer', { answer: text });
+      return;
+    }
+    forwardRepoSearchToolEvent(this.writer, event, this.scope, this.requestId);
+  }
+}
+
+class RepoSearchToolLogProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
+  constructor(
+    private readonly scope: 'plan' | 'rs',
+    private readonly requestId: string,
+  ) {
+    super();
+  }
+
+  get enabled(): boolean {
+    return true;
+  }
+
+  write(event: RepoSearchProgressEvent): void {
+    if (event.kind !== 'tool_start') return;
+    const body = buildRepoSearchProgressLogBody(event);
+    if (body) {
+      serverLogger.emitBody(this.scope, this.requestId, body);
+    }
+  }
 }
 
 function captureManagedLlamaSessionCursor(ctx: ServerContext) {
@@ -940,9 +997,6 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
     }
     const sseWriter = new SseResponseWriter(req, res);
     sseWriter.open();
-    const writeSse = (eventName: string, payload: JsonSerializable): void => {
-      sseWriter.writeEvent(eventName, payload);
-    };
     const userContent = messageRequest.content;
     const startedAt = Date.now();
     const requestStartedAtUtc = new Date(startedAt).toISOString();
@@ -981,19 +1035,14 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
         availableModels: readRouteStringArray(reader, 'availableModels'),
         mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
         ...(mockResponses ? { mockResponses } : {}),
-        onProgress(event: RepoSearchProgressEvent) {
-          if (event.kind === 'thinking') {
-            phaseTracker.observeThinking(event.thinkingText || '');
-            writeSse('thinking', { thinking: event.thinkingText || '' });
-            return;
-          }
-          if (event.kind === 'answer') {
-            phaseTracker.observeAnswer(event.answerText || '');
-            writeSse('answer', { answer: event.answerText || '' });
-            return;
-          }
-          forwardRepoSearchToolEvent(writeSse, event, 'plan', engineRequestId);
-        },
+        progressWriter: new ChatStreamProgressWriter(
+          sseWriter,
+          phaseTracker,
+          'plan',
+          engineRequestId,
+          'thinking',
+          true,
+        ),
       });
       const scorecardTasks = normalizeRepoSearchScorecard(result.scorecard).tasks;
       const assistantContent = String(scorecardTasks[0]?.finalOutput || '').trim();
@@ -1034,9 +1083,9 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
         groundingStatus: getChatGroundingStatus(result.scorecard),
         sourceRunId: String(result.requestId || ''),
       });
-      writeSse('done', buildChatSessionResponse(config, updatedSession));
+      sseWriter.writeEvent('done', buildChatSessionResponse(config, updatedSession));
     } catch (error) {
-      writeSse('error', { error: error instanceof Error ? error.message : String(error) });
+      sseWriter.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
       sseWriter.end();
@@ -1131,12 +1180,7 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
         mockResponses,
         mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
         requestId: engineRequestId,
-        onProgress(event: RepoSearchProgressEvent) {
-          if (event.kind === 'tool_start') {
-            const body = buildRepoSearchProgressLogBody(event);
-            if (body) serverLogger.emitBody('plan', engineRequestId, body);
-          }
-        },
+        progressWriter: new RepoSearchToolLogProgressWriter('plan', engineRequestId),
       });
       const assistantContent = buildPlanMarkdownFromRepoSearch(content, resolvedRepoRoot, result);
       const speculativeMetrics = resolveSessionSpeculativeMetrics(
@@ -1257,9 +1301,6 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
     }
     const sseWriter = new SseResponseWriter(req, res);
     sseWriter.open();
-    const writeSse = (eventName: string, payload: JsonSerializable): void => {
-      sseWriter.writeEvent(eventName, payload);
-    };
     try {
       const startedAt = Date.now();
       const requestStartedAtUtc = new Date(startedAt).toISOString();
@@ -1298,14 +1339,14 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
         mockResponses,
         mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
         requestId: engineRequestId,
-        onProgress(event: RepoSearchProgressEvent) {
-          if (event.kind === 'thinking') {
-            phaseTracker.observeThinking(event.thinkingText || '');
-            writeSse('thinking', { thinking: event.thinkingText || '' });
-            return;
-          }
-          forwardRepoSearchToolEvent(writeSse, event, 'plan', engineRequestId);
-        },
+        progressWriter: new ChatStreamProgressWriter(
+          sseWriter,
+          phaseTracker,
+          'plan',
+          engineRequestId,
+          'thinking',
+          false,
+        ),
       });
       const assistantContent = buildPlanMarkdownFromRepoSearch(content, resolvedRepoRoot, result);
       phaseTracker.observeAnswer(assistantContent);
@@ -1357,7 +1398,7 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
           sourceRunId: String(result.requestId || ''),
         }
       );
-      writeSse('done', {
+      sseWriter.writeEvent('done', {
         ...buildChatSessionResponse(config, updatedSession),
         repoSearch: {
           requestId: result.requestId,
@@ -1367,7 +1408,7 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
         },
       });
     } catch (error) {
-      writeSse('error', { error: error instanceof Error ? error.message : String(error) });
+      sseWriter.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
       sseWriter.end();
@@ -1489,9 +1530,6 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
     }
     const sseWriter = new SseResponseWriter(req, res);
     sseWriter.open();
-    const writeSse = (eventName: string, payload: JsonSerializable): void => {
-      sseWriter.writeEvent(eventName, payload);
-    };
     try {
       const startedAt = Date.now();
       const requestStartedAtUtc = new Date(startedAt).toISOString();
@@ -1530,14 +1568,14 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
         mockResponses,
         mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
         requestId: engineRequestId,
-        onProgress(event: RepoSearchProgressEvent) {
-          if (event.kind === 'thinking') {
-            phaseTracker.observeThinking(event.thinkingText || '');
-            writeSse('answer', { answer: event.thinkingText || '' });
-            return;
-          }
-          forwardRepoSearchToolEvent(writeSse, event, 'rs', engineRequestId);
-        },
+        progressWriter: new ChatStreamProgressWriter(
+          sseWriter,
+          phaseTracker,
+          'rs',
+          engineRequestId,
+          'answer',
+          false,
+        ),
       });
       const assistantContent = buildRepoSearchMarkdown(content, resolvedRepoRoot, result);
       phaseTracker.observeAnswer(assistantContent);
@@ -1589,7 +1627,7 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
           sourceRunId: String(result.requestId || ''),
         }
       );
-      writeSse('done', {
+      sseWriter.writeEvent('done', {
         ...buildChatSessionResponse(config, updatedSession),
         repoSearch: {
           requestId: result.requestId,
@@ -1599,7 +1637,7 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
         },
       });
     } catch (error) {
-      writeSse('error', { error: error instanceof Error ? error.message : String(error) });
+      sseWriter.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
       sseWriter.end();

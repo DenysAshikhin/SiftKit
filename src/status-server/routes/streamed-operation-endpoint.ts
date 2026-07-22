@@ -19,10 +19,16 @@ export type ParsedStreamedRequest<TParsed> =
   | { ok: true; value: TParsed }
   | { ok: false; error: string };
 
-export type StreamedOperationStream = {
-  emitProgress(event: JsonSerializable): void;
-  abortSignal: AbortSignal;
-};
+export class StreamedOperationContext {
+  constructor(
+    private readonly writer: SseResponseWriter,
+    public readonly abortSignal: AbortSignal,
+  ) {}
+
+  writeProgress(event: JsonSerializable): void {
+    this.writer.writeEvent(OPERATION_STREAM_EVENTS.progress, event);
+  }
+}
 
 /** Runs validation, lock admission, execution, and terminal SSE framing. */
 export abstract class StreamedOperationEndpoint<TParsed> implements RouteEndpoint {
@@ -37,7 +43,7 @@ export abstract class StreamedOperationEndpoint<TParsed> implements RouteEndpoin
   protected abstract execute(
     ctx: ServerContext,
     parsed: TParsed,
-    stream: StreamedOperationStream,
+    stream: StreamedOperationContext,
   ): Promise<JsonSerializable>;
 
   protected onOperationFailed(_parsed: TParsed, _errorMessage: string): void {}
@@ -105,10 +111,11 @@ export abstract class StreamedOperationEndpoint<TParsed> implements RouteEndpoin
         writer.writeEvent(OPERATION_STREAM_EVENTS.error, payload);
         return;
       }
-      const result = await this.execute(ctx, parsed.value, {
-        emitProgress: (event) => writer.writeEvent(OPERATION_STREAM_EVENTS.progress, event),
-        abortSignal: abortController.signal,
-      });
+      const result = await this.execute(
+        ctx,
+        parsed.value,
+        new StreamedOperationContext(writer, abortController.signal),
+      );
       terminalFrameSent = true;
       writer.writeEvent(OPERATION_STREAM_EVENTS.result, result);
     } catch (error) {

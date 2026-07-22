@@ -1,4 +1,5 @@
 import type { RepoSearchProgressEvent } from '../types.js';
+import type { ProgressWriter } from '../../lib/progress-writer.js';
 
 export type TokenizeDoneInfo = {
   promptTokenCount: number;
@@ -12,25 +13,25 @@ export type TokenizeDoneInfo = {
 };
 
 export class ProgressReporter {
-  private readonly onProgress: ((event: RepoSearchProgressEvent) => void) | null;
+  private readonly progressWriter: ProgressWriter<RepoSearchProgressEvent>;
   private readonly taskId: string;
   private readonly maxTurns: number;
   private readonly taskStartedAt: number;
 
   constructor(options: {
-    onProgress: ((event: RepoSearchProgressEvent) => void) | null;
+    progressWriter: ProgressWriter<RepoSearchProgressEvent>;
     taskId: string;
     maxTurns: number;
     taskStartedAt: number;
   }) {
-    this.onProgress = options.onProgress;
+    this.progressWriter = options.progressWriter;
     this.taskId = options.taskId;
     this.maxTurns = options.maxTurns;
     this.taskStartedAt = options.taskStartedAt;
   }
 
   get enabled(): boolean {
-    return this.onProgress !== null;
+    return this.progressWriter.enabled;
   }
 
   private elapsedMs(): number {
@@ -38,7 +39,7 @@ export class ProgressReporter {
   }
 
   private emit(event: RepoSearchProgressEvent): void {
-    this.onProgress?.(event);
+    this.progressWriter.write(event);
   }
 
   preflightStart(turn: number, promptChars: number): void {
