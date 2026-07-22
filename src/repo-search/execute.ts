@@ -12,7 +12,7 @@ import { getNumericTotal, getOutputCharacterCount } from './scorecard.js';
 import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../state/runtime-db.js';
 import { upsertRepoSearchRun } from '../status-server/dashboard-runs.js';
-import { serverLogger } from '../status-server/server-logger.js';
+import { serverLogger, type ServerLogger } from '../status-server/server-logger.js';
 import { JsonObjectSchema } from '../lib/json-types.js';
 import { formatInteger } from '../lib/text-format.js';
 import { formatElapsed } from '../lib/time.js';
@@ -27,6 +27,49 @@ import type {
   RepoSearchExecutionResult,
   RepoSearchProgressEvent,
 } from './types.js';
+
+export type RepoSearchPreflightSummary = {
+  turn: number;
+  maxTurns: number;
+  promptChars: number;
+  promptTokenCount: number;
+  tokenizeElapsedMs: number;
+  tokenCountSource: string;
+  tokenizeRetryCount: number;
+  tokenizeStatus: string;
+  elapsedMs: number;
+  errorMessage?: string;
+};
+
+function formatKiloCharacters(characters: number): string {
+  return `${(Math.max(0, characters) / 1000).toFixed(1)}kc`;
+}
+
+/**
+ * The four preflight progress events collapse into this one line, emitted when
+ * tokenization finishes. The events themselves still reach the dashboard.
+ */
+export function logRepoSearchPreflight(
+  logger: ServerLogger,
+  requestId: string,
+  summary: RepoSearchPreflightSummary,
+): void {
+  const retries = summary.tokenizeRetryCount > 0 ? `  retries=${summary.tokenizeRetryCount}` : '';
+  const fields = `t${summary.turn}/${summary.maxTurns}`
+    + `  prompt=${formatInteger(summary.promptTokenCount)}tok/${formatKiloCharacters(summary.promptChars)}`
+    + `  tokenize=${summary.tokenizeElapsedMs}ms(${summary.tokenCountSource})`
+    + `  elapsed=${formatElapsed(summary.elapsedMs)}${retries}`;
+  if (summary.tokenizeStatus !== 'completed') {
+    logger.error({
+      scope: 'rs',
+      id: requestId,
+      event: 'preflight',
+      fields: `${fields}  status=${summary.tokenizeStatus}  ${summary.errorMessage ?? ''}`.trimEnd(),
+    });
+    return;
+  }
+  logger.event({ scope: 'rs', id: requestId, event: 'preflight', fields });
+}
 
 function logRepoSearchExecutionProgress(requestId: string, event: RepoSearchProgressEvent, startedAt: number): void {
   const elapsedMs = Number.isFinite(event.elapsedMs) ? Math.max(0, Math.trunc(Number(event.elapsedMs))) : Date.now() - startedAt;
@@ -70,17 +113,18 @@ function logRepoSearchExecutionProgress(requestId: string, event: RepoSearchProg
         + `retry_max_wait_ms=${Math.max(0, Math.trunc(Number(event.tokenizeRetryMaxWaitMs || 0)))}`,
     });
   } else if (event.kind === 'preflight_tokenize_done') {
-    const errorSuffix = event.errorMessage ? `  error=${JSON.stringify(event.errorMessage)}` : '';
-    const fields = `t${event.turn ?? '?'}  `
-      + `prompt=${formatInteger(Math.max(0, Math.trunc(Number(event.promptTokenCount || 0))))}tok  `
-      + `tokenize=${Math.max(0, Math.trunc(Number(event.tokenizeElapsedMs || 0)))}ms(${event.tokenCountSource || 'unknown'})  `
-      + `retries=${Math.max(0, Math.trunc(Number(event.tokenizeRetryCount || 0)))}  `
-      + `status=${event.tokenizeStatus || 'unknown'}${errorSuffix}`;
-    if (event.tokenizeStatus === 'completed') {
-      serverLogger.event({ scope: 'rs', id: requestId, event: 'preflight', fields });
-    } else {
-      serverLogger.error({ scope: 'rs', id: requestId, event: 'preflight', fields });
-    }
+    logRepoSearchPreflight(serverLogger, requestId, {
+      turn: Math.max(1, Math.trunc(Number(event.turn || 1))),
+      maxTurns: Math.max(1, Math.trunc(Number(event.maxTurns || 1))),
+      promptChars: Math.max(0, Math.trunc(Number(event.promptChars || 0))),
+      promptTokenCount: Math.max(0, Math.trunc(Number(event.promptTokenCount || 0))),
+      tokenizeElapsedMs: Math.max(0, Math.trunc(Number(event.tokenizeElapsedMs || 0))),
+      tokenCountSource: String(event.tokenCountSource || 'unknown'),
+      tokenizeRetryCount: Math.max(0, Math.trunc(Number(event.tokenizeRetryCount || 0))),
+      tokenizeStatus: String(event.tokenizeStatus || 'unknown'),
+      elapsedMs,
+      ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
+    });
   }
 }
 

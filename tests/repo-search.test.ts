@@ -419,7 +419,7 @@ test('executeRepoSearchRequest logs repo-search preflight tokenization timing', 
       lines.join('\n'),
     );
     assert.ok(
-      lines.some((line) => /rs [\da-f]{8} {2}preflight {2}t1 {2}prompt=\d+tok {2}tokenize=\d+ms\(llama\.cpp\) {2}retries=0 {2}status=completed/u.test(line)),
+      lines.some((line) => /rs [\da-f]{8} {2}preflight {2}t1\/\d+ {2}prompt=\d+tok\/\d+\.\dkc {2}tokenize=\d+ms\(llama\.cpp\) {2}elapsed=\d+s$/u.test(line)),
       lines.join('\n'),
     );
   }, {
