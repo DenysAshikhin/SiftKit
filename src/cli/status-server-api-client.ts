@@ -7,8 +7,12 @@ import {
   httpClient,
   logHttpClientBoundary,
   type HttpClient,
+  type LoggedHttpClientTask,
 } from '../lib/http-client.js';
 import { JsonObjectSchema, type JsonSerializable } from '../lib/json-types.js';
+import { parseJsonObjectText, parseJsonText } from '../lib/json.js';
+import { OPERATION_STREAM_EVENTS, OperationStreamErrorSchema } from '../lib/operation-stream.js';
+import { SseClient } from '../lib/sse-client.js';
 import { toError } from '../lib/errors.js';
 import type { SiftConfig } from '../config/index.js';
 import {
@@ -32,8 +36,10 @@ import {
 } from '../command-output/types.js';
 import { EvaluationResultSchema, type EvalRequest, type EvaluationResult } from '../eval-types.js';
 import { z } from '../lib/zod.js';
+import type { CliProgressRenderer } from './progress-renderer.js';
 
 const DEFAULT_SERVER_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
+const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
 
 export class StatusServerApiClient {
   private readonly client: HttpClient;
@@ -46,63 +52,58 @@ export class StatusServerApiClient {
     return this.requestConfig();
   }
 
-  async requestSummary(request: SummaryRequest): Promise<SummaryResult> {
-    const startedAt = Date.now();
-    const result = await this.postSummary(request);
-    logHttpClientBoundary(
-      'summary',
-      'caller_response_received',
-      `elapsed_ms=${Math.max(0, Date.now() - startedAt)} no_awaited_flush_before_next=true`,
-    );
-    return result;
+  requestSummary(request: SummaryRequest, renderer: CliProgressRenderer): Promise<SummaryResult> {
+    return this.requestStreamedOperation('/summary', JSON.stringify(request), SummaryResultSchema, renderer, 'summary');
   }
 
-  async requestRepoSearch(request: Record<string, JsonSerializable>): Promise<RepoSearchExecutionResult> {
-    const startedAt = Date.now();
-    const result = await this.postRepoSearch(request);
-    logHttpClientBoundary(
+  requestRepoSearch(
+    request: Record<string, JsonSerializable>,
+    renderer: CliProgressRenderer,
+  ): Promise<RepoSearchExecutionResult> {
+    return this.requestStreamedOperation(
+      '/repo-search',
+      JSON.stringify(request),
+      RepoSearchExecutionResultSchema,
+      renderer,
       'repo-search',
-      'caller_response_received',
-      `elapsed_ms=${Math.max(0, Date.now() - startedAt)} no_awaited_flush_before_next=true`,
     );
-    return result;
   }
 
-  async analyzeCommandOutput(request: CommandOutputAnalyzeRequest): Promise<CommandOutputAnalyzeResult> {
-    const startedAt = Date.now();
-    const result = await this.postCommandOutput(request);
-    logHttpClientBoundary(
+  analyzeCommandOutput(
+    request: CommandOutputAnalyzeRequest,
+    renderer: CliProgressRenderer,
+  ): Promise<CommandOutputAnalyzeResult> {
+    return this.requestStreamedOperation(
+      '/command-output/analyze',
+      JSON.stringify(request),
+      CommandOutputAnalyzeResultSchema,
+      renderer,
       'command-output',
-      'caller_response_received',
-      `elapsed_ms=${Math.max(0, Date.now() - startedAt)} no_awaited_flush_before_next=true`,
     );
-    return result;
   }
 
-  async runPreset(request: PresetRunRequest): Promise<PresetRunResult> {
-    const startedAt = Date.now();
-    const result = await this.postPresetRun(request);
-    logHttpClientBoundary(
+  runPreset(request: PresetRunRequest, renderer: CliProgressRenderer): Promise<PresetRunResult> {
+    return this.requestStreamedOperation(
+      '/preset/run',
+      JSON.stringify(request),
+      PresetRunResultSchema,
+      renderer,
       'preset',
-      'caller_response_received',
-      `elapsed_ms=${Math.max(0, Date.now() - startedAt)} no_awaited_flush_before_next=true`,
     );
-    return result;
   }
 
   listPresets(): Promise<PresetListResult> {
     return this.requestPresetList();
   }
 
-  async runEvaluation(request: EvalRequest): Promise<EvaluationResult> {
-    const startedAt = Date.now();
-    const result = await this.postEvalRun(request);
-    logHttpClientBoundary(
+  runEvaluation(request: EvalRequest, renderer: CliProgressRenderer): Promise<EvaluationResult> {
+    return this.requestStreamedOperation(
+      '/eval/run',
+      JSON.stringify(request),
+      EvaluationResultSchema,
+      renderer,
       'eval',
-      'caller_response_received',
-      `elapsed_ms=${Math.max(0, Date.now() - startedAt)} no_awaited_flush_before_next=true`,
     );
-    return result;
   }
 
   private getServiceUrl(pathname: string): string {
@@ -126,57 +127,6 @@ export class StatusServerApiClient {
     }
   }
 
-  private async postSummary(request: SummaryRequest): Promise<SummaryResult> {
-    try {
-      return await this.client.requestJson({
-        url: this.getServiceUrl('/summary'),
-        method: 'POST',
-        timeoutMs: DEFAULT_SERVER_REQUEST_TIMEOUT_MS,
-        body: JSON.stringify(request),
-      }, SummaryResultSchema);
-    } catch (error) {
-      throw this.normalizeError(toError(error));
-    }
-  }
-
-  private async postRepoSearch(request: Record<string, JsonSerializable>): Promise<RepoSearchExecutionResult> {
-    try {
-      return await this.client.requestJson({
-        url: this.getServiceUrl('/repo-search'),
-        method: 'POST',
-        body: JSON.stringify(request),
-      }, RepoSearchExecutionResultSchema);
-    } catch (error) {
-      throw this.normalizeError(toError(error));
-    }
-  }
-
-  private async postCommandOutput(request: CommandOutputAnalyzeRequest): Promise<CommandOutputAnalyzeResult> {
-    try {
-      return await this.client.requestJson({
-        url: this.getServiceUrl('/command-output/analyze'),
-        method: 'POST',
-        timeoutMs: DEFAULT_SERVER_REQUEST_TIMEOUT_MS,
-        body: JSON.stringify(request),
-      }, CommandOutputAnalyzeResultSchema);
-    } catch (error) {
-      throw this.normalizeError(toError(error));
-    }
-  }
-
-  private async postPresetRun(request: PresetRunRequest): Promise<PresetRunResult> {
-    try {
-      return await this.client.requestJson({
-        url: this.getServiceUrl('/preset/run'),
-        method: 'POST',
-        timeoutMs: DEFAULT_SERVER_REQUEST_TIMEOUT_MS,
-        body: JSON.stringify(request),
-      }, PresetRunResultSchema);
-    } catch (error) {
-      throw this.normalizeError(toError(error));
-    }
-  }
-
   private async requestPresetList(): Promise<PresetListResult> {
     try {
       return await this.client.requestJson({
@@ -189,14 +139,38 @@ export class StatusServerApiClient {
     }
   }
 
-  private async postEvalRun(request: EvalRequest): Promise<EvaluationResult> {
+  private async requestStreamedOperation<T>(
+    pathname: string,
+    body: string,
+    schema: z.ZodType<T>,
+    renderer: CliProgressRenderer,
+    task: LoggedHttpClientTask,
+  ): Promise<T> {
+    const startedAt = Date.now();
     try {
-      return await this.client.requestJson({
-        url: this.getServiceUrl('/eval/run'),
-        method: 'POST',
-        timeoutMs: DEFAULT_SERVER_REQUEST_TIMEOUT_MS,
-        body: JSON.stringify(request),
-      }, EvaluationResultSchema);
+      for await (const frame of new SseClient().stream({
+        url: this.getServiceUrl(pathname),
+        body,
+        idleTimeoutMs: DEFAULT_IDLE_TIMEOUT_MS,
+      })) {
+        if (frame.event === OPERATION_STREAM_EVENTS.progress) {
+          renderer.render(parseJsonObjectText(frame.data));
+          continue;
+        }
+        if (frame.event === OPERATION_STREAM_EVENTS.error) {
+          const payload = OperationStreamErrorSchema.parse(parseJsonObjectText(frame.data));
+          throw new Error(payload.message);
+        }
+        if (frame.event === OPERATION_STREAM_EVENTS.result) {
+          logHttpClientBoundary(
+            task,
+            'caller_response_received',
+            `elapsed_ms=${Math.max(0, Date.now() - startedAt)} no_awaited_flush_before_next=true`,
+          );
+          return parseJsonText(frame.data, schema);
+        }
+      }
+      throw new Error('Operation stream ended before a result frame.');
     } catch (error) {
       throw this.normalizeError(toError(error));
     }
