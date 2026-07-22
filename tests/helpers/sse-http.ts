@@ -50,7 +50,7 @@ export function requestSse(
             collected.result = data;
           } else if (frame.event === 'error') {
             collected.error = data;
-            collected.errorMessage = String(data.message || '');
+            collected.errorMessage = String(data.error || '');
           }
         }
       });

@@ -619,7 +619,9 @@ test('summary endpoint returns, logs, and persists diagnostics for 500 responses
 
     assert.equal(summary.statusCode, 200);
     assert.equal(summary.errorMessage, 'mock provider failure');
+    assert.equal(summary.error?.errorName, 'Error');
     assert.equal(typeof summary.error?.diagnosticId, 'string');
+    assert.equal(asObject(summary.error?.diagnostic).message, 'mock provider failure');
     assert.match(stderrText, /\[siftKitStatus\] request_error/u);
     assert.match(stderrText, /route=\/summary/u);
     assert.match(stderrText, /error_name=Error/u);

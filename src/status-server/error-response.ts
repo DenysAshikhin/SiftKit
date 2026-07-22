@@ -1,6 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { toError } from '../lib/errors.js';
-import { getPrimaryCauseDiagnostic, serializeErrorDiagnostic } from '../lib/error-diagnostics.js';
+import {
+  getPrimaryCauseDiagnostic,
+  serializeErrorDiagnostic,
+  type ServerErrorPayload,
+} from '../lib/error-diagnostics.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
 import {
   createRuntimeErrorEventId,
@@ -11,13 +15,6 @@ import { sendJson } from './http-utils.js';
 export type ServerErrorResponseOptions = {
   taskKind?: string | null;
   requestId?: string | null;
-};
-
-export type ServerErrorPayload = {
-  error: string;
-  errorName: string;
-  diagnosticId: string;
-  diagnostic: ReturnType<typeof serializeErrorDiagnostic>;
 };
 
 function normalizeLogValue(value: string | null | undefined): string {

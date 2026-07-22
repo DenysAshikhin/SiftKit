@@ -11,6 +11,7 @@ import type { StatusEngineService } from './engine-service.js';
 import type { SiftConfig } from '../config/types.js';
 import type { PresetRuntimeCoordinator } from './preset-runtime-coordinator.js';
 import type { ModelIdleController } from './model-idle-controller.js';
+export type { ModelRequestQueueDiagnostics } from '../lib/operation-stream.js';
 
 export type DatabaseInstance = InstanceType<typeof Database>;
 
@@ -43,21 +44,6 @@ export type ModelRequestWaiter = {
   lastQueuePosition: number;
   resolveLock(lock: ModelRequestLock | null): void;
 };
-export type ModelRequestQueueDiagnostics = {
-  active: boolean;
-  activeRequest: {
-    kind: string;
-    startedAtUtc: string;
-    heldMs: number;
-  } | null;
-  queueLength: number;
-  queuedRequests: Array<{
-    kind: string;
-    enqueuedAtUtc: string;
-    waitMs: number;
-  }>;
-};
-
 export type DeferredArtifact = {
   artifactType: 'summary_request' | 'planner_debug' | 'planner_failed';
   artifactRequestId: string;

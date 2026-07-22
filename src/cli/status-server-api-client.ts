@@ -11,8 +11,13 @@ import {
 } from '../lib/http-client.js';
 import { JsonObjectSchema, type JsonSerializable } from '../lib/json-types.js';
 import { parseJsonObjectText, parseJsonText } from '../lib/json.js';
-import { OPERATION_STREAM_EVENTS, OperationStreamErrorSchema } from '../lib/operation-stream.js';
-import { SseClient } from '../lib/sse-client.js';
+import {
+  OPERATION_STREAM_EVENTS,
+  OperationStreamErrorSchema,
+  type ModelRequestQueueDiagnostics,
+  type OperationStreamError,
+} from '../lib/operation-stream.js';
+import type { ErrorDiagnostic } from '../lib/error-diagnostics.js';
 import { toError } from '../lib/errors.js';
 import type { SiftConfig } from '../config/index.js';
 import {
@@ -40,6 +45,20 @@ import type { CliProgressRenderer } from './progress-renderer.js';
 
 const DEFAULT_SERVER_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+
+export class StatusServerOperationError extends Error {
+  public readonly diagnosticId: string;
+  public readonly diagnostic: ErrorDiagnostic;
+  public readonly modelRequests: ModelRequestQueueDiagnostics | undefined;
+
+  constructor(payload: OperationStreamError) {
+    super(payload.error);
+    this.name = payload.errorName;
+    this.diagnosticId = payload.diagnosticId;
+    this.diagnostic = payload.diagnostic;
+    this.modelRequests = payload.modelRequests;
+  }
+}
 
 export class StatusServerApiClient {
   private readonly client: HttpClient;
@@ -148,7 +167,7 @@ export class StatusServerApiClient {
   ): Promise<T> {
     const startedAt = Date.now();
     try {
-      for await (const frame of new SseClient().stream({
+      for await (const frame of this.client.streamSse({
         url: this.getServiceUrl(pathname),
         body,
         idleTimeoutMs: DEFAULT_IDLE_TIMEOUT_MS,
@@ -159,7 +178,7 @@ export class StatusServerApiClient {
         }
         if (frame.event === OPERATION_STREAM_EVENTS.error) {
           const payload = OperationStreamErrorSchema.parse(parseJsonObjectText(frame.data));
-          throw new Error(payload.message);
+          throw new StatusServerOperationError(payload);
         }
         if (frame.event === OPERATION_STREAM_EVENTS.result) {
           logHttpClientBoundary(
@@ -177,6 +196,9 @@ export class StatusServerApiClient {
   }
 
   private normalizeError(error: Error): Error {
+    if (error instanceof StatusServerOperationError) {
+      return error;
+    }
     const message = error.message;
     if (/^HTTP \d+:/u.test(message)) {
       return error;

@@ -1,12 +1,25 @@
-export type ErrorDiagnostic = {
-  name: string;
-  message: string;
-  stack?: string;
-  operation?: string;
-  serviceUrl?: string;
-  healthUrl?: string;
-  cause?: ErrorDiagnostic;
-};
+import { z } from './zod.js';
+
+export const ErrorDiagnosticSchema = z.object({
+  name: z.string(),
+  message: z.string(),
+  stack: z.string().optional(),
+  operation: z.string().optional(),
+  serviceUrl: z.string().optional(),
+  healthUrl: z.string().optional(),
+  get cause() {
+    return ErrorDiagnosticSchema.optional();
+  },
+});
+export type ErrorDiagnostic = z.infer<typeof ErrorDiagnosticSchema>;
+
+export const ServerErrorPayloadSchema = z.object({
+  error: z.string(),
+  errorName: z.string(),
+  diagnosticId: z.string(),
+  diagnostic: ErrorDiagnosticSchema,
+});
+export type ServerErrorPayload = z.infer<typeof ServerErrorPayloadSchema>;
 
 function readErrorString(error: Error, key: 'operation' | 'serviceUrl' | 'healthUrl'): string | undefined {
   if (!(key in error)) {

@@ -343,6 +343,10 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
       const queuedResponse = await queuedRequest;
       assert.equal(queuedResponse.statusCode, 200);
       assert.match(queuedResponse.errorMessage || '', /Timed out waiting for model request queue/u);
+      assert.equal(queuedResponse.error?.errorName, 'Error');
+      assert.equal(typeof queuedResponse.error?.diagnosticId, 'string');
+      assert.match(String(asObject(queuedResponse.error?.diagnostic).message), /Timed out waiting/u);
+      assert.equal(typeof asObject(queuedResponse.error?.modelRequests).queueLength, 'number');
 
       const activeResponse = await activeRequest;
       assert.ok(activeResponse.result);

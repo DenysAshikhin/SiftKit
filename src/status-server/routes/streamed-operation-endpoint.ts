@@ -84,10 +84,11 @@ export abstract class StreamedOperationEndpoint<TParsed> implements RouteEndpoin
     clearInterval(lockWaitTimer);
     if (!modelRequestLock) {
       const message = 'Timed out waiting for model request queue.';
-      this.onOperationFailed(parsed.value, message);
+      const payload = recordServerError(req, 503, new Error(message), { taskKind: this.taskKind });
+      this.onOperationFailed(parsed.value, payload.error);
       terminalFrameSent = true;
       writer.writeEvent(OPERATION_STREAM_EVENTS.error, {
-        message,
+        ...payload,
         modelRequests: getModelRequestQueueDiagnostics(ctx),
       });
       writer.end();
@@ -101,10 +102,7 @@ export abstract class StreamedOperationEndpoint<TParsed> implements RouteEndpoin
         const payload = recordServerError(req, 503, error, { taskKind: this.taskKind });
         this.onOperationFailed(parsed.value, payload.error);
         terminalFrameSent = true;
-        writer.writeEvent(OPERATION_STREAM_EVENTS.error, {
-          message: payload.error,
-          diagnosticId: payload.diagnosticId,
-        });
+        writer.writeEvent(OPERATION_STREAM_EVENTS.error, payload);
         return;
       }
       const result = await this.execute(ctx, parsed.value, {
@@ -117,10 +115,7 @@ export abstract class StreamedOperationEndpoint<TParsed> implements RouteEndpoin
       const payload = recordServerError(req, 500, error, { taskKind: this.taskKind });
       this.onOperationFailed(parsed.value, payload.error);
       terminalFrameSent = true;
-      writer.writeEvent(OPERATION_STREAM_EVENTS.error, {
-        message: payload.error,
-        diagnosticId: payload.diagnosticId,
-      });
+      writer.writeEvent(OPERATION_STREAM_EVENTS.error, payload);
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
       writer.end();
