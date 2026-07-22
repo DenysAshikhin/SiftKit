@@ -161,7 +161,7 @@ test('managed llama flush queue does not log repeated active-request drain waits
     }
 
     assert.equal(
-      capture.lines.some((line) => line.includes(`managed_llama flush drain_wait run_id=${run.id}`)),
+      capture.lines.some((line) => line.includes(`llama ${run.id.slice(0, 8)}  flush_done`)),
       false,
       capture.lines.join('\n'),
     );

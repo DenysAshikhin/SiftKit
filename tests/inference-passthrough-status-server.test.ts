@@ -292,7 +292,7 @@ test('chat passthrough logs every forwarded /v1/chat/completions request', async
       assert.equal(response.statusCode, 200);
     });
 
-    const forwardLine = lines.find((line) => line.includes('inference_passthrough forward'));
+    const forwardLine = lines.find((line) => /proxy -{8} {2}forward/u.test(line));
     assert.ok(forwardLine, `expected a forward log line, got:\n${lines.join('\n')}`);
     assert.match(forwardLine, /path=\/v1\/chat\/completions/u);
     assert.match(forwardLine, /messages=2/u);

@@ -43,8 +43,8 @@ import {
 import { resolveEffectiveAgentsMd, resolveEffectiveRepoFileListing } from './chat.js';
 import {
   type RepoSearchProgressEvent,
-  buildStatusRequestLogMessage,
-  buildRepoSearchProgressLogMessage,
+  buildStatusRequestLogBody,
+  buildRepoSearchProgressLogBody,
   getStatusArtifactPath,
   upsertRunArtifactPayload,
   upsertRunLog,
@@ -62,8 +62,8 @@ import {
   captureManagedLlamaSpeculativeMetricsSnapshot,
   getManagedLlamaSpeculativeMetricsDelta,
   getManagedLlamaStartupFailure,
-  logLine,
 } from '../managed-llama.js';
+import { serverLogger, shortenRequestId } from '../server-logger.js';
 import {
   getPublishedStatusText,
   writePublishedStatus,
@@ -274,24 +274,29 @@ export function isStrictConfigPayload(value: OptionalJsonValue): boolean {
     && Object.prototype.hasOwnProperty.call(server, 'ModelPresets');
 }
 
-function buildToolStatsLogMessages(taskKind: TaskKind, stats: Record<string, ToolTypeStats> | null): string[] {
+function logToolStatsLines(
+  requestId: string,
+  taskKind: TaskKind,
+  stats: Record<string, ToolTypeStats> | null,
+): void {
   if (!stats || typeof stats !== 'object' || Array.isArray(stats)) {
-    return [];
+    return;
   }
-  const lines: string[] = [];
   for (const [toolType, toolStats] of Object.entries(stats)) {
     const safeToolType = String(toolType || '').trim();
     if (!safeToolType) {
       continue;
     }
-    lines.push(
-      `tool_stats task=${taskKind} tool=${safeToolType} calls=${Math.max(0, Number(toolStats.calls || 0))}`
-      + ` output_chars=${Math.max(0, Number(toolStats.outputCharsTotal || 0))}`
-      + ` output_tokens=${Math.max(0, Number(toolStats.outputTokensTotal || 0))}`
-      + ` output_tokens_estimated=${Math.max(0, Number(toolStats.outputTokensEstimatedCount || 0))}`,
-    );
+    serverLogger.event({
+      scope: 'st',
+      id: requestId,
+      event: 'tool_stats',
+      fields: `task=${taskKind} tool=${safeToolType} calls=${Math.max(0, Number(toolStats.calls || 0))}`
+        + ` output_chars=${Math.max(0, Number(toolStats.outputCharsTotal || 0))}`
+        + ` output_tokens=${Math.max(0, Number(toolStats.outputTokensTotal || 0))}`
+        + ` output_tokens_estimated=${Math.max(0, Number(toolStats.outputTokensEstimatedCount || 0))}`,
+    });
   }
-  return lines;
 }
 
 type DeferredTerminalMetadataJob = {
@@ -396,7 +401,7 @@ function applyDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTerminal
     ctx.idleSummaryPending = true;
     scheduleIdleSummaryIfNeeded(ctx);
   }
-  const logMessage = buildStatusRequestLogMessage({
+  const logBody = buildStatusRequestLogBody({
     running: false,
     statusPath: ctx.statusPath,
     requestId: job.requestId,
@@ -420,12 +425,10 @@ function applyDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTerminal
     totalOutputTokens: metadata.totalOutputTokens ?? null,
   });
   if (!job.suppressLogLine) {
-    logLine(logMessage);
+    serverLogger.emitBody('st', job.requestId, logBody);
   }
   if (taskKind && metadata.toolStats) {
-    for (const toolLogLine of buildToolStatsLogMessages(taskKind, metadata.toolStats)) {
-      logLine(toolLogLine);
-    }
+    logToolStatsLines(job.requestId, taskKind, metadata.toolStats);
   }
 }
 
@@ -468,10 +471,12 @@ function scheduleTerminalMetadataDrain(ctx: ServerContext, delayMs: number = 0):
 
 function enqueueTerminalMetadata(ctx: ServerContext, item: TerminalMetadataQueueItem): void {
   ctx.terminalMetadataQueue.push(item);
-  logLine(
-    `status terminal_metadata_enqueued request_id=${item.requestId} state=${item.terminalState} `
-    + `queue_length=${ctx.terminalMetadataQueue.length}`,
-  );
+  serverLogger.debug({
+    scope: 'st',
+    id: item.requestId,
+    event: 'terminal_metadata_enqueued',
+    fields: `state=${item.terminalState} q=${ctx.terminalMetadataQueue.length}`,
+  });
   scheduleTerminalMetadataDrain(ctx);
 }
 
@@ -563,11 +568,14 @@ function drainTerminalMetadataQueue(ctx: ServerContext): void {
   }
   const waitMs = getTerminalMetadataIdleWaitMs(ctx, nextItem.capturedAtMs);
   if (waitMs > 0) {
-    logLine(
-      `status terminal_metadata_drain_wait request_id=${nextItem.requestId} state=${nextItem.terminalState} `
-      + `wait_ms=${Math.max(1, Math.trunc(waitMs))} active=${ctx.activeModelRequest ? 'true' : 'false'} `
-      + `queue_length=${ctx.terminalMetadataQueue.length} model_queue_length=${ctx.modelRequestQueue.length}`,
-    );
+    serverLogger.dim({
+      scope: 'st',
+      id: nextItem.requestId,
+      event: 'drain_wait',
+      fields: `state=${nextItem.terminalState} wait_ms=${Math.max(1, Math.trunc(waitMs))} `
+        + `active=${ctx.activeModelRequest ? 'true' : 'false'} `
+        + `q=${ctx.terminalMetadataQueue.length} model_q=${ctx.modelRequestQueue.length}`,
+    });
     scheduleTerminalMetadataDrain(ctx, waitMs);
     return;
   }
@@ -578,18 +586,28 @@ function drainTerminalMetadataQueue(ctx: ServerContext): void {
     return;
   }
   const startedAt = Date.now();
-  logLine(`status terminal_metadata_process_start request_id=${item.requestId} state=${item.terminalState}`);
+  serverLogger.debug({
+    scope: 'st',
+    id: item.requestId,
+    event: 'terminal_metadata_process_start',
+    fields: `state=${item.terminalState}`,
+  });
   try {
     processTerminalMetadataBody(ctx, item);
-    logLine(
-      `status terminal_metadata_process_done request_id=${item.requestId} state=${item.terminalState} `
-      + `duration_ms=${Date.now() - startedAt}`,
-    );
+    serverLogger.dim({
+      scope: 'st',
+      id: item.requestId,
+      event: 'terminal_metadata_process_done',
+      fields: `state=${item.terminalState} duration_ms=${Date.now() - startedAt}`,
+    });
   } catch (error) {
-    logLine(
-      `status terminal_metadata_process_failed request_id=${item.requestId} state=${item.terminalState} `
-      + `duration_ms=${Date.now() - startedAt} error=${error instanceof Error ? error.message : String(error)}`,
-    );
+    serverLogger.error({
+      scope: 'st',
+      id: item.requestId,
+      event: 'terminal_metadata_process_failed',
+      fields: `state=${item.terminalState} duration_ms=${Date.now() - startedAt} `
+        + `error=${error instanceof Error ? error.message : String(error)}`,
+    });
   } finally {
     ctx.terminalMetadataDrainRunning = false;
     if (ctx.terminalMetadataQueue.length > 0) {
@@ -892,8 +910,10 @@ class RepoSearchEndpoint implements RouteEndpoint {
         mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
         onProgress(event: RepoSearchProgressEvent) {
           if (event.kind === 'tool_start') {
-            const logMessage = buildRepoSearchProgressLogMessage(event, 'repo_search');
-            if (logMessage) logLine(logMessage);
+            const body = buildRepoSearchProgressLogBody(event);
+            if (body) {
+              serverLogger.event({ scope: 'rs', id: admission.requestId, event: body.event, fields: body.fields });
+            }
           }
         },
       });
@@ -999,16 +1019,18 @@ class StatusCompleteEndpoint implements RouteEndpoint {
       sendJson(res, 400, { error: 'Expected terminalState=completed|failed.' });
       return;
     }
-    logLine(`status complete_start request_id=${requestId} state=${terminalState}`);
+    serverLogger.debug({ scope: 'st', id: requestId, event: 'complete_start', fields: `state=${terminalState}` });
     rememberCompletedStatusRequestId(ctx, completedStatusPath, requestId);
     if (ctx.activeRequestIdByStatusPath.get(completedStatusPath) === requestId) {
       ctx.activeRequestIdByStatusPath.delete(completedStatusPath);
     }
     writePublishedStatus(ctx, getPublishedStatusText(ctx));
-    logLine(
-      `status complete_done request_id=${requestId} state=${terminalState} `
-      + `duration_ms=${Date.now() - routeStartedAt}`,
-    );
+    serverLogger.ok({
+      scope: 'st',
+      id: requestId,
+      event: 'complete_done',
+      fields: `state=${terminalState} duration_ms=${Date.now() - routeStartedAt}`,
+    });
     sendJson(res, 200, { ok: true, requestId, terminalState, statusPath: completedStatusPath });
     return;
   }
@@ -1196,7 +1218,12 @@ class StatusPostRequestHandler {
   private handleLateOrRunningPost(running: boolean, requestId: string, metadata: StatusPostMetadata): boolean {
     clearCompletedStatusRequestIdForDifferentRequest(this.ctx, this.statusPath, requestId);
     if (running && this.ctx.completedRequestIdByStatusPath.get(this.statusPath) === requestId) {
-      logLine(`request late_running_ignored request_id=${requestId} task=${metadata.taskKind ?? 'unknown'}`);
+      serverLogger.dim({
+        scope: 'st',
+        id: requestId,
+        event: 'late_running_ignored',
+        fields: `task=${metadata.taskKind ?? 'unknown'}`,
+      });
       this.sendCurrentStatus();
       return true;
     }
@@ -1213,7 +1240,13 @@ class StatusPostRequestHandler {
     const activeRun = activeRequestId ? this.ctx.activeRunsByRequestId.get(activeRequestId) || null : null;
     this.capturePendingIdleSummaryMetadata(metadata);
     if (activeRun && activeRequestId !== requestId) {
-      logLine(`request stale_status_abandoned active_request_id=${activeRequestId} incoming_request_id=${requestId} lock_task=${this.ctx.activeModelRequest?.kind ?? 'none'}`);
+      serverLogger.error({
+        scope: 'st',
+        id: activeRequestId ?? '',
+        event: 'stale_status_abandoned',
+        fields: `incoming_request_id=${shortenRequestId(requestId)} `
+          + `lock_task=${this.ctx.activeModelRequest?.kind ?? 'none'}`,
+      });
       logAbandonedRun(this.ctx, activeRun, now);
       clearRunState(this.ctx, activeRequestId);
     }
@@ -1456,7 +1489,7 @@ class StatusPostRequestHandler {
     deferredMetadata: StatusPostDeferredMetadata | null,
     timing: StatusPostTimingResult,
   ): void {
-    const logMessage = buildStatusRequestLogMessage({
+    const logBody = buildStatusRequestLogBody({
       running,
       statusPath: this.statusPath,
       requestId,
@@ -1479,16 +1512,14 @@ class StatusPostRequestHandler {
       toolTokens: metadata.toolTokens,
       totalOutputTokens: metadata.totalOutputTokens ?? null,
     });
-    if (!timing.suppressLogLine && deferredMetadata === null) logLine(logMessage);
-    if (!running && deferredMetadata === null) this.logToolStats(metadata);
+    if (!timing.suppressLogLine && deferredMetadata === null) serverLogger.emitBody('st', requestId, logBody);
+    if (!running && deferredMetadata === null) this.logToolStats(requestId, metadata);
   }
 
-  private logToolStats(metadata: StatusPostMetadata): void {
+  private logToolStats(requestId: string, metadata: StatusPostMetadata): void {
     const taskKind = normalizeTaskKind(metadata.taskKind);
     if (!taskKind || !metadata.toolStats) return;
-    for (const toolLogLine of buildToolStatsLogMessages(taskKind, metadata.toolStats)) {
-      logLine(toolLogLine);
-    }
+    logToolStatsLines(requestId, taskKind, metadata.toolStats);
   }
 
   private finalizeStatusPost(

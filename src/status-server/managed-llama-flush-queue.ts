@@ -13,7 +13,7 @@ import {
   getManagedLlamaSpeculativeMetricsSnapshot,
   type ManagedLlamaSpeculativeMetricsSnapshot,
 } from './managed-llama-speculative-tracker.js';
-import { logLine } from './managed-llama.js';
+import { serverLogger } from './server-logger.js';
 
 type ManagedLlamaFlushQueueItem = {
   runId: string;
@@ -95,7 +95,12 @@ export class ManagedLlamaFlushQueue {
       metricsSnapshot: null,
     });
     this.pendingOrder.push(normalizedRunId);
-    logLine(`managed_llama flush enqueue run_id=${normalizedRunId} pending=${this.pendingOrder.length}`);
+    serverLogger.debug({
+      scope: 'llama',
+      id: normalizedRunId,
+      event: 'flush_enqueue',
+      fields: `pending=${this.pendingOrder.length}`,
+    });
     if (!this.draining) {
       this.scheduleDrain(0);
     }
@@ -187,11 +192,14 @@ export class ManagedLlamaFlushQueue {
           const metricsFlushed = await this.flushInWorker(runId, item.entries, item.metricsSnapshot);
           const durationMs = Date.now() - startedAtMs;
           this.completedCount += 1;
-          logLine(
-            `managed_llama flush done run_id=${runId} wait_ms=${waitMs} duration_ms=${durationMs} `
-            + `pending_chars=${pendingStats.totalCharacters} stream_count=${pendingStats.streamCount} `
-            + `metrics_flushed=${metricsFlushed}`,
-          );
+          serverLogger.dim({
+            scope: 'llama',
+            id: runId,
+            event: 'flush_done',
+            fields: `wait_ms=${waitMs} duration_ms=${durationMs} `
+              + `pending_chars=${pendingStats.totalCharacters} stream_count=${pendingStats.streamCount} `
+              + `metrics_flushed=${metricsFlushed}`,
+          });
         } catch (error) {
           const durationMs = Date.now() - startedAtMs;
           const message = error instanceof Error ? error.message : String(error);
@@ -203,10 +211,13 @@ export class ManagedLlamaFlushQueue {
           this.failedCount += 1;
           this.pendingByRunId.set(runId, item);
           this.pendingOrder.push(runId);
-          logLine(
-            `managed_llama flush retry run_id=${runId} wait_ms=${waitMs} duration_ms=${durationMs} `
-            + `attempt=${item.attempts} pending_chars=${pendingStats.totalCharacters} error=${JSON.stringify(message)}`,
-          );
+          serverLogger.error({
+            scope: 'llama',
+            id: runId,
+            event: 'flush_retry',
+            fields: `wait_ms=${waitMs} duration_ms=${durationMs} `
+              + `attempt=${item.attempts} pending_chars=${pendingStats.totalCharacters} error=${JSON.stringify(message)}`,
+          });
           this.scheduleDrain(250);
           break;
         } finally {

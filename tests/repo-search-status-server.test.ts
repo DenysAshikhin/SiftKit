@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createRequire, Module } from 'node:module';
 import Database from 'better-sqlite3';
 
-import { startStatusServer, buildRepoSearchProgressLogMessage } from '../src/status-server/index.js';
+import { startStatusServer, buildRepoSearchProgressLogBody } from '../src/status-server/index.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { getConfigPath } from '../src/config/index.js';
 import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
@@ -379,7 +379,7 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
       assert.equal(activeResponse.statusCode, 200);
     });
 
-    assert.ok(lines.some((line) => /request dropped reason=model_queue_timeout task=repo_search/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /st [\w-]{8} {2}dropped {2}reason=model_queue_timeout task=repo_search/u.test(line)), lines.join('\n'));
 
     const database = new Database(dbPath, { readonly: true });
     try {
@@ -724,12 +724,12 @@ test('repo-search endpoint logs one model-requested command line per tool call',
       assert.equal(response.statusCode, 200);
     });
 
-    const commandLines = lines.filter((line) => /repo_search command turn=/u.test(line));
+    const commandLines = lines.filter((line) => /rs [\w-]{8} {2}command {2}t\d+\//u.test(line));
     assert.equal(commandLines.length, 1, lines.join('\n'));
-    assert.match(commandLines[0], /command=git grep -n "planner" src$/u);
+    assert.match(commandLines[0], /git grep -n "planner" src$/u);
     assert.equal(/--no-ignore|--ignore-case|--glob/u.test(commandLines[0]), false, commandLines[0]);
-    assert.equal(lines.some((line) => /repo_search llm_start/u.test(line)), false, lines.join('\n'));
-    assert.equal(lines.some((line) => /repo_search llm_end/u.test(line)), false, lines.join('\n'));
+    assert.equal(lines.some((line) => / llm_start/u.test(line)), false, lines.join('\n'));
+    assert.equal(lines.some((line) => / llm_end/u.test(line)), false, lines.join('\n'));
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
@@ -747,45 +747,50 @@ test('repo-search endpoint logs one model-requested command line per tool call',
   }
 });
 
-test('buildRepoSearchProgressLogMessage formats planner and repo-search command progress lines', () => {
-  const msg1 = buildRepoSearchProgressLogMessage({
-    kind: 'command',
-    turn: 2,
-    maxTurns: 9,
-    promptTokenCount: 1234,
-    elapsedMs: 2500,
-    command: 'git grep -n "planner" src',
-  }, 'repo_search');
-  assert.ok(msg1);
-  assert.match(msg1, /^repo_search command turn=2\/9 prompt_tokens=1,234 elapsed=2s command=git grep -n "planner" src$/u);
-  const msg2 = buildRepoSearchProgressLogMessage({
-    kind: 'command',
-    turn: 1,
-    maxTurns: 2,
-    promptTokenCount: 88,
-    elapsedMs: 0,
-    command: 'git grep -n "dashboard" .',
-  }, 'planner');
-  assert.ok(msg2);
-  assert.match(msg2, /^planner command turn=1\/2 prompt_tokens=88 elapsed=0s command=git grep -n "dashboard" \.$/u);
-  const msg3 = buildRepoSearchProgressLogMessage({
-    kind: 'llm_start',
-    turn: 18,
-    maxTurns: 45,
-    promptTokenCount: 312345,
-    elapsedMs: 4200,
-  }, 'repo_search');
-  assert.ok(msg3);
-  assert.match(msg3, /^repo_search llm_start turn=18\/45 prompt_tokens=312,345 elapsed=4s$/u);
-  const msg4 = buildRepoSearchProgressLogMessage({
-    kind: 'llm_end',
-    turn: 18,
-    maxTurns: 45,
-    promptTokenCount: 312345,
-    elapsedMs: 7800,
-  }, 'repo_search');
-  assert.ok(msg4);
-  assert.match(msg4, /^repo_search llm_end turn=18\/45 prompt_tokens=312,345 elapsed=7s$/u);
+test('buildRepoSearchProgressLogBody formats command and llm progress bodies', () => {
+  assert.deepEqual(
+    buildRepoSearchProgressLogBody({
+      kind: 'command',
+      turn: 2,
+      maxTurns: 9,
+      promptTokenCount: 1234,
+      elapsedMs: 2500,
+      command: 'git grep -n "planner" src',
+    }),
+    { event: 'command', fields: 't2/9  prompt=1,234tok  elapsed=2s  git grep -n "planner" src' },
+  );
+  assert.deepEqual(
+    buildRepoSearchProgressLogBody({
+      kind: 'command',
+      turn: 1,
+      maxTurns: 2,
+      promptTokenCount: 88,
+      elapsedMs: 0,
+      command: 'git grep -n "dashboard" .',
+    }),
+    { event: 'command', fields: 't1/2  prompt=88tok  elapsed=0s  git grep -n "dashboard" .' },
+  );
+  assert.deepEqual(
+    buildRepoSearchProgressLogBody({
+      kind: 'llm_start',
+      turn: 18,
+      maxTurns: 45,
+      promptTokenCount: 312345,
+      elapsedMs: 4200,
+    }),
+    { event: 'llm_start', fields: 't18/45  prompt=312,345tok  elapsed=4s' },
+  );
+  assert.deepEqual(
+    buildRepoSearchProgressLogBody({
+      kind: 'llm_end',
+      turn: 18,
+      maxTurns: 45,
+      promptTokenCount: 312345,
+      elapsedMs: 7800,
+    }),
+    { event: 'llm_end', fields: 't18/45  prompt=312,345tok  elapsed=7s' },
+  );
+  assert.equal(buildRepoSearchProgressLogBody({ kind: 'command', turn: 1, maxTurns: 2 }), null);
 });
 
 test('repo-search transcript artifact keeps routine normalized flags out of tool replay', async () => {

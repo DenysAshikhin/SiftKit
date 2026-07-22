@@ -15,7 +15,7 @@ import { httpClient } from '../../lib/http-client.js';
 import { buildPresetRequestDefaults } from '../../inference-presets/preset-compatibility.js';
 import { getInferenceRequestCompatibility } from '../../inference-presets/request-compatibility.js';
 import { getActiveModelPreset, getManagedLlamaInternalBaseUrl, readConfig } from '../config-store.js';
-import { logLine } from '../managed-llama.js';
+import { serverLogger } from '../server-logger.js';
 import { readBody, sendJson } from '../http-utils.js';
 import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.js';
 import {
@@ -239,10 +239,13 @@ class WorkloadEndpoint implements RouteEndpoint {
       }
       if (match.pathname === CHAT_PATH) {
         const translatedBody = translateChatBody(bodyText, currentPreset);
-        logLine(
-          `inference_passthrough forward path=${CHAT_PATH} base_url=${baseUrl} `
-          + `messages=${chatMessageCount} body_chars=${translatedBody.length}`,
-        );
+        serverLogger.event({
+          scope: 'proxy',
+          id: '',
+          event: 'forward',
+          fields: `path=${CHAT_PATH} base_url=${baseUrl} `
+            + `messages=${chatMessageCount} body_chars=${translatedBody.length}`,
+        });
         await proxyStreamingRequest(ctx, req, res, baseUrl, CHAT_PATH, translatedBody);
       } else if (requestText !== null) {
         await proxyTokenizeRequest(req, res, baseUrl, currentPreset, match.pathname, requestText);

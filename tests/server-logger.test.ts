@@ -108,6 +108,48 @@ test('fieldless events omit the trailing separator', () => {
   assert.equal(sink.lines[0], '09:05:03  st abcdef12  shutdown\n');
 });
 
+test('reports print a pre-formatted multi-line block after the clock', () => {
+  const sink = collect();
+  new ServerLogger({ level: 'normal', colour: false, write: sink.write }).report(
+    'requests=12\n  input: chars=100 tokens=25',
+    new Date(2026, 6, 21, 20, 42, 37),
+  );
+
+  assert.equal(sink.lines.length, 1);
+  assert.equal(sink.lines[0], '20:42:37  requests=12\n  input: chars=100 tokens=25\n');
+});
+
+test('reports are suppressed at quiet level', () => {
+  const sink = collect();
+  new ServerLogger({ level: 'quiet', colour: false, write: sink.write }).report('requests=12');
+  assert.equal(sink.lines.length, 0);
+});
+
+test('a logger without a fixed level follows SIFTKIT_LOG_LEVEL on every line', () => {
+  const previous = process.env.SIFTKIT_LOG_LEVEL;
+  const sink = collect();
+  const logger = new ServerLogger({ colour: false, write: sink.write });
+  try {
+    delete process.env.SIFTKIT_LOG_LEVEL;
+    logger.debug({ scope: 'rs', id: 'abcdef12', event: 'run_start', fields: '' });
+    assert.equal(sink.lines.length, 0, 'debug is hidden at the default level');
+
+    process.env.SIFTKIT_LOG_LEVEL = 'debug';
+    logger.debug({ scope: 'rs', id: 'abcdef12', event: 'run_start', fields: '' });
+    assert.equal(sink.lines.length, 1, 'raising the level takes effect without a restart');
+
+    process.env.SIFTKIT_LOG_LEVEL = 'nonsense';
+    logger.debug({ scope: 'rs', id: 'abcdef12', event: 'run_start', fields: '' });
+    assert.equal(sink.lines.length, 1, 'an unparseable level falls back to normal');
+  } finally {
+    if (previous === undefined) {
+      delete process.env.SIFTKIT_LOG_LEVEL;
+    } else {
+      process.env.SIFTKIT_LOG_LEVEL = previous;
+    }
+  }
+});
+
 test('request ids are shortened to eight characters', () => {
   assert.equal(shortenRequestId('ddda7acf-fe04-45b8-9005-2180c3327878'), 'ddda7acf');
   assert.equal(shortenRequestId('  ddda7acf-fe04  '), 'ddda7acf');

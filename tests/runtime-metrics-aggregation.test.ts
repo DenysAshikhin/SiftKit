@@ -6,7 +6,7 @@ import {
   http,
   summarizeRequest,
   buildIdleMetricsLogMessage,
-  buildStatusRequestLogMessage,
+  buildStatusRequestLogBody,
   formatElapsed,
   buildStructuredStubDecision,
   withTempEnv,
@@ -413,8 +413,8 @@ test('request status log groups large running counts and uses colon elapsed dura
   assert.equal(formatElapsed(187_000), '3:07');
   assert.equal(formatElapsed(7_449_000), '2:04:09');
   assert.equal(formatElapsed(97_200_000), '1:03:00:00');
-  assert.equal(
-    buildStatusRequestLogMessage({
+  assert.deepEqual(
+    buildStatusRequestLogBody({
       running: true,
       rawInputCharacterCount: 101_891,
       chunkInputCharacterCount: 101_891,
@@ -424,10 +424,10 @@ test('request status log groups large running counts and uses colon elapsed dura
       inputCharactersPerContextToken: 1.856,
       chunkThresholdCharacters: 237_565,
     }),
-    'request true raw_chars=101,891 prompt=102,584 (55,271)',
+    { event: 'start', fields: 'raw_chars=101,891 prompt=102,584 (55,271)' },
   );
-  assert.equal(
-    buildStatusRequestLogMessage({
+  assert.deepEqual(
+    buildStatusRequestLogBody({
       running: true,
       rawInputCharacterCount: 37_947_467,
       chunkInputCharacterCount: 558_055,
@@ -440,26 +440,30 @@ test('request status log groups large running counts and uses colon elapsed dura
       chunkTotal: 2,
       chunkPath: '1/50 -> 1/2',
     }),
-    'request true raw_chars=37,947,467 prompt=560,315 (135,016) chunk 1/50 -> 1/2',
+    { event: 'start', fields: 'raw_chars=37,947,467 prompt=560,315 (135,016) chunk 1/50 -> 1/2' },
   );
-  assert.equal(
-    buildStatusRequestLogMessage({
+  assert.deepEqual(
+    buildStatusRequestLogBody({
       running: true,
       rawInputCharacterCount: 300,
       promptCharacterCount: 420,
     }),
-    'request true raw_chars=300 prompt=420',
+    { event: 'start', fields: 'raw_chars=300 prompt=420' },
   );
-  assert.equal(
-    buildStatusRequestLogMessage({ running: false, elapsedMs: 12_000, outputTokens: 7 }),
-    'request false elapsed=12s output_tokens=7',
+  assert.deepEqual(
+    buildStatusRequestLogBody({ running: false, elapsedMs: 12_000, outputTokens: 7 }),
+    { event: 'done', fields: 'elapsed=12s output_tokens=7' },
   );
-  assert.equal(
-    buildStatusRequestLogMessage({ running: false, totalElapsedMs: 187_000, totalOutputTokens: 19 }),
-    'request false total_elapsed=3:07 output_tokens=19',
+  assert.deepEqual(
+    buildStatusRequestLogBody({ running: false, totalElapsedMs: 187_000, totalOutputTokens: 19 }),
+    { event: 'done', fields: 'total_elapsed=3:07 output_tokens=19' },
   );
-  assert.equal(
-    buildStatusRequestLogMessage({
+  assert.deepEqual(
+    buildStatusRequestLogBody({ running: false, taskKind: 'summary', elapsedMs: 12_000, toolTokens: 5 }),
+    { event: 'done', fields: 'task=summary elapsed=12s tool_tokens=5' },
+  );
+  assert.deepEqual(
+    buildStatusRequestLogBody({
       running: false,
       terminalState: 'failed',
       rawInputCharacterCount: 3_322_607,
@@ -469,6 +473,10 @@ test('request status log groups large running counts and uses colon elapsed dura
       elapsedMs: 91_000,
       errorMessage: 'Provider returned an invalid SiftKit decision payload: Unexpected token',
     }),
-    'request false raw_chars=3,322,607 prompt=342,395 (147,694) chunk 1/10 failed elapsed=1:31 error=Provider returned an invalid SiftKit decision payload: Unexpected token',
+    {
+      event: 'failed',
+      fields: 'raw_chars=3,322,607 prompt=342,395 (147,694) chunk 1/10 elapsed=1:31 '
+        + 'error=Provider returned an invalid SiftKit decision payload: Unexpected token',
+    },
   );
 });

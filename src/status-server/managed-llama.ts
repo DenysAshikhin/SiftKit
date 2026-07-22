@@ -12,8 +12,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import type { ChildProcess, SpawnSyncReturns } from 'node:child_process';
 import { toError, getErrorMessage } from '../lib/errors.js';
 import { POWERSHELL_BASE_ARGS } from '../lib/powershell.js';
-import { formatTimestamp } from '../lib/text-format.js';
 import { sleep } from '../lib/time.js';
+import { serverLogger } from './server-logger.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
 import {
   bufferManagedLlamaLogChunk,
@@ -618,10 +618,6 @@ function attachStreamCollector(
   });
 }
 
-export function logLine(message: string, date: Date = new Date()): void {
-  process.stdout.write(`${formatTimestamp(date)} ${message}\n`);
-}
-
 export function parseManagedLlamaStartupFailureText(text: string): ManagedLlamaStartupFailure | null {
   const memoryMatch = MANAGED_LLAMA_GPU_MEMORY_PRESSURE_PATTERN.exec(String(text || ''));
   if (!memoryMatch || !MANAGED_LLAMA_GPU_MEMORY_OOM_PATTERN.test(String(text || ''))) {
@@ -1049,7 +1045,12 @@ async function waitForManagedLlamaStartup(
       const extendedDeadline = Date.now() + extension;
       if (extendedDeadline > deadline) {
         if (!loggedLoadingExtension) {
-          logLine(`llama_start loading_model extending_deadline_ms=${extension}`);
+          serverLogger.dim({
+            scope: 'llama',
+            id: '',
+            event: 'loading_model',
+            fields: `extending_deadline_ms=${extension}`,
+          });
           loggedLoadingExtension = true;
         }
         deadline = extendedDeadline;
@@ -1066,7 +1067,12 @@ async function waitForManagedLlamaStartup(
       const extendedDeadline = Date.now() + managed.StartupTimeoutMs;
       if (extendedDeadline > deadline) {
         if (!loggedProgressExtension) {
-          logLine(`llama_start stderr_progress extending_deadline_ms=${managed.StartupTimeoutMs} new_chars=${newChars}`);
+          serverLogger.dim({
+            scope: 'llama',
+            id: '',
+            event: 'stderr_progress',
+            fields: `extending_deadline_ms=${managed.StartupTimeoutMs} new_chars=${newChars}`,
+          });
           loggedProgressExtension = true;
         }
         deadline = extendedDeadline;
@@ -1226,8 +1232,12 @@ async function ensureManagedLlamaConfigReady(
   const spawnStartupDeadline = Date.now() + managed.StartupTimeoutMs;
   ctx.managedLlamaStarting = true;
   ctx.managedLlamaStartupPromise = (async () => {
-    logLine(`llama_start starting executable=${managed.ExecutablePath}`);
-    logLine(`llama_start verbose_logging=${managed.VerboseLogging ? 'on' : 'off'}`);
+    serverLogger.event({
+      scope: 'llama',
+      id: '',
+      event: 'starting',
+      fields: `executable=${managed.ExecutablePath}  verbose_logging=${managed.VerboseLogging ? 'on' : 'off'}`,
+    });
     const launched = spawnManagedLlamaProcess(ctx, managed, 'startup');
     ctx.managedLlamaHostProcess = launched.child;
     ctx.managedLlamaLastStartupLogs = launched.logRef;
@@ -1247,7 +1257,7 @@ async function ensureManagedLlamaConfigReady(
       }
       ctx.managedLlamaStartupWarning = null;
       ctx.managedLlamaReady = true;
-      logLine(`llama_start ready base_url=${baseUrl}`);
+      serverLogger.ok({ scope: 'llama', id: '', event: 'ready', fields: `base_url=${baseUrl}` });
     } catch (error) {
       const startupFailure = getManagedLlamaStartupFailure(toError(error)) || getManagedLlamaStartupFailureFromLogRef(launched.logRef);
       const failure = startupFailure && !(error instanceof ManagedLlamaStartupError)
@@ -1357,20 +1367,25 @@ async function shutdownManagedLlamaConfigIfNeeded(
     // between the idle-summary timer's sync isIdle check and this point.
     // Caller can pass `force: true` to override (used during process exit).
     if (!force && ctx.activeModelRequest) {
-      logLine(`llama_stop aborted reason=active_model_request_${ctx.activeModelRequest.kind}`);
+      serverLogger.dim({
+        scope: 'llama',
+        id: '',
+        event: 'stop_aborted',
+        fields: `reason=active_model_request_${ctx.activeModelRequest.kind}`,
+      });
       return;
     }
     if (hasActiveHostProcess) {
       const hostPid = ctx.managedLlamaHostProcess?.pid ?? 0;
-      logLine(`llama_stop stopping pid=${hostPid}`);
+      serverLogger.event({ scope: 'llama', id: '', event: 'stopping', fields: `pid=${hostPid}` });
       terminateProcessTree(hostPid);
       const remainingPid = fallbackPid || findListeningProcessIdByPort(listeningPort);
       if (remainingPid) {
-        logLine(`llama_stop stopping fallback_pid=${remainingPid}`);
+        serverLogger.event({ scope: 'llama', id: '', event: 'stopping', fields: `fallback_pid=${remainingPid}` });
         terminateProcessTree(remainingPid);
       }
     } else if (fallbackPid) {
-      logLine(`llama_stop stopping fallback_pid=${fallbackPid}`);
+      serverLogger.event({ scope: 'llama', id: '', event: 'stopping', fields: `fallback_pid=${fallbackPid}` });
       terminateProcessTree(fallbackPid);
     }
     try {
@@ -1390,7 +1405,7 @@ async function shutdownManagedLlamaConfigIfNeeded(
       ctx.managedLlamaHostProcess = null;
       ctx.managedLlamaLastStartupLogs = null;
     }
-    logLine(`llama_stop offline base_url=${baseUrl}`);
+    serverLogger.ok({ scope: 'llama', id: '', event: 'offline', fields: `base_url=${baseUrl}` });
     publishStatus(ctx);
   })().catch((error) => {
     process.stderr.write(`[siftKitStatus] Failed to stop llama.cpp server: ${getErrorMessage(error)}\n`);
@@ -1503,7 +1518,7 @@ export async function clearPreexistingManagedLlamaIfNeeded(ctx: ServerContext): 
   if (!baseUrl || !await isLlamaServerReachable(config)) {
     return;
   }
-  logLine(`llama_stop startup_cleanup base_url=${baseUrl}`);
+  serverLogger.event({ scope: 'llama', id: '', event: 'startup_cleanup', fields: `base_url=${baseUrl}` });
   await shutdownManagedLlamaIfNeeded(ctx);
 }
 

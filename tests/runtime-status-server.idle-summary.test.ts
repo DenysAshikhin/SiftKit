@@ -54,7 +54,7 @@ test('real status server prints one idle metrics line only after the full idle d
           chunkThresholdCharacters: 320_000,
         }),
       });
-      await server.waitForStdoutMatch(/request true raw_chars=200 prompt=200 \(100\)/u, 1000);
+      await server.waitForStdoutMatch(/st [\w-]{8} {2}start {2}(?:task=\S+ )?raw_chars=200 prompt=200 \(100\)/u, 1000);
       await postCompletedStatus(server.statusUrl, {
         requestId,
         taskKind: 'summary',
@@ -76,7 +76,7 @@ test('real status server prints one idle metrics line only after the full idle d
 
       await server.waitForStdoutMatch(/requests=1/u, 1000);
       const block = getIdleSummaryBlock(server.stdoutLines, /requests=1/u);
-      assert.match(block[0], /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} requests=1$/u);
+      assert.match(block[0], /^\d{2}:\d{2}:\d{2} {2}requests=1$/u);
       assert.equal(block[1], '  input:  chars=200 tokens=100');
       assert.equal(block[2], '  output: chars=80 tokens=25 avg_tokens_per_request=25.00');
       assert.equal(block[3], '  ratio:  input/output=4.00x');

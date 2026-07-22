@@ -38,7 +38,7 @@ import {
 } from '../../config/index.js';
 import {
   type RepoSearchProgressEvent,
-  buildRepoSearchProgressLogMessage,
+  buildRepoSearchProgressLogBody,
   removeDashboardRunCommandFromLogs,
 } from '../dashboard-runs.js';
 import {
@@ -92,8 +92,8 @@ import {
 import {
   captureManagedLlamaSpeculativeMetricsSnapshot,
   getManagedLlamaSpeculativeMetricsDelta,
-  logLine,
 } from '../managed-llama.js';
+import { serverLogger } from '../server-logger.js';
 import {
   getGenerationTokensPerSecond,
   getPromptTokensPerSecond,
@@ -157,12 +157,12 @@ function requireToolCallId(event: RepoSearchProgressEvent): string {
 function forwardRepoSearchToolEvent(
   writeSse: SseWriter,
   event: RepoSearchProgressEvent,
-  logTag: 'planner' | 'repo_search',
-  logLineFn: (message: string) => void,
+  scope: 'plan' | 'rs',
+  requestId: string,
 ): void {
   if (event.kind === 'tool_start') {
-    const logMessage = buildRepoSearchProgressLogMessage(event, logTag);
-    if (logMessage) logLineFn(logMessage);
+    const body = buildRepoSearchProgressLogBody(event);
+    if (body) serverLogger.event({ scope, id: requestId, event: body.event, fields: body.fields });
     writeSse('tool_start', {
       toolCallId: requireToolCallId(event),
       turn: event.turn,
@@ -985,7 +985,7 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
             writeSse('answer', { answer: event.answerText || '' });
             return;
           }
-          forwardRepoSearchToolEvent(writeSse, event, 'planner', logLine);
+          forwardRepoSearchToolEvent(writeSse, event, 'plan', '');
         },
       });
       const scorecardTasks = normalizeRepoSearchScorecard(result.scorecard).tasks;
@@ -1123,8 +1123,8 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
         mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
         onProgress(event: RepoSearchProgressEvent) {
           if (event.kind === 'tool_start') {
-            const logMessage = buildRepoSearchProgressLogMessage(event, 'planner');
-            if (logMessage) logLine(logMessage);
+            const body = buildRepoSearchProgressLogBody(event);
+            if (body) serverLogger.event({ scope: 'plan', id: '', event: body.event, fields: body.fields });
           }
         },
       });
@@ -1296,7 +1296,7 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
             writeSse('thinking', { thinking: event.thinkingText || '' });
             return;
           }
-          forwardRepoSearchToolEvent(writeSse, event, 'planner', logLine);
+          forwardRepoSearchToolEvent(writeSse, event, 'plan', '');
         },
       });
       const assistantContent = buildPlanMarkdownFromRepoSearch(content, resolvedRepoRoot, result);
@@ -1530,7 +1530,7 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
             writeSse('answer', { answer: event.thinkingText || '' });
             return;
           }
-          forwardRepoSearchToolEvent(writeSse, event, 'repo_search', logLine);
+          forwardRepoSearchToolEvent(writeSse, event, 'rs', '');
         },
       });
       const assistantContent = buildRepoSearchMarkdown(content, resolvedRepoRoot, result);

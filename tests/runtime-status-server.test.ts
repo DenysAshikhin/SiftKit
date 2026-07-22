@@ -1067,10 +1067,10 @@ test('real status server suppresses intermediate false log for single-step compl
         }, 1000);
       });
 
-      const falseLines = lines.filter((line) => /request false .*output_tokens=130/u.test(line));
+      const falseLines = lines.filter((line) => /st [\w-]{8}  done  .*output_tokens=130/u.test(line));
       assert.equal(falseLines.length, 1, lines.join('\n'));
-      assert.match(falseLines[0], /request false (?:task=summary )?total_elapsed=0s output_tokens=130/u);
-      assert.equal(falseLines.some((line) => /request false elapsed=/u.test(line)), false, lines.join('\n'));
+      assert.match(falseLines[0], /st [\w-]{8}  done  (?:task=summary )?total_elapsed=0s output_tokens=130/u);
+      assert.equal(falseLines.some((line) => /st [\w-]{8}  done  elapsed=/u.test(line)), false, lines.join('\n'));
     }, {
       statusPath,
       configPath,
@@ -1108,9 +1108,9 @@ test('real status server logs intermediate false line for first chunked leaf ste
         });
       });
 
-      const falseLines = lines.filter((line) => /request false elapsed=0s output_tokens=82/u.test(line));
+      const falseLines = lines.filter((line) => /st [\w-]{8}  done  elapsed=0s output_tokens=82/u.test(line));
       assert.equal(falseLines.length, 1, lines.join('\n'));
-      assert.match(falseLines[0], /request false elapsed=0s output_tokens=82/u);
+      assert.match(falseLines[0], /st [\w-]{8}  done  elapsed=0s output_tokens=82/u);
     }, {
       statusPath,
       configPath,
@@ -1192,9 +1192,9 @@ test('real status server logs explicit chunk failures and clears them before the
         }, 1000);
       });
 
-      assert.ok(lines.some((line) => /request false (?:task=summary )?raw_chars=3,322,607 prompt=342,395 \(147,694\) chunk 1\/10 failed elapsed=0s error=leaf chunk failed/u.test(line)), lines.join('\n'));
-      assert.ok(lines.some((line) => /request true raw_chars=281,469 prompt=283,752 \(99,240\)/u.test(line)), lines.join('\n'));
-      assert.ok(lines.some((line) => /request false (?:task=summary )?total_elapsed=0s output_tokens=154/u.test(line)), lines.join('\n'));
+      assert.ok(lines.some((line) => /st [\w-]{8}  failed  (?:task=summary )?raw_chars=3,322,607 prompt=342,395 \(147,694\) chunk 1\/10 elapsed=0s error=leaf chunk failed/u.test(line)), lines.join('\n'));
+      assert.ok(lines.some((line) => /st [\w-]{8}  start  (?:task=summary )?raw_chars=281,469 prompt=283,752 \(99,240\)/u.test(line)), lines.join('\n'));
+      assert.ok(lines.some((line) => /st [\w-]{8}  done  (?:task=summary )?total_elapsed=0s output_tokens=154/u.test(line)), lines.join('\n'));
 
       const status = await requestJson<RuntimeStatusResponse>(statusUrl);
       assert.equal(status.metrics.completedRequestCount, 1);
@@ -1248,10 +1248,10 @@ test('real status server marks a stale active request as abandoned when a new re
       });
 
       assert.ok(
-        lines.some((line) => /request false raw_chars=3,322,607 prompt=342,395 \(147,694\) chunk 1\/10 failed elapsed=0s error=Abandoned because a new request started before terminal status\./u.test(line)),
+        lines.some((line) => /st [\w-]{8}  failed  raw_chars=3,322,607 prompt=342,395 \(147,694\) chunk 1\/10 elapsed=0s error=Abandoned because a new request started before terminal status\./u.test(line)),
         lines.join('\n'),
       );
-      assert.ok(lines.some((line) => /request true raw_chars=281,469 prompt=283,752 \(99,240\)/u.test(line)), lines.join('\n'));
+      assert.ok(lines.some((line) => /st [\w-]{8}  start  (?:task=summary )?raw_chars=281,469 prompt=283,752 \(99,240\)/u.test(line)), lines.join('\n'));
     }, {
       statusPath,
       configPath,

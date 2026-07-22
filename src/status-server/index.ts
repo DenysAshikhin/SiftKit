@@ -31,8 +31,8 @@ import {
 } from './idle-summary.js';
 import { readConfig, writeConfig } from './config-store.js';
 import {
-  buildStatusRequestLogMessage,
-  buildRepoSearchProgressLogMessage,
+  buildStatusRequestLogBody,
+  buildRepoSearchProgressLogBody,
   getStatusArtifactPath,
   loadDashboardRuns,
   buildDashboardRunDetail,
@@ -100,8 +100,8 @@ export {
   buildIdleMetricsLogMessage,
 };
 export {
-  buildStatusRequestLogMessage,
-  buildRepoSearchProgressLogMessage,
+  buildStatusRequestLogBody,
+  buildRepoSearchProgressLogBody,
   getStatusArtifactPath,
   loadDashboardRuns,
   buildDashboardRunDetail,

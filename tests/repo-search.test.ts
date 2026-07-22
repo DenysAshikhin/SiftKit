@@ -60,10 +60,17 @@ async function captureStdoutLines(fn: () => Promise<void>): Promise<string[]> {
     }
     return originalWrite(chunk, encodingOrCallback, callback);
   };
+  const previousLogLevel = process.env.SIFTKIT_LOG_LEVEL;
+  process.env.SIFTKIT_LOG_LEVEL = 'debug';
   try {
     await fn();
   } finally {
     process.stdout.write = originalWrite;
+    if (previousLogLevel === undefined) {
+      delete process.env.SIFTKIT_LOG_LEVEL;
+    } else {
+      process.env.SIFTKIT_LOG_LEVEL = previousLogLevel;
+    }
   }
   if (buffer.trim()) {
     lines.push(buffer.trim());
@@ -380,18 +387,18 @@ test('executeRepoSearchRequest logs lifecycle before provider work starts', asyn
       });
     });
 
-    assert.ok(lines.some((line) => /repo_search start request_id=.* prompt_chars=/u.test(line)), lines.join('\n'));
-    assert.ok(lines.some((line) => /repo_search notify_running_start request_id=/u.test(line)), lines.join('\n'));
-    assert.ok(lines.some((line) => /repo_search notify_running_done request_id=.* ok=true/u.test(line)), lines.join('\n'));
-    assert.ok(lines.some((line) => /repo_search run_start request_id=/u.test(line)), lines.join('\n'));
-    assert.ok(lines.some((line) => /repo_search run_done request_id=/u.test(line)), lines.join('\n'));
-    assert.ok(lines.some((line) => /repo_search terminal_persist_start request_id=.* state=completed transcript_chars=\d+/u.test(line)), lines.join('\n'));
-    assert.ok(lines.some((line) => /repo_search transcript_persist_done request_id=.* state=completed duration_ms=\d+/u.test(line)), lines.join('\n'));
-    assert.ok(lines.some((line) => /repo_search artifact_persist_done request_id=.* state=completed duration_ms=\d+/u.test(line)), lines.join('\n'));
-    assert.ok(lines.some((line) => /repo_search terminal_persist_done request_id=.* state=completed duration_ms=\d+/u.test(line)), lines.join('\n'));
-    assert.ok(lines.some((line) => /repo_search notify_terminal_start request_id=.* state=completed/u.test(line)), lines.join('\n'));
-    assert.ok(lines.some((line) => /repo_search notify_terminal_done request_id=.* state=completed ok=true duration_ms=\d+/u.test(line)), lines.join('\n'));
-    assert.ok(lines.some((line) => /repo_search completed request_id=/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /rs [\da-f]{8} {2}start {2}task=\S+ {2}prompt_chars=\d+/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /rs [\da-f]{8} {2}notify_running_start$/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /rs [\da-f]{8} {2}notify_running_done {2}ok=true/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /rs [\da-f]{8} {2}run_start$/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /rs [\da-f]{8} {2}run_done$/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /rs [\da-f]{8} {2}terminal_persist_start {2}state=completed transcript_chars=\d+/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /rs [\da-f]{8} {2}transcript_persist_done {2}state=completed duration_ms=\d+/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /rs [\da-f]{8} {2}artifact_persist_done {2}state=completed duration_ms=\d+/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /rs [\da-f]{8} {2}terminal_persist_done {2}state=completed duration_ms=\d+/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /rs [\da-f]{8} {2}notify_terminal_start {2}state=completed/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /rs [\da-f]{8} {2}notify_terminal_done {2}state=completed ok=true duration_ms=\d+/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /rs [\da-f]{8} {2}completed {2}elapsed=/u.test(line)), lines.join('\n'));
   });
 });
 
@@ -408,11 +415,11 @@ test('executeRepoSearchRequest logs repo-search preflight tokenization timing', 
     });
 
     assert.ok(
-      lines.some((line) => /repo_search preflight_tokenize_start request_id=.* turn=1 prompt_chars=\d+ timeout_ms=10000 retry_max_wait_ms=30000/u.test(line)),
+      lines.some((line) => /rs [\da-f]{8} {2}preflight_tokenize_start {2}t1 {2}prompt_chars=\d+ {2}timeout_ms=10000 {2}retry_max_wait_ms=30000/u.test(line)),
       lines.join('\n'),
     );
     assert.ok(
-      lines.some((line) => /repo_search preflight_tokenize_done request_id=.* turn=1 prompt_tokens=\d+ source=llama\.cpp elapsed_ms=\d+ retry_count=0/u.test(line)),
+      lines.some((line) => /rs [\da-f]{8} {2}preflight {2}t1 {2}prompt=\d+tok {2}tokenize=\d+ms\(llama\.cpp\) {2}retries=0 {2}status=completed/u.test(line)),
       lines.join('\n'),
     );
   }, {

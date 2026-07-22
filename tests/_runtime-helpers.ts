@@ -79,7 +79,7 @@ import {
 } from '../src/providers/llama-cpp.js';
 import {
   buildIdleMetricsLogMessage,
-  buildStatusRequestLogMessage,
+  buildStatusRequestLogBody,
   formatElapsed,
   getIdleSummarySnapshotsPath,
   startStatusServer,
@@ -1540,7 +1540,7 @@ export {
   readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs,
   pruneOldLauncherLogs, runMatrix, runMatrixWithInterrupt,
   countLlamaCppTokens, listLlamaCppModels, generateLlamaCppResponse,
-  buildIdleMetricsLogMessage, buildStatusRequestLogMessage, formatElapsed,
+  buildIdleMetricsLogMessage, buildStatusRequestLogBody, formatElapsed,
   getIdleSummarySnapshotsPath, startStatusServer,
   runDebugRequest, runFixture60MalformedJsonRepro,
   // Local helpers

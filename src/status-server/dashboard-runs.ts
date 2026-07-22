@@ -9,6 +9,7 @@ import {
   parseSnapshotToolStatsJson,
 } from './idle-summary.js';
 import { type StatusMetadata } from './status-file.js';
+import { type ServerLogBody } from './server-logger.js';
 import {
   buildDashboardDailyMetrics as buildDashboardDailyMetricsFromRunsAndSnapshots,
   type DailyMetrics,
@@ -91,91 +92,86 @@ export type StatusRequestLogInput = {
   totalOutputTokens?: number | null;
 };
 
-export function buildStatusRequestLogMessage(input: StatusRequestLogInput): string {
+/** The `raw_chars` / `prompt` / `chunk` group shared by the running and failed lines. */
+function buildStatusPromptParts(
+  input: StatusRequestLogInput,
+  resolvedPromptCharacterCount: number | null | undefined,
+): string[] {
   const {
-    running,
-    requestId = null,
-    taskKind = null,
-    terminalState = null,
-    errorMessage = null,
-    characterCount = null,
-    promptCharacterCount = null,
     promptTokenCount = null,
     rawInputCharacterCount = null,
     chunkIndex = null,
     chunkTotal = null,
     chunkPath = null,
+  } = input;
+  const parts: string[] = [];
+  if (rawInputCharacterCount !== null) {
+    parts.push(`raw_chars=${formatInteger(rawInputCharacterCount)}`);
+  }
+  if (resolvedPromptCharacterCount !== null && resolvedPromptCharacterCount !== undefined) {
+    parts.push(promptTokenCount !== null
+      ? `prompt=${formatInteger(resolvedPromptCharacterCount)} (${formatInteger(promptTokenCount)})`
+      : `prompt=${formatInteger(resolvedPromptCharacterCount)}`);
+  }
+  if (chunkPath !== null && chunkPath !== undefined) {
+    parts.push(`chunk ${chunkPath}`);
+  } else if (chunkIndex !== null && chunkIndex !== undefined && chunkTotal !== null && chunkTotal !== undefined) {
+    parts.push(`chunk ${chunkIndex}/${chunkTotal}`);
+  }
+  return parts;
+}
+
+export function buildStatusRequestLogBody(input: StatusRequestLogInput): ServerLogBody {
+  const {
+    running,
+    taskKind = null,
+    terminalState = null,
+    errorMessage = null,
+    characterCount = null,
+    promptCharacterCount = null,
     elapsedMs = null,
     totalElapsedMs = null,
     outputTokens = null,
     toolTokens = null,
     totalOutputTokens = null,
   } = input;
-  void requestId;
-  const statusText = running ? 'true' : 'false';
-  let logMessage = `request ${statusText}`;
+  const parts: string[] = [];
   if (typeof taskKind === 'string' && taskKind.trim()) {
-    logMessage += ` task=${taskKind.trim()}`;
+    parts.push(`task=${taskKind.trim()}`);
   }
   if (running) {
-    const resolvedPromptCharacterCount = promptCharacterCount ?? characterCount;
-    if (rawInputCharacterCount !== null) {
-      logMessage += ` raw_chars=${formatInteger(rawInputCharacterCount)}`;
+    parts.push(...buildStatusPromptParts(input, promptCharacterCount ?? characterCount));
+    return { event: 'start', fields: parts.join(' ') };
+  }
+  if (terminalState === 'failed') {
+    parts.push(...buildStatusPromptParts(input, promptCharacterCount));
+    const failureElapsedMs = elapsedMs ?? totalElapsedMs;
+    if (failureElapsedMs !== null) {
+      parts.push(`elapsed=${formatElapsed(failureElapsedMs)}`);
     }
-    if (resolvedPromptCharacterCount !== null) {
-      logMessage += ` prompt=${formatInteger(resolvedPromptCharacterCount)}`;
-      if (promptTokenCount !== null) {
-        logMessage += ` (${formatInteger(promptTokenCount)})`;
-      }
-    }
-    if (chunkPath !== null) {
-      logMessage += ` chunk ${String(chunkPath)}`;
-    } else if (chunkIndex !== null && chunkTotal !== null) {
-      logMessage += ` chunk ${chunkIndex}/${chunkTotal}`;
-    }
-  } else if (terminalState === 'failed') {
-    if (rawInputCharacterCount !== null) {
-      logMessage += ` raw_chars=${formatInteger(rawInputCharacterCount)}`;
-    }
-    if (promptCharacterCount !== null) {
-      logMessage += ` prompt=${formatInteger(promptCharacterCount)}`;
-      if (promptTokenCount !== null) {
-        logMessage += ` (${formatInteger(promptTokenCount)})`;
-      }
-    }
-    if (chunkPath !== null) {
-      logMessage += ` chunk ${String(chunkPath)}`;
-    } else if (chunkIndex !== null && chunkTotal !== null) {
-      logMessage += ` chunk ${chunkIndex}/${chunkTotal}`;
-    }
-    logMessage += ' failed';
-    logMessage += elapsedMs !== null
-      ? ` elapsed=${formatElapsed(elapsedMs)}`
-      : (totalElapsedMs !== null ? ` elapsed=${formatElapsed(totalElapsedMs)}` : '');
     if (errorMessage) {
-      logMessage += ` error=${String(errorMessage)}`;
+      parts.push(`error=${String(errorMessage)}`);
     }
     if (toolTokens !== null) {
-      logMessage += ` tool_tokens=${formatInteger(toolTokens)}`;
+      parts.push(`tool_tokens=${formatInteger(toolTokens)}`);
     }
-  } else if (totalElapsedMs !== null) {
-    logMessage += ` total_elapsed=${formatElapsed(totalElapsedMs)}`;
+    return { event: 'failed', fields: parts.join(' ') };
+  }
+  if (totalElapsedMs !== null) {
+    parts.push(`total_elapsed=${formatElapsed(totalElapsedMs)}`);
     if (totalOutputTokens !== null) {
-      logMessage += ` output_tokens=${formatInteger(totalOutputTokens)}`;
-    }
-    if (toolTokens !== null) {
-      logMessage += ` tool_tokens=${formatInteger(toolTokens)}`;
+      parts.push(`output_tokens=${formatInteger(totalOutputTokens)}`);
     }
   } else if (elapsedMs !== null) {
-    logMessage += ` elapsed=${formatElapsed(elapsedMs)}`;
+    parts.push(`elapsed=${formatElapsed(elapsedMs)}`);
     if (outputTokens !== null) {
-      logMessage += ` output_tokens=${formatInteger(outputTokens)}`;
-    }
-    if (toolTokens !== null) {
-      logMessage += ` tool_tokens=${formatInteger(toolTokens)}`;
+      parts.push(`output_tokens=${formatInteger(outputTokens)}`);
     }
   }
-  return logMessage;
+  if (toolTokens !== null && (totalElapsedMs !== null || elapsedMs !== null)) {
+    parts.push(`tool_tokens=${formatInteger(toolTokens)}`);
+  }
+  return { event: 'done', fields: parts.join(' ') };
 }
 
 import type { RepoSearchProgressEvent } from '../repo-search/types.js';
@@ -185,11 +181,13 @@ function normalizeRepoSearchCommandForLog(command: string | undefined): string {
   return String(command || '').replace(/\s+/gu, ' ').trim();
 }
 
-export function buildRepoSearchProgressLogMessage(event: RepoSearchProgressEvent | null | undefined, mode: string): string | null {
-  const resolvedMode = String(mode || 'repo_search').trim() || 'repo_search';
+export function buildRepoSearchProgressLogBody(event: RepoSearchProgressEvent | null | undefined): ServerLogBody | null {
+  const maxTurnsLabel = Number.isFinite(Number(event?.maxTurns))
+    ? String(Math.max(1, Math.trunc(Number(event?.maxTurns))))
+    : '?';
   const turnLabel = Number.isFinite(Number(event?.turn))
-    ? `${Math.max(1, Math.trunc(Number(event?.turn)))}/${Number.isFinite(Number(event?.maxTurns)) ? Math.max(1, Math.trunc(Number(event?.maxTurns))) : '?'}`
-    : '?/?';
+    ? `t${Math.max(1, Math.trunc(Number(event?.turn)))}/${maxTurnsLabel}`
+    : 't?/?';
   const promptTokenCount = Number.isFinite(Number(event?.promptTokenCount))
     ? formatInteger(Math.max(0, Math.trunc(Number(event?.promptTokenCount))))
     : 'null';
@@ -197,14 +195,15 @@ export function buildRepoSearchProgressLogMessage(event: RepoSearchProgressEvent
     ? Math.max(0, Math.trunc(Number(event?.elapsedMs)))
     : 0;
   const kind = event?.kind;
+  const fields = `${turnLabel}  prompt=${promptTokenCount}tok  elapsed=${formatElapsed(elapsedMs)}`;
   if (kind === 'llm_start' || kind === 'llm_end') {
-    return `${resolvedMode} ${kind} turn=${turnLabel} prompt_tokens=${promptTokenCount} elapsed=${formatElapsed(elapsedMs)}`;
+    return { event: kind, fields };
   }
   const commandText = normalizeRepoSearchCommandForLog(event?.command);
   if (!commandText) {
     return null;
   }
-  return `${resolvedMode} command turn=${turnLabel} prompt_tokens=${promptTokenCount} elapsed=${formatElapsed(elapsedMs)} command=${commandText}`;
+  return { event: 'command', fields: `${fields}  ${commandText}` };
 }
 
 export function getStatusArtifactPath(metadata: StatusMetadata): string | null {

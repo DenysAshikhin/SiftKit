@@ -30,7 +30,7 @@ import {
   type StatusMetadata,
 } from './status-file.js';
 import {
-  buildStatusRequestLogMessage,
+  buildStatusRequestLogBody,
   ensureRunLogsTable,
   getStatusArtifactPath,
   upsertRunArtifactPayload,
@@ -45,7 +45,7 @@ import type {
   ModelRequestWaiter,
   ServerContext,
 } from './server-types.js';
-import { logLine } from './managed-llama.js';
+import { serverLogger } from './server-logger.js';
 import { readConfig } from './config-store.js';
 
 export const MAX_COMPLETED_STATUS_PATH_ENTRIES = 1000;
@@ -143,7 +143,7 @@ export function clearRunState(ctx: ServerContext, requestId: string | null): Act
 }
 
 export function logAbandonedRun(ctx: ServerContext, runState: ActiveRunState, now: number): void {
-  logLine(buildStatusRequestLogMessage({
+  serverLogger.emitBody('st', runState.requestId, buildStatusRequestLogBody({
     running: false,
     requestId: runState.requestId,
     terminalState: 'failed',
@@ -352,7 +352,7 @@ export function scheduleIdleSummaryIfNeeded(ctx: ServerContext): void {
     } catch (error) {
       process.stderr.write(`[siftKitStatus] Failed to persist idle summary snapshot to ${ctx.idleSummarySnapshotsPath}: ${error instanceof Error ? error.message : String(error)}\n`);
     }
-    logLine(buildIdleSummarySnapshotMessage(snapshot), emittedAt);
+    serverLogger.report(buildIdleSummarySnapshotMessage(snapshot), emittedAt);
     ctx.idleSummaryPending = false;
     resetPendingIdleSummaryMetadata(ctx);
     publishStatus(ctx);
@@ -382,7 +382,12 @@ function getQueuedModelRequestQueuePosition(ctx: ServerContext, waiter: ModelReq
 
 function logIncomingModelRequest(ctx: ServerContext, kind: string): void {
   const taskKind = String(kind).trim() || 'unknown';
-  logLine(`request incoming task=${taskKind} queue_position=${getIncomingModelRequestQueuePosition(ctx)}`);
+  serverLogger.dim({
+    scope: 'st',
+    id: '',
+    event: 'incoming',
+    fields: `task=${taskKind} queue_position=${getIncomingModelRequestQueuePosition(ctx)}`,
+  });
 }
 
 function getElapsedMsSinceIso(isoTimestamp: string): number {
@@ -410,28 +415,40 @@ export function getModelRequestQueueDiagnostics(ctx: ServerContext): ModelReques
 }
 
 function logModelRequestLockAcquired(lock: ModelRequestLock, waitMs: number): void {
-  logLine(`request lock_acquired task=${lock.kind} wait_ms=${Math.max(0, Math.trunc(waitMs))} token=${lock.token}`);
+  serverLogger.dim({
+    scope: 'st',
+    id: lock.token,
+    event: 'lock_acquired',
+    fields: `task=${lock.kind} wait_ms=${Math.max(0, Math.trunc(waitMs))}`,
+  });
 }
 
 function logModelRequestLockReleased(lock: ModelRequestLock, queueLength: number): void {
-  logLine(
-    `request lock_released task=${lock.kind} held_ms=${getElapsedMsSinceIso(lock.startedAtUtc)} `
-    + `queue_remaining=${Math.max(0, queueLength)} token=${lock.token}`,
-  );
+  serverLogger.dim({
+    scope: 'st',
+    id: lock.token,
+    event: 'lock_released',
+    fields: `task=${lock.kind} held_ms=${getElapsedMsSinceIso(lock.startedAtUtc)} `
+      + `queue_remaining=${Math.max(0, queueLength)}`,
+  });
 }
 
 function logModelRequestWaitCancelled(waiter: ModelRequestWaiter): void {
-  logLine(
-    `request lock_cancelled task=${waiter.kind} wait_ms=${getElapsedMsSinceIso(waiter.enqueuedAtUtc)} `
-    + `token=${waiter.queueToken}`,
-  );
+  serverLogger.dim({
+    scope: 'st',
+    id: waiter.queueToken,
+    event: 'lock_cancelled',
+    fields: `task=${waiter.kind} wait_ms=${getElapsedMsSinceIso(waiter.enqueuedAtUtc)}`,
+  });
 }
 
 function logModelRequestDropped(waiter: ModelRequestWaiter, reason: string): void {
-  logLine(
-    `request dropped reason=${reason} task=${waiter.kind} wait_ms=${getElapsedMsSinceIso(waiter.enqueuedAtUtc)} `
-    + `token=${waiter.queueToken}`,
-  );
+  serverLogger.error({
+    scope: 'st',
+    id: waiter.queueToken,
+    event: 'dropped',
+    fields: `reason=${reason} task=${waiter.kind} wait_ms=${getElapsedMsSinceIso(waiter.enqueuedAtUtc)}`,
+  });
 }
 
 function syncManagedLlamaFlushQueueModelState(ctx: ServerContext, lastFinishedAtMs?: number): void {

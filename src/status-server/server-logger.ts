@@ -28,6 +28,12 @@ export type ServerLogEvent = {
   date?: Date;
 };
 
+/** The scope-and-id-free part of a log line, produced by the message builders. */
+export type ServerLogBody = {
+  event: string;
+  fields: string;
+};
+
 export function shortenRequestId(requestId: string): string {
   const normalized = requestId.trim();
   return normalized ? normalized.slice(0, 8) : '--------';
@@ -55,20 +61,25 @@ function formatClock(date: Date): string {
 }
 
 export type ServerLoggerOptions = {
-  level: LogLevel;
+  /** Omit to follow `SIFTKIT_LOG_LEVEL` on every line, so verbosity is tunable live. */
+  level?: LogLevel;
   colour: boolean;
   write: (text: string) => void;
 };
 
 export class ServerLogger {
-  private readonly level: LogLevel;
+  private readonly fixedLevel: LogLevel | null;
   private readonly colour: boolean;
   private readonly writeText: (text: string) => void;
 
   constructor(options: ServerLoggerOptions) {
-    this.level = options.level;
+    this.fixedLevel = options.level ?? null;
     this.colour = options.colour;
     this.writeText = options.write;
+  }
+
+  private get level(): LogLevel {
+    return this.fixedLevel ?? readLogLevelFromEnv();
   }
 
   /** Tracing detail; only printed at `debug`. */
@@ -94,6 +105,31 @@ export class ServerLogger {
   /** Failure; printed at every level. */
   error(event: ServerLogEvent): void {
     this.emit(event, 'quiet', Ansi.error);
+  }
+
+  /**
+   * Emits a builder-produced body, picking the colour from its verb: `failed` is an
+   * error, `done` is a terminal success, anything else is ordinary progress.
+   */
+  emitBody(scope: string, id: string, body: ServerLogBody): void {
+    const line = { scope, id, event: body.event, fields: body.fields };
+    if (body.event === 'failed') {
+      this.error(line);
+      return;
+    }
+    if (body.event === 'done') {
+      this.ok(line);
+      return;
+    }
+    this.event(line);
+  }
+
+  /** Pre-formatted multi-line block (the idle summary); printed at `normal` and above. */
+  report(text: string, date: Date = new Date()): void {
+    if (LEVEL_RANK[this.level] < LEVEL_RANK.normal) {
+      return;
+    }
+    this.writeText(`${this.paint(formatClock(date), Ansi.timestamp)}  ${text}\n`);
   }
 
   /** Continuation lines for grouped events; indented to the field column, never coloured. */
@@ -123,7 +159,6 @@ export class ServerLogger {
 }
 
 export const serverLogger = new ServerLogger({
-  level: readLogLevelFromEnv(),
   colour: shouldUseColour(),
   write: (text: string) => { process.stdout.write(text); },
 });

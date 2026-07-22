@@ -276,9 +276,9 @@ test('model request admission logs queue position without probing llama', async 
     });
 
     assert.equal(ctx.wakeCount, 0);
-    assert.ok(lines.some((line) => /request incoming task=summary queue_position=1/u.test(line)), lines.join('\n'));
-    assert.ok(lines.some((line) => /request lock_acquired task=summary wait_ms=0/u.test(line)), lines.join('\n'));
-    assert.ok(lines.some((line) => /request lock_released task=summary held_ms=/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /st -{8}  incoming  task=summary queue_position=1/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /st [\w-]{8}  lock_acquired  task=summary wait_ms=0/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /st [\w-]{8}  lock_released  task=summary held_ms=/u.test(line)), lines.join('\n'));
   } finally {
     await ctx.managedLlamaFlushQueue.close();
   }
@@ -297,7 +297,7 @@ test('queued model request logs its FIFO position without probing llama while wa
       queuedLockPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat');
       try {
         assert.equal(ctx.wakeCount, 0);
-        assert.ok(currentLines.some((line) => /request incoming task=dashboard_chat queue_position=2/u.test(line)), currentLines.join('\n'));
+        assert.ok(currentLines.some((line) => /st -{8}  incoming  task=dashboard_chat queue_position=2/u.test(line)), currentLines.join('\n'));
       } finally {
         assert.equal(releaseModelRequest(ctx, activeLock.token), true);
         const queuedLock = await queuedLockPromise;
@@ -306,9 +306,9 @@ test('queued model request logs its FIFO position without probing llama while wa
       }
     });
 
-    assert.ok(lines.some((line) => /request incoming task=dashboard_chat queue_position=2/u.test(line)), lines.join('\n'));
-    assert.ok(lines.some((line) => /request lock_acquired task=dashboard_chat wait_ms=/u.test(line)), lines.join('\n'));
-    assert.ok(lines.some((line) => /request lock_released task=dashboard_chat held_ms=/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /st -{8}  incoming  task=dashboard_chat queue_position=2/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /st [\w-]{8}  lock_acquired  task=dashboard_chat wait_ms=/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /st [\w-]{8}  lock_released  task=dashboard_chat held_ms=/u.test(line)), lines.join('\n'));
   } finally {
     await ctx.managedLlamaFlushQueue.close();
   }
@@ -332,7 +332,7 @@ test('queued model request times out, cancels, and logs the dropped request', as
 
     assert.equal(ctx.modelRequestQueue.length, 0);
     assert.equal(ctx.activeModelRequest?.token, activeLock.token);
-    assert.ok(lines.some((line) => /request dropped reason=model_queue_timeout task=summary/u.test(line)), lines.join('\n'));
+    assert.ok(lines.some((line) => /st [\w-]{8}  dropped  reason=model_queue_timeout task=summary/u.test(line)), lines.join('\n'));
 
     assert.equal(releaseModelRequest(ctx, activeLock.token), true);
   } finally {

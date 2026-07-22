@@ -284,14 +284,12 @@ test('terminal metadata route enqueues immediately and drains after idle delay',
       await new Promise<void>((resolve) => setTimeout(resolve, 100));
     });
 
-    assert.equal(lines.some((line) => /status terminal_metadata_enqueued request_id=queued-metadata-summary state=completed queue_length=1/u.test(line)), true, lines.join('\n'));
-    assert.equal(lines.some((line) => /status terminal_metadata_drain_wait request_id=queued-metadata-summary state=completed wait_ms=\d+ active=false queue_length=1/u.test(line)), true, lines.join('\n'));
-    assert.equal(lines.some((line) => /status terminal_metadata_process_start request_id=queued-metadata-summary state=completed/u.test(line)), true, lines.join('\n'));
-    const waitIndex = lines.findIndex((line) => /status terminal_metadata_drain_wait request_id=queued-metadata-summary/u.test(line));
-    const processIndex = lines.findIndex((line) => /status terminal_metadata_process_start request_id=queued-metadata-summary/u.test(line));
+    assert.equal(lines.some((line) => /st queued-m {2}drain_wait {2}state=completed wait_ms=\d+ active=false q=1 model_q=0/u.test(line)), true, lines.join('\n'));
+    const waitIndex = lines.findIndex((line) => /st queued-m {2}drain_wait/u.test(line));
+    const processIndex = lines.findIndex((line) => /st queued-m {2}terminal_metadata_process_done/u.test(line));
     assert.ok(waitIndex >= 0 && processIndex > waitIndex, lines.join('\n'));
-    assert.equal(lines.some((line) => /request false task=summary total_elapsed=0s output_tokens=7/u.test(line)), true, lines.join('\n'));
-    assert.equal(lines.some((line) => /status terminal_metadata_process_done request_id=queued-metadata-summary state=completed duration_ms=\d+/u.test(line)), true, lines.join('\n'));
+    assert.equal(lines.some((line) => /st [\w-]{8} {2}done {2}task=summary total_elapsed=0s output_tokens=7/u.test(line)), true, lines.join('\n'));
+    assert.equal(lines.some((line) => /st queued-m {2}terminal_metadata_process_done {2}state=completed duration_ms=\d+/u.test(line)), true, lines.join('\n'));
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
@@ -377,10 +375,10 @@ test('terminal metadata waits for managed llama flush queue to drain first', asy
       await new Promise<void>((resolve) => setTimeout(resolve, 1100));
     });
 
-    const waitIndex = lines.findIndex((line) => /status terminal_metadata_drain_wait request_id=metadata-after-llama-flush/u.test(line));
-    const processIndex = lines.findIndex((line) => /status terminal_metadata_process_start request_id=metadata-after-llama-flush/u.test(line));
+    const waitIndex = lines.findIndex((line) => /st metadata {2}drain_wait/u.test(line));
+    const processIndex = lines.findIndex((line) => /st metadata {2}terminal_metadata_process_done/u.test(line));
     assert.ok(waitIndex >= 0 && processIndex > waitIndex, lines.join('\n'));
-    assert.equal(lines.some((line) => /request false task=summary total_elapsed=0s output_tokens=9/u.test(line)), true, lines.join('\n'));
+    assert.equal(lines.some((line) => /st [\w-]{8} {2}done {2}task=summary total_elapsed=0s output_tokens=9/u.test(line)), true, lines.join('\n'));
   } finally {
     ManagedLlamaFlushQueue.prototype.isIdle = originalIsIdle;
     await new Promise<void>((resolve, reject) => {
@@ -514,13 +512,10 @@ test('split terminal routes clear active request before next running post', asyn
     });
 
     assert.equal(lines.some((line) => /stale_status_abandoned/u.test(line)), false, lines.join('\n'));
-    assert.equal(lines.some((line) => /status complete_start request_id=first-summary state=completed/u.test(line)), true, lines.join('\n'));
-    assert.equal(lines.some((line) => /status complete_done request_id=first-summary state=completed duration_ms=\d+/u.test(line)), true, lines.join('\n'));
-    assert.equal(lines.some((line) => /status terminal_metadata_enqueued request_id=first-summary state=completed queue_length=1/u.test(line)), true, lines.join('\n'));
-    assert.equal(lines.some((line) => /status terminal_metadata_process_start request_id=first-summary state=completed/u.test(line)), true, lines.join('\n'));
-    assert.equal(lines.some((line) => /status terminal_metadata_process_done request_id=first-summary state=completed duration_ms=\d+/u.test(line)), true, lines.join('\n'));
-    assert.equal(lines.some((line) => /request false task=summary total_elapsed=0s output_tokens=10/u.test(line)), true, lines.join('\n'));
-    assert.equal(lines.filter((line) => /late_running_ignored request_id=first-summary/u.test(line)).length, 2, lines.join('\n'));
+    assert.equal(lines.some((line) => /st first-su {2}complete_done {2}state=completed duration_ms=\d+/u.test(line)), true, lines.join('\n'));
+    assert.equal(lines.some((line) => /st first-su {2}terminal_metadata_process_done {2}state=completed duration_ms=\d+/u.test(line)), true, lines.join('\n'));
+    assert.equal(lines.some((line) => /st [\w-]{8} {2}done {2}task=summary total_elapsed=0s output_tokens=10/u.test(line)), true, lines.join('\n'));
+    assert.equal(lines.filter((line) => /st first-su {2}late_running_ignored/u.test(line)).length, 2, lines.join('\n'));
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

@@ -12,8 +12,10 @@ import { getNumericTotal, getOutputCharacterCount } from './scorecard.js';
 import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../state/runtime-db.js';
 import { upsertRepoSearchRun } from '../status-server/dashboard-runs.js';
-import { logLine } from '../status-server/managed-llama.js';
+import { serverLogger } from '../status-server/server-logger.js';
 import { JsonObjectSchema } from '../lib/json-types.js';
+import { formatInteger } from '../lib/text-format.js';
+import { formatElapsed } from '../lib/time.js';
 import { getErrorMessage, toError } from '../lib/errors.js';
 import { getProcessedPromptTokens } from '../lib/provider-helpers.js';
 import {
@@ -26,44 +28,59 @@ import type {
   RepoSearchProgressEvent,
 } from './types.js';
 
-function logRepoSearchProgress(message: string): void {
-  logLine(`repo_search ${message}`);
-}
-
 function logRepoSearchExecutionProgress(requestId: string, event: RepoSearchProgressEvent, startedAt: number): void {
   const elapsedMs = Number.isFinite(event.elapsedMs) ? Math.max(0, Math.trunc(Number(event.elapsedMs))) : Date.now() - startedAt;
   if (event.kind === 'model_inventory_start') {
-    logRepoSearchProgress(`model_inventory_start request_id=${requestId} elapsed_ms=${elapsedMs}`);
+    serverLogger.debug({
+      scope: 'rs',
+      id: requestId,
+      event: 'inventory_start',
+      fields: `elapsed=${formatElapsed(elapsedMs)}`,
+    });
   } else if (event.kind === 'model_inventory_done') {
-    logRepoSearchProgress(
-      `model_inventory_done request_id=${requestId} elapsed_ms=${elapsedMs} model_count=${Math.max(0, Math.trunc(Number(event.modelCount || 0)))}`,
-    );
+    serverLogger.event({
+      scope: 'rs',
+      id: requestId,
+      event: 'inventory',
+      fields: `models=${Math.max(0, Math.trunc(Number(event.modelCount || 0)))}  elapsed=${formatElapsed(elapsedMs)}`,
+    });
   } else if (event.kind === 'preflight_start') {
-    logRepoSearchProgress(
-      `preflight_start request_id=${requestId} turn=${event.turn ?? '?'} prompt_chars=${Math.max(0, Math.trunc(Number(event.promptChars || 0)))} elapsed_ms=${elapsedMs}`,
-    );
+    serverLogger.debug({
+      scope: 'rs',
+      id: requestId,
+      event: 'preflight_start',
+      fields: `t${event.turn ?? '?'}  prompt_chars=${Math.max(0, Math.trunc(Number(event.promptChars || 0)))}  `
+        + `elapsed=${formatElapsed(elapsedMs)}`,
+    });
   } else if (event.kind === 'preflight_done') {
-    logRepoSearchProgress(
-      `preflight_done request_id=${requestId} turn=${event.turn ?? '?'} prompt_tokens=${Math.max(0, Math.trunc(Number(event.promptTokenCount || 0)))} elapsed_ms=${elapsedMs}`,
-    );
+    serverLogger.debug({
+      scope: 'rs',
+      id: requestId,
+      event: 'preflight_done',
+      fields: `t${event.turn ?? '?'}  prompt=${formatInteger(Math.max(0, Math.trunc(Number(event.promptTokenCount || 0))))}tok  `
+        + `elapsed=${formatElapsed(elapsedMs)}`,
+    });
   } else if (event.kind === 'preflight_tokenize_start') {
-    logRepoSearchProgress(
-      `preflight_tokenize_start request_id=${requestId} turn=${event.turn ?? '?'} `
-      + `prompt_chars=${Math.max(0, Math.trunc(Number(event.promptChars || 0)))} `
-      + `timeout_ms=${Math.max(0, Math.trunc(Number(event.tokenizeTimeoutMs || 0)))} `
-      + `retry_max_wait_ms=${Math.max(0, Math.trunc(Number(event.tokenizeRetryMaxWaitMs || 0)))}`,
-    );
+    serverLogger.debug({
+      scope: 'rs',
+      id: requestId,
+      event: 'preflight_tokenize_start',
+      fields: `t${event.turn ?? '?'}  prompt_chars=${Math.max(0, Math.trunc(Number(event.promptChars || 0)))}  `
+        + `timeout_ms=${Math.max(0, Math.trunc(Number(event.tokenizeTimeoutMs || 0)))}  `
+        + `retry_max_wait_ms=${Math.max(0, Math.trunc(Number(event.tokenizeRetryMaxWaitMs || 0)))}`,
+    });
   } else if (event.kind === 'preflight_tokenize_done') {
-    const errorSuffix = event.errorMessage ? ` error=${JSON.stringify(event.errorMessage)}` : '';
-    logRepoSearchProgress(
-      `preflight_tokenize_done request_id=${requestId} turn=${event.turn ?? '?'} `
-      + `prompt_tokens=${Math.max(0, Math.trunc(Number(event.promptTokenCount || 0)))} `
-      + `source=${event.tokenCountSource || 'unknown'} `
-      + `elapsed_ms=${Math.max(0, Math.trunc(Number(event.tokenizeElapsedMs || 0)))} `
-      + `retry_count=${Math.max(0, Math.trunc(Number(event.tokenizeRetryCount || 0)))} `
-      + `status=${event.tokenizeStatus || 'unknown'}`
-      + errorSuffix,
-    );
+    const errorSuffix = event.errorMessage ? `  error=${JSON.stringify(event.errorMessage)}` : '';
+    const fields = `t${event.turn ?? '?'}  `
+      + `prompt=${formatInteger(Math.max(0, Math.trunc(Number(event.promptTokenCount || 0))))}tok  `
+      + `tokenize=${Math.max(0, Math.trunc(Number(event.tokenizeElapsedMs || 0)))}ms(${event.tokenCountSource || 'unknown'})  `
+      + `retries=${Math.max(0, Math.trunc(Number(event.tokenizeRetryCount || 0)))}  `
+      + `status=${event.tokenizeStatus || 'unknown'}${errorSuffix}`;
+    if (event.tokenizeStatus === 'completed') {
+      serverLogger.event({ scope: 'rs', id: requestId, event: 'preflight', fields });
+    } else {
+      serverLogger.error({ scope: 'rs', id: requestId, event: 'preflight', fields });
+    }
   }
 }
 
@@ -111,43 +128,57 @@ async function notifyRepoSearchRunningStatus(options: RepoSearchRunningStatusNot
   try {
     await notifyStatusBackend(options);
     notifySpan?.end({ ok: true });
-    logRepoSearchProgress(
-      `notify_running_done request_id=${options.requestId} ok=true duration_ms=${Date.now() - options.startedAt}`,
-    );
+    serverLogger.debug({
+      scope: 'rs',
+      id: options.requestId,
+      event: 'notify_running_done',
+      fields: `ok=true duration_ms=${Date.now() - options.startedAt}`,
+    });
   } catch (error) {
     notifySpan?.end({ ok: false });
     traceRepoSearch(`notify running=true failed request_id=${options.requestId}`);
-    logRepoSearchProgress(
-      `notify_running_done request_id=${options.requestId} ok=false duration_ms=${Date.now() - options.startedAt} `
-      + `error=${JSON.stringify(getErrorMessage(error))}`,
-    );
+    serverLogger.debug({
+      scope: 'rs',
+      id: options.requestId,
+      event: 'notify_running_done',
+      fields: `ok=false duration_ms=${Date.now() - options.startedAt} `
+        + `error=${JSON.stringify(getErrorMessage(error))}`,
+    });
   }
 }
 
 async function notifyRepoSearchTerminalStatus(options: RepoSearchTerminalStatusNotificationOptions): Promise<void> {
-  logRepoSearchProgress(
-    `notify_terminal_start request_id=${options.requestId} state=${options.terminalState}`,
-  );
+  serverLogger.debug({
+    scope: 'rs',
+    id: options.requestId,
+    event: 'notify_terminal_start',
+    fields: `state=${options.terminalState}`,
+  });
   const notifySpan = options.timingRecorder?.start('repo.status.notify_terminal', {
     terminalState: options.terminalState,
   });
   try {
     await notifyStatusBackend(options);
     notifySpan?.end({ ok: true });
-    logRepoSearchProgress(
-      `notify_terminal_done request_id=${options.requestId} state=${options.terminalState} `
-      + `ok=true duration_ms=${Date.now() - options.startedAt}`,
-    );
+    serverLogger.debug({
+      scope: 'rs',
+      id: options.requestId,
+      event: 'notify_terminal_done',
+      fields: `state=${options.terminalState} ok=true duration_ms=${Date.now() - options.startedAt}`,
+    });
     traceRepoSearch(
       `notify running=false done request_id=${options.requestId} state=${options.terminalState} `
       + `duration_ms=${Date.now() - options.startedAt}`,
     );
   } catch (error) {
     notifySpan?.end({ ok: false });
-    logRepoSearchProgress(
-      `notify_terminal_done request_id=${options.requestId} state=${options.terminalState} `
-      + `ok=false duration_ms=${Date.now() - options.startedAt} error=${JSON.stringify(getErrorMessage(error))}`,
-    );
+    serverLogger.error({
+      scope: 'rs',
+      id: options.requestId,
+      event: 'notify_terminal_done',
+      fields: `state=${options.terminalState} ok=false duration_ms=${Date.now() - options.startedAt} `
+        + `error=${JSON.stringify(getErrorMessage(error))}`,
+    });
     traceRepoSearch(`notify running=false failed request_id=${options.requestId} state=${options.terminalState}`);
   }
 }
@@ -185,11 +216,14 @@ export async function executeRepoSearchRequest(
   });
   let timingStatus: 'completed' | 'failed' = 'failed';
   traceRepoSearch(`execute start request_id=${requestId} prompt_chars=${prompt.length}`);
-  logRepoSearchProgress(
-    `start request_id=${requestId} task=${taskKind} prompt_chars=${prompt.length}`,
-  );
+  serverLogger.event({
+    scope: 'rs',
+    id: requestId,
+    event: 'start',
+    fields: `task=${taskKind}  prompt_chars=${prompt.length}`,
+  });
   const notifyRunningStartedAt = Date.now();
-  logRepoSearchProgress(`notify_running_start request_id=${requestId}`);
+  serverLogger.debug({ scope: 'rs', id: requestId, event: 'notify_running_start', fields: '' });
   const runningStatusPromise = notifyRepoSearchRunningStatus({
     running: true,
     taskKind,
@@ -210,7 +244,7 @@ export async function executeRepoSearchRequest(
 
   try {
     const progressCallback = request.onProgress;
-    logRepoSearchProgress(`run_start request_id=${requestId}`);
+    serverLogger.debug({ scope: 'rs', id: requestId, event: 'run_start', fields: '' });
     const scorecard = await runRepoSearch({
       repoRoot,
       config: request.config,
@@ -245,21 +279,26 @@ export async function executeRepoSearchRequest(
           logRepoSearchExecutionProgress(requestId, event, startedAt);
         },
     });
-    logRepoSearchProgress(`run_done request_id=${requestId}`);
+    serverLogger.debug({ scope: 'rs', id: requestId, event: 'run_done', fields: '' });
     const targetFolder = scorecard?.verdict === 'pass' ? folders.successful : folders.failed;
     const transcriptPath = `${targetFolder}/request_${requestId}.jsonl`;
     const artifactPathHint = `${targetFolder}/request_${requestId}.json`;
     const transcriptText = logger.getText();
     const persistStartedAt = Date.now();
-    logRepoSearchProgress(
-      `terminal_persist_start request_id=${requestId} state=completed transcript_chars=${transcriptText.length}`,
-    );
+    serverLogger.debug({
+      scope: 'rs',
+      id: requestId,
+      event: 'terminal_persist_start',
+      fields: `state=completed transcript_chars=${transcriptText.length}`,
+    });
     const transcriptPersistStartedAt = Date.now();
     const transcriptUri = logger.persist(transcriptPath, requestId);
-    logRepoSearchProgress(
-      `transcript_persist_done request_id=${requestId} state=completed `
-      + `duration_ms=${Date.now() - transcriptPersistStartedAt}`,
-    );
+    serverLogger.debug({
+      scope: 'rs',
+      id: requestId,
+      event: 'transcript_persist_done',
+      fields: `state=completed duration_ms=${Date.now() - transcriptPersistStartedAt}`,
+    });
     const artifact = {
       requestId,
       prompt,
@@ -285,14 +324,18 @@ export async function executeRepoSearchRequest(
       payload: artifactPayload,
     }).uri;
     artifactSpan?.end();
-    logRepoSearchProgress(
-      `artifact_persist_done request_id=${requestId} state=completed `
-      + `duration_ms=${Date.now() - artifactPersistStartedAt}`,
-    );
-    logRepoSearchProgress(
-      `terminal_persist_done request_id=${requestId} state=completed `
-      + `duration_ms=${Date.now() - persistStartedAt}`,
-    );
+    serverLogger.debug({
+      scope: 'rs',
+      id: requestId,
+      event: 'artifact_persist_done',
+      fields: `state=completed duration_ms=${Date.now() - artifactPersistStartedAt}`,
+    });
+    serverLogger.debug({
+      scope: 'rs',
+      id: requestId,
+      event: 'terminal_persist_done',
+      fields: `state=completed duration_ms=${Date.now() - persistStartedAt}`,
+    });
     const outputCharacterCount = getOutputCharacterCount(scorecard);
     const promptTokens = getNumericTotal(scorecard, 'promptTokens');
     const outputTokens = getNumericTotal(scorecard, 'outputTokens');
@@ -362,10 +405,12 @@ export async function executeRepoSearchRequest(
       `execute done request_id=${requestId} verdict=${String(scorecard?.verdict ?? 'unknown')} `
       + `duration_ms=${Date.now() - startedAt} output_chars=${outputCharacterCount}`
     );
-    logRepoSearchProgress(
-      `completed request_id=${requestId} duration_ms=${Date.now() - startedAt} `
-      + `verdict=${String(scorecard?.verdict ?? 'unknown')}`,
-    );
+    serverLogger.ok({
+      scope: 'rs',
+      id: requestId,
+      event: 'completed',
+      fields: `elapsed=${formatElapsed(Date.now() - startedAt)}  verdict=${String(scorecard?.verdict ?? 'unknown')}`,
+    });
     timingStatus = 'completed';
     return {
       requestId,
@@ -379,15 +424,20 @@ export async function executeRepoSearchRequest(
     const transcriptText = logger.getText();
     const message = error instanceof Error ? error.message : String(error);
     const persistStartedAt = Date.now();
-    logRepoSearchProgress(
-      `terminal_persist_start request_id=${requestId} state=failed transcript_chars=${transcriptText.length}`,
-    );
+    serverLogger.debug({
+      scope: 'rs',
+      id: requestId,
+      event: 'terminal_persist_start',
+      fields: `state=failed transcript_chars=${transcriptText.length}`,
+    });
     const transcriptPersistStartedAt = Date.now();
     const transcriptUri = logger.persist(transcriptPath, requestId);
-    logRepoSearchProgress(
-      `transcript_persist_done request_id=${requestId} state=failed `
-      + `duration_ms=${Date.now() - transcriptPersistStartedAt}`,
-    );
+    serverLogger.debug({
+      scope: 'rs',
+      id: requestId,
+      event: 'transcript_persist_done',
+      fields: `state=failed duration_ms=${Date.now() - transcriptPersistStartedAt}`,
+    });
     const artifact = {
       requestId,
       prompt,
@@ -412,14 +462,18 @@ export async function executeRepoSearchRequest(
       payload: artifactPayload,
     }).uri;
     artifactSpan?.end();
-    logRepoSearchProgress(
-      `artifact_persist_done request_id=${requestId} state=failed `
-      + `duration_ms=${Date.now() - artifactPersistStartedAt}`,
-    );
-    logRepoSearchProgress(
-      `terminal_persist_done request_id=${requestId} state=failed `
-      + `duration_ms=${Date.now() - persistStartedAt}`,
-    );
+    serverLogger.debug({
+      scope: 'rs',
+      id: requestId,
+      event: 'artifact_persist_done',
+      fields: `state=failed duration_ms=${Date.now() - artifactPersistStartedAt}`,
+    });
+    serverLogger.debug({
+      scope: 'rs',
+      id: requestId,
+      event: 'terminal_persist_done',
+      fields: `state=failed duration_ms=${Date.now() - persistStartedAt}`,
+    });
     const failedFinishedAtUtc = new Date().toISOString();
     await runningStatusPromise;
     await notifyRepoSearchTerminalStatus({
@@ -460,9 +514,12 @@ export async function executeRepoSearchRequest(
       generationDurationMs: null,
     }, timingRecorder);
     traceRepoSearch(`execute failed request_id=${requestId} duration_ms=${Date.now() - startedAt} error=${message}`);
-    logRepoSearchProgress(
-      `failed request_id=${requestId} duration_ms=${Date.now() - startedAt} error=${JSON.stringify(message)}`,
-    );
+    serverLogger.error({
+      scope: 'rs',
+      id: requestId,
+      event: 'failed',
+      fields: `elapsed=${formatElapsed(Date.now() - startedAt)}  error=${JSON.stringify(message)}`,
+    });
     const enrichedError: Error & { artifactPath?: string; transcriptPath?: string } = toError(error);
     enrichedError.artifactPath = artifactPath;
     enrichedError.transcriptPath = transcriptUri;
