@@ -148,6 +148,7 @@ const environment = {
   TABBY_DRAFT_MODEL_DRAFT_MODE: process.env.TABBY_DRAFT_MODEL_DRAFT_MODE,
   TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: process.env.TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS,
   TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: process.env.TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE,
+  EXL3_QC_ATTN: process.env.EXL3_QC_ATTN,
 };
 fs.writeFileSync(${JSON.stringify(files.environmentPath)}, JSON.stringify(environment));
 if (${JSON.stringify(options.announceDrafting)} && environment.TABBY_DRAFT_MODEL_DRAFT_MODE === 'mtp') {
@@ -232,6 +233,7 @@ test('managed Tabby launches with preset environment and uses its startup-loaded
       TABBY_DRAFT_MODEL_DRAFT_MODE: 'mtp',
       TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: '5',
       TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: 'Q8',
+      EXL3_QC_ATTN: '0',
     });
     assert.equal(fs.existsSync(loadRequestsPath), false);
 

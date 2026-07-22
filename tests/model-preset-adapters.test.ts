@@ -54,6 +54,7 @@ test('EXL3 adapter translates shared batching and MTP settings for managed Tabby
     TABBY_DRAFT_MODEL_DRAFT_MODE: 'mtp',
     TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: '5',
     TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: 'Q8',
+    EXL3_QC_ATTN: '0',
   });
   assert.equal('gpu_layers' in translated, false);
   assert.equal('batch_size' in translated, false);
@@ -86,6 +87,7 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
     TABBY_MODEL_CHUNK_SIZE: String(preset.UBatchSize),
     TABBY_DRAFT_MODEL_DRAFT_MODE: 'disabled',
     TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: String(preset.SpeculativeDraftMax),
+    EXL3_QC_ATTN: '0',
   });
   assert.equal('TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE' in adapter.buildLaunchEnvironment(preset), false);
 });
