@@ -244,13 +244,17 @@ const REPO_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
   },
 };
 
-/** Tools a model may be offered. `write`, `edit` and `run` are implemented but withheld. */
+/** Tools a non-interactive model may be offered. `write`, `edit` and `run` need the approval gate. */
 export const EXPOSED_REPO_TOOL_NAMES = ['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch'] as const;
+
+/** Full surface for interactive (human-approved) runs. */
+export const INTERACTIVE_REPO_TOOL_NAMES = [...EXPOSED_REPO_TOOL_NAMES, 'write', 'edit', 'run'] as const;
 
 /** `git` is the only tool whose args carry a raw command string; everything else is native. */
 export const REPO_COMMAND_TOOL_NAME = 'git';
 
 const EXPOSED_REPO_TOOL_NAME_SET = new Set<string>(EXPOSED_REPO_TOOL_NAMES);
+const REGISTERED_REPO_TOOL_NAME_SET = new Set<string>(Object.keys(REPO_TOOL_REGISTRY));
 const WEB_TOOL_NAMES = new Set<string>(['web_search', 'web_fetch']);
 
 function normalizeToolName(toolName: string): string {
@@ -271,7 +275,14 @@ export function isRepoSearchCommandToolName(toolName: string): boolean {
 
 export function isRepoSearchNativeToolName(toolName: string): boolean {
   const normalized = normalizeToolName(toolName);
-  return EXPOSED_REPO_TOOL_NAME_SET.has(normalized) && normalized !== REPO_COMMAND_TOOL_NAME;
+  return REGISTERED_REPO_TOOL_NAME_SET.has(normalized) && normalized !== REPO_COMMAND_TOOL_NAME;
+}
+
+export function sanitizeNonInteractiveAllowedTools(allowedToolNames: string[] | undefined): string[] | undefined {
+  if (!Array.isArray(allowedToolNames)) {
+    return undefined;
+  }
+  return allowedToolNames.filter((toolName) => EXPOSED_REPO_TOOL_NAME_SET.has(normalizeToolName(toolName)));
 }
 
 export function getRepoSearchCommandTokenForToolName(toolName: string): string | null {
@@ -293,7 +304,7 @@ export function resolveRepoSearchPlannerToolDefinitions(
   const seen = new Set<string>();
   const definitions: StructuredOutputToolDefinition[] = [];
   for (const toolName of requested) {
-    if (seen.has(toolName) || !EXPOSED_REPO_TOOL_NAME_SET.has(toolName)) {
+    if (seen.has(toolName) || !REGISTERED_REPO_TOOL_NAME_SET.has(toolName)) {
       continue;
     }
     seen.add(toolName);

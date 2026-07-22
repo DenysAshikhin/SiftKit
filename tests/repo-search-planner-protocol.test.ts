@@ -616,3 +616,35 @@ test('requestRepoSearchPlannerProtocolAction hard-fails on json_schema rejection
     },
   );
 });
+
+import {
+  INTERACTIVE_REPO_TOOL_NAMES,
+  isRepoSearchNativeToolName,
+  sanitizeNonInteractiveAllowedTools,
+} from '../src/repo-search/planner-protocol.js';
+
+test('interactive tool names extend the exposed surface with write, edit, run', () => {
+  assert.deepEqual(
+    [...INTERACTIVE_REPO_TOOL_NAMES],
+    ['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch', 'write', 'edit', 'run'],
+  );
+});
+
+test('native tool name check covers the full registry', () => {
+  assert.equal(isRepoSearchNativeToolName('write'), true);
+  assert.equal(isRepoSearchNativeToolName('edit'), true);
+  assert.equal(isRepoSearchNativeToolName('run'), true);
+  assert.equal(isRepoSearchNativeToolName('git'), false); // still the command tool
+  assert.equal(isRepoSearchNativeToolName('nonsense'), false);
+});
+
+test('resolver returns definitions for interactive names', () => {
+  const names = resolveRepoSearchPlannerToolDefinitions([...INTERACTIVE_REPO_TOOL_NAMES])
+    .map((definition) => definition.function.name);
+  assert.ok(names.includes('write') && names.includes('edit') && names.includes('run'));
+});
+
+test('sanitizer strips mutating tools from non-interactive allowed lists', () => {
+  assert.deepEqual(sanitizeNonInteractiveAllowedTools(['read', 'write', 'run', 'git']), ['read', 'git']);
+  assert.equal(sanitizeNonInteractiveAllowedTools(undefined), undefined);
+});
