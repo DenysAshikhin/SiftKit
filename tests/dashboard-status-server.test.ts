@@ -384,100 +384,140 @@ test('chat session creation uses pass-through host context window', async () => 
   }
 });
 
-test('chat sessions synchronize active EXL3 metadata without rewriting historical snapshots', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-exl3-context-'));
-  const previousCwd = enterDashboardTestRepo(tempRoot);
-  const runtimeRoot = path.join(tempRoot, '.siftkit');
-  const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
-  const configPath = getConfigPath();
-  fs.mkdirSync(path.dirname(statusPath), { recursive: true });
-  fs.writeFileSync(statusPath, 'false', 'utf8');
-  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const config = getDefaultConfig();
-  const serverConfig = d(config.Server);
-  const modelPresets = d(serverConfig.ModelPresets);
-  const activePreset = d(asObjectArray(modelPresets.Presets)[0]);
-  activePreset.Backend = 'exl3';
-  activePreset.Model = 'active-model';
-  activePreset.NumCtx = 150_000;
-  activePreset.Reasoning = 'off';
-  const runtimeLlama = d(d(config.Runtime).LlamaCpp);
-  runtimeLlama.NumCtx = 30_000;
-  runtimeLlama.Reasoning = 'on';
-  writeConfig(configPath, config);
+class ChatInferenceMetadataFixture {
+  private readonly tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-exl3-context-'));
+  private readonly previousCwd = enterDashboardTestRepo(this.tempRoot);
+  private readonly runtimeRoot = path.join(this.tempRoot, '.siftkit');
+  private readonly statusPath = path.join(this.runtimeRoot, 'status', 'inference.txt');
+  private readonly configPath = getConfigPath();
+  private readonly envBackup: ReturnType<typeof configureDashboardTestEnv>;
+  private server: ReturnType<typeof startStatusServer> | null = null;
+  private baseUrl = '';
+  readonly activePresetId: string;
 
-  saveChatSession(runtimeRoot, {
-    id: 'stale-active',
-    title: 'Stale active session',
-    modelPresetId: String(activePreset.id),
-    model: 'active-model',
-    contextWindowTokens: 30_000,
-    thinkingEnabled: true,
-    condensedSummary: '',
-    createdAtUtc: '2026-07-21T00:00:00.000Z',
-    updatedAtUtc: '2026-07-21T00:00:00.000Z',
-    messages: [],
-  });
-  saveChatSession(runtimeRoot, {
-    id: 'historical',
-    title: 'Historical session',
-    modelPresetId: 'historical-preset',
-    model: 'historical-model',
-    contextWindowTokens: 30_000,
-    thinkingEnabled: true,
-    condensedSummary: '',
-    createdAtUtc: '2026-07-20T00:00:00.000Z',
-    updatedAtUtc: '2026-07-20T00:00:00.000Z',
-    messages: [],
-  });
+  constructor() {
+    fs.mkdirSync(path.dirname(this.statusPath), { recursive: true });
+    fs.writeFileSync(this.statusPath, 'false', 'utf8');
+    this.envBackup = configureDashboardTestEnv(this.tempRoot, this.statusPath, this.configPath);
+    const config = getDefaultConfig();
+    const activePreset = d(asObjectArray(d(d(config.Server).ModelPresets).Presets)[0]);
+    activePreset.Backend = 'exl3';
+    activePreset.Model = 'active-model';
+    activePreset.NumCtx = 150_000;
+    activePreset.Reasoning = 'off';
+    this.activePresetId = String(activePreset.id);
+    const runtimeLlama = d(d(config.Runtime).LlamaCpp);
+    runtimeLlama.NumCtx = 30_000;
+    runtimeLlama.Reasoning = 'on';
+    writeConfig(this.configPath, config);
+  }
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
-  await server.startupPromise;
-  const address = getAddressInfo(server);
-  const baseUrl = `http://127.0.0.1:${address.port}`;
-
-  try {
-    const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
-      method: 'POST',
-      body: JSON.stringify({ title: 'EXL3 session', model: 'client-override' }),
+  seedActiveSession(): void {
+    saveChatSession(this.runtimeRoot, {
+      id: 'stale-active', title: 'Stale active session', modelPresetId: this.activePresetId,
+      model: 'stale-model', contextWindowTokens: 30_000, thinkingEnabled: true,
+      condensedSummary: '', createdAtUtc: '2026-07-21T00:00:00.000Z',
+      updatedAtUtc: '2026-07-21T00:00:00.000Z', messages: [],
     });
-    assert.equal(createSession.statusCode, 200);
-    const createdSession = d(createSession.body.session);
-    assert.equal(createdSession.model, 'active-model');
-    assert.equal(createdSession.contextWindowTokens, 150_000);
-    assert.equal(createdSession.thinkingEnabled, false);
-    assert.equal(d(createSession.body.contextUsage).contextWindowTokens, 150_000);
+  }
 
-    const listResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions`);
-    const listedSessions = asObjectArray(listResponse.body.sessions);
-    const listedActive = listedSessions.find((session) => session.id === 'stale-active');
-    const listedHistorical = listedSessions.find((session) => session.id === 'historical');
-    assert.equal(listedActive?.contextWindowTokens, 150_000);
-    assert.equal(listedHistorical?.contextWindowTokens, 30_000);
-
-    const activeResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/stale-active`);
-    assert.equal(d(activeResponse.body.session).contextWindowTokens, 150_000);
-    assert.equal(d(activeResponse.body.contextUsage).contextWindowTokens, 150_000);
-
-    const historicalResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/historical`);
-    assert.equal(d(historicalResponse.body.session).contextWindowTokens, 30_000);
-    assert.equal(d(historicalResponse.body.contextUsage).contextWindowTokens, 30_000);
-
-    const persistedActive = readChatSessions(runtimeRoot).find((session) => session.id === 'stale-active');
-    assert.equal(persistedActive?.contextWindowTokens, 30_000);
-  } finally {
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
+  seedHistoricalSession(): void {
+    saveChatSession(this.runtimeRoot, {
+      id: 'historical', title: 'Historical session', modelPresetId: 'historical-preset',
+      model: 'historical-model', contextWindowTokens: 30_000, thinkingEnabled: true,
+      condensedSummary: '', createdAtUtc: '2026-07-20T00:00:00.000Z',
+      updatedAtUtc: '2026-07-20T00:00:00.000Z', messages: [],
     });
-    for (const [key, value] of Object.entries(envBackup)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
+  }
+
+  async start(): Promise<void> {
+    this.server = startStatusServer({ disableManagedLlamaStartup: true });
+    await this.server.startupPromise;
+    const address = getAddressInfo(this.server);
+    this.baseUrl = `http://127.0.0.1:${address.port}`;
+  }
+
+  request(pathname: string, options?: Parameters<typeof requestJson>[1]): ReturnType<typeof requestJson> {
+    return requestJson(`${this.baseUrl}${pathname}`, options);
+  }
+
+  persistedActiveContextWindow(): number | undefined {
+    return readChatSessions(this.runtimeRoot).find((session) => session.id === 'stale-active')?.contextWindowTokens;
+  }
+
+  async close(): Promise<void> {
+    if (this.server) {
+      await new Promise<void>((resolve, reject) => {
+        this.server?.close((error) => (error ? reject(error) : resolve()));
+      });
     }
-    restoreDashboardTestRepo(previousCwd);
-    await removeDirectoryWithRetries(tempRoot);
+    for (const [key, value] of Object.entries(this.envBackup)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    restoreDashboardTestRepo(this.previousCwd);
+    await removeDirectoryWithRetries(this.tempRoot);
+  }
+}
+
+test('EXL3 chat creation uses server-owned inference metadata', async () => {
+  const fixture = new ChatInferenceMetadataFixture();
+  try {
+    await fixture.start();
+    const response = await fixture.request('/dashboard/chat/sessions', {
+      method: 'POST', body: JSON.stringify({ title: 'EXL3 session', model: 'client-override' }),
+    });
+    assert.equal(response.statusCode, 200);
+    const session = d(response.body.session);
+    assert.equal(session.model, 'active-model');
+    assert.equal(session.contextWindowTokens, 150_000);
+    assert.equal(session.thinkingEnabled, false);
+    assert.equal(d(response.body.contextUsage).contextWindowTokens, 150_000);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('active model preset sessions expose current model and context', async () => {
+  const fixture = new ChatInferenceMetadataFixture();
+  try {
+    fixture.seedActiveSession();
+    await fixture.start();
+    const response = await fixture.request('/dashboard/chat/sessions/stale-active');
+    const session = d(response.body.session);
+    assert.equal(session.model, 'active-model');
+    assert.equal(session.contextWindowTokens, 150_000);
+    assert.equal(d(response.body.contextUsage).contextWindowTokens, 150_000);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('inactive model preset sessions preserve inference snapshots', async () => {
+  const fixture = new ChatInferenceMetadataFixture();
+  try {
+    fixture.seedHistoricalSession();
+    await fixture.start();
+    const response = await fixture.request('/dashboard/chat/sessions/historical');
+    const session = d(response.body.session);
+    assert.equal(session.model, 'historical-model');
+    assert.equal(session.contextWindowTokens, 30_000);
+    assert.equal(d(response.body.contextUsage).contextWindowTokens, 30_000);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('reading an active model preset session does not rewrite snapshots', async () => {
+  const fixture = new ChatInferenceMetadataFixture();
+  try {
+    fixture.seedActiveSession();
+    await fixture.start();
+    const response = await fixture.request('/dashboard/chat/sessions/stale-active');
+    assert.equal(response.statusCode, 200);
+    assert.equal(fixture.persistedActiveContextWindow(), 30_000);
+  } finally {
+    await fixture.close();
   }
 });
 
