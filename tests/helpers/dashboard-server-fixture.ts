@@ -3,9 +3,17 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { startStatusServer } from '../../src/status-server/index.js';
+import { getDefaultConfig, writeConfig } from '../../src/status-server/config-store.js';
 import { readMetrics, type Metrics } from '../../src/status-server/metrics.js';
+import { writeRuntimeLaunchSnapshot } from '../../src/status-server/runtime-launch-snapshot.js';
 import { closeRuntimeDatabase, getRuntimeDatabasePath } from '../../src/state/runtime-db.js';
 import { getAddressInfo, removeDirectoryWithRetries } from './dashboard-http.js';
+
+/** Points the active preset at a stand-in inference backend for engine-backed E2Es. */
+export type DashboardTestBackend = {
+  baseUrl: string;
+  model: string;
+};
 
 const DASHBOARD_TEST_ENV_KEYS = [
   'sift_kit_status',
@@ -36,7 +44,7 @@ export class DashboardTestServer {
     private readonly envBackup: Record<string, string | undefined>,
   ) {}
 
-  static async start(namePrefix: string): Promise<DashboardTestServer> {
+  static async start(namePrefix: string, backend?: DashboardTestBackend): Promise<DashboardTestServer> {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), namePrefix));
     const previousCwd = process.cwd();
     fs.writeFileSync(
@@ -51,9 +59,10 @@ export class DashboardTestServer {
       envBackup[key] = process.env[key];
     }
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+    const configPath = path.join(tempRoot, '.siftkit', 'config.json');
     process.env.sift_kit_status = statusPath;
     process.env.SIFTKIT_STATUS_PATH = statusPath;
-    process.env.SIFTKIT_CONFIG_PATH = path.join(tempRoot, '.siftkit', 'config.json');
+    process.env.SIFTKIT_CONFIG_PATH = configPath;
     process.env.SIFTKIT_METRICS_PATH = path.join(tempRoot, '.siftkit', 'status', 'compression-metrics.json');
     process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH = path.join(tempRoot, '.siftkit', 'status', 'idle-summary.sqlite');
     process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
@@ -62,6 +71,30 @@ export class DashboardTestServer {
 
     const server = startStatusServer({ disableManagedLlamaStartup: true });
     await server.startupPromise;
+    if (backend) {
+      // Config and the launch snapshot both live in the runtime database, which only
+      // exists once the server has booted.
+      const databasePath = getRuntimeDatabasePath();
+      const config = getDefaultConfig();
+      const modelPresets = config.Server.ModelPresets;
+      const activePreset = modelPresets.Presets.find((preset) => preset.id === modelPresets.ActivePresetId)
+        ?? modelPresets.Presets[0];
+      activePreset.ExternalServerEnabled = true;
+      activePreset.Model = backend.model;
+      activePreset.BaseUrl = backend.baseUrl;
+      modelPresets.ActivePresetId = activePreset.id;
+      writeConfig(databasePath, config);
+      // Runtime.LlamaCpp wins over the preset in getConfiguredLlamaBaseUrl, so the
+      // launch snapshot is what actually routes inference at request time.
+      writeRuntimeLaunchSnapshot(databasePath, {
+        Model: backend.model,
+        LlamaCpp: {
+          BaseUrl: backend.baseUrl,
+          NumCtx: activePreset.NumCtx,
+          Reasoning: activePreset.Reasoning,
+        },
+      });
+    }
     const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
     return new DashboardTestServer(tempRoot, baseUrl, server, previousCwd, envBackup);
   }
