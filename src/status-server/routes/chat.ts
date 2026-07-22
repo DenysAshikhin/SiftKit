@@ -210,6 +210,7 @@ function toWireChatSession(config: SiftConfig, session: ChatSession): WireChatSe
   return {
     id: session.id,
     title: session.title ?? '',
+    modelPresetId: session.modelPresetId,
     model: session.model ?? null,
     contextWindowTokens: resolveChatSessionContextWindow(config, session),
     thinkingEnabled: session.thinkingEnabled,
@@ -680,6 +681,7 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
     const session: ChatSession = {
       id: randomUUID(),
       title: createRequest.title || 'New Session',
+      modelPresetId: activePreset.id,
       model: createRequest.model || activePreset.Model,
       contextWindowTokens: getConfiguredLlamaNumCtx(currentConfig),
       thinkingEnabled: getConfiguredReasoning(currentConfig) !== 'off',

@@ -29,7 +29,8 @@ export const ChatPromptContextSchema = z.object({
 export type ChatPromptContext = z.infer<typeof ChatPromptContextSchema>;
 
 export const ChatSessionSchema = z.object({
-  id: z.string(), title: z.string(), model: z.string().nullable(), contextWindowTokens: z.number(),
+  id: z.string(), title: z.string(), modelPresetId: z.string().trim().min(1),
+  model: z.string().nullable(), contextWindowTokens: z.number(),
   thinkingEnabled: z.boolean().optional(), webSearchEnabled: z.boolean().optional(), presetId: z.string().optional(),
   mode: z.enum(['chat', 'plan', 'repo-search']).optional(), planRepoRoot: z.string().optional(),
   condensedSummary: z.string(), createdAtUtc: z.string(), updatedAtUtc: z.string(),

@@ -191,6 +191,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
     CREATE TABLE IF NOT EXISTS chat_sessions (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
+      model_preset_id TEXT NOT NULL,
       model TEXT,
       context_window_tokens INTEGER NOT NULL,
       thinking_enabled INTEGER NOT NULL CHECK (thinking_enabled IN (0, 1)),

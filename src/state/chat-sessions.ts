@@ -57,6 +57,7 @@ export type ChatMessage = {
 export type ChatSession = {
   id: string;
   title?: string;
+  modelPresetId: string;
   model?: string | null;
   contextWindowTokens?: number;
   thinkingEnabled?: boolean;
@@ -76,6 +77,7 @@ const SessionIdRowSchema = z.object({ id: z.string().nullable() });
 const SessionRowSchema = z.object({
   id: z.string(),
   title: z.string(),
+  model_preset_id: z.string().trim().min(1),
   model: z.string().nullable(),
   context_window_tokens: z.number(),
   thinking_enabled: z.number(),
@@ -157,6 +159,22 @@ function normalizeMode(value: string | null | undefined): ChatSessionMode {
 function normalizePresetId(value: string | null | undefined, modeValue?: string | null): string {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
   return normalized || mapLegacyModeToPresetId(modeValue);
+}
+
+function requireModelPresetId(value: string): string {
+  const modelPresetId = value.trim();
+  if (!modelPresetId) {
+    throw new Error('Chat session modelPresetId is required.');
+  }
+  return modelPresetId;
+}
+
+function requireContextWindowTokens(value: number | undefined): number {
+  const contextWindowTokens = toNullableNonNegativeInteger(value);
+  if (contextWindowTokens === null || contextWindowTokens < 1) {
+    throw new Error('Chat session contextWindowTokens must be a positive integer.');
+  }
+  return contextWindowTokens;
 }
 
 function normalizeRole(value: string | null | undefined): ChatMessageRole {
@@ -260,6 +278,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
     SELECT
       id,
       title,
+      model_preset_id,
       model,
       context_window_tokens,
       thinking_enabled,
@@ -327,6 +346,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
   return {
     id: session.id,
     title: session.title,
+    modelPresetId: session.model_preset_id,
     model: session.model,
     contextWindowTokens: session.context_window_tokens,
     thinkingEnabled: session.thinking_enabled === 1,
@@ -407,6 +427,8 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
     throw new Error('Session id is required.');
   }
   const now = new Date().toISOString();
+  const modelPresetId = requireModelPresetId(session.modelPresetId);
+  const contextWindowTokens = requireContextWindowTokens(session.contextWindowTokens);
   const mode = normalizeMode(session.mode);
   const presetId = normalizePresetId(session.presetId, mode);
   const messages = Array.isArray(session.messages) ? session.messages : [];
@@ -417,6 +439,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
       INSERT INTO chat_sessions (
         id,
         title,
+        model_preset_id,
         model,
         context_window_tokens,
         thinking_enabled,
@@ -427,9 +450,10 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         condensed_summary,
         created_at_utc,
         updated_at_utc
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
+        model_preset_id = excluded.model_preset_id,
         model = excluded.model,
         context_window_tokens = excluded.context_window_tokens,
         thinking_enabled = excluded.thinking_enabled,
@@ -442,8 +466,9 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
     `).run(
       sessionId,
       typeof session.title === 'string' && session.title.trim() ? session.title.trim() : 'New Session',
+      modelPresetId,
       typeof session.model === 'string' && session.model.trim() ? session.model.trim() : null,
-        toNullableNonNegativeInteger(session.contextWindowTokens) ?? 150000,
+      contextWindowTokens,
       session.thinkingEnabled === false ? 0 : 1,
       session.webSearchEnabled === true ? 1 : 0,
       presetId,

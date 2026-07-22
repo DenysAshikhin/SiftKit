@@ -364,6 +364,7 @@ test('buildRepoSearchMarkdown collapses exact repeated final output blocks for d
 test('buildContextUsage estimates continuation context from session content instead of provider prompt telemetry', () => {
   const session: ChatSession = {
     id: 'session-usage',
+    modelPresetId: 'default',
     contextWindowTokens: 75000,
     messages: [
       {
@@ -610,6 +611,7 @@ test('buildChatHistoryMessages replays persisted repo tool calls with real proto
 test('buildContextUsage counts replay-visible context, not internal tool telemetry', () => {
   const session: ChatSession = {
     id: 'session-replay-usage',
+    modelPresetId: 'default',
     contextWindowTokens: 62000,
     messages: [
       { id: 'u1', role: 'user', kind: 'user_text', content: 'tiny', inputTokensEstimate: 161239, outputTokensEstimate: 0, thinkingTokens: 0, createdAtUtc: '2026-01-01T00:00:00.000Z' },

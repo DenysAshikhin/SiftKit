@@ -40,6 +40,7 @@ test('chat sessions are persisted in runtime sqlite instead of JSON files', () =
     saveChatSession(runtimeRoot, {
       id: sessionId,
       title: 'DB Session',
+      modelPresetId: 'preset-a',
       model: 'model-a',
       contextWindowTokens: 4096,
       thinkingEnabled: true,
@@ -74,6 +75,7 @@ test('chat sessions are persisted in runtime sqlite instead of JSON files', () =
     const sessions = readChatSessions(runtimeRoot);
     assert.equal(sessions.length, 1);
     assert.equal(sessions[0]?.id, sessionId);
+    assert.equal(sessions[0]?.modelPresetId, 'preset-a');
     assert.equal(sessions[0]?.presetId, 'chat');
     assert.equal(sessions[0]?.messages?.length, 1);
     assert.equal(sessions[0]?.messages?.[0]?.promptCacheTokens, null);
@@ -106,6 +108,7 @@ test('chat sessions persist webSearchEnabled', () => {
     saveChatSession(runtimeRoot, {
       id: sessionId,
       title: 'Web Session',
+      modelPresetId: 'preset-a',
       model: 'model-a',
       contextWindowTokens: 4096,
       thinkingEnabled: true,
@@ -137,6 +140,7 @@ test('chat timeline bubbles persist typed tool payload fields', () => {
     saveChatSession(runtimeRoot, {
       id: sessionId,
       title: 'Timeline Session',
+      modelPresetId: 'preset-a',
       model: 'model-a',
       contextWindowTokens: 4096,
       thinkingEnabled: true,
@@ -187,6 +191,7 @@ test('chat session persistence keeps typed tool and timing fields', () => {
     const session: ChatSession = {
       id: 'typed-session',
       title: 'Typed Session',
+      modelPresetId: 'preset-a',
       model: 'model-a',
       contextWindowTokens: 4096,
       thinkingEnabled: true,
@@ -257,6 +262,7 @@ test('deleteChatSession removes DB rows and reports existence correctly', () => 
     saveChatSession(runtimeRoot, {
       id: sessionId,
       title: 'Delete Me',
+      modelPresetId: 'preset-a',
       model: null,
       contextWindowTokens: 1024,
       presetId: 'chat',

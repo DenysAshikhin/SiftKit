@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ChatSessionResponseSchema, ChatMessageSchema } from '@siftkit/contracts';
+import { ChatSessionResponseSchema, ChatMessageSchema, ChatSessionSchema } from '@siftkit/contracts';
 
 const message = {
   id: 'm1', role: 'user', content: 'hi',
@@ -18,4 +18,17 @@ test('ChatSessionResponseSchema requires contextUsage', () => {
     condensedSummary: '', createdAtUtc: 'x', updatedAtUtc: 'y', messages: [message],
   };
   assert.throws(() => ChatSessionResponseSchema.parse({ session }));
+});
+
+test('ChatSessionSchema requires modelPresetId', () => {
+  const session = {
+    id: 's1', title: 't', model: 'model-a', contextWindowTokens: 4096,
+    condensedSummary: '', createdAtUtc: 'x', updatedAtUtc: 'y', messages: [message],
+  };
+
+  assert.throws(() => ChatSessionSchema.parse(session));
+  assert.equal(
+    ChatSessionSchema.parse({ ...session, modelPresetId: 'preset-a' }).modelPresetId,
+    'preset-a',
+  );
 });

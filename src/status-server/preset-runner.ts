@@ -1,4 +1,9 @@
-import { getConfigPath, type SiftConfig } from '../config/index.js';
+import {
+  getActiveModelPreset,
+  getConfigPath,
+  getConfiguredLlamaNumCtx,
+  type SiftConfig,
+} from '../config/index.js';
 import type {
   PresetListItem,
   PresetListResult,
@@ -184,11 +189,13 @@ export class StatusPresetRunner {
       throw new Error('A prompt is required.');
     }
     const now = new Date().toISOString();
+    const activeModelPreset = getActiveModelPreset(config);
     const session: ChatSession = {
       id: 'cli-ephemeral',
       title: preset.label,
+      modelPresetId: activeModelPreset.id,
       model: request.model,
-      contextWindowTokens: 150000,
+      contextWindowTokens: getConfiguredLlamaNumCtx(config),
       thinkingEnabled: true,
       presetId: preset.id,
       mode: 'chat',

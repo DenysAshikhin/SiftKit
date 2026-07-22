@@ -409,6 +409,7 @@ test('chat sessions synchronize active EXL3 metadata without rewriting historica
   saveChatSession(runtimeRoot, {
     id: 'stale-active',
     title: 'Stale active session',
+    modelPresetId: String(activePreset.id),
     model: 'active-model',
     contextWindowTokens: 30_000,
     thinkingEnabled: true,
@@ -420,6 +421,7 @@ test('chat sessions synchronize active EXL3 metadata without rewriting historica
   saveChatSession(runtimeRoot, {
     id: 'historical',
     title: 'Historical session',
+    modelPresetId: 'historical-preset',
     model: 'historical-model',
     contextWindowTokens: 30_000,
     thinkingEnabled: true,

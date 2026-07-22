@@ -98,6 +98,7 @@ function createSession(presetId: string, mode: ChatSession['mode'] = 'chat'): Ch
   return {
     id: 'session-1',
     title: 'Session',
+    modelPresetId: 'default',
     model: 'mock-model',
     contextWindowTokens: 150000,
     thinkingEnabled: true,
