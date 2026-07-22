@@ -22,19 +22,19 @@ export type SummaryProgressEvent = {
 
 /** Emits typed lifecycle events for one summary request. */
 export class SummaryProgressReporter {
-  private readonly onProgress: ((event: SummaryProgressEvent) => void) | null;
+  private readonly progressWriter: ProgressWriter<SummaryProgressEvent>;
   private readonly requestId: string;
 
   constructor(options: {
     requestId: string;
-    onProgress: ((event: SummaryProgressEvent) => void) | null;
+    progressWriter: ProgressWriter<SummaryProgressEvent>;
   }) {
     this.requestId = options.requestId;
-    this.onProgress = options.onProgress;
+    this.progressWriter = options.progressWriter;
   }
 
   get enabled(): boolean {
-    return this.onProgress !== null;
+    return this.progressWriter.enabled;
   }
 
   start(inputChars: number): void {
@@ -87,6 +87,7 @@ export class SummaryProgressReporter {
   }
 
   private emit(event: SummaryProgressEvent): void {
-    this.onProgress?.(event);
+    this.progressWriter.write(event);
   }
 }
+import type { ProgressWriter } from '../lib/progress-writer.js';

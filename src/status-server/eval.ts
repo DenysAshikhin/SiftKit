@@ -7,6 +7,7 @@ import { getConfiguredModel, initializeRuntime, loadConfig } from '../config/ind
 import { summarizeRequest } from '../summary/core.js';
 import { resolveSummaryProvider } from '../summary/types.js';
 import type { SummaryProgressEvent } from '../summary/progress-reporter.js';
+import type { ProgressWriter } from '../lib/progress-writer.js';
 import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
 import { persistEvalResult } from '../state/runtime-results.js';
 import { findNearestSiftKitRepoRoot, moduleDirname } from '../lib/paths.js';
@@ -71,8 +72,10 @@ function getFixtureScore(summary: string, fixture: Fixture, sourceLength: number
 
 export async function runEvaluation(
   request: EvalRequest,
-  onProgress?: (event: SummaryProgressEvent) => void,
-  abortSignal?: AbortSignal,
+  options: {
+    progressWriter?: ProgressWriter<SummaryProgressEvent>;
+    abortSignal?: AbortSignal;
+  } = {},
 ): Promise<EvaluationResult> {
   const config = await loadConfig({ ensure: true });
   const backend = resolveSummaryProvider(request.Backend);
@@ -96,8 +99,8 @@ export async function runEvaluation(
       model,
       policyProfile: fixture.PolicyProfile,
       sourceKind: 'standalone',
-      onProgress,
-      abortSignal,
+      progressWriter: options.progressWriter,
+      abortSignal: options.abortSignal,
     });
     const score = getFixtureScore(summaryResult.Summary, fixture, source.length);
 
@@ -134,8 +137,8 @@ export async function runEvaluation(
       model,
       policyProfile: 'general',
       sourceKind: 'standalone',
-      onProgress,
-      abortSignal,
+      progressWriter: options.progressWriter,
+      abortSignal: options.abortSignal,
     });
 
     results.push({

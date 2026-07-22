@@ -58,6 +58,7 @@ import {
 } from '../dashboard-runs.js';
 import { RepoSearchResponseSanityChecker } from '../../repo-search/response-sanity.js';
 import { StatusPresetRunner } from '../preset-runner.js';
+import { SummarySseProgressWriter } from '../operation-progress-writers.js';
 import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.js';
 import {
   parseRepoSearchRequest,
@@ -723,9 +724,7 @@ class CommandOutputAnalyzeEndpoint extends StreamedOperationEndpoint<ParsedComma
       noSummarize: parsedBody.noSummarize === true,
       config: readConfig(ctx.configPath),
       abortSignal: stream.abortSignal,
-      onProgress(event) {
-        stream.emitProgress(event);
-      },
+      progressWriter: new SummarySseProgressWriter(stream),
     });
   }
 }
@@ -783,9 +782,7 @@ class PresetRunEndpoint extends StreamedOperationEndpoint<ParsedPresetRunRoute> 
     }, {
       statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
       abortSignal: stream.abortSignal,
-      onSummaryProgress(event) {
-        stream.emitProgress(event);
-      },
+      summaryProgressWriter: new SummarySseProgressWriter(stream),
       onRepoSearchProgress(event) {
         if (event.kind === 'thinking' || event.kind === 'answer') {
           return;
@@ -818,9 +815,10 @@ class EvalRunEndpoint extends StreamedOperationEndpoint<ParsedEvalRoute> {
       RealLogPath: Array.isArray(parsedBody.RealLogPath) ? parsedBody.RealLogPath.map((value) => String(value)) : [],
       Backend: parseOptionalSummaryProvider(reader.optionalString('Backend')),
       Model: reader.optionalString('Model'),
-    }, (event) => {
-      stream.emitProgress(event);
-    }, stream.abortSignal);
+    }, {
+      progressWriter: new SummarySseProgressWriter(stream),
+      abortSignal: stream.abortSignal,
+    });
   }
 }
 
@@ -931,9 +929,7 @@ class SummaryEndpoint extends StreamedOperationEndpoint<ParsedSummaryRoute> {
       statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
       config: readConfig(ctx.configPath),
       abortSignal: stream.abortSignal,
-      onProgress(event) {
-        stream.emitProgress(event);
-      },
+      progressWriter: new SummarySseProgressWriter(stream),
     });
   }
 }

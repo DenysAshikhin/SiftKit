@@ -14,6 +14,7 @@ import {
 import type { NotifyStatusBackendOptions } from '../config/status-backend.js';
 import { getErrorMessage, toError } from '../lib/errors.js';
 import { throwIfAborted } from '../lib/abort.js';
+import { SilentProgressWriter } from '../lib/progress-writer.js';
 import { createTemporaryTimingRecorderFromEnv, type TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
 import {
   getDeterministicExcerpt,
@@ -103,7 +104,7 @@ export class SummaryRequestRunner {
     this.inputText = normalizeInputText(request.inputText) ?? '';
     this.progress = new SummaryProgressReporter({
       requestId: this.requestId,
-      onProgress: request.onProgress ?? null,
+      progressWriter: request.progressWriter ?? new SilentProgressWriter(),
     });
     this.timingRecorder = createTemporaryTimingRecorderFromEnv({
       kind: 'summary',

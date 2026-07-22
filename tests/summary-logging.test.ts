@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import { summarizeRequest } from '../src/summary.js';
 import type { SummaryProgressEvent } from '../src/summary/progress-reporter.js';
+import { SilentProgressWriter } from '../src/lib/progress-writer.js';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import {
   withStubServer,
   withTempEnv,
@@ -11,7 +13,7 @@ import {
 test('summary emits preflight tokenization progress', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
-      const events: SummaryProgressEvent[] = [];
+      const writer = new CollectingProgressWriter<SummaryProgressEvent>();
       await summarizeRequest({
         question: 'summarize this',
         inputText: 'A'.repeat(5_000),
@@ -19,18 +21,16 @@ test('summary emits preflight tokenization progress', async () => {
         policyProfile: 'general',
         backend: 'llama.cpp',
         model: 'mock-model',
-        onProgress(event) {
-          events.push(event);
-        },
+        progressWriter: writer,
       });
 
-      const kinds = events.map((event) => event.kind);
+      const kinds = writer.events.map((event) => event.kind);
       assert.deepEqual(kinds.slice(0, 2), ['start', 'config_start']);
       assert.ok(kinds.includes('completed'));
-      const tokenizeStart = events.find((event) => event.kind === 'tokenize_start');
+      const tokenizeStart = writer.events.find((event) => event.kind === 'tokenize_start');
       assert.equal(tokenizeStart?.phase, 'leaf');
       assert.ok((tokenizeStart?.promptChars ?? 0) > 0);
-      const tokenizeDone = events.find((event) => event.kind === 'tokenize_done');
+      const tokenizeDone = writer.events.find((event) => event.kind === 'tokenize_done');
       assert.equal(tokenizeDone?.promptTokens, 456);
       assert.equal(tokenizeDone?.tokenSource, 'llama.cpp');
     }, {
@@ -58,6 +58,7 @@ test('summary rejects before loading configuration when already aborted', async 
       format: 'text',
       policyProfile: 'general',
       backend: 'mock',
+      progressWriter: new SilentProgressWriter<SummaryProgressEvent>(),
       abortSignal: controller.signal,
     }),
     /client disconnected/u,

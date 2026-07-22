@@ -13,6 +13,7 @@ import type {
 import { summarizeRequest } from '../summary/core.js';
 import type { SummaryRequest, SummaryResult } from '../summary/types.js';
 import type { SummaryProgressEvent } from '../summary/progress-reporter.js';
+import type { ProgressWriter } from '../lib/progress-writer.js';
 
 export class StatusEngineService {
   private readonly commandOutputAnalyzer: CommandOutputAnalyzer;
@@ -35,9 +36,11 @@ export class StatusEngineService {
 
   runEvaluation(
     request: EvalRequest,
-    onProgress?: (event: SummaryProgressEvent) => void,
-    abortSignal?: AbortSignal,
+    options: {
+      progressWriter?: ProgressWriter<SummaryProgressEvent>;
+      abortSignal?: AbortSignal;
+    } = {},
   ): Promise<EvaluationResult> {
-    return runEvaluation(request, onProgress, abortSignal);
+    return runEvaluation(request, options);
   }
 }

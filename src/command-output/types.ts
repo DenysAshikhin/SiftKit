@@ -8,6 +8,7 @@ import {
   type SummarySourceKind,
 } from '../summary/types.js';
 import type { SummaryProgressEvent } from '../summary/progress-reporter.js';
+import type { ProgressWriter } from '../lib/progress-writer.js';
 
 export type CommandOutputKind = 'command' | 'interactive';
 
@@ -30,7 +31,7 @@ export type CommandOutputAnalyzeRequest = {
   noSummarize?: boolean;
   shell?: ShellName;
   config?: SiftConfig;
-  onProgress?: (event: SummaryProgressEvent) => void;
+  progressWriter?: ProgressWriter<SummaryProgressEvent>;
   abortSignal?: AbortSignal;
 };
 

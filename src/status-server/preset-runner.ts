@@ -25,6 +25,7 @@ import type { RepoSearchProgressEvent } from './dashboard-runs.js';
 import type { ChatSession } from '../state/chat-sessions.js';
 import type { PlannerToolName, SummaryPolicyProfile } from '../summary/types.js';
 import type { SummaryProgressEvent } from '../summary/progress-reporter.js';
+import type { ProgressWriter } from '../lib/progress-writer.js';
 import {
   buildChatSystemContent,
   buildPlanMarkdownFromRepoSearch,
@@ -37,7 +38,7 @@ import { normalizeRepoSearchResult } from './repo-search-scorecard-types.js';
 
 type PresetRunOptions = {
   statusBackendUrl: string;
-  onSummaryProgress?: (event: SummaryProgressEvent) => void;
+  summaryProgressWriter?: ProgressWriter<SummaryProgressEvent>;
   onRepoSearchProgress?: (event: RepoSearchProgressEvent) => void;
   abortSignal?: AbortSignal;
 };
@@ -179,7 +180,7 @@ export class StatusPresetRunner {
       commandExitCode: Number.isFinite(Number(request.commandExitCode)) ? Number(request.commandExitCode) : undefined,
       statusBackendUrl: options.statusBackendUrl,
       config,
-      onProgress: options.onSummaryProgress,
+      progressWriter: options.summaryProgressWriter,
       abortSignal: options.abortSignal,
     });
     return { outputText: result.Summary };
