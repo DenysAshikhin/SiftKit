@@ -50,6 +50,7 @@ import { readConfig } from './config-store.js';
 
 export const MAX_COMPLETED_STATUS_PATH_ENTRIES = 1000;
 export const DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS = 900_000;
+export const DEFAULT_IDLE_SUMMARY_DELAY_MS = 600_000;
 
 function readModelRequestQueueTimeoutMs(): number {
   const parsed = Number.parseInt(String(process.env.SIFTKIT_MODEL_REQUEST_QUEUE_TIMEOUT_MS || ''), 10);
@@ -78,17 +79,6 @@ export function clearCompletedStatusRequestIdForDifferentRequest(
     ctx.completedRequestIdByStatusPath.delete(statusPath);
   }
 }
-
-function getPositiveIntegerFromEnv(name: string, fallback: number): number {
-  const rawValue = process.env[name];
-  if (!rawValue || !rawValue.trim()) {
-    return fallback;
-  }
-  const parsedValue = Number.parseInt(rawValue, 10);
-  return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : fallback;
-}
-
-const IDLE_SUMMARY_DELAY_MS = getPositiveIntegerFromEnv('SIFTKIT_IDLE_SUMMARY_DELAY_MS', 600_000);
 
 // ---------------------------------------------------------------------------
 // Published status
@@ -356,7 +346,7 @@ export function scheduleIdleSummaryIfNeeded(ctx: ServerContext): void {
     ctx.idleSummaryPending = false;
     resetPendingIdleSummaryMetadata(ctx);
     publishStatus(ctx);
-  }, IDLE_SUMMARY_DELAY_MS);
+  }, ctx.idleSummaryDelayMs);
   if (typeof ctx.idleSummaryTimer.unref === 'function') {
     ctx.idleSummaryTimer.unref();
   }

@@ -10,6 +10,7 @@ import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush
 import { StatusEngineService } from '../src/status-server/engine-service.js';
 import {
   DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS,
+  DEFAULT_IDLE_SUMMARY_DELAY_MS,
   acquireModelRequestWithWait,
   clearCompletedStatusRequestIdForDifferentRequest,
   getModelRequestQueueDiagnostics,
@@ -63,6 +64,7 @@ function createQueueContext(configPath = 'config.json'): ServerContext & { reado
     statusPath: 'status.txt',
     metricsPath: 'metrics.sqlite',
     idleSummarySnapshotsPath: 'idle.sqlite',
+    idleSummaryDelayMs: DEFAULT_IDLE_SUMMARY_DELAY_MS,
     disableManagedLlamaStartup: false,
     engineService: new StatusEngineService(),
     terminalMetadataQueue: [],

@@ -48,6 +48,7 @@ import {
   publishStatus,
   clearIdleSummaryTimer,
   getIdleSummaryDatabase,
+  DEFAULT_IDLE_SUMMARY_DELAY_MS,
 } from './server-ops.js';
 import { StatusEngineService } from './engine-service.js';
 import {
@@ -173,6 +174,15 @@ function getTerminalMetadataIdleDelayMs(options: StartStatusServerOptions): numb
   return DEFAULT_TERMINAL_METADATA_IDLE_DELAY_MS;
 }
 
+function getIdleSummaryDelayMs(options: StartStatusServerOptions): number {
+  const configuredValue = options.idleSummaryDelayMs
+    ?? Number(process.env.SIFTKIT_IDLE_SUMMARY_DELAY_MS);
+  if (Number.isFinite(configuredValue) && configuredValue > 0) {
+    return Math.trunc(configuredValue);
+  }
+  return DEFAULT_IDLE_SUMMARY_DELAY_MS;
+}
+
 function getInferenceRunFlushIdleDelayMs(options: StartStatusServerOptions): number {
   const configuredValue = options.inferenceRunFlushIdleDelayMs
     ?? Number(process.env.SIFTKIT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS);
@@ -240,6 +250,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     terminalMetadataDrainRunning: false,
     terminalMetadataLastModelRequestFinishedAtMs: null,
     terminalMetadataIdleDelayMs: getTerminalMetadataIdleDelayMs(options),
+    idleSummaryDelayMs: getIdleSummaryDelayMs(options),
     pendingIdleSummaryMetadata: {
       inputCharactersPerContextToken: null,
       chunkThresholdCharacters: null,

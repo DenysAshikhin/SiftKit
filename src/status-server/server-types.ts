@@ -84,6 +84,7 @@ export type ExtendedServer = Server & {
 
 export type StartStatusServerOptions = {
   disableManagedLlamaStartup?: boolean;
+  idleSummaryDelayMs?: number;
   terminalMetadataIdleDelayMs?: number;
   inferenceRunFlushIdleDelayMs?: number;
 };
@@ -124,6 +125,7 @@ export type ServerContext = {
   terminalMetadataIdleDelayMs: number;
 
   // Idle summary
+  readonly idleSummaryDelayMs: number;
   pendingIdleSummaryMetadata: {
     inputCharactersPerContextToken: number | null;
     chunkThresholdCharacters: number | null;

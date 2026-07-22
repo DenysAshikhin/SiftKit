@@ -16,6 +16,7 @@ import {
   sleep,
   withTempEnv,
   startStatusServerProcess,
+  withRealStatusServer,
   readIdleSummarySnapshots,
   getIdleSummaryBlock,
   getFreePort,
@@ -25,6 +26,7 @@ import {
   type RuntimeStatusResponse,
   type LlamaModelsResponse,
 } from './_runtime-helpers.js';
+import { captureStdoutLines } from './helpers/stdout-capture.js';
 
 test('real status server prints one idle metrics line only after the full idle delay', async () => {
   await withTempEnv(async (tempRoot) => {
@@ -123,15 +125,7 @@ test('real status server leaves managed llama.cpp running after the idle summary
     writeConfig(getConfigPath(), config);
     const requestId = 'idle-summary-llama-shutdown';
 
-    const server = await startStatusServerProcess({
-      statusPath,
-      configPath,
-      idleSummaryDbPath,
-      idleSummaryDelayMs: 80,
-      terminalMetadataIdleDelayMs: 0,
-    });
-
-    try {
+    const stdoutLines = await captureStdoutLines(() => withRealStatusServer(async (server) => {
       await requestJson(server.configUrl);
       await waitForAsyncExpectation(async () => {
         const models = await requestJson<LlamaModelsResponse>(`${managed.baseUrl}/v1/models`);
@@ -153,15 +147,20 @@ test('real status server leaves managed llama.cpp running after the idle summary
         requestDurationMs: 20,
       });
 
-      await server.waitForStdoutMatch(/requests=1/u, 1000);
+      await waitForAsyncExpectation(async () => {
+        assert.equal(readIdleSummarySnapshots(server.idleSummaryDbPath).length, 1);
+      }, 5000);
       const models = await requestJson<LlamaModelsResponse>(`${managed.baseUrl}/v1/models`);
       assert.equal(models.data[0].id, 'managed-test-model');
-      await waitForAsyncExpectation(async () => {
-        assert.equal(readStatusText(getConfigPath()), 'false');
-      }, 5000);
-    } finally {
-      await server.close();
-    }
+      assert.equal(readStatusText(getConfigPath()), 'false');
+    }, {
+      statusPath,
+      configPath,
+      idleSummaryDbPath,
+      idleSummaryDelayMs: 80,
+      terminalMetadataIdleDelayMs: 0,
+    }));
+    assert.equal(stdoutLines.some((line) => /requests=1/u.test(line)), true);
 
     await waitForAsyncExpectation(
       async () => assert.rejects(() => requestJson(`${managed.baseUrl}/v1/models`)),

@@ -261,6 +261,7 @@ interface RealStatusServerOptions {
   statusPath: string;
   configPath: string;
   idleSummaryDbPath?: string;
+  idleSummaryDelayMs?: number;
   terminalMetadataIdleDelayMs?: number;
   inferenceRunFlushIdleDelayMs?: number;
   disableManagedLlamaStartup?: boolean;
@@ -995,6 +996,7 @@ function runWithTempEnv<R>(fn: (tempRoot: string) => R | Promise<R>): Promise<R>
     SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
     SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
     SIFTKIT_IDLE_SUMMARY_DB_PATH: process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH,
+    SIFTKIT_IDLE_SUMMARY_DELAY_MS: process.env.SIFTKIT_IDLE_SUMMARY_DELAY_MS,
     SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS,
   };
 
@@ -1155,6 +1157,7 @@ async function withRealStatusServer<R>(fn: (context: RealStatusServerContext) =>
     SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
     SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
     SIFTKIT_IDLE_SUMMARY_DB_PATH: process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH,
+    SIFTKIT_IDLE_SUMMARY_DELAY_MS: process.env.SIFTKIT_IDLE_SUMMARY_DELAY_MS,
     SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS: process.env.SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS,
     SIFTKIT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS: process.env.SIFTKIT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS,
     SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS,
@@ -1173,6 +1176,12 @@ async function withRealStatusServer<R>(fn: (context: RealStatusServerContext) =>
   } else {
     delete process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH;
   }
+  const idleSummaryDelayMs = getOptionalNonNegativeInteger(options.idleSummaryDelayMs);
+  if (idleSummaryDelayMs !== null) {
+    process.env.SIFTKIT_IDLE_SUMMARY_DELAY_MS = String(idleSummaryDelayMs);
+  } else {
+    delete process.env.SIFTKIT_IDLE_SUMMARY_DELAY_MS;
+  }
   const terminalMetadataIdleDelayMs = getOptionalNonNegativeInteger(options.terminalMetadataIdleDelayMs);
   if (terminalMetadataIdleDelayMs !== null) {
     process.env.SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS = String(terminalMetadataIdleDelayMs);
@@ -1189,6 +1198,7 @@ async function withRealStatusServer<R>(fn: (context: RealStatusServerContext) =>
   seedRuntimeConfigFromJson(options.configPath);
   const server = startStatusServer({
     disableManagedLlamaStartup: Boolean(options.disableManagedLlamaStartup),
+    idleSummaryDelayMs: idleSummaryDelayMs ?? undefined,
     terminalMetadataIdleDelayMs: terminalMetadataIdleDelayMs ?? undefined,
     inferenceRunFlushIdleDelayMs: inferenceRunFlushIdleDelayMs ?? undefined,
   });
@@ -1214,7 +1224,7 @@ async function withRealStatusServer<R>(fn: (context: RealStatusServerContext) =>
       configUrl: `http://127.0.0.1:${port}/config`,
       statusPath: options.statusPath,
       configPath: options.configPath,
-      idleSummaryDbPath: options.idleSummaryDbPath || getIdleSummarySnapshotsPath(),
+      idleSummaryDbPath: getIdleSummarySnapshotsPath(),
     });
   } finally {
     server.closeAllConnections();

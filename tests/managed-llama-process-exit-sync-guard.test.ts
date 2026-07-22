@@ -10,6 +10,7 @@ import { getDefaultConfig, writeConfig } from '../src/status-server/config-store
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
 import { StatusEngineService } from '../src/status-server/engine-service.js';
 import { shutdownManagedLlamaForProcessExitSync } from '../src/status-server/managed-llama.js';
+import { DEFAULT_IDLE_SUMMARY_DELAY_MS } from '../src/status-server/server-ops.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import type { ServerContext } from '../src/status-server/server-types.js';
 import type { SiftConfig } from '../src/config/types.js';
@@ -20,6 +21,7 @@ function createExitSyncContext(configPath: string, statusRoot: string, hostProce
     statusPath: path.join(statusRoot, 'status.txt'),
     metricsPath: path.join(statusRoot, 'metrics.sqlite'),
     idleSummarySnapshotsPath: path.join(statusRoot, 'idle.sqlite'),
+    idleSummaryDelayMs: DEFAULT_IDLE_SUMMARY_DELAY_MS,
     disableManagedLlamaStartup: false,
     engineService: new StatusEngineService(),
     server: null,
