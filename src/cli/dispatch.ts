@@ -17,7 +17,7 @@ import { runCodexPolicyCli, runInstall, runInstallGlobalCli } from './run-instal
 import { runInternal } from './run-internal.js';
 import { runPresetList } from './run-preset-list.js';
 import { runPresetCli } from './run-preset.js';
-import { runRepoSearchCli } from './run-repo-search.js';
+import { assertInteractiveStdinIsTty, runRepoSearchCli } from './run-repo-search.js';
 import { runSummary } from './run-summary.js';
 import { runTest } from './run-test.js';
 
@@ -40,9 +40,9 @@ export async function runCli(options: CliRunOptions): Promise<number> {
   try {
     if (commandName === 'repo-search') {
       validateRepoSearchTokens(commandArgs);
-      if (commandArgs.includes('--interactive') && options.stdin?.isTTY !== true) {
-        throw new Error('--interactive requires a TTY (stdin is not interactive).');
-      }
+      // Fail fast before the server preflight so a non-TTY interactive run never
+      // touches the network; run-repo-search re-asserts the same invariant.
+      assertInteractiveStdinIsTty(commandArgs.includes('--interactive'), options.stdin);
     }
     if (commandName === 'repo-search' && commandHelpRequested) {
       return await runRepoSearchCli({ argv: options.argv, stdout, stderr, stdin: options.stdin });

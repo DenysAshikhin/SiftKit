@@ -4,6 +4,13 @@ import { getCommandArgs, parseArguments } from './args.js';
 import { CliProgressRenderer } from './progress-renderer.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
 
+/** --interactive needs a real terminal to prompt on; refuse a non-TTY stdin. */
+export function assertInteractiveStdinIsTty(interactive: boolean, stdin?: { isTTY?: boolean }): void {
+  if (interactive && stdin?.isTTY !== true) {
+    throw new Error('--interactive requires a TTY (stdin is not interactive).');
+  }
+}
+
 export async function runRepoSearchCli(options: {
   argv: string[];
   stdout: NodeJS.WritableStream;
@@ -25,9 +32,8 @@ export async function runRepoSearchCli(options: {
     throw new Error('A --prompt is required for repo-search.');
   }
 
-  // dispatch fail-fasts non-TTY --interactive before the server preflight, so a
-  // present stdin here is guaranteed interactive.
   const stdin = options.stdin;
+  assertInteractiveStdinIsTty(parsed.interactive === true, stdin);
   const approvalPrompter = parsed.interactive && stdin
     ? new CliApprovalPrompter({ input: stdin, output: options.stderr })
     : undefined;

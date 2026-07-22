@@ -21,50 +21,37 @@ export class CliApprovalPrompter {
     const command = reader.optionalString('command') || reader.optionalString('toolName') || '<unknown>';
     this.output.write(`repo-search ${turnLabel}wants to run: ${command}\n`);
 
-    // A persistent line listener with a queue: lines that arrive before a prompt
-    // is awaited are buffered rather than lost (successive readline.question calls
-    // drop such lines).
+    // readline's async iterator buffers lines internally, so input that arrives
+    // before a prompt is awaited is not lost.
     const rl = createInterface({ input: this.input, output: this.output });
-    const bufferedLines: string[] = [];
-    let waiting: ((line: string) => void) | null = null;
-    const onLine = (line: string): void => {
-      if (waiting) {
-        const resolve = waiting;
-        waiting = null;
-        resolve(line);
-        return;
-      }
-      bufferedLines.push(line);
-    };
-    rl.on('line', onLine);
-    const nextLine = (prompt: string): Promise<string> => {
+    const lines = rl[Symbol.asyncIterator]();
+    // null signals the input stream closed (EOF); the caller treats that as abort
+    // rather than spinning on an endless empty prompt.
+    const nextLine = async (prompt: string): Promise<string | null> => {
       this.output.write(prompt);
-      return new Promise((resolve) => {
-        const buffered = bufferedLines.shift();
-        if (buffered !== undefined) {
-          resolve(buffered);
-          return;
-        }
-        waiting = resolve;
-      });
+      const next = await lines.next();
+      return next.done ? null : next.value;
     };
 
     try {
       for (;;) {
-        const answer = (await nextLine('  [a]pprove  [d]eny  a[b]ort > ')).trim().toLowerCase();
-        if (answer === 'a') {
-          return { kind: 'approve' };
-        }
-        if (answer === 'b') {
+        const answer = await nextLine('  [a]pprove  [d]eny  a[b]ort > ');
+        if (answer === null) {
           return { kind: 'abort' };
         }
-        if (answer === 'd') {
-          const reason = (await nextLine('  reason (enter to skip) > ')).trim();
-          return { kind: 'deny', reason };
+        const key = answer.trim().toLowerCase();
+        if (key === 'a') {
+          return { kind: 'approve' };
+        }
+        if (key === 'b') {
+          return { kind: 'abort' };
+        }
+        if (key === 'd') {
+          const reason = await nextLine('  reason (enter to skip) > ');
+          return { kind: 'deny', reason: (reason ?? '').trim() };
         }
       }
     } finally {
-      rl.off('line', onLine);
       rl.close();
     }
   }

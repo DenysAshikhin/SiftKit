@@ -188,7 +188,7 @@ export class ToolActionProcessor {
     promptTokenCount: number,
     inForcedFinishMode: boolean,
   ): Promise<ToolActionOutcome> {
-    const { commands, counters, forcedFinish } = this.deps;
+    const { counters, forcedFinish } = this.deps;
     const validated = this.validateToolAction(turn, toolAction, state);
     if (validated === 'next' || validated === 'stop_batch') {
       return validated;
@@ -198,16 +198,15 @@ export class ToolActionProcessor {
     if (inForcedFinishMode) {
       const attempt = forcedFinish.consumeAttempt();
       counters.commandFailures += 1;
-      commands.push({ command, turn, safe: false, reason: attempt.rejectionReason, exitCode: null, output: `Rejected command: ${attempt.rejectionReason}` });
-      state.batchOutcomes.push({
-        action: buildEffectiveTranscriptAction({
-          toolName: normalizedToolName,
-          rawArgs: toolAction.args,
-          isNativeTool,
-          commandToRun: command,
-        }),
-        toolCallId: `forced_finish_call_${commands.length}`,
-        toolContent: `Rejected command: ${attempt.rejectionReason}`,
+      this.recordRejectedToolCall(turn, state, {
+        toolName: normalizedToolName,
+        rawArgs: toolAction.args,
+        isNativeTool,
+        recordedCommand: command,
+        transcriptCommand: command,
+        reason: attempt.rejectionReason,
+        output: `Rejected command: ${attempt.rejectionReason}`,
+        callIdPrefix: 'forced_finish_call',
       });
       state.pendingForcedFinishCountdownText = attempt.countdownText;
       if (attempt.exhausted) {
@@ -242,17 +241,15 @@ export class ToolActionProcessor {
       if (decision.kind === 'deny') {
         counters.safetyRejects += 1;
         const reason = decision.reason ? `user denied — ${decision.reason}` : 'user denied this command';
-        const rejection = `Rejected command: ${reason}`;
-        commands.push({ command, turn, safe: false, reason, exitCode: null, output: rejection });
-        state.batchOutcomes.push({
-          action: buildEffectiveTranscriptAction({
-            toolName: normalizedToolName,
-            rawArgs: toolAction.args,
-            isNativeTool,
-            commandToRun: command,
-          }),
-          toolCallId: `denied_call_${commands.length}`,
-          toolContent: rejection,
+        this.recordRejectedToolCall(turn, state, {
+          toolName: normalizedToolName,
+          rawArgs: toolAction.args,
+          isNativeTool,
+          recordedCommand: command,
+          transcriptCommand: command,
+          reason,
+          output: `Rejected command: ${reason}`,
+          callIdPrefix: 'denied_call',
         });
         return 'next';
       }
@@ -329,6 +326,42 @@ export class ToolActionProcessor {
     return { normalizedToolName, isCommandTool, isNativeTool, command };
   }
 
+  /** Records a rejected tool call: a safe:false command entry plus its transcript outcome. */
+  private recordRejectedToolCall(
+    turn: number,
+    state: TurnBatchState,
+    rejection: {
+      toolName: string;
+      rawArgs: ToolAction['args'];
+      isNativeTool: boolean;
+      recordedCommand: string;
+      transcriptCommand: string;
+      reason: string | null;
+      output: string;
+      callIdPrefix: string;
+    },
+  ): void {
+    const { commands } = this.deps;
+    commands.push({
+      command: rejection.recordedCommand,
+      turn,
+      safe: false,
+      reason: rejection.reason,
+      exitCode: null,
+      output: rejection.output,
+    });
+    state.batchOutcomes.push({
+      action: buildEffectiveTranscriptAction({
+        toolName: rejection.toolName,
+        rawArgs: rejection.rawArgs,
+        isNativeTool: rejection.isNativeTool,
+        commandToRun: rejection.transcriptCommand,
+      }),
+      toolCallId: `${rejection.callIdPrefix}_${commands.length}`,
+      toolContent: rejection.output,
+    });
+  }
+
   private logInvalidAction(turn: number, toolAction: ToolAction, message: string): ToolActionOutcome {
     const { counters } = this.deps;
     this.deps.logger?.write({
@@ -367,23 +400,15 @@ export class ToolActionProcessor {
       const duplicateDecision = this.deps.chatWebGroundingPolicy.evaluateToolCall(normalizedToolName, toolAction.args);
       if (duplicateDecision.kind === 'reject') {
         counters.commandFailures += 1;
-        commands.push({
-          command,
-          turn,
-          safe: false,
+        this.recordRejectedToolCall(turn, state, {
+          toolName: normalizedToolName,
+          rawArgs: toolAction.args,
+          isNativeTool,
+          recordedCommand: command,
+          transcriptCommand: command,
           reason: 'duplicate web tool',
-          exitCode: null,
           output: duplicateDecision.message,
-        });
-        state.batchOutcomes.push({
-          action: buildEffectiveTranscriptAction({
-            toolName: normalizedToolName,
-            rawArgs: toolAction.args,
-            isNativeTool,
-            commandToRun: command,
-          }),
-          toolCallId: `duplicate_web_call_${commands.length}`,
-          toolContent: duplicateDecision.message,
+          callIdPrefix: 'duplicate_web_call',
         });
         return 'next';
       }
@@ -468,29 +493,27 @@ export class ToolActionProcessor {
 
   private screenRejection(turn: number, context: AcceptedToolContext, state: TurnBatchState): ToolActionOutcome | null {
     const { toolAction, normalizedToolName, isNativeTool, command, nativeExecution } = context;
-    const { commands, counters } = this.deps;
+    const { counters } = this.deps;
     if (!nativeExecution || nativeExecution.ok) {
       return null;
     }
     counters.safetyRejects += 1;
-    const rejection = `Rejected command: ${nativeExecution.reason}`;
-    commands.push({ command, turn, safe: false, reason: nativeExecution.reason, exitCode: null, output: rejection });
-    state.batchOutcomes.push({
-      action: buildEffectiveTranscriptAction({
-        toolName: normalizedToolName,
-        rawArgs: toolAction.args,
-        isNativeTool,
-        commandToRun: nativeExecution.command,
-      }),
-      toolCallId: `rejected_call_${commands.length}`,
-      toolContent: rejection,
+    this.recordRejectedToolCall(turn, state, {
+      toolName: normalizedToolName,
+      rawArgs: toolAction.args,
+      isNativeTool,
+      recordedCommand: command,
+      transcriptCommand: nativeExecution.command,
+      reason: nativeExecution.reason,
+      output: `Rejected command: ${nativeExecution.reason}`,
+      callIdPrefix: 'rejected_call',
     });
     return 'next';
   }
 
   private prepareCommandToRun(turn: number, context: AcceptedToolContext, state: TurnBatchState): PreparedCommand | 'next' {
     const { toolAction, normalizedToolName, isNativeTool, command, nativeExecution } = context;
-    const { commands, counters } = this.deps;
+    const { counters } = this.deps;
     const requestedCommand = nativeExecution?.ok ? nativeExecution.requestedCommand || command : command;
     const commandToRun = nativeExecution?.ok ? nativeExecution.command : command;
 
@@ -502,17 +525,15 @@ export class ToolActionProcessor {
 
     if (!safety.safe) {
       counters.safetyRejects += 1;
-      const rejection = `Rejected command: ${safety.reason}`;
-      commands.push({ command: commandToRun, turn, safe: false, reason: safety.reason, exitCode: null, output: rejection });
-      state.batchOutcomes.push({
-        action: buildEffectiveTranscriptAction({
-          toolName: normalizedToolName,
-          rawArgs: toolAction.args,
-          isNativeTool,
-          commandToRun,
-        }),
-        toolCallId: `rejected_call_${commands.length}`,
-        toolContent: rejection,
+      this.recordRejectedToolCall(turn, state, {
+        toolName: normalizedToolName,
+        rawArgs: toolAction.args,
+        isNativeTool,
+        recordedCommand: commandToRun,
+        transcriptCommand: commandToRun,
+        reason: safety.reason,
+        output: `Rejected command: ${safety.reason}`,
+        callIdPrefix: 'rejected_call',
       });
       return 'next';
     }
