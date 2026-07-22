@@ -20,8 +20,20 @@ const PresetsJsonRowSchema = z.object({ presetsJson: z.string().nullable() });
 const MetadataValueRowSchema = z.object({ value: z.string().nullable() });
 const FreelistRowSchema = z.object({ freelist_count: z.number().nullable() });
 const PageCountRowSchema = z.object({ page_count: z.number().nullable() });
+const ChatModelPresetMigrationConfigRowSchema = z.object({
+  presets_json: z.string(),
+  active_preset_id: z.string().nullable(),
+});
+const ChatModelPresetMigrationPresetSchema = z.object({
+  id: z.string().trim().min(1),
+  Model: z.string().nullable().optional(),
+});
+const ChatModelPresetMigrationSessionSchema = z.object({
+  id: z.string(),
+  model: z.string().nullable(),
+});
 
-export const CURRENT_SCHEMA_VERSION = 32;
+export const CURRENT_SCHEMA_VERSION = 33;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["read","grep","find","ls","git"],"full":[]}';
 const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
@@ -723,6 +735,130 @@ function migrateAppConfigToPresetSourceOfTruth(database: RuntimeDatabase): void 
   }
 }
 
+function resolveMigratedModelPresetId(
+  session: z.infer<typeof ChatModelPresetMigrationSessionSchema>,
+  presets: z.infer<typeof ChatModelPresetMigrationPresetSchema>[],
+  activePresetId: string,
+): string {
+  const storedModel = session.model?.trim() ?? '';
+  if (!storedModel) {
+    return activePresetId;
+  }
+  const matchingPresets: z.infer<typeof ChatModelPresetMigrationPresetSchema>[] = [];
+  for (const preset of presets) {
+    if (preset.Model === session.model) {
+      matchingPresets.push(preset);
+    }
+  }
+  if (matchingPresets.length !== 1) {
+    throw new Error(
+      `Cannot migrate chat session ${session.id}: model "${session.model}" matches ${matchingPresets.length} model presets.`,
+    );
+  }
+  return matchingPresets[0]?.id ?? activePresetId;
+}
+
+function rebuildChatSessionsWithModelPresetIdentity(
+  database: RuntimeDatabase,
+  identities: ReadonlyMap<string, string>,
+): void {
+  database.exec('PRAGMA foreign_keys = OFF;');
+  try {
+    database.exec('BEGIN IMMEDIATE;');
+    database.exec(`
+      CREATE TABLE chat_sessions_v33 (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        model_preset_id TEXT NOT NULL,
+        model TEXT,
+        context_window_tokens INTEGER NOT NULL,
+        thinking_enabled INTEGER NOT NULL CHECK (thinking_enabled IN (0, 1)),
+        web_search_enabled INTEGER NOT NULL DEFAULT 1 CHECK (web_search_enabled IN (0, 1)),
+        preset_id TEXT,
+        mode TEXT NOT NULL CHECK (mode IN ('chat', 'plan', 'repo-search')),
+        plan_repo_root TEXT NOT NULL,
+        condensed_summary TEXT NOT NULL,
+        created_at_utc TEXT NOT NULL,
+        updated_at_utc TEXT NOT NULL
+      );
+    `);
+    const copySession = database.prepare(`
+      INSERT INTO chat_sessions_v33 (
+        id, title, model_preset_id, model, context_window_tokens, thinking_enabled,
+        web_search_enabled, preset_id, mode, plan_repo_root, condensed_summary,
+        created_at_utc, updated_at_utc
+      )
+      SELECT
+        id, title, ?, model, context_window_tokens, thinking_enabled,
+        web_search_enabled, preset_id, mode, plan_repo_root, condensed_summary,
+        created_at_utc, updated_at_utc
+      FROM chat_sessions
+      WHERE id = ?
+    `);
+    for (const [sessionId, modelPresetId] of identities) {
+      copySession.run(modelPresetId, sessionId);
+    }
+    database.exec(`
+      DROP TABLE chat_sessions;
+      ALTER TABLE chat_sessions_v33 RENAME TO chat_sessions;
+      COMMIT;
+    `);
+  } catch (error) {
+    try {
+      database.exec('ROLLBACK;');
+    } catch {
+      // The transaction may have failed before BEGIN completed.
+    }
+    throw error;
+  } finally {
+    database.exec('PRAGMA foreign_keys = ON;');
+  }
+  const foreignKeyViolations = z.array(z.unknown()).parse(
+    database.prepare('PRAGMA foreign_key_check;').all(),
+  );
+  if (foreignKeyViolations.length > 0) {
+    throw new Error('Schema v33 migration produced foreign key violations.');
+  }
+}
+
+function migrateChatSessionsToModelPresetIdentity(database: RuntimeDatabase): void {
+  if (tableHasColumn(database, 'chat_sessions', 'model_preset_id')) {
+    return;
+  }
+  const sessions = z.array(ChatModelPresetMigrationSessionSchema).parse(
+    database.prepare('SELECT id, model FROM chat_sessions ORDER BY id').all(),
+  );
+  let presets: z.infer<typeof ChatModelPresetMigrationPresetSchema>[] = [];
+  let activePresetId = '';
+  if (sessions.length > 0) {
+    const config = ChatModelPresetMigrationConfigRowSchema.parse(database.prepare(`
+      SELECT
+        server_llama_presets_json AS presets_json,
+        server_llama_active_preset_id AS active_preset_id
+      FROM app_config
+      WHERE id = 1
+    `).get());
+    presets = z.array(ChatModelPresetMigrationPresetSchema).min(1).parse(
+      parseJsonValueText(config.presets_json),
+    );
+    activePresetId = config.active_preset_id?.trim() ?? '';
+    let activePresetExists = false;
+    for (const preset of presets) {
+      if (preset.id === activePresetId) {
+        activePresetExists = true;
+      }
+    }
+    if (!activePresetId || !activePresetExists) {
+      throw new Error(`Cannot migrate chat sessions: active model preset "${activePresetId}" is invalid.`);
+    }
+  }
+  const identities = new Map<string, string>();
+  for (const session of sessions) {
+    identities.set(session.id, resolveMigratedModelPresetId(session, presets, activePresetId));
+  }
+  rebuildChatSessionsWithModelPresetIdentity(database, identities);
+}
+
 function ensureSchema(database: RuntimeDatabase): void {
   database.exec('PRAGMA foreign_keys = ON;');
   const storedVersion = getSchemaVersion(database);
@@ -1147,6 +1283,11 @@ function ensureSchema(database: RuntimeDatabase): void {
     setSchemaVersion(database, 32);
     currentVersion = 32;
   }
+  if (currentVersion < 33) {
+    migrateChatSessionsToModelPresetIdentity(database);
+    setSchemaVersion(database, 33);
+    currentVersion = 33;
+  }
   ensureChatMessageTimelineSchema(database);
   ensureRuntimeArtifactsSchema(database);
   ensureManagedLlamaAndBenchmarkMatrixSchema(database);
@@ -1201,6 +1342,7 @@ export function getRuntimeDatabase(databasePath: string = getRuntimeDatabasePath
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (!/not a database|SQLITE_NOTADB/iu.test(message)) {
+      closeRuntimeDatabaseHandle(database);
       throw error;
     }
     try {
