@@ -17,6 +17,7 @@ if (isMainModule(import.meta.url)) {
     const exitCode = await run({
       argv,
       stdinText,
+      stdin: process.stdin,
     });
     process.exit(exitCode);
   })();

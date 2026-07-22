@@ -41,7 +41,15 @@ import {
 } from '../command-output/types.js';
 import { EvaluationResultSchema, type EvalRequest, type EvaluationResult } from '../eval-types.js';
 import { z } from '../lib/zod.js';
+import { JsonRecordReader } from '../lib/json-record-reader.js';
+import type { JsonObject } from '../lib/json-types.js';
+import {
+  RepoSearchApprovalResultSchema,
+  type ApprovalDecision,
+  type RepoSearchApprovalRequest,
+} from '../repo-search/engine/approval-gate.js';
 import type { CliProgressRenderer } from './progress-renderer.js';
+import type { CliApprovalPrompter } from './approval-prompter.js';
 
 const DEFAULT_SERVER_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
@@ -78,6 +86,7 @@ export class StatusServerApiClient {
   requestRepoSearch(
     request: Record<string, JsonSerializable>,
     renderer: CliProgressRenderer,
+    approvalPrompter?: CliApprovalPrompter,
   ): Promise<RepoSearchExecutionResult> {
     return this.requestStreamedOperation(
       '/repo-search',
@@ -85,6 +94,7 @@ export class StatusServerApiClient {
       RepoSearchExecutionResultSchema,
       renderer,
       'repo-search',
+      approvalPrompter,
     );
   }
 
@@ -164,6 +174,7 @@ export class StatusServerApiClient {
     schema: z.ZodType<T>,
     renderer: CliProgressRenderer,
     task: LoggedHttpClientTask,
+    approvalPrompter?: CliApprovalPrompter,
   ): Promise<T> {
     const startedAt = Date.now();
     try {
@@ -173,7 +184,16 @@ export class StatusServerApiClient {
         idleTimeoutMs: DEFAULT_IDLE_TIMEOUT_MS,
       })) {
         if (frame.event === OPERATION_STREAM_EVENTS.progress) {
-          renderer.render(parseJsonObjectText(frame.data));
+          const progressEvent = parseJsonObjectText(frame.data);
+          if (String(progressEvent.kind || '') === 'approval_request') {
+            if (!approvalPrompter) {
+              throw new Error('Received approval_request on a non-interactive run.');
+            }
+            const decision = await approvalPrompter.promptDecision(progressEvent);
+            await this.submitRepoSearchApproval(progressEvent, decision);
+            continue;
+          }
+          renderer.render(progressEvent);
           continue;
         }
         if (frame.event === OPERATION_STREAM_EVENTS.error) {
@@ -191,6 +211,29 @@ export class StatusServerApiClient {
       }
       throw new Error('Operation stream ended before a result frame.');
     } catch (error) {
+      throw this.normalizeError(toError(error));
+    }
+  }
+
+  private async submitRepoSearchApproval(event: JsonObject, decision: ApprovalDecision): Promise<void> {
+    const reader = new JsonRecordReader(event);
+    const body: RepoSearchApprovalRequest = {
+      requestId: reader.optionalString('requestId') || '',
+      approvalId: reader.optionalString('approvalId') || '',
+      decision: decision.kind,
+      ...(decision.kind === 'deny' && decision.reason ? { reason: decision.reason } : {}),
+    };
+    try {
+      await this.client.requestJson({
+        url: this.getServiceUrl('/repo-search/approval'),
+        method: 'POST',
+        timeoutMs: DEFAULT_SERVER_REQUEST_TIMEOUT_MS,
+        body: JSON.stringify(body),
+      }, RepoSearchApprovalResultSchema);
+    } catch (error) {
+      if (/^HTTP 409:/u.test(toError(error).message)) {
+        return;
+      }
       throw this.normalizeError(toError(error));
     }
   }

@@ -1,4 +1,5 @@
 import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
+import { CliApprovalPrompter } from './approval-prompter.js';
 import { getCommandArgs, parseArguments } from './args.js';
 import { CliProgressRenderer } from './progress-renderer.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
@@ -7,11 +8,12 @@ export async function runRepoSearchCli(options: {
   argv: string[];
   stdout: NodeJS.WritableStream;
   stderr: NodeJS.WritableStream;
+  stdin?: NodeJS.ReadableStream & { isTTY?: boolean };
 }): Promise<number> {
   const tokens = getCommandArgs(options.argv);
   if (tokens.some((token) => token === '-h' || token === '--h' || token === '--help' || token === '-help')) {
     options.stdout.write(
-      'Usage: siftkit repo-search --prompt "find x y z in this repo" [--model <model>] [--log-file <path>]\n'
+      'Usage: siftkit repo-search --prompt "find x y z in this repo" [--model <model>] [--log-file <path>] [--interactive]\n'
       + 'Shortcut: siftkit -prompt "find x y z in this repo"\n'
     );
     return 0;
@@ -23,12 +25,20 @@ export async function runRepoSearchCli(options: {
     throw new Error('A --prompt is required for repo-search.');
   }
 
+  // dispatch fail-fasts non-TTY --interactive before the server preflight, so a
+  // present stdin here is guaranteed interactive.
+  const stdin = options.stdin;
+  const approvalPrompter = parsed.interactive && stdin
+    ? new CliApprovalPrompter({ input: stdin, output: options.stderr })
+    : undefined;
+
   const response = await new StatusServerApiClient().requestRepoSearch({
     prompt,
     repoRoot: process.cwd(),
     model: parsed.model,
     logFile: parsed.logFile,
-  }, new CliProgressRenderer(options.stderr, 'repo-search'));
+    interactive: parsed.interactive === true,
+  }, new CliProgressRenderer(options.stderr, 'repo-search'), approvalPrompter);
 
   const finalOutputs = response.scorecard.tasks
     .map((task) => task.finalOutput.trim())

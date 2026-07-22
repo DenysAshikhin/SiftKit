@@ -40,9 +40,12 @@ export async function runCli(options: CliRunOptions): Promise<number> {
   try {
     if (commandName === 'repo-search') {
       validateRepoSearchTokens(commandArgs);
+      if (commandArgs.includes('--interactive') && options.stdin?.isTTY !== true) {
+        throw new Error('--interactive requires a TTY (stdin is not interactive).');
+      }
     }
     if (commandName === 'repo-search' && commandHelpRequested) {
-      return await runRepoSearchCli({ argv: options.argv, stdout, stderr });
+      return await runRepoSearchCli({ argv: options.argv, stdout, stderr, stdin: options.stdin });
     }
     if (commandName === 'run' && commandHelpRequested) {
       showHelp(stdout);
@@ -93,7 +96,7 @@ export async function runCli(options: CliRunOptions): Promise<number> {
       case 'capture-internal':
         return await runCaptureInternalCli({ argv: options.argv, stdout, stderr });
       case 'repo-search':
-        return await runRepoSearchCli({ argv: options.argv, stdout, stderr });
+        return await runRepoSearchCli({ argv: options.argv, stdout, stderr, stdin: options.stdin });
       case 'find-files':
         return await runFindFiles({ argv: options.argv, stdout });
       case 'test':

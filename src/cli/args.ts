@@ -10,6 +10,7 @@ import type { SummaryProviderId } from '../summary/types.js';
 export type CliRunOptions = {
   argv: string[];
   stdinText?: string | Buffer;
+  stdin?: NodeJS.ReadableStream & { isTTY?: boolean };
   stdout?: NodeJS.WritableStream;
   stderr?: NodeJS.WritableStream;
   timing?: {
@@ -52,6 +53,7 @@ export type ParsedArgs = {
   maxTurns?: number;
   shell?: string;
   wait?: boolean;
+  interactive?: boolean;
 };
 
 export const KNOWN_COMMANDS = new Set([
@@ -124,10 +126,14 @@ export function getCommandArgs(argv: string[]): string[] {
 
 export function validateRepoSearchTokens(tokens: string[]): void {
   const flagsWithValues = new Set(['--prompt', '-prompt', '--model', '--log-file']);
+  const booleanFlags = new Set(['--interactive']);
   const helpFlags = new Set(['-h', '--h', '--help', '-help']);
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
     if (helpFlags.has(token)) {
+      continue;
+    }
+    if (booleanFlags.has(token)) {
       continue;
     }
     if (flagsWithValues.has(token)) {
@@ -249,6 +255,9 @@ export function parseArguments(tokens: string[]): ParsedArgs {
         break;
       case '--wait':
         parsed.wait = true;
+        break;
+      case '--interactive':
+        parsed.interactive = true;
         break;
       default:
         parsed.positionals.push(token);
