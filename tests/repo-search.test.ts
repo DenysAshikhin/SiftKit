@@ -213,6 +213,23 @@ test('executeRepoSearchRequest throws on whitespace-only prompt', async () => {
   });
 });
 
+test('executeRepoSearchRequest forwards an aborted signal to the engine', async () => {
+  await withTestEnvAndServer(async ({ tempRoot }) => {
+    const controller = new AbortController();
+    controller.abort(new Error('stream disconnected'));
+    await assert.rejects(
+      () => executeRepoSearchRequest({
+        prompt: 'find test patterns',
+        repoRoot: tempRoot,
+        abortSignal: controller.signal,
+        mockResponses: ['{"action":"finish","output":"unexpected"}'],
+        mockCommandResults: {},
+      }),
+      /stream disconnected/u,
+    );
+  });
+});
+
 test('executeRepoSearchRequest success path writes transcript and artifact', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
     const midRunTranscriptArtifactCounts: number[] = [];

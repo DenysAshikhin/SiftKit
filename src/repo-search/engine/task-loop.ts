@@ -45,7 +45,7 @@ import {
   ChatGroundingPolicy,
 } from '../chat-grounding-policy.js';
 import { WebResearchTools } from '../../web-search/web-research-tools.js';
-import { throwIfAborted } from './abort.js';
+import { throwIfAborted } from '../../lib/abort.js';
 import { DuplicateTracker } from './duplicate-tracker.js';
 import { ForcedFinishController } from './forced-finish.js';
 import { ProgressReporter } from './progress-reporter.js';

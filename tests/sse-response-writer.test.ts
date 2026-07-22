@@ -70,11 +70,12 @@ test('emits heartbeat comments while idle', async () => {
 });
 
 test('suppresses writes after client disconnect and reports it', async () => {
-  let writerRef: SseResponseWriter | null = null;
+  const writerRef: { value?: SseResponseWriter } = {};
   const server = http.createServer((req, res) => {
-    writerRef = new SseResponseWriter(req, res, { heartbeatMs: 60_000 });
-    writerRef.open();
-    writerRef.writeEvent('progress', { kind: 'a' });
+    const writer = new SseResponseWriter(req, res, { heartbeatMs: 60_000 });
+    writerRef.value = writer;
+    writer.open();
+    writer.writeEvent('progress', { kind: 'a' });
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
@@ -90,7 +91,7 @@ test('suppresses writes after client disconnect and reports it', async () => {
       request.end();
     });
     await new Promise((resolve) => setTimeout(resolve, 150));
-    const writer = writerRef;
+    const writer = writerRef.value;
     assert.ok(writer);
     assert.equal(writer.isClientDisconnected(), true);
     writer.writeEvent('progress', { kind: 'b' });

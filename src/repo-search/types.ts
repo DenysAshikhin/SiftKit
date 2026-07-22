@@ -68,6 +68,7 @@ export type RepoSearchExecutionRequest = {
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
   retainedWebToolCalls?: RetainedWebToolCall[];
   onProgress?: (event: RepoSearchProgressEvent) => void;
+  abortSignal?: AbortSignal;
 };
 
 export const RepoSearchExecutionResultSchema = z.object({

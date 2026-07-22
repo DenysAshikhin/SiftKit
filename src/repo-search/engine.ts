@@ -12,7 +12,7 @@ import { z } from '../lib/zod.js';
 import type { TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
 import { listLlamaCppModels } from '../providers/llama-cpp.js';
 import { ToolTypeStatsSchema, type ToolTypeStats } from '../status-server/metrics.js';
-import { throwIfAborted } from './engine/abort.js';
+import { throwIfAborted } from '../lib/abort.js';
 import {
   mergeReadOverlapSummaries,
   ReadOverlapSummarySchema,

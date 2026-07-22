@@ -1,6 +1,6 @@
 import { spawnPowerShellAsync } from '../../lib/powershell.js';
 import type { RepoSearchMockCommandResult } from '../types.js';
-import { getAbortError, throwIfAborted } from './abort.js';
+import { getAbortError, throwIfAborted } from '../../lib/abort.js';
 
 export function findMockResult(
   command: string,

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { getAbortError, throwIfAborted } from '../src/repo-search/engine/abort.js';
+import { getAbortError, throwIfAborted } from '../src/lib/abort.js';
 import {
   executeRepoCommand,
   findMockResult,
