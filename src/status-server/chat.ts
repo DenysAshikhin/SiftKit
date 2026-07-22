@@ -14,7 +14,6 @@ import {
   estimateTokenCount,
   saveChatSession,
 } from '../state/chat-sessions.js';
-import { DEFAULT_LLAMA_MODEL } from './config-store.js';
 import {
   parseWebToolCommand,
   type RetainedWebToolCall,
@@ -92,28 +91,42 @@ type ContextUsageTokenTotals = {
 
 export type { ContextUsage } from '@siftkit/contracts';
 
+export function sessionUsesActiveModelPreset(config: SiftConfig, session: ChatSession): boolean {
+  const modelPresetId = session.modelPresetId.trim();
+  if (!modelPresetId) {
+    throw new Error(`Chat session ${session.id} has no model preset identity.`);
+  }
+  return modelPresetId === getActiveModelPreset(config).id;
+}
+
+export function resolveChatSessionModel(config: SiftConfig, session: ChatSession): string {
+  const model = sessionUsesActiveModelPreset(config, session)
+    ? getActiveModelPreset(config).Model?.trim() ?? ''
+    : session.model?.trim() ?? '';
+  if (!model) {
+    throw new Error(`Chat session ${session.id} has an invalid model snapshot.`);
+  }
+  return model;
+}
+
 export function resolveChatSessionContextWindow(
-  config: SiftConfig | null | undefined,
+  config: SiftConfig,
   session: ChatSession,
 ): number {
-  if (config) {
-    const activeModel = getActiveModelPreset(config).Model?.trim() ?? '';
-    const sessionModel = typeof session.model === 'string' ? session.model.trim() : '';
-    if (sessionModel && sessionModel === activeModel) {
-      return getConfiguredLlamaNumCtx(config);
-    }
+  if (sessionUsesActiveModelPreset(config, session)) {
+    return getConfiguredLlamaNumCtx(config);
   }
 
   const persistedContextWindow = Number(session.contextWindowTokens);
-  if (Number.isFinite(persistedContextWindow) && persistedContextWindow > 0) {
+  if (Number.isInteger(persistedContextWindow) && persistedContextWindow > 0) {
     return persistedContextWindow;
   }
-  return config ? getConfiguredLlamaNumCtx(config) : 150_000;
+  throw new Error(`Chat session ${session.id} has an invalid context window snapshot.`);
 }
 
 class ContextUsageBuilder {
   constructor(
-    private readonly config: SiftConfig | null | undefined,
+    private readonly config: SiftConfig,
     private readonly session: ChatSession,
   ) {}
 
@@ -159,7 +172,7 @@ class ContextUsageBuilder {
     const thinkingEnabled = this.session.thinkingEnabled !== false;
     const config = this.config;
     const reserveShape = {
-      model: resolveActiveChatModel(this.config, this.session),
+      model: resolveChatSessionModel(this.config, this.session),
       stream: false,
       cache_prompt: true,
       max_tokens: 0,
@@ -169,29 +182,16 @@ class ContextUsageBuilder {
       ],
       chat_template_kwargs: {
         enable_thinking: thinkingEnabled,
-        ...(config && thinkingEnabled && shouldReplayReasoningContent(config) ? { reasoning_content: true } : {}),
-        ...(config && shouldPreserveThinking(config, thinkingEnabled) ? { preserve_thinking: true } : {}),
+        ...(thinkingEnabled && shouldReplayReasoningContent(config) ? { reasoning_content: true } : {}),
+        ...(shouldPreserveThinking(config, thinkingEnabled) ? { preserve_thinking: true } : {}),
       },
     };
     return estimateTokenCount(JSON.stringify(reserveShape));
   }
 }
 
-export function buildContextUsage(config: SiftConfig | null | undefined, session: ChatSession): ContextUsage {
+export function buildContextUsage(config: SiftConfig, session: ChatSession): ContextUsage {
   return new ContextUsageBuilder(config, session).build();
-}
-
-export function resolveActiveChatModel(config: SiftConfig | null | undefined, session: ChatSession): string {
-  if (typeof session?.model === 'string' && session.model.trim()) {
-    return session.model.trim();
-  }
-  if (config) {
-    const model = getActiveModelPreset(config).Model;
-    if (typeof model === 'string' && model.trim()) {
-      return model.trim();
-    }
-  }
-  return DEFAULT_LLAMA_MODEL;
 }
 
 function getChatUsageValue(value: number | null | undefined): number | null {

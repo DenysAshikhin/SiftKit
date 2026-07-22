@@ -44,6 +44,7 @@ import {
 } from '../dashboard-runs.js';
 import {
   buildContextUsage,
+  resolveChatSessionModel,
   resolveChatSessionContextWindow,
   type ContextUsage,
   type ChatUsage,
@@ -211,7 +212,7 @@ function toWireChatSession(config: SiftConfig, session: ChatSession): WireChatSe
     id: session.id,
     title: session.title ?? '',
     modelPresetId: session.modelPresetId,
-    model: session.model ?? null,
+    model: resolveChatSessionModel(config, session),
     contextWindowTokens: resolveChatSessionContextWindow(config, session),
     thinkingEnabled: session.thinkingEnabled,
     webSearchEnabled: session.webSearchEnabled,

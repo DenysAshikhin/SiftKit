@@ -12,7 +12,9 @@ import {
   buildRetainedWebToolCalls,
   buildRepoSearchMarkdown,
   buildPersistTurnsFromRepoSearchResult,
+  resolveChatSessionModel,
   resolveChatSessionContextWindow,
+  sessionUsesActiveModelPreset,
 } from '../src/status-server/chat.js';
 import { getActiveModelPreset } from '../src/config/getters.js';
 import { buildChatPromptContext } from '../src/status-server/chat-prompt-context.js';
@@ -26,7 +28,7 @@ import type { SiftConfig } from '../src/config/types.js';
 // tests exercise only the fields they set.
 const ChatSessionSchema = z.custom<ChatSession>((value) => typeof value === 'object' && value !== null);
 function mockChatSession(session: object): ChatSession {
-  return ChatSessionSchema.parse(session);
+  return ChatSessionSchema.parse({ modelPresetId: 'default', ...session });
 }
 
 function createConfig(overrides: JsonObject = {}): SiftConfig {
@@ -98,6 +100,7 @@ function createSession(): ChatSession {
   return mockChatSession({
     id: 'session-1',
     title: 'Session',
+    modelPresetId: 'default',
     model: 'managed.gguf',
     contextWindowTokens: 8192,
     thinkingEnabled: true,
@@ -120,7 +123,7 @@ function createSession(): ChatSession {
   });
 }
 
-test('resolveChatSessionContextWindow uses configured context for the active model', () => {
+test('active model preset identity uses current configured inference metadata', () => {
   const config = createConfig();
   const preset = getActiveModelPreset(config);
   preset.Backend = 'exl3';
@@ -130,47 +133,61 @@ test('resolveChatSessionContextWindow uses configured context for the active mod
 
   assert.equal(resolveChatSessionContextWindow(config, mockChatSession({
     id: 'active',
-    model: ' active-model ',
+    modelPresetId: 'default',
+    model: 'stale-model-snapshot',
     contextWindowTokens: 30_000,
   })), 150_000);
+  assert.equal(resolveChatSessionModel(config, mockChatSession({
+    id: 'active',
+    modelPresetId: 'default',
+    model: 'stale-model-snapshot',
+    contextWindowTokens: 30_000,
+  })), 'active-model');
 });
 
-test('resolveChatSessionContextWindow preserves an inactive model snapshot', () => {
+test('inactive model preset identity preserves inference snapshots', () => {
   const config = createConfig();
   getActiveModelPreset(config).Model = 'active-model';
 
-  assert.equal(resolveChatSessionContextWindow(config, mockChatSession({
+  const session = mockChatSession({
     id: 'historical',
+    modelPresetId: 'historical-preset',
     model: 'historical-model',
     contextWindowTokens: 30_000,
-  })), 30_000);
+  });
+  assert.equal(sessionUsesActiveModelPreset(config, session), false);
+  assert.equal(resolveChatSessionContextWindow(config, session), 30_000);
+  assert.equal(resolveChatSessionModel(config, session), 'historical-model');
 });
 
-test('resolveChatSessionContextWindow falls back to configured context for an invalid snapshot', () => {
+test('inactive model preset identity rejects an invalid context snapshot', () => {
   const config = createConfig();
   const preset = getActiveModelPreset(config);
   preset.Backend = 'exl3';
   preset.NumCtx = 150_000;
 
-  assert.equal(resolveChatSessionContextWindow(config, mockChatSession({
-    id: 'invalid',
-    model: 'historical-model',
-    contextWindowTokens: 0,
-  })), 150_000);
+  assert.throws(
+    () => resolveChatSessionContextWindow(config, mockChatSession({
+      id: 'invalid',
+      modelPresetId: 'historical-preset',
+      model: 'historical-model',
+      contextWindowTokens: 0,
+    })),
+    /Chat session invalid has an invalid context window snapshot\./u,
+  );
 });
 
-test('resolveChatSessionContextWindow preserves a valid snapshot without config', () => {
-  assert.equal(resolveChatSessionContextWindow(undefined, mockChatSession({
-    id: 'unconfigured-snapshot',
-    contextWindowTokens: 30_000,
-  })), 30_000);
-});
-
-test('resolveChatSessionContextWindow uses the default context without config or a valid snapshot', () => {
-  assert.equal(resolveChatSessionContextWindow(null, mockChatSession({
-    id: 'unconfigured-default',
-    contextWindowTokens: 0,
-  })), 150_000);
+test('inactive model preset identity rejects a missing model snapshot', () => {
+  const config = createConfig();
+  assert.throws(
+    () => resolveChatSessionModel(config, mockChatSession({
+      id: 'missing-model',
+      modelPresetId: 'historical-preset',
+      model: null,
+      contextWindowTokens: 30_000,
+    })),
+    /Chat session missing-model has an invalid model snapshot\./u,
+  );
 });
 
 test('buildContextUsage uses the resolved active-model context', () => {
@@ -182,7 +199,8 @@ test('buildContextUsage uses the resolved active-model context', () => {
 
   assert.equal(buildContextUsage(config, mockChatSession({
     id: 'usage',
-    model: 'active-model',
+    modelPresetId: 'default',
+    model: 'stale-model',
     contextWindowTokens: 30_000,
     messages: [],
   })).contextWindowTokens, 150_000);
@@ -397,7 +415,7 @@ test('buildContextUsage estimates continuation context from session content inst
     + estimateTokenCount('How are tool calls handled?')
     + estimateTokenCount('# Repo Search Results\n\nTool calls are parsed and executed through the loop.')
     + expectedThinkingTokens;
-  const usage = buildContextUsage(null, session);
+  const usage = buildContextUsage(createConfig(), session);
 
   assert.equal(usage.chatUsedTokens, expectedChatTokens);
   assert.equal(usage.usedTokens, expectedChatTokens);
@@ -516,7 +534,7 @@ test('buildContextUsage counts typed thinking and tool bubbles from visible time
     ],
   });
 
-  const usage = buildContextUsage(null, session);
+  const usage = buildContextUsage(createConfig(), session);
 
   assert.equal(usage.thinkingUsedTokens, estimateTokenCount('Visible reasoning bubble.'));
   assert.equal(
@@ -611,7 +629,8 @@ test('buildChatHistoryMessages replays persisted repo tool calls with real proto
 test('buildContextUsage counts replay-visible context, not internal tool telemetry', () => {
   const session: ChatSession = {
     id: 'session-replay-usage',
-    modelPresetId: 'default',
+    modelPresetId: 'historical-preset',
+    model: 'historical-model',
     contextWindowTokens: 62000,
     messages: [
       { id: 'u1', role: 'user', kind: 'user_text', content: 'tiny', inputTokensEstimate: 161239, outputTokensEstimate: 0, thinkingTokens: 0, createdAtUtc: '2026-01-01T00:00:00.000Z' },
