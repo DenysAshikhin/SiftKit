@@ -42,7 +42,7 @@ export async function runCli(options: CliRunOptions): Promise<number> {
       validateRepoSearchTokens(commandArgs);
     }
     if (commandName === 'repo-search' && commandHelpRequested) {
-      return await runRepoSearchCli({ argv: options.argv, stdout });
+      return await runRepoSearchCli({ argv: options.argv, stdout, stderr });
     }
     if (commandName === 'run' && commandHelpRequested) {
       showHelp(stdout);
@@ -61,6 +61,7 @@ export async function runCli(options: CliRunOptions): Promise<number> {
           argv: options.argv,
           stdinText: options.stdinText,
           stdout,
+          stderr,
           timing: {
             processStartedAtMs: options.timing?.processStartedAtMs ?? null,
             stdinWaitMs: options.timing?.stdinWaitMs ?? null,
@@ -80,19 +81,19 @@ export async function runCli(options: CliRunOptions): Promise<number> {
         return await runConfigSet({ argv: options.argv, stdout });
       case 'run':
         if (commandArgs.includes('--preset')) {
-          return await runPresetCli({ argv: options.argv, stdinText: options.stdinText, stdout });
+          return await runPresetCli({ argv: options.argv, stdinText: options.stdinText, stdout, stderr });
         }
-        return await runCommandCli({ argv: options.argv, stdout });
+        return await runCommandCli({ argv: options.argv, stdout, stderr });
       case 'eval':
-        return await runEvalCli({ argv: options.argv, stdout });
+        return await runEvalCli({ argv: options.argv, stdout, stderr });
       case 'codex-policy':
         return await runCodexPolicyCli({ argv: options.argv, stdout });
       case 'install-global':
         return await runInstallGlobalCli({ argv: options.argv, stdout });
       case 'capture-internal':
-        return await runCaptureInternalCli({ argv: options.argv, stdout });
+        return await runCaptureInternalCli({ argv: options.argv, stdout, stderr });
       case 'repo-search':
-        return await runRepoSearchCli({ argv: options.argv, stdout });
+        return await runRepoSearchCli({ argv: options.argv, stdout, stderr });
       case 'find-files':
         return await runFindFiles({ argv: options.argv, stdout });
       case 'test':

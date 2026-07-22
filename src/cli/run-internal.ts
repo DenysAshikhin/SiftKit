@@ -18,6 +18,7 @@ import {
 } from './request-normalizers.js';
 import { parseOptionalSummaryProvider } from '../summary/types.js';
 import { buildTestResult } from './run-test.js';
+import { SilentProgressRenderer } from './progress-renderer.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
 
 function readRequestFile(filePath: string): JsonObject {
@@ -47,6 +48,7 @@ export async function runInternal(options: {
 
   const request = readRequestFile(parsed.requestFile);
   const apiClient = new StatusServerApiClient();
+  const renderer = new SilentProgressRenderer(options.stdout, 'internal');
   let result: JsonSerializable;
   switch (parsed.op) {
     case 'install':
@@ -70,7 +72,7 @@ export async function runInternal(options: {
         policyProfile: normalizeCliPolicyProfileOrDefault(request.PolicyProfile),
         backend: readRequestBackend(request),
         model: request.Model ? String(request.Model) : undefined,
-      });
+      }, renderer);
       break;
     }
     case 'command': {
@@ -97,7 +99,7 @@ export async function runInternal(options: {
         model: request.Model ? String(request.Model) : undefined,
         noSummarize: Boolean(request.NoSummarize),
         shell,
-      });
+      }, renderer);
       break;
     }
     case 'command-analyze': {
@@ -115,7 +117,7 @@ export async function runInternal(options: {
         backend: readRequestBackend(request),
         model: request.Model ? String(request.Model) : undefined,
         noSummarize: Boolean(request.NoSummarize),
-      });
+      }, renderer);
       break;
     }
     case 'eval':
@@ -124,7 +126,7 @@ export async function runInternal(options: {
         RealLogPath: Array.isArray(request.RealLogPath) ? request.RealLogPath.map(String) : [],
         Backend: readRequestBackend(request),
         Model: request.Model ? String(request.Model) : undefined,
-      });
+      }, renderer);
       break;
     case 'find-files':
       result = findFiles(
@@ -157,7 +159,7 @@ export async function runInternal(options: {
         policyProfile: normalizeCliPolicyProfile(request.PolicyProfile),
         backend: readRequestBackend(request),
         model: request.Model ? String(request.Model) : undefined,
-      });
+      }, renderer);
       break;
     }
     case 'repo-search':
@@ -170,7 +172,7 @@ export async function runInternal(options: {
         availableModels: Array.isArray(request.AvailableModels) ? request.AvailableModels.map(String) : undefined,
         mockResponses: Array.isArray(request.MockResponses) ? request.MockResponses.map(String) : undefined,
         mockCommandResults: JsonRecordReader.asObject(request.MockCommandResults) ?? undefined,
-      });
+      }, renderer);
       break;
     default:
       throw new Error(`Unknown internal op: ${parsed.op}`);

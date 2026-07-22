@@ -8,11 +8,13 @@ import {
   normalizeCliRiskLevel,
   normalizeCliShell,
 } from './request-normalizers.js';
+import { CliProgressRenderer } from './progress-renderer.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
 
 export async function runCommandCli(options: {
   argv: string[];
   stdout: NodeJS.WritableStream;
+  stderr: NodeJS.WritableStream;
 }): Promise<number> {
   const parsed = parseArguments(getCommandArgs(options.argv));
   const command = parsed.command || parsed.positionals[0];
@@ -45,7 +47,7 @@ export async function runCommandCli(options: {
     backend: parsed.backend,
     model: parsed.model,
     shell,
-  });
+  }, new CliProgressRenderer(options.stderr, 'run'));
 
   if (result.Summary) {
     options.stdout.write(`${result.Summary}\n`);

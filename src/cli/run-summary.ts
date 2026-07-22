@@ -2,12 +2,14 @@ import type { SummaryRequest, SummaryTimingInput } from '../summary/types.js';
 import { getCommandArgs, parseArguments } from './args.js';
 import { readCliTextInput } from './input.js';
 import { normalizeCliFormat, normalizeCliPolicyProfileOrDefault } from './request-normalizers.js';
+import { CliProgressRenderer } from './progress-renderer.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
 
 export async function runSummary(options: {
   argv: string[];
   stdinText?: string | Buffer;
   stdout: NodeJS.WritableStream;
+  stderr: NodeJS.WritableStream;
   timing?: SummaryTimingInput;
 }): Promise<number> {
   const parsed = parseArguments(getCommandArgs(options.argv));
@@ -47,7 +49,10 @@ export async function runSummary(options: {
     commandExitCode,
     timing: options.timing,
   };
-  const result = await new StatusServerApiClient().requestSummary(request);
+  const result = await new StatusServerApiClient().requestSummary(
+    request,
+    new CliProgressRenderer(options.stderr, 'summary'),
+  );
   options.stdout.write(`${result.Summary}\n`);
   return 0;
 }

@@ -1,12 +1,14 @@
 import { getCommandArgs, parseArguments } from './args.js';
 import { readCliTextInput } from './input.js';
 import { normalizeCliFormat } from './request-normalizers.js';
+import { CliProgressRenderer } from './progress-renderer.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
 
 export async function runPresetCli(options: {
   argv: string[];
   stdinText?: string | Buffer;
   stdout: NodeJS.WritableStream;
+  stderr: NodeJS.WritableStream;
 }): Promise<number> {
   const parsed = parseArguments(getCommandArgs(options.argv));
   const presetId = String(parsed.preset || '').trim();
@@ -43,7 +45,7 @@ export async function runPresetCli(options: {
     repoRoot: String(parsed.repoRoot || parsed.path || process.cwd()).trim() || process.cwd(),
     maxTurns: Number.isFinite(parsed.maxTurns) && Number(parsed.maxTurns) > 0 ? Number(parsed.maxTurns) : undefined,
     logFile: parsed.logFile,
-  });
+  }, new CliProgressRenderer(options.stderr, 'preset'));
   options.stdout.write(`${result.outputText}\n`);
   return 0;
 }

@@ -4,6 +4,7 @@ import { getConfiguredModel, loadConfig } from '../../src/config/index.js';
 import { JsonObjectSchema } from '../../src/lib/json-types.js';
 import { toError } from '../../src/lib/errors.js';
 import { StatusServerApiClient } from '../../src/cli/status-server-api-client.js';
+import { SilentProgressRenderer } from '../../src/cli/progress-renderer.js';
 import { formatElapsed } from '../../src/lib/time.js';
 import { resolveSummaryProvider } from '../../src/summary/types.js';
 import {
@@ -45,6 +46,7 @@ export async function runBenchmarkSuite(options: BenchmarkRunnerOptions = {}): P
   const results: BenchmarkCaseResult[] = [];
   const interruptSignal = createInterruptSignal();
   const apiClient = new StatusServerApiClient();
+  const renderer = new SilentProgressRenderer(process.stderr, 'benchmark');
   let fatalError: string | null = null;
   let fatalException: Error | null = null;
 
@@ -78,7 +80,7 @@ export async function runBenchmarkSuite(options: BenchmarkRunnerOptions = {}): P
             requestTimeoutSeconds,
             llamaCppOverrides: options.llamaCppOverrides,
             sourceKind: 'standalone',
-          }),
+          }, renderer),
           {
             fixtureLabel,
             requestTimeoutSeconds,

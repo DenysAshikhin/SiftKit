@@ -1,10 +1,12 @@
 import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
 import { getCommandArgs, parseArguments } from './args.js';
+import { CliProgressRenderer } from './progress-renderer.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
 
 export async function runRepoSearchCli(options: {
   argv: string[];
   stdout: NodeJS.WritableStream;
+  stderr: NodeJS.WritableStream;
 }): Promise<number> {
   const tokens = getCommandArgs(options.argv);
   if (tokens.some((token) => token === '-h' || token === '--h' || token === '--help' || token === '-help')) {
@@ -26,7 +28,7 @@ export async function runRepoSearchCli(options: {
     repoRoot: process.cwd(),
     model: parsed.model,
     logFile: parsed.logFile,
-  });
+  }, new CliProgressRenderer(options.stderr, 'repo-search'));
 
   const finalOutputs = response.scorecard.tasks
     .map((task) => task.finalOutput.trim())
