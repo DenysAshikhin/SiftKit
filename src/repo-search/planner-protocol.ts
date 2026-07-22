@@ -482,7 +482,6 @@ function actionFromProtocolToolCalls(
   toolCalls: readonly LlamaCppToolCall[],
   toolDefinitions: readonly StructuredOutputToolDefinition[],
 ): string | null {
-  const allowedToolNames = toolDefinitions.map((toolDefinition) => toolDefinition.function.name);
   const parsedToolCalls = toolCalls
     .map((toolCall): ToolAction | null => {
       const args = ModelJson.parseToolArguments(toolCall.function.arguments);

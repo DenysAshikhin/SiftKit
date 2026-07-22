@@ -85,9 +85,17 @@ Only visible behavior change: `outputTokens` is now present on the provider resu
 
 ---
 
-## OPEN — Finding #2: duplicated speculative fallback merge (deliberate no-op)
+## DONE — Finding #2: duplicated speculative fallback merge
 
-Five sites in `src/status-server/routes/chat.ts` repeat "tracker wins, scorecard fills": lines **839**, **1039**, **1195**, **1368**, **1602**, in two spellings.
+Collapsed. All five sites now call one `resolveSessionSpeculativeMetrics(ctx, cursor, fallback)` in `src/status-server/routes/chat.ts` and spread the result; the usage sites pass the usage partial, the three scorecard sites pass `readScorecardSpeculativeMetrics(result?.scorecard)`. `readManagedLlamaSessionSpeculativeMetrics` folded into the resolver and is gone.
+
+Coverage came first: `tests/chat-speculative-fallback.e2e.test.ts` drives all five routes — `/messages`, `/messages/stream`, `/plan`, `/plan/stream`, `/repo-search/stream` — against a stub backend reporting `draft_accepted_tokens`, with no managed llama tracked, and asserts the persisted assistant message carries 36/45. **Verified RED per site** by neutering each fallback argument in turn; only the sites left intact stayed green.
+
+The scorecard→speculative derivation has exactly one definition (`readScorecardSpeculativeMetrics`); the two `ChatUsage` literals read from it instead of re-spelling `getScorecardTotal`. Merged values are assigned field-by-field, not spread, so the persisted-telemetry options keep excess-property checking.
+
+### Original analysis (kept — it explains the shape of the fix)
+
+Five sites in `src/status-server/routes/chat.ts` repeated "tracker wins, scorecard fills": lines **839**, **1039**, **1195**, **1368**, **1602**, in two spellings.
 
 **Not urgent — the original finding's rationale was wrong.** It claimed the two spellings have "subtly different null-vs-0 semantics". They do not:
 
@@ -121,6 +129,6 @@ Full SiftKit suite was green after all changes.
 
 ## Next actions
 
-- [ ] Delete the dead `allowedToolNames` local at [planner-protocol.ts:485](../../../src/repo-search/planner-protocol.ts#L485)
+- [x] Delete the dead `allowedToolNames` local at [planner-protocol.ts:485](../../../src/repo-search/planner-protocol.ts#L485)
 - [ ] Commit the `../TabbyAPI` working tree (source patch + both new test files)
-- [ ] Optional: cover the chat-route fallback branch with a test, then collapse the five sites (#2)
+- [x] Cover the chat-route fallback branch with a test, then collapse the five sites (#2)

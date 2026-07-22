@@ -456,20 +456,27 @@ function captureManagedLlamaSessionCursor(ctx: ServerContext) {
   return captureManagedLlamaSpeculativeMetricsSnapshot(ctx.managedLlamaLastStartupLogs);
 }
 
-function readManagedLlamaSessionSpeculativeMetrics(
+function readScorecardSpeculativeMetrics(scorecard: OptionalJsonValue): SessionSpeculativeMetrics {
+  return {
+    speculativeAcceptedTokens: getScorecardTotal(scorecard, 'speculativeAcceptedTokens'),
+    speculativeGeneratedTokens: getScorecardTotal(scorecard, 'speculativeGeneratedTokens'),
+  };
+}
+
+/**
+ * One speculative-token policy for every chat route: the managed llama startup-log
+ * delta wins, and the turn's own usage/scorecard totals fill in whenever no managed
+ * process is being tracked.
+ */
+function resolveSessionSpeculativeMetrics(
   ctx: ServerContext,
   cursor: ReturnType<typeof captureManagedLlamaSessionCursor>,
+  fallback: Partial<SessionSpeculativeMetrics>,
 ): SessionSpeculativeMetrics {
-  if (!cursor) {
-    return {
-      speculativeAcceptedTokens: null,
-      speculativeGeneratedTokens: null,
-    };
-  }
-  const metrics = getManagedLlamaSpeculativeMetricsDelta(ctx.managedLlamaLastStartupLogs, cursor);
+  const tracked = cursor ? getManagedLlamaSpeculativeMetricsDelta(ctx.managedLlamaLastStartupLogs, cursor) : null;
   return {
-    speculativeAcceptedTokens: metrics?.speculativeAcceptedTokens ?? null,
-    speculativeGeneratedTokens: metrics?.speculativeGeneratedTokens ?? null,
+    speculativeAcceptedTokens: tracked?.speculativeAcceptedTokens ?? fallback.speculativeAcceptedTokens ?? null,
+    speculativeGeneratedTokens: tracked?.speculativeGeneratedTokens ?? fallback.speculativeGeneratedTokens ?? null,
   };
 }
 
@@ -713,6 +720,7 @@ class ChatMessageTurn {
         ...(this.mockResponses ? { mockResponses: this.mockResponses } : {}),
       });
       const scorecardTasks = normalizeRepoSearchScorecard(result.scorecard).tasks;
+      const scorecardSpeculative = readScorecardSpeculativeMetrics(result.scorecard);
       await this.persistAndRespond(tokenConfig, {
         assistantContent: String(scorecardTasks[0]?.finalOutput || '').trim(),
         usage: {
@@ -723,8 +731,8 @@ class ChatMessageTurn {
           thinkingTokensEstimated: hasEstimatedScorecardTokens(result.scorecard, 'thinkingTokensEstimatedCount'),
           promptCacheTokens: getScorecardTotal(result.scorecard, 'promptCacheTokens'),
           promptEvalTokens: getScorecardTotal(result.scorecard, 'promptEvalTokens'),
-          speculativeAcceptedTokens: getScorecardTotal(result.scorecard, 'speculativeAcceptedTokens'),
-          speculativeGeneratedTokens: getScorecardTotal(result.scorecard, 'speculativeGeneratedTokens'),
+          speculativeAcceptedTokens: scorecardSpeculative.speculativeAcceptedTokens,
+          speculativeGeneratedTokens: scorecardSpeculative.speculativeGeneratedTokens,
         },
         persistTurns: await countPersistTurnThinkingTokens(tokenConfig, buildPersistTurnsFromRepoSearchResult(result)),
         // Run rows are keyed by the engine request id, so deleting a tool bubble later
@@ -758,7 +766,7 @@ class ChatMessageTurn {
   }
 
   private async persistAndRespond(tokenConfig: SiftConfig | undefined, turn: ChatTurnContent): Promise<void> {
-    const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(this.ctx, this.managedLlamaCursor);
+    const speculativeMetrics = resolveSessionSpeculativeMetrics(this.ctx, this.managedLlamaCursor, turn.usage);
     const inputTokenCount = await countPersistedInputTokens(tokenConfig, this.userContent);
     const sessionWithTelemetry = appendChatMessagesWithUsage(
       this.runtimeRoot,
@@ -773,8 +781,8 @@ class ChatMessageTurn {
         inputTokensEstimated: inputTokenCount.estimated,
         requestDurationMs: Date.now() - this.startedAt,
         requestStartedAtUtc: this.requestStartedAtUtc,
-        speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens ?? turn.usage.speculativeAcceptedTokens ?? null,
-        speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens ?? turn.usage.speculativeGeneratedTokens ?? null,
+        speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
+        speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
         sourceRunId: turn.sourceRunId,
       },
     );
@@ -992,6 +1000,7 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
       });
       const scorecardTasks = normalizeRepoSearchScorecard(result.scorecard).tasks;
       const assistantContent = String(scorecardTasks[0]?.finalOutput || '').trim();
+      const scorecardSpeculative = readScorecardSpeculativeMetrics(result?.scorecard);
       const usage: ChatUsage = {
         promptTokens: getScorecardTotal(result?.scorecard, 'promptTokens'),
         completionTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
@@ -1004,11 +1013,11 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
         generationDurationMs: getScorecardTotal(result?.scorecard, 'generationDurationMs'),
         promptTokensPerSecond: null,
         generationTokensPerSecond: null,
-        speculativeAcceptedTokens: getScorecardTotal(result?.scorecard, 'speculativeAcceptedTokens'),
-        speculativeGeneratedTokens: getScorecardTotal(result?.scorecard, 'speculativeGeneratedTokens'),
+        speculativeAcceptedTokens: scorecardSpeculative.speculativeAcceptedTokens,
+        speculativeGeneratedTokens: scorecardSpeculative.speculativeGeneratedTokens,
       };
       const persistTurns = await countPersistTurnThinkingTokens(mockTokenConfig, buildPersistTurnsFromRepoSearchResult(result));
-      const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
+      const speculativeMetrics = resolveSessionSpeculativeMetrics(ctx, managedLlamaCursor, scorecardSpeculative);
       phaseTracker.observeAnswer(assistantContent);
       const phaseTimestamps = phaseTracker.snapshot();
       const inputTokenCount = await countPersistedInputTokens(mockTokenConfig, userContent);
@@ -1023,8 +1032,8 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
         thinkingEndedAtUtc: phaseTimestamps.thinkingEndedAtUtc,
         answerStartedAtUtc: phaseTimestamps.answerStartedAtUtc,
         answerEndedAtUtc: phaseTimestamps.answerEndedAtUtc,
-        speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens ?? usage.speculativeAcceptedTokens ?? null,
-        speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens ?? usage.speculativeGeneratedTokens ?? null,
+        speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
+        speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
         groundingStatus: getChatGroundingStatus(result.scorecard),
         sourceRunId: String(result.requestId || ''),
       });
@@ -1133,7 +1142,11 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
         },
       });
       const assistantContent = buildPlanMarkdownFromRepoSearch(content, resolvedRepoRoot, result);
-      const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
+      const speculativeMetrics = resolveSessionSpeculativeMetrics(
+        ctx,
+        managedLlamaCursor,
+        readScorecardSpeculativeMetrics(result?.scorecard),
+      );
       const inputTokenCount = await countPersistedInputTokens(mockTokenConfig, content);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
@@ -1167,10 +1180,8 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
           generationTokensPerSecond: (() => {
             return getRepoSearchGenerationTokensPerSecond(result?.scorecard);
           })(),
-          speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens
-            ?? getScorecardTotal(result?.scorecard, 'speculativeAcceptedTokens'),
-          speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens
-            ?? getScorecardTotal(result?.scorecard, 'speculativeGeneratedTokens'),
+          speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
+          speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
           outputTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
           outputTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'outputTokensEstimatedCount'),
           thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
@@ -1307,7 +1318,11 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
       });
       const assistantContent = buildPlanMarkdownFromRepoSearch(content, resolvedRepoRoot, result);
       phaseTracker.observeAnswer(assistantContent);
-      const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
+      const speculativeMetrics = resolveSessionSpeculativeMetrics(
+        ctx,
+        managedLlamaCursor,
+        readScorecardSpeculativeMetrics(result?.scorecard),
+      );
       const inputTokenCount = await countPersistedInputTokens(mockTokenConfig, content);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
@@ -1342,10 +1357,8 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
             return getRepoSearchGenerationTokensPerSecond(result?.scorecard);
           })(),
           ...phaseTracker.snapshot(),
-          speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens
-            ?? getScorecardTotal(result?.scorecard, 'speculativeAcceptedTokens'),
-          speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens
-            ?? getScorecardTotal(result?.scorecard, 'speculativeGeneratedTokens'),
+          speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
+          speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
           outputTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
           outputTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'outputTokensEstimatedCount'),
           thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
@@ -1543,7 +1556,11 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
       });
       const assistantContent = buildRepoSearchMarkdown(content, resolvedRepoRoot, result);
       phaseTracker.observeAnswer(assistantContent);
-      const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
+      const speculativeMetrics = resolveSessionSpeculativeMetrics(
+        ctx,
+        managedLlamaCursor,
+        readScorecardSpeculativeMetrics(result?.scorecard),
+      );
       const inputTokenCount = await countPersistedInputTokens(mockTokenConfig, content);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
@@ -1578,10 +1595,8 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
             return getRepoSearchGenerationTokensPerSecond(result?.scorecard);
           })(),
           ...phaseTracker.snapshot(),
-          speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens
-            ?? getScorecardTotal(result?.scorecard, 'speculativeAcceptedTokens'),
-          speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens
-            ?? getScorecardTotal(result?.scorecard, 'speculativeGeneratedTokens'),
+          speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
+          speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
           outputTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
           outputTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'outputTokensEstimatedCount'),
           thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
