@@ -1,15 +1,9 @@
-import {
-  getActiveModelPreset,
-  type SiftConfig,
-} from '../../config/index.js';
+import { getActiveModelPreset, type SiftConfig } from '../../config/index.js';
 import { ModelJson } from '../../lib/model-json.js';
 import { z } from '../../lib/zod.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
 import { ToolTypeStatsSchema } from '../../status-server/metrics.js';
-import {
-  resolveRepoSearchPlannerToolDefinitions,
-  type ChatMessage,
-} from '../planner-protocol.js';
+import { resolveRepoSearchPlannerToolDefinitions, type ChatMessage } from '../planner-protocol.js';
 import { ReadOverlapSummarySchema } from './read-overlap.js';
 import { TaskCommandSchema } from '../prompts.js';
 import { ChatGroundingStatusSchema } from '../chat-grounding-policy.js';
@@ -20,10 +14,7 @@ import type {
   RepoSearchProgressEvent,
 } from '../types.js';
 import type { ToolTranscriptAction } from '../../tool-call-messages.js';
-import {
-  detectRecentTokenRepetition,
-  type TokenRepetitionDetection,
-} from '../repetition-guard.js';
+import { detectRecentTokenRepetition, type TokenRepetitionDetection } from '../repetition-guard.js';
 import { WebResearchTools } from '../../web-search/web-research-tools.js';
 import type { WebSearchConfig } from '../../web-search/types.js';
 
@@ -62,10 +53,10 @@ export function applyToolOutputRepetitionGuard(text: string): string {
   if (!detection) {
     return text;
   }
-  return [
-    buildToolOutputRepetitionWarning(detection),
-    detection.truncatedText,
-  ].filter((part) => part.trim().length > 0).join('\n').trim();
+  return [buildToolOutputRepetitionWarning(detection), detection.truncatedText]
+    .filter((part) => part.trim().length > 0)
+    .join('\n')
+    .trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -92,7 +83,10 @@ export type TaskDefinition = {
   signals: string[];
 };
 
-export function evaluateTaskSignals(task: TaskDefinition, evidenceText: string): {
+export function evaluateTaskSignals(
+  task: TaskDefinition,
+  evidenceText: string,
+): {
   passed: boolean;
   missingSignals: string[];
 } {
@@ -134,6 +128,8 @@ export const TaskResultSchema = z.object({
   promptEvalTokens: z.number(),
   promptEvalDurationMs: z.number(),
   generationDurationMs: z.number(),
+  speculativeAcceptedTokens: z.number(),
+  speculativeGeneratedTokens: z.number(),
   toolStats: z.record(z.string(), ToolTypeStatsSchema),
   readOverlapSummary: ReadOverlapSummarySchema,
 });
@@ -175,18 +171,15 @@ export function isPlannerReasoningEnabled(config: SiftConfig | undefined): boole
 }
 
 export function isPlannerReasoningContentEnabled(config: SiftConfig | undefined): boolean {
-  return isPlannerReasoningEnabled(config)
-    && (config ? getActiveModelPreset(config).ReasoningContent : false);
+  return isPlannerReasoningEnabled(config) && (config ? getActiveModelPreset(config).ReasoningContent : false);
 }
 
 export function isPlannerPreserveThinkingEnabled(config: SiftConfig | undefined): boolean {
-  return isPlannerReasoningContentEnabled(config)
-    && (config ? getActiveModelPreset(config).PreserveThinking : false);
+  return isPlannerReasoningContentEnabled(config) && (config ? getActiveModelPreset(config).PreserveThinking : false);
 }
 
 export function isPlannerMaintainPerStepThinkingEnabled(config: SiftConfig | undefined): boolean {
-  return isPlannerReasoningEnabled(config)
-    && (config ? getActiveModelPreset(config).MaintainPerStepThinking : true);
+  return isPlannerReasoningEnabled(config) && (config ? getActiveModelPreset(config).MaintainPerStepThinking : true);
 }
 
 export function buildAssistantReplayMessage(content: string, thinkingText: string): ChatMessage {
@@ -199,10 +192,12 @@ export function buildAssistantReplayMessage(content: string, thinkingText: strin
 
 export function buildInvalidToolCallActionFromResponseText(
   responseText: string,
-  allowedToolNames: readonly string[]
+  allowedToolNames: readonly string[],
 ): ToolTranscriptAction {
   try {
-    const action = ModelJson.parseRepoSearchPlannerAction(responseText, { allowedToolNames });
+    const action = ModelJson.parseRepoSearchPlannerAction(responseText, {
+      toolDefinitions: resolveRepoSearchPlannerToolDefinitions(allowedToolNames),
+    });
     if (action.action === 'tool') {
       return action;
     }

@@ -13,9 +13,7 @@ import type {
   AgentLoopToolResult,
 } from '../../agent-loop/types.js';
 import type { NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
-import {
-  createEmptyToolTypeStats,
-} from '../../line-read-guidance.js';
+import { createEmptyToolTypeStats } from '../../line-read-guidance.js';
 import {
   countLlamaCppTokens,
   generateLlamaCppChatResponse,
@@ -28,10 +26,7 @@ import { getProcessedPromptTokens } from '../../lib/provider-helpers.js';
 import { getErrorMessage, toError } from '../../lib/errors.js';
 import { JsonObjectSchema, type JsonObject } from '../../lib/json-types.js';
 import { ModelJson } from '../../lib/model-json.js';
-import {
-  buildConservativeDirectFallbackDecision,
-  normalizeStructuredDecision,
-} from '../structured.js';
+import { buildConservativeDirectFallbackDecision, normalizeStructuredDecision } from '../structured.js';
 import {
   buildPlannerToolDefinitions,
   executePlannerTool,
@@ -40,11 +35,7 @@ import {
   getPlannerToolName,
   type PlannerToolResult,
 } from './tools.js';
-import {
-  createPlannerDebugRecorder,
-  buildPlannerFailureErrorMessage,
-  traceSummary,
-} from '../artifacts.js';
+import { createPlannerDebugRecorder, buildPlannerFailureErrorMessage, traceSummary } from '../artifacts.js';
 import {
   buildPlannerAssistantToolMessage,
   buildPlannerForcedFinishUserPrompt,
@@ -53,10 +44,7 @@ import {
   buildPlannerSystemPrompt,
   renderPlannerTranscript,
 } from './prompts.js';
-import {
-  estimatePromptTokenCount,
-  getPlannerPromptBudget,
-} from '../chunking.js';
+import { estimatePromptTokenCount, getPlannerPromptBudget } from '../chunking.js';
 import { notifyStatusBackend } from '../../config/index.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
 import {
@@ -90,11 +78,7 @@ import {
   type ToolBatchOutcome,
   type ToolTranscriptAction,
 } from '../../tool-call-messages.js';
-import {
-  findContiguousUnreadRange,
-  ToolOutputFitter,
-  type ToolOutputTruncationUnit,
-} from '../../tool-output-fit.js';
+import { findContiguousUnreadRange, ToolOutputFitter, type ToolOutputTruncationUnit } from '../../tool-output-fit.js';
 
 const MAX_PLANNER_TOOL_CALLS = 30;
 const PLANNER_FORCED_FINISH_MAX_ATTEMPTS = 2;
@@ -124,9 +108,11 @@ function tryParseSummaryDecision(providerText: string): StructuredModelDecision 
   }
 }
 
-function buildPlannerInvalidToolAction(providerText: string): ToolTranscriptAction {
+function buildPlannerInvalidToolAction(providerText: string, toolDefinitions: readonly PlannerToolDefinition[]): ToolTranscriptAction {
   try {
-    const recoveredAction = ModelJson.parseSummaryPlannerAction(providerText);
+    const recoveredAction = ModelJson.parseSummaryPlannerAction(providerText, {
+      toolDefinitions,
+    });
     if (recoveredAction.action === 'tool') {
       return recoveredAction;
     }
@@ -345,16 +331,36 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     this.tokenizeOptions = getPlannerTokenizeOptions(this.options.requestTimeoutSeconds);
   }
 
-  private get options(): InvokePlannerModeOptions { return this.requestContext.options; }
-  private get promptBudget(): PlannerPromptBudget { return this.requestContext.promptBudget; }
-  private get allowedTools(): PlannerToolName[] { return this.requestContext.allowedTools; }
-  private get toolDefinitions(): PlannerToolDefinition[] { return this.requestContext.toolDefinitions; }
-  private get debugRecorder(): SummaryPlannerDebugRecorder { return this.requestContext.debugRecorder; }
-  private get messages(): LlamaCppChatMessage[] { return this.transcriptState.messages; }
-  private get toolResults(): SummaryPlannerToolResultRecord[] { return this.transcriptState.toolResults; }
-  private get inputLines(): string[] { return this.transcriptState.inputLines; }
-  private get readLinesReturnedRanges(): Array<{ start: number; end: number }> { return this.transcriptState.readLinesReturnedRanges; }
-  private get recentEvidenceKeys(): Set<string> { return this.transcriptState.recentEvidenceKeys; }
+  private get options(): InvokePlannerModeOptions {
+    return this.requestContext.options;
+  }
+  private get promptBudget(): PlannerPromptBudget {
+    return this.requestContext.promptBudget;
+  }
+  private get allowedTools(): PlannerToolName[] {
+    return this.requestContext.allowedTools;
+  }
+  private get toolDefinitions(): PlannerToolDefinition[] {
+    return this.requestContext.toolDefinitions;
+  }
+  private get debugRecorder(): SummaryPlannerDebugRecorder {
+    return this.requestContext.debugRecorder;
+  }
+  private get messages(): LlamaCppChatMessage[] {
+    return this.transcriptState.messages;
+  }
+  private get toolResults(): SummaryPlannerToolResultRecord[] {
+    return this.transcriptState.toolResults;
+  }
+  private get inputLines(): string[] {
+    return this.transcriptState.inputLines;
+  }
+  private get readLinesReturnedRanges(): Array<{ start: number; end: number }> {
+    return this.transcriptState.readLinesReturnedRanges;
+  }
+  private get recentEvidenceKeys(): Set<string> {
+    return this.transcriptState.recentEvidenceKeys;
+  }
 
   async prepareTurn(turnNumber: number): Promise<AgentLoopPreparedTurn> {
     const turn = this.toolResults.length + 1;
@@ -379,9 +385,8 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       turn,
       promptChars: this.prompt.length,
     });
-    this.promptTokenCount = (
-      await countLlamaCppTokens(this.options.config, this.prompt, this.tokenizeOptions)
-    ) ?? estimatePromptTokenCount(this.options.config, this.prompt);
+    this.promptTokenCount =
+      (await countLlamaCppTokens(this.options.config, this.prompt, this.tokenizeOptions)) ?? estimatePromptTokenCount(this.options.config, this.prompt);
     promptTokenSpan?.end({ promptTokenCount: this.promptTokenCount });
     this.debugRecorder.record({
       kind: 'planner_prompt',
@@ -477,8 +482,8 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
 
   private async notifyPlannerRunning(promptText: string, promptTokenCount: number): Promise<number> {
     traceSummary(
-      `notify running=true phase=planner chunk=none raw_chars=${this.options.inputText.length} `
-      + `chunk_chars=${this.options.inputText.length} prompt_chars=${promptText.length}`
+      `notify running=true phase=planner chunk=none raw_chars=${this.options.inputText.length} ` +
+        `chunk_chars=${this.options.inputText.length} prompt_chars=${promptText.length}`,
     );
     const statusRunningStartedAt = Date.now();
     const notifyRunningSpan = this.options.timingRecorder?.start('summary.planner.status.notify_running', {
@@ -507,10 +512,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     return Date.now() - statusRunningStartedAt;
   }
 
-  private async requestProviderAction(override?: {
-    promptText: string;
-    promptTokenCount: number;
-  }): Promise<SummaryPlannerProviderResponse> {
+  private async requestProviderAction(override?: { promptText: string; promptTokenCount: number }): Promise<SummaryPlannerProviderResponse> {
     const promptText = override?.promptText ?? this.prompt;
     const promptTokenCount = override?.promptTokenCount ?? this.promptTokenCount;
     const statusRunningMs = await this.notifyPlannerRunning(promptText, promptTokenCount);
@@ -648,19 +650,19 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       requestDurationMs: providerResponse.requestDurationMs,
       providerDurationMs: providerResponse.providerDurationMs,
       statusRunningMs: providerResponse.statusRunningMs,
-    }).catch(() => {
-      notifyTerminalSpan?.end({ ok: false });
-      traceSummary(`notify running=false failed phase=planner chunk=none request_id=${this.options.requestId}`);
-    }).then(() => {
-      notifyTerminalSpan?.end({ ok: true });
-    });
+    })
+      .catch(() => {
+        notifyTerminalSpan?.end({ ok: false });
+        traceSummary(`notify running=false failed phase=planner chunk=none request_id=${this.options.requestId}`);
+      })
+      .then(() => {
+        notifyTerminalSpan?.end({ ok: true });
+      });
   }
 
   async handleInvalidResponse(context: AgentLoopResponseContext & { error: Error }): Promise<AgentLoopInvalidResponseResult> {
     const providerResponse = getSummaryPlannerModelData(context).providerResponse;
-    const recoveredDecision = this.toolResults.length === 0
-      ? tryParseSummaryDecision(providerResponse.text)
-      : null;
+    const recoveredDecision = this.toolResults.length === 0 ? tryParseSummaryDecision(providerResponse.text) : null;
     if (recoveredDecision) {
       const decision = normalizeStructuredDecision(recoveredDecision, this.options.format);
       this.debugRecorder.finish({
@@ -684,7 +686,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     const invalidToolResultText = buildPlannerInvalidResponseUserPrompt(invalidResponseError);
     appendToolCallExchange(
       this.messages,
-      buildPlannerInvalidToolAction(providerResponse.text),
+      buildPlannerInvalidToolAction(providerResponse.text, this.toolDefinitions),
       `invalid_call_${this.transcriptState.invalidActionCount}`,
       invalidToolResultText,
       providerResponse.reasoningText || '',
@@ -743,14 +745,21 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
         countToolTokens: false,
         toolStatsPayload: null,
       });
-      return { accepted: true, outcome: 'stop', finishText: fallbackDecision.output };
+      return {
+        accepted: true,
+        outcome: 'stop',
+        finishText: fallbackDecision.output,
+      };
     }
 
-    const decision = normalizeStructuredDecision({
-      classification: normalizeAgentLoopSummaryClassification(action.classification),
-      rawReviewRequired: action.rawReviewRequired === true,
-      output: action.text,
-    }, this.options.format);
+    const decision = normalizeStructuredDecision(
+      {
+        classification: normalizeAgentLoopSummaryClassification(action.classification),
+        rawReviewRequired: action.rawReviewRequired === true,
+        output: action.text,
+      },
+      this.options.format,
+    );
     this.debugRecorder.finish({
       status: 'completed',
       command: this.options.debugCommand ?? null,
@@ -782,10 +791,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     });
   }
 
-  private async notifyToolExecution(
-    providerResponse: SummaryPlannerProviderResponse,
-    toolStatsPayload: SummaryPlannerToolStatsPayload | null,
-  ): Promise<void> {
+  private async notifyToolExecution(providerResponse: SummaryPlannerProviderResponse, toolStatsPayload: SummaryPlannerToolStatsPayload | null): Promise<void> {
     await this.notifyIteration({
       providerResponse,
       countOutputTokens: false,
@@ -805,7 +811,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     const rejectedToolAction = toolActions[0];
     if (rejectedToolAction) {
       const forcedToolResultText = buildPlannerForcedFinishUserPrompt(
-        'Current evidence is already repeating and likely sufficient. Produce your final answer now.'
+        'Current evidence is already repeating and likely sufficient. Produce your final answer now.',
       );
       appendToolCallExchange(
         this.messages,
@@ -827,7 +833,10 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       });
     }
     if (this.transcriptState.forcedFinishAttemptsRemaining === 0) {
-      this.debugRecorder.finish({ status: 'failed', reason: 'planner_forced_finish_attempt_limit' });
+      this.debugRecorder.finish({
+        status: 'failed',
+        reason: 'planner_forced_finish_attempt_limit',
+      });
       this.completionState.fail();
       await this.notifyToolExecution(providerResponse, null);
       return { outcome: 'stop', results: [] };
@@ -841,7 +850,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     turn: number,
     providerResponse: SummaryPlannerProviderResponse,
   ): Promise<AgentLoopToolExecution | null> {
-    if ((this.toolResults.length + toolActions.length) <= MAX_PLANNER_TOOL_CALLS) {
+    if (this.toolResults.length + toolActions.length <= MAX_PLANNER_TOOL_CALLS) {
       return null;
     }
     this.debugRecorder.record({
@@ -859,12 +868,18 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
         providerResponse.reasoningText || '',
       );
     }
-    this.messages.push({ role: 'user', content: buildPlannerForcedFinishUserPrompt() });
+    this.messages.push({
+      role: 'user',
+      content: buildPlannerForcedFinishUserPrompt(),
+    });
     if (await this.tryCompleteForcedToolLimit(turn)) {
       await this.notifyToolExecution(providerResponse, null);
       return { outcome: 'stop', results: [] };
     }
-    this.debugRecorder.finish({ status: 'failed', reason: 'planner_tool_call_limit' });
+    this.debugRecorder.finish({
+      status: 'failed',
+      reason: 'planner_tool_call_limit',
+    });
     this.completionState.fail();
     await this.notifyToolExecution(providerResponse, null);
     return { outcome: 'stop', results: [] };
@@ -877,23 +892,27 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
         turn,
         promptChars: forcedPrompt.length,
       });
-      const forcedPromptTokenCount = (
-        await countLlamaCppTokens(this.options.config, forcedPrompt, this.tokenizeOptions)
-      ) ?? estimatePromptTokenCount(this.options.config, forcedPrompt);
+      const forcedPromptTokenCount =
+        (await countLlamaCppTokens(this.options.config, forcedPrompt, this.tokenizeOptions)) ?? estimatePromptTokenCount(this.options.config, forcedPrompt);
       forcedPromptTokenSpan?.end({ promptTokenCount: forcedPromptTokenCount });
       const forcedResponse = await this.requestProviderAction({
         promptText: forcedPrompt,
         promptTokenCount: forcedPromptTokenCount,
       });
-      const forcedAction = ModelJson.parseSummaryPlannerAction(forcedResponse.text);
+      const forcedAction = ModelJson.parseSummaryPlannerAction(forcedResponse.text, {
+        toolDefinitions: this.toolDefinitions,
+      });
       if (forcedAction.action !== 'finish') {
         return false;
       }
-      const forcedDecision = normalizeStructuredDecision({
-        classification: forcedAction.classification,
-        rawReviewRequired: forcedAction.rawReviewRequired,
-        output: forcedAction.output,
-      }, this.options.format);
+      const forcedDecision = normalizeStructuredDecision(
+        {
+          classification: forcedAction.classification,
+          rawReviewRequired: forcedAction.rawReviewRequired,
+          output: forcedAction.output,
+        },
+        this.options.format,
+      );
       this.debugRecorder.finish({
         status: 'completed',
         command: this.options.debugCommand ?? null,
@@ -927,27 +946,27 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
   }
 
   private handleDuplicateToolAction(ctx: SummaryPlannerToolBatchContext, toolAction: SummaryPlannerToolAction): boolean {
-    const fingerprint = fingerprintToolCall({ toolName: toolAction.tool_name, args: toolAction.args });
-    const readLinesExactRepeat = toolAction.tool_name === 'read_lines'
-      && this.transcriptState.lastSuccessfulReadLinesArgsText === JSON.stringify(toolAction.args);
+    const fingerprint = fingerprintToolCall({
+      toolName: toolAction.tool_name,
+      args: toolAction.args,
+    });
+    const readLinesExactRepeat =
+      toolAction.tool_name === 'read_lines' && this.transcriptState.lastSuccessfulReadLinesArgsText === JSON.stringify(toolAction.args);
     if (readLinesExactRepeat || this.transcriptState.lastSuccessfulFingerprint !== fingerprint) {
       return false;
     }
-    const isActiveDuplicate = this.transcriptState.duplicateReplayFingerprint === fingerprint
-      && this.transcriptState.duplicateReplayToolMessageIndex >= 0
-      && this.transcriptState.duplicateReplayToolMessageIndex < this.messages.length;
+    const isActiveDuplicate =
+      this.transcriptState.duplicateReplayFingerprint === fingerprint &&
+      this.transcriptState.duplicateReplayToolMessageIndex >= 0 &&
+      this.transcriptState.duplicateReplayToolMessageIndex < this.messages.length;
     this.transcriptState.duplicateReplayFingerprint = fingerprint;
-    this.transcriptState.duplicateReplayCount = isActiveDuplicate ? (this.transcriptState.duplicateReplayCount + 1) : 2;
+    this.transcriptState.duplicateReplayCount = isActiveDuplicate ? this.transcriptState.duplicateReplayCount + 1 : 2;
     this.recordDuplicateToolMessage(ctx, toolAction, isActiveDuplicate);
     this.recordDuplicateToolStats(ctx, toolAction, fingerprint);
     return true;
   }
 
-  private recordDuplicateToolMessage(
-    ctx: SummaryPlannerToolBatchContext,
-    toolAction: SummaryPlannerToolAction,
-    isActiveDuplicate: boolean,
-  ): void {
+  private recordDuplicateToolMessage(ctx: SummaryPlannerToolBatchContext, toolAction: SummaryPlannerToolAction, isActiveDuplicate: boolean): void {
     const duplicateSummary = buildRepeatedToolCallSummary(toolAction.tool_name, this.transcriptState.duplicateReplayCount);
     if (isActiveDuplicate) {
       const previousToolMessage = this.messages[this.transcriptState.duplicateReplayToolMessageIndex];
@@ -966,11 +985,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     ctx.batchDuplicateAnchorIndex = ctx.batchOutcomes.length - 1;
   }
 
-  private recordDuplicateToolStats(
-    ctx: SummaryPlannerToolBatchContext,
-    toolAction: SummaryPlannerToolAction,
-    fingerprint: string,
-  ): void {
+  private recordDuplicateToolStats(ctx: SummaryPlannerToolBatchContext, toolAction: SummaryPlannerToolAction, fingerprint: string): void {
     const duplicateToolStats = this.getToolStats(ctx, toolAction.tool_name);
     ctx.toolStatsPayload![toolAction.tool_name] = {
       ...duplicateToolStats,
@@ -998,7 +1013,11 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
 
   private resolveEffectiveToolAction(toolAction: SummaryPlannerToolAction): SummaryPlannerEffectiveToolAction {
     if (toolAction.tool_name !== 'read_lines') {
-      return { toolAction, effectiveToolAction: toolAction, readLinesNoUnread: false };
+      return {
+        toolAction,
+        effectiveToolAction: toolAction,
+        readLinesNoUnread: false,
+      };
     }
     const requestedStart = Math.max(1, Math.trunc(Number(toolAction.args.startLine) || 1));
     const requestedEnd = Math.max(requestedStart, Math.trunc(Number(toolAction.args.endLine) || requestedStart));
@@ -1015,8 +1034,16 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       effectiveToolAction: {
         ...toolAction,
         args: unreadRange.hasUnread
-          ? { ...toolAction.args, startLine: unreadRange.start, endLine: unreadRange.end - 1 }
-          : { ...toolAction.args, startLine: unreadRange.start, endLine: unreadRange.end },
+          ? {
+              ...toolAction.args,
+              startLine: unreadRange.start,
+              endLine: unreadRange.end - 1,
+            }
+          : {
+              ...toolAction.args,
+              startLine: unreadRange.start,
+              endLine: unreadRange.end,
+            },
       },
     };
   }
@@ -1057,7 +1084,10 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       return null;
     }
     appendToolBatchExchange(this.messages, ctx.batchOutcomes, ctx.providerResponse.reasoningText || '');
-    this.debugRecorder.finish({ status: 'failed', reason: 'planner_invalid_response_limit' });
+    this.debugRecorder.finish({
+      status: 'failed',
+      reason: 'planner_invalid_response_limit',
+    });
     this.completionState.fail();
     await this.notifyToolExecution(ctx.providerResponse, ctx.toolStatsPayload);
     return { outcome: 'stop', results: [] };
@@ -1069,10 +1099,19 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     toolAction: SummaryPlannerToolAction,
     result: PlannerToolResult,
   ): Promise<SummaryPlannerFormattedToolResult> {
-    const formatSpan = this.options.timingRecorder?.start('summary.planner.tool.format', { turn: ctx.turn, toolName: toolAction.tool_name });
+    const formatSpan = this.options.timingRecorder?.start('summary.planner.tool.format', {
+      turn: ctx.turn,
+      toolName: toolAction.tool_name,
+    });
     const rawFormattedResultText = formatPlannerResult(result);
-    const formattedResultText = buildPromptToolResult({ toolName: effectiveToolAction.tool_name, rawOutput: rawFormattedResultText });
-    formatSpan?.end({ rawChars: rawFormattedResultText.length, formattedChars: formattedResultText.length });
+    const formattedResultText = buildPromptToolResult({
+      toolName: effectiveToolAction.tool_name,
+      rawOutput: rawFormattedResultText,
+    });
+    formatSpan?.end({
+      rawChars: rawFormattedResultText.length,
+      formattedChars: formattedResultText.length,
+    });
     const rawResultTokenCount = await this.countRawToolResultTokens(ctx, toolAction, rawFormattedResultText);
     const formattedTokenCountRaw = await this.countFormattedToolResultTokens(ctx, toolAction, formattedResultText);
     const formattedTokenCountEstimated = formattedTokenCountRaw === null;
@@ -1106,9 +1145,9 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       toolName: toolAction.tool_name,
       inputChars: rawFormattedResultText.length,
     });
-    const rawResultTokenCount = (
-      await countLlamaCppTokens(this.options.config, rawFormattedResultText, this.tokenizeOptions)
-    ) ?? estimatePromptTokenCount(this.options.config, rawFormattedResultText);
+    const rawResultTokenCount =
+      (await countLlamaCppTokens(this.options.config, rawFormattedResultText, this.tokenizeOptions)) ??
+      estimatePromptTokenCount(this.options.config, rawFormattedResultText);
     rawTokenSpan?.end({ tokenCount: rawResultTokenCount });
     return rawResultTokenCount;
   }
@@ -1124,7 +1163,9 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       inputChars: formattedResultText.length,
     });
     const formattedTokenCountRaw = await countLlamaCppTokens(this.options.config, formattedResultText, this.tokenizeOptions);
-    formattedTokenSpan?.end({ tokenCount: formattedTokenCountRaw ?? estimatePromptTokenCount(this.options.config, formattedResultText) });
+    formattedTokenSpan?.end({
+      tokenCount: formattedTokenCountRaw ?? estimatePromptTokenCount(this.options.config, formattedResultText),
+    });
     return formattedTokenCountRaw;
   }
 
@@ -1133,15 +1174,20 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     effectiveToolAction: SummaryPlannerToolAction,
     result: PlannerToolResult,
     formattedResultText: string,
-  ): Promise<{ promptResultText: string; tokenCount: number; estimated: boolean }> {
+  ): Promise<{
+    promptResultText: string;
+    tokenCount: number;
+    estimated: boolean;
+  }> {
     const remainingPromptTokens = Math.max(this.promptBudget.plannerStopLineTokens - this.promptTokenCount, 0);
     const headerText = formatPlannerToolResultHeader(result);
     const resultBodyText = typeof result.text === 'string' ? result.text : formattedResultText;
     const unit: ToolOutputTruncationUnit = effectiveToolAction.tool_name === 'find_text' ? 'results' : 'lines';
     const separator = effectiveToolAction.tool_name === 'find_text' ? '\n\n' : '\n';
-    const segments = effectiveToolAction.tool_name === 'find_text'
-      ? resultBodyText.split(/\n\s*\n/u).filter((segment) => segment.trim().length > 0)
-      : resultBodyText.split(/\r?\n/u).filter((line) => line.length > 0);
+    const segments =
+      effectiveToolAction.tool_name === 'find_text'
+        ? resultBodyText.split(/\n\s*\n/u).filter((segment) => segment.trim().length > 0)
+        : resultBodyText.split(/\r?\n/u).filter((line) => line.length > 0);
     const fitter = new ToolOutputFitter(new SummaryPlannerToolOutputTokenCounter(this.options.config, this.tokenizeOptions));
     const fitResult = await fitter.fitSegments({
       headerText: headerText || undefined,
@@ -1150,7 +1196,10 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       maxTokens: Math.max(1, Math.floor(remainingPromptTokens * 0.7)),
       unit,
     });
-    const promptResultText = buildPromptToolResult({ toolName: effectiveToolAction.tool_name, rawOutput: fitResult.visibleText });
+    const promptResultText = buildPromptToolResult({
+      toolName: effectiveToolAction.tool_name,
+      rawOutput: fitResult.visibleText,
+    });
     const fitTokenSpan = this.options.timingRecorder?.start('summary.planner.tool.tokenize_prompt', {
       turn: ctx.turn,
       toolName: effectiveToolAction.tool_name,
@@ -1173,8 +1222,14 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
   ): void {
     this.recordSuccessfulToolStats(ctx, toolAction, formatted);
     this.recordReadLinesRange(effectiveToolAction, formatted.result, formatted.promptResultText);
-    const fingerprint = fingerprintToolCall({ toolName: toolAction.tool_name, args: toolAction.args });
-    const novelty = classifyToolResultNovelty({ promptResultText: formatted.promptResultText, recentEvidenceKeys: this.recentEvidenceKeys });
+    const fingerprint = fingerprintToolCall({
+      toolName: toolAction.tool_name,
+      args: toolAction.args,
+    });
+    const novelty = classifyToolResultNovelty({
+      promptResultText: formatted.promptResultText,
+      recentEvidenceKeys: this.recentEvidenceKeys,
+    });
     for (const evidenceKey of novelty.evidenceKeys) this.recentEvidenceKeys.add(evidenceKey);
     ctx.toolStatsPayload![toolAction.tool_name].newEvidenceCalls += novelty.hasNewEvidence ? 1 : 0;
     ctx.toolStatsPayload![toolAction.tool_name].noNewEvidenceCalls += novelty.hasNewEvidence ? 0 : 1;
@@ -1183,7 +1238,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     this.transcriptState.duplicateReplayToolMessageIndex = -1;
     this.transcriptState.lastSuccessfulFingerprint = fingerprint;
     this.transcriptState.lastSuccessfulReadLinesArgsText = effectiveToolAction.tool_name === 'read_lines' ? JSON.stringify(toolAction.args) : null;
-    this.transcriptState.consecutiveNoNewEvidence = novelty.hasNewEvidence ? 0 : (this.transcriptState.consecutiveNoNewEvidence + 1);
+    this.transcriptState.consecutiveNoNewEvidence = novelty.hasNewEvidence ? 0 : this.transcriptState.consecutiveNoNewEvidence + 1;
     ctx.batchOutcomes.push({
       action: effectiveToolAction,
       toolCallId: `call_${this.toolResults.length + 1}`,
@@ -1202,9 +1257,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     toolAction: SummaryPlannerToolAction,
     formatted: SummaryPlannerFormattedToolResult,
   ): void {
-    const readLineCount = toolAction.tool_name === 'read_lines' && Number.isFinite(formatted.result.lineCount)
-      ? Number(formatted.result.lineCount)
-      : 0;
+    const readLineCount = toolAction.tool_name === 'read_lines' && Number.isFinite(formatted.result.lineCount) ? Number(formatted.result.lineCount) : 0;
     const currentToolStats = this.getToolStats(ctx, toolAction.tool_name);
     ctx.toolStatsPayload![toolAction.tool_name] = {
       ...currentToolStats,
@@ -1220,25 +1273,21 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     };
   }
 
-  private recordReadLinesRange(
-    effectiveToolAction: SummaryPlannerToolAction,
-    result: PlannerToolResult,
-    promptResultText: string,
-  ): void {
+  private recordReadLinesRange(effectiveToolAction: SummaryPlannerToolAction, result: PlannerToolResult, promptResultText: string): void {
     if (effectiveToolAction.tool_name !== 'read_lines') {
       return;
     }
     const returnedLineCount = promptResultText.split(/\r?\n/u).filter((line) => /^\d+:/u.test(line)).length;
     const returnedStartLine = Math.max(1, Math.trunc(Number(result.startLine) || 1));
     if (returnedLineCount > 0) {
-      this.readLinesReturnedRanges.push({ start: returnedStartLine, end: returnedStartLine + returnedLineCount });
+      this.readLinesReturnedRanges.push({
+        start: returnedStartLine,
+        end: returnedStartLine + returnedLineCount,
+      });
     }
   }
 
-  private async executeSingleToolAction(
-    ctx: SummaryPlannerToolBatchContext,
-    toolAction: SummaryPlannerToolAction,
-  ): Promise<AgentLoopToolExecution | null> {
+  private async executeSingleToolAction(ctx: SummaryPlannerToolBatchContext, toolAction: SummaryPlannerToolAction): Promise<AgentLoopToolExecution | null> {
     if (this.handleDuplicateToolAction(ctx, toolAction)) {
       return null;
     }
@@ -1321,10 +1370,12 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     if (batchStopResult) return batchStopResult;
     this.appendToolBatchToTranscript(batchContext);
     await this.notifyToolExecution(providerResponse, batchContext.toolStatsPayload);
-    return { outcome: 'continue', results: this.buildAgentLoopToolResults(beforeToolResultCount) };
+    return {
+      outcome: 'continue',
+      results: this.buildAgentLoopToolResults(beforeToolResultCount),
+    };
   }
 }
-
 
 export async function invokePlannerMode(options: InvokePlannerModeOptions): Promise<StructuredModelDecision | null> {
   if (options.backend !== 'llama.cpp') {
@@ -1336,9 +1387,8 @@ export async function invokePlannerMode(options: InvokePlannerModeOptions): Prom
     return null;
   }
 
-  const allowedTools: PlannerToolName[] = Array.isArray(options.allowedTools) && options.allowedTools.length > 0
-    ? options.allowedTools
-    : ['find_text', 'read_lines', 'json_filter'];
+  const allowedTools: PlannerToolName[] =
+    Array.isArray(options.allowedTools) && options.allowedTools.length > 0 ? options.allowedTools : ['find_text', 'read_lines', 'json_filter'];
   const toolDefinitions = buildPlannerToolDefinitions(allowedTools);
   const toolResults: SummaryPlannerToolResultRecord[] = [];
   const messages: LlamaCppChatMessage[] = [

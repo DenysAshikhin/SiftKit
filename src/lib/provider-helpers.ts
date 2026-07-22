@@ -274,16 +274,56 @@ export function getPromptUsageFromResponseBody(body: JsonValue): PromptUsage {
   return { promptTokens, promptCacheTokens, promptEvalTokens };
 }
 
+function secondsToMs(seconds: number | null): number | null {
+  return seconds === null ? null : seconds * 1000;
+}
+
 export function getTimingUsageFromResponseBody(body: JsonValue): TimingUsage {
   const record = JsonRecordReader.asObject(body) ?? {};
   const timings = JsonRecordReader.asObject(record.timings) ?? {};
   const verbose = JsonRecordReader.asObject(record.__verbose) ?? {};
   const verboseTimings = JsonRecordReader.asObject(verbose.timings) ?? {};
+  // llama.cpp reports under `timings` in milliseconds; TabbyAPI reports under
+  // `usage` in seconds (prompt_time/completion_time) with *_tokens_per_sec rates.
+  const usage = JsonRecordReader.asObject(record.usage) ?? {};
   return {
-    promptEvalDurationMs: getUsageNumber(timings.prompt_ms) ?? getUsageNumber(verboseTimings.prompt_ms),
-    generationDurationMs: getUsageNumber(timings.predicted_ms) ?? getUsageNumber(verboseTimings.predicted_ms),
-    promptTokensPerSecond: getUsageNumber(timings.prompt_per_second) ?? getUsageNumber(verboseTimings.prompt_per_second),
-    generationTokensPerSecond: getUsageNumber(timings.predicted_per_second) ?? getUsageNumber(verboseTimings.predicted_per_second),
+    promptEvalDurationMs: getUsageNumber(timings.prompt_ms)
+      ?? getUsageNumber(verboseTimings.prompt_ms)
+      ?? secondsToMs(getUsageNumber(usage.prompt_time)),
+    generationDurationMs: getUsageNumber(timings.predicted_ms)
+      ?? getUsageNumber(verboseTimings.predicted_ms)
+      ?? secondsToMs(getUsageNumber(usage.completion_time)),
+    promptTokensPerSecond: getUsageNumber(timings.prompt_per_second)
+      ?? getUsageNumber(verboseTimings.prompt_per_second)
+      ?? getUsageNumber(usage.prompt_tokens_per_sec),
+    generationTokensPerSecond: getUsageNumber(timings.predicted_per_second)
+      ?? getUsageNumber(verboseTimings.predicted_per_second)
+      ?? getUsageNumber(usage.completion_tokens_per_sec),
+  };
+}
+
+export type SpeculativeUsage = {
+  speculativeAcceptedTokens: number | null;
+  speculativeGeneratedTokens: number | null;
+};
+
+/**
+ * Per-request speculative-decoding stats. TabbyAPI reports accepted/rejected
+ * draft tokens in `usage`; llama.cpp exposes no per-request equivalent (its
+ * stats are scraped from the managed server log instead), so both fields stay
+ * null there.
+ */
+export function getSpeculativeUsageFromResponseBody(body: JsonValue): SpeculativeUsage {
+  const record = JsonRecordReader.asObject(body) ?? {};
+  const usage = JsonRecordReader.asObject(record.usage) ?? {};
+  const acceptedTokens = getUsageNumber(usage.draft_accepted_tokens);
+  const rejectedTokens = getUsageNumber(usage.draft_rejected_tokens);
+  if (acceptedTokens === null && rejectedTokens === null) {
+    return { speculativeAcceptedTokens: null, speculativeGeneratedTokens: null };
+  }
+  return {
+    speculativeAcceptedTokens: acceptedTokens ?? 0,
+    speculativeGeneratedTokens: (acceptedTokens ?? 0) + (rejectedTokens ?? 0),
   };
 }
 

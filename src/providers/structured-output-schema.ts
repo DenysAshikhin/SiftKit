@@ -1,10 +1,4 @@
-import {
-  JsonObjectSchema,
-  isJsonObject,
-  type JsonObject,
-  type MutableJsonObject,
-  type OptionalJsonValue,
-} from '../lib/json-types.js';
+import { JsonObjectSchema, type JsonObject, type OptionalJsonValue } from '../lib/json-types.js';
 import type { LlamaCppToolParameterSchema } from '../llm-protocol/types.js';
 
 export type StructuredOutputToolDefinition = {
@@ -28,9 +22,7 @@ type JsonSchemaObject = {
 // A tool-parameter fragment carries a `[key: string]: unknown` index, so it is
 // not directly a JsonObject; validate it into one at this build boundary.
 function getObjectRecord(value: LlamaCppToolParameterSchema | OptionalJsonValue): JsonObject {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? JsonObjectSchema.parse(value)
-    : {};
+  return value && typeof value === 'object' && !Array.isArray(value) ? JsonObjectSchema.parse(value) : {};
 }
 
 function getRequiredList(value: OptionalJsonValue): string[] {
@@ -39,36 +31,6 @@ function getRequiredList(value: OptionalJsonValue): string[] {
   }
   return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
 }
-
-function normalizePlannerParameterSchema(schema: JsonObject): JsonObject {
-  const normalized: MutableJsonObject = { ...schema };
-  if (isJsonObject(schema.items)) {
-    normalized.items = normalizePlannerParameterSchema(schema.items);
-  }
-
-  const properties = getObjectRecord(schema.properties);
-  if (Object.keys(properties).length === 0) {
-    return normalized;
-  }
-
-  const originalRequired = new Set(getRequiredList(schema.required));
-  const normalizedProperties: MutableJsonObject = {};
-  for (const [name, value] of Object.entries(properties)) {
-    const propertySchema = normalizePlannerParameterSchema(getObjectRecord(value));
-    normalizedProperties[name] = originalRequired.has(name)
-      ? propertySchema
-      : { anyOf: [propertySchema, { type: 'null' }] };
-  }
-  normalized.properties = normalizedProperties;
-  normalized.required = Object.keys(properties);
-  return normalized;
-}
-
-function getNormalizedToolParameters(tool: StructuredOutputToolDefinition): JsonObject {
-  return normalizePlannerParameterSchema(getObjectRecord(tool.function.parameters));
-}
-
-
 
 // `anyOf`, never `oneOf`: the kbnf grammar engine behind TabbyAPI mis-handles `oneOf` and
 // permanently wedges the inference server on the first constrained turn. See
@@ -83,7 +45,7 @@ function buildAnyOf(values: JsonSchema[]): JsonSchema {
 }
 
 function buildPlannerToolCallSchema(tool: StructuredOutputToolDefinition): JsonSchemaObject {
-  const parameters = getNormalizedToolParameters(tool);
+  const parameters = getObjectRecord(tool.function.parameters);
   return {
     type: 'object',
     properties: {
@@ -102,6 +64,7 @@ function buildPlannerToolBatchActionSchema(toolDefinitions: StructuredOutputTool
       action: { const: 'tool_batch' },
       calls: {
         type: 'array',
+        minItems: 1,
         items: buildAnyOf(toolDefinitions.map((tool) => buildPlannerToolCallSchema(tool))),
       },
     },
@@ -110,9 +73,7 @@ function buildPlannerToolBatchActionSchema(toolDefinitions: StructuredOutputTool
   };
 }
 
-function buildSummaryPlannerFinishActionSchema(options: {
-  allowUnsupportedInput: boolean;
-}): JsonSchemaObject {
+function buildSummaryPlannerFinishActionSchema(options: { allowUnsupportedInput: boolean }): JsonSchemaObject {
   const classificationEnum = options.allowUnsupportedInput
     ? ['summary', 'command_failure', 'unsupported_input']
     : ['summary', 'command_failure'];
@@ -155,9 +116,7 @@ function buildPlannerActionSchema(options: {
   return buildAnyOf(actionSchemas);
 }
 
-export function buildSummaryDecisionJsonSchema(options: {
-  allowUnsupportedInput: boolean;
-}): JsonSchemaObject {
+export function buildSummaryDecisionJsonSchema(options: { allowUnsupportedInput: boolean }): JsonSchemaObject {
   const classificationEnum = options.allowUnsupportedInput
     ? ['summary', 'command_failure', 'unsupported_input']
     : ['summary', 'command_failure'];
@@ -209,10 +168,10 @@ export function buildFinishValidationJsonSchema(): JsonSchemaObject {
   };
 }
 
-export function buildLlamaJsonSchemaResponseFormat(options: {
-  name: string;
-  schema: JsonSchema;
-}): { type: 'json_schema'; json_schema: { name: string; strict: boolean; schema: JsonSchema } } {
+export function buildLlamaJsonSchemaResponseFormat(options: { name: string; schema: JsonSchema }): {
+  type: 'json_schema';
+  json_schema: { name: string; strict: boolean; schema: JsonSchema };
+} {
   return {
     type: 'json_schema',
     json_schema: {

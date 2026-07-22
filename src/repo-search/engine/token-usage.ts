@@ -11,6 +11,8 @@ export type ModelUsageResponse = {
   promptEvalTokens?: number | null;
   promptEvalDurationMs?: number | null;
   generationDurationMs?: number | null;
+  speculativeAcceptedTokens?: number | null;
+  speculativeGeneratedTokens?: number | null;
 };
 
 export type ResolvedResponseTokens = {
@@ -31,6 +33,8 @@ export type TokenUsageSnapshot = {
   promptEvalTokens: number;
   promptEvalDurationMs: number;
   generationDurationMs: number;
+  speculativeAcceptedTokens: number;
+  speculativeGeneratedTokens: number;
 };
 
 export class TokenUsageTracker {
@@ -44,6 +48,8 @@ export class TokenUsageTracker {
   private promptEvalTokens = 0;
   private promptEvalDurationMs = 0;
   private generationDurationMs = 0;
+  private speculativeAcceptedTokens = 0;
+  private speculativeGeneratedTokens = 0;
   private readonly config: SiftConfig | undefined;
 
   constructor(config: SiftConfig | undefined, useEstimatedTokensOnly = false) {
@@ -77,6 +83,12 @@ export class TokenUsageTracker {
     if (Number.isFinite(response.generationDurationMs) && Number(response.generationDurationMs) >= 0) {
       this.generationDurationMs += Number(response.generationDurationMs);
     }
+    if (Number.isFinite(response.speculativeAcceptedTokens) && Number(response.speculativeAcceptedTokens) >= 0) {
+      this.speculativeAcceptedTokens += Number(response.speculativeAcceptedTokens);
+    }
+    if (Number.isFinite(response.speculativeGeneratedTokens) && Number(response.speculativeGeneratedTokens) >= 0) {
+      this.speculativeGeneratedTokens += Number(response.speculativeGeneratedTokens);
+    }
     return {
       completionTokens,
       thinkingTokens,
@@ -108,6 +120,8 @@ export class TokenUsageTracker {
       promptEvalTokens: this.promptEvalTokens,
       promptEvalDurationMs: this.promptEvalDurationMs,
       generationDurationMs: this.generationDurationMs,
+      speculativeAcceptedTokens: this.speculativeAcceptedTokens,
+      speculativeGeneratedTokens: this.speculativeGeneratedTokens,
     };
   }
 

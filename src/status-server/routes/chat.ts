@@ -800,6 +800,8 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
           thinkingTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'thinkingTokensEstimatedCount'),
           promptCacheTokens: getScorecardTotal(result?.scorecard, 'promptCacheTokens'),
           promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
+          speculativeAcceptedTokens: getScorecardTotal(result?.scorecard, 'speculativeAcceptedTokens'),
+          speculativeGeneratedTokens: getScorecardTotal(result?.scorecard, 'speculativeGeneratedTokens'),
         };
         persistTurns = await countPersistTurnThinkingTokens(tokenConfig, buildPersistTurnsFromRepoSearchResult(result));
       }
@@ -834,8 +836,8 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
         inputTokensEstimated: inputTokenCount.estimated,
         requestDurationMs: Date.now() - startedAt,
         requestStartedAtUtc,
-        speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
-        speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
+        speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens ?? usage.speculativeAcceptedTokens ?? null,
+        speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens ?? usage.speculativeGeneratedTokens ?? null,
         groundingStatus,
         sourceRunId: requestId,
       });
@@ -993,6 +995,8 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
         generationDurationMs: getScorecardTotal(result?.scorecard, 'generationDurationMs'),
         promptTokensPerSecond: null,
         generationTokensPerSecond: null,
+        speculativeAcceptedTokens: getScorecardTotal(result?.scorecard, 'speculativeAcceptedTokens'),
+        speculativeGeneratedTokens: getScorecardTotal(result?.scorecard, 'speculativeGeneratedTokens'),
       };
       const persistTurns = await countPersistTurnThinkingTokens(mockTokenConfig, buildPersistTurnsFromRepoSearchResult(result));
       try {
@@ -1032,8 +1036,8 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
         thinkingEndedAtUtc: phaseTimestamps.thinkingEndedAtUtc,
         answerStartedAtUtc: phaseTimestamps.answerStartedAtUtc,
         answerEndedAtUtc: phaseTimestamps.answerEndedAtUtc,
-        speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
-        speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
+        speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens ?? usage.speculativeAcceptedTokens ?? null,
+        speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens ?? usage.speculativeGeneratedTokens ?? null,
         groundingStatus: getChatGroundingStatus(result.scorecard),
         sourceRunId: String(result.requestId || ''),
       });
@@ -1188,8 +1192,10 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
           generationTokensPerSecond: (() => {
             return getRepoSearchGenerationTokensPerSecond(result?.scorecard);
           })(),
-          speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
-          speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
+          speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens
+            ?? getScorecardTotal(result?.scorecard, 'speculativeAcceptedTokens'),
+          speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens
+            ?? getScorecardTotal(result?.scorecard, 'speculativeGeneratedTokens'),
           outputTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
           outputTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'outputTokensEstimatedCount'),
           thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
@@ -1359,8 +1365,10 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
             return getRepoSearchGenerationTokensPerSecond(result?.scorecard);
           })(),
           ...phaseTracker.snapshot(),
-          speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
-          speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
+          speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens
+            ?? getScorecardTotal(result?.scorecard, 'speculativeAcceptedTokens'),
+          speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens
+            ?? getScorecardTotal(result?.scorecard, 'speculativeGeneratedTokens'),
           outputTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
           outputTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'outputTokensEstimatedCount'),
           thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
@@ -1591,8 +1599,10 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
             return getRepoSearchGenerationTokensPerSecond(result?.scorecard);
           })(),
           ...phaseTracker.snapshot(),
-          speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
-          speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
+          speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens
+            ?? getScorecardTotal(result?.scorecard, 'speculativeAcceptedTokens'),
+          speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens
+            ?? getScorecardTotal(result?.scorecard, 'speculativeGeneratedTokens'),
           outputTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
           outputTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'outputTokensEstimatedCount'),
           thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),

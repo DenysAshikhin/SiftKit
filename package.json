@@ -27,6 +27,7 @@
     "test": "npm run typecheck:test && npm run build:test && node .\\dist\\scripts\\run-tests.js",
     "test:coverage": "npm run build:test && npx c8 --include=\"src/**/*.ts\" --exclude=\"node_modules/**\" --exclude=\"tests/**\" --reporter=text --reporter=text-summary node .\\dist\\scripts\\run-tests.js",
     "test:coverage:llm": "npm run build:test && npx c8 --include=\"src/llm-protocol/**/*.ts\" --include=\"src/agent-loop/**/*.ts\" --exclude=\"node_modules/**\" --reporter=text --reporter=text-summary node .\\dist\\scripts\\run-tests.js",
+    "test:formatron": "npm run build:test && node .\\dist\\scripts\\run-tests.js formatron-planner-schema.integration",
     "test:live": "npm run build && powershell -Command \"$env:SIFTKIT_TEST_USE_EXISTING_SERVER='1'; if (-not $env:SIFTKIT_STATUS_BACKEND_URL) { $env:SIFTKIT_STATUS_BACKEND_URL='http://127.0.0.1:4765/status' }; if (-not $env:SIFTKIT_CONFIG_SERVICE_URL) { $env:SIFTKIT_CONFIG_SERVICE_URL='http://127.0.0.1:4765/config' }; npx tsx --test --test-name-pattern 'concurrent oversized CLI summary requests' .\\tests\\runtime-cli.test.ts\"",
     "verify:client": "powershell -ExecutionPolicy Bypass -File .\\scripts\\verify-client.ps1",
     "verify:llama-live": "powershell -ExecutionPolicy Bypass -File .\\scripts\\verify-llama-live.ps1",
@@ -65,7 +66,10 @@
     ]
   },
   "license": "UNLICENSED",
-  "workspaces": ["packages/contracts", "dashboard"],
+  "workspaces": [
+    "packages/contracts",
+    "dashboard"
+  ],
   "bundleDependencies": [
     "@siftkit/contracts"
   ],

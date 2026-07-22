@@ -302,6 +302,8 @@ export async function executeRepoSearchRequest(
     const promptEvalTokens = getNumericTotal(scorecard, 'promptEvalTokens');
     const promptEvalDurationMs = getNumericTotal(scorecard, 'promptEvalDurationMs');
     const generationDurationMs = getNumericTotal(scorecard, 'generationDurationMs');
+    const speculativeAcceptedTokens = getNumericTotal(scorecard, 'speculativeAcceptedTokens');
+    const speculativeGeneratedTokens = getNumericTotal(scorecard, 'speculativeGeneratedTokens');
     const inputTokens = getProcessedPromptTokens(promptTokens, promptCacheTokens, promptEvalTokens);
     const scorecardToolStats = scorecard.toolStats;
     const finishedAtUtc = new Date().toISOString();
@@ -324,6 +326,8 @@ export async function executeRepoSearchRequest(
       toolStats: scorecardToolStats,
       promptCacheTokens,
       promptEvalTokens,
+      speculativeAcceptedTokens,
+      speculativeGeneratedTokens,
       requestDurationMs: Date.now() - startedAt,
       startedAt: Date.now(),
       timingRecorder,
@@ -351,6 +355,8 @@ export async function executeRepoSearchRequest(
       promptEvalTokens,
       promptEvalDurationMs,
       generationDurationMs,
+      speculativeAcceptedTokens,
+      speculativeGeneratedTokens,
     }, timingRecorder);
     traceRepoSearch(
       `execute done request_id=${requestId} verdict=${String(scorecard?.verdict ?? 'unknown')} `

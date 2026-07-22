@@ -51,6 +51,8 @@ export function buildMockScorecard(finalOutput: string): RepoSearchExecutionResu
       promptEvalTokens: 0,
       promptEvalDurationMs: 0,
       generationDurationMs: 0,
+      speculativeAcceptedTokens: 0,
+      speculativeGeneratedTokens: 0,
       toolStats: {},
       readOverlapSummary: EMPTY_READ_OVERLAP,
     }],

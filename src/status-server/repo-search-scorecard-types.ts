@@ -30,6 +30,8 @@ export type RepoSearchTotals = {
   promptEvalTokens: number | null;
   promptEvalDurationMs: number | null;
   generationDurationMs: number | null;
+  speculativeAcceptedTokens: number | null;
+  speculativeGeneratedTokens: number | null;
   outputTokensEstimatedCount: number | null;
   thinkingTokensEstimatedCount: number | null;
 };
@@ -101,6 +103,8 @@ function normalizeTotals(value: OptionalJsonValue): RepoSearchTotals {
     promptEvalTokens: readNullableNumber(reader, 'promptEvalTokens'),
     promptEvalDurationMs: readNullableNumber(reader, 'promptEvalDurationMs'),
     generationDurationMs: readNullableNumber(reader, 'generationDurationMs'),
+    speculativeAcceptedTokens: readNullableNumber(reader, 'speculativeAcceptedTokens'),
+    speculativeGeneratedTokens: readNullableNumber(reader, 'speculativeGeneratedTokens'),
     outputTokensEstimatedCount: readNullableNumber(reader, 'outputTokensEstimatedCount'),
     thinkingTokensEstimatedCount: readNullableNumber(reader, 'thinkingTokensEstimatedCount'),
   };

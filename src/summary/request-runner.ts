@@ -386,6 +386,8 @@ export class SummaryRequestRunner {
         thinkingTokens: summaryCore.completionMetrics?.thinkingTokens ?? null,
         promptCacheTokens: summaryCore.completionMetrics?.promptCacheTokens ?? null,
         promptEvalTokens: summaryCore.completionMetrics?.promptEvalTokens ?? null,
+        speculativeAcceptedTokens: summaryCore.completionMetrics?.speculativeAcceptedTokens ?? null,
+        speculativeGeneratedTokens: summaryCore.completionMetrics?.speculativeGeneratedTokens ?? null,
         requestDurationMs: summaryCore.completionMetrics?.requestDurationMs ?? null,
         providerDurationMs: summaryCore.completionMetrics?.providerDurationMs ?? summaryCore.completionMetrics?.requestDurationMs ?? null,
         wallDurationMs: getSummaryWallDurationMs(this.request, this.requestStartedAtMs),

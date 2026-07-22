@@ -11,6 +11,7 @@ import {
   buildProviderErrorMessage,
   getCompletionUsageFromResponseBody,
   getPromptUsageFromResponseBody,
+  getSpeculativeUsageFromResponseBody,
   getTimingUsageFromResponseBody,
   isTransientProviderHttpResponse,
   serializeNetworkError,
@@ -101,10 +102,21 @@ const RawChatResponseSchema = z.object({
     prompt_tokens_details: RawCachedTokenDetailsSchema.optional(),
     input_tokens_details: RawCachedTokenDetailsSchema.optional(),
     output_tokens_details: RawTokenDetailsSchema.optional(),
+    // TabbyAPI: second-based timings, rate fields, and speculative draft stats.
+    prompt_time: z.number().nullable().optional(),
+    completion_time: z.number().nullable().optional(),
+    prompt_tokens_per_sec: z.union([z.number(), z.string()]).nullable().optional(),
+    completion_tokens_per_sec: z.union([z.number(), z.string()]).nullable().optional(),
+    draft_accepted_tokens: z.number().nullable().optional(),
+    draft_rejected_tokens: z.number().nullable().optional(),
   }).nullable().optional(),
   timings: z.object({
     cache_n: z.number().optional(),
     prompt_n: z.number().optional(),
+    prompt_ms: z.number().optional(),
+    predicted_ms: z.number().optional(),
+    prompt_per_second: z.number().optional(),
+    predicted_per_second: z.number().optional(),
   }).optional(),
 });
 type RawChatResponse = z.infer<typeof RawChatResponseSchema>;
@@ -353,6 +365,8 @@ export class LlamaCppClient {
     let generationStartedAt: number | null = null;
     let promptEvalDurationMs: number | null = null;
     let generationDurationMs: number | null = null;
+    let speculativeAcceptedTokens: number | null = null;
+    let speculativeGeneratedTokens: number | null = null;
     let earlyStopReason: string | null = null;
 
     try {
@@ -369,6 +383,9 @@ export class LlamaCppClient {
           thinkingTokens = completionUsage.thinkingTokens ?? thinkingTokens;
           promptEvalDurationMs = timingUsage.promptEvalDurationMs ?? promptEvalDurationMs;
           generationDurationMs = timingUsage.generationDurationMs ?? generationDurationMs;
+          const speculativeUsage = getSpeculativeUsageFromResponseBody(packet);
+          speculativeAcceptedTokens = speculativeUsage.speculativeAcceptedTokens ?? speculativeAcceptedTokens;
+          speculativeGeneratedTokens = speculativeUsage.speculativeGeneratedTokens ?? speculativeGeneratedTokens;
 
           const firstChoice = Array.isArray(packet.choices) ? packet.choices[0] : undefined;
           const choice = isRecord(firstChoice) ? firstChoice : undefined;
@@ -459,6 +476,8 @@ export class LlamaCppClient {
         promptEvalTokens,
         promptEvalDurationMs: promptEvalDuration,
         generationDurationMs: generationDuration,
+        speculativeAcceptedTokens,
+        speculativeGeneratedTokens,
       },
       raw: {},
       stoppedEarly: earlyStopReason !== null,
@@ -472,19 +491,22 @@ export class LlamaCppClient {
     const reasoningText = getTextContent(message?.reasoning_content);
     const text = getTextContent(message?.content) || firstChoice.text || '';
     const thinkingTokens = getThinkingTokens(response.body.usage);
-    const promptTokens = getUsageValue(response.body.usage?.prompt_tokens);
-    const promptCacheTokens = getUsageValue(response.body.timings?.cache_n)
-      ?? getUsageValue(response.body.usage?.prompt_tokens_details?.cached_tokens)
-      ?? getUsageValue(response.body.usage?.input_tokens_details?.cached_tokens);
+    const bodyJson = toJsonObject(response.body);
+    const promptUsage = getPromptUsageFromResponseBody(bodyJson);
+    const timingUsage = getTimingUsageFromResponseBody(bodyJson);
+    const speculativeUsage = getSpeculativeUsageFromResponseBody(bodyJson);
     const usage: LlamaCppUsage = {
-      promptTokens,
+      promptTokens: promptUsage.promptTokens,
       completionTokens: getNormalizedCompletionTokens(getUsageValue(response.body.usage?.completion_tokens), thinkingTokens),
       totalTokens: getUsageValue(response.body.usage?.total_tokens),
       outputTokens: getUsageValue(response.body.usage?.completion_tokens),
       thinkingTokens,
-      promptCacheTokens,
-      promptEvalTokens: getUsageValue(response.body.timings?.prompt_n)
-        ?? (promptTokens !== null && promptCacheTokens !== null ? Math.max(promptTokens - promptCacheTokens, 0) : null),
+      promptCacheTokens: promptUsage.promptCacheTokens,
+      promptEvalTokens: promptUsage.promptEvalTokens,
+      promptEvalDurationMs: timingUsage.promptEvalDurationMs,
+      generationDurationMs: timingUsage.generationDurationMs,
+      speculativeAcceptedTokens: speculativeUsage.speculativeAcceptedTokens,
+      speculativeGeneratedTokens: speculativeUsage.speculativeGeneratedTokens,
     };
     const parser = new LlamaCppToolCallParser(allowedToolNames);
     const protocolToolCalls = parser.parseFromChoice(firstChoice);
@@ -493,7 +515,7 @@ export class LlamaCppClient {
       reasoningText,
       toolCalls: protocolToolCalls.length > 0 ? protocolToolCalls : parser.parseFromText(text),
       usage,
-      raw: toJsonObject(response.body),
+      raw: bodyJson,
       stoppedEarly: false,
     };
   }

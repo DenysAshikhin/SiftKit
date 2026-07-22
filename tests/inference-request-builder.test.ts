@@ -2,16 +2,23 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { InferenceRequestBuilder } from '../src/llm-protocol/inference-request-builder.js';
+import { isJsonObject, type JsonObject, type OptionalJsonValue } from '../src/lib/json-types.js';
 
 const messages = [{ role: 'user' as const, content: 'hello' }];
-const tools = [{
-  type: 'function' as const,
-  function: {
-    name: 'get_weather',
-    description: 'Get weather.',
-    parameters: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] },
+const tools = [
+  {
+    type: 'function' as const,
+    function: {
+      name: 'get_weather',
+      description: 'Get weather.',
+      parameters: {
+        type: 'object',
+        properties: { city: { type: 'string' } },
+        required: ['city'],
+      },
+    },
   },
-}];
+];
 const defaults = {
   maxTokens: 128,
   temperature: 0.7,
@@ -25,6 +32,27 @@ const defaults = {
   preserveThinking: false,
   maintainPerStepThinking: false,
 } as const;
+
+function requireObject(value: OptionalJsonValue): JsonObject {
+  if (!isJsonObject(value)) {
+    throw new Error('Expected JSON object in inference request builder test.');
+  }
+  return value;
+}
+
+function getActionVariant(schema: JsonObject, action: string): JsonObject {
+  if (!Array.isArray(schema.anyOf)) {
+    throw new Error('Expected planner schema variants.');
+  }
+  for (const candidate of schema.anyOf) {
+    const variant = requireObject(candidate);
+    const actionSchema = requireObject(requireObject(variant.properties).action);
+    if (actionSchema.const === action) {
+      return variant;
+    }
+  }
+  throw new Error(`Missing planner action variant: ${action}`);
+}
 
 test('llama request includes llama-only cache and slot controls', () => {
   const request = new InferenceRequestBuilder().build({
@@ -86,7 +114,10 @@ test('EXL3 request omits llama-only fields and maps thinking policy', () => {
     defaults,
     overrides: {},
     stream: true,
-    responseFormat: { type: 'json_schema', json_schema: { name: 'answer', schema: { type: 'object' } } },
+    responseFormat: {
+      type: 'json_schema',
+      json_schema: { name: 'answer', schema: { type: 'object' } },
+    },
     thinking: { enabled: true, preserve: true, reasoningContent: true },
     llama: { cachePrompt: true, slotId: 2 },
   });
@@ -208,4 +239,94 @@ test('llama request includes reasoning content when requested', () => {
     reasoning_content: true,
     preserve_thinking: true,
   });
+});
+
+test('request builder preserves the canonical planner schema for llama', () => {
+  const schema = {
+    type: 'object',
+    properties: {
+      requiredText: { type: 'string' },
+      optionalLimit: { type: 'integer' },
+    },
+    required: ['requiredText'],
+  };
+  const request = new InferenceRequestBuilder().build({
+    backend: 'llama',
+    model: 'llama-model',
+    messages,
+    tools: [],
+    defaults,
+    overrides: {},
+    stream: false,
+    responseFormat: {
+      type: 'json_schema',
+      json_schema: { name: 'planner', schema },
+    },
+    thinking: { enabled: false, preserve: false, reasoningContent: false },
+    llama: { cachePrompt: true },
+  });
+
+  assert.equal(request.response_format?.type, 'json_schema');
+  if (request.response_format?.type === 'json_schema') {
+    assert.deepEqual(request.response_format.json_schema.schema, schema);
+  }
+});
+
+test('request builder lowers only Formatron-incompatible planner constraints for EXL3', () => {
+  const direct = {
+    type: 'object',
+    properties: {
+      action: { const: 'inspect' },
+      requiredText: { type: 'string' },
+      optionalLimit: { type: 'integer' },
+    },
+    required: ['action', 'requiredText'],
+    additionalProperties: false,
+  };
+  const schema = {
+    anyOf: [
+      direct,
+      {
+        type: 'object',
+        properties: {
+          action: { const: 'tool_batch' },
+          calls: { type: 'array', minItems: 1, items: direct },
+        },
+        required: ['action', 'calls'],
+        additionalProperties: false,
+      },
+    ],
+  };
+  const request = new InferenceRequestBuilder().build({
+    backend: 'exl3',
+    model: '3.6_27B',
+    messages,
+    tools: [],
+    defaults,
+    overrides: {},
+    stream: false,
+    responseFormat: {
+      type: 'json_schema',
+      json_schema: { name: 'planner', schema },
+    },
+    thinking: { enabled: false, preserve: false, reasoningContent: false },
+    llama: { cachePrompt: false },
+  });
+
+  assert.equal(request.response_format?.type, 'json_schema');
+  if (request.response_format?.type !== 'json_schema') {
+    throw new Error('Expected EXL3 JSON Schema response format.');
+  }
+  const loweredSchema = requireObject(request.response_format.json_schema.schema);
+  const loweredDirect = getActionVariant(loweredSchema, 'inspect');
+  assert.deepEqual(loweredDirect.required, ['action', 'requiredText', 'optionalLimit']);
+  assert.deepEqual(requireObject(requireObject(loweredDirect.properties).optionalLimit), {
+    anyOf: [{ type: 'integer' }, { type: 'null' }],
+  });
+  const batch = getActionVariant(loweredSchema, 'tool_batch');
+  const calls = requireObject(requireObject(batch.properties).calls);
+  assert.equal(Object.hasOwn(calls, 'minItems'), false);
+  assert.deepEqual(requireObject(calls.items), loweredDirect);
+  assert.equal(requireObject(requireObject(direct.properties).optionalLimit).type, 'integer');
+  assert.equal(requireObject(requireObject(requireObject(schema.anyOf[1]).properties).calls).minItems, 1);
 });

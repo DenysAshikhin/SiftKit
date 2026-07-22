@@ -99,6 +99,8 @@ export type LlamaCppUsage = {
   promptEvalTokens: number | null;
   promptEvalDurationMs?: number | null;
   generationDurationMs?: number | null;
+  speculativeAcceptedTokens?: number | null;
+  speculativeGeneratedTokens?: number | null;
 };
 
 export type NormalizedLlamaCppChatResponse = {

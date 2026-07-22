@@ -57,6 +57,10 @@ export type LlamaCppUsage = {
   thinkingTokens: number | null;
   promptCacheTokens: number | null;
   promptEvalTokens: number | null;
+  promptEvalDurationMs: number | null;
+  generationDurationMs: number | null;
+  speculativeAcceptedTokens: number | null;
+  speculativeGeneratedTokens: number | null;
 };
 
 export type LlamaCppGenerateResult = {
@@ -535,6 +539,10 @@ export async function generateLlamaCppChatResponse(options: {
       thinkingTokens,
       promptCacheTokens: response.usage.promptCacheTokens,
       promptEvalTokens: response.usage.promptEvalTokens,
+      promptEvalDurationMs: response.usage.promptEvalDurationMs ?? null,
+      generationDurationMs: response.usage.generationDurationMs ?? null,
+      speculativeAcceptedTokens: response.usage.speculativeAcceptedTokens ?? null,
+      speculativeGeneratedTokens: response.usage.speculativeGeneratedTokens ?? null,
     }
     : null;
 

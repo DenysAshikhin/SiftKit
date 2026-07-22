@@ -22,6 +22,10 @@ export type ProviderSummaryMetrics = {
   thinkingTokens: number | null;
   promptCacheTokens: number | null;
   promptEvalTokens: number | null;
+  promptEvalDurationMs: number | null;
+  generationDurationMs: number | null;
+  speculativeAcceptedTokens: number | null;
+  speculativeGeneratedTokens: number | null;
   requestDurationMs: number;
   providerDurationMs: number;
   statusRunningMs: number;
@@ -150,6 +154,10 @@ export async function invokeProviderSummary(options: {
     thinkingTokens = response.usage?.thinkingTokens ?? null;
     promptCacheTokens = response.usage?.promptCacheTokens ?? null;
     promptEvalTokens = response.usage?.promptEvalTokens ?? null;
+    const promptEvalDurationMs = response.usage?.promptEvalDurationMs ?? null;
+    const generationDurationMs = response.usage?.generationDurationMs ?? null;
+    const speculativeAcceptedTokens = response.usage?.speculativeAcceptedTokens ?? null;
+    const speculativeGeneratedTokens = response.usage?.speculativeGeneratedTokens ?? null;
     traceSummary(
       `provider done phase=${options.phase} chunk=${chunkLabel} output_chars=${outputCharacterCount} `
       + `output_tokens=${outputTokens ?? 'null'} thinking_tokens=${thinkingTokens ?? 'null'}`
@@ -168,6 +176,10 @@ export async function invokeProviderSummary(options: {
         thinkingTokens,
         promptCacheTokens,
         promptEvalTokens,
+        promptEvalDurationMs,
+        generationDurationMs,
+        speculativeAcceptedTokens,
+        speculativeGeneratedTokens,
         requestDurationMs: providerDurationMs,
         providerDurationMs,
         statusRunningMs,

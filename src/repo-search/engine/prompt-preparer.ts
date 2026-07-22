@@ -1,10 +1,7 @@
-import type { SiftConfig } from '../../config/index.js';
+import { getActiveInferenceBackend, type SiftConfig } from '../../config/index.js';
 import { getDynamicMaxOutputTokens } from '../../lib/dynamic-output-cap.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
-import {
-  buildPlannerRequestPromptReserveText,
-  resolveRepoSearchPlannerToolDefinitions,
-} from '../planner-protocol.js';
+import { buildPlannerRequestPromptReserveText, resolveRepoSearchPlannerToolDefinitions } from '../planner-protocol.js';
 import { compactPlannerMessagesOnce, preflightPlannerPromptBudget } from '../prompt-budget.js';
 import type { JsonLogger } from '../types.js';
 import { ProgressReporter } from './progress-reporter.js';
@@ -12,21 +9,23 @@ import { TranscriptManager } from './transcript-manager.js';
 import { TurnBudget } from './turn-budget.js';
 
 export class PromptPreparer {
-  constructor(private readonly options: {
-    taskId: string;
-    model: string;
-    config: SiftConfig | undefined;
-    useEstimatedTokensOnly: boolean;
-    budget: TurnBudget;
-    plannerToolDefinitions: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;
-    thinkingEnabled: boolean;
-    reasoningContentEnabled: boolean;
-    preserveThinking: boolean;
-    transcript: TranscriptManager;
-    progress: ProgressReporter;
-    logger: JsonLogger | null;
-    timingRecorder: TemporaryTimingRecorder | null;
-  }) {}
+  constructor(
+    private readonly options: {
+      taskId: string;
+      model: string;
+      config: SiftConfig | undefined;
+      useEstimatedTokensOnly: boolean;
+      budget: TurnBudget;
+      plannerToolDefinitions: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;
+      thinkingEnabled: boolean;
+      reasoningContentEnabled: boolean;
+      preserveThinking: boolean;
+      transcript: TranscriptManager;
+      progress: ProgressReporter;
+      logger: JsonLogger | null;
+      timingRecorder: TemporaryTimingRecorder | null;
+    },
+  ) {}
 
   async prepareTurn(turn: number): Promise<{ promptTokenCount: number; maxOutputTokens: number }> {
     const { taskId, budget, transcript, progress } = this.options;
@@ -36,6 +35,7 @@ export class PromptPreparer {
       messageCount: transcript.length,
     });
     let providerPromptReserveText = buildPlannerRequestPromptReserveText({
+      backend: this.options.config ? getActiveInferenceBackend(this.options.config) : 'llama',
       stage: 'planner_action',
       model: String(this.options.model || ''),
       messageRoles: transcript.messageRoles(),
@@ -47,7 +47,10 @@ export class PromptPreparer {
       stream: progress.enabled,
     });
     let prompt = transcript.render();
-    promptRenderSpan?.end({ promptChars: prompt.length, providerPromptReserveChars: providerPromptReserveText.length });
+    promptRenderSpan?.end({
+      promptChars: prompt.length,
+      providerPromptReserveChars: providerPromptReserveText.length,
+    });
     const preflightSpan = this.options.timingRecorder?.start('repo.prompt.preflight', {
       taskId,
       turn,
@@ -79,12 +82,17 @@ export class PromptPreparer {
     });
 
     this.options.logger?.write({
-      kind: 'turn_preflight_budget', taskId, turn,
+      kind: 'turn_preflight_budget',
+      taskId,
+      turn,
       promptTokenCount: preflight.promptTokenCount,
       transcriptPromptTokenCount: preflight.transcriptPromptTokenCount,
       providerPromptReserveTokenCount: preflight.providerPromptReserveTokenCount,
       maxPromptBudget: preflight.maxPromptBudget,
-      overflowTokens: preflight.overflowTokens, ok: preflight.ok, compacted: false, maxOutputTokens,
+      overflowTokens: preflight.overflowTokens,
+      ok: preflight.ok,
+      compacted: false,
+      maxOutputTokens,
     });
 
     if (!preflight.ok) {
@@ -102,6 +110,7 @@ export class PromptPreparer {
       transcript.replaceWith(compacted.messages);
       const beforeProviderPromptReserveTokenCount = preflight.providerPromptReserveTokenCount;
       providerPromptReserveText = buildPlannerRequestPromptReserveText({
+        backend: this.options.config ? getActiveInferenceBackend(this.options.config) : 'llama',
         stage: 'planner_action',
         model: String(this.options.model || ''),
         messageRoles: transcript.messageRoles(),
@@ -117,8 +126,11 @@ export class PromptPreparer {
         progress.tokenizeStart(turn, prompt.length);
       }
       const afterCompaction = await preflightPlannerPromptBudget({
-        config: preflightConfig, prompt, providerPromptReserveText,
-        totalContextTokens: budget.totalContextTokens, thinkingBufferTokens: budget.thinkingBufferTokens,
+        config: preflightConfig,
+        prompt,
+        providerPromptReserveText,
+        totalContextTokens: budget.totalContextTokens,
+        thinkingBufferTokens: budget.thinkingBufferTokens,
       });
       if (afterCompaction.tokenizationAttempted) {
         progress.tokenizeDone(turn, prompt.length, afterCompaction);
@@ -132,7 +144,9 @@ export class PromptPreparer {
         promptTokenCount: afterCompaction.promptTokenCount,
       });
       this.options.logger?.write({
-        kind: 'turn_preflight_compaction_applied', taskId, turn,
+        kind: 'turn_preflight_compaction_applied',
+        taskId,
+        turn,
         beforePromptTokenCount: preflight.promptTokenCount,
         afterPromptTokenCount: afterCompaction.promptTokenCount,
         transcriptPromptTokenCount: afterCompaction.transcriptPromptTokenCount,
@@ -148,19 +162,23 @@ export class PromptPreparer {
 
     if (!preflight.ok) {
       const overflowError = new Error(
-        `planner_preflight_overflow prompt_tokens=${preflight.promptTokenCount} `
-        + `max_prompt_tokens=${preflight.maxPromptBudget} overflow_tokens=${preflight.overflowTokens} `
-        + `max_output_tokens=${maxOutputTokens} total_context_tokens=${budget.totalContextTokens} `
-        + `thinking_buffer_tokens=${budget.thinkingBufferTokens}`,
+        `planner_preflight_overflow prompt_tokens=${preflight.promptTokenCount} ` +
+          `max_prompt_tokens=${preflight.maxPromptBudget} overflow_tokens=${preflight.overflowTokens} ` +
+          `max_output_tokens=${maxOutputTokens} total_context_tokens=${budget.totalContextTokens} ` +
+          `thinking_buffer_tokens=${budget.thinkingBufferTokens}`,
       );
       this.options.logger?.write({
-        kind: 'turn_preflight_overflow_fail', taskId, turn,
+        kind: 'turn_preflight_overflow_fail',
+        taskId,
+        turn,
         promptTokenCount: preflight.promptTokenCount,
         transcriptPromptTokenCount: preflight.transcriptPromptTokenCount,
         providerPromptReserveTokenCount: preflight.providerPromptReserveTokenCount,
         maxPromptBudget: preflight.maxPromptBudget,
-        overflowTokens: preflight.overflowTokens, maxOutputTokens,
-        totalContextTokens: budget.totalContextTokens, thinkingBufferTokens: budget.thinkingBufferTokens,
+        overflowTokens: preflight.overflowTokens,
+        maxOutputTokens,
+        totalContextTokens: budget.totalContextTokens,
+        thinkingBufferTokens: budget.thinkingBufferTokens,
         error: overflowError.message,
       });
       throw overflowError;

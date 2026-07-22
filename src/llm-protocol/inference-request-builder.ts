@@ -1,5 +1,6 @@
 import type { InferenceChatRequest, InferenceRequestInput } from './inference-backend.js';
 import { getInferenceRequestCompatibility } from '../inference-presets/request-compatibility.js';
+import { lowerResponseFormatForBackend } from '../providers/formatron-schema-lowering.js';
 
 export class InferenceRequestBuilder {
   build(input: InferenceRequestInput): InferenceChatRequest {
@@ -7,18 +8,22 @@ export class InferenceRequestBuilder {
     return {
       ...this.buildCommonRequest(input),
       [compatibility.repetitionPenaltyKey]: input.overrides.repetitionPenalty ?? input.defaults.repetitionPenalty,
-      ...(input.backend === 'llama' ? {
-        cache_prompt: input.llama.cachePrompt,
-        ...(Number.isInteger(input.llama.slotId) ? { id_slot: input.llama.slotId } : {}),
-        ...(input.stream ? { timings_per_token: true } : {}),
-      } : {}),
-      ...(input.thinking.enabled === undefined ? {} : {
-        chat_template_kwargs: {
-          enable_thinking: input.thinking.enabled,
-          ...(compatibility.reasoningContent && input.thinking.reasoningContent ? { reasoning_content: true } : {}),
-          ...(input.thinking.preserve ? { preserve_thinking: true } : {}),
-        },
-      }),
+      ...(input.backend === 'llama'
+        ? {
+            cache_prompt: input.llama.cachePrompt,
+            ...(Number.isInteger(input.llama.slotId) ? { id_slot: input.llama.slotId } : {}),
+            ...(input.stream ? { timings_per_token: true } : {}),
+          }
+        : {}),
+      ...(input.thinking.enabled === undefined
+        ? {}
+        : {
+            chat_template_kwargs: {
+              enable_thinking: input.thinking.enabled,
+              ...(compatibility.reasoningContent && input.thinking.reasoningContent ? { reasoning_content: true } : {}),
+              ...(input.thinking.preserve ? { preserve_thinking: true } : {}),
+            },
+          }),
     };
   }
 
@@ -38,7 +43,11 @@ export class InferenceRequestBuilder {
       stream: input.stream,
       ...(input.stream ? { stream_options: { include_usage: true } } : {}),
       ...(input.tools.length > 0 ? { tools: input.tools, parallel_tool_calls: true } : {}),
-      ...(input.responseFormat ? { response_format: input.responseFormat } : {}),
+      ...(input.responseFormat
+        ? {
+            response_format: lowerResponseFormatForBackend(input.backend, input.responseFormat),
+          }
+        : {}),
     };
   }
 }

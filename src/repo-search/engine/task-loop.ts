@@ -455,6 +455,8 @@ export class TaskLoop {
         promptEvalTokens: response.promptEvalTokens ?? null,
         promptEvalDurationMs: response.promptEvalDurationMs ?? null,
         generationDurationMs: response.generationDurationMs ?? null,
+        speculativeAcceptedTokens: response.speculativeAcceptedTokens ?? null,
+        speculativeGeneratedTokens: response.speculativeGeneratedTokens ?? null,
       },
       raw: {
         text: response.text,

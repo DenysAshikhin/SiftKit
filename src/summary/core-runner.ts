@@ -55,6 +55,10 @@ export type SummaryCompletionMetrics = {
   thinkingTokens: number | null;
   promptCacheTokens: number | null;
   promptEvalTokens: number | null;
+  promptEvalDurationMs: number | null;
+  generationDurationMs: number | null;
+  speculativeAcceptedTokens: number | null;
+  speculativeGeneratedTokens: number | null;
   requestDurationMs: number;
   providerDurationMs: number;
   statusRunningMs: number;
@@ -127,6 +131,10 @@ function toSummaryCompletionMetrics(
       : metrics.thinkingTokens,
     promptCacheTokens: metrics.promptCacheTokens,
     promptEvalTokens: metrics.promptEvalTokens,
+    promptEvalDurationMs: metrics.promptEvalDurationMs,
+    generationDurationMs: metrics.generationDurationMs,
+    speculativeAcceptedTokens: metrics.speculativeAcceptedTokens,
+    speculativeGeneratedTokens: metrics.speculativeGeneratedTokens,
     requestDurationMs: metrics.requestDurationMs,
     providerDurationMs: metrics.providerDurationMs,
     statusRunningMs: metrics.statusRunningMs,

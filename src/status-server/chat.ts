@@ -341,6 +341,8 @@ export type ChatUsage = {
   generationDurationMs?: number | null;
   promptTokensPerSecond?: number | null;
   generationTokensPerSecond?: number | null;
+  speculativeAcceptedTokens?: number | null;
+  speculativeGeneratedTokens?: number | null;
 };
 
 

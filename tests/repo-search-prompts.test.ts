@@ -36,13 +36,18 @@ test('buildTaskInitialUserPrompt omits repository file listing when disabled', (
   assert.equal(prompt, 'Task: Find planner code');
 });
 
-test('buildTaskInitialUserPrompt includes repository file listing when enabled', () => {
+test('buildTaskInitialUserPrompt puts the stable file listing before the volatile task for prefix caching', () => {
   const prompt = buildTaskInitialUserPrompt('Find planner code', 'src/index.ts', {
     includeRepoFileListing: true,
   });
 
-  assert.match(prompt, /Repository file listing/u);
-  assert.match(prompt, /src\/index\.ts/u);
+  assert.equal(prompt, [
+    '--- Repository file listing (respects .gitignore) ---',
+    '',
+    'src/index.ts',
+    '',
+    'Task: Find planner code',
+  ].join('\n'));
 });
 
 test('buildTaskSystemPrompt advertises the native tool surface and no shell commands', () => {

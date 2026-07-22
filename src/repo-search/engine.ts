@@ -115,6 +115,8 @@ export function buildScorecard(options: { runId: string; model: string; tasks: T
     promptEvalTokens: options.tasks.reduce((s, t) => s + Number(t.promptEvalTokens || 0), 0),
     promptEvalDurationMs: options.tasks.reduce((s, t) => s + Number(t.promptEvalDurationMs || 0), 0),
     generationDurationMs: options.tasks.reduce((s, t) => s + Number(t.generationDurationMs || 0), 0),
+    speculativeAcceptedTokens: options.tasks.reduce((s, t) => s + Number(t.speculativeAcceptedTokens || 0), 0),
+    speculativeGeneratedTokens: options.tasks.reduce((s, t) => s + Number(t.speculativeGeneratedTokens || 0), 0),
   };
   const toolStats: Record<string, ToolTypeStats> = {};
   for (const task of options.tasks) {

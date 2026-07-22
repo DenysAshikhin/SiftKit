@@ -276,13 +276,17 @@ export function buildTaskSystemPrompt(repoRoot: string, options?: {
   ].join('\n');
 }
 
+// Stable content (file listing) leads and the volatile task trails so consecutive
+// runs share a server-side KV prefix (system prompt + listing) instead of
+// diverging a few tokens into the first user message.
 export function buildTaskInitialUserPrompt(question: string, fileList?: string, options?: {
   includeRepoFileListing?: boolean;
 }): string {
-  const parts = [`Task: ${question}`];
+  const parts: string[] = [];
   if (fileList && options?.includeRepoFileListing !== false) {
-    parts.push('', '--- Repository file listing (respects .gitignore) ---', '', fileList);
+    parts.push('--- Repository file listing (respects .gitignore) ---', '', fileList, '');
   }
+  parts.push(`Task: ${question}`);
   return parts.join('\n');
 }
 

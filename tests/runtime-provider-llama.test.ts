@@ -101,6 +101,10 @@ test('llama.cpp provider lists models and parses chat completions from the stub 
         thinkingTokens: null,
         promptCacheTokens: null,
         promptEvalTokens: null,
+        promptEvalDurationMs: null,
+        generationDurationMs: null,
+        speculativeAcceptedTokens: null,
+        speculativeGeneratedTokens: null,
       });
     });
   });
@@ -143,6 +147,10 @@ test('llama.cpp provider records thinking tokens separately from completion usag
         thinkingTokens: 12,
         promptCacheTokens: null,
         promptEvalTokens: null,
+        promptEvalDurationMs: null,
+        generationDurationMs: null,
+        speculativeAcceptedTokens: null,
+        speculativeGeneratedTokens: null,
       });
       assert.match(summary.text, /^summary:/u);
     }, {

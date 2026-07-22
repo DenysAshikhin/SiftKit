@@ -27,6 +27,7 @@ test('recordModelResponse accumulates usage fields and returns resolved counts',
     promptTokens: 100, completionTokens: 20, usageThinkingTokens: 7,
     promptCacheTokens: 50, promptEvalTokens: 60,
     promptEvalDurationMs: 11, generationDurationMs: 22,
+    speculativeAcceptedTokens: 16, speculativeGeneratedTokens: 20,
   });
   assert.deepEqual(resolved, {
     completionTokens: 20,
@@ -41,6 +42,8 @@ test('recordModelResponse accumulates usage fields and returns resolved counts',
   assert.equal(snapshot.promptEvalTokens, 60);
   assert.equal(snapshot.promptEvalDurationMs, 11);
   assert.equal(snapshot.generationDurationMs, 22);
+  assert.equal(snapshot.speculativeAcceptedTokens, 16);
+  assert.equal(snapshot.speculativeGeneratedTokens, 20);
   assert.equal(snapshot.outputTokens, 0); // caller decides when completion tokens count as output
 });
 
@@ -127,6 +130,8 @@ test('negative or non-finite usage fields are ignored', async () => {
     promptEvalTokens: -1,
     promptEvalDurationMs: -1,
     generationDurationMs: -1,
+    speculativeAcceptedTokens: -3,
+    speculativeGeneratedTokens: Number.NaN,
   });
   assert.deepEqual(resolved, {
     completionTokens: 0,
@@ -145,6 +150,8 @@ test('negative or non-finite usage fields are ignored', async () => {
     promptEvalTokens: 0,
     promptEvalDurationMs: 0,
     generationDurationMs: 0,
+    speculativeAcceptedTokens: 0,
+    speculativeGeneratedTokens: 0,
   });
 });
 
