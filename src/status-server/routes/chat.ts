@@ -61,6 +61,7 @@ import {
 } from '../chat.js';
 import { buildChatPromptContext } from '../chat-prompt-context.js';
 import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.js';
+import { SseResponseWriter } from '../sse-response-writer.js';
 import {
   parseChatMessageRequest,
   parseChatRepoAppendPreviewRequest,
@@ -937,17 +938,11 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
       sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
       return;
     }
-    let clientDisconnected = false;
-    req.on('close', () => { clientDisconnected = true; });
+    const sseWriter = new SseResponseWriter(req, res);
+    sseWriter.open();
     const writeSse = (eventName: string, payload: JsonSerializable): void => {
-      if (clientDisconnected) return;
-      try {
-        res.write(`event: ${eventName}\n`);
-        res.write(`data: ${JSON.stringify(payload)}\n\n`);
-      } catch { /* client gone */ }
+      sseWriter.writeEvent(eventName, payload);
     };
-    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
-    res.write('\n');
     const userContent = messageRequest.content;
     const startedAt = Date.now();
     const requestStartedAtUtc = new Date(startedAt).toISOString();
@@ -1044,7 +1039,7 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
       writeSse('error', { error: error instanceof Error ? error.message : String(error) });
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
-      res.end();
+      sseWriter.end();
     }
     return;
   }
@@ -1260,17 +1255,11 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
       sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
       return;
     }
-    let clientDisconnected = false;
-    req.on('close', () => { clientDisconnected = true; });
+    const sseWriter = new SseResponseWriter(req, res);
+    sseWriter.open();
     const writeSse = (eventName: string, payload: JsonSerializable): void => {
-      if (clientDisconnected) return;
-      try {
-        res.write(`event: ${eventName}\n`);
-        res.write(`data: ${JSON.stringify(payload)}\n\n`);
-      } catch { /* client gone */ }
+      sseWriter.writeEvent(eventName, payload);
     };
-    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
-    res.write('\n');
     try {
       const startedAt = Date.now();
       const requestStartedAtUtc = new Date(startedAt).toISOString();
@@ -1381,7 +1370,7 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
       writeSse('error', { error: error instanceof Error ? error.message : String(error) });
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
-      res.end();
+      sseWriter.end();
     }
     return;
   }
@@ -1498,17 +1487,11 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
       sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
       return;
     }
-    let clientDisconnected = false;
-    req.on('close', () => { clientDisconnected = true; });
+    const sseWriter = new SseResponseWriter(req, res);
+    sseWriter.open();
     const writeSse = (eventName: string, payload: JsonSerializable): void => {
-      if (clientDisconnected) return;
-      try {
-        res.write(`event: ${eventName}\n`);
-        res.write(`data: ${JSON.stringify(payload)}\n\n`);
-      } catch { /* client gone */ }
+      sseWriter.writeEvent(eventName, payload);
     };
-    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
-    res.write('\n');
     try {
       const startedAt = Date.now();
       const requestStartedAtUtc = new Date(startedAt).toISOString();
@@ -1619,7 +1602,7 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
       writeSse('error', { error: error instanceof Error ? error.message : String(error) });
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
-      res.end();
+      sseWriter.end();
     }
     return;
   }

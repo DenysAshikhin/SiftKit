@@ -86,9 +86,10 @@ import { pickManagedFilePath } from '../file-picker.js';
 import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.js';
 import type { ServerContext } from '../server-types.js';
 import type { SiftConfig } from '../../config/index.js';
-import type { JsonObject, OptionalJsonValue, JsonSerializable } from '../../lib/json-types.js';
+import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
 import type { WebSearchConfig } from '../../web-search/types.js';
 import { parseDashboardRunLogDeleteRequest } from '../route-request-normalizers.js';
+import { SseResponseWriter } from '../sse-response-writer.js';
 
 const webSearchQuotaCache = new WebSearchQuotaCache();
 
@@ -97,11 +98,6 @@ const BenchmarkSessionStatusFilterSchema = z.enum(['', 'running', 'completed', '
 const InferenceRunStatusFilterSchema = z.enum(['', 'running', 'ready', 'failed', 'stopped', 'sync_completed']).catch('');
 const BenchmarkMatrixSessionStatusFilterSchema = z.enum(['', 'running', 'completed', 'failed']).catch('');
 const ManagedFilePickerTargetSchema = z.enum(['managed-llama-executable', 'managed-llama-model']);
-
-function writeDashboardSse(res: ServerResponse, eventName: string, payload: JsonSerializable): void {
-  res.write(`event: ${eventName}\n`);
-  res.write(`data: ${JSON.stringify(payload)}\n\n`);
-}
 
 function readArrayOfStrings(value: OptionalJsonValue): string[] {
   return Array.isArray(value) ? value.map((entry) => String(entry || '').trim()).filter(Boolean) : [];
@@ -483,17 +479,15 @@ class BenchmarkSessionEventsEndpoint implements RouteEndpoint {
     const { idleSummarySnapshotsPath } = ctx;
     const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/benchmark\/sessions\//u, '').replace(/\/events$/u, ''));
-    let disconnected = false;
-    req.on('close', () => { disconnected = true; });
-    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
-    res.write('\n');
+    const sseWriter = new SseResponseWriter(req, res);
+    sseWriter.open();
     let unsubscribe = (): void => {};
     unsubscribe = subscribeBenchmarkJob(sessionId, (event) => {
-      if (disconnected) {
+      if (sseWriter.isClientDisconnected()) {
         unsubscribe();
         return;
       }
-      writeDashboardSse(res, event.event, event.payload);
+      sseWriter.writeEvent(event.event, event.payload);
     });
     return;
   }
