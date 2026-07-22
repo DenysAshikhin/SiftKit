@@ -110,6 +110,17 @@ Default URLs:
 
 Overrides: `SIFTKIT_STATUS_BACKEND_URL`, `SIFTKIT_CONFIG_SERVICE_URL`, `SIFTKIT_STATUS_HOST`, `SIFTKIT_STATUS_PORT`.
 
+### Server log output
+
+| Variable | Values | Default | Effect |
+| --- | --- | --- | --- |
+| `SIFTKIT_LOG_LEVEL` | `quiet` \| `normal` \| `debug` | `normal` | Status-server log verbosity. `quiet` keeps only terminal and error lines; `debug` adds preflight-start, notify, persist and enqueue tracing. Read per line, so it takes effect without a restart. |
+| `NO_COLOR` / `FORCE_COLOR` | any non-empty value | unset | Force colour off / on. Colour is otherwise enabled only when stdout is a TTY. |
+
+Lines are `HH:MM:SS  <scope> <id8>  <event>  <fields>`, where scope is `rs` (repo-search),
+`st` (status server), `plan` (planner), `llama` (managed llama.cpp) or `proxy`
+(inference passthrough), and `id8` is the first eight characters of the request id.
+
 ## Command surface
 
 **Client-owned commands:**
