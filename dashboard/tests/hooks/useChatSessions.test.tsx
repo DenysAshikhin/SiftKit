@@ -44,7 +44,7 @@ test('useChatSessions surfaces the initial selected session id without an immedi
       onError: () => {},
       initialSelectedSessionId: 's-preselected',
       refreshToken: 0,
-      buildCreateSessionRequest: () => ({ title: 'x', model: 'm' }),
+      buildCreateSessionRequest: () => ({ title: 'x' }),
       confirmDeleteSession: () => true,
       applyContextUsage: () => {},
     });

@@ -289,8 +289,6 @@ export function deleteChatMessage(sessionId: string, messageId: string): Promise
 
 export function createChatSession(payload: {
   title: string;
-  model: string;
-  contextWindowTokens?: number;
   presetId?: string;
 }): Promise<ChatSessionResponse> {
   return fetchJson('/dashboard/chat/sessions', ChatSessionResponseSchema, {

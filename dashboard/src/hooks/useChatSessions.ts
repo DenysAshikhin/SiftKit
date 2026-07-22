@@ -14,7 +14,6 @@ import type { ChatSession, ChatSessionResponse, ContextUsage } from '../types';
 
 export type CreateChatSessionRequest = {
   title: string;
-  model: string;
   presetId?: string;
 };
 

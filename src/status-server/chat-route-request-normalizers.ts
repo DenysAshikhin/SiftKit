@@ -5,7 +5,6 @@ import type { ChatSessionMode } from '../state/chat-sessions.js';
 export type ChatSessionCreateRequest = {
   presetId: string;
   title?: string;
-  model?: string;
 };
 
 export type ChatSessionUpdateRequest = {
@@ -48,10 +47,6 @@ export function parseChatSessionCreateRequest(body: JsonObject): ChatSessionCrea
   const title = reader.optionalString('title');
   if (title) {
     request.title = title;
-  }
-  const model = reader.optionalString('model');
-  if (model) {
-    request.model = model;
   }
   return {
     ...request,

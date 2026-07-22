@@ -439,10 +439,11 @@ test('chat sessions synchronize active EXL3 metadata without rewriting historica
   try {
     const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
       method: 'POST',
-      body: JSON.stringify({ title: 'EXL3 session' }),
+      body: JSON.stringify({ title: 'EXL3 session', model: 'client-override' }),
     });
     assert.equal(createSession.statusCode, 200);
     const createdSession = d(createSession.body.session);
+    assert.equal(createdSession.model, 'active-model');
     assert.equal(createdSession.contextWindowTokens, 150_000);
     assert.equal(createdSession.thinkingEnabled, false);
     assert.equal(d(createSession.body.contextUsage).contextWindowTokens, 150_000);

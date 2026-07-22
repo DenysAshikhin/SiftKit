@@ -61,7 +61,7 @@ test('core route request normalizers return typed values', () => {
 });
 
 test('chat route request normalizers return typed values', () => {
-  assert.deepEqual(parseChatSessionCreateRequest({ presetId: ' plan ' }), { presetId: 'plan' });
+  assert.deepEqual(parseChatSessionCreateRequest({ presetId: ' plan ', model: 'client-override' }), { presetId: 'plan' });
   assert.deepEqual(parseChatSessionUpdateRequest({
     title: ' T ',
     thinkingEnabled: false,
