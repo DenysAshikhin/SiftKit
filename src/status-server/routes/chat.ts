@@ -771,7 +771,10 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
       let persistTurns: { thinkingText: string; toolMessages: PersistToolMessage[] }[] = [{ thinkingText: '', toolMessages: [] }];
       let groundingStatus: ChatGroundingStatus | null = null;
       const config = readConfig(configPath);
-      const tokenConfig = usesProvidedAssistantContent ? getLocalTokenConfig(config) : config;
+      const mockResponses = readRouteStringArray(new JsonRecordReader(parsedBody), 'mockResponses');
+      const tokenConfig = usesProvidedAssistantContent
+        ? getLocalTokenConfig(config)
+        : getMockTokenConfig(config, mockResponses);
       if (usesProvidedAssistantContent) {
         assistantContent = messageRequest.assistantContent || '';
         usage = {};
@@ -788,6 +791,7 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
           history: buildChatHistoryMessages(config, activeSession),
           thinkingEnabled: activeSession.thinkingEnabled !== false,
           allowedTools: [],
+          ...(mockResponses ? { mockResponses } : {}),
         });
         const scorecardTasks = normalizeRepoSearchScorecard(result.scorecard).tasks;
         assistantContent = String(scorecardTasks[0]?.finalOutput || '').trim();
