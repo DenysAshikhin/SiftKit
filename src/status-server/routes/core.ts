@@ -873,86 +873,75 @@ class EvalRunEndpoint implements RouteEndpoint {
   }
 }
 
-class RepoSearchEndpoint implements RouteEndpoint {
-  async handle(
-    ctx: ServerContext,
-    req: IncomingMessage,
-    res: ServerResponse,
-    _match: RouteMatch,
-  ): Promise<void> {
-    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    let parsedBody: ReturnType<typeof parseJsonBody>;
-    try {
-      parsedBody = parseJsonBody(await readBody(req));
-    } catch {
-      sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return;
-    }
+type ParsedRepoSearchRoute = {
+  parsedBody: JsonObject;
+  repoSearchRequest: RepoSearchRouteRequest;
+  admission: RepoSearchAdmissionRecord;
+};
+
+class RepoSearchEndpoint extends StreamedOperationEndpoint<ParsedRepoSearchRoute> {
+  protected readonly lockKind = 'repo_search';
+  protected readonly taskKind = 'repo-search';
+
+  protected parseRequest(parsedBody: JsonObject): ParsedStreamedRequest<ParsedRepoSearchRoute> {
     const repoSearchRequest = parseRepoSearchRequest(parsedBody);
     if (!repoSearchRequest) {
-      sendJson(res, 400, { error: 'Expected prompt.' });
-      return;
+      return { ok: false, error: 'Expected prompt.' };
     }
-    const reader = new JsonRecordReader(parsedBody);
     const admission = createRepoSearchAdmissionRecord(repoSearchRequest);
     upsertRepoSearchAdmission(admission);
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'repo_search', req, res);
-    if (!modelRequestLock) {
-      if (!res.destroyed && !res.writableEnded) {
-        const message = 'Timed out waiting for model request queue.';
-        markRepoSearchAdmissionFailed(admission, message);
-        sendJson(res, 503, { error: message, requestId: admission.requestId, modelRequests: getModelRequestQueueDiagnostics(ctx) });
-      }
-      return;
+    return { ok: true, value: { parsedBody, repoSearchRequest, admission } };
+  }
+
+  protected onOperationFailed(parsed: ParsedRepoSearchRoute, errorMessage: string): void {
+    markRepoSearchAdmissionFailed(parsed.admission, errorMessage);
+  }
+
+  protected async execute(
+    ctx: ServerContext,
+    parsed: ParsedRepoSearchRoute,
+    stream: StreamedOperationStream,
+  ): Promise<JsonSerializable> {
+    const { parsedBody, repoSearchRequest, admission } = parsed;
+    const reader = new JsonRecordReader(parsedBody);
+    if (Number.isFinite(Number(parsedBody.simulateWorkMs)) && Number(parsedBody.simulateWorkMs) > 0) {
+      await sleep(Math.max(1, Math.trunc(Number(parsedBody.simulateWorkMs))));
     }
-    try {
-      try {
-        await ensureActivePresetReadyForModelRequest(ctx);
-      } catch (error) {
-        markRepoSearchAdmissionFailed(admission, error instanceof Error ? error.message : String(error));
-        sendServerErrorJson(req, res, 503, error, { taskKind: 'repo-search' });
-        return;
-      }
-      if (Number.isFinite(Number(parsedBody.simulateWorkMs)) && Number(parsedBody.simulateWorkMs) > 0) {
-        await sleep(Math.max(1, Math.trunc(Number(parsedBody.simulateWorkMs))));
-      }
-      const config = readConfig(configPath);
-      const result = await ctx.engineService.executeRepoSearch({
-        taskKind: 'repo-search',
-        prompt: repoSearchRequest.prompt,
-        requestId: admission.requestId,
-        startedAtUtc: admission.startedAtUtc,
-        promptPrefix: reader.optionalString('promptPrefix'),
-        repoRoot: admission.repoRoot,
-        statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
-        config,
-        allowedTools: Array.isArray(parsedBody.allowedTools) ? parsedBody.allowedTools.map((value) => String(value)) : undefined,
-        includeAgentsMd: resolveEffectiveAgentsMd(config, null),
-        includeRepoFileListing: resolveEffectiveRepoFileListing(config, null),
-        model: reader.optionalString('model'),
-        maxTurns: reader.number('maxTurns') ?? undefined,
-        logFile: reader.optionalString('logFile'),
-        availableModels: Array.isArray(parsedBody.availableModels) ? parsedBody.availableModels.map((v) => String(v)) : undefined,
-        mockResponses: Array.isArray(parsedBody.mockResponses) ? parsedBody.mockResponses.map((v) => String(v)) : undefined,
-        mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
-        onProgress(event: RepoSearchProgressEvent) {
-          if (event.kind === 'tool_start') {
-            const body = buildRepoSearchProgressLogBody(event);
-            if (body) {
-              serverLogger.emitBody('rs', admission.requestId, body);
-            }
+    const config = readConfig(ctx.configPath);
+    const result = await ctx.engineService.executeRepoSearch({
+      taskKind: 'repo-search',
+      prompt: repoSearchRequest.prompt,
+      requestId: admission.requestId,
+      startedAtUtc: admission.startedAtUtc,
+      promptPrefix: reader.optionalString('promptPrefix'),
+      repoRoot: admission.repoRoot,
+      statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
+      config,
+      allowedTools: Array.isArray(parsedBody.allowedTools) ? parsedBody.allowedTools.map((value) => String(value)) : undefined,
+      includeAgentsMd: resolveEffectiveAgentsMd(config, null),
+      includeRepoFileListing: resolveEffectiveRepoFileListing(config, null),
+      model: reader.optionalString('model'),
+      maxTurns: reader.number('maxTurns') ?? undefined,
+      logFile: reader.optionalString('logFile'),
+      availableModels: Array.isArray(parsedBody.availableModels) ? parsedBody.availableModels.map((value) => String(value)) : undefined,
+      mockResponses: Array.isArray(parsedBody.mockResponses) ? parsedBody.mockResponses.map((value) => String(value)) : undefined,
+      mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
+      abortSignal: stream.abortSignal,
+      onProgress(event: RepoSearchProgressEvent) {
+        if (event.kind === 'tool_start') {
+          const body = buildRepoSearchProgressLogBody(event);
+          if (body) {
+            serverLogger.emitBody('rs', admission.requestId, body);
           }
-        },
-      });
-      RepoSearchResponseSanityChecker.assertSafeToSend(result);
-      sendJson(res, 200, result);
-    } catch (error) {
-      sendServerErrorJson(req, res, 500, error, { taskKind: 'repo-search' });
-    } finally {
-      releaseModelRequest(ctx, modelRequestLock.token);
-    }
-    return;
+        }
+        if (event.kind === 'thinking' || event.kind === 'answer') {
+          return;
+        }
+        stream.emitProgress(event);
+      },
+    });
+    RepoSearchResponseSanityChecker.assertSafeToSend(result);
+    return result;
   }
 }
 
