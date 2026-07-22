@@ -17,6 +17,7 @@ import {
   startStatusServerProcess,
 } from './_runtime-helpers.js';
 import { requestJson, asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
+import { requestSse } from './helpers/sse-http.js';
 import { captureStdoutLines } from './helpers/stdout-capture.js';
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import { parseJsonValueText } from '../src/lib/json.js';
@@ -108,10 +109,9 @@ test('status server stays responsive while repo-search is running', async () => 
     const baselineInputChars = Number(baselineMetrics.inputCharactersTotal || 0);
     const baselineDurationMs = Number(baselineMetrics.requestDurationMsTotal || 0);
 
-    const delayedRequest = requestJson(`${baseUrl}/repo-search`, {
-      method: 'POST',
+    const delayedRequest = requestSse(`${baseUrl}/repo-search`, {
       timeoutMs: 15000,
-      body: JSON.stringify({
+      body: {
         prompt: 'find x',
         repoRoot: process.cwd(),
         model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
@@ -124,7 +124,7 @@ test('status server stays responsive while repo-search is running', async () => 
         mockCommandResults: {
           'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 2000 },
         },
-      }),
+      },
     });
 
     await new Promise<void>((resolve) => setTimeout(resolve, 100));
@@ -137,13 +137,13 @@ test('status server stays responsive while repo-search is running', async () => 
     assert.ok(healthLatencyMs < 800, `expected fast /health while repo-search runs, got ${healthLatencyMs}ms`);
 
     const searchResponse = await delayedRequest;
-    assert.ok(searchResponse.statusCode >= 200 && searchResponse.statusCode < 600);
-    assert.equal(typeof searchResponse.body, 'object');
+    assert.equal(searchResponse.statusCode, 200);
+    assert.ok(searchResponse.result);
 
     await waitForAsyncExpectation(async () => {
       const finalStatus = await requestJson(`${baseUrl}/status`);
       const finalMetrics = asObject(finalStatus.body.metrics);
-      if (searchResponse.statusCode >= 200 && searchResponse.statusCode < 300) {
+      if (searchResponse.result) {
         assert.ok(Number(finalMetrics.completedRequestCount || 0) >= baselineCompleted + 1);
       } else {
         assert.ok(Number(finalMetrics.completedRequestCount || 0) >= baselineCompleted);
@@ -218,10 +218,9 @@ test('repo-search abandons stale running status after acquiring the model lock',
     });
 
     const startedAt = Date.now();
-    const searchResponse = await requestJson(`${baseUrl}/repo-search`, {
-      method: 'POST',
+    const searchResponse = await requestSse(`${baseUrl}/repo-search`, {
       timeoutMs: 5000,
-      body: JSON.stringify({
+      body: {
         prompt: 'find x',
         repoRoot: process.cwd(),
         model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
@@ -231,7 +230,7 @@ test('repo-search abandons stale running status after acquiring the model lock',
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {},
-      }),
+      },
     });
     const elapsedMs = Date.now() - startedAt;
 
@@ -288,10 +287,9 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
 
   try {
     const lines = await captureStdoutLines(async () => {
-      const activeRequest = requestJson(`${baseUrl}/repo-search`, {
-        method: 'POST',
+      const activeRequest = requestSse(`${baseUrl}/repo-search`, {
         timeoutMs: 5000,
-        body: JSON.stringify({
+        body: {
           prompt: 'hold model queue',
           repoRoot: process.cwd(),
           model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
@@ -304,14 +302,13 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
           mockCommandResults: {
             'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 300 },
           },
-        }),
+        },
       });
 
       await new Promise<void>((resolve) => setTimeout(resolve, 40));
-      const queuedRequest = requestJson(`${baseUrl}/repo-search`, {
-        method: 'POST',
+      const queuedRequest = requestSse(`${baseUrl}/repo-search`, {
         timeoutMs: 5000,
-        body: JSON.stringify({
+        body: {
           prompt: 'queued behind active',
           repoRoot: process.cwd(),
           model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
@@ -319,7 +316,7 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
           availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
           mockResponses: ['{"action":"finish","output":"queued"}'],
           mockCommandResults: {},
-        }),
+        },
       });
 
       await waitForAsyncExpectation(async () => {
@@ -344,11 +341,11 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
       }, 1000);
 
       const queuedResponse = await queuedRequest;
-      assert.equal(queuedResponse.statusCode, 503);
-      assert.match(String(queuedResponse.body.error || ''), /Timed out waiting for model request queue/u);
+      assert.equal(queuedResponse.statusCode, 200);
+      assert.match(queuedResponse.errorMessage || '', /Timed out waiting for model request queue/u);
 
       const activeResponse = await activeRequest;
-      assert.equal(activeResponse.statusCode, 200);
+      assert.ok(activeResponse.result);
     });
 
     assert.ok(lines.some((line) => /st [\w-]{8} {2}dropped {2}reason=model_queue_timeout task=repo_search/u.test(line)), lines.join('\n'));
@@ -420,34 +417,32 @@ test('managed llama readiness wait is serialized by the model request queue', as
   try {
     const backendStatus = await requestJson(`${baseUrl}/runtime/inference`, { timeoutMs: 1000 });
     assert.equal(backendStatus.body.processState, 'failed');
-    const firstRequest = requestJson(`${baseUrl}/repo-search`, {
-      method: 'POST',
+    const firstRequest = requestSse(`${baseUrl}/repo-search`, {
       timeoutMs: 15000,
-      body: JSON.stringify({
+      body: {
         prompt: 'hold readiness',
         repoRoot: process.cwd(),
         model: 'managed-test-model',
         maxTurns: 1,
-      }),
+      },
     });
 
     await new Promise<void>((resolve) => setTimeout(resolve, 50));
     const secondStartedAt = Date.now();
-    const secondResponse = await requestJson(`${baseUrl}/summary`, {
-      method: 'POST',
+    const secondResponse = await requestSse(`${baseUrl}/summary`, {
       timeoutMs: 15000,
-      body: JSON.stringify({
+      body: {
         question: 'summarize',
         inputText: 'short text',
         backend: 'llama.cpp',
         model: 'managed-test-model',
-      }),
+      },
     });
     const secondElapsedMs = Date.now() - secondStartedAt;
     const firstResponse = await firstRequest;
 
-    assert.equal(firstResponse.statusCode, 503);
-    assert.equal(secondResponse.statusCode, 503);
+    assert.match(firstResponse.errorMessage || '', /failed|unavailable|timed out/iu);
+    assert.match(secondResponse.errorMessage || '', /failed|unavailable|timed out/iu);
     assert.ok(secondElapsedMs >= 200, `second request bypassed model queue in ${secondElapsedMs}ms`);
   } finally {
     await new Promise<void>((resolve, reject) => {
@@ -675,10 +670,9 @@ test('repo-search endpoint logs one model-requested command line per tool call',
 
   try {
     const lines = await captureStdoutLines(async () => {
-      const response = await requestJson(`${baseUrl}/repo-search`, {
-        method: 'POST',
+      const response = await requestSse(`${baseUrl}/repo-search`, {
         timeoutMs: 15000,
-        body: JSON.stringify({
+        body: {
           prompt: 'find planner',
           repoRoot: process.cwd(),
           model: 'mock-model',
@@ -691,9 +685,9 @@ test('repo-search endpoint logs one model-requested command line per tool call',
           mockCommandResults: {
             'git grep -n "planner" src': { exitCode: 0, stdout: 'src/example.ts:1:planner', stderr: '' },
           },
-        }),
+        },
       });
-      assert.equal(response.statusCode, 200);
+      assert.ok(response.result);
     });
 
     const commandLines = lines.filter((line) => /rs [\w-]{8} {2}command {2}t\d+\//u.test(line));
@@ -798,10 +792,9 @@ test('repo-search transcript artifact keeps routine normalized flags out of tool
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
-    const response = await requestJson(`${baseUrl}/repo-search`, {
-      method: 'POST',
+    const response = await requestSse(`${baseUrl}/repo-search`, {
       timeoutMs: 15000,
-      body: JSON.stringify({
+      body: {
         prompt: 'find needle',
         repoRoot: process.cwd(),
         model: 'mock-model',
@@ -814,10 +807,10 @@ test('repo-search transcript artifact keeps routine normalized flags out of tool
         mockCommandResults: {
           'git grep -n "needle" src': { exitCode: 0, stdout: 'src/index.ts:1:needle', stderr: '' },
         },
-      }),
+      },
     });
 
-    assert.equal(response.statusCode, 200);
+    assert.ok(response.result);
     const database = new Database(runtimeDbPath, { readonly: true });
     try {
       const transcriptArtifact = JsonRecordReader.asObject(database.prepare(
@@ -899,10 +892,9 @@ test('repo-search transcript artifact replays the fitted read range using per-to
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
-    const response = await requestJson(`${baseUrl}/repo-search`, {
-      method: 'POST',
+    const response = await requestSse(`${baseUrl}/repo-search`, {
       timeoutMs: 15000,
-      body: JSON.stringify({
+      body: {
         prompt: 'read bounded evidence',
         repoRoot: process.cwd(),
         model: 'mock-model',
@@ -916,10 +908,10 @@ test('repo-search transcript artifact replays the fitted read range using per-to
         mockCommandResults: {
           'git status --short': { exitCode: 0, stdout: 'slow evidence', stderr: '', delayMs: 40 },
         },
-      }),
+      },
     });
 
-    assert.equal(response.statusCode, 200);
+    assert.ok(response.result);
     const database = new Database(runtimeDbPath, { readonly: true });
     try {
       const transcriptArtifact = JsonRecordReader.asObject(database.prepare(
@@ -1040,10 +1032,9 @@ test('repo-search endpoint reloads executor module per request', async () => {
     };
     requireFromHere.cache[repoSearchModulePath] = mockModule;
 
-    const response = await requestJson(`${baseUrl}/repo-search`, {
-      method: 'POST',
+    const response = await requestSse(`${baseUrl}/repo-search`, {
       timeoutMs: 15000,
-      body: JSON.stringify({
+      body: {
         prompt: 'find x',
         repoRoot: process.cwd(),
         model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
@@ -1056,11 +1047,11 @@ test('repo-search endpoint reloads executor module per request', async () => {
         mockCommandResults: {
           'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '' },
         },
-      }),
+      },
     });
 
-    assert.equal(response.statusCode, 200);
-    const scorecard = asObject(response.body.scorecard);
+    assert.ok(response.result);
+    const scorecard = asObject(response.result.scorecard);
     const finalOutput = String(asObject(asObjectArray(scorecard.tasks)[0]).finalOutput || '');
     assert.notEqual(finalOutput, 'CACHE_HIT_OUTPUT');
   } finally {
@@ -1133,10 +1124,9 @@ test('repo-search endpoint rejects duplicated final output before sending succes
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
-    const response = await requestJson(`${baseUrl}/repo-search`, {
-      method: 'POST',
+    const response = await requestSse(`${baseUrl}/repo-search`, {
       timeoutMs: 15000,
-      body: JSON.stringify({
+      body: {
         prompt: 'find duplicated response',
         repoRoot: process.cwd(),
         model: 'mock-model',
@@ -1150,11 +1140,11 @@ test('repo-search endpoint rejects duplicated final output before sending succes
           JSON.stringify({ action: 'finish', output: duplicatedFinalOutput }),
         ],
         mockCommandResults,
-      }),
+      },
     });
 
-    assert.equal(response.statusCode, 500);
-    assert.match(String(response.body.error || ''), /Repo-search response sanity check failed/u);
+    assert.equal(response.statusCode, 200);
+    assert.match(response.errorMessage || '', /Repo-search response sanity check failed/u);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

@@ -9,6 +9,7 @@ export type CollectedSseResponse = {
   frames: SseFrame[];
   progress: JsonObject[];
   result: JsonObject | null;
+  error: JsonObject | null;
   errorMessage: string | null;
   rawBody: string;
 };
@@ -24,6 +25,7 @@ export function requestSse(
       frames: [],
       progress: [],
       result: null,
+      error: null,
       errorMessage: null,
       rawBody: '',
     };
@@ -47,6 +49,7 @@ export function requestSse(
           } else if (frame.event === 'result') {
             collected.result = data;
           } else if (frame.event === 'error') {
+            collected.error = data;
             collected.errorMessage = String(data.message || '');
           }
         }

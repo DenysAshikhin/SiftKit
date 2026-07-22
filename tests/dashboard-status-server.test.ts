@@ -1920,7 +1920,7 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
     });
     const sessionId = String(d(createSession.body.session).id);
 
-    const delayedRepoSearch = requestJson(`${baseUrl}/repo-search`, {
+    const delayedRepoSearch = requestSse(`${baseUrl}/repo-search`, {
       method: 'POST',
       timeoutMs: 6000,
       body: JSON.stringify({
@@ -1994,7 +1994,7 @@ test('model routes execute in FIFO order across mixed request kinds', async () =
     const sessionId = String(d(createSession.body.session).id);
     const completionOrder: string[] = [];
 
-    const delayedRepoSearch = requestJson(`${baseUrl}/repo-search`, {
+    const delayedRepoSearch = requestSse(`${baseUrl}/repo-search`, {
       method: 'POST',
       timeoutMs: 6000,
       body: JSON.stringify({
@@ -2090,7 +2090,7 @@ test('queued model request is dropped when client disconnects before lock grant'
     });
     const sessionId = String(d(createSession.body.session).id);
 
-    const delayedRepoSearch = requestJson(`${baseUrl}/repo-search`, {
+    const delayedRepoSearch = requestSse(`${baseUrl}/repo-search`, {
       method: 'POST',
       timeoutMs: 3000,
       body: JSON.stringify({
@@ -2177,7 +2177,7 @@ test('invalid model request is rejected without waiting for active model work', 
     });
     const sessionId = String(d(createSession.body.session).id);
 
-    const delayedRepoSearch = requestJson(`${baseUrl}/repo-search`, {
+    const delayedRepoSearch = requestSse(`${baseUrl}/repo-search`, {
       method: 'POST',
       timeoutMs: 3000,
       body: JSON.stringify({

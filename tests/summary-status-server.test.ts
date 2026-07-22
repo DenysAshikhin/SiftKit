@@ -11,6 +11,7 @@ import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import { requestJson, asObject, getAddressInfo } from './helpers/dashboard-http.js';
+import { requestSse } from './helpers/sse-http.js';
 import { captureStdoutLines } from './helpers/stdout-capture.js';
 
 
@@ -56,10 +57,9 @@ test('summary endpoint waits behind the model request queue', async () => {
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
-    const repoSearch = requestJson(`${baseUrl}/repo-search`, {
-      method: 'POST',
+    const repoSearch = requestSse(`${baseUrl}/repo-search`, {
       timeoutMs: 15000,
-      body: JSON.stringify({
+      body: {
         prompt: 'find x',
         repoRoot: process.cwd(),
         simulateWorkMs: 250,
@@ -69,29 +69,28 @@ test('summary endpoint waits behind the model request queue', async () => {
         mockResponses: [
           '{"action":"finish","output":"done"}',
         ],
-      }),
+      },
     });
 
     await new Promise<void>((resolve) => setTimeout(resolve, 50));
     const summaryStartedAt = Date.now();
-    const summary = await requestJson(`${baseUrl}/summary`, {
-      method: 'POST',
+    const summary = await requestSse(`${baseUrl}/summary`, {
       timeoutMs: 15000,
-      body: JSON.stringify({
+      body: {
         question: 'summarize this',
         inputText: 'Build output: warning appeared.'.repeat(50),
         format: 'text',
         policyProfile: 'general',
         backend: 'mock',
         model: 'mock-model',
-      }),
+      },
     });
     const summaryElapsedMs = Date.now() - summaryStartedAt;
     const search = await repoSearch;
 
-    assert.equal(search.statusCode, 200);
-    assert.equal(summary.statusCode, 200);
-    assert.equal(typeof summary.body.Summary, 'string');
+    assert.ok(search.result);
+    assert.ok(summary.result);
+    assert.equal(typeof summary.result.Summary, 'string');
     assert.ok(summaryElapsedMs >= 180, `summary did not wait for model queue, elapsed=${summaryElapsedMs}`);
   } finally {
     await new Promise<void>((resolve, reject) => {
@@ -141,34 +140,32 @@ test('summary endpoint processes terminal status before granting next queued sum
 
   try {
     const lines = await captureStdoutLines(async () => {
-      const first = requestJson(`${baseUrl}/summary`, {
-        method: 'POST',
+      const first = requestSse(`${baseUrl}/summary`, {
         timeoutMs: 15000,
-        body: JSON.stringify({
+        body: {
           question: 'summarize this',
           inputText: 'First queued summary input.'.repeat(50),
           format: 'text',
           policyProfile: 'general',
           backend: 'mock',
           model: 'mock-model',
-        }),
+        },
       });
       await new Promise<void>((resolve) => setTimeout(resolve, 5));
-      const second = requestJson(`${baseUrl}/summary`, {
-        method: 'POST',
+      const second = requestSse(`${baseUrl}/summary`, {
         timeoutMs: 15000,
-        body: JSON.stringify({
+        body: {
           question: 'summarize this',
           inputText: 'Second queued summary input.'.repeat(50),
           format: 'text',
           policyProfile: 'general',
           backend: 'mock',
           model: 'mock-model',
-        }),
+        },
       });
       const [firstResponse, secondResponse] = await Promise.all([first, second]);
-      assert.equal(firstResponse.statusCode, 200);
-      assert.equal(secondResponse.statusCode, 200);
+      assert.ok(firstResponse.result);
+      assert.ok(secondResponse.result);
       await new Promise<void>((resolve) => setTimeout(resolve, 20));
       await new Promise<void>((resolve) => setTimeout(resolve, 150));
     });
@@ -608,26 +605,21 @@ test('summary endpoint returns, logs, and persists diagnostics for 500 responses
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
-    const summary = await requestJson(`${baseUrl}/summary`, {
-      method: 'POST',
+    const summary = await requestSse(`${baseUrl}/summary`, {
       timeoutMs: 15000,
-      body: JSON.stringify({
+      body: {
         question: 'summarize this',
         inputText: 'Build output: warning appeared.'.repeat(50),
         format: 'text',
         policyProfile: 'general',
         backend: 'mock',
         model: 'mock-model',
-      }),
+      },
     });
 
-    assert.equal(summary.statusCode, 500);
-    assert.equal(summary.body.errorName, 'Error');
-    assert.equal(typeof summary.body.diagnosticId, 'string');
-    const diagnostic = asObject(summary.body.diagnostic);
-    assert.equal(diagnostic.name, 'Error');
-    assert.equal(diagnostic.message, 'mock provider failure');
-    assert.equal(typeof diagnostic.stack, 'string');
+    assert.equal(summary.statusCode, 200);
+    assert.equal(summary.errorMessage, 'mock provider failure');
+    assert.equal(typeof summary.error?.diagnosticId, 'string');
     assert.match(stderrText, /\[siftKitStatus\] request_error/u);
     assert.match(stderrText, /route=\/summary/u);
     assert.match(stderrText, /error_name=Error/u);
@@ -638,7 +630,7 @@ test('summary endpoint returns, logs, and persists diagnostics for 500 responses
       SELECT id, route, method, status_code, error_name, error_message, error_stack, diagnostic_json
       FROM runtime_error_events
       WHERE id = ?
-    `).get(String(summary.body.diagnosticId)));
+    `).get(String(summary.error?.diagnosticId)));
     assert.equal(row?.route, '/summary');
     assert.equal(row?.method, 'POST');
     assert.equal(row?.status_code, 500);
@@ -694,21 +686,20 @@ test('command-output endpoint analyzes captured command output on the server', a
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
-    const response = await requestJson(`${baseUrl}/command-output/analyze`, {
-      method: 'POST',
-      body: JSON.stringify({
+    const response = await requestSse(`${baseUrl}/command-output/analyze`, {
+      body: {
         outputKind: 'command',
         exitCode: 0,
         combinedText: 'Build completed. All tests passed.',
         question: 'Did it pass?',
         noSummarize: true,
-      }),
+      },
     });
 
-    assert.equal(response.statusCode, 200);
-    assert.equal(response.body.ExitCode, 0);
-    assert.equal(response.body.WasSummarized, false);
-    assert.equal(typeof response.body.RawLogPath, 'string');
+    assert.ok(response.result);
+    assert.equal(response.result.ExitCode, 0);
+    assert.equal(response.result.WasSummarized, false);
+    assert.equal(typeof response.result.RawLogPath, 'string');
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
