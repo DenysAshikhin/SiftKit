@@ -5,12 +5,13 @@ import http from 'node:http';
 import { z } from '../src/lib/zod.js';
 import {
   HttpClient,
-  LlamaHttpError,
+  HttpResponseError,
   DEFAULT_USER_AGENT,
   CONNECT_TIMEOUT_MS,
 } from '../src/lib/http-client.js';
-import { JsonObjectSchema, type JsonObject } from '../src/lib/json-types.js';
-import { asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
+import { JsonObjectSchema } from '../src/lib/json-types.js';
+import type { SseFrame } from '../src/lib/sse-frame-parser.js';
+import { getAddressInfo } from './helpers/dashboard-http.js';
 
 type ServerHandle = {
   baseUrl: string;
@@ -70,15 +71,23 @@ test('HttpClient.streamSse opens a fresh socket per sequential call', async () =
     writeSse(res, [JSON.stringify({ choices: [{ delta: { content: 'hi' } }] })]);
   });
   try {
-    await client.streamSse({ url: `${server.baseUrl}/v1/chat/completions`, body: '{}', timeoutMs: 5000 }, () => {});
-    await client.streamSse({ url: `${server.baseUrl}/v1/chat/completions`, body: '{}', timeoutMs: 5000 }, () => {});
+    for await (const _frame of client.streamSse({
+      url: `${server.baseUrl}/v1/chat/completions`, body: '{}', idleTimeoutMs: 5_000,
+    })) {
+      // Drain the first stream.
+    }
+    for await (const _frame of client.streamSse({
+      url: `${server.baseUrl}/v1/chat/completions`, body: '{}', idleTimeoutMs: 5_000,
+    })) {
+      // Drain the second stream.
+    }
     assert.equal(server.connectionCount(), 2);
   } finally {
     await server.close();
   }
 });
 
-test('HttpClient.streamSse parses SSE data packets and resolves sawDone after [DONE]', async () => {
+test('HttpClient.streamSse yields raw SSE frames including [DONE]', async () => {
   const client = new HttpClient();
   const server = await startServer((req, res) => {
     writeSse(res, [
@@ -87,14 +96,17 @@ test('HttpClient.streamSse parses SSE data packets and resolves sawDone after [D
     ]);
   });
   try {
-    const received: JsonObject[] = [];
-    const result = await client.streamSse(
-      { url: `${server.baseUrl}/v1/chat/completions`, body: '{}', timeoutMs: 5000 },
-      (parsed) => { received.push(parsed); },
-    );
-    assert.equal(result.sawDone, true);
-    assert.equal(received.length, 2);
-    assert.equal(String(asObject(asObject(asObjectArray(received[1].choices)[0]).delta).content), 'answer');
+    const frames: SseFrame[] = [];
+    for await (const frame of client.streamSse({
+      url: `${server.baseUrl}/v1/chat/completions`, body: '{}', idleTimeoutMs: 5_000,
+    })) {
+      frames.push(frame);
+    }
+    assert.deepEqual(frames, [
+      { event: 'message', data: '{"choices":[{"delta":{"reasoning_content":"think"}}]}' },
+      { event: 'message', data: '{"choices":[{"delta":{"content":"answer"}}]}' },
+      { event: 'message', data: '[DONE]' },
+    ]);
   } finally {
     await server.close();
   }
@@ -108,32 +120,41 @@ test('HttpClient.streamSse parses CRLF-delimited Tabby SSE packets', async () =>
     res.end('data: [DONE]\r\n\r\n');
   });
   try {
-    const received: JsonObject[] = [];
-    const result = await client.streamSse(
-      { url: `${server.baseUrl}/v1/chat/completions`, body: '{}', timeoutMs: 5000 },
-      (parsed) => { received.push(parsed); },
-    );
-    assert.equal(result.sawDone, true);
-    assert.equal(received.length, 1);
-    assert.equal(String(asObject(asObject(asObjectArray(received[0].choices)[0]).delta).content), 'tabby');
+    const frames: SseFrame[] = [];
+    for await (const frame of client.streamSse({
+      url: `${server.baseUrl}/v1/chat/completions`, body: '{}', idleTimeoutMs: 5_000,
+    })) {
+      frames.push(frame);
+    }
+    assert.deepEqual(frames, [
+      { event: 'message', data: '{"choices":[{"delta":{"content":"tabby"}}]}' },
+      { event: 'message', data: '[DONE]' },
+    ]);
   } finally {
     await server.close();
   }
 });
 
-test('HttpClient.streamSse rejects with LlamaHttpError carrying status and body on >= 400', async () => {
+test('HttpClient.streamSse rejects with HttpResponseError carrying status and body on >= 400', async () => {
   const client = new HttpClient();
   const server = await startServer((req, res) => {
     res.writeHead(503, { 'Content-Type': 'text/plain' });
     res.end('model loading');
   });
   try {
+    const iterate = async (): Promise<void> => {
+      for await (const _frame of client.streamSse({
+        url: `${server.baseUrl}/v1/chat/completions`, body: '{}', idleTimeoutMs: 5_000,
+      })) {
+        // Drain the stream.
+      }
+    };
     await assert.rejects(
-      client.streamSse({ url: `${server.baseUrl}/v1/chat/completions`, body: '{}', timeoutMs: 5000 }, () => {}),
+      iterate,
       (error) => {
-        assert.ok(error instanceof LlamaHttpError);
+        assert.ok(error instanceof HttpResponseError);
         assert.equal(error.statusCode, 503);
-        assert.match(error.rawText, /model loading/u);
+        assert.equal(error.rawText, 'model loading');
         return true;
       },
     );
@@ -151,11 +172,18 @@ test('HttpClient.streamSse rejects with the abort reason when the signal aborts 
   });
   try {
     const controller = new AbortController();
+    const iterate = async (): Promise<void> => {
+      for await (const _frame of client.streamSse({
+        url: `${server.baseUrl}/v1/chat/completions`,
+        body: '{}',
+        idleTimeoutMs: 5_000,
+        abortSignal: controller.signal,
+      })) {
+        controller.abort(new Error('caller cancelled the stream'));
+      }
+    };
     await assert.rejects(
-      client.streamSse(
-        { url: `${server.baseUrl}/v1/chat/completions`, body: '{}', timeoutMs: 5000, abortSignal: controller.signal },
-        () => { controller.abort(new Error('caller cancelled the stream')); },
-      ),
+      iterate,
       /caller cancelled the stream/u,
     );
   } finally {
@@ -163,25 +191,69 @@ test('HttpClient.streamSse rejects with the abort reason when the signal aborts 
   }
 });
 
-test('HttpClient.streamSse stops and resolves when onData returns "stop"', async () => {
+test('HttpClient.streamSse destroys the request when iteration stops early', async () => {
   const client = new HttpClient();
+  let requestClosed = false;
   const server = await startServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/event-stream' });
     res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'first' } }] })}\n\n`);
-    res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'second' } }] })}\n\n`);
-    // Never send [DONE]; the caller stops the stream itself.
+    req.on('close', () => { requestClosed = true; });
   });
   try {
-    const received: JsonObject[] = [];
-    const result = await client.streamSse(
-      { url: `${server.baseUrl}/v1/chat/completions`, body: '{}', timeoutMs: 5000 },
-      (parsed) => {
-        received.push(parsed);
-        return 'stop';
-      },
-    );
-    assert.equal(received.length, 1);
-    assert.equal(result.sawDone, false);
+    for await (const _frame of client.streamSse({
+      url: `${server.baseUrl}/v1/chat/completions`, body: '{}', idleTimeoutMs: 5_000,
+    })) {
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(requestClosed, true);
+  } finally {
+    await server.close();
+  }
+});
+
+test('HttpClient.streamSse applies an idle timeout to a silent stream', async () => {
+  const client = new HttpClient();
+  const server = await startServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    res.write('event: progress\ndata: {"kind":"started"}\n\n');
+  });
+  try {
+    const iterate = async (): Promise<void> => {
+      for await (const _frame of client.streamSse({
+        url: `${server.baseUrl}/operation`, body: '{}', idleTimeoutMs: 100,
+      })) {
+        // Drain until the connection becomes idle.
+      }
+    };
+    await assert.rejects(iterate, /timed out after 100 ms/u);
+  } finally {
+    await server.close();
+  }
+});
+
+test('HttpClient.streamSse heartbeat bytes reset idle timeout without yielding frames', async () => {
+  const client = new HttpClient();
+  const server = await startServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    let beats = 0;
+    const timer = setInterval(() => {
+      beats += 1;
+      res.write(': hb\n\n');
+      if (beats === 4) {
+        clearInterval(timer);
+        res.end('event: result\ndata: {"ok":true}\n\n');
+      }
+    }, 50);
+  });
+  try {
+    const frames: SseFrame[] = [];
+    for await (const frame of client.streamSse({
+      url: `${server.baseUrl}/operation`, body: '{}', idleTimeoutMs: 125,
+    })) {
+      frames.push(frame);
+    }
+    assert.deepEqual(frames, [{ event: 'result', data: '{"ok":true}' }]);
   } finally {
     await server.close();
   }

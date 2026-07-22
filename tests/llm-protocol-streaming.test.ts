@@ -2,12 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  LlamaHttpError,
+  HttpResponseError,
   type FullJsonResponse,
   type SseStreamOptions,
-  type SseStreamPacket,
-  type SseStreamSignal,
 } from '../src/lib/http-client.js';
+import type { JsonObject } from '../src/lib/json-types.js';
+import type { SseFrame } from '../src/lib/sse-frame-parser.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { LlamaCppClient } from '../src/llm-protocol/llama-cpp-client.js';
@@ -15,10 +15,10 @@ import { LlamaCppStreamingResponseAssembler } from '../src/llm-protocol/streamin
 
 class StreamingHttpClient {
   readonly requests: SseStreamOptions[] = [];
-  private readonly packets: SseStreamPacket[];
+  private readonly packets: JsonObject[];
   private readonly error: Error | null;
 
-  constructor(packets: SseStreamPacket[], error: Error | null = null) {
+  constructor(packets: JsonObject[], error: Error | null = null) {
     this.packets = packets;
     this.error = error;
   }
@@ -27,20 +27,15 @@ class StreamingHttpClient {
     throw new Error('requestJsonFull should not be called by streaming tests');
   }
 
-  async streamSse(
-    options: SseStreamOptions,
-    onData: (packet: SseStreamPacket) => SseStreamSignal,
-  ): Promise<{ sawDone: boolean }> {
+  async *streamSse(options: SseStreamOptions): AsyncGenerator<SseFrame> {
     this.requests.push(options);
     if (this.error) {
       throw this.error;
     }
     for (const packet of this.packets) {
-      if (onData(packet) === 'stop') {
-        return { sawDone: false };
-      }
+      yield { event: 'message', data: JSON.stringify(packet) };
     }
-    return { sawDone: true };
+    yield { event: 'message', data: '[DONE]' };
   }
 }
 
@@ -219,8 +214,8 @@ test('llama streaming client stops on completed planner action in reasoning', as
   assert.equal(response.earlyStopReason, 'planner action completed in streamed reasoning');
 });
 
-test('llama streaming client converts transient llama HTTP stream errors', async () => {
-  const http = new StreamingHttpClient([], new LlamaHttpError(503, 'loading model'));
+test('llama streaming client converts transient HTTP stream errors', async () => {
+  const http = new StreamingHttpClient([], new HttpResponseError(503, 'loading model'));
 
   await assert.rejects(
     () => new LlamaCppClient(http).chat({
@@ -293,7 +288,7 @@ test('llama streaming client covers empty streams without derived timings', asyn
 
 test('llama streaming client wraps non-error stream failures', async () => {
   class StringThrowingStreamingClient extends StreamingHttpClient {
-    async streamSse(): Promise<{ sawDone: boolean }> {
+    override async *streamSse(): AsyncGenerator<SseFrame> {
       throw 'stream failed';
     }
   }

@@ -14,6 +14,7 @@ import { buildReplayToolCall, LlamaCppToolCallParser } from '../src/llm-protocol
 import { LlamaCppClient } from '../src/llm-protocol/llama-cpp-client.js';
 import type { FullJsonResponse, RequestJsonOptions } from '../src/lib/http-client.js';
 import type { JsonValue } from '../src/lib/json-types.js';
+import type { SseFrame } from '../src/lib/sse-frame-parser.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 
@@ -139,7 +140,7 @@ class CapturingHttpClient {
     return { statusCode: response.statusCode, rawText: response.rawText, body: schema.parse(response.body) };
   }
 
-  async streamSse(): Promise<{ sawDone: boolean }> {
+  async *streamSse(): AsyncGenerator<SseFrame> {
     throw new Error('streamSse should not be called by non-streaming tests');
   }
 }

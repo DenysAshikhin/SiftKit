@@ -5,7 +5,8 @@ import {
   type SiftConfig,
 } from '../config/index.js';
 import { buildPresetRequestDefaults } from '../inference-presets/preset-compatibility.js';
-import { httpClient, LlamaHttpError, type FullJsonResponse } from '../lib/http-client.js';
+import { httpClient, HttpResponseError, LlamaHttpError, type FullJsonResponse } from '../lib/http-client.js';
+import { parseJsonObjectText } from '../lib/json.js';
 import {
   buildTransientProviderHttpError,
   buildProviderErrorMessage,
@@ -370,9 +371,21 @@ export class LlamaCppClient {
     let earlyStopReason: string | null = null;
 
     try {
-      await this.client.streamSse(
-        { url, body, timeoutMs: Math.max(1, options.requestTimeoutSeconds ?? 300) * 1000, abortSignal: options.abortSignal },
-        (packet) => {
+      streamFrames: for await (const frame of this.client.streamSse({
+        url,
+        body,
+        idleTimeoutMs: Math.max(1, options.requestTimeoutSeconds ?? 300) * 1000,
+        abortSignal: options.abortSignal,
+      })) {
+        if (frame.data === '[DONE]') {
+          break;
+        }
+        let packet: JsonObject;
+        try {
+          packet = parseJsonObjectText(frame.data);
+        } catch {
+          continue;
+        }
           const promptUsage = getPromptUsageFromResponseBody(packet);
           const completionUsage = getCompletionUsageFromResponseBody(packet);
           const timingUsage = getTimingUsageFromResponseBody(packet);
@@ -402,7 +415,7 @@ export class LlamaCppClient {
               contentText = completedAction;
               reasoningText = '';
               earlyStopReason = 'planner action completed in streamed reasoning';
-              return 'stop';
+              break streamFrames;
             }
             options.onThinkingDelta?.(reasoningText);
           }
@@ -428,24 +441,25 @@ export class LlamaCppClient {
             earlyStopReason = repetition.reason;
             if (contentText) contentText = repetition.truncatedText;
             options.onContentDelta?.(contentText);
-            return 'stop';
+            break streamFrames;
           }
           const structural = getRunawayStructuralTail(contentText) || getRunawayStructuralTail(reasoningText);
           if (structural) {
             earlyStopReason = structural.reason;
             if (contentText) contentText = structural.truncatedText;
             options.onContentDelta?.(contentText);
-            return 'stop';
+            break streamFrames;
           }
           if (deltaContent) {
             options.onContentDelta?.(contentText);
           }
-          return undefined;
-        },
-      );
+      }
     } catch (error) {
-      if (error instanceof LlamaHttpError && isTransientProviderHttpResponse(error.statusCode, error.rawText)) {
+      if (error instanceof HttpResponseError && isTransientProviderHttpResponse(error.statusCode, error.rawText)) {
         throw buildTransientProviderHttpError(error.statusCode, error.rawText);
+      }
+      if (error instanceof HttpResponseError) {
+        throw new LlamaHttpError(error.statusCode, error.rawText);
       }
       throw error instanceof Error ? error : new Error(String(error));
     }

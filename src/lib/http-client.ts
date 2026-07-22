@@ -2,9 +2,8 @@ import { Agent as HttpAgent, request as httpRequest } from 'node:http';
 import { Agent as HttpsAgent, request as httpsRequest } from 'node:https';
 import { Agent as UndiciAgent, fetch as undiciFetch } from 'undici';
 import { z } from './zod.js';
-import { parseJsonObjectText, parseJsonText } from './json.js';
-import type { JsonObject } from './json-types.js';
-import { SseFrameParser } from './sse-frame-parser.js';
+import { parseJsonText } from './json.js';
+import { SseFrameParser, type SseFrame } from './sse-frame-parser.js';
 import { formatTimestamp } from './text-format.js';
 
 export const CONNECT_TIMEOUT_MS = 20_000;
@@ -47,13 +46,24 @@ export type RequestTextOptions = {
 export type SseStreamOptions = {
   url: string;
   body: string;
-  timeoutMs?: number;
+  idleTimeoutMs: number;
   abortSignal?: AbortSignal;
 };
 
-export type SseStreamResult = { sawDone: boolean };
-export type SseStreamPacket = JsonObject;
-export type SseStreamSignal = 'stop' | void;
+type SseStreamItem =
+  | { kind: 'frame'; frame: SseFrame }
+  | { kind: 'end' }
+  | { kind: 'error'; error: Error };
+
+export class HttpResponseError extends Error {
+  constructor(
+    public readonly statusCode: number,
+    public readonly rawText: string,
+  ) {
+    super(`HTTP ${statusCode}: ${rawText}`);
+    this.name = 'HttpResponseError';
+  }
+}
 
 export class LlamaHttpError extends Error {
   public readonly statusCode: number;
@@ -182,116 +192,94 @@ export class HttpClient {
     return requestText({ ...options, agent: options.agent ?? this.localAgent(options.url) });
   }
 
-  streamSse(
-    options: SseStreamOptions,
-    onData: (packet: SseStreamPacket) => SseStreamSignal,
-  ): Promise<SseStreamResult> {
+  async *streamSse(options: SseStreamOptions): AsyncGenerator<SseFrame> {
     const target = new URL(options.url);
     const requestTransport = target.protocol === 'https:' ? httpsRequest : httpRequest;
-    return new Promise<SseStreamResult>((resolve, reject) => {
-      let settled = false;
-      let sawDone = false;
-      let stoppedEarly = false;
-      const settleResolve = (): void => {
-        if (settled) {
-          return;
+    const startedAt = Date.now();
+    const items: SseStreamItem[] = [];
+    let wakeUp: (() => void) | null = null;
+    let closed = false;
+    const pushItem = (item: SseStreamItem): void => {
+      if (closed) return;
+      items.push(item);
+      if (wakeUp) {
+        const wake = wakeUp;
+        wakeUp = null;
+        wake();
+      }
+    };
+    logHttpClientLifecycle(target, 'POST', 'enqueue_intent', `body_chars=${Buffer.byteLength(options.body, 'utf8')}`);
+    logHttpClientLifecycle(target, 'POST', 'request_start', '');
+    const request = requestTransport({
+      protocol: target.protocol,
+      hostname: target.hostname,
+      port: target.port || (target.protocol === 'https:' ? 443 : 80),
+      path: `${target.pathname}${target.search}`,
+      method: 'POST',
+      agent: this.localAgent(target),
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(options.body, 'utf8'),
+        Accept: 'text/event-stream',
+      },
+    }, (response) => {
+      const statusCode = response.statusCode || 0;
+      logHttpClientLifecycle(target, 'POST', 'response_received', `status=${statusCode} elapsed_ms=${Math.max(0, Date.now() - startedAt)}`);
+      response.setEncoding('utf8');
+      if (statusCode < 200 || statusCode >= 300) {
+        let responseBody = '';
+        response.on('data', (chunk: string) => { responseBody += chunk; });
+        response.on('end', () => pushItem({ kind: 'error', error: new HttpResponseError(statusCode, responseBody) }));
+        response.on('error', () => pushItem({ kind: 'error', error: new HttpResponseError(statusCode, responseBody) }));
+        return;
+      }
+      const parser = new SseFrameParser();
+      response.on('data', (chunk: string) => {
+        for (const frame of parser.push(chunk)) {
+          pushItem({ kind: 'frame', frame });
         }
-        settled = true;
-        options.abortSignal?.removeEventListener('abort', abortRequest);
-        resolve({ sawDone });
-      };
-      const settleReject = (error: Error): void => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        options.abortSignal?.removeEventListener('abort', abortRequest);
-        reject(error);
-      };
-      const handleStreamClose = (error: Error): void => {
-        if (stoppedEarly) {
-          settleResolve();
-          return;
-        }
-        if (options.abortSignal?.aborted) {
-          settleReject(getAbortError(options.abortSignal, 'llama.cpp chat stream aborted.'));
-          return;
-        }
-        if (sawDone) {
-          settleResolve();
-          return;
-        }
-        settleReject(error);
-      };
-
-      const request = requestTransport({
-        protocol: target.protocol,
-        hostname: target.hostname,
-        port: target.port || (target.protocol === 'https:' ? 443 : 80),
-        path: `${target.pathname}${target.search}`,
-        method: 'POST',
-        agent: this.localAgent(target),
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(options.body, 'utf8'),
-        },
-      }, (response) => {
-        const statusCode = response.statusCode || 0;
-        if (statusCode >= 400) {
-          let body = '';
-          response.setEncoding('utf8');
-          response.on('data', (chunk: string) => { body += chunk; });
-          response.on('end', () => { settleReject(new LlamaHttpError(statusCode, body)); });
-          response.on('error', () => { settleReject(new LlamaHttpError(statusCode, body)); });
-          return;
-        }
-        const parser = new SseFrameParser();
-        response.setEncoding('utf8');
-        response.on('data', (chunk: string) => {
-          for (const frame of parser.push(chunk)) {
-            if (frame.data === '[DONE]') {
-              sawDone = true;
-              continue;
-            }
-            let parsed: SseStreamPacket;
-            try {
-              parsed = parseJsonObjectText(frame.data);
-            } catch {
-              continue;
-            }
-            if (onData(parsed) === 'stop') {
-              stoppedEarly = true;
-              request.destroy();
-              settleResolve();
-              return;
-            }
-          }
-        });
-        response.on('aborted', () => { handleStreamClose(new Error('llama.cpp chat stream reset before completion.')); });
-        response.on('error', (error: Error) => { handleStreamClose(error); });
-        response.on('end', settleResolve);
       });
-
-      const timeoutMs = Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0
-        ? Math.trunc(Number(options.timeoutMs))
-        : 0;
-      if (timeoutMs > 0) {
-        request.setTimeout(timeoutMs, () => {
-          request.destroy(new Error(`llama.cpp chat stream timed out after ${timeoutMs} ms.`));
-        });
-      }
-      const abortRequest = (): void => {
-        request.destroy(getAbortError(options.abortSignal, 'llama.cpp chat stream aborted.'));
-      };
-      request.on('error', (error: Error) => { handleStreamClose(error); });
-      if (options.abortSignal?.aborted) {
-        abortRequest();
-      } else {
-        options.abortSignal?.addEventListener('abort', abortRequest, { once: true });
-      }
-      request.write(options.body);
-      request.end();
+      response.on('aborted', () => pushItem({ kind: 'error', error: new Error('SSE response aborted before completion.') }));
+      response.on('error', (error: Error) => pushItem({ kind: 'error', error }));
+      response.on('end', () => {
+        logHttpClientLifecycle(target, 'POST', 'response_done', `status=${statusCode} elapsed_ms=${Math.max(0, Date.now() - startedAt)}`);
+        pushItem({ kind: 'end' });
+      });
     });
+    const abortRequest = (): void => {
+      request.destroy(getAbortError(options.abortSignal, 'SSE request aborted.'));
+    };
+    request.setTimeout(options.idleTimeoutMs, () => {
+      request.destroy(new Error(`Operation stream timed out after ${options.idleTimeoutMs} ms of inactivity.`));
+    });
+    request.on('error', (error: Error) => {
+      logHttpClientLifecycle(target, 'POST', 'request_error', `elapsed_ms=${Math.max(0, Date.now() - startedAt)} error=${String(error.message || error).replace(/\s+/gu, '_')}`);
+      pushItem({ kind: 'error', error });
+    });
+    if (options.abortSignal?.aborted) {
+      abortRequest();
+    } else {
+      options.abortSignal?.addEventListener('abort', abortRequest, { once: true });
+    }
+    request.write(options.body);
+    request.end();
+    logHttpClientLifecycle(target, 'POST', 'request_sent', `elapsed_ms=${Math.max(0, Date.now() - startedAt)}`);
+
+    try {
+      for (;;) {
+        while (items.length === 0) {
+          await new Promise<void>((resolve) => { wakeUp = resolve; });
+        }
+        const item = items.shift();
+        if (!item || item.kind === 'end') return;
+        if (item.kind === 'error') throw item.error;
+        yield item.frame;
+      }
+    } finally {
+      closed = true;
+      options.abortSignal?.removeEventListener('abort', abortRequest);
+      request.destroy();
+    }
   }
 
   localAgent(url: string | URL): HttpAgent | HttpsAgent {
