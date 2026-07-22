@@ -58,7 +58,7 @@ event: error      data: { "message": string }
 - Result payloads keep their existing zod schemas (`SummaryResultSchema`,
   `RepoSearchExecutionResultSchema`, `CommandOutputAnalyzeResultSchema`,
   `PresetRunResultSchema`, `EvaluationResultSchema`).
-- Server heartbeats (SSE comment frame `: hb`) on an interval so client idle-timeout can
+- Server heartbeats (SSE comment frame `: hb`) every 15 s so client idle-timeout can
   distinguish a slow op from a dead server.
 
 ## Server side
@@ -75,8 +75,9 @@ routes migrate onto it — the closures are deleted.
 
 Flow per request:
 
-1. Parse/validate body (per-op zod parse, unchanged).
-2. Open SSE via `SseResponseWriter` immediately.
+1. Parse/validate body (per-op zod parse, unchanged); parse failure returns plain
+   HTTP 400 JSON — SSE is not opened yet.
+2. Open SSE via `SseResponseWriter`.
 3. Acquire model lock; while queued, emit
    `progress { kind: 'lock_wait', position, elapsedMs }` instead of blocking silently.
 4. Wire `req.on('close')` → abort the op (`AbortSignal`) → release lock.
@@ -168,7 +169,7 @@ harness, internal ops) pass an explicit no-op reporter — the parameter is not 
 | Stream ends without terminal frame | CLI exits 1: `stream ended before result`. |
 | Idle timeout | CLI destroys socket, exits 1; server sees close, aborts, frees lock. |
 | Ctrl+C | CLI destroys socket; server `close` handler aborts engine run and frees lock. |
-| Client sends malformed body | `error` frame + stream end (SSE already open). |
+| Client sends malformed body | Plain HTTP 400 JSON (before SSE opens); CLI surfaces it via the existing `HTTP <status>` error path. |
 
 ## Testing (TDD, E2E-first)
 
