@@ -6,7 +6,7 @@ import test from 'node:test';
 
 import { getDefaultMetrics } from '../src/status-server/metrics.js';
 import { getDefaultConfig } from '../src/status-server/config-store.js';
-import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
+import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
 import { StatusEngineService } from '../src/status-server/engine-service.js';
 import {
   DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS,
@@ -100,7 +100,7 @@ function createQueueContext(configPath = 'config.json'): ServerContext & { reado
     managedLlamaStartupWarning: null,
     bootstrapManagedLlamaStartup: false,
     managedLlamaLogCleanupTimer: null,
-    managedLlamaFlushQueue: new ManagedLlamaFlushQueue(),
+    inferenceRunFlushQueue: new InferenceRunFlushQueue(),
     async shutdownManagedLlamaIfNeeded(): Promise<void> {},
     async ensureManagedLlamaReady() {
       wakeCount += 1;
@@ -175,7 +175,7 @@ test('backend transition pauses queued admission until the new runtime is ready'
     assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
   } finally {
     ctx.modelIdleController.cancelForPresetChange();
-    await ctx.managedLlamaFlushQueue.close();
+    await ctx.inferenceRunFlushQueue.close();
     await coordinator.shutdown();
     closeRuntimeDatabase();
     fs.rmSync(root, { recursive: true, force: true });
@@ -225,7 +225,7 @@ test('preset switch arms idle only for the runtime that becomes active', async (
     assert.equal(ctx.modelIdleController.getIdleDeadlineUtc(), null);
   } finally {
     ctx.modelIdleController.cancelForPresetChange();
-    await ctx.managedLlamaFlushQueue.close();
+    await ctx.inferenceRunFlushQueue.close();
     await coordinator.shutdown();
     closeRuntimeDatabase();
     fs.rmSync(root, { recursive: true, force: true });
@@ -280,7 +280,7 @@ test('model request admission logs queue position without probing llama', async 
     assert.ok(lines.some((line) => /st [\w-]{8}  lock_acquired  task=summary wait_ms=0/u.test(line)), lines.join('\n'));
     assert.ok(lines.some((line) => /st [\w-]{8}  lock_released  task=summary held_ms=/u.test(line)), lines.join('\n'));
   } finally {
-    await ctx.managedLlamaFlushQueue.close();
+    await ctx.inferenceRunFlushQueue.close();
   }
 });
 
@@ -310,7 +310,7 @@ test('queued model request logs its FIFO position without probing llama while wa
     assert.ok(lines.some((line) => /st [\w-]{8}  lock_acquired  task=dashboard_chat wait_ms=/u.test(line)), lines.join('\n'));
     assert.ok(lines.some((line) => /st [\w-]{8}  lock_released  task=dashboard_chat held_ms=/u.test(line)), lines.join('\n'));
   } finally {
-    await ctx.managedLlamaFlushQueue.close();
+    await ctx.inferenceRunFlushQueue.close();
   }
 });
 
@@ -337,7 +337,7 @@ test('queued model request times out, cancels, and logs the dropped request', as
     assert.equal(releaseModelRequest(ctx, activeLock.token), true);
   } finally {
     t.mock.timers.reset();
-    await ctx.managedLlamaFlushQueue.close();
+    await ctx.inferenceRunFlushQueue.close();
   }
 });
 
@@ -372,7 +372,7 @@ test('queued model request timeout resets when an earlier queued request drops',
     assert.equal(releaseModelRequest(ctx, secondQueuedLock.token), true);
   } finally {
     t.mock.timers.reset();
-    await ctx.managedLlamaFlushQueue.close();
+    await ctx.inferenceRunFlushQueue.close();
   }
 });
 
@@ -400,7 +400,7 @@ test('queued model request still times out after its reset window expires', asyn
     assert.equal(releaseModelRequest(ctx, activeLock.token), true);
   } finally {
     t.mock.timers.reset();
-    await ctx.managedLlamaFlushQueue.close();
+    await ctx.inferenceRunFlushQueue.close();
   }
 });
 
@@ -425,7 +425,7 @@ test('model request diagnostics expose the active lock and queued requests', asy
     assert.ok(queuedLock);
     assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
   } finally {
-    await ctx.managedLlamaFlushQueue.close();
+    await ctx.inferenceRunFlushQueue.close();
   }
 });
 
@@ -446,7 +446,7 @@ test('release grants the next queued model request without waiting for polling t
     assert.equal(ctx.activeModelRequest?.token, queuedLock.token);
     assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
   } finally {
-    await ctx.managedLlamaFlushQueue.close();
+    await ctx.inferenceRunFlushQueue.close();
   }
 });
 
@@ -470,7 +470,7 @@ test('active and queued model requests keep the server out of idle state', async
     assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
     assert.equal(isIdle(ctx), true);
   } finally {
-    await ctx.managedLlamaFlushQueue.close();
+    await ctx.inferenceRunFlushQueue.close();
   }
 });
 
@@ -491,6 +491,6 @@ test('model request acquire clears pending idle unload timer and release resched
       clearTimeout(ctx.idleSummaryTimer);
       ctx.idleSummaryTimer = null;
     }
-    await ctx.managedLlamaFlushQueue.close();
+    await ctx.inferenceRunFlushQueue.close();
   }
 });

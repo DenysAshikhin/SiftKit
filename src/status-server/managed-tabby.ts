@@ -7,7 +7,7 @@ import {
 } from '../inference-presets/exl3-preset-adapter.js';
 import { InferenceRunRecorder } from './inference-run-recorder.js';
 import { ManagedInferenceRuntime } from './managed-inference-runtime.js';
-import type { ManagedLlamaFlushQueue } from './managed-llama-flush-queue.js';
+import type { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
 import { terminateProcessTree } from './managed-llama.js';
 import { readInferenceRunLogTextByStream } from '../state/inference-runs.js';
 import { TabbyModelClient } from './tabby-model-client.js';
@@ -35,7 +35,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
 
   constructor(
     private readonly engine: Exl3EngineConfig,
-    private readonly flushQueue: ManagedLlamaFlushQueue,
+    private readonly flushQueue: InferenceRunFlushQueue,
     private readonly client = new TabbyModelClient(engine.AdminApiKey),
   ) {
     super('exl3');
@@ -197,14 +197,12 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     recorder.attachEngineStderr(child.stderr);
     child.once('error', (error) => {
       this.startupError = error;
-      recorder.flush();
-      recorder.finish({ status: 'failed', errorMessage: error.message });
+      recorder.finalize({ status: 'failed', errorMessage: error.message });
       this.transitionProcessTo('failed');
     });
     child.once('exit', (code, signal) => {
       const exitMessage = `TabbyAPI exited unexpectedly (code=${String(code)}, signal=${String(signal)}).`;
-      recorder.flush();
-      recorder.finish({
+      recorder.finalize({
         status: this.stopping ? 'stopped' : 'failed',
         exitCode: Number.isFinite(code) ? Number(code) : null,
         errorMessage: this.stopping ? null : exitMessage,
@@ -266,11 +264,13 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
 
   /**
    * TabbyAPI's /v1/model card reports `draft: null` even while MTP drafting is active, so the
-   * startup log line from the exllamav3 backend is the only signal that drafting engaged.
+   * startup log line from the exllamav3 backend is the only signal that drafting engaged. It can
+   * land on either stream: TabbyAPI logs through loguru, which writes to stderr by default.
    */
   private assertDraftingActive(preset: ModelRuntimePreset): void {
     const runId = this.recorder?.runId;
-    const startupLog = runId ? readInferenceRunLogTextByStream(runId).engine_stdout : '';
+    const logByStream = runId ? readInferenceRunLogTextByStream(runId) : null;
+    const startupLog = logByStream ? `${logByStream.engine_stdout}\n${logByStream.engine_stderr}` : '';
     if (!startupLog.includes('Using main model MTP component for drafting')) {
       throw new Error(
         `Preset '${preset.id}' requires MTP drafting, but the TabbyAPI startup log never reported the MTP draft `

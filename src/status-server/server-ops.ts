@@ -451,8 +451,8 @@ function logModelRequestDropped(waiter: ModelRequestWaiter, reason: string): voi
   });
 }
 
-function syncManagedLlamaFlushQueueModelState(ctx: ServerContext, lastFinishedAtMs?: number): void {
-  ctx.managedLlamaFlushQueue.setModelRequestState({
+function syncInferenceRunFlushQueueModelState(ctx: ServerContext, lastFinishedAtMs?: number): void {
+  ctx.inferenceRunFlushQueue.setModelRequestState({
     active: Boolean(ctx.activeModelRequest),
     queueLength: ctx.modelRequestQueue.length,
     lastFinishedAtMs: lastFinishedAtMs ?? ctx.terminalMetadataLastModelRequestFinishedAtMs,
@@ -482,7 +482,7 @@ export function acquireModelRequest(ctx: ServerContext, kind: string): ModelRequ
   const lock = createModelRequestLock(kind);
   ctx.activeModelRequest = lock;
   ctx.presetRuntimeCoordinator?.setModelRequestActive(true);
-  syncManagedLlamaFlushQueueModelState(ctx);
+  syncInferenceRunFlushQueueModelState(ctx);
   return lock;
 }
 
@@ -566,7 +566,7 @@ function cancelModelRequestWaiter(
   if (!grantedNext) {
     refreshQueuedModelRequestTimeouts(ctx);
   }
-  syncManagedLlamaFlushQueueModelState(ctx);
+  syncInferenceRunFlushQueueModelState(ctx);
   scheduleIdleSummaryIfNeeded(ctx);
 }
 
@@ -585,12 +585,12 @@ function grantNextModelRequest(ctx: ServerContext): boolean {
     ctx.presetRuntimeCoordinator?.setModelRequestActive(true);
     clearModelRequestWaiterTimeout(waiter);
     logModelRequestLockAcquired(lock, getElapsedMsSinceIso(waiter.enqueuedAtUtc));
-    syncManagedLlamaFlushQueueModelState(ctx);
+    syncInferenceRunFlushQueueModelState(ctx);
     refreshQueuedModelRequestTimeouts(ctx);
     waiter.resolveLock(lock);
     return true;
   }
-  syncManagedLlamaFlushQueueModelState(ctx);
+  syncInferenceRunFlushQueueModelState(ctx);
   refreshQueuedModelRequestTimeouts(ctx);
   return false;
 }
@@ -630,7 +630,7 @@ export async function acquireModelRequestWithWait(
     resolveLock: resolveWaiterLock,
   };
   ctx.modelRequestQueue.push(waiter);
-  syncManagedLlamaFlushQueueModelState(ctx);
+  syncInferenceRunFlushQueueModelState(ctx);
   const onAbortedRequest = (): void => {
     cancelModelRequestWaiter(ctx, waiter, 'client_cancelled');
   };
@@ -683,7 +683,7 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
   ctx.presetRuntimeCoordinator?.setModelRequestActive(false);
   const finishedAtMs = Date.now();
   ctx.terminalMetadataLastModelRequestFinishedAtMs = finishedAtMs;
-  syncManagedLlamaFlushQueueModelState(ctx, finishedAtMs);
+  syncInferenceRunFlushQueueModelState(ctx, finishedAtMs);
   logModelRequestLockReleased(releasedLock, ctx.modelRequestQueue.length);
   const coordinator = ctx.presetRuntimeCoordinator;
   if (coordinator?.canGrantModelRequest() === false) {
@@ -696,7 +696,7 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
       }
       grantNextModelRequest(ctx);
       if (!ctx.activeModelRequest) armActivePresetIdle(ctx, Date.now());
-      syncManagedLlamaFlushQueueModelState(ctx, finishedAtMs);
+      syncInferenceRunFlushQueueModelState(ctx, finishedAtMs);
       scheduleIdleSummaryIfNeeded(ctx);
     }).catch((error) => {
       process.stderr.write(`[siftKitStatus] Backend transition failed: ${getErrorMessage(error)}\n`);
@@ -705,9 +705,9 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
     grantNextModelRequest(ctx);
     if (!ctx.activeModelRequest) armActivePresetIdle(ctx, finishedAtMs);
   }
-  syncManagedLlamaFlushQueueModelState(ctx, finishedAtMs);
+  syncInferenceRunFlushQueueModelState(ctx, finishedAtMs);
   if (ctx.managedLlamaLastStartupLogs?.runId) {
-    ctx.managedLlamaFlushQueue.enqueue(ctx.managedLlamaLastStartupLogs.runId);
+    ctx.inferenceRunFlushQueue.enqueue(ctx.managedLlamaLastStartupLogs.runId, 'llama');
   }
   scheduleIdleSummaryIfNeeded(ctx);
   return true;

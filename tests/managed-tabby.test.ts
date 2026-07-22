@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
+import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
 import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.js';
 
 import { getFreePort, withTempEnv } from './_runtime-helpers.js';
@@ -64,7 +64,7 @@ test('concurrent Tabby readiness calls perform one model load and unload explici
       ModelPath: path.join(root, 'model-a'),
       HealthcheckIntervalMs: 10,
     };
-    const flushQueue = new ManagedLlamaFlushQueue({ idleDelayMs: 0 });
+    const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
     const runtime = new ManagedTabbyRuntime({
       Managed: false,
       WorkingDirectory: root,
@@ -95,7 +95,7 @@ test('concurrent Tabby readiness calls perform one model load and unload explici
 test('Tabby runtime rejects a llama preset before lifecycle work', async () => {
   const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
   if (!preset) throw new Error('Default model preset is missing');
-  const flushQueue = new ManagedLlamaFlushQueue({ idleDelayMs: 0 });
+  const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
   const runtime = new ManagedTabbyRuntime({
     Managed: false,
     WorkingDirectory: '.',
@@ -131,7 +131,7 @@ test('managed Tabby launches with preset environment and uses its startup-loaded
       SpeculativeType: 'draft-mtp' as const,
       SpeculativeDraftMax: 5,
     };
-    const flushQueue = new ManagedLlamaFlushQueue({ idleDelayMs: 0 });
+    const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
     const runtime = new ManagedTabbyRuntime({
       Managed: true,
       WorkingDirectory: root,
@@ -181,7 +181,7 @@ test('managed Tabby rejects a startup-loaded model whose applied context diverge
     const { scriptPath } = writeFakeTabby(root, port, 84_992);
     const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
     if (!preset) throw new Error('Default model preset is missing');
-    const flushQueue = new ManagedLlamaFlushQueue({ idleDelayMs: 0 });
+    const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
     const runtime = new ManagedTabbyRuntime({
       Managed: true,
       WorkingDirectory: root,
@@ -224,7 +224,7 @@ test('managed Tabby reuses identical launch settings and restarts when UBatch si
       SpeculativeEnabled: true,
       SpeculativeType: 'draft-mtp' as const,
     };
-    const flushQueue = new ManagedLlamaFlushQueue({ idleDelayMs: 0 });
+    const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
     const runtime = new ManagedTabbyRuntime({
       Managed: true,
       WorkingDirectory: root,
@@ -251,7 +251,7 @@ test('managed Tabby reuses identical launch settings and restarts when UBatch si
 test('unmanaged EXL3 preset with speculation fails loud instead of silently losing MTP', async () => {
   const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
   if (!preset) throw new Error('Default model preset is missing');
-  const flushQueue = new ManagedLlamaFlushQueue({ idleDelayMs: 0 });
+  const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
   const runtime = new ManagedTabbyRuntime({
     Managed: false,
     WorkingDirectory: '.',
@@ -274,13 +274,47 @@ test('unmanaged EXL3 preset with speculation fails loud instead of silently losi
   }), /cannot enable MTP drafting/u);
 });
 
+test('managed Tabby accepts MTP drafting announced on stderr, where loguru writes by default', async () => {
+  await withTempEnv(async (root) => {
+    const port = await getFreePort();
+    const { scriptPath } = writeFakeTabby(root, port, null, { draftingStream: 'stderr' });
+    const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+    if (!preset) throw new Error('Default model preset is missing');
+    const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
+    const runtime = new ManagedTabbyRuntime({
+      Managed: true,
+      WorkingDirectory: root,
+      PythonPath: process.execPath,
+      Entrypoint: path.basename(scriptPath),
+      ModelRoot: root,
+      AdminApiKey: '',
+      ShutdownTimeoutMs: 5_000,
+    }, flushQueue);
+    try {
+      await runtime.ensurePresetReady({
+        ...preset,
+        Backend: 'exl3' as const,
+        BaseUrl: `http://127.0.0.1:${port}`,
+        Model: 'model-a',
+        ModelPath: path.join(root, 'model-a'),
+        SpeculativeEnabled: true,
+        SpeculativeType: 'draft-mtp' as const,
+      });
+      assert.equal(runtime.getModelState(), 'ready');
+    } finally {
+      await runtime.stopProcess();
+      await flushQueue.close();
+    }
+  });
+});
+
 test('managed Tabby rejects a speculative preset when the startup log never reports MTP drafting', async () => {
   await withTempEnv(async (root) => {
     const port = await getFreePort();
     const { scriptPath } = writeFakeTabby(root, port, null, { announceDrafting: false });
     const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
     if (!preset) throw new Error('Default model preset is missing');
-    const flushQueue = new ManagedLlamaFlushQueue({ idleDelayMs: 0 });
+    const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
     const runtime = new ManagedTabbyRuntime({
       Managed: true,
       WorkingDirectory: root,
@@ -360,7 +394,7 @@ test('external EXL3 preset does not launch the configured managed Tabby process'
       Model: 'model-a',
       ModelPath: path.join(root, 'model-a'),
     };
-    const flushQueue = new ManagedLlamaFlushQueue({ idleDelayMs: 0 });
+    const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
     const runtime = new ManagedTabbyRuntime({
       Managed: true,
       WorkingDirectory: root,

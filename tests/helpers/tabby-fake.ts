@@ -60,14 +60,17 @@ export interface FakeTabbyFiles {
 /**
  * Fake TabbyAPI that reports the model card its launch environment produced, so the runtime's
  * resident-parameter verification is exercised end to end. `appliedMaxSeqLen` simulates a server
- * that silently clamps the requested context.
+ * that silently clamps the requested context. `draftingStream` selects where the MTP line lands:
+ * real TabbyAPI logs through loguru, which writes to stderr by default.
  */
 export function writeFakeTabby(
   root: string,
   port: number,
   appliedMaxSeqLen: number | null,
-  options: { announceDrafting: boolean } = { announceDrafting: true },
+  options: { announceDrafting?: boolean; draftingStream?: 'stdout' | 'stderr' } = {},
 ): FakeTabbyFiles {
+  const announceDrafting = options.announceDrafting ?? true;
+  const draftingStream = options.draftingStream ?? 'stdout';
   const files: FakeTabbyFiles = {
     scriptPath: path.join(root, 'fake-tabby.cjs'),
     argsPath: path.join(root, 'args.json'),
@@ -94,8 +97,8 @@ const environment = {
   EXL3_QC_ATTN: process.env.EXL3_QC_ATTN,
 };
 fs.writeFileSync(${JSON.stringify(files.environmentPath)}, JSON.stringify(environment));
-if (${JSON.stringify(options.announceDrafting)} && environment.TABBY_DRAFT_MODEL_DRAFT_MODE === 'mtp') {
-  console.log('INFO: Using main model MTP component for drafting');
+if (${JSON.stringify(announceDrafting)} && environment.TABBY_DRAFT_MODEL_DRAFT_MODE === 'mtp') {
+  process.${draftingStream}.write('INFO: Using main model MTP component for drafting\\n');
 }
 const card = environment.TABBY_MODEL_MODEL_NAME ? {
   id: environment.TABBY_MODEL_MODEL_NAME,

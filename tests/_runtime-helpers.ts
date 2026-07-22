@@ -261,7 +261,7 @@ interface RealStatusServerOptions {
   configPath: string;
   idleSummaryDbPath?: string;
   terminalMetadataIdleDelayMs?: number;
-  managedLlamaFlushIdleDelayMs?: number;
+  inferenceRunFlushIdleDelayMs?: number;
   disableManagedLlamaStartup?: boolean;
   awaitStartup?: boolean;
 }
@@ -284,7 +284,7 @@ interface StatusServerProcessOptions {
   idleSummaryDbPath?: string;
   idleSummaryDelayMs?: number;
   terminalMetadataIdleDelayMs?: number;
-  managedLlamaFlushIdleDelayMs?: number;
+  inferenceRunFlushIdleDelayMs?: number;
   disableManagedLlamaStartup?: boolean;
   startupTimeoutMs?: number;
 }
@@ -1156,7 +1156,7 @@ async function withRealStatusServer<R>(fn: (context: RealStatusServerContext) =>
     SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
     SIFTKIT_IDLE_SUMMARY_DB_PATH: process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH,
     SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS: process.env.SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS,
-    SIFTKIT_MANAGED_LLAMA_FLUSH_IDLE_DELAY_MS: process.env.SIFTKIT_MANAGED_LLAMA_FLUSH_IDLE_DELAY_MS,
+    SIFTKIT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS: process.env.SIFTKIT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS,
     SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS,
     SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE: process.env.SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE,
   };
@@ -1179,18 +1179,18 @@ async function withRealStatusServer<R>(fn: (context: RealStatusServerContext) =>
   } else {
     delete process.env.SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS;
   }
-  const managedLlamaFlushIdleDelayMs = getOptionalNonNegativeInteger(options.managedLlamaFlushIdleDelayMs);
-  if (managedLlamaFlushIdleDelayMs !== null) {
-    process.env.SIFTKIT_MANAGED_LLAMA_FLUSH_IDLE_DELAY_MS = String(managedLlamaFlushIdleDelayMs);
+  const inferenceRunFlushIdleDelayMs = getOptionalNonNegativeInteger(options.inferenceRunFlushIdleDelayMs);
+  if (inferenceRunFlushIdleDelayMs !== null) {
+    process.env.SIFTKIT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS = String(inferenceRunFlushIdleDelayMs);
   } else {
-    delete process.env.SIFTKIT_MANAGED_LLAMA_FLUSH_IDLE_DELAY_MS;
+    delete process.env.SIFTKIT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS;
   }
 
   seedRuntimeConfigFromJson(options.configPath);
   const server = startStatusServer({
     disableManagedLlamaStartup: Boolean(options.disableManagedLlamaStartup),
     terminalMetadataIdleDelayMs: terminalMetadataIdleDelayMs ?? undefined,
-    managedLlamaFlushIdleDelayMs: managedLlamaFlushIdleDelayMs ?? undefined,
+    inferenceRunFlushIdleDelayMs: inferenceRunFlushIdleDelayMs ?? undefined,
   });
   try {
     const address = await new Promise<AddressInfo | string | null>((resolve) => {
@@ -1242,7 +1242,7 @@ async function startStatusServerProcess(options: StatusServerProcessOptions) {
     ...(options.idleSummaryDbPath ? { SIFTKIT_IDLE_SUMMARY_DB_PATH: options.idleSummaryDbPath } : {}),
     ...(getOptionalNonNegativeInteger(options.idleSummaryDelayMs) !== null ? { SIFTKIT_IDLE_SUMMARY_DELAY_MS: String(getOptionalNonNegativeInteger(options.idleSummaryDelayMs)) } : {}),
     ...(getOptionalNonNegativeInteger(options.terminalMetadataIdleDelayMs) !== null ? { SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS: String(getOptionalNonNegativeInteger(options.terminalMetadataIdleDelayMs)) } : {}),
-    ...(getOptionalNonNegativeInteger(options.managedLlamaFlushIdleDelayMs) !== null ? { SIFTKIT_MANAGED_LLAMA_FLUSH_IDLE_DELAY_MS: String(getOptionalNonNegativeInteger(options.managedLlamaFlushIdleDelayMs)) } : {}),
+    ...(getOptionalNonNegativeInteger(options.inferenceRunFlushIdleDelayMs) !== null ? { SIFTKIT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS: String(getOptionalNonNegativeInteger(options.inferenceRunFlushIdleDelayMs)) } : {}),
     SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: '0',
     SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE: '1',
   };

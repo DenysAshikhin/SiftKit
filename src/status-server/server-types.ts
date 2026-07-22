@@ -6,7 +6,7 @@ import type { JsonObject } from '../lib/json-types.js';
 import type { ManagedLlamaSpeculativeMetricsSnapshot } from './managed-llama.js';
 import type { InferenceRunStreamKind } from '../state/inference-runs.js';
 import type { LlamaRunRecorder } from './llama-run-recorder.js';
-import type { ManagedLlamaFlushQueue } from './managed-llama-flush-queue.js';
+import type { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
 import type { StatusEngineService } from './engine-service.js';
 import type { SiftConfig } from '../config/types.js';
 import type { PresetRuntimeCoordinator } from './preset-runtime-coordinator.js';
@@ -85,7 +85,7 @@ export type ExtendedServer = Server & {
 export type StartStatusServerOptions = {
   disableManagedLlamaStartup?: boolean;
   terminalMetadataIdleDelayMs?: number;
-  managedLlamaFlushIdleDelayMs?: number;
+  inferenceRunFlushIdleDelayMs?: number;
 };
 
 /**
@@ -143,7 +143,7 @@ export type ServerContext = {
   bootstrapManagedLlamaStartup: boolean;
   managedLlamaLogCleanupTimer: NodeJS.Timeout | null;
   runtimeHistoryPruneTimer: NodeJS.Timeout | null;
-  managedLlamaFlushQueue: ManagedLlamaFlushQueue;
+  inferenceRunFlushQueue: InferenceRunFlushQueue;
 
   // Late-bound function references (set by index.ts to break circular deps)
   shutdownManagedLlamaIfNeeded(options?: ShutdownManagedLlamaOptions): Promise<void>;

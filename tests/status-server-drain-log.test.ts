@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { startStatusServer } from '../src/status-server/index.js';
-import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
+import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { requestJson, getAddressInfo } from './helpers/dashboard-http.js';
 import { captureStdoutLines } from './helpers/stdout-capture.js';
@@ -38,9 +38,9 @@ test('a long drain wait logs once on entry and once on resume', async () => {
 
   // Hold the llama flush queue busy so the terminal-metadata drain re-schedules
   // many times before it is allowed to run.
-  const originalIsIdle = ManagedLlamaFlushQueue.prototype.isIdle;
+  const originalIsIdle = InferenceRunFlushQueue.prototype.isIdle;
   let llamaFlushIdle = false;
-  ManagedLlamaFlushQueue.prototype.isIdle = function isIdleForTest(): boolean {
+  InferenceRunFlushQueue.prototype.isIdle = function isIdleForTest(): boolean {
     return llamaFlushIdle && originalIsIdle.call(this);
   };
   const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
@@ -89,7 +89,7 @@ test('a long drain wait logs once on entry and once on resume', async () => {
       `the entry line must precede the resume line:\n${lines.join('\n')}`,
     );
   } finally {
-    ManagedLlamaFlushQueue.prototype.isIdle = originalIsIdle;
+    InferenceRunFlushQueue.prototype.isIdle = originalIsIdle;
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });

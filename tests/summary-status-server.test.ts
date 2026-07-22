@@ -7,7 +7,7 @@ import path from 'node:path';
 import { summarizeRequest } from '../src/summary.js';
 import { getDefaultConfig, buildRuntimeLaunchSnapshot } from '../src/status-server/config-store.js';
 import { startStatusServer } from '../src/status-server/index.js';
-import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
+import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import { requestJson, asObject, getAddressInfo } from './helpers/dashboard-http.js';
@@ -303,9 +303,9 @@ test('terminal metadata waits for managed llama flush queue to drain first', asy
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
-  const originalIsIdle = ManagedLlamaFlushQueue.prototype.isIdle;
+  const originalIsIdle = InferenceRunFlushQueue.prototype.isIdle;
   let llamaFlushIdle = false;
-  ManagedLlamaFlushQueue.prototype.isIdle = function isIdleForTest(): boolean {
+  InferenceRunFlushQueue.prototype.isIdle = function isIdleForTest(): boolean {
     return llamaFlushIdle && originalIsIdle.call(this);
   };
   const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
@@ -352,7 +352,7 @@ test('terminal metadata waits for managed llama flush queue to drain first', asy
     assert.ok(waitIndex >= 0 && processIndex > waitIndex, lines.join('\n'));
     assert.equal(lines.some((line) => /st [\w-]{8} {2}done {2}task=summary total_elapsed=0s output_tokens=9/u.test(line)), true, lines.join('\n'));
   } finally {
-    ManagedLlamaFlushQueue.prototype.isIdle = originalIsIdle;
+    InferenceRunFlushQueue.prototype.isIdle = originalIsIdle;
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });

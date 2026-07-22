@@ -335,7 +335,7 @@ test('managed llama live stream logs flush after idle without model request rele
     }, {
       statusPath,
       configPath,
-      managedLlamaFlushIdleDelayMs: 50,
+      inferenceRunFlushIdleDelayMs: 50,
     });
   });
 });

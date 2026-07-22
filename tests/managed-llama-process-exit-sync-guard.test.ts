@@ -7,7 +7,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 
 import { getDefaultMetrics } from '../src/status-server/metrics.js';
 import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
-import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
+import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
 import { StatusEngineService } from '../src/status-server/engine-service.js';
 import { shutdownManagedLlamaForProcessExitSync } from '../src/status-server/managed-llama.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
@@ -52,7 +52,7 @@ function createExitSyncContext(configPath: string, statusRoot: string, hostProce
     bootstrapManagedLlamaStartup: false,
     managedLlamaLogCleanupTimer: null,
     runtimeHistoryPruneTimer: null,
-    managedLlamaFlushQueue: new ManagedLlamaFlushQueue(),
+    inferenceRunFlushQueue: new InferenceRunFlushQueue(),
     async shutdownManagedLlamaIfNeeded(): Promise<void> {},
     async ensureManagedLlamaReady(): Promise<SiftConfig> { return getDefaultConfig(); },
   };

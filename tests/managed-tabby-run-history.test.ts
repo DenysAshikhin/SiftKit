@@ -3,7 +3,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
+import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
 import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.js';
 import { listInferenceRuns, readInferenceRunLogTextByStream } from '../src/state/inference-runs.js';
 import { getFreePort, withTempEnv } from './_runtime-helpers.js';
@@ -15,7 +15,7 @@ test('a managed TabbyAPI launch is recorded as an inference run with log chunks'
     const { scriptPath } = writeFakeTabby(root, port, null);
     const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
     if (!preset) throw new Error('Default model preset is missing');
-    const flushQueue = new ManagedLlamaFlushQueue({ idleDelayMs: 0 });
+    const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
     const runtime = new ManagedTabbyRuntime({
       Managed: true,
       WorkingDirectory: root,
@@ -57,7 +57,7 @@ test('a managed TabbyAPI run is marked stopped when the runtime shuts it down', 
     const { scriptPath } = writeFakeTabby(root, port, null);
     const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
     if (!preset) throw new Error('Default model preset is missing');
-    const flushQueue = new ManagedLlamaFlushQueue({ idleDelayMs: 0 });
+    const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
     const runtime = new ManagedTabbyRuntime({
       Managed: true,
       WorkingDirectory: root,

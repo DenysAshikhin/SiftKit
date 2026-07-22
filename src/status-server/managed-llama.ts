@@ -727,7 +727,7 @@ function spawnManagedLlamaProcess(
     purpose,
     entrypointPath: invocation.resolvedPath,
     baseUrl: managed.BaseUrl,
-    flushQueue: ctx.managedLlamaFlushQueue,
+    flushQueue: ctx.inferenceRunFlushQueue,
   });
   if (ctx.managedLlamaReady) {
     recorder.enableFlushQueue();
@@ -745,35 +745,19 @@ function spawnManagedLlamaProcess(
   recorder.attachLauncherStdout(child.stdout);
   recorder.attachLauncherStderr(child.stderr);
   child.on('exit', (code: number | null) => {
-    try {
-      recorder.flush();
-      flushManagedLlamaSpeculativeMetricsTracker(recorder.runId);
-    } catch {
-      // The runtime DB may already be gone during test/process teardown.
-    }
     const successStatus: InferenceRunStatus = purpose === 'shutdown' ? 'stopped' : 'ready';
-    try {
-      recorder.finish({
-        status: (code ?? 0) === 0 ? successStatus : 'failed',
-        exitCode: Number.isFinite(code) ? Number(code) : null,
-      });
-    } catch {
-      // The runtime DB may already be gone during test/process teardown.
-    }
+    recorder.finalize({
+      status: (code ?? 0) === 0 ? successStatus : 'failed',
+      exitCode: Number.isFinite(code) ? Number(code) : null,
+    });
   });
   child.on('error', (error: Error) => {
     try {
       recorder.appendLine('launcher_stderr', `\n[spawn-error] ${error.message}\n`);
-      recorder.flush();
-      flushManagedLlamaSpeculativeMetricsTracker(recorder.runId);
     } catch {
       // Ignore teardown races after the test/server has already closed.
     }
-    try {
-      recorder.finish({ status: 'failed', errorMessage: error.message });
-    } catch {
-      // Ignore teardown races after the test/server has already closed.
-    }
+    recorder.finalize({ status: 'failed', errorMessage: error.message });
     process.stderr.write(`[siftKitStatus] llama.cpp ${purpose} executable failed to spawn (${managed.ExecutablePath}): ${error.message}\n`);
   });
   return { child, recorder };

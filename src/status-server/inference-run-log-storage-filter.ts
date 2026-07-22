@@ -1,5 +1,5 @@
-const REQUEST_BODY_OMITTED_LINE = 'srv  log_server_r: request: [request body omitted from managed llama log storage]\n';
-const ECHO_OMITTED_LINE = '[managed llama verbose echo omitted from managed llama log storage]\n';
+const REQUEST_BODY_OMITTED_LINE = 'srv  log_server_r: request: [request body omitted from inference run log storage]\n';
+const ECHO_OMITTED_LINE = '[managed llama verbose echo omitted from inference run log storage]\n';
 
 function isManagedLlamaEchoLine(line: string): boolean {
   return String(line || '').includes('update_chat_: Parsing chat message:');
@@ -17,7 +17,7 @@ function splitChunkPreservingLines(chunk: string): string[] {
   return String(chunk || '').match(/[^\n]*\n|[^\n]+/gu) ?? [];
 }
 
-export class ManagedLlamaLogStorageFilter {
+export class InferenceRunLogStorageFilter {
   private omittedRequestEcho = false;
 
   filterChunk(chunk: string): string {

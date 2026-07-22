@@ -6,6 +6,7 @@ import {
   consumeInferenceRunPendingLogChunks,
   getInferenceRunPendingLogChunkStats,
   restoreInferenceRunPendingLogChunks,
+  type InferenceRunBackend,
   type InferenceRunPendingLogChunkEntry,
 } from '../state/inference-runs.js';
 import { getRuntimeDatabasePath } from '../state/runtime-db.js';
@@ -15,19 +16,20 @@ import {
 } from './managed-llama-speculative-tracker.js';
 import { serverLogger } from './server-logger.js';
 
-type ManagedLlamaFlushQueueItem = {
+type InferenceRunFlushQueueItem = {
   runId: string;
+  backend: InferenceRunBackend;
   enqueuedAtMs: number;
   attempts: number;
   entries: InferenceRunPendingLogChunkEntry[] | null;
   metricsSnapshot: ManagedLlamaSpeculativeMetricsSnapshot | null;
 };
 
-export type ManagedLlamaFlushQueueOptions = {
+export type InferenceRunFlushQueueOptions = {
   idleDelayMs?: number;
 };
 
-export type ManagedLlamaModelRequestState = {
+export type InferenceRunModelRequestState = {
   active: boolean;
   queueLength: number;
   lastFinishedAtMs?: number | null;
@@ -40,7 +42,7 @@ type FlushWorkerResponse = {
   metricsFlushed?: boolean;
 };
 
-export type ManagedLlamaFlushQueueSnapshot = {
+export type InferenceRunFlushQueueSnapshot = {
   pendingCount: number;
   runningRunId: string | null;
   scheduled: boolean;
@@ -48,9 +50,9 @@ export type ManagedLlamaFlushQueueSnapshot = {
   failedCount: number;
 };
 
-export class ManagedLlamaFlushQueue {
+export class InferenceRunFlushQueue {
   private readonly idleDelayMs: number;
-  private readonly pendingByRunId = new Map<string, ManagedLlamaFlushQueueItem>();
+  private readonly pendingByRunId = new Map<string, InferenceRunFlushQueueItem>();
   private readonly pendingOrder: string[] = [];
   private scheduled = false;
   private draining = false;
@@ -63,7 +65,7 @@ export class ManagedLlamaFlushQueue {
   private worker: Worker | null = null;
   private nextWorkerMessageId = 1;
 
-  constructor(options: ManagedLlamaFlushQueueOptions = {}) {
+  constructor(options: InferenceRunFlushQueueOptions = {}) {
     const configuredIdleDelayMs = Number(options.idleDelayMs ?? 0);
     this.idleDelayMs = Number.isFinite(configuredIdleDelayMs)
       ? Math.max(0, Math.trunc(configuredIdleDelayMs))
@@ -79,7 +81,7 @@ export class ManagedLlamaFlushQueue {
     await worker.terminate();
   }
 
-  enqueue(runId: string): boolean {
+  enqueue(runId: string, backend: InferenceRunBackend): boolean {
     const normalizedRunId = String(runId || '').trim();
     if (!normalizedRunId) {
       return false;
@@ -89,6 +91,7 @@ export class ManagedLlamaFlushQueue {
     }
     this.pendingByRunId.set(normalizedRunId, {
       runId: normalizedRunId,
+      backend,
       enqueuedAtMs: Date.now(),
       attempts: 0,
       entries: null,
@@ -96,7 +99,7 @@ export class ManagedLlamaFlushQueue {
     });
     this.pendingOrder.push(normalizedRunId);
     serverLogger.debug({
-      scope: 'llama',
+      scope: backend,
       id: normalizedRunId,
       event: 'flush_enqueue',
       fields: `pending=${this.pendingOrder.length}`,
@@ -107,7 +110,7 @@ export class ManagedLlamaFlushQueue {
     return true;
   }
 
-  setModelRequestState(state: ManagedLlamaModelRequestState): void {
+  setModelRequestState(state: InferenceRunModelRequestState): void {
     this.activeModelRequest = Boolean(state.active);
     this.modelRequestQueueLength = Math.max(0, Math.trunc(Number(state.queueLength || 0)));
     if (typeof state.lastFinishedAtMs === 'number' && Number.isFinite(state.lastFinishedAtMs)) {
@@ -127,7 +130,7 @@ export class ManagedLlamaFlushQueue {
     }
   }
 
-  getSnapshot(): ManagedLlamaFlushQueueSnapshot {
+  getSnapshot(): InferenceRunFlushQueueSnapshot {
     return {
       pendingCount: this.pendingOrder.length,
       runningRunId: this.runningRunId,
@@ -145,7 +148,7 @@ export class ManagedLlamaFlushQueue {
       }
       await sleep(10);
     }
-    throw new Error(`Timed out waiting for managed llama flush queue after ${timeoutMs} ms.`);
+    throw new Error(`Timed out waiting for the inference run flush queue after ${timeoutMs} ms.`);
   }
 
   isIdle(): boolean {
@@ -193,7 +196,7 @@ export class ManagedLlamaFlushQueue {
           const durationMs = Date.now() - startedAtMs;
           this.completedCount += 1;
           serverLogger.dim({
-            scope: 'llama',
+            scope: item.backend,
             id: runId,
             event: 'flush_done',
             fields: `wait_ms=${waitMs} duration_ms=${durationMs} `
@@ -212,7 +215,7 @@ export class ManagedLlamaFlushQueue {
           this.pendingByRunId.set(runId, item);
           this.pendingOrder.push(runId);
           serverLogger.error({
-            scope: 'llama',
+            scope: item.backend,
             id: runId,
             event: 'flush_retry',
             fields: `wait_ms=${waitMs} duration_ms=${durationMs} `
@@ -254,7 +257,7 @@ export class ManagedLlamaFlushQueue {
         if (message.ok) {
           resolve(Boolean(message.metricsFlushed));
         } else {
-          reject(new Error(message.errorMessage || 'managed llama flush worker failed'));
+          reject(new Error(message.errorMessage || 'inference run flush worker failed'));
         }
       };
       const onError = (error: Error): void => {
@@ -291,8 +294,8 @@ export class ManagedLlamaFlushQueue {
     const currentFile = moduleFilename(import.meta.url);
     const currentDir = moduleDirname(import.meta.url);
     const workerPath = extname(currentFile) === '.ts'
-      ? resolve(currentDir, '..', '..', 'dist', 'status-server', 'managed-llama-flush-worker.js')
-      : join(currentDir, 'managed-llama-flush-worker.js');
+      ? resolve(currentDir, '..', '..', 'dist', 'status-server', 'inference-run-flush-worker.js')
+      : join(currentDir, 'inference-run-flush-worker.js');
     this.worker = new Worker(workerPath);
     this.worker.unref();
     this.worker.on('exit', () => {

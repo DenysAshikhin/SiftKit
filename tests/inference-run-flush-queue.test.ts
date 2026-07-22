@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import { z } from 'zod';
 
-import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
+import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
 import {
   bufferInferenceRunLogChunk,
   createInferenceRun,
@@ -46,7 +46,7 @@ function createStdoutCapture(): { lines: string[]; restore: () => void } {
   };
 }
 
-test('managed llama flush queue coalesces duplicate run flushes and drains asynchronously', async () => {
+test('inference run flush queue coalesces duplicate run flushes and drains asynchronously', async () => {
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
     const database = getRuntimeDatabase();
@@ -56,12 +56,12 @@ test('managed llama flush queue coalesces duplicate run flushes and drains async
     const blocker = new Database(getRuntimeDatabasePath());
     blocker.pragma('busy_timeout = 1');
     blocker.exec('BEGIN IMMEDIATE');
-    const queue = new ManagedLlamaFlushQueue();
+    const queue = new InferenceRunFlushQueue();
 
     try {
       try {
-        assert.equal(queue.enqueue(run.id), true);
-        assert.equal(queue.enqueue(run.id), false);
+        assert.equal(queue.enqueue(run.id, 'llama'), true);
+        assert.equal(queue.enqueue(run.id, 'llama'), false);
         assert.equal(queue.getSnapshot().pendingCount, 1);
         await queue.drainNow();
         assert.equal(queue.getSnapshot().pendingCount, 1);
@@ -81,20 +81,48 @@ test('managed llama flush queue coalesces duplicate run flushes and drains async
   });
 });
 
-test('managed llama flush queue records another flush requested while the same run is active', async () => {
+test('inference run flush queue logs each run under its own backend scope', async () => {
+  await withTestEnvAndServer(async () => {
+    const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'engine_stdout', chunkText: 'exl3-scoped\n' });
+    const queue = new InferenceRunFlushQueue();
+    const capture = createStdoutCapture();
+
+    try {
+      assert.equal(queue.enqueue(run.id, 'exl3'), true);
+      await queue.waitForIdle(1000);
+    } finally {
+      capture.restore();
+      await queue.close();
+    }
+
+    assert.equal(
+      capture.lines.some((line) => line.includes(`exl3 ${run.id.slice(0, 8)}  flush_done`)),
+      true,
+      capture.lines.join('\n'),
+    );
+    assert.equal(
+      capture.lines.some((line) => line.includes(`llama ${run.id.slice(0, 8)}`)),
+      false,
+      capture.lines.join('\n'),
+    );
+  });
+});
+
+test('inference run flush queue records another flush requested while the same run is active', async () => {
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
-    const queue = new ManagedLlamaFlushQueue();
+    const queue = new InferenceRunFlushQueue();
     type FlushQueueInternals = {
       runningRunId: string | null;
       draining: boolean;
     };
-    const internals = z.custom<FlushQueueInternals>((value) => value instanceof ManagedLlamaFlushQueue).parse(queue);
+    const internals = z.custom<FlushQueueInternals>((value) => value instanceof InferenceRunFlushQueue).parse(queue);
     internals.runningRunId = run.id;
     internals.draining = true;
 
     try {
-      assert.equal(queue.enqueue(run.id), true);
+      assert.equal(queue.enqueue(run.id, 'llama'), true);
       assert.equal(queue.getSnapshot().pendingCount, 1);
       assert.equal(queue.getSnapshot().scheduled, false);
     } finally {
@@ -103,15 +131,15 @@ test('managed llama flush queue records another flush requested while the same r
   });
 });
 
-test('managed llama flush queue waits for model-request idle delay before draining', async () => {
+test('inference run flush queue waits for model-request idle delay before draining', async () => {
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
     bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'idle-gated\n' });
-    const queue = new ManagedLlamaFlushQueue({ idleDelayMs: 80 });
+    const queue = new InferenceRunFlushQueue({ idleDelayMs: 80 });
 
     try {
       queue.markModelRequestFinished(Date.now());
-      assert.equal(queue.enqueue(run.id), true);
+      assert.equal(queue.enqueue(run.id, 'llama'), true);
       await new Promise<void>((resolve) => setTimeout(resolve, 30));
       assert.equal(queue.getSnapshot().completedCount, 0);
 
@@ -123,15 +151,15 @@ test('managed llama flush queue waits for model-request idle delay before draini
   });
 });
 
-test('managed llama flush queue pauses while a model request is active and drains after idle', async () => {
+test('inference run flush queue pauses while a model request is active and drains after idle', async () => {
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
     bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'active-gated\n' });
-    const queue = new ManagedLlamaFlushQueue({ idleDelayMs: 50 });
+    const queue = new InferenceRunFlushQueue({ idleDelayMs: 50 });
 
     try {
       queue.setModelRequestState({ active: true, queueLength: 0 });
-      assert.equal(queue.enqueue(run.id), true);
+      assert.equal(queue.enqueue(run.id, 'llama'), true);
       await new Promise<void>((resolve) => setTimeout(resolve, 80));
       assert.equal(queue.getSnapshot().completedCount, 0);
 
@@ -144,16 +172,16 @@ test('managed llama flush queue pauses while a model request is active and drain
   });
 });
 
-test('managed llama flush queue does not log repeated active-request drain waits', async () => {
+test('inference run flush queue does not log repeated active-request drain waits', async () => {
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
     bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'active-gated\n' });
-    const queue = new ManagedLlamaFlushQueue({ idleDelayMs: 20 });
+    const queue = new InferenceRunFlushQueue({ idleDelayMs: 20 });
     const capture = createStdoutCapture();
 
     try {
       queue.setModelRequestState({ active: true, queueLength: 0 });
-      assert.equal(queue.enqueue(run.id), true);
+      assert.equal(queue.enqueue(run.id, 'llama'), true);
       await new Promise<void>((resolve) => setTimeout(resolve, 70));
     } finally {
       capture.restore();

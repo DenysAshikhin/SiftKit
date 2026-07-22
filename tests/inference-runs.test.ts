@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 
-import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
+import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
 import {
   bufferInferenceRunLogChunk,
   createInferenceRun,
@@ -251,7 +251,7 @@ test('releaseModelRequest queues buffered managed llama logs for the active host
       chunkText: 'statistics ngram_mod: #gen tokens = 42, #acc tokens = 40\n',
     });
 
-    const flushQueue = new ManagedLlamaFlushQueue();
+    const flushQueue = new InferenceRunFlushQueue();
     const released = releaseModelRequest(mockReleaseCtx({
       activeModelRequest: {
         token: 'token-1',
@@ -265,7 +265,7 @@ test('releaseModelRequest queues buffered managed llama logs for the active host
         scriptPath: 'fake-launcher.cmd',
         baseUrl: 'http://127.0.0.1:8080',
       },
-      managedLlamaFlushQueue: flushQueue,
+      inferenceRunFlushQueue: flushQueue,
     }), 'token-1');
     try {
       assert.equal(released, true);
@@ -305,7 +305,7 @@ test('releaseModelRequest releases the active request when managed llama log flu
     const blocker = new Database(getRuntimeDatabasePath());
     blocker.pragma('busy_timeout = 1');
     blocker.exec('BEGIN IMMEDIATE');
-    const flushQueue = new ManagedLlamaFlushQueue();
+    const flushQueue = new InferenceRunFlushQueue();
     const ctx = mockReleaseCtx({
       activeModelRequest: {
         token: 'token-locked',
@@ -319,7 +319,7 @@ test('releaseModelRequest releases the active request when managed llama log flu
         scriptPath: 'fake-launcher.cmd',
         baseUrl: 'http://127.0.0.1:8080',
       },
-      managedLlamaFlushQueue: flushQueue,
+      inferenceRunFlushQueue: flushQueue,
     });
 
     try {

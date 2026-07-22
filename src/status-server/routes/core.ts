@@ -454,7 +454,7 @@ function getTerminalMetadataIdleWaitMs(ctx: ServerContext, fallbackStartedAtMs: 
   if (idleWaitMs > 0) {
     return idleWaitMs;
   }
-  if (!ctx.managedLlamaFlushQueue.isIdle()) {
+  if (!ctx.inferenceRunFlushQueue.isIdle()) {
     return Math.max(1, Math.min(1000, ctx.terminalMetadataIdleDelayMs || 1000));
   }
   return 0;

@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ManagedLlamaLogStorageFilter } from '../src/status-server/managed-llama-log-storage-filter.js';
+import { InferenceRunLogStorageFilter } from '../src/status-server/inference-run-log-storage-filter.js';
 
-test('managed llama log storage filter omits verbose request bodies across chunks', () => {
-  const filter = new ManagedLlamaLogStorageFilter();
+test('inference run log storage filter omits verbose request bodies across chunks', () => {
+  const filter = new InferenceRunLogStorageFilter();
 
   const first = filter.filterChunk('srv  log_server_r: request: {"content":"secret prompt');
   const second = filter.filterChunk(' with tool output and source code"}\nmore echoed body\nsrv  update_slots: run slots completed\n');
@@ -16,8 +16,8 @@ test('managed llama log storage filter omits verbose request bodies across chunk
   assert.match(second, /srv  update_slots/u);
 });
 
-test('managed llama log storage filter does not cap non-echo diagnostic output', () => {
-  const filter = new ManagedLlamaLogStorageFilter();
+test('inference run log storage filter does not cap non-echo diagnostic output', () => {
+  const filter = new InferenceRunLogStorageFilter();
 
   const chunk = 'diagnostic-line\n'.repeat(1000);
   const filtered = filter.filterChunk(chunk);

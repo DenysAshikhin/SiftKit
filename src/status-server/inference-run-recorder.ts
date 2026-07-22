@@ -1,5 +1,5 @@
-import { ManagedLlamaLogStorageFilter } from './managed-llama-log-storage-filter.js';
-import { ManagedLlamaFlushQueue } from './managed-llama-flush-queue.js';
+import { InferenceRunLogStorageFilter } from './inference-run-log-storage-filter.js';
+import { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
 import {
   bufferInferenceRunLogChunk,
   createInferenceRun,
@@ -15,7 +15,7 @@ export type InferenceRunRecorderOptions = {
   purpose: string;
   entrypointPath: string | null;
   baseUrl: string | null;
-  flushQueue: ManagedLlamaFlushQueue;
+  flushQueue: InferenceRunFlushQueue;
 };
 
 /**
@@ -33,7 +33,7 @@ export class InferenceRunRecorder {
   readonly purpose: string;
   readonly baseUrl: string | null;
   readonly progress: InferenceRunStreamProgress = { stdoutChars: 0, stderrChars: 0 };
-  private readonly flushQueue: ManagedLlamaFlushQueue;
+  private readonly flushQueue: InferenceRunFlushQueue;
   private flushEnabled = false;
 
   constructor(options: InferenceRunRecorderOptions) {
@@ -91,6 +91,38 @@ export class InferenceRunRecorder {
     flushInferenceRunLogChunks(this.runId);
   }
 
+  /**
+   * llama.cpp scrapes speculative-decode acceptance into a separate tracker that has to be
+   * flushed alongside the log chunks. The base recorder has nothing extra; LlamaRunRecorder
+   * overrides this.
+   */
+  protected flushDerivedMetrics(): void {
+  }
+
+  /**
+   * Terminal bookkeeping for a child that exited or failed to spawn. Callers run inside
+   * EventEmitter handlers, where a throw is an unhandled exception that kills the process, and
+   * the runtime DB may already be gone during test/process teardown.
+   */
+  finalize(options: {
+    status: InferenceRunStatus;
+    exitCode?: number | null;
+    errorMessage?: string | null;
+    baseUrl?: string | null;
+  }): void {
+    try {
+      this.flush();
+      this.flushDerivedMetrics();
+    } catch {
+      // The runtime DB may already be gone during test/process teardown.
+    }
+    try {
+      this.finish(options);
+    } catch {
+      // The runtime DB may already be gone during test/process teardown.
+    }
+  }
+
   finish(options: {
     status: InferenceRunStatus;
     exitCode?: number | null;
@@ -111,7 +143,7 @@ export class InferenceRunRecorder {
     if (!this.flushEnabled) {
       return;
     }
-    this.flushQueue.enqueue(this.runId);
+    this.flushQueue.enqueue(this.runId, this.backend);
   }
 
   private countProgress(streamKind: InferenceRunStreamKind, characters: number): void {
@@ -126,7 +158,7 @@ export class InferenceRunRecorder {
     if (!stream) {
       return;
     }
-    const storageFilter = new ManagedLlamaLogStorageFilter();
+    const storageFilter = new InferenceRunLogStorageFilter();
     stream.setEncoding('utf8');
     stream.on('data', (chunk: string | Buffer) => {
       try {

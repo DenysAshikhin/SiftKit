@@ -1,5 +1,8 @@
 import { InferenceRunRecorder } from './inference-run-recorder.js';
-import { appendManagedLlamaSpeculativeMetricsChunk } from './managed-llama-speculative-tracker.js';
+import {
+  appendManagedLlamaSpeculativeMetricsChunk,
+  flushManagedLlamaSpeculativeMetricsTracker,
+} from './managed-llama-speculative-tracker.js';
 import type { InferenceRunStreamKind } from '../state/inference-runs.js';
 
 /**
@@ -13,5 +16,9 @@ export class LlamaRunRecorder extends InferenceRunRecorder {
       streamKind,
       chunkText,
     });
+  }
+
+  protected override flushDerivedMetrics(): void {
+    flushManagedLlamaSpeculativeMetricsTracker(this.runId);
   }
 }

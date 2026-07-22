@@ -9,7 +9,7 @@ import { parseJsonValueText } from '../src/lib/json.js';
 import type { JsonObject } from '../src/lib/json-types.js';
 import { getDefaultMetrics } from '../src/status-server/metrics.js';
 import { getDefaultConfig } from '../src/status-server/config-store.js';
-import { ManagedLlamaFlushQueue } from '../src/status-server/managed-llama-flush-queue.js';
+import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
 import { StatusEngineService } from '../src/status-server/engine-service.js';
 import { createRequestHandler } from '../src/status-server/routes.js';
 import type { ServerContext } from '../src/status-server/server-types.js';
@@ -101,7 +101,7 @@ function createStatusContext(tempRoot: string): ServerContext & { readonly wakeC
     managedLlamaStartupWarning: null,
     bootstrapManagedLlamaStartup: false,
     managedLlamaLogCleanupTimer: null,
-    managedLlamaFlushQueue: new ManagedLlamaFlushQueue(),
+    inferenceRunFlushQueue: new InferenceRunFlushQueue(),
     async shutdownManagedLlamaIfNeeded(): Promise<void> {},
     async ensureManagedLlamaReady() {
       wakeCount += 1;

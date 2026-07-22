@@ -43,7 +43,7 @@ import {
 } from './dashboard-runs.js';
 import { closeRuntimeDatabase, pruneRuntimeHistory } from '../state/runtime-db.js';
 import { deleteInferenceRunLogChunksOlderThan } from '../state/inference-runs.js';
-import { ManagedLlamaFlushQueue } from './managed-llama-flush-queue.js';
+import { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
 import {
   publishStatus,
   clearIdleSummaryTimer,
@@ -125,7 +125,7 @@ export type { TerminateProcessTreeOptions, StartStatusServerOptions, ExtendedSer
 const MANAGED_LLAMA_LOG_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
 const MANAGED_LLAMA_LOG_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 const DEFAULT_TERMINAL_METADATA_IDLE_DELAY_MS = 10_000;
-const DEFAULT_MANAGED_LLAMA_FLUSH_IDLE_DELAY_MS = 10_000;
+const DEFAULT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS = 10_000;
 const DEFAULT_RUNTIME_HISTORY_RETENTION_DAYS = 7;
 const RUNTIME_HISTORY_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
@@ -173,13 +173,13 @@ function getTerminalMetadataIdleDelayMs(options: StartStatusServerOptions): numb
   return DEFAULT_TERMINAL_METADATA_IDLE_DELAY_MS;
 }
 
-function getManagedLlamaFlushIdleDelayMs(options: StartStatusServerOptions): number {
-  const configuredValue = options.managedLlamaFlushIdleDelayMs
-    ?? Number(process.env.SIFTKIT_MANAGED_LLAMA_FLUSH_IDLE_DELAY_MS);
+function getInferenceRunFlushIdleDelayMs(options: StartStatusServerOptions): number {
+  const configuredValue = options.inferenceRunFlushIdleDelayMs
+    ?? Number(process.env.SIFTKIT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS);
   if (Number.isFinite(configuredValue)) {
     return Math.max(0, Math.trunc(configuredValue));
   }
-  return DEFAULT_MANAGED_LLAMA_FLUSH_IDLE_DELAY_MS;
+  return DEFAULT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS;
 }
 
 function pruneManagedLlamaLogChunks(): void {
@@ -257,7 +257,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     bootstrapManagedLlamaStartup: false,
     managedLlamaLogCleanupTimer: null,
     runtimeHistoryPruneTimer: null,
-    managedLlamaFlushQueue: new ManagedLlamaFlushQueue({ idleDelayMs: getManagedLlamaFlushIdleDelayMs(options) }),
+    inferenceRunFlushQueue: new InferenceRunFlushQueue({ idleDelayMs: getInferenceRunFlushIdleDelayMs(options) }),
     // Late-bound function references (break circular deps between modules).
     shutdownManagedLlamaIfNeeded: (opts) => shutdownManagedLlamaIfNeeded(ctx, opts),
     ensureManagedLlamaReady: (opts) => ensureManagedLlamaReady(ctx, opts),
@@ -265,7 +265,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   const initialConfig = readConfig(configPath);
   const managedTabbyRuntime = new ManagedTabbyRuntime(
     initialConfig.Server.Engines.Exl3,
-    ctx.managedLlamaFlushQueue,
+    ctx.inferenceRunFlushQueue,
   );
   const presetRuntimeCoordinator = new PresetRuntimeCoordinator(
     configPath,
@@ -383,7 +383,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       ctx.idleSummaryDatabase.close();
       ctx.idleSummaryDatabase = null;
     }
-    void ctx.managedLlamaFlushQueue.close();
+    void ctx.inferenceRunFlushQueue.close();
     closeRuntimeDatabase();
   });
   server.shutdownManagedLlamaForServerExit = () => shutdownManagedLlamaForServerExit(ctx);
