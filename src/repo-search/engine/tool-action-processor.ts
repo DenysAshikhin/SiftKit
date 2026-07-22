@@ -35,6 +35,7 @@ import {
   planRead,
   type RepoToolExecution,
 } from './repo-tools.js';
+import type { ApprovalGate } from './approval-gate.js';
 import { DuplicateTracker } from './duplicate-tracker.js';
 import { FORCED_FINISH_MAX_ATTEMPTS, FORCED_FINISH_MODE_MESSAGE, ForcedFinishController } from './forced-finish.js';
 import { ProgressReporter } from './progress-reporter.js';
@@ -103,6 +104,7 @@ export type ToolActionProcessorDeps = {
   timingRecorder: TemporaryTimingRecorder | null;
   maxInvalidResponses: number;
   allowedPlannerToolNames: string[];
+  approvalGate: ApprovalGate | null;
   chatWebGroundingEnabled: boolean;
   chatWebGroundingPolicy: ChatGroundingPolicy;
   ignorePolicy: IgnorePolicy;
@@ -228,6 +230,34 @@ export class ToolActionProcessor {
       return screened;
     }
 
+    if (this.deps.approvalGate) {
+      const decision = await this.deps.approvalGate.request({
+        turn,
+        toolName: normalizedToolName,
+        command,
+      });
+      if (decision.kind === 'abort') {
+        throw new Error('Aborted by user.');
+      }
+      if (decision.kind === 'deny') {
+        counters.safetyRejects += 1;
+        const reason = decision.reason ? `user denied — ${decision.reason}` : 'user denied this command';
+        const rejection = `Rejected command: ${reason}`;
+        commands.push({ command, turn, safe: false, reason, exitCode: null, output: rejection });
+        state.batchOutcomes.push({
+          action: buildEffectiveTranscriptAction({
+            toolName: normalizedToolName,
+            rawArgs: toolAction.args,
+            isNativeTool,
+            commandToRun: command,
+          }),
+          toolCallId: `denied_call_${commands.length}`,
+          toolContent: rejection,
+        });
+        return 'next';
+      }
+    }
+
     const nativeExecution = isNativeTool
       ? await this.runNativeExecution(normalizedToolName, toolAction, command)
       : null;
@@ -260,6 +290,16 @@ export class ToolActionProcessor {
         toolContent: unsupportedToolMessage,
       });
       return this.logInvalidAction(turn, toolAction, unsupportedToolMessage);
+    }
+    if (!this.deps.allowedPlannerToolNames.includes(normalizedToolName)) {
+      counters.invalidResponses += 1;
+      const disallowedToolMessage = `Invalid action: tool "${normalizedToolName}" is not enabled for this run. Use one of: ${this.deps.allowedPlannerToolNames.join(', ')}.`;
+      state.batchOutcomes.push({
+        action: { tool_name: normalizedToolName, args: toolAction.args },
+        toolCallId: `invalid_call_${counters.invalidResponses}`,
+        toolContent: disallowedToolMessage,
+      });
+      return this.logInvalidAction(turn, toolAction, disallowedToolMessage);
     }
     const command = isCommandTool
       ? (typeof toolAction.args.command === 'string' ? toolAction.args.command : '')

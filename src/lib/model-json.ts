@@ -55,7 +55,7 @@ type ParsedModelObject = {
  * non-empty strings or the call is rejected; `optional` args are passed through untouched and
  * value-validated by engine/repo-tools.ts.
  */
-const REPO_TOOL_ARG_SPECS: Record<string, { requiredText: readonly string[]; optional: readonly string[] }> = {
+const REPO_TOOL_ARG_SPECS: Record<string, { requiredText: readonly string[]; requiredArray?: readonly string[]; optional: readonly string[] }> = {
   read: { requiredText: ['path'], optional: ['offset', 'limit'] },
   grep: {
     requiredText: ['pattern'],
@@ -63,6 +63,9 @@ const REPO_TOOL_ARG_SPECS: Record<string, { requiredText: readonly string[]; opt
   },
   find: { requiredText: ['pattern'], optional: ['path', 'limit'] },
   ls: { requiredText: [], optional: ['path', 'limit'] },
+  write: { requiredText: ['path', 'content'], optional: [] },
+  edit: { requiredText: ['path'], requiredArray: ['edits'], optional: [] },
+  run: { requiredText: ['command'], optional: ['timeout'] },
   web_search: { requiredText: ['query'], optional: ['timeFilter'] },
   web_fetch: { requiredText: ['url'], optional: [] },
 };
@@ -452,6 +455,13 @@ export class ModelJson {
         return null;
       }
       args[key] = value;
+    }
+    for (const key of argSpec.requiredArray ?? []) {
+      const rawValue = rawArgs[key];
+      if (!Array.isArray(rawValue) || rawValue.length === 0) {
+        return null;
+      }
+      args[key] = rawValue;
     }
     for (const key of argSpec.optional) {
       const rawValue = rawArgs[key];

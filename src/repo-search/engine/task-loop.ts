@@ -266,6 +266,7 @@ export class TaskLoop {
       timingRecorder: options.timingRecorder || null,
       maxInvalidResponses: this.maxInvalidResponses,
       allowedPlannerToolNames: this.allowedPlannerToolNames,
+      approvalGate: options.approvalGate ?? null,
       chatWebGroundingEnabled: this.chatWebGroundingEnabled,
       chatWebGroundingPolicy: this.chatWebGroundingPolicy,
       ignorePolicy: this.ignorePolicy,
