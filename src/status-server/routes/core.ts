@@ -7,7 +7,13 @@ import { z } from '../../lib/zod.js';
 import { toError } from '../../lib/errors.js';
 import { JsonRecordReader } from '../../lib/json-record-reader.js';
 import { parseJsonValueText } from '../../lib/json.js';
-import { JsonValueSchema, type JsonValue, type OptionalJsonValue } from '../../lib/json-types.js';
+import {
+  JsonValueSchema,
+  type JsonObject,
+  type JsonSerializable,
+  type JsonValue,
+  type OptionalJsonValue,
+} from '../../lib/json-types.js';
 import { LlamaCppClient } from '../../llm-protocol/llama-cpp-client.js';
 import { parseOptionalSummaryProvider } from '../../summary/types.js';
 import type {
@@ -92,6 +98,11 @@ import type {
   ServerContext,
   TerminalMetadataQueueItem,
 } from '../server-types.js';
+import {
+  StreamedOperationEndpoint,
+  type ParsedStreamedRequest,
+  type StreamedOperationStream,
+} from './streamed-operation-endpoint.js';
 
 const llamaCppClient = new LlamaCppClient();
 /** Folds the per-cycle terminal-metadata drain wait into an entry and a resume line. */
@@ -945,66 +956,45 @@ class RepoSearchEndpoint implements RouteEndpoint {
   }
 }
 
-class SummaryEndpoint implements RouteEndpoint {
-  async handle(
-    ctx: ServerContext,
-    req: IncomingMessage,
-    res: ServerResponse,
-    _match: RouteMatch,
-  ): Promise<void> {
-    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    let parsedBody: ReturnType<typeof parseJsonBody>;
-    try {
-      parsedBody = parseJsonBody(await readBody(req));
-    } catch {
-      sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return;
-    }
+type ParsedSummaryRoute = NonNullable<ReturnType<typeof parseSummaryRequest>>;
+
+class SummaryEndpoint extends StreamedOperationEndpoint<ParsedSummaryRoute> {
+  protected readonly lockKind = 'summary';
+  protected readonly taskKind = 'summary';
+
+  protected parseRequest(parsedBody: JsonObject): ParsedStreamedRequest<ParsedSummaryRoute> {
     const summaryRequest = parseSummaryRequest(parsedBody);
     if (!summaryRequest) {
-      sendJson(res, 400, { error: 'Expected question and inputText.' });
-      return;
+      return { ok: false, error: 'Expected question and inputText.' };
     }
+    return { ok: true, value: summaryRequest };
+  }
 
-    const serviceBaseUrl = ctx.getServiceBaseUrl();
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'summary', req, res);
-    if (!modelRequestLock) {
-      if (!res.destroyed && !res.writableEnded) {
-        sendJson(res, 503, { error: 'Timed out waiting for model request queue.', modelRequests: getModelRequestQueueDiagnostics(ctx) });
-      }
-      return;
-    }
-    try {
-      try {
-        await ensureActivePresetReadyForModelRequest(ctx);
-      } catch (error) {
-        sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
-        return;
-      }
-      const result = await ctx.engineService.summarize({
-        question: summaryRequest.question,
-        inputText: summaryRequest.inputText,
-        format: summaryRequest.format,
-        policyProfile: summaryRequest.policyProfile,
-        backend: summaryRequest.backend,
-        model: summaryRequest.model,
-        sourceKind: summaryRequest.sourceKind,
-        commandExitCode: summaryRequest.commandExitCode,
-        requestTimeoutSeconds: summaryRequest.requestTimeoutSeconds,
-        timing: summaryRequest.timing,
-        promptPrefix: summaryRequest.promptPrefix,
-        llamaCppOverrides: summaryRequest.llamaCppOverrides,
-        statusBackendUrl: `${serviceBaseUrl}/status`,
-        config: readConfig(configPath),
-      });
-      sendJson(res, 200, result);
-    } catch (error) {
-      sendServerErrorJson(req, res, 500, error, { taskKind: 'summary' });
-    } finally {
-      releaseModelRequest(ctx, modelRequestLock.token);
-    }
-    return;
+  protected async execute(
+    ctx: ServerContext,
+    summaryRequest: ParsedSummaryRoute,
+    stream: StreamedOperationStream,
+  ): Promise<JsonSerializable> {
+    return ctx.engineService.summarize({
+      question: summaryRequest.question,
+      inputText: summaryRequest.inputText,
+      format: summaryRequest.format,
+      policyProfile: summaryRequest.policyProfile,
+      backend: summaryRequest.backend,
+      model: summaryRequest.model,
+      sourceKind: summaryRequest.sourceKind,
+      commandExitCode: summaryRequest.commandExitCode,
+      requestTimeoutSeconds: summaryRequest.requestTimeoutSeconds,
+      timing: summaryRequest.timing,
+      promptPrefix: summaryRequest.promptPrefix,
+      llamaCppOverrides: summaryRequest.llamaCppOverrides,
+      statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
+      config: readConfig(ctx.configPath),
+      abortSignal: stream.abortSignal,
+      onProgress(event) {
+        stream.emitProgress(event);
+      },
+    });
   }
 }
 
