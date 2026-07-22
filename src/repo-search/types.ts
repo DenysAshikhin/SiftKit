@@ -37,6 +37,9 @@ export type RepoSearchProgressEvent = {
   tokenizeTimeoutMs?: number;
   tokenizeRetryMaxWaitMs?: number;
   tokenizeStatus?: string;
+  requestId?: string;
+  approvalId?: string;
+  toolName?: string;
 };
 
 export type RepoSearchMockCommandResult = {
