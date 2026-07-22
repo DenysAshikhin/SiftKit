@@ -5,6 +5,7 @@ import type { Metrics } from './metrics.js';
 import type { JsonObject } from '../lib/json-types.js';
 import type { ManagedLlamaSpeculativeMetricsSnapshot } from './managed-llama.js';
 import type { InferenceRunStreamKind } from '../state/inference-runs.js';
+import type { LlamaRunRecorder } from './llama-run-recorder.js';
 import type { ManagedLlamaFlushQueue } from './managed-llama-flush-queue.js';
 import type { StatusEngineService } from './engine-service.js';
 import type { SiftConfig } from '../config/types.js';
@@ -57,13 +58,6 @@ export type ModelRequestQueueDiagnostics = {
   }>;
 };
 
-export type ManagedLlamaLogRef = {
-  runId: string;
-  purpose: string;
-  scriptPath: string | null;
-  baseUrl: string | null;
-};
-
 export type DeferredArtifact = {
   artifactType: 'summary_request' | 'planner_debug' | 'planner_failed';
   artifactRequestId: string;
@@ -77,7 +71,6 @@ export type TerminalMetadataQueueItem = {
   capturedAtMs: number;
 };
 
-export type SpawnedScript = { child: ChildProcess; logRef: ManagedLlamaLogRef };
 export type EnsureManagedLlamaOptions = { resetStatusBeforeCheck?: boolean; allowUnconfigured?: boolean };
 export type ShutdownManagedLlamaOptions = { force?: boolean; timeoutMs?: number };
 export type StartupReviewOptions = { result?: string; baseUrl?: string; errorMessage?: string };
@@ -143,7 +136,7 @@ export type ServerContext = {
   managedLlamaStartupPromise: Promise<void> | null;
   managedLlamaShutdownPromise: Promise<void> | null;
   managedLlamaHostProcess: ChildProcess | null;
-  managedLlamaLastStartupLogs: ManagedLlamaLogRef | null;
+  managedLlamaLastStartupLogs: LlamaRunRecorder | null;
   managedLlamaStarting: boolean;
   managedLlamaReady: boolean;
   managedLlamaStartupWarning: string | null;

@@ -408,20 +408,13 @@ test('managed llama log chunk retention uses created-at index', async () => {
 test('getManagedLlamaSpeculativeMetricsSince reads speculative totals from persisted startup script logs', async () => {
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
-    const logRef = {
-      runId: run.id,
-      purpose: 'startup',
-      scriptPath: 'fake-launcher.cmd',
-      baseUrl: 'http://127.0.0.1:8080',
-    };
-
     bufferInferenceRunLogChunk({
       runId: run.id,
       streamKind: 'launcher_stderr',
       chunkText: 'llama_decode: statistics ngram_map_k: #draft tokens = 21, #gen tokens = 18, #acc tokens = 12, #res tokens = 6\n',
     });
     flushInferenceRunLogChunks(run.id);
-    const cursor = getManagedLlamaLogCursor(logRef);
+    const cursor = getManagedLlamaLogCursor(run.id);
 
     bufferInferenceRunLogChunk({
       runId: run.id,
@@ -430,7 +423,7 @@ test('getManagedLlamaSpeculativeMetricsSince reads speculative totals from persi
     });
     flushInferenceRunLogChunks(run.id);
 
-    const parsed = getManagedLlamaSpeculativeMetricsSince(logRef, cursor);
+    const parsed = getManagedLlamaSpeculativeMetricsSince(run.id, cursor);
 
     assert.deepEqual(parsed, {
       speculativeAcceptedTokens: 12,
@@ -442,14 +435,7 @@ test('getManagedLlamaSpeculativeMetricsSince reads speculative totals from persi
 test('getManagedLlamaSpeculativeMetricsSince sums multiple speculative batches without double-counting paired rate lines', async () => {
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
-    const logRef = {
-      runId: run.id,
-      purpose: 'startup',
-      scriptPath: 'fake-launcher.cmd',
-      baseUrl: 'http://127.0.0.1:8080',
-    };
-
-    const cursor = getManagedLlamaLogCursor(logRef);
+    const cursor = getManagedLlamaLogCursor(run.id);
 
     bufferInferenceRunLogChunk({
       runId: run.id,
@@ -462,7 +448,7 @@ test('getManagedLlamaSpeculativeMetricsSince sums multiple speculative batches w
       ].join('\n') + '\n',
     });
 
-    const parsed = getManagedLlamaSpeculativeMetricsSince(logRef, cursor);
+    const parsed = getManagedLlamaSpeculativeMetricsSince(run.id, cursor);
 
     assert.deepEqual(parsed, {
       speculativeAcceptedTokens: 17,
@@ -474,13 +460,6 @@ test('getManagedLlamaSpeculativeMetricsSince sums multiple speculative batches w
 test('getManagedLlamaSpeculativeMetricsDelta subtracts the baseline from cumulative speculative totals', async () => {
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
-    const logRef = {
-      runId: run.id,
-      purpose: 'startup',
-      scriptPath: 'fake-launcher.cmd',
-      baseUrl: 'http://127.0.0.1:8080',
-    };
-
     bufferInferenceRunLogChunk({
       runId: run.id,
       streamKind: 'launcher_stderr',
@@ -489,7 +468,7 @@ test('getManagedLlamaSpeculativeMetricsDelta subtracts the baseline from cumulat
         'llama_decode: draft acceptance rate = 66.67% (12 / 18)',
       ].join('\n') + '\n',
     });
-    const snapshot = captureManagedLlamaSpeculativeMetricsSnapshot(logRef);
+    const snapshot = captureManagedLlamaSpeculativeMetricsSnapshot(run.id);
 
     bufferInferenceRunLogChunk({
       runId: run.id,
@@ -500,7 +479,7 @@ test('getManagedLlamaSpeculativeMetricsDelta subtracts the baseline from cumulat
       ].join('\n') + '\n',
     });
 
-    assert.deepEqual(getManagedLlamaSpeculativeMetricsDelta(logRef, snapshot), {
+    assert.deepEqual(getManagedLlamaSpeculativeMetricsDelta(run.id, snapshot), {
       speculativeAcceptedTokens: 8,
       speculativeGeneratedTokens: 12,
     });
@@ -510,13 +489,6 @@ test('getManagedLlamaSpeculativeMetricsDelta subtracts the baseline from cumulat
 test('getManagedLlamaSpeculativeMetricsDelta handles checkpointed speculative logs without llama_decode prefix', async () => {
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
-    const logRef = {
-      runId: run.id,
-      purpose: 'startup',
-      scriptPath: 'fake-launcher.cmd',
-      baseUrl: 'http://127.0.0.1:8080',
-    };
-
     bufferInferenceRunLogChunk({
       runId: run.id,
       streamKind: 'launcher_stderr',
@@ -524,7 +496,7 @@ test('getManagedLlamaSpeculativeMetricsDelta handles checkpointed speculative lo
         'statistics ngram_mod: #calls(b,g,a) = 20 2985 131, #gen drafts = 131, #acc drafts = 131, #gen tokens = 6168, #acc tokens = 5837',
       ].join('\n') + '\n',
     });
-    const snapshot = captureManagedLlamaSpeculativeMetricsSnapshot(logRef);
+    const snapshot = captureManagedLlamaSpeculativeMetricsSnapshot(run.id);
 
     bufferInferenceRunLogChunk({
       runId: run.id,
@@ -536,7 +508,7 @@ test('getManagedLlamaSpeculativeMetricsDelta handles checkpointed speculative lo
       ].join('\n') + '\n',
     });
 
-    assert.deepEqual(getManagedLlamaSpeculativeMetricsDelta(logRef, snapshot), {
+    assert.deepEqual(getManagedLlamaSpeculativeMetricsDelta(run.id, snapshot), {
       speculativeAcceptedTokens: 58,
       speculativeGeneratedTokens: 258,
     });
@@ -546,19 +518,12 @@ test('getManagedLlamaSpeculativeMetricsDelta handles checkpointed speculative lo
 test('getManagedLlamaSpeculativeMetricsDelta combines startup and llama streams for checkpointed totals', async () => {
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
-    const logRef = {
-      runId: run.id,
-      purpose: 'startup',
-      scriptPath: 'fake-launcher.cmd',
-      baseUrl: 'http://127.0.0.1:8080',
-    };
-
     bufferInferenceRunLogChunk({
       runId: run.id,
       streamKind: 'launcher_stdout',
       chunkText: 'statistics ngram_mod: #calls(b,g,a) = 20 2985 131, #gen drafts = 131, #acc drafts = 131, #gen tokens = 6168, #acc tokens = 5837\n',
     });
-    const snapshot = captureManagedLlamaSpeculativeMetricsSnapshot(logRef);
+    const snapshot = captureManagedLlamaSpeculativeMetricsSnapshot(run.id);
 
     bufferInferenceRunLogChunk({
       runId: run.id,
@@ -570,7 +535,7 @@ test('getManagedLlamaSpeculativeMetricsDelta combines startup and llama streams 
       ].join('\n') + '\n',
     });
 
-    assert.deepEqual(getManagedLlamaSpeculativeMetricsDelta(logRef, snapshot), {
+    assert.deepEqual(getManagedLlamaSpeculativeMetricsDelta(run.id, snapshot), {
       speculativeAcceptedTokens: 58,
       speculativeGeneratedTokens: 258,
     });

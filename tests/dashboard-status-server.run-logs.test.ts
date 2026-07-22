@@ -50,19 +50,19 @@ function seedRunHistoryFixtures(dbPath: string): void {
     insertArtifact.run('art-new', 'repo_search_artifact', 'req-new-01', 'new artifact', 'text', '2026-04-20T10:00:00.000Z', '2026-04-20T10:00:00.000Z');
 
     const insertManagedRun = database.prepare(`
-      INSERT INTO managed_llama_runs (id, purpose, base_url, status, started_at_utc, finished_at_utc, updated_at_utc)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO inference_runs (id, backend, purpose, base_url, status, started_at_utc, finished_at_utc, updated_at_utc)
+      VALUES (?, 'llama', ?, ?, ?, ?, ?, ?)
     `);
     insertManagedRun.run('mlr-old', 'startup', 'http://127.0.0.1:9001', 'ready', '2026-04-05T10:00:00.000Z', '2026-04-05T10:05:00.000Z', '2026-04-05T10:05:00.000Z');
     insertManagedRun.run('mlr-running', 'startup', 'http://127.0.0.1:9002', 'running', '2026-04-06T10:00:00.000Z', null, '2026-04-06T10:00:00.000Z');
     insertManagedRun.run('mlr-new', 'startup', 'http://127.0.0.1:9003', 'ready', '2026-04-25T10:00:00.000Z', '2026-04-25T10:05:00.000Z', '2026-04-25T10:05:00.000Z');
 
     const insertChunk = database.prepare(`
-      INSERT INTO managed_llama_log_chunks (run_id, stream_kind, sequence, chunk_text, created_at_utc)
+      INSERT INTO inference_run_log_chunks (run_id, stream_kind, sequence, chunk_text, created_at_utc)
       VALUES (?, ?, ?, ?, ?)
     `);
-    insertChunk.run('mlr-old', 'startup_script_stdout', 0, 'old chunk', '2026-04-05T10:00:00.000Z');
-    insertChunk.run('mlr-new', 'startup_script_stdout', 0, 'new chunk', '2026-04-25T10:00:00.000Z');
+    insertChunk.run('mlr-old', 'launcher_stdout', 0, 'old chunk', '2026-04-05T10:00:00.000Z');
+    insertChunk.run('mlr-new', 'launcher_stdout', 0, 'new chunk', '2026-04-25T10:00:00.000Z');
 
     const insertSnapshot = database.prepare(`
       INSERT INTO idle_summary_snapshots (
@@ -481,10 +481,10 @@ test('dashboard before_date all-type delete wipes run history across tables whil
     assert.equal(readRunLogRowCount(idleSummaryDbPath), 0);
     assert.equal(countRows(idleSummaryDbPath, 'SELECT COUNT(*) AS count FROM runtime_artifacts'), 2);
     assert.equal(countRows(idleSummaryDbPath, "SELECT COUNT(*) AS count FROM runtime_artifacts WHERE artifact_kind = 'benchmark_run'"), 1);
-    assert.equal(countRows(idleSummaryDbPath, 'SELECT COUNT(*) AS count FROM managed_llama_runs'), 2);
-    assert.equal(countRows(idleSummaryDbPath, "SELECT COUNT(*) AS count FROM managed_llama_runs WHERE id = 'mlr-running'"), 1);
-    assert.equal(countRows(idleSummaryDbPath, 'SELECT COUNT(*) AS count FROM managed_llama_log_chunks'), 1);
-    assert.equal(countRows(idleSummaryDbPath, "SELECT COUNT(*) AS count FROM managed_llama_log_chunks WHERE run_id = 'mlr-old'"), 0);
+    assert.equal(countRows(idleSummaryDbPath, 'SELECT COUNT(*) AS count FROM inference_runs'), 2);
+    assert.equal(countRows(idleSummaryDbPath, "SELECT COUNT(*) AS count FROM inference_runs WHERE id = 'mlr-running'"), 1);
+    assert.equal(countRows(idleSummaryDbPath, 'SELECT COUNT(*) AS count FROM inference_run_log_chunks'), 1);
+    assert.equal(countRows(idleSummaryDbPath, "SELECT COUNT(*) AS count FROM inference_run_log_chunks WHERE run_id = 'mlr-old'"), 0);
     assert.equal(countRows(idleSummaryDbPath, 'SELECT COUNT(*) AS count FROM idle_summary_snapshots'), 1);
     assert.equal(countRows(idleSummaryDbPath, 'SELECT COUNT(*) AS count FROM runtime_error_events'), 1);
   } finally {

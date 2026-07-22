@@ -530,7 +530,7 @@ function processTerminalMetadataBody(ctx: ServerContext, item: TerminalMetadataQ
       targetMetadata.chunkPath = runState.chunkPath;
     }
     const speculativeMetrics = getManagedLlamaSpeculativeMetricsDelta(
-      ctx.managedLlamaLastStartupLogs,
+      ctx.managedLlamaLastStartupLogs?.runId ?? null,
       runState.managedLlamaSpeculativeSnapshot,
     );
     if (speculativeMetrics) {
@@ -1268,7 +1268,7 @@ class StatusPostRequestHandler {
       clearRunState(this.ctx, activeRequestId);
     }
     const runState = this.buildActiveRunState(requestId, metadata, now);
-    runState.managedLlamaSpeculativeSnapshot = captureManagedLlamaSpeculativeMetricsSnapshot(this.ctx.managedLlamaLastStartupLogs);
+    runState.managedLlamaSpeculativeSnapshot = captureManagedLlamaSpeculativeMetricsSnapshot(this.ctx.managedLlamaLastStartupLogs?.runId ?? null);
     this.ctx.activeRunsByRequestId.set(requestId, runState);
     this.ctx.activeRequestIdByStatusPath.set(this.statusPath, requestId);
     return { elapsedMs: null, totalElapsedMs: null, requestCompleted: false, suppressLogLine: false };
@@ -1380,7 +1380,7 @@ class StatusPostRequestHandler {
     this.copyRunStateMetadata(targetMetadata, runState);
     this.applySpeculativeMetrics(requestId, sourceMetadata, targetMetadata, runState);
     if (sourceMetadata.terminalState === null) {
-      runState.managedLlamaSpeculativeSnapshot = captureManagedLlamaSpeculativeMetricsSnapshot(this.ctx.managedLlamaLastStartupLogs);
+      runState.managedLlamaSpeculativeSnapshot = captureManagedLlamaSpeculativeMetricsSnapshot(this.ctx.managedLlamaLastStartupLogs?.runId ?? null);
     } else if (sourceMetadata.terminalState === 'completed') {
       timing.totalElapsedMs = now - runState.overallStartedAt;
       targetMetadata.totalOutputTokens = runState.outputTokensTotal;
@@ -1409,7 +1409,7 @@ class StatusPostRequestHandler {
     runState: ActiveRunState,
   ): void {
     const speculativeMetrics = getManagedLlamaSpeculativeMetricsDelta(
-      this.ctx.managedLlamaLastStartupLogs,
+      this.ctx.managedLlamaLastStartupLogs?.runId ?? null,
       runState.managedLlamaSpeculativeSnapshot,
     );
     if (speculativeMetrics) {

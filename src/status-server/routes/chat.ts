@@ -453,7 +453,7 @@ function createChatTurnPhaseTracker(requestStartedAtUtc: string): {
 }
 
 function captureManagedLlamaSessionCursor(ctx: ServerContext) {
-  return captureManagedLlamaSpeculativeMetricsSnapshot(ctx.managedLlamaLastStartupLogs);
+  return captureManagedLlamaSpeculativeMetricsSnapshot(ctx.managedLlamaLastStartupLogs?.runId ?? null);
 }
 
 function readScorecardSpeculativeMetrics(scorecard: OptionalJsonValue): SessionSpeculativeMetrics {
@@ -473,7 +473,9 @@ function resolveSessionSpeculativeMetrics(
   cursor: ReturnType<typeof captureManagedLlamaSessionCursor>,
   fallback: Partial<SessionSpeculativeMetrics>,
 ): SessionSpeculativeMetrics {
-  const tracked = cursor ? getManagedLlamaSpeculativeMetricsDelta(ctx.managedLlamaLastStartupLogs, cursor) : null;
+  const tracked = cursor
+    ? getManagedLlamaSpeculativeMetricsDelta(ctx.managedLlamaLastStartupLogs?.runId ?? null, cursor)
+    : null;
   return {
     speculativeAcceptedTokens: tracked?.speculativeAcceptedTokens ?? fallback.speculativeAcceptedTokens ?? null,
     speculativeGeneratedTokens: tracked?.speculativeGeneratedTokens ?? fallback.speculativeGeneratedTokens ?? null,

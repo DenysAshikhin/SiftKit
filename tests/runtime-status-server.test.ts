@@ -257,7 +257,7 @@ test('real status server starts managed llama.cpp during server startup before s
       assert.equal(fs.existsSync(latestStartupDumpPath), true);
       const latestStartupDumpText = fs.readFileSync(latestStartupDumpPath, 'utf8');
       assert.match(latestStartupDumpText, /Result: ready/u);
-      assert.match(latestStartupDumpText, /startup_script_stdout/u);
+      assert.match(latestStartupDumpText, /launcher_stdout/u);
 
       const previousConfigUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
       const previousStatusUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
@@ -324,8 +324,8 @@ test('managed llama live stream logs flush after idle without model request rele
         try {
           const row = TextRowSchema.parse(database.prepare(`
             SELECT GROUP_CONCAT(chunk_text, '') AS text
-            FROM managed_llama_log_chunks
-            WHERE stream_kind = 'startup_script_stderr'
+            FROM inference_run_log_chunks
+            WHERE stream_kind = 'launcher_stderr'
           `).get());
           assert.ok(String(row?.text || '').includes(deferredLogLine));
         } finally {

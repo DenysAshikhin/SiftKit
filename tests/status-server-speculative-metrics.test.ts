@@ -46,18 +46,12 @@ import {
 test('managed llama speculative delta prefers cumulative token stats over rate lines in the same slice', async () => {
   await withTempEnv(async () => {
     const runId = 'repo-run-speculative-same-slice';
-    const logRef = {
-      runId,
-      purpose: 'startup',
-      scriptPath: 'mock-llama.exe',
-      baseUrl: 'http://127.0.0.1:8097',
-    };
     bufferInferenceRunLogChunk({
       runId,
       streamKind: 'launcher_stdout',
       chunkText: 'statistics ngram_mod: #calls(b,g,a) = 20 2985 131, #gen drafts = 131, #acc drafts = 131, #gen tokens = 6168, #acc tokens = 5837\n',
     });
-    const snapshot = captureManagedLlamaSpeculativeMetricsSnapshot(logRef);
+    const snapshot = captureManagedLlamaSpeculativeMetricsSnapshot(runId);
     assert.equal(snapshot?.latestSpeculativeAcceptedTokens, 5837);
     assert.equal(snapshot?.latestSpeculativeGeneratedTokens, 6168);
 
@@ -70,7 +64,7 @@ test('managed llama speculative delta prefers cumulative token stats over rate l
       ].join('\n') + '\n',
     });
 
-    const delta = getManagedLlamaSpeculativeMetricsDelta(logRef, snapshot);
+    const delta = getManagedLlamaSpeculativeMetricsDelta(runId, snapshot);
     assert.equal(delta?.speculativeAcceptedTokens, 4);
     assert.equal(delta?.speculativeGeneratedTokens, 32);
   });
@@ -79,13 +73,6 @@ test('managed llama speculative delta prefers cumulative token stats over rate l
 test('managed llama speculative snapshot prefers tracker state over persisted log text', async () => {
   await withTempEnv(async () => {
     const run = createInferenceRun({ id: 'tracker-preferred-run', backend: 'llama', purpose: 'startup' });
-    const logRef = {
-      runId: run.id,
-      purpose: 'startup',
-      scriptPath: 'mock-llama.exe',
-      baseUrl: 'http://127.0.0.1:8097',
-    };
-
     bufferInferenceRunLogChunk({
       runId: run.id,
       streamKind: 'launcher_stdout',
@@ -98,7 +85,7 @@ test('managed llama speculative snapshot prefers tracker state over persisted lo
       streamKind: 'launcher_stdout',
       chunkText: 'statistics ngram_mod: #gen tokens = 6168, #acc tokens = 5837\n',
     });
-    const snapshot = captureManagedLlamaSpeculativeMetricsSnapshot(logRef);
+    const snapshot = captureManagedLlamaSpeculativeMetricsSnapshot(run.id);
 
     assert.equal(snapshot?.latestSpeculativeAcceptedTokens, 5837);
     assert.equal(snapshot?.latestSpeculativeGeneratedTokens, 6168);
@@ -109,7 +96,7 @@ test('managed llama speculative snapshot prefers tracker state over persisted lo
       chunkText: 'statistics ngram_mod: #gen tokens = 6426, #acc tokens = 5895\n',
     });
 
-    assert.deepEqual(getManagedLlamaSpeculativeMetricsDelta(logRef, snapshot), {
+    assert.deepEqual(getManagedLlamaSpeculativeMetricsDelta(run.id, snapshot), {
       speculativeAcceptedTokens: 58,
       speculativeGeneratedTokens: 258,
     });
@@ -150,7 +137,7 @@ test('real status server uses managed llama cumulative speculative delta for rep
       try {
         const startupRun = StartupRunRowSchema.parse(database.prepare(`
           SELECT id
-          FROM managed_llama_runs
+          FROM inference_runs
           ORDER BY started_at_utc DESC, id DESC
           LIMIT 1
         `).get());
@@ -160,12 +147,7 @@ test('real status server uses managed llama cumulative speculative delta for rep
           const startupLogs = readInferenceRunLogTextByStream(startupRunId);
           assert.match(String(startupLogs.launcher_stdout || ''), /#gen tokens = 6168/u);
         }, 5000);
-        managedLlamaSnapshot = captureManagedLlamaSpeculativeMetricsSnapshot({
-          runId: startupRunId,
-          purpose: 'startup',
-          scriptPath: managed.executablePath,
-          baseUrl: managed.baseUrl,
-        });
+        managedLlamaSnapshot = captureManagedLlamaSpeculativeMetricsSnapshot(startupRunId);
         assert.equal(managedLlamaSnapshot?.latestSpeculativeAcceptedTokens, 5837);
         assert.equal(managedLlamaSnapshot?.latestSpeculativeGeneratedTokens, 6168);
         upsertRepoSearchRun({
@@ -227,12 +209,8 @@ test('real status server uses managed llama cumulative speculative delta for rep
           'statistics ngram_mod: #calls(b,g,a) = 26 5746 137, #gen drafts = 137, #acc drafts = 137, #gen tokens = 6426, #acc tokens = 5895',
         ].join('\n') + '\n',
       });
-      const managedLlamaDelta = getManagedLlamaSpeculativeMetricsDelta({
-        runId: startupRunId,
-        purpose: 'startup',
-        scriptPath: managed.executablePath,
-        baseUrl: managed.baseUrl,
-      }, managedLlamaSnapshot);
+      const managedLlamaDelta = getManagedLlamaSpeculativeMetricsDelta(
+        startupRunId, managedLlamaSnapshot);
       assert.equal(managedLlamaDelta?.speculativeAcceptedTokens, 58);
       assert.equal(managedLlamaDelta?.speculativeGeneratedTokens, 258);
 
