@@ -19,6 +19,8 @@ export async function startHarness(namePrefix: string): Promise<StreamedOperatio
     SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
     SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
     SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+    SIFTKIT_CONFIG_SERVICE_URL: process.env.SIFTKIT_CONFIG_SERVICE_URL,
+    SIFTKIT_STATUS_BACKEND_URL: process.env.SIFTKIT_STATUS_BACKEND_URL,
   };
   process.env.sift_kit_status = statusPath;
   process.env.SIFTKIT_STATUS_PATH = statusPath;
@@ -27,8 +29,11 @@ export async function startHarness(namePrefix: string): Promise<StreamedOperatio
   process.env.SIFTKIT_STATUS_PORT = '0';
   const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 50 });
   await server.startupPromise;
+  const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
+  process.env.SIFTKIT_CONFIG_SERVICE_URL = `${baseUrl}/config`;
+  process.env.SIFTKIT_STATUS_BACKEND_URL = `${baseUrl}/status`;
   return {
-    baseUrl: `http://127.0.0.1:${getAddressInfo(server).port}`,
+    baseUrl,
     async close() {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
       process.chdir(previousCwd);

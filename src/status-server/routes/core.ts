@@ -691,61 +691,42 @@ class StatusReadEndpoint implements RouteEndpoint {
   }
 }
 
-class CommandOutputAnalyzeEndpoint implements RouteEndpoint {
-  async handle(
+type ParsedCommandOutputRoute = { parsedBody: JsonObject };
+
+class CommandOutputAnalyzeEndpoint extends StreamedOperationEndpoint<ParsedCommandOutputRoute> {
+  protected readonly lockKind = 'summary';
+  protected readonly taskKind = 'summary';
+
+  protected parseRequest(parsedBody: JsonObject): ParsedStreamedRequest<ParsedCommandOutputRoute> {
+    return { ok: true, value: { parsedBody } };
+  }
+
+  protected async execute(
     ctx: ServerContext,
-    req: IncomingMessage,
-    res: ServerResponse,
-    _match: RouteMatch,
-  ): Promise<void> {
-    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    let parsedBody: ReturnType<typeof parseJsonBody>;
-    try {
-      parsedBody = parseJsonBody(await readBody(req));
-    } catch {
-      sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return;
-    }
+    parsed: ParsedCommandOutputRoute,
+    stream: StreamedOperationStream,
+  ): Promise<JsonSerializable> {
+    const { parsedBody } = parsed;
     const reader = new JsonRecordReader(parsedBody);
-    const combinedText = typeof parsedBody.combinedText === 'string' ? parsedBody.combinedText : '';
-    const exitCode = reader.number('exitCode') ?? 1;
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'summary', req, res);
-    if (!modelRequestLock) {
-      if (!res.destroyed && !res.writableEnded) {
-        sendJson(res, 503, { error: 'Timed out waiting for model request queue.', modelRequests: getModelRequestQueueDiagnostics(ctx) });
-      }
-      return;
-    }
-    try {
-      try {
-        await ensureActivePresetReadyForModelRequest(ctx);
-      } catch (error) {
-        sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
-        return;
-      }
-      const result = await ctx.engineService.analyzeCommandOutput({
-        outputKind: normalizeCommandOutputKind(parsedBody.outputKind),
-        exitCode,
-        combinedText,
-        commandText: reader.optionalString('commandText'),
-        question: reader.optionalString('question'),
-        riskLevel: normalizeCommandOutputRiskLevel(parsedBody.riskLevel),
-        reducerProfile: normalizeCommandOutputReducerProfile(parsedBody.reducerProfile),
-        format: parsedBody.format === 'json' ? 'json' : 'text',
-        policyProfile: normalizeSummaryPolicyProfile(parsedBody.policyProfile),
-        backend: parseOptionalSummaryProvider(reader.optionalString('backend')),
-        model: reader.optionalString('model'),
-        noSummarize: parsedBody.noSummarize === true,
-        config: readConfig(configPath),
-      });
-      sendJson(res, 200, result);
-    } catch (error) {
-      sendServerErrorJson(req, res, 500, error, { taskKind: 'summary' });
-    } finally {
-      releaseModelRequest(ctx, modelRequestLock.token);
-    }
-    return;
+    return ctx.engineService.analyzeCommandOutput({
+      outputKind: normalizeCommandOutputKind(parsedBody.outputKind),
+      exitCode: reader.number('exitCode') ?? 1,
+      combinedText: typeof parsedBody.combinedText === 'string' ? parsedBody.combinedText : '',
+      commandText: reader.optionalString('commandText'),
+      question: reader.optionalString('question'),
+      riskLevel: normalizeCommandOutputRiskLevel(parsedBody.riskLevel),
+      reducerProfile: normalizeCommandOutputReducerProfile(parsedBody.reducerProfile),
+      format: parsedBody.format === 'json' ? 'json' : 'text',
+      policyProfile: normalizeSummaryPolicyProfile(parsedBody.policyProfile),
+      backend: parseOptionalSummaryProvider(reader.optionalString('backend')),
+      model: reader.optionalString('model'),
+      noSummarize: parsedBody.noSummarize === true,
+      config: readConfig(ctx.configPath),
+      abortSignal: stream.abortSignal,
+      onProgress(event) {
+        stream.emitProgress(event);
+      },
+    });
   }
 }
 
@@ -768,108 +749,78 @@ class PresetListEndpoint implements RouteEndpoint {
   }
 }
 
-class PresetRunEndpoint implements RouteEndpoint {
-  async handle(
+type ParsedPresetRunRoute = { parsedBody: JsonObject };
+
+class PresetRunEndpoint extends StreamedOperationEndpoint<ParsedPresetRunRoute> {
+  protected readonly lockKind = 'summary';
+  protected readonly taskKind = 'summary';
+
+  protected parseRequest(parsedBody: JsonObject): ParsedStreamedRequest<ParsedPresetRunRoute> {
+    return { ok: true, value: { parsedBody } };
+  }
+
+  protected async execute(
     ctx: ServerContext,
-    req: IncomingMessage,
-    res: ServerResponse,
-    _match: RouteMatch,
-  ): Promise<void> {
-    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    let parsedBody: ReturnType<typeof parseJsonBody>;
-    try {
-      parsedBody = parseJsonBody(await readBody(req));
-    } catch {
-      sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return;
-    }
+    parsed: ParsedPresetRunRoute,
+    stream: StreamedOperationStream,
+  ): Promise<JsonSerializable> {
+    const { parsedBody } = parsed;
     const reader = new JsonRecordReader(parsedBody);
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'summary', req, res);
-    if (!modelRequestLock) {
-      if (!res.destroyed && !res.writableEnded) {
-        sendJson(res, 503, { error: 'Timed out waiting for model request queue.', modelRequests: getModelRequestQueueDiagnostics(ctx) });
-      }
-      return;
-    }
-    try {
-      try {
-        await ensureActivePresetReadyForModelRequest(ctx);
-      } catch (error) {
-        sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
-        return;
-      }
-      const result = await new StatusPresetRunner(ctx.engineService).run({
-        presetId: String(parsedBody.presetId || ''),
-        prompt: reader.optionalString('prompt'),
-        question: reader.optionalString('question'),
-        inputText: typeof parsedBody.inputText === 'string' ? parsedBody.inputText : undefined,
-        format: parsedBody.format === 'json' ? 'json' : 'text',
-        backend: parseOptionalSummaryProvider(reader.optionalString('backend')),
-        model: reader.optionalString('model'),
-        profile: reader.optionalString('profile'),
-        sourceKind: normalizeSummarySourceKind(parsedBody.sourceKind),
-        commandExitCode: reader.number('commandExitCode') ?? undefined,
-        repoRoot: reader.optionalString('repoRoot'),
-        maxTurns: reader.number('maxTurns') ?? undefined,
-        logFile: reader.optionalString('logFile'),
-      }, {
-        statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
-      });
-      sendJson(res, 200, result);
-    } catch (error) {
-      sendServerErrorJson(req, res, 500, error, { taskKind: 'summary' });
-    } finally {
-      releaseModelRequest(ctx, modelRequestLock.token);
-    }
-    return;
+    return new StatusPresetRunner(ctx.engineService).run({
+      presetId: String(parsedBody.presetId || ''),
+      prompt: reader.optionalString('prompt'),
+      question: reader.optionalString('question'),
+      inputText: typeof parsedBody.inputText === 'string' ? parsedBody.inputText : undefined,
+      format: parsedBody.format === 'json' ? 'json' : 'text',
+      backend: parseOptionalSummaryProvider(reader.optionalString('backend')),
+      model: reader.optionalString('model'),
+      profile: reader.optionalString('profile'),
+      sourceKind: normalizeSummarySourceKind(parsedBody.sourceKind),
+      commandExitCode: reader.number('commandExitCode') ?? undefined,
+      repoRoot: reader.optionalString('repoRoot'),
+      maxTurns: reader.number('maxTurns') ?? undefined,
+      logFile: reader.optionalString('logFile'),
+    }, {
+      statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
+      abortSignal: stream.abortSignal,
+      onSummaryProgress(event) {
+        stream.emitProgress(event);
+      },
+      onRepoSearchProgress(event) {
+        if (event.kind === 'thinking' || event.kind === 'answer') {
+          return;
+        }
+        stream.emitProgress(event);
+      },
+    });
   }
 }
 
-class EvalRunEndpoint implements RouteEndpoint {
-  async handle(
+type ParsedEvalRoute = { parsedBody: JsonObject };
+
+class EvalRunEndpoint extends StreamedOperationEndpoint<ParsedEvalRoute> {
+  protected readonly lockKind = 'summary';
+  protected readonly taskKind = 'summary';
+
+  protected parseRequest(parsedBody: JsonObject): ParsedStreamedRequest<ParsedEvalRoute> {
+    return { ok: true, value: { parsedBody } };
+  }
+
+  protected async execute(
     ctx: ServerContext,
-    req: IncomingMessage,
-    res: ServerResponse,
-    _match: RouteMatch,
-  ): Promise<void> {
-    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    let parsedBody: ReturnType<typeof parseJsonBody>;
-    try {
-      parsedBody = parseJsonBody(await readBody(req));
-    } catch {
-      sendJson(res, 400, { error: 'Expected valid JSON object.' });
-      return;
-    }
+    parsed: ParsedEvalRoute,
+    stream: StreamedOperationStream,
+  ): Promise<JsonSerializable> {
+    const { parsedBody } = parsed;
     const reader = new JsonRecordReader(parsedBody);
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'summary', req, res);
-    if (!modelRequestLock) {
-      if (!res.destroyed && !res.writableEnded) {
-        sendJson(res, 503, { error: 'Timed out waiting for model request queue.', modelRequests: getModelRequestQueueDiagnostics(ctx) });
-      }
-      return;
-    }
-    try {
-      try {
-        await ensureActivePresetReadyForModelRequest(ctx);
-      } catch (error) {
-        sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
-        return;
-      }
-      const result = await ctx.engineService.runEvaluation({
-        FixtureRoot: reader.optionalString('FixtureRoot'),
-        RealLogPath: Array.isArray(parsedBody.RealLogPath) ? parsedBody.RealLogPath.map((value) => String(value)) : [],
-        Backend: parseOptionalSummaryProvider(reader.optionalString('Backend')),
-        Model: reader.optionalString('Model'),
-      });
-      sendJson(res, 200, result);
-    } catch (error) {
-      sendServerErrorJson(req, res, 500, error, { taskKind: 'summary' });
-    } finally {
-      releaseModelRequest(ctx, modelRequestLock.token);
-    }
-    return;
+    return ctx.engineService.runEvaluation({
+      FixtureRoot: reader.optionalString('FixtureRoot'),
+      RealLogPath: Array.isArray(parsedBody.RealLogPath) ? parsedBody.RealLogPath.map((value) => String(value)) : [],
+      Backend: parseOptionalSummaryProvider(reader.optionalString('Backend')),
+      Model: reader.optionalString('Model'),
+    }, (event) => {
+      stream.emitProgress(event);
+    }, stream.abortSignal);
   }
 }
 

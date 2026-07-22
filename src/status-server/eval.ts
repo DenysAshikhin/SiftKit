@@ -6,6 +6,7 @@ import { parseJsonValueText } from '../lib/json.js';
 import { getConfiguredModel, initializeRuntime, loadConfig } from '../config/index.js';
 import { summarizeRequest } from '../summary/core.js';
 import { resolveSummaryProvider } from '../summary/types.js';
+import type { SummaryProgressEvent } from '../summary/progress-reporter.js';
 import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
 import { persistEvalResult } from '../state/runtime-results.js';
 import { findNearestSiftKitRepoRoot, moduleDirname } from '../lib/paths.js';
@@ -68,7 +69,11 @@ function getFixtureScore(summary: string, fixture: Fixture, sourceLength: number
   };
 }
 
-export async function runEvaluation(request: EvalRequest): Promise<EvaluationResult> {
+export async function runEvaluation(
+  request: EvalRequest,
+  onProgress?: (event: SummaryProgressEvent) => void,
+  abortSignal?: AbortSignal,
+): Promise<EvaluationResult> {
   const config = await loadConfig({ ensure: true });
   const backend = resolveSummaryProvider(request.Backend);
   const model = request.Model || getConfiguredModel(config);
@@ -91,6 +96,8 @@ export async function runEvaluation(request: EvalRequest): Promise<EvaluationRes
       model,
       policyProfile: fixture.PolicyProfile,
       sourceKind: 'standalone',
+      onProgress,
+      abortSignal,
     });
     const score = getFixtureScore(summaryResult.Summary, fixture, source.length);
 
@@ -127,6 +134,8 @@ export async function runEvaluation(request: EvalRequest): Promise<EvaluationRes
       model,
       policyProfile: 'general',
       sourceKind: 'standalone',
+      onProgress,
+      abortSignal,
     });
 
     results.push({

@@ -178,6 +178,8 @@ export class CommandOutputAnalyzer {
       commandExitCode: request.exitCode,
       debugCommand: request.commandText,
       config,
+      onProgress: request.onProgress,
+      abortSignal: request.abortSignal,
     });
     const summaryText = summaryResult.RawReviewRequired && summaryResult.Classification !== 'unsupported_input' && summaryResult.Summary.trim()
       ? `${summaryResult.Summary.trim()}\nRaw log: ${rawLogPath}`

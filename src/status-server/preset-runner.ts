@@ -21,8 +21,10 @@ import {
   type SiftPreset,
 } from '../presets.js';
 import type { RepoSearchExecutionResult } from '../repo-search/types.js';
+import type { RepoSearchProgressEvent } from './dashboard-runs.js';
 import type { ChatSession } from '../state/chat-sessions.js';
 import type { PlannerToolName, SummaryPolicyProfile } from '../summary/types.js';
+import type { SummaryProgressEvent } from '../summary/progress-reporter.js';
 import {
   buildChatSystemContent,
   buildPlanMarkdownFromRepoSearch,
@@ -35,6 +37,9 @@ import { normalizeRepoSearchResult } from './repo-search-scorecard-types.js';
 
 type PresetRunOptions = {
   statusBackendUrl: string;
+  onSummaryProgress?: (event: SummaryProgressEvent) => void;
+  onRepoSearchProgress?: (event: RepoSearchProgressEvent) => void;
+  abortSignal?: AbortSignal;
 };
 
 type ServerPresetConfig = SiftConfig;
@@ -174,6 +179,8 @@ export class StatusPresetRunner {
       commandExitCode: Number.isFinite(Number(request.commandExitCode)) ? Number(request.commandExitCode) : undefined,
       statusBackendUrl: options.statusBackendUrl,
       config,
+      onProgress: options.onSummaryProgress,
+      abortSignal: options.abortSignal,
     });
     return { outputText: result.Summary };
   }
@@ -218,6 +225,8 @@ export class StatusPresetRunner {
       history: [],
       thinkingEnabled: true,
       allowedTools: [],
+      onProgress: options.onRepoSearchProgress,
+      abortSignal: options.abortSignal,
     });
     return { outputText: getFinalOutput(result) };
   }
@@ -249,6 +258,8 @@ export class StatusPresetRunner {
       allowedTools: effectiveAllowedTools,
       includeAgentsMd: resolveEffectiveAgentsMd(config, preset),
       includeRepoFileListing: resolveEffectiveRepoFileListing(config, preset),
+      onProgress: options.onRepoSearchProgress,
+      abortSignal: options.abortSignal,
     });
     const outputText = preset.presetKind === 'plan'
       ? buildPlanMarkdownFromRepoSearch(prompt, repoRoot, result)

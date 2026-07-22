@@ -7,6 +7,7 @@ import {
   type SummaryProviderId,
   type SummarySourceKind,
 } from '../summary/types.js';
+import type { SummaryProgressEvent } from '../summary/progress-reporter.js';
 
 export type CommandOutputKind = 'command' | 'interactive';
 
@@ -29,6 +30,8 @@ export type CommandOutputAnalyzeRequest = {
   noSummarize?: boolean;
   shell?: ShellName;
   config?: SiftConfig;
+  onProgress?: (event: SummaryProgressEvent) => void;
+  abortSignal?: AbortSignal;
 };
 
 export const CommandOutputAnalyzeResultSchema = z.object({

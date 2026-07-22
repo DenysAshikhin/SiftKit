@@ -12,6 +12,7 @@ import type {
 } from '../repo-search/types.js';
 import { summarizeRequest } from '../summary/core.js';
 import type { SummaryRequest, SummaryResult } from '../summary/types.js';
+import type { SummaryProgressEvent } from '../summary/progress-reporter.js';
 
 export class StatusEngineService {
   private readonly commandOutputAnalyzer: CommandOutputAnalyzer;
@@ -32,7 +33,11 @@ export class StatusEngineService {
     return this.commandOutputAnalyzer.analyze(request);
   }
 
-  runEvaluation(request: EvalRequest): Promise<EvaluationResult> {
-    return runEvaluation(request);
+  runEvaluation(
+    request: EvalRequest,
+    onProgress?: (event: SummaryProgressEvent) => void,
+    abortSignal?: AbortSignal,
+  ): Promise<EvaluationResult> {
+    return runEvaluation(request, onProgress, abortSignal);
   }
 }
