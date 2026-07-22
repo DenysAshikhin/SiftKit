@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { getActiveModelPreset } from '../src/config/getters.js';
+import { startStubStatusServer } from './_runtime-helpers.js';
 import { DashboardTestServer } from './helpers/dashboard-server-fixture.js';
-import { FakeLlamaServer } from './helpers/fake-llama-server.js';
 import { asObject, requestJson, requestSse } from './helpers/dashboard-http.js';
 
 // A chat turn is reported to /status twice when both the dashboard route and the engine
@@ -15,7 +16,6 @@ const MOCK_FINISH_RESPONSE = `{"action":"finish","output":"${CHAT_ANSWER}"}`;
 
 // Draft-token counters only exist on a provider-reported usage block, so the speculative
 // case needs a real inference call. Same shape as tests/tabby-usage-metrics.e2e.test.ts.
-const BACKEND_MODEL = 'fake-model';
 const BACKEND_USAGE = {
   prompt_tokens: 123,
   prompt_tokens_details: { cached_tokens: 100 },
@@ -34,7 +34,7 @@ test('a model-backed chat turn contributes to runtime metrics exactly once', asy
       method: 'POST',
       body: JSON.stringify({ title: 'metrics' }),
     });
-    assert.equal(created.statusCode, 200);
+    assert.equal(created.statusCode, 200, JSON.stringify(created.body));
     const sessionId = String(asObject(created.body.session).id);
 
     const response = await requestJson(`${server.baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
@@ -45,7 +45,7 @@ test('a model-backed chat turn contributes to runtime metrics exactly once', asy
         mockResponses: [MOCK_FINISH_RESPONSE],
       }),
     });
-    assert.equal(response.statusCode, 200);
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
 
     const metrics = await server.readSettledMetrics(1);
     assert.equal(metrics.taskTotals.chat.inputCharactersTotal, CHAT_PROMPT.length, 'prompt characters counted twice');
@@ -66,7 +66,7 @@ test('a client-supplied assistant message still reaches runtime metrics', async 
       method: 'POST',
       body: JSON.stringify({ title: 'metrics-provided' }),
     });
-    assert.equal(created.statusCode, 200);
+    assert.equal(created.statusCode, 200, JSON.stringify(created.body));
     const sessionId = String(asObject(created.body.session).id);
 
     const response = await requestJson(`${server.baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
@@ -77,7 +77,7 @@ test('a client-supplied assistant message still reaches runtime metrics', async 
         assistantContent: CHAT_ANSWER,
       }),
     });
-    assert.equal(response.statusCode, 200);
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
 
     const metrics = await server.readSettledMetrics(1);
     assert.equal(metrics.taskTotals.chat.inputCharactersTotal, CHAT_PROMPT.length, 'the no-engine path must report itself');
@@ -89,21 +89,29 @@ test('a client-supplied assistant message still reaches runtime metrics', async 
 });
 
 test('chat speculative tokens reach runtime metrics totals', async () => {
-  const backend = await FakeLlamaServer.start({
-    model: BACKEND_MODEL,
-    assistantContent: MOCK_FINISH_RESPONSE,
-    usage: BACKEND_USAGE,
+  const backend = await startStubStatusServer({
+    tokenizeCharsPerToken: 4,
+    chatResponse: () => ({
+      id: 'chatcmpl-test',
+      object: 'chat.completion',
+      choices: [{ index: 0, message: { role: 'assistant', content: MOCK_FINISH_RESPONSE } }],
+      usage: BACKEND_USAGE,
+    }),
   });
+  // The stub advertises its own active preset on /v1/models, so the dashboard config
+  // has to request that exact model for the engine to accept it.
+  const backendModel = getActiveModelPreset(backend.state.config).Model;
+  assert.ok(backendModel);
   const server = await DashboardTestServer.start('siftkit-chat-metrics-spec-', {
-    baseUrl: backend.baseUrl,
-    model: BACKEND_MODEL,
+    baseUrl: `http://127.0.0.1:${backend.port}`,
+    model: backendModel,
   });
   try {
     const created = await requestJson(`${server.baseUrl}/dashboard/chat/sessions`, {
       method: 'POST',
       body: JSON.stringify({ title: 'metrics-spec' }),
     });
-    assert.equal(created.statusCode, 200);
+    assert.equal(created.statusCode, 200, JSON.stringify(created.body));
     const sessionId = String(asObject(created.body.session).id);
 
     const response = await requestJson(`${server.baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
@@ -129,7 +137,7 @@ test('a streamed chat turn contributes to runtime metrics exactly once', async (
       method: 'POST',
       body: JSON.stringify({ title: 'metrics-stream' }),
     });
-    assert.equal(created.statusCode, 200);
+    assert.equal(created.statusCode, 200, JSON.stringify(created.body));
     const sessionId = String(asObject(created.body.session).id);
 
     const sse = await requestSse(`${server.baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
@@ -143,7 +151,7 @@ test('a streamed chat turn contributes to runtime metrics exactly once', async (
         mockResponses: [MOCK_FINISH_RESPONSE],
       }),
     });
-    assert.equal(sse.statusCode, 200);
+    assert.equal(sse.statusCode, 200, JSON.stringify(sse.events));
     assert.equal(sse.events.some((event) => event.event === 'error'), false, JSON.stringify(sse.events));
 
     const metrics = await server.readSettledMetrics(1);

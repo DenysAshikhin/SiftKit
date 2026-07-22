@@ -2371,6 +2371,13 @@ test('chat completion replays prior tool evidence without hidden system context'
     assert.equal(sourceRunIds.length, 1);
     assert.ok(sourceRunIds.every((runId) => runId.length > 0));
     assert.equal(new Set(sourceRunIds).size, 1);
+    // sourceRunId is what message deletion uses to purge the matching run-log command,
+    // so it has to be the engine run id the run rows are keyed by, not a route-local id.
+    const chatRunId = sourceRunIds[0] || '';
+    await runtimeHelpers.waitForAsyncExpectation(async () => {
+      const chatRunDetail = await requestJson(`${baseUrl}/dashboard/runs/${encodeURIComponent(chatRunId)}`);
+      assert.equal(chatRunDetail.statusCode, 200, `chat sourceRunId ${chatRunId} resolves to no run`);
+    }, 5000);
     let statusMetrics: Dict = {};
     await runtimeHelpers.waitForAsyncExpectation(async () => {
       const statusAfterChat = await requestJson(`${baseUrl}/status`);

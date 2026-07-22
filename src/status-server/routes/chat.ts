@@ -15,7 +15,6 @@ import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { JsonRecordReader } from '../../lib/json-record-reader.js';
 import type { OptionalJsonValue, JsonSerializable } from '../../lib/json-types.js';
-import { getProcessedPromptTokens } from '../../lib/provider-helpers.js';
 import type { ChatGroundingStatus } from '../../repo-search/chat-grounding-policy.js';
 import { getRuntimeRoot } from '../paths.js';
 import { buildIgnorePolicy } from '../../repo-search/command-safety.js';
@@ -48,7 +47,6 @@ import {
   resolveChatSessionContextWindow,
   type ContextUsage,
   type ChatUsage,
-  type PersistToolMessage,
   type PersistTurn,
   appendChatMessagesWithUsage,
   buildChatSystemContent,
@@ -397,40 +395,6 @@ function resolveChatRepoRoot(request: { repoRoot?: string }, session: ChatSessio
   return resolve(request.repoRoot || readSessionRepoRoot(session));
 }
 
-async function notifyChatStatus(options: {
-  ctx: ServerContext;
-  requestId: string;
-  running: boolean;
-  promptChars: number;
-  terminalState?: 'completed' | 'failed';
-  errorMessage?: string;
-  inputTokens?: number | null;
-  outputChars?: number;
-  outputTokens?: number | null;
-  thinkingTokens?: number | null;
-  promptCacheTokens?: number | null;
-  promptEvalTokens?: number | null;
-  requestDurationMs?: number;
-}): Promise<void> {
-  await notifyStatusBackend({
-    running: options.running,
-    taskKind: 'chat',
-    statusBackendUrl: `${options.ctx.getServiceBaseUrl()}/status`,
-    requestId: options.requestId,
-    rawInputCharacterCount: options.running ? options.promptChars : undefined,
-    promptCharacterCount: options.promptChars,
-    terminalState: options.terminalState,
-    errorMessage: options.errorMessage,
-    inputTokens: options.inputTokens,
-    outputCharacterCount: options.outputChars,
-    outputTokens: options.outputTokens,
-    thinkingTokens: options.thinkingTokens,
-    promptCacheTokens: options.promptCacheTokens,
-    promptEvalTokens: options.promptEvalTokens,
-    requestDurationMs: options.requestDurationMs,
-  });
-}
-
 type SessionSpeculativeMetrics = {
   speculativeAcceptedTokens: number | null;
   speculativeGeneratedTokens: number | null;
@@ -701,6 +665,151 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
   }
 }
 
+type ChatTurnContent = {
+  assistantContent: string;
+  usage: Partial<ChatUsage>;
+  persistTurns: PersistTurn[];
+  sourceRunId: string | null;
+};
+
+/**
+ * One turn on the non-streaming chat message route. The two modes are separate flows:
+ * an engine turn is reported to /status by executeRepoSearch and correlates with the
+ * engine run id, while a client-supplied assistant message makes no engine call, so it
+ * reports itself and has no run to correlate with.
+ */
+class ChatMessageTurn {
+  private readonly requestId = randomUUID();
+  private readonly startedAt = Date.now();
+  private readonly requestStartedAtUtc = new Date(this.startedAt).toISOString();
+  private readonly managedLlamaCursor: ReturnType<typeof captureManagedLlamaSessionCursor>;
+
+  constructor(
+    private readonly ctx: ServerContext,
+    private readonly res: ServerResponse,
+    private readonly runtimeRoot: string,
+    private readonly session: ChatSession,
+    private readonly config: SiftConfig,
+    private readonly userContent: string,
+    private readonly mockResponses: string[] | undefined,
+  ) {
+    this.managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
+  }
+
+  async runEngineTurn(): Promise<void> {
+    const tokenConfig = getMockTokenConfig(this.config, this.mockResponses);
+    try {
+      const chatPreset = findPresetById(normalizePresets(this.config.Presets), this.session.presetId);
+      const result = await this.ctx.engineService.executeRepoSearch({
+        taskKind: 'chat',
+        prompt: this.userContent,
+        repoRoot: process.cwd(),
+        statusBackendUrl: `${this.ctx.getServiceBaseUrl()}/status`,
+        config: this.config,
+        systemPrompt: buildChatSystemContent(this.config, this.session, { promptPrefix: chatPreset?.promptPrefix || undefined }),
+        history: buildChatHistoryMessages(this.config, this.session),
+        thinkingEnabled: this.session.thinkingEnabled !== false,
+        allowedTools: [],
+        ...(this.mockResponses ? { mockResponses: this.mockResponses } : {}),
+      });
+      const scorecardTasks = normalizeRepoSearchScorecard(result.scorecard).tasks;
+      await this.persistAndRespond(tokenConfig, {
+        assistantContent: String(scorecardTasks[0]?.finalOutput || '').trim(),
+        usage: {
+          promptTokens: getScorecardTotal(result.scorecard, 'promptTokens'),
+          completionTokens: getScorecardTotal(result.scorecard, 'outputTokens'),
+          thinkingTokens: getScorecardTotal(result.scorecard, 'thinkingTokens'),
+          outputTokensEstimated: hasEstimatedScorecardTokens(result.scorecard, 'outputTokensEstimatedCount'),
+          thinkingTokensEstimated: hasEstimatedScorecardTokens(result.scorecard, 'thinkingTokensEstimatedCount'),
+          promptCacheTokens: getScorecardTotal(result.scorecard, 'promptCacheTokens'),
+          promptEvalTokens: getScorecardTotal(result.scorecard, 'promptEvalTokens'),
+          speculativeAcceptedTokens: getScorecardTotal(result.scorecard, 'speculativeAcceptedTokens'),
+          speculativeGeneratedTokens: getScorecardTotal(result.scorecard, 'speculativeGeneratedTokens'),
+        },
+        persistTurns: await countPersistTurnThinkingTokens(tokenConfig, buildPersistTurnsFromRepoSearchResult(result)),
+        // Run rows are keyed by the engine request id, so deleting a tool bubble later
+        // finds the run-log command to purge.
+        sourceRunId: String(result.requestId || ''),
+      });
+    } catch (error) {
+      this.sendFailure(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async runProvidedAssistantTurn(assistantContent: string): Promise<void> {
+    await this.notifyStatus({ running: true });
+    try {
+      await this.notifyStatus({
+        running: false,
+        terminalState: 'completed',
+        outputChars: assistantContent.length,
+      });
+      await this.persistAndRespond(getLocalTokenConfig(this.config), {
+        assistantContent,
+        usage: {},
+        persistTurns: [{ thinkingText: '', toolMessages: [] }],
+        sourceRunId: null,
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      await this.notifyStatus({ running: false, terminalState: 'failed', errorMessage, outputChars: 0 });
+      this.sendFailure(errorMessage);
+    }
+  }
+
+  private async persistAndRespond(tokenConfig: SiftConfig | undefined, turn: ChatTurnContent): Promise<void> {
+    const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(this.ctx, this.managedLlamaCursor);
+    const inputTokenCount = await countPersistedInputTokens(tokenConfig, this.userContent);
+    const sessionWithTelemetry = appendChatMessagesWithUsage(
+      this.runtimeRoot,
+      this.session,
+      this.userContent,
+      turn.assistantContent,
+      turn.usage,
+      {
+        turns: turn.persistTurns,
+        maintainPerStepThinking: shouldMaintainPerStepThinking(this.config, this.session),
+        inputTokens: inputTokenCount.tokenCount,
+        inputTokensEstimated: inputTokenCount.estimated,
+        requestDurationMs: Date.now() - this.startedAt,
+        requestStartedAtUtc: this.requestStartedAtUtc,
+        speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens ?? turn.usage.speculativeAcceptedTokens ?? null,
+        speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens ?? turn.usage.speculativeGeneratedTokens ?? null,
+        sourceRunId: turn.sourceRunId,
+      },
+    );
+    sendJson(this.res, 200, buildChatSessionResponse(this.config, sessionWithTelemetry));
+  }
+
+  private async notifyStatus(options: {
+    running: boolean;
+    terminalState?: 'completed' | 'failed';
+    errorMessage?: string;
+    outputChars?: number;
+  }): Promise<void> {
+    try {
+      await notifyStatusBackend({
+        running: options.running,
+        taskKind: 'chat',
+        statusBackendUrl: `${this.ctx.getServiceBaseUrl()}/status`,
+        requestId: this.requestId,
+        rawInputCharacterCount: options.running ? this.userContent.length : undefined,
+        promptCharacterCount: this.userContent.length,
+        terminalState: options.terminalState,
+        errorMessage: options.errorMessage,
+        outputCharacterCount: options.outputChars,
+        requestDurationMs: options.running ? undefined : Date.now() - this.startedAt,
+      });
+    } catch {
+      // Best-effort metrics notification.
+    }
+  }
+
+  private sendFailure(errorMessage: string): void {
+    sendJson(this.res, 500, { error: errorMessage });
+  }
+}
+
 class CreateChatMessageEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
@@ -730,7 +839,7 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
       sendJson(res, 400, { error: 'Expected content.' });
       return;
     }
-    const usesProvidedAssistantContent = Boolean(messageRequest.assistantContent);
+    const providedAssistantContent = messageRequest.assistantContent || '';
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat', req, res);
     if (!modelRequestLock) {
       return;
@@ -741,7 +850,7 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
       sendJson(res, 404, { error: 'Session not found.' });
       return;
     }
-    if (!usesProvidedAssistantContent) {
+    if (!providedAssistantContent) {
       try {
         await ensureActivePresetReadyForModelRequest(ctx);
       } catch (error) {
@@ -750,126 +859,21 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
         return;
       }
     }
-    const userContent = messageRequest.content;
-    const requestId = randomUUID();
-    const startedAt = Date.now();
-    const requestStartedAtUtc = new Date(startedAt).toISOString();
-    const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
     try {
-      // Engine-backed turns are reported to /status by executeRepoSearchRequest itself;
-      // only the client-supplied-assistant-content path has no engine call to report for.
-      if (usesProvidedAssistantContent) {
-        try {
-          await notifyChatStatus({
-            ctx,
-            requestId,
-            running: true,
-            promptChars: userContent.length,
-          });
-        } catch {
-          // Best-effort metrics notification.
-        }
-      }
-      let assistantContent: string;
-      let usage: Partial<ChatUsage>;
-      let persistTurns: { thinkingText: string; toolMessages: PersistToolMessage[] }[] = [{ thinkingText: '', toolMessages: [] }];
-      let groundingStatus: ChatGroundingStatus | null = null;
-      const config = readConfig(configPath);
-      const mockResponses = readRouteStringArray(new JsonRecordReader(parsedBody), 'mockResponses');
-      const tokenConfig = usesProvidedAssistantContent
-        ? getLocalTokenConfig(config)
-        : getMockTokenConfig(config, mockResponses);
-      if (usesProvidedAssistantContent) {
-        assistantContent = messageRequest.assistantContent || '';
-        usage = {};
+      const turn = new ChatMessageTurn(
+        ctx,
+        res,
+        runtimeRoot,
+        activeSession,
+        readConfig(configPath),
+        messageRequest.content,
+        readRouteStringArray(new JsonRecordReader(parsedBody), 'mockResponses'),
+      );
+      if (providedAssistantContent) {
+        await turn.runProvidedAssistantTurn(providedAssistantContent);
       } else {
-        const presets = normalizePresets(config.Presets);
-        const chatPreset = findPresetById(presets, activeSession.presetId);
-        const result = await ctx.engineService.executeRepoSearch({
-          taskKind: 'chat',
-          prompt: userContent,
-          repoRoot: process.cwd(),
-          statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
-          config,
-          systemPrompt: buildChatSystemContent(config, activeSession, { promptPrefix: chatPreset?.promptPrefix || undefined }),
-          history: buildChatHistoryMessages(config, activeSession),
-          thinkingEnabled: activeSession.thinkingEnabled !== false,
-          allowedTools: [],
-          ...(mockResponses ? { mockResponses } : {}),
-        });
-        const scorecardTasks = normalizeRepoSearchScorecard(result.scorecard).tasks;
-        assistantContent = String(scorecardTasks[0]?.finalOutput || '').trim();
-        groundingStatus = null;
-        usage = {
-          promptTokens: getScorecardTotal(result?.scorecard, 'promptTokens'),
-          completionTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
-          thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
-          outputTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'outputTokensEstimatedCount'),
-          thinkingTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'thinkingTokensEstimatedCount'),
-          promptCacheTokens: getScorecardTotal(result?.scorecard, 'promptCacheTokens'),
-          promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
-          speculativeAcceptedTokens: getScorecardTotal(result?.scorecard, 'speculativeAcceptedTokens'),
-          speculativeGeneratedTokens: getScorecardTotal(result?.scorecard, 'speculativeGeneratedTokens'),
-        };
-        persistTurns = await countPersistTurnThinkingTokens(tokenConfig, buildPersistTurnsFromRepoSearchResult(result));
+        await turn.runEngineTurn();
       }
-      if (usesProvidedAssistantContent) {
-        try {
-          await notifyChatStatus({
-            ctx,
-            requestId,
-            running: false,
-            promptChars: userContent.length,
-            terminalState: 'completed',
-            inputTokens: getProcessedPromptTokens(
-              usage.promptTokens,
-              usage.promptCacheTokens,
-              usage.promptEvalTokens,
-            ),
-            outputChars: assistantContent.length,
-            outputTokens: Number.isFinite(Number(usage.completionTokens)) ? Number(usage.completionTokens) : null,
-            thinkingTokens: Number.isFinite(Number(usage.thinkingTokens)) ? Number(usage.thinkingTokens) : null,
-            promptCacheTokens: Number.isFinite(Number(usage.promptCacheTokens)) ? Number(usage.promptCacheTokens) : null,
-            promptEvalTokens: Number.isFinite(Number(usage.promptEvalTokens)) ? Number(usage.promptEvalTokens) : null,
-            requestDurationMs: Date.now() - startedAt,
-          });
-        } catch {
-          // Best-effort metrics notification.
-        }
-      }
-      const speculativeMetrics = readManagedLlamaSessionSpeculativeMetrics(ctx, managedLlamaCursor);
-      const inputTokenCount = await countPersistedInputTokens(tokenConfig, userContent);
-      const sessionWithTelemetry = appendChatMessagesWithUsage(runtimeRoot, activeSession, userContent, assistantContent, usage, {
-        turns: persistTurns,
-        maintainPerStepThinking: shouldMaintainPerStepThinking(config, activeSession),
-        inputTokens: inputTokenCount.tokenCount,
-        inputTokensEstimated: inputTokenCount.estimated,
-        requestDurationMs: Date.now() - startedAt,
-        requestStartedAtUtc,
-        speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens ?? usage.speculativeAcceptedTokens ?? null,
-        speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens ?? usage.speculativeGeneratedTokens ?? null,
-        groundingStatus,
-        sourceRunId: requestId,
-      });
-      sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), sessionWithTelemetry));
-    } catch (error) {
-      if (usesProvidedAssistantContent) {
-        try {
-          await notifyChatStatus({
-            ctx,
-            requestId,
-            running: false,
-            promptChars: userContent.length,
-            terminalState: 'failed',
-            errorMessage: error instanceof Error ? error.message : String(error),
-            outputChars: 0,
-            requestDurationMs: Date.now() - startedAt,
-          });
-        } catch {
-          // Best-effort metrics notification.
-        }
-      }
-      sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
     }

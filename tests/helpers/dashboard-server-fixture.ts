@@ -26,6 +26,10 @@ const DASHBOARD_TEST_ENV_KEYS = [
   'SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS',
 ] as const;
 
+const METRICS_SETTLE_POLL_INTERVAL_MS = 25;
+const METRICS_SETTLE_QUIET_POLLS = 12;
+const METRICS_SETTLE_TIMEOUT_MS = 10_000;
+
 function sleep(delayMs: number): Promise<void> {
   return new Promise<void>((resolve) => { setTimeout(resolve, delayMs); });
 }
@@ -105,17 +109,29 @@ export class DashboardTestServer {
 
   /**
    * Terminal metadata drains off the request path, so a settled read needs both a
-   * lower bound and a quiet window — otherwise a duplicate post lands after the assert.
+   * lower bound and proof that nothing else is still landing — a duplicate post that
+   * arrives after the assert is exactly the bug these E2Es look for. Any change to the
+   * snapshot restarts the quiet window, so the wait tracks real writes instead of a
+   * fixed sleep.
    */
   async readSettledMetrics(minimumCompletedRequestCount: number): Promise<Metrics> {
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      if (this.readMetrics().completedRequestCount >= minimumCompletedRequestCount) {
-        break;
+    const deadline = Date.now() + METRICS_SETTLE_TIMEOUT_MS;
+    let previousSnapshot = '';
+    let unchangedPolls = 0;
+    while (Date.now() < deadline) {
+      const metrics = this.readMetrics();
+      const snapshot = JSON.stringify(metrics);
+      unchangedPolls = snapshot === previousSnapshot ? unchangedPolls + 1 : 0;
+      previousSnapshot = snapshot;
+      if (metrics.completedRequestCount >= minimumCompletedRequestCount && unchangedPolls >= METRICS_SETTLE_QUIET_POLLS) {
+        return metrics;
       }
-      await sleep(50);
+      await sleep(METRICS_SETTLE_POLL_INTERVAL_MS);
     }
-    await sleep(400);
-    return this.readMetrics();
+    throw new Error(
+      `Runtime metrics never settled at >= ${minimumCompletedRequestCount} completed requests `
+      + `within ${METRICS_SETTLE_TIMEOUT_MS} ms.`,
+    );
   }
 
   async close(): Promise<void> {

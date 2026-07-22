@@ -321,6 +321,33 @@ function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+/**
+ * Planner turns request `stream: true` whenever progress reporting is on, which is
+ * every engine-backed call. Replay the completion body the stub would have sent as
+ * SSE deltas so streamed and non-streamed callers see identical content and usage.
+ */
+function sendChatCompletionSse(res: http.ServerResponse, body: JsonObject): void {
+  const choices = Array.isArray(body.choices) ? body.choices : [];
+  const firstChoice = isJsonObject(choices[0]) ? choices[0] : {};
+  const message = isJsonObject(firstChoice.message) ? firstChoice.message : {};
+  const reasoningContent = typeof message.reasoning_content === 'string' ? message.reasoning_content : '';
+  const content = typeof message.content === 'string' ? message.content : '';
+  const writePacket = (packet: JsonObject): void => { res.write(`data: ${JSON.stringify(packet)}\n\n`); };
+  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+  if (reasoningContent) {
+    writePacket({ choices: [{ index: 0, delta: { reasoning_content: reasoningContent } }] });
+  }
+  if (content) {
+    writePacket({ choices: [{ index: 0, delta: { content } }] });
+  }
+  writePacket({
+    choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+    ...(body.usage === undefined ? {} : { usage: body.usage }),
+  });
+  res.write('data: [DONE]\n\n');
+  res.end();
+}
+
 async function removeDirectoryWithRetries(targetPath: string, attempts = 300, delayMs = 100): Promise<void> {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
@@ -732,29 +759,31 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
       const configuredChatResponse = typeof options.chatResponse === 'function'
         ? options.chatResponse(String(promptText), parsed, state.chatRequests.length)
         : null;
-      if (configuredChatResponse && typeof configuredChatResponse === 'object') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(configuredChatResponse));
+      const chatResponseBody = configuredChatResponse && typeof configuredChatResponse === 'object'
+        ? configuredChatResponse
+        : {
+          id: 'chatcmpl-test',
+          object: 'chat.completion',
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: assistantContent,
+                ...(typeof configuredReasoningContent === 'string'
+                  ? { reasoning_content: configuredReasoningContent }
+                  : {}),
+              },
+            },
+          ],
+          ...(usage ? { usage } : {}),
+        };
+      if (parsed.stream === true) {
+        sendChatCompletionSse(res, chatResponseBody);
         return;
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
-        id: 'chatcmpl-test',
-        object: 'chat.completion',
-        choices: [
-          {
-            index: 0,
-            message: {
-              role: 'assistant',
-              content: assistantContent,
-              ...(typeof configuredReasoningContent === 'string'
-                ? { reasoning_content: configuredReasoningContent }
-                : {}),
-            },
-          },
-        ],
-        ...(usage ? { usage } : {}),
-      }));
+      res.end(JSON.stringify(chatResponseBody));
       return;
     }
 
