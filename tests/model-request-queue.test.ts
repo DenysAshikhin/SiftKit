@@ -79,6 +79,7 @@ function createQueueContext(configPath = 'config.json'): ServerContext & { reado
     },
     metrics: getDefaultMetrics(),
     activeRunsByRequestId: new Map(),
+    approvalGates: new Map(),
     activeRequestIdByStatusPath: new Map(),
     completedRequestIdByStatusPath: new Map(),
     activeModelRequest: null,
