@@ -51,6 +51,17 @@ test('executeRepoCommand returns mock results and honors delayMs ordering', asyn
   assert.deepEqual(result, { exitCode: 2, output: 'outerr' });
 });
 
+test('executeRepoCommand sets SIFTKIT_AGENT_RUN_ID in spawned command env', async () => {
+  const result = await executeRepoCommand(
+    'Write-Output $env:SIFTKIT_AGENT_RUN_ID',
+    process.cwd(),
+    null,
+    'run-abc-123',
+  );
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.output, 'run-abc-123');
+});
+
 test('executeRepoCommand rejects when the abort signal fires during a delayed mock', async () => {
   const controller = new AbortController();
   const pending = executeRepoCommand(
