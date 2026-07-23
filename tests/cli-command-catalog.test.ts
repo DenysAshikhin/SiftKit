@@ -40,3 +40,15 @@ test('registered public command exposes its server and model-lock behavior', () 
   });
   assert.deepEqual(invocation.args, ['--prompt', 'inspect']);
 });
+
+test('catalog lists every exposed command in definition order', () => {
+  assert.deepEqual(CLI_COMMAND_CATALOG.exposedCommandNames, [
+    'summary',
+    'repo-search',
+    'repo-agent',
+    'preset',
+    'run',
+    'find-files',
+    'internal',
+  ]);
+});

@@ -1,16 +1,10 @@
-export type CliCommandDefinition = {
-  name: string;
+type CliCommandMetadata = {
   exposed: boolean;
   serverDependent: boolean;
   modelLock: boolean;
 };
 
-export type CliCommandInvocation = {
-  command: CliCommandDefinition;
-  args: string[];
-};
-
-const CLI_COMMAND_DEFINITIONS: CliCommandDefinition[] = [
+const CLI_COMMAND_DEFINITIONS = [
   { name: 'summary', exposed: true, serverDependent: true, modelLock: true },
   { name: 'repo-search', exposed: true, serverDependent: true, modelLock: true },
   { name: 'repo-agent', exposed: true, serverDependent: true, modelLock: true },
@@ -26,17 +20,31 @@ const CLI_COMMAND_DEFINITIONS: CliCommandDefinition[] = [
   { name: 'config-get', exposed: false, serverDependent: true, modelLock: false },
   { name: 'config-set', exposed: false, serverDependent: true, modelLock: false },
   { name: 'capture-internal', exposed: false, serverDependent: true, modelLock: false },
-];
+] as const satisfies readonly ({ name: string } & CliCommandMetadata)[];
+
+export type CliCommandName = (typeof CLI_COMMAND_DEFINITIONS)[number]['name'];
+export type CliCommandDefinition = (typeof CLI_COMMAND_DEFINITIONS)[number];
+
+export type CliCommandInvocation = {
+  command: CliCommandDefinition;
+  args: string[];
+};
 
 export class CliCommandCatalog {
   private readonly definitionsByName = new Map<string, CliCommandDefinition>();
   private readonly summaryDefinition: CliCommandDefinition;
   private readonly repoSearchDefinition: CliCommandDefinition;
+  readonly exposedCommandNames: readonly CliCommandName[];
 
   constructor(definitions: readonly CliCommandDefinition[]) {
+    const exposedCommandNames: CliCommandName[] = [];
     for (const definition of definitions) {
       this.definitionsByName.set(definition.name, definition);
+      if (definition.exposed) {
+        exposedCommandNames.push(definition.name);
+      }
     }
+    this.exposedCommandNames = exposedCommandNames;
     const summaryDefinition = this.definitionsByName.get('summary');
     if (!summaryDefinition) {
       throw new Error('CLI command catalog requires summary.');

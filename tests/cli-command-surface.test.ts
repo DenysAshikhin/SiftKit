@@ -20,7 +20,12 @@ test('blocked public commands are not accessible', async () => {
       stderr: stderr.stream,
     });
     assert.equal(code, 1);
-    assert.match(stderr.read(), /not exposed in this CLI build/u);
+    const errorText = stderr.read();
+    assert.match(errorText, /not exposed in this CLI build/u);
+    assert.match(
+      errorText,
+      /Available commands: summary, repo-search, repo-agent, preset, run, find-files, internal, help\./u,
+    );
   }
 });
 

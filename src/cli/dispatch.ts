@@ -43,7 +43,10 @@ export async function runCli(options: CliRunOptions): Promise<number> {
     return 1;
   }
   if (!invocation.command.exposed) {
-    stderr.write(`Command '${options.argv[0]}' is not exposed in this CLI build. Available commands: summary, repo-search, preset, run, help.\n`);
+    const availableCommands = [...CLI_COMMAND_CATALOG.exposedCommandNames, 'help'].join(', ');
+    stderr.write(
+      `Command '${options.argv[0]}' is not exposed in this CLI build. Available commands: ${availableCommands}.\n`,
+    );
     return 1;
   }
   const commandHelpRequested = commandArgs.some((token) => token === '-h' || token === '--h' || token === '--help' || token === '-help');
