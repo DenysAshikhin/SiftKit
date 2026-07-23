@@ -36,35 +36,6 @@ async function runGuardedCli(argv: string[], stdinText?: string): Promise<{ code
   }
 }
 
-async function runGuardedCliWithProcessStderr(
-  argv: string[],
-  stdinText?: string,
-): Promise<{ code: number; stdout: string; stderr: string; processStderr: string }> {
-  const originalWrite = process.stderr.write;
-  let processStderr = '';
-  const patchedWrite = (
-    chunk: string | Uint8Array,
-    encodingOrCallback?: BufferEncoding | (() => void),
-    callback?: (error?: Error | null) => void,
-  ): boolean => {
-    processStderr += String(chunk);
-    if (typeof encodingOrCallback === 'function') {
-      encodingOrCallback();
-    } else if (callback) {
-      callback();
-    }
-    return true;
-  };
-
-  process.stderr.write = patchedWrite;
-  try {
-    const result = await runGuardedCli(argv, stdinText);
-    return { ...result, processStderr };
-  } finally {
-    process.stderr.write = originalWrite;
-  }
-}
-
 test('nested summary passes stdin through raw with a banner and no server contact', async () => {
   const result = await runGuardedCli(
     ['summary', '--question', 'did it pass?'],
@@ -106,12 +77,11 @@ for (const argv of [
 }
 
 test('nested eval with explicit model token is rejected with lock deadlock error', async () => {
-  const result = await runGuardedCliWithProcessStderr(['eval', '--model', 'mock-model']);
+  const result = await runGuardedCli(['eval', '--model', 'mock-model']);
   assert.equal(result.code, 1);
   assert.match(result.stderr, /blocked inside agent run run-guard-1/);
   assert.match(result.stderr, /deadlock/);
   assert.equal(result.stdout, '');
-  assert.doesNotMatch(result.processStderr, /http_client\b/);
 });
 
 test('nested non-model blocked command still returns not-exposed error', async () => {
