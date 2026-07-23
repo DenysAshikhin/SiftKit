@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, type Dirent } from 'node:fs';
 import { join } from 'node:path';
 import { z } from '../lib/zod.js';
+import { RUN_SHELL_LABEL } from '../lib/powershell.js';
 import type { IgnorePolicy } from './command-safety.js';
 
 // ---------------------------------------------------------------------------
@@ -308,10 +309,12 @@ export function buildAgentSystemPrompt(repoRoot: string, options?: {
     '- web_search / web_fetch: consult the public web only when external/current info is needed.',
     '- write: create a file or fully overwrite one (creates parent dirs).',
     '- edit: exact-text replacement in an existing file; each oldText must match a unique, non-overlapping region.',
-    '- run: execute a shell command in the repository root; returns stdout and stderr.',
+    `- run: execute a ${RUN_SHELL_LABEL} command in the repository root; returns stdout and stderr.`,
     '',
     'Guidelines:',
     '- Be concise. Show file paths clearly when working with files.',
+    `- \`run\` executes in ${RUN_SHELL_LABEL}: use PowerShell syntax (Select-Object -Last N, Select-String, Get-Content -Tail N). Unix (tail/head/grep) and cmd (\`&\`, \`%ERRORLEVEL%\`) are NOT available.`,
+    '- Long `run` output is truncated to its TAIL, so the final summary/errors survive — read the command output directly; never pipe to Select-Object -Last or redirect to a temp file to see the end.',
     '- Prefer `edit` (exact replacement) over `write` for existing files; use `write` only for new files or full rewrites.',
     '- Read a file before editing it; re-read after large edits to confirm the result.',
     '- Use `run` to verify changes (build, tests, lint) whenever a relevant check exists.',

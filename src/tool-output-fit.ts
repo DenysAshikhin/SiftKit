@@ -1,5 +1,10 @@
 export type ToolOutputTruncationUnit = 'lines' | 'files' | 'results' | 'characters';
 
+// Which end of the output survives truncation. 'head' keeps the first segments
+// (correct for offset-based reads and search hits); 'tail' keeps the last
+// segments (correct for command output whose verdict/errors land at the end).
+export type ToolOutputKeep = 'head' | 'tail';
+
 export type ToolOutputFitResult = {
   visibleText: string;
   returnedLineCount: number;
@@ -13,6 +18,7 @@ export type ToolOutputFitInput = {
   separator: string;
   maxTokens: number;
   unit: ToolOutputTruncationUnit;
+  keep: ToolOutputKeep;
 };
 
 export type ToolOutputTokenCounter = {
@@ -80,13 +86,26 @@ export class ToolOutputFitter {
     if (headerText) {
       parts.push(headerText);
     }
-    const body = input.segments.slice(0, segmentCount).join(input.separator).trim();
+    const total = input.segments.length;
+    const truncatedCount = total - segmentCount;
+    const keepTail = input.keep === 'tail';
+    const kept = keepTail
+      ? input.segments.slice(total - segmentCount)
+      : input.segments.slice(0, segmentCount);
+    const notice = truncatedCount > 0
+      ? `${truncatedCount} ${input.unit} truncated due to per-tool context limit.`
+      : null;
+    // Tail mode leads with the notice so the surviving tail (the summary) stays
+    // last; head mode trails it after the surviving head.
+    if (notice && keepTail) {
+      parts.push(notice);
+    }
+    const body = kept.join(input.separator).trim();
     if (body) {
       parts.push(body);
     }
-    const truncatedCount = input.segments.length - segmentCount;
-    if (truncatedCount > 0) {
-      parts.push(`${truncatedCount} ${input.unit} truncated due to per-tool context limit.`);
+    if (notice && !keepTail) {
+      parts.push(notice);
     }
     return parts.join(input.separator).trim();
   }

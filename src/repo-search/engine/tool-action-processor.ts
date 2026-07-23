@@ -648,6 +648,7 @@ export class ToolActionProcessor {
       remainingTokenAllowance,
       commandSucceededForFitting: Number(executed.exitCode) === 0,
       outputUnit: nativeExecution && nativeExecution.ok && nativeExecution.outputUnit ? nativeExecution.outputUnit : 'lines',
+      keep: nativeExecution && nativeExecution.ok && nativeExecution.outputKeep ? nativeExecution.outputKeep : 'head',
     });
     resultText = fitted.resultText;
     const fittedReturnedSegmentCount = fitted.fittedReturnedSegmentCount;

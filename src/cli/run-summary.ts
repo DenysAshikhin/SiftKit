@@ -51,7 +51,7 @@ export async function runSummary(options: {
   };
   const result = await new StatusServerApiClient().requestSummary(
     request,
-    new CliProgressRenderer(options.stderr, 'summary'),
+    CliProgressRenderer.forCli(options.stderr, 'summary', parsed.progress === true),
   );
   options.stdout.write(`${result.Summary}\n`);
   return 0;

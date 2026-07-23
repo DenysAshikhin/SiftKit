@@ -2,7 +2,7 @@ import { colorize } from '../../lib/text-format.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
 import type { SiftConfig } from '../../config/index.js';
 import { countTokensWithFallbackDetailed, estimateTokenCount } from '../prompt-budget.js';
-import { ToolOutputFitter, type ToolOutputTruncationUnit } from '../../tool-output-fit.js';
+import { ToolOutputFitter, type ToolOutputTruncationUnit, type ToolOutputKeep } from '../../tool-output-fit.js';
 
 const ANSI_RED_CODE = 31;
 
@@ -61,6 +61,7 @@ export class ToolResultBudgeter {
     remainingTokenAllowance: number;
     commandSucceededForFitting: boolean;
     outputUnit: ToolOutputTruncationUnit;
+    keep: ToolOutputKeep;
   }): Promise<FittedToolResult> {
     const rawToolTokenSpan = this.timingRecorder?.start('repo.tool.tokenize_raw', {
       taskId: options.taskId, turn: options.turn, toolName: options.toolName, inputChars: options.rawResultText.length,
@@ -96,6 +97,7 @@ export class ToolResultBudgeter {
           separator: '\n',
           maxTokens: Math.min(options.perToolCapTokens, Math.max(1, options.remainingTokenAllowance)),
           unit: options.outputUnit,
+          keep: options.keep,
         });
         fittedReturnedSegmentCount = fitResult.returnedLineCount;
         resultText = fitResult.visibleText;

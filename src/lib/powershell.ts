@@ -6,7 +6,12 @@
 
 import { spawn, spawnSync, type StdioOptions, type SpawnSyncReturns } from 'node:child_process';
 
+export const POWERSHELL_EXECUTABLE = 'powershell.exe';
 export const POWERSHELL_BASE_ARGS = ['-NoProfile', '-ExecutionPolicy', 'Bypass'] as const;
+
+// Single source of truth for how the `run` tool's shell is described to callers
+// and models. Derived from the executable so the prompt cannot drift from spawn.
+export const RUN_SHELL_LABEL = `PowerShell (Windows, ${POWERSHELL_EXECUTABLE})`;
 
 // ---------------------------------------------------------------------------
 // Synchronous
@@ -23,7 +28,7 @@ export function spawnPowerShellSync(
   command: string,
   options: PowerShellSyncOptions = {},
 ): SpawnSyncReturns<string> {
-  return spawnSync('powershell.exe', [...POWERSHELL_BASE_ARGS, '-Command', command], {
+  return spawnSync(POWERSHELL_EXECUTABLE, [...POWERSHELL_BASE_ARGS, '-Command', command], {
     cwd: options.cwd,
     encoding: options.encoding ?? 'utf8',
     stdio: options.stdio,
@@ -54,7 +59,7 @@ export function spawnPowerShellAsync(
   options: PowerShellAsyncOptions = {},
 ): Promise<PowerShellAsyncResult> {
   return new Promise((resolve) => {
-    const child = spawn('powershell.exe', [...POWERSHELL_BASE_ARGS, '-Command', command], {
+    const child = spawn(POWERSHELL_EXECUTABLE, [...POWERSHELL_BASE_ARGS, '-Command', command], {
       cwd: options.cwd,
       windowsHide: options.windowsHide ?? true,
       stdio: ['ignore', 'pipe', 'pipe'],

@@ -75,7 +75,7 @@ test('summary delegates non-deterministic execution to status server', async () 
     let code = 1;
     try {
       code = await runCli({
-        argv: ['summary', '--question', 'What happened?', '--text', 'Build output: a warning appeared.'],
+        argv: ['summary', '--question', 'What happened?', '--text', 'Build output: a warning appeared.', '--progress'],
         stdout: stdout.stream,
         stderr: stderr.stream,
       });

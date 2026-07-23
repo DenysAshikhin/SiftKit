@@ -9,7 +9,7 @@ import {
   SUMMARY_PRESET_TOOLS,
   READ_ONLY_PRESET_TOOLS,
   FULL_PRESET_TOOLS,
-} from './types.js';
+} from '@siftkit/contracts';
 
 // Derived from the canonical @siftkit/contracts groupings so the editor's tool surface and
 // per-mode defaults cannot drift from the backend preset defaults.

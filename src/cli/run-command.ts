@@ -47,7 +47,7 @@ export async function runCommandCli(options: {
     backend: parsed.backend,
     model: parsed.model,
     shell,
-  }, new CliProgressRenderer(options.stderr, 'run'));
+  }, CliProgressRenderer.forCli(options.stderr, 'run', parsed.progress === true));
 
   if (result.Summary) {
     options.stdout.write(`${result.Summary}\n`);

@@ -17,7 +17,7 @@ test('result under both caps passes through unchanged', async () => {
     taskId: 't1', turn: 1, toolName: 'rg',
     resultText, rawResultText: resultText,
     perToolCapTokens: 10_000, remainingTokenAllowance: 10_000,
-    commandSucceededForFitting: true, outputUnit: 'lines',
+    commandSucceededForFitting: true, outputUnit: 'lines', keep: 'head',
   });
   assert.equal(fitted.resultText, resultText);
   assert.equal(fitted.resultTokenCount, estimateTokenCount(undefined, resultText));
@@ -33,7 +33,7 @@ test('oversized successful output is fitted down to the cap with a truncation ma
     taskId: 't1', turn: 1, toolName: 'rg',
     resultText: lines.join('\n'), rawResultText: lines.join('\n'),
     perToolCapTokens: 50, remainingTokenAllowance: 10_000,
-    commandSucceededForFitting: true, outputUnit: 'lines',
+    commandSucceededForFitting: true, outputUnit: 'lines', keep: 'head',
   });
   assert.ok(fitted.fittedReturnedSegmentCount !== null);
   assert.ok(fitted.fittedReturnedSegmentCount < 200);
@@ -50,7 +50,7 @@ test('timing spans are recorded for raw/prompt/fit/rejection tokenization paths'
     taskId: 't1', turn: 1, toolName: 'rg',
     resultText: lines.join('\n'), rawResultText: lines.join('\n'),
     perToolCapTokens: 50, remainingTokenAllowance: 10_000,
-    commandSucceededForFitting: true, outputUnit: 'lines',
+    commandSucceededForFitting: true, outputUnit: 'lines', keep: 'head',
   });
   assert.equal(fittedOk.resultTokenCountEstimated, true);
   assert.ok(fittedOk.fittedReturnedSegmentCount !== null);
@@ -58,7 +58,7 @@ test('timing spans are recorded for raw/prompt/fit/rejection tokenization paths'
     taskId: 't1', turn: 1, toolName: 'rg',
     resultText: 'x'.repeat(5_000), rawResultText: 'x'.repeat(5_000),
     perToolCapTokens: 10, remainingTokenAllowance: 20,
-    commandSucceededForFitting: false, outputUnit: 'lines',
+    commandSucceededForFitting: false, outputUnit: 'lines', keep: 'head',
   });
   assert.ok(/^Error: requested output would consume /u.test(fittedRejected.resultText));
   assert.equal(fittedRejected.resultTokenCountEstimated, true);
@@ -72,7 +72,7 @@ test('oversized failed output is replaced by the budget-rejection error text', a
     taskId: 't1', turn: 1, toolName: 'rg',
     resultText: bigText, rawResultText: bigText,
     perToolCapTokens: 10, remainingTokenAllowance: 20,
-    commandSucceededForFitting: false, outputUnit: 'lines',
+    commandSucceededForFitting: false, outputUnit: 'lines', keep: 'head',
   });
   assert.equal(
     fitted.resultText,

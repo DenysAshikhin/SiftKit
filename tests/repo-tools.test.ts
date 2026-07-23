@@ -146,6 +146,20 @@ test('read skips already-returned ranges instead of re-reading them', () => {
   assert.equal(second.effectiveStartLine, 3);
 });
 
+test('planRead decodes a UTF-16LE (BOM) file instead of returning wide-char garbage', () => {
+  const root = makeRepo();
+  const payload = Buffer.concat([
+    Buffer.from([0xff, 0xfe]),
+    Buffer.from('line1\nalpha\nline3\n', 'utf16le'),
+  ]);
+  fs.writeFileSync(path.join(root, 'src', 'wide.ts'), payload);
+  const plan = planRead({ path: 'src/wide.ts', offset: 2, limit: 1 }, root, buildIgnorePolicy(root));
+  assert.ok(!isFailedReadPlan(plan));
+  const execution = buildReadExecution('read', plan);
+  assert.ok(execution.ok);
+  assert.equal(execution.output, '2: alpha');
+});
+
 // ---------------------------------------------------------------------------
 // grep
 // ---------------------------------------------------------------------------
@@ -330,6 +344,22 @@ test('run executes a command in the repository root', async () => {
   const result = await executeRepoTool('run', { command: 'Write-Output marker-ok' }, makeContext(root));
   assert.ok(result.ok);
   assert.match(result.output, /marker-ok/u);
+});
+
+test('run declares tail-biased output truncation on its execution result', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool('run', { command: 'Write-Output marker-ok' }, makeContext(root));
+  assert.ok(result.ok);
+  assert.equal(result.outputKeep, 'tail');
+});
+
+test('read execution leaves outputKeep unset so it truncates head-first', () => {
+  const root = makeRepo();
+  const plan = planRead({ path: 'src/a.ts', offset: 1, limit: 2 }, root, buildIgnorePolicy(root));
+  assert.ok(!isFailedReadPlan(plan));
+  const execution = buildReadExecution('read', plan);
+  assert.ok(execution.ok);
+  assert.equal(execution.outputKeep, undefined);
 });
 
 test('run requires a command', async () => {

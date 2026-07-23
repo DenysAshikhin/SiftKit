@@ -45,7 +45,7 @@ export async function runPresetCli(options: {
     repoRoot: String(parsed.repoRoot || parsed.path || process.cwd()).trim() || process.cwd(),
     maxTurns: Number.isFinite(parsed.maxTurns) && Number(parsed.maxTurns) > 0 ? Number(parsed.maxTurns) : undefined,
     logFile: parsed.logFile,
-  }, new CliProgressRenderer(options.stderr, 'preset'));
+  }, CliProgressRenderer.forCli(options.stderr, 'preset', parsed.progress === true));
   options.stdout.write(`${result.outputText}\n`);
   return 0;
 }

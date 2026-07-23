@@ -42,3 +42,13 @@ test('SilentProgressRenderer renders nothing', () => {
   renderer.render({ kind: 'core_start' });
   assert.equal(stderr.read(), '');
 });
+
+test('forCli renders per-turn lines only when showProgress is true', () => {
+  const shown = makeCaptureStream();
+  CliProgressRenderer.forCli(shown.stream, 'repo-search', true).render({ kind: 'core_start' });
+  assert.match(shown.read(), /repo-search core_start/u);
+
+  const hidden = makeCaptureStream();
+  CliProgressRenderer.forCli(hidden.stream, 'repo-search', false).render({ kind: 'core_start' });
+  assert.equal(hidden.read(), '');
+});

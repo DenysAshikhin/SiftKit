@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { buildAgentSystemPrompt, buildTaskInitialUserPrompt, buildTaskSystemPrompt } from '../src/repo-search/prompts.js';
+import { RUN_SHELL_LABEL, POWERSHELL_EXECUTABLE } from '../src/lib/powershell.js';
 
 function withTempRepo(fn: (repoRoot: string) => void): void {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-prompt-'));
@@ -192,6 +193,15 @@ test('buildAgentSystemPrompt has persona, full tool list, edit-first guideline, 
   assert.doesNotMatch(prompt, /repo-search planner/u);
   assert.doesNotMatch(prompt, /anchor-bullets/u);
   assert.doesNotMatch(prompt, /Minimum 5 tool-call turns/u);
+});
+
+test('buildAgentSystemPrompt tells the run tool it is PowerShell on Windows with tail-truncated output', () => {
+  const prompt = buildAgentSystemPrompt(process.cwd(), { includeAgentsMd: false, includeRepoFileListing: true });
+  // Shell identity is single-sourced from the executor constant, not a duplicated literal.
+  assert.ok(RUN_SHELL_LABEL.includes(POWERSHELL_EXECUTABLE), 'label must be built from the executable name');
+  assert.ok(prompt.includes(RUN_SHELL_LABEL), 'run tool line must use the executor-derived shell label');
+  assert.match(prompt, /Select-Object|Get-Content|Select-String/u, 'must steer to PowerShell idioms');
+  assert.match(prompt, /tail/iu, 'must say long output is truncated to the tail');
 });
 
 test('buildAgentSystemPrompt injects agents.md when present and enabled', () => {

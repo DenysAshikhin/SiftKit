@@ -18,6 +18,7 @@ test('ToolOutputFitter returns full text when it already fits under maxTokens', 
     separator: '\n',
     maxTokens: 1000,
     unit: 'lines',
+    keep: 'head',
   });
 
   assert.equal(result.returnedLineCount, 3);
@@ -35,6 +36,7 @@ test('ToolOutputFitter targets 50 percent of maxTokens when truncation is trigge
     separator: '\n',
     maxTokens: 300,
     unit: 'lines',
+    keep: 'head',
   });
 
   assert.equal(result.truncationReason, 'per-tool context limit');
@@ -51,6 +53,29 @@ test('ToolOutputFitter targets 50 percent of maxTokens when truncation is trigge
   assert.match(result.visibleText, /lines truncated due to per-tool context limit\./u);
 });
 
+test('ToolOutputFitter keeps the tail segments and leads with the notice when keep is "tail"', async () => {
+  const fitter = new ToolOutputFitter(new CharsTokenCounter());
+  const segments = Array.from({ length: 100 }, (_value, index) => `line-${String(index)}`);
+
+  const result = await fitter.fitSegments({
+    segments,
+    separator: '\n',
+    maxTokens: 200,
+    unit: 'lines',
+    keep: 'tail',
+  });
+
+  assert.equal(result.truncationReason, 'per-tool context limit');
+  assert.match(result.visibleText, /line-99$/u, 'last segment (summary) must be preserved');
+  assert.doesNotMatch(result.visibleText, /(^|\n)line-0(\n|$)/u, 'first segment must be dropped');
+  assert.match(
+    result.visibleText,
+    /truncated due to per-tool context limit\.[\s\S]*line-99/u,
+    'truncation notice must precede the kept tail',
+  );
+  assert.equal(result.truncatedLineCount, segments.length - result.returnedLineCount);
+});
+
 test('ToolOutputFitter still includes header when truncating to 50 percent target', async () => {
   const fitter = new ToolOutputFitter(new CharsTokenCounter());
   const segments = Array.from({ length: 50 }, (_value, index) => `line-${String(index)}`);
@@ -61,6 +86,7 @@ test('ToolOutputFitter still includes header when truncating to 50 percent targe
     separator: '\n',
     maxTokens: 200,
     unit: 'lines',
+    keep: 'head',
   });
 
   assert.equal(result.truncationReason, 'per-tool context limit');

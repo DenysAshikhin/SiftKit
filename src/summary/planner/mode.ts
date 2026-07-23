@@ -1195,6 +1195,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       separator,
       maxTokens: Math.max(1, Math.floor(remainingPromptTokens * 0.7)),
       unit,
+      keep: 'head',
     });
     const promptResultText = buildPromptToolResult({
       toolName: effectiveToolAction.tool_name,

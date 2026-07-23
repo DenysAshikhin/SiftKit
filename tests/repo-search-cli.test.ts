@@ -10,7 +10,7 @@ import { buildMockScorecard, makeCaptureStream } from './_test-helpers.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { writeSseResult } from './helpers/sse-http.js';
 
-async function runMockRepoSearchCli(port: number): Promise<{ stdout: string; stderr: string }> {
+async function runMockRepoSearchCli(port: number, extraArgs: string[] = []): Promise<{ stdout: string; stderr: string }> {
   const oldStatusUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
   const oldConfigUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
   process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${port}/status`;
@@ -35,7 +35,7 @@ async function runMockRepoSearchCli(port: number): Promise<{ stdout: string; std
     };
     try {
       const code = await runCli({
-        argv: ['repo-search', '--prompt', 'find planner tools'],
+        argv: ['repo-search', '--prompt', 'find planner tools', ...extraArgs],
         stdout: stdout.stream,
         stderr: stderr.stream,
       });
@@ -106,8 +106,38 @@ test('repo-search delegates execution to status server', async () => {
     assert.equal(first.prompt, 'find planner tools');
     assert.equal(first.repoRoot, process.cwd());
     assert.equal(output.stdout, 'Found planner tools in src/summary.ts\n');
-    assert.match(output.stderr, /repo-search t1\/24 llm_start/u);
+    assert.doesNotMatch(output.stderr, /repo-search t1\/24 llm_start/u);
     assert.doesNotMatch(output.stderr, /http_client\b/u);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
+test('repo-search streams per-turn progress to stderr only with --progress', async () => {
+  const server = http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/repo-search') {
+      req.resume();
+      req.on('end', () => writeMockRepoSearchResponse(res));
+      return;
+    }
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const address = getAddressInfo(server);
+  const port = Number(address.port);
+  try {
+    const output = await runMockRepoSearchCli(port, ['--progress']);
+    assert.equal(output.stdout, 'Found planner tools in src/summary.ts\n');
+    assert.match(output.stderr, /repo-search t1\/24 llm_start/u);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

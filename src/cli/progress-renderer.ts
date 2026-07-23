@@ -15,6 +15,13 @@ export class CliProgressRenderer {
     private readonly opLabel: string,
   ) {}
 
+  /** Per-turn stderr telemetry is opt-in on the CLI; stays silent unless requested. */
+  static forCli(stderr: NodeJS.WritableStream, opLabel: string, showProgress: boolean): CliProgressRenderer {
+    return showProgress
+      ? new CliProgressRenderer(stderr, opLabel)
+      : new SilentProgressRenderer(stderr, opLabel);
+  }
+
   render(event: JsonObject): void {
     const reader = new JsonRecordReader(event);
     const kind = reader.optionalString('kind') || '';

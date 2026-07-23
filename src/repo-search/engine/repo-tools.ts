@@ -1,10 +1,11 @@
-import { existsSync, statSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, statSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, relative, isAbsolute, join, dirname, posix } from 'node:path';
 import { type IgnorePolicy } from '../command-safety.js';
 import { estimateTokenCount } from '../prompt-budget.js';
-import { findContiguousUnreadRange, type ToolOutputTruncationUnit } from '../../tool-output-fit.js';
+import { findContiguousUnreadRange, type ToolOutputTruncationUnit, type ToolOutputKeep } from '../../tool-output-fit.js';
 import { getOrCreateFileReadState, type FileReadState } from './read-overlap.js';
 import { parseJsonValueText } from '../../lib/json.js';
+import { readTextFileWithEncoding } from '../../lib/text-encoding.js';
 import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
 import type { ToolTranscriptAction } from '../../tool-call-messages.js';
 import { spawnDirectCommand } from '../../lib/command-spawn.js';
@@ -33,6 +34,9 @@ export type RepoToolExecution =
       totalEndLineExclusive: number;
     };
     outputUnit?: ToolOutputTruncationUnit;
+    // Which end survives per-tool truncation. Omitted → 'head'. Command output
+    // (`run`) sets 'tail' so the trailing summary/errors survive.
+    outputKeep?: ToolOutputKeep;
     lineReadStats?: {
       lineReadCalls: number;
       lineReadLinesTotal: number;
@@ -347,7 +351,7 @@ export function planRead(
     return { ok: false, command: requestedCommand, reason: 'path is not a readable file' };
   }
 
-  const lines = readFileSync(resolvedPath.absolutePath, 'utf8').replace(/\r\n/gu, '\n').split('\n');
+  const lines = readTextFileWithEncoding(resolvedPath.absolutePath).replace(/\r\n/gu, '\n').split('\n');
   const displayPath = resolvedPath.relativePath;
   const pathKey = displayPath.toLowerCase();
   const totalEndLineExclusive = (lines.length || 0) + 1;
@@ -637,7 +641,7 @@ function executeEdit(args: JsonObject, context: RepoToolContext): RepoToolExecut
     return failure('edit', command, 'path is not a readable file');
   }
 
-  const originalText = readFileSync(resolvedPath.absolutePath, 'utf8');
+  const originalText = readTextFileWithEncoding(resolvedPath.absolutePath);
   const resolved = resolveEdits(originalText, rawEdits);
   if (typeof resolved === 'string') {
     return failure('edit', command, resolved);
@@ -671,7 +675,7 @@ async function executeRun(args: JsonObject, context: RepoToolContext): Promise<R
   });
   return {
     ok: true, requestedCommand: command, command,
-    exitCode: result.exitCode, output: result.output, toolType: 'run', outputUnit: 'lines',
+    exitCode: result.exitCode, output: result.output, toolType: 'run', outputUnit: 'lines', outputKeep: 'tail',
   };
 }
 
