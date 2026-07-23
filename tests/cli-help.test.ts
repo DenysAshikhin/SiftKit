@@ -40,6 +40,18 @@ test('CLI help advertises preset commands', async () => {
   assert.match(stdout.read(), /siftkit preset list/u);
 });
 
+test('CLI help lists the repo-agent command', async () => {
+  const stdout = makeCaptureStream();
+  const stderr = makeCaptureStream();
+  const code = await runCli({
+    argv: ['--help'],
+    stdout: stdout.stream,
+    stderr: stderr.stream,
+  });
+  assert.equal(code, 0);
+  assert.match(stdout.read(), /siftkit repo-agent --prompt/u);
+});
+
 test('repo-search help works without server startup', async () => {
   const stdout = makeCaptureStream();
   const stderr = makeCaptureStream();

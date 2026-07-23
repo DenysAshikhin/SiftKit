@@ -1,3 +1,5 @@
+import { REPO_SEARCH_SYNOPSIS, REPO_AGENT_SYNOPSIS } from './args.js';
+
 export function showHelp(stdout: NodeJS.WritableStream): void {
   stdout.write([
     'SiftKit CLI',
@@ -5,7 +7,8 @@ export function showHelp(stdout: NodeJS.WritableStream): void {
     'Usage:',
     '  siftkit "question"',
     '  siftkit summary --question "..." [--text "..."] [--file path]',
-    '  siftkit repo-search --prompt "find x y z in this repo" [--interactive]',
+    `  ${REPO_SEARCH_SYNOPSIS}`,
+    `  ${REPO_AGENT_SYNOPSIS}`,
     '  siftkit -prompt "find x y z in this repo"',
     '  siftkit preset list',
     '  siftkit run --preset <id> ...',

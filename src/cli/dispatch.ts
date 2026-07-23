@@ -4,6 +4,7 @@ import {
   getCommandArgs,
   getCommandName,
   SERVER_DEPENDENT_COMMANDS,
+  validateRepoAgentTokens,
   validateRepoSearchTokens,
   type CliRunOptions,
 } from './args.js';
@@ -17,7 +18,8 @@ import { runCodexPolicyCli, runInstall, runInstallGlobalCli } from './run-instal
 import { runInternal } from './run-internal.js';
 import { runPresetList } from './run-preset-list.js';
 import { runPresetCli } from './run-preset.js';
-import { assertInteractiveStdinIsTty, runRepoSearchCli } from './run-repo-search.js';
+import { assertStdinIsTty, runRepoSearchCli } from './run-repo-search.js';
+import { runRepoAgentCli } from './run-repo-agent.js';
 import { runSummary } from './run-summary.js';
 import { runTest } from './run-test.js';
 
@@ -42,10 +44,23 @@ export async function runCli(options: CliRunOptions): Promise<number> {
       validateRepoSearchTokens(commandArgs);
       // Fail fast before the server preflight so a non-TTY interactive run never
       // touches the network; run-repo-search re-asserts the same invariant.
-      assertInteractiveStdinIsTty(commandArgs.includes('--interactive'), options.stdin);
+      if (!commandHelpRequested) {
+        assertStdinIsTty(commandArgs.includes('--interactive'), options.stdin, '--interactive');
+      }
+    }
+    if (commandName === 'repo-agent') {
+      validateRepoAgentTokens(commandArgs);
+      // Approval is on unless --no-approval; a prompting run needs a TTY. Fail before
+      // the server preflight. --help must stay usable, so skip the gate for it.
+      if (!commandHelpRequested) {
+        assertStdinIsTty(!commandArgs.includes('--no-approval'), options.stdin, 'repo-agent approval mode');
+      }
     }
     if (commandName === 'repo-search' && commandHelpRequested) {
       return await runRepoSearchCli({ argv: options.argv, stdout, stderr, stdin: options.stdin });
+    }
+    if (commandName === 'repo-agent' && commandHelpRequested) {
+      return await runRepoAgentCli({ argv: options.argv, stdout, stderr, stdin: options.stdin });
     }
     if (commandName === 'run' && commandHelpRequested) {
       showHelp(stdout);
@@ -97,6 +112,8 @@ export async function runCli(options: CliRunOptions): Promise<number> {
         return await runCaptureInternalCli({ argv: options.argv, stdout, stderr });
       case 'repo-search':
         return await runRepoSearchCli({ argv: options.argv, stdout, stderr, stdin: options.stdin });
+      case 'repo-agent':
+        return await runRepoAgentCli({ argv: options.argv, stdout, stderr, stdin: options.stdin });
       case 'find-files':
         return await runFindFiles({ argv: options.argv, stdout });
       case 'test':
