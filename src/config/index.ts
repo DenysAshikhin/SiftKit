@@ -59,7 +59,6 @@ export {
   getConfiguredModel,
   getConfiguredPromptPrefix,
   getDefaultNumCtx,
-  isReadExpansionEnabled,
   getMissingRuntimeFields,
 } from './getters.js';
 

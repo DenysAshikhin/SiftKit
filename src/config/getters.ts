@@ -111,7 +111,3 @@ export function getMissingRuntimeFields(config: SiftConfig): string[] {
 
   return missing;
 }
-
-export function isReadExpansionEnabled(config: SiftConfig | undefined): boolean {
-  return config?.ExpandReads !== false;
-}
