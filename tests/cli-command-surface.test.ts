@@ -3,11 +3,10 @@ import assert from 'node:assert/strict';
 
 import { runCli } from '../src/cli/index.js';
 import {
-  KNOWN_COMMANDS,
-  SERVER_DEPENDENT_COMMANDS,
   parseArguments,
   validateRepoAgentTokens,
 } from '../src/cli/args.js';
+import { CLI_COMMAND_CATALOG } from '../src/cli/command-catalog.js';
 import { makeCaptureStream } from './_test-helpers.js';
 
 test('blocked public commands are not accessible', async () => {
@@ -26,8 +25,9 @@ test('blocked public commands are not accessible', async () => {
 });
 
 test('global backend command is absent from the public command surface', () => {
-  assert.equal(KNOWN_COMMANDS.has('backend'), false);
-  assert.equal(SERVER_DEPENDENT_COMMANDS.has('backend'), false);
+  const invocation = CLI_COMMAND_CATALOG.resolve(['backend']);
+  assert.equal(invocation.command.name, 'summary');
+  assert.deepEqual(invocation.args, ['backend']);
 });
 
 test('validateRepoAgentTokens accepts value + boolean flags and rejects unknown', () => {
@@ -41,7 +41,9 @@ test('parseArguments maps --no-approval to noApproval', () => {
   assert.equal(parseArguments(['--prompt', 'x']).noApproval, undefined);
 });
 
-test('repo-agent is a known, server-dependent command', () => {
-  assert.equal(KNOWN_COMMANDS.has('repo-agent'), true);
-  assert.equal(SERVER_DEPENDENT_COMMANDS.has('repo-agent'), true);
+test('repo-agent is a public server-dependent command', () => {
+  const invocation = CLI_COMMAND_CATALOG.resolve(['repo-agent']);
+  assert.equal(invocation.command.name, 'repo-agent');
+  assert.equal(invocation.command.exposed, true);
+  assert.equal(invocation.command.serverDependent, true);
 });

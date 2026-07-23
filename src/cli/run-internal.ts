@@ -7,7 +7,8 @@ import { readTextFileWithEncoding } from '../lib/text-encoding.js';
 import { parseJsonValueText } from '../lib/json.js';
 import { JsonRecordReader } from '../lib/json-record-reader.js';
 import type { JsonObject, JsonSerializable } from '../lib/json-types.js';
-import { getCommandArgs, parseArguments, SERVER_DEPENDENT_INTERNAL_OPS } from './args.js';
+import { parseArguments, SERVER_DEPENDENT_INTERNAL_OPS } from './args.js';
+import { CLI_COMMAND_CATALOG } from './command-catalog.js';
 import {
   normalizeCliFormat,
   normalizeCliPolicyProfile,
@@ -34,7 +35,7 @@ export async function runInternal(options: {
   argv: string[];
   stdout: NodeJS.WritableStream;
 }): Promise<number> {
-  const parsed = parseArguments(getCommandArgs(options.argv));
+  const parsed = parseArguments(CLI_COMMAND_CATALOG.resolve(options.argv).args);
   if (!parsed.op) {
     throw new Error('An --op is required.');
   }

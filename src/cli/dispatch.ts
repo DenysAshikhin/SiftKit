@@ -1,15 +1,10 @@
 import { ensureStatusServerReachable } from '../config/index.js';
 import {
-  BLOCKED_PUBLIC_COMMANDS,
-  KNOWN_COMMANDS,
-  MODEL_LOCK_COMMANDS,
-  getCommandArgs,
-  getCommandName,
-  SERVER_DEPENDENT_COMMANDS,
   validateRepoAgentTokens,
   validateRepoSearchTokens,
   type CliRunOptions,
 } from './args.js';
+import { CLI_COMMAND_CATALOG } from './command-catalog.js';
 import { showHelp } from './help.js';
 import { runCaptureInternalCli } from './run-capture.js';
 import { runCommandCli } from './run-command.js';
@@ -35,29 +30,23 @@ export async function runCli(options: CliRunOptions): Promise<number> {
     return 0;
   }
 
-  const commandName = getCommandName(options.argv);
+  const invocation = CLI_COMMAND_CATALOG.resolve(options.argv);
+  const commandName = invocation.command.name;
+  const commandArgs = invocation.args;
   const nestedAgentRunId = readNestedAgentRunId();
-  if (BLOCKED_PUBLIC_COMMANDS.has(options.argv[0]) && !(nestedAgentRunId && MODEL_LOCK_COMMANDS.has(options.argv[0]))) {
-    stderr.write(`Command '${options.argv[0]}' is not exposed in this CLI build. Available commands: summary, repo-search, preset, run, help.\n`);
-    return 1;
-  }
-  const commandArgs = getCommandArgs(options.argv);
-  const commandHelpRequested = commandArgs.some((token) => token === '-h' || token === '--h' || token === '--help' || token === '-help');
-
-  const nestedLockCommand = commandName === 'summary'
-    && options.argv.length > 0
-    && !KNOWN_COMMANDS.has(options.argv[0])
-    && MODEL_LOCK_COMMANDS.has(options.argv[0])
-    ? options.argv[0]
-    : commandName;
-  if (nestedAgentRunId && MODEL_LOCK_COMMANDS.has(nestedLockCommand) && nestedLockCommand !== 'summary') {
+  if (nestedAgentRunId && invocation.command.modelLock && commandName !== 'summary') {
     stderr.write(
-      `siftkit ${nestedLockCommand} is blocked inside agent run ${nestedAgentRunId}: `
+      `siftkit ${commandName} is blocked inside agent run ${nestedAgentRunId}: `
       + 'the status server\'s model lock is held by the parent run, so this call would deadlock. '
       + 'Run the underlying command raw instead of routing it through siftkit.\n',
     );
     return 1;
   }
+  if (!invocation.command.exposed) {
+    stderr.write(`Command '${options.argv[0]}' is not exposed in this CLI build. Available commands: summary, repo-search, preset, run, help.\n`);
+    return 1;
+  }
+  const commandHelpRequested = commandArgs.some((token) => token === '-h' || token === '--h' || token === '--help' || token === '-help');
   try {
     if (commandName === 'repo-search') {
       validateRepoSearchTokens(commandArgs);
@@ -86,7 +75,7 @@ export async function runCli(options: CliRunOptions): Promise<number> {
       return 0;
     }
     let serverPreflightMs: number | null = options.timing?.serverPreflightMs ?? null;
-    if (SERVER_DEPENDENT_COMMANDS.has(commandName) && !(commandName === 'summary' && nestedAgentRunId)) {
+    if (invocation.command.serverDependent && !(commandName === 'summary' && nestedAgentRunId)) {
       const serverPreflightStartedAt = Date.now();
       await ensureStatusServerReachable();
       serverPreflightMs = Date.now() - serverPreflightStartedAt;

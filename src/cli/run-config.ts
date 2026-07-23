@@ -1,5 +1,6 @@
 import { loadConfig, setTopLevelConfigKey } from '../config/index.js';
-import { getCommandArgs, parseArguments } from './args.js';
+import { parseArguments } from './args.js';
+import { CLI_COMMAND_CATALOG } from './command-catalog.js';
 
 export async function runConfigGet(stdout: NodeJS.WritableStream): Promise<number> {
   const config = await loadConfig({ ensure: true });
@@ -11,7 +12,7 @@ export async function runConfigSet(options: {
   argv: string[];
   stdout: NodeJS.WritableStream;
 }): Promise<number> {
-  const parsed = parseArguments(getCommandArgs(options.argv));
+  const parsed = parseArguments(CLI_COMMAND_CATALOG.resolve(options.argv).args);
   if (!parsed.key) {
     throw new Error('A --key is required.');
   }

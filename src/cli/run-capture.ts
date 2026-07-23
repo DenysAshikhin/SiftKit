@@ -1,6 +1,7 @@
 import { resolveExternalCommand } from '../capture/command-path.js';
 import { captureWithTranscript } from '../capture/process.js';
-import { getCommandArgs, parseArguments } from './args.js';
+import { parseArguments } from './args.js';
+import { CLI_COMMAND_CATALOG } from './command-catalog.js';
 import { normalizeCliFormat, normalizeCliPolicyProfile } from './request-normalizers.js';
 import { CliProgressRenderer } from './progress-renderer.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
@@ -10,7 +11,7 @@ export async function runCaptureInternalCli(options: {
   stdout: NodeJS.WritableStream;
   stderr: NodeJS.WritableStream;
 }): Promise<number> {
-  const parsed = parseArguments(getCommandArgs(options.argv));
+  const parsed = parseArguments(CLI_COMMAND_CATALOG.resolve(options.argv).args);
   const command = parsed.command || parsed.positionals[0];
   if (!command) {
     throw new Error('A command is required.');

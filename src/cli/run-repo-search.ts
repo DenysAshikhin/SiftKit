@@ -1,6 +1,7 @@
 import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
 import { CliApprovalPrompter } from './approval-prompter.js';
-import { getCommandArgs, parseArguments, REPO_SEARCH_SYNOPSIS, REPO_AGENT_SYNOPSIS } from './args.js';
+import { parseArguments, REPO_SEARCH_SYNOPSIS, REPO_AGENT_SYNOPSIS } from './args.js';
+import { CLI_COMMAND_CATALOG } from './command-catalog.js';
 import { CliProgressRenderer } from './progress-renderer.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
 
@@ -20,7 +21,7 @@ export async function runRepoTaskCli(options: {
   stderr: NodeJS.WritableStream;
   stdin?: NodeJS.ReadableStream & { isTTY?: boolean };
 }): Promise<number> {
-  const tokens = getCommandArgs(options.argv);
+  const tokens = CLI_COMMAND_CATALOG.resolve(options.argv).args;
   if (tokens.some((token) => token === '-h' || token === '--h' || token === '--help' || token === '-help')) {
     options.stdout.write(
       options.mode === 'agent'

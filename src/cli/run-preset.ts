@@ -1,4 +1,5 @@
-import { getCommandArgs, parseArguments } from './args.js';
+import { parseArguments } from './args.js';
+import { CLI_COMMAND_CATALOG } from './command-catalog.js';
 import { readCliTextInput } from './input.js';
 import { normalizeCliFormat } from './request-normalizers.js';
 import { CliProgressRenderer } from './progress-renderer.js';
@@ -10,7 +11,7 @@ export async function runPresetCli(options: {
   stdout: NodeJS.WritableStream;
   stderr: NodeJS.WritableStream;
 }): Promise<number> {
-  const parsed = parseArguments(getCommandArgs(options.argv));
+  const parsed = parseArguments(CLI_COMMAND_CATALOG.resolve(options.argv).args);
   const presetId = String(parsed.preset || '').trim();
   if (!presetId) {
     throw new Error('A --preset is required.');

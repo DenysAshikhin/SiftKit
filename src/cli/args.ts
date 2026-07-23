@@ -66,49 +66,6 @@ export type ParsedArgs = {
   progress?: boolean;
 };
 
-export const KNOWN_COMMANDS = new Set([
-  'summary',
-  'repo-search',
-  'repo-agent',
-  'preset',
-  'run',
-  'find-files',
-  'internal',
-]);
-
-export const BLOCKED_PUBLIC_COMMANDS = new Set([
-  'install',
-  'test',
-  'eval',
-  'codex-policy',
-  'install-global',
-  'config-get',
-  'config-set',
-  'capture-internal',
-]);
-
-export const SERVER_DEPENDENT_COMMANDS = new Set([
-  'summary',
-  'preset',
-  'install',
-  'test',
-  'eval',
-  'config-get',
-  'config-set',
-  'capture-internal',
-  'repo-search',
-  'repo-agent',
-]);
-
-/** Commands that acquire the server's single model-request lock. */
-export const MODEL_LOCK_COMMANDS = new Set([
-  'summary',
-  'repo-search',
-  'repo-agent',
-  'run',
-  'eval',
-]);
-
 export const SERVER_DEPENDENT_INTERNAL_OPS = new Set([
   'install',
   'test',
@@ -121,29 +78,6 @@ export const SERVER_DEPENDENT_INTERNAL_OPS = new Set([
   'interactive-capture',
   'repo-search',
 ]);
-
-export function getCommandName(argv: string[]): string {
-  if (argv.length > 0 && KNOWN_COMMANDS.has(argv[0])) {
-    return argv[0];
-  }
-  if (argv[0] === '--prompt' || argv[0] === '-prompt') {
-    return 'repo-search';
-  }
-
-  return 'summary';
-}
-
-export function getCommandArgs(argv: string[]): string[] {
-  const commandName = getCommandName(argv);
-  if (commandName === 'repo-search' && (argv[0] === '--prompt' || argv[0] === '-prompt')) {
-    return argv;
-  }
-  if (commandName === 'summary' && (argv.length === 0 || !KNOWN_COMMANDS.has(argv[0]))) {
-    return argv;
-  }
-
-  return argv.slice(1);
-}
 
 export function validateRepoSearchTokens(tokens: string[]): void {
   const flagsWithValues = new Set(['--prompt', '-prompt', '--model', '--log-file']);

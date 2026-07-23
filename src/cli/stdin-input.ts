@@ -1,5 +1,6 @@
 import type { Readable } from 'node:stream';
-import { getCommandArgs, getCommandName, parseArguments } from './args.js';
+import { parseArguments } from './args.js';
+import { CLI_COMMAND_CATALOG } from './command-catalog.js';
 
 // Only these command handlers consume `stdinText`. Every other command ignores
 // stdin entirely, so reading it would do nothing useful and risks blocking
@@ -23,11 +24,12 @@ export function commandReadsStdin(argv: string[]): boolean {
   if (argv.length === 0 || HELP_TOKENS.has(argv[0])) {
     return false;
   }
-  const commandName = getCommandName(argv);
+  const invocation = CLI_COMMAND_CATALOG.resolve(argv);
+  const commandName = invocation.command.name;
   if (!STDIN_CONSUMING_COMMANDS.has(commandName)) {
     return false;
   }
-  const parsed = parseArguments(getCommandArgs(argv));
+  const parsed = parseArguments(invocation.args);
   if (parsed.text || parsed.file || parsed.requestFile) {
     return false;
   }

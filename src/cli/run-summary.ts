@@ -1,5 +1,6 @@
 import type { SummaryRequest, SummaryTimingInput } from '../summary/types.js';
-import { getCommandArgs, parseArguments } from './args.js';
+import { parseArguments } from './args.js';
+import { CLI_COMMAND_CATALOG } from './command-catalog.js';
 import { readCliTextInput } from './input.js';
 import { normalizeCliFormat, normalizeCliPolicyProfileOrDefault } from './request-normalizers.js';
 import { CliProgressRenderer } from './progress-renderer.js';
@@ -13,7 +14,7 @@ export async function runSummary(options: {
   nestedAgentRunId?: string | null;
   timing?: SummaryTimingInput;
 }): Promise<number> {
-  const parsed = parseArguments(getCommandArgs(options.argv));
+  const parsed = parseArguments(CLI_COMMAND_CATALOG.resolve(options.argv).args);
   const question = parsed.question || parsed.positionals[0];
   if (!question) {
     throw new Error('A question is required.');
