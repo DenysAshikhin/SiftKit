@@ -114,7 +114,7 @@ export const WebSearchConfigSchema = z.object({
 });
 export type WebSearchConfig = z.infer<typeof WebSearchConfigSchema>;
 
-export const PresetKindSchema = z.enum(['summary', 'chat', 'plan', 'repo-search']);
+export const PresetKindSchema = z.enum(['summary', 'chat', 'plan', 'repo-search', 'repo-agent']);
 export type PresetKind = z.infer<typeof PresetKindSchema>;
 export const PresetOperationModeSchema = z.enum(['summary', 'read-only', 'full']);
 export type PresetOperationMode = z.infer<typeof PresetOperationModeSchema>;
@@ -124,6 +124,7 @@ export const PresetToolNameSchema = z.enum([
   'find_text', 'read_lines', 'json_filter', 'json_get',
   'read', 'grep', 'find', 'ls', 'git',
   'web_search', 'web_fetch',
+  'write', 'edit', 'run',
 ]);
 export type PresetToolName = z.infer<typeof PresetToolNameSchema>;
 
