@@ -1,4 +1,4 @@
-import type { SiftConfig } from '../../config/index.js';
+import { isReadExpansionEnabled, type SiftConfig } from '../../config/index.js';
 import { AgentLoop } from '../../agent-loop/agent-loop.js';
 import type {
   AgentLoopFinishAction,
@@ -322,6 +322,24 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
   private prompt = '';
   private promptTokenCount = 0;
   private readonly tokenizeOptions: CountLlamaCppTokensOptions | undefined;
+
+  static computeReadLinesRange(input: {
+    startLine: number;
+    endLine: number;
+    inputLineCount: number;
+    returnedRanges: ReadonlyArray<{ start: number; end: number }>;
+    expandReads: boolean;
+  }): { hasUnread: boolean; start: number; end: number } {
+    const requestedStart = Math.max(1, Math.trunc(input.startLine || 1));
+    const requestedEnd = Math.max(requestedStart, Math.trunc(input.endLine || requestedStart));
+    const requestedEndExclusive = Math.min(requestedEnd + 1, input.inputLineCount + 1);
+    const hasReturnedRanges = input.returnedRanges.length > 0;
+    return findContiguousUnreadRange({
+      requestedStart: Math.min(requestedStart, input.inputLineCount || 1),
+      totalEnd: input.expandReads && hasReturnedRanges ? input.inputLineCount + 1 : requestedEndExclusive,
+      returnedRanges: input.expandReads ? input.returnedRanges : [],
+    });
+  }
 
   constructor(
     private readonly requestContext: SummaryPlannerRequestContext,
@@ -1019,14 +1037,12 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
         readLinesNoUnread: false,
       };
     }
-    const requestedStart = Math.max(1, Math.trunc(Number(toolAction.args.startLine) || 1));
-    const requestedEnd = Math.max(requestedStart, Math.trunc(Number(toolAction.args.endLine) || requestedStart));
-    const requestedEndExclusive = Math.min(requestedEnd + 1, this.inputLines.length + 1);
-    const hasReturnedRanges = this.readLinesReturnedRanges.length > 0;
-    const unreadRange = findContiguousUnreadRange({
-      requestedStart: Math.min(requestedStart, this.inputLines.length || 1),
-      totalEnd: hasReturnedRanges ? this.inputLines.length + 1 : requestedEndExclusive,
+    const unreadRange = SummaryPlannerLoopRuntime.computeReadLinesRange({
+      startLine: Number(toolAction.args.startLine) || 1,
+      endLine: Number(toolAction.args.endLine) || (Number(toolAction.args.startLine) || 1),
+      inputLineCount: this.inputLines.length,
       returnedRanges: this.readLinesReturnedRanges,
+      expandReads: isReadExpansionEnabled(this.options.config),
     });
     return {
       toolAction,
