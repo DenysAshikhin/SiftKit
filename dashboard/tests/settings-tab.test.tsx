@@ -70,3 +70,12 @@ test('web search section masks provider keys with a show toggle and shows usage'
   assert.match(markup, /Show/);
   assert.match(markup, /this month/);
 });
+
+test('general section renders an Expand reads toggle bound to config', () => {
+  const enabled = render();
+  assert.match(enabled, /Expand reads/);
+
+  const disabledConfig = { ...DASHBOARD_CONFIG, ExpandReads: false };
+  const disabled = render({ dashboardConfig: disabledConfig });
+  assert.match(disabled, /Disabled/);
+});
