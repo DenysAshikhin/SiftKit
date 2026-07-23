@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { z } from 'zod';
-import { CURRENT_SCHEMA_VERSION, getRuntimeDatabase, closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { getRuntimeDatabase, closeRuntimeDatabase } from '../src/state/runtime-db.js';
 
 const NameRowSchema = z.array(z.object({ name: z.string() }));
 
@@ -35,11 +35,10 @@ function columnNames(dbPath: string, table: string): string[] {
   }
 }
 
-test('schema 35 exposes backend-neutral inference run tables', () => {
-  const dbPath = tempDbPath('sk-v34-fresh-');
+test('current schema exposes backend-neutral inference run tables', () => {
+  const dbPath = tempDbPath('sk-current-fresh-');
   try {
     getRuntimeDatabase(dbPath);
-    assert.equal(CURRENT_SCHEMA_VERSION, 35);
 
     const tables = tableNames(dbPath);
     assert.ok(tables.includes('inference_runs'), 'inference_runs must exist');

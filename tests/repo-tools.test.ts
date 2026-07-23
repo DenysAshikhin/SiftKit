@@ -14,6 +14,7 @@ import {
   isFailedReadPlan,
   planRead,
 } from '../src/repo-search/engine/repo-tools.js';
+import type { FileReadState } from '../src/repo-search/engine/read-overlap.js';
 import { WebResearchTools } from '../src/web-search/web-research-tools.js';
 
 function makeRepo(): string {
@@ -136,7 +137,7 @@ test('planRead returns a numbered window and honours limit as a line count', () 
 
 test('read skips already-returned ranges instead of re-reading them', () => {
   const root = makeRepo();
-  const stateByPath = new Map();
+  const stateByPath = new Map<string, FileReadState>();
   const first = planRead({ path: 'src/a.ts', offset: 1, limit: 2 }, root, buildIgnorePolicy(root), stateByPath);
   assert.ok(!isFailedReadPlan(first));
   const state = stateByPath.get('src\\a.ts') ?? stateByPath.get('src/a.ts');
@@ -149,7 +150,7 @@ test('read skips already-returned ranges instead of re-reading them', () => {
 
 test('planRead with expandReads=false runs the requested window unchanged despite prior ranges', () => {
   const root = makeRepo();
-  const stateByPath = new Map();
+  const stateByPath = new Map<string, FileReadState>();
   const first = planRead({ path: 'src/a.ts', offset: 1, limit: 2 }, root, buildIgnorePolicy(root), stateByPath, false);
   assert.ok(!isFailedReadPlan(first));
   const state = stateByPath.get('src\\a.ts') ?? stateByPath.get('src/a.ts');

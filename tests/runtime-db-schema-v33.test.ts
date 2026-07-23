@@ -7,7 +7,6 @@ import path from 'node:path';
 import { z } from 'zod';
 import {
   closeRuntimeDatabase,
-  CURRENT_SCHEMA_VERSION,
   getRuntimeDatabase,
 } from '../src/state/runtime-db.js';
 
@@ -112,7 +111,6 @@ test('v33 migration assigns the unique preset matching a stored session model', 
     getRuntimeDatabase(dbPath);
     closeRuntimeDatabase();
 
-    assert.equal(CURRENT_SCHEMA_VERSION, 35);
     assert.equal(readSessionIdentity(dbPath, 'historical-session'), 'historical');
     const database = new Database(dbPath, { readonly: true });
     try {

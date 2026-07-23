@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { z } from 'zod';
-import { CURRENT_SCHEMA_VERSION, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { getRuntimeDatabase } from '../src/state/runtime-db.js';
 
 const ColumnNameRowSchema = z.array(z.object({ name: z.string() }));
 
@@ -28,7 +28,6 @@ test('current schema persists inference and EXL3 configuration JSON', () => {
   const dbPath = tempDbPath('sk-v32-fresh-');
   getRuntimeDatabase(dbPath);
 
-  assert.equal(CURRENT_SCHEMA_VERSION, 35);
   assert.ok(columnNames(dbPath).includes('inference_json'));
   assert.ok(columnNames(dbPath).includes('server_exl3_json'));
 });

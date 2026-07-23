@@ -28,11 +28,8 @@ import { executeRepoCommand, normalizeToolTypeFromCommand } from './command-exec
 import {
   buildEffectiveTranscriptAction,
   buildReadCommand,
-  buildReadExecution,
   buildRepoToolRequestedCommand,
   executeRepoTool,
-  isFailedReadPlan,
-  planRead,
   type RepoToolExecution,
 } from './repo-tools.js';
 import type { ApprovalGate } from './approval-gate.js';
@@ -463,18 +460,6 @@ export class ToolActionProcessor {
   }
 
   private async runNativeExecution(normalizedToolName: string, toolAction: ToolAction, command: string): Promise<RepoToolExecution> {
-    if (normalizedToolName === 'read') {
-      const readPlan = planRead(
-        toolAction.args,
-        this.deps.repoRoot,
-        this.deps.ignorePolicy,
-        this.deps.readWindows.stateMap,
-        isReadExpansionEnabled(this.deps.config),
-      );
-      return isFailedReadPlan(readPlan)
-        ? { ok: false, command: readPlan.command, reason: readPlan.reason, toolType: normalizedToolName }
-        : buildReadExecution(normalizedToolName, readPlan);
-    }
     if (this.deps.mockCommandResults && this.deps.mockCommandResults[command]) {
       const mockResult = this.deps.mockCommandResults[command];
       return {
