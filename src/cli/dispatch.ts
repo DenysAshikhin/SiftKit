@@ -43,8 +43,8 @@ export async function runCli(options: CliRunOptions): Promise<number> {
   const commandArgs = getCommandArgs(options.argv);
   const commandHelpRequested = commandArgs.some((token) => token === '-h' || token === '--h' || token === '--help' || token === '-help');
 
-  const nestedLockCommand = commandName === 'summary' && commandArgs.length === 1 && MODEL_LOCK_COMMANDS.has(commandArgs[0] ?? '')
-    ? commandArgs[0]
+  const nestedLockCommand = commandName === 'summary' && options.argv.length === 1 && MODEL_LOCK_COMMANDS.has(options.argv[0] ?? '')
+    ? options.argv[0]
     : commandName;
   if (nestedAgentRunId && MODEL_LOCK_COMMANDS.has(nestedLockCommand) && nestedLockCommand !== 'summary') {
     stderr.write(

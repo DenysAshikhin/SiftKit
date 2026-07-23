@@ -52,6 +52,16 @@ test('nested summary still requires input', async () => {
   assert.match(result.stderr, /stdin, --text or --file required/);
 });
 
+test('nested summary with positional input does not reinterpret command words', async () => {
+  const result = await runGuardedCli(
+    ['summary', 'run'],
+    'raw summary input line 1\nraw summary input line 2',
+  );
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /nested in agent run run-guard-1/);
+  assert.match(result.stdout, /raw summary input line 1\nraw summary input line 2/);
+});
+
 for (const argv of [
   ['repo-search', '--prompt', 'find things'],
   ['repo-agent', '--prompt', 'do things'],
