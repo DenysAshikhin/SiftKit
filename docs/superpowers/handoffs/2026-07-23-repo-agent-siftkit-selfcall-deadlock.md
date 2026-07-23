@@ -72,3 +72,6 @@ Even without self-calls, the single global lock means a second user's `summary` 
 
 ## Incident cleanup
 Task 2's run was aborted (monitor + driver stopped, stray `siftkit summary` CLI killed, server killed by the operator). Before the deadlock the agent had written `tests/llm-auto-approval.test.ts` at turn 12 as **pure LF** — confirming the CRLF edit-tool fix worked on the write path — but that file is no longer in the working tree (tree is clean on `feat/interactive-approval-mode`); Task 1 remains committed. Task 2 will be re-run from a clean tree with raw, non-siftkit commands once the server is back.
+
+## Resolution (2026-07-23)
+Shipped the guardrail (fixes 1 + 3): the engine stamps `SIFTKIT_AGENT_RUN_ID` on every spawned run/command child; nested `siftkit summary` degrades to raw passthrough with a banner, nested `repo-search`/`repo-agent`/`run`/`eval` fail fast; and the server rejects requests whose `x-siftkit-agent-run-id` header matches the active lock owner with HTTP 409. Plan: `docs/superpowers/plans/2026-07-23-siftkit-selfcall-guard.md`. Fix 2 (lock scoped to inference only) remains open by design.
