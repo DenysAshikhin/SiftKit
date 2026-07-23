@@ -247,6 +247,7 @@ export class TaskLoop {
       thinkingEnabled: this.plannerThinkingEnabled,
       reasoningContentEnabled: this.plannerReasoningContentEnabled,
       preserveThinking: this.plannerPreserveThinkingEnabled,
+      contextOverflowPolicy: options.contextOverflowPolicy ?? 'compact',
       transcript: this.transcript,
       progress: this.progress,
       logger: options.logger || null,

@@ -5,6 +5,7 @@ import { buildPlannerRequestPromptReserveText, resolveRepoSearchPlannerToolDefin
 import { compactPlannerMessagesOnce, preflightPlannerPromptBudget } from '../prompt-budget.js';
 import type { JsonLogger } from '../types.js';
 import { ProgressReporter } from './progress-reporter.js';
+import type { ContextOverflowPolicy } from './task-loop-support.js';
 import { TranscriptManager } from './transcript-manager.js';
 import { TurnBudget } from './turn-budget.js';
 
@@ -20,6 +21,7 @@ export class PromptPreparer {
       thinkingEnabled: boolean;
       reasoningContentEnabled: boolean;
       preserveThinking: boolean;
+      contextOverflowPolicy: ContextOverflowPolicy;
       transcript: TranscriptManager;
       progress: ProgressReporter;
       logger: JsonLogger | null;
@@ -92,10 +94,11 @@ export class PromptPreparer {
       overflowTokens: preflight.overflowTokens,
       ok: preflight.ok,
       compacted: false,
+      contextOverflowPolicy: this.options.contextOverflowPolicy,
       maxOutputTokens,
     });
 
-    if (!preflight.ok) {
+    if (!preflight.ok && this.options.contextOverflowPolicy === 'compact') {
       const compactionSpan = this.options.timingRecorder?.start('repo.prompt.compact', {
         taskId,
         turn,
@@ -165,7 +168,8 @@ export class PromptPreparer {
         `planner_preflight_overflow prompt_tokens=${preflight.promptTokenCount} ` +
           `max_prompt_tokens=${preflight.maxPromptBudget} overflow_tokens=${preflight.overflowTokens} ` +
           `max_output_tokens=${maxOutputTokens} total_context_tokens=${budget.totalContextTokens} ` +
-          `thinking_buffer_tokens=${budget.thinkingBufferTokens}`,
+          `thinking_buffer_tokens=${budget.thinkingBufferTokens} ` +
+          `context_overflow_policy=${this.options.contextOverflowPolicy}`,
       );
       this.options.logger?.write({
         kind: 'turn_preflight_overflow_fail',
@@ -179,6 +183,7 @@ export class PromptPreparer {
         maxOutputTokens,
         totalContextTokens: budget.totalContextTokens,
         thinkingBufferTokens: budget.thinkingBufferTokens,
+        contextOverflowPolicy: this.options.contextOverflowPolicy,
         error: overflowError.message,
       });
       throw overflowError;

@@ -43,6 +43,30 @@ test('repo-agent defaults to 100 turns and preserves an explicit higher override
   assert.equal(await readRepoAgentMaxTurns(125), 125);
 });
 
+test('repo-agent selects fail context policy and surfaces overflow without a model call', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-agent-overflow-'));
+  try {
+    await assert.rejects(
+      executeRepoSearchRequest({
+        taskKind: 'repo-agent',
+        prompt: 'Q'.repeat(60_000),
+        repoRoot: dir,
+        config: mockSiftConfig({ Runtime: { LlamaCpp: { NumCtx: 9_000 } } }),
+        model: 'mock',
+        includeAgentsMd: false,
+        includeRepoFileListing: false,
+        allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
+        availableModels: ['mock'],
+        mockResponses: ['{"action":"finish","output":"must not run"}'],
+        mockCommandResults: {},
+      }),
+      /planner_preflight_overflow.*context_overflow_policy=fail/u,
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('repo-agent taskKind runs the agent prompt and applies a write without approval gate', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-agent-exec-'));
   try {

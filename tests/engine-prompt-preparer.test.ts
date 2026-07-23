@@ -7,9 +7,16 @@ import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.
 import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 import { SilentProgressWriter } from '../src/lib/progress-writer.js';
+import type { JsonSerializable } from '../src/lib/json-types.js';
+import type { ContextOverflowPolicy } from '../src/repo-search/engine/task-loop-support.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 
-function makePreparer(budget: TurnBudget, transcript: TranscriptManager): PromptPreparer {
+function makePreparer(
+  budget: TurnBudget,
+  transcript: TranscriptManager,
+  contextOverflowPolicy: ContextOverflowPolicy = 'compact',
+  events: Array<Record<string, JsonSerializable>> = [],
+): PromptPreparer {
   return new PromptPreparer({
     taskId: 't1',
     model: 'mock-model',
@@ -20,6 +27,7 @@ function makePreparer(budget: TurnBudget, transcript: TranscriptManager): Prompt
     thinkingEnabled: false,
     reasoningContentEnabled: false,
     preserveThinking: false,
+    contextOverflowPolicy,
     transcript,
     progress: new ProgressReporter({
       progressWriter: new SilentProgressWriter<RepoSearchProgressEvent>(),
@@ -27,8 +35,21 @@ function makePreparer(budget: TurnBudget, transcript: TranscriptManager): Prompt
       maxTurns: 45,
       taskStartedAt: Date.now(),
     }),
-    logger: null,
+    logger: {
+      path: 'memory',
+      write(event: Record<string, JsonSerializable>): void {
+        events.push(event);
+      },
+    },
     timingRecorder: null,
+  });
+}
+
+function makeCompactableTranscript(): TranscriptManager {
+  return new TranscriptManager({
+    systemPromptContent: 'SYSTEM',
+    historyMessages: [{ role: 'assistant', content: 'H'.repeat(24_000) }],
+    initialUserContent: 'question',
   });
 }
 
@@ -48,4 +69,43 @@ test('prepareTurn throws planner_preflight_overflow when even compaction cannot 
   });
   const preparer = makePreparer(new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45 }), transcript);
   await assert.rejects(preparer.prepareTurn(1), /planner_preflight_overflow/u);
+});
+
+test('prepareTurn fail policy preserves overflowing transcript and skips compaction', async () => {
+  const transcript = makeCompactableTranscript();
+  const originalMessages = JSON.stringify(transcript.getMessages());
+  const events: Array<Record<string, JsonSerializable>> = [];
+  const preparer = makePreparer(
+    new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45 }),
+    transcript,
+    'fail',
+    events,
+  );
+
+  await assert.rejects(
+    preparer.prepareTurn(1),
+    /planner_preflight_overflow.*context_overflow_policy=fail/u,
+  );
+
+  assert.equal(JSON.stringify(transcript.getMessages()), originalMessages);
+  assert.equal(events.some((event) => event.kind === 'turn_preflight_compaction_applied'), false);
+  const overflow = events.find((event) => event.kind === 'turn_preflight_overflow_fail');
+  assert.equal(overflow?.contextOverflowPolicy, 'fail');
+});
+
+test('prepareTurn compact policy compacts the same transcript and continues', async () => {
+  const transcript = makeCompactableTranscript();
+  const events: Array<Record<string, JsonSerializable>> = [];
+  const preparer = makePreparer(
+    new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45 }),
+    transcript,
+    'compact',
+    events,
+  );
+
+  const result = await preparer.prepareTurn(1);
+
+  assert.ok(result.promptTokenCount > 0);
+  assert.match(transcript.render(), /\[COMPRESSED HISTORICAL EVIDENCE\]/u);
+  assert.equal(events.some((event) => event.kind === 'turn_preflight_compaction_applied'), true);
 });

@@ -141,6 +141,8 @@ export type TaskResult = z.infer<typeof TaskResultSchema>;
 // Task loop options
 // ---------------------------------------------------------------------------
 
+export type ContextOverflowPolicy = 'compact' | 'fail';
+
 export type RunTaskLoopOptions = {
   repoRoot: string;
   model: string;
@@ -151,6 +153,7 @@ export type RunTaskLoopOptions = {
   maxTurns?: number;
   maxInvalidResponses?: number;
   minToolCallsBeforeFinish?: number;
+  contextOverflowPolicy?: ContextOverflowPolicy;
   loopKind?: 'repo-search' | 'chat';
   streamFinishAsAnswer?: boolean;
   thinkingEnabledOverride?: boolean;
