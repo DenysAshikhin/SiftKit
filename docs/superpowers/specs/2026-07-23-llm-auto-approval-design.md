@@ -65,10 +65,11 @@ ApprovalMode = 'interactive' | 'auto' | 'off'
 1. **Fast path:** if `toolName` is in the static read-only set (the repo-search
    read/search/list tools that cannot mutate state), return `{ kind: 'approve' }`
    immediately — no tokens spent.
-2. Build ephemeral messages: `transcript.getMessages()` + placeholder tool-result
-   messages ("execution pending approval") for **every** tool call in the pending
-   assistant batch (chat templates require results for all `tool_call_id`s) + a
-   user-role reviewer question for the one command under review.
+2. Build ephemeral messages: `transcript.getMessages()` + one user-role reviewer
+   question for the command under review. No placeholder tool results are needed:
+   the assistant tool-call batch is appended to the transcript only **after**
+   execution (`appendBatchExchange`), so at approval time the transcript still ends
+   with the previous turn's messages — a clean prefix.
 3. Call the model through a narrow `ApprovalVerdictController` interface exposed by
    `TaskLoop` (explicit object, no function passing), with a llama-cpp
    `json_schema`-constrained response:
@@ -114,8 +115,7 @@ then emit the existing `approval_request` unchanged.
 
 | Failure | Behavior |
 | --- | --- |
-| Verdict inference error | Escalate to human gate |
-| Verdict schema mismatch | One retry, then escalate |
+| Verdict call error (inference failure or schema mismatch) | One retry, then escalate to human gate |
 | Human gate timeout (escalated) | Existing timeout error (unchanged) |
 | `abort` from human on escalation | Existing abort path (throws) |
 
