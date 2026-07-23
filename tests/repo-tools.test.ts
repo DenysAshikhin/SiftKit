@@ -46,6 +46,7 @@ function makeContext(root: string) {
     ignorePolicy: buildIgnorePolicy(root),
     webTools: makeWebTools(),
     expandReads: true,
+    agentRunId: 'test-run',
   };
 }
 
@@ -410,6 +411,15 @@ test('run requires a command', async () => {
   const result = await executeRepoTool('run', { command: '   ' }, makeContext(root));
   assert.ok(!result.ok);
   assert.match(result.reason, /command/u);
+});
+
+test('executeRun exposes SIFTKIT_AGENT_RUN_ID to spawned commands', async () => {
+  const root = makeRepo();
+  const context = { ...makeContext(root), agentRunId: 'run-abc-123' };
+  const result = await executeRepoTool('run', { command: 'Write-Output $env:SIFTKIT_AGENT_RUN_ID' }, context);
+  assert.equal(result.ok, true);
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.output.trim(), 'run-abc-123');
 });
 
 // ---------------------------------------------------------------------------

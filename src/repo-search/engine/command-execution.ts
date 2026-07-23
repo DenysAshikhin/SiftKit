@@ -1,6 +1,7 @@
 import { spawnPowerShellAsync } from '../../lib/powershell.js';
 import type { RepoSearchMockCommandResult } from '../types.js';
 import { getAbortError, throwIfAborted } from '../../lib/abort.js';
+import { AGENT_RUN_ID_ENV } from '../../lib/agent-run-marker.js';
 
 export function findMockResult(
   command: string,
@@ -24,6 +25,7 @@ export function executeRepoCommand(
   command: string,
   repoRoot: string,
   mockCommandResults: Record<string, RepoSearchMockCommandResult> | null,
+  agentRunId: string,
   abortSignal?: AbortSignal,
 ): Promise<{ exitCode: number; output: string }> {
   throwIfAborted(abortSignal);
@@ -63,7 +65,10 @@ export function executeRepoCommand(
     });
   }
 
-  return spawnPowerShellAsync(command, { cwd: repoRoot }).then((result) => ({
+  return spawnPowerShellAsync(command, {
+    cwd: repoRoot,
+    env: { [AGENT_RUN_ID_ENV]: agentRunId },
+  }).then((result) => ({
     exitCode: result.exitCode,
     output: result.output,
   }));

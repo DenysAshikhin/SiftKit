@@ -480,6 +480,7 @@ export class ToolActionProcessor {
       fileReadStateByPath: this.deps.readWindows.stateMap,
       abortSignal: this.deps.abortSignal,
       expandReads: isReadExpansionEnabled(this.deps.config),
+      agentRunId: this.deps.task.id,
     });
   }
 
@@ -559,7 +560,13 @@ export class ToolActionProcessor {
     });
     const executed = nativeExecution && nativeExecution.ok
       ? { exitCode: nativeExecution.exitCode, output: nativeExecution.output }
-      : await executeRepoCommand(commandToRun, this.deps.repoRoot, this.deps.mockCommandResults || null, this.deps.abortSignal);
+      : await executeRepoCommand(
+        commandToRun,
+        this.deps.repoRoot,
+        this.deps.mockCommandResults || null,
+        this.deps.task.id,
+        this.deps.abortSignal,
+      );
     toolExecutionSpan?.end({
       exitCode: executed.exitCode,
       outputChars: String(executed.output || '').length,

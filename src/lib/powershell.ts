@@ -52,6 +52,7 @@ export type PowerShellAsyncOptions = {
   windowsHide?: boolean;
   abortSignal?: AbortSignal;
   timeoutMs?: number;
+  env?: Record<string, string>;
 };
 
 export function spawnPowerShellAsync(
@@ -63,6 +64,7 @@ export function spawnPowerShellAsync(
       cwd: options.cwd,
       windowsHide: options.windowsHide ?? true,
       stdio: ['ignore', 'pipe', 'pipe'],
+      ...(options.env ? { env: { ...process.env, ...options.env } } : {}),
     });
 
     let stdout = '';

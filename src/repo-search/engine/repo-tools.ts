@@ -9,6 +9,7 @@ import { readSourceText } from '../../lib/text-encoding.js';
 import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
 import type { ToolTranscriptAction } from '../../tool-call-messages.js';
 import { spawnDirectCommand } from '../../lib/command-spawn.js';
+import { AGENT_RUN_ID_ENV } from '../../lib/agent-run-marker.js';
 import { spawnPowerShellAsync } from '../../lib/powershell.js';
 import { WebResearchTools } from '../../web-search/web-research-tools.js';
 import type { WebFetchToolArgs, WebSearchToolArgs } from '../../web-search/types.js';
@@ -57,6 +58,7 @@ export type RepoToolContext = {
   fileReadStateByPath?: Map<string, FileReadState>;
   abortSignal?: AbortSignal;
   expandReads: boolean;
+  agentRunId: string;
 };
 
 export type ReadPlan = {
@@ -674,6 +676,7 @@ async function executeRun(args: JsonObject, context: RepoToolContext): Promise<R
     cwd: context.repoRoot,
     abortSignal: context.abortSignal,
     timeoutMs: timeoutSeconds === undefined ? undefined : timeoutSeconds * 1000,
+    env: { [AGENT_RUN_ID_ENV]: context.agentRunId },
   });
   return {
     ok: true, requestedCommand: command, command,

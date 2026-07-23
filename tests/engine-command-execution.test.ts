@@ -46,6 +46,7 @@ test('executeRepoCommand returns mock results and honors delayMs ordering', asyn
     'rg -n foo',
     process.cwd(),
     { 'rg -n foo': { exitCode: 2, stdout: 'out', stderr: 'err' } },
+    'test-run',
   );
   assert.deepEqual(result, { exitCode: 2, output: 'outerr' });
 });
@@ -56,6 +57,7 @@ test('executeRepoCommand rejects when the abort signal fires during a delayed mo
     'rg -n foo',
     process.cwd(),
     { 'rg -n foo': { exitCode: 0, stdout: 'late', stderr: '', delayMs: 5000 } },
+    'test-run',
     controller.signal,
   );
   controller.abort(new Error('aborted-mid-mock'));
