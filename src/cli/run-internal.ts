@@ -7,7 +7,7 @@ import { readTextFileWithEncoding } from '../lib/text-encoding.js';
 import { parseJsonValueText } from '../lib/json.js';
 import { JsonRecordReader } from '../lib/json-record-reader.js';
 import type { JsonObject, JsonSerializable } from '../lib/json-types.js';
-import { parseArguments, SERVER_DEPENDENT_INTERNAL_OPS } from './args.js';
+import { parseArguments, type ResolvedCliArgs, SERVER_DEPENDENT_INTERNAL_OPS } from './args.js';
 import {
   normalizeCliFormat,
   normalizeCliPolicyProfile,
@@ -30,8 +30,7 @@ function readRequestBackend(request: JsonObject) {
   return parseOptionalSummaryProvider(new JsonRecordReader(request).optionalString('Backend'));
 }
 
-export async function runInternal(options: {
-  args: string[];
+export async function runInternal(options: ResolvedCliArgs & {
   stdout: NodeJS.WritableStream;
 }): Promise<number> {
   const parsed = parseArguments(options.args);

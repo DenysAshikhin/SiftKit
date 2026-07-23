@@ -1,11 +1,10 @@
-import { parseArguments } from './args.js';
+import { parseArguments, type ResolvedCliArgs } from './args.js';
 import { readCliTextInput } from './input.js';
 import { normalizeCliFormat } from './request-normalizers.js';
 import { CliProgressRenderer } from './progress-renderer.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
 
-export async function runPresetCli(options: {
-  args: string[];
+export async function runPresetCli(options: ResolvedCliArgs & {
   stdinText?: string | Buffer;
   stdout: NodeJS.WritableStream;
   stderr: NodeJS.WritableStream;

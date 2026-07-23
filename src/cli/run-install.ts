@@ -1,5 +1,5 @@
 import { installCodexPolicy, installShellIntegration, installSiftKit } from '../install.js';
-import { formatPsList, parseArguments } from './args.js';
+import { formatPsList, parseArguments, type ResolvedCliArgs } from './args.js';
 
 export async function runInstall(stdout: NodeJS.WritableStream): Promise<number> {
   const result = await installSiftKit(false);
@@ -7,8 +7,7 @@ export async function runInstall(stdout: NodeJS.WritableStream): Promise<number>
   return 0;
 }
 
-export async function runCodexPolicyCli(options: {
-  args: string[];
+export async function runCodexPolicyCli(options: ResolvedCliArgs & {
   stdout: NodeJS.WritableStream;
 }): Promise<number> {
   const parsed = parseArguments(options.args);
@@ -17,8 +16,7 @@ export async function runCodexPolicyCli(options: {
   return 0;
 }
 
-export async function runInstallGlobalCli(options: {
-  args: string[];
+export async function runInstallGlobalCli(options: ResolvedCliArgs & {
   stdout: NodeJS.WritableStream;
 }): Promise<number> {
   const parsed = parseArguments(options.args);

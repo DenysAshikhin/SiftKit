@@ -1,6 +1,6 @@
 import { ensureStatusServerReachable } from '../config/index.js';
 import { invokeProcess, invokeShellProcess } from '../capture/process.js';
-import { parseArguments } from './args.js';
+import { parseArguments, type ResolvedCliArgs } from './args.js';
 import {
   normalizeCliFormat,
   normalizeCliPolicyProfile,
@@ -11,8 +11,7 @@ import {
 import { CliProgressRenderer } from './progress-renderer.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
 
-export async function runCommandCli(options: {
-  args: string[];
+export async function runCommandCli(options: ResolvedCliArgs & {
   stdout: NodeJS.WritableStream;
   stderr: NodeJS.WritableStream;
 }): Promise<number> {

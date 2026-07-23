@@ -1,12 +1,11 @@
 import { resolveExternalCommand } from '../capture/command-path.js';
 import { captureWithTranscript } from '../capture/process.js';
-import { parseArguments } from './args.js';
+import { parseArguments, type ResolvedCliArgs } from './args.js';
 import { normalizeCliFormat, normalizeCliPolicyProfile } from './request-normalizers.js';
 import { CliProgressRenderer } from './progress-renderer.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
 
-export async function runCaptureInternalCli(options: {
-  args: string[];
+export async function runCaptureInternalCli(options: ResolvedCliArgs & {
   stdout: NodeJS.WritableStream;
   stderr: NodeJS.WritableStream;
 }): Promise<number> {

@@ -28,6 +28,10 @@ export type CliRunOptions = {
   };
 };
 
+export type ResolvedCliArgs = {
+  args: string[];
+};
+
 export type ParsedArgs = {
   positionals: string[];
   question?: string;

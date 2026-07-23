@@ -1,8 +1,7 @@
 import { findFiles } from '../find-files.js';
-import { parseArguments } from './args.js';
+import { parseArguments, type ResolvedCliArgs } from './args.js';
 
-export async function runFindFiles(options: {
-  args: string[];
+export async function runFindFiles(options: ResolvedCliArgs & {
   stdout: NodeJS.WritableStream;
 }): Promise<number> {
   const parsed = parseArguments(options.args);

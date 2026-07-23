@@ -1,6 +1,11 @@
 import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
 import { CliApprovalPrompter } from './approval-prompter.js';
-import { parseArguments, REPO_SEARCH_SYNOPSIS, REPO_AGENT_SYNOPSIS } from './args.js';
+import {
+  parseArguments,
+  REPO_AGENT_SYNOPSIS,
+  REPO_SEARCH_SYNOPSIS,
+  type ResolvedCliArgs,
+} from './args.js';
 import { CliProgressRenderer } from './progress-renderer.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
 
@@ -13,9 +18,8 @@ export function assertStdinIsTty(required: boolean, stdin: { isTTY?: boolean } |
 
 export type RepoTaskMode = 'search' | 'agent';
 
-export async function runRepoTaskCli(options: {
+export async function runRepoTaskCli(options: ResolvedCliArgs & {
   mode: RepoTaskMode;
-  args: string[];
   stdout: NodeJS.WritableStream;
   stderr: NodeJS.WritableStream;
   stdin?: NodeJS.ReadableStream & { isTTY?: boolean };
@@ -78,8 +82,7 @@ export async function runRepoTaskCli(options: {
   return 0;
 }
 
-export async function runRepoSearchCli(options: {
-  args: string[];
+export async function runRepoSearchCli(options: ResolvedCliArgs & {
   stdout: NodeJS.WritableStream;
   stderr: NodeJS.WritableStream;
   stdin?: NodeJS.ReadableStream & { isTTY?: boolean };

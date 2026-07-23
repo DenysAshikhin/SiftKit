@@ -1,5 +1,5 @@
 import { loadConfig, setTopLevelConfigKey } from '../config/index.js';
-import { parseArguments } from './args.js';
+import { parseArguments, type ResolvedCliArgs } from './args.js';
 
 export async function runConfigGet(stdout: NodeJS.WritableStream): Promise<number> {
   const config = await loadConfig({ ensure: true });
@@ -7,8 +7,7 @@ export async function runConfigGet(stdout: NodeJS.WritableStream): Promise<numbe
   return 0;
 }
 
-export async function runConfigSet(options: {
-  args: string[];
+export async function runConfigSet(options: ResolvedCliArgs & {
   stdout: NodeJS.WritableStream;
 }): Promise<number> {
   const parsed = parseArguments(options.args);
