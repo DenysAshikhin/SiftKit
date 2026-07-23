@@ -56,6 +56,7 @@ export type RepoToolContext = {
   webTools: WebResearchTools;
   fileReadStateByPath?: Map<string, FileReadState>;
   abortSignal?: AbortSignal;
+  expandReads: boolean;
 };
 
 export type ReadPlan = {
@@ -335,6 +336,7 @@ export function planRead(
   repoRoot: string,
   ignorePolicy: IgnorePolicy,
   fileReadStateByPath?: Map<string, FileReadState>,
+  expandReads = true,
 ): ReadPlan | FailedPlan {
   const commandPath = readString(args.path);
   const offset = readPositiveInteger(args.offset, 1);
@@ -363,8 +365,8 @@ export function planRead(
   const hasReturnedRanges = Boolean(state && state.mergedReturnedRanges.length > 0);
   const unreadRange = findContiguousUnreadRange({
     requestedStart: clampedStart,
-    totalEnd: hasReturnedRanges ? totalEndLineExclusive : requestedEndExclusive,
-    returnedRanges: state?.mergedReturnedRanges || [],
+    totalEnd: expandReads && hasReturnedRanges ? totalEndLineExclusive : requestedEndExclusive,
+    returnedRanges: expandReads ? (state?.mergedReturnedRanges ?? []) : [],
   });
 
   return {
@@ -707,7 +709,7 @@ export async function executeRepoTool(
   context: RepoToolContext,
 ): Promise<RepoToolExecution> {
   if (toolName === 'read') {
-    const plan = planRead(args, context.repoRoot, context.ignorePolicy, context.fileReadStateByPath);
+    const plan = planRead(args, context.repoRoot, context.ignorePolicy, context.fileReadStateByPath, context.expandReads);
     return isFailedReadPlan(plan)
       ? failure('read', plan.command, plan.reason)
       : buildReadExecution('read', plan);

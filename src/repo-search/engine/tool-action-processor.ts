@@ -1,4 +1,4 @@
-import type { SiftConfig } from '../../config/index.js';
+import { isReadExpansionEnabled, type SiftConfig } from '../../config/index.js';
 import { getRepoSearchLineReadStats } from '../../line-read-guidance.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
 import {
@@ -464,7 +464,13 @@ export class ToolActionProcessor {
 
   private async runNativeExecution(normalizedToolName: string, toolAction: ToolAction, command: string): Promise<RepoToolExecution> {
     if (normalizedToolName === 'read') {
-      const readPlan = planRead(toolAction.args, this.deps.repoRoot, this.deps.ignorePolicy, this.deps.readWindows.stateMap);
+      const readPlan = planRead(
+        toolAction.args,
+        this.deps.repoRoot,
+        this.deps.ignorePolicy,
+        this.deps.readWindows.stateMap,
+        isReadExpansionEnabled(this.deps.config),
+      );
       return isFailedReadPlan(readPlan)
         ? { ok: false, command: readPlan.command, reason: readPlan.reason, toolType: normalizedToolName }
         : buildReadExecution(normalizedToolName, readPlan);
@@ -488,6 +494,7 @@ export class ToolActionProcessor {
       webTools: this.deps.webTools,
       fileReadStateByPath: this.deps.readWindows.stateMap,
       abortSignal: this.deps.abortSignal,
+      expandReads: isReadExpansionEnabled(this.deps.config),
     });
   }
 

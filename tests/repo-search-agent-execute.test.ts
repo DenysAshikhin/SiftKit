@@ -37,3 +37,37 @@ test('repo-agent taskKind runs the agent prompt and applies a write without appr
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('repo-agent uses ExpandReads=false and records overlapping reads', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-agent-exec-'));
+  fs.writeFileSync(
+    path.join(dir, 'a.ts'),
+    Array.from({ length: 200 }, (_, index) => `a.ts-line-${index + 1}`).join('\n'),
+    'utf8',
+  );
+  try {
+    const result = await executeRepoSearchRequest({
+      taskKind: 'repo-agent',
+      prompt: 'Read a file twice.',
+      repoRoot: dir,
+      config: mockSiftConfig({ ExpandReads: false }),
+      model: 'mock',
+      maxTurns: 6,
+      includeAgentsMd: false,
+      includeRepoFileListing: true,
+      allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
+      availableModels: ['mock'],
+      mockResponses: [
+        '{"action":"read","path":"a.ts","offset":100,"limit":20}',
+        '{"action":"read","path":"a.ts","offset":110,"limit":20}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {},
+    });
+    assert.notEqual(result.scorecard.verdict, 'fail');
+    assert.equal(result.scorecard.readOverlapSummary.totalOverlapLines, 10);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -1673,6 +1673,43 @@ test('runTaskLoop tracks per-file overlap telemetry and isolates histories acros
   assert.equal(Number(bFile?.overlapLines), 0);
 });
 
+test('runTaskLoop re-reads overlapping windows when ExpandReads is disabled', async () => {
+  const repoRoot = createTempRepoRoot();
+  fs.writeFileSync(
+    path.join(repoRoot, 'a.ts'),
+    Array.from({ length: 200 }, (_, index) => `a.ts-line-${index + 1}`).join('\n'),
+    'utf8',
+  );
+  const result = await runTaskLoop(
+    {
+      id: 'task-expand-reads-disabled',
+      question: 'Read a file twice.',
+      signals: ['done'],
+    },
+    {
+      ...MOCK_LOOP_DEFAULTS,
+      repoRoot,
+      config: mockLoopConfig({ ...modelPresetReasoning('off'), ExpandReads: false }),
+      maxTurns: 6,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens: 20000,
+      includeRepoFileListing: false,
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
+      mockResponses: [
+        '{"action":"read","path":"a.ts","offset":100,"limit":20}',
+        '{"action":"read","path":"a.ts","offset":110,"limit":20}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {},
+    }
+  );
+
+  assert.equal(result.reason, 'finish');
+  assert.equal(Number(result.readOverlapSummary?.totalOverlapLines), 10);
+});
+
 test('runTaskLoop does not compact different commands that happen to return the same evidence', async () => {
   const events: JsonObject[] = [];
   const result = await runTaskLoop(

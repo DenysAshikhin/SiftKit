@@ -44,6 +44,7 @@ function makeContext(root: string) {
     repoRoot: root,
     ignorePolicy: buildIgnorePolicy(root),
     webTools: makeWebTools(),
+    expandReads: true,
   };
 }
 
@@ -144,6 +145,20 @@ test('read skips already-returned ranges instead of re-reading them', () => {
   const second = planRead({ path: 'src/a.ts', offset: 1, limit: 2 }, root, buildIgnorePolicy(root), stateByPath);
   assert.ok(!isFailedReadPlan(second));
   assert.equal(second.effectiveStartLine, 3);
+});
+
+test('planRead with expandReads=false runs the requested window unchanged despite prior ranges', () => {
+  const root = makeRepo();
+  const stateByPath = new Map();
+  const first = planRead({ path: 'src/a.ts', offset: 1, limit: 2 }, root, buildIgnorePolicy(root), stateByPath, false);
+  assert.ok(!isFailedReadPlan(first));
+  const state = stateByPath.get('src\\a.ts') ?? stateByPath.get('src/a.ts');
+  assert.ok(state);
+  state.mergedReturnedRanges = [{ start: 1, end: 3 }];
+  const second = planRead({ path: 'src/a.ts', offset: 1, limit: 2 }, root, buildIgnorePolicy(root), stateByPath, false);
+  assert.ok(!isFailedReadPlan(second));
+  assert.equal(second.effectiveStartLine, 1);
+  assert.equal(second.effectiveEndLineExclusive, 3);
 });
 
 test('planRead decodes a UTF-16LE (BOM) file instead of returning wide-char garbage', () => {
