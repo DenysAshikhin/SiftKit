@@ -5,10 +5,42 @@ import os from 'node:os';
 import path from 'node:path';
 import { executeRepoSearchRequest } from '../src/repo-search/execute.js';
 import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/repo-search/planner-protocol.js';
+import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 
 const MOCK_CONFIG = mockSiftConfig({
   Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
+});
+
+async function readRepoAgentMaxTurns(requestedMaxTurns?: number): Promise<number | undefined> {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-agent-turns-'));
+  const events: RepoSearchProgressEvent[] = [];
+  try {
+    await executeRepoSearchRequest({
+      taskKind: 'repo-agent',
+      prompt: 'finish immediately',
+      repoRoot: dir,
+      config: MOCK_CONFIG,
+      model: 'mock',
+      ...(requestedMaxTurns === undefined ? {} : { maxTurns: requestedMaxTurns }),
+      includeAgentsMd: false,
+      includeRepoFileListing: false,
+      allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
+      availableModels: ['mock'],
+      mockResponses: ['{"action":"finish","output":"done"}'],
+      mockCommandResults: {},
+      progressWriter: new CollectingProgressWriter(events),
+    });
+    return events.find((event) => event.kind === 'llm_start')?.maxTurns;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('repo-agent defaults to 100 turns and preserves an explicit higher override', async () => {
+  assert.equal(await readRepoAgentMaxTurns(), 100);
+  assert.equal(await readRepoAgentMaxTurns(125), 125);
 });
 
 test('repo-agent taskKind runs the agent prompt and applies a write without approval gate', async () => {

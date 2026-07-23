@@ -134,6 +134,7 @@ export const SUMMARY_PRESET_TOOLS = ['find_text', 'read_lines', 'json_filter', '
 export const READ_ONLY_PRESET_TOOLS = ['read', 'grep', 'find', 'ls', 'git'] as const;
 export const WEB_RESEARCH_PRESET_TOOLS = ['web_search', 'web_fetch'] as const;
 export const FULL_PRESET_TOOLS = [...READ_ONLY_PRESET_TOOLS, ...WEB_RESEARCH_PRESET_TOOLS, 'write', 'edit', 'run'] as const;
+export const REPO_AGENT_DEFAULT_MAX_TURNS = 100;
 SUMMARY_PRESET_TOOLS satisfies readonly PresetToolName[];
 READ_ONLY_PRESET_TOOLS satisfies readonly PresetToolName[];
 WEB_RESEARCH_PRESET_TOOLS satisfies readonly PresetToolName[];

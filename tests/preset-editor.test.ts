@@ -142,7 +142,7 @@ test('applyPresetKindDefaults gives repo-agent full mode, the full toolset, and 
   assert.equal(preset.operationMode, 'full');
   assert.deepEqual(preset.allowedTools, FULL_TOOL_OPTIONS);
   assert.equal(preset.repoRootRequired, true);
-  assert.equal(preset.maxTurns, 80);
+  assert.equal(preset.maxTurns, 100);
 });
 
 test('applyOperationModeDefaults swaps allowed tools while preserving chat-kind runtime defaults', () => {

@@ -1,5 +1,6 @@
 import { resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { REPO_AGENT_DEFAULT_MAX_TURNS } from '@siftkit/contracts';
 import { notifyStatusBackend } from '../config/index.js';
 import type { NotifyStatusBackendOptions } from '../config/status-backend.js';
 import {
@@ -316,7 +317,7 @@ export async function executeRepoSearchRequest(
       repoRoot,
       config: request.config,
       model: request.model,
-      maxTurns: request.maxTurns,
+      maxTurns: request.maxTurns ?? (isAgent ? REPO_AGENT_DEFAULT_MAX_TURNS : undefined),
       allowedTools: Array.isArray(request.allowedTools) ? request.allowedTools : undefined,
       includeAgentsMd: request.includeAgentsMd,
       includeRepoFileListing: request.includeRepoFileListing,

@@ -80,7 +80,7 @@ test('builtin presets are present and not deletable', () => {
   assert.equal(agent.operationMode, 'full');
   assert.equal(agent.repoRootRequired, true);
   assert.equal(agent.useForSummary, false);
-  assert.equal(agent.maxTurns, 80);
+  assert.equal(agent.maxTurns, 100);
 });
 
 test('normalizePresets keeps builtin presets even when overlay omits them and preserves non-deletable rule', () => {
@@ -245,6 +245,7 @@ test('user preset with repo-agent kind defaults to full mode and repoRootRequire
   assert.equal(found.presetKind, 'repo-agent');
   assert.equal(found.operationMode, 'full');
   assert.equal(found.repoRootRequired, true);
+  assert.equal(found.maxTurns, 100);
   assert.deepEqual(found.allowedTools, ['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch', 'write', 'edit', 'run']);
 });
 

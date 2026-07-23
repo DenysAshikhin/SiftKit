@@ -9,6 +9,7 @@ import {
   SUMMARY_PRESET_TOOLS,
   READ_ONLY_PRESET_TOOLS,
   FULL_PRESET_TOOLS,
+  REPO_AGENT_DEFAULT_MAX_TURNS,
 } from '@siftkit/contracts';
 
 // Derived from the canonical @siftkit/contracts groupings so the editor's tool surface and
@@ -78,7 +79,7 @@ export function applyOperationModeDefaults(
   preset.allowedTools = getDefaultToolsForOperationMode(operationMode);
   if (preset.presetKind === 'repo-agent') {
     preset.repoRootRequired = true;
-    preset.maxTurns = preset.maxTurns || 80;
+    preset.maxTurns = preset.maxTurns || REPO_AGENT_DEFAULT_MAX_TURNS;
     return;
   }
   if (preset.presetKind === 'plan' || preset.presetKind === 'repo-search') {

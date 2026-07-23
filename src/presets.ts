@@ -3,6 +3,7 @@ import {
   SUMMARY_PRESET_TOOLS,
   READ_ONLY_PRESET_TOOLS,
   FULL_PRESET_TOOLS,
+  REPO_AGENT_DEFAULT_MAX_TURNS,
   type PresetToolName,
 } from '@siftkit/contracts';
 import { JsonRecordReader } from './lib/json-record-reader.js';
@@ -267,7 +268,7 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     includeAgentsMd: true,
     includeRepoFileListing: true,
     repoRootRequired: true,
-    maxTurns: 80,
+    maxTurns: REPO_AGENT_DEFAULT_MAX_TURNS,
   }),
 ] as const;
 
@@ -333,7 +334,9 @@ function normalizeUserPreset(input: OptionalJsonValue): SiftPreset | null {
       : Boolean(reader.value('repoRootRequired')),
     maxTurns: normalizeNullableInteger(
       reader.value('maxTurns'),
-      presetKind === 'repo-agent' ? 80 : (presetKind === 'plan' || presetKind === 'repo-search' ? 45 : null),
+      presetKind === 'repo-agent'
+        ? REPO_AGENT_DEFAULT_MAX_TURNS
+        : (presetKind === 'plan' || presetKind === 'repo-search' ? 45 : null),
     ),
   });
 }

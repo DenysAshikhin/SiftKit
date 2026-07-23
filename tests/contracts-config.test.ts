@@ -4,11 +4,16 @@ import {
   Exl3EngineConfigSchema,
   InferenceRuntimeStatusSchema,
   ModelRuntimePresetSchema,
+  REPO_AGENT_DEFAULT_MAX_TURNS,
   RestartBackendResponseSchema,
   ServerModelPresetsConfigSchema,
   SiftConfigSchema,
 } from '@siftkit/contracts';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
+
+test('repo-agent turn default is shared through the contracts package', () => {
+  assert.equal(REPO_AGENT_DEFAULT_MAX_TURNS, 100);
+});
 
 test('SiftConfigSchema accepts the default config (conformance)', () => {
   assert.doesNotThrow(() => SiftConfigSchema.parse(getDefaultConfigObject()));
