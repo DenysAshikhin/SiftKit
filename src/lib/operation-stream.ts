@@ -13,6 +13,7 @@ export const ModelRequestQueueDiagnosticsSchema = z.object({
     kind: z.string(),
     startedAtUtc: z.string(),
     heldMs: z.number(),
+    ownerRunId: z.string().nullable(),
   }).nullable(),
   queueLength: z.number(),
   queuedRequests: z.array(z.object({

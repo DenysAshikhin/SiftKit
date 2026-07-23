@@ -393,6 +393,7 @@ export function getModelRequestQueueDiagnostics(ctx: ServerContext): ModelReques
         kind: ctx.activeModelRequest.kind,
         startedAtUtc: ctx.activeModelRequest.startedAtUtc,
         heldMs: getElapsedMsSinceIso(ctx.activeModelRequest.startedAtUtc),
+        ownerRunId: ctx.activeModelRequest.ownerRunId,
       }
       : null,
     queueLength: ctx.modelRequestQueue.length,
@@ -461,7 +462,7 @@ export function wakeManagedLlamaForIncomingModelRequest(ctx: ServerContext): voi
   });
 }
 
-export function acquireModelRequest(ctx: ServerContext, kind: string): ModelRequestLock | null {
+export function acquireModelRequest(ctx: ServerContext, kind: string, ownerRunId: string | null = null): ModelRequestLock | null {
   if (
     ctx.activeModelRequest
     || ctx.modelRequestQueue.length > 0
@@ -469,18 +470,19 @@ export function acquireModelRequest(ctx: ServerContext, kind: string): ModelRequ
   ) {
     return null;
   }
-  const lock = createModelRequestLock(kind);
+  const lock = createModelRequestLock(kind, ownerRunId);
   ctx.activeModelRequest = lock;
   ctx.presetRuntimeCoordinator?.setModelRequestActive(true);
   syncInferenceRunFlushQueueModelState(ctx);
   return lock;
 }
 
-function createModelRequestLock(kind: string): ModelRequestLock {
+function createModelRequestLock(kind: string, ownerRunId: string | null): ModelRequestLock {
   return {
     token: randomUUID(),
     kind: String(kind),
     startedAtUtc: new Date().toISOString(),
+    ownerRunId,
   };
 }
 
@@ -569,7 +571,7 @@ function grantNextModelRequest(ctx: ServerContext): boolean {
     if (!waiter || waiter.cancelled) {
       continue;
     }
-    const lock = createModelRequestLock(waiter.kind);
+    const lock = createModelRequestLock(waiter.kind, waiter.ownerRunId);
     waiter.grantedLock = lock;
     ctx.activeModelRequest = lock;
     ctx.presetRuntimeCoordinator?.setModelRequestActive(true);
@@ -595,7 +597,7 @@ export async function acquireModelRequestWithWait(
   ctx.modelIdleController?.clearForIncomingRequest();
   logIncomingModelRequest(ctx, kind);
   clearIdleSummaryTimer(ctx);
-  let lock = acquireModelRequest(ctx, kind);
+  let lock = acquireModelRequest(ctx, kind, options.ownerRunId ?? null);
   if (lock) {
     logModelRequestLockAcquired(lock, 0);
     return lock;
@@ -611,6 +613,7 @@ export async function acquireModelRequestWithWait(
   const waiter: ModelRequestWaiter = {
     queueToken: randomUUID(),
     kind: String(kind),
+    ownerRunId: options.ownerRunId ?? null,
     enqueuedAtUtc: new Date().toISOString(),
     cancelled: false,
     grantedLock: null,

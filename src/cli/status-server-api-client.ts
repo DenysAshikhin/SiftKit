@@ -10,6 +10,7 @@ import {
   type LoggedHttpClientTask,
 } from '../lib/http-client.js';
 import { JsonObjectSchema, type JsonSerializable } from '../lib/json-types.js';
+import { AGENT_RUN_ID_HEADER, readNestedAgentRunId } from '../lib/agent-run-marker.js';
 import { parseJsonObjectText, parseJsonText } from '../lib/json.js';
 import {
   OPERATION_STREAM_EVENTS,
@@ -193,7 +194,9 @@ export class StatusServerApiClient {
   ): Promise<T> {
     const startedAt = Date.now();
     try {
+      const nestedAgentRunId = readNestedAgentRunId();
       for await (const frame of this.client.streamSse({
+        ...(nestedAgentRunId ? { headers: { [AGENT_RUN_ID_HEADER]: nestedAgentRunId } } : {}),
         url: this.getServiceUrl(pathname),
         body,
         idleTimeoutMs: DEFAULT_IDLE_TIMEOUT_MS,

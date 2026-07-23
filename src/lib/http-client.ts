@@ -48,6 +48,7 @@ export type SseStreamOptions = {
   body: string;
   idleTimeoutMs: number;
   abortSignal?: AbortSignal;
+  headers?: Record<string, string>;
 };
 
 type SseStreamItem =
@@ -221,6 +222,7 @@ export class HttpClient {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(options.body, 'utf8'),
         Accept: 'text/event-stream',
+        ...(options.headers ?? {}),
       },
     }, (response) => {
       const statusCode = response.statusCode || 0;

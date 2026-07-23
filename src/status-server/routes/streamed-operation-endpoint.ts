@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { JsonObject, JsonSerializable } from '../../lib/json-types.js';
 import { OPERATION_STREAM_EVENTS } from '../../lib/operation-stream.js';
+import { AGENT_RUN_ID_HEADER } from '../../lib/agent-run-marker.js';
 import { recordServerError } from '../error-response.js';
 import { parseJsonBody, readBody, sendJson } from '../http-utils.js';
 import { type RouteEndpoint, type RouteMatch } from '../route-table.js';
@@ -47,6 +48,9 @@ export abstract class StreamedOperationEndpoint<TParsed> implements RouteEndpoin
   ): Promise<JsonSerializable>;
 
   protected onOperationFailed(_parsed: TParsed, _errorMessage: string): void {}
+  protected lockOwnerRunId(_parsed: TParsed): string | null {
+    return null;
+  }
 
   async handle(
     ctx: ServerContext,
@@ -59,6 +63,13 @@ export abstract class StreamedOperationEndpoint<TParsed> implements RouteEndpoin
       parsedBody = parseJsonBody(await readBody(req));
     } catch {
       sendJson(res, 400, { error: 'Expected valid JSON object.' });
+      return;
+    }
+    const nestedRunId = String(req.headers[AGENT_RUN_ID_HEADER] || '').trim();
+    if (nestedRunId && ctx.activeModelRequest?.ownerRunId === nestedRunId) {
+      const message = `Rejected self-call from agent run ${nestedRunId}: it holds the model lock, so this request would deadlock behind its own run.`;
+      const payload = recordServerError(req, 409, new Error(message), { taskKind: this.taskKind });
+      sendJson(res, 409, { ...payload, modelRequests: getModelRequestQueueDiagnostics(ctx) });
       return;
     }
     const parsed = this.parseRequest(parsedBody, ctx);
@@ -86,7 +97,9 @@ export abstract class StreamedOperationEndpoint<TParsed> implements RouteEndpoin
       });
     }, LOCK_WAIT_EMIT_INTERVAL_MS);
     lockWaitTimer.unref();
-    const modelRequestLock = await acquireModelRequestWithWait(ctx, this.lockKind, req, res);
+    const modelRequestLock = await acquireModelRequestWithWait(ctx, this.lockKind, req, res, {
+      ownerRunId: this.lockOwnerRunId(parsed.value),
+    });
     clearInterval(lockWaitTimer);
     if (!modelRequestLock) {
       const message = 'Timed out waiting for model request queue.';

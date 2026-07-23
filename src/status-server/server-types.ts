@@ -32,11 +32,12 @@ export type ActiveRunState = {
   managedLlamaSpeculativeSnapshot: ManagedLlamaSpeculativeMetricsSnapshot | null;
 };
 
-export type ModelRequestLock = { token: string; kind: string; startedAtUtc: string };
-export type ModelRequestWaitOptions = { timeoutMs?: number };
+export type ModelRequestLock = { token: string; kind: string; startedAtUtc: string; ownerRunId: string | null };
+export type ModelRequestWaitOptions = { timeoutMs?: number; ownerRunId?: string | null };
 export type ModelRequestWaiter = {
   queueToken: string;
   kind: string;
+  ownerRunId: string | null;
   enqueuedAtUtc: string;
   cancelled: boolean;
   grantedLock: ModelRequestLock | null;

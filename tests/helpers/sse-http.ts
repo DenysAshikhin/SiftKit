@@ -19,6 +19,7 @@ export function requestSse(
   options: {
     body: JsonSerializable;
     timeoutMs?: number;
+    headers?: Record<string, string>;
     onProgress?: (event: JsonObject) => void | Promise<void>;
   },
 ): Promise<CollectedSseResponse> {
@@ -39,6 +40,7 @@ export function requestSse(
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(bodyText, 'utf8'),
+        ...(options.headers ?? {}),
       },
     }, (response) => {
       collected.statusCode = response.statusCode || 0;

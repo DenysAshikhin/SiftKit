@@ -853,6 +853,10 @@ abstract class RepoTaskEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
     markRepoSearchAdmissionFailed(parsed.admission, errorMessage);
   }
 
+  protected lockOwnerRunId(parsed: ParsedRepoSearchRoute): string | null {
+    return parsed.admission.requestId;
+  }
+
   protected async execute(
     ctx: ServerContext,
     parsed: ParsedRepoSearchRoute,
