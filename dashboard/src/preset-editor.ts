@@ -18,6 +18,9 @@ export const PRESET_TOOL_OPTIONS: DashboardPresetToolName[] = [
   'git',
   'web_search',
   'web_fetch',
+  'write',
+  'edit',
+  'run',
 ];
 
 export const PRESET_TOOL_DESCRIPTIONS: Record<DashboardPresetToolName, string> = {
@@ -43,10 +46,17 @@ export const PRESET_TOOL_DESCRIPTIONS: Record<DashboardPresetToolName, string> =
     'Search public web results. Best for finding current or external information by query; returns result titles, URLs, and snippets.',
   web_fetch:
     'Fetch public URL text. Best for reading the extracted text of one public HTTP(S) page. Private, local, and internal URLs are blocked.',
+  write:
+    'Create a file or fully overwrite an existing one, creating parent directories as needed. Best for new files or complete rewrites; prefer edit for surgical changes.',
+  edit:
+    'Replace exact text in an existing file, where each match must be unique and non-overlapping. Best for surgical changes once you have read the surrounding code.',
+  run:
+    'Execute a shell command in the repository root and return stdout and stderr. Best for building, testing, or linting to verify changes.',
 };
 
 const SUMMARY_TOOLS: DashboardPresetToolName[] = ['find_text', 'read_lines', 'json_filter', 'json_get'];
 const READ_ONLY_TOOLS: DashboardPresetToolName[] = ['read', 'grep', 'find', 'ls', 'git'];
+const FULL_TOOLS: DashboardPresetToolName[] = ['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch', 'write', 'edit', 'run'];
 
 export function getDefaultToolsForOperationMode(
   operationMode: DashboardPresetOperationMode,
@@ -57,7 +67,7 @@ export function getDefaultToolsForOperationMode(
   if (operationMode === 'read-only') {
     return [...READ_ONLY_TOOLS];
   }
-  return [];
+  return [...FULL_TOOLS];
 }
 
 export function getDefaultOperationModeForPresetKind(
@@ -65,6 +75,9 @@ export function getDefaultOperationModeForPresetKind(
 ): DashboardPresetOperationMode {
   if (presetKind === 'plan' || presetKind === 'repo-search') {
     return 'read-only';
+  }
+  if (presetKind === 'repo-agent') {
+    return 'full';
   }
   return 'summary';
 }
@@ -75,6 +88,11 @@ export function applyOperationModeDefaults(
 ): void {
   preset.operationMode = operationMode;
   preset.allowedTools = getDefaultToolsForOperationMode(operationMode);
+  if (preset.presetKind === 'repo-agent') {
+    preset.repoRootRequired = true;
+    preset.maxTurns = preset.maxTurns || 80;
+    return;
+  }
   if (preset.presetKind === 'plan' || preset.presetKind === 'repo-search') {
     preset.repoRootRequired = true;
     preset.maxTurns = preset.maxTurns || 45;

@@ -44,6 +44,8 @@ function createPreset(id: string, overrides: Partial<DashboardPreset> = {}): Das
 const SUMMARY_TOOL_OPTIONS: DashboardPresetToolName[] = ['find_text', 'read_lines', 'json_filter', 'json_get'];
 const REPO_TOOL_OPTIONS: DashboardPresetToolName[] = ['read', 'grep', 'find', 'ls', 'git'];
 const WEB_TOOL_OPTIONS: DashboardPresetToolName[] = ['web_search', 'web_fetch'];
+const AGENT_TOOL_OPTIONS: DashboardPresetToolName[] = ['write', 'edit', 'run'];
+const FULL_TOOL_OPTIONS: DashboardPresetToolName[] = [...REPO_TOOL_OPTIONS, ...WEB_TOOL_OPTIONS, ...AGENT_TOOL_OPTIONS];
 
 test('PRESET_TOOL_OPTIONS exposes every supported tool exactly once', () => {
   assert.equal(new Set(PRESET_TOOL_OPTIONS).size, PRESET_TOOL_OPTIONS.length);
@@ -51,6 +53,7 @@ test('PRESET_TOOL_OPTIONS exposes every supported tool exactly once', () => {
     ...SUMMARY_TOOL_OPTIONS,
     ...REPO_TOOL_OPTIONS,
     ...WEB_TOOL_OPTIONS,
+    ...AGENT_TOOL_OPTIONS,
   ] satisfies DashboardPresetToolName[]);
 });
 
@@ -88,17 +91,18 @@ test('togglePresetTool adds missing tools and removes existing ones', () => {
   assert.deepEqual(togglePresetTool(['find_text', 'read_lines'], 'find_text'), ['read_lines']);
 });
 
-test('getDefaultOperationModeForPresetKind maps summary/chat to summary and planner kinds to read-only', () => {
+test('getDefaultOperationModeForPresetKind maps summary/chat to summary, planner kinds to read-only, agent to full', () => {
   assert.equal(getDefaultOperationModeForPresetKind('summary'), 'summary');
   assert.equal(getDefaultOperationModeForPresetKind('chat'), 'summary');
   assert.equal(getDefaultOperationModeForPresetKind('plan'), 'read-only');
   assert.equal(getDefaultOperationModeForPresetKind('repo-search'), 'read-only');
+  assert.equal(getDefaultOperationModeForPresetKind('repo-agent'), 'full');
 });
 
 test('getDefaultToolsForOperationMode returns the builtin defaults for each mode', () => {
   assert.deepEqual(getDefaultToolsForOperationMode('summary'), SUMMARY_TOOL_OPTIONS);
   assert.deepEqual(getDefaultToolsForOperationMode('read-only'), REPO_TOOL_OPTIONS);
-  assert.deepEqual(getDefaultToolsForOperationMode('full'), []);
+  assert.deepEqual(getDefaultToolsForOperationMode('full'), FULL_TOOL_OPTIONS);
 });
 
 test('applyPresetKindDefaults makes preset kind authoritative over operation mode and repo settings', () => {
@@ -121,6 +125,26 @@ test('applyPresetKindDefaults makes preset kind authoritative over operation mod
   assert.equal(preset.maxTurns, 45);
 });
 
+test('applyPresetKindDefaults gives repo-agent full mode, the full toolset, and agent runtime defaults', () => {
+  const preset = createPreset('custom', {
+    presetKind: 'chat',
+    operationMode: 'summary',
+    executionFamily: 'chat',
+    allowedTools: ['find_text'],
+    repoRootRequired: false,
+    maxTurns: null,
+  });
+
+  applyPresetKindDefaults(preset, 'repo-agent');
+
+  assert.equal(preset.presetKind, 'repo-agent');
+  assert.equal(preset.executionFamily, 'repo-agent');
+  assert.equal(preset.operationMode, 'full');
+  assert.deepEqual(preset.allowedTools, FULL_TOOL_OPTIONS);
+  assert.equal(preset.repoRootRequired, true);
+  assert.equal(preset.maxTurns, 80);
+});
+
 test('applyOperationModeDefaults swaps allowed tools while preserving chat-kind runtime defaults', () => {
   const preset = createPreset('chat', {
     presetKind: 'chat',
@@ -132,7 +156,7 @@ test('applyOperationModeDefaults swaps allowed tools while preserving chat-kind 
   applyOperationModeDefaults(preset, 'full');
 
   assert.equal(preset.operationMode, 'full');
-  assert.deepEqual(preset.allowedTools, []);
+  assert.deepEqual(preset.allowedTools, FULL_TOOL_OPTIONS);
   assert.equal(preset.repoRootRequired, false);
   assert.equal(preset.maxTurns, null);
 });
