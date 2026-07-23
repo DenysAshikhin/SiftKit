@@ -1,6 +1,7 @@
 import { ensureStatusServerReachable } from '../config/index.js';
 import {
   BLOCKED_PUBLIC_COMMANDS,
+  KNOWN_COMMANDS,
   MODEL_LOCK_COMMANDS,
   getCommandArgs,
   getCommandName,
@@ -36,14 +37,17 @@ export async function runCli(options: CliRunOptions): Promise<number> {
 
   const commandName = getCommandName(options.argv);
   const nestedAgentRunId = readNestedAgentRunId();
-  if (BLOCKED_PUBLIC_COMMANDS.has(options.argv[0]) && !nestedAgentRunId) {
+  if (BLOCKED_PUBLIC_COMMANDS.has(options.argv[0]) && !(nestedAgentRunId && MODEL_LOCK_COMMANDS.has(options.argv[0]))) {
     stderr.write(`Command '${options.argv[0]}' is not exposed in this CLI build. Available commands: summary, repo-search, preset, run, help.\n`);
     return 1;
   }
   const commandArgs = getCommandArgs(options.argv);
   const commandHelpRequested = commandArgs.some((token) => token === '-h' || token === '--h' || token === '--help' || token === '-help');
 
-  const nestedLockCommand = commandName === 'summary' && options.argv.length === 1 && MODEL_LOCK_COMMANDS.has(options.argv[0] ?? '')
+  const nestedLockCommand = commandName === 'summary'
+    && options.argv.length > 0
+    && !KNOWN_COMMANDS.has(options.argv[0])
+    && MODEL_LOCK_COMMANDS.has(options.argv[0])
     ? options.argv[0]
     : commandName;
   if (nestedAgentRunId && MODEL_LOCK_COMMANDS.has(nestedLockCommand) && nestedLockCommand !== 'summary') {
