@@ -834,9 +834,10 @@ type ParsedRepoSearchRoute = {
   admission: RepoSearchAdmissionRecord;
 };
 
-class RepoSearchEndpoint extends StreamedOperationEndpoint<ParsedRepoSearchRoute> {
+abstract class RepoTaskEndpoint extends StreamedOperationEndpoint<ParsedRepoSearchRoute> {
   protected readonly lockKind = 'repo_search';
   protected readonly taskKind = 'repo-search';
+  protected abstract readonly mode: 'search' | 'agent';
 
   protected parseRequest(parsedBody: JsonObject): ParsedStreamedRequest<ParsedRepoSearchRoute> {
     const repoSearchRequest = parseRepoSearchRequest(parsedBody);
@@ -867,11 +868,14 @@ class RepoSearchEndpoint extends StreamedOperationEndpoint<ParsedRepoSearchRoute
     const requestedAllowedTools = Array.isArray(parsedBody.allowedTools)
       ? parsedBody.allowedTools.map((value) => String(value))
       : undefined;
-    const allowedTools = interactive
+    // Agent always gets the full surface; approval is on unless approval===false.
+    // Search keeps its existing interactive/sanitize logic.
+    const approvalOn = this.mode === 'agent' ? parsedBody.approval !== false : interactive;
+    const allowedTools = (this.mode === 'agent' || interactive)
       ? [...INTERACTIVE_REPO_TOOL_NAMES]
       : sanitizeNonInteractiveAllowedTools(requestedAllowedTools);
     const progressWriter = new LoggedRepoSearchSseProgressWriter(stream, admission.requestId);
-    const approvalGate = interactive
+    const approvalGate = approvalOn
       ? new ApprovalGate({
         requestId: admission.requestId,
         progressWriter,
@@ -883,7 +887,7 @@ class RepoSearchEndpoint extends StreamedOperationEndpoint<ParsedRepoSearchRoute
     }
     try {
       const result = await ctx.engineService.executeRepoSearch({
-        taskKind: 'repo-search',
+        taskKind: this.mode === 'agent' ? 'repo-agent' : 'repo-search',
         prompt: repoSearchRequest.prompt,
         requestId: admission.requestId,
         startedAtUtc: admission.startedAtUtc,
@@ -912,6 +916,14 @@ class RepoSearchEndpoint extends StreamedOperationEndpoint<ParsedRepoSearchRoute
       }
     }
   }
+}
+
+class RepoSearchEndpoint extends RepoTaskEndpoint {
+  protected readonly mode = 'search';
+}
+
+class RepoAgentEndpoint extends RepoTaskEndpoint {
+  protected readonly mode = 'agent';
 }
 
 const DEFAULT_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;
@@ -1750,6 +1762,7 @@ const CORE_ROUTES = new RouteTable([
   { method: 'POST', path: '/eval/run', endpoint: new EvalRunEndpoint() },
   { method: 'POST', path: '/repo-search/approval', endpoint: new RepoSearchApprovalEndpoint() },
   { method: 'POST', path: '/repo-search', endpoint: new RepoSearchEndpoint() },
+  { method: 'POST', path: '/repo-agent', endpoint: new RepoAgentEndpoint() },
   { method: 'POST', path: '/summary', endpoint: new SummaryEndpoint() },
   { method: 'POST', path: /^\/status\/complete(?:\?.*)?$/u, endpoint: new StatusCompleteEndpoint() },
   { method: 'POST', path: '/status', endpoint: STATUS_POST_ENDPOINT },
