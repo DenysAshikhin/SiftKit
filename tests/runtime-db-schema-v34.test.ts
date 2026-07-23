@@ -35,11 +35,11 @@ function columnNames(dbPath: string, table: string): string[] {
   }
 }
 
-test('schema 34 exposes backend-neutral inference run tables', () => {
+test('schema 35 exposes backend-neutral inference run tables', () => {
   const dbPath = tempDbPath('sk-v34-fresh-');
   try {
     getRuntimeDatabase(dbPath);
-    assert.equal(CURRENT_SCHEMA_VERSION, 34);
+    assert.equal(CURRENT_SCHEMA_VERSION, 35);
 
     const tables = tableNames(dbPath);
     assert.ok(tables.includes('inference_runs'), 'inference_runs must exist');
