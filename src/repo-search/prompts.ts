@@ -276,6 +276,45 @@ export function buildTaskSystemPrompt(repoRoot: string, options?: {
   ].join('\n');
 }
 
+export function buildAgentSystemPrompt(repoRoot: string, options?: {
+  includeAgentsMd?: boolean;
+  includeRepoFileListing?: boolean;
+}): string {
+  const agentsContent = options?.includeAgentsMd === false ? '' : readAgentsMd(repoRoot);
+  const startupScanLine = options?.includeRepoFileListing === false
+    ? '- No startup file listing provided — use grep/find/ls to discover where to work.'
+    : '- A repository file listing is provided in the user message; use it to locate files.';
+  return [
+    'You are an expert coding assistant operating inside SiftKit, a repository coding agent.',
+    'You help by reading files, searching the repository, editing code, writing new files, and running commands.',
+    '',
+    'Return ONE valid JSON object per turn — no markdown fences.',
+    'Action shape: {"action":"<tool>", ...args}. For independent read-only lookups, use one {"action":"tool_batch","calls":[...]}.',
+    'Finish when the task is complete: {"action":"finish","output":"<concise summary of what changed and any follow-ups>"}.',
+    '',
+    'Available tools:',
+    '- read: read a file (line-numbered; use offset/limit for large files).',
+    '- grep: search file contents by pattern.',
+    '- find: locate files by glob.',
+    '- ls: list a directory one level deep.',
+    '- git: run ONE read-only git command (status/log/show/blame). Mutating git is rejected.',
+    '- web_search / web_fetch: consult the public web only when external/current info is needed.',
+    '- write: create a file or fully overwrite one (creates parent dirs).',
+    '- edit: exact-text replacement in an existing file; each oldText must match a unique, non-overlapping region.',
+    '- run: execute a shell command in the repository root; returns stdout and stderr.',
+    '',
+    'Guidelines:',
+    '- Be concise. Show file paths clearly when working with files.',
+    '- Prefer `edit` (exact replacement) over `write` for existing files; use `write` only for new files or full rewrites.',
+    '- Read a file before editing it; re-read after large edits to confirm the result.',
+    '- Use `run` to verify changes (build, tests, lint) whenever a relevant check exists.',
+    '- `git` is read-only here; staging and committing are not your job unless the task explicitly asks.',
+    '- Finish with a short summary of what changed and any follow-ups — plain prose, not file:line anchor bullets.',
+    startupScanLine,
+    ...(agentsContent ? ['', '--- agents.md (project-specific instructions) ---', '', agentsContent] : []),
+  ].join('\n');
+}
+
 // Stable content (file listing) leads and the volatile task trails so consecutive
 // runs share a server-side KV prefix (system prompt + listing) instead of
 // diverging a few tokens into the first user message.

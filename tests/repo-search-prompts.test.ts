@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { buildTaskInitialUserPrompt, buildTaskSystemPrompt } from '../src/repo-search/prompts.js';
+import { buildAgentSystemPrompt, buildTaskInitialUserPrompt, buildTaskSystemPrompt } from '../src/repo-search/prompts.js';
 
 function withTempRepo(fn: (repoRoot: string) => void): void {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-prompt-'));
@@ -178,4 +178,29 @@ test('buildTaskSystemPrompt states ignored paths are auto-filtered by runtime po
     const prompt = buildTaskSystemPrompt(repoRoot);
     assert.match(prompt, /Ignored paths \(node_modules, dist, \.git, …\) are excluded from grep\/find\/ls automatically\./u);
   });
+});
+
+test('buildAgentSystemPrompt has persona, full tool list, edit-first guideline, and no search-discipline lines', () => {
+  const prompt = buildAgentSystemPrompt(process.cwd(), { includeAgentsMd: false, includeRepoFileListing: true });
+  assert.match(prompt, /repository coding agent/iu);
+  for (const tool of ['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch', 'write', 'edit', 'run']) {
+    assert.ok(prompt.includes(tool), `expected tool ${tool} in prompt`);
+  }
+  assert.match(prompt, /"action":"finish"/u);
+  assert.match(prompt, /Prefer `edit`/u);
+  // Must NOT carry the read-only search-discipline persona.
+  assert.doesNotMatch(prompt, /repo-search planner/u);
+  assert.doesNotMatch(prompt, /anchor-bullets/u);
+  assert.doesNotMatch(prompt, /Minimum 5 tool-call turns/u);
+});
+
+test('buildAgentSystemPrompt injects agents.md when present and enabled', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-agent-prompt-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'agents.md'), 'PROJECT RULE: use tabs.');
+    const prompt = buildAgentSystemPrompt(dir, { includeAgentsMd: true, includeRepoFileListing: true });
+    assert.match(prompt, /PROJECT RULE: use tabs\./u);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
