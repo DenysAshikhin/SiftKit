@@ -77,5 +77,5 @@ test('general section renders an Expand reads toggle bound to config', () => {
 
   const disabledConfig = { ...DASHBOARD_CONFIG, ExpandReads: false };
   const disabled = render({ dashboardConfig: disabledConfig });
-  assert.match(disabled, /Disabled/);
+  assert.match(disabled, /Expand reads[\s\S]{0,300}class="settings-live-toggle-control"[\s\S]{0,300}><span>Disabled<\/span>/);
 });
