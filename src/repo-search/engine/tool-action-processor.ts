@@ -102,6 +102,7 @@ export type ToolActionProcessorDeps = {
   maxInvalidResponses: number;
   allowedPlannerToolNames: string[];
   approvalGate: ApprovalGate | null;
+  validationCommandOutputLineLimit: number | null;
   chatWebGroundingEnabled: boolean;
   chatWebGroundingPolicy: ChatGroundingPolicy;
   ignorePolicy: IgnorePolicy;
@@ -481,6 +482,8 @@ export class ToolActionProcessor {
       abortSignal: this.deps.abortSignal,
       expandReads: isReadExpansionEnabled(this.deps.config),
       agentRunId: this.deps.task.id,
+      validationCommandOutputLineLimit:
+        this.deps.validationCommandOutputLineLimit,
     });
   }
 

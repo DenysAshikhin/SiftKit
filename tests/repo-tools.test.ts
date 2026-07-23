@@ -40,13 +40,14 @@ function makeWebTools(): WebResearchTools {
   });
 }
 
-function makeContext(root: string) {
+function makeContext(root: string, validationCommandOutputLineLimit: number | null = null) {
   return {
     repoRoot: root,
     ignorePolicy: buildIgnorePolicy(root),
     webTools: makeWebTools(),
     expandReads: true,
     agentRunId: 'test-run',
+    validationCommandOutputLineLimit,
   };
 }
 
@@ -395,6 +396,84 @@ test('run declares tail-biased output truncation on its execution result', async
   const result = await executeRepoTool('run', { command: 'Write-Output marker-ok' }, makeContext(root));
   assert.ok(result.ok);
   assert.equal(result.outputKeep, 'tail');
+});
+
+function writeNoisyFailingTest(root: string): void {
+  fs.writeFileSync(
+    path.join(root, 'validation.cjs'),
+    [
+      'for (let index = 1; index <= 60; index += 1) console.log(`validation-line-${index}`);',
+      'process.exitCode = 1;',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(root, 'package.json'),
+    JSON.stringify({ scripts: { test: 'node validation.cjs' } }),
+    'utf8',
+  );
+}
+
+test('repo-agent run auto mode keeps 50 tail lines and preserves failing exit code', async () => {
+  const root = makeRepo();
+  try {
+    writeNoisyFailingTest(root);
+    const result = await executeRepoTool(
+      'run',
+      { command: 'npm test' },
+      makeContext(root, 50),
+    );
+
+    assert.ok(result.ok);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.output, /^\d+ lines omitted from validation command output\./u);
+    assert.doesNotMatch(result.output, /validation-line-1\b/u);
+    assert.match(result.output, /validation-line-60\b/u);
+    assert.equal(result.output.split(/\r\n|\r|\n/u).length, 51);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('run full mode and non-agent context preserve complete validation output', async () => {
+  const root = makeRepo();
+  try {
+    writeNoisyFailingTest(root);
+    const full = await executeRepoTool(
+      'run',
+      { command: 'npm test', outputMode: 'full' },
+      makeContext(root, 50),
+    );
+    const nonAgent = await executeRepoTool(
+      'run',
+      { command: 'npm test' },
+      makeContext(root),
+    );
+
+    assert.ok(full.ok);
+    assert.ok(nonAgent.ok);
+    assert.equal(full.exitCode, 1);
+    assert.equal(nonAgent.exitCode, 1);
+    assert.match(full.output, /validation-line-1\b/u);
+    assert.match(nonAgent.output, /validation-line-1\b/u);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('run rejects an invalid output mode at the execution boundary', async () => {
+  const root = makeRepo();
+  try {
+    const result = await executeRepoTool(
+      'run',
+      { command: 'Write-Output marker', outputMode: 'verbose' },
+      makeContext(root, 50),
+    );
+    assert.equal(result.ok, false);
+    assert.match(result.reason, /outputMode must be "auto" or "full"/u);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('read execution leaves outputKeep unset so it truncates head-first', () => {

@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { buildAgentSystemPrompt, buildTaskInitialUserPrompt, buildTaskSystemPrompt } from '../src/repo-search/prompts.js';
+import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/validation-command-output-policy.js';
 import { RUN_SHELL_LABEL, POWERSHELL_EXECUTABLE } from '../src/lib/powershell.js';
 
 function withTempRepo(fn: (repoRoot: string) => void): void {
@@ -202,6 +203,21 @@ test('buildAgentSystemPrompt tells the run tool it is PowerShell on Windows with
   assert.ok(prompt.includes(RUN_SHELL_LABEL), 'run tool line must use the executor-derived shell label');
   assert.match(prompt, /Select-Object|Get-Content|Select-String/u, 'must steer to PowerShell idioms');
   assert.match(prompt, /tail/iu, 'must say long output is truncated to the tail');
+});
+
+test('buildAgentSystemPrompt documents automatic validation trimming and full output mode', () => {
+  const prompt = buildAgentSystemPrompt(process.cwd(), {
+    includeAgentsMd: false,
+    includeRepoFileListing: true,
+  });
+
+  assert.match(
+    prompt,
+    new RegExp(`final ${REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT} lines`, 'u'),
+  );
+  assert.match(prompt, /test, build, lint, and typecheck/u);
+  assert.match(prompt, /outputMode.*"full"/u);
+  assert.match(prompt, /complete output is required/u);
 });
 
 test('buildAgentSystemPrompt injects agents.md when present and enabled', () => {

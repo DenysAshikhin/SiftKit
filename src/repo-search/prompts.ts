@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { z } from '../lib/zod.js';
 import { RUN_SHELL_LABEL } from '../lib/powershell.js';
 import type { IgnorePolicy } from './command-safety.js';
+import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/validation-command-output-policy.js';
 
 // ---------------------------------------------------------------------------
 // Repo file scanner (gitignore-aware, no external dependencies)
@@ -314,7 +315,9 @@ export function buildAgentSystemPrompt(repoRoot: string, options?: {
     'Guidelines:',
     '- Be concise. Show file paths clearly when working with files.',
     `- \`run\` executes in ${RUN_SHELL_LABEL}: use PowerShell syntax (Select-Object -Last N, Select-String, Get-Content -Tail N). Unix (tail/head/grep) and cmd (\`&\`, \`%ERRORLEVEL%\`) are NOT available.`,
-    '- Long `run` output is truncated to its TAIL, so the final summary/errors survive — read the command output directly; never pipe to Select-Object -Last or redirect to a temp file to see the end.',
+    '- Long `run` output is truncated to its tail, so final summaries and errors survive.',
+    `- Commands for test, build, lint, and typecheck automatically retain only their final ${REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT} lines in normal \`outputMode: "auto"\`; do not add tail pipelines or temporary redirection.`,
+    '- Use `outputMode: "full"` only when complete output is required for diagnosis; normal context-budget fitting still applies.',
     '- Prefer `edit` (exact replacement) over `write` for existing files; use `write` only for new files or full rewrites.',
     '- Read a file before editing it; re-read after large edits to confirm the result.',
     '- Use `run` to verify changes (build, tests, lint) whenever a relevant check exists.',
@@ -400,4 +403,3 @@ export const TaskCommandSchema = z.object({
   outputTokensEstimated: z.boolean().optional(),
 });
 export type TaskCommand = z.infer<typeof TaskCommandSchema>;
-

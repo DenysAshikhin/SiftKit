@@ -9,6 +9,7 @@ import {
   traceRepoSearch,
 } from './logging.js';
 import { runRepoSearch } from './engine.js';
+import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/validation-command-output-policy.js';
 import { buildAgentSystemPrompt } from './prompts.js';
 import { getNumericTotal, getOutputCharacterCount } from './scorecard.js';
 import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
@@ -320,6 +321,9 @@ export async function executeRepoSearchRequest(
       maxTurns: request.maxTurns ?? (isAgent ? REPO_AGENT_DEFAULT_MAX_TURNS : undefined),
       allowedTools: Array.isArray(request.allowedTools) ? request.allowedTools : undefined,
       contextOverflowPolicy: isAgent ? 'fail' : 'compact',
+      validationCommandOutputLineLimit: isAgent
+        ? REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT
+        : null,
       includeAgentsMd: request.includeAgentsMd,
       includeRepoFileListing: request.includeRepoFileListing,
       allowEmptyTools: taskKind === 'chat',

@@ -67,6 +67,49 @@ test('repo-agent selects fail context policy and surfaces overflow without a mod
   }
 });
 
+test('repo-agent automatically trims noisy validation run output', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-agent-validation-'));
+  fs.writeFileSync(
+    path.join(dir, 'validation.cjs'),
+    'for (let index = 1; index <= 60; index += 1) console.log(`validation-line-${index}`);\n',
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(dir, 'package.json'),
+    JSON.stringify({ scripts: { test: 'node validation.cjs' } }),
+    'utf8',
+  );
+  try {
+    const result = await executeRepoSearchRequest({
+      taskKind: 'repo-agent',
+      prompt: 'run the validation test',
+      repoRoot: dir,
+      config: MOCK_CONFIG,
+      model: 'mock',
+      maxTurns: 4,
+      includeAgentsMd: false,
+      includeRepoFileListing: false,
+      allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
+      availableModels: ['mock'],
+      mockResponses: [
+        '{"action":"run","command":"npm test"}',
+        '{"action":"finish","output":"validation passed"}',
+      ],
+      mockCommandResults: {},
+    });
+    const command = result.scorecard.tasks[0]?.commands[0];
+    if (!command) {
+      throw new Error('Expected repo-agent to record the validation command.');
+    }
+    assert.equal(command.exitCode, 0);
+    assert.match(command.output, /lines omitted from validation command output\./u);
+    assert.doesNotMatch(command.output, /validation-line-1\b/u);
+    assert.match(command.output, /validation-line-60\b/u);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('repo-agent taskKind runs the agent prompt and applies a write without approval gate', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-agent-exec-'));
   try {

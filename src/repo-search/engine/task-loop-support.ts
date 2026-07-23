@@ -154,6 +154,7 @@ export type RunTaskLoopOptions = {
   maxInvalidResponses?: number;
   minToolCallsBeforeFinish?: number;
   contextOverflowPolicy?: ContextOverflowPolicy;
+  validationCommandOutputLineLimit?: number | null;
   loopKind?: 'repo-search' | 'chat';
   streamFinishAsAnswer?: boolean;
   thinkingEnabledOverride?: boolean;

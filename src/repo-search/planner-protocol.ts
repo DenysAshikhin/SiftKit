@@ -197,6 +197,12 @@ const REPO_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
         properties: {
           command: { type: 'string', description: 'Command to execute' },
           timeout: { type: 'integer', description: 'Timeout in seconds (optional, no default timeout)' },
+          outputMode: {
+            type: 'string',
+            enum: ['auto', 'full'],
+            description:
+              'Validation output mode. auto keeps the final 50 lines; full requests complete output before normal context fitting.',
+          },
         },
         required: ['command'],
       },

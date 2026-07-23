@@ -11,6 +11,10 @@ import type { ToolTranscriptAction } from '../../tool-call-messages.js';
 import { spawnDirectCommand } from '../../lib/command-spawn.js';
 import { AGENT_RUN_ID_ENV } from '../../lib/agent-run-marker.js';
 import { spawnPowerShellAsync } from '../../lib/powershell.js';
+import {
+  RunOutputModeSchema,
+  ValidationCommandOutputPolicy,
+} from './validation-command-output-policy.js';
 import { WebResearchTools } from '../../web-search/web-research-tools.js';
 import type { WebFetchToolArgs, WebSearchToolArgs } from '../../web-search/types.js';
 
@@ -59,6 +63,7 @@ export type RepoToolContext = {
   abortSignal?: AbortSignal;
   expandReads: boolean;
   agentRunId: string;
+  validationCommandOutputLineLimit: number | null;
 };
 
 export type ReadPlan = {
@@ -175,7 +180,10 @@ export function buildRepoToolRequestedCommand(toolName: string, args: JsonObject
     ]);
   }
   if (toolName === 'run') {
-    return formatToolCommand('run', [['command', readString(args.command)]]);
+    return formatToolCommand('run', [
+      ['command', readString(args.command)],
+      ['outputMode', optionalString(args.outputMode)],
+    ]);
   }
   if (toolName === 'web_search') {
     return formatToolCommand('web_search', [['query', readString(args.query)]]);
@@ -671,6 +679,14 @@ async function executeRun(args: JsonObject, context: RepoToolContext): Promise<R
   if (!commandText) {
     return failure('run', command, 'run requires args.command');
   }
+  const outputMode = RunOutputModeSchema.safeParse(args.outputMode ?? 'auto');
+  if (!outputMode.success) {
+    return failure(
+      'run',
+      command,
+      'run outputMode must be "auto" or "full"',
+    );
+  }
   const timeoutSeconds = optionalPositive(args.timeout);
   const result = await spawnPowerShellAsync(commandText, {
     cwd: context.repoRoot,
@@ -678,9 +694,19 @@ async function executeRun(args: JsonObject, context: RepoToolContext): Promise<R
     timeoutMs: timeoutSeconds === undefined ? undefined : timeoutSeconds * 1000,
     env: { [AGENT_RUN_ID_ENV]: context.agentRunId },
   });
+  const output =
+    context.validationCommandOutputLineLimit === null
+      ? result.output
+      : new ValidationCommandOutputPolicy(
+          context.validationCommandOutputLineLimit,
+        ).apply({
+          command: commandText,
+          output: result.output,
+          outputMode: outputMode.data,
+        });
   return {
     ok: true, requestedCommand: command, command,
-    exitCode: result.exitCode, output: result.output, toolType: 'run', outputUnit: 'lines', outputKeep: 'tail',
+    exitCode: result.exitCode, output, toolType: 'run', outputUnit: 'lines', outputKeep: 'tail',
   };
 }
 

@@ -173,6 +173,7 @@ export async function runRepoSearch(options: {
   maxInvalidResponses?: number;
   minToolCallsBeforeFinish?: number;
   contextOverflowPolicy?: ContextOverflowPolicy;
+  validationCommandOutputLineLimit?: number | null;
   loopKind?: 'repo-search' | 'chat';
   allowEmptyTools?: boolean;
   streamFinishAsAnswer?: boolean;
@@ -241,6 +242,8 @@ export async function runRepoSearch(options: {
       maxInvalidResponses: options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES,
       minToolCallsBeforeFinish: options.minToolCallsBeforeFinish,
       contextOverflowPolicy: options.contextOverflowPolicy ?? 'compact',
+      validationCommandOutputLineLimit:
+        options.validationCommandOutputLineLimit ?? null,
       loopKind: options.loopKind,
       streamFinishAsAnswer: options.streamFinishAsAnswer,
       systemPromptOverride: options.systemPromptOverride,

@@ -1,6 +1,7 @@
 import { jsonrepair } from 'jsonrepair';
 
 import { getFirstCommandToken } from '../repo-search/command-safety.js';
+import { RunOutputModeSchema } from '../repo-search/engine/validation-command-output-policy.js';
 import { getRepoSearchCommandTokenForToolName, isRepoSearchCommandToolName } from '../repo-search/planner-protocol.js';
 import type {
   FinishAction as RepoSearchFinishAction,
@@ -468,6 +469,13 @@ export class ModelJson {
       if (rawValue !== undefined) {
         args[key] = rawValue;
       }
+    }
+    if (toolName === 'run' && rawArgs.outputMode !== undefined) {
+      const outputMode = RunOutputModeSchema.safeParse(rawArgs.outputMode);
+      if (!outputMode.success) {
+        return null;
+      }
+      args.outputMode = outputMode.data;
     }
     return { action: 'tool', tool_name: toolName, args };
   }

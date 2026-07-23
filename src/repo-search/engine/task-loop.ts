@@ -268,6 +268,8 @@ export class TaskLoop {
       maxInvalidResponses: this.maxInvalidResponses,
       allowedPlannerToolNames: this.allowedPlannerToolNames,
       approvalGate: options.approvalGate ?? null,
+      validationCommandOutputLineLimit:
+        options.validationCommandOutputLineLimit ?? null,
       chatWebGroundingEnabled: this.chatWebGroundingEnabled,
       chatWebGroundingPolicy: this.chatWebGroundingPolicy,
       ignorePolicy: this.ignorePolicy,

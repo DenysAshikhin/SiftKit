@@ -257,6 +257,28 @@ test('ModelJson parses direct repo-search planner tool actions', () => {
   });
 });
 
+test('ModelJson accepts typed run output modes and rejects invalid values', () => {
+  assert.deepEqual(
+    parseRepoSearchPlannerAction(
+      '{"action":"run","command":"npm test","outputMode":"full"}',
+      ['run'],
+    ),
+    {
+      action: 'tool',
+      tool_name: 'run',
+      args: { command: 'npm test', outputMode: 'full' },
+    },
+  );
+
+  assert.throws(
+    () => parseRepoSearchPlannerAction(
+      '{"action":"run","command":"npm test","outputMode":"verbose"}',
+      ['run'],
+    ),
+    /invalid planner tool action/u,
+  );
+});
+
 test('ModelJson omits explicit null placeholders from repo-search tool batches', () => {
   const action = parseRepoSearchPlannerAction(
     JSON.stringify({
