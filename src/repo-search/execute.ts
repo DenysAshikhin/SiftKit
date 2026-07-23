@@ -8,6 +8,7 @@ import {
   traceRepoSearch,
 } from './logging.js';
 import { runRepoSearch } from './engine.js';
+import { buildAgentSystemPrompt } from './prompts.js';
 import { getNumericTotal, getOutputCharacterCount } from './scorecard.js';
 import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../state/runtime-db.js';
@@ -247,6 +248,7 @@ async function notifyRepoSearchTerminalStatus(options: RepoSearchTerminalStatusN
 export async function executeRepoSearchRequest(
   request: RepoSearchExecutionRequest,
 ): Promise<RepoSearchExecutionResult> {
+  const isAgent = request.taskKind === 'repo-agent';
   const taskKind = request.taskKind === 'plan'
     ? 'plan'
     : request.taskKind === 'chat'
@@ -321,8 +323,13 @@ export async function executeRepoSearchRequest(
       allowEmptyTools: taskKind === 'chat',
       loopKind: taskKind === 'chat' ? 'chat' : 'repo-search',
       streamFinishAsAnswer: taskKind === 'chat',
-      minToolCallsBeforeFinish: taskKind === 'chat' ? 0 : undefined,
-      systemPromptOverride: taskKind === 'chat' ? (request.systemPrompt || '') : undefined,
+      minToolCallsBeforeFinish: (taskKind === 'chat' || isAgent) ? 0 : undefined,
+      systemPromptOverride: isAgent
+        ? buildAgentSystemPrompt(repoRoot, {
+            includeAgentsMd: request.includeAgentsMd,
+            includeRepoFileListing: request.includeRepoFileListing,
+          })
+        : (taskKind === 'chat' ? (request.systemPrompt || '') : undefined),
       historyMessages: taskKind === 'chat' ? (request.history || []) : undefined,
       thinkingEnabledOverride: taskKind === 'chat' ? (request.thinkingEnabled !== false) : undefined,
       taskPrompt: prompt,

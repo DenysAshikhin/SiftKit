@@ -55,7 +55,7 @@ export type RepoSearchExecutionRequest = {
   startedAtUtc?: string;
   prompt: string;
   repoRoot: string;
-  taskKind?: 'plan' | 'repo-search' | 'chat';
+  taskKind?: 'plan' | 'repo-search' | 'chat' | 'repo-agent';
   statusBackendUrl?: string;
   config?: SiftConfig;
   model?: string;
