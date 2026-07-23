@@ -33,7 +33,7 @@ const ChatModelPresetMigrationSessionSchema = z.object({
   model: z.string().nullable(),
 });
 
-export const CURRENT_SCHEMA_VERSION = 34;
+export const CURRENT_SCHEMA_VERSION = 35;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["read","grep","find","ls","git"],"full":[]}';
 const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
@@ -133,6 +133,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       raw_log_retention INTEGER NOT NULL CHECK (raw_log_retention IN (0, 1)),
       include_agents_md INTEGER NOT NULL DEFAULT 1 CHECK (include_agents_md IN (0, 1)),
       include_repo_file_listing INTEGER NOT NULL DEFAULT 1 CHECK (include_repo_file_listing IN (0, 1)),
+      expand_reads INTEGER NOT NULL DEFAULT 1 CHECK (expand_reads IN (0, 1)),
       prompt_prefix TEXT,
       runtime_model TEXT,
       thresholds_min_characters_for_summary INTEGER NOT NULL,
@@ -1301,6 +1302,13 @@ function ensureSchema(database: RuntimeDatabase): void {
     `);
     setSchemaVersion(database, 34);
     currentVersion = 34;
+  }
+  if (currentVersion < 35) {
+    if (!tableHasColumn(database, 'app_config', 'expand_reads')) {
+      database.exec('ALTER TABLE app_config ADD COLUMN expand_reads INTEGER NOT NULL DEFAULT 1 CHECK (expand_reads IN (0, 1));');
+    }
+    setSchemaVersion(database, 35);
+    currentVersion = 35;
   }
   ensureChatMessageTimelineSchema(database);
   ensureRuntimeArtifactsSchema(database);

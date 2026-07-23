@@ -199,6 +199,23 @@ test('config persistence stores global agents.md auto-append setting in sqlite',
   });
 });
 
+test('config persistence stores global ExpandReads setting in sqlite', () => {
+  withTempRepo((repoRoot) => {
+    const configPath = path.join(repoRoot, '.siftkit', 'runtime.sqlite');
+    const defaultConfig = getDefaultConfig();
+
+    assert.equal(defaultConfig.ExpandReads, true);
+
+    writeConfig(configPath, {
+      ...defaultConfig,
+      ExpandReads: false,
+    });
+    const loaded = readConfig(configPath);
+
+    assert.equal(loaded.ExpandReads, false);
+  });
+});
+
 test('legacy executionFamily presets migrate to presetKind and operationMode', () => {
   const presets = normalizePresets([
     { id: 'legacy-plan', label: 'Legacy Plan', executionFamily: 'plan', surfaces: ['web'] },
