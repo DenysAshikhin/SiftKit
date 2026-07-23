@@ -1,6 +1,7 @@
 import { ensureStatusServerReachable } from '../config/index.js';
 import {
   BLOCKED_PUBLIC_COMMANDS,
+  MODEL_LOCK_COMMANDS,
   getCommandArgs,
   getCommandName,
   SERVER_DEPENDENT_COMMANDS,
@@ -22,6 +23,7 @@ import { assertStdinIsTty, runRepoSearchCli } from './run-repo-search.js';
 import { runRepoAgentCli } from './run-repo-agent.js';
 import { runSummary } from './run-summary.js';
 import { runTest } from './run-test.js';
+import { readNestedAgentRunId } from '../lib/agent-run-marker.js';
 
 export async function runCli(options: CliRunOptions): Promise<number> {
   const stdout = options.stdout || process.stdout;
@@ -33,12 +35,25 @@ export async function runCli(options: CliRunOptions): Promise<number> {
   }
 
   const commandName = getCommandName(options.argv);
-  if (BLOCKED_PUBLIC_COMMANDS.has(options.argv[0])) {
+  const nestedAgentRunId = readNestedAgentRunId();
+  if (BLOCKED_PUBLIC_COMMANDS.has(options.argv[0]) && !nestedAgentRunId) {
     stderr.write(`Command '${options.argv[0]}' is not exposed in this CLI build. Available commands: summary, repo-search, preset, run, help.\n`);
     return 1;
   }
   const commandArgs = getCommandArgs(options.argv);
   const commandHelpRequested = commandArgs.some((token) => token === '-h' || token === '--h' || token === '--help' || token === '-help');
+
+  const nestedLockCommand = commandName === 'summary' && commandArgs.length === 1 && MODEL_LOCK_COMMANDS.has(commandArgs[0] ?? '')
+    ? commandArgs[0]
+    : commandName;
+  if (nestedAgentRunId && MODEL_LOCK_COMMANDS.has(nestedLockCommand) && nestedLockCommand !== 'summary') {
+    stderr.write(
+      `siftkit ${nestedLockCommand} is blocked inside agent run ${nestedAgentRunId}: `
+      + 'the status server\'s model lock is held by the parent run, so this call would deadlock. '
+      + 'Run the underlying command raw instead of routing it through siftkit.\n',
+    );
+    return 1;
+  }
   try {
     if (commandName === 'repo-search') {
       validateRepoSearchTokens(commandArgs);
@@ -67,7 +82,7 @@ export async function runCli(options: CliRunOptions): Promise<number> {
       return 0;
     }
     let serverPreflightMs: number | null = options.timing?.serverPreflightMs ?? null;
-    if (SERVER_DEPENDENT_COMMANDS.has(commandName)) {
+    if (SERVER_DEPENDENT_COMMANDS.has(commandName) && !(commandName === 'summary' && nestedAgentRunId)) {
       const serverPreflightStartedAt = Date.now();
       await ensureStatusServerReachable();
       serverPreflightMs = Date.now() - serverPreflightStartedAt;
@@ -80,6 +95,7 @@ export async function runCli(options: CliRunOptions): Promise<number> {
           stdinText: options.stdinText,
           stdout,
           stderr,
+          nestedAgentRunId,
           timing: {
             processStartedAtMs: options.timing?.processStartedAtMs ?? null,
             stdinWaitMs: options.timing?.stdinWaitMs ?? null,

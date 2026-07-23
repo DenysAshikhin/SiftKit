@@ -100,6 +100,15 @@ export const SERVER_DEPENDENT_COMMANDS = new Set([
   'repo-agent',
 ]);
 
+/** Commands that acquire the server's single model-request lock. */
+export const MODEL_LOCK_COMMANDS = new Set([
+  'summary',
+  'repo-search',
+  'repo-agent',
+  'run',
+  'eval',
+]);
+
 export const SERVER_DEPENDENT_INTERNAL_OPS = new Set([
   'install',
   'test',

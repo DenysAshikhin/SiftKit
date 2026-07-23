@@ -10,6 +10,7 @@ export async function runSummary(options: {
   stdinText?: string | Buffer;
   stdout: NodeJS.WritableStream;
   stderr: NodeJS.WritableStream;
+  nestedAgentRunId?: string | null;
   timing?: SummaryTimingInput;
 }): Promise<number> {
   const parsed = parseArguments(getCommandArgs(options.argv));
@@ -25,6 +26,12 @@ export async function runSummary(options: {
   });
   if ((!parsed.file || parsed.file.length === 0) && !inputText?.trim()) {
     throw new Error('stdin, --text or --file required');
+  }
+
+  if (options.nestedAgentRunId) {
+    options.stdout.write(`[siftkit] nested in agent run ${options.nestedAgentRunId}: summarization skipped to avoid model-lock deadlock; raw output follows\n`);
+    options.stdout.write(`${(inputText ?? '').trim()}\n`);
+    return 0;
   }
 
   const hasStdinInput = typeof options.stdinText === 'string'
