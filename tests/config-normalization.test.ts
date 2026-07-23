@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { getDefaultConfig, normalizeConfig, normalizeWebSearchConfig } from '../src/status-server/config-store';
+import { isReadExpansionEnabled } from '../src/config/index';
 import { JsonValueSchema, type JsonObject } from '../src/lib/json-types';
 import type { SiftConfig, ModelRuntimePreset } from '../src/config/types';
 import { asObject, asObjectArray } from './helpers/dashboard-http';
@@ -251,4 +252,11 @@ test('default config exposes ExpandReads enabled and normalization preserves an 
 
   const reEnabled = normalizeConfig({ ...defaults, ExpandReads: true });
   assert.equal(reEnabled.ExpandReads, true);
+});
+
+test('isReadExpansionEnabled defaults on and honors an explicit false', () => {
+  const enabled = getDefaultConfig();
+  assert.equal(isReadExpansionEnabled(enabled), true);
+  assert.equal(isReadExpansionEnabled({ ...enabled, ExpandReads: false }), false);
+  assert.equal(isReadExpansionEnabled(undefined), true);
 });
