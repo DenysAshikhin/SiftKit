@@ -98,6 +98,21 @@ export class StatusServerApiClient {
     );
   }
 
+  requestRepoAgent(
+    request: Record<string, JsonSerializable>,
+    renderer: CliProgressRenderer,
+    approvalPrompter?: CliApprovalPrompter,
+  ): Promise<RepoSearchExecutionResult> {
+    return this.requestStreamedOperation(
+      '/repo-agent',
+      JSON.stringify(request),
+      RepoSearchExecutionResultSchema,
+      renderer,
+      'repo-search',
+      approvalPrompter,
+    );
+  }
+
   analyzeCommandOutput(
     request: CommandOutputAnalyzeRequest,
     renderer: CliProgressRenderer,
