@@ -105,6 +105,7 @@ function createConfig(): DashboardConfig {
     RawLogRetention: true,
     IncludeAgentsMd: true,
     IncludeRepoFileListing: true,
+    ExpandReads: true,
     PromptPrefix: 'prompt',
     Inference: getTestInferenceConfig(),
     OperationModeAllowedTools: {

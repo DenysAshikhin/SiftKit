@@ -35,6 +35,7 @@ function createConfig(presets: DashboardPreset[]): DashboardConfig {
     RawLogRetention: true,
     IncludeAgentsMd: true,
     IncludeRepoFileListing: true,
+    ExpandReads: true,
     PromptPrefix: '',
     Inference: getTestInferenceConfig(),
     OperationModeAllowedTools: {

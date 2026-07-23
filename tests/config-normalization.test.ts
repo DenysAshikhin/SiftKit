@@ -241,3 +241,14 @@ test('normalizeConfig returns the typed live config fields used by server and da
   assert.deepEqual(normalized.OperationModeAllowedTools.summary, ['find_text']);
   assert.ok(normalized.Presets.some((preset) => preset.id === 'custom'));
 });
+
+test('default config exposes ExpandReads enabled and normalization preserves an explicit false', () => {
+  const defaults = getDefaultConfig();
+  assert.equal(defaults.ExpandReads, true);
+
+  const disabled = normalizeConfig({ ...defaults, ExpandReads: false });
+  assert.equal(disabled.ExpandReads, false);
+
+  const reEnabled = normalizeConfig({ ...defaults, ExpandReads: true });
+  assert.equal(reEnabled.ExpandReads, true);
+});

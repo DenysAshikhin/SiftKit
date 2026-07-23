@@ -153,7 +153,7 @@ export type OperationModeAllowedTools = z.infer<typeof OperationModeAllowedTools
 
 export const SiftConfigSchema = z.object({
   Version: z.string(), PolicyMode: z.string(), RawLogRetention: z.boolean(),
-  IncludeAgentsMd: z.boolean(), IncludeRepoFileListing: z.boolean(),
+  IncludeAgentsMd: z.boolean(), IncludeRepoFileListing: z.boolean(), ExpandReads: z.boolean(),
   PromptPrefix: z.string().nullable().optional(),
   Inference: InferenceConfigSchema,
   Runtime: z.object({ LlamaCpp: RuntimeLlamaCppConfigSchema }),
