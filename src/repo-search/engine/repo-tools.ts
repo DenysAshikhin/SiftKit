@@ -56,10 +56,7 @@ export type RepoToolContext = {
   webTools: WebResearchTools;
   fileReadStateByPath?: Map<string, FileReadState>;
   abortSignal?: AbortSignal;
-  expandReads: boolean;
 };
-
-type RepoToolExecutionContext = Omit<RepoToolContext, 'expandReads'> & { expandReads?: boolean };
 
 export type ReadPlan = {
   requestedCommand: string;
@@ -338,7 +335,6 @@ export function planRead(
   repoRoot: string,
   ignorePolicy: IgnorePolicy,
   fileReadStateByPath?: Map<string, FileReadState>,
-  expandReads = true,
 ): ReadPlan | FailedPlan {
   const commandPath = readString(args.path);
   const offset = readPositiveInteger(args.offset, 1);
@@ -367,8 +363,8 @@ export function planRead(
   const hasReturnedRanges = Boolean(state && state.mergedReturnedRanges.length > 0);
   const unreadRange = findContiguousUnreadRange({
     requestedStart: clampedStart,
-    totalEnd: expandReads && hasReturnedRanges ? totalEndLineExclusive : requestedEndExclusive,
-    returnedRanges: expandReads ? (state?.mergedReturnedRanges ?? []) : [],
+    totalEnd: hasReturnedRanges ? totalEndLineExclusive : requestedEndExclusive,
+    returnedRanges: state?.mergedReturnedRanges || [],
   });
 
   return {
@@ -708,46 +704,36 @@ function toWebFetchToolArgs(args: JsonObject): WebFetchToolArgs {
 export async function executeRepoTool(
   toolName: string,
   args: JsonObject,
-  context: RepoToolExecutionContext,
+  context: RepoToolContext,
 ): Promise<RepoToolExecution> {
-  const executionContext: RepoToolContext = {
-    ...context,
-    expandReads: context.expandReads ?? true,
-  };
   if (toolName === 'read') {
-    const plan = planRead(
-      args,
-      executionContext.repoRoot,
-      executionContext.ignorePolicy,
-      executionContext.fileReadStateByPath,
-      executionContext.expandReads,
-    );
+    const plan = planRead(args, context.repoRoot, context.ignorePolicy, context.fileReadStateByPath);
     return isFailedReadPlan(plan)
       ? failure('read', plan.command, plan.reason)
       : buildReadExecution('read', plan);
   }
   if (toolName === 'grep') {
-    return executeGrep(args, executionContext);
+    return executeGrep(args, context);
   }
   if (toolName === 'find') {
-    return executeFind(args, executionContext);
+    return executeFind(args, context);
   }
   if (toolName === 'ls') {
-    return executeLs(args, executionContext);
+    return executeLs(args, context);
   }
   if (toolName === 'write') {
-    return executeWrite(args, executionContext);
+    return executeWrite(args, context);
   }
   if (toolName === 'edit') {
-    return executeEdit(args, executionContext);
+    return executeEdit(args, context);
   }
   if (toolName === 'run') {
-    return executeRun(args, executionContext);
+    return executeRun(args, context);
   }
   if (toolName === 'web_search') {
     const command = buildRepoToolRequestedCommand('web_search', args);
     try {
-      const result = await executionContext.webTools.search(toWebSearchToolArgs(args));
+      const result = await context.webTools.search(toWebSearchToolArgs(args));
       return {
         ok: true, requestedCommand: command, command: result.command, exitCode: 0,
         output: result.output, toolType: 'web_search', outputUnit: 'results',
@@ -759,7 +745,7 @@ export async function executeRepoTool(
   if (toolName === 'web_fetch') {
     const command = buildRepoToolRequestedCommand('web_fetch', args);
     try {
-      const result = await executionContext.webTools.fetch(toWebFetchToolArgs(args));
+      const result = await context.webTools.fetch(toWebFetchToolArgs(args));
       return {
         ok: true, requestedCommand: command, command: result.command, exitCode: 0,
         output: result.output, toolType: 'web_fetch', outputUnit: 'characters',
