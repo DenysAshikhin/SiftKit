@@ -2,9 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { requestSse } from './helpers/sse-http.js';
-import { asObject, requestJson } from './helpers/dashboard-http.js';
-import { startHarness } from './helpers/streamed-op-harness.js';
+import { startHarness, waitForActiveModelRequestOwner } from './helpers/streamed-op-harness.js';
 import { AGENT_RUN_ID_HEADER } from '../src/lib/agent-run-marker.js';
+
+const AGENT_LOCK_HOLD_MS = 5_000;
+const SSE_REQUEST_TIMEOUT_MS = 30_000;
 
 const ANALYZE_BODY = {
   outputKind: 'command',
@@ -25,21 +27,14 @@ test('summary-family request whose marker matches the active agent run is reject
         maxTurns: 2,
         approval: false,
         availableModels: ['mock-model'],
-        simulateWorkMs: 5000,
+        simulateWorkMs: AGENT_LOCK_HOLD_MS,
         mockResponses: ['{\"action\":\"finish\",\"output\":\"done\"}'],
         mockCommandResults: {},
       },
-      timeoutMs: 30_000,
+      timeoutMs: SSE_REQUEST_TIMEOUT_MS,
     });
 
-    let ownerRunId = '';
-    for (let attempt = 0; attempt < 200 && !ownerRunId; attempt += 1) {
-      const status = await requestJson(`${harness.baseUrl}/status`);
-      const activeRequest = asObject(asObject(status.body.modelRequests).activeRequest);
-      ownerRunId = String(activeRequest.ownerRunId || '');
-      if (!ownerRunId) await new Promise<void>((resolve) => setTimeout(resolve, 25));
-    }
-    assert.ok(ownerRunId, 'expected the agent run to hold the lock with an ownerRunId');
+    const ownerRunId = await waitForActiveModelRequestOwner(harness.baseUrl);
 
     const rejected = await requestSse(`${harness.baseUrl}/command-output/analyze`, {
       body: ANALYZE_BODY,
@@ -51,7 +46,7 @@ test('summary-family request whose marker matches the active agent run is reject
     const queued = await requestSse(`${harness.baseUrl}/command-output/analyze`, {
       body: ANALYZE_BODY,
       headers: { [AGENT_RUN_ID_HEADER]: 'some-finished-run' },
-      timeoutMs: 30_000,
+      timeoutMs: SSE_REQUEST_TIMEOUT_MS,
     });
     assert.equal(queued.statusCode, 200);
     assert.ok(queued.result, queued.rawBody);

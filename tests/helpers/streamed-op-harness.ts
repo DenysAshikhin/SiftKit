@@ -1,11 +1,29 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { startStatusServer } from '../../src/status-server/index.js';
 import { closeRuntimeDatabase } from '../../src/state/runtime-db.js';
-import { getAddressInfo } from './dashboard-http.js';
+import { asObject, getAddressInfo, requestJson } from './dashboard-http.js';
 
 export type StreamedOperationHarness = { baseUrl: string; close: () => Promise<void> };
+
+const MODEL_REQUEST_OWNER_TIMEOUT_MS = 2_000;
+const MODEL_REQUEST_OWNER_POLL_INTERVAL_MS = 10;
+
+export async function waitForActiveModelRequestOwner(baseUrl: string): Promise<string> {
+  const deadline = Date.now() + MODEL_REQUEST_OWNER_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const status = await requestJson(`${baseUrl}/status`);
+    const activeRequest = asObject(asObject(status.body.modelRequests).activeRequest);
+    const ownerRunId = String(activeRequest.ownerRunId || '').trim();
+    if (ownerRunId) {
+      return ownerRunId;
+    }
+    await delay(MODEL_REQUEST_OWNER_POLL_INTERVAL_MS);
+  }
+  throw new Error(`Timed out waiting for an active model request owner at ${baseUrl}.`);
+}
 
 export async function startHarness(namePrefix: string): Promise<StreamedOperationHarness> {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), namePrefix));
