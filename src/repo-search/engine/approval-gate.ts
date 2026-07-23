@@ -16,6 +16,16 @@ export type RepoSearchApprovalRequest = z.infer<typeof RepoSearchApprovalRequest
 export const RepoSearchApprovalResultSchema = z.object({ accepted: z.literal(true) });
 export type RepoSearchApprovalResult = z.infer<typeof RepoSearchApprovalResultSchema>;
 
+export const ApprovalModeSchema = z.enum(['interactive', 'auto', 'off']);
+export type ApprovalMode = z.infer<typeof ApprovalModeSchema>;
+
+export type ApprovalRequestInput = { turn: number; toolName: string; command: string };
+
+/** Anything that can answer an approval request: the human gate or the LLM decorator. */
+export type ApprovalRequester = {
+  request(input: ApprovalRequestInput): Promise<ApprovalDecision>;
+};
+
 export type ApprovalDecision =
   | { kind: 'approve' }
   | { kind: 'deny'; reason: string }
@@ -54,7 +64,7 @@ export class ApprovalGate {
     this.timeoutMs = options.timeoutMs;
   }
 
-  request(input: { turn: number; toolName: string; command: string }): Promise<ApprovalDecision> {
+  request(input: ApprovalRequestInput): Promise<ApprovalDecision> {
     const approvalId = randomUUID();
     return new Promise<ApprovalDecision>((resolve, reject) => {
       const timeoutHandle = setTimeout(() => {

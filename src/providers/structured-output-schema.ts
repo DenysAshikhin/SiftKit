@@ -168,6 +168,18 @@ export function buildFinishValidationJsonSchema(): JsonSchemaObject {
   };
 }
 
+export function buildApprovalVerdictJsonSchema(): JsonSchemaObject {
+  return {
+    type: 'object',
+    properties: {
+      verdict: { type: 'string', enum: ['approve', 'deny', 'unsure'] },
+      reason: { type: 'string' },
+    },
+    required: ['verdict', 'reason'],
+    additionalProperties: false,
+  };
+}
+
 export function buildLlamaJsonSchemaResponseFormat(options: { name: string; schema: JsonSchema }): {
   type: 'json_schema';
   json_schema: { name: string; strict: boolean; schema: JsonSchema };

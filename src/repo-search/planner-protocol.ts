@@ -10,6 +10,7 @@ import {
   serializeNetworkError,
 } from '../lib/provider-helpers.js';
 import {
+  buildApprovalVerdictJsonSchema,
   buildFinishValidationJsonSchema,
   buildLlamaJsonSchemaResponseFormat,
   buildRepoSearchPlannerActionJsonSchema,
@@ -676,6 +677,37 @@ export async function requestFinishValidation(options: {
     stage: 'finish_validation',
     responseSchema: buildFinishValidationJsonSchema(),
     responseSchemaName: 'siftkit_finish_validation',
+    toolDefinitions: [],
+  });
+}
+
+export async function requestApprovalVerdict(options: {
+  backend?: InferenceBackendId;
+  baseUrl: string;
+  model: string;
+  messages: ChatMessage[];
+  slotId?: number;
+  timeoutMs: number;
+  mockResponses?: string[];
+  mockResponseIndex?: number;
+  abortSignal?: AbortSignal;
+  logger?: JsonLogger | null;}): Promise<PlannerActionResponse> {
+  return requestRepoSearchPlannerProtocolAction({
+    backend: options.backend,
+    baseUrl: options.baseUrl,
+    model: options.model,
+    messages: options.messages,
+    slotId: options.slotId,
+    timeoutMs: options.timeoutMs,
+    maxTokens: 512,
+    thinkingEnabled: false,
+    mockResponses: options.mockResponses,
+    mockResponseIndex: options.mockResponseIndex,
+    abortSignal: options.abortSignal,
+    logger: options.logger,
+    stage: 'approval_verdict',
+    responseSchema: buildApprovalVerdictJsonSchema(),
+    responseSchemaName: 'siftkit_approval_verdict',
     toolDefinitions: [],
   });
 }
