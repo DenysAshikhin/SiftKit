@@ -63,7 +63,7 @@ The helper:
 
 - polls `/status` for `modelRequests.activeRequest.ownerRunId`;
 - uses named deadline and interval constants;
-- calls an existing explicit sleep helper rather than embedding a Promise callback in the E2E test;
+- uses `node:timers/promises` rather than embedding a Promise callback in the E2E test;
 - throws a precise timeout error if no owner appears.
 
 `nested-agent-server-reject.test.ts` uses the helper and replaces inline values with named request and lock-hold constants. `simulateWorkMs` remains only as the existing harness mechanism that keeps the real repo-agent request active; its value is named and chosen to exceed the owner-wait deadline.
