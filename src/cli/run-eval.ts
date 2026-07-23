@@ -1,14 +1,13 @@
 import { formatPsList, parseArguments } from './args.js';
-import { CLI_COMMAND_CATALOG } from './command-catalog.js';
 import { SilentProgressRenderer } from './progress-renderer.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
 
 export async function runEvalCli(options: {
-  argv: string[];
+  args: string[];
   stdout: NodeJS.WritableStream;
   stderr: NodeJS.WritableStream;
 }): Promise<number> {
-  const parsed = parseArguments(CLI_COMMAND_CATALOG.resolve(options.argv).args);
+  const parsed = parseArguments(options.args);
   const result = await new StatusServerApiClient().runEvaluation({
     FixtureRoot: parsed.fixtureRoot,
     Backend: parsed.backend,

@@ -1,7 +1,6 @@
 import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
 import { CliApprovalPrompter } from './approval-prompter.js';
 import { parseArguments, REPO_SEARCH_SYNOPSIS, REPO_AGENT_SYNOPSIS } from './args.js';
-import { CLI_COMMAND_CATALOG } from './command-catalog.js';
 import { CliProgressRenderer } from './progress-renderer.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
 
@@ -16,12 +15,12 @@ export type RepoTaskMode = 'search' | 'agent';
 
 export async function runRepoTaskCli(options: {
   mode: RepoTaskMode;
-  argv: string[];
+  args: string[];
   stdout: NodeJS.WritableStream;
   stderr: NodeJS.WritableStream;
   stdin?: NodeJS.ReadableStream & { isTTY?: boolean };
 }): Promise<number> {
-  const tokens = CLI_COMMAND_CATALOG.resolve(options.argv).args;
+  const tokens = options.args;
   if (tokens.some((token) => token === '-h' || token === '--h' || token === '--help' || token === '-help')) {
     options.stdout.write(
       options.mode === 'agent'
@@ -80,7 +79,7 @@ export async function runRepoTaskCli(options: {
 }
 
 export async function runRepoSearchCli(options: {
-  argv: string[];
+  args: string[];
   stdout: NodeJS.WritableStream;
   stderr: NodeJS.WritableStream;
   stdin?: NodeJS.ReadableStream & { isTTY?: boolean };

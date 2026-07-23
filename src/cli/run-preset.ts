@@ -1,17 +1,16 @@
 import { parseArguments } from './args.js';
-import { CLI_COMMAND_CATALOG } from './command-catalog.js';
 import { readCliTextInput } from './input.js';
 import { normalizeCliFormat } from './request-normalizers.js';
 import { CliProgressRenderer } from './progress-renderer.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
 
 export async function runPresetCli(options: {
-  argv: string[];
+  args: string[];
   stdinText?: string | Buffer;
   stdout: NodeJS.WritableStream;
   stderr: NodeJS.WritableStream;
 }): Promise<number> {
-  const parsed = parseArguments(CLI_COMMAND_CATALOG.resolve(options.argv).args);
+  const parsed = parseArguments(options.args);
   const presetId = String(parsed.preset || '').trim();
   if (!presetId) {
     throw new Error('A --preset is required.');

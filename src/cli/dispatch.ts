@@ -21,6 +21,10 @@ import { runSummary } from './run-summary.js';
 import { runTest } from './run-test.js';
 import { readNestedAgentRunId } from '../lib/agent-run-marker.js';
 
+function failUnknownCommand(commandName: never): never {
+  throw new Error(`Unhandled CLI command: ${commandName}`);
+}
+
 export async function runCli(options: CliRunOptions): Promise<number> {
   const stdout = options.stdout || process.stdout;
   const stderr = options.stderr || process.stderr;
@@ -68,10 +72,10 @@ export async function runCli(options: CliRunOptions): Promise<number> {
       }
     }
     if (commandName === 'repo-search' && commandHelpRequested) {
-      return await runRepoSearchCli({ argv: options.argv, stdout, stderr, stdin: options.stdin });
+      return await runRepoSearchCli({ args: commandArgs, stdout, stderr, stdin: options.stdin });
     }
     if (commandName === 'repo-agent' && commandHelpRequested) {
-      return await runRepoAgentCli({ argv: options.argv, stdout, stderr, stdin: options.stdin });
+      return await runRepoAgentCli({ args: commandArgs, stdout, stderr, stdin: options.stdin });
     }
     if (commandName === 'run' && commandHelpRequested) {
       showHelp(stdout);
@@ -87,7 +91,7 @@ export async function runCli(options: CliRunOptions): Promise<number> {
     switch (commandName) {
       case 'summary':
         return await runSummary({
-          argv: options.argv,
+          args: commandArgs,
           stdinText: options.stdinText,
           stdout,
           stderr,
@@ -108,32 +112,32 @@ export async function runCli(options: CliRunOptions): Promise<number> {
       case 'config-get':
         return await runConfigGet(stdout);
       case 'config-set':
-        return await runConfigSet({ argv: options.argv, stdout });
+        return await runConfigSet({ args: commandArgs, stdout });
       case 'run':
         if (commandArgs.includes('--preset')) {
-          return await runPresetCli({ argv: options.argv, stdinText: options.stdinText, stdout, stderr });
+          return await runPresetCli({ args: commandArgs, stdinText: options.stdinText, stdout, stderr });
         }
-        return await runCommandCli({ argv: options.argv, stdout, stderr });
+        return await runCommandCli({ args: commandArgs, stdout, stderr });
       case 'eval':
-        return await runEvalCli({ argv: options.argv, stdout, stderr });
+        return await runEvalCli({ args: commandArgs, stdout, stderr });
       case 'codex-policy':
-        return await runCodexPolicyCli({ argv: options.argv, stdout });
+        return await runCodexPolicyCli({ args: commandArgs, stdout });
       case 'install-global':
-        return await runInstallGlobalCli({ argv: options.argv, stdout });
+        return await runInstallGlobalCli({ args: commandArgs, stdout });
       case 'capture-internal':
-        return await runCaptureInternalCli({ argv: options.argv, stdout, stderr });
+        return await runCaptureInternalCli({ args: commandArgs, stdout, stderr });
       case 'repo-search':
-        return await runRepoSearchCli({ argv: options.argv, stdout, stderr, stdin: options.stdin });
+        return await runRepoSearchCli({ args: commandArgs, stdout, stderr, stdin: options.stdin });
       case 'repo-agent':
-        return await runRepoAgentCli({ argv: options.argv, stdout, stderr, stdin: options.stdin });
+        return await runRepoAgentCli({ args: commandArgs, stdout, stderr, stdin: options.stdin });
       case 'find-files':
-        return await runFindFiles({ argv: options.argv, stdout });
+        return await runFindFiles({ args: commandArgs, stdout });
       case 'test':
         return await runTest(stdout);
       case 'internal':
-        return await runInternal({ argv: options.argv, stdout });
+        return await runInternal({ args: commandArgs, stdout });
       default:
-        return 127;
+        return failUnknownCommand(commandName);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

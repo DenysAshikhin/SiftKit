@@ -8,7 +8,6 @@ import { parseJsonValueText } from '../lib/json.js';
 import { JsonRecordReader } from '../lib/json-record-reader.js';
 import type { JsonObject, JsonSerializable } from '../lib/json-types.js';
 import { parseArguments, SERVER_DEPENDENT_INTERNAL_OPS } from './args.js';
-import { CLI_COMMAND_CATALOG } from './command-catalog.js';
 import {
   normalizeCliFormat,
   normalizeCliPolicyProfile,
@@ -32,10 +31,10 @@ function readRequestBackend(request: JsonObject) {
 }
 
 export async function runInternal(options: {
-  argv: string[];
+  args: string[];
   stdout: NodeJS.WritableStream;
 }): Promise<number> {
-  const parsed = parseArguments(CLI_COMMAND_CATALOG.resolve(options.argv).args);
+  const parsed = parseArguments(options.args);
   if (!parsed.op) {
     throw new Error('An --op is required.');
   }

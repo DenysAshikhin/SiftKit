@@ -1,7 +1,7 @@
 import { runRepoTaskCli } from './run-repo-search.js';
 
 export async function runRepoAgentCli(options: {
-  argv: string[];
+  args: string[];
   stdout: NodeJS.WritableStream;
   stderr: NodeJS.WritableStream;
   stdin?: NodeJS.ReadableStream & { isTTY?: boolean };

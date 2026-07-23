@@ -1,12 +1,11 @@
 import { findFiles } from '../find-files.js';
 import { parseArguments } from './args.js';
-import { CLI_COMMAND_CATALOG } from './command-catalog.js';
 
 export async function runFindFiles(options: {
-  argv: string[];
+  args: string[];
   stdout: NodeJS.WritableStream;
 }): Promise<number> {
-  const parsed = parseArguments(CLI_COMMAND_CATALOG.resolve(options.argv).args);
+  const parsed = parseArguments(options.args);
   if (parsed.positionals.length === 0) {
     throw new Error('At least one file name or pattern is required.');
   }
