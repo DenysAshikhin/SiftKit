@@ -73,3 +73,13 @@ export function decodeTextBuffer(buffer: Buffer): string {
 export function readTextFileWithEncoding(filePath: string): string {
   return decodeTextBuffer(readFileSync(filePath));
 }
+
+/**
+ * Reads a text file and normalizes CRLF to LF. This is the single source-text
+ * normalization point: `read`, `edit`, and any future consumer must go through
+ * it so the model always sees — and matches against — LF, regardless of the
+ * working tree's on-disk line endings.
+ */
+export function readSourceText(filePath: string): string {
+  return readTextFileWithEncoding(filePath).replace(/\r\n/gu, '\n');
+}

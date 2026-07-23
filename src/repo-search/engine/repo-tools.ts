@@ -5,7 +5,7 @@ import { estimateTokenCount } from '../prompt-budget.js';
 import { findContiguousUnreadRange, type ToolOutputTruncationUnit, type ToolOutputKeep } from '../../tool-output-fit.js';
 import { getOrCreateFileReadState, type FileReadState } from './read-overlap.js';
 import { parseJsonValueText } from '../../lib/json.js';
-import { readTextFileWithEncoding } from '../../lib/text-encoding.js';
+import { readSourceText } from '../../lib/text-encoding.js';
 import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
 import type { ToolTranscriptAction } from '../../tool-call-messages.js';
 import { spawnDirectCommand } from '../../lib/command-spawn.js';
@@ -351,7 +351,7 @@ export function planRead(
     return { ok: false, command: requestedCommand, reason: 'path is not a readable file' };
   }
 
-  const lines = readTextFileWithEncoding(resolvedPath.absolutePath).replace(/\r\n/gu, '\n').split('\n');
+  const lines = readSourceText(resolvedPath.absolutePath).split('\n');
   const displayPath = resolvedPath.relativePath;
   const pathKey = displayPath.toLowerCase();
   const totalEndLineExclusive = (lines.length || 0) + 1;
@@ -641,7 +641,7 @@ function executeEdit(args: JsonObject, context: RepoToolContext): RepoToolExecut
     return failure('edit', command, 'path is not a readable file');
   }
 
-  const originalText = readTextFileWithEncoding(resolvedPath.absolutePath);
+  const originalText = readSourceText(resolvedPath.absolutePath);
   const resolved = resolveEdits(originalText, rawEdits);
   if (typeof resolved === 'string') {
     return failure('edit', command, resolved);

@@ -304,6 +304,33 @@ test('edit applies multiple disjoint replacements against the original file', as
   assert.equal(fs.readFileSync(path.join(root, 'src', 'a.ts'), 'utf8'), 'first\nalpha\nline3\nalpha\nfifth\n');
 });
 
+test('edit matches a model-authored multi-line LF oldText against a CRLF-on-disk file', async () => {
+  const root = makeRepo();
+  fs.writeFileSync(path.join(root, 'src', 'crlf.ts'), 'line1\r\nalpha\r\nline3\r\nline5\r\n', 'utf8');
+  // The model read the file normalized (LF), so its oldText uses \n.
+  const result = await executeRepoTool('edit', {
+    path: 'src/crlf.ts',
+    edits: [{ oldText: 'line1\nalpha', newText: 'first\nbeta' }],
+  }, makeContext(root));
+  assert.ok(result.ok, result.ok ? '' : result.reason);
+  const after = fs.readFileSync(path.join(root, 'src', 'crlf.ts'), 'utf8');
+  assert.equal(after, 'first\nbeta\nline3\nline5\n');
+  assert.equal(after.includes('\r'), false);
+});
+
+test('edit rewrites a CRLF file as uniform LF (no mixed endings)', async () => {
+  const root = makeRepo();
+  fs.writeFileSync(path.join(root, 'src', 'crlf.ts'), 'keep1\r\ntarget\r\nkeep3\r\n', 'utf8');
+  const result = await executeRepoTool('edit', {
+    path: 'src/crlf.ts',
+    edits: [{ oldText: 'target', newText: 'changed' }],
+  }, makeContext(root));
+  assert.ok(result.ok, result.ok ? '' : result.reason);
+  const after = fs.readFileSync(path.join(root, 'src', 'crlf.ts'), 'utf8');
+  assert.equal(after.includes('\r'), false);
+  assert.equal(after, 'keep1\nchanged\nkeep3\n');
+});
+
 test('edit rejects a non-unique oldText and leaves the file untouched', async () => {
   const root = makeRepo();
   const before = fs.readFileSync(path.join(root, 'src', 'a.ts'), 'utf8');
