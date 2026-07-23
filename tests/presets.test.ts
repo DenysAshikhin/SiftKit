@@ -52,7 +52,7 @@ test('builtin presets are present and not deletable', () => {
   const presets = getBuiltinPresets();
   assert.deepEqual(
     presets.map((preset) => preset.id),
-    ['summary', 'repo-search', 'chat', 'plan'],
+    ['summary', 'repo-search', 'chat', 'plan', 'repo-agent'],
   );
   assert.deepEqual(
     presets.map((preset) => [preset.id, preset.presetKind, preset.operationMode]),
@@ -61,6 +61,7 @@ test('builtin presets are present and not deletable', () => {
       ['repo-search', 'repo-search', 'read-only'],
       ['chat', 'chat', 'summary'],
       ['plan', 'plan', 'read-only'],
+      ['repo-agent', 'repo-agent', 'full'],
     ],
   );
   for (const preset of presets) {
@@ -71,6 +72,15 @@ test('builtin presets are present and not deletable', () => {
   assert.equal(presets.find((preset) => preset.id === 'repo-search')?.includeRepoFileListing, true);
   assert.equal(presets.find((preset) => preset.id === 'plan')?.includeAgentsMd, true);
   assert.equal(presets.find((preset) => preset.id === 'plan')?.includeRepoFileListing, true);
+
+  const agent = presets.find((preset) => preset.id === 'repo-agent');
+  assert.ok(agent);
+  assert.deepEqual(agent.allowedTools, ['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch', 'write', 'edit', 'run']);
+  assert.deepEqual(agent.surfaces, ['cli', 'web']);
+  assert.equal(agent.operationMode, 'full');
+  assert.equal(agent.repoRootRequired, true);
+  assert.equal(agent.useForSummary, false);
+  assert.equal(agent.maxTurns, 80);
 });
 
 test('normalizePresets keeps builtin presets even when overlay omits them and preserves non-deletable rule', () => {
@@ -118,11 +128,11 @@ test('preset surface filtering separates cli and web visibility', () => {
   ]);
   assert.deepEqual(
     getPresetsForSurface(presets, 'cli').map((preset) => preset.id),
-    ['summary', 'repo-search', 'dual-surface'],
+    ['summary', 'repo-search', 'repo-agent', 'dual-surface'],
   );
   assert.deepEqual(
     getPresetsForSurface(presets, 'web').map((preset) => preset.id),
-    ['repo-search', 'chat', 'plan', 'dual-surface'],
+    ['repo-search', 'chat', 'plan', 'repo-agent', 'dual-surface'],
   );
 });
 
@@ -167,7 +177,7 @@ test('config persistence stores normalized presets in sqlite', () => {
     assert.deepEqual(loaded.OperationModeAllowedTools, {
       summary: ['find_text', 'read_lines', 'json_filter', 'json_get'],
       'read-only': [...REPO_SEARCH_TOOLS],
-      full: [],
+      full: ['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch', 'write', 'edit', 'run'],
     });
   });
 });
@@ -205,8 +215,20 @@ test('default operation mode tool policy matches the builtin capability split', 
   assert.deepEqual(getDefaultOperationModeAllowedTools(), {
     summary: ['find_text', 'read_lines', 'json_filter', 'json_get'],
     'read-only': [...REPO_SEARCH_TOOLS],
-    full: [],
+    full: ['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch', 'write', 'edit', 'run'],
   });
+});
+
+test('user preset with repo-agent kind defaults to full mode and repoRootRequired', () => {
+  const presets = normalizePresets([
+    { id: 'my-agent', label: 'My Agent', presetKind: 'repo-agent' },
+  ]);
+  const found = findPresetById(presets, 'my-agent');
+  assert.ok(found);
+  assert.equal(found.presetKind, 'repo-agent');
+  assert.equal(found.operationMode, 'full');
+  assert.equal(found.repoRootRequired, true);
+  assert.deepEqual(found.allowedTools, ['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch', 'write', 'edit', 'run']);
 });
 
 test('preset kind and operation mode helpers resolve the selected preset metadata', () => {

@@ -4,7 +4,7 @@ import type { JsonObject, JsonValue, OptionalJsonValue } from './lib/json-types.
 
 export type { PresetToolName };
 
-export type PresetKind = 'summary' | 'chat' | 'plan' | 'repo-search';
+export type PresetKind = 'summary' | 'chat' | 'plan' | 'repo-search' | 'repo-agent';
 export type PresetExecutionFamily = PresetKind;
 export type PresetOperationMode = 'summary' | 'read-only' | 'full';
 export type PresetSurface = 'cli' | 'web';
@@ -13,6 +13,7 @@ const SUMMARY_TOOLS = ['find_text', 'read_lines', 'json_filter', 'json_get'] as 
 export const REPO_SEARCH_TOOLS = ['read', 'grep', 'find', 'ls', 'git'] as const;
 
 export const WEB_RESEARCH_TOOLS = ['web_search', 'web_fetch'] as const;
+export const REPO_AGENT_TOOLS = ['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch', 'write', 'edit', 'run'] as const;
 // PresetToolNameSchema in @siftkit/contracts is the single source of truth for the tool-name union;
 // the groupings above are subsets of it, checked by the satisfies below.
 const PRESET_TOOL_NAME_SET = new Set<string>(PresetToolNameSchema.options);
@@ -21,6 +22,7 @@ const READ_ONLY_TOOLS = [...REPO_SEARCH_TOOLS] as const;
 SUMMARY_TOOLS satisfies readonly PresetToolName[];
 REPO_SEARCH_TOOLS satisfies readonly PresetToolName[];
 WEB_RESEARCH_TOOLS satisfies readonly PresetToolName[];
+REPO_AGENT_TOOLS satisfies readonly PresetToolName[];
 
 export type OperationModeAllowedTools = Record<PresetOperationMode, PresetToolName[]>;
 
@@ -52,7 +54,7 @@ const PRESET_SURFACES: readonly PresetSurface[] = ['cli', 'web'];
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS: OperationModeAllowedTools = {
   summary: [...SUMMARY_TOOLS],
   'read-only': [...READ_ONLY_TOOLS],
-  full: [],
+  full: [...REPO_AGENT_TOOLS],
 };
 
 function getDefaultAllowedToolsForOperationMode(operationMode: PresetOperationMode): PresetToolName[] {
@@ -68,7 +70,7 @@ function normalizePresetId(value: OptionalJsonValue): string {
 }
 
 export function isPresetKind(value: OptionalJsonValue): value is PresetKind {
-  return value === 'summary' || value === 'chat' || value === 'plan' || value === 'repo-search';
+  return value === 'summary' || value === 'chat' || value === 'plan' || value === 'repo-search' || value === 'repo-agent';
 }
 
 function isExecutionFamily(value: OptionalJsonValue): value is PresetExecutionFamily {
@@ -142,6 +144,9 @@ function getOperationModeFromRecord(record: JsonObject, fallback: PresetOperatio
   }
   if (presetKind === 'plan' || presetKind === 'repo-search') {
     return 'read-only';
+  }
+  if (presetKind === 'repo-agent') {
+    return 'full';
   }
   return fallback;
 }
@@ -252,6 +257,23 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     repoRootRequired: true,
     maxTurns: 45,
   }),
+  buildPreset({
+    id: 'repo-agent',
+    label: 'Repo Agent',
+    description: 'Interactive repository coding agent that reads, searches, edits, writes, and runs commands with human approval.',
+    presetKind: 'repo-agent',
+    operationMode: 'full',
+    promptPrefix: '',
+    allowedTools: [...REPO_AGENT_TOOLS],
+    surfaces: ['cli', 'web'],
+    useForSummary: false,
+    builtin: true,
+    deletable: false,
+    includeAgentsMd: true,
+    includeRepoFileListing: true,
+    repoRootRequired: true,
+    maxTurns: 80,
+  }),
 ] as const;
 
 const BUILTIN_PRESET_IDS = new Set(BUILTIN_PRESETS.map((preset) => preset.id));
@@ -291,7 +313,11 @@ function normalizeUserPreset(input: OptionalJsonValue): SiftPreset | null {
     return null;
   }
   const presetKind = getPresetKindFromRecord(record, 'summary');
-  const operationMode = getOperationModeFromRecord(record, presetKind === 'plan' || presetKind === 'repo-search' ? 'read-only' : 'summary', presetKind);
+  const operationMode = getOperationModeFromRecord(
+    record,
+    presetKind === 'repo-agent' ? 'full' : (presetKind === 'plan' || presetKind === 'repo-search' ? 'read-only' : 'summary'),
+    presetKind,
+  );
   const defaultAllowedTools = getDefaultAllowedToolsForOperationMode(operationMode);
   return buildPreset({
     id,
@@ -307,8 +333,13 @@ function normalizeUserPreset(input: OptionalJsonValue): SiftPreset | null {
     deletable: true,
     includeAgentsMd: reader.value('includeAgentsMd') === undefined ? true : Boolean(reader.value('includeAgentsMd')),
     includeRepoFileListing: reader.value('includeRepoFileListing') === undefined ? true : Boolean(reader.value('includeRepoFileListing')),
-    repoRootRequired: reader.value('repoRootRequired') === undefined ? (presetKind === 'plan' || presetKind === 'repo-search') : Boolean(reader.value('repoRootRequired')),
-    maxTurns: normalizeNullableInteger(reader.value('maxTurns'), presetKind === 'plan' || presetKind === 'repo-search' ? 45 : null),
+    repoRootRequired: reader.value('repoRootRequired') === undefined
+      ? (presetKind === 'plan' || presetKind === 'repo-search' || presetKind === 'repo-agent')
+      : Boolean(reader.value('repoRootRequired')),
+    maxTurns: normalizeNullableInteger(
+      reader.value('maxTurns'),
+      presetKind === 'repo-agent' ? 80 : (presetKind === 'plan' || presetKind === 'repo-search' ? 45 : null),
+    ),
   });
 }
 
