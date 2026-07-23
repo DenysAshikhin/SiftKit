@@ -128,6 +128,17 @@ export const PresetToolNameSchema = z.enum([
 ]);
 export type PresetToolName = z.infer<typeof PresetToolNameSchema>;
 
+// Canonical tool groupings per operation-mode capability tier. Single source of truth for
+// both the backend preset defaults (src/presets.ts) and the dashboard preset editor.
+export const SUMMARY_PRESET_TOOLS = ['find_text', 'read_lines', 'json_filter', 'json_get'] as const;
+export const READ_ONLY_PRESET_TOOLS = ['read', 'grep', 'find', 'ls', 'git'] as const;
+export const WEB_RESEARCH_PRESET_TOOLS = ['web_search', 'web_fetch'] as const;
+export const FULL_PRESET_TOOLS = [...READ_ONLY_PRESET_TOOLS, ...WEB_RESEARCH_PRESET_TOOLS, 'write', 'edit', 'run'] as const;
+SUMMARY_PRESET_TOOLS satisfies readonly PresetToolName[];
+READ_ONLY_PRESET_TOOLS satisfies readonly PresetToolName[];
+WEB_RESEARCH_PRESET_TOOLS satisfies readonly PresetToolName[];
+FULL_PRESET_TOOLS satisfies readonly PresetToolName[];
+
 export const SiftPresetSchema = z.object({
   id: z.string(), label: z.string(), description: z.string(), presetKind: PresetKindSchema,
   operationMode: PresetOperationModeSchema, executionFamily: PresetKindSchema, promptPrefix: z.string(),

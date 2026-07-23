@@ -1,4 +1,10 @@
-import { PresetToolNameSchema, type PresetToolName } from '@siftkit/contracts';
+import {
+  PresetToolNameSchema,
+  SUMMARY_PRESET_TOOLS,
+  READ_ONLY_PRESET_TOOLS,
+  FULL_PRESET_TOOLS,
+  type PresetToolName,
+} from '@siftkit/contracts';
 import { JsonRecordReader } from './lib/json-record-reader.js';
 import type { JsonObject, JsonValue, OptionalJsonValue } from './lib/json-types.js';
 
@@ -9,20 +15,9 @@ export type PresetExecutionFamily = PresetKind;
 export type PresetOperationMode = 'summary' | 'read-only' | 'full';
 export type PresetSurface = 'cli' | 'web';
 
-const SUMMARY_TOOLS = ['find_text', 'read_lines', 'json_filter', 'json_get'] as const;
-export const REPO_SEARCH_TOOLS = ['read', 'grep', 'find', 'ls', 'git'] as const;
-
-export const WEB_RESEARCH_TOOLS = ['web_search', 'web_fetch'] as const;
-export const REPO_AGENT_TOOLS = ['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch', 'write', 'edit', 'run'] as const;
-// PresetToolNameSchema in @siftkit/contracts is the single source of truth for the tool-name union;
-// the groupings above are subsets of it, checked by the satisfies below.
+// @siftkit/contracts owns the tool-name union and the canonical per-tier groupings; this module
+// only consumes them so backend defaults and the dashboard editor cannot drift apart.
 const PRESET_TOOL_NAME_SET = new Set<string>(PresetToolNameSchema.options);
-const READ_ONLY_TOOLS = [...REPO_SEARCH_TOOLS] as const;
-
-SUMMARY_TOOLS satisfies readonly PresetToolName[];
-REPO_SEARCH_TOOLS satisfies readonly PresetToolName[];
-WEB_RESEARCH_TOOLS satisfies readonly PresetToolName[];
-REPO_AGENT_TOOLS satisfies readonly PresetToolName[];
 
 export type OperationModeAllowedTools = Record<PresetOperationMode, PresetToolName[]>;
 
@@ -52,9 +47,9 @@ export type SiftPreset = {
 const PRESET_SURFACES: readonly PresetSurface[] = ['cli', 'web'];
 
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS: OperationModeAllowedTools = {
-  summary: [...SUMMARY_TOOLS],
-  'read-only': [...READ_ONLY_TOOLS],
-  full: [...REPO_AGENT_TOOLS],
+  summary: [...SUMMARY_PRESET_TOOLS],
+  'read-only': [...READ_ONLY_PRESET_TOOLS],
+  full: [...FULL_PRESET_TOOLS],
 };
 
 function getDefaultAllowedToolsForOperationMode(operationMode: PresetOperationMode): PresetToolName[] {
@@ -196,7 +191,7 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     presetKind: 'summary',
     operationMode: 'summary',
     promptPrefix: '',
-    allowedTools: [...SUMMARY_TOOLS],
+    allowedTools: [...SUMMARY_PRESET_TOOLS],
     surfaces: ['cli'],
     useForSummary: true,
     builtin: true,
@@ -213,7 +208,7 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     presetKind: 'repo-search',
     operationMode: 'read-only',
     promptPrefix: '',
-    allowedTools: [...READ_ONLY_TOOLS],
+    allowedTools: [...READ_ONLY_PRESET_TOOLS],
     surfaces: ['cli', 'web'],
     useForSummary: false,
     builtin: true,
@@ -230,7 +225,7 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     presetKind: 'chat',
     operationMode: 'summary',
     promptPrefix: 'general, coder friendly assistant',
-    allowedTools: [...SUMMARY_TOOLS],
+    allowedTools: [...SUMMARY_PRESET_TOOLS],
     surfaces: ['web'],
     useForSummary: false,
     builtin: true,
@@ -247,7 +242,7 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     presetKind: 'plan',
     operationMode: 'read-only',
     promptPrefix: '',
-    allowedTools: [...READ_ONLY_TOOLS],
+    allowedTools: [...READ_ONLY_PRESET_TOOLS],
     surfaces: ['web'],
     useForSummary: false,
     builtin: true,
@@ -264,7 +259,7 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     presetKind: 'repo-agent',
     operationMode: 'full',
     promptPrefix: '',
-    allowedTools: [...REPO_AGENT_TOOLS],
+    allowedTools: [...FULL_PRESET_TOOLS],
     surfaces: ['cli', 'web'],
     useForSummary: false,
     builtin: true,

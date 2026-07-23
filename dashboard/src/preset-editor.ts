@@ -5,23 +5,15 @@ import type {
   DashboardPresetOperationMode,
   DashboardPresetToolName,
 } from './types.js';
+import {
+  SUMMARY_PRESET_TOOLS,
+  READ_ONLY_PRESET_TOOLS,
+  FULL_PRESET_TOOLS,
+} from './types.js';
 
-export const PRESET_TOOL_OPTIONS: DashboardPresetToolName[] = [
-  'find_text',
-  'read_lines',
-  'json_filter',
-  'json_get',
-  'read',
-  'grep',
-  'find',
-  'ls',
-  'git',
-  'web_search',
-  'web_fetch',
-  'write',
-  'edit',
-  'run',
-];
+// Derived from the canonical @siftkit/contracts groupings so the editor's tool surface and
+// per-mode defaults cannot drift from the backend preset defaults.
+export const PRESET_TOOL_OPTIONS: DashboardPresetToolName[] = [...SUMMARY_PRESET_TOOLS, ...FULL_PRESET_TOOLS];
 
 export const PRESET_TOOL_DESCRIPTIONS: Record<DashboardPresetToolName, string> = {
   find_text:
@@ -54,20 +46,16 @@ export const PRESET_TOOL_DESCRIPTIONS: Record<DashboardPresetToolName, string> =
     'Execute a shell command in the repository root and return stdout and stderr. Best for building, testing, or linting to verify changes.',
 };
 
-const SUMMARY_TOOLS: DashboardPresetToolName[] = ['find_text', 'read_lines', 'json_filter', 'json_get'];
-const READ_ONLY_TOOLS: DashboardPresetToolName[] = ['read', 'grep', 'find', 'ls', 'git'];
-const FULL_TOOLS: DashboardPresetToolName[] = ['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch', 'write', 'edit', 'run'];
-
 export function getDefaultToolsForOperationMode(
   operationMode: DashboardPresetOperationMode,
 ): DashboardPresetToolName[] {
   if (operationMode === 'summary') {
-    return [...SUMMARY_TOOLS];
+    return [...SUMMARY_PRESET_TOOLS];
   }
   if (operationMode === 'read-only') {
-    return [...READ_ONLY_TOOLS];
+    return [...READ_ONLY_PRESET_TOOLS];
   }
-  return [...FULL_TOOLS];
+  return [...FULL_PRESET_TOOLS];
 }
 
 export function getDefaultOperationModeForPresetKind(

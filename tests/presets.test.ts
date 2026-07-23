@@ -14,9 +14,9 @@ import {
   mapLegacyModeToPresetId,
   normalizePresets,
   normalizeOperationModeAllowedTools,
-  REPO_SEARCH_TOOLS,
   resolveSummaryPreset,
 } from '../src/presets.js';
+import { READ_ONLY_PRESET_TOOLS } from '@siftkit/contracts';
 import {
   getDefaultConfig,
   readConfig,
@@ -119,7 +119,7 @@ test('normalizePresets accepts only typed object overlays', () => {
 
   assert.equal(findPresetById(presets, 'custom')?.label, 'Custom');
   assert.deepEqual(findPresetById(presets, 'custom')?.allowedTools, ['grep']);
-  assert.deepEqual(findPresetById(presets, 'bad-tools')?.allowedTools, REPO_SEARCH_TOOLS);
+  assert.deepEqual(findPresetById(presets, 'bad-tools')?.allowedTools, READ_ONLY_PRESET_TOOLS);
 });
 
 test('preset surface filtering separates cli and web visibility', () => {
@@ -176,7 +176,7 @@ test('config persistence stores normalized presets in sqlite', () => {
     assert.equal(loaded.Presets?.find((preset) => preset.id === 'custom-search')?.includeRepoFileListing, true);
     assert.deepEqual(loaded.OperationModeAllowedTools, {
       summary: ['find_text', 'read_lines', 'json_filter', 'json_get'],
-      'read-only': [...REPO_SEARCH_TOOLS],
+      'read-only': [...READ_ONLY_PRESET_TOOLS],
       full: ['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch', 'write', 'edit', 'run'],
     });
   });
@@ -214,7 +214,7 @@ test('legacy executionFamily presets migrate to presetKind and operationMode', (
 test('default operation mode tool policy matches the builtin capability split', () => {
   assert.deepEqual(getDefaultOperationModeAllowedTools(), {
     summary: ['find_text', 'read_lines', 'json_filter', 'json_get'],
-    'read-only': [...REPO_SEARCH_TOOLS],
+    'read-only': [...READ_ONLY_PRESET_TOOLS],
     full: ['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch', 'write', 'edit', 'run'],
   });
 });

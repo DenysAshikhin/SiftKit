@@ -9,6 +9,7 @@ import type {
   ChatSessionResponse,
   ChatSessionsResponse,
 } from '@siftkit/contracts';
+import { WEB_RESEARCH_PRESET_TOOLS } from '@siftkit/contracts';
 import type { ChatMessage as PersistedChatMessage } from '../../state/chat-sessions.js';
 import { existsSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -87,7 +88,6 @@ import {
   normalizeOperationModeAllowedTools,
   normalizePresets,
   resolvePresetAllowedTools,
-  WEB_RESEARCH_TOOLS,
   type SiftPreset,
 } from '../../presets.js';
 import {
@@ -143,7 +143,7 @@ export function withEffectiveWebTools(
   if (!enabled || !allowedTools) {
     return allowedTools;
   }
-  return [...new Set([...allowedTools, ...WEB_RESEARCH_TOOLS])];
+  return [...new Set([...allowedTools, ...WEB_RESEARCH_PRESET_TOOLS])];
 }
 
 function requireToolCallId(event: RepoSearchProgressEvent): string {

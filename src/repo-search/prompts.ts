@@ -203,6 +203,15 @@ export function readAgentsMd(repoRoot: string): string {
   return '';
 }
 
+// Shared trailing agents.md block for every system prompt: empty when disabled or absent,
+// otherwise the labelled project-instructions section.
+function buildAgentsMdPromptLines(repoRoot: string, includeAgentsMd?: boolean): string[] {
+  const agentsContent = includeAgentsMd === false ? '' : readAgentsMd(repoRoot);
+  return agentsContent
+    ? ['', '--- agents.md (project-specific instructions) ---', '', agentsContent]
+    : [];
+}
+
 // ---------------------------------------------------------------------------
 // System prompt
 // ---------------------------------------------------------------------------
@@ -211,7 +220,6 @@ export function buildTaskSystemPrompt(repoRoot: string, options?: {
   includeAgentsMd?: boolean;
   includeRepoFileListing?: boolean;
 }): string {
-  const agentsContent = options?.includeAgentsMd === false ? '' : readAgentsMd(repoRoot);
   const startupScanLine = options?.includeRepoFileListing === false
     ? '- No startup file listing provided — derive targeted grep searches from the task wording.'
     : '- A file listing is provided in the user message; use it to decide where to look.';
@@ -272,7 +280,7 @@ export function buildTaskSystemPrompt(repoRoot: string, options?: {
     '- Shell syntax in tool args. `grep`/`find`/`ls`/`read` take structured fields, not command lines — there is no `command` key on them.',
     '- Coverage-first noise; tiny-slice progression on one file; chained shell (`;`/`&&`) in `git`; claims of mutation from read-only ops; answers without `file:line` evidence; paths outside the repo root.',
     '- Wrong arg shape — only documented keys (e.g. `startLine`/`endLine` instead of `offset`/`limit`, or empty `{}`, are rejected).',
-    ...(agentsContent ? ['', '--- agents.md (project-specific instructions) ---', '', agentsContent] : []),
+    ...buildAgentsMdPromptLines(repoRoot, options?.includeAgentsMd),
   ].join('\n');
 }
 
@@ -280,7 +288,6 @@ export function buildAgentSystemPrompt(repoRoot: string, options?: {
   includeAgentsMd?: boolean;
   includeRepoFileListing?: boolean;
 }): string {
-  const agentsContent = options?.includeAgentsMd === false ? '' : readAgentsMd(repoRoot);
   const startupScanLine = options?.includeRepoFileListing === false
     ? '- No startup file listing provided — use grep/find/ls to discover where to work.'
     : '- A repository file listing is provided in the user message; use it to locate files.';
@@ -311,7 +318,7 @@ export function buildAgentSystemPrompt(repoRoot: string, options?: {
     '- `git` is read-only here; staging and committing are not your job unless the task explicitly asks.',
     '- Finish with a short summary of what changed and any follow-ups — plain prose, not file:line anchor bullets.',
     startupScanLine,
-    ...(agentsContent ? ['', '--- agents.md (project-specific instructions) ---', '', agentsContent] : []),
+    ...buildAgentsMdPromptLines(repoRoot, options?.includeAgentsMd),
   ].join('\n');
 }
 
