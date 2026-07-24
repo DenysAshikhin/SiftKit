@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
   getRuntimeArtifactUri,
-  parseRuntimeArtifactUri,
   readRuntimeArtifact,
   upsertRuntimeTextArtifact,
 } from '../state/runtime-artifacts.js';
@@ -16,33 +15,6 @@ export type BufferedJsonLogger = JsonLogger & {
   persist: (targetPath: string, requestId?: string | null) => string;
 };
 
-const logPathToArtifactId = new Map<string, string>();
-
-function normalizeLogKey(value: string): string {
-  return String(value || '').replace(/\\/gu, '/').trim();
-}
-
-function getArtifactIdForPath(logPath: string): string | null {
-  const key = normalizeLogKey(logPath);
-  if (!key) {
-    return null;
-  }
-  const mappedId = logPathToArtifactId.get(key);
-  if (mappedId) {
-    return mappedId;
-  }
-  const fromUri = parseRuntimeArtifactUri(key);
-  return fromUri || null;
-}
-
-function setArtifactIdForPath(logPath: string, artifactId: string): void {
-  const key = normalizeLogKey(logPath);
-  if (!key) {
-    return;
-  }
-  logPathToArtifactId.set(key, artifactId);
-}
-
 export function ensureRepoSearchLogFolders(): {
   root: string;
   successful: string;
@@ -55,41 +27,12 @@ export function ensureRepoSearchLogFolders(): {
   };
 }
 
-export function moveFileSafe(sourcePath: string, targetPath: string): void {
-  const sourceId = getArtifactIdForPath(sourcePath);
-  if (!sourceId) {
-    return;
-  }
-  const sourceRecord = readRuntimeArtifact(sourceId);
-  if (!sourceRecord) {
-    return;
-  }
-  const targetId = getArtifactIdForPath(targetPath) || randomUUID();
-  upsertRuntimeTextArtifact({
-    id: targetId,
-    artifactKind: sourceRecord.artifactKind || 'repo_search_transcript',
-    requestId: sourceRecord.requestId,
-    title: targetPath,
-    content: sourceRecord.contentText || '',
-  });
-  setArtifactIdForPath(targetPath, targetId);
-}
-
-export function readJsonLog(logPath: string): string {
-  const artifactId = getArtifactIdForPath(logPath);
-  if (!artifactId) {
-    return '';
-  }
-  const record = readRuntimeArtifact(artifactId);
-  return record?.contentText || '';
-}
-
 export function createJsonLogger(logPath: string): BufferedJsonLogger {
   const lines: string[] = [];
   let persistedArtifactId: string | null = null;
   const getText = (): string => lines.join('');
   const persist = (targetPath: string, requestId?: string | null): string => {
-    const targetId = getArtifactIdForPath(targetPath) || persistedArtifactId || randomUUID();
+    const targetId = persistedArtifactId || randomUUID();
     const existing = readRuntimeArtifact(targetId);
     upsertRuntimeTextArtifact({
       id: targetId,
@@ -99,8 +42,6 @@ export function createJsonLogger(logPath: string): BufferedJsonLogger {
       content: getText(),
     });
     persistedArtifactId = targetId;
-    setArtifactIdForPath(logPath, targetId);
-    setArtifactIdForPath(targetPath, targetId);
     return getRuntimeArtifactUri(targetId);
   };
   return {
@@ -111,9 +52,4 @@ export function createJsonLogger(logPath: string): BufferedJsonLogger {
     getText,
     persist,
   };
-}
-
-export function resolveRepoSearchLogUri(logPath: string): string {
-  const artifactId = getArtifactIdForPath(logPath);
-  return artifactId ? getRuntimeArtifactUri(artifactId) : logPath;
 }

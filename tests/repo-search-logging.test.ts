@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createJsonLogger, resolveRepoSearchLogUri } from '../src/repo-search/logging.js';
+import { createJsonLogger } from '../src/repo-search/logging.js';
 import {
   listRuntimeArtifacts,
   parseRuntimeArtifactUri,
@@ -21,7 +21,6 @@ test('createJsonLogger buffers transcript events until persist', async () => {
     const transcriptUri = logger.persist(transcriptPath, 'request-buffered');
     const transcriptId = parseRuntimeArtifactUri(transcriptUri);
     assert.ok(transcriptId);
-    assert.equal(resolveRepoSearchLogUri(transcriptPath), transcriptUri);
 
     const artifact = readRuntimeArtifact(transcriptId);
     assert.equal(artifact?.requestId, 'request-buffered');
