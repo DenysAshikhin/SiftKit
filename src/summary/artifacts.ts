@@ -1,9 +1,8 @@
-import { mkdirSync, writeFileSync, existsSync, appendFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { appendFileSync } from 'node:fs';
 import { createTracer } from '../lib/trace.js';
 import type { JsonObject } from '../lib/json-types.js';
 import {
-  getPlannerDebugPath,
+  getPlannerDebugReference,
   getPlannerFailedPath,
 } from '../config/paths.js';
 import { getRecord } from './planner/json-filter.js';
@@ -121,9 +120,6 @@ export function buildPlannerDebugArtifact(options: {
   if (Object.keys(payload).length === 0) {
     return null;
   }
-  const debugPath = getPlannerDebugPath(options.requestId);
-  mkdirSync(dirname(debugPath), { recursive: true });
-  writeFileSync(debugPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
   return {
     artifactType: 'planner_debug',
     artifactRequestId: options.requestId,
@@ -142,8 +138,8 @@ export async function finalizePlannerDebugDump(options: {
 }
 
 export function buildDeferredPlannerDebugPath(requestId: string): string | null {
-  return plannerDebugPayloadByRequestId.has(requestId) || existsSync(getPlannerDebugPath(requestId))
-    ? getPlannerDebugPath(requestId)
+  return plannerDebugPayloadByRequestId.has(requestId)
+    ? getPlannerDebugReference(requestId)
     : null;
 }
 

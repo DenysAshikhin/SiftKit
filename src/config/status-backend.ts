@@ -223,12 +223,12 @@ export type NotifyStatusBackendOptions = {
   terminalStatusMs?: number | null;
   artifactType?: 'summary_request' | 'planner_debug' | 'planner_failed' | null;
   artifactRequestId?: string | null;
-  artifactPayload?: object | null;
+  artifactPayload?: JsonObject | null;
   deferredMetadata?: object | null;
   deferredArtifacts?: Array<{
     artifactType: 'summary_request' | 'planner_debug' | 'planner_failed';
     artifactRequestId: string;
-    artifactPayload: object;
+    artifactPayload: JsonObject;
   }> | null;
 };
 
@@ -352,7 +352,7 @@ function buildStatusNotificationBody(options: NotifyStatusBackendOptions): JsonO
     && typeof options.artifactPayload === 'object'
     && !Array.isArray(options.artifactPayload)
   ) {
-    body.artifactPayload = toJsonObject(options.artifactPayload);
+    body.artifactPayload = options.artifactPayload;
   }
   if (
     options.deferredMetadata
@@ -376,7 +376,7 @@ function buildStatusNotificationBody(options: NotifyStatusBackendOptions): JsonO
       .map((artifact) => ({
         artifactType: artifact.artifactType,
         artifactRequestId: artifact.artifactRequestId.trim(),
-        artifactPayload: toJsonObject(artifact.artifactPayload),
+        artifactPayload: artifact.artifactPayload,
       }));
     if (deferredArtifacts.length > 0) {
       body.deferredArtifacts = deferredArtifacts;

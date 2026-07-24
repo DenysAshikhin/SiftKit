@@ -112,6 +112,16 @@ export function getPlannerDebugPath(requestId: string): string {
   return join(getRuntimeLogsPath(), `planner_debug_${requestId}.json`);
 }
 
+/**
+ * Reference to a planner debug dump. The payload lives in
+ * `run_logs.planner_debug_json` keyed by request id; this is the human-facing
+ * pointer used in error messages and the summary_request artifact. Mirrors the
+ * `db://` convention used for repo-search transcripts and runtime artifacts.
+ */
+export function getPlannerDebugReference(requestId: string): string {
+  return `db://run-logs/${requestId}/planner-debug`;
+}
+
 export function getAbandonedLogsDirectory(): string {
   return join(getRuntimeLogsPath(), 'abandoned');
 }

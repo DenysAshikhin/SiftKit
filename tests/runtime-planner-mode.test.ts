@@ -14,20 +14,25 @@ import {
   getChatRequestText,
   buildOversizedTransitionsInput,
   buildOversizedRunnerStateHistoryInput,
-  getPlannerLogsPath,
   getFailedLogsPath,
   getRequestLogsPath,
+  listPlannerDebugDumpNames,
+  waitForNewPlannerDebugDumpPath,
   spawnProcess,
   withTempEnv,
   withStubServer,
   waitForAsyncExpectation,
 } from './_runtime-helpers.js';
 import type { JsonObject, JsonValue } from '../src/lib/json-types.js';
+import { existsSync } from 'node:fs';
 import {
+  buildDeferredPlannerDebugPath,
+  buildPlannerDebugArtifact,
   clearSummaryArtifactState,
   createPlannerDebugRecorder,
   readPlannerDebugPayload,
 } from '../src/summary/artifacts.js';
+import { getPlannerDebugPath } from '../src/config/paths.js';
 
 interface PlannerDebugEvent {
   kind?: string;
@@ -110,9 +115,7 @@ function buildOversizedWidgetPayloadInput(minCharacters: number): string {
 
 test('planner json_filter accepts combined gte and lte bounds in one filter value', async () => {
   await withTempEnv(async () => {
-    const plannerLogsPath = getPlannerLogsPath();
-    fs.mkdirSync(plannerLogsPath, { recursive: true });
-    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+    const before = new Set(listPlannerDebugDumpNames());
 
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
@@ -150,11 +153,7 @@ test('planner json_filter accepts combined gte and lte bounds in one filter valu
       },
     });
 
-    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
-    const added = after.filter((entry) => !before.has(entry));
-    assert.equal(added.length, 1);
-
-    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    const debugDump = JSON.parse(fs.readFileSync(await waitForNewPlannerDebugDumpPath(before), 'utf8'));
     const jsonFilterEvent = debugDump.events.find((event: PlannerDebugEvent) => event.kind === 'planner_tool' && event.toolName === 'json_filter');
     assert.equal(jsonFilterEvent.output.matchedCount, 2);
     assert.match(jsonFilterEvent.output.text, /Lumbridge Castle Staircase/u);
@@ -205,9 +204,7 @@ test('planner iteration running=false notification is fire-and-forget', async ()
 
 test('planner retries malformed json_filter schema-placeholder args once and then succeeds', async () => {
   await withTempEnv(async () => {
-    const plannerLogsPath = getPlannerLogsPath();
-    fs.mkdirSync(plannerLogsPath, { recursive: true });
-    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+    const before = new Set(listPlannerDebugDumpNames());
 
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
@@ -256,11 +253,7 @@ test('planner retries malformed json_filter schema-placeholder args once and the
       },
     });
 
-    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
-    const added = after.filter((entry) => !before.has(entry));
-    assert.equal(added.length, 1);
-
-    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    const debugDump = JSON.parse(fs.readFileSync(await waitForNewPlannerDebugDumpPath(before), 'utf8'));
     assert.equal(
       debugDump.events.some((event: PlannerDebugEvent) => event.kind === 'planner_invalid_response' && /json_filter gte requires a scalar value\./u.test(String(event.error || ''))),
       true,
@@ -275,9 +268,7 @@ test('planner retries malformed json_filter schema-placeholder args once and the
 
 test('planner accepts exact nested value scalar wrappers in json_filter args', async () => {
   await withTempEnv(async () => {
-    const plannerLogsPath = getPlannerLogsPath();
-    fs.mkdirSync(plannerLogsPath, { recursive: true });
-    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+    const before = new Set(listPlannerDebugDumpNames());
 
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
@@ -314,11 +305,7 @@ test('planner accepts exact nested value scalar wrappers in json_filter args', a
       },
     });
 
-    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
-    const added = after.filter((entry) => !before.has(entry));
-    assert.equal(added.length, 1);
-
-    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    const debugDump = JSON.parse(fs.readFileSync(await waitForNewPlannerDebugDumpPath(before), 'utf8'));
     const jsonFilterEvent = debugDump.events.find((event: PlannerDebugEvent) => event.kind === 'planner_tool' && event.toolName === 'json_filter');
     assert.equal(jsonFilterEvent.output.matchedCount > 0, true);
     assert.match(jsonFilterEvent.output.text, /"groupId":12/u);
@@ -331,9 +318,7 @@ test('planner accepts exact nested value scalar wrappers in json_filter args', a
 
 test('planner malformed json_filter schema-placeholder args fail on invalid response limit after retry', async () => {
   await withTempEnv(async () => {
-    const plannerLogsPath = getPlannerLogsPath();
-    fs.mkdirSync(plannerLogsPath, { recursive: true });
-    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+    const before = new Set(listPlannerDebugDumpNames());
 
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
@@ -363,11 +348,7 @@ test('planner malformed json_filter schema-placeholder args fail on invalid resp
       },
     });
 
-    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
-    const added = after.filter((entry) => !before.has(entry));
-    assert.equal(added.length, 1);
-
-    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    const debugDump = JSON.parse(fs.readFileSync(await waitForNewPlannerDebugDumpPath(before), 'utf8'));
     assert.equal(debugDump.final.reason, 'planner_invalid_response_limit');
     assert.equal(
       debugDump.events.filter((event: PlannerDebugEvent) => event.kind === 'planner_invalid_response').length,
@@ -378,9 +359,7 @@ test('planner malformed json_filter schema-placeholder args fail on invalid resp
 
 test('planner json_filter supports scalar timestamp ranges on object-root array collections', async () => {
   await withTempEnv(async () => {
-    const plannerLogsPath = getPlannerLogsPath();
-    fs.mkdirSync(plannerLogsPath, { recursive: true });
-    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+    const before = new Set(listPlannerDebugDumpNames());
 
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -423,11 +402,7 @@ test('planner json_filter supports scalar timestamp ranges on object-root array 
       },
     });
 
-    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
-    const added = after.filter((entry) => !before.has(entry));
-    assert.equal(added.length, 1);
-
-    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    const debugDump = JSON.parse(fs.readFileSync(await waitForNewPlannerDebugDumpPath(before), 'utf8'));
     const jsonFilterEvent = debugDump.events.find((event: PlannerDebugEvent) => event.kind === 'planner_tool' && event.toolName === 'json_filter');
     assert.equal(jsonFilterEvent.output.collectionPath, 'states');
     assert.equal(jsonFilterEvent.output.matchedCount, 2);
@@ -440,9 +415,7 @@ test('planner json_filter supports scalar timestamp ranges on object-root array 
 
 test('planner returns recoverable json_filter collectionPath guidance without counting an invalid response', async () => {
   await withTempEnv(async () => {
-    const plannerLogsPath = getPlannerLogsPath();
-    fs.mkdirSync(plannerLogsPath, { recursive: true });
-    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+    const before = new Set(listPlannerDebugDumpNames());
 
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -481,11 +454,7 @@ test('planner returns recoverable json_filter collectionPath guidance without co
       },
     });
 
-    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
-    const added = after.filter((entry) => !before.has(entry));
-    assert.equal(added.length, 1);
-
-    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    const debugDump = JSON.parse(fs.readFileSync(await waitForNewPlannerDebugDumpPath(before), 'utf8'));
     assert.equal(
       debugDump.events.filter((event: PlannerDebugEvent) => event.kind === 'planner_invalid_response').length,
       0,
@@ -497,9 +466,7 @@ test('planner returns recoverable json_filter collectionPath guidance without co
 
 test('planner json_filter falls back to embedded JSON in command-output text and reports ignored prefix', async () => {
   await withTempEnv(async () => {
-    const plannerLogsPath = getPlannerLogsPath();
-    fs.mkdirSync(plannerLogsPath, { recursive: true });
-    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+    const before = new Set(listPlannerDebugDumpNames());
 
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -564,11 +531,7 @@ test('planner json_filter falls back to embedded JSON in command-output text and
       },
     });
 
-    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
-    const added = after.filter((entry) => !before.has(entry));
-    assert.equal(added.length, 1);
-
-    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    const debugDump = JSON.parse(fs.readFileSync(await waitForNewPlannerDebugDumpPath(before), 'utf8'));
     const jsonFilterEvent = debugDump.events.find((event: PlannerDebugEvent) => event.kind === 'planner_tool' && event.toolName === 'json_filter');
     assert.equal(Boolean(jsonFilterEvent?.output?.usedFallback), true);
     assert.match(String(jsonFilterEvent?.output?.ignoredPrefixPreview || ''), /A worker process has failed to exit gracefully/u);
@@ -578,9 +541,7 @@ test('planner json_filter falls back to embedded JSON in command-output text and
 
 test('planner surfaces explicit invalid-json message when json_filter fallback cannot parse any valid section', async () => {
   await withTempEnv(async () => {
-    const plannerLogsPath = getPlannerLogsPath();
-    fs.mkdirSync(plannerLogsPath, { recursive: true });
-    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+    const before = new Set(listPlannerDebugDumpNames());
 
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -631,11 +592,7 @@ test('planner surfaces explicit invalid-json message when json_filter fallback c
       },
     });
 
-    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
-    const added = after.filter((entry) => !before.has(entry));
-    assert.equal(added.length, 1);
-
-    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    const debugDump = JSON.parse(fs.readFileSync(await waitForNewPlannerDebugDumpPath(before), 'utf8'));
     const invalidEvent = debugDump.events.find((event: PlannerDebugEvent) => event.kind === 'planner_invalid_response');
     assert.match(String(invalidEvent?.error || ''), /json_filter input is not valid JSON to parse\./u);
   });
@@ -706,9 +663,7 @@ test('planner failures write failed artifacts through status posts', async () =>
 
 test('powershell shim preserves pipeline order for oversized planner input', async () => {
   await withTempEnv(async (tempRoot) => {
-    const plannerLogsPath = getPlannerLogsPath();
-    fs.mkdirSync(plannerLogsPath, { recursive: true });
-    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+    const before = new Set(listPlannerDebugDumpNames());
 
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
@@ -755,9 +710,7 @@ test('powershell shim preserves pipeline order for oversized planner input', asy
       },
     });
 
-    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
-    const added = after.filter((entry) => !before.has(entry));
-    assert.equal(added.length, 1);
+    await waitForNewPlannerDebugDumpPath(before);
 
     // The raw piped input lives once, in the summary_request artifact.
     await waitForAsyncExpectation(() => {
@@ -772,9 +725,7 @@ test('powershell shim preserves pipeline order for oversized planner input', asy
 
 test('planner debug dumps always write to the repo-local logs directory', async () => {
   await withTempEnv(async () => {
-    const plannerLogsPath = getPlannerLogsPath();
-    fs.mkdirSync(plannerLogsPath, { recursive: true });
-    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+    const before = new Set(listPlannerDebugDumpNames());
 
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
@@ -802,17 +753,13 @@ test('planner debug dumps always write to the repo-local logs directory', async 
       },
     });
 
-    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
-    const added = after.filter((entry) => !before.has(entry));
-    assert.equal(added.length, 1);
+    await waitForNewPlannerDebugDumpPath(before);
   });
 });
 
 test('planner read_lines tool results use a compact numbered text block', async () => {
   await withTempEnv(async () => {
-    const plannerLogsPath = getPlannerLogsPath();
-    fs.mkdirSync(plannerLogsPath, { recursive: true });
-    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+    const before = new Set(listPlannerDebugDumpNames());
 
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -851,11 +798,7 @@ test('planner read_lines tool results use a compact numbered text block', async 
       },
     });
 
-    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
-    const added = after.filter((entry) => !before.has(entry));
-    assert.equal(added.length, 1);
-
-    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    const debugDump = JSON.parse(fs.readFileSync(await waitForNewPlannerDebugDumpPath(before), 'utf8'));
     const toolEvent = debugDump.events.find((event: PlannerDebugEvent) => event.kind === 'planner_tool' && event.toolName === 'read_lines');
     assert.equal(Array.isArray(toolEvent?.output?.lines), false);
     assert.equal(typeof toolEvent?.output?.text, 'string');
@@ -865,9 +808,7 @@ test('planner read_lines tool results use a compact numbered text block', async 
 
 test('planner rejects semantically repeated nearby read_lines calls and reprompts for finish', async () => {
   await withTempEnv(async () => {
-    const plannerLogsPath = getPlannerLogsPath();
-    fs.mkdirSync(plannerLogsPath, { recursive: true });
-    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+    const before = new Set(listPlannerDebugDumpNames());
 
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -907,11 +848,7 @@ test('planner rejects semantically repeated nearby read_lines calls and reprompt
       },
     });
 
-    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
-    const added = after.filter((entry) => !before.has(entry));
-    assert.equal(added.length, 1);
-
-    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    const debugDump = JSON.parse(fs.readFileSync(await waitForNewPlannerDebugDumpPath(before), 'utf8'));
     assert.equal(
       debugDump.events.some((event: PlannerDebugEvent) => event.kind === 'planner_semantic_repeat' && event.toolCall?.tool_name === 'read_lines'),
       true,
@@ -998,9 +935,7 @@ test('planner keeps the first real tool output and rewrites one duplicate warnin
 
 test('planner find_text and json_filter results use compact text blocks in prompts and debug dumps', async () => {
   await withTempEnv(async () => {
-    const plannerLogsPath = getPlannerLogsPath();
-    fs.mkdirSync(plannerLogsPath, { recursive: true });
-    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+    const before = new Set(listPlannerDebugDumpNames());
 
     await withStubServer(async (server) => {
       const config = await loadConfig({ ensure: true });
@@ -1053,11 +988,7 @@ test('planner find_text and json_filter results use compact text blocks in promp
       },
     });
 
-    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
-    const added = after.filter((entry) => !before.has(entry));
-    assert.equal(added.length, 1);
-
-    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    const debugDump = JSON.parse(fs.readFileSync(await waitForNewPlannerDebugDumpPath(before), 'utf8'));
     const findTextEvent = debugDump.events.find((event: PlannerDebugEvent) => event.kind === 'planner_tool' && event.toolName === 'find_text');
     assert.equal(Array.isArray(findTextEvent?.output?.hits), false);
     assert.equal(typeof findTextEvent?.output?.text, 'string');
@@ -1834,4 +1765,44 @@ test('planner debug payload records prompt size, not the prompt, and no duplicat
   } finally {
     clearSummaryArtifactState(requestId);
   }
+});
+
+test('planner debug artifact persists without writing a dump file', async () => {
+  await withTempEnv(async () => {
+    const requestId = 'planner-debug-no-file-test';
+    const recorder = createPlannerDebugRecorder({
+      requestId,
+      question: 'what failed?',
+      sourceKind: 'command-output',
+      commandExitCode: 1,
+      commandText: 'npm test',
+    });
+    try {
+      recorder.record({ kind: 'planner_tool', toolName: 'find_text', output: { text: 'hit' } });
+
+      const artifact = buildPlannerDebugArtifact({
+        requestId,
+        finalOutput: 'the build failed',
+        classification: 'command_failure',
+        rawReviewRequired: true,
+      });
+
+      assert.ok(artifact, 'artifact must be produced');
+      assert.equal(artifact.artifactType, 'planner_debug');
+      assert.equal(artifact.artifactRequestId, requestId);
+
+      const final = artifact.artifactPayload.final;
+      assert.ok(final && typeof final === 'object' && !Array.isArray(final));
+      assert.equal(final.finalOutput, 'the build failed');
+
+      assert.equal(
+        existsSync(getPlannerDebugPath(requestId)),
+        false,
+        'planner debug must not write a file; run_logs is the store',
+      );
+      assert.match(buildDeferredPlannerDebugPath(requestId) || '', /^db:\/\/run-logs\//u);
+    } finally {
+      clearSummaryArtifactState(requestId);
+    }
+  });
 });

@@ -10,7 +10,8 @@ import {
 import { summarizeRequest } from '../src/summary.js';
 import {
   buildOversizedTransitionsInput,
-  getPlannerLogsPath,
+  listPlannerDebugDumpNames,
+  waitForNewPlannerDebugDumpPath,
   withTempEnv,
   withStubServer,
 } from './_runtime-helpers.js';
@@ -25,9 +26,7 @@ interface PlannerDebugEvent {
 
 test('planner writes a debug dump with thinking, tool calls, tool output, and final output', async () => {
   await withTempEnv(async () => {
-    const plannerLogsPath = getPlannerLogsPath();
-    fs.mkdirSync(plannerLogsPath, { recursive: true });
-    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
+    const before = new Set(listPlannerDebugDumpNames());
 
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
@@ -70,11 +69,7 @@ test('planner writes a debug dump with thinking, tool calls, tool output, and fi
       },
     });
 
-    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
-    const added = after.filter((entry) => !before.has(entry));
-    assert.equal(added.length, 1);
-
-    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    const debugDump = JSON.parse(fs.readFileSync(await waitForNewPlannerDebugDumpPath(before), 'utf8'));
     assert.equal(debugDump.command, 'cat transitions.json | siftkit "Find all transitions in the Lumbridge Castle area."');
     // The raw input is not duplicated here; the summary_request artifact is its single store.
     assert.equal(debugDump.inputText, undefined);
