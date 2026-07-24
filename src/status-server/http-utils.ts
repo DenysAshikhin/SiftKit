@@ -6,6 +6,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { JsonRecordReader } from '../lib/json-record-reader.js';
+import { toError } from '../lib/errors.js';
 import { parseJsonValueText } from '../lib/json.js';
 import type { JsonObject, JsonSerializable } from '../lib/json-types.js';
 
@@ -120,7 +121,7 @@ export function sendJson(res: ServerResponse, statusCode: number, payload: JsonS
  */
 export function sendBodyReadError(
   res: ServerResponse,
-  error: unknown,
+  error: Error,
   badRequestPayload: JsonSerializable,
 ): void {
   if (error instanceof RequestBodyTooLargeError) {

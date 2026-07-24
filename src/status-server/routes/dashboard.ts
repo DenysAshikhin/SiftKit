@@ -16,6 +16,7 @@ import type {
 import { existsSync } from 'node:fs';
 import { z } from '../../lib/zod.js';
 import { JsonRecordReader } from '../../lib/json-record-reader.js';
+import { toError } from '../../lib/errors.js';
 import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.js';
 import {
   queryDashboardRunsFromDb,
@@ -342,7 +343,7 @@ class BenchmarkQuestionPresetCreateEndpoint implements RouteEndpoint {
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch (error) {
-      sendBodyReadError(res, error, { error: 'Expected valid JSON object.' });
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
     }
     try {
@@ -381,7 +382,7 @@ class BenchmarkQuestionPresetMutationEndpoint implements RouteEndpoint {
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch (error) {
-      sendBodyReadError(res, error, { error: 'Expected valid JSON object.' });
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
     }
     try {
@@ -444,7 +445,7 @@ class BenchmarkSessionCreateEndpoint implements RouteEndpoint {
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch (error) {
-      sendBodyReadError(res, error, { error: 'Expected valid JSON object.' });
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
     }
     try {
@@ -555,7 +556,7 @@ class BenchmarkAttemptGradeEndpoint implements RouteEndpoint {
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch (error) {
-      sendBodyReadError(res, error, { error: 'Expected valid JSON object.' });
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
     }
     try {
@@ -594,7 +595,7 @@ class RunLogsPreviewEndpoint implements RouteEndpoint {
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch (error) {
-      sendBodyReadError(res, error, { error: 'Expected valid JSON object.' });
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
     }
     const { criteria, error } = parseDashboardRunLogDeleteCriteria(parsedBody);
@@ -626,7 +627,7 @@ class RunLogsDeleteEndpoint implements RouteEndpoint {
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch (error) {
-      sendBodyReadError(res, error, { error: 'Expected valid JSON object.' });
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
     }
     const { criteria, error } = parseDashboardRunLogDeleteCriteria(parsedBody);
@@ -975,7 +976,7 @@ class SystemPickFileEndpoint implements RouteEndpoint {
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch (error) {
-      sendBodyReadError(res, error, { error: 'Expected valid JSON object.' });
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
     }
     const parsedTarget = ManagedFilePickerTargetSchema.safeParse(String(parsedBody.target || '').trim());

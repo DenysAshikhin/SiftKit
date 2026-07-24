@@ -21,6 +21,7 @@ import { getRuntimeRoot } from '../paths.js';
 import { buildIgnorePolicy } from '../../repo-search/command-safety.js';
 import { readAgentsMd, scanRepoFiles } from '../../repo-search/prompts.js';
 import { countTokensWithFallbackDetailed } from '../../repo-search/prompt-budget.js';
+import { toError } from '../../lib/errors.js';
 import {
   readBody,
   parseJsonBody,
@@ -602,7 +603,7 @@ class UpdateChatSessionEndpoint implements RouteEndpoint {
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch (error) {
-      sendBodyReadError(res, error, { error: 'Expected valid JSON object.' });
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
     }
     const updateRequest = parseChatSessionUpdateRequest(parsedBody);
@@ -702,7 +703,7 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch (error) {
-      sendBodyReadError(res, error, { error: 'Expected valid JSON object.' });
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
     }
     const createRequest = parseChatSessionCreateRequest(parsedBody);
@@ -900,7 +901,7 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch (error) {
-      sendBodyReadError(res, error, { error: 'Expected valid JSON object.' });
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
     }
     const messageRequest = parseChatMessageRequest(parsedBody);
@@ -971,7 +972,7 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch (error) {
-      sendBodyReadError(res, error, { error: 'Expected valid JSON object.' });
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
     }
     const messageRequest = parseChatMessageRequest(parsedBody);
@@ -1116,7 +1117,7 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch (error) {
-      sendBodyReadError(res, error, { error: 'Expected valid JSON object.' });
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
     }
     const repoRequest = parseChatRepoRequest(parsedBody);
@@ -1270,7 +1271,7 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch (error) {
-      sendBodyReadError(res, error, { error: 'Expected valid JSON object.' });
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
     }
     const repoRequest = parseChatRepoRequest(parsedBody);
@@ -1439,7 +1440,7 @@ class PreviewRepoSearchAppendEndpoint implements RouteEndpoint {
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch (error) {
-      sendBodyReadError(res, error, { error: 'Expected valid JSON object.' });
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
     }
     const appendPreviewRequest = parseChatRepoAppendPreviewRequest(parsedBody);
@@ -1499,7 +1500,7 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch (error) {
-      sendBodyReadError(res, error, { error: 'Expected valid JSON object.' });
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
     }
     const repoRequest = parseChatRepoRequest(parsedBody);

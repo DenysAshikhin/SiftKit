@@ -944,7 +944,7 @@ class RepoSearchApprovalEndpoint implements RouteEndpoint {
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch (error) {
-      sendBodyReadError(res, error, { error: 'Expected valid JSON object.' });
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
     }
     const parsedRequest = RepoSearchApprovalRequestSchema.safeParse(parsedBody);
@@ -1019,7 +1019,7 @@ class StatusCompleteEndpoint implements RouteEndpoint {
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch (error) {
-      sendBodyReadError(res, error, { error: 'Expected valid JSON object.' });
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
     }
     const requestId = typeof parsedBody.requestId === 'string' ? parsedBody.requestId.trim() : '';
@@ -1090,7 +1090,7 @@ class StatusPostRequestHandler {
     try {
       bodyText = await readBody(this.req);
     } catch (error) {
-      sendBodyReadError(this.res, error, { error: 'Expected running=true|false or status=true|false.' });
+      sendBodyReadError(this.res, toError(error), { error: 'Expected running=true|false or status=true|false.' });
       return;
     }
     const running = parseRunning(bodyText);
@@ -1587,7 +1587,7 @@ class LlamaCppConfigTestEndpoint implements RouteEndpoint {
     try {
       parsedBody = parseJsonBody(await readBody(req));
     } catch (error) {
-      sendBodyReadError(res, error, { ok: false, statusCode: 0, error: 'Expected valid JSON object.' });
+      sendBodyReadError(res, toError(error), { ok: false, statusCode: 0, error: 'Expected valid JSON object.' });
       return;
     }
     const baseUrl = typeof parsedBody.BaseUrl === 'string' && parsedBody.BaseUrl.trim()
@@ -1681,7 +1681,7 @@ class ConfigUpdateEndpoint implements RouteEndpoint {
     try {
       parsedBody = parseJsonValueText(await readBody(req) || '{}');
     } catch (error) {
-      sendBodyReadError(res, error, { error: 'Expected valid JSON object.' });
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
     }
     let nextConfig: ReturnType<typeof normalizeConfig>;
