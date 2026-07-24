@@ -100,6 +100,14 @@ export class InferenceRunRecorder {
   }
 
   /**
+   * Frees per-run derived-metrics state once the run is terminal. Separate from
+   * flushDerivedMetrics because the flush also runs mid-run (managed-llama's
+   * startup review) where the run continues and the state must survive.
+   */
+  protected releaseDerivedMetrics(): void {
+  }
+
+  /**
    * Terminal bookkeeping for a child that exited or failed to spawn. Callers run inside
    * EventEmitter handlers, where a throw is an unhandled exception that kills the process, and
    * the runtime DB may already be gone during test/process teardown.
@@ -121,6 +129,10 @@ export class InferenceRunRecorder {
     } catch {
       // The runtime DB may already be gone during test/process teardown.
     }
+    // Outside the try blocks deliberately: a pure in-memory Map.delete that cannot
+    // throw, and it must run even when the DB writes above fail during teardown —
+    // that failure mode is exactly when the leak would otherwise persist.
+    this.releaseDerivedMetrics();
   }
 
   finish(options: {
