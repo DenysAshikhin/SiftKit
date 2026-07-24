@@ -198,13 +198,6 @@ interface DeferredArtifactEntry {
 
 interface StubServerState {
   config: SiftConfig;
-  /**
-   * `/status/complete` is awaited by the client but the `/status/terminal-metadata`
-   * post that carries deferred artifacts is fire-and-forget, so it can still be in
-   * flight when the test body returns. Counted here so the server drains it before
-   * closing instead of dropping the artifact writes.
-   */
-  pendingTerminalMetadataCount: number;
   statusPosts: JsonObject[];
   artifactPosts: StubArtifactPost[];
   chatRequests: ChatRequest[];
@@ -553,7 +546,6 @@ async function waitForTextMatch(getText: () => string, pattern: RegExp, timeoutM
 async function startStubStatusServer(options: StubServerOptions = {}): Promise<StubServer> {
   const state: StubServerState = {
     config: asRuntimeSiftConfig(mergeConfig(toJsonValue(getDefaultConfig()), options.config || {})),
-    pendingTerminalMetadataCount: 0,
     statusPosts: [],
     artifactPosts: [],
     chatRequests: [],
@@ -814,7 +806,6 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
 
       await readBody(req);
       state.running = false;
-      state.pendingTerminalMetadataCount += 1;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, running: false }));
       return;
@@ -851,9 +842,6 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
         });
       }
       state.statusPosts.push(parsed);
-      if (req.url === '/status/terminal-metadata' && state.pendingTerminalMetadataCount > 0) {
-        state.pendingTerminalMetadataCount -= 1;
-      }
       const busyStatusPostCount = Number(options.busyStatusPostCount || 0);
       if (busyStatusPostCount > 0 && state.statusPosts.length <= busyStatusPostCount) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -1073,19 +1061,6 @@ function seedRuntimeConfigFromJson(configPath: string): void {
   writeConfig(getConfigPath(), config);
 }
 
-const TERMINAL_METADATA_DRAIN_TIMEOUT_MS = 2000;
-
-/** Give the fire-and-forget terminal-metadata post a bounded chance to land. */
-async function drainPendingTerminalMetadata(server: StubServer): Promise<void> {
-  const startedAt = Date.now();
-  while (server.state.pendingTerminalMetadataCount > 0) {
-    if ((Date.now() - startedAt) >= TERMINAL_METADATA_DRAIN_TIMEOUT_MS) {
-      return;
-    }
-    await sleep(10);
-  }
-}
-
 async function withStubServer<R>(fn: (server: StubServer) => R | Promise<R>, options: StubServerOptions = {}): Promise<R> {
   const previous = {
     SIFTKIT_STATUS_BACKEND_URL: process.env.SIFTKIT_STATUS_BACKEND_URL,
@@ -1097,7 +1072,6 @@ async function withStubServer<R>(fn: (server: StubServer) => R | Promise<R>, opt
   try {
     return await fn(server);
   } finally {
-    await drainPendingTerminalMetadata(server);
     await server.close();
     if (previous.SIFTKIT_STATUS_BACKEND_URL === undefined) {
       delete process.env.SIFTKIT_STATUS_BACKEND_URL;
@@ -1559,11 +1533,6 @@ function listPlannerDebugDumpNames(): string[] {
   return fs.readdirSync(plannerLogsPath).filter((entry) => PLANNER_DEBUG_DUMP_PATTERN.test(entry));
 }
 
-/**
- * The planner debug payload is stored in run_logs, not on disk; the dump file
- * only exists because the stub status server materializes deferred artifacts,
- * and that post lands after the summary call returns. Wait for it.
- */
 async function waitForNewPlannerDebugDumpPath(before: Set<string>): Promise<string> {
   let added: string[] = [];
   await waitForAsyncExpectation(() => {
@@ -1571,6 +1540,26 @@ async function waitForNewPlannerDebugDumpPath(before: Set<string>): Promise<stri
     assert.equal(added.length, 1);
   });
   return path.join(getPlannerLogsPath(), added[0] ?? '');
+}
+
+/**
+ * The planner debug payload lives in run_logs, not on disk; the dump file only
+ * exists because the stub status server materializes deferred artifacts, and the
+ * terminal-metadata post that carries them is fire-and-forget. So the dump has to
+ * be observed while the stub is still accepting requests — waiting for it after
+ * `withStubServer` returns races the close. Returns the new dump's path.
+ */
+async function withStubServerCapturingPlannerDebugDump(
+  fn: (server: StubServer) => void | Promise<void>,
+  options: StubServerOptions = {},
+): Promise<string> {
+  const before = new Set(listPlannerDebugDumpNames());
+  let dumpPath = '';
+  await withStubServer(async (server) => {
+    await fn(server);
+    dumpPath = await waitForNewPlannerDebugDumpPath(before);
+  }, options);
+  return dumpPath;
 }
 
 function runPowerShellScript(scriptPath: string): void {
@@ -1618,7 +1607,7 @@ export {
   readIdleSummarySnapshots, getIdleSummaryBlock, getFreePort,
   toSingleQuotedPowerShellLiteral, writeManagedLlamaScripts, writeManagedLlamaLauncher,
   waitForAsyncExpectation, runPowerShellScript, applyManagedScriptConfig,
-  listPlannerDebugDumpNames, waitForNewPlannerDebugDumpPath,
+  listPlannerDebugDumpNames, withStubServerCapturingPlannerDebugDump,
 };
 
 export type { RuntimeStatusResponse, LlamaModelsResponse, HealthCheckResponse, StatusPostAck };

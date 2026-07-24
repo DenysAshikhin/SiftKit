@@ -1,10 +1,7 @@
 import { appendFileSync } from 'node:fs';
 import { createTracer } from '../lib/trace.js';
 import type { JsonObject } from '../lib/json-types.js';
-import {
-  getPlannerDebugReference,
-  getPlannerFailedPath,
-} from '../config/paths.js';
+import { getStatusArtifactUri, type DeferredArtifact } from '../state/status-artifacts.js';
 import { getRecord } from './planner/json-filter.js';
 import type {
   SummaryClassification,
@@ -39,12 +36,6 @@ export function attachSummaryFailureContext(
 const plannerDebugPayloadByRequestId = new Map<string, JsonObject>();
 const plannerDebugEventsByRequestId = new Map<string, JsonObject[]>();
 const plannerFailedArtifactByRequestId = new Set<string>();
-
-export type SummaryDeferredArtifact = {
-  artifactType: 'summary_request' | 'planner_debug' | 'planner_failed';
-  artifactRequestId: string;
-  artifactPayload: JsonObject;
-};
 
 export function readPlannerDebugPayload(requestId: string): JsonObject {
   const payload = plannerDebugPayloadByRequestId.get(requestId);
@@ -102,7 +93,7 @@ export function buildPlannerDebugArtifact(options: {
   classification: SummaryClassification;
   rawReviewRequired: boolean;
   providerError?: string | null;
-}): SummaryDeferredArtifact | null {
+}): DeferredArtifact | null {
   if (!plannerDebugPayloadByRequestId.has(options.requestId)) {
     return null;
   }
@@ -137,9 +128,9 @@ export async function finalizePlannerDebugDump(options: {
   void buildPlannerDebugArtifact(options);
 }
 
-export function buildDeferredPlannerDebugPath(requestId: string): string | null {
+export function buildPlannerDebugReference(requestId: string): string | null {
   return plannerDebugPayloadByRequestId.has(requestId)
-    ? getPlannerDebugReference(requestId)
+    ? getStatusArtifactUri('planner_debug', requestId)
     : null;
 }
 
@@ -147,7 +138,7 @@ export function buildPlannerFailureErrorMessage(options: {
   requestId: string;
   reason?: string | null;
 }): string {
-  const debugPath = buildDeferredPlannerDebugPath(options.requestId);
+  const debugPath = buildPlannerDebugReference(options.requestId);
   const final = getRecord(readPlannerDebugPayload(options.requestId).final);
   const reason = options.reason
     || (typeof final?.reason === 'string' ? final.reason : null)
@@ -165,7 +156,7 @@ export function buildFailedRequestArtifact(options: {
   command?: string | null;
   error: string;
   providerError?: string | null;
-}): SummaryDeferredArtifact {
+}): DeferredArtifact {
   plannerFailedArtifactByRequestId.add(options.requestId);
   return {
     artifactType: 'planner_failed',
@@ -177,7 +168,7 @@ export function buildFailedRequestArtifact(options: {
       inputText: options.inputText,
       error: options.error,
       providerError: options.providerError ?? options.error,
-      plannerDebugPath: buildDeferredPlannerDebugPath(options.requestId),
+      plannerDebugPath: buildPlannerDebugReference(options.requestId),
     },
   };
 }
@@ -208,7 +199,7 @@ export function buildSummaryRequestArtifact(options: {
   requestDurationMs?: number | null;
   providerDurationMs?: number | null;
   wallDurationMs?: number | null;
-}): SummaryDeferredArtifact {
+}): DeferredArtifact {
   return {
     artifactType: 'summary_request',
     artifactRequestId: options.requestId,
@@ -227,8 +218,10 @@ export function buildSummaryRequestArtifact(options: {
       requestDurationMs: options.requestDurationMs ?? null,
       providerDurationMs: options.providerDurationMs ?? null,
       wallDurationMs: options.wallDurationMs ?? null,
-      plannerDebugPath: buildDeferredPlannerDebugPath(options.requestId),
-      failedRequestPath: plannerFailedArtifactByRequestId.has(options.requestId) ? getPlannerFailedPath(options.requestId) : null,
+      plannerDebugPath: buildPlannerDebugReference(options.requestId),
+      failedRequestPath: plannerFailedArtifactByRequestId.has(options.requestId)
+        ? getStatusArtifactUri('planner_failed', options.requestId)
+        : null,
     },
   };
 }

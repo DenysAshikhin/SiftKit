@@ -12,6 +12,8 @@ import type { ApprovalGate } from '../repo-search/engine/approval-gate.js';
 import type { SiftConfig } from '../config/types.js';
 import type { PresetRuntimeCoordinator } from './preset-runtime-coordinator.js';
 import type { ModelIdleController } from './model-idle-controller.js';
+import type { DeferredArtifact } from '../state/status-artifacts.js';
+export type { DeferredArtifact };
 export type { ModelRequestQueueDiagnostics } from '../lib/operation-stream.js';
 
 export type DatabaseInstance = InstanceType<typeof Database>;
@@ -45,11 +47,6 @@ export type ModelRequestWaiter = {
   timeoutMs: number;
   lastQueuePosition: number;
   resolveLock(lock: ModelRequestLock | null): void;
-};
-export type DeferredArtifact = {
-  artifactType: 'summary_request' | 'planner_debug' | 'planner_failed';
-  artifactRequestId: string;
-  artifactPayload: JsonObject;
 };
 
 export type TerminalMetadataQueueItem = {

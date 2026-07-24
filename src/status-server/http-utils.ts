@@ -11,8 +11,9 @@ import { parseJsonValueText } from '../lib/json.js';
 import type { JsonObject, JsonSerializable } from '../lib/json-types.js';
 
 /**
- * Default ceiling for a buffered request body. Summary input is legitimately
- * large, so this is a runaway-client backstop, not a product limit.
+ * Ceiling for a buffered request body. Summary input is legitimately large, so
+ * this is a runaway-client backstop, not a product limit. `options.maxBytes`
+ * exists so tests can drive the 413 path without allocating 256 MB.
  */
 const DEFAULT_MAX_REQUEST_BODY_BYTES = 256 * 1024 * 1024;
 
@@ -26,22 +27,13 @@ export class RequestBodyTooLargeError extends Error {
   }
 }
 
-function getMaxRequestBodyBytes(override?: number): number {
-  if (override !== undefined && Number.isFinite(override) && override > 0) {
-    return Math.trunc(override);
-  }
-  const configured = Number(process.env.SIFTKIT_MAX_REQUEST_BODY_BYTES);
-  if (Number.isFinite(configured) && configured > 0) {
-    return Math.trunc(configured);
-  }
-  return DEFAULT_MAX_REQUEST_BODY_BYTES;
-}
-
 export function readBody(
   req: IncomingMessage,
   options: { maxBytes?: number } = {},
 ): Promise<string> {
-  const maxBytes = getMaxRequestBodyBytes(options.maxBytes);
+  const maxBytes = Number.isFinite(options.maxBytes) && Number(options.maxBytes) > 0
+    ? Math.trunc(Number(options.maxBytes))
+    : DEFAULT_MAX_REQUEST_BODY_BYTES;
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let totalBytes = 0;

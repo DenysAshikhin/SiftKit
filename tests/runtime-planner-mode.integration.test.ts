@@ -10,8 +10,7 @@ import {
 import { summarizeRequest } from '../src/summary.js';
 import {
   buildOversizedTransitionsInput,
-  listPlannerDebugDumpNames,
-  waitForNewPlannerDebugDumpPath,
+  withStubServerCapturingPlannerDebugDump,
   withTempEnv,
   withStubServer,
 } from './_runtime-helpers.js';
@@ -26,9 +25,7 @@ interface PlannerDebugEvent {
 
 test('planner writes a debug dump with thinking, tool calls, tool output, and final output', async () => {
   await withTempEnv(async () => {
-    const before = new Set(listPlannerDebugDumpNames());
-
-    await withStubServer(async () => {
+    const dumpPath = await withStubServerCapturingPlannerDebugDump(async () => {
       const config = await loadConfig({ ensure: true });
       const threshold = getChunkThresholdCharacters(config);
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
@@ -69,7 +66,7 @@ test('planner writes a debug dump with thinking, tool calls, tool output, and fi
       },
     });
 
-    const debugDump = JSON.parse(fs.readFileSync(await waitForNewPlannerDebugDumpPath(before), 'utf8'));
+    const debugDump = JSON.parse(fs.readFileSync(dumpPath, 'utf8'));
     assert.equal(debugDump.command, 'cat transitions.json | siftkit "Find all transitions in the Lumbridge Castle area."');
     // The raw input is not duplicated here; the summary_request artifact is its single store.
     assert.equal(debugDump.inputText, undefined);

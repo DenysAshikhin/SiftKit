@@ -5,6 +5,7 @@ import type { JsonObject, OptionalJsonValue } from '../lib/json-types.js';
 import { createEmptyToolTypeStats } from '../line-read-guidance.js';
 import type { TaskKind, ToolTypeStats } from './metrics.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
+import { DeferredArtifactTypeSchema, type DeferredArtifact } from '../state/status-artifacts.js';
 
 export const STATUS_TRUE = 'true';
 export const STATUS_FALSE = 'false';
@@ -135,11 +136,7 @@ export type StatusMetadata = {
   artifactRequestId: string | null;
   artifactPayload: JsonObject | null;
   deferredMetadata: JsonObject | null;
-  deferredArtifacts: Array<{
-    artifactType: 'summary_request' | 'planner_debug' | 'planner_failed';
-    artifactRequestId: string;
-    artifactPayload: JsonObject;
-  }> | null;
+  deferredArtifacts: DeferredArtifact[] | null;
   totalOutputTokens?: number | null;
 };
 
@@ -402,23 +399,13 @@ export function parseStatusMetadataRecord(parsed: JsonObject): StatusMetadata {
       metadata.deferredMetadata = parsed.deferredMetadata;
     }
     if (Array.isArray(parsed.deferredArtifacts)) {
-      const deferredArtifacts = parsed.deferredArtifacts.flatMap((entry): Array<{
-        artifactType: 'summary_request' | 'planner_debug' | 'planner_failed';
-        artifactRequestId: string;
-        artifactPayload: JsonObject;
-      }> => {
-        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-          return [];
-        }
+      const deferredArtifacts = parsed.deferredArtifacts.flatMap((entry): DeferredArtifact[] => {
         const record = JsonRecordReader.asObject(entry);
         if (!record) {
           return [];
         }
-        if (
-          record.artifactType !== 'summary_request'
-          && record.artifactType !== 'planner_debug'
-          && record.artifactType !== 'planner_failed'
-        ) {
+        const artifactType = DeferredArtifactTypeSchema.safeParse(record.artifactType);
+        if (!artifactType.success) {
           return [];
         }
         if (typeof record.artifactRequestId !== 'string' || !record.artifactRequestId.trim()) {
@@ -428,7 +415,7 @@ export function parseStatusMetadataRecord(parsed: JsonObject): StatusMetadata {
           return [];
         }
         return [{
-          artifactType: record.artifactType,
+          artifactType: artifactType.data,
           artifactRequestId: record.artifactRequestId.trim(),
           artifactPayload: record.artifactPayload,
         }];

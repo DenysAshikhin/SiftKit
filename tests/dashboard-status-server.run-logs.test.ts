@@ -14,8 +14,47 @@ import {
   asObjectArray,
   asArray,
   getAddressInfo,
-  writeJson,
 } from './helpers/dashboard-http.js';
+import {
+  DashboardRunSeeder,
+  buildRepoSearchTranscriptText,
+  getOrdinalRequestId,
+} from './helpers/dashboard-run-seed.js';
+
+function seedSummaryRuns(seeder: DashboardRunSeeder, count: number, hourUtc: string): void {
+  for (let index = 0; index < count; index += 1) {
+    const requestId = getOrdinalRequestId('req-summary', index);
+    const minute = String(index + 1).padStart(2, '0');
+    seeder.summaryRun({
+      requestId,
+      question: `Summary run ${minute}`,
+      createdAtUtc: `${hourUtc}:${minute}:00.000Z`,
+      payload: {
+        inputTokens: 100 + index,
+        outputTokens: 40 + index,
+        requestDurationMs: 1000 + index,
+      },
+    });
+  }
+}
+
+function seedRepoSearchRuns(seeder: DashboardRunSeeder, count: number, repoRoot: string, hourUtc: string): void {
+  for (let index = 0; index < count; index += 1) {
+    const requestId = getOrdinalRequestId('req-repo', index);
+    const minute = String(index + 1).padStart(2, '0');
+    seeder.repoSearchRun({
+      requestId,
+      prompt: `Repo search run ${minute}`,
+      repoRoot,
+      createdAtUtc: `${hourUtc}:${minute}:00.000Z`,
+      transcriptText: buildRepoSearchTranscriptText(
+        `${hourUtc}:${minute}:01.000Z`,
+        `${hourUtc}:${minute}:03.000Z`,
+      ),
+      requestDurationMs: 2000,
+    });
+  }
+}
 
 function readRunLogRowCount(dbPath: string): number {
   const database = new Database(dbPath, { readonly: true });
@@ -129,55 +168,13 @@ function restoreDashboardTestRepo(previousCwd: string): void {
   closeRuntimeDatabase();
 }
 
-test('dashboard initial runs load returns top 20 overall and migrates pre-existing file logs into sqlite', async () => {
+test('dashboard initial runs load returns top 20 overall', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-initial-cap-'));
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const runtimeRoot = path.join(tempRoot, '.siftkit');
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
   const configPath = path.join(runtimeRoot, 'config.json');
   const idleSummaryDbPath = path.join(runtimeRoot, 'runtime.sqlite');
-  const logsRoot = path.join(runtimeRoot, 'logs');
-  const requestsRoot = path.join(logsRoot, 'requests');
-  const repoSearchFailedRoot = path.join(logsRoot, 'repo_search', 'failed');
-
-  for (let index = 0; index < 12; index += 1) {
-    const ordinal = String(index + 1).padStart(2, '0');
-    const requestId = `req-summary-${ordinal}`;
-    writeJson(path.join(requestsRoot, `request_${requestId}.json`), {
-      requestId,
-      question: `Summary run ${ordinal}`,
-      backend: 'llama.cpp',
-      model: 'Qwen3.5-9B-Q8_0.gguf',
-      summary: `Summary output ${ordinal}`,
-      createdAtUtc: `2026-04-01T10:${ordinal}:00.000Z`,
-      inputTokens: 100 + index,
-      outputTokens: 40 + index,
-      requestDurationMs: 1000 + index,
-    });
-  }
-
-  for (let index = 0; index < 12; index += 1) {
-    const ordinal = String(index + 1).padStart(2, '0');
-    const requestId = `req-repo-${ordinal}`;
-    const artifactPath = path.join(repoSearchFailedRoot, `request_${requestId}.json`);
-    writeJson(artifactPath, {
-      requestId,
-      prompt: `Repo search run ${ordinal}`,
-      repoRoot: tempRoot,
-      verdict: 'fail',
-      totals: { commandsExecuted: 1 },
-      createdAtUtc: `2026-04-01T11:${ordinal}:00.000Z`,
-    });
-    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
-    fs.writeFileSync(
-      artifactPath.replace(/\.json$/u, '.jsonl'),
-      [
-        JSON.stringify({ at: `2026-04-01T11:${ordinal}:01.000Z`, kind: 'turn_model_response', text: '{"action":"finish"}' }),
-        JSON.stringify({ at: `2026-04-01T11:${ordinal}:03.000Z`, kind: 'run_done', scorecard: { verdict: 'fail' } }),
-      ].join('\n') + '\n',
-      'utf8',
-    );
-  }
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const server = startStatusServer({ disableManagedLlamaStartup: true });
@@ -186,13 +183,18 @@ test('dashboard initial runs load returns top 20 overall and migrates pre-existi
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
+    const seeder = new DashboardRunSeeder(idleSummaryDbPath);
+    try {
+      seedSummaryRuns(seeder, 12, '2026-04-01T10');
+      seedRepoSearchRuns(seeder, 12, tempRoot, '2026-04-01T11');
+    } finally {
+      seeder.close();
+    }
+
     const cappedRunsResponse = await requestJson(`${baseUrl}/dashboard/runs?initial=1&limitPerGroup=20`);
     assert.equal(cappedRunsResponse.statusCode, 200);
     const runs = asObjectArray(cappedRunsResponse.body.runs);
     assert.equal(runs.length, 20);
-
-    assert.equal(fs.readdirSync(requestsRoot).length, 0);
-    assert.equal(fs.readdirSync(repoSearchFailedRoot).length, 0);
     assert.equal(readRunLogRowCount(idleSummaryDbPath), 24);
   } finally {
     await new Promise<void>((resolve, reject) => {
@@ -217,48 +219,6 @@ test('dashboard filters runs by preset group and deletes the oldest matching log
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
   const configPath = path.join(runtimeRoot, 'config.json');
   const idleSummaryDbPath = path.join(runtimeRoot, 'runtime.sqlite');
-  const logsRoot = path.join(runtimeRoot, 'logs');
-  const requestsRoot = path.join(logsRoot, 'requests');
-  const repoSearchFailedRoot = path.join(logsRoot, 'repo_search', 'failed');
-
-  for (let index = 0; index < 8; index += 1) {
-    const ordinal = String(index + 1).padStart(2, '0');
-    const requestId = `req-summary-${ordinal}`;
-    writeJson(path.join(requestsRoot, `request_${requestId}.json`), {
-      requestId,
-      question: `Summary run ${ordinal}`,
-      backend: 'llama.cpp',
-      model: 'Qwen3.5-9B-Q8_0.gguf',
-      summary: `Summary output ${ordinal}`,
-      createdAtUtc: `2026-04-01T10:${ordinal}:00.000Z`,
-      inputTokens: 100 + index,
-      outputTokens: 40 + index,
-      requestDurationMs: 1000 + index,
-    });
-  }
-
-  for (let index = 0; index < 5; index += 1) {
-    const ordinal = String(index + 1).padStart(2, '0');
-    const requestId = `req-repo-${ordinal}`;
-    const artifactPath = path.join(repoSearchFailedRoot, `request_${requestId}.json`);
-    writeJson(artifactPath, {
-      requestId,
-      prompt: `Repo search run ${ordinal}`,
-      repoRoot: tempRoot,
-      verdict: 'fail',
-      totals: { commandsExecuted: 1 },
-      createdAtUtc: `2026-04-01T11:${ordinal}:00.000Z`,
-    });
-    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
-    fs.writeFileSync(
-      artifactPath.replace(/\.json$/u, '.jsonl'),
-      [
-        JSON.stringify({ at: `2026-04-01T11:${ordinal}:01.000Z`, kind: 'turn_model_response', text: '{"action":"finish"}' }),
-        JSON.stringify({ at: `2026-04-01T11:${ordinal}:03.000Z`, kind: 'run_done', scorecard: { verdict: 'fail' } }),
-      ].join('\n') + '\n',
-      'utf8',
-    );
-  }
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const server = startStatusServer({ disableManagedLlamaStartup: true });
@@ -267,6 +227,14 @@ test('dashboard filters runs by preset group and deletes the oldest matching log
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
+    const seeder = new DashboardRunSeeder(idleSummaryDbPath);
+    try {
+      seedSummaryRuns(seeder, 8, '2026-04-01T10');
+      seedRepoSearchRuns(seeder, 5, tempRoot, '2026-04-01T11');
+    } finally {
+      seeder.close();
+    }
+
     const groupedRunsResponse = await requestJson(`${baseUrl}/dashboard/runs?kind=summary`);
     assert.equal(groupedRunsResponse.statusCode, 200);
     const summaryRuns = asObjectArray(groupedRunsResponse.body.runs);
@@ -327,48 +295,6 @@ test('dashboard deletes matching logs before a date and rejects invalid delete c
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
   const configPath = path.join(runtimeRoot, 'config.json');
   const idleSummaryDbPath = path.join(runtimeRoot, 'runtime.sqlite');
-  const logsRoot = path.join(runtimeRoot, 'logs');
-  const requestsRoot = path.join(logsRoot, 'requests');
-  const repoSearchFailedRoot = path.join(logsRoot, 'repo_search', 'failed');
-
-  for (let index = 0; index < 6; index += 1) {
-    const ordinal = String(index + 1).padStart(2, '0');
-    const requestId = `req-summary-${ordinal}`;
-    writeJson(path.join(requestsRoot, `request_${requestId}.json`), {
-      requestId,
-      question: `Summary run ${ordinal}`,
-      backend: 'llama.cpp',
-      model: 'Qwen3.5-9B-Q8_0.gguf',
-      summary: `Summary output ${ordinal}`,
-      createdAtUtc: `2026-04-03T10:${ordinal}:00.000Z`,
-      inputTokens: 100 + index,
-      outputTokens: 40 + index,
-      requestDurationMs: 1000 + index,
-    });
-  }
-
-  for (let index = 0; index < 6; index += 1) {
-    const ordinal = String(index + 1).padStart(2, '0');
-    const requestId = `req-repo-${ordinal}`;
-    const artifactPath = path.join(repoSearchFailedRoot, `request_${requestId}.json`);
-    writeJson(artifactPath, {
-      requestId,
-      prompt: `Repo search run ${ordinal}`,
-      repoRoot: tempRoot,
-      verdict: 'fail',
-      totals: { commandsExecuted: 1 },
-      createdAtUtc: `2026-04-01T11:${ordinal}:00.000Z`,
-    });
-    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
-    fs.writeFileSync(
-      artifactPath.replace(/\.json$/u, '.jsonl'),
-      [
-        JSON.stringify({ at: `2026-04-01T11:${ordinal}:01.000Z`, kind: 'turn_model_response', text: '{"action":"finish"}' }),
-        JSON.stringify({ at: `2026-04-01T11:${ordinal}:03.000Z`, kind: 'run_done', scorecard: { verdict: 'fail' } }),
-      ].join('\n') + '\n',
-      'utf8',
-    );
-  }
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const server = startStatusServer({ disableManagedLlamaStartup: true });
@@ -377,6 +303,14 @@ test('dashboard deletes matching logs before a date and rejects invalid delete c
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
+    const seeder = new DashboardRunSeeder(idleSummaryDbPath);
+    try {
+      seedSummaryRuns(seeder, 6, '2026-04-03T10');
+      seedRepoSearchRuns(seeder, 6, tempRoot, '2026-04-01T11');
+    } finally {
+      seeder.close();
+    }
+
     const invalidPreviewResponse = await requestJson(`${baseUrl}/dashboard/admin/run-logs/preview`, {
       method: 'POST',
       body: JSON.stringify({
@@ -434,23 +368,6 @@ test('dashboard before_date all-type delete wipes run history across tables whil
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
   const configPath = path.join(runtimeRoot, 'config.json');
   const idleSummaryDbPath = path.join(runtimeRoot, 'runtime.sqlite');
-  const requestsRoot = path.join(runtimeRoot, 'logs', 'requests');
-
-  for (let index = 0; index < 6; index += 1) {
-    const ordinal = String(index + 1).padStart(2, '0');
-    const requestId = `req-summary-${ordinal}`;
-    writeJson(path.join(requestsRoot, `request_${requestId}.json`), {
-      requestId,
-      question: `Summary run ${ordinal}`,
-      backend: 'llama.cpp',
-      model: 'Qwen3.5-9B-Q8_0.gguf',
-      summary: `Summary output ${ordinal}`,
-      createdAtUtc: `2026-04-01T10:${ordinal}:00.000Z`,
-      inputTokens: 100 + index,
-      outputTokens: 40 + index,
-      requestDurationMs: 1000 + index,
-    });
-  }
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const server = startStatusServer({ disableManagedLlamaStartup: true });
@@ -459,6 +376,12 @@ test('dashboard before_date all-type delete wipes run history across tables whil
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
+    const seeder = new DashboardRunSeeder(idleSummaryDbPath);
+    try {
+      seedSummaryRuns(seeder, 6, '2026-04-01T10');
+    } finally {
+      seeder.close();
+    }
     seedRunHistoryFixtures(idleSummaryDbPath);
 
     const criteria = { mode: 'before_date', type: 'all', beforeDate: '2026-04-15' };
@@ -510,26 +433,6 @@ test('dashboard run-log delete cascades linked runtime artifacts and source file
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
   const configPath = path.join(runtimeRoot, 'config.json');
   const idleSummaryDbPath = path.join(runtimeRoot, 'runtime.sqlite');
-  const repoSearchFailedRoot = path.join(runtimeRoot, 'logs', 'repo_search', 'failed');
-
-  for (let index = 0; index < 5; index += 1) {
-    const ordinal = String(index + 1).padStart(2, '0');
-    const requestId = `req-repo-${ordinal}`;
-    const artifactPath = path.join(repoSearchFailedRoot, `request_${requestId}.json`);
-    writeJson(artifactPath, {
-      requestId,
-      prompt: `Repo search run ${ordinal}`,
-      repoRoot: tempRoot,
-      verdict: 'fail',
-      totals: { commandsExecuted: 1 },
-      createdAtUtc: `2026-04-01T11:${ordinal}:00.000Z`,
-    });
-    fs.writeFileSync(
-      artifactPath.replace(/\.json$/u, '.jsonl'),
-      `${JSON.stringify({ at: `2026-04-01T11:${ordinal}:03.000Z`, kind: 'run_done', scorecard: { verdict: 'fail' } })}\n`,
-      'utf8',
-    );
-  }
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
   const server = startStatusServer({ disableManagedLlamaStartup: true });
@@ -538,6 +441,13 @@ test('dashboard run-log delete cascades linked runtime artifacts and source file
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
+    const seeder = new DashboardRunSeeder(idleSummaryDbPath);
+    try {
+      seedRepoSearchRuns(seeder, 5, tempRoot, '2026-04-01T11');
+    } finally {
+      seeder.close();
+    }
+
     const selectedSourcePath = path.join(runtimeRoot, 'logs', 'requests', 'request_req-repo-01.json');
     const selectedTranscriptPath = path.join(runtimeRoot, 'logs', 'requests', 'request_req-repo-01.jsonl');
     const retainedSourcePath = path.join(runtimeRoot, 'logs', 'requests', 'request_retained.json');

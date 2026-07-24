@@ -7,6 +7,7 @@ import { StatusServerUnavailableError } from './errors.js';
 import { parseJsonObjectText } from '../lib/json.js';
 import { z } from '../lib/zod.js';
 import { type JsonObject, type MutableJsonObject } from '../lib/json-types.js';
+import type { DeferredArtifact, DeferredArtifactType } from '../state/status-artifacts.js';
 
 const StatusMetricsSnapshotSchema = z.object({
   inputCharactersTotal: z.number().optional(),
@@ -221,15 +222,11 @@ export type NotifyStatusBackendOptions = {
   lockWaitMs?: number | null;
   statusRunningMs?: number | null;
   terminalStatusMs?: number | null;
-  artifactType?: 'summary_request' | 'planner_debug' | 'planner_failed' | null;
+  artifactType?: DeferredArtifactType | null;
   artifactRequestId?: string | null;
   artifactPayload?: JsonObject | null;
   deferredMetadata?: object | null;
-  deferredArtifacts?: Array<{
-    artifactType: 'summary_request' | 'planner_debug' | 'planner_failed';
-    artifactRequestId: string;
-    artifactPayload: JsonObject;
-  }> | null;
+  deferredArtifacts?: DeferredArtifact[] | null;
 };
 
 function toJsonObject(value: object): JsonObject {
@@ -363,16 +360,7 @@ function buildStatusNotificationBody(options: NotifyStatusBackendOptions): JsonO
   }
   if (!options.running && options.terminalState && Array.isArray(options.deferredArtifacts) && options.deferredArtifacts.length > 0) {
     const deferredArtifacts = options.deferredArtifacts
-      .filter((artifact) => (
-        artifact
-        && typeof artifact === 'object'
-        && typeof artifact.artifactType === 'string'
-        && typeof artifact.artifactRequestId === 'string'
-        && artifact.artifactRequestId.trim()
-        && artifact.artifactPayload
-        && typeof artifact.artifactPayload === 'object'
-        && !Array.isArray(artifact.artifactPayload)
-      ))
+      .filter((artifact) => artifact.artifactRequestId.trim().length > 0)
       .map((artifact) => ({
         artifactType: artifact.artifactType,
         artifactRequestId: artifact.artifactRequestId.trim(),

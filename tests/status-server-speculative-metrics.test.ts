@@ -12,10 +12,10 @@ const SpeculativeRowSchema = z
   .object({ speculative_accepted_tokens: z.number(), speculative_generated_tokens: z.number() })
   .optional();
 import {
-  flushRunArtifactsToDbAndDelete,
   queryDashboardRunDetailFromDb,
   queryDashboardRunsFromDb,
   upsertRepoSearchRun,
+  upsertRunArtifactPayload,
 } from '../src/status-server/dashboard-runs.js';
 import {
   captureManagedLlamaSpeculativeMetricsSnapshot,
@@ -257,13 +257,9 @@ test('dashboard runs keep persisted speculative totals when artifact payloads di
   await withTempEnv(async (tempRoot) => {
     const runtimeRoot = path.join(tempRoot, '.siftkit');
     const runtimeDbPath = path.join(runtimeRoot, 'runtime.sqlite');
-    const logsRoot = path.join(runtimeRoot, 'logs');
-    const requestsRoot = path.join(logsRoot, 'requests');
-    const repoSearchPassRoot = path.join(logsRoot, 'repo_search', 'succesful');
     const requestId = 'repo-run-persisted-canonical-speculative';
 
-    fs.mkdirSync(requestsRoot, { recursive: true });
-    fs.mkdirSync(repoSearchPassRoot, { recursive: true });
+    fs.mkdirSync(runtimeRoot, { recursive: true });
 
     const database = new Database(runtimeDbPath);
     try {
@@ -294,38 +290,20 @@ test('dashboard runs keep persisted speculative totals when artifact payloads di
         speculativeGeneratedTokens: 258,
       });
 
-      fs.writeFileSync(path.join(requestsRoot, `request_${requestId}.json`), JSON.stringify({
-        requestId,
-        question: 'find speculative metrics',
-        createdAtUtc: '2026-04-20T11:49:38.706Z',
-        speculativeAcceptedTokens: 47,
-        speculativeGeneratedTokens: 47,
-        promptCacheTokens: 3,
-        promptEvalTokens: 7,
-      }, null, 2));
-      fs.writeFileSync(path.join(repoSearchPassRoot, `request_${requestId}.json`), JSON.stringify({
-        requestId,
-        prompt: 'find speculative metrics',
-        repoRoot: tempRoot,
-        createdAtUtc: '2026-04-20T11:49:38.706Z',
-        totals: {
-          promptTokens: 10,
-          outputTokens: 5,
-          thinkingTokens: 2,
-          promptCacheTokens: 3,
-          promptEvalTokens: 7,
-          speculativeAcceptedTokens: 11,
-          speculativeGeneratedTokens: 11,
-        },
-      }, null, 2));
-
-      const flushed = flushRunArtifactsToDbAndDelete({
+      upsertRunArtifactPayload({
         database,
         requestId,
-        terminalState: 'completed',
-        taskKind: 'repo-search',
+        artifactType: 'summary_request',
+        artifactPayload: {
+          requestId,
+          question: 'find speculative metrics',
+          createdAtUtc: '2026-04-20T11:49:38.706Z',
+          speculativeAcceptedTokens: 47,
+          speculativeGeneratedTokens: 47,
+          promptCacheTokens: 3,
+          promptEvalTokens: 7,
+        },
       });
-      assert.equal(flushed, true);
     } finally {
       database.close();
     }
@@ -350,13 +328,9 @@ test('dashboard runs keep speculative totals null when only artifact payloads pr
   await withTempEnv(async (tempRoot) => {
     const runtimeRoot = path.join(tempRoot, '.siftkit');
     const runtimeDbPath = path.join(runtimeRoot, 'runtime.sqlite');
-    const logsRoot = path.join(runtimeRoot, 'logs');
-    const requestsRoot = path.join(logsRoot, 'requests');
-    const repoSearchPassRoot = path.join(logsRoot, 'repo_search', 'succesful');
     const requestId = 'repo-run-artifact-only-speculative';
 
-    fs.mkdirSync(requestsRoot, { recursive: true });
-    fs.mkdirSync(repoSearchPassRoot, { recursive: true });
+    fs.mkdirSync(runtimeRoot, { recursive: true });
 
     const database = new Database(runtimeDbPath);
     try {
@@ -387,38 +361,20 @@ test('dashboard runs keep speculative totals null when only artifact payloads pr
         speculativeGeneratedTokens: null,
       });
 
-      fs.writeFileSync(path.join(requestsRoot, `request_${requestId}.json`), JSON.stringify({
-        requestId,
-        question: 'find speculative metrics',
-        createdAtUtc: '2026-04-22T17:00:00.000Z',
-        speculativeAcceptedTokens: 47,
-        speculativeGeneratedTokens: 47,
-        promptCacheTokens: 3,
-        promptEvalTokens: 7,
-      }, null, 2));
-      fs.writeFileSync(path.join(repoSearchPassRoot, `request_${requestId}.json`), JSON.stringify({
-        requestId,
-        prompt: 'find speculative metrics',
-        repoRoot: tempRoot,
-        createdAtUtc: '2026-04-22T17:00:00.000Z',
-        totals: {
-          promptTokens: 10,
-          outputTokens: 5,
-          thinkingTokens: 2,
-          promptCacheTokens: 3,
-          promptEvalTokens: 7,
-          speculativeAcceptedTokens: 11,
-          speculativeGeneratedTokens: 11,
-        },
-      }, null, 2));
-
-      const flushed = flushRunArtifactsToDbAndDelete({
+      upsertRunArtifactPayload({
         database,
         requestId,
-        terminalState: 'completed',
-        taskKind: 'repo-search',
+        artifactType: 'summary_request',
+        artifactPayload: {
+          requestId,
+          question: 'find speculative metrics',
+          createdAtUtc: '2026-04-22T17:00:00.000Z',
+          speculativeAcceptedTokens: 47,
+          speculativeGeneratedTokens: 47,
+          promptCacheTokens: 3,
+          promptEvalTokens: 7,
+        },
       });
-      assert.equal(flushed, true);
     } finally {
       database.close();
     }

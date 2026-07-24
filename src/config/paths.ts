@@ -92,58 +92,6 @@ export function getRuntimeLogsPath(): string {
   return join(getRuntimeRoot(), 'logs');
 }
 
-export function getSummaryRequestLogsDirectory(): string {
-  return join(getRuntimeLogsPath(), 'requests');
-}
-
-export function getSummaryRequestLogPath(requestId: string): string {
-  return join(getSummaryRequestLogsDirectory(), `request_${requestId}.json`);
-}
-
-export function getPlannerFailedLogsDirectory(): string {
-  return join(getRuntimeLogsPath(), 'failed');
-}
-
-export function getPlannerFailedPath(requestId: string): string {
-  return join(getPlannerFailedLogsDirectory(), `request_failed_${requestId}.json`);
-}
-
-export function getPlannerDebugPath(requestId: string): string {
-  return join(getRuntimeLogsPath(), `planner_debug_${requestId}.json`);
-}
-
-/**
- * Reference to a planner debug dump. The payload lives in
- * `run_logs.planner_debug_json` keyed by request id; this is the human-facing
- * pointer used in error messages and the summary_request artifact. Mirrors the
- * `db://` convention used for repo-search transcripts and runtime artifacts.
- */
-export function getPlannerDebugReference(requestId: string): string {
-  return `db://run-logs/${requestId}/planner-debug`;
-}
-
-export function getAbandonedLogsDirectory(): string {
-  return join(getRuntimeLogsPath(), 'abandoned');
-}
-
-export function getAbandonedRequestPath(requestId: string): string {
-  return join(getAbandonedLogsDirectory(), `request_abandoned_${requestId}.json`);
-}
-
-// ---------- logs/repo_search/ ---------- //
-
-export function getRepoSearchLogRoot(): string {
-  return join(getRuntimeLogsPath(), 'repo_search');
-}
-
-export function getRepoSearchSuccessfulDirectory(): string {
-  return join(getRepoSearchLogRoot(), 'succesful');
-}
-
-export function getRepoSearchFailedDirectory(): string {
-  return join(getRepoSearchLogRoot(), 'failed');
-}
-
 // ---------- chat/sessions/ ---------- //
 
 export function getChatSessionsRoot(): string {

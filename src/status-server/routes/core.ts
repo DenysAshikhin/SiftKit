@@ -50,11 +50,15 @@ import {
 import { resolveEffectiveAgentsMd, resolveEffectiveRepoFileListing } from './chat.js';
 import {
   buildStatusRequestLogBody,
-  getStatusArtifactPath,
   upsertRunArtifactPayload,
   upsertRunLog,
   updateRunLogSpeculativeMetricsByRequestId,
 } from '../dashboard-runs.js';
+import {
+  StatusArtifactTypeSchema,
+  getStatusArtifactId,
+  getStatusArtifactUri,
+} from '../../state/status-artifacts.js';
 import { RepoSearchResponseSanityChecker } from '../../repo-search/response-sanity.js';
 import {
   INTERACTIVE_REPO_TOOL_NAMES,
@@ -1179,23 +1183,24 @@ class StatusPostRequestHandler {
       sendJson(this.res, 400, { error: 'Expected artifactPayload object when artifactType is provided.' });
       return true;
     }
-    const artifactPath = getStatusArtifactPath(metadata);
-    if (!artifactPath) {
+    const parsedArtifactType = StatusArtifactTypeSchema.safeParse(metadata.artifactType);
+    if (!parsedArtifactType.success) {
       sendJson(this.res, 400, { error: 'Unsupported artifactType.' });
       return true;
     }
+    const artifactType = parsedArtifactType.data;
     try {
       upsertRuntimeJsonArtifact({
-        id: `status:${metadata.artifactType}:${metadata.artifactRequestId}`,
-        artifactKind: `status_${metadata.artifactType}`,
+        id: getStatusArtifactId(artifactType, metadata.artifactRequestId),
+        artifactKind: `status_${artifactType}`,
         requestId: metadata.artifactRequestId,
-        title: artifactPath,
+        title: getStatusArtifactUri(artifactType, metadata.artifactRequestId),
         payload: metadata.artifactPayload,
       });
       upsertRunArtifactPayload({
         database: getIdleSummaryDatabase(this.ctx),
         requestId: metadata.artifactRequestId,
-        artifactType: z.enum(['summary_request', 'planner_debug', 'planner_failed', 'request_abandoned']).parse(metadata.artifactType),
+        artifactType,
         artifactPayload: metadata.artifactPayload,
       });
       return false;
