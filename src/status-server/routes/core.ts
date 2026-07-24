@@ -27,6 +27,7 @@ import { upsertRuntimeJsonArtifact } from '../../state/runtime-artifacts.js';
 import {
   readBody,
   parseJsonBody,
+  sendBodyReadError,
   sendJson,
 } from '../http-utils.js';
 import { sendServerErrorJson } from '../error-response.js';
@@ -942,8 +943,8 @@ class RepoSearchApprovalEndpoint implements RouteEndpoint {
     let parsedBody: JsonObject;
     try {
       parsedBody = parseJsonBody(await readBody(req));
-    } catch {
-      sendJson(res, 400, { error: 'Expected valid JSON object.' });
+    } catch (error) {
+      sendBodyReadError(res, error, { error: 'Expected valid JSON object.' });
       return;
     }
     const parsedRequest = RepoSearchApprovalRequestSchema.safeParse(parsedBody);
@@ -1017,8 +1018,8 @@ class StatusCompleteEndpoint implements RouteEndpoint {
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
-    } catch {
-      sendJson(res, 400, { error: 'Expected valid JSON object.' });
+    } catch (error) {
+      sendBodyReadError(res, error, { error: 'Expected valid JSON object.' });
       return;
     }
     const requestId = typeof parsedBody.requestId === 'string' ? parsedBody.requestId.trim() : '';
@@ -1085,7 +1086,13 @@ class StatusPostRequestHandler {
 
   async handle(): Promise<void> {
     const terminalMetadataPost = new URL(this.req.url || '/', 'http://localhost').pathname === '/status/terminal-metadata';
-    const bodyText = await readBody(this.req);
+    let bodyText: string;
+    try {
+      bodyText = await readBody(this.req);
+    } catch (error) {
+      sendBodyReadError(this.res, error, { error: 'Expected running=true|false or status=true|false.' });
+      return;
+    }
     const running = parseRunning(bodyText);
     if (running === null) {
       sendJson(this.res, 400, { error: 'Expected running=true|false or status=true|false.' });
@@ -1579,8 +1586,8 @@ class LlamaCppConfigTestEndpoint implements RouteEndpoint {
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
-    } catch {
-      sendJson(res, 400, { ok: false, statusCode: 0, error: 'Expected valid JSON object.' });
+    } catch (error) {
+      sendBodyReadError(res, error, { ok: false, statusCode: 0, error: 'Expected valid JSON object.' });
       return;
     }
     const baseUrl = typeof parsedBody.BaseUrl === 'string' && parsedBody.BaseUrl.trim()
@@ -1673,8 +1680,8 @@ class ConfigUpdateEndpoint implements RouteEndpoint {
     let parsedBody: JsonValue;
     try {
       parsedBody = parseJsonValueText(await readBody(req) || '{}');
-    } catch {
-      sendJson(res, 400, { error: 'Expected valid JSON object.' });
+    } catch (error) {
+      sendBodyReadError(res, error, { error: 'Expected valid JSON object.' });
       return;
     }
     let nextConfig: ReturnType<typeof normalizeConfig>;

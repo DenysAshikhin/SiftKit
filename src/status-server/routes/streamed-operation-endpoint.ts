@@ -3,7 +3,7 @@ import type { JsonObject, JsonSerializable } from '../../lib/json-types.js';
 import { OPERATION_STREAM_EVENTS } from '../../lib/operation-stream.js';
 import { AGENT_RUN_ID_HEADER } from '../../lib/agent-run-marker.js';
 import { recordServerError } from '../error-response.js';
-import { parseJsonBody, readBody, sendJson } from '../http-utils.js';
+import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.js';
 import { type RouteEndpoint, type RouteMatch } from '../route-table.js';
 import {
   acquireModelRequestWithWait,
@@ -61,8 +61,8 @@ export abstract class StreamedOperationEndpoint<TParsed> implements RouteEndpoin
     let parsedBody: JsonObject;
     try {
       parsedBody = parseJsonBody(await readBody(req));
-    } catch {
-      sendJson(res, 400, { error: 'Expected valid JSON object.' });
+    } catch (error) {
+      sendBodyReadError(res, error, { error: 'Expected valid JSON object.' });
       return;
     }
     const nestedRunId = String(req.headers[AGENT_RUN_ID_HEADER] || '').trim();
