@@ -38,6 +38,7 @@ export function attachSummaryFailureContext(
 // ---------- planner debug dump (in-memory, request-scoped) ---------- //
 
 const plannerDebugPayloadByRequestId = new Map<string, JsonObject>();
+const plannerDebugEventsByRequestId = new Map<string, JsonObject[]>();
 const plannerFailedArtifactByRequestId = new Set<string>();
 
 export type SummaryDeferredArtifact = {
@@ -47,47 +48,43 @@ export type SummaryDeferredArtifact = {
 };
 
 export function readPlannerDebugPayload(requestId: string): JsonObject {
-  return plannerDebugPayloadByRequestId.get(requestId) ?? {};
+  const payload = plannerDebugPayloadByRequestId.get(requestId);
+  if (!payload) {
+    return {};
+  }
+  return { ...payload, events: plannerDebugEventsByRequestId.get(requestId) ?? [] };
 }
 
 export function updatePlannerDebugDump(
   requestId: string,
   update: (payload: JsonObject) => JsonObject,
 ): void {
-  const payload = readPlannerDebugPayload(requestId);
+  const payload = plannerDebugPayloadByRequestId.get(requestId) ?? {};
   plannerDebugPayloadByRequestId.set(requestId, update(payload));
 }
 
 export function createPlannerDebugRecorder(options: {
   requestId: string;
   question: string;
-  inputText: string;
   sourceKind: SummarySourceKind;
   commandExitCode?: number | null;
   commandText?: string | null;
 }): {
-  path: string;
   record: (event: JsonObject) => void;
   finish: (result: JsonObject) => void;
 } {
-  const debugPath = getPlannerDebugPath(options.requestId);
-  updatePlannerDebugDump(options.requestId, () => ({
+  plannerDebugPayloadByRequestId.set(options.requestId, {
     requestId: options.requestId,
     command: options.commandText ?? null,
     question: options.question,
     sourceKind: options.sourceKind,
     commandExitCode: options.commandExitCode ?? null,
-    inputText: options.inputText,
-    events: [],
     final: null,
-  }));
+  });
+  plannerDebugEventsByRequestId.set(options.requestId, []);
   return {
-    path: debugPath,
     record(event) {
-      updatePlannerDebugDump(options.requestId, (payload) => ({
-        ...payload,
-        events: [...(Array.isArray(payload.events) ? payload.events : []), event],
-      }));
+      plannerDebugEventsByRequestId.get(options.requestId)?.push(event);
     },
     finish(result) {
       updatePlannerDebugDump(options.requestId, (payload) => ({
@@ -267,6 +264,7 @@ export function appendTestProviderEvent(event: JsonObject): void {
 
 export function clearSummaryArtifactState(requestId: string): void {
   plannerDebugPayloadByRequestId.delete(requestId);
+  plannerDebugEventsByRequestId.delete(requestId);
   plannerFailedArtifactByRequestId.delete(requestId);
 }
 

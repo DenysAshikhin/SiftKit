@@ -16,12 +16,18 @@ import {
   buildOversizedRunnerStateHistoryInput,
   getPlannerLogsPath,
   getFailedLogsPath,
+  getRequestLogsPath,
   spawnProcess,
   withTempEnv,
   withStubServer,
   waitForAsyncExpectation,
 } from './_runtime-helpers.js';
 import type { JsonObject, JsonValue } from '../src/lib/json-types.js';
+import {
+  clearSummaryArtifactState,
+  createPlannerDebugRecorder,
+  readPlannerDebugPayload,
+} from '../src/summary/artifacts.js';
 
 interface PlannerDebugEvent {
   kind?: string;
@@ -753,9 +759,14 @@ test('powershell shim preserves pipeline order for oversized planner input', asy
     const added = after.filter((entry) => !before.has(entry));
     assert.equal(added.length, 1);
 
-    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
-    assert.match(debugDump.inputText, /^\[/u);
-    assert.doesNotMatch(debugDump.inputText, /^\]\r?\n\[/u);
+    // The raw piped input lives once, in the summary_request artifact.
+    await waitForAsyncExpectation(() => {
+      const requestDumps = fs.readdirSync(getRequestLogsPath()).filter((entry) => /^request_.*\.json$/u.test(entry));
+      assert.equal(requestDumps.length, 1);
+      const requestDump = JSON.parse(fs.readFileSync(path.join(getRequestLogsPath(), requestDumps[0]), 'utf8'));
+      assert.match(requestDump.inputText, /^\[/u);
+      assert.doesNotMatch(requestDump.inputText, /^\]\r?\n\[/u);
+    });
   });
 });
 
@@ -914,7 +925,7 @@ test('planner keeps the first real tool output and rewrites one duplicate warnin
       const config = await loadConfig({ ensure: true });
       const threshold = getChunkThresholdCharacters(config);
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
-      config.Runtime.LlamaCpp.Reasoning = 'on';
+      config.Runtime.LlamaCpp.Reasoning = 'on';
       if (Array.isArray(config.Server.ModelPresets.Presets) && config.Server.ModelPresets.Presets[0]) {
         config.Server.ModelPresets.Presets[0].Reasoning = 'on';
       }
@@ -1792,4 +1803,35 @@ test('planner fails fast when the next planner turn would exceed thinking headro
       },
     });
   });
+});
+
+test('planner debug payload records prompt size, not the prompt, and no duplicated input', () => {
+  const requestId = 'planner-debug-shape-test';
+  const recorder = createPlannerDebugRecorder({
+    requestId,
+    question: 'what failed?',
+    sourceKind: 'command-output',
+    commandExitCode: 1,
+    commandText: 'npm test',
+  });
+  try {
+    recorder.record({ kind: 'planner_prompt', promptChars: 1234, promptTokenCount: 400 });
+    recorder.record({ kind: 'planner_tool', toolName: 'find_text', output: { text: 'hit' } });
+    recorder.finish({ status: 'completed' });
+
+    const payload = readPlannerDebugPayload(requestId);
+    assert.equal(payload.inputText, undefined, 'raw input must not be duplicated into the planner dump');
+    assert.equal(payload.question, 'what failed?');
+
+    const events = payload.events;
+    assert.ok(Array.isArray(events), 'events must be an array');
+    assert.equal(events.length, 2);
+
+    const promptEvent = events[0];
+    assert.ok(promptEvent && typeof promptEvent === 'object' && !Array.isArray(promptEvent));
+    assert.equal(promptEvent.promptChars, 1234);
+    assert.equal(promptEvent.prompt, undefined, 'the rendered prompt must not be retained per turn');
+  } finally {
+    clearSummaryArtifactState(requestId);
+  }
 });

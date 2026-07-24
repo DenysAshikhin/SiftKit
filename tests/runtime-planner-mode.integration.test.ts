@@ -23,7 +23,7 @@ interface PlannerDebugEvent {
   output?: { text?: string };
 }
 
-test('planner writes a debug dump with input, thinking, tool calls, tool output, and final output', async () => {
+test('planner writes a debug dump with thinking, tool calls, tool output, and final output', async () => {
   await withTempEnv(async () => {
     const plannerLogsPath = getPlannerLogsPath();
     fs.mkdirSync(plannerLogsPath, { recursive: true });
@@ -76,8 +76,8 @@ test('planner writes a debug dump with input, thinking, tool calls, tool output,
 
     const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
     assert.equal(debugDump.command, 'cat transitions.json | siftkit "Find all transitions in the Lumbridge Castle area."');
-    assert.equal(typeof debugDump.inputText, 'string');
-    assert.match(debugDump.inputText, /Lumbridge Castle Staircase/u);
+    // The raw input is not duplicated here; the summary_request artifact is its single store.
+    assert.equal(debugDump.inputText, undefined);
     assert.equal(Array.isArray(debugDump.events), true);
     assert.equal(debugDump.events.some((event: PlannerDebugEvent) => event.kind === 'planner_model_response' && /json_filter/u.test(String(event.thinkingProcess || ''))), true);
     assert.equal(debugDump.events.some((event: PlannerDebugEvent) => event.kind === 'planner_tool' && event.command === 'json_filter {"filters":[{"path":"from.worldX","op":"gte","value":3200},{"path":"from.worldX","op":"lte","value":3215}],"select":["id","label","from","to","bidirectional"],"limit":20}'), true);
