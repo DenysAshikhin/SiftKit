@@ -8,6 +8,7 @@ import {
   createInferenceRun,
   deleteInferenceRunLogChunksOlderThan,
   flushInferenceRunLogChunks,
+  getInferenceRunPendingLogChunkStats,
   listInferenceRuns,
   readInferenceRun,
   readInferenceRunLogTextByStream,
@@ -539,5 +540,50 @@ test('getManagedLlamaSpeculativeMetricsDelta combines startup and llama streams 
       speculativeAcceptedTokens: 58,
       speculativeGeneratedTokens: 258,
     });
+  });
+});
+
+test('pending log chunks accumulate with O(1) character accounting and flush intact', async () => {
+  await withTestEnvAndServer(async () => {
+    const run = createInferenceRun({
+      backend: 'llama',
+      purpose: 'pending-buffer-test',
+      entrypointPath: null,
+      baseUrl: null,
+      status: 'running',
+    });
+
+    for (let index = 0; index < 500; index += 1) {
+      bufferInferenceRunLogChunk({
+        runId: run.id,
+        streamKind: 'engine_stdout',
+        chunkText: `line-${index}\n`,
+      });
+    }
+    bufferInferenceRunLogChunk({
+      runId: run.id,
+      streamKind: 'engine_stderr',
+      chunkText: 'warn\n',
+    });
+
+    const stats = getInferenceRunPendingLogChunkStats(run.id);
+    assert.equal(stats.streamCount, 2);
+    assert.equal(stats.characterCountByStream.engine_stderr, 'warn\n'.length);
+    assert.ok(stats.totalCharacters > 0);
+    assert.equal(
+      stats.characterCountByStream.engine_stdout + stats.characterCountByStream.engine_stderr,
+      stats.totalCharacters,
+    );
+
+    flushInferenceRunLogChunks(run.id);
+
+    const text = readInferenceRunLogTextByStream(run.id);
+    assert.match(text.engine_stdout, /^line-0\n/u);
+    assert.match(text.engine_stdout, /line-499\n$/u);
+    assert.equal(text.engine_stderr, 'warn\n');
+
+    const afterFlush = getInferenceRunPendingLogChunkStats(run.id);
+    assert.equal(afterFlush.totalCharacters, 0);
+    assert.equal(afterFlush.streamCount, 0);
   });
 });

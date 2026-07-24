@@ -50,7 +50,14 @@ const InferenceRunLogChunkRowSchema = z.object({
 });
 
 const PENDING_LOG_PEAK_MIN_STREAM_CHARACTER_DELTA = 1024;
-const pendingChunkTextByRunId = new Map<string, Map<InferenceRunStreamKind, string>>();
+
+type PendingRunChunks = {
+  chunksByStream: Map<InferenceRunStreamKind, string[]>;
+  characterCountByStream: Map<InferenceRunStreamKind, number>;
+  totalCharacters: number;
+};
+
+const pendingChunksByRunId = new Map<string, PendingRunChunks>();
 const pendingLogPeakStreamCharactersByRunId = new Map<string, Map<InferenceRunStreamKind, number>>();
 
 export type InferenceRunLogTextStatsByStream = {
@@ -295,21 +302,36 @@ function getNextChunkSequence(
   return current + 1;
 }
 
-function getPendingChunksForRun(runId: string): Map<InferenceRunStreamKind, string> {
-  let pending = pendingChunkTextByRunId.get(runId);
+function getPendingChunksForRun(runId: string): PendingRunChunks {
+  let pending = pendingChunksByRunId.get(runId);
   if (!pending) {
-    pending = new Map<InferenceRunStreamKind, string>();
-    pendingChunkTextByRunId.set(runId, pending);
+    pending = {
+      chunksByStream: new Map<InferenceRunStreamKind, string[]>(),
+      characterCountByStream: new Map<InferenceRunStreamKind, number>(),
+      totalCharacters: 0,
+    };
+    pendingChunksByRunId.set(runId, pending);
   }
   return pending;
 }
 
-function getPendingChunkCharacterCount(pending: Map<InferenceRunStreamKind, string>): number {
-  let totalCharacters = 0;
-  for (const chunkText of pending.values()) {
-    totalCharacters += chunkText.length;
+function clearPendingChunksForRun(runId: string): void {
+  pendingChunksByRunId.delete(runId);
+  pendingLogPeakStreamCharactersByRunId.delete(runId);
+}
+
+function takePendingEntries(pending: PendingRunChunks): InferenceRunPendingLogChunkEntry[] {
+  const entries: InferenceRunPendingLogChunkEntry[] = [];
+  for (const [streamKind, chunks] of pending.chunksByStream.entries()) {
+    if (chunks.length === 0) {
+      continue;
+    }
+    const chunkText = chunks.join('');
+    if (chunkText) {
+      entries.push({ streamKind, chunkText });
+    }
   }
-  return totalCharacters;
+  return entries;
 }
 
 function shouldLogPendingChunkPeak(options: {
@@ -357,7 +379,7 @@ function createEmptyStreamCharacterCounts(): Record<InferenceRunStreamKind, numb
 export function getInferenceRunPendingLogChunkStats(runId: string): InferenceRunPendingLogChunkStats {
   const normalizedRunId = String(runId || '').trim();
   const counts = createEmptyStreamCharacterCounts();
-  const pending = normalizedRunId ? pendingChunkTextByRunId.get(normalizedRunId) : null;
+  const pending = normalizedRunId ? pendingChunksByRunId.get(normalizedRunId) : null;
   if (!pending) {
     return {
       characterCountByStream: counts,
@@ -365,17 +387,14 @@ export function getInferenceRunPendingLogChunkStats(runId: string): InferenceRun
       streamCount: 0,
     };
   }
-  let totalCharacters = 0;
   let streamCount = 0;
-  for (const [streamKind, chunkText] of pending.entries()) {
-    const length = chunkText.length;
-    counts[streamKind] = length;
-    totalCharacters += length;
-    streamCount += length > 0 ? 1 : 0;
+  for (const [streamKind, characterCount] of pending.characterCountByStream.entries()) {
+    counts[streamKind] = characterCount;
+    streamCount += characterCount > 0 ? 1 : 0;
   }
   return {
     characterCountByStream: counts,
-    totalCharacters,
+    totalCharacters: pending.totalCharacters,
     streamCount,
   };
 }
@@ -385,15 +404,13 @@ export function consumeInferenceRunPendingLogChunks(runId: string): InferenceRun
   if (!normalizedRunId) {
     return [];
   }
-  const pending = pendingChunkTextByRunId.get(normalizedRunId);
+  const pending = pendingChunksByRunId.get(normalizedRunId);
   if (!pending) {
     return [];
   }
-  pendingChunkTextByRunId.delete(normalizedRunId);
-  pendingLogPeakStreamCharactersByRunId.delete(normalizedRunId);
-  return [...pending.entries()]
-    .map(([streamKind, chunkText]) => ({ streamKind, chunkText }))
-    .filter((entry) => entry.chunkText.length > 0);
+  const entries = takePendingEntries(pending);
+  clearPendingChunksForRun(normalizedRunId);
+  return entries;
 }
 
 export function restoreInferenceRunPendingLogChunks(runId: string, entries: InferenceRunPendingLogChunkEntry[]): void {
@@ -425,15 +442,21 @@ export function bufferInferenceRunLogChunk(options: {
   }
   const streamKind = normalizeStreamKind(options.streamKind);
   const pending = getPendingChunksForRun(runId);
-  const nextStreamText = `${pending.get(streamKind) || ''}${chunkText}`;
-  pending.set(streamKind, nextStreamText);
-  const pendingCharacters = getPendingChunkCharacterCount(pending);
-  if (shouldLogPendingChunkPeak({ runId, streamKind, streamCharacters: nextStreamText.length })) {
+  let chunks = pending.chunksByStream.get(streamKind);
+  if (!chunks) {
+    chunks = [];
+    pending.chunksByStream.set(streamKind, chunks);
+  }
+  chunks.push(chunkText);
+  const nextStreamCharacters = (pending.characterCountByStream.get(streamKind) ?? 0) + chunkText.length;
+  pending.characterCountByStream.set(streamKind, nextStreamCharacters);
+  pending.totalCharacters += chunkText.length;
+  if (shouldLogPendingChunkPeak({ runId, streamKind, streamCharacters: nextStreamCharacters })) {
     logPendingChunkPeak({
       runId,
       streamKind,
-      pendingCharacters,
-      streamCharacters: nextStreamText.length,
+      pendingCharacters: pending.totalCharacters,
+      streamCharacters: nextStreamCharacters,
     });
   }
 }
@@ -478,16 +501,14 @@ export function flushInferenceRunLogChunks(runId: string, databasePath?: string)
   if (!normalizedRunId) {
     return;
   }
-  const pending = pendingChunkTextByRunId.get(normalizedRunId);
-  if (!pending || pending.size === 0) {
+  const pending = pendingChunksByRunId.get(normalizedRunId);
+  if (!pending || pending.totalCharacters === 0) {
+    clearPendingChunksForRun(normalizedRunId);
     return;
   }
-  const entries = [...pending.entries()]
-    .map(([streamKind, chunkText]) => ({ streamKind, chunkText }))
-    .filter((entry) => entry.chunkText);
+  const entries = takePendingEntries(pending);
   if (entries.length === 0) {
-    pendingChunkTextByRunId.delete(normalizedRunId);
-    pendingLogPeakStreamCharactersByRunId.delete(normalizedRunId);
+    clearPendingChunksForRun(normalizedRunId);
     return;
   }
   const database = getDatabase(databasePath);
@@ -502,8 +523,7 @@ export function flushInferenceRunLogChunks(runId: string, databasePath?: string)
       });
     }
   })();
-  pendingChunkTextByRunId.delete(normalizedRunId);
-  pendingLogPeakStreamCharactersByRunId.delete(normalizedRunId);
+  clearPendingChunksForRun(normalizedRunId);
 }
 
 export function readInferenceRun(id: string, databasePath?: string): InferenceRunRecord | null {
@@ -595,11 +615,13 @@ export function readInferenceRunLogTextStatsByStream(
     characterCountByStream[streamKind] += chunkText.length;
     textByStream[streamKind] = appendCappedTail(textByStream[streamKind], chunkText, maxCharactersPerStream);
   }
-  const pending = pendingChunkTextByRunId.get(normalizedRunId);
+  const pending = pendingChunksByRunId.get(normalizedRunId);
   if (pending) {
-    for (const [streamKind, chunkText] of pending.entries()) {
-      characterCountByStream[streamKind] += chunkText.length;
-      textByStream[streamKind] = appendCappedTail(textByStream[streamKind], chunkText, maxCharactersPerStream);
+    for (const [streamKind, chunks] of pending.chunksByStream.entries()) {
+      for (const chunkText of chunks) {
+        characterCountByStream[streamKind] += chunkText.length;
+        textByStream[streamKind] = appendCappedTail(textByStream[streamKind], chunkText, maxCharactersPerStream);
+      }
     }
   }
   for (const streamKind of InferenceRunStreamKindSchema.options) {
@@ -645,8 +667,7 @@ export function deleteInferenceRun(id: string, databasePath?: string): boolean {
   if (!runId) {
     return false;
   }
-  pendingChunkTextByRunId.delete(runId);
-  pendingLogPeakStreamCharactersByRunId.delete(runId);
+  clearPendingChunksForRun(runId);
   const database = getDatabase(databasePath);
   const result = database.prepare('DELETE FROM inference_runs WHERE id = ?').run(runId);
   return Number(result.changes) > 0;
