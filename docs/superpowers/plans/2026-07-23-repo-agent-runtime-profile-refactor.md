@@ -94,6 +94,7 @@ test('task-kind schema and normalizer preserve every exact execution kind', () =
   }
   assert.equal(normalizeRepoSearchTaskKind(undefined), 'repo-search');
   assert.equal(RepoSearchTaskKindSchema.safeParse('summary').success, false);
+  assert.throws(() => normalizeRepoSearchTaskKind('summary'));
 });
 
 test('runtime profile owns repo-agent turn and overflow defaults', () => {
@@ -170,9 +171,9 @@ export const RepoSearchTaskKindSchema = z.enum(REPO_SEARCH_TASK_KINDS);
 export type RepoSearchTaskKind = z.infer<typeof RepoSearchTaskKindSchema>;
 
 export function normalizeRepoSearchTaskKind(
-  taskKind: RepoSearchTaskKind | undefined,
+  taskKind: unknown,
 ): RepoSearchTaskKind {
-  return taskKind ?? 'repo-search';
+  return RepoSearchTaskKindSchema.parse(taskKind ?? 'repo-search');
 }
 ```
 
@@ -361,6 +362,27 @@ test('native repo-tool arguments have one runtime-schema implementation', () => 
 });
 ```
 
+In `tests/model-json.test.ts`, retain the run-mode test and add:
+
+```ts
+test('ModelJson applies canonical native argument validation to every tool', () => {
+  assert.throws(
+    () => parseRepoSearchPlannerAction(
+      '{"action":"grep","pattern":"x","limit":"ten"}',
+      ['grep'],
+    ),
+    /invalid planner tool action/u,
+  );
+  assert.throws(
+    () => parseRepoSearchPlannerAction(
+      '{"action":"edit","path":"x.ts","edits":[]}',
+      ['edit'],
+    ),
+    /invalid planner tool action/u,
+  );
+});
+```
+
 - [ ] **Step 2: Run tests and verify RED**
 
 Run:
@@ -369,7 +391,7 @@ Run:
 npm test -- repo-tool-arguments agent-loop-boundary
 ```
 
-Expected: FAIL because `repo-tool-arguments.ts` is missing and `ModelJson` still contains both prohibited patterns.
+Expected: FAIL because `repo-tool-arguments.ts` is missing, `ModelJson` still contains both prohibited patterns, and the invalid non-run arguments are still accepted.
 
 - [ ] **Step 3: Add all native-tool schemas**
 
@@ -513,30 +535,7 @@ In `src/repo-search/engine/repo-tools.ts`, temporarily import `RunOutputModeSche
 import { RunOutputModeSchema } from '../repo-tool-arguments.js';
 ```
 
-- [ ] **Step 6: Extend parser behavior tests**
-
-In `tests/model-json.test.ts`, retain the run-mode test and add a representative invalid non-run field:
-
-```ts
-test('ModelJson applies canonical native argument validation to every tool', () => {
-  assert.throws(
-    () => parseRepoSearchPlannerAction(
-      '{"action":"grep","pattern":"x","limit":"ten"}',
-      ['grep'],
-    ),
-    /invalid planner tool action/u,
-  );
-  assert.throws(
-    () => parseRepoSearchPlannerAction(
-      '{"action":"edit","path":"x.ts","edits":[]}',
-      ['edit'],
-    ),
-    /invalid planner tool action/u,
-  );
-});
-```
-
-- [ ] **Step 7: Run focused tests and verify GREEN**
+- [ ] **Step 6: Run focused tests and verify GREEN**
 
 Run:
 
@@ -546,7 +545,7 @@ npm test -- repo-tool-arguments model-json agent-loop-boundary validation-comman
 
 Expected: all focused tests PASS.
 
-- [ ] **Step 8: Commit Task 2**
+- [ ] **Step 7: Commit Task 2**
 
 ```powershell
 git add src/repo-search/repo-tool-arguments.ts src/lib/model-json.ts src/repo-search/engine/validation-command-output-policy.ts src/repo-search/engine/repo-tools.ts tests/repo-tool-arguments.test.ts tests/model-json.test.ts tests/agent-loop-boundary.test.ts
@@ -608,6 +607,19 @@ test('repo-agent runtime behavior flows through one profile', () => {
     /contextOverflowPolicy:\s*isAgent|validationCommandOutputLineLimit/u,
   );
   assert.match(texts.join('\n'), /RepoSearchRuntimeProfile/u);
+  assert.match(
+    fs.readFileSync(
+      path.join(
+        process.cwd(),
+        'src',
+        'repo-search',
+        'engine',
+        'tool-action-processor.ts',
+      ),
+      'utf8',
+    ),
+    /RepoNativeToolCallSchema/u,
+  );
 });
 ```
 
@@ -619,7 +631,7 @@ Run:
 npm test -- agent-loop-boundary
 ```
 
-Expected: FAIL because scalar line-limit plumbing remains in all five runtime layers.
+Expected: FAIL because scalar line-limit plumbing remains in all five runtime layers and `ToolActionProcessor` does not yet validate with `RepoNativeToolCallSchema`.
 
 - [ ] **Step 3: Normalize and pass the exact task kind**
 
@@ -698,7 +710,59 @@ runtimeProfile: options.runtimeProfile,
 
 to both `PromptPreparer` and `ToolActionProcessor`.
 
-- [ ] **Step 6: Validate and execute typed native calls**
+- [ ] **Step 6: Write and run the failing typed-execution test**
+
+In `tests/repo-tools.test.ts`, remove the line-limit argument from `makeContext` and add:
+
+```ts
+import type { JsonObject } from '../src/lib/json-types.js';
+import {
+  RepoNativeToolCallSchema,
+  type RepoNativeToolCall,
+} from '../src/repo-search/repo-tool-arguments.js';
+
+function nativeCall(
+  toolName: string,
+  args: JsonObject,
+): RepoNativeToolCall {
+  const result = RepoNativeToolCallSchema.safeParse({ toolName, args });
+  if (!result.success) {
+    throw new Error(result.error.message);
+  }
+  return result.data;
+}
+```
+
+Add:
+
+```ts
+test('run returns raw validation output for runtime policy processing', async () => {
+  const root = makeRepo();
+  try {
+    writeNoisyFailingTest(root);
+    const result = await executeRepoTool(
+      nativeCall('run', { command: 'npm test' }),
+      makeContext(root),
+    );
+    assert.ok(result.ok);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.output, /validation-line-1\b/u);
+    assert.match(result.output, /validation-line-60\b/u);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+```
+
+Run:
+
+```powershell
+npm test -- repo-tools agent-loop-boundary
+```
+
+Expected: FAIL during typecheck because `executeRepoTool` still accepts loose `toolName, args, context` parameters; the structural guard also remains RED.
+
+- [ ] **Step 7: Validate and execute typed native calls**
 
 In `src/repo-search/engine/repo-tools.ts`:
 
@@ -777,7 +841,7 @@ export async function executeRepoTool(
 
 Delete the old unknown-tool fallback: the discriminated union makes the final `web_fetch` branch exhaustive.
 
-- [ ] **Step 7: Apply profile output policy in `ToolActionProcessor`**
+- [ ] **Step 8: Apply profile output policy in `ToolActionProcessor`**
 
 Replace `validationCommandOutputLineLimit` in `ToolActionProcessorDeps` with:
 
@@ -844,30 +908,9 @@ return {
 };
 ```
 
-- [ ] **Step 8: Migrate tests and direct callers without adapters**
+- [ ] **Step 9: Migrate remaining tests and direct callers without adapters**
 
-In `tests/repo-tools.test.ts`, remove the line-limit argument from `makeContext` and add:
-
-```ts
-import type { JsonObject } from '../src/lib/json-types.js';
-import {
-  RepoNativeToolCallSchema,
-  type RepoNativeToolCall,
-} from '../src/repo-search/repo-tool-arguments.js';
-
-function nativeCall(
-  toolName: string,
-  args: JsonObject,
-): RepoNativeToolCall {
-  const result = RepoNativeToolCallSchema.safeParse({ toolName, args });
-  if (!result.success) {
-    throw new Error(result.error.message);
-  }
-  return result.data;
-}
-```
-
-Change every call from:
+In `tests/repo-tools.test.ts`, change every remaining call from:
 
 ```ts
 executeRepoTool('grep', { pattern: 'alpha' }, makeContext(root))
@@ -882,26 +925,7 @@ executeRepoTool(
 )
 ```
 
-Delete the repo-tools tests that expect presentation-policy trimming or invalid loose arguments. Keep raw execution assertions and add:
-
-```ts
-test('run returns raw validation output for runtime policy processing', async () => {
-  const root = makeRepo();
-  try {
-    writeNoisyFailingTest(root);
-    const result = await executeRepoTool(
-      nativeCall('run', { command: 'npm test' }),
-      makeContext(root),
-    );
-    assert.ok(result.ok);
-    assert.equal(result.exitCode, 1);
-    assert.match(result.output, /validation-line-1\b/u);
-    assert.match(result.output, /validation-line-60\b/u);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-```
+Delete the repo-tools tests that expect presentation-policy trimming or invalid loose arguments. Keep the raw execution test added in Step 6.
 
 In `tests/engine-prompt-preparer.test.ts`, change the `makePreparer` policy parameter to:
 
@@ -933,7 +957,7 @@ runtimeProfile: new RepoSearchRuntimeProfile('repo-search'),
 
 Use `new RepoSearchRuntimeProfile('chat')` in chat fixtures. Do not add a default inside `runTaskLoop`.
 
-- [ ] **Step 9: Run focused integration tests and verify GREEN**
+- [ ] **Step 10: Run focused integration tests and verify GREEN**
 
 Run:
 
@@ -943,7 +967,7 @@ npm test -- agent-loop-boundary repo-search-runtime-profile engine-prompt-prepar
 
 Expected: all focused tests PASS, including the existing 100-turn, overflow, and 50-line repo-agent E2E cases.
 
-- [ ] **Step 10: Commit Task 3**
+- [ ] **Step 11: Commit Task 3**
 
 ```powershell
 git add src/repo-search/execute.ts src/repo-search/engine.ts src/repo-search/engine/task-loop-support.ts src/repo-search/engine/task-loop.ts src/repo-search/engine/prompt-preparer.ts src/repo-search/engine/tool-action-processor.ts src/repo-search/engine/repo-tools.ts tests/agent-loop-boundary.test.ts tests/engine-prompt-preparer.test.ts tests/repo-tools.test.ts tests/repo-search-agent-execute.test.ts tests/preset-execution.test.ts tests/repo-search-chat-loop.test.ts tests/repo-search-loop.core.test.ts tests/mock-repo-search-loop.test.ts tests/repo-search-terminal-synthesis-retry.test.ts tests/tool-action-approval.test.ts
@@ -1119,18 +1143,36 @@ Run:
 
 ```powershell
 npm run build:test
-.\node_modules\.bin\c8.cmd --include="src/repo-search/task-kind.ts" --include="src/repo-search/repo-tool-arguments.ts" --include="src/repo-search/engine/runtime-profile.ts" --include="src/repo-search/engine/validation-command-output-policy.ts" --reporter=text --reporter=text-summary node .\dist\scripts\run-tests.js repo-search-runtime-profile repo-tool-arguments validation-command-output-policy model-json repo-tools repo-search-agent-execute engine-prompt-preparer agent-loop-boundary repo-search-prompts structured-output-schema
+.\node_modules\.bin\c8.cmd `
+  --include="src/lib/model-json.ts" `
+  --include="src/repo-search/task-kind.ts" `
+  --include="src/repo-search/types.ts" `
+  --include="src/repo-search/execute.ts" `
+  --include="src/repo-search/engine.ts" `
+  --include="src/repo-search/repo-tool-arguments.ts" `
+  --include="src/repo-search/planner-protocol.ts" `
+  --include="src/repo-search/prompts.ts" `
+  --include="src/repo-search/engine/runtime-profile.ts" `
+  --include="src/repo-search/engine/task-loop-support.ts" `
+  --include="src/repo-search/engine/task-loop.ts" `
+  --include="src/repo-search/engine/prompt-preparer.ts" `
+  --include="src/repo-search/engine/tool-action-processor.ts" `
+  --include="src/repo-search/engine/repo-tools.ts" `
+  --include="src/repo-search/engine/validation-command-output-policy.ts" `
+  --reporter=text `
+  --reporter=text-summary `
+  node .\dist\scripts\run-tests.js repo-search-runtime-profile repo-tool-arguments validation-command-output-policy model-json repo-tools repo-search-agent-execute engine-prompt-preparer agent-loop-boundary repo-search-prompts structured-output-schema
 ```
 
-Expected: zero test failures and branch coverage as close to 100% as source-map instrumentation permits. Add branch tests through a fresh red-green cycle for every real uncovered branch.
+Expected: zero test failures and branch coverage as close to 100% as source-map instrumentation permits across every changed production module. Add branch tests through a fresh red-green cycle for every real uncovered branch.
 
 - [ ] **Step 4: Check diff and type-policy compliance**
 
 Run:
 
 ```powershell
-git diff --check 71ee513..HEAD
-git diff 71ee513..HEAD -U0 | rg --pcre2 "^\+.*(?:\bas\s+(?!const\b)|\bany\b|!\.|!\[|import \* as)"
+git diff --check 71ee513..HEAD -- src tests
+git diff 71ee513..HEAD -U0 -- src tests | rg --pcre2 "^\+.*(?:\bas\s+(?!const\b)|\bany\b|!\.|!\[|import \* as)"
 ```
 
 Expected: `git diff --check` is clean and the policy scan has no matches.
@@ -1155,7 +1197,7 @@ Expected:
 Run:
 
 ```powershell
-git log -6 --oneline
+git log -7 --oneline
 ```
 
-Expected: the design commit followed by the four task commits, all on `main`.
+Expected: the design, implementation-plan, plan-correction, and four task commits, all on `main`.

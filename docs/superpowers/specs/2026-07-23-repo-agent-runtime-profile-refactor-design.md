@@ -111,7 +111,7 @@ Zod remains the runtime source of truth for tool arguments. Planner JSON Schema 
 
 ## Data Flow
 
-1. `RepoSearchExecutionRequest.taskKind` is normalized to `repo-search` when absent.
+1. `RepoSearchExecutionRequest.taskKind` is parsed by `RepoSearchTaskKindSchema` and normalized to `repo-search` when absent; invalid runtime values fail at this boundary.
 2. `executeRepoSearchRequest` passes the exact normalized task kind and optional `maxTurns`.
 3. `runRepoSearch` creates one `RepoSearchRuntimeProfile`.
 4. The profile resolves the loop turn limit.
