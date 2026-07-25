@@ -33,13 +33,10 @@ import { readConfig, writeConfig } from './config-store.js';
 import {
   buildStatusRequestLogBody,
   buildRepoSearchProgressLogBody,
-  getStatusArtifactPath,
   loadDashboardRuns,
   buildDashboardRunDetail,
   buildDashboardDailyMetrics,
   normalizeIdleSummarySnapshotRow,
-  migrateExistingRunLogsToDbAndDeleteBounded,
-  getRunLogMigrationTimeoutMs,
 } from './dashboard-runs.js';
 import { closeRuntimeDatabase, pruneRuntimeHistory } from '../state/runtime-db.js';
 import { deleteInferenceRunLogChunksOlderThan } from '../state/inference-runs.js';
@@ -103,7 +100,6 @@ export {
 export {
   buildStatusRequestLogBody,
   buildRepoSearchProgressLogBody,
-  getStatusArtifactPath,
   loadDashboardRuns,
   buildDashboardRunDetail,
   buildDashboardDailyMetrics,
@@ -289,15 +285,9 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     ctx.modelIdleController = new ModelIdleController(ctx);
   }
 
-  // Migrate any file-based run logs left by older runtimes into the run_logs
-  // table so the dashboard surfaces them, then delete the migrated files.
-  try {
-    migrateExistingRunLogsToDbAndDeleteBounded(getIdleSummaryDatabase(ctx), {
-      timeoutMs: getRunLogMigrationTimeoutMs(),
-    });
-  } catch (error) {
-    process.stderr.write(`[siftKitStatus] Run-log migration failed: ${error instanceof Error ? error.message : String(error)}\n`);
-  }
+  // Create the run-history tables up front so the first dashboard read and the
+  // first artifact persist never race on schema creation.
+  getIdleSummaryDatabase(ctx);
 
   const handleRequest = createRequestHandler(ctx);
 

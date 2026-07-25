@@ -16,6 +16,13 @@ import {
 } from './managed-llama-speculative-tracker.js';
 import { serverLogger } from './server-logger.js';
 
+/**
+ * Pending characters at which a run flushes even while a model request is
+ * active. The deferral exists to keep DB writes off the inference path; past
+ * this point the memory cost outweighs it. No log data is dropped either way.
+ */
+export const PENDING_FLUSH_HIGH_WATER_CHARACTERS = 8 * 1024 * 1024;
+
 type InferenceRunFlushQueueItem = {
   runId: string;
   backend: InferenceRunBackend;
@@ -175,7 +182,8 @@ export class InferenceRunFlushQueue {
           this.pendingOrder.shift();
           continue;
         }
-        const idleWaitMs = this.getIdleWaitMs(item.enqueuedAtMs);
+        const pendingStats = getInferenceRunPendingLogChunkStats(nextRunId);
+        const idleWaitMs = this.getIdleWaitMs(item.enqueuedAtMs, pendingStats.totalCharacters);
         if (idleWaitMs > 0) {
           this.scheduleDrain(idleWaitMs);
           return;
@@ -186,7 +194,6 @@ export class InferenceRunFlushQueue {
         }
         this.pendingByRunId.delete(runId);
         this.runningRunId = runId;
-        const pendingStats = getInferenceRunPendingLogChunkStats(runId);
         const startedAtMs = Date.now();
         const waitMs = startedAtMs - item.enqueuedAtMs;
         try {
@@ -232,7 +239,10 @@ export class InferenceRunFlushQueue {
     }
   }
 
-  private getIdleWaitMs(fallbackStartedAtMs: number): number {
+  private getIdleWaitMs(fallbackStartedAtMs: number, pendingCharacters: number): number {
+    if (pendingCharacters >= PENDING_FLUSH_HIGH_WATER_CHARACTERS) {
+      return 0;
+    }
     if (this.activeModelRequest || this.modelRequestQueueLength > 0) {
       return Math.max(1, Math.min(1000, this.idleDelayMs || 1000));
     }

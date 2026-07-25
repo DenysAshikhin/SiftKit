@@ -8,7 +8,6 @@ import {
   parseSnapshotTaskTotalsJson,
   parseSnapshotToolStatsJson,
 } from './idle-summary.js';
-import { type StatusMetadata } from './status-file.js';
 import { type ServerLogBody } from './server-logger.js';
 import {
   buildDashboardDailyMetrics as buildDashboardDailyMetricsFromRunsAndSnapshots,
@@ -17,18 +16,10 @@ import {
 import { queryDashboardRunsFromDb } from './dashboard-runs/queries.js';
 
 export {
-  flushRunArtifactsToDbAndDelete,
-  flushRunArtifactsToDbAndDeleteBounded,
-  getRunLogFlushTimeoutMs,
-  getRunLogMigrationTimeoutMs,
-  migrateExistingRunLogsToDbAndDelete,
-  migrateExistingRunLogsToDbAndDeleteBounded,
   updateRunLogSpeculativeMetricsByRequestId,
   upsertRepoSearchRun,
   upsertRunArtifactPayload,
   upsertRunLog,
-  type RunLogFlushResult,
-  type RunLogMigrationResult,
 } from './dashboard-runs/artifact-upserts.js';
 export {
   deleteDashboardRunLogs,
@@ -204,25 +195,6 @@ export function buildRepoSearchProgressLogBody(event: RepoSearchProgressEvent | 
     return null;
   }
   return { event: 'command', fields: `${fields}  ${commandText}`, severity: 'normal' };
-}
-
-export function getStatusArtifactPath(metadata: StatusMetadata): string | null {
-  if (!metadata.artifactType || !metadata.artifactRequestId) {
-    return null;
-  }
-  if (metadata.artifactType === 'summary_request') {
-    return `db://status-artifacts/summary_request/${metadata.artifactRequestId}`;
-  }
-  if (metadata.artifactType === 'planner_debug') {
-    return `db://status-artifacts/planner_debug/${metadata.artifactRequestId}`;
-  }
-  if (metadata.artifactType === 'planner_failed') {
-    return `db://status-artifacts/planner_failed/${metadata.artifactRequestId}`;
-  }
-  if (metadata.artifactType === 'request_abandoned') {
-    return `db://status-artifacts/request_abandoned/${metadata.artifactRequestId}`;
-  }
-  return null;
 }
 
 export {

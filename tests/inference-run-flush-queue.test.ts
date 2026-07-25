@@ -3,10 +3,14 @@ import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import { z } from 'zod';
 
-import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
+import {
+  InferenceRunFlushQueue,
+  PENDING_FLUSH_HIGH_WATER_CHARACTERS,
+} from '../src/status-server/inference-run-flush-queue.js';
 import {
   bufferInferenceRunLogChunk,
   createInferenceRun,
+  getInferenceRunPendingLogChunkStats,
   readInferenceRunLogTextByStream,
 } from '../src/state/inference-runs.js';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
@@ -193,5 +197,43 @@ test('inference run flush queue does not log repeated active-request drain waits
       false,
       capture.lines.join('\n'),
     );
+  });
+});
+
+test('a run past the pending high-water mark flushes despite an active model request', async () => {
+  await withTestEnvAndServer(async () => {
+    const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 60_000 });
+    try {
+      const run = createInferenceRun({
+        backend: 'llama',
+        purpose: 'high-water-test',
+        entrypointPath: null,
+        baseUrl: null,
+        status: 'running',
+      });
+
+      flushQueue.setModelRequestState({ active: true, queueLength: 0 });
+
+      const chunk = 'x'.repeat(64 * 1024);
+      const chunkCount = Math.ceil(PENDING_FLUSH_HIGH_WATER_CHARACTERS / chunk.length) + 1;
+      for (let index = 0; index < chunkCount; index += 1) {
+        bufferInferenceRunLogChunk({
+          runId: run.id,
+          streamKind: 'engine_stdout',
+          chunkText: chunk,
+        });
+      }
+
+      flushQueue.enqueue(run.id, 'llama');
+      await flushQueue.waitForIdle(30_000);
+
+      const stats = getInferenceRunPendingLogChunkStats(run.id);
+      assert.equal(stats.totalCharacters, 0, 'over-high-water run must flush past the deferral');
+
+      const text = readInferenceRunLogTextByStream(run.id);
+      assert.equal(text.engine_stdout.length, chunk.length * chunkCount, 'no log data may be dropped');
+    } finally {
+      await flushQueue.close();
+    }
   });
 });

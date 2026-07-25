@@ -10,7 +10,7 @@ import {
 import { summarizeRequest } from '../src/summary.js';
 import {
   buildOversizedTransitionsInput,
-  getPlannerLogsPath,
+  withStubServerCapturingPlannerDebugDump,
   withTempEnv,
   withStubServer,
 } from './_runtime-helpers.js';
@@ -23,13 +23,9 @@ interface PlannerDebugEvent {
   output?: { text?: string };
 }
 
-test('planner writes a debug dump with input, thinking, tool calls, tool output, and final output', async () => {
+test('planner writes a debug dump with thinking, tool calls, tool output, and final output', async () => {
   await withTempEnv(async () => {
-    const plannerLogsPath = getPlannerLogsPath();
-    fs.mkdirSync(plannerLogsPath, { recursive: true });
-    const before = new Set(fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry)));
-
-    await withStubServer(async () => {
+    const dumpPath = await withStubServerCapturingPlannerDebugDump(async () => {
       const config = await loadConfig({ ensure: true });
       const threshold = getChunkThresholdCharacters(config);
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
@@ -70,14 +66,10 @@ test('planner writes a debug dump with input, thinking, tool calls, tool output,
       },
     });
 
-    const after = fs.readdirSync(plannerLogsPath).filter((entry) => /^planner_debug_.*\.json$/u.test(entry));
-    const added = after.filter((entry) => !before.has(entry));
-    assert.equal(added.length, 1);
-
-    const debugDump = JSON.parse(fs.readFileSync(path.join(plannerLogsPath, added[0]), 'utf8'));
+    const debugDump = JSON.parse(fs.readFileSync(dumpPath, 'utf8'));
     assert.equal(debugDump.command, 'cat transitions.json | siftkit "Find all transitions in the Lumbridge Castle area."');
-    assert.equal(typeof debugDump.inputText, 'string');
-    assert.match(debugDump.inputText, /Lumbridge Castle Staircase/u);
+    // The raw input is not duplicated here; the summary_request artifact is its single store.
+    assert.equal(debugDump.inputText, undefined);
     assert.equal(Array.isArray(debugDump.events), true);
     assert.equal(debugDump.events.some((event: PlannerDebugEvent) => event.kind === 'planner_model_response' && /json_filter/u.test(String(event.thinkingProcess || ''))), true);
     assert.equal(debugDump.events.some((event: PlannerDebugEvent) => event.kind === 'planner_tool' && event.command === 'json_filter {"filters":[{"path":"from.worldX","op":"gte","value":3200},{"path":"from.worldX","op":"lte","value":3215}],"select":["id","label","from","to","bidirectional"],"limit":20}'), true);

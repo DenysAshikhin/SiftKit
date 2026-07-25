@@ -31,6 +31,7 @@ import {
   type SseResponse,
   writeJson,
 } from './helpers/dashboard-http.js';
+import { DashboardRunSeeder } from './helpers/dashboard-run-seed.js';
 import { buildRepoSearchChatSteps } from '../dashboard/src/lib/chat-steps.js';
 import type { RunEvent } from '../dashboard/src/types.js';
 
@@ -169,6 +170,7 @@ function configureDashboardTestEnv(
     SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
     SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
     SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS: process.env.SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS,
+    SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE: process.env.SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE,
   };
   process.env.sift_kit_status = statusPath;
   process.env.SIFTKIT_STATUS_PATH = statusPath;
@@ -178,6 +180,9 @@ function configureDashboardTestEnv(
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
   process.env.SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS = '0';
+  // Seeded run history is deliberately dated in the past; the background retention
+  // prune would delete it before the assertions run.
+  process.env.SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE = '1';
   return envBackup;
 }
 
@@ -527,75 +532,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
   const runtimeRoot = path.join(tempRoot, '.siftkit');
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
   const configPath = path.join(runtimeRoot, 'config.json');
-  const logsRoot = path.join(runtimeRoot, 'logs');
-  const requestsRoot = path.join(logsRoot, 'requests');
-  const failedRoot = path.join(logsRoot, 'failed');
-  const abandonedRoot = path.join(logsRoot, 'abandoned');
-  const repoSearchFailedRoot = path.join(logsRoot, 'repo_search', 'failed');
-  const repoSearchPassRoot = path.join(logsRoot, 'repo_search', 'succesful');
-  fs.mkdirSync(repoSearchPassRoot, { recursive: true });
-
-  writeJson(path.join(requestsRoot, 'request_req-summary.json'), {
-    requestId: 'req-summary',
-    question: 'Summarize build output',
-    backend: 'llama.cpp',
-    model: 'Qwen3.5-9B-Q8_0.gguf',
-    summary: 'Build was successful.',
-    createdAtUtc: '2026-04-01T10:00:00.000Z',
-    inputTokens: 123,
-    outputTokens: 45,
-    thinkingTokens: 9,
-    promptCacheTokens: 80,
-    promptEvalTokens: 40,
-    speculativeAcceptedTokens: 18,
-    speculativeGeneratedTokens: 24,
-    requestDurationMs: 3000,
-  });
-  writeJson(path.join(logsRoot, 'planner_debug_req-summary.json'), {
-    final: {
-      finalOutput: 'Build was successful.',
-      classification: 'summary',
-      rawReviewRequired: false,
-      providerError: null,
-    },
-  });
-  writeJson(path.join(failedRoot, 'request_failed_req-failed.json'), {
-    requestId: 'req-failed',
-    question: 'Analyze flaky test failure',
-    error: 'timeout',
-    createdAtUtc: '2026-04-01T10:05:00.000Z',
-    inputTokens: 50,
-    outputTokens: 0,
-    thinkingTokens: 0,
-    promptCacheTokens: 0,
-    promptEvalTokens: 20,
-    requestDurationMs: 1000,
-  });
-  writeJson(path.join(abandonedRoot, 'request_abandoned_req-abandoned.json'), {
-    requestId: 'req-abandoned',
-    terminalState: 'failed',
-    reason: 'Abandoned because a new request started before terminal status.',
-    createdAtUtc: '2026-04-01T10:10:00.000Z',
-    promptCharacterCount: 1200,
-    outputTokensTotal: 12,
-  });
-  writeJson(path.join(repoSearchFailedRoot, 'request_req-repo.json'), {
-    requestId: 'req-repo',
-    prompt: 'find failing test',
-    repoRoot: tempRoot,
-    verdict: 'fail',
-    totals: { commandsExecuted: 1 },
-    createdAtUtc: '2026-04-01T10:15:00.000Z',
-  });
-  fs.writeFileSync(
-    path.join(repoSearchFailedRoot, 'request_req-repo.jsonl'),
-    [
-      JSON.stringify({ at: '2026-04-01T10:15:01.000Z', kind: 'turn_new_messages', turn: 1, messages: [{ role: 'user', content: 'find failing test' }], promptTokenCount: 10 }),
-      JSON.stringify({ at: '2026-04-01T10:15:02.000Z', kind: 'turn_model_response', text: '{"action":"finish"}', thinkingText: 'reasoning' }),
-      JSON.stringify({ at: '2026-04-01T10:15:03.000Z', kind: 'run_done', scorecard: { verdict: 'fail' } }),
-    ].join('\n') + '\n',
-    'utf8',
-  );
+  const runtimeDbPath = path.join(runtimeRoot, 'runtime.sqlite');
 
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
 
@@ -605,6 +542,69 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
+    const seeder = new DashboardRunSeeder(runtimeDbPath);
+    try {
+      // Same order the runner defers them in: planner_debug then summary_request.
+      seeder.artifact('planner_debug', 'req-summary', {
+        final: {
+          finalOutput: 'Build was successful.',
+          classification: 'summary',
+          rawReviewRequired: false,
+          providerError: null,
+        },
+      });
+      seeder.summaryRun({
+        requestId: 'req-summary',
+        question: 'Summarize build output',
+        createdAtUtc: '2026-04-01T10:00:00.000Z',
+        payload: {
+          summary: 'Build was successful.',
+          inputTokens: 123,
+          outputTokens: 45,
+          thinkingTokens: 9,
+          promptCacheTokens: 80,
+          promptEvalTokens: 40,
+          speculativeAcceptedTokens: 18,
+          speculativeGeneratedTokens: 24,
+          requestDurationMs: 3000,
+        },
+      });
+      seeder.artifact('planner_failed', 'req-failed', {
+        requestId: 'req-failed',
+        question: 'Analyze flaky test failure',
+        error: 'timeout',
+        createdAtUtc: '2026-04-01T10:05:00.000Z',
+        inputTokens: 50,
+        outputTokens: 0,
+        thinkingTokens: 0,
+        promptCacheTokens: 0,
+        promptEvalTokens: 20,
+        requestDurationMs: 1000,
+      });
+      seeder.artifact('request_abandoned', 'req-abandoned', {
+        requestId: 'req-abandoned',
+        terminalState: 'failed',
+        reason: 'Abandoned because a new request started before terminal status.',
+        createdAtUtc: '2026-04-01T10:10:00.000Z',
+        promptCharacterCount: 1200,
+        outputTokensTotal: 12,
+      });
+      seeder.repoSearchRun({
+        requestId: 'req-repo',
+        prompt: 'find failing test',
+        repoRoot: tempRoot,
+        createdAtUtc: '2026-04-01T10:15:00.000Z',
+        transcriptText: [
+          JSON.stringify({ at: '2026-04-01T10:15:01.000Z', kind: 'turn_new_messages', turn: 1, messages: [{ role: 'user', content: 'find failing test' }], promptTokenCount: 10 }),
+          JSON.stringify({ at: '2026-04-01T10:15:02.000Z', kind: 'turn_model_response', text: '{"action":"finish"}', thinkingText: 'reasoning' }),
+          JSON.stringify({ at: '2026-04-01T10:15:03.000Z', kind: 'run_done', scorecard: { verdict: 'fail' } }),
+        ].join('\n') + '\n',
+        requestDurationMs: 2000,
+      });
+    } finally {
+      seeder.close();
+    }
+
     const health = await requestJson(`${baseUrl}/status`);
     assert.equal(health.statusCode, 200);
 

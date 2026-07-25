@@ -408,7 +408,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     promptTokenSpan?.end({ promptTokenCount: this.promptTokenCount });
     this.debugRecorder.record({
       kind: 'planner_prompt',
-      prompt: this.prompt,
+      promptChars: this.prompt.length,
       promptTokenCount: this.promptTokenCount,
       toolCallCount: this.toolResults.length,
       plannerBudget: this.promptBudget,
@@ -1430,7 +1430,6 @@ export async function invokePlannerMode(options: InvokePlannerModeOptions): Prom
   const debugRecorder = createPlannerDebugRecorder({
     requestId: options.requestId,
     question: options.question,
-    inputText: options.inputText,
     sourceKind: options.sourceKind,
     commandExitCode: options.commandExitCode,
     commandText: options.debugCommand,

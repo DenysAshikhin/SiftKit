@@ -1525,6 +1525,43 @@ async function waitForAsyncExpectation(expectation: () => void | Promise<void>, 
   }
 }
 
+const PLANNER_DEBUG_DUMP_PATTERN = /^planner_debug_.*\.json$/u;
+
+function listPlannerDebugDumpNames(): string[] {
+  const plannerLogsPath = getPlannerLogsPath();
+  fs.mkdirSync(plannerLogsPath, { recursive: true });
+  return fs.readdirSync(plannerLogsPath).filter((entry) => PLANNER_DEBUG_DUMP_PATTERN.test(entry));
+}
+
+async function waitForNewPlannerDebugDumpPath(before: Set<string>): Promise<string> {
+  let added: string[] = [];
+  await waitForAsyncExpectation(() => {
+    added = listPlannerDebugDumpNames().filter((entry) => !before.has(entry));
+    assert.equal(added.length, 1);
+  });
+  return path.join(getPlannerLogsPath(), added[0] ?? '');
+}
+
+/**
+ * The planner debug payload lives in run_logs, not on disk; the dump file only
+ * exists because the stub status server materializes deferred artifacts, and the
+ * terminal-metadata post that carries them is fire-and-forget. So the dump has to
+ * be observed while the stub is still accepting requests — waiting for it after
+ * `withStubServer` returns races the close. Returns the new dump's path.
+ */
+async function withStubServerCapturingPlannerDebugDump(
+  fn: (server: StubServer) => void | Promise<void>,
+  options: StubServerOptions = {},
+): Promise<string> {
+  const before = new Set(listPlannerDebugDumpNames());
+  let dumpPath = '';
+  await withStubServer(async (server) => {
+    await fn(server);
+    dumpPath = await waitForNewPlannerDebugDumpPath(before);
+  }, options);
+  return dumpPath;
+}
+
 function runPowerShellScript(scriptPath: string): void {
   const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
     encoding: 'utf8',
@@ -1570,6 +1607,7 @@ export {
   readIdleSummarySnapshots, getIdleSummaryBlock, getFreePort,
   toSingleQuotedPowerShellLiteral, writeManagedLlamaScripts, writeManagedLlamaLauncher,
   waitForAsyncExpectation, runPowerShellScript, applyManagedScriptConfig,
+  listPlannerDebugDumpNames, withStubServerCapturingPlannerDebugDump,
 };
 
 export type { RuntimeStatusResponse, LlamaModelsResponse, HealthCheckResponse, StatusPostAck };

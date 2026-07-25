@@ -32,13 +32,16 @@ import {
 import {
   buildStatusRequestLogBody,
   ensureRunLogsTable,
-  getStatusArtifactPath,
   upsertRunArtifactPayload,
 } from './dashboard-runs.js';
+import {
+  getStatusArtifactId,
+  getStatusArtifactUri,
+  type DeferredArtifact,
+} from '../state/status-artifacts.js';
 import type {
   ActiveRunState,
   DatabaseInstance,
-  DeferredArtifact,
   ModelRequestQueueDiagnostics,
   ModelRequestLock,
   ModelRequestWaitOptions,
@@ -179,53 +182,11 @@ export function logAbandonedRun(ctx: ServerContext, runState: ActiveRunState, no
 }
 
 function persistDeferredArtifact(ctx: ServerContext, artifact: DeferredArtifact): void {
-  const artifactPath = getStatusArtifactPath({
-    requestId: artifact.artifactRequestId,
-    taskKind: null,
-    terminalState: null,
-    errorMessage: null,
-    promptCharacterCount: null,
-    promptTokenCount: null,
-    rawInputCharacterCount: null,
-    chunkInputCharacterCount: null,
-    budgetSource: null,
-    inputCharactersPerContextToken: null,
-    chunkThresholdCharacters: null,
-    chunkIndex: null,
-    chunkTotal: null,
-    chunkPath: null,
-    inputTokens: null,
-    outputCharacterCount: null,
-    outputTokens: null,
-    toolTokens: null,
-    thinkingTokens: null,
-    toolStats: null,
-    promptCacheTokens: null,
-    promptEvalTokens: null,
-    speculativeAcceptedTokens: null,
-    speculativeGeneratedTokens: null,
-    requestDurationMs: null,
-    providerDurationMs: null,
-    wallDurationMs: null,
-    stdinWaitMs: null,
-    serverPreflightMs: null,
-    lockWaitMs: null,
-    statusRunningMs: null,
-    terminalStatusMs: null,
-    artifactType: artifact.artifactType,
-    artifactRequestId: artifact.artifactRequestId,
-    artifactPayload: artifact.artifactPayload,
-    deferredMetadata: null,
-    deferredArtifacts: null,
-  });
-  if (!artifactPath) {
-    throw new Error(`Unsupported deferred artifact type: ${artifact.artifactType}`);
-  }
   upsertRuntimeJsonArtifact({
-    id: `status:${artifact.artifactType}:${artifact.artifactRequestId}`,
+    id: getStatusArtifactId(artifact.artifactType, artifact.artifactRequestId),
     artifactKind: `status_${artifact.artifactType}`,
     requestId: artifact.artifactRequestId,
-    title: artifactPath,
+    title: getStatusArtifactUri(artifact.artifactType, artifact.artifactRequestId),
     payload: artifact.artifactPayload,
   });
   upsertRunArtifactPayload({

@@ -5,6 +5,7 @@ import { PassThrough } from 'node:stream';
 import { InferenceRunRecorder } from '../src/status-server/inference-run-recorder.js';
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
 import { LlamaRunRecorder } from '../src/status-server/llama-run-recorder.js';
+import { getManagedLlamaSpeculativeMetricsTracker } from '../src/status-server/managed-llama-speculative-tracker.js';
 import { readInferenceRun, readInferenceRunLogTextByStream } from '../src/state/inference-runs.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { withTempEnv } from './_runtime-helpers.js';
@@ -162,6 +163,40 @@ for (const backend of ['exl3', 'llama'] as const) {
     });
   });
 }
+
+test('finalize evicts the speculative metrics tracker after persisting its metrics', async () => {
+  await withRecorderDatabase(async (flushQueue) => {
+    const recorder = new LlamaRunRecorder({
+      backend: 'llama',
+      purpose: 'tracker-eviction-test',
+      entrypointPath: null,
+      baseUrl: null,
+      flushQueue,
+    });
+
+    recorder.appendLine(
+      'engine_stderr',
+      'llama_decode: statistics spec: #gen tokens = 40, #acc tokens = 30\n',
+    );
+    assert.ok(
+      getManagedLlamaSpeculativeMetricsTracker(recorder.runId),
+      'tracker must exist while the run is live',
+    );
+
+    recorder.finalize({ status: 'stopped', exitCode: 0 });
+
+    assert.equal(
+      getManagedLlamaSpeculativeMetricsTracker(recorder.runId),
+      null,
+      'tracker must be evicted once the run has finalized',
+    );
+
+    const run = readInferenceRun(recorder.runId);
+    assert.ok(run, 'run row must exist');
+    assert.equal(run.speculativeGeneratedTokens, 40);
+    assert.equal(run.speculativeAcceptedTokens, 30);
+  });
+});
 
 test('chunk flushes reach the queue only once the recorder enables it', async () => {
   await withRecorderDatabase(async (flushQueue) => {

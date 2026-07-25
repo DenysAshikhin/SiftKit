@@ -16,7 +16,8 @@ import { buildPresetRequestDefaults } from '../../inference-presets/preset-compa
 import { getInferenceRequestCompatibility } from '../../inference-presets/request-compatibility.js';
 import { getActiveModelPreset, getManagedLlamaInternalBaseUrl, readConfig } from '../config-store.js';
 import { serverLogger } from '../server-logger.js';
-import { readBody, sendJson } from '../http-utils.js';
+import { toError } from '../../lib/errors.js';
+import { readBody, sendBodyReadError, sendJson } from '../http-utils.js';
 import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.js';
 import {
   acquireModelRequestWithWait,
@@ -223,7 +224,7 @@ class WorkloadEndpoint implements RouteEndpoint {
       if (match.pathname === CHAT_PATH) chatMessageCount = validateChatBody(bodyText);
       else requestText = readTokenizeText(bodyText, match.pathname);
     } catch (error) {
-      sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+      sendBodyReadError(res, toError(error), { error: error instanceof Error ? error.message : String(error) });
       return;
     }
     const lock = await acquireModelRequestWithWait(ctx, 'inference_passthrough', req, res);

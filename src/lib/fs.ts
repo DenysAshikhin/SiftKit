@@ -2,10 +2,8 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
   renameSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -90,15 +88,6 @@ export function readTrimmedFileText(filePath: string): string {
   return readFileSync(filePath, 'utf8').trim();
 }
 
-export function listFiles(targetPath: string): string[] {
-  if (!existsSync(targetPath)) {
-    return [];
-  }
-  return readdirSync(targetPath, { withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .map((entry) => join(targetPath, entry.name));
-}
-
 export function writeText(targetPath: string, content: string): void {
   ensureDirectory(dirname(targetPath));
   writeFileSync(targetPath, content, 'utf8');
@@ -110,14 +99,6 @@ export function safeReadJson(targetPath: string): JsonObject | null {
     return parsed.success ? parsed.data : null;
   } catch {
     return null;
-  }
-}
-
-export function getIsoDateFromStat(targetPath: string): string {
-  try {
-    return statSync(targetPath).mtime.toISOString();
-  } catch {
-    return new Date(0).toISOString();
   }
 }
 
