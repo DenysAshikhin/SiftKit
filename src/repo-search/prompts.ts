@@ -322,6 +322,7 @@ export function buildAgentSystemPrompt(repoRoot: string, options?: {
     '- Read a file before editing it; re-read after large edits to confirm the result.',
     '- Use `run` to verify changes (build, tests, lint) whenever a relevant check exists.',
     '- `git` is read-only here; staging and committing are not your job unless the task explicitly asks.',
+    '- Before calling finish, re-read the original task and any referenced spec or plan, compare the completed work against every requirement, and verify nothing was missed.',
     '- Finish with a short summary of what changed and any follow-ups — plain prose, not file:line anchor bullets.',
     startupScanLine,
     ...buildAgentsMdPromptLines(repoRoot, options?.includeAgentsMd),

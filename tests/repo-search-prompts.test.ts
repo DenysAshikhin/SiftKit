@@ -220,6 +220,19 @@ test('buildAgentSystemPrompt documents automatic validation trimming and full ou
   assert.match(prompt, /complete output is required/u);
 });
 
+test('buildAgentSystemPrompt requires a completion review against the task and referenced plans', () => {
+  const prompt = buildAgentSystemPrompt(process.cwd(), {
+    includeAgentsMd: false,
+    includeRepoFileListing: true,
+  });
+
+  assert.match(prompt, /Before calling finish/u);
+  assert.match(prompt, /re-read the original task/u);
+  assert.match(prompt, /referenced spec or plan/u);
+  assert.match(prompt, /every requirement/u);
+  assert.match(prompt, /verify nothing was missed/u);
+});
+
 test('buildAgentSystemPrompt injects agents.md when present and enabled', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-agent-prompt-'));
   try {
