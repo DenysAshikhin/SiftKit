@@ -1,5 +1,6 @@
 import { ensureStatusServerReachable } from '../config/index.js';
 import {
+  readRepoAgentApprovalMode,
   validateRepoAgentTokens,
   validateRepoSearchTokens,
   type CliRunOptions,
@@ -65,10 +66,10 @@ export async function runCli(options: CliRunOptions): Promise<number> {
     }
     if (commandName === 'repo-agent') {
       validateRepoAgentTokens(commandArgs);
-      // Approval is on unless --no-approval; a prompting run needs a TTY. Fail before
-      // the server preflight. --help must stay usable, so skip the gate for it.
+      // Interactive and auto modes both prompt on escalation; only --approval off
+      // skips the TTY requirement. Fail before the server preflight; --help stays usable.
       if (!commandHelpRequested) {
-        assertStdinIsTty(!commandArgs.includes('--no-approval'), options.stdin, 'repo-agent approval mode');
+        assertStdinIsTty(readRepoAgentApprovalMode(commandArgs) !== 'off', options.stdin, 'repo-agent approval mode');
       }
     }
     if (commandName === 'repo-search' && commandHelpRequested) {

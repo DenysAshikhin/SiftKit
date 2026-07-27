@@ -25,7 +25,7 @@ test('summary-family request whose marker matches the active agent run is reject
         repoRoot: process.cwd(),
         model: 'mock-model',
         maxTurns: 2,
-        approval: false,
+      approval: 'off',
         availableModels: ['mock-model'],
         simulateWorkMs: AGENT_LOCK_HOLD_MS,
         mockResponses: ['{\"action\":\"finish\",\"output\":\"done\"}'],

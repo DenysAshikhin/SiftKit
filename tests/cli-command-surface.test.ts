@@ -36,14 +36,18 @@ test('global backend command is absent from the public command surface', () => {
 });
 
 test('validateRepoAgentTokens accepts value + boolean flags and rejects unknown', () => {
-  assert.doesNotThrow(() => validateRepoAgentTokens(['--prompt', 'x', '--model', 'm', '--log-file', 'l', '--progress', '--no-approval']));
+  assert.doesNotThrow(() => validateRepoAgentTokens(['--prompt', 'x', '--model', 'm', '--log-file', 'l', '--progress', '--approval', 'auto']));
   assert.throws(() => validateRepoAgentTokens(['--prompt']), /Missing value for repo-agent option/u);
+  assert.throws(() => validateRepoAgentTokens(['--approval']), /Missing value for repo-agent option/u);
+  assert.throws(() => validateRepoAgentTokens(['--no-approval']), /Unknown option for repo-agent/u);
   assert.throws(() => validateRepoAgentTokens(['--interactive']), /Unknown option for repo-agent/u);
 });
 
-test('parseArguments maps --no-approval to noApproval', () => {
-  assert.equal(parseArguments(['--prompt', 'x', '--no-approval']).noApproval, true);
-  assert.equal(parseArguments(['--prompt', 'x']).noApproval, undefined);
+test('parseArguments maps --approval to approvalMode and rejects invalid values', () => {
+  assert.equal(parseArguments(['--prompt', 'x', '--approval', 'auto']).approvalMode, 'auto');
+  assert.equal(parseArguments(['--prompt', 'x', '--approval', 'off']).approvalMode, 'off');
+  assert.equal(parseArguments(['--prompt', 'x']).approvalMode, undefined);
+  assert.throws(() => parseArguments(['--approval', 'bogus']), /Invalid --approval value: bogus/u);
 });
 
 test('repo-agent is a public server-dependent command', () => {

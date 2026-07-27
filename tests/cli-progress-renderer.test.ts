@@ -52,3 +52,19 @@ test('forCli renders per-turn lines only when showProgress is true', () => {
   CliProgressRenderer.forCli(hidden.stream, 'repo-search', false).render({ kind: 'core_start' });
   assert.equal(hidden.read(), '');
 });
+
+test('renders approval_auto events with verdict, toolName, and reason', () => {
+  const stderr = makeCaptureStream();
+  const renderer = new CliProgressRenderer(stderr.stream, 'repo-agent');
+  renderer.render({
+    kind: 'approval_auto',
+    turn: 5,
+    maxTurns: 24,
+    toolName: 'write',
+    verdict: 'approve',
+    reason: 'task-scoped write',
+  });
+  const lines = stderr.read().trim().split('\n');
+  assert.equal(lines.length, 1);
+  assert.match(lines[0] ?? '', /repo-agent t5\/24 auto-approval approve: write — task-scoped write/u);
+});

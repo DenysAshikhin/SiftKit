@@ -29,7 +29,8 @@ export async function runRepoTaskCli(options: ResolvedCliArgs & {
     options.stdout.write(
       options.mode === 'agent'
         ? `Usage: ${REPO_AGENT_SYNOPSIS}\n`
-          + 'Approval is on by default; every write/edit/run awaits your decision. --no-approval runs autonomously.\n'
+          + 'Approval is interactive by default; every write/edit/run awaits your decision.\n'
+          + '--approval auto lets the model self-review each command and escalate unsure ones to you; --approval off runs autonomously.\n'
           + '--progress streams per-turn telemetry to stderr.\n'
         : `Usage: ${REPO_SEARCH_SYNOPSIS}\n`
           + 'Shortcut: siftkit -prompt "find x y z in this repo"\n'
@@ -46,7 +47,8 @@ export async function runRepoTaskCli(options: ResolvedCliArgs & {
 
   const stdin = options.stdin;
   const opLabel = options.mode === 'agent' ? 'repo-agent' : 'repo-search';
-  const approvalOn = options.mode === 'agent' ? parsed.noApproval !== true : parsed.interactive === true;
+  const approvalMode = parsed.approvalMode ?? 'interactive';
+  const approvalOn = options.mode === 'agent' ? approvalMode !== 'off' : parsed.interactive === true;
   assertStdinIsTty(approvalOn, stdin, options.mode === 'agent' ? 'repo-agent approval mode' : '--interactive');
   const approvalPrompter = approvalOn && stdin
     ? new CliApprovalPrompter({ input: stdin, output: options.stderr })
@@ -60,7 +62,7 @@ export async function runRepoTaskCli(options: ResolvedCliArgs & {
         repoRoot: process.cwd(),
         model: parsed.model,
         logFile: parsed.logFile,
-        approval: parsed.noApproval !== true,
+        approval: approvalMode,
       }, renderer, approvalPrompter)
     : await client.requestRepoSearch({
         prompt,

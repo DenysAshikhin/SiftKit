@@ -54,6 +54,11 @@ export class CliProgressRenderer {
     if (kind === 'llm_start' || kind === 'llm_end') {
       return `${turnPrefix}${kind} prompt=${formatTokens(reader.number('promptTokenCount'))}`.trim();
     }
+    if (kind === 'approval_auto') {
+      const verdict = reader.optionalString('verdict') || '';
+      const reason = reader.optionalString('reason') || '';
+      return `${turnPrefix}auto-approval ${verdict}: ${reader.optionalString('toolName') || ''} — ${reason}`.trim();
+    }
     return `${turnPrefix}${kind}`.trim();
   }
 }

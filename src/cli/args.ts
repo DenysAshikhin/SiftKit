@@ -1,6 +1,10 @@
 import { inspect } from 'node:util';
 import type { JsonSerializable } from '../lib/json-types.js';
 import {
+  ApprovalModeSchema,
+  type ApprovalMode,
+} from '../repo-search/engine/approval-gate.js';
+import {
   normalizeCliReducerProfile,
   normalizeCliRiskLevel,
 } from './request-normalizers.js';
@@ -13,7 +17,7 @@ export const REPO_SEARCH_SYNOPSIS =
 
 /** Canonical repo-agent synopsis — single source for `help` and `repo-agent --help`. */
 export const REPO_AGENT_SYNOPSIS =
-  'siftkit repo-agent --prompt "make change x" [--model <model>] [--log-file <path>] [--no-approval] [--progress]';
+  'siftkit repo-agent --prompt "make change x" [--model <model>] [--log-file <path>] [--approval <interactive|auto|off>] [--progress]';
 
 export type CliRunOptions = {
   argv: string[];
@@ -66,7 +70,7 @@ export type ParsedArgs = {
   shell?: string;
   wait?: boolean;
   interactive?: boolean;
-  noApproval?: boolean;
+  approvalMode?: ApprovalMode;
   progress?: boolean;
 };
 
@@ -109,8 +113,8 @@ export function validateRepoSearchTokens(tokens: string[]): void {
 }
 
 export function validateRepoAgentTokens(tokens: string[]): void {
-  const flagsWithValues = new Set(['--prompt', '-prompt', '--model', '--log-file']);
-  const booleanFlags = new Set(['--no-approval', '--progress']);
+  const flagsWithValues = new Set(['--prompt', '-prompt', '--model', '--log-file', '--approval']);
+  const booleanFlags = new Set(['--progress']);
   const helpFlags = new Set(['-h', '--h', '--help', '-help']);
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
@@ -131,6 +135,20 @@ export function validateRepoAgentTokens(tokens: string[]): void {
       throw new Error(`Unknown option for repo-agent: ${token}`);
     }
   }
+}
+
+function parseApprovalModeValue(raw: string | undefined): ApprovalMode {
+  const parsed = ApprovalModeSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(`Invalid --approval value: ${raw ?? '(missing)'}. Expected interactive, auto, or off.`);
+  }
+  return parsed.data;
+}
+
+/** Pre-parse peek used by dispatch's fail-fast TTY gate. Defaults to interactive. */
+export function readRepoAgentApprovalMode(tokens: string[]): ApprovalMode {
+  const index = tokens.indexOf('--approval');
+  return index === -1 ? 'interactive' : parseApprovalModeValue(tokens[index + 1]);
 }
 
 export function parseArguments(tokens: string[]): ParsedArgs {
@@ -243,8 +261,8 @@ export function parseArguments(tokens: string[]): ParsedArgs {
       case '--interactive':
         parsed.interactive = true;
         break;
-      case '--no-approval':
-        parsed.noApproval = true;
+      case '--approval':
+        parsed.approvalMode = parseApprovalModeValue(tokens[++index]);
         break;
       case '--progress':
         parsed.progress = true;
