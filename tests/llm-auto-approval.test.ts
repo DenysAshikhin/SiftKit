@@ -84,7 +84,7 @@ test('auto mode: reviewer approve executes the write with no human involvement',
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llm-auto-approve-'));
   try {
     const writer = new RecordingWriter(new AlwaysAbortProvider());
-    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000 });
+    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
     writer.gate = gate;
     const { events: logEvents, logger } = makeRecordingLogger();
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
@@ -112,7 +112,7 @@ test('auto mode: reviewer deny blocks the write and feeds the reason to the mode
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llm-auto-deny-'));
   try {
     const writer = new RecordingWriter(new AlwaysAbortProvider());
-    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000 });
+    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
       '{"action":"write","path":"out.txt","content":"hello"}',
@@ -134,7 +134,7 @@ test('auto mode: unsure escalates to the human gate, which approves', async () =
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llm-auto-unsure-'));
   try {
     const writer = new RecordingWriter(new AlwaysApproveProvider());
-    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000 });
+    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
       '{"action":"write","path":"out.txt","content":"hello"}',
@@ -153,34 +153,42 @@ test('auto mode: unsure escalates to the human gate, which approves', async () =
   }
 });
 
-test('auto mode: read-only tools fast-path without spending a verdict call', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llm-auto-fastpath-'));
-  try {
-    fs.writeFileSync(path.join(tempRoot, 'a.txt'), 'content-a', 'utf8');
-    const writer = new RecordingWriter(new AlwaysAbortProvider());
-    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000 });
-    writer.gate = gate;
-    // No verdict mock present: if a verdict call were made it would consume the finish action and fail the run.
-    const result = await runTaskLoop(makeTask('read a file'), makeAutoLoopOptions(tempRoot, [
-      '{"action":"read","path":"a.txt"}',
-      '{"action":"finish","output":"done"}',
-    ], writer, gate));
-    assert.equal(result.finalOutput, 'done');
-    const auto = writer.ofKind('approval_auto');
-    assert.equal(auto.length, 1);
-    assert.equal(auto[0].verdict, 'approve');
-    assert.equal(auto[0].reason, 'read-only tool');
-    assert.equal(writer.ofKind('approval_request').length, 0);
-  } finally {
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-  }
-});
+for (const testCase of [
+  { toolName: 'read', action: '{"action":"read","path":"a.txt"}' },
+  { toolName: 'grep', action: '{"action":"grep","pattern":"content-a","path":"a.txt","literal":true}' },
+  { toolName: 'find', action: '{"action":"find","pattern":"a.txt","path":"."}' },
+  { toolName: 'ls', action: '{"action":"ls","path":"."}' },
+]) {
+  test(`auto mode: ${testCase.toolName} fast-paths without spending a verdict call`, async () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llm-auto-fastpath-'));
+    try {
+      fs.writeFileSync(path.join(tempRoot, 'a.txt'), 'content-a', 'utf8');
+      const writer = new RecordingWriter(new AlwaysAbortProvider());
+      const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
+      writer.gate = gate;
+      // No verdict mock present: if a verdict call were made it would consume the finish action and fail the run.
+      const result = await runTaskLoop(makeTask('read a file'), makeAutoLoopOptions(tempRoot, [
+        testCase.action,
+        '{"action":"finish","output":"done"}',
+      ], writer, gate));
+      assert.equal(result.finalOutput, 'done');
+      const auto = writer.ofKind('approval_auto');
+      assert.equal(auto.length, 1);
+      assert.equal(auto[0].toolName, testCase.toolName);
+      assert.equal(auto[0].verdict, 'approve');
+      assert.equal(auto[0].reason, 'read-only tool');
+      assert.equal(writer.ofKind('approval_request').length, 0);
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+}
 
 test('auto mode: unparseable verdicts (after one retry) escalate to the human gate', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llm-auto-badverdict-'));
   try {
     const writer = new RecordingWriter(new AlwaysApproveProvider());
-    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000 });
+    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
       '{"action":"write","path":"out.txt","content":"hello"}',

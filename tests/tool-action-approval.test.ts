@@ -49,7 +49,7 @@ test('approve lets a write execute; the file exists afterwards', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-approval-write-'));
   try {
     const writer = new AutoRespondingWriter(() => ({ kind: 'approve' }));
-    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000 });
+    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeLoopOptions(tempRoot, [
       '{"action":"write","path":"out.txt","content":"hello"}',
@@ -70,7 +70,7 @@ test('deny blocks execution, feeds the reason to the model, and the run continue
     const writer = new AutoRespondingWriter((event) => (
       event.toolName === 'write' ? { kind: 'deny', reason: 'not that file' } : { kind: 'approve' }
     ));
-    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000 });
+    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeLoopOptions(tempRoot, [
       '{"action":"write","path":"out.txt","content":"hello"}',
@@ -92,7 +92,7 @@ test('denied read never executes (no read output recorded)', async () => {
   try {
     fs.writeFileSync(path.join(tempRoot, 'secret.txt'), 'secret-content', 'utf8');
     const writer = new AutoRespondingWriter(() => ({ kind: 'deny', reason: '' }));
-    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000 });
+    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('read a file'), makeLoopOptions(tempRoot, [
       '{"action":"read","path":"secret.txt"}',
@@ -110,7 +110,7 @@ test('abort throws out of the run', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-approval-abort-'));
   try {
     const writer = new AutoRespondingWriter(() => ({ kind: 'abort' }));
-    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000 });
+    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
     writer.gate = gate;
     await assert.rejects(
       runTaskLoop(makeTask('read'), makeLoopOptions(tempRoot, [

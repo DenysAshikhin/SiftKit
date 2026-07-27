@@ -3,16 +3,13 @@ import { parseJsonValueText } from '../../lib/json.js';
 import type { ProgressWriter } from '../../lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../types.js';
 import type { PlannerActionResponse } from '../planner-protocol.js';
-import type { ApprovalDecision, ApprovalRequester, ApprovalRequestInput } from './approval-gate.js';
+import { isApprovalExemptReadOnlyTool, type ApprovalDecision, type ApprovalRequester, type ApprovalRequestInput } from './approval-gate.js';
 
 const ApprovalVerdictSchema = z.object({
   verdict: z.enum(['approve', 'deny', 'unsure']),
   reason: z.string(),
 });
 type ApprovalVerdict = z.infer<typeof ApprovalVerdictSchema>;
-
-/** Tools that cannot mutate state or reach the network; approved without a verdict call. */
-export const AUTO_APPROVED_TOOL_NAMES = new Set(['read', 'grep', 'find', 'ls']);
 
 /** Narrow view of TaskLoop: issues one ephemeral, schema-constrained verdict request. */
 export type ApprovalVerdictRequester = {
@@ -48,7 +45,7 @@ export class LlmApprovalGate {
   }) {}
 
   async request(input: ApprovalRequestInput): Promise<ApprovalDecision> {
-    if (AUTO_APPROVED_TOOL_NAMES.has(input.toolName)) {
+    if (isApprovalExemptReadOnlyTool(input.toolName)) {
       this.emitVerdict(input, 'approve', 'read-only tool');
       return { kind: 'approve' };
     }

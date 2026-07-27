@@ -21,6 +21,17 @@ export type ApprovalMode = z.infer<typeof ApprovalModeSchema>;
 
 export type ApprovalRequestInput = { turn: number; toolName: string; command: string };
 
+const APPROVAL_EXEMPT_READ_ONLY_TOOLS = new Set<string>([
+  'read',
+  'grep',
+  'find',
+  'ls',
+]);
+
+export function isApprovalExemptReadOnlyTool(toolName: string): boolean {
+  return APPROVAL_EXEMPT_READ_ONLY_TOOLS.has(toolName);
+}
+
 /** Anything that can answer an approval request: the human gate or the LLM decorator. */
 export type ApprovalRequester = {
   request(input: ApprovalRequestInput): Promise<ApprovalDecision>;
@@ -53,15 +64,18 @@ export class ApprovalGate {
   private readonly requestId: string;
   private readonly progressWriter: ProgressWriter<RepoSearchProgressEvent>;
   private readonly timeoutMs: number;
+  private readonly bypassReadOnlyTools: boolean;
 
   constructor(options: {
     requestId: string;
     progressWriter: ProgressWriter<RepoSearchProgressEvent>;
     timeoutMs: number;
+    bypassReadOnlyTools: boolean;
   }) {
     this.requestId = options.requestId;
     this.progressWriter = options.progressWriter;
     this.timeoutMs = options.timeoutMs;
+    this.bypassReadOnlyTools = options.bypassReadOnlyTools;
   }
 
   getRequestId(): string {
@@ -69,6 +83,9 @@ export class ApprovalGate {
   }
 
   request(input: ApprovalRequestInput): Promise<ApprovalDecision> {
+    if (this.bypassReadOnlyTools && isApprovalExemptReadOnlyTool(input.toolName)) {
+      return Promise.resolve({ kind: 'approve' });
+    }
     const approvalId = randomUUID();
     return new Promise<ApprovalDecision>((resolve, reject) => {
       const timeoutHandle = setTimeout(() => {

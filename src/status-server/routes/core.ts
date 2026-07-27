@@ -892,6 +892,7 @@ abstract class RepoTaskEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
         requestId: admission.requestId,
         progressWriter,
         timeoutMs: readApprovalTimeoutMs(),
+        bypassReadOnlyTools: this.mode === 'agent',
       })
       : undefined;
     if (approvalGate) {
