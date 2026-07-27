@@ -5,6 +5,7 @@
     "rootDir": "."
   },
   "include": [
+    "src/types/better-sqlite3.d.ts",
     "scripts/**/*.ts"
   ],
   "exclude": [
