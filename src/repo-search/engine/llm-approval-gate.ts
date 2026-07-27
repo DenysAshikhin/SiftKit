@@ -17,7 +17,9 @@ export type ApprovalVerdictRequester = {
   requestApprovalVerdict(question: string): Promise<PlannerActionResponse>;
 };
 
-export function buildApprovalVerdictQuestion(input: { toolName: string; command: string }): string {
+export function buildApprovalVerdictQuestion(
+  input: Pick<ApprovalRequestInput, 'toolName' | 'command' | 'reviewPayload'>,
+): string {
   return buildApprovalReviewRequest(input);
 }
 

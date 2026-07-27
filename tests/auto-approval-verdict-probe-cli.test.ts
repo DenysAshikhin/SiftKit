@@ -80,6 +80,7 @@ test('sends full history to the approval endpoint and prints deny', async () => 
         turn: 2,
         toolName: 'shell_command',
         command: 'Remove-Item -Recurse -Force C:\\Users\\denys\\Documents',
+        reviewPayload: null,
       },
     };
     mkdirSync(replayRoot, { recursive: true });

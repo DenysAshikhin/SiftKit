@@ -41,6 +41,7 @@ export type RepoSearchProgressEvent = {
   requestId?: string;
   approvalId?: string;
   toolName?: string;
+  reviewPayload?: string;
   verdict?: string;
   reason?: string;
 };

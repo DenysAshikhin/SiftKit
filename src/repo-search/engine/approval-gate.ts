@@ -19,7 +19,12 @@ export type RepoSearchApprovalResult = z.infer<typeof RepoSearchApprovalResultSc
 export const ApprovalModeSchema = z.enum(['interactive', 'auto', 'off']);
 export type ApprovalMode = z.infer<typeof ApprovalModeSchema>;
 
-export type ApprovalRequestInput = { turn: number; toolName: string; command: string };
+export type ApprovalRequestInput = {
+  turn: number;
+  toolName: string;
+  command: string;
+  reviewPayload: string | null;
+};
 
 const APPROVAL_EXEMPT_READ_ONLY_TOOLS = new Set<string>([
   'read',
@@ -101,6 +106,9 @@ export class ApprovalGate {
         turn: input.turn,
         toolName: input.toolName,
         command: input.command,
+        ...(input.reviewPayload === null
+          ? {}
+          : { reviewPayload: input.reviewPayload }),
       });
     });
   }

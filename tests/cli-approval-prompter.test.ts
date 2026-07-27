@@ -10,14 +10,26 @@ function makePrompter(): { prompter: CliApprovalPrompter; input: PassThrough; ou
   return { prompter: new CliApprovalPrompter({ input, output: output.stream }), input, output };
 }
 
-const EVENT = { kind: 'approval_request', requestId: 'r1', approvalId: 'a1', turn: 3, maxTurns: 24, toolName: 'write', command: 'write path=src/x.ts' };
+const EVENT = {
+  kind: 'approval_request',
+  requestId: 'r1',
+  approvalId: 'a1',
+  turn: 3,
+  maxTurns: 24,
+  toolName: 'write',
+  command: 'write path=src/x.ts',
+  reviewPayload: '{\n  "content": "destructive-sentinel"\n}',
+};
 
 test('a approves', async () => {
   const { prompter, input, output } = makePrompter();
   const pending = prompter.promptDecision(EVENT);
   input.write('a\n');
   assert.deepEqual(await pending, { kind: 'approve' });
-  assert.match(output.read(), /t3\/24 wants to run: write path=src\/x\.ts/u);
+  const rendered = output.read();
+  assert.match(rendered, /t3\/24 wants to run: write path=src\/x\.ts/u);
+  assert.match(rendered, /Proposed edit\/write payload:/u);
+  assert.equal((rendered.match(/destructive-sentinel/gu) ?? []).length, 1);
 });
 
 test('d asks for a reason and denies with it', async () => {

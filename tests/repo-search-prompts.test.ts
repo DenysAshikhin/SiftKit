@@ -221,6 +221,16 @@ test('buildAgentSystemPrompt includes the stable scoped approval-review policy',
   assert.match(prompt, /non-recursive deletion/u);
   assert.match(prompt, /narrowly scoped, non-destructive repository writes/u);
   assert.match(prompt, /"verdict":"approve"\|"deny"\|"unsure"/u);
+  assert.match(prompt, /inspect the complete.*edit.*write.*payload/isu);
+  assert.match(prompt, /buried among.*benign lines/isu);
+  assert.match(prompt, /destructive filesystem|repository.*history/isu);
+  assert.match(prompt, /credential|secret.*transmission/isu);
+  assert.match(prompt, /remote execution|command injection/isu);
+  assert.match(prompt, /package scripts|hooks|workflows|startup/isu);
+  assert.match(prompt, /approval|authentication|authorization|validation|auditing/isu);
+  assert.match(prompt, /obfuscation/iu);
+  assert.match(prompt, /destructive migrations|disabling.*tests|safety checks/isu);
+  assert.match(prompt, /missing.*malformed.*truncated.*too large.*unsure/isu);
 });
 
 test('buildTaskSystemPrompt excludes repo-agent approval-review policy', () => {

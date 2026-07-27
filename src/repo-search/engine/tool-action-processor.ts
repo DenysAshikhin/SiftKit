@@ -12,6 +12,7 @@ import {
   isRepoSearchNativeToolName,
   type ToolAction,
 } from '../planner-protocol.js';
+import { buildApprovalReviewPayload } from '../approval-review-policy.js';
 import { estimateTokenCount } from '../prompt-budget.js';
 import type { TaskCommand } from '../prompts.js';
 import {
@@ -232,6 +233,10 @@ export class ToolActionProcessor {
         turn,
         toolName: normalizedToolName,
         command,
+        reviewPayload: buildApprovalReviewPayload({
+          toolName: normalizedToolName,
+          args: toolAction.args,
+        }),
       });
       if (decision.kind === 'abort') {
         throw new Error('Aborted by user.');

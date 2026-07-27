@@ -740,6 +740,17 @@ test('buildRepoSearchProgressLogBody formats command and llm progress bodies', (
     }),
     { event: 'command', fields: 't1/2  prompt=88tok  elapsed=0s  git grep -n "dashboard" .', severity: 'normal' },
   );
+  const approvalLogBody = buildRepoSearchProgressLogBody({
+    kind: 'approval_request',
+    turn: 1,
+    maxTurns: 2,
+    command: 'edit path="src/x.ts" edits=1',
+    reviewPayload: 'persistent-log-secret-sentinel',
+  });
+  assert.equal(
+    JSON.stringify(approvalLogBody).includes('persistent-log-secret-sentinel'),
+    false,
+  );
   assert.deepEqual(
     buildRepoSearchProgressLogBody({
       kind: 'llm_start',

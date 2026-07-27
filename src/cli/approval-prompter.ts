@@ -19,7 +19,11 @@ export class CliApprovalPrompter {
     const maxTurns = reader.number('maxTurns');
     const turnLabel = turn !== null && maxTurns !== null ? `t${turn}/${maxTurns} ` : '';
     const command = reader.optionalString('command') || reader.optionalString('toolName') || '<unknown>';
+    const reviewPayload = reader.optionalString('reviewPayload');
     this.output.write(`repo-search ${turnLabel}wants to run: ${command}\n`);
+    if (reviewPayload !== undefined) {
+      this.output.write(`Proposed edit/write payload:\n${reviewPayload}\n`);
+    }
 
     // readline's async iterator buffers lines internally, so input that arrives
     // before a prompt is awaited is not lost.

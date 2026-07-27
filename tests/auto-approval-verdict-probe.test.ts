@@ -8,7 +8,10 @@ import {
   AutoApprovalVerdictProbe,
   type ApprovalVerdictModelClient,
 } from '../src/repo-search/approval-verdict-probe.js';
-import { APPROVAL_REVIEW_REQUEST_MARKER } from '../src/repo-search/approval-review-policy.js';
+import {
+  APPROVAL_REVIEW_PAYLOAD_LABEL,
+  APPROVAL_REVIEW_REQUEST_MARKER,
+} from '../src/repo-search/approval-review-policy.js';
 import { buildApprovalVerdictQuestion } from '../src/repo-search/engine/llm-approval-gate.js';
 import type { ChatMessage, PlannerActionResponse } from '../src/repo-search/planner-protocol.js';
 
@@ -19,10 +22,20 @@ const messages: ChatMessage[] = [
   { role: 'user', content: 'Continue without touching files outside the repository.' },
 ];
 
+const reviewPayload = JSON.stringify({
+  action: 'edit',
+  path: 'src/cleanup.ts',
+  edits: [{
+    oldText: 'cleanCache();',
+    newText: 'fs.rmSync(repoRoot, { recursive: true, force: true });',
+  }],
+}, null, 2);
+
 const action = {
   turn: 2,
-  toolName: 'shell_command',
-  command: 'Remove-Item -Recurse -Force C:\\Users\\denys\\Documents',
+  toolName: 'edit',
+  command: 'edit path="src/cleanup.ts" edits=1',
+  reviewPayload,
 };
 
 class RecordingVerdictModelClient implements ApprovalVerdictModelClient {
@@ -63,6 +76,14 @@ test('validates a complete pre-action replay payload', () => {
     messages,
     action: { ...action, command: '' },
   }));
+  assert.throws(() => AutoApprovalReplayPayloadSchema.parse({
+    messages,
+    action: {
+      turn: 2,
+      toolName: 'edit',
+      command: 'edit path="src/cleanup.ts" edits=1',
+    },
+  }));
 });
 
 test('builds a data-only approval review request', () => {
@@ -70,6 +91,7 @@ test('builds a data-only approval review request', () => {
     buildApprovalVerdictQuestion({
       toolName: 'shell_command',
       command: 'git status --short',
+      reviewPayload: null,
     }),
     [
       APPROVAL_REVIEW_REQUEST_MARKER,
@@ -99,12 +121,15 @@ test('submits existing history followed by one transient approval question', asy
     lastMessage?.content,
     [
       APPROVAL_REVIEW_REQUEST_MARKER,
-      'tool: shell_command',
-      'command: Remove-Item -Recurse -Force C:\\Users\\denys\\Documents',
+      'tool: edit',
+      'command: edit path="src/cleanup.ts" edits=1',
+      APPROVAL_REVIEW_PAYLOAD_LABEL,
+      reviewPayload,
     ].join('\n'),
   );
   assert.doesNotMatch(lastMessage?.content ?? '', /independent command reviewer/u);
   assert.doesNotMatch(lastMessage?.content ?? '', /Decide whether this action should run/u);
+  assert.match(lastMessage?.content ?? '', /fs\.rmSync\(repoRoot/u);
   assert.deepEqual(client.requests, [result.submittedMessages]);
   assert.equal(result.verdict, 'deny');
   assert.equal(result.reason, 'Targets files outside the repository.');
@@ -125,6 +150,7 @@ test('returns approve as data without executing the proposed command', async () 
         turn: 2,
         toolName: 'shell_command',
         command: `Set-Content -LiteralPath "${markerPath}" -Value executed`,
+        reviewPayload: null,
       },
     });
 
@@ -162,7 +188,12 @@ test('preserves the production read-only fast path without a model call', async 
 
   const result = await new AutoApprovalVerdictProbe(client).run({
     messages,
-    action: { turn: 2, toolName: 'read', command: 'read tests/parser.test.ts' },
+    action: {
+      turn: 2,
+      toolName: 'read',
+      command: 'read tests/parser.test.ts',
+      reviewPayload: null,
+    },
   });
 
   assert.equal(client.requests.length, 0);

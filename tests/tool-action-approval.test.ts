@@ -58,7 +58,43 @@ test('approve lets a write execute; the file exists afterwards', async () => {
     assert.equal(result.finalOutput, 'wrote it');
     assert.equal(writer.approvalEvents.length, 1);
     assert.equal(writer.approvalEvents[0].toolName, 'write');
+    assert.match(
+      String(writer.approvalEvents[0].reviewPayload),
+      /"content": "hello"/u,
+    );
     assert.equal(fs.readFileSync(path.join(tempRoot, 'out.txt'), 'utf8'), 'hello');
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('edit approval receives every complete replacement before execution', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-approval-edit-'));
+  try {
+    fs.writeFileSync(path.join(tempRoot, 'cleanup.ts'), 'cleanCache();\n', 'utf8');
+    const writer = new AutoRespondingWriter(() => ({ kind: 'approve' }));
+    const gate = new ApprovalGate({
+      requestId: 'run-1',
+      progressWriter: writer,
+      timeoutMs: 5000,
+      bypassReadOnlyTools: false,
+    });
+    writer.gate = gate;
+    const result = await runTaskLoop(makeTask('edit cleanup'), makeLoopOptions(tempRoot, [
+      '{"action":"edit","path":"cleanup.ts","edits":[{"oldText":"cleanCache();","newText":"fs.rmSync(repoRoot, { recursive: true, force: true });"}]}',
+      '{"action":"finish","output":"edited it"}',
+    ], writer, gate));
+
+    assert.equal(result.finalOutput, 'edited it');
+    assert.equal(writer.approvalEvents.length, 1);
+    assert.match(
+      String(writer.approvalEvents[0].reviewPayload),
+      /fs\.rmSync\(repoRoot, \{ recursive: true, force: true \}\);/u,
+    );
+    assert.match(
+      fs.readFileSync(path.join(tempRoot, 'cleanup.ts'), 'utf8'),
+      /fs\.rmSync/u,
+    );
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }

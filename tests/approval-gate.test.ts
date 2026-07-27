@@ -13,7 +13,12 @@ class CollectingWriter extends ProgressWriter<RepoSearchProgressEvent> {
 test('request emits approval_request and resolves with the submitted decision', async () => {
   const writer = new CollectingWriter();
   const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
-  const pending = gate.request({ turn: 2, toolName: 'write', command: 'write path=src/x.ts' });
+  const pending = gate.request({
+    turn: 2,
+    toolName: 'write',
+    command: 'write path=src/x.ts',
+    reviewPayload: null,
+  });
   assert.equal(writer.events.length, 1);
   const event = writer.events[0];
   assert.equal(event.kind, 'approval_request');
@@ -29,7 +34,12 @@ test('request emits approval_request and resolves with the submitted decision', 
 test('deny decision carries its reason', async () => {
   const writer = new CollectingWriter();
   const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
-  const pending = gate.request({ turn: 1, toolName: 'git', command: 'git log' });
+  const pending = gate.request({
+    turn: 1,
+    toolName: 'git',
+    command: 'git log',
+    reviewPayload: null,
+  });
   gate.submit(String(writer.events[0].approvalId), { kind: 'deny', reason: 'wrong branch' });
   assert.deepEqual(await pending, { kind: 'deny', reason: 'wrong branch' });
 });
@@ -38,7 +48,12 @@ test('unknown or already-resolved approvalId returns false', async () => {
   const writer = new CollectingWriter();
   const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
   assert.equal(gate.submit('nope', { kind: 'approve' }), false);
-  const pending = gate.request({ turn: 1, toolName: 'ls', command: 'ls' });
+  const pending = gate.request({
+    turn: 1,
+    toolName: 'ls',
+    command: 'ls',
+    reviewPayload: null,
+  });
   const approvalId = String(writer.events[0].approvalId);
   assert.equal(gate.submit(approvalId, { kind: 'approve' }), true);
   await pending;
@@ -49,7 +64,12 @@ test('timeout rejects with a distinct error', async () => {
   const writer = new CollectingWriter();
   const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 30, bypassReadOnlyTools: false });
   await assert.rejects(
-    gate.request({ turn: 1, toolName: 'read', command: 'read path=a.ts' }),
+    gate.request({
+      turn: 1,
+      toolName: 'read',
+      command: 'read path=a.ts',
+      reviewPayload: null,
+    }),
     /Approval request timed out after 30 ms\./u,
   );
 });
@@ -58,7 +78,12 @@ for (const toolName of ['read', 'grep', 'find', 'ls']) {
   test(`bypassReadOnlyTools: true — ${toolName} returns approve immediately with no event`, async () => {
     const writer = new CollectingWriter();
     const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: true });
-    const decision = gate.request({ turn: 1, toolName, command: `${toolName} path=test` });
+    const decision = gate.request({
+      turn: 1,
+      toolName,
+      command: `${toolName} path=test`,
+      reviewPayload: null,
+    });
     const event = writer.events[0];
     if (event) {
       gate.submit(String(event.approvalId), { kind: 'approve' });
@@ -75,10 +100,37 @@ for (const { toolName, command } of [
   test(`bypassReadOnlyTools: true — ${toolName} still emits approval_request`, async () => {
     const writer = new CollectingWriter();
     const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: true });
-    const pending = gate.request({ turn: 1, toolName, command });
+    const pending = gate.request({
+      turn: 1,
+      toolName,
+      command,
+      reviewPayload: null,
+    });
     assert.equal(writer.events.length, 1);
     assert.equal(writer.events[0].kind, 'approval_request');
     gate.submit(String(writer.events[0].approvalId), { kind: 'approve' });
     assert.deepEqual(await pending, { kind: 'approve' });
   });
 }
+
+test('manual approval event carries the transient review payload but the decision does not', async () => {
+  const writer = new CollectingWriter();
+  const gate = new ApprovalGate({
+    requestId: 'run-1',
+    progressWriter: writer,
+    timeoutMs: 5000,
+    bypassReadOnlyTools: false,
+  });
+  const reviewPayload = '{\n  "content": "manual-review-sentinel"\n}';
+  const pending = gate.request({
+    turn: 1,
+    toolName: 'write',
+    command: 'write path="src/x.ts" bytes=22',
+    reviewPayload,
+  });
+
+  assert.equal(writer.events.length, 1);
+  assert.equal(writer.events[0].reviewPayload, reviewPayload);
+  gate.submit(String(writer.events[0].approvalId), { kind: 'approve' });
+  assert.deepEqual(await pending, { kind: 'approve' });
+});

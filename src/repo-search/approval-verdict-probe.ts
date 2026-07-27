@@ -38,6 +38,7 @@ export const AutoApprovalActionSchema = z.object({
   turn: z.number().int().positive(),
   toolName: z.string().min(1),
   command: z.string().min(1),
+  reviewPayload: z.string().nullable(),
 });
 
 export const AutoApprovalReplayPayloadSchema = z.object({

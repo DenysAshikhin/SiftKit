@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { requestApprovalVerdict } from '../src/repo-search/planner-protocol.js';
 import { buildApprovalVerdictJsonSchema } from '../src/providers/structured-output-schema.js';
-import { ApprovalModeSchema } from '../src/repo-search/engine/approval-gate.js';
+import {
+  ApprovalModeSchema,
+  RepoSearchApprovalRequestSchema,
+} from '../src/repo-search/engine/approval-gate.js';
 
 test('ApprovalModeSchema accepts the three modes and rejects booleans', () => {
   assert.equal(ApprovalModeSchema.parse('interactive'), 'interactive');
@@ -10,6 +13,22 @@ test('ApprovalModeSchema accepts the three modes and rejects booleans', () => {
   assert.equal(ApprovalModeSchema.parse('off'), 'off');
   assert.equal(ApprovalModeSchema.safeParse(false).success, false);
   assert.equal(ApprovalModeSchema.safeParse(true).success, false);
+});
+
+test('approval submissions discard reviewer payloads', () => {
+  assert.deepEqual(
+    RepoSearchApprovalRequestSchema.parse({
+      requestId: 'request-1',
+      approvalId: 'approval-1',
+      decision: 'approve',
+      reviewPayload: 'must-not-survive',
+    }),
+    {
+      requestId: 'request-1',
+      approvalId: 'approval-1',
+      decision: 'approve',
+    },
+  );
 });
 
 test('buildApprovalVerdictJsonSchema constrains verdict to approve|deny|unsure', () => {

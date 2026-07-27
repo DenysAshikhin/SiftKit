@@ -4,7 +4,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { runTaskLoop } from '../src/repo-search/engine.js';
-import { APPROVAL_REVIEW_REQUEST_MARKER } from '../src/repo-search/approval-review-policy.js';
+import {
+  APPROVAL_REVIEW_PAYLOAD_LABEL,
+  APPROVAL_REVIEW_REQUEST_MARKER,
+} from '../src/repo-search/approval-review-policy.js';
 import { ApprovalGate } from '../src/repo-search/engine/approval-gate.js';
 import { ProgressWriter } from '../src/lib/progress-writer.js';
 import { INTERACTIVE_REPO_TOOL_NAMES, resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
@@ -101,10 +104,15 @@ test('auto mode: reviewer approve executes the write with no human involvement',
     assert.equal(auto[0].verdict, 'approve');
     assert.equal(auto[0].toolName, 'write');
     assert.equal(auto[0].requestId, 'run-1');
+    assert.equal(Object.hasOwn(auto[0], 'reviewPayload'), false);
     // Transcript purity: the reviewer question never enters the transcript.
     const transcriptEvents = logEvents.filter((event) => event.kind === 'turn_new_messages');
     assert.equal(
       JSON.stringify(transcriptEvents).includes(APPROVAL_REVIEW_REQUEST_MARKER),
+      false,
+    );
+    assert.equal(
+      JSON.stringify(transcriptEvents).includes(APPROVAL_REVIEW_PAYLOAD_LABEL),
       false,
     );
   } finally {
@@ -128,6 +136,7 @@ test('auto mode: reviewer deny blocks the write and feeds the reason to the mode
     const denied = result.commands.find((command) => command.safe === false);
     assert.ok(denied);
     assert.match(String(denied.reason), /auto-reviewer: not needed for the task/u);
+    assert.equal(String(denied.output).includes(APPROVAL_REVIEW_PAYLOAD_LABEL), false);
     assert.equal(result.safetyRejects, 1);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -152,6 +161,11 @@ test('auto mode: unsure escalates to the human gate, which approves', async () =
     assert.ok(kinds.indexOf('approval_request') !== -1);
     assert.ok(kinds.indexOf('approval_auto') < kinds.indexOf('approval_request'));
     assert.equal(writer.ofKind('approval_auto')[0].verdict, 'unsure');
+    assert.equal(Object.hasOwn(writer.ofKind('approval_auto')[0], 'reviewPayload'), false);
+    assert.match(
+      String(writer.ofKind('approval_request')[0].reviewPayload),
+      /"content": "hello"/u,
+    );
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
