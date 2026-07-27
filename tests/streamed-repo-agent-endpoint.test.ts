@@ -61,14 +61,14 @@ test('POST /repo-agent (approval on): approves a write via the shared /repo-sear
   }
 });
 
-test('POST /repo-agent with approval:false runs autonomously with no approval frames', async () => {
+test('POST /repo-agent with approval:"off" runs autonomously with no approval frames', async () => {
   const harness = await startHarness('siftkit-repo-agent-auto-');
   try {
     const written = path.join(process.cwd(), 'agent-endpoint-auto.txt');
     const response = await requestSse(`${harness.baseUrl}/repo-agent`, {
       body: {
         prompt: 'write a file', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 4,
-        approval: false,
+        approval: 'off',
         availableModels: ['mock-model'],
         mockResponses: [
           '{"action":"write","path":"agent-endpoint-auto.txt","content":"auto"}',
@@ -82,6 +82,56 @@ test('POST /repo-agent with approval:false runs autonomously with no approval fr
     assert.equal(fs.readFileSync(written, 'utf8'), 'auto');
     fs.rmSync(written, { force: true });
     assert.equal(response.progress.filter((event) => event.kind === 'approval_request').length, 0);
+  } finally {
+    await harness.close();
+  }
+});
+
+test('POST /repo-agent with approval:"auto": reviewer approves; no approval_request frames', async () => {
+  const harness = await startHarness('siftkit-repo-agent-llm-auto-');
+  try {
+    const written = path.join(process.cwd(), 'agent-endpoint-llm-auto.txt');
+    const response = await requestSse(`${harness.baseUrl}/repo-agent`, {
+      body: {
+        prompt: 'write a file', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 4,
+        approval: 'auto',
+        availableModels: ['mock-model'],
+        mockResponses: [
+          '{"action":"write","path":"agent-endpoint-llm-auto.txt","content":"auto"}',
+          '{"verdict":"approve","reason":"task-scoped write"}',
+          '{"action":"finish","output":"done"}',
+        ],
+        mockCommandResults: {},
+      },
+      timeoutMs: 20_000,
+    });
+    assert.ok(response.result, response.rawBody);
+    assert.equal(fs.readFileSync(written, 'utf8'), 'auto');
+    fs.rmSync(written, { force: true });
+    assert.equal(response.progress.filter((event) => event.kind === 'approval_request').length, 0);
+    const autoFrames = response.progress.filter((event) => event.kind === 'approval_auto');
+    assert.equal(autoFrames.length, 1);
+    assert.equal(autoFrames[0].verdict, 'approve');
+  } finally {
+    await harness.close();
+  }
+});
+
+test('POST /repo-agent with a boolean approval value fails loudly', async () => {
+  const harness = await startHarness('siftkit-repo-agent-bool-approval-');
+  try {
+    const response = await requestSse(`${harness.baseUrl}/repo-agent`, {
+      body: {
+        prompt: 'write a file', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 4,
+        approval: false,
+        availableModels: ['mock-model'],
+        mockResponses: ['{"action":"finish","output":"unreachable"}'],
+        mockCommandResults: {},
+      },
+      timeoutMs: 20_000,
+    });
+    assert.equal(response.result, null);
+    assert.match(String(response.errorMessage), /approval must be one of: interactive, auto, off/u);
   } finally {
     await harness.close();
   }

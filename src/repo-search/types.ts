@@ -8,7 +8,7 @@ export type JsonLogger = {
   write: (event: Record<string, JsonSerializable>) => void;
 };
 import type { RetainedWebToolCall } from '../web-search/web-tool-command.js';
-import type { ApprovalGate } from './engine/approval-gate.js';
+import type { ApprovalGate, ApprovalMode } from './engine/approval-gate.js';
 import type { ChatMessage } from './planner-protocol.js';
 import { ScorecardSchema } from './engine.js';
 
@@ -76,6 +76,7 @@ export type RepoSearchExecutionRequest = {
   retainedWebToolCalls?: RetainedWebToolCall[];
   progressWriter?: ProgressWriter<RepoSearchProgressEvent>;
   approvalGate?: ApprovalGate;
+  approvalMode?: ApprovalMode;
   abortSignal?: AbortSignal;
 };
 

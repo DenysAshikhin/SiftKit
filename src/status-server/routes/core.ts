@@ -66,9 +66,11 @@ import {
 } from '../../repo-search/planner-protocol.js';
 import {
   ApprovalGate,
+  ApprovalModeSchema,
   RepoSearchApprovalRequestSchema,
   toApprovalDecision,
 } from '../../repo-search/engine/approval-gate.js';
+import type { ApprovalMode } from '../../repo-search/engine/approval-gate.js';
 import { StatusPresetRunner } from '../preset-runner.js';
 import {
   LoggedRepoSearchSseProgressWriter,
@@ -877,9 +879,10 @@ abstract class RepoTaskEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
     const requestedAllowedTools = Array.isArray(parsedBody.allowedTools)
       ? parsedBody.allowedTools.map((value) => String(value))
       : undefined;
-    // Agent always gets the full surface; approval is on unless approval===false.
+    // Agent always gets the full surface; approval mode is interactive|auto|off (default interactive).
     // Search keeps its existing interactive/sanitize logic.
-    const approvalOn = this.mode === 'agent' ? parsedBody.approval !== false : interactive;
+    const approvalMode = this.resolveApprovalMode(parsedBody, interactive);
+    const approvalOn = approvalMode !== 'off';
     const allowedTools = (this.mode === 'agent' || interactive)
       ? [...INTERACTIVE_REPO_TOOL_NAMES]
       : sanitizeNonInteractiveAllowedTools(requestedAllowedTools);
@@ -916,6 +919,7 @@ abstract class RepoTaskEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
         abortSignal: stream.abortSignal,
         progressWriter,
         approvalGate,
+        approvalMode,
       });
       RepoSearchResponseSanityChecker.assertSafeToSend(result);
       return result;
@@ -924,6 +928,17 @@ abstract class RepoTaskEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
         ctx.approvalGates.delete(admission.requestId);
       }
     }
+  }
+
+  private resolveApprovalMode(parsedBody: JsonObject, interactive: boolean): ApprovalMode {
+    if (this.mode !== 'agent') {
+      return interactive ? 'interactive' : 'off';
+    }
+    const parsed = ApprovalModeSchema.safeParse(parsedBody.approval ?? 'interactive');
+    if (!parsed.success) {
+      throw new Error('approval must be one of: interactive, auto, off.');
+    }
+    return parsed.data;
   }
 }
 
