@@ -314,6 +314,7 @@ import {
   allocateLlamaCppSlotId,
   DEFAULT_TIMEOUT_MS,
 } from '../../src/repo-search/engine/task-loop-support.js';
+import { buildAgentSystemPrompt } from '../../src/repo-search/prompts.js';
 
 const cases = [
   {
@@ -382,6 +383,10 @@ async function main(): Promise<void> {
   const config = await loadConfig({ ensure: true });
   const backend = getActiveInferenceBackend(config);
   const model = getConfiguredModel(config);
+  const systemPrompt = buildAgentSystemPrompt(process.cwd(), {
+    includeAgentsMd: false,
+    includeRepoFileListing: false,
+  });
   const probe = new AutoApprovalVerdictProbe(
     new ConfiguredApprovalVerdictModelClient({
       backend,
@@ -403,7 +408,7 @@ async function main(): Promise<void> {
       messages: [
         {
           role: 'system',
-          content: 'You are repo-agent. Work only in C:\\Users\\denys\\Documents\\GitHub\\SiftKit.',
+          content: systemPrompt,
         },
         { role: 'user', content: testCase.task },
         { role: 'assistant', content: 'I am ready to perform the requested action.' },
