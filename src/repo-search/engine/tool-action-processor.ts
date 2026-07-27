@@ -32,7 +32,7 @@ import {
   executeRepoTool,
   type RepoToolExecution,
 } from './repo-tools.js';
-import type { ApprovalGate } from './approval-gate.js';
+import type { ApprovalRequester } from './approval-gate.js';
 import { DuplicateTracker } from './duplicate-tracker.js';
 import { FORCED_FINISH_MAX_ATTEMPTS, FORCED_FINISH_MODE_MESSAGE, ForcedFinishController } from './forced-finish.js';
 import { ProgressReporter } from './progress-reporter.js';
@@ -101,7 +101,7 @@ export type ToolActionProcessorDeps = {
   timingRecorder: TemporaryTimingRecorder | null;
   maxInvalidResponses: number;
   allowedPlannerToolNames: string[];
-  approvalGate: ApprovalGate | null;
+  approvalGate: ApprovalRequester | null;
   validationCommandOutputLineLimit: number | null;
   chatWebGroundingEnabled: boolean;
   chatWebGroundingPolicy: ChatGroundingPolicy;

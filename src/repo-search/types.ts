@@ -41,6 +41,8 @@ export type RepoSearchProgressEvent = {
   requestId?: string;
   approvalId?: string;
   toolName?: string;
+  verdict?: string;
+  reason?: string;
 };
 
 export type RepoSearchMockCommandResult = {

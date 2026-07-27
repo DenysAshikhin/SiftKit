@@ -19,6 +19,7 @@ import { ModelJson } from '../../lib/model-json.js';
 import { buildIgnorePolicy, type IgnorePolicy } from '../command-safety.js';
 import {
   getRepoSearchToolNamesForParsing,
+  requestApprovalVerdict as requestApprovalVerdictRequest,
   requestRepoSearchPlannerProtocolAction,
   resolveRepoSearchPlannerToolDefinitions,
   toProtocolChatMessages,
@@ -80,6 +81,8 @@ import { ToolStatsRecorder } from './tool-stats.js';
 import { TranscriptManager } from './transcript-manager.js';
 import { TurnBudget } from './turn-budget.js';
 import { ThinkingRetentionPolicy } from '../../thinking-retention-policy.js';
+import type { ApprovalRequester } from './approval-gate.js';
+import { LlmApprovalGate } from './llm-approval-gate.js';
 
 export {
   DEFAULT_MAX_INVALID_RESPONSES,
@@ -267,7 +270,7 @@ export class TaskLoop {
       timingRecorder: options.timingRecorder || null,
       maxInvalidResponses: this.maxInvalidResponses,
       allowedPlannerToolNames: this.allowedPlannerToolNames,
-      approvalGate: options.approvalGate ?? null,
+      approvalGate: this.buildApprovalRequester(options),
       validationCommandOutputLineLimit:
         options.validationCommandOutputLineLimit ?? null,
       chatWebGroundingEnabled: this.chatWebGroundingEnabled,
@@ -293,6 +296,41 @@ export class TaskLoop {
       commands: this.commands,
       counters: this.counters,
     });
+  }
+
+  private buildApprovalRequester(options: RunTaskLoopOptions): ApprovalRequester | null {
+    if (options.approvalMode !== 'auto') {
+      return options.approvalGate ?? null;
+    }
+    if (!options.approvalGate) {
+      throw new Error('approvalMode "auto" requires an approvalGate for escalation.');
+    }
+    return new LlmApprovalGate({
+      requestId: options.approvalGate.getRequestId(),
+      humanGate: options.approvalGate,
+      verdictRequester: this,
+      progressWriter: options.progressWriter ?? new SilentProgressWriter(),
+    });
+  }
+
+  /** Ephemeral verdict call: transcript prefix + one user question; never appended to the transcript. */
+  async requestApprovalVerdict(question: string): Promise<PlannerActionResponse> {
+    const response = await requestApprovalVerdictRequest({
+      backend: this.options.config ? getActiveInferenceBackend(this.options.config) : undefined,
+      baseUrl: this.options.baseUrl,
+      model: this.options.model,
+      messages: [...this.transcript.getMessages(), { role: 'user', content: question }],
+      slotId: this.slotId,
+      timeoutMs: this.options.timeoutMs || DEFAULT_TIMEOUT_MS,
+      mockResponses: this.options.mockResponses,
+      mockResponseIndex: this.mockResponseIndex,
+      abortSignal: this.options.abortSignal,
+      logger: this.options.logger || null,
+    });
+    if (typeof response.nextMockResponseIndex === 'number') {
+      this.mockResponseIndex = response.nextMockResponseIndex;
+    }
+    return response;
   }
 
   async run(): Promise<TaskResult> {

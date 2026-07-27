@@ -64,6 +64,10 @@ export class ApprovalGate {
     this.timeoutMs = options.timeoutMs;
   }
 
+  getRequestId(): string {
+    return this.requestId;
+  }
+
   request(input: ApprovalRequestInput): Promise<ApprovalDecision> {
     const approvalId = randomUUID();
     return new Promise<ApprovalDecision>((resolve, reject) => {
