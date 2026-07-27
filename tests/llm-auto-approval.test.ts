@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { runTaskLoop } from '../src/repo-search/engine.js';
+import { APPROVAL_REVIEW_REQUEST_MARKER } from '../src/repo-search/approval-review-policy.js';
 import { ApprovalGate } from '../src/repo-search/engine/approval-gate.js';
 import { ProgressWriter } from '../src/lib/progress-writer.js';
 import { INTERACTIVE_REPO_TOOL_NAMES, resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
@@ -102,7 +103,10 @@ test('auto mode: reviewer approve executes the write with no human involvement',
     assert.equal(auto[0].requestId, 'run-1');
     // Transcript purity: the reviewer question never enters the transcript.
     const transcriptEvents = logEvents.filter((event) => event.kind === 'turn_new_messages');
-    assert.equal(JSON.stringify(transcriptEvents).includes('independent command reviewer'), false);
+    assert.equal(
+      JSON.stringify(transcriptEvents).includes(APPROVAL_REVIEW_REQUEST_MARKER),
+      false,
+    );
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }

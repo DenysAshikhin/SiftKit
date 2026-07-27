@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { z } from '../lib/zod.js';
 import { RUN_SHELL_LABEL } from '../lib/powershell.js';
 import type { IgnorePolicy } from './command-safety.js';
+import { APPROVAL_REVIEW_SYSTEM_PROMPT_LINES } from './approval-review-policy.js';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/validation-command-output-policy.js';
 
 // ---------------------------------------------------------------------------
@@ -296,6 +297,8 @@ export function buildAgentSystemPrompt(repoRoot: string, options?: {
   return [
     'You are an expert coding assistant operating inside SiftKit, a repository coding agent.',
     'You help by reading files, searching the repository, editing code, writing new files, and running commands.',
+    '',
+    ...APPROVAL_REVIEW_SYSTEM_PROMPT_LINES,
     '',
     'Return ONE valid JSON object per turn — no markdown fences.',
     'Action shape: {"action":"<tool>", ...args}. For independent read-only lookups, use one {"action":"tool_batch","calls":[...]}.',

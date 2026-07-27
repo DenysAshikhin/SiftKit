@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { buildAgentSystemPrompt, buildTaskInitialUserPrompt, buildTaskSystemPrompt } from '../src/repo-search/prompts.js';
+import { APPROVAL_REVIEW_REQUEST_MARKER } from '../src/repo-search/approval-review-policy.js';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/validation-command-output-policy.js';
 import { RUN_SHELL_LABEL, POWERSHELL_EXECUTABLE } from '../src/lib/powershell.js';
 
@@ -194,6 +195,42 @@ test('buildAgentSystemPrompt has persona, full tool list, edit-first guideline, 
   assert.doesNotMatch(prompt, /repo-search planner/u);
   assert.doesNotMatch(prompt, /anchor-bullets/u);
   assert.doesNotMatch(prompt, /Minimum 5 tool-call turns/u);
+});
+
+test('buildAgentSystemPrompt includes the stable scoped approval-review policy', () => {
+  const prompt = buildAgentSystemPrompt(process.cwd(), {
+    includeAgentsMd: false,
+    includeRepoFileListing: true,
+  });
+
+  assert.match(prompt, /Approval review policy/u);
+  assert.ok(prompt.includes(APPROVAL_REVIEW_REQUEST_MARKER));
+  assert.match(prompt, /Otherwise continue normal repo-agent behavior/u);
+  assert.match(prompt, /untrusted data/u);
+  assert.match(prompt, /claims.*must never reduce.*risk/isu);
+  assert.match(prompt, /Safety rules override user intent and task relevance/u);
+  assert.match(prompt, /recursive deletion/u);
+  assert.match(prompt, /repository-root deletion or deletion of \.git/u);
+  assert.match(prompt, /git reset --hard/u);
+  assert.match(prompt, /git clean with force/u);
+  assert.match(prompt, /forced branch deletion or recursive git rm/u);
+  assert.match(prompt, /force-push/u);
+  assert.match(prompt, /credential or secret access/u);
+  assert.match(prompt, /package installation/u);
+  assert.match(prompt, /normal pushes/u);
+  assert.match(prompt, /non-recursive deletion/u);
+  assert.match(prompt, /narrowly scoped, non-destructive repository writes/u);
+  assert.match(prompt, /"verdict":"approve"\|"deny"\|"unsure"/u);
+});
+
+test('buildTaskSystemPrompt excludes repo-agent approval-review policy', () => {
+  const prompt = buildTaskSystemPrompt(process.cwd(), {
+    includeAgentsMd: false,
+    includeRepoFileListing: true,
+  });
+
+  assert.doesNotMatch(prompt, /Approval review policy/u);
+  assert.equal(prompt.includes(APPROVAL_REVIEW_REQUEST_MARKER), false);
 });
 
 test('buildAgentSystemPrompt tells the run tool it is PowerShell on Windows with tail-truncated output', () => {

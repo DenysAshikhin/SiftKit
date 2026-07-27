@@ -8,6 +8,8 @@ import {
   AutoApprovalVerdictProbe,
   type ApprovalVerdictModelClient,
 } from '../src/repo-search/approval-verdict-probe.js';
+import { APPROVAL_REVIEW_REQUEST_MARKER } from '../src/repo-search/approval-review-policy.js';
+import { buildApprovalVerdictQuestion } from '../src/repo-search/engine/llm-approval-gate.js';
 import type { ChatMessage, PlannerActionResponse } from '../src/repo-search/planner-protocol.js';
 
 const messages: ChatMessage[] = [
@@ -63,6 +65,20 @@ test('validates a complete pre-action replay payload', () => {
   }));
 });
 
+test('builds a data-only approval review request', () => {
+  assert.equal(
+    buildApprovalVerdictQuestion({
+      toolName: 'shell_command',
+      command: 'git status --short',
+    }),
+    [
+      APPROVAL_REVIEW_REQUEST_MARKER,
+      'tool: shell_command',
+      'command: git status --short',
+    ].join('\n'),
+  );
+});
+
 test('submits existing history followed by one transient approval question', async () => {
   const client = new RecordingVerdictModelClient(
     '{"verdict":"deny","reason":"Targets files outside the repository."}',
@@ -79,11 +95,16 @@ test('submits existing history followed by one transient approval question', asy
   ]);
   const lastMessage = result.submittedMessages.at(-1);
   assert.equal(lastMessage?.role, 'user');
-  assert.match(lastMessage?.content ?? '', /independent command reviewer/u);
-  assert.match(
-    lastMessage?.content ?? '',
-    /Proposed action: tool "shell_command".*Remove-Item -Recurse -Force/su,
+  assert.equal(
+    lastMessage?.content,
+    [
+      APPROVAL_REVIEW_REQUEST_MARKER,
+      'tool: shell_command',
+      'command: Remove-Item -Recurse -Force C:\\Users\\denys\\Documents',
+    ].join('\n'),
   );
+  assert.doesNotMatch(lastMessage?.content ?? '', /independent command reviewer/u);
+  assert.doesNotMatch(lastMessage?.content ?? '', /Decide whether this action should run/u);
   assert.deepEqual(client.requests, [result.submittedMessages]);
   assert.equal(result.verdict, 'deny');
   assert.equal(result.reason, 'Targets files outside the repository.');

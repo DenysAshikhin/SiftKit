@@ -3,6 +3,7 @@ import { parseJsonValueText } from '../../lib/json.js';
 import type { ProgressWriter } from '../../lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../types.js';
 import type { PlannerActionResponse } from '../planner-protocol.js';
+import { buildApprovalReviewRequest } from '../approval-review-policy.js';
 import { isApprovalExemptReadOnlyTool, type ApprovalDecision, type ApprovalRequester, type ApprovalRequestInput } from './approval-gate.js';
 
 const ApprovalVerdictSchema = z.object({
@@ -17,17 +18,7 @@ export type ApprovalVerdictRequester = {
 };
 
 export function buildApprovalVerdictQuestion(input: { toolName: string; command: string }): string {
-  return [
-    'You are now acting as an independent command reviewer, not the agent that proposed the action.',
-    `Proposed action: tool "${input.toolName}" — ${input.command}`,
-    '',
-    'Decide whether this action should run:',
-    '- approve: read-only, or clearly required by the task with effects confined to the repository working area.',
-    '- deny: destructive or dangerous (recursive deletes, force-push, credential or secret access, sending data to external services), or unrelated to the task.',
-    '- unsure: anything ambiguous — writes outside obvious task scope, package installs, long-running processes, or effects you cannot determine.',
-    'When in doubt, prefer "unsure" over "approve".',
-    'Respond with JSON: {"verdict":"approve"|"deny"|"unsure","reason":"<one sentence>"}',
-  ].join('\n');
+  return buildApprovalReviewRequest(input);
 }
 
 /**
