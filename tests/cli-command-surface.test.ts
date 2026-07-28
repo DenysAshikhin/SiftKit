@@ -39,9 +39,9 @@ test('parseArguments maps --approval to approvalMode and rejects invalid values'
   assert.throws(() => parseArguments(['--approval', 'bogus']), /Invalid --approval value: bogus/u);
 });
 
-test('repo-agent is a public server-dependent command', () => {
+test('repo-agent owns start preflight so local control commands stay offline', () => {
   const invocation = CLI_COMMAND_CATALOG.resolve(['repo-agent']);
   assert.equal(invocation.command.name, 'repo-agent');
   assert.equal(invocation.command.exposed, true);
-  assert.equal(invocation.command.serverDependent, true);
+  assert.equal(invocation.command.serverDependent, false);
 });

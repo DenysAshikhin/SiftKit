@@ -36,14 +36,14 @@ test('unknown first token resolves to implicit summary and preserves all tokens'
 });
 
 test('registered public command exposes its server and model-lock behavior', () => {
-  const invocation = CLI_COMMAND_CATALOG.resolve(['repo-agent', '--prompt', 'inspect']);
+  const invocation = CLI_COMMAND_CATALOG.resolve(['repo-agent', 'inspect']);
   assert.deepEqual(invocation.command, {
     name: 'repo-agent',
     exposed: true,
-    serverDependent: true,
+    serverDependent: false,
     modelLock: true,
   });
-  assert.deepEqual(invocation.args, ['--prompt', 'inspect']);
+  assert.deepEqual(invocation.args, ['inspect']);
 });
 
 test('catalog lists every exposed command in definition order', () => {
