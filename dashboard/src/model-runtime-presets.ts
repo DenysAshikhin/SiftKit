@@ -43,13 +43,6 @@ export function applyModelPresetSelection(config: DashboardConfig, presetId: str
   config.Server.ModelPresets.ActivePresetId = preset.id;
 }
 
-export function updateActiveModelPreset(
-  config: DashboardConfig,
-  updater: (preset: DashboardModelRuntimePreset) => void,
-): void {
-  updater(getActiveModelPreset(config));
-}
-
 export function addModelPreset(config: DashboardConfig): string {
   const presets = config.Server.ModelPresets.Presets;
   const activePreset = getActiveModelPreset(config);

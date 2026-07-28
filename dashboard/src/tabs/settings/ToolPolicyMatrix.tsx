@@ -1,6 +1,11 @@
 import React from 'react';
-import { buildToolPolicyMatrixRows, toggleToolInMode } from '../../lib/tool-policy-matrix';
-import type { DashboardConfig, DashboardOperationModeAllowedTools, DashboardPresetOperationMode, DashboardPresetToolName } from '../../types';
+import { buildToolPolicyMatrixRows } from '../../lib/tool-policy-matrix';
+import type { ToolPolicySettingsActions } from '../../settings-action-groups';
+import type {
+  DashboardOperationModeAllowedTools,
+  DashboardPresetOperationMode,
+  DashboardPresetToolName,
+} from '../../types';
 
 const MODE_COLUMNS: { mode: DashboardPresetOperationMode; label: string }[] = [
   { mode: 'summary', label: 'summary' },
@@ -8,30 +13,29 @@ const MODE_COLUMNS: { mode: DashboardPresetOperationMode; label: string }[] = [
   { mode: 'full', label: 'full' },
 ];
 
-function MatrixCell({ active, onToggle }: { active: boolean; onToggle(): void }) {
+function MatrixCell({ active, mode, tool, toolPolicyActions }: {
+  active: boolean;
+  mode: DashboardPresetOperationMode;
+  tool: DashboardPresetToolName;
+  toolPolicyActions: ToolPolicySettingsActions;
+}) {
   return (
     <td className="c">
       <button
         type="button"
         className={active ? 'cb on' : 'cb'}
         aria-pressed={active}
-        onClick={onToggle}
+        onClick={() => toolPolicyActions.setToolEnabled(mode, tool, !active)}
       />
     </td>
   );
 }
 
-export function ToolPolicyMatrix({ allowed, updateSettingsDraft }: {
+export function ToolPolicyMatrix({ allowed, toolPolicyActions }: {
   allowed: DashboardOperationModeAllowedTools;
-  updateSettingsDraft(updater: (next: DashboardConfig) => void): void;
+  toolPolicyActions: ToolPolicySettingsActions;
 }) {
   const groups = buildToolPolicyMatrixRows(allowed);
-
-  function toggle(tool: DashboardPresetToolName, mode: DashboardPresetOperationMode): void {
-    updateSettingsDraft((next) => {
-      next.OperationModeAllowedTools[mode] = toggleToolInMode(next.OperationModeAllowedTools, tool, mode);
-    });
-  }
 
   return (
     <table className="tp-table">
@@ -48,9 +52,9 @@ export function ToolPolicyMatrix({ allowed, updateSettingsDraft }: {
             {group.rows.map((row) => (
               <tr key={row.tool}>
                 <td>{row.tool}</td>
-                <MatrixCell active={row.summary} onToggle={() => toggle(row.tool, 'summary')} />
-                <MatrixCell active={row.readOnly} onToggle={() => toggle(row.tool, 'read-only')} />
-                <MatrixCell active={row.full} onToggle={() => toggle(row.tool, 'full')} />
+                <MatrixCell active={row.summary} mode="summary" tool={row.tool} toolPolicyActions={toolPolicyActions} />
+                <MatrixCell active={row.readOnly} mode="read-only" tool={row.tool} toolPolicyActions={toolPolicyActions} />
+                <MatrixCell active={row.full} mode="full" tool={row.tool} toolPolicyActions={toolPolicyActions} />
               </tr>
             ))}
           </React.Fragment>

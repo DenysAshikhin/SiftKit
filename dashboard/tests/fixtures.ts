@@ -1,4 +1,4 @@
-import type { DashboardConfig, DashboardModelRuntimePreset, DashboardPreset } from '../src/types';
+import type { DashboardConfig, DashboardModelRuntimePreset, DashboardPreset } from '../src/types.js';
 
 export const PRESET = {
   id: 'summary-default', label: 'Summary', description: 'Default summary preset',
@@ -30,7 +30,7 @@ export const MANAGED_PRESET = {
 } satisfies DashboardModelRuntimePreset;
 
 export const DASHBOARD_CONFIG = {
-  Version: '1', Backend: 'llama.cpp', PolicyMode: 'conservative',
+  Version: '1', PolicyMode: 'conservative',
   RawLogRetention: true, ExpandReads: true, PromptPrefix: '',
   Inference: { Thinking: { Enabled: false, Preserve: false } },
   OperationModeAllowedTools: { summary: ['read_lines'], 'read-only': ['read_lines'], full: ['read_lines'] },
@@ -40,14 +40,14 @@ export const DASHBOARD_CONFIG = {
       BaseUrl: 'http://127.0.0.1:8080', NumCtx: 4096, ModelPath: null,
       Temperature: 0.7, TopP: 0.9, TopK: 40, MinP: 0.05, PresencePenalty: 0, RepetitionPenalty: 1.1, MaxTokens: 512,
       GpuLayers: 0, Threads: 4, NcpuMoe: 0, FlashAttention: false, ParallelSlots: 1,
-      Reasoning: 'off', ReasoningContent: false, PreserveThinking: false, MaintainPerStepThinking: false,
+      Reasoning: 'off',
     },
   },
   Thresholds: { MinCharactersForSummary: 10, MinLinesForSummary: 2 },
   Interactive: { Enabled: true, WrappedCommands: ['npm test'], IdleTimeoutMs: 1000, MaxTranscriptCharacters: 2000, TranscriptRetention: true },
   Server: {
     ModelPresets: { Presets: [MANAGED_PRESET], ActivePresetId: MANAGED_PRESET.id },
-    Engines: { Exl3: { Managed: true, WorkingDirectory: '', PythonPath: 'python', Entrypoint: 'tabbyAPI/main.py', ModelRoot: '', ShutdownTimeoutMs: 10000 } },
+    Engines: { Exl3: { Managed: true, WorkingDirectory: '', PythonPath: 'python', Entrypoint: 'tabbyAPI/main.py', ModelRoot: '', AdminApiKey: '', ShutdownTimeoutMs: 10000 } },
   },
   WebSearch: {
     EnabledDefault: true,

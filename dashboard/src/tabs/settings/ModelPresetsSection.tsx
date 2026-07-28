@@ -1,8 +1,6 @@
 import React from 'react';
 import type { ReactNode } from 'react';
 
-import { applyModelPresetSelection } from '../../model-runtime-presets';
-import { deriveRuntimeModelId } from '../../settings-runtime';
 import { parseFloatInput, parseIntegerInput } from '../../lib/format';
 import { getExl3CacheModes, getPresetFieldAvailability } from '../../../../src/inference-presets/preset-compatibility.js';
 import { getInferenceRuntimeStatus } from '../../api';
@@ -15,6 +13,7 @@ import type {
   DashboardManagedLlamaSpeculativeType,
   ModelPresetField,
 } from '../../types';
+import type { ModelPresetSettingsActions } from '../../settings-action-groups';
 
 const KV_CACHE_QUANT_OPTIONS = ['f32', 'f16', 'bf16', 'q8_0', 'q4_0', 'q4_1', 'iq4_nl', 'q5_0', 'q5_1', 'q8_0/q4_0', 'q8_0/q5_0'] as const;
 const SPECULATIVE_TYPE_OPTIONS = ['draft-simple', 'draft-eagle3', 'draft-mtp', 'ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod', 'ngram-cache'] as const;
@@ -26,12 +25,7 @@ type ModelPresetsSectionProps = {
   selectedModelPreset: DashboardModelRuntimePreset | null;
   settingsActionBusy: boolean;
   settingsPathPickerBusyTarget: 'ExecutablePath' | 'ModelPath' | null;
-  updateSettingsDraft(updater: (next: DashboardConfig) => void): void;
-  updateModelPresetDraft(updater: (preset: DashboardModelRuntimePreset) => void): void;
-  onAddModelPreset(): void;
-  onDeleteModelPreset(presetId: string): void;
-  onPickModelPresetPath(target: 'ExecutablePath' | 'ModelPath'): Promise<void>;
-  onTestLlamaCppBaseUrl(baseUrl: string, timeoutMs: number): Promise<void>;
+  modelPresetActions: ModelPresetSettingsActions;
 };
 
 const GROUP_TITLES: Record<ModelPresetGroupId, string> = {
@@ -104,12 +98,7 @@ export function ModelPresetsSection({
   selectedModelPreset,
   settingsActionBusy,
   settingsPathPickerBusyTarget,
-  updateSettingsDraft,
-  updateModelPresetDraft,
-  onAddModelPreset,
-  onDeleteModelPreset,
-  onPickModelPresetPath,
-  onTestLlamaCppBaseUrl,
+  modelPresetActions,
 }: ModelPresetsSectionProps) {
   const [runtimeStatus, setRuntimeStatus] = React.useState<InferenceRuntimeStatus | null>(null);
   const [openGroups, setOpenGroups] = React.useState<Record<ModelPresetGroupId, boolean>>({
@@ -153,16 +142,6 @@ export function ModelPresetsSection({
     setOpenGroups((previous) => ({ ...previous, [id]: next }));
   }
 
-  function setBackend(backend: 'llama' | 'exl3'): void {
-    updateModelPresetDraft((next) => {
-      next.Backend = backend;
-      if (backend === 'exl3') {
-        next.SpeculativeType = 'draft-mtp';
-        next.SpeculativeMtpEnabled = false;
-      }
-    });
-  }
-
   const group = (id: ModelPresetGroupId, children: ReactNode): ReactNode => (
     <ModelPresetGroup id={id} open={openGroups[id]} summary={summarizeModelPresetGroup(id, preset)} onToggle={toggleGroup}>
       {children}
@@ -177,7 +156,7 @@ export function ModelPresetsSection({
           <select
             aria-label="Model preset"
             value={dashboardConfig.Server.ModelPresets.ActivePresetId}
-            onChange={(event) => updateSettingsDraft((next) => { applyModelPresetSelection(next, event.target.value); })}
+            onChange={(event) => modelPresetActions.selectPreset(event.target.value)}
             disabled={dashboardConfig.Server.ModelPresets.Presets.length === 0}
           >
             {dashboardConfig.Server.ModelPresets.Presets.map((entry) => (
@@ -186,19 +165,19 @@ export function ModelPresetsSection({
           </select>
           <span className="active-pill">active</span>
         </div>
-        <button type="button" className="ghost-btn" onClick={onAddModelPreset}>Add</button>
+        <button type="button" className="ghost-btn" onClick={modelPresetActions.addPreset}>Add</button>
         <button
           type="button"
           className="ghost-btn"
-          onClick={() => { onDeleteModelPreset(preset.id); }}
+          onClick={() => modelPresetActions.deletePreset(preset.id)}
           disabled={dashboardConfig.Server.ModelPresets.Presets.length <= 1}
         >
           Delete
         </button>
         <span style={{ flex: 1 }} />
         <div className="segc" aria-label="Preset backend">
-          <button type="button" className={preset.Backend === 'llama' ? 'on' : ''} onClick={() => setBackend('llama')}>llama.cpp</button>
-          <button type="button" className={preset.Backend === 'exl3' ? 'on' : ''} onClick={() => setBackend('exl3')}>EXL3</button>
+          <button type="button" className={preset.Backend === 'llama' ? 'on' : ''} onClick={() => modelPresetActions.setBackend('llama')}>llama.cpp</button>
+          <button type="button" className={preset.Backend === 'exl3' ? 'on' : ''} onClick={() => modelPresetActions.setBackend('exl3')}>EXL3</button>
         </div>
       </div>
 
@@ -211,7 +190,7 @@ export function ModelPresetsSection({
       {group('identity-launch', (
         <>
           <SettingsSectionField sectionId="model-presets" label="Preset name">
-            <input value={preset.label} onChange={(event) => updateModelPresetDraft((next) => { next.label = event.target.value; })} />
+            <input value={preset.label} onChange={(event) => modelPresetActions.setString('label', event.target.value)} />
           </SettingsSectionField>
           {!preset.ExternalServerEnabled ? (
             <SettingsSectionField sectionId="model-presets" label="Executable path" className="be-l">
@@ -219,9 +198,9 @@ export function ModelPresetsSection({
                 <div className="settings-live-nav-control">
                   <input
                     value={preset.ExecutablePath || ''}
-                    onChange={(event) => updateModelPresetDraft((next) => { const value = event.target.value.trim(); next.ExecutablePath = value || null; })}
+                    onChange={(event) => modelPresetActions.setNullableString('ExecutablePath', event.target.value.trim() || null)}
                   />
-                  <button type="button" onClick={() => { void onPickModelPresetPath('ExecutablePath'); }} disabled={settingsActionBusy}>
+                  <button type="button" onClick={() => { void modelPresetActions.pickPath('ExecutablePath'); }} disabled={settingsActionBusy}>
                     {settingsPathPickerBusyTarget === 'ExecutablePath' ? 'Opening…' : 'Browse…'}
                   </button>
                 </div>
@@ -236,13 +215,9 @@ export function ModelPresetsSection({
               <div className="settings-live-nav-control">
                 <input
                   value={preset.ModelPath || ''}
-                  onChange={(event) => updateModelPresetDraft((next) => {
-                    const value = event.target.value.trim();
-                    next.ModelPath = value || null;
-                    next.Model = deriveRuntimeModelId(next.ModelPath) || next.Model;
-                  })}
+                  onChange={(event) => modelPresetActions.setModelPath(event.target.value.trim() || null)}
                 />
-                <button type="button" onClick={() => { void onPickModelPresetPath('ModelPath'); }} disabled={settingsActionBusy}>
+                <button type="button" onClick={() => { void modelPresetActions.pickPath('ModelPath'); }} disabled={settingsActionBusy}>
                   {settingsPathPickerBusyTarget === 'ModelPath' ? 'Opening…' : 'Browse…'}
                 </button>
               </div>
@@ -250,15 +225,15 @@ export function ModelPresetsSection({
           ) : null}
           <SettingsSectionField sectionId="model-presets" label="External inference server">
             <label className="settings-live-toggle-control">
-              <input type="checkbox" checked={preset.ExternalServerEnabled} onChange={(event) => updateModelPresetDraft((next) => { next.ExternalServerEnabled = event.target.checked; })} />
+              <input type="checkbox" checked={preset.ExternalServerEnabled} onChange={(event) => modelPresetActions.setBoolean('ExternalServerEnabled', event.target.checked)} />
               <span>{preset.ExternalServerEnabled ? 'Enabled' : 'Disabled'}</span>
             </label>
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="Base URL" className={remoteLlamaBaseUrl ? 'settings-live-field-danger' : undefined}>
             <div className="settings-live-stack">
               <div className="settings-live-nav-control">
-                <input value={baseUrl} onChange={(event) => updateModelPresetDraft((next) => { next.BaseUrl = event.target.value || null; })} />
-                <button type="button" disabled={settingsActionBusy} onClick={() => { void onTestLlamaCppBaseUrl(baseUrl, preset.HealthcheckTimeoutMs); }}>Test</button>
+                <input value={baseUrl} onChange={(event) => modelPresetActions.setNullableString('BaseUrl', event.target.value || null)} />
+                <button type="button" disabled={settingsActionBusy} onClick={() => { void modelPresetActions.testBaseUrl(baseUrl, preset.HealthcheckTimeoutMs); }}>Test</button>
               </div>
               {remoteLlamaBaseUrl ? (
                 <div className="settings-live-warning" role="alert">
@@ -269,12 +244,12 @@ export function ModelPresetsSection({
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="Bind host">
             {renderCompatibilityControl(preset, 'BindHost', (
-              <input value={preset.BindHost} onChange={(event) => updateModelPresetDraft((next) => { next.BindHost = event.target.value; })} />
+              <input value={preset.BindHost} onChange={(event) => modelPresetActions.setString('BindHost', event.target.value)} />
             ))}
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="Port">
             {renderCompatibilityControl(preset, 'Port', (
-              <input type="number" value={preset.Port} onChange={(event) => updateModelPresetDraft((next) => { next.Port = parseIntegerInput(event.target.value, next.Port); })} />
+              <input type="number" value={preset.Port} onChange={(event) => modelPresetActions.setInteger('Port', parseIntegerInput(event.target.value, preset.Port))} />
             ))}
           </SettingsSectionField>
         </>
@@ -283,54 +258,57 @@ export function ModelPresetsSection({
       {group('memory-compute', (
         <>
           <SettingsSectionField sectionId="model-presets" label="NumCtx">
-            <input type="number" value={preset.NumCtx} onChange={(event) => updateModelPresetDraft((next) => { next.NumCtx = parseIntegerInput(event.target.value, next.NumCtx); })} />
+            <input type="number" value={preset.NumCtx} onChange={(event) => modelPresetActions.setInteger('NumCtx', parseIntegerInput(event.target.value, preset.NumCtx))} />
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="GpuLayers" className="be-l">
             {renderCompatibilityControl(preset, 'GpuLayers', (
-              <input type="number" value={preset.GpuLayers} onChange={(event) => updateModelPresetDraft((next) => { next.GpuLayers = parseIntegerInput(event.target.value, next.GpuLayers); })} />
+              <input type="number" value={preset.GpuLayers} onChange={(event) => modelPresetActions.setInteger('GpuLayers', parseIntegerInput(event.target.value, preset.GpuLayers))} />
             ))}
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="Threads" className="be-l">
             {renderCompatibilityControl(preset, 'Threads', (
-              <input type="number" value={preset.Threads} onChange={(event) => updateModelPresetDraft((next) => { next.Threads = parseIntegerInput(event.target.value, next.Threads); })} />
+              <input type="number" value={preset.Threads} onChange={(event) => modelPresetActions.setInteger('Threads', parseIntegerInput(event.target.value, preset.Threads))} />
             ))}
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="NcpuMoe" className="be-l">
             {renderCompatibilityControl(preset, 'NcpuMoe', (
-              <input type="number" value={preset.NcpuMoe} onChange={(event) => updateModelPresetDraft((next) => { next.NcpuMoe = parseIntegerInput(event.target.value, next.NcpuMoe); })} />
+              <input type="number" value={preset.NcpuMoe} onChange={(event) => modelPresetActions.setInteger('NcpuMoe', parseIntegerInput(event.target.value, preset.NcpuMoe))} />
             ))}
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="Flash attention" className="be-l">
             {renderCompatibilityControl(preset, 'FlashAttention', (
               <label className="settings-live-toggle-control">
-                <input type="checkbox" checked={preset.FlashAttention} onChange={(event) => updateModelPresetDraft((next) => { next.FlashAttention = event.target.checked; })} />
+                <input type="checkbox" checked={preset.FlashAttention} onChange={(event) => modelPresetActions.setBoolean('FlashAttention', event.target.checked)} />
                 <span>{preset.FlashAttention ? 'Enabled' : 'Disabled'}</span>
               </label>
             ))}
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="ParallelSlots">
             {renderCompatibilityControl(preset, 'ParallelSlots', (
-              <input type="number" value={preset.ParallelSlots} onChange={(event) => updateModelPresetDraft((next) => { next.ParallelSlots = parseIntegerInput(event.target.value, next.ParallelSlots); })} />
+              <input type="number" value={preset.ParallelSlots} onChange={(event) => modelPresetActions.setInteger('ParallelSlots', parseIntegerInput(event.target.value, preset.ParallelSlots))} />
             ))}
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="BatchSize" className="be-l">
             {renderCompatibilityControl(preset, 'BatchSize', (
-              <input type="number" value={preset.BatchSize} onChange={(event) => updateModelPresetDraft((next) => { next.BatchSize = parseIntegerInput(event.target.value, next.BatchSize); })} />
+              <input type="number" value={preset.BatchSize} onChange={(event) => modelPresetActions.setInteger('BatchSize', parseIntegerInput(event.target.value, preset.BatchSize))} />
             ))}
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="UBatchSize">
             {renderCompatibilityControl(preset, 'UBatchSize', (
-              <input type="number" value={preset.UBatchSize} onChange={(event) => updateModelPresetDraft((next) => { next.UBatchSize = parseIntegerInput(event.target.value, next.UBatchSize); })} />
+              <input type="number" value={preset.UBatchSize} onChange={(event) => modelPresetActions.setInteger('UBatchSize', parseIntegerInput(event.target.value, preset.UBatchSize))} />
             ))}
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="CacheRam" className="be-l">
             {renderCompatibilityControl(preset, 'CacheRam', (
-              <input type="number" value={preset.CacheRam} onChange={(event) => updateModelPresetDraft((next) => { next.CacheRam = parseIntegerInput(event.target.value, next.CacheRam); })} />
+              <input type="number" value={preset.CacheRam} onChange={(event) => modelPresetActions.setInteger('CacheRam', parseIntegerInput(event.target.value, preset.CacheRam))} />
             ))}
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="KV cache quant">
             {renderCompatibilityControl(preset, 'KvCacheQuantization', (
-              <select value={preset.KvCacheQuantization} onChange={(event) => updateModelPresetDraft((next) => { const value = KV_CACHE_QUANT_OPTIONS.find((option) => option === event.target.value); if (value) next.KvCacheQuantization = value; })}>
+              <select value={preset.KvCacheQuantization} onChange={(event) => {
+                const value = KV_CACHE_QUANT_OPTIONS.find((option) => option === event.target.value);
+                if (value) modelPresetActions.setKvCacheQuantization(value);
+              }}>
                 {KV_CACHE_QUANT_OPTIONS.map((option) => (
                   <option key={option} value={option} disabled={preset.Backend === 'exl3' && getExl3CacheModes(option) === null}>{option}</option>
                 ))}
@@ -343,25 +321,25 @@ export function ModelPresetsSection({
       {group('sampling', (
         <>
           <SettingsSectionField sectionId="model-presets" label="MaxTokens">
-            <input type="number" value={preset.MaxTokens} onChange={(event) => updateModelPresetDraft((next) => { next.MaxTokens = parseIntegerInput(event.target.value, next.MaxTokens); })} />
+            <input type="number" value={preset.MaxTokens} onChange={(event) => modelPresetActions.setInteger('MaxTokens', parseIntegerInput(event.target.value, preset.MaxTokens))} />
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="Temperature">
-            <input type="number" step="0.01" value={preset.Temperature} onChange={(event) => updateModelPresetDraft((next) => { next.Temperature = parseFloatInput(event.target.value, next.Temperature); })} />
+            <input type="number" step="0.01" value={preset.Temperature} onChange={(event) => modelPresetActions.setFloat('Temperature', parseFloatInput(event.target.value, preset.Temperature))} />
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="TopP">
-            <input type="number" step="0.01" value={preset.TopP} onChange={(event) => updateModelPresetDraft((next) => { next.TopP = parseFloatInput(event.target.value, next.TopP); })} />
+            <input type="number" step="0.01" value={preset.TopP} onChange={(event) => modelPresetActions.setFloat('TopP', parseFloatInput(event.target.value, preset.TopP))} />
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="TopK">
-            <input type="number" value={preset.TopK} onChange={(event) => updateModelPresetDraft((next) => { next.TopK = parseIntegerInput(event.target.value, next.TopK); })} />
+            <input type="number" value={preset.TopK} onChange={(event) => modelPresetActions.setInteger('TopK', parseIntegerInput(event.target.value, preset.TopK))} />
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="MinP">
-            <input type="number" step="0.01" value={preset.MinP} onChange={(event) => updateModelPresetDraft((next) => { next.MinP = parseFloatInput(event.target.value, next.MinP); })} />
+            <input type="number" step="0.01" value={preset.MinP} onChange={(event) => modelPresetActions.setFloat('MinP', parseFloatInput(event.target.value, preset.MinP))} />
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="PresencePenalty">
-            <input type="number" step="0.01" value={preset.PresencePenalty} onChange={(event) => updateModelPresetDraft((next) => { next.PresencePenalty = parseFloatInput(event.target.value, next.PresencePenalty); })} />
+            <input type="number" step="0.01" value={preset.PresencePenalty} onChange={(event) => modelPresetActions.setFloat('PresencePenalty', parseFloatInput(event.target.value, preset.PresencePenalty))} />
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="RepetitionPenalty">
-            <input type="number" step="0.01" value={preset.RepetitionPenalty} onChange={(event) => updateModelPresetDraft((next) => { next.RepetitionPenalty = parseFloatInput(event.target.value, next.RepetitionPenalty); })} />
+            <input type="number" step="0.01" value={preset.RepetitionPenalty} onChange={(event) => modelPresetActions.setFloat('RepetitionPenalty', parseFloatInput(event.target.value, preset.RepetitionPenalty))} />
           </SettingsSectionField>
         </>
       ))}
@@ -371,16 +349,7 @@ export function ModelPresetsSection({
           <SettingsSectionField sectionId="model-presets" label="Reasoning">
             <select
               value={preset.Reasoning}
-              onChange={(event) => updateModelPresetDraft((next) => {
-                next.Reasoning = event.target.value === 'on' ? 'on' : 'off';
-                if (next.Reasoning !== 'on') {
-                  next.ReasoningContent = false;
-                  next.PreserveThinking = false;
-                  next.MaintainPerStepThinking = false;
-                } else {
-                  next.MaintainPerStepThinking = true;
-                }
-              })}
+              onChange={(event) => modelPresetActions.setReasoning(event.target.value === 'on' ? 'on' : 'off')}
             >
               <option value="off">off</option>
               <option value="on">on</option>
@@ -392,7 +361,7 @@ export function ModelPresetsSection({
                 <input
                   type="checkbox"
                   checked={preset.ReasoningContent}
-                  onChange={(event) => updateModelPresetDraft((next) => { next.ReasoningContent = event.target.checked; if (!next.ReasoningContent) { next.PreserveThinking = false; } })}
+                  onChange={(event) => modelPresetActions.setReasoningContent(event.target.checked)}
                 />
                 <span>{preset.ReasoningContent ? 'Enabled' : 'Disabled'}</span>
               </label>
@@ -401,7 +370,7 @@ export function ModelPresetsSection({
           {reasoningContentEnabled ? (
             <SettingsSectionField sectionId="model-presets" label="Preserve thinking">
               <label className="settings-live-toggle-control">
-                <input type="checkbox" checked={preset.PreserveThinking} onChange={(event) => updateModelPresetDraft((next) => { next.PreserveThinking = event.target.checked; })} />
+                <input type="checkbox" checked={preset.PreserveThinking} onChange={(event) => modelPresetActions.setBoolean('PreserveThinking', event.target.checked)} />
                 <span>{preset.PreserveThinking ? 'Enabled' : 'Disabled'}</span>
               </label>
             </SettingsSectionField>
@@ -409,19 +378,19 @@ export function ModelPresetsSection({
           {reasoningEnabled ? (
             <SettingsSectionField sectionId="model-presets" label="Maintain per step thinking">
               <label className="settings-live-toggle-control">
-                <input type="checkbox" checked={preset.MaintainPerStepThinking} onChange={(event) => updateModelPresetDraft((next) => { next.MaintainPerStepThinking = event.target.checked; })} />
+                <input type="checkbox" checked={preset.MaintainPerStepThinking} onChange={(event) => modelPresetActions.setBoolean('MaintainPerStepThinking', event.target.checked)} />
                 <span>{preset.MaintainPerStepThinking ? 'Enabled' : 'Disabled'}</span>
               </label>
             </SettingsSectionField>
           ) : null}
           <SettingsSectionField sectionId="model-presets" label="ReasoningBudget">
             {renderCompatibilityControl(preset, 'ReasoningBudget', (
-              <input type="number" value={preset.ReasoningBudget} onChange={(event) => updateModelPresetDraft((next) => { next.ReasoningBudget = parseIntegerInput(event.target.value, next.ReasoningBudget); })} />
+              <input type="number" value={preset.ReasoningBudget} onChange={(event) => modelPresetActions.setInteger('ReasoningBudget', parseIntegerInput(event.target.value, preset.ReasoningBudget))} />
             ))}
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="ReasoningBudgetMessage" className="w4">
             {renderCompatibilityControl(preset, 'ReasoningBudgetMessage', (
-              <textarea rows={3} value={preset.ReasoningBudgetMessage || ''} onChange={(event) => updateModelPresetDraft((next) => { next.ReasoningBudgetMessage = event.target.value || null; })} />
+              <textarea rows={3} value={preset.ReasoningBudgetMessage || ''} onChange={(event) => modelPresetActions.setNullableString('ReasoningBudgetMessage', event.target.value || null)} />
             ))}
           </SettingsSectionField>
         </>
@@ -432,7 +401,7 @@ export function ModelPresetsSection({
           <SettingsSectionField sectionId="model-presets" label="Enable speculative decoding">
             {renderCompatibilityControl(preset, 'SpeculativeEnabled', (
               <label className="settings-live-toggle-control">
-                <input type="checkbox" checked={preset.SpeculativeEnabled} onChange={(event) => updateModelPresetDraft((next) => { next.SpeculativeEnabled = event.target.checked; })} />
+                <input type="checkbox" checked={preset.SpeculativeEnabled} onChange={(event) => modelPresetActions.setBoolean('SpeculativeEnabled', event.target.checked)} />
                 <span>{preset.SpeculativeEnabled ? 'Enabled' : 'Disabled'}</span>
               </label>
             ))}
@@ -440,7 +409,10 @@ export function ModelPresetsSection({
           {speculativeEnabled ? (
             <SettingsSectionField sectionId="model-presets" label="Speculative type">
               {renderCompatibilityControl(preset, 'SpeculativeType', (
-                <select value={preset.SpeculativeType} onChange={(event) => updateModelPresetDraft((next) => { const value = SPECULATIVE_TYPE_OPTIONS.find((option) => option === event.target.value); if (value) next.SpeculativeType = value; })}>
+                <select value={preset.SpeculativeType} onChange={(event) => {
+                  const value = SPECULATIVE_TYPE_OPTIONS.find((option) => option === event.target.value);
+                  if (value) modelPresetActions.setSpeculativeType(value);
+                }}>
                   {speculativeTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                 </select>
               ))}
@@ -450,7 +422,7 @@ export function ModelPresetsSection({
             <SettingsSectionField sectionId="model-presets" label="Combine with MTP">
               {renderCompatibilityControl(preset, 'SpeculativeMtpEnabled', (
                 <label className="settings-live-toggle-control">
-                  <input type="checkbox" checked={preset.SpeculativeMtpEnabled} onChange={(event) => updateModelPresetDraft((next) => { next.SpeculativeMtpEnabled = event.target.checked; })} />
+                  <input type="checkbox" checked={preset.SpeculativeMtpEnabled} onChange={(event) => modelPresetActions.setBoolean('SpeculativeMtpEnabled', event.target.checked)} />
                   <span>{preset.SpeculativeMtpEnabled ? 'Enabled' : 'Disabled'}</span>
                 </label>
               ))}
@@ -462,56 +434,56 @@ export function ModelPresetsSection({
           {ngramSizeSpeculativeType ? (
             <SettingsSectionField sectionId="model-presets" label="SpeculativeNgramSizeN" className="be-l">
               {renderCompatibilityControl(preset, 'SpeculativeNgramSizeN', (
-                <input type="number" value={preset.SpeculativeNgramSizeN} onChange={(event) => updateModelPresetDraft((next) => { next.SpeculativeNgramSizeN = parseIntegerInput(event.target.value, next.SpeculativeNgramSizeN); })} />
+                <input type="number" value={preset.SpeculativeNgramSizeN} onChange={(event) => modelPresetActions.setInteger('SpeculativeNgramSizeN', parseIntegerInput(event.target.value, preset.SpeculativeNgramSizeN))} />
               ))}
             </SettingsSectionField>
           ) : null}
           {ngramSizeSpeculativeType ? (
             <SettingsSectionField sectionId="model-presets" label="SpeculativeNgramSizeM" className="be-l">
               {renderCompatibilityControl(preset, 'SpeculativeNgramSizeM', (
-                <input type="number" value={preset.SpeculativeNgramSizeM} onChange={(event) => updateModelPresetDraft((next) => { next.SpeculativeNgramSizeM = parseIntegerInput(event.target.value, next.SpeculativeNgramSizeM); })} />
+                <input type="number" value={preset.SpeculativeNgramSizeM} onChange={(event) => modelPresetActions.setInteger('SpeculativeNgramSizeM', parseIntegerInput(event.target.value, preset.SpeculativeNgramSizeM))} />
               ))}
             </SettingsSectionField>
           ) : null}
           {ngramSizeSpeculativeType ? (
             <SettingsSectionField sectionId="model-presets" label="SpeculativeNgramMinHits" className="be-l">
               {renderCompatibilityControl(preset, 'SpeculativeNgramMinHits', (
-                <input type="number" value={preset.SpeculativeNgramMinHits} onChange={(event) => updateModelPresetDraft((next) => { next.SpeculativeNgramMinHits = parseIntegerInput(event.target.value, next.SpeculativeNgramMinHits); })} />
+                <input type="number" value={preset.SpeculativeNgramMinHits} onChange={(event) => modelPresetActions.setInteger('SpeculativeNgramMinHits', parseIntegerInput(event.target.value, preset.SpeculativeNgramMinHits))} />
               ))}
             </SettingsSectionField>
           ) : null}
           {ngramModSpeculativeType ? (
             <SettingsSectionField sectionId="model-presets" label="SpeculativeNgramModNMatch" className="be-l">
               {renderCompatibilityControl(preset, 'SpeculativeNgramModNMatch', (
-                <input type="number" value={preset.SpeculativeNgramModNMatch} onChange={(event) => updateModelPresetDraft((next) => { next.SpeculativeNgramModNMatch = parseIntegerInput(event.target.value, next.SpeculativeNgramModNMatch); })} />
+                <input type="number" value={preset.SpeculativeNgramModNMatch} onChange={(event) => modelPresetActions.setInteger('SpeculativeNgramModNMatch', parseIntegerInput(event.target.value, preset.SpeculativeNgramModNMatch))} />
               ))}
             </SettingsSectionField>
           ) : null}
           {ngramModSpeculativeType ? (
             <SettingsSectionField sectionId="model-presets" label="SpeculativeNgramModNMin" className="be-l">
               {renderCompatibilityControl(preset, 'SpeculativeNgramModNMin', (
-                <input type="number" value={preset.SpeculativeNgramModNMin} onChange={(event) => updateModelPresetDraft((next) => { next.SpeculativeNgramModNMin = parseIntegerInput(event.target.value, next.SpeculativeNgramModNMin); })} />
+                <input type="number" value={preset.SpeculativeNgramModNMin} onChange={(event) => modelPresetActions.setInteger('SpeculativeNgramModNMin', parseIntegerInput(event.target.value, preset.SpeculativeNgramModNMin))} />
               ))}
             </SettingsSectionField>
           ) : null}
           {ngramModSpeculativeType ? (
             <SettingsSectionField sectionId="model-presets" label="SpeculativeNgramModNMax" className="be-l">
               {renderCompatibilityControl(preset, 'SpeculativeNgramModNMax', (
-                <input type="number" value={preset.SpeculativeNgramModNMax} onChange={(event) => updateModelPresetDraft((next) => { next.SpeculativeNgramModNMax = parseIntegerInput(event.target.value, next.SpeculativeNgramModNMax); })} />
+                <input type="number" value={preset.SpeculativeNgramModNMax} onChange={(event) => modelPresetActions.setInteger('SpeculativeNgramModNMax', parseIntegerInput(event.target.value, preset.SpeculativeNgramModNMax))} />
               ))}
             </SettingsSectionField>
           ) : null}
           {draftTokenFields ? (
             <SettingsSectionField sectionId="model-presets" label="SpeculativeDraftMax">
               {renderCompatibilityControl(preset, 'SpeculativeDraftMax', (
-                <input type="number" value={preset.SpeculativeDraftMax} onChange={(event) => updateModelPresetDraft((next) => { next.SpeculativeDraftMax = parseIntegerInput(event.target.value, next.SpeculativeDraftMax); })} />
+                <input type="number" value={preset.SpeculativeDraftMax} onChange={(event) => modelPresetActions.setInteger('SpeculativeDraftMax', parseIntegerInput(event.target.value, preset.SpeculativeDraftMax))} />
               ))}
             </SettingsSectionField>
           ) : null}
           {draftTokenFields ? (
             <SettingsSectionField sectionId="model-presets" label="SpeculativeDraftMin">
               {renderCompatibilityControl(preset, 'SpeculativeDraftMin', (
-                <input type="number" value={preset.SpeculativeDraftMin} onChange={(event) => updateModelPresetDraft((next) => { next.SpeculativeDraftMin = parseIntegerInput(event.target.value, next.SpeculativeDraftMin); })} />
+                <input type="number" value={preset.SpeculativeDraftMin} onChange={(event) => modelPresetActions.setInteger('SpeculativeDraftMin', parseIntegerInput(event.target.value, preset.SpeculativeDraftMin))} />
               ))}
             </SettingsSectionField>
           ) : null}
@@ -521,21 +493,21 @@ export function ModelPresetsSection({
       {group('lifecycle', (
         <>
           <SettingsSectionField sectionId="model-presets" label="StartupTimeoutMs">
-            <input type="number" value={preset.StartupTimeoutMs} onChange={(event) => updateModelPresetDraft((next) => { next.StartupTimeoutMs = parseIntegerInput(event.target.value, next.StartupTimeoutMs); })} />
+            <input type="number" value={preset.StartupTimeoutMs} onChange={(event) => modelPresetActions.setInteger('StartupTimeoutMs', parseIntegerInput(event.target.value, preset.StartupTimeoutMs))} />
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="HealthcheckTimeoutMs">
-            <input type="number" value={preset.HealthcheckTimeoutMs} onChange={(event) => updateModelPresetDraft((next) => { next.HealthcheckTimeoutMs = parseIntegerInput(event.target.value, next.HealthcheckTimeoutMs); })} />
+            <input type="number" value={preset.HealthcheckTimeoutMs} onChange={(event) => modelPresetActions.setInteger('HealthcheckTimeoutMs', parseIntegerInput(event.target.value, preset.HealthcheckTimeoutMs))} />
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="HealthcheckIntervalMs">
-            <input type="number" value={preset.HealthcheckIntervalMs} onChange={(event) => updateModelPresetDraft((next) => { next.HealthcheckIntervalMs = parseIntegerInput(event.target.value, next.HealthcheckIntervalMs); })} />
+            <input type="number" value={preset.HealthcheckIntervalMs} onChange={(event) => modelPresetActions.setInteger('HealthcheckIntervalMs', parseIntegerInput(event.target.value, preset.HealthcheckIntervalMs))} />
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="SleepIdleSeconds">
-            <input type="number" value={preset.SleepIdleSeconds} onChange={(event) => updateModelPresetDraft((next) => { next.SleepIdleSeconds = parseIntegerInput(event.target.value, next.SleepIdleSeconds); })} />
+            <input type="number" value={preset.SleepIdleSeconds} onChange={(event) => modelPresetActions.setInteger('SleepIdleSeconds', parseIntegerInput(event.target.value, preset.SleepIdleSeconds))} />
           </SettingsSectionField>
           <SettingsSectionField sectionId="model-presets" label="Verbose logging">
             {renderCompatibilityControl(preset, 'VerboseLogging', (
               <label className="settings-live-toggle-control">
-                <input type="checkbox" checked={preset.VerboseLogging} onChange={(event) => updateModelPresetDraft((next) => { next.VerboseLogging = event.target.checked; })} />
+                <input type="checkbox" checked={preset.VerboseLogging} onChange={(event) => modelPresetActions.setBoolean('VerboseLogging', event.target.checked)} />
                 <span>{preset.VerboseLogging ? 'Enabled' : 'Disabled'}</span>
               </label>
             ))}

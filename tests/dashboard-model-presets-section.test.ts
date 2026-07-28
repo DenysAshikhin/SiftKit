@@ -5,12 +5,32 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { ModelPresetsSection } from '../dashboard/src/tabs/settings/ModelPresetsSection.js';
+import type { ModelPresetSettingsActions } from '../dashboard/src/settings-action-groups.js';
 
 interface Exl3RenderOptions {
   externalServerEnabled?: boolean;
   kvCacheQuantization?: 'bf16' | 'f16';
   parallelSlots?: number;
 }
+
+const MODEL_PRESET_ACTIONS: ModelPresetSettingsActions = {
+  selectPreset() {},
+  setString() {},
+  setNullableString() {},
+  setModelPath() {},
+  setInteger() {},
+  setFloat() {},
+  setBoolean() {},
+  setBackend() {},
+  setKvCacheQuantization() {},
+  setReasoning() {},
+  setReasoningContent() {},
+  setSpeculativeType() {},
+  addPreset() {},
+  deletePreset() {},
+  async pickPath() {},
+  async testBaseUrl() {},
+};
 
 function renderExl3Preset(options: Exl3RenderOptions = {}): string {
   const config = getDefaultConfigObject();
@@ -28,12 +48,7 @@ function renderExl3Preset(options: Exl3RenderOptions = {}): string {
     selectedModelPreset: preset,
     settingsActionBusy: false,
     settingsPathPickerBusyTarget: null,
-    updateSettingsDraft: () => {},
-    updateModelPresetDraft: () => {},
-    onAddModelPreset: () => {},
-    onDeleteModelPreset: () => {},
-    onPickModelPresetPath: async () => {},
-    onTestLlamaCppBaseUrl: async () => {},
+    modelPresetActions: MODEL_PRESET_ACTIONS,
   }));
 }
 

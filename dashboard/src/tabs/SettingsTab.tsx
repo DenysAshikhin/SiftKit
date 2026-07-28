@@ -14,13 +14,17 @@ import type {
   DashboardConfig,
   DashboardModelRuntimePreset,
   DashboardPreset,
-  DashboardPresetKind,
-  DashboardPresetOperationMode,
-  DashboardPresetSurface,
-  DashboardPresetToolName,
   ProviderQuota,
   WebSearchUsage,
 } from '../types';
+import type {
+  GeneralSettingsActions,
+  InteractiveSettingsActions,
+  ModelPresetSettingsActions,
+  PresetSettingsActions,
+  ToolPolicySettingsActions,
+  WebSearchSettingsActions,
+} from '../settings-action-groups';
 import { PresetsSection } from './settings/PresetsSection';
 import { ModelPresetsSection } from './settings/ModelPresetsSection';
 import { ToolPolicyMatrix } from './settings/ToolPolicyMatrix';
@@ -42,29 +46,13 @@ export type SettingsTabProps = {
   settingsSaving: boolean;
   settingsRestarting: boolean;
   settingsPathPickerBusyTarget: 'ExecutablePath' | 'ModelPath' | null;
-  setSelectedSettingsPresetId(presetId: string): void;
   requestSettingsAction(continuation: DirtyContinuation): void;
-  updateSettingsDraft(updater: (next: DashboardConfig) => void): void;
-  setPresetLabel(presetId: string, label: string): void;
-  setPresetKind(presetId: string, kind: DashboardPresetKind): void;
-  setPresetOperationMode(presetId: string, operationMode: DashboardPresetOperationMode): void;
-  togglePresetTool(presetId: string, tool: DashboardPresetToolName): void;
-  setPresetDescription(presetId: string, description: string): void;
-  setPresetPromptPrefix(presetId: string, promptPrefix: string): void;
-  setPresetSurfaceEnabled(presetId: string, surface: DashboardPresetSurface, enabled: boolean): void;
-  setPresetAgentsMdEnabled(presetId: string, enabled: boolean): void;
-  setPresetRepoFileListingEnabled(presetId: string, enabled: boolean): void;
-  setPresetAutoloadFile(presetId: string, index: number, path: string): void;
-  addPresetAutoloadFile(presetId: string): void;
-  removePresetAutoloadFile(presetId: string, index: number): void;
-  setDefaultSummaryPreset(presetId: string, enabled: boolean): void;
-  updateModelPresetDraft(updater: (preset: DashboardModelRuntimePreset) => void): void;
-  onAddPreset(): void;
-  onDeletePreset(presetId: string): void;
-  onAddModelPreset(): void;
-  onDeleteModelPreset(presetId: string): void;
-  onPickModelPresetPath(target: 'ExecutablePath' | 'ModelPath'): Promise<void>;
-  onTestLlamaCppBaseUrl(baseUrl: string, timeoutMs: number): Promise<void>;
+  generalActions: GeneralSettingsActions;
+  toolPolicyActions: ToolPolicySettingsActions;
+  presetActions: PresetSettingsActions;
+  interactiveActions: InteractiveSettingsActions;
+  webSearchActions: WebSearchSettingsActions;
+  modelPresetActions: ModelPresetSettingsActions;
   onReloadDashboardSettings(): Promise<void>;
   restartDashboardBackendCore(): Promise<boolean>;
   onSaveDashboardSettings(): Promise<void>;
@@ -88,29 +76,13 @@ export function SettingsTab(props: SettingsTabProps) {
     settingsSaving,
     settingsRestarting,
     settingsPathPickerBusyTarget,
-    setSelectedSettingsPresetId,
     requestSettingsAction,
-    updateSettingsDraft,
-    setPresetLabel,
-    setPresetKind,
-    setPresetOperationMode,
-    togglePresetTool,
-    setPresetDescription,
-    setPresetPromptPrefix,
-    setPresetSurfaceEnabled,
-    setPresetAgentsMdEnabled,
-    setPresetRepoFileListingEnabled,
-    setPresetAutoloadFile,
-    addPresetAutoloadFile,
-    removePresetAutoloadFile,
-    setDefaultSummaryPreset,
-    updateModelPresetDraft,
-    onAddPreset,
-    onDeletePreset,
-    onAddModelPreset,
-    onDeleteModelPreset,
-    onPickModelPresetPath,
-    onTestLlamaCppBaseUrl,
+    generalActions,
+    toolPolicyActions,
+    presetActions,
+    interactiveActions,
+    webSearchActions,
+    modelPresetActions,
     onReloadDashboardSettings,
     restartDashboardBackendCore,
     onSaveDashboardSettings,
@@ -139,7 +111,7 @@ export function SettingsTab(props: SettingsTabProps) {
         {renderField('general', 'Version', (
           <input
             value={dashboardConfig.Version}
-            onChange={(event) => updateSettingsDraft((next) => { next.Version = event.target.value; })}
+            onChange={(event) => generalActions.setString('Version', event.target.value)}
           />
         ))}
         {renderField('general', 'Backend', (
@@ -156,7 +128,7 @@ export function SettingsTab(props: SettingsTabProps) {
         {renderField('general', 'Policy Mode', (
           <select
             value={dashboardConfig.PolicyMode}
-            onChange={(event) => updateSettingsDraft((next) => { next.PolicyMode = event.target.value; })}
+            onChange={(event) => generalActions.setString('PolicyMode', event.target.value)}
           >
             {POLICY_MODE_OPTIONS.map((option) => (
               <option key={option} value={option}>{option}</option>
@@ -168,7 +140,7 @@ export function SettingsTab(props: SettingsTabProps) {
             <input
               type="checkbox"
               checked={dashboardConfig.RawLogRetention}
-              onChange={(event) => updateSettingsDraft((next) => { next.RawLogRetention = event.target.checked; })}
+              onChange={(event) => generalActions.setBoolean('RawLogRetention', event.target.checked)}
             />
             <span>{dashboardConfig.RawLogRetention ? 'Enabled' : 'Disabled'}</span>
           </label>
@@ -178,7 +150,7 @@ export function SettingsTab(props: SettingsTabProps) {
             <input
               type="checkbox"
               checked={dashboardConfig.ExpandReads}
-              onChange={(event) => updateSettingsDraft((next) => { next.ExpandReads = event.target.checked; })}
+              onChange={(event) => generalActions.setBoolean('ExpandReads', event.target.checked)}
             />
             <span>{dashboardConfig.ExpandReads ? 'Enabled' : 'Disabled'}</span>
           </label>
@@ -187,7 +159,7 @@ export function SettingsTab(props: SettingsTabProps) {
           <textarea
             rows={5}
             value={dashboardConfig.PromptPrefix || ''}
-            onChange={(event) => updateSettingsDraft((next) => { next.PromptPrefix = event.target.value; })}
+            onChange={(event) => generalActions.setString('PromptPrefix', event.target.value)}
           />
         ))}
       </div>
@@ -199,7 +171,7 @@ export function SettingsTab(props: SettingsTabProps) {
       return null;
     }
     return (
-      <ToolPolicyMatrix allowed={dashboardConfig.OperationModeAllowedTools} updateSettingsDraft={updateSettingsDraft} />
+      <ToolPolicyMatrix allowed={dashboardConfig.OperationModeAllowedTools} toolPolicyActions={toolPolicyActions} />
     );
   };
 
@@ -213,48 +185,52 @@ export function SettingsTab(props: SettingsTabProps) {
           <input
             type="number"
             value={dashboardConfig.Thresholds.MinCharactersForSummary}
-            onChange={(event) => updateSettingsDraft((next) => {
-              next.Thresholds.MinCharactersForSummary = parseIntegerInput(event.target.value, next.Thresholds.MinCharactersForSummary);
-            })}
+            onChange={(event) => interactiveActions.setThreshold(
+              'MinCharactersForSummary',
+              parseIntegerInput(event.target.value, dashboardConfig.Thresholds.MinCharactersForSummary),
+            )}
           />
         ))}
         {renderField('interactive', 'MinLinesForSummary', (
           <input
             type="number"
             value={dashboardConfig.Thresholds.MinLinesForSummary}
-            onChange={(event) => updateSettingsDraft((next) => {
-              next.Thresholds.MinLinesForSummary = parseIntegerInput(event.target.value, next.Thresholds.MinLinesForSummary);
-            })}
+            onChange={(event) => interactiveActions.setThreshold(
+              'MinLinesForSummary',
+              parseIntegerInput(event.target.value, dashboardConfig.Thresholds.MinLinesForSummary),
+            )}
           />
         ))}
         {renderField('interactive', 'Interactive IdleTimeoutMs', (
           <input
             type="number"
             value={dashboardConfig.Interactive.IdleTimeoutMs}
-            onChange={(event) => updateSettingsDraft((next) => {
-              next.Interactive.IdleTimeoutMs = parseIntegerInput(event.target.value, next.Interactive.IdleTimeoutMs);
-            })}
+            onChange={(event) => interactiveActions.setInteger(
+              'IdleTimeoutMs',
+              parseIntegerInput(event.target.value, dashboardConfig.Interactive.IdleTimeoutMs),
+            )}
           />
         ))}
         {renderField('interactive', 'MaxTranscriptChars', (
           <input
             type="number"
             value={dashboardConfig.Interactive.MaxTranscriptCharacters}
-            onChange={(event) => updateSettingsDraft((next) => {
-              next.Interactive.MaxTranscriptCharacters = parseIntegerInput(event.target.value, next.Interactive.MaxTranscriptCharacters);
-            })}
+            onChange={(event) => interactiveActions.setInteger(
+              'MaxTranscriptCharacters',
+              parseIntegerInput(event.target.value, dashboardConfig.Interactive.MaxTranscriptCharacters),
+            )}
           />
         ))}
         {renderField('interactive', 'Wrapped commands', (
           <textarea
             rows={4}
             value={dashboardConfig.Interactive.WrappedCommands.join(', ')}
-            onChange={(event) => updateSettingsDraft((next) => {
-              next.Interactive.WrappedCommands = event.target.value
+            onChange={(event) => interactiveActions.setWrappedCommands(
+              event.target.value
                 .split(',')
                 .map((entry) => entry.trim())
-                .filter(Boolean);
-            })}
+                .filter(Boolean),
+            )}
           />
         ))}
         {renderField('interactive', 'Interactive enabled', (
@@ -262,7 +238,7 @@ export function SettingsTab(props: SettingsTabProps) {
             <input
               type="checkbox"
               checked={dashboardConfig.Interactive.Enabled}
-              onChange={(event) => updateSettingsDraft((next) => { next.Interactive.Enabled = event.target.checked; })}
+              onChange={(event) => interactiveActions.setBoolean('Enabled', event.target.checked)}
             />
             <span>{dashboardConfig.Interactive.Enabled ? 'Enabled' : 'Disabled'}</span>
           </label>
@@ -272,7 +248,7 @@ export function SettingsTab(props: SettingsTabProps) {
             <input
               type="checkbox"
               checked={dashboardConfig.Interactive.TranscriptRetention}
-              onChange={(event) => updateSettingsDraft((next) => { next.Interactive.TranscriptRetention = event.target.checked; })}
+              onChange={(event) => interactiveActions.setBoolean('TranscriptRetention', event.target.checked)}
             />
             <span>{dashboardConfig.Interactive.TranscriptRetention ? 'Enabled' : 'Disabled'}</span>
           </label>
@@ -291,11 +267,9 @@ export function SettingsTab(props: SettingsTabProps) {
         {renderField('web-search', 'Primary provider', (
           <select
             value={web.ProviderOrder[0]}
-            onChange={(event) => updateSettingsDraft((next) => {
-              const primary = event.target.value === 'firecrawl' ? 'firecrawl' : 'tavily';
-              const fallback = primary === 'tavily' ? 'firecrawl' : 'tavily';
-              next.WebSearch.ProviderOrder = [primary, fallback];
-            })}
+            onChange={(event) => webSearchActions.setPrimaryProvider(
+              event.target.value === 'firecrawl' ? 'firecrawl' : 'tavily',
+            )}
           >
             <option value="tavily">tavily</option>
             <option value="firecrawl">firecrawl</option>
@@ -306,7 +280,7 @@ export function SettingsTab(props: SettingsTabProps) {
             <input
               type="checkbox"
               checked={web.EnabledDefault}
-              onChange={(event) => updateSettingsDraft((next) => { next.WebSearch.EnabledDefault = event.target.checked; })}
+              onChange={(event) => webSearchActions.setEnabledDefault(event.target.checked)}
             />
             <span>{web.EnabledDefault ? 'Enabled' : 'Disabled'}</span>
           </label>
@@ -316,7 +290,7 @@ export function SettingsTab(props: SettingsTabProps) {
             <input
               type="checkbox"
               checked={web.Providers.tavily.Enabled}
-              onChange={(event) => updateSettingsDraft((next) => { next.WebSearch.Providers.tavily.Enabled = event.target.checked; })}
+              onChange={(event) => webSearchActions.setProviderEnabled('tavily', event.target.checked)}
             />
             <span>{web.Providers.tavily.Enabled ? 'Enabled' : 'Disabled'}</span>
           </label>
@@ -326,7 +300,7 @@ export function SettingsTab(props: SettingsTabProps) {
             <input
               type={showTavilyKey ? 'text' : 'password'}
               value={web.Providers.tavily.ApiKey}
-              onChange={(event) => updateSettingsDraft((next) => { next.WebSearch.Providers.tavily.ApiKey = event.target.value; })}
+              onChange={(event) => webSearchActions.setProviderApiKey('tavily', event.target.value)}
             />
             <button type="button" onClick={() => setShowTavilyKey((value) => !value)}>
               {showTavilyKey ? 'Hide' : 'Show'}
@@ -338,7 +312,7 @@ export function SettingsTab(props: SettingsTabProps) {
             <input
               type="checkbox"
               checked={web.Providers.firecrawl.Enabled}
-              onChange={(event) => updateSettingsDraft((next) => { next.WebSearch.Providers.firecrawl.Enabled = event.target.checked; })}
+              onChange={(event) => webSearchActions.setProviderEnabled('firecrawl', event.target.checked)}
             />
             <span>{web.Providers.firecrawl.Enabled ? 'Enabled' : 'Disabled'}</span>
           </label>
@@ -348,7 +322,7 @@ export function SettingsTab(props: SettingsTabProps) {
             <input
               type={showFirecrawlKey ? 'text' : 'password'}
               value={web.Providers.firecrawl.ApiKey}
-              onChange={(event) => updateSettingsDraft((next) => { next.WebSearch.Providers.firecrawl.ApiKey = event.target.value; })}
+              onChange={(event) => webSearchActions.setProviderApiKey('firecrawl', event.target.value)}
             />
             <button type="button" onClick={() => setShowFirecrawlKey((value) => !value)}>
               {showFirecrawlKey ? 'Hide' : 'Show'}
@@ -359,28 +333,28 @@ export function SettingsTab(props: SettingsTabProps) {
           <input
             type="number"
             value={web.ResultCount}
-            onChange={(event) => updateSettingsDraft((next) => { next.WebSearch.ResultCount = parseIntegerInput(event.target.value, next.WebSearch.ResultCount); })}
+            onChange={(event) => webSearchActions.setInteger('ResultCount', parseIntegerInput(event.target.value, web.ResultCount))}
           />
         ))}
         {renderField('web-search', 'Timeout ms', (
           <input
             type="number"
             value={web.TimeoutMs}
-            onChange={(event) => updateSettingsDraft((next) => { next.WebSearch.TimeoutMs = parseIntegerInput(event.target.value, next.WebSearch.TimeoutMs); })}
+            onChange={(event) => webSearchActions.setInteger('TimeoutMs', parseIntegerInput(event.target.value, web.TimeoutMs))}
           />
         ))}
         {renderField('web-search', 'Fetch max pages', (
           <input
             type="number"
             value={web.FetchMaxPages}
-            onChange={(event) => updateSettingsDraft((next) => { next.WebSearch.FetchMaxPages = parseIntegerInput(event.target.value, next.WebSearch.FetchMaxPages); })}
+            onChange={(event) => webSearchActions.setInteger('FetchMaxPages', parseIntegerInput(event.target.value, web.FetchMaxPages))}
           />
         ))}
         {renderField('web-search', 'Fetch max characters', (
           <input
             type="number"
             value={web.FetchMaxCharacters}
-            onChange={(event) => updateSettingsDraft((next) => { next.WebSearch.FetchMaxCharacters = parseIntegerInput(event.target.value, next.WebSearch.FetchMaxCharacters); })}
+            onChange={(event) => webSearchActions.setInteger('FetchMaxCharacters', parseIntegerInput(event.target.value, web.FetchMaxCharacters))}
           />
         ))}
         {renderField('web-search', 'Usage', (
@@ -408,22 +382,7 @@ export function SettingsTab(props: SettingsTabProps) {
           dashboardConfig={dashboardConfig}
           selectedSettingsPreset={selectedSettingsPreset}
           selectedSettingsPresetId={selectedSettingsPresetId}
-          setSelectedSettingsPresetId={setSelectedSettingsPresetId}
-          setPresetLabel={setPresetLabel}
-          setPresetKind={setPresetKind}
-          setPresetOperationMode={setPresetOperationMode}
-          togglePresetTool={togglePresetTool}
-          setPresetDescription={setPresetDescription}
-          setPresetPromptPrefix={setPresetPromptPrefix}
-          setPresetSurfaceEnabled={setPresetSurfaceEnabled}
-          setPresetAgentsMdEnabled={setPresetAgentsMdEnabled}
-          setPresetRepoFileListingEnabled={setPresetRepoFileListingEnabled}
-          setPresetAutoloadFile={setPresetAutoloadFile}
-          addPresetAutoloadFile={addPresetAutoloadFile}
-          removePresetAutoloadFile={removePresetAutoloadFile}
-          setDefaultSummaryPreset={setDefaultSummaryPreset}
-          onAddPreset={onAddPreset}
-          onDeletePreset={onDeletePreset}
+          presetActions={presetActions}
         />
       );
     }
@@ -435,12 +394,7 @@ export function SettingsTab(props: SettingsTabProps) {
         selectedModelPreset={selectedModelPreset}
         settingsActionBusy={settingsActionBusy}
         settingsPathPickerBusyTarget={settingsPathPickerBusyTarget}
-        updateSettingsDraft={updateSettingsDraft}
-        updateModelPresetDraft={updateModelPresetDraft}
-        onAddModelPreset={onAddModelPreset}
-        onDeleteModelPreset={onDeleteModelPreset}
-        onPickModelPresetPath={onPickModelPresetPath}
-        onTestLlamaCppBaseUrl={onTestLlamaCppBaseUrl}
+        modelPresetActions={modelPresetActions}
       />
     );
   };

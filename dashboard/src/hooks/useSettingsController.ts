@@ -9,28 +9,28 @@ import {
 } from '../api';
 import { createPresetIdFromLabel } from '../dashboard-presets';
 import {
-  addModelPreset,
-  deleteModelPreset,
-  updateActiveModelPreset,
-} from '../model-runtime-presets';
-import {
-  getDefaultToolsForOperationMode,
   getFallbackPresetId,
   getNextPresetIdAfterDelete,
 } from '../preset-editor';
-import { DashboardPresetDraftEditor } from '../preset-draft-editor';
+import {
+  DashboardSettingsDraftEditor,
+  type DashboardSettingsDraftAction,
+} from '../settings-draft-editor';
+import type {
+  GeneralSettingsActions,
+  InteractiveSettingsActions,
+  ModelPresetSettingsActions,
+  PresetSettingsActions,
+  ToolPolicySettingsActions,
+  WebSearchSettingsActions,
+} from '../settings-action-groups';
 import { getDirtyActionRequirement, type DirtyContinuation } from '../settings-flow';
 import { type SettingsSectionId } from '../settings-sections';
 import { buildManagedLlamaRestartFailureModal } from '../managed-llama-restart';
-import { deriveRuntimeModelId, syncDerivedSettingsFields } from '../settings-runtime';
 import { cloneDashboardConfig, getDashboardConfigSignature } from '../lib/format';
 import type {
   DashboardConfig,
   DashboardModelRuntimePreset,
-  DashboardPresetKind,
-  DashboardPresetOperationMode,
-  DashboardPresetSurface,
-  DashboardPresetToolName,
   ProviderQuota,
   WebSearchUsage,
 } from '../types';
@@ -158,208 +158,193 @@ export function useSettingsController(deps: {
     };
   }, [settingsDirty, deps.tab]);
 
-  function updateSettingsDraft(updater: (next: DashboardConfig) => void): void {
+  function applySettingsAction(action: DashboardSettingsDraftAction): void {
     setDashboardConfig((previous) => {
       if (!previous) {
         return previous;
       }
-      const next = cloneDashboardConfig(previous);
-      updater(next);
-      return syncDerivedSettingsFields(next);
-    });
-    setSettingsSavedAtUtc(null);
-  }
-
-  function setPresetLabel(presetId: string, label: string): void {
-    setDashboardConfig((previous) => {
-      if (!previous) return previous;
-      const editor = new DashboardPresetDraftEditor(previous);
-      editor.setLabel(presetId, label);
+      const editor = new DashboardSettingsDraftEditor(previous);
+      editor.apply(action);
       return editor.getConfig();
     });
     setSettingsSavedAtUtc(null);
   }
 
-  function setPresetKind(presetId: string, kind: DashboardPresetKind): void {
-    setDashboardConfig((previous) => {
-      if (!previous) return previous;
-      const editor = new DashboardPresetDraftEditor(previous);
-      editor.setKind(presetId, kind);
-      return editor.getConfig();
-    });
-    setSettingsSavedAtUtc(null);
+  function getSelectedModelPresetId(): string | null {
+    return selectedModelPreset?.id ?? null;
   }
 
-  function setPresetOperationMode(
-    presetId: string,
-    operationMode: DashboardPresetOperationMode,
-  ): void {
-    setDashboardConfig((previous) => {
-      if (!previous) return previous;
-      const editor = new DashboardPresetDraftEditor(previous);
-      editor.setOperationMode(presetId, operationMode);
-      return editor.getConfig();
-    });
-    setSettingsSavedAtUtc(null);
-  }
+  const generalActions: GeneralSettingsActions = {
+    setString(field, value) {
+      applySettingsAction({ type: 'set-general-string', field, value });
+    },
+    setBoolean(field, value) {
+      applySettingsAction({ type: 'set-general-boolean', field, value });
+    },
+  };
 
-  function togglePresetTool(presetId: string, tool: DashboardPresetToolName): void {
-    setDashboardConfig((previous) => {
-      if (!previous) return previous;
-      const editor = new DashboardPresetDraftEditor(previous);
-      editor.toggleTool(presetId, tool);
-      return editor.getConfig();
-    });
-    setSettingsSavedAtUtc(null);
-  }
+  const toolPolicyActions: ToolPolicySettingsActions = {
+    setToolEnabled(operationMode, tool, enabled) {
+      applySettingsAction({ type: 'set-operation-tool-enabled', operationMode, tool, enabled });
+    },
+  };
 
-  function setPresetDescription(presetId: string, description: string): void {
-    setDashboardConfig((previous) => {
-      if (!previous) return previous;
-      const editor = new DashboardPresetDraftEditor(previous);
-      editor.setDescription(presetId, description);
-      return editor.getConfig();
-    });
-    setSettingsSavedAtUtc(null);
-  }
+  const presetActions: PresetSettingsActions = {
+    selectPreset(presetId) {
+      setSelectedSettingsPresetId(presetId);
+    },
+    setString(presetId, field, value) {
+      applySettingsAction({ type: 'set-preset-string', presetId, field, value });
+    },
+    setKind(presetId, value) {
+      applySettingsAction({ type: 'set-preset-kind', presetId, value });
+    },
+    setOperationMode(presetId, value) {
+      applySettingsAction({ type: 'set-preset-operation-mode', presetId, value });
+    },
+    setToolEnabled(presetId, tool, enabled) {
+      applySettingsAction({ type: 'set-preset-tool-enabled', presetId, tool, enabled });
+    },
+    setSurfaceEnabled(presetId, surface, enabled) {
+      applySettingsAction({ type: 'set-preset-surface-enabled', presetId, surface, enabled });
+    },
+    setAgentsMdEnabled(presetId, enabled) {
+      applySettingsAction({ type: 'set-preset-boolean', presetId, field: 'includeAgentsMd', value: enabled });
+    },
+    setRepoFileListingEnabled(presetId, enabled) {
+      applySettingsAction({ type: 'set-preset-boolean', presetId, field: 'includeRepoFileListing', value: enabled });
+    },
+    setAutoloadFile(presetId, index, value) {
+      applySettingsAction({ type: 'set-preset-autoload-file', presetId, index, value });
+    },
+    addAutoloadFile(presetId) {
+      applySettingsAction({ type: 'add-preset-autoload-file', presetId });
+    },
+    removeAutoloadFile(presetId, index) {
+      applySettingsAction({ type: 'remove-preset-autoload-file', presetId, index });
+    },
+    setSummaryDefault(presetId) {
+      applySettingsAction({ type: 'set-summary-default-preset', presetId });
+    },
+    addPreset() {
+      if (!dashboardConfig) {
+        return;
+      }
+      const presetId = createUniquePresetId(
+        dashboardConfig.Presets,
+        `custom-preset-${dashboardConfig.Presets.length + 1}`,
+      );
+      const label = `Custom Preset ${Math.max(
+        1,
+        dashboardConfig.Presets.filter((preset) => preset.deletable).length + 1,
+      )}`;
+      applySettingsAction({ type: 'add-preset', presetId, label });
+      setSelectedSettingsPresetId(presetId);
+    },
+    deletePreset(presetId) {
+      if (!dashboardConfig) {
+        return;
+      }
+      const nextPresetId = getNextPresetIdAfterDelete(dashboardConfig.Presets, presetId);
+      applySettingsAction({ type: 'delete-preset', presetId });
+      setSelectedSettingsPresetId(nextPresetId);
+    },
+  };
 
-  function setPresetPromptPrefix(presetId: string, promptPrefix: string): void {
-    setDashboardConfig((previous) => {
-      if (!previous) return previous;
-      const editor = new DashboardPresetDraftEditor(previous);
-      editor.setPromptPrefix(presetId, promptPrefix);
-      return editor.getConfig();
-    });
-    setSettingsSavedAtUtc(null);
-  }
+  const interactiveActions: InteractiveSettingsActions = {
+    setThreshold(field, value) {
+      applySettingsAction({ type: 'set-threshold-integer', field, value });
+    },
+    setInteger(field, value) {
+      applySettingsAction({ type: 'set-interactive-integer', field, value });
+    },
+    setBoolean(field, value) {
+      applySettingsAction({ type: 'set-interactive-boolean', field, value });
+    },
+    setWrappedCommands(value) {
+      applySettingsAction({ type: 'set-interactive-wrapped-commands', value });
+    },
+  };
 
-  function setPresetSurfaceEnabled(
-    presetId: string,
-    surface: DashboardPresetSurface,
-    enabled: boolean,
-  ): void {
-    setDashboardConfig((previous) => {
-      if (!previous) return previous;
-      const editor = new DashboardPresetDraftEditor(previous);
-      editor.setSurfaceEnabled(presetId, surface, enabled);
-      return editor.getConfig();
-    });
-    setSettingsSavedAtUtc(null);
-  }
+  const webSearchActions: WebSearchSettingsActions = {
+    setPrimaryProvider(provider) {
+      applySettingsAction({ type: 'set-web-search-primary-provider', provider });
+    },
+    setEnabledDefault(value) {
+      applySettingsAction({ type: 'set-web-search-enabled-default', value });
+    },
+    setProviderEnabled(provider, value) {
+      applySettingsAction({ type: 'set-web-search-provider-enabled', provider, value });
+    },
+    setProviderApiKey(provider, value) {
+      applySettingsAction({ type: 'set-web-search-provider-api-key', provider, value });
+    },
+    setInteger(field, value) {
+      applySettingsAction({ type: 'set-web-search-integer', field, value });
+    },
+  };
 
-  function setPresetAgentsMdEnabled(presetId: string, enabled: boolean): void {
-    setDashboardConfig((previous) => {
-      if (!previous) return previous;
-      const editor = new DashboardPresetDraftEditor(previous);
-      editor.setAgentsMdEnabled(presetId, enabled);
-      return editor.getConfig();
-    });
-    setSettingsSavedAtUtc(null);
-  }
-
-  function setPresetRepoFileListingEnabled(presetId: string, enabled: boolean): void {
-    setDashboardConfig((previous) => {
-      if (!previous) return previous;
-      const editor = new DashboardPresetDraftEditor(previous);
-      editor.setRepoFileListingEnabled(presetId, enabled);
-      return editor.getConfig();
-    });
-    setSettingsSavedAtUtc(null);
-  }
-
-  function setPresetAutoloadFile(presetId: string, index: number, path: string): void {
-    setDashboardConfig((previous) => {
-      if (!previous) return previous;
-      const editor = new DashboardPresetDraftEditor(previous);
-      editor.setAutoloadFile(presetId, index, path);
-      return editor.getConfig();
-    });
-    setSettingsSavedAtUtc(null);
-  }
-
-  function addPresetAutoloadFile(presetId: string): void {
-    setDashboardConfig((previous) => {
-      if (!previous) return previous;
-      const editor = new DashboardPresetDraftEditor(previous);
-      editor.addAutoloadFile(presetId);
-      return editor.getConfig();
-    });
-    setSettingsSavedAtUtc(null);
-  }
-
-  function removePresetAutoloadFile(presetId: string, index: number): void {
-    setDashboardConfig((previous) => {
-      if (!previous) return previous;
-      const editor = new DashboardPresetDraftEditor(previous);
-      editor.removeAutoloadFile(presetId, index);
-      return editor.getConfig();
-    });
-    setSettingsSavedAtUtc(null);
-  }
-
-  function setDefaultSummaryPreset(presetId: string, enabled: boolean): void {
-    setDashboardConfig((previous) => {
-      if (!previous) return previous;
-      const editor = new DashboardPresetDraftEditor(previous);
-      editor.setDefaultSummaryPreset(presetId, enabled);
-      return editor.getConfig();
-    });
-    setSettingsSavedAtUtc(null);
-  }
-
-  function updateModelPresetDraft(updater: (preset: DashboardModelRuntimePreset) => void): void {
-    updateSettingsDraft((next) => {
-      updateActiveModelPreset(next, updater);
-    });
-  }
-
-  function onAddPreset(): void {
-    let addedPresetId: string | null = null;
-    updateSettingsDraft((next) => {
-      const id = createUniquePresetId(next.Presets, `custom-preset-${next.Presets.length + 1}`);
-      addedPresetId = id;
-      next.Presets.push({
-        id,
-        label: `Custom Preset ${Math.max(1, next.Presets.filter((preset) => preset.deletable).length + 1)}`,
-        description: '',
-        presetKind: 'summary',
-        operationMode: 'summary',
-        promptPrefix: '',
-        allowedTools: getDefaultToolsForOperationMode('summary'),
-        surfaces: ['cli'],
-        useForSummary: false,
-        builtin: false,
-        deletable: true,
-        includeAgentsMd: true,
-        includeRepoFileListing: true,
-        autoloadFiles: [],
-        repoRootRequired: false,
-        maxTurns: null,
-      });
-    });
-    setSelectedSettingsPresetId(addedPresetId);
-  }
-
-  function onDeletePreset(presetId: string): void {
-    let nextPresetId: string | null = null;
-    updateSettingsDraft((next) => {
-      nextPresetId = getNextPresetIdAfterDelete(next.Presets, presetId);
-      next.Presets = next.Presets.filter((preset) => preset.id !== presetId || preset.deletable === false);
-    });
-    setSelectedSettingsPresetId(nextPresetId);
-  }
-
-  function onAddModelPreset(): void {
-    updateSettingsDraft((next) => {
-      addModelPreset(next);
-    });
-  }
-
-  function onDeleteModelPreset(presetId: string): void {
-    updateSettingsDraft((next) => {
-      deleteModelPreset(next, presetId);
-    });
-  }
+  const modelPresetActions: ModelPresetSettingsActions = {
+    selectPreset(presetId) {
+      applySettingsAction({ type: 'set-active-model-preset', presetId });
+    },
+    setString(field, value) {
+      const presetId = getSelectedModelPresetId();
+      if (presetId) applySettingsAction({ type: 'set-model-string', presetId, field, value });
+    },
+    setNullableString(field, value) {
+      const presetId = getSelectedModelPresetId();
+      if (presetId) applySettingsAction({ type: 'set-model-nullable-string', presetId, field, value });
+    },
+    setModelPath(value) {
+      const presetId = getSelectedModelPresetId();
+      if (presetId) applySettingsAction({ type: 'set-model-path', presetId, value });
+    },
+    setInteger(field, value) {
+      const presetId = getSelectedModelPresetId();
+      if (presetId) applySettingsAction({ type: 'set-model-integer', presetId, field, value });
+    },
+    setFloat(field, value) {
+      const presetId = getSelectedModelPresetId();
+      if (presetId) applySettingsAction({ type: 'set-model-float', presetId, field, value });
+    },
+    setBoolean(field, value) {
+      const presetId = getSelectedModelPresetId();
+      if (presetId) applySettingsAction({ type: 'set-model-boolean', presetId, field, value });
+    },
+    setBackend(value) {
+      const presetId = getSelectedModelPresetId();
+      if (presetId) applySettingsAction({ type: 'set-model-backend', presetId, value });
+    },
+    setKvCacheQuantization(value) {
+      const presetId = getSelectedModelPresetId();
+      if (presetId) applySettingsAction({ type: 'set-model-kv-cache-quantization', presetId, value });
+    },
+    setReasoning(value) {
+      const presetId = getSelectedModelPresetId();
+      if (presetId) applySettingsAction({ type: 'set-model-reasoning', presetId, value });
+    },
+    setReasoningContent(value) {
+      const presetId = getSelectedModelPresetId();
+      if (presetId) applySettingsAction({ type: 'set-model-reasoning-content', presetId, value });
+    },
+    setSpeculativeType(value) {
+      const presetId = getSelectedModelPresetId();
+      if (presetId) applySettingsAction({ type: 'set-model-speculative-type', presetId, value });
+    },
+    addPreset() {
+      applySettingsAction({ type: 'add-model-preset' });
+    },
+    deletePreset(presetId) {
+      applySettingsAction({ type: 'delete-model-preset', presetId });
+    },
+    pickPath(target) {
+      return onPickModelPresetPath(target);
+    },
+    testBaseUrl(baseUrl, timeoutMs) {
+      return onTestLlamaCppBaseUrl(baseUrl, timeoutMs);
+    },
+  };
 
   async function saveDashboardSettingsCore(): Promise<boolean> {
     if (!dashboardConfig) {
@@ -425,14 +410,11 @@ export function useSettingsController(deps: {
       if (response.cancelled || !response.path) {
         return;
       }
-      updateModelPresetDraft((preset) => {
-        if (target === 'ExecutablePath') {
-          preset.ExecutablePath = response.path;
-          return;
-        }
-        preset.ModelPath = response.path;
-        preset.Model = deriveRuntimeModelId(preset.ModelPath) || preset.Model;
-      });
+      if (target === 'ExecutablePath') {
+        modelPresetActions.setNullableString('ExecutablePath', response.path);
+      } else {
+        modelPresetActions.setModelPath(response.path);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setSettingsError(message);
@@ -576,29 +558,13 @@ export function useSettingsController(deps: {
     settingsSaving,
     settingsRestarting,
     settingsPathPickerBusyTarget,
-    setSelectedSettingsPresetId,
     requestSettingsAction,
-    updateSettingsDraft,
-    setPresetLabel,
-    setPresetKind,
-    setPresetOperationMode,
-    togglePresetTool,
-    setPresetDescription,
-    setPresetPromptPrefix,
-    setPresetSurfaceEnabled,
-    setPresetAgentsMdEnabled,
-    setPresetRepoFileListingEnabled,
-    setPresetAutoloadFile,
-    addPresetAutoloadFile,
-    removePresetAutoloadFile,
-    setDefaultSummaryPreset,
-    updateModelPresetDraft,
-    onAddPreset,
-    onDeletePreset,
-    onAddModelPreset,
-    onDeleteModelPreset,
-    onPickModelPresetPath,
-    onTestLlamaCppBaseUrl,
+    generalActions,
+    toolPolicyActions,
+    presetActions,
+    interactiveActions,
+    webSearchActions,
+    modelPresetActions,
     onReloadDashboardSettings,
     restartDashboardBackendCore,
     onSaveDashboardSettings,
