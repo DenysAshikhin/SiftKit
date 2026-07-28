@@ -17,7 +17,6 @@ import { JsonRecordReader } from '../../lib/json-record-reader.js';
 import type { OptionalJsonValue } from '../../lib/json-types.js';
 import type { ChatGroundingStatus } from '../../repo-search/chat-grounding-policy.js';
 import { getRuntimeRoot } from '../paths.js';
-import { countTokensWithFallbackDetailed } from '../../repo-search/prompt-budget.js';
 import { toError } from '../../lib/errors.js';
 import {
   readBody,
@@ -86,6 +85,7 @@ import {
   ChatRepoOperationRunner,
   type ChatRepoOperationRequest,
 } from '../chat-repo-operation-runner.js';
+import { ChatTurnTelemetry } from '../chat-turn-telemetry.js';
 import {
   captureManagedLlamaSpeculativeMetricsSnapshot,
   getManagedLlamaSpeculativeMetricsDelta,
@@ -159,13 +159,6 @@ function forwardRepoSearchToolEvent(
   }
 }
 
-function shouldMaintainPerStepThinking(config: SiftConfig, session: ChatSession): boolean {
-  const activePreset = getActiveModelPreset(config);
-  return session.thinkingEnabled !== false
-    && activePreset.Reasoning === 'on'
-    && activePreset.MaintainPerStepThinking !== false;
-}
-
 function withPromptContext(config: SiftConfig, session: ChatSession): ChatSession {
   return {
     ...session,
@@ -207,41 +200,6 @@ function buildChatSessionResponse(config: SiftConfig, session: ChatSession): Cha
 function hasEstimatedScorecardTokens(scorecard: OptionalJsonValue, key: keyof RepoSearchTotals): boolean {
   const count = getScorecardTotal(scorecard, key);
   return count !== null && count > 0;
-}
-
-async function countPersistTurnThinkingTokens(config: SiftConfig | undefined, turns: PersistTurn[]): Promise<PersistTurn[]> {
-  const countedTurns: PersistTurn[] = [];
-  for (const turn of turns) {
-    const thinkingText = String(turn.thinkingText || '').trim();
-    if (!thinkingText) {
-      countedTurns.push(turn);
-      continue;
-    }
-    const count = await countTokensWithFallbackDetailed(config, thinkingText, {
-      timeoutMs: 1000,
-      retryMaxWaitMs: 1000,
-    });
-    countedTurns.push({
-      ...turn,
-      thinkingTokens: count.tokenCount,
-      thinkingTokensEstimated: count.source !== 'llama.cpp',
-    });
-  }
-  return countedTurns;
-}
-
-async function countPersistedInputTokens(
-  config: SiftConfig | undefined,
-  content: string,
-): Promise<{ tokenCount: number; estimated: boolean }> {
-  const count = await countTokensWithFallbackDetailed(config, content, {
-    timeoutMs: 1000,
-    retryMaxWaitMs: 1000,
-  });
-  return {
-    tokenCount: count.tokenCount,
-    estimated: count.source !== 'llama.cpp',
-  };
 }
 
 function getMockTokenConfig(config: SiftConfig, mockResponses: string[] | undefined): SiftConfig | undefined {
@@ -699,7 +657,10 @@ class ChatMessageTurn {
   }
 
   async runEngineTurn(): Promise<void> {
-    const tokenConfig = getMockTokenConfig(this.config, this.mockResponses);
+    const telemetry = new ChatTurnTelemetry(
+      this.config,
+      getMockTokenConfig(this.config, this.mockResponses),
+    );
     try {
       const result = await this.ctx.engineService.executeRepoSearch({
         presetId: this.preset.id,
@@ -716,7 +677,7 @@ class ChatMessageTurn {
       });
       const scorecardTasks = normalizeRepoSearchScorecard(result.scorecard).tasks;
       const scorecardSpeculative = readScorecardSpeculativeMetrics(result.scorecard);
-      await this.persistAndRespond(tokenConfig, {
+      await this.persistAndRespond(telemetry, {
         assistantContent: String(scorecardTasks[0]?.finalOutput || '').trim(),
         usage: {
           promptTokens: getScorecardTotal(result.scorecard, 'promptTokens'),
@@ -729,7 +690,7 @@ class ChatMessageTurn {
           speculativeAcceptedTokens: scorecardSpeculative.speculativeAcceptedTokens,
           speculativeGeneratedTokens: scorecardSpeculative.speculativeGeneratedTokens,
         },
-        persistTurns: await countPersistTurnThinkingTokens(tokenConfig, buildPersistTurnsFromRepoSearchResult(result)),
+        persistTurns: await telemetry.countThinkingTokens(buildPersistTurnsFromRepoSearchResult(result)),
         // Run rows are keyed by the engine request id, so deleting a tool bubble later
         // finds the run-log command to purge.
         sourceRunId: String(result.requestId || ''),
@@ -747,12 +708,15 @@ class ChatMessageTurn {
         terminalState: 'completed',
         outputChars: assistantContent.length,
       });
-      await this.persistAndRespond(getLocalTokenConfig(this.config), {
-        assistantContent,
-        usage: {},
-        persistTurns: [{ thinkingText: '', toolMessages: [] }],
-        sourceRunId: null,
-      });
+      await this.persistAndRespond(
+        new ChatTurnTelemetry(this.config, getLocalTokenConfig(this.config)),
+        {
+          assistantContent,
+          usage: {},
+          persistTurns: [{ thinkingText: '', toolMessages: [] }],
+          sourceRunId: null,
+        },
+      );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       await this.notifyStatus({ running: false, terminalState: 'failed', errorMessage, outputChars: 0 });
@@ -760,9 +724,12 @@ class ChatMessageTurn {
     }
   }
 
-  private async persistAndRespond(tokenConfig: SiftConfig | undefined, turn: ChatTurnContent): Promise<void> {
+  private async persistAndRespond(
+    telemetry: ChatTurnTelemetry,
+    turn: ChatTurnContent,
+  ): Promise<void> {
     const speculativeMetrics = resolveSessionSpeculativeMetrics(this.ctx, this.managedLlamaCursor, turn.usage);
-    const inputTokenCount = await countPersistedInputTokens(tokenConfig, this.userContent);
+    const inputTokenCount = await telemetry.countInputTokens(this.userContent);
     const sessionWithTelemetry = appendChatMessagesWithUsage(
       this.runtimeRoot,
       this.session,
@@ -771,7 +738,7 @@ class ChatMessageTurn {
       turn.usage,
       {
         turns: turn.persistTurns,
-        maintainPerStepThinking: shouldMaintainPerStepThinking(this.config, this.session),
+        maintainPerStepThinking: telemetry.shouldMaintainPerStepThinking(this.session),
         inputTokens: inputTokenCount.tokenCount,
         inputTokensEstimated: inputTokenCount.estimated,
         requestDurationMs: Date.now() - this.startedAt,
@@ -962,6 +929,7 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
           : selectedSession.webSearchEnabled === true;
       const mockResponses = readRouteStringArray(reader, 'mockResponses');
       const mockTokenConfig = getMockTokenConfig(config, mockResponses);
+      const telemetry = new ChatTurnTelemetry(config, mockTokenConfig);
       const engineRequestId = randomUUID();
       const result = await ctx.engineService.executeRepoSearch({
         presetId: selected.preset.id,
@@ -1008,14 +976,14 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
         speculativeAcceptedTokens: scorecardSpeculative.speculativeAcceptedTokens,
         speculativeGeneratedTokens: scorecardSpeculative.speculativeGeneratedTokens,
       };
-      const persistTurns = await countPersistTurnThinkingTokens(mockTokenConfig, buildPersistTurnsFromRepoSearchResult(result));
+      const persistTurns = await telemetry.countThinkingTokens(buildPersistTurnsFromRepoSearchResult(result));
       const speculativeMetrics = resolveSessionSpeculativeMetrics(ctx, managedLlamaCursor, scorecardSpeculative);
       phaseTracker.observeAnswer(assistantContent);
       const phaseTimestamps = phaseTracker.snapshot();
-      const inputTokenCount = await countPersistedInputTokens(mockTokenConfig, userContent);
+      const inputTokenCount = await telemetry.countInputTokens(userContent);
       const updatedSession = appendChatMessagesWithUsage(runtimeRoot, selectedSession, userContent, assistantContent, usage, {
         turns: persistTurns,
-        maintainPerStepThinking: shouldMaintainPerStepThinking(config, selectedSession),
+        maintainPerStepThinking: telemetry.shouldMaintainPerStepThinking(selectedSession),
         inputTokens: inputTokenCount.tokenCount,
         inputTokensEstimated: inputTokenCount.estimated,
         requestDurationMs: Date.now() - startedAt,

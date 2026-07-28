@@ -1,10 +1,8 @@
 import { WEB_RESEARCH_PRESET_TOOLS } from '@siftkit/contracts';
 
 import {
-  getActiveModelPreset,
   type SiftConfig,
 } from '../config/index.js';
-import { countTokensWithFallbackDetailed } from '../repo-search/prompt-budget.js';
 import type {
   RepoSearchExecutionResult,
   RepoSearchMockCommandResult,
@@ -36,6 +34,7 @@ import {
   type PersistTurn,
 } from './chat.js';
 import { ChatOperationPresetSelector } from './chat-operation-preset.js';
+import { ChatTurnTelemetry } from './chat-turn-telemetry.js';
 import type { StatusEngineService } from './engine-service.js';
 import {
   captureManagedLlamaSpeculativeMetricsSnapshot,
@@ -256,9 +255,9 @@ export class ChatRepoOperationRunner {
     const tokenConfig = Array.isArray(options.request.mockResponses)
       ? undefined
       : options.request.config;
-    const inputTokenCount = await this.countInputTokens(tokenConfig, options.request.content);
-    const turns = await this.countThinkingTokens(
-      tokenConfig,
+    const telemetry = new ChatTurnTelemetry(options.request.config, tokenConfig);
+    const inputTokenCount = await telemetry.countInputTokens(options.request.content);
+    const turns = await telemetry.countThinkingTokens(
       this.buildPersistTurns(options.engineResult),
     );
     const trackedSpeculative = getManagedLlamaSpeculativeMetricsDelta(
@@ -279,10 +278,7 @@ export class ChatRepoOperationRunner {
       },
       {
         turns,
-        maintainPerStepThinking: this.shouldMaintainPerStepThinking(
-          options.request.config,
-          options.session,
-        ),
+        maintainPerStepThinking: telemetry.shouldMaintainPerStepThinking(options.session),
         inputTokens: inputTokenCount.tokenCount,
         inputTokensEstimated: inputTokenCount.estimated,
         requestDurationMs: Date.now() - options.startedAt,
@@ -330,51 +326,6 @@ export class ChatRepoOperationRunner {
         toolCallPromptTokenCount: promptTokens,
       })),
     }));
-  }
-
-  private shouldMaintainPerStepThinking(config: SiftConfig, session: ChatSession): boolean {
-    const activePreset = getActiveModelPreset(config);
-    return session.thinkingEnabled !== false
-      && activePreset.Reasoning === 'on'
-      && activePreset.MaintainPerStepThinking !== false;
-  }
-
-  private async countInputTokens(
-    config: SiftConfig | undefined,
-    content: string,
-  ): Promise<{ tokenCount: number; estimated: boolean }> {
-    const count = await countTokensWithFallbackDetailed(config, content, {
-      timeoutMs: 1000,
-      retryMaxWaitMs: 1000,
-    });
-    return {
-      tokenCount: count.tokenCount,
-      estimated: count.source !== 'llama.cpp',
-    };
-  }
-
-  private async countThinkingTokens(
-    config: SiftConfig | undefined,
-    turns: PersistTurn[],
-  ): Promise<PersistTurn[]> {
-    const countedTurns: PersistTurn[] = [];
-    for (const turn of turns) {
-      const thinkingText = turn.thinkingText.trim();
-      if (!thinkingText) {
-        countedTurns.push(turn);
-        continue;
-      }
-      const count = await countTokensWithFallbackDetailed(config, thinkingText, {
-        timeoutMs: 1000,
-        retryMaxWaitMs: 1000,
-      });
-      countedTurns.push({
-        ...turn,
-        thinkingTokens: count.tokenCount,
-        thinkingTokensEstimated: count.source !== 'llama.cpp',
-      });
-    }
-    return countedTurns;
   }
 
   private hasEstimatedTokens(
