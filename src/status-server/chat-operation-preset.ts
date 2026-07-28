@@ -29,7 +29,13 @@ export class ChatOperationPresetSelector {
     }
     const selected = this.catalog.requireById(session.presetId);
     if (isCompatible(selected.presetKind, operation)) {
-      return { preset: selected, session };
+      return {
+        preset: selected,
+        session: {
+          ...session,
+          mode: this.catalog.deriveChatSessionMode(selected.id),
+        },
+      };
     }
     const preset = this.catalog.requireKind(operation, [operation]);
     return {
@@ -37,7 +43,7 @@ export class ChatOperationPresetSelector {
       session: {
         ...session,
         presetId: preset.id,
-        mode: operation,
+        mode: this.catalog.deriveChatSessionMode(preset.id),
       },
     };
   }

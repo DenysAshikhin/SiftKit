@@ -14,7 +14,7 @@ function createSession(presetId: string, mode: ChatSessionMode = 'chat'): ChatSe
   };
 }
 
-test('selector keeps a compatible custom plan preset', () => {
+test('selector keeps a compatible custom plan preset and derives its session mode', () => {
   const catalog = PresetCatalog.createDefault();
   const planPreset = catalog.requireById('plan');
   const presets = [...catalog.list(), {
@@ -24,12 +24,13 @@ test('selector keeps a compatible custom plan preset', () => {
     builtin: false,
     deletable: true,
   }];
-  const session = createSession('custom-plan', 'plan');
+  const session = createSession('custom-plan', 'chat');
 
   const selected = new ChatOperationPresetSelector(presets).select(session, 'plan');
 
   assert.equal(selected.preset.id, 'custom-plan');
   assert.equal(selected.session.presetId, 'custom-plan');
+  assert.equal(selected.session.mode, 'plan');
 });
 
 test('selector keeps compatible custom summary and repo-search presets', () => {
