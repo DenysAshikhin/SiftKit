@@ -1220,6 +1220,8 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
     assert.deepEqual(planDoneSession, d(persistedPlan.body.session));
     const latestPlanMessage = planDoneMessages[planDoneMessages.length - 1];
     assert.equal(typeof latestPlanMessage.requestStartedAtUtc, 'string');
+    assert.equal(typeof latestPlanMessage.thinkingStartedAtUtc, 'string');
+    assert.equal(typeof latestPlanMessage.thinkingEndedAtUtc, 'string');
     assert.equal(typeof latestPlanMessage.answerStartedAtUtc, 'string');
     assert.equal(typeof latestPlanMessage.answerEndedAtUtc, 'string');
 
@@ -1279,6 +1281,8 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
     const repoDoneMessages = asObjectArray(repoDoneSession.messages);
     const latestRepoMessage = repoDoneMessages[repoDoneMessages.length - 1];
     assert.equal(typeof latestRepoMessage.requestStartedAtUtc, 'string');
+    assert.equal(typeof latestRepoMessage.thinkingStartedAtUtc, 'string');
+    assert.equal(typeof latestRepoMessage.thinkingEndedAtUtc, 'string');
     assert.equal(typeof latestRepoMessage.answerStartedAtUtc, 'string');
     assert.equal(typeof latestRepoMessage.answerEndedAtUtc, 'string');
   } finally {
