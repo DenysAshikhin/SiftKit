@@ -75,7 +75,7 @@ test('benchmark runner writes prompt, output, classification metadata, per-case 
       assert.equal(artifact.Results[0].Error, null);
       assert.equal(artifact.Results[0].Name, undefined);
       assert.equal(artifact.Results[0].SourcePath, undefined);
-      assert.match(artifact.Results[1].Prompt, /You are SiftKit/u);
+      assert.equal(artifact.Results[1].Prompt, 'summarize this');
       assert.match(artifact.Results[1].Output, /mock summary/u);
       assert.equal(artifact.Results[1].PolicyDecision, 'model-summary');
       assert.equal(artifact.Results[1].Classification, 'summary');
