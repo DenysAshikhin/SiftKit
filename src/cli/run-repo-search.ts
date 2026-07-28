@@ -1,4 +1,3 @@
-import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
 import { CliApprovalPrompter } from './approval-prompter.js';
 import {
   parseArguments,
@@ -7,6 +6,7 @@ import {
   type ResolvedCliArgs,
 } from './args.js';
 import { CliProgressRenderer } from './progress-renderer.js';
+import { formatRepoTaskOutput } from './repo-task-output.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
 
 /** A run that prompts for approval needs a real terminal to prompt on; refuse a non-TTY stdin. */
@@ -72,15 +72,7 @@ export async function runRepoTaskCli(options: ResolvedCliArgs & {
         interactive: parsed.interactive === true,
       }, renderer, approvalPrompter);
 
-  const finalOutputs = response.scorecard.tasks
-    .map((task) => task.finalOutput.trim())
-    .filter((value) => value.length > 0);
-  const formattedOutput = RepoSearchOutputFormatter.formatFinalOutputs(finalOutputs);
-  if (formattedOutput) {
-    options.stdout.write(`${formattedOutput}\n`);
-    return 0;
-  }
-  options.stdout.write(`${JSON.stringify(response.scorecard, null, 2)}\n`);
+  options.stdout.write(`${formatRepoTaskOutput(response)}\n`);
   return 0;
 }
 
