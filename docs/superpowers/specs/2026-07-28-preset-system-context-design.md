@@ -7,8 +7,8 @@ Make every startup context source preset-owned and place all loaded content in t
 ## Product Decisions
 
 - `includeAgentsMd`, `includeRepoFileListing`, and `autoloadFiles` belong to each preset.
-- Remove the global `IncludeAgentsMd` and `IncludeRepoFileListing` settings and persistence fields.
-- Remove the first-message AGENTS.md and repository-file-list toggles from Chat. A run cannot override its selected preset.
+- Startup context has no global settings or persistence fields.
+- Chat has no first-message context overrides. A run cannot override its selected preset.
 - `autoloadFiles` accepts individual files only.
 - Relative paths resolve from the run's repository root. Absolute paths remain absolute.
 - Missing, unreadable, or non-file entries are skipped and reported as warnings.
@@ -25,6 +25,9 @@ Add a reusable `PresetSystemContextBuilder` class. It receives a repository root
 type PresetSystemContext = {
   content: string;
   warnings: string[];
+  hasAgentsMd: boolean;
+  hasRepoFileListing: boolean;
+  loadedFiles: string[];
 };
 ```
 
@@ -50,7 +53,7 @@ autoloadFiles: string[];
 
 Normalization trims entries, removes empty strings, and deduplicates while preserving first-seen order. Built-in and newly-created presets default to an empty list.
 
-Delete `IncludeAgentsMd` and `IncludeRepoFileListing` from `SiftConfig`, defaults, normalization, strict payload checks, database row mapping, and dashboard general settings. Add a runtime-database schema migration that rebuilds `app_config` without the obsolete columns while preserving current rows.
+`SiftConfig`, defaults, normalization output, strict payload checks, database row mapping, and dashboard general settings contain no global startup-context fields. Runtime schema 36 rebuilds `app_config` without the obsolete columns while preserving current rows and `presets_json`.
 
 ## Context Formatting
 
@@ -79,7 +82,7 @@ The repository listing moves from `buildTaskInitialUserPrompt` into the shared s
 Each skipped configured file produces one warning containing the configured path and reason. Warnings do not abort the request.
 
 - CLI commands print warnings to stderr even when progress rendering is disabled.
-- Streamed web runs emit a `warning` event before model progress. Chat displays each warning as a warning toast.
+- Streamed web runs emit a `warning` event before model progress. Chat displays each warning in a nonfatal banner.
 - Run logs retain the warning event for later inspection.
 - Warnings are not inserted into the user message or treated as model instructions.
 
@@ -93,7 +96,7 @@ The Presets editor shows startup-context controls for every preset kind:
 
 The file list uses explicit Add and Remove actions. Each row is a text input supporting relative or absolute paths. No directory or glob expansion is offered.
 
-Remove the equivalent global General settings. Remove Chat's first-message autoload preview, token estimates, toggles, hook, API call, and request payload fields.
+The General section has no equivalent global settings. Chat has no first-message autoload preview, token estimates, toggles, hook, API call, or request payload fields.
 
 ## Error Handling and Safety
 

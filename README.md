@@ -61,7 +61,7 @@ siftkit repo-agent --help --json
 ```
 
 ### `siftkit run --preset <id>` — preset-driven runs
-Presets are reusable personas that bundle a prompt prefix, an operation mode (`summary`, `read-only`, or `full`), an allowed tool list, and optional repo-context controls (agents.md injection, repo file listing). Built-in presets cover summary, chat, plan, and repo-search flows. Custom presets can be created and edited from the dashboard.
+Presets are reusable personas that bundle a prompt prefix, an operation mode (`summary`, `read-only`, or `full`), an allowed tool list, and startup-context controls. Each preset independently controls AGENTS.md loading, repository file-list loading, and an ordered list of individual autoload files. Relative autoload files resolve from the run repository root; absolute PC paths are accepted. Loaded content is labelled and added to the system prompt. Invalid configured files are skipped with a visible warning. Built-in presets cover summary, chat, plan, repo-search, and repo-agent flows. Custom presets can be created and edited from the dashboard.
 
 ```powershell
 siftkit preset list
@@ -85,7 +85,7 @@ A local React/Vite dashboard (served by the status server) exposes:
 
 - **Runs** — historical summary/run/repo-search/benchmark sessions with full raw logs and metric graphs.
 - **Metrics** — token usage, cache hit rate, tool-call stats, daily/per-task rollups.
-- **Presets** — visual editor for custom presets, including allowed-tool matrices and per-surface visibility.
+- **Presets** — visual editor for custom presets, including allowed-tool matrices, startup-context sources, ordered autoload files, and per-surface visibility.
 - **Settings** — live edit of the config file with schema-driven sections.
 - **Run-log admin** — bulk preview and deletion of stored runs by age, type, or session.
 
