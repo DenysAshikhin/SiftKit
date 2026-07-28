@@ -44,11 +44,7 @@ import type {
   SummarySourceKind,
 } from './types.js';
 import { PresetSystemContextBuilder } from '../preset-system-context.js';
-import {
-  normalizePresets,
-  requirePresetById,
-  resolveSummaryPreset,
-} from '../presets.js';
+import { PresetCatalog } from '../preset-catalog.js';
 
 type SummaryExecutionContext = {
   config: SiftConfig;
@@ -216,10 +212,10 @@ export class SummaryRequestRunner {
     this.model = this.request.model || getConfiguredModel(this.config);
     this.progress.configDone(this.backend, this.model);
     this.config = await this.applyHostLlamaSettings(this.config);
-    const presets = normalizePresets(this.config.Presets);
+    const presets = PresetCatalog.fromPresets(this.config.Presets);
     const preset = this.request.presetId
-      ? requirePresetById(presets, this.request.presetId)
-      : resolveSummaryPreset(presets);
+      ? presets.requireById(this.request.presetId)
+      : presets.requireSummaryDefault();
     const systemContext = new PresetSystemContextBuilder(this.request.repoRoot).build(preset);
     for (const warningText of systemContext.warnings) {
       this.progress.contextWarning(warningText);

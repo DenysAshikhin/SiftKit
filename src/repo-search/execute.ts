@@ -33,7 +33,7 @@ import type {
 } from './types.js';
 import { PresetSystemContextBuilder } from '../preset-system-context.js';
 import { PresetSystemPromptComposer } from '../preset-system-prompt.js';
-import { normalizePresets, requirePresetById } from '../presets.js';
+import { PresetCatalog } from '../preset-catalog.js';
 
 export type RepoSearchPreflightSummary = {
   turn: number;
@@ -317,7 +317,7 @@ export async function executeRepoSearchRequest(
 
   try {
     const config = request.config ?? await loadConfig({ ensure: true });
-    const preset = requirePresetById(normalizePresets(config.Presets), request.presetId);
+    const preset = PresetCatalog.fromPresets(config.Presets).requireById(request.presetId);
     const systemContext = new PresetSystemContextBuilder(repoRoot).build(preset);
     const progressWriter = new RepoSearchLifecycleWriter(
       requestId,

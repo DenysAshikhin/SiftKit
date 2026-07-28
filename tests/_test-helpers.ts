@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Writable } from 'node:stream';
 import { z } from '../src/lib/zod.js';
-import { getPresetsForSurface, normalizePresets } from '../src/presets.js';
+import { PresetCatalog } from '../src/preset-catalog.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { isJsonObject, type JsonObject } from '../src/lib/json-types.js';
@@ -112,6 +112,8 @@ export function getDefaultConfig(): TestConfig {
     Version: '0.1.0',
     PolicyMode: 'conservative',
     RawLogRetention: true,
+    ExpandReads: true,
+    PromptPrefix: '',
     Inference: {
       Thinking: { Enabled: false, Preserve: false },
     },
@@ -167,6 +169,24 @@ export function getDefaultConfig(): TestConfig {
       IdleTimeoutMs: 900000,
       MaxTranscriptCharacters: 60000,
       TranscriptRetention: true,
+    },
+    OperationModeAllowedTools: {
+      summary: ['find_text', 'read_lines', 'json_filter', 'json_get'],
+      'read-only': ['read', 'grep', 'find', 'ls', 'git'],
+      full: ['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch', 'write', 'edit', 'run'],
+    },
+    Presets: PresetCatalog.createDefault().list(),
+    WebSearch: {
+      EnabledDefault: true,
+      Providers: {
+        tavily: { Enabled: false, ApiKey: '' },
+        firecrawl: { Enabled: false, ApiKey: '' },
+      },
+      ProviderOrder: ['tavily', 'firecrawl'],
+      ResultCount: 5,
+      FetchMaxPages: 3,
+      TimeoutMs: 15000,
+      FetchMaxCharacters: 12000,
     },
   };
 }
@@ -250,7 +270,7 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
       return;
     }
     if (req.method === 'GET' && req.url === '/preset/list') {
-      const presets = getPresetsForSurface(normalizePresets(state.config.Presets), 'cli');
+      const presets = PresetCatalog.parse(state.config.Presets).forSurface('cli');
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         presets: presets.map((preset) => ({

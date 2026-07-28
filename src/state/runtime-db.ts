@@ -4,18 +4,13 @@ import Database from 'better-sqlite3';
 import { z } from '../lib/zod.js';
 import { ensureDirectory } from '../lib/fs.js';
 import { parseJsonValueText } from '../lib/json.js';
-import type { OptionalJsonValue, JsonValue } from '../lib/json-types.js';
+import type { JsonValue } from '../lib/json-types.js';
 import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
-import { normalizeOperationModeAllowedTools, normalizePresets } from '../presets.js';
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
 const ExistsFlagRowSchema = z.object({ exists_flag: z.number().nullable() });
 const VersionRowSchema = z.object({ version: z.number().nullable() });
-const PlannerToolNamesRowSchema = z.object({
-  operation_mode_allowed_tools_json: z.string().nullable(),
-  presets_json: z.string().nullable(),
-});
 const PresetsJsonRowSchema = z.object({ presetsJson: z.string().nullable() });
 const MetadataValueRowSchema = z.object({ value: z.string().nullable() });
 const FreelistRowSchema = z.object({ freelist_count: z.number().nullable() });
@@ -644,45 +639,6 @@ function ensureRuntimeMetricsTotalsSchema(database: RuntimeDatabase): void {
   `);
 }
 
-function migrateStoredPlannerToolNames(database: RuntimeDatabase): void {
-  if (!tableExists(database, 'app_config')) {
-    return;
-  }
-  const rawRow = database.prepare(`
-    SELECT operation_mode_allowed_tools_json, presets_json
-    FROM app_config
-    WHERE id = 1
-  `).get();
-  if (rawRow == null) {
-    return;
-  }
-  const row = PlannerToolNamesRowSchema.parse(rawRow);
-
-  let parsedOperationModeAllowedTools: OptionalJsonValue;
-  let parsedPresets: OptionalJsonValue;
-  try {
-    parsedOperationModeAllowedTools = row.operation_mode_allowed_tools_json
-      ? parseJsonValueText(row.operation_mode_allowed_tools_json)
-      : undefined;
-  } catch {
-    parsedOperationModeAllowedTools = undefined;
-  }
-  try {
-    parsedPresets = row.presets_json ? parseJsonValueText(row.presets_json) : undefined;
-  } catch {
-    parsedPresets = undefined;
-  }
-
-  database.prepare(`
-    UPDATE app_config
-    SET operation_mode_allowed_tools_json = ?, presets_json = ?
-    WHERE id = 1
-  `).run(
-    JSON.stringify(normalizeOperationModeAllowedTools(parsedOperationModeAllowedTools)),
-    JSON.stringify(normalizePresets(parsedPresets)),
-  );
-}
-
 const V26_DROPPED_APP_CONFIG_COLUMNS: readonly string[] = [
   'llama_base_url', 'llama_num_ctx', 'llama_model_path', 'llama_temperature',
   'llama_top_p', 'llama_top_k', 'llama_min_p', 'llama_presence_penalty',
@@ -1145,7 +1101,6 @@ function ensureSchema(database: RuntimeDatabase): void {
     currentVersion = 12;
   }
   if (currentVersion < 13) {
-    migrateStoredPlannerToolNames(database);
     setSchemaVersion(database, 13);
     currentVersion = 13;
   }

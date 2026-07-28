@@ -17,7 +17,6 @@ function createPreset(id: string, overrides: Partial<DashboardPreset> = {}): Das
     description: '',
     presetKind: 'chat',
     operationMode: 'summary',
-    executionFamily: 'chat',
     promptPrefix: '',
     allowedTools: ['find_text', 'read_lines', 'json_filter'],
     surfaces: ['web'],
@@ -117,13 +116,13 @@ function createSession(presetId: string, mode: ChatSession['mode'] = 'chat'): Ch
 }
 
 test('getPresetById resolves presets by normalized id', () => {
-  const config = createConfig([createPreset('repo-search', { presetKind: 'repo-search', operationMode: 'read-only', executionFamily: 'repo-search' })]);
+  const config = createConfig([createPreset('repo-search', { presetKind: 'repo-search', operationMode: 'read-only' })]);
   assert.equal(getPresetById(config, 'Repo Search')?.id, 'repo-search');
 });
 
 test('getPresetFamily routes from preset kind instead of legacy session mode', () => {
   const config = createConfig([
-    createPreset('plan', { presetKind: 'plan', operationMode: 'read-only', executionFamily: 'plan' }),
+    createPreset('plan', { presetKind: 'plan', operationMode: 'read-only' }),
   ]);
   const session = createSession('plan', 'chat');
 

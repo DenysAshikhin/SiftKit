@@ -7,7 +7,7 @@ import type { ChatMessage, ChatSession, ContextUsage, DashboardPreset } from '..
 
 const PRESET = {
   id: 'chat-default', label: 'Chat', description: '', presetKind: 'chat', operationMode: 'full',
-  executionFamily: 'chat', promptPrefix: '', allowedTools: [], surfaces: ['cli', 'web'],
+  promptPrefix: '', allowedTools: [], surfaces: ['cli', 'web'],
   useForSummary: false, builtin: true, deletable: false, includeAgentsMd: false,
   includeRepoFileListing: false, autoloadFiles: [], repoRootRequired: false, maxTurns: null,
 } satisfies DashboardPreset;

@@ -27,7 +27,6 @@ const PRESET: DashboardPreset = {
   description: '',
   presetKind: 'repo-search',
   operationMode: 'read-only',
-  executionFamily: 'repo-search',
   promptPrefix: '',
   allowedTools: [],
   surfaces: ['web'],

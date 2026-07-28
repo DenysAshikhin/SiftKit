@@ -1,373 +1,63 @@
 import {
-  PresetToolNameSchema,
-  SUMMARY_PRESET_TOOLS,
-  READ_ONLY_PRESET_TOOLS,
   FULL_PRESET_TOOLS,
-  REPO_AGENT_DEFAULT_MAX_TURNS,
+  PresetKindSchema,
+  PresetOperationModeSchema,
+  PresetToolNameSchema,
+  READ_ONLY_PRESET_TOOLS,
+  SUMMARY_PRESET_TOOLS,
+  type OperationModeAllowedTools,
+  type PresetKind,
+  type PresetOperationMode,
+  type PresetSurface,
   type PresetToolName,
+  type SiftPreset,
 } from '@siftkit/contracts';
+
 import { JsonRecordReader } from './lib/json-record-reader.js';
-import type { JsonObject, JsonValue, OptionalJsonValue } from './lib/json-types.js';
+import type { OptionalJsonValue } from './lib/json-types.js';
 
-export type { PresetToolName };
-
-export type PresetKind = 'summary' | 'chat' | 'plan' | 'repo-search' | 'repo-agent';
-export type PresetExecutionFamily = PresetKind;
-export type PresetOperationMode = 'summary' | 'read-only' | 'full';
-export type PresetSurface = 'cli' | 'web';
-
-// @siftkit/contracts owns the tool-name union and the canonical per-tier groupings; this module
-// only consumes them so backend defaults and the dashboard editor cannot drift apart.
-const PRESET_TOOL_NAME_SET = new Set<string>(PresetToolNameSchema.options);
-
-export type OperationModeAllowedTools = Record<PresetOperationMode, PresetToolName[]>;
-
-function isPresetToolName(value: string): value is PresetToolName {
-  return PRESET_TOOL_NAME_SET.has(value);
-}
-
-export type SiftPreset = {
-  id: string;
-  label: string;
-  description: string;
-  presetKind: PresetKind;
-  operationMode: PresetOperationMode;
-  executionFamily: PresetExecutionFamily;
-  promptPrefix: string;
-  allowedTools: PresetToolName[];
-  surfaces: PresetSurface[];
-  useForSummary: boolean;
-  builtin: boolean;
-  deletable: boolean;
-  includeAgentsMd: boolean;
-  includeRepoFileListing: boolean;
-  autoloadFiles: string[];
-  repoRootRequired: boolean;
-  maxTurns: number | null;
+export type {
+  OperationModeAllowedTools,
+  PresetKind,
+  PresetOperationMode,
+  PresetSurface,
+  PresetToolName,
+  SiftPreset,
 };
 
-const PRESET_SURFACES: readonly PresetSurface[] = ['cli', 'web'];
-
+const PRESET_TOOL_NAME_SET = new Set<string>(PresetToolNameSchema.options);
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS: OperationModeAllowedTools = {
   summary: [...SUMMARY_PRESET_TOOLS],
   'read-only': [...READ_ONLY_PRESET_TOOLS],
   full: [...FULL_PRESET_TOOLS],
 };
 
-function getDefaultAllowedToolsForOperationMode(operationMode: PresetOperationMode): PresetToolName[] {
-  return [...DEFAULT_OPERATION_MODE_ALLOWED_TOOLS[operationMode]];
+function isPresetToolName(value: string): value is PresetToolName {
+  return PRESET_TOOL_NAME_SET.has(value);
 }
 
-function normalizePresetId(value: OptionalJsonValue): string {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/gu, '-')
-    .replace(/^-+|-+$/gu, '');
+function normalizeToolList(
+  value: OptionalJsonValue,
+  fallback: readonly PresetToolName[],
+): PresetToolName[] {
+  if (!Array.isArray(value)) {
+    return [...fallback];
+  }
+  const tools = new Set<PresetToolName>();
+  for (const entry of value) {
+    if (typeof entry === 'string' && isPresetToolName(entry)) {
+      tools.add(entry);
+    }
+  }
+  return tools.size > 0 ? [...tools] : [...fallback];
 }
 
 export function isPresetKind(value: OptionalJsonValue): value is PresetKind {
-  return value === 'summary' || value === 'chat' || value === 'plan' || value === 'repo-search' || value === 'repo-agent';
-}
-
-function isExecutionFamily(value: OptionalJsonValue): value is PresetExecutionFamily {
-  return isPresetKind(value);
+  return PresetKindSchema.safeParse(value).success;
 }
 
 export function isPresetOperationMode(value: OptionalJsonValue): value is PresetOperationMode {
-  return value === 'summary' || value === 'read-only' || value === 'full';
-}
-
-function normalizePromptPrefix(value: OptionalJsonValue): string {
-  return typeof value === 'string' ? value : '';
-}
-
-function normalizeSurfaceList(value: OptionalJsonValue, fallback: readonly PresetSurface[]): PresetSurface[] {
-  if (!Array.isArray(value)) {
-    return [...fallback];
-  }
-  const seen = new Set<PresetSurface>();
-  for (const item of value) {
-    if ((item === 'cli' || item === 'web') && !seen.has(item)) {
-      seen.add(item);
-    }
-  }
-  return seen.size > 0 ? Array.from(seen) : [...fallback];
-}
-
-function normalizeToolList(value: OptionalJsonValue, fallback: readonly PresetToolName[]): PresetToolName[] {
-  if (!Array.isArray(value)) {
-    return [...fallback];
-  }
-  const seen = new Set<PresetToolName>();
-  for (const item of value) {
-    const normalized = String(item);
-    if (isPresetToolName(normalized)) {
-      seen.add(normalized);
-    }
-  }
-  return seen.size > 0 ? Array.from(seen) : [...fallback];
-}
-
-function normalizeAutoloadFiles(value: OptionalJsonValue): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  const files: string[] = [];
-  for (const entry of value) {
-    if (typeof entry !== 'string') {
-      continue;
-    }
-    const file = entry.trim();
-    if (file && !files.includes(file)) {
-      files.push(file);
-    }
-  }
-  return files;
-}
-
-function normalizeNullableInteger(value: OptionalJsonValue, fallback: number | null): number | null {
-  if (value === null || value === undefined || value === '') {
-    return fallback;
-  }
-  const parsed = Number.parseInt(String(value), 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function getLegacyExecutionFamily(record: JsonObject): PresetExecutionFamily | null {
-  return isExecutionFamily(record.executionFamily) ? record.executionFamily : null;
-}
-
-function getPresetKindFromRecord(record: JsonObject, fallback: PresetKind): PresetKind {
-  if (isPresetKind(record.presetKind)) {
-    return record.presetKind;
-  }
-  return getLegacyExecutionFamily(record) || fallback;
-}
-
-function getOperationModeFromRecord(record: JsonObject, fallback: PresetOperationMode, presetKind: PresetKind): PresetOperationMode {
-  if (isPresetOperationMode(record.operationMode)) {
-    return record.operationMode;
-  }
-  const legacyExecutionFamily = getLegacyExecutionFamily(record);
-  if (legacyExecutionFamily === 'plan' || legacyExecutionFamily === 'repo-search') {
-    return 'read-only';
-  }
-  if (legacyExecutionFamily === 'summary' || legacyExecutionFamily === 'chat') {
-    return 'summary';
-  }
-  if (presetKind === 'plan' || presetKind === 'repo-search') {
-    return 'read-only';
-  }
-  if (presetKind === 'repo-agent') {
-    return 'full';
-  }
-  return fallback;
-}
-
-function buildPreset(input: {
-  id: string;
-  label: string;
-  description: string;
-  presetKind: PresetKind;
-  operationMode: PresetOperationMode;
-  promptPrefix: string;
-  allowedTools: PresetToolName[];
-  surfaces: PresetSurface[];
-  useForSummary: boolean;
-  builtin: boolean;
-  deletable: boolean;
-  includeAgentsMd: boolean;
-  includeRepoFileListing: boolean;
-  autoloadFiles: string[];
-  repoRootRequired: boolean;
-  maxTurns: number | null;
-}): SiftPreset {
-  return {
-    id: input.id,
-    label: input.label,
-    description: input.description,
-    presetKind: input.presetKind,
-    operationMode: input.operationMode,
-    executionFamily: input.presetKind,
-    promptPrefix: input.promptPrefix,
-    allowedTools: [...input.allowedTools],
-    surfaces: [...input.surfaces],
-    useForSummary: input.useForSummary,
-    builtin: input.builtin,
-    deletable: input.deletable,
-    includeAgentsMd: input.includeAgentsMd,
-    includeRepoFileListing: input.includeRepoFileListing,
-    autoloadFiles: [...input.autoloadFiles],
-    repoRootRequired: input.repoRootRequired,
-    maxTurns: input.maxTurns,
-  };
-}
-
-const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
-  buildPreset({
-    id: 'summary',
-    label: 'Summary',
-    description: 'Default CLI summarizer for extraction-focused questions over text, files, or stdin.',
-    presetKind: 'summary',
-    operationMode: 'summary',
-    promptPrefix: '',
-    allowedTools: [...SUMMARY_PRESET_TOOLS],
-    surfaces: ['cli'],
-    useForSummary: true,
-    builtin: true,
-    deletable: false,
-    includeAgentsMd: true,
-    includeRepoFileListing: true,
-    autoloadFiles: [],
-    repoRootRequired: false,
-    maxTurns: null,
-  }),
-  buildPreset({
-    id: 'repo-search',
-    label: 'Repo Search',
-    description: 'Repository-aware search preset for codebase investigation with command-backed evidence gathering.',
-    presetKind: 'repo-search',
-    operationMode: 'read-only',
-    promptPrefix: '',
-    allowedTools: [...READ_ONLY_PRESET_TOOLS],
-    surfaces: ['cli', 'web'],
-    useForSummary: false,
-    builtin: true,
-    deletable: false,
-    includeAgentsMd: true,
-    includeRepoFileListing: true,
-    autoloadFiles: [],
-    repoRootRequired: true,
-    maxTurns: 45,
-  }),
-  buildPreset({
-    id: 'chat',
-    label: 'Chat',
-    description: 'Default web chat preset for direct local llama.cpp conversation.',
-    presetKind: 'chat',
-    operationMode: 'summary',
-    promptPrefix: 'general, coder friendly assistant',
-    allowedTools: [...SUMMARY_PRESET_TOOLS],
-    surfaces: ['web'],
-    useForSummary: false,
-    builtin: true,
-    deletable: false,
-    includeAgentsMd: true,
-    includeRepoFileListing: true,
-    autoloadFiles: [],
-    repoRootRequired: false,
-    maxTurns: null,
-  }),
-  buildPreset({
-    id: 'plan',
-    label: 'Plan',
-    description: 'Web planning preset that searches the repo and returns an implementation plan with evidence.',
-    presetKind: 'plan',
-    operationMode: 'read-only',
-    promptPrefix: '',
-    allowedTools: [...READ_ONLY_PRESET_TOOLS],
-    surfaces: ['web'],
-    useForSummary: false,
-    builtin: true,
-    deletable: false,
-    includeAgentsMd: true,
-    includeRepoFileListing: true,
-    autoloadFiles: [],
-    repoRootRequired: true,
-    maxTurns: 45,
-  }),
-  buildPreset({
-    id: 'repo-agent',
-    label: 'Repo Agent',
-    description: 'Interactive repository coding agent that reads, searches, edits, writes, and runs commands with human approval.',
-    presetKind: 'repo-agent',
-    operationMode: 'full',
-    promptPrefix: '',
-    allowedTools: [...FULL_PRESET_TOOLS],
-    surfaces: ['cli', 'web'],
-    useForSummary: false,
-    builtin: true,
-    deletable: false,
-    includeAgentsMd: true,
-    includeRepoFileListing: true,
-    autoloadFiles: [],
-    repoRootRequired: true,
-    maxTurns: REPO_AGENT_DEFAULT_MAX_TURNS,
-  }),
-] as const;
-
-const BUILTIN_PRESET_IDS = new Set(BUILTIN_PRESETS.map((preset) => preset.id));
-
-function normalizePresetRecord(input: OptionalJsonValue, fallback: SiftPreset): SiftPreset {
-  const record = JsonRecordReader.asObject(input) || {};
-  const reader = new JsonRecordReader(record);
-  const presetKind = getPresetKindFromRecord(record, fallback.presetKind);
-  const operationMode = getOperationModeFromRecord(record, fallback.operationMode, presetKind);
-  return buildPreset({
-    id: fallback.id,
-    label: reader.optionalString('label') || fallback.label,
-    description: reader.optionalString('description') || fallback.description,
-    presetKind,
-    operationMode,
-    promptPrefix: normalizePromptPrefix(reader.value('promptPrefix') ?? fallback.promptPrefix),
-    allowedTools: normalizeToolList(reader.value('allowedTools'), fallback.allowedTools),
-    surfaces: normalizeSurfaceList(reader.value('surfaces'), fallback.surfaces),
-    useForSummary: reader.value('useForSummary') === undefined ? fallback.useForSummary : Boolean(reader.value('useForSummary')),
-    builtin: fallback.builtin,
-    deletable: false,
-    includeAgentsMd: reader.value('includeAgentsMd') === undefined ? fallback.includeAgentsMd : Boolean(reader.value('includeAgentsMd')),
-    includeRepoFileListing: reader.value('includeRepoFileListing') === undefined ? fallback.includeRepoFileListing : Boolean(reader.value('includeRepoFileListing')),
-    autoloadFiles: reader.value('autoloadFiles') === undefined
-      ? [...fallback.autoloadFiles]
-      : normalizeAutoloadFiles(reader.value('autoloadFiles')),
-    repoRootRequired: reader.value('repoRootRequired') === undefined ? fallback.repoRootRequired : Boolean(reader.value('repoRootRequired')),
-    maxTurns: normalizeNullableInteger(reader.value('maxTurns'), fallback.maxTurns),
-  });
-}
-
-function normalizeUserPreset(input: OptionalJsonValue): SiftPreset | null {
-  const record = JsonRecordReader.asObject(input);
-  if (!record) {
-    return null;
-  }
-  const reader = new JsonRecordReader(record);
-  const id = normalizePresetId(reader.value('id'));
-  if (!id || BUILTIN_PRESET_IDS.has(id)) {
-    return null;
-  }
-  const presetKind = getPresetKindFromRecord(record, 'summary');
-  const operationMode = getOperationModeFromRecord(
-    record,
-    presetKind === 'repo-agent' ? 'full' : (presetKind === 'plan' || presetKind === 'repo-search' ? 'read-only' : 'summary'),
-    presetKind,
-  );
-  const defaultAllowedTools = getDefaultAllowedToolsForOperationMode(operationMode);
-  return buildPreset({
-    id,
-    label: reader.optionalString('label') || id,
-    description: reader.string('description'),
-    presetKind,
-    operationMode,
-    promptPrefix: normalizePromptPrefix(reader.value('promptPrefix')),
-    allowedTools: normalizeToolList(reader.value('allowedTools'), defaultAllowedTools),
-    surfaces: normalizeSurfaceList(reader.value('surfaces'), presetKind === 'summary' ? ['cli'] : ['web']),
-    useForSummary: Boolean(reader.value('useForSummary')),
-    builtin: false,
-    deletable: true,
-    includeAgentsMd: reader.value('includeAgentsMd') === undefined ? true : Boolean(reader.value('includeAgentsMd')),
-    includeRepoFileListing: reader.value('includeRepoFileListing') === undefined ? true : Boolean(reader.value('includeRepoFileListing')),
-    autoloadFiles: normalizeAutoloadFiles(reader.value('autoloadFiles')),
-    repoRootRequired: reader.value('repoRootRequired') === undefined
-      ? (presetKind === 'plan' || presetKind === 'repo-search' || presetKind === 'repo-agent')
-      : Boolean(reader.value('repoRootRequired')),
-    maxTurns: normalizeNullableInteger(
-      reader.value('maxTurns'),
-      presetKind === 'repo-agent'
-        ? REPO_AGENT_DEFAULT_MAX_TURNS
-        : (presetKind === 'plan' || presetKind === 'repo-search' ? 45 : null),
-    ),
-  });
+  return PresetOperationModeSchema.safeParse(value).success;
 }
 
 export function getDefaultOperationModeAllowedTools(): OperationModeAllowedTools {
@@ -380,18 +70,12 @@ export function getDefaultOperationModeAllowedTools(): OperationModeAllowedTools
 
 export function normalizeOperationModeAllowedTools(input: OptionalJsonValue): OperationModeAllowedTools {
   const reader = JsonRecordReader.fromJsonValue(input);
-  const summaryTools = normalizeToolList(reader.value('summary'), DEFAULT_OPERATION_MODE_ALLOWED_TOOLS.summary);
-  if (
-    summaryTools.includes('find_text')
-    && summaryTools.includes('read_lines')
-    && summaryTools.includes('json_filter')
-    && !summaryTools.includes('json_get')
-  ) {
-    summaryTools.push('json_get');
-  }
   return {
-    summary: summaryTools,
-    'read-only': normalizeToolList(reader.value('read-only'), DEFAULT_OPERATION_MODE_ALLOWED_TOOLS['read-only']),
+    summary: normalizeToolList(reader.value('summary'), DEFAULT_OPERATION_MODE_ALLOWED_TOOLS.summary),
+    'read-only': normalizeToolList(
+      reader.value('read-only'),
+      DEFAULT_OPERATION_MODE_ALLOWED_TOOLS['read-only'],
+    ),
     full: normalizeToolList(reader.value('full'), DEFAULT_OPERATION_MODE_ALLOWED_TOOLS.full),
   };
 }
@@ -400,130 +84,6 @@ export function resolvePresetAllowedTools(
   preset: Pick<SiftPreset, 'allowedTools' | 'operationMode'>,
   operationModeAllowedTools: OperationModeAllowedTools,
 ): PresetToolName[] {
-  const modeAllowed = new Set<PresetToolName>(operationModeAllowedTools[preset.operationMode] || []);
+  const modeAllowed = new Set<PresetToolName>(operationModeAllowedTools[preset.operationMode]);
   return preset.allowedTools.filter((tool) => modeAllowed.has(tool));
-}
-
-export function getBuiltinPresets(): SiftPreset[] {
-  return BUILTIN_PRESETS.map((preset) => buildPreset(preset));
-}
-
-export function normalizePresets(input: OptionalJsonValue): SiftPreset[] {
-  const presetsById = new Map<string, SiftPreset>();
-  const overlays = Array.isArray(input) ? input : [];
-  const overlayById = new Map<string, JsonValue>();
-  for (const item of overlays) {
-    const record = JsonRecordReader.asObject(item);
-    if (!record) {
-      continue;
-    }
-    const id = normalizePresetId(record.id);
-    if (!id) {
-      continue;
-    }
-    overlayById.set(id, item);
-  }
-  for (const builtin of BUILTIN_PRESETS) {
-    presetsById.set(builtin.id, normalizePresetRecord(overlayById.get(builtin.id), builtin));
-  }
-  for (const item of overlays) {
-    const normalized = normalizeUserPreset(item);
-    if (!normalized || presetsById.has(normalized.id)) {
-      continue;
-    }
-    presetsById.set(normalized.id, normalized);
-  }
-  const result = Array.from(presetsById.values());
-  const hasSummaryDefault = result.some((preset) => preset.presetKind === 'summary' && preset.useForSummary);
-  if (!hasSummaryDefault) {
-    const summaryPreset = result.find((preset) => preset.id === 'summary');
-    if (summaryPreset) {
-      summaryPreset.useForSummary = true;
-    }
-  }
-  return result;
-}
-
-export function findPresetById(presets: readonly SiftPreset[], presetId: OptionalJsonValue): SiftPreset | null {
-  const normalizedId = normalizePresetId(presetId);
-  if (!normalizedId) {
-    return null;
-  }
-  return presets.find((preset) => preset.id === normalizedId) || null;
-}
-
-export function requirePresetById(
-  presets: readonly SiftPreset[],
-  presetId: string,
-): SiftPreset {
-  const preset = findPresetById(presets, presetId);
-  if (!preset) {
-    throw new Error(`Preset '${presetId}' was not found.`);
-  }
-  return preset;
-}
-
-export function requirePresetKind(
-  presets: readonly SiftPreset[],
-  presetId: string,
-  allowedKinds: readonly PresetKind[],
-): SiftPreset {
-  const preset = requirePresetById(presets, presetId);
-  if (!allowedKinds.includes(preset.presetKind)) {
-    throw new Error(
-      `Preset '${preset.id}' has kind '${preset.presetKind}'; expected: ${allowedKinds.join(', ')}.`,
-    );
-  }
-  return preset;
-}
-
-export function getConfigPresets(config: OptionalJsonValue): SiftPreset[] {
-  const reader = JsonRecordReader.fromJsonValue(config);
-  return normalizePresets(reader.value('Presets'));
-}
-
-export function getPresetsForSurface(presets: readonly SiftPreset[], surface: PresetSurface): SiftPreset[] {
-  return presets.filter((preset) => preset.surfaces.includes(surface));
-}
-
-export function resolveSummaryPreset(presets: readonly SiftPreset[]): SiftPreset {
-  const found = presets.find((preset) => preset.presetKind === 'summary' && preset.useForSummary)
-    || presets.find((preset) => preset.id === 'summary')
-    || normalizePresets([]).find((preset) => preset.id === 'summary');
-  if (!found) {
-    throw new Error('Summary preset is missing from the builtin preset set.');
-  }
-  return found;
-}
-
-export function getPresetKind(presetId: OptionalJsonValue, presets: readonly SiftPreset[]): PresetKind {
-  const normalizedId = normalizePresetId(presetId);
-  if (!normalizedId) {
-    throw new Error(`Preset '${String(presetId)}' was not found.`);
-  }
-  return requirePresetById(presets, normalizedId).presetKind;
-}
-
-export function getPresetExecutionOperationMode(presetId: OptionalJsonValue, presets: readonly SiftPreset[]): PresetOperationMode {
-  const normalizedId = normalizePresetId(presetId);
-  if (!normalizedId) {
-    throw new Error(`Preset '${String(presetId)}' was not found.`);
-  }
-  return requirePresetById(presets, normalizedId).operationMode;
-}
-
-export function mapPresetIdToLegacyMode(
-  presetId: string,
-  presets: readonly SiftPreset[],
-): 'chat' | 'plan' | 'repo-search' {
-  const presetKind = getPresetKind(presetId, presets);
-  return presetKind === 'plan' || presetKind === 'repo-search' ? presetKind : 'chat';
-}
-
-export function getPresetSurfaceOptions(): PresetSurface[] {
-  return [...PRESET_SURFACES];
-}
-
-export function isBuiltinPresetId(value: OptionalJsonValue): boolean {
-  return BUILTIN_PRESET_IDS.has(normalizePresetId(value));
 }

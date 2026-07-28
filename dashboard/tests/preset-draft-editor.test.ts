@@ -26,7 +26,6 @@ test('preset draft editor applies explicit preset field operations', () => {
     description: 'Investigate and edit',
     presetKind: 'chat',
     operationMode: 'full',
-    executionFamily: 'chat',
     promptPrefix: 'Be exact.',
     allowedTools: [
       'read',

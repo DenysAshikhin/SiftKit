@@ -2,9 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { runCli } from '../src/cli/index.js';
+import { PresetCatalog } from '../src/preset-catalog.js';
 import { makeCaptureStream, withTestEnvAndServer } from './_test-helpers.js';
 
 test('preset list shows builtin and custom cli-visible presets from the server', async () => {
+  const catalog = PresetCatalog.createDefault();
+  const summary = catalog.requireById('summary');
+  const chat = catalog.requireById('chat');
   await withTestEnvAndServer(async () => {
     const stdout = makeCaptureStream();
     const stderr = makeCaptureStream();
@@ -22,9 +26,22 @@ test('preset list shows builtin and custom cli-visible presets from the server',
   }, {
     config: {
       Presets: [
-        { id: 'summary', label: 'Summary', surfaces: ['cli'] },
-        { id: 'custom-cli', label: 'Custom CLI', executionFamily: 'summary', surfaces: ['cli'] },
-        { id: 'web-only', label: 'Web Only', executionFamily: 'chat', surfaces: ['web'] },
+        ...catalog.list(),
+        {
+          ...summary,
+          id: 'custom-cli',
+          label: 'Custom CLI',
+          useForSummary: false,
+          builtin: false,
+          deletable: true,
+        },
+        {
+          ...chat,
+          id: 'web-only',
+          label: 'Web Only',
+          builtin: false,
+          deletable: true,
+        },
       ],
     },
   });

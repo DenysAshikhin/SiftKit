@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import { executeRepoSearchRequest } from '../src/repo-search/execute.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import { getBuiltinPresets } from '../src/presets.js';
+import { PresetCatalog } from '../src/preset-catalog.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 
-const CONTEXT_FREE_PRESETS = getBuiltinPresets().map((preset) => ({
+const CONTEXT_FREE_PRESETS = PresetCatalog.createDefault().list().map((preset) => ({
   ...preset,
   includeAgentsMd: false,
   includeRepoFileListing: false,

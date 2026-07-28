@@ -324,7 +324,6 @@ export function useSettingsController(deps: {
         description: '',
         presetKind: 'summary',
         operationMode: 'summary',
-        executionFamily: 'summary',
         promptPrefix: '',
         allowedTools: getDefaultToolsForOperationMode('summary'),
         surfaces: ['cli'],

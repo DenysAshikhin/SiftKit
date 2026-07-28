@@ -9,6 +9,7 @@ import {
   type DashboardModelRuntimePreset,
 } from '../dashboard/src/model-runtime-presets.js';
 import type { DashboardConfig, DashboardLlamaCppConfig } from '../dashboard/src/types.js';
+import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { normalizeConfigObject } from '../src/config/normalization.js';
 import { getTestExl3Engine, getTestInferenceConfig } from './helpers/runtime-config.js';
 
@@ -148,6 +149,22 @@ function createConfig(): DashboardConfig {
   };
 }
 
+function normalizeSingleModelPreset(
+  preset: Partial<DashboardModelRuntimePreset>,
+): DashboardConfig {
+  const defaults = getDefaultConfigObject();
+  return normalizeConfigObject({
+    ...defaults,
+    Server: {
+      ...defaults.Server,
+      ModelPresets: {
+        Presets: [preset],
+        ActivePresetId: preset.id ?? '',
+      },
+    },
+  });
+}
+
 test('applyModelPresetSelection switches the active managed preset', () => {
   const config = createConfig();
   Object.assign(config.Server.ModelPresets.Presets[1], {
@@ -190,19 +207,12 @@ test('changing a preset backend preserves backend-incompatible saved values', ()
 });
 
 test('managed llama preset defaults MaintainPerStepThinking on when reasoning is enabled', () => {
-  const config = normalizeConfigObject({
-    Server: {
-      ModelPresets: {
-        Presets: [{
-          id: 'thinking-on',
-          label: 'Thinking On',
-          Reasoning: 'on',
-          ReasoningContent: true,
-          PreserveThinking: true,
-        }],
-        ActivePresetId: 'thinking-on',
-      },
-    },
+  const config = normalizeSingleModelPreset({
+    id: 'thinking-on',
+    label: 'Thinking On',
+    Reasoning: 'on',
+    ReasoningContent: true,
+    PreserveThinking: true,
   });
 
   const preset = config.Server.ModelPresets.Presets[0];
@@ -211,38 +221,24 @@ test('managed llama preset defaults MaintainPerStepThinking on when reasoning is
 });
 
 test('managed llama preset honors explicit MaintainPerStepThinking false when reasoning is enabled', () => {
-  const config = normalizeConfigObject({
-    Server: {
-      ModelPresets: {
-        Presets: [{
-          id: 'thinking-on-last-only',
-          label: 'Thinking On Last Only',
-          Reasoning: 'on',
-          ReasoningContent: true,
-          PreserveThinking: true,
-          MaintainPerStepThinking: false,
-        }],
-        ActivePresetId: 'thinking-on-last-only',
-      },
-    },
+  const config = normalizeSingleModelPreset({
+    id: 'thinking-on-last-only',
+    label: 'Thinking On Last Only',
+    Reasoning: 'on',
+    ReasoningContent: true,
+    PreserveThinking: true,
+    MaintainPerStepThinking: false,
   });
 
   assert.equal(config.Server.ModelPresets.Presets[0].MaintainPerStepThinking, false);
 });
 
 test('managed llama preset disables MaintainPerStepThinking when reasoning is disabled', () => {
-  const config = normalizeConfigObject({
-    Server: {
-      ModelPresets: {
-        Presets: [{
-          id: 'thinking-off',
-          label: 'Thinking Off',
-          Reasoning: 'off',
-          MaintainPerStepThinking: true,
-        }],
-        ActivePresetId: 'thinking-off',
-      },
-    },
+  const config = normalizeSingleModelPreset({
+    id: 'thinking-off',
+    label: 'Thinking Off',
+    Reasoning: 'off',
+    MaintainPerStepThinking: true,
   });
 
   assert.equal(config.Server.ModelPresets.Presets[0].MaintainPerStepThinking, false);

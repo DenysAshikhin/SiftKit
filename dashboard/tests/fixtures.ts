@@ -2,7 +2,7 @@ import type { DashboardConfig, DashboardModelRuntimePreset, DashboardPreset } fr
 
 export const PRESET = {
   id: 'summary-default', label: 'Summary', description: 'Default summary preset',
-  presetKind: 'summary', operationMode: 'summary', executionFamily: 'summary',
+  presetKind: 'summary', operationMode: 'summary',
   promptPrefix: '', allowedTools: ['read_lines'], surfaces: ['cli', 'web'],
   useForSummary: true, builtin: true, deletable: false, includeAgentsMd: false,
   includeRepoFileListing: false, autoloadFiles: [], repoRootRequired: false, maxTurns: null,
@@ -10,7 +10,7 @@ export const PRESET = {
 
 export const CUSTOM_PRESET = {
   id: 'deep-dive', label: 'Deep Dive', description: 'Custom repo-search preset',
-  presetKind: 'repo-search', operationMode: 'read-only', executionFamily: 'repo-search',
+  presetKind: 'repo-search', operationMode: 'read-only',
   promptPrefix: '', allowedTools: ['read_lines', 'grep'], surfaces: ['cli', 'web'],
   useForSummary: false, builtin: false, deletable: true, includeAgentsMd: false,
   includeRepoFileListing: false, autoloadFiles: [], repoRootRequired: false, maxTurns: null,

@@ -81,13 +81,11 @@ import {
 } from '../../state/chat-sessions.js';
 import { getRuntimeDatabase } from '../../state/runtime-db.js';
 import {
-  mapPresetIdToLegacyMode,
   normalizeOperationModeAllowedTools,
-  normalizePresets,
-  requirePresetById,
   resolvePresetAllowedTools,
   type SiftPreset,
 } from '../../presets.js';
+import { PresetCatalog } from '../../preset-catalog.js';
 import {
   ChatOperationPresetSelector,
   type SelectedChatOperationPreset,
@@ -541,12 +539,12 @@ class UpdateChatSessionEndpoint implements RouteEndpoint {
       updated.webSearchEnabled = updateRequest.webSearchEnabled;
     }
     const currentConfig = readConfig(configPath);
-    const presets = normalizePresets(currentConfig.Presets);
+    const presets = PresetCatalog.fromPresets(currentConfig.Presets);
     if (updateRequest.presetId) {
       try {
-        const preset = requirePresetById(presets, updateRequest.presetId);
+        const preset = presets.requireById(updateRequest.presetId);
         updated.presetId = preset.id;
-        updated.mode = mapPresetIdToLegacyMode(preset.id, presets);
+        updated.mode = presets.deriveChatSessionMode(preset.id);
       } catch (error) {
         sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
         return;
@@ -639,11 +637,11 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
     }
     const now = new Date().toISOString();
     const currentConfig = await readEffectiveChatRouteConfig(configPath);
-    const presets = normalizePresets(currentConfig.Presets);
+    const presets = PresetCatalog.fromPresets(currentConfig.Presets);
     const activePreset = getActiveModelPreset(currentConfig);
     let preset: SiftPreset;
     try {
-      preset = requirePresetById(presets, createRequest.presetId);
+      preset = presets.requireById(createRequest.presetId);
     } catch (error) {
       sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
       return;
@@ -657,7 +655,7 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
       thinkingEnabled: getConfiguredReasoning(currentConfig) !== 'off',
       webSearchEnabled: currentConfig.WebSearch.EnabledDefault === true,
       presetId: preset.id,
-      mode: mapPresetIdToLegacyMode(preset.id, presets),
+      mode: presets.deriveChatSessionMode(preset.id),
       planRepoRoot: process.cwd(),
       condensedSummary: '',
       createdAtUtc: now,
@@ -870,7 +868,7 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
       const config = readConfig(configPath);
       let selected: SelectedChatOperationPreset;
       try {
-        selected = new ChatOperationPresetSelector(normalizePresets(config.Presets))
+        selected = new ChatOperationPresetSelector(config.Presets)
           .select(activeSession, 'chat');
       } catch (error) {
         sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
@@ -955,8 +953,7 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
     // non-engine branch here to report for.
     try {
       const config = readConfig(configPath);
-      const presets = normalizePresets(config.Presets);
-      const selected = new ChatOperationPresetSelector(presets).select(activeSession, 'chat');
+      const selected = new ChatOperationPresetSelector(config.Presets).select(activeSession, 'chat');
       const selectedSession = selected.session;
       const reader = new JsonRecordReader(parsedBody);
       const webOverrideRaw = reader.optionalString('webSearchOverride');
@@ -1103,8 +1100,7 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
       const config = readConfig(configPath);
       const mockResponses = readRouteStringArray(reader, 'mockResponses');
       const mockTokenConfig = getMockTokenConfig(config, mockResponses);
-      const presets = normalizePresets(config.Presets);
-      const selected = new ChatOperationPresetSelector(presets).select(activeSession, 'plan');
+      const selected = new ChatOperationPresetSelector(config.Presets).select(activeSession, 'plan');
       const preset = selected.preset;
       const selectedSession = { ...selected.session, planRepoRoot: resolvedRepoRoot };
       const engineRequestId = randomUUID();
@@ -1257,8 +1253,7 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
       const config = readConfig(configPath);
       const mockResponses = readRouteStringArray(reader, 'mockResponses');
       const mockTokenConfig = getMockTokenConfig(config, mockResponses);
-      const presets = normalizePresets(config.Presets);
-      const selected = new ChatOperationPresetSelector(presets).select(activeSession, 'plan');
+      const selected = new ChatOperationPresetSelector(config.Presets).select(activeSession, 'plan');
       const preset = selected.preset;
       const selectedSession = { ...selected.session, planRepoRoot: resolvedRepoRoot };
       const engineRequestId = randomUUID();
@@ -1421,8 +1416,7 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
       const config = readConfig(configPath);
       const mockResponses = readRouteStringArray(reader, 'mockResponses');
       const mockTokenConfig = getMockTokenConfig(config, mockResponses);
-      const presets = normalizePresets(config.Presets);
-      const selected = new ChatOperationPresetSelector(presets).select(activeSession, 'repo-search');
+      const selected = new ChatOperationPresetSelector(config.Presets).select(activeSession, 'repo-search');
       const preset = selected.preset;
       const selectedSession = { ...selected.session, planRepoRoot: resolvedRepoRoot };
       const engineRequestId = randomUUID();

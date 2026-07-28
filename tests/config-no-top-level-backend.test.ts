@@ -8,7 +8,7 @@ import { z } from 'zod';
 
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { normalizeConfigObject } from '../src/config/normalization.js';
-import { getBuiltinPresets } from '../src/presets.js';
+import { PresetCatalog } from '../src/preset-catalog.js';
 import { CURRENT_SCHEMA_VERSION, getRuntimeDatabase } from '../src/state/runtime-db.js';
 
 const ColumnNameRowSchema = z.array(z.object({ name: z.string() }));
@@ -135,7 +135,7 @@ test('a fresh database is created at the current schema without the backend colu
 test('schema 36 removes startup-context columns and preserves preset autoload files', () => {
   const dbPath = tempDbPath('sk-v35-context-migrate-');
   seedVersion35AppConfig(dbPath, JSON.stringify([{
-    ...getBuiltinPresets()[0],
+    ...PresetCatalog.createDefault().list()[0],
     autoloadFiles: ['C:\\shared\\policy.md'],
   }]));
 

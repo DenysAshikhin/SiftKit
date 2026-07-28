@@ -1,9 +1,5 @@
-import {
-  findPresetById,
-  requirePresetKind,
-  type PresetKind,
-  type SiftPreset,
-} from '../presets.js';
+import type { PresetKind, SiftPreset } from '../presets.js';
+import { PresetCatalog } from '../preset-catalog.js';
 import type { ChatSession } from '../state/chat-sessions.js';
 
 export type ChatPresetOperation = 'chat' | 'plan' | 'repo-search';
@@ -21,14 +17,21 @@ function isCompatible(presetKind: PresetKind, operation: ChatPresetOperation): b
 }
 
 export class ChatOperationPresetSelector {
-  constructor(private readonly presets: readonly SiftPreset[]) {}
+  private readonly catalog: PresetCatalog;
+
+  constructor(presets: readonly SiftPreset[]) {
+    this.catalog = PresetCatalog.fromPresets(presets);
+  }
 
   select(session: ChatSession, operation: ChatPresetOperation): SelectedChatOperationPreset {
-    const selected = findPresetById(this.presets, session.presetId);
-    if (selected && isCompatible(selected.presetKind, operation)) {
+    if (!session.presetId) {
+      throw new Error('Chat session presetId is required.');
+    }
+    const selected = this.catalog.requireById(session.presetId);
+    if (isCompatible(selected.presetKind, operation)) {
       return { preset: selected, session };
     }
-    const preset = requirePresetKind(this.presets, operation, [operation]);
+    const preset = this.catalog.requireKind(operation, [operation]);
     return {
       preset,
       session: {

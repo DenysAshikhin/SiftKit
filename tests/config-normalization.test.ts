@@ -94,8 +94,8 @@ test('normalization rejects removed global and backend-specific configuration sh
   );
 });
 
-test('normalizeConfig supplies the default preset backend and EXL3 engine', () => {
-  const normalized = normalizeConfig({});
+test('new default config supplies the default preset backend and EXL3 engine', () => {
+  const normalized = getDefaultConfig();
   const serialized = JSON.stringify(normalized);
 
   assert.match(serialized, /"Backend":"llama"/u);
@@ -103,6 +103,27 @@ test('normalizeConfig supplies the default preset backend and EXL3 engine', () =
   assert.match(serialized, /"PythonPath":"C:\\\\envs\\\\rl310\\\\Scripts\\\\python\.exe"/u);
   assert.match(serialized, /"ModelRoot":"D:\\\\personal\\\\models\\\\elx3"/u);
   assert.equal(normalized.Server.Engines.Exl3.AdminApiKey, '');
+});
+
+test('normalizeConfig rejects a missing or legacy preset catalog at the Presets path', () => {
+  assert.throws(
+    () => normalizeConfig({}),
+    /"Presets"/u,
+  );
+
+  const config = defaultConfigObject();
+  const presets = asObjectArray(config.Presets);
+  const removedField = ['execution', 'Family'].join('');
+  presets[0] = { ...presets[0], [removedField]: 'summary' };
+  config.Presets = presets;
+  let errorMessage = '';
+  try {
+    normalizeConfig(JsonValueSchema.parse(config));
+  } catch (error) {
+    errorMessage = error instanceof Error ? error.message : String(error);
+  }
+  assert.match(errorMessage, new RegExp(removedField, 'u'));
+  assert.match(errorMessage, /"Presets"/u);
 });
 
 test('normalizeConfig trims the EXL3 admin API key', () => {
@@ -210,30 +231,37 @@ test('normalizeConfig preserves an enabled MTP combination with ngram-mod parame
 });
 
 test('normalizeConfig returns the typed live config fields used by server and dashboard', () => {
+  const defaults = defaultConfigObject();
+  const summary = asObjectArray(defaults.Presets)[0];
   const normalized = normalizeConfig({
+    ...defaults,
     OperationModeAllowedTools: {
       summary: ['find_text'],
       'read-only': ['grep'],
       full: [],
     },
-    Presets: [{
-      id: 'custom',
-      label: 'Custom',
-      description: 'Custom preset',
-      presetKind: 'chat',
-      operationMode: 'summary',
-      promptPrefix: 'prefix',
-      allowedTools: ['find_text'],
-      surfaces: ['web'],
-      useForSummary: false,
-      builtin: false,
-      deletable: true,
-      includeAgentsMd: false,
-      includeRepoFileListing: false,
-      autoloadFiles: [' docs/policy.md ', '', 'docs/policy.md'],
-      repoRootRequired: false,
-      maxTurns: 4,
-    }],
+    Presets: [
+      ...asObjectArray(defaults.Presets),
+      {
+        ...summary,
+        id: 'custom',
+        label: 'Custom',
+        description: 'Custom preset',
+        presetKind: 'chat',
+        operationMode: 'summary',
+        promptPrefix: 'prefix',
+        allowedTools: ['find_text'],
+        surfaces: ['web'],
+        useForSummary: false,
+        builtin: false,
+        deletable: true,
+        includeAgentsMd: false,
+        includeRepoFileListing: false,
+        autoloadFiles: ['docs/policy.md'],
+        repoRootRequired: false,
+        maxTurns: 4,
+      },
+    ],
   });
 
   assert.equal(Object.hasOwn(normalized, 'IncludeAgentsMd'), false);

@@ -11,15 +11,13 @@ import type {
   PresetRunResult,
 } from '../command-output/types.js';
 import {
-  getPresetsForSurface,
   normalizeOperationModeAllowedTools,
-  normalizePresets,
-  requirePresetById,
   resolvePresetAllowedTools,
   type PresetToolName,
   type PresetKind,
   type SiftPreset,
 } from '../presets.js';
+import { PresetCatalog } from '../preset-catalog.js';
 import type { RepoSearchExecutionResult } from '../repo-search/types.js';
 import type { RepoSearchProgressEvent } from './dashboard-runs.js';
 import type { ChatSession } from '../state/chat-sessions.js';
@@ -57,11 +55,15 @@ function readPresetConfig(): ServerPresetConfig {
 
 function getCliPresets(): SiftPreset[] {
   const config = readPresetConfig();
-  return getPresetsForSurface(normalizePresets(config.Presets), 'cli');
+  return PresetCatalog.fromPresets(config.Presets).forSurface('cli');
 }
 
 function getPresetById(presetId: string): SiftPreset {
-  return requirePresetById(getCliPresets(), presetId);
+  const preset = PresetCatalog.fromPresets(readPresetConfig().Presets).requireById(presetId);
+  if (!preset.surfaces.includes('cli')) {
+    throw new Error(`Preset '${presetId}' was not found.`);
+  }
+  return preset;
 }
 
 function normalizePresetPolicyProfile(value: string | null | undefined): SummaryPolicyProfile {

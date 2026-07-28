@@ -96,7 +96,6 @@ export function applyPresetKindDefaults(
   presetKind: DashboardPresetKind,
 ): void {
   preset.presetKind = presetKind;
-  preset.executionFamily = presetKind;
   applyOperationModeDefaults(preset, getDefaultOperationModeForPresetKind(presetKind));
 }
 

@@ -1,11 +1,10 @@
 import type { SiftConfig } from '../config/types.js';
 import {
   normalizeOperationModeAllowedTools,
-  normalizePresets,
-  requirePresetById,
   resolvePresetAllowedTools,
   type SiftPreset,
 } from '../presets.js';
+import { PresetCatalog } from '../preset-catalog.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../repo-search/planner-protocol.js';
 import { buildTaskSystemPrompt } from '../repo-search/prompts.js';
 import type { ChatSession } from '../state/chat-sessions.js';
@@ -67,12 +66,12 @@ function buildDirectPromptContextContent(
 }
 
 export function buildChatPromptContext(config: SiftConfig, session: ChatSession): ChatPromptContext {
-  const presets = normalizePresets(config.Presets);
+  const presets = PresetCatalog.fromPresets(config.Presets);
   const presetId = typeof session.presetId === 'string' ? session.presetId.trim() : '';
   if (!presetId) {
     throw new Error('Chat session presetId is required.');
   }
-  const preset = requirePresetById(presets, presetId);
+  const preset = presets.requireById(presetId);
   const repoToolPreset = preset.presetKind === 'plan' || preset.presetKind === 'repo-search';
   const systemContext = new PresetSystemContextBuilder(readRepoRoot(session)).build(preset);
   const content = repoToolPreset

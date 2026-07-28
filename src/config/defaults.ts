@@ -16,7 +16,8 @@ import {
   SIFT_DEFAULT_PROMPT_PREFIX,
 } from './constants.js';
 import { initializeRuntime } from './paths.js';
-import { getDefaultOperationModeAllowedTools, normalizePresets } from '../presets.js';
+import { PresetCatalog } from '../preset-catalog.js';
+import { getDefaultOperationModeAllowedTools } from '../presets.js';
 import type { ModelRuntimePreset, SiftConfig } from './types.js';
 
 export function getDefaultConfigObject(): SiftConfig {
@@ -113,7 +114,7 @@ export function getDefaultConfigObject(): SiftConfig {
       },
     },
     OperationModeAllowedTools: getDefaultOperationModeAllowedTools(),
-    Presets: normalizePresets([]),
+    Presets: PresetCatalog.createDefault().list(),
     WebSearch: {
       EnabledDefault: true,
       Providers: {

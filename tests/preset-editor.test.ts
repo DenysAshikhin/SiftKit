@@ -26,7 +26,6 @@ function createPreset(id: string, overrides: Partial<DashboardPreset> = {}): Das
     description: '',
     presetKind: 'summary',
     operationMode: 'summary',
-    executionFamily: 'summary',
     promptPrefix: '',
     allowedTools: ['find_text'],
     surfaces: ['cli'],
@@ -110,7 +109,6 @@ test('applyPresetKindDefaults makes preset kind authoritative over operation mod
   const preset = createPreset('custom', {
     presetKind: 'chat',
     operationMode: 'summary',
-    executionFamily: 'chat',
     allowedTools: ['find_text'],
     repoRootRequired: false,
     maxTurns: null,
@@ -119,7 +117,6 @@ test('applyPresetKindDefaults makes preset kind authoritative over operation mod
   applyPresetKindDefaults(preset, 'plan');
 
   assert.equal(preset.presetKind, 'plan');
-  assert.equal(preset.executionFamily, 'plan');
   assert.equal(preset.operationMode, 'read-only');
   assert.deepEqual(preset.allowedTools, REPO_TOOL_OPTIONS);
   assert.equal(preset.repoRootRequired, true);
@@ -130,7 +127,6 @@ test('applyPresetKindDefaults gives repo-agent full mode, the full toolset, and 
   const preset = createPreset('custom', {
     presetKind: 'chat',
     operationMode: 'summary',
-    executionFamily: 'chat',
     allowedTools: ['find_text'],
     repoRootRequired: false,
     maxTurns: null,
@@ -139,7 +135,6 @@ test('applyPresetKindDefaults gives repo-agent full mode, the full toolset, and 
   applyPresetKindDefaults(preset, 'repo-agent');
 
   assert.equal(preset.presetKind, 'repo-agent');
-  assert.equal(preset.executionFamily, 'repo-agent');
   assert.equal(preset.operationMode, 'full');
   assert.deepEqual(preset.allowedTools, FULL_TOOL_OPTIONS);
   assert.equal(preset.repoRootRequired, true);
@@ -150,7 +145,6 @@ test('applyOperationModeDefaults swaps allowed tools while preserving chat-kind 
   const preset = createPreset('chat', {
     presetKind: 'chat',
     operationMode: 'summary',
-    executionFamily: 'chat',
     allowedTools: ['find_text'],
   });
 

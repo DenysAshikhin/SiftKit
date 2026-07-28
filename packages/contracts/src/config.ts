@@ -141,13 +141,54 @@ WEB_RESEARCH_PRESET_TOOLS satisfies readonly PresetToolName[];
 FULL_PRESET_TOOLS satisfies readonly PresetToolName[];
 
 export const SiftPresetSchema = z.object({
-  id: z.string(), label: z.string(), description: z.string(), presetKind: PresetKindSchema,
-  operationMode: PresetOperationModeSchema, executionFamily: PresetKindSchema, promptPrefix: z.string(),
+  id: z.string().trim().min(1).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
+  label: z.string(), description: z.string(), presetKind: PresetKindSchema,
+  operationMode: PresetOperationModeSchema, promptPrefix: z.string(),
   allowedTools: z.array(PresetToolNameSchema), surfaces: z.array(PresetSurfaceSchema), useForSummary: z.boolean(),
   builtin: z.boolean(), deletable: z.boolean(), includeAgentsMd: z.boolean(), includeRepoFileListing: z.boolean(),
-  autoloadFiles: z.array(z.string()), repoRootRequired: z.boolean(), maxTurns: z.number().nullable(),
-});
+  autoloadFiles: z.array(z.string()), repoRootRequired: z.boolean(), maxTurns: z.number().int().positive().nullable(),
+}).strict();
 export type SiftPreset = z.infer<typeof SiftPresetSchema>;
+
+export const SiftPresetCollectionSchema = z.array(SiftPresetSchema).superRefine((presets, context) => {
+  const firstIndexById = new Map<string, number>();
+  for (const [index, preset] of presets.entries()) {
+    if (firstIndexById.has(preset.id)) {
+      context.addIssue({
+        code: 'custom',
+        path: [index, 'id'],
+        message: `Duplicate preset id '${preset.id}'.`,
+      });
+    } else {
+      firstIndexById.set(preset.id, index);
+    }
+  }
+
+  const summaryDefaults = presets
+    .map((preset, index) => ({ preset, index }))
+    .filter(({ preset }) => preset.useForSummary);
+  if (summaryDefaults.length !== 1) {
+    const conflictingIds = summaryDefaults.map(({ preset }) => preset.id);
+    context.addIssue({
+      code: 'custom',
+      path: [],
+      message: `Expected exactly one summary default; found ${summaryDefaults.length}: ${
+        conflictingIds.length > 0 ? conflictingIds.join(', ') : '<none>'
+      }.`,
+    });
+    return;
+  }
+
+  const summaryDefault = summaryDefaults[0];
+  if (summaryDefault && summaryDefault.preset.presetKind !== 'summary') {
+    context.addIssue({
+      code: 'custom',
+      path: [summaryDefault.index, 'presetKind'],
+      message: `Summary default '${summaryDefault.preset.id}' must have summary kind.`,
+    });
+  }
+});
+export type SiftPresetCollection = z.infer<typeof SiftPresetCollectionSchema>;
 
 export const OperationModeAllowedToolsSchema = z.record(PresetOperationModeSchema, z.array(PresetToolNameSchema));
 export type OperationModeAllowedTools = z.infer<typeof OperationModeAllowedToolsSchema>;
@@ -168,7 +209,7 @@ export const SiftConfigSchema = z.object({
     Engines: z.object({ Exl3: Exl3EngineConfigSchema }),
   }),
   OperationModeAllowedTools: OperationModeAllowedToolsSchema,
-  Presets: z.array(SiftPresetSchema),
+  Presets: SiftPresetCollectionSchema,
   WebSearch: WebSearchConfigSchema,
   Paths: z.object({
     RuntimeRoot: z.string(), Logs: z.string(), EvalFixtures: z.string(), EvalResults: z.string(),

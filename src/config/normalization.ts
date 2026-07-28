@@ -1,4 +1,5 @@
 import { initializeRuntime } from './paths.js';
+import { SiftPresetCollectionSchema } from '@siftkit/contracts';
 import {
   SIFT_DEFAULT_LLAMA_BASE_URL,
   SIFT_DEFAULT_LLAMA_BATCH_SIZE,
@@ -17,10 +18,9 @@ import { getDefaultConfigObject } from './defaults.js';
 import {
   getDefaultOperationModeAllowedTools,
   normalizeOperationModeAllowedTools,
-  normalizePresets,
   type OperationModeAllowedTools,
-  type SiftPreset,
 } from '../presets.js';
+import { PresetCatalog } from '../preset-catalog.js';
 import type {
   Exl3EngineConfig,
   ManagedLlamaKvCacheQuantization,
@@ -417,6 +417,14 @@ function resolveManagedLlamaSettings(input: MutableJsonObject): ManagedLlamaConf
 
 export function normalizeConfigObject(input: JsonValue): SiftConfig {
   const inputRecord = getRecord(input);
+  const presetResult = SiftPresetCollectionSchema.safeParse(inputRecord.Presets);
+  if (!presetResult.success) {
+    throw new z.ZodError(presetResult.error.issues.map((issue) => ({
+      ...issue,
+      path: ['Presets', ...issue.path],
+    })));
+  }
+  const presetCatalog = PresetCatalog.fromPresets(presetResult.data);
   const inputInference = getRecord(inputRecord.Inference);
   if ('SelectedBackend' in inputInference) {
     throw new Error('Unsupported configuration field Inference.SelectedBackend; select Backend on each model preset.');
@@ -477,7 +485,7 @@ export function normalizeConfigObject(input: JsonValue): SiftConfig {
   merged.Server = server;
 
   merged.OperationModeAllowedTools = resolveOperationModeAllowedTools(merged.OperationModeAllowedTools);
-  merged.Presets = normalizePresets(merged.Presets);
+  merged.Presets = presetCatalog.list();
   merged.WebSearch = normalizeWebSearchConfig(merged.WebSearch);
   return SiftConfigSchema.parse(merged);
 }

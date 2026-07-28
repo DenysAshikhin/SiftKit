@@ -5,9 +5,8 @@ import { parseJsonValueText } from '../lib/json.js';
 import {
   getDefaultOperationModeAllowedTools,
   normalizeOperationModeAllowedTools,
-  normalizePresets,
-  type SiftPreset,
 } from '../presets.js';
+import { PresetCatalog } from '../preset-catalog.js';
 import { getDefaultConfigObject } from '../config/defaults.js';
 import { getActiveModelPreset, managesManagedLlamaLifecycle } from '../config/getters.js';
 import {
@@ -92,15 +91,11 @@ function parseJsonArray(text: OptionalJsonValue): string[] {
   }
 }
 
-function parsePresetArray(text: OptionalJsonValue): SiftPreset[] {
+function parsePresetArray(text: OptionalJsonValue): ReturnType<PresetCatalog['list']> {
   if (typeof text !== 'string' || !text.trim()) {
-    return normalizePresets([]);
+    return PresetCatalog.parse(undefined).list();
   }
-  try {
-    return normalizePresets(parseJsonValueText(text));
-  } catch {
-    return normalizePresets([]);
-  }
+  return PresetCatalog.parse(parseJsonValueText(text)).list();
 }
 
 function parseOperationModeAllowedTools(text: OptionalJsonValue): ReturnType<typeof normalizeOperationModeAllowedTools> {
@@ -159,7 +154,7 @@ function normalizeConfigToRow(config: SiftConfig): AppConfigRow {
     operation_mode_allowed_tools_json: JSON.stringify(
       normalizeOperationModeAllowedTools(normalized.OperationModeAllowedTools)
     ),
-    presets_json: JSON.stringify(normalizePresets(normalized.Presets)),
+    presets_json: JSON.stringify(PresetCatalog.fromPresets(normalized.Presets).list()),
     web_search_json: JSON.stringify(normalizeWebSearchConfig(normalized.WebSearch)),
   };
 }
@@ -291,7 +286,7 @@ export function readConfig(configPath: string): SiftConfig {
   const config = existingRow
     ? rowToConfig(existingRow)
     : (() => {
-      const fallback = normalizeConfig({});
+      const fallback = normalizeConfig(JsonValueSchema.parse(getDefaultConfigObject()));
       writeConfigRow(configPath, normalizeConfigToRow(fallback));
       return fallback;
     })();

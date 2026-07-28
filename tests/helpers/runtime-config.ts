@@ -2,7 +2,8 @@ import path from 'node:path';
 
 import { z } from '../../src/lib/zod.js';
 import { UNSUPPORTED_INPUT_MESSAGE } from '../../src/summary/measure.js';
-import { getDefaultOperationModeAllowedTools, normalizePresets } from '../../src/presets.js';
+import { PresetCatalog } from '../../src/preset-catalog.js';
+import { getDefaultOperationModeAllowedTools } from '../../src/presets.js';
 import { normalizeModelRuntimePresetArray } from '../../src/config/normalization.js';
 import {
   JsonValueSchema,
@@ -127,7 +128,7 @@ export function getDefaultConfig(): SiftConfig {
       TranscriptRetention: true,
     },
     OperationModeAllowedTools: getDefaultOperationModeAllowedTools(),
-    Presets: normalizePresets([]),
+    Presets: PresetCatalog.createDefault().list(),
     WebSearch: {
       EnabledDefault: true,
       Providers: {
