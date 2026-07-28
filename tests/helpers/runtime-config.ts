@@ -81,8 +81,6 @@ export function getDefaultConfig(): SiftConfig {
     Version: '0.1.0',
     PolicyMode: 'conservative',
     RawLogRetention: true,
-    IncludeAgentsMd: true,
-    IncludeRepoFileListing: true,
     ExpandReads: true,
     Inference: getTestInferenceConfig(),
     Runtime: {

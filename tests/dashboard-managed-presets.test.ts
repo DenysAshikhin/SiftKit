@@ -103,8 +103,6 @@ function createConfig(): DashboardConfig {
     Version: '0.1.0',
     PolicyMode: 'conservative',
     RawLogRetention: true,
-    IncludeAgentsMd: true,
-    IncludeRepoFileListing: true,
     ExpandReads: true,
     PromptPrefix: 'prompt',
     Inference: getTestInferenceConfig(),

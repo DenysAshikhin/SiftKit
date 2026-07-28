@@ -238,8 +238,8 @@ test('normalizeConfig returns the typed live config fields used by server and da
     }],
   });
 
-  assert.equal(normalized.IncludeAgentsMd, false);
-  assert.equal(normalized.IncludeRepoFileListing, false);
+  assert.equal(Object.hasOwn(normalized, 'IncludeAgentsMd'), false);
+  assert.equal(Object.hasOwn(normalized, 'IncludeRepoFileListing'), false);
   assert.deepEqual(normalized.OperationModeAllowedTools.summary, ['find_text']);
   const customPreset = normalized.Presets.find((preset) => preset.id === 'custom');
   assert.ok(customPreset);

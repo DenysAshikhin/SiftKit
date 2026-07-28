@@ -195,23 +195,6 @@ test('config persistence stores normalized presets in sqlite', () => {
   });
 });
 
-test('config persistence stores global agents.md auto-append setting in sqlite', () => {
-  withTempRepo((repoRoot) => {
-    const configPath = path.join(repoRoot, '.siftkit', 'runtime.sqlite');
-    const defaultConfig = getDefaultConfig();
-
-    assert.equal(defaultConfig.IncludeAgentsMd, true);
-
-    writeConfig(configPath, {
-      ...defaultConfig,
-      IncludeAgentsMd: false,
-    });
-    const loaded = readConfig(configPath);
-
-    assert.equal(loaded.IncludeAgentsMd, false);
-  });
-});
-
 test('config persistence stores global ExpandReads setting in sqlite', () => {
   withTempRepo((repoRoot) => {
     const configPath = path.join(repoRoot, '.siftkit', 'runtime.sqlite');

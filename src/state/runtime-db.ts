@@ -33,7 +33,7 @@ const ChatModelPresetMigrationSessionSchema = z.object({
   model: z.string().nullable(),
 });
 
-export const CURRENT_SCHEMA_VERSION = 35;
+export const CURRENT_SCHEMA_VERSION = 36;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["read","grep","find","ls","git"],"full":[]}';
 const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
@@ -131,8 +131,6 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       version TEXT NOT NULL,
       policy_mode TEXT NOT NULL,
       raw_log_retention INTEGER NOT NULL CHECK (raw_log_retention IN (0, 1)),
-      include_agents_md INTEGER NOT NULL DEFAULT 1 CHECK (include_agents_md IN (0, 1)),
-      include_repo_file_listing INTEGER NOT NULL DEFAULT 1 CHECK (include_repo_file_listing IN (0, 1)),
       expand_reads INTEGER NOT NULL DEFAULT 1 CHECK (expand_reads IN (0, 1)),
       prompt_prefix TEXT,
       runtime_model TEXT,
@@ -864,6 +862,90 @@ function migrateChatSessionsToModelPresetIdentity(database: RuntimeDatabase): vo
   rebuildChatSessionsWithModelPresetIdentity(database, identities);
 }
 
+function migrateAppConfigRemoveGlobalStartupContext(database: RuntimeDatabase): void {
+  database.exec(`
+    BEGIN IMMEDIATE;
+    CREATE TABLE app_config_v36 (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      version TEXT NOT NULL,
+      policy_mode TEXT NOT NULL,
+      raw_log_retention INTEGER NOT NULL CHECK (raw_log_retention IN (0, 1)),
+      expand_reads INTEGER NOT NULL DEFAULT 1 CHECK (expand_reads IN (0, 1)),
+      prompt_prefix TEXT,
+      runtime_model TEXT,
+      thresholds_min_characters_for_summary INTEGER NOT NULL,
+      thresholds_min_lines_for_summary INTEGER NOT NULL,
+      interactive_enabled INTEGER NOT NULL CHECK (interactive_enabled IN (0, 1)),
+      interactive_wrapped_commands_json TEXT NOT NULL,
+      interactive_idle_timeout_ms INTEGER NOT NULL,
+      interactive_max_transcript_characters INTEGER NOT NULL,
+      interactive_transcript_retention INTEGER NOT NULL CHECK (interactive_transcript_retention IN (0, 1)),
+      server_llama_presets_json TEXT NOT NULL DEFAULT '[]',
+      server_llama_active_preset_id TEXT,
+      server_external_server_enabled INTEGER NOT NULL DEFAULT 0 CHECK (server_external_server_enabled IN (0, 1)),
+      inference_json TEXT NOT NULL DEFAULT '{}',
+      server_exl3_json TEXT NOT NULL DEFAULT '{}',
+      operation_mode_allowed_tools_json TEXT NOT NULL,
+      presets_json TEXT NOT NULL,
+      web_search_json TEXT NOT NULL DEFAULT '{}',
+      updated_at_utc TEXT NOT NULL
+    );
+    INSERT INTO app_config_v36 (
+      id,
+      version,
+      policy_mode,
+      raw_log_retention,
+      expand_reads,
+      prompt_prefix,
+      runtime_model,
+      thresholds_min_characters_for_summary,
+      thresholds_min_lines_for_summary,
+      interactive_enabled,
+      interactive_wrapped_commands_json,
+      interactive_idle_timeout_ms,
+      interactive_max_transcript_characters,
+      interactive_transcript_retention,
+      server_llama_presets_json,
+      server_llama_active_preset_id,
+      server_external_server_enabled,
+      inference_json,
+      server_exl3_json,
+      operation_mode_allowed_tools_json,
+      presets_json,
+      web_search_json,
+      updated_at_utc
+    )
+    SELECT
+      id,
+      version,
+      policy_mode,
+      raw_log_retention,
+      expand_reads,
+      prompt_prefix,
+      runtime_model,
+      thresholds_min_characters_for_summary,
+      thresholds_min_lines_for_summary,
+      interactive_enabled,
+      interactive_wrapped_commands_json,
+      interactive_idle_timeout_ms,
+      interactive_max_transcript_characters,
+      interactive_transcript_retention,
+      server_llama_presets_json,
+      server_llama_active_preset_id,
+      server_external_server_enabled,
+      inference_json,
+      server_exl3_json,
+      operation_mode_allowed_tools_json,
+      presets_json,
+      web_search_json,
+      updated_at_utc
+    FROM app_config;
+    DROP TABLE app_config;
+    ALTER TABLE app_config_v36 RENAME TO app_config;
+    COMMIT;
+  `);
+}
+
 function ensureSchema(database: RuntimeDatabase): void {
   database.exec('PRAGMA foreign_keys = ON;');
   const storedVersion = getSchemaVersion(database);
@@ -1159,13 +1241,6 @@ function ensureSchema(database: RuntimeDatabase): void {
     setSchemaVersion(database, 17);
     currentVersion = 17;
   }
-  if (currentVersion < 18) {
-    if (!tableHasColumn(database, 'app_config', 'include_repo_file_listing')) {
-      database.exec('ALTER TABLE app_config ADD COLUMN include_repo_file_listing INTEGER NOT NULL DEFAULT 1 CHECK (include_repo_file_listing IN (0, 1));');
-    }
-    setSchemaVersion(database, 18);
-    currentVersion = 18;
-  }
   if (currentVersion < 19) {
     const alterStatements: string[] = [];
     if (!tableHasColumn(database, 'observed_budget_state', 'observed_chars_total')) {
@@ -1247,13 +1322,6 @@ function ensureSchema(database: RuntimeDatabase): void {
     setSchemaVersion(database, 27);
     currentVersion = 27;
   }
-  if (currentVersion < 28) {
-    if (!tableHasColumn(database, 'app_config', 'include_agents_md')) {
-      database.exec('ALTER TABLE app_config ADD COLUMN include_agents_md INTEGER NOT NULL DEFAULT 1 CHECK (include_agents_md IN (0, 1));');
-    }
-    setSchemaVersion(database, 28);
-    currentVersion = 28;
-  }
   if (currentVersion < 29) {
     if (!tableHasColumn(database, 'app_config', 'web_search_json')) {
       database.exec("ALTER TABLE app_config ADD COLUMN web_search_json TEXT NOT NULL DEFAULT '{}';");
@@ -1309,6 +1377,11 @@ function ensureSchema(database: RuntimeDatabase): void {
     }
     setSchemaVersion(database, 35);
     currentVersion = 35;
+  }
+  if (currentVersion < 36) {
+    migrateAppConfigRemoveGlobalStartupContext(database);
+    setSchemaVersion(database, 36);
+    currentVersion = 36;
   }
   ensureChatMessageTimelineSchema(database);
   ensureRuntimeArtifactsSchema(database);

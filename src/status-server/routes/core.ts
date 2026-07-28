@@ -277,7 +277,7 @@ export function isStrictConfigPayload(value: OptionalJsonValue): boolean {
     'Version',
     'PolicyMode',
     'RawLogRetention',
-    'IncludeRepoFileListing',
+    'ExpandReads',
     'PromptPrefix',
     'Runtime',
     'Thresholds',
