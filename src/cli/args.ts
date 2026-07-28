@@ -1,10 +1,6 @@
 import { inspect } from 'node:util';
 import type { JsonSerializable } from '../lib/json-types.js';
 import {
-  ApprovalModeSchema,
-  type ApprovalMode,
-} from '../repo-search/engine/approval-gate.js';
-import {
   normalizeCliReducerProfile,
   normalizeCliRiskLevel,
 } from './request-normalizers.js';
@@ -14,10 +10,6 @@ import type { SummaryProviderId } from '../summary/types.js';
 /** Canonical repo-search synopsis — single source for `help` and `repo-search --help`. */
 export const REPO_SEARCH_SYNOPSIS =
   'siftkit repo-search --prompt "find x y z in this repo" [--model <model>] [--log-file <path>] [--interactive] [--progress]';
-
-/** Canonical repo-agent synopsis — single source for `help` and `repo-agent --help`. */
-export const REPO_AGENT_SYNOPSIS =
-  'siftkit repo-agent "task" [--model <model>] [--log-file <path>] [--approval <interactive|auto|off>] [--progress]';
 
 export type CliRunOptions = {
   argv: string[];
@@ -70,7 +62,6 @@ export type ParsedArgs = {
   shell?: string;
   wait?: boolean;
   interactive?: boolean;
-  approvalMode?: ApprovalMode;
   progress?: boolean;
 };
 
@@ -110,14 +101,6 @@ export function validateRepoSearchTokens(tokens: string[]): void {
       throw new Error(`Unknown option for repo-search: ${token}`);
     }
   }
-}
-
-function parseApprovalModeValue(raw: string | undefined): ApprovalMode {
-  const parsed = ApprovalModeSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new Error(`Invalid --approval value: ${raw ?? '(missing)'}. Expected interactive, auto, or off.`);
-  }
-  return parsed.data;
 }
 
 export function parseArguments(tokens: string[]): ParsedArgs {
@@ -229,9 +212,6 @@ export function parseArguments(tokens: string[]): ParsedArgs {
         break;
       case '--interactive':
         parsed.interactive = true;
-        break;
-      case '--approval':
-        parsed.approvalMode = parseApprovalModeValue(tokens[++index]);
         break;
       case '--progress':
         parsed.progress = true;

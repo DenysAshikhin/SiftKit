@@ -16,10 +16,11 @@ import { runCodexPolicyCli, runInstall, runInstallGlobalCli } from './run-instal
 import { runInternal } from './run-internal.js';
 import { runPresetList } from './run-preset-list.js';
 import { runPresetCli } from './run-preset.js';
-import { assertStdinIsTty, runRepoSearchCli } from './run-repo-search.js';
+import { runRepoSearchCli } from './run-repo-search.js';
 import { runRepoAgentCli } from './run-repo-agent.js';
 import { runSummary } from './run-summary.js';
 import { runTest } from './run-test.js';
+import { assertStdinIsTty } from './tty.js';
 import { readNestedAgentRunId } from '../lib/agent-run-marker.js';
 
 function failUnknownCommand(commandName: never): never {

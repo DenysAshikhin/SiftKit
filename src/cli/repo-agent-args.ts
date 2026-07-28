@@ -12,6 +12,9 @@ export const RepoAgentStartInvocationSchema = z.object({
   approval: ApprovalModeSchema,
   progress: z.boolean(),
 });
+export type RepoAgentStartInvocation = z.infer<
+  typeof RepoAgentStartInvocationSchema
+>;
 
 export const RepoAgentDecisionKindSchema = z.enum(['approve', 'deny', 'abort']);
 

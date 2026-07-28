@@ -16,7 +16,7 @@ import type { RepoAgentProcessLauncher } from '../repo-agent/worker-launcher.js'
 import type {
   RepoAgentInvocation,
 } from './repo-agent-args.js';
-import { runRepoTaskCli } from './run-repo-search.js';
+import { runRepoAgentForegroundCli } from './run-repo-agent-foreground.js';
 
 export type RepoAgentCommandStreams = {
   stdin?: NodeJS.ReadableStream & { isTTY?: boolean };
@@ -60,23 +60,8 @@ export class RepoAgentCommand {
     invocation: Extract<RepoAgentInvocation, { kind: 'start' }>,
     streams: RepoAgentCommandStreams,
   ): Promise<number> {
-    const args = [
-      invocation.task,
-      '--approval',
-      invocation.approval,
-    ];
-    if (invocation.model !== undefined) {
-      args.push('--model', invocation.model);
-    }
-    if (invocation.logFile !== undefined) {
-      args.push('--log-file', invocation.logFile);
-    }
-    if (invocation.progress) {
-      args.push('--progress');
-    }
-    return runRepoTaskCli({
-      mode: 'agent',
-      args,
+    return runRepoAgentForegroundCli({
+      invocation,
       stdout: streams.stdout,
       stderr: streams.stderr,
       stdin: streams.stdin,

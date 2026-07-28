@@ -32,11 +32,11 @@ test('global backend command is absent from the public command surface', () => {
   assert.deepEqual(invocation.args, ['backend']);
 });
 
-test('parseArguments maps --approval to approvalMode and rejects invalid values', () => {
-  assert.equal(parseArguments(['--prompt', 'x', '--approval', 'auto']).approvalMode, 'auto');
-  assert.equal(parseArguments(['--prompt', 'x', '--approval', 'off']).approvalMode, 'off');
-  assert.equal(parseArguments(['--prompt', 'x']).approvalMode, undefined);
-  assert.throws(() => parseArguments(['--approval', 'bogus']), /Invalid --approval value: bogus/u);
+test('generic argument parsing does not claim repo-agent approval syntax', () => {
+  assert.deepEqual(
+    parseArguments(['--approval', 'auto']).positionals,
+    ['--approval', 'auto'],
+  );
 });
 
 test('repo-agent owns start preflight so local control commands stay offline', () => {

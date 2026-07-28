@@ -1,5 +1,8 @@
 import { z } from '../lib/zod.js';
 
+export const REPO_AGENT_CANONICAL_INVOCATION =
+  'siftkit repo-agent "task" [options]' as const;
+
 export const RepoAgentHelpTopicSchema = z.enum(['root', 'decide', 'status']);
 
 const RepoAgentHelpCommandSchema = z.object({
@@ -24,7 +27,7 @@ const RepoAgentHelpResultSchema = z.object({
 export const RepoAgentHelpSchema = z.object({
   command: z.literal('repo-agent'),
   topic: RepoAgentHelpTopicSchema,
-  canonicalInvocation: z.literal('siftkit repo-agent "task" [options]'),
+  canonicalInvocation: z.literal(REPO_AGENT_CANONICAL_INVOCATION),
   defaultApproval: z.literal('auto'),
   ttyMode: z.literal('foreground-interactive'),
   nonTtyMode: z.literal('resumable-json'),
@@ -51,14 +54,14 @@ export type RepoAgentHelpInvocation = z.infer<typeof RepoAgentHelpInvocationSche
 const ROOT_HELP = RepoAgentHelpSchema.parse({
   command: 'repo-agent',
   topic: 'root',
-  canonicalInvocation: 'siftkit repo-agent "task" [options]',
+  canonicalInvocation: REPO_AGENT_CANONICAL_INVOCATION,
   defaultApproval: 'auto',
   ttyMode: 'foreground-interactive',
   nonTtyMode: 'resumable-json',
   commands: [
     {
       name: 'start',
-      synopsis: 'siftkit repo-agent "task" [options]',
+      synopsis: REPO_AGENT_CANONICAL_INVOCATION,
       arguments: ['task'],
     },
     {

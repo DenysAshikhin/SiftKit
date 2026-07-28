@@ -1,8 +1,8 @@
 import type { CliProgressRenderer } from '../cli/progress-renderer.js';
 import { formatRepoTaskOutput } from '../cli/repo-task-output.js';
 import type { StatusServerApiClient } from '../cli/status-server-api-client.js';
+import { buildRepoAgentServerRequest } from '../cli/repo-agent-request.js';
 import { toError } from '../lib/errors.js';
-import type { JsonSerializable } from '../lib/json-types.js';
 import { RepoAgentBoundaryWaiter } from './boundary-waiter.js';
 import { RepoAgentRunApprovalPrompter } from './run-approval-prompter.js';
 import { isTerminalStatus } from './run-schemas.js';
@@ -51,7 +51,7 @@ export class RepoAgentWorker {
 
     try {
       const result = await this.apiClient.requestRepoAgent(
-        this.buildServerRequest(request),
+        buildRepoAgentServerRequest(request),
         this.progressRenderer,
         approvalPrompter,
       );
@@ -85,20 +85,4 @@ export class RepoAgentWorker {
     }
   }
 
-  private buildServerRequest(
-    request: ReturnType<RepoAgentRunStore['readRequest']>,
-  ): Record<string, JsonSerializable> {
-    const serverRequest: Record<string, JsonSerializable> = {
-      prompt: request.task,
-      repoRoot: request.repoRoot,
-      approval: request.approval,
-    };
-    if (request.model !== undefined) {
-      serverRequest.model = request.model;
-    }
-    if (request.logFile !== undefined) {
-      serverRequest.logFile = request.logFile;
-    }
-    return serverRequest;
-  }
 }

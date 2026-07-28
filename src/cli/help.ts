@@ -1,4 +1,5 @@
-import { REPO_SEARCH_SYNOPSIS, REPO_AGENT_SYNOPSIS } from './args.js';
+import { REPO_SEARCH_SYNOPSIS } from './args.js';
+import { REPO_AGENT_CANONICAL_INVOCATION } from './repo-agent-help.js';
 
 export function showHelp(stdout: NodeJS.WritableStream): void {
   stdout.write([
@@ -8,7 +9,7 @@ export function showHelp(stdout: NodeJS.WritableStream): void {
     '  siftkit "question"',
     '  siftkit summary --question "..." [--text "..."] [--file path]',
     `  ${REPO_SEARCH_SYNOPSIS}`,
-    `  ${REPO_AGENT_SYNOPSIS}`,
+    `  ${REPO_AGENT_CANONICAL_INVOCATION}`,
     '  siftkit preset list',
     '  siftkit run --preset <id> ...',
     '  siftkit run --command <cmd> [--arg <a> ...] --question "..."',
