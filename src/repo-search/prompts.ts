@@ -196,7 +196,7 @@ export function scanRepoFiles(repoRoot: string, ignorePolicy: IgnorePolicy): str
 
 export function readAgentsMd(repoRoot: string): string {
   if (!repoRoot) return '';
-  const agentsPath = join(repoRoot, 'agents.md');
+  const agentsPath = join(repoRoot, 'AGENTS.md');
   try {
     if (existsSync(agentsPath)) {
       const content = readFileSync(agentsPath, 'utf8').trim();
