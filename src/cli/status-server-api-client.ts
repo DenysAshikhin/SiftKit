@@ -53,7 +53,15 @@ import type { CliProgressRenderer } from './progress-renderer.js';
 import type { ApprovalPrompter } from './approval-prompter.js';
 
 const DEFAULT_SERVER_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
-const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+const DEFAULT_REPO_AGENT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+
+const StatusServerApiClientOptionsSchema = z.strictObject({
+  repoAgentIdleTimeoutMs: z.number().int().positive().finite().optional(),
+});
+export type StatusServerApiClientOptions = z.infer<
+  typeof StatusServerApiClientOptionsSchema
+>;
 
 export class StatusServerOperationError extends Error {
   public readonly diagnosticId: string;
@@ -71,9 +79,16 @@ export class StatusServerOperationError extends Error {
 
 export class StatusServerApiClient {
   private readonly client: HttpClient;
+  private readonly repoAgentIdleTimeoutMs: number;
 
-  constructor(client: HttpClient = httpClient) {
+  constructor(
+    client: HttpClient = httpClient,
+    options: StatusServerApiClientOptions = {},
+  ) {
+    const parsedOptions = StatusServerApiClientOptionsSchema.parse(options);
     this.client = client;
+    this.repoAgentIdleTimeoutMs = parsedOptions.repoAgentIdleTimeoutMs
+      ?? DEFAULT_REPO_AGENT_IDLE_TIMEOUT_MS;
   }
 
   getConfig(): Promise<SiftConfig> {
@@ -111,6 +126,7 @@ export class StatusServerApiClient {
       renderer,
       'repo-agent',
       approvalPrompter,
+      this.repoAgentIdleTimeoutMs,
     );
   }
 
@@ -191,6 +207,7 @@ export class StatusServerApiClient {
     renderer: CliProgressRenderer,
     task: LoggedHttpClientTask,
     approvalPrompter?: ApprovalPrompter,
+    idleTimeoutMs = DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   ): Promise<T> {
     const startedAt = Date.now();
     try {
@@ -199,7 +216,7 @@ export class StatusServerApiClient {
         ...(nestedAgentRunId ? { headers: { [AGENT_RUN_ID_HEADER]: nestedAgentRunId } } : {}),
         url: this.getServiceUrl(pathname),
         body,
-        idleTimeoutMs: DEFAULT_IDLE_TIMEOUT_MS,
+        idleTimeoutMs,
       })) {
         if (frame.event === OPERATION_STREAM_EVENTS.progress) {
           const progressEvent = parseJsonObjectText(frame.data);

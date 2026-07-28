@@ -95,7 +95,6 @@ function makePrompter(
     store,
     runId,
     pollIntervalMs: 5,
-    timeoutMs: 30_000,
   });
   return new RepoAgentRunApprovalPrompter({ store, waiter, runId });
 }
@@ -463,7 +462,6 @@ test('constructor accepts store, waiter, and runId', () => {
     store,
     runId,
     pollIntervalMs: 10,
-    timeoutMs: 5000,
   });
   const prompter = new RepoAgentRunApprovalPrompter({ store, waiter, runId });
   assert.ok(prompter instanceof RepoAgentRunApprovalPrompter);
@@ -477,7 +475,6 @@ test('implements ApprovalPrompter interface', () => {
     store,
     runId,
     pollIntervalMs: 10,
-    timeoutMs: 5000,
   });
   const prompter: ApprovalPrompter = new RepoAgentRunApprovalPrompter({
     store,

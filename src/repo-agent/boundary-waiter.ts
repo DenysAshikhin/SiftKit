@@ -12,7 +12,6 @@ import {
 import type { RepoAgentRunStore } from './run-store.js';
 
 const DEFAULT_POLL_INTERVAL_MS = 250;
-const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 
 function isBoundaryStatus(status: RepoAgentRunState['status']): boolean {
   return (
@@ -59,25 +58,19 @@ export class RepoAgentBoundaryWaiter {
   private readonly store: RepoAgentRunStore;
   private readonly runId: string;
   private readonly pollIntervalMs: number;
-  private readonly timeoutMs: number;
   private readonly processInspector: ProcessInspector;
 
   constructor(options: {
     store: RepoAgentRunStore;
     runId: string;
     pollIntervalMs?: number;
-    timeoutMs?: number;
     processInspector?: ProcessInspector;
   }) {
     this.store = options.store;
     this.runId = options.runId;
     this.pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     if (!Number.isFinite(this.pollIntervalMs) || this.pollIntervalMs <= 0) {
       throw new Error('Boundary poll interval must be a positive number.');
-    }
-    if (!Number.isFinite(this.timeoutMs) || this.timeoutMs <= 0) {
-      throw new Error('Boundary timeout must be a positive number.');
     }
     this.processInspector = options.processInspector ?? new NodeProcessInspector();
   }
@@ -86,16 +79,7 @@ export class RepoAgentBoundaryWaiter {
     if (!Number.isInteger(fromRevision) || fromRevision < 0) {
       throw new Error('Boundary revision must be a non-negative integer.');
     }
-    const deadline = Date.now() + this.timeoutMs;
-
     for (;;) {
-      const now = Date.now();
-      if (now >= deadline) {
-        throw new Error(
-          `Boundary wait timed out after ${this.timeoutMs}ms for run ${this.runId}.`,
-        );
-      }
-
       let state: RepoAgentRunState;
       try {
         state = this.store.readState(this.runId);

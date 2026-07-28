@@ -62,3 +62,23 @@ test('StatusServerApiClient uses its injected HttpClient and preserves streamed 
   assert.equal(http.streamRequests.length, 1);
   assert.match(http.streamRequests[0]?.url || '', /\/summary$/u);
 });
+
+test('repo-agent uses its own inactivity timeout without changing repo-search', async () => {
+  const http = new ErrorStreamHttpClient();
+  const client = new StatusServerApiClient(http, {
+    repoAgentIdleTimeoutMs: 25,
+  });
+  const renderer = new SilentProgressRenderer(process.stderr, 'test');
+
+  await assert.rejects(
+    () => client.requestRepoAgent({ prompt: 'agent task' }, renderer),
+    /stream failed/iu,
+  );
+  await assert.rejects(
+    () => client.requestRepoSearch({ prompt: 'search task' }, renderer),
+    /stream failed/iu,
+  );
+
+  assert.equal(http.streamRequests[0]?.idleTimeoutMs, 25);
+  assert.equal(http.streamRequests[1]?.idleTimeoutMs, 600_000);
+});

@@ -85,7 +85,6 @@ test('waits past starting state', async () => {
     store,
     runId: request.runId,
     pollIntervalMs: 5,
-    timeoutMs: 5000,
   });
 
   const pending = waiter.waitForBoundary(0);
@@ -127,7 +126,6 @@ test('waits past running state', async () => {
     store,
     runId: request.runId,
     pollIntervalMs: 5,
-    timeoutMs: 5000,
   });
 
   const pending = waiter.waitForBoundary(1);
@@ -160,7 +158,6 @@ test('returns approval_required boundary', async () => {
     store,
     runId: request.runId,
     pollIntervalMs: 5,
-    timeoutMs: 5000,
   });
 
   const pending = waiter.waitForBoundary(1);
@@ -185,7 +182,6 @@ test('returns completed boundary', async () => {
     store,
     runId: request.runId,
     pollIntervalMs: 5,
-    timeoutMs: 5000,
   });
 
   const pending = waiter.waitForBoundary(1);
@@ -215,7 +211,6 @@ test('returns failed boundary', async () => {
     store,
     runId: request.runId,
     pollIntervalMs: 5,
-    timeoutMs: 5000,
   });
 
   const pending = waiter.waitForBoundary(1);
@@ -245,7 +240,6 @@ test('returns aborted boundary', async () => {
     store,
     runId: request.runId,
     pollIntervalMs: 5,
-    timeoutMs: 5000,
   });
 
   const pending = waiter.waitForBoundary(1);
@@ -275,7 +269,6 @@ test('returns objects that parse as RepoAgentRunResultSchema', async () => {
     store,
     runId: request.runId,
     pollIntervalMs: 5,
-    timeoutMs: 5000,
   });
 
   const pending = waiter.waitForBoundary(1);
@@ -318,7 +311,6 @@ test('marks active state failed when worker PID is dead', async () => {
     store,
     runId: request.runId,
     pollIntervalMs: 5,
-    timeoutMs: 5000,
     processInspector: inspector,
   });
 
@@ -355,7 +347,6 @@ test('marks a settled approval wait failed when its worker PID is dead', async (
     store,
     runId: request.runId,
     pollIntervalMs: 5,
-    timeoutMs: 100,
     processInspector: new NodeProcessInspector(),
   });
 
@@ -397,32 +388,43 @@ test('returns the winning failed boundary when dead-worker transition races', as
     store,
     runId: request.runId,
     pollIntervalMs: 5,
-    timeoutMs: 500,
     processInspector: new NodeProcessInspector(),
   });
   const result = await waiter.waitForBoundary(1);
   assert.equal(result.status, 'failed');
 });
 
-// ---- Timeout behavior ----
-
-test('times out with a distinct error', async () => {
+test('waits for an active worker without a wall-clock deadline', async () => {
   const runsRoot = makeRunsRoot();
   const store = new RepoAgentRunStore(runsRoot);
   const request = makeRequest();
   store.create(request);
+  const running = store.transition(request.runId, 0, {
+    runId: request.runId,
+    revision: 1,
+    updatedAtUtc: new Date().toISOString(),
+    status: 'running',
+    pid: process.pid,
+  });
 
   const waiter = new RepoAgentBoundaryWaiter({
     store,
     runId: request.runId,
     pollIntervalMs: 5,
-    timeoutMs: 50, // very short timeout
   });
+  setTimeout(() => {
+    store.transition(request.runId, running.revision, {
+      runId: request.runId,
+      revision: running.revision + 1,
+      updatedAtUtc: new Date().toISOString(),
+      status: 'completed',
+      pid: process.pid,
+      output: 'completed after the former deadline',
+    });
+  }, 40);
 
-  await assert.rejects(
-    () => waiter.waitForBoundary(0),
-    /timeout|timed out/iu,
-  );
+  const result = await waiter.waitForBoundary(running.revision);
+  assert.equal(result.status, 'completed');
 });
 
 test('rejects invalid polling configuration and revisions', async () => {
@@ -435,24 +437,13 @@ test('rejects invalid polling configuration and revisions', async () => {
       store,
       runId: request.runId,
       pollIntervalMs: -1,
-      timeoutMs: 100,
     }),
     /poll/iu,
-  );
-  assert.throws(
-    () => new RepoAgentBoundaryWaiter({
-      store,
-      runId: request.runId,
-      pollIntervalMs: 1,
-      timeoutMs: 0,
-    }),
-    /timeout/iu,
   );
   const waiter = new RepoAgentBoundaryWaiter({
     store,
     runId: request.runId,
     pollIntervalMs: 1,
-    timeoutMs: 100,
   });
   await assert.rejects(() => waiter.waitForBoundary(-1), /revision/iu);
 });
@@ -478,13 +469,18 @@ test('polling is bounded and does not busy-spin', async () => {
     store,
     runId: request.runId,
     pollIntervalMs: 10,
-    timeoutMs: 100,
   });
-
-  await assert.rejects(
-    () => waiter.waitForBoundary(0),
-    /timeout|timed out/iu,
-  );
+  setTimeout(() => {
+    store.transition(request.runId, 0, {
+      runId: request.runId,
+      revision: 1,
+      updatedAtUtc: new Date().toISOString(),
+      status: 'completed',
+      pid: process.pid,
+      output: 'done',
+    });
+  }, 60);
+  await waiter.waitForBoundary(0);
 
   assert.ok(
     store.readCount < 50,
@@ -509,7 +505,6 @@ test('requires strictly newer boundary revision', async () => {
     store,
     runId: request.runId,
     pollIntervalMs: 5,
-    timeoutMs: 5000,
   });
 
   // Start waiting from revision 1
@@ -558,7 +553,7 @@ test('NodeProcessInspector reports non-existent PID as dead', () => {
 
 // ---- Constructor ----
 
-test('constructor accepts store, runId, pollIntervalMs, timeoutMs', () => {
+test('constructor accepts store, runId, and pollIntervalMs', () => {
   const runsRoot = makeRunsRoot();
   const store = new RepoAgentRunStore(runsRoot);
   const runId = randomUUID();
@@ -566,7 +561,6 @@ test('constructor accepts store, runId, pollIntervalMs, timeoutMs', () => {
     store,
     runId,
     pollIntervalMs: 10,
-    timeoutMs: 5000,
   });
   assert.ok(waiter instanceof RepoAgentBoundaryWaiter);
 });
@@ -580,7 +574,6 @@ test('constructor accepts optional processInspector', () => {
     store,
     runId,
     pollIntervalMs: 10,
-    timeoutMs: 5000,
     processInspector: inspector,
   });
   assert.ok(waiter instanceof RepoAgentBoundaryWaiter);

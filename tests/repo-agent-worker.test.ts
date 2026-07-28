@@ -30,12 +30,18 @@ const TEMP_ROOT = join(
   `repo-agent-worker-tests-${process.pid}`,
 );
 
-type WorkerServerScenario = 'approval' | 'complete' | 'delayed-error' | 'error';
+type WorkerServerScenario =
+  | 'approval'
+  | 'complete'
+  | 'delayed-error'
+  | 'error'
+  | 'inactive';
 
 type WorkerHarnessOptions = {
   scenario: WorkerServerScenario;
   finalOutput?: string;
   includeOptionalRequestFields?: boolean;
+  idleTimeoutMs?: number;
 };
 
 before(() => {
@@ -189,6 +195,16 @@ class WorkerMockServer {
       this.operationResponse = response;
       return;
     }
+    if (this.scenario === 'inactive') {
+      this.operationResponse = response;
+      response.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      });
+      response.flushHeaders();
+      return;
+    }
     writeSseResult(response, makeMockResult(this.finalOutput));
   }
 
@@ -279,13 +295,14 @@ class WorkerTestHarness {
     store.create(request);
     const worker = new RepoAgentWorker({
       store,
-      apiClient: new StatusServerApiClient(),
+      apiClient: new StatusServerApiClient(undefined, {
+        repoAgentIdleTimeoutMs: options.idleTimeoutMs,
+      }),
       progressRenderer: new CliProgressRenderer(process.stderr, 'repo-agent'),
       boundaryWaiter: new RepoAgentBoundaryWaiter({
         store,
         runId: request.runId,
         pollIntervalMs: 5,
-        timeoutMs: 5000,
       }),
     });
     return new WorkerTestHarness({
@@ -422,6 +439,28 @@ test('stores failed state on server error', async () => {
     const state = harness.store.readState(harness.request.runId);
     assert.equal(state.status, 'failed');
     assert.ok(state.error.length > 0);
+  } finally {
+    await harness.close();
+  }
+});
+
+test('stores failed state when the repo-agent stream is inactive', async () => {
+  const harness = await WorkerTestHarness.create({
+    scenario: 'inactive',
+    idleTimeoutMs: 25,
+  });
+  try {
+    await assert.rejects(
+      Promise.race([
+        harness.worker.run(harness.request.runId),
+        delay(150).then(() => {
+          throw new Error('Worker exceeded the configured inactivity timeout.');
+        }),
+      ]),
+      /inactivity|not reachable/iu,
+    );
+    const state = harness.store.readState(harness.request.runId);
+    assert.equal(state.status, 'failed');
   } finally {
     await harness.close();
   }
