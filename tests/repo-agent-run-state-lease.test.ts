@@ -55,9 +55,47 @@ test('a live owner prevents a second state lease', () => {
     () => second.acquire(),
     /state transition is already active/iu,
   );
+  assert.equal(existsSync(`${lockPath}.recovery`), false);
   first.release();
 
   assert.equal(existsSync(lockPath), false);
+});
+
+test('acquire and release reject duplicate lifecycle calls', () => {
+  const lockPath = makeLockPath();
+  const lease = new RepoAgentRunStateLease(lockPath);
+
+  lease.acquire();
+  assert.throws(() => lease.acquire(), /already acquired/iu);
+  lease.release();
+  assert.throws(() => lease.release(), /not acquired/iu);
+});
+
+test('an active recovery claim fails closed', () => {
+  const lockPath = makeLockPath();
+  writeFileSync(`${lockPath}.recovery`, `${JSON.stringify({
+    pid: process.pid,
+    createdAtUtc: new Date().toISOString(),
+  })}\n`, 'utf8');
+  const lease = new RepoAgentRunStateLease(lockPath);
+
+  assert.throws(
+    () => lease.acquire(),
+    /state transition is already active/iu,
+  );
+  assert.equal(existsSync(lockPath), false);
+});
+
+test('filesystem errors other than contention are surfaced', () => {
+  const lockPath = join(TEMP_ROOT, crypto.randomUUID(), 'state.lock');
+  const lease = new RepoAgentRunStateLease(lockPath);
+
+  assert.throws(() => lease.acquire(), /ENOENT|no such file/iu);
+  assert.equal(existsSync(lockPath), false);
+});
+
+test('constructor rejects an empty lock path', () => {
+  assert.throws(() => new RepoAgentRunStateLease(''));
 });
 
 test('a dead owner lease is recovered', () => {

@@ -45,9 +45,6 @@ export class RepoAgentRunStateLease {
     }
     if (existsSync(this.recoveryPath) || !this.tryCreateLock(this.lockPath)) {
       this.recoverDeadOwner();
-      if (!this.tryCreateLock(this.lockPath)) {
-        throw new Error('A repo-agent state transition is already active.');
-      }
     }
     this.acquired = true;
   }
@@ -76,6 +73,9 @@ export class RepoAgentRunStateLease {
         );
       }
       rmSync(this.lockPath);
+      if (!this.tryCreateLock(this.lockPath)) {
+        throw new Error('A repo-agent state transition is already active.');
+      }
     } finally {
       rmSync(this.recoveryPath, { force: true });
     }
