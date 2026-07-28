@@ -10,7 +10,7 @@ import {
   getConfiguredLlamaNumCtx,
   getEffectiveInputCharactersPerContextToken,
   summarizeRequest,
-  buildPrompt,
+  buildSummaryPrompt,
   getSummaryDecision,
   planTokenAwareLlamaCppChunks,
   getPlannerPromptBudget,
@@ -24,6 +24,7 @@ import {
   requestJson,
   withTempEnv,
   withStubServer,
+  createEmptyPresetSystemContext,
 } from './_runtime-helpers.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { getActiveModelPreset } from '../src/config/getters.js';
@@ -35,6 +36,12 @@ interface FixtureManifestEntry {
   Format: 'text' | 'json';
   PolicyProfile: SummaryPolicyProfile;
 }
+
+const PROMPT_COMPOSITION = {
+  presetPromptPrefix: '',
+  additionalPromptPrefix: '',
+  systemContext: createEmptyPresetSystemContext(),
+};
 
 function requireConfigServiceUrl(): string {
   const url = process.env.SIFTKIT_CONFIG_SERVICE_URL;
@@ -110,6 +117,7 @@ test('token-aware llama.cpp chunk planning grows upward when prompt tokens leave
       const inputText = 'A'.repeat(5_000);
       const decision = getSummaryDecision(inputText, 'summarize this', 'informational', config);
       const chunks = await planTokenAwareLlamaCppChunks({
+        ...PROMPT_COMPOSITION,
         question: 'summarize this',
         inputText,
         format: 'text',
@@ -154,7 +162,8 @@ test('token-aware llama.cpp chunk planning starts from the char-threshold guess 
       const inputText = 'A'.repeat(5_000);
       const decision = getSummaryDecision(inputText, 'summarize this', 'informational', config);
       const chunkThreshold = 1_000;
-      const initialPrompt = buildPrompt({
+      const initialPrompt = buildSummaryPrompt({
+        ...PROMPT_COMPOSITION,
         question: 'summarize this',
         inputText: inputText.slice(0, chunkThreshold),
         format: 'text',
@@ -164,6 +173,7 @@ test('token-aware llama.cpp chunk planning starts from the char-threshold guess 
         phase: 'leaf',
       });
       const chunks = await planTokenAwareLlamaCppChunks({
+        ...PROMPT_COMPOSITION,
         question: 'summarize this',
         inputText,
         format: 'text',
@@ -198,7 +208,8 @@ test('token-aware llama.cpp chunk planning shrinks after an overshooting growth 
     const previewConfig = getDefaultConfig();
     const previewInputText = 'A'.repeat(3_000);
     const previewDecision = getSummaryDecision(previewInputText, 'summarize this', 'informational', previewConfig);
-    const thresholdPromptLength = buildPrompt({
+    const thresholdPromptLength = buildSummaryPrompt({
+      ...PROMPT_COMPOSITION,
       question: 'summarize this',
       inputText: previewInputText.slice(0, 1_000),
       format: 'text',
@@ -221,6 +232,7 @@ test('token-aware llama.cpp chunk planning shrinks after an overshooting growth 
       const decision = getSummaryDecision(inputText, 'summarize this', 'informational', config);
       const chunkThreshold = 1_000;
       const chunks = await planTokenAwareLlamaCppChunks({
+        ...PROMPT_COMPOSITION,
         question: 'summarize this',
         inputText,
         format: 'text',
@@ -265,7 +277,8 @@ test('token-aware llama.cpp chunk planning keeps adjusting until accepted chunks
     const previewConfig = getDefaultConfig();
     const previewInputText = 'A'.repeat(3_000);
     const previewDecision = getSummaryDecision(previewInputText, 'summarize this', 'informational', previewConfig);
-    const thresholdPrompt = buildPrompt({
+    const thresholdPrompt = buildSummaryPrompt({
+      ...PROMPT_COMPOSITION,
       question: 'summarize this',
       inputText: previewInputText.slice(0, 1_000),
       format: 'text',
@@ -287,6 +300,7 @@ test('token-aware llama.cpp chunk planning keeps adjusting until accepted chunks
       const inputText = 'A'.repeat(3_000);
       const decision = getSummaryDecision(inputText, 'summarize this', 'informational', config);
       const chunks = await planTokenAwareLlamaCppChunks({
+        ...PROMPT_COMPOSITION,
         question: 'summarize this',
         inputText,
         format: 'text',
@@ -302,7 +316,8 @@ test('token-aware llama.cpp chunk planning keeps adjusting until accepted chunks
       assert.equal(chunks.join(''), inputText);
       assert.ok(chunks.length >= 2);
 
-      const prompt = buildPrompt({
+      const prompt = buildSummaryPrompt({
+        ...PROMPT_COMPOSITION,
         question: 'summarize this',
         inputText: chunks[0],
         format: 'text',
@@ -344,7 +359,8 @@ test('token-aware llama.cpp chunk planning leaves a 15k token reserve when reaso
     const previewConfig = getDefaultConfig();
     const previewInputText = 'A'.repeat(3_000);
     const previewDecision = getSummaryDecision(previewInputText, 'summarize this', 'informational', previewConfig);
-    const thresholdPrompt = buildPrompt({
+    const thresholdPrompt = buildSummaryPrompt({
+      ...PROMPT_COMPOSITION,
       question: 'summarize this',
       inputText: previewInputText.slice(0, 1_000),
       format: 'text',
@@ -366,6 +382,7 @@ test('token-aware llama.cpp chunk planning leaves a 15k token reserve when reaso
       const inputText = 'A'.repeat(3_000);
       const decision = getSummaryDecision(inputText, 'summarize this', 'informational', config);
       const chunks = await planTokenAwareLlamaCppChunks({
+        ...PROMPT_COMPOSITION,
         question: 'summarize this',
         inputText,
         format: 'text',
@@ -381,7 +398,8 @@ test('token-aware llama.cpp chunk planning leaves a 15k token reserve when reaso
       assert.equal(chunks.join(''), inputText);
       assert.ok(chunks.length >= 2);
 
-      const prompt = buildPrompt({
+      const prompt = buildSummaryPrompt({
+        ...PROMPT_COMPOSITION,
         question: 'summarize this',
         inputText: chunks[0],
         format: 'text',
@@ -439,6 +457,7 @@ test('live llama token-aware chunk planning preserves the 5m benchmark fixture w
   const decision = getSummaryDecision(inputText, fixture.Question, riskLevel, config);
   const chunkThreshold = getChunkThresholdCharacters(config);
   const chunks = await planTokenAwareLlamaCppChunks({
+    ...PROMPT_COMPOSITION,
     question: fixture.Question,
     inputText,
     format: fixture.Format,
@@ -463,7 +482,8 @@ test('live llama token-aware chunk planning preserves the 5m benchmark fixture w
   assert.ok(numCtx != null);
   const effectivePromptLimit = numCtx - promptReserve;
   for (const chunk of chunks) {
-    const prompt = buildPrompt({
+    const prompt = buildSummaryPrompt({
+      ...PROMPT_COMPOSITION,
       question: fixture.Question,
       inputText: chunk,
       format: fixture.Format,

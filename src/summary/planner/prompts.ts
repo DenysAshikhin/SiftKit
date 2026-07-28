@@ -1,4 +1,6 @@
 import type { LlamaCppChatMessage } from '../../providers/llama-cpp.js';
+import { PresetSystemPromptComposer } from '../../preset-system-prompt.js';
+import type { PresetSystemContext } from '../../preset-system-context.js';
 import { getSourceInstructions } from '../prompt.js';
 import type {
   PlannerToolCall,
@@ -71,7 +73,9 @@ export function buildPlannerDocumentProfile(inputText: string): string {
 }
 
 export function buildPlannerSystemPrompt(options: {
-  promptPrefix?: string;
+  presetPromptPrefix: string;
+  additionalPromptPrefix: string;
+  systemContext: PresetSystemContext;
   sourceKind: SummarySourceKind;
   commandExitCode?: number | null;
   rawReviewRequired: boolean;
@@ -123,22 +127,22 @@ export function buildPlannerSystemPrompt(options: {
     ...options.toolDefinitions.map((tool) => `${tool.function.name}: ${tool.function.description}`),
   ];
 
-  const promptPrefix = options.promptPrefix?.trim();
-  return promptPrefix
-    ? [promptPrefix, '', ...sections].join('\n')
-    : sections.join('\n');
+  return new PresetSystemPromptComposer(
+    options.presetPromptPrefix,
+    options.systemContext,
+  ).compose(sections.join('\n'), options.additionalPromptPrefix);
 }
 
-export function buildPlannerInitialUserPrompt(options: {
+export function buildPlannerInputSection(options: {
   question: string;
   inputText: string;
 }): string {
   return [
-    'Document profile:',
-    buildPlannerDocumentProfile(options.inputText),
-    '',
     'Question:',
     options.question,
+    '',
+    'Document profile:',
+    buildPlannerDocumentProfile(options.inputText),
     '',
     'Use tools to inspect the full input when needed.',
   ].join('\n');

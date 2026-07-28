@@ -4,8 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { normalizeConfigObject } from '../src/config/normalization.js';
+import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { invokeSummaryCore } from '../src/summary/core-runner.js';
+import { createEmptyPresetSystemContext } from '../src/preset-system-context.js';
 
 class TempSummaryEnv {
   readonly tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-summary-core-runner-'));
@@ -51,13 +52,11 @@ test('invokeSummaryCore summarizes directly through the mock provider', async ()
   const tempEnv = new TempSummaryEnv();
   try {
     tempEnv.setup();
-    const config = normalizeConfigObject({
-      Runtime: {
-        LlamaCpp: {
-          NumCtx: 150_000,
-        },
-      },
-    });
+    const config = getDefaultConfigObject();
+    config.Runtime.LlamaCpp = {
+      ...config.Runtime.LlamaCpp,
+      NumCtx: 150_000,
+    };
     const result = await invokeSummaryCore({
       requestId: 'summary-core-runner-test',
       slotId: null,
@@ -70,6 +69,9 @@ test('invokeSummaryCore summarizes directly through the mock provider', async ()
       config,
       rawReviewRequired: false,
       sourceKind: 'standalone',
+      presetPromptPrefix: '',
+      additionalPromptPrefix: '',
+      systemContext: createEmptyPresetSystemContext(),
     });
 
     assert.equal(result.decision.classification, 'summary');

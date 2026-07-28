@@ -39,7 +39,7 @@ import { createPlannerDebugRecorder, buildPlannerFailureErrorMessage, traceSumma
 import {
   buildPlannerAssistantToolMessage,
   buildPlannerForcedFinishUserPrompt,
-  buildPlannerInitialUserPrompt,
+  buildPlannerInputSection,
   buildPlannerInvalidResponseUserPrompt,
   buildPlannerSystemPrompt,
   renderPlannerTranscript,
@@ -47,6 +47,7 @@ import {
 import { estimatePromptTokenCount, getPlannerPromptBudget } from '../chunking.js';
 import { notifyStatusBackend } from '../../config/index.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
+import type { PresetSystemContext } from '../../preset-system-context.js';
 import {
   SummaryPlannerActionAdapter,
   SummaryPlannerModelClient,
@@ -156,7 +157,9 @@ export type InvokePlannerModeOptions = {
   sourceKind: SummarySourceKind;
   commandExitCode?: number | null;
   debugCommand?: string | null;
-  promptPrefix?: string;
+  presetPromptPrefix: string;
+  additionalPromptPrefix: string;
+  systemContext: PresetSystemContext;
   allowedTools?: PlannerToolName[];
   requestTimeoutSeconds?: number;
   llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
@@ -1412,7 +1415,9 @@ export async function invokePlannerMode(options: InvokePlannerModeOptions): Prom
     {
       role: 'system',
       content: buildPlannerSystemPrompt({
-        promptPrefix: options.promptPrefix,
+        presetPromptPrefix: options.presetPromptPrefix,
+        additionalPromptPrefix: options.additionalPromptPrefix,
+        systemContext: options.systemContext,
         sourceKind: options.sourceKind,
         commandExitCode: options.commandExitCode,
         rawReviewRequired: options.rawReviewRequired,
@@ -1421,7 +1426,7 @@ export async function invokePlannerMode(options: InvokePlannerModeOptions): Prom
     },
     {
       role: 'user',
-      content: buildPlannerInitialUserPrompt({
+      content: buildPlannerInputSection({
         question: options.question,
         inputText: options.inputText,
       }),

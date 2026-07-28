@@ -11,7 +11,8 @@ import {
   getConfiguredPromptPrefix,
   getEffectiveInputCharactersPerContextToken,
 } from '../../src/config/index.js';
-import { buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks } from '../../src/summary.js';
+import { buildSummaryPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks } from '../../src/summary.js';
+import { createEmptyPresetSystemContext } from '../../src/preset-system-context.js';
 import { DEFAULT_SUMMARY_PROVIDER } from '../../src/summary/types.js';
 import { countLlamaCppTokens, generateLlamaCppResponse } from '../../src/providers/llama-cpp.js';
 import { ModelJson } from '../../src/lib/model-json.js';
@@ -303,7 +304,9 @@ export async function runFixture60MalformedJsonRepro(
           format: workItem.fixture.Format,
           policyProfile: workItem.fixture.PolicyProfile,
           rawReviewRequired: decision.RawReviewRequired,
-          promptPrefix,
+          presetPromptPrefix: '',
+          additionalPromptPrefix: promptPrefix,
+          systemContext: createEmptyPresetSystemContext(),
           sourceKind: 'standalone',
           config,
           chunkThreshold,
@@ -338,13 +341,15 @@ export async function runFixture60MalformedJsonRepro(
         const promptPath = path.join(chunkRoot, 'prompt.txt');
         const responsePath = path.join(chunkRoot, 'response.txt');
         const chunkManifestPath = path.join(chunkRoot, 'chunk.json');
-        const prompt = buildPrompt({
+        const prompt = buildSummaryPrompt({
           question: workItem.fixture.Question,
           inputText: chunks[index],
           format: workItem.fixture.Format,
           policyProfile: workItem.fixture.PolicyProfile,
           rawReviewRequired: decision.RawReviewRequired,
-          promptPrefix,
+          presetPromptPrefix: '',
+          additionalPromptPrefix: promptPrefix,
+          systemContext: createEmptyPresetSystemContext(),
           sourceKind: 'standalone',
           phase: 'leaf',
           chunkContext: {

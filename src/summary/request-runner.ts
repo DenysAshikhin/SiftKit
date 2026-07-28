@@ -43,7 +43,10 @@ import type {
   SummaryResult,
   SummarySourceKind,
 } from './types.js';
-import { PresetSystemContextBuilder } from '../preset-system-context.js';
+import {
+  PresetSystemContextBuilder,
+  type PresetSystemContext,
+} from '../preset-system-context.js';
 import { PresetCatalog } from '../preset-catalog.js';
 
 type SummaryExecutionContext = {
@@ -52,7 +55,9 @@ type SummaryExecutionContext = {
   model: string;
   sourceKind: SummarySourceKind;
   decision: ReturnType<typeof getSummaryDecision>;
-  promptPrefix: string | undefined;
+  presetPromptPrefix: string;
+  additionalPromptPrefix: string;
+  systemContext: PresetSystemContext;
 };
 
 async function notifySummaryTerminalStatus(
@@ -220,12 +225,6 @@ export class SummaryRequestRunner {
     for (const warningText of systemContext.warnings) {
       this.progress.contextWarning(warningText);
     }
-    const promptPrefix = [
-      preset.promptPrefix.trim(),
-      this.request.promptPrefix?.trim() || '',
-      systemContext.content,
-    ].filter(Boolean).join('\n\n') || undefined;
-
     const riskLevel = this.request.policyProfile === 'risky-operation' ? 'risky' : 'informational';
     const sourceKind = this.request.sourceKind || 'standalone';
     this.rejectOversizedMockInput(this.config, this.backend);
@@ -245,7 +244,9 @@ export class SummaryRequestRunner {
       model: this.model,
       sourceKind,
       decision,
-      promptPrefix,
+      presetPromptPrefix: preset.promptPrefix,
+      additionalPromptPrefix: this.request.promptPrefix ?? '',
+      systemContext,
     };
   }
 
@@ -329,7 +330,9 @@ export class SummaryRequestRunner {
         sourceKind: context.sourceKind,
         commandExitCode: this.request.commandExitCode,
         debugCommand: this.request.debugCommand,
-        promptPrefix: context.promptPrefix,
+        presetPromptPrefix: context.presetPromptPrefix,
+        additionalPromptPrefix: context.additionalPromptPrefix,
+        systemContext: context.systemContext,
         allowedPlannerTools: this.request.allowedPlannerTools,
         requestTimeoutSeconds: this.request.requestTimeoutSeconds,
         llamaCppOverrides: this.request.llamaCppOverrides,

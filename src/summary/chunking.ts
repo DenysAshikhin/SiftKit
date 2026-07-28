@@ -6,7 +6,8 @@ import {
   getEffectiveInputCharactersPerContextToken,
 } from '../config/index.js';
 import { countLlamaCppTokens } from '../providers/llama-cpp.js';
-import { buildPrompt } from './prompt.js';
+import { buildSummaryPrompt } from './prompt.js';
+import type { PresetSystemContext } from '../preset-system-context.js';
 import type {
   ChunkPromptContext,
   PlannerPromptBudget,
@@ -48,20 +49,24 @@ export async function countPromptTokensForChunk(options: {
   format: 'text' | 'json';
   policyProfile: SummaryPolicyProfile;
   rawReviewRequired: boolean;
-  promptPrefix?: string;
+  presetPromptPrefix: string;
+  additionalPromptPrefix: string;
+  systemContext: PresetSystemContext;
   sourceKind: SummarySourceKind;
   commandExitCode?: number | null;
   config: SiftConfig;
   phase: SummaryPhase;
   chunkContext?: ChunkPromptContext;
 }): Promise<number | null> {
-  const prompt = buildPrompt({
+  const prompt = buildSummaryPrompt({
     question: options.question,
     inputText: options.inputText,
     format: options.format,
     policyProfile: options.policyProfile,
     rawReviewRequired: options.rawReviewRequired,
-    promptPrefix: options.promptPrefix,
+    presetPromptPrefix: options.presetPromptPrefix,
+    additionalPromptPrefix: options.additionalPromptPrefix,
+    systemContext: options.systemContext,
     sourceKind: options.sourceKind,
     commandExitCode: options.commandExitCode,
     phase: options.phase,
@@ -76,7 +81,9 @@ export async function planTokenAwareLlamaCppChunks(options: {
   format: 'text' | 'json';
   policyProfile: SummaryPolicyProfile;
   rawReviewRequired: boolean;
-  promptPrefix?: string;
+  presetPromptPrefix: string;
+  additionalPromptPrefix: string;
+  systemContext: PresetSystemContext;
   sourceKind: SummarySourceKind;
   commandExitCode?: number | null;
   config: SiftConfig;
@@ -109,7 +116,9 @@ export async function planTokenAwareLlamaCppChunks(options: {
         format: options.format,
         policyProfile: options.policyProfile,
         rawReviewRequired: options.rawReviewRequired,
-        promptPrefix: options.promptPrefix,
+        presetPromptPrefix: options.presetPromptPrefix,
+        additionalPromptPrefix: options.additionalPromptPrefix,
+        systemContext: options.systemContext,
         sourceKind: options.sourceKind,
         commandExitCode: options.commandExitCode,
         config: options.config,

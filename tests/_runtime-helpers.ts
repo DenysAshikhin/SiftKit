@@ -58,7 +58,8 @@ import {
   getStatusServerUnavailableMessage,
 } from '../src/config/index.js';
 import { summarizeRequest } from '../src/summary/core.js';
-import { buildPrompt } from '../src/summary/prompt.js';
+import { buildSummaryPrompt } from '../src/summary/prompt.js';
+import { createEmptyPresetSystemContext } from '../src/preset-system-context.js';
 import { getSummaryDecision } from '../src/summary/decision.js';
 import { planTokenAwareLlamaCppChunks, getPlannerPromptBudget } from '../src/summary/chunking.js';
 import { buildPlannerToolDefinitions } from '../src/summary/planner/tools.js';
@@ -1582,7 +1583,8 @@ export {
   getChunkThresholdCharacters, getConfiguredLlamaNumCtx,
   getEffectiveInputCharactersPerContextToken, initializeRuntime,
   getStatusServerUnavailableMessage,
-  summarizeRequest, buildPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks,
+  summarizeRequest, buildSummaryPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks,
+  createEmptyPresetSystemContext,
   getPlannerPromptBudget, buildPlannerToolDefinitions,
   runCommand, runBenchmarkSuite,
   readMatrixManifest, buildLaunchSignature, buildLauncherArgs, buildBenchmarkArgs,

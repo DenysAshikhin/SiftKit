@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { initializeRuntime } from '../../src/config/index.js';
-import { buildPrompt } from '../../src/summary/prompt.js';
+import { buildSummaryPrompt } from '../../src/summary/prompt.js';
+import { createEmptyPresetSystemContext } from '../../src/preset-system-context.js';
 import { parseOptionalSummaryProvider } from '../../src/summary/types.js';
 import { getLocalTimestamp } from '../../src/lib/time.js';
 import {
@@ -88,12 +89,15 @@ export function getPromptLabel(options: { fixture: BenchmarkFixture }): string {
     return options.fixture.SourceCommand.trim();
   }
 
-  return buildPrompt({
+  return buildSummaryPrompt({
     question: options.fixture.Question,
     inputText: '<benchmark fixture input>',
     format: options.fixture.Format,
     policyProfile: options.fixture.PolicyProfile,
     rawReviewRequired: false,
+    presetPromptPrefix: '',
+    additionalPromptPrefix: '',
+    systemContext: createEmptyPresetSystemContext(),
     sourceKind: 'standalone',
   });
 }

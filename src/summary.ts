@@ -3,7 +3,7 @@ export {
   UNSUPPORTED_INPUT_MESSAGE,
   getDeterministicExcerpt,
 } from './summary/measure.js';
-export { buildPrompt } from './summary/prompt.js';
+export { buildSummaryPrompt } from './summary/prompt.js';
 export { getSummaryDecision } from './summary/decision.js';
 export {
   getPlannerPromptBudget,

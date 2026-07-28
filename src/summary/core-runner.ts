@@ -10,8 +10,8 @@ import {
 } from '../config/index.js';
 import type { SummaryProgressReporter } from './progress-reporter.js';
 import {
-  buildCompactPrompt,
-  buildPrompt,
+  buildCompactSummaryPrompt,
+  buildSummaryPrompt,
 } from './prompt.js';
 import {
   buildConservativeChunkFallbackDecision,
@@ -44,6 +44,7 @@ import type {
   SummarySourceKind,
 } from './types.js';
 import type { TemporaryTimingRecorder } from '../lib/temporary-timing-recorder.js';
+import type { PresetSystemContext } from '../preset-system-context.js';
 
 export type SummaryCompletionMetrics = {
   promptCharacterCount: number;
@@ -87,7 +88,9 @@ export type InvokeSummaryCoreOptions = {
   chunkTotal?: number | null;
   chunkPath?: string | null;
   chunkThresholdOverride?: number | null;
-  promptPrefix?: string;
+  presetPromptPrefix: string;
+  additionalPromptPrefix: string;
+  systemContext: PresetSystemContext;
   allowedPlannerTools?: SummaryRequest['allowedPlannerTools'];
   requestTimeoutSeconds?: number;
   llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
@@ -246,7 +249,9 @@ class SummaryCoreRunner {
       sourceKind: this.options.sourceKind,
       commandExitCode: this.options.commandExitCode,
       debugCommand: this.options.debugCommand,
-      promptPrefix: this.options.promptPrefix,
+      presetPromptPrefix: this.options.presetPromptPrefix,
+      additionalPromptPrefix: this.options.additionalPromptPrefix,
+      systemContext: this.options.systemContext,
       allowedTools: this.options.allowedPlannerTools,
       requestTimeoutSeconds: this.options.requestTimeoutSeconds,
       llamaCppOverrides: this.options.llamaCppOverrides,
@@ -302,18 +307,22 @@ class SummaryCoreRunner {
       compact: useCompactPrompt,
     });
     const prompt = useCompactPrompt
-      ? buildCompactPrompt({
+      ? buildCompactSummaryPrompt({
         question: this.options.question,
         inputText: this.options.inputText,
-        promptPrefix: this.options.promptPrefix,
+        presetPromptPrefix: this.options.presetPromptPrefix,
+        additionalPromptPrefix: this.options.additionalPromptPrefix,
+        systemContext: this.options.systemContext,
       })
-      : buildPrompt({
+      : buildSummaryPrompt({
         question: this.options.question,
         inputText: this.options.inputText,
         format: this.options.format,
         policyProfile: this.options.policyProfile,
         rawReviewRequired: this.options.rawReviewRequired,
-        promptPrefix: this.options.promptPrefix,
+        presetPromptPrefix: this.options.presetPromptPrefix,
+        additionalPromptPrefix: this.options.additionalPromptPrefix,
+        systemContext: this.options.systemContext,
         sourceKind: this.options.sourceKind,
         commandExitCode: this.options.commandExitCode,
         phase: state.phase,
