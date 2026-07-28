@@ -1,6 +1,5 @@
 import type { SiftConfig } from '../config/types.js';
 import {
-  mapLegacyModeToPresetId,
   normalizeOperationModeAllowedTools,
   normalizePresets,
   requirePresetById,
@@ -23,10 +22,6 @@ export type ChatPromptContext = {
   createdAtUtc: string;
   deletable: false;
 };
-
-function normalizeChatMode(value: string | null | undefined): 'chat' | 'plan' | 'repo-search' {
-  return value === 'plan' || value === 'repo-search' ? value : 'chat';
-}
 
 function readRepoRoot(session: ChatSession): string {
   return typeof session.planRepoRoot === 'string' && session.planRepoRoot.trim()
@@ -73,20 +68,21 @@ function buildDirectPromptContextContent(
 
 export function buildChatPromptContext(config: SiftConfig, session: ChatSession): ChatPromptContext {
   const presets = normalizePresets(config.Presets);
-  const presetId = typeof session.presetId === 'string' && session.presetId.trim()
-    ? session.presetId.trim()
-    : mapLegacyModeToPresetId(session.mode);
+  const presetId = typeof session.presetId === 'string' ? session.presetId.trim() : '';
+  if (!presetId) {
+    throw new Error('Chat session presetId is required.');
+  }
   const preset = requirePresetById(presets, presetId);
-  const mode = normalizeChatMode(session.mode);
+  const repoToolPreset = preset.presetKind === 'plan' || preset.presetKind === 'repo-search';
   const systemContext = new PresetSystemContextBuilder(readRepoRoot(session)).build(preset);
-  const content = mode === 'plan' || mode === 'repo-search'
+  const content = repoToolPreset
     ? buildRepoToolPromptContextContent(config, preset, systemContext)
     : buildDirectPromptContextContent(config, session, preset, systemContext);
   return {
     id: `${String(session.id || 'session')}:system-context`,
     role: 'system',
     kind: 'system_context',
-    label: mode === 'plan' || mode === 'repo-search' ? 'System prompt and tool schema' : 'System prompt',
+    label: repoToolPreset ? 'System prompt and tool schema' : 'System prompt',
     content,
     createdAtUtc: typeof session.createdAtUtc === 'string' && session.createdAtUtc.trim()
       ? session.createdAtUtc

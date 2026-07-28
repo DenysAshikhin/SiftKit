@@ -11,7 +11,6 @@ import {
   getPresetExecutionOperationMode,
   getPresetKind,
   getPresetsForSurface,
-  mapLegacyModeToPresetId,
   normalizePresets,
   normalizeOperationModeAllowedTools,
   requirePresetKind,
@@ -148,13 +147,6 @@ test('preset surface filtering separates cli and web visibility', () => {
     getPresetsForSurface(presets, 'web').map((preset) => preset.id),
     ['repo-search', 'chat', 'plan', 'repo-agent', 'dual-surface'],
   );
-});
-
-test('legacy chat modes map to builtin preset ids', () => {
-  assert.equal(mapLegacyModeToPresetId('chat'), 'chat');
-  assert.equal(mapLegacyModeToPresetId('plan'), 'plan');
-  assert.equal(mapLegacyModeToPresetId('repo-search'), 'repo-search');
-  assert.equal(mapLegacyModeToPresetId('unexpected'), 'chat');
 });
 
 test('config persistence stores normalized presets in sqlite', () => {

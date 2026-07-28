@@ -101,6 +101,8 @@ function createSession(): ChatSession {
     id: 'session-1',
     title: 'Session',
     modelPresetId: 'default',
+    presetId: 'chat',
+    mode: 'chat',
     model: 'managed.gguf',
     contextWindowTokens: 8192,
     thinkingEnabled: true,
@@ -329,6 +331,16 @@ test('buildChatSystemContent contains only system prompt and explicit web instru
   assert.doesNotMatch(systemContent, /custom system prompt/u);
   assert.match(promptContext.content, /custom system prompt/u);
   assert.doesNotMatch(promptContext.content, /Internal tool-call context/u);
+});
+
+test('buildChatPromptContext rejects a session without an exact preset id', () => {
+  assert.throws(
+    () => buildChatPromptContext(
+      createConfig(),
+      mockChatSession({ id: 'missing-preset', modelPresetId: 'default', mode: 'plan' }),
+    ),
+    /Chat session presetId is required\./u,
+  );
 });
 
 test('buildChatPromptContext exposes repo-search tool schema', () => {
@@ -660,6 +672,8 @@ test('appendChatMessagesWithUsage stores user text token estimate from content, 
     title: 'Session',
     model: 'managed.gguf',
     contextWindowTokens: 8192,
+    presetId: 'chat',
+    mode: 'chat',
     createdAtUtc: '2026-04-17T00:00:00.000Z',
     updatedAtUtc: '2026-04-17T00:00:00.000Z',
     messages: [],
@@ -759,6 +773,8 @@ test('appendChatMessagesWithUsage stores exact user text tokens when caller supp
     title: 'Session',
     model: 'managed.gguf',
     contextWindowTokens: 8192,
+    presetId: 'chat',
+    mode: 'chat',
     createdAtUtc: '2026-04-17T00:00:00.000Z',
     updatedAtUtc: '2026-04-17T00:00:00.000Z',
     messages: [],

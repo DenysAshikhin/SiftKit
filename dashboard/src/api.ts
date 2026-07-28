@@ -299,7 +299,7 @@ export function createChatSession(payload: {
 
 export function updateChatSession(
   sessionId: string,
-  payload: { title?: string; thinkingEnabled?: boolean; webSearchEnabled?: boolean; presetId?: string; mode?: 'chat' | 'plan' | 'repo-search'; planRepoRoot?: string }
+  payload: { title?: string; thinkingEnabled?: boolean; webSearchEnabled?: boolean; presetId?: string; planRepoRoot?: string }
 ): Promise<ChatSessionResponse> {
   return fetchJson(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}`, ChatSessionResponseSchema, {
     method: 'PUT',

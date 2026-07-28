@@ -45,8 +45,8 @@ import type {
 } from './types.js';
 import { PresetSystemContextBuilder } from '../preset-system-context.js';
 import {
-  findPresetById,
   normalizePresets,
+  requirePresetById,
   resolveSummaryPreset,
 } from '../presets.js';
 
@@ -218,11 +218,8 @@ export class SummaryRequestRunner {
     this.config = await this.applyHostLlamaSettings(this.config);
     const presets = normalizePresets(this.config.Presets);
     const preset = this.request.presetId
-      ? findPresetById(presets, this.request.presetId)
+      ? requirePresetById(presets, this.request.presetId)
       : resolveSummaryPreset(presets);
-    if (!preset) {
-      throw new Error(`Summary preset '${this.request.presetId}' was not found.`);
-    }
     const systemContext = new PresetSystemContextBuilder(this.request.repoRoot).build(preset);
     for (const warningText of systemContext.warnings) {
       this.progress.contextWarning(warningText);

@@ -512,14 +512,11 @@ export function getPresetExecutionOperationMode(presetId: OptionalJsonValue, pre
   return requirePresetById(presets, normalizedId).operationMode;
 }
 
-export function mapLegacyModeToPresetId(mode: OptionalJsonValue): string {
-  return mode === 'plan' || mode === 'repo-search' ? mode : 'chat';
-}
-
-export function mapPresetIdToLegacyMode(presetId: OptionalJsonValue, presets?: readonly SiftPreset[]): 'chat' | 'plan' | 'repo-search' {
-  const presetKind = presets ? getPresetKind(presetId, presets) : (
-    presetId === 'plan' || presetId === 'repo-search' ? presetId : 'chat'
-  );
+export function mapPresetIdToLegacyMode(
+  presetId: string,
+  presets: readonly SiftPreset[],
+): 'chat' | 'plan' | 'repo-search' {
+  const presetKind = getPresetKind(presetId, presets);
   return presetKind === 'plan' || presetKind === 'repo-search' ? presetKind : 'chat';
 }
 

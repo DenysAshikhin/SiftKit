@@ -277,3 +277,25 @@ test('deleteChatSession removes DB rows and reports existence correctly', () => 
     assert.equal(readChatSessions(runtimeRoot).length, 0);
   });
 });
+
+test('saveChatSession rejects a missing preset id instead of deriving it from mode', () => {
+  withTempRepo((repoRoot) => {
+    const runtimeRoot = path.join(repoRoot, '.siftkit');
+
+    assert.throws(
+      () => saveChatSession(runtimeRoot, {
+        id: 'missing-preset',
+        title: 'Missing preset',
+        modelPresetId: 'preset-a',
+        model: null,
+        contextWindowTokens: 1024,
+        mode: 'plan',
+        condensedSummary: '',
+        createdAtUtc: new Date().toISOString(),
+        updatedAtUtc: new Date().toISOString(),
+        messages: [],
+      }),
+      /Chat session presetId is required\./u,
+    );
+  });
+});

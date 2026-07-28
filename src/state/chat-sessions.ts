@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, join, parse, resolve } from 'node:path';
 import { z } from '../lib/zod.js';
-import { mapLegacyModeToPresetId } from '../presets.js';
 import {
   toNullableNonNegativeInteger,
   toNullableNonNegativeNumber,
@@ -156,9 +155,12 @@ function normalizeMode(value: string | null | undefined): ChatSessionMode {
   return value === 'plan' || value === 'repo-search' ? value : 'chat';
 }
 
-function normalizePresetId(value: string | null | undefined, modeValue?: string | null): string {
+function requirePresetId(value: string | null | undefined): string {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  return normalized || mapLegacyModeToPresetId(modeValue);
+  if (!normalized) {
+    throw new Error('Chat session presetId is required.');
+  }
+  return normalized;
 }
 
 function requireModelPresetId(value: string): string {
@@ -351,7 +353,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
     contextWindowTokens: session.context_window_tokens,
     thinkingEnabled: session.thinking_enabled === 1,
     webSearchEnabled: session.web_search_enabled === 1,
-    presetId: normalizePresetId(session.preset_id, session.mode),
+    presetId: requirePresetId(session.preset_id),
     mode: normalizeMode(session.mode),
     planRepoRoot: session.plan_repo_root,
     condensedSummary: session.condensed_summary,
@@ -430,7 +432,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
   const modelPresetId = requireModelPresetId(session.modelPresetId);
   const contextWindowTokens = requireContextWindowTokens(session.contextWindowTokens);
   const mode = normalizeMode(session.mode);
-  const presetId = normalizePresetId(session.presetId, mode);
+  const presetId = requirePresetId(session.presetId);
   const messages = Array.isArray(session.messages) ? session.messages : [];
 
   const database = getSessionDatabase(runtimeRoot);

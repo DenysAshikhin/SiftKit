@@ -81,14 +81,17 @@ import {
 } from '../../state/chat-sessions.js';
 import { getRuntimeDatabase } from '../../state/runtime-db.js';
 import {
-  findPresetById,
-  mapLegacyModeToPresetId,
   mapPresetIdToLegacyMode,
   normalizeOperationModeAllowedTools,
   normalizePresets,
+  requirePresetById,
   resolvePresetAllowedTools,
   type SiftPreset,
 } from '../../presets.js';
+import {
+  ChatOperationPresetSelector,
+  type SelectedChatOperationPreset,
+} from '../chat-operation-preset.js';
 import {
   captureManagedLlamaSpeculativeMetricsSnapshot,
   getManagedLlamaSpeculativeMetricsDelta,
@@ -125,10 +128,7 @@ function getChatGroundingStatus(scorecard: OptionalJsonValue): ChatGroundingStat
   return normalizeChatGroundingStatus(normalizeRepoSearchScorecard(scorecard).tasks[0]?.groundingStatus);
 }
 
-function getEffectivePresetAllowedTools(config: SiftConfig, preset: SiftPreset | null): SiftPreset['allowedTools'] | undefined {
-  if (!preset) {
-    return undefined;
-  }
+function getEffectivePresetAllowedTools(config: SiftConfig, preset: SiftPreset): SiftPreset['allowedTools'] {
   return resolvePresetAllowedTools(
     preset,
     normalizeOperationModeAllowedTools(config.OperationModeAllowedTools),
@@ -229,29 +229,6 @@ function buildChatSessionResponse(config: SiftConfig, session: ChatSession): Cha
     session: toWireChatSession(config, withPromptContext(config, session)),
     contextUsage: buildContextUsage(config, session),
   };
-}
-
-function isRepoSearchCapablePreset(preset: SiftPreset | null): preset is SiftPreset {
-  if (!preset) {
-    return false;
-  }
-  return preset.presetKind === 'plan' || preset.presetKind === 'repo-search';
-}
-
-function resolveRepoSearchRoutePreset(
-  presets: SiftPreset[],
-  sessionPresetId: string | null | undefined,
-  fallbackPresetId: 'plan' | 'repo-search',
-): SiftPreset | null {
-  const sessionPreset = findPresetById(presets, sessionPresetId || '');
-  if (isRepoSearchCapablePreset(sessionPreset)) {
-    return sessionPreset;
-  }
-  const fallbackPreset = findPresetById(presets, fallbackPresetId);
-  if (isRepoSearchCapablePreset(fallbackPreset)) {
-    return fallbackPreset;
-  }
-  return presets.find((preset) => preset.presetKind === 'plan' || preset.presetKind === 'repo-search') || null;
 }
 
 export function getRepoSearchGenerationTokensPerSecond(scorecard: OptionalJsonValue): number | null {
@@ -543,7 +520,16 @@ class UpdateChatSessionEndpoint implements RouteEndpoint {
       sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
     }
+    const requestReader = new JsonRecordReader(parsedBody);
+    if (requestReader.value('mode') !== undefined) {
+      sendJson(res, 400, { error: 'Session mode is derived from presetId.' });
+      return;
+    }
     const updateRequest = parseChatSessionUpdateRequest(parsedBody);
+    if (requestReader.value('presetId') !== undefined && !updateRequest.presetId) {
+      sendJson(res, 400, { error: 'Expected a non-empty presetId.' });
+      return;
+    }
     const updated: ChatSession = { ...session, updatedAtUtc: new Date().toISOString() };
     if (updateRequest.title) {
       updated.title = updateRequest.title;
@@ -557,12 +543,14 @@ class UpdateChatSessionEndpoint implements RouteEndpoint {
     const currentConfig = readConfig(configPath);
     const presets = normalizePresets(currentConfig.Presets);
     if (updateRequest.presetId) {
-      updated.presetId = findPresetById(presets, updateRequest.presetId)?.id || updateRequest.presetId;
-      updated.mode = mapPresetIdToLegacyMode(updated.presetId, presets);
-    }
-    if (updateRequest.mode) {
-      updated.mode = updateRequest.mode;
-      updated.presetId = mapLegacyModeToPresetId(updateRequest.mode);
+      try {
+        const preset = requirePresetById(presets, updateRequest.presetId);
+        updated.presetId = preset.id;
+        updated.mode = mapPresetIdToLegacyMode(preset.id, presets);
+      } catch (error) {
+        sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+        return;
+      }
     }
     if (updateRequest.planRepoRoot) {
       updated.planRepoRoot = resolve(updateRequest.planRepoRoot);
@@ -643,12 +631,23 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
       sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
     }
+    const requestReader = new JsonRecordReader(parsedBody);
     const createRequest = parseChatSessionCreateRequest(parsedBody);
+    if (requestReader.value('presetId') !== undefined && !requestReader.optionalString('presetId')) {
+      sendJson(res, 400, { error: 'Expected a non-empty presetId.' });
+      return;
+    }
     const now = new Date().toISOString();
     const currentConfig = await readEffectiveChatRouteConfig(configPath);
     const presets = normalizePresets(currentConfig.Presets);
     const activePreset = getActiveModelPreset(currentConfig);
-    const presetId = findPresetById(presets, createRequest.presetId)?.id || 'chat';
+    let preset: SiftPreset;
+    try {
+      preset = requirePresetById(presets, createRequest.presetId);
+    } catch (error) {
+      sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+      return;
+    }
     const session: ChatSession = {
       id: randomUUID(),
       title: createRequest.title || 'New Session',
@@ -657,8 +656,8 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
       contextWindowTokens: getConfiguredLlamaNumCtx(currentConfig),
       thinkingEnabled: getConfiguredReasoning(currentConfig) !== 'off',
       webSearchEnabled: currentConfig.WebSearch.EnabledDefault === true,
-      presetId,
-      mode: mapPresetIdToLegacyMode(presetId, presets),
+      presetId: preset.id,
+      mode: mapPresetIdToLegacyMode(preset.id, presets),
       planRepoRoot: process.cwd(),
       condensedSummary: '',
       createdAtUtc: now,
@@ -696,6 +695,7 @@ class ChatMessageTurn {
     private readonly runtimeRoot: string,
     private readonly session: ChatSession,
     private readonly config: SiftConfig,
+    private readonly preset: SiftPreset,
     private readonly userContent: string,
     private readonly mockResponses: string[] | undefined,
   ) {
@@ -705,9 +705,8 @@ class ChatMessageTurn {
   async runEngineTurn(): Promise<void> {
     const tokenConfig = getMockTokenConfig(this.config, this.mockResponses);
     try {
-      const chatPreset = findPresetById(normalizePresets(this.config.Presets), this.session.presetId);
       const result = await this.ctx.engineService.executeRepoSearch({
-        presetId: chatPreset?.id || 'chat',
+        presetId: this.preset.id,
         taskKind: 'chat',
         prompt: this.userContent,
         repoRoot: process.cwd(),
@@ -868,12 +867,22 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
       }
     }
     try {
+      const config = readConfig(configPath);
+      let selected: SelectedChatOperationPreset;
+      try {
+        selected = new ChatOperationPresetSelector(normalizePresets(config.Presets))
+          .select(activeSession, 'chat');
+      } catch (error) {
+        sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+        return;
+      }
       const turn = new ChatMessageTurn(
         ctx,
         res,
         runtimeRoot,
-        activeSession,
-        readConfig(configPath),
+        selected.session,
+        config,
+        selected.preset,
         messageRequest.content,
         readRouteStringArray(new JsonRecordReader(parsedBody), 'mockResponses'),
       );
@@ -947,31 +956,32 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
     try {
       const config = readConfig(configPath);
       const presets = normalizePresets(config.Presets);
-      const chatPreset = findPresetById(presets, activeSession.presetId);
+      const selected = new ChatOperationPresetSelector(presets).select(activeSession, 'chat');
+      const selectedSession = selected.session;
       const reader = new JsonRecordReader(parsedBody);
       const webOverrideRaw = reader.optionalString('webSearchOverride');
       const webEnabled = webOverrideRaw === 'on'
         ? true
         : webOverrideRaw === 'off'
           ? false
-          : activeSession.webSearchEnabled === true;
+          : selectedSession.webSearchEnabled === true;
       const mockResponses = readRouteStringArray(reader, 'mockResponses');
       const mockTokenConfig = getMockTokenConfig(config, mockResponses);
       const engineRequestId = randomUUID();
       const result = await ctx.engineService.executeRepoSearch({
-        presetId: chatPreset?.id || 'chat',
+        presetId: selected.preset.id,
         requestId: engineRequestId,
         taskKind: 'chat',
         prompt: userContent,
         repoRoot: process.cwd(),
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
         config,
-        systemPrompt: buildChatSystemContent(config, activeSession),
-        history: buildChatHistoryMessages(config, activeSession),
-        thinkingEnabled: activeSession.thinkingEnabled !== false,
+        systemPrompt: buildChatSystemContent(config, selectedSession),
+        history: buildChatHistoryMessages(config, selectedSession),
+        thinkingEnabled: selectedSession.thinkingEnabled !== false,
         allowedTools: webEnabled ? ['web_search', 'web_fetch'] : [],
-        retainedWebToolCalls: webEnabled ? buildRetainedWebToolCalls(activeSession) : [],
-        model: resolveChatSessionModel(config, activeSession),
+        retainedWebToolCalls: webEnabled ? buildRetainedWebToolCalls(selectedSession) : [],
+        model: resolveChatSessionModel(config, selectedSession),
         maxTurns: readRouteNumber(reader, 'maxTurns'),
         availableModels: readRouteStringArray(reader, 'availableModels'),
         mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
@@ -1008,9 +1018,9 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
       phaseTracker.observeAnswer(assistantContent);
       const phaseTimestamps = phaseTracker.snapshot();
       const inputTokenCount = await countPersistedInputTokens(mockTokenConfig, userContent);
-      const updatedSession = appendChatMessagesWithUsage(runtimeRoot, activeSession, userContent, assistantContent, usage, {
+      const updatedSession = appendChatMessagesWithUsage(runtimeRoot, selectedSession, userContent, assistantContent, usage, {
         turns: persistTurns,
-        maintainPerStepThinking: shouldMaintainPerStepThinking(config, activeSession),
+        maintainPerStepThinking: shouldMaintainPerStepThinking(config, selectedSession),
         inputTokens: inputTokenCount.tokenCount,
         inputTokensEstimated: inputTokenCount.estimated,
         requestDurationMs: Date.now() - startedAt,
@@ -1094,14 +1104,12 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
       const mockResponses = readRouteStringArray(reader, 'mockResponses');
       const mockTokenConfig = getMockTokenConfig(config, mockResponses);
       const presets = normalizePresets(config.Presets);
-      const preset = resolveRepoSearchRoutePreset(
-        presets,
-        typeof activeSession.presetId === 'string' ? activeSession.presetId : undefined,
-        'plan',
-      );
+      const selected = new ChatOperationPresetSelector(presets).select(activeSession, 'plan');
+      const preset = selected.preset;
+      const selectedSession = { ...selected.session, planRepoRoot: resolvedRepoRoot };
       const engineRequestId = randomUUID();
       const result = await ctx.engineService.executeRepoSearch({
-        presetId: preset?.id || 'plan',
+        presetId: preset.id,
         taskKind: 'plan',
         prompt: buildPlanRequestPrompt(content),
         repoRoot: resolvedRepoRoot,
@@ -1109,9 +1117,9 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
         config,
         allowedTools: withEffectiveWebTools(
           getEffectivePresetAllowedTools(config, preset),
-          activeSession.webSearchEnabled === true,
+          selectedSession.webSearchEnabled === true,
         ),
-        model: resolveChatSessionModel(config, activeSession),
+        model: resolveChatSessionModel(config, selectedSession),
         maxTurns: readRouteNumber(reader, 'maxTurns'),
         logFile: reader.optionalString('logFile'),
         availableModels: readRouteStringArray(reader, 'availableModels'),
@@ -1129,7 +1137,7 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
       const inputTokenCount = await countPersistedInputTokens(mockTokenConfig, content);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
-        { ...activeSession, presetId: preset?.id || activeSession.presetId || 'plan', mode: 'plan', planRepoRoot: resolvedRepoRoot },
+        selectedSession,
         content,
         assistantContent,
         {
@@ -1145,7 +1153,7 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
               toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
             })),
           }))),
-          maintainPerStepThinking: shouldMaintainPerStepThinking(config, activeSession),
+          maintainPerStepThinking: shouldMaintainPerStepThinking(config, selectedSession),
           inputTokens: inputTokenCount.tokenCount,
           inputTokensEstimated: inputTokenCount.estimated,
           requestDurationMs: Date.now() - startedAt,
@@ -1250,14 +1258,12 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
       const mockResponses = readRouteStringArray(reader, 'mockResponses');
       const mockTokenConfig = getMockTokenConfig(config, mockResponses);
       const presets = normalizePresets(config.Presets);
-      const preset = resolveRepoSearchRoutePreset(
-        presets,
-        typeof activeSession.presetId === 'string' ? activeSession.presetId : undefined,
-        'plan',
-      );
+      const selected = new ChatOperationPresetSelector(presets).select(activeSession, 'plan');
+      const preset = selected.preset;
+      const selectedSession = { ...selected.session, planRepoRoot: resolvedRepoRoot };
       const engineRequestId = randomUUID();
       const result = await ctx.engineService.executeRepoSearch({
-        presetId: preset?.id || 'plan',
+        presetId: preset.id,
         taskKind: 'plan',
         prompt: buildPlanRequestPrompt(content),
         repoRoot: resolvedRepoRoot,
@@ -1265,9 +1271,9 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
         config,
         allowedTools: withEffectiveWebTools(
           getEffectivePresetAllowedTools(config, preset),
-          activeSession.webSearchEnabled === true,
+          selectedSession.webSearchEnabled === true,
         ),
-        model: resolveChatSessionModel(config, activeSession),
+        model: resolveChatSessionModel(config, selectedSession),
         maxTurns: readRouteNumber(reader, 'maxTurns'),
         logFile: reader.optionalString('logFile'),
         availableModels: readRouteStringArray(reader, 'availableModels'),
@@ -1293,7 +1299,7 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
       const inputTokenCount = await countPersistedInputTokens(mockTokenConfig, content);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
-        { ...activeSession, presetId: preset?.id || activeSession.presetId || 'plan', mode: 'plan', planRepoRoot: resolvedRepoRoot },
+        selectedSession,
         content,
         assistantContent,
         {
@@ -1309,7 +1315,7 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
               toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
             })),
           }))),
-          maintainPerStepThinking: shouldMaintainPerStepThinking(config, activeSession),
+          maintainPerStepThinking: shouldMaintainPerStepThinking(config, selectedSession),
           inputTokens: inputTokenCount.tokenCount,
           inputTokensEstimated: inputTokenCount.estimated,
           requestDurationMs: Date.now() - startedAt,
@@ -1416,14 +1422,12 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
       const mockResponses = readRouteStringArray(reader, 'mockResponses');
       const mockTokenConfig = getMockTokenConfig(config, mockResponses);
       const presets = normalizePresets(config.Presets);
-      const preset = resolveRepoSearchRoutePreset(
-        presets,
-        typeof activeSession.presetId === 'string' ? activeSession.presetId : undefined,
-        'repo-search',
-      );
+      const selected = new ChatOperationPresetSelector(presets).select(activeSession, 'repo-search');
+      const preset = selected.preset;
+      const selectedSession = { ...selected.session, planRepoRoot: resolvedRepoRoot };
       const engineRequestId = randomUUID();
       const result = await ctx.engineService.executeRepoSearch({
-        presetId: preset?.id || 'repo-search',
+        presetId: preset.id,
         taskKind: 'repo-search',
         prompt: content,
         repoRoot: resolvedRepoRoot,
@@ -1431,9 +1435,9 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
         config,
         allowedTools: withEffectiveWebTools(
           getEffectivePresetAllowedTools(config, preset),
-          activeSession.webSearchEnabled === true,
+          selectedSession.webSearchEnabled === true,
         ),
-        model: resolveChatSessionModel(config, activeSession),
+        model: resolveChatSessionModel(config, selectedSession),
         maxTurns: readRouteNumber(reader, 'maxTurns'),
         logFile: reader.optionalString('logFile'),
         availableModels: readRouteStringArray(reader, 'availableModels'),
@@ -1459,7 +1463,7 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
       const inputTokenCount = await countPersistedInputTokens(mockTokenConfig, content);
       const updatedSession = appendChatMessagesWithUsage(
         runtimeRoot,
-        { ...activeSession, presetId: preset?.id || activeSession.presetId || 'repo-search', mode: 'repo-search', planRepoRoot: resolvedRepoRoot },
+        selectedSession,
         content,
         assistantContent,
         {
@@ -1475,7 +1479,7 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
               toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
             })),
           }))),
-          maintainPerStepThinking: shouldMaintainPerStepThinking(config, activeSession),
+          maintainPerStepThinking: shouldMaintainPerStepThinking(config, selectedSession),
           inputTokens: inputTokenCount.tokenCount,
           inputTokensEstimated: inputTokenCount.estimated,
           requestDurationMs: Date.now() - startedAt,

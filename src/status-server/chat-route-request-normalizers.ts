@@ -1,6 +1,5 @@
 import { JsonRecordReader } from '../lib/json-record-reader.js';
-import type { JsonObject, OptionalJsonValue } from '../lib/json-types.js';
-import type { ChatSessionMode } from '../state/chat-sessions.js';
+import type { JsonObject } from '../lib/json-types.js';
 
 export type ChatSessionCreateRequest = {
   presetId: string;
@@ -12,7 +11,6 @@ export type ChatSessionUpdateRequest = {
   thinkingEnabled: boolean | undefined;
   webSearchEnabled: boolean | undefined;
   presetId: string | undefined;
-  mode: ChatSessionMode | undefined;
   planRepoRoot: string | undefined;
 };
 
@@ -25,10 +23,6 @@ export type ChatRepoRequest = {
   content: string;
   repoRoot: string | undefined;
 };
-
-function readMode(value: OptionalJsonValue): ChatSessionMode | undefined {
-  return value === 'chat' || value === 'plan' || value === 'repo-search' ? value : undefined;
-}
 
 function optionalBoolean(reader: JsonRecordReader, key: string): boolean | undefined {
   const value = reader.value(key);
@@ -56,7 +50,6 @@ export function parseChatSessionUpdateRequest(body: JsonObject): ChatSessionUpda
     thinkingEnabled: optionalBoolean(reader, 'thinkingEnabled'),
     webSearchEnabled: optionalBoolean(reader, 'webSearchEnabled'),
     presetId: reader.optionalString('presetId'),
-    mode: readMode(reader.value('mode')),
     planRepoRoot: reader.optionalString('planRepoRoot'),
   };
 }

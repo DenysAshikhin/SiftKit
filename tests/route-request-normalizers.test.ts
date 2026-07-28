@@ -81,7 +81,6 @@ test('chat route request normalizers return typed values', () => {
     thinkingEnabled: false,
     webSearchEnabled: true,
     presetId: 'repo-search',
-    mode: undefined,
     planRepoRoot: 'C:/repo',
   });
   assert.deepEqual(parseChatMessageRequest({ content: ' hello ', assistantContent: ' answer ' }), {

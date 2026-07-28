@@ -421,6 +421,7 @@ class ChatInferenceMetadataFixture {
     saveChatSession(this.runtimeRoot, {
       id: 'stale-active', title: 'Stale active session', modelPresetId: this.activePresetId,
       model: 'stale-model', contextWindowTokens: 30_000, thinkingEnabled: true,
+      presetId: 'chat', mode: 'chat',
       condensedSummary: '', createdAtUtc: '2026-07-21T00:00:00.000Z',
       updatedAtUtc: '2026-07-21T00:00:00.000Z', messages: [],
     });
@@ -430,6 +431,7 @@ class ChatInferenceMetadataFixture {
     saveChatSession(this.runtimeRoot, {
       id: 'historical', title: 'Historical session', modelPresetId: 'historical-preset',
       model: 'historical-model', contextWindowTokens: 30_000, thinkingEnabled: true,
+      presetId: 'chat', mode: 'chat',
       condensedSummary: '', createdAtUtc: '2026-07-20T00:00:00.000Z',
       updatedAtUtc: '2026-07-20T00:00:00.000Z', messages: [],
     });
@@ -697,7 +699,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     const updateSession = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`, {
       method: 'PUT',
       body: JSON.stringify({
-        mode: 'plan',
+        presetId: 'plan',
         planRepoRoot: tempRoot,
       }),
     });
@@ -727,6 +729,8 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     });
     assert.equal(planMessage.statusCode, 200);
     const planSession = d(planMessage.body.session);
+    assert.equal(planSession.presetId, 'plan');
+    assert.equal(planSession.mode, 'plan');
     const planMessages = asObjectArray(planSession.messages);
     assert.equal(planMessages.length >= 4, true);
     assert.equal(planMessages.some((message) =>
@@ -1137,6 +1141,8 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
       JSON.stringify(planSse.events),
     );
     const planDoneSession = asObject(d(planSse.events.find((event) => event.event === 'done')?.payload).session);
+    assert.equal(planDoneSession.presetId, 'plan');
+    assert.equal(planDoneSession.mode, 'plan');
     const planDoneMessages = asObjectArray(planDoneSession.messages);
     const latestPlanMessage = planDoneMessages[planDoneMessages.length - 1];
     assert.equal(typeof latestPlanMessage.requestStartedAtUtc, 'string');
@@ -1182,6 +1188,8 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
       'plan and repo-search tool_result payloads must share identical key shape',
     );
     const repoDoneSession = asObject(d(repoSse.events.find((event) => event.event === 'done')?.payload).session);
+    assert.equal(repoDoneSession.presetId, 'repo-search');
+    assert.equal(repoDoneSession.mode, 'repo-search');
     const repoDoneMessages = asObjectArray(repoDoneSession.messages);
     const latestRepoMessage = repoDoneMessages[repoDoneMessages.length - 1];
     assert.equal(typeof latestRepoMessage.requestStartedAtUtc, 'string');
@@ -2072,6 +2080,63 @@ test('plan endpoint rejects missing or invalid repo root', async () => {
   }
 });
 
+test('chat session create and update reject unknown preset ids without persisting them', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-strict-preset-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const runtimeRoot = path.join(tempRoot, '.siftkit');
+  const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
+  const configPath = path.join(runtimeRoot, 'config.json');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = getAddressInfo(server);
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const unknownCreate = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Unknown preset',
+        presetId: 'missing-preset',
+      }),
+    });
+    assert.equal(unknownCreate.statusCode >= 400, true);
+    assert.equal(
+      readChatSessions(runtimeRoot).some((session) => session.presetId === 'missing-preset'),
+      false,
+    );
+
+    const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Valid preset' }),
+    });
+    assert.equal(createSession.statusCode, 200);
+    const sessionId = String(d(createSession.body.session).id);
+
+    const unknownUpdate = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ presetId: 'missing-preset' }),
+    });
+    assert.equal(unknownUpdate.statusCode >= 400, true);
+    const persisted = readChatSessions(runtimeRoot).find((session) => session.id === sessionId);
+    assert.ok(persisted);
+    assert.notEqual(persisted.presetId, 'missing-preset');
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
 test('chat completion replays prior tool evidence without hidden system context', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-toolctx-'));
   const previousCwd = enterDashboardTestRepo(tempRoot);
@@ -2171,6 +2236,8 @@ test('chat completion replays prior tool evidence without hidden system context'
     });
     assert.equal(chatReply.statusCode, 200);
     const chatSession = d(chatReply.body.session);
+    assert.equal(chatSession.presetId, 'chat');
+    assert.equal(chatSession.mode, 'chat');
     const sourceRunIds = (asObjectArray(chatSession.messages))
       .filter((message) => message.role === 'assistant' && message.content === 'ack')
       .map((message) => String(message.sourceRunId || '').trim());

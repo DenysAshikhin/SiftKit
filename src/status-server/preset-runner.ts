@@ -11,10 +11,10 @@ import type {
   PresetRunResult,
 } from '../command-output/types.js';
 import {
-  findPresetById,
   getPresetsForSurface,
   normalizeOperationModeAllowedTools,
   normalizePresets,
+  requirePresetById,
   resolvePresetAllowedTools,
   type PresetToolName,
   type PresetKind,
@@ -61,11 +61,7 @@ function getCliPresets(): SiftPreset[] {
 }
 
 function getPresetById(presetId: string): SiftPreset {
-  const preset = findPresetById(getCliPresets(), presetId);
-  if (!preset) {
-    throw new Error(`Unknown CLI preset: ${presetId}`);
-  }
-  return preset;
+  return requirePresetById(getCliPresets(), presetId);
 }
 
 function normalizePresetPolicyProfile(value: string | null | undefined): SummaryPolicyProfile {
