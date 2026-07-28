@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// @ts-nocheck
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -11,29 +10,117 @@ import {
   getConfiguredPromptPrefix,
   getEffectiveInputCharactersPerContextToken,
 } from '../../src/config/index.js';
-import { buildSummaryPrompt, getSummaryDecision, planTokenAwareLlamaCppChunks } from '../../src/summary.js';
-import { createEmptyPresetSystemContext } from '../../src/preset-system-context.js';
-import { DEFAULT_SUMMARY_PROVIDER } from '../../src/summary/types.js';
+import { getSummaryDecision, planTokenAwareLlamaCppChunks } from '../../src/summary.js';
+import {
+  DEFAULT_SUMMARY_PROVIDER,
+  type SummaryClassification,
+} from '../../src/summary/types.js';
 import { countLlamaCppTokens, generateLlamaCppResponse } from '../../src/providers/llama-cpp.js';
 import { ModelJson } from '../../src/lib/model-json.js';
 import { getErrorMessage } from '../../src/lib/errors.js';
 import { parseJsonValueText } from '../../src/lib/json.js';
-import type { JsonObject, JsonSerializable } from '../../src/lib/json-types.js';
+import type { JsonSerializable } from '../../src/lib/json-types.js';
 import type { SiftConfig } from '../../src/config/index.js';
 import { getRepoRoot } from '../common/paths.js';
+import {
+  BenchmarkFixtureSchema,
+  type BenchmarkFixture,
+} from '../benchmark/types.js';
+import { SummaryReproPromptBuilder } from './summary-prompt-builder.js';
 
 const LLAMA_CPP_NON_THINKING_PROMPT_TOKEN_RESERVE = 10_000;
 const LLAMA_CPP_THINKING_PROMPT_TOKEN_RESERVE = 15_000;
 
-export function parseArgs(argv: string[]): {
+type ReproArgs = {
   fixtureIndex: number;
   fixtureStartIndex: number | null;
   fixtureEndIndex: number | null;
   outputRoot: string;
   requestTimeoutSeconds: number;
   traceSummary: boolean;
-} {
-  const parsed = {
+};
+
+type ReproChunkRecord = {
+  index: number;
+  chunkPath: string;
+  inputCharacters: number;
+  promptCharacters: number;
+  promptTokens: number | null;
+  outputCharacters: number;
+  outputTokens: number | null;
+  promptPath: string;
+  responsePath: string;
+  parsed: boolean;
+  classification: SummaryClassification | null;
+  rawReviewRequired: boolean | null;
+  outputPreview: string | null;
+  error: string | null;
+};
+
+type MalformedChunk = {
+  index: number;
+  chunkPath: string;
+  promptPath: string;
+  responsePath: string;
+  error: string;
+};
+
+type FixtureManifest = {
+  ok: boolean;
+  fixtureIndex: number;
+  sourcePath: string;
+  fixtureName: string;
+  backend: string;
+  model: string;
+  requestTimeoutSeconds: number;
+  rawReviewRequired: boolean;
+  chunkThreshold: number;
+  effectivePromptLimit: number;
+  chunkCount: number;
+  malformedChunk: MalformedChunk | null;
+  chunks: ReproChunkRecord[];
+};
+
+type MalformedFixture = {
+  fixtureIndex: number;
+  fixtureName: string;
+  sourcePath: string;
+  chunkPath: string;
+  error: string;
+};
+
+type ReproManifest = {
+  ok: boolean;
+  fixtureIndex: number;
+  fixtureStartIndex: number;
+  fixtureEndIndex: number;
+  fixtureCount: number;
+  fixtureRoot: string;
+  sourcePath: string;
+  fixtureName: string;
+  backend: string;
+  model: string;
+  requestTimeoutSeconds: number;
+  rawReviewRequired: boolean;
+  chunkThreshold: number;
+  effectivePromptLimit: number;
+  chunkCount: number;
+  malformedChunk: MalformedChunk | null;
+  chunks: ReproChunkRecord[];
+  malformedFixture: MalformedFixture | null;
+  fixtures: FixtureManifest[];
+  error?: string;
+};
+
+type ReproWorkItem = {
+  fixtureIndex: number;
+  fixture: BenchmarkFixture;
+  sourcePath: string;
+  inputText: string;
+};
+
+export function parseArgs(argv: string[]): ReproArgs {
+  const parsed: ReproArgs = {
     fixtureIndex: 60,
     fixtureStartIndex: null,
     fixtureEndIndex: null,
@@ -114,15 +201,12 @@ export function resolveWorkItems(
   fixtureRoot: string,
   fixtureStartIndex: number,
   fixtureEndIndex: number,
-): Array<{
-  fixtureIndex: number;
-  fixture: JsonObject;
-  sourcePath: string;
-  inputText: string;
-}> {
+): ReproWorkItem[] {
   const manifestPath = path.join(fixtureRoot, 'fixtures.json');
-  const manifest = parseJsonValueText(fs.readFileSync(manifestPath, 'utf8'));
-  const workItems = [];
+  const manifest = BenchmarkFixtureSchema.array().parse(
+    parseJsonValueText(fs.readFileSync(manifestPath, 'utf8')),
+  );
+  const workItems: ReproWorkItem[] = [];
   for (let fixtureIndex = fixtureStartIndex; fixtureIndex <= fixtureEndIndex; fixtureIndex += 1) {
     const fixture = manifest[fixtureIndex - 1];
     if (!fixture) {
@@ -184,11 +268,11 @@ function getFixtureBounds(args: {
 }
 
 function buildFixtureManifest(
-  workItem: { fixtureIndex: number; fixture: JsonObject; sourcePath: string },
+  workItem: ReproWorkItem,
   backend: string,
   model: string,
   requestTimeoutSeconds: number,
-): JsonObject {
+): FixtureManifest {
   return {
     ok: false,
     fixtureIndex: workItem.fixtureIndex,
@@ -206,7 +290,7 @@ function buildFixtureManifest(
   };
 }
 
-function mirrorFixtureSummary(manifest: JsonObject, fixtureManifest: JsonObject): void {
+function mirrorFixtureSummary(manifest: ReproManifest, fixtureManifest: FixtureManifest): void {
   manifest.fixtureIndex = fixtureManifest.fixtureIndex;
   manifest.sourcePath = fixtureManifest.sourcePath;
   manifest.fixtureName = fixtureManifest.fixtureName;
@@ -228,7 +312,7 @@ export async function runFixture60MalformedJsonRepro(
 ): Promise<{
   exitCode: number;
   manifestPath: string;
-  manifest: JsonObject;
+  manifest: ReproManifest;
 }> {
   const args = parseArgs(argv);
   const { fixtureStartIndex, fixtureEndIndex } = getFixtureBounds(args);
@@ -241,7 +325,7 @@ export async function runFixture60MalformedJsonRepro(
   const stderrTarget = options.stderr || process.stderr;
   const logger = createLogger(logPath, stdoutTarget);
   const previousTraceSummary = process.env.SIFTKIT_TRACE_SUMMARY;
-  const manifest: JsonObject = {
+  const manifest: ReproManifest = {
     ok: false,
     fixtureIndex: fixtureStartIndex,
     fixtureStartIndex,
@@ -279,7 +363,9 @@ export async function runFixture60MalformedJsonRepro(
     }
     const backend = DEFAULT_SUMMARY_PROVIDER;
     const model = getConfiguredModel(config);
-    const promptPrefix = getConfiguredPromptPrefix(config);
+    const promptPrefix = getConfiguredPromptPrefix(config) ?? '';
+    const promptBuilder = new SummaryReproPromptBuilder(config, repoRoot, promptPrefix);
+    const promptComposition = promptBuilder.getComposition();
     manifest.backend = backend;
     manifest.model = model;
     manifest.fixtureCount = workItems.length;
@@ -304,9 +390,7 @@ export async function runFixture60MalformedJsonRepro(
           format: workItem.fixture.Format,
           policyProfile: workItem.fixture.PolicyProfile,
           rawReviewRequired: decision.RawReviewRequired,
-          presetPromptPrefix: '',
-          additionalPromptPrefix: promptPrefix,
-          systemContext: createEmptyPresetSystemContext(),
+          ...promptComposition,
           sourceKind: 'standalone',
           config,
           chunkThreshold,
@@ -341,15 +425,12 @@ export async function runFixture60MalformedJsonRepro(
         const promptPath = path.join(chunkRoot, 'prompt.txt');
         const responsePath = path.join(chunkRoot, 'response.txt');
         const chunkManifestPath = path.join(chunkRoot, 'chunk.json');
-        const prompt = buildSummaryPrompt({
+        const prompt = promptBuilder.buildPrompt({
           question: workItem.fixture.Question,
           inputText: chunks[index],
           format: workItem.fixture.Format,
           policyProfile: workItem.fixture.PolicyProfile,
           rawReviewRequired: decision.RawReviewRequired,
-          presetPromptPrefix: '',
-          additionalPromptPrefix: promptPrefix,
-          systemContext: createEmptyPresetSystemContext(),
           sourceKind: 'standalone',
           phase: 'leaf',
           chunkContext: {
@@ -369,7 +450,7 @@ export async function runFixture60MalformedJsonRepro(
         fs.mkdirSync(chunkRoot, { recursive: true });
         fs.writeFileSync(promptPath, prompt, 'utf8');
         fs.writeFileSync(responsePath, response.text, 'utf8');
-        const chunkRecord: JsonObject = {
+        const chunkRecord: ReproChunkRecord = {
           index: chunkIndex,
           chunkPath,
           inputCharacters: chunks[index].length,

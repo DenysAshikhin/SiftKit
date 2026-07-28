@@ -17,16 +17,6 @@ export type PresetSystemContext = {
   loadedFiles: string[];
 };
 
-export function createEmptyPresetSystemContext(): PresetSystemContext {
-  return {
-    content: '',
-    warnings: [],
-    hasAgentsMd: false,
-    hasRepoFileListing: false,
-    loadedFiles: [],
-  };
-}
-
 type PresetSystemContextSources = Pick<
   SiftPreset,
   'includeAgentsMd' | 'includeRepoFileListing' | 'autoloadFiles'

@@ -9,7 +9,7 @@ import Database from 'better-sqlite3';
 
 import { loadConfig, saveConfig, getChunkThresholdCharacters, initializeRuntime } from '../src/config/index.js';
 import { summarizeRequest, buildSummaryPrompt, getSummaryDecision } from '../src/summary.js';
-import { createEmptyPresetSystemContext } from '../src/preset-system-context.js';
+import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { runCommand } from './helpers/run-command-for-test.js';
 import { parseRuntimeArtifactUri, readRuntimeArtifact } from '../src/state/runtime-artifacts.js';
 

@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
+import { getPromptLabel } from '../bench/benchmark/args.js';
+import { SummaryReproPromptBuilder } from '../bench/repro/summary-prompt-builder.js';
+import { getDefaultConfigObject } from '../src/config/defaults.js';
 import {
   buildCompactSummaryPrompt,
   buildSummaryInputSection,
@@ -108,4 +114,58 @@ test('planner summary request keeps composed system instructions before user inp
   const request = [systemPrompt, inputSection].join('\n\n');
 
   assertOrderedOnce(request, [PRESET, ADDITIONAL, BASE, STARTUP, QUESTION, INPUT]);
+});
+
+test('benchmark prompt label is fixture metadata rather than a fabricated model prompt', () => {
+  assert.equal(getPromptLabel({
+    fixture: {
+      Name: 'Fixture',
+      File: 'fixture.txt',
+      Question: 'Which branch failed?',
+      Format: 'text',
+      PolicyProfile: 'pass-fail',
+    },
+  }), 'Which branch failed?');
+});
+
+test('summary repro prompt uses configured preset instructions and startup context', () => {
+  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-summary-repro-prompt-'));
+  try {
+    fs.writeFileSync(path.join(repoRoot, 'AGENTS.md'), 'REPRO_AGENT_RULE', 'utf8');
+    fs.writeFileSync(path.join(repoRoot, 'repro-policy.md'), 'REPRO_AUTOLOAD_RULE', 'utf8');
+    fs.writeFileSync(path.join(repoRoot, 'tracked.ts'), 'export const tracked = true;\n', 'utf8');
+    const config = getDefaultConfigObject();
+    const summaryPreset = config.Presets.find((preset) => preset.id === 'summary');
+    if (!summaryPreset) {
+      throw new Error('Default summary preset is required.');
+    }
+    summaryPreset.promptPrefix = 'REPRO_PRESET_RULE';
+    summaryPreset.autoloadFiles = ['repro-policy.md'];
+
+    const prompt = new SummaryReproPromptBuilder(
+      config,
+      repoRoot,
+      'REPRO_ADDITIONAL_RULE',
+    ).buildPrompt({
+      question: QUESTION,
+      inputText: INPUT,
+      format: 'text',
+      policyProfile: 'general',
+      rawReviewRequired: false,
+      sourceKind: 'standalone',
+    });
+
+    assertOrderedOnce(prompt, [
+      'REPRO_PRESET_RULE',
+      'REPRO_ADDITIONAL_RULE',
+      BASE,
+      'REPRO_AGENT_RULE',
+      'Repository file listing',
+      'REPRO_AUTOLOAD_RULE',
+      QUESTION,
+      INPUT,
+    ]);
+  } finally {
+    fs.rmSync(repoRoot, { force: true, recursive: true });
+  }
 });

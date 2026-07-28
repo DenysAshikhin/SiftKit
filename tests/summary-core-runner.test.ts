@@ -6,7 +6,7 @@ import test from 'node:test';
 
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { invokeSummaryCore } from '../src/summary/core-runner.js';
-import { createEmptyPresetSystemContext } from '../src/preset-system-context.js';
+import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 
 class TempSummaryEnv {
   readonly tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-summary-core-runner-'));
