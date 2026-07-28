@@ -50,7 +50,7 @@ import {
   type RepoSearchApprovalRequest,
 } from '../repo-search/engine/approval-gate.js';
 import type { CliProgressRenderer } from './progress-renderer.js';
-import type { CliApprovalPrompter } from './approval-prompter.js';
+import type { ApprovalPrompter } from './approval-prompter.js';
 
 const DEFAULT_SERVER_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
@@ -87,7 +87,7 @@ export class StatusServerApiClient {
   requestRepoSearch(
     request: Record<string, JsonSerializable>,
     renderer: CliProgressRenderer,
-    approvalPrompter?: CliApprovalPrompter,
+    approvalPrompter?: ApprovalPrompter,
   ): Promise<RepoSearchExecutionResult> {
     return this.requestStreamedOperation(
       '/repo-search',
@@ -102,14 +102,14 @@ export class StatusServerApiClient {
   requestRepoAgent(
     request: Record<string, JsonSerializable>,
     renderer: CliProgressRenderer,
-    approvalPrompter?: CliApprovalPrompter,
+    approvalPrompter?: ApprovalPrompter,
   ): Promise<RepoSearchExecutionResult> {
     return this.requestStreamedOperation(
       '/repo-agent',
       JSON.stringify(request),
       RepoSearchExecutionResultSchema,
       renderer,
-      'repo-search',
+      'repo-agent',
       approvalPrompter,
     );
   }
@@ -190,7 +190,7 @@ export class StatusServerApiClient {
     schema: z.ZodType<T>,
     renderer: CliProgressRenderer,
     task: LoggedHttpClientTask,
-    approvalPrompter?: CliApprovalPrompter,
+    approvalPrompter?: ApprovalPrompter,
   ): Promise<T> {
     const startedAt = Date.now();
     try {
@@ -208,7 +208,7 @@ export class StatusServerApiClient {
               throw new Error('Received approval_request on a non-interactive run.');
             }
             const decision = await approvalPrompter.promptDecision(progressEvent);
-            await this.submitRepoSearchApproval(progressEvent, decision);
+            await this.submitApproval(progressEvent, decision);
             continue;
           }
           renderer.render(progressEvent);
@@ -233,7 +233,7 @@ export class StatusServerApiClient {
     }
   }
 
-  private async submitRepoSearchApproval(event: JsonObject, decision: ApprovalDecision): Promise<void> {
+  private async submitApproval(event: JsonObject, decision: ApprovalDecision): Promise<void> {
     const reader = new JsonRecordReader(event);
     const body: RepoSearchApprovalRequest = {
       requestId: reader.optionalString('requestId') || '',

@@ -78,7 +78,13 @@ export class LlamaHttpError extends Error {
   }
 }
 
-export type LoggedHttpClientTask = 'repo-search' | 'summary' | 'command-output' | 'preset' | 'eval';
+export type LoggedHttpClientTask =
+  | 'repo-search'
+  | 'repo-agent'
+  | 'summary'
+  | 'command-output'
+  | 'preset'
+  | 'eval';
 
 const httpAgent = new HttpAgent({ keepAlive: false, maxSockets: Infinity });
 const httpsAgent = new HttpsAgent({ keepAlive: false, maxSockets: Infinity });
@@ -87,6 +93,9 @@ const externalAgent = new UndiciAgent({ connect: { timeout: CONNECT_TIMEOUT_MS }
 function getLoggedHttpClientTask(target: URL): LoggedHttpClientTask | null {
   if (target.pathname === '/repo-search') {
     return 'repo-search';
+  }
+  if (target.pathname === '/repo-agent') {
+    return 'repo-agent';
   }
   if (target.pathname === '/summary') {
     return 'summary';

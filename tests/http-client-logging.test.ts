@@ -105,3 +105,53 @@ test('requestJson logs summary client request lifecycle when explicitly enabled'
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
+
+test('requestJson attributes repo-agent lifecycle logs to repo-agent', async () => {
+  const server = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/repo-agent') {
+      req.resume();
+      req.on('end', () => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end('{"ok":true}');
+      });
+      return;
+    }
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end('{}');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const port = getAddressInfo(server).port;
+    const previousLogging = process.env.SIFTKIT_HTTP_CLIENT_LOGS;
+    process.env.SIFTKIT_HTTP_CLIENT_LOGS = '1';
+    let lines: string[] = [];
+    try {
+      lines = await captureStderrLines(async () => {
+        await httpClient.requestJson({
+          url: `http://127.0.0.1:${port}/repo-agent`,
+          method: 'POST',
+          body: '{}',
+        }, JsonObjectSchema);
+      });
+    } finally {
+      if (previousLogging === undefined) {
+        delete process.env.SIFTKIT_HTTP_CLIENT_LOGS;
+      } else {
+        process.env.SIFTKIT_HTTP_CLIENT_LOGS = previousLogging;
+      }
+    }
+
+    assert.equal(
+      lines.some((line) => /http_client request_start task=repo-agent\b/u.test(line)),
+      true,
+      lines.join('\n'),
+    );
+    assert.equal(
+      lines.some((line) => /task=repo-search\b/u.test(line)),
+      false,
+      lines.join('\n'),
+    );
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

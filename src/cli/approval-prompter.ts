@@ -3,8 +3,13 @@ import { JsonRecordReader } from '../lib/json-record-reader.js';
 import type { JsonObject } from '../lib/json-types.js';
 import type { ApprovalDecision } from '../repo-search/engine/approval-gate.js';
 
+/** Anything that can answer an approval request: TTY prompter or store-backed prompter. */
+export type ApprovalPrompter = {
+  promptDecision(event: JsonObject): Promise<ApprovalDecision>;
+};
+
 /** Interactive terminal prompt for repo-search approval_request frames. */
-export class CliApprovalPrompter {
+export class CliApprovalPrompter implements ApprovalPrompter {
   private readonly input: NodeJS.ReadableStream;
   private readonly output: NodeJS.WritableStream;
 
