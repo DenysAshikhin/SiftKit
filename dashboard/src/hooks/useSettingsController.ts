@@ -196,6 +196,7 @@ export function useSettingsController(deps: {
         deletable: true,
         includeAgentsMd: true,
         includeRepoFileListing: true,
+        autoloadFiles: [],
         repoRootRequired: false,
         maxTurns: null,
       });

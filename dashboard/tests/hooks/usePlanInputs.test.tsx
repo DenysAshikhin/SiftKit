@@ -36,6 +36,7 @@ const PRESET: DashboardPreset = {
   deletable: true,
   includeAgentsMd: true,
   includeRepoFileListing: true,
+  autoloadFiles: [],
   repoRootRequired: false,
   maxTurns: 30,
 };

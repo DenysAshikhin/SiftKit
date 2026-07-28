@@ -5,7 +5,7 @@ export const PRESET = {
   presetKind: 'summary', operationMode: 'summary', executionFamily: 'summary',
   promptPrefix: '', allowedTools: ['read_lines'], surfaces: ['cli', 'web'],
   useForSummary: true, builtin: true, deletable: false, includeAgentsMd: false,
-  includeRepoFileListing: false, repoRootRequired: false, maxTurns: null,
+  includeRepoFileListing: false, autoloadFiles: [], repoRootRequired: false, maxTurns: null,
 } satisfies DashboardPreset;
 
 export const CUSTOM_PRESET = {
@@ -13,7 +13,7 @@ export const CUSTOM_PRESET = {
   presetKind: 'repo-search', operationMode: 'read-only', executionFamily: 'repo-search',
   promptPrefix: '', allowedTools: ['read_lines', 'grep'], surfaces: ['cli', 'web'],
   useForSummary: false, builtin: false, deletable: true, includeAgentsMd: false,
-  includeRepoFileListing: false, repoRootRequired: false, maxTurns: null,
+  includeRepoFileListing: false, autoloadFiles: [], repoRootRequired: false, maxTurns: null,
 } satisfies DashboardPreset;
 
 export const MANAGED_PRESET = {

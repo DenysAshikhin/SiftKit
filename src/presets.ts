@@ -41,6 +41,7 @@ export type SiftPreset = {
   deletable: boolean;
   includeAgentsMd: boolean;
   includeRepoFileListing: boolean;
+  autoloadFiles: string[];
   repoRootRequired: boolean;
   maxTurns: number | null;
 };
@@ -108,6 +109,23 @@ function normalizeToolList(value: OptionalJsonValue, fallback: readonly PresetTo
   return seen.size > 0 ? Array.from(seen) : [...fallback];
 }
 
+function normalizeAutoloadFiles(value: OptionalJsonValue): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const files: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      continue;
+    }
+    const file = entry.trim();
+    if (file && !files.includes(file)) {
+      files.push(file);
+    }
+  }
+  return files;
+}
+
 function normalizeNullableInteger(value: OptionalJsonValue, fallback: number | null): number | null {
   if (value === null || value === undefined || value === '') {
     return fallback;
@@ -161,6 +179,7 @@ function buildPreset(input: {
   deletable: boolean;
   includeAgentsMd: boolean;
   includeRepoFileListing: boolean;
+  autoloadFiles: string[];
   repoRootRequired: boolean;
   maxTurns: number | null;
 }): SiftPreset {
@@ -179,6 +198,7 @@ function buildPreset(input: {
     deletable: input.deletable,
     includeAgentsMd: input.includeAgentsMd,
     includeRepoFileListing: input.includeRepoFileListing,
+    autoloadFiles: [...input.autoloadFiles],
     repoRootRequired: input.repoRootRequired,
     maxTurns: input.maxTurns,
   };
@@ -199,6 +219,7 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     deletable: false,
     includeAgentsMd: true,
     includeRepoFileListing: true,
+    autoloadFiles: [],
     repoRootRequired: false,
     maxTurns: null,
   }),
@@ -216,6 +237,7 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     deletable: false,
     includeAgentsMd: true,
     includeRepoFileListing: true,
+    autoloadFiles: [],
     repoRootRequired: true,
     maxTurns: 45,
   }),
@@ -233,6 +255,7 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     deletable: false,
     includeAgentsMd: true,
     includeRepoFileListing: true,
+    autoloadFiles: [],
     repoRootRequired: false,
     maxTurns: null,
   }),
@@ -250,6 +273,7 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     deletable: false,
     includeAgentsMd: true,
     includeRepoFileListing: true,
+    autoloadFiles: [],
     repoRootRequired: true,
     maxTurns: 45,
   }),
@@ -267,6 +291,7 @@ const BUILTIN_PRESETS: ReadonlyArray<SiftPreset> = [
     deletable: false,
     includeAgentsMd: true,
     includeRepoFileListing: true,
+    autoloadFiles: [],
     repoRootRequired: true,
     maxTurns: REPO_AGENT_DEFAULT_MAX_TURNS,
   }),
@@ -293,6 +318,9 @@ function normalizePresetRecord(input: OptionalJsonValue, fallback: SiftPreset): 
     deletable: false,
     includeAgentsMd: reader.value('includeAgentsMd') === undefined ? fallback.includeAgentsMd : Boolean(reader.value('includeAgentsMd')),
     includeRepoFileListing: reader.value('includeRepoFileListing') === undefined ? fallback.includeRepoFileListing : Boolean(reader.value('includeRepoFileListing')),
+    autoloadFiles: reader.value('autoloadFiles') === undefined
+      ? [...fallback.autoloadFiles]
+      : normalizeAutoloadFiles(reader.value('autoloadFiles')),
     repoRootRequired: reader.value('repoRootRequired') === undefined ? fallback.repoRootRequired : Boolean(reader.value('repoRootRequired')),
     maxTurns: normalizeNullableInteger(reader.value('maxTurns'), fallback.maxTurns),
   });
@@ -329,6 +357,7 @@ function normalizeUserPreset(input: OptionalJsonValue): SiftPreset | null {
     deletable: true,
     includeAgentsMd: reader.value('includeAgentsMd') === undefined ? true : Boolean(reader.value('includeAgentsMd')),
     includeRepoFileListing: reader.value('includeRepoFileListing') === undefined ? true : Boolean(reader.value('includeRepoFileListing')),
+    autoloadFiles: normalizeAutoloadFiles(reader.value('autoloadFiles')),
     repoRootRequired: reader.value('repoRootRequired') === undefined
       ? (presetKind === 'plan' || presetKind === 'repo-search' || presetKind === 'repo-agent')
       : Boolean(reader.value('repoRootRequired')),

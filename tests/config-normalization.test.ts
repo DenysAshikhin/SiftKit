@@ -232,6 +232,7 @@ test('normalizeConfig returns the typed live config fields used by server and da
       deletable: true,
       includeAgentsMd: false,
       includeRepoFileListing: false,
+      autoloadFiles: [' docs/policy.md ', '', 'docs/policy.md'],
       repoRootRequired: false,
       maxTurns: 4,
     }],
@@ -240,7 +241,9 @@ test('normalizeConfig returns the typed live config fields used by server and da
   assert.equal(normalized.IncludeAgentsMd, false);
   assert.equal(normalized.IncludeRepoFileListing, false);
   assert.deepEqual(normalized.OperationModeAllowedTools.summary, ['find_text']);
-  assert.ok(normalized.Presets.some((preset) => preset.id === 'custom'));
+  const customPreset = normalized.Presets.find((preset) => preset.id === 'custom');
+  assert.ok(customPreset);
+  assert.deepEqual(customPreset.autoloadFiles, ['docs/policy.md']);
 });
 
 test('default config exposes ExpandReads enabled and normalization preserves an explicit false', () => {

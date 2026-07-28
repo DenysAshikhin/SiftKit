@@ -72,6 +72,7 @@ test('builtin presets are present and not deletable', () => {
   assert.equal(presets.find((preset) => preset.id === 'repo-search')?.includeRepoFileListing, true);
   assert.equal(presets.find((preset) => preset.id === 'plan')?.includeAgentsMd, true);
   assert.equal(presets.find((preset) => preset.id === 'plan')?.includeRepoFileListing, true);
+  assert.deepEqual(presets.map((preset) => preset.autoloadFiles), [[], [], [], [], []]);
 
   const agent = presets.find((preset) => preset.id === 'repo-agent');
   assert.ok(agent);
@@ -81,6 +82,18 @@ test('builtin presets are present and not deletable', () => {
   assert.equal(agent.repoRootRequired, true);
   assert.equal(agent.useForSummary, false);
   assert.equal(agent.maxTurns, 100);
+});
+
+test('preset normalization trims and deduplicates autoload files', () => {
+  const presets = normalizePresets([{
+    id: 'summary',
+    autoloadFiles: [' docs/policy.md ', 'C:\\shared\\rules.md', '', 'docs/policy.md'],
+  }]);
+
+  assert.deepEqual(
+    presets.find((preset) => preset.id === 'summary')?.autoloadFiles,
+    ['docs/policy.md', 'C:\\shared\\rules.md'],
+  );
 });
 
 test('normalizePresets keeps builtin presets even when overlay omits them and preserves non-deletable rule', () => {

@@ -145,7 +145,7 @@ export const SiftPresetSchema = z.object({
   operationMode: PresetOperationModeSchema, executionFamily: PresetKindSchema, promptPrefix: z.string(),
   allowedTools: z.array(PresetToolNameSchema), surfaces: z.array(PresetSurfaceSchema), useForSummary: z.boolean(),
   builtin: z.boolean(), deletable: z.boolean(), includeAgentsMd: z.boolean(), includeRepoFileListing: z.boolean(),
-  repoRootRequired: z.boolean(), maxTurns: z.number().nullable(),
+  autoloadFiles: z.array(z.string()), repoRootRequired: z.boolean(), maxTurns: z.number().nullable(),
 });
 export type SiftPreset = z.infer<typeof SiftPresetSchema>;
 
