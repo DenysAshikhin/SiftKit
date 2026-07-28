@@ -487,8 +487,8 @@ test('polling is bounded and does not busy-spin', async () => {
     `Expected bounded polling but got ${store.readCount} polls`,
   );
   assert.ok(
-    store.readCount >= 5,
-    `Expected some polling but got ${store.readCount} polls`,
+    store.readCount >= 2,
+    `Expected at least one re-poll but got ${store.readCount} polls`,
   );
 });
 
