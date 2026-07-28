@@ -18,12 +18,22 @@ import {
   getFallbackPresetId,
   getNextPresetIdAfterDelete,
 } from '../preset-editor';
+import { DashboardPresetDraftEditor } from '../preset-draft-editor';
 import { getDirtyActionRequirement, type DirtyContinuation } from '../settings-flow';
 import { type SettingsSectionId } from '../settings-sections';
 import { buildManagedLlamaRestartFailureModal } from '../managed-llama-restart';
 import { deriveRuntimeModelId, syncDerivedSettingsFields } from '../settings-runtime';
 import { cloneDashboardConfig, getDashboardConfigSignature } from '../lib/format';
-import type { DashboardConfig, DashboardModelRuntimePreset, DashboardPreset, ProviderQuota, WebSearchUsage } from '../types';
+import type {
+  DashboardConfig,
+  DashboardModelRuntimePreset,
+  DashboardPresetKind,
+  DashboardPresetOperationMode,
+  DashboardPresetSurface,
+  DashboardPresetToolName,
+  ProviderQuota,
+  WebSearchUsage,
+} from '../types';
 import type { SettingsTabProps } from '../tabs/SettingsTab';
 import type { ToastLevel } from './useToasts';
 
@@ -160,14 +170,141 @@ export function useSettingsController(deps: {
     setSettingsSavedAtUtc(null);
   }
 
-  function updatePresetDraft(presetId: string, updater: (preset: DashboardPreset) => void): void {
-    updateSettingsDraft((next) => {
-      const preset = next.Presets.find((entry) => entry.id === presetId);
-      if (!preset) {
-        return;
-      }
-      updater(preset);
+  function setPresetLabel(presetId: string, label: string): void {
+    setDashboardConfig((previous) => {
+      if (!previous) return previous;
+      const editor = new DashboardPresetDraftEditor(previous);
+      editor.setLabel(presetId, label);
+      return editor.getConfig();
     });
+    setSettingsSavedAtUtc(null);
+  }
+
+  function setPresetKind(presetId: string, kind: DashboardPresetKind): void {
+    setDashboardConfig((previous) => {
+      if (!previous) return previous;
+      const editor = new DashboardPresetDraftEditor(previous);
+      editor.setKind(presetId, kind);
+      return editor.getConfig();
+    });
+    setSettingsSavedAtUtc(null);
+  }
+
+  function setPresetOperationMode(
+    presetId: string,
+    operationMode: DashboardPresetOperationMode,
+  ): void {
+    setDashboardConfig((previous) => {
+      if (!previous) return previous;
+      const editor = new DashboardPresetDraftEditor(previous);
+      editor.setOperationMode(presetId, operationMode);
+      return editor.getConfig();
+    });
+    setSettingsSavedAtUtc(null);
+  }
+
+  function togglePresetTool(presetId: string, tool: DashboardPresetToolName): void {
+    setDashboardConfig((previous) => {
+      if (!previous) return previous;
+      const editor = new DashboardPresetDraftEditor(previous);
+      editor.toggleTool(presetId, tool);
+      return editor.getConfig();
+    });
+    setSettingsSavedAtUtc(null);
+  }
+
+  function setPresetDescription(presetId: string, description: string): void {
+    setDashboardConfig((previous) => {
+      if (!previous) return previous;
+      const editor = new DashboardPresetDraftEditor(previous);
+      editor.setDescription(presetId, description);
+      return editor.getConfig();
+    });
+    setSettingsSavedAtUtc(null);
+  }
+
+  function setPresetPromptPrefix(presetId: string, promptPrefix: string): void {
+    setDashboardConfig((previous) => {
+      if (!previous) return previous;
+      const editor = new DashboardPresetDraftEditor(previous);
+      editor.setPromptPrefix(presetId, promptPrefix);
+      return editor.getConfig();
+    });
+    setSettingsSavedAtUtc(null);
+  }
+
+  function setPresetSurfaceEnabled(
+    presetId: string,
+    surface: DashboardPresetSurface,
+    enabled: boolean,
+  ): void {
+    setDashboardConfig((previous) => {
+      if (!previous) return previous;
+      const editor = new DashboardPresetDraftEditor(previous);
+      editor.setSurfaceEnabled(presetId, surface, enabled);
+      return editor.getConfig();
+    });
+    setSettingsSavedAtUtc(null);
+  }
+
+  function setPresetAgentsMdEnabled(presetId: string, enabled: boolean): void {
+    setDashboardConfig((previous) => {
+      if (!previous) return previous;
+      const editor = new DashboardPresetDraftEditor(previous);
+      editor.setAgentsMdEnabled(presetId, enabled);
+      return editor.getConfig();
+    });
+    setSettingsSavedAtUtc(null);
+  }
+
+  function setPresetRepoFileListingEnabled(presetId: string, enabled: boolean): void {
+    setDashboardConfig((previous) => {
+      if (!previous) return previous;
+      const editor = new DashboardPresetDraftEditor(previous);
+      editor.setRepoFileListingEnabled(presetId, enabled);
+      return editor.getConfig();
+    });
+    setSettingsSavedAtUtc(null);
+  }
+
+  function setPresetAutoloadFile(presetId: string, index: number, path: string): void {
+    setDashboardConfig((previous) => {
+      if (!previous) return previous;
+      const editor = new DashboardPresetDraftEditor(previous);
+      editor.setAutoloadFile(presetId, index, path);
+      return editor.getConfig();
+    });
+    setSettingsSavedAtUtc(null);
+  }
+
+  function addPresetAutoloadFile(presetId: string): void {
+    setDashboardConfig((previous) => {
+      if (!previous) return previous;
+      const editor = new DashboardPresetDraftEditor(previous);
+      editor.addAutoloadFile(presetId);
+      return editor.getConfig();
+    });
+    setSettingsSavedAtUtc(null);
+  }
+
+  function removePresetAutoloadFile(presetId: string, index: number): void {
+    setDashboardConfig((previous) => {
+      if (!previous) return previous;
+      const editor = new DashboardPresetDraftEditor(previous);
+      editor.removeAutoloadFile(presetId, index);
+      return editor.getConfig();
+    });
+    setSettingsSavedAtUtc(null);
+  }
+
+  function setDefaultSummaryPreset(presetId: string, enabled: boolean): void {
+    setDashboardConfig((previous) => {
+      if (!previous) return previous;
+      const editor = new DashboardPresetDraftEditor(previous);
+      editor.setDefaultSummaryPreset(presetId, enabled);
+      return editor.getConfig();
+    });
+    setSettingsSavedAtUtc(null);
   }
 
   function updateModelPresetDraft(updater: (preset: DashboardModelRuntimePreset) => void): void {
@@ -443,7 +580,19 @@ export function useSettingsController(deps: {
     setSelectedSettingsPresetId,
     requestSettingsAction,
     updateSettingsDraft,
-    updatePresetDraft,
+    setPresetLabel,
+    setPresetKind,
+    setPresetOperationMode,
+    togglePresetTool,
+    setPresetDescription,
+    setPresetPromptPrefix,
+    setPresetSurfaceEnabled,
+    setPresetAgentsMdEnabled,
+    setPresetRepoFileListingEnabled,
+    setPresetAutoloadFile,
+    addPresetAutoloadFile,
+    removePresetAutoloadFile,
+    setDefaultSummaryPreset,
     updateModelPresetDraft,
     onAddPreset,
     onDeletePreset,

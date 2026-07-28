@@ -1,23 +1,38 @@
 import React from 'react';
 
 import {
-  applyOperationModeDefaults,
-  applyPresetKindDefaults,
   getEffectivePresetTools,
   PRESET_TOOL_OPTIONS,
-  togglePresetTool,
 } from '../../preset-editor';
 import { isPresetKind, isPresetOperationMode } from '../../../../src/presets.js';
 import { SettingsField } from '../../settings/SettingsFields';
-import type { DashboardConfig, DashboardPreset } from '../../types';
+import type {
+  DashboardConfig,
+  DashboardPreset,
+  DashboardPresetKind,
+  DashboardPresetOperationMode,
+  DashboardPresetSurface,
+  DashboardPresetToolName,
+} from '../../types';
 
 type PresetsSectionProps = {
   dashboardConfig: DashboardConfig | null;
   selectedSettingsPreset: DashboardPreset | null;
   selectedSettingsPresetId: string | null;
   setSelectedSettingsPresetId(presetId: string): void;
-  updateSettingsDraft(updater: (next: DashboardConfig) => void): void;
-  updatePresetDraft(presetId: string, updater: (preset: DashboardPreset) => void): void;
+  setPresetLabel(presetId: string, label: string): void;
+  setPresetKind(presetId: string, kind: DashboardPresetKind): void;
+  setPresetOperationMode(presetId: string, operationMode: DashboardPresetOperationMode): void;
+  togglePresetTool(presetId: string, tool: DashboardPresetToolName): void;
+  setPresetDescription(presetId: string, description: string): void;
+  setPresetPromptPrefix(presetId: string, promptPrefix: string): void;
+  setPresetSurfaceEnabled(presetId: string, surface: DashboardPresetSurface, enabled: boolean): void;
+  setPresetAgentsMdEnabled(presetId: string, enabled: boolean): void;
+  setPresetRepoFileListingEnabled(presetId: string, enabled: boolean): void;
+  setPresetAutoloadFile(presetId: string, index: number, path: string): void;
+  addPresetAutoloadFile(presetId: string): void;
+  removePresetAutoloadFile(presetId: string, index: number): void;
+  setDefaultSummaryPreset(presetId: string, enabled: boolean): void;
   onAddPreset(): void;
   onDeletePreset(presetId: string): void;
 };
@@ -27,8 +42,19 @@ export function PresetsSection({
   selectedSettingsPreset,
   selectedSettingsPresetId,
   setSelectedSettingsPresetId,
-  updateSettingsDraft,
-  updatePresetDraft,
+  setPresetLabel,
+  setPresetKind,
+  setPresetOperationMode,
+  togglePresetTool,
+  setPresetDescription,
+  setPresetPromptPrefix,
+  setPresetSurfaceEnabled,
+  setPresetAgentsMdEnabled,
+  setPresetRepoFileListingEnabled,
+  setPresetAutoloadFile,
+  addPresetAutoloadFile,
+  removePresetAutoloadFile,
+  setDefaultSummaryPreset,
   onAddPreset,
   onDeletePreset,
 }: PresetsSectionProps) {
@@ -80,16 +106,16 @@ export function PresetsSection({
           </div>
           <div className="fgrid">
             <SettingsField label="Name" layout="half">
-              <input value={preset.label} onChange={(event) => updatePresetDraft(preset.id, (next) => { next.label = event.target.value; })} />
+              <input value={preset.label} onChange={(event) => setPresetLabel(preset.id, event.target.value)} />
             </SettingsField>
             <SettingsField label="Preset kind" layout="quarter">
               <select
                 value={preset.presetKind}
-                onChange={(event) => updatePresetDraft(preset.id, (next) => {
+                onChange={(event) => {
                   if (isPresetKind(event.target.value)) {
-                    applyPresetKindDefaults(next, event.target.value);
+                    setPresetKind(preset.id, event.target.value);
                   }
-                })}
+                }}
                 disabled={preset.builtin}
               >
                 <option value="summary">summary</option>
@@ -101,11 +127,11 @@ export function PresetsSection({
             <SettingsField label="Operation mode" layout="quarter">
               <select
                 value={preset.operationMode}
-                onChange={(event) => updatePresetDraft(preset.id, (next) => {
+                onChange={(event) => {
                   if (isPresetOperationMode(event.target.value)) {
-                    applyOperationModeDefaults(next, event.target.value);
+                    setPresetOperationMode(preset.id, event.target.value);
                   }
-                })}
+                }}
               >
                 <option value="summary">summary</option>
                 <option value="read-only">read-only</option>
@@ -124,7 +150,7 @@ export function PresetsSection({
                       type="button"
                       className={className}
                       disabled={blocked}
-                      onClick={() => updatePresetDraft(preset.id, (next) => { next.allowedTools = togglePresetTool(next.allowedTools, tool); })}
+                      onClick={() => togglePresetTool(preset.id, tool)}
                     >
                       {tool}
                     </button>
@@ -134,45 +160,37 @@ export function PresetsSection({
               <span className="fhint">Struck-out tools are blocked by the {preset.operationMode} mode policy regardless of this whitelist.</span>
             </SettingsField>
             <SettingsField label="Description" layout="full">
-              <input value={preset.description} onChange={(event) => updatePresetDraft(preset.id, (next) => { next.description = event.target.value; })} />
+              <input value={preset.description} onChange={(event) => setPresetDescription(preset.id, event.target.value)} />
             </SettingsField>
             <SettingsField label="Prompt override" layout="full">
-              <textarea rows={3} value={preset.promptPrefix} onChange={(event) => updatePresetDraft(preset.id, (next) => { next.promptPrefix = event.target.value; })} />
+              <textarea rows={3} value={preset.promptPrefix} onChange={(event) => setPresetPromptPrefix(preset.id, event.target.value)} />
             </SettingsField>
             <SettingsField label="CLI surface" layout="quarter">
               <input
                 type="checkbox"
                 checked={preset.surfaces.includes('cli')}
-                onChange={(event) => updatePresetDraft(preset.id, (next) => {
-                  next.surfaces = event.target.checked
-                    ? Array.from(new Set([...next.surfaces, 'cli']))
-                    : next.surfaces.filter((surface) => surface !== 'cli');
-                })}
+                onChange={(event) => setPresetSurfaceEnabled(preset.id, 'cli', event.target.checked)}
               />
             </SettingsField>
             <SettingsField label="Web surface" layout="quarter">
               <input
                 type="checkbox"
                 checked={preset.surfaces.includes('web')}
-                onChange={(event) => updatePresetDraft(preset.id, (next) => {
-                  next.surfaces = event.target.checked
-                    ? Array.from(new Set([...next.surfaces, 'web']))
-                    : next.surfaces.filter((surface) => surface !== 'web');
-                })}
+                onChange={(event) => setPresetSurfaceEnabled(preset.id, 'web', event.target.checked)}
               />
             </SettingsField>
             <SettingsField label="Load AGENTS.md" layout="quarter">
               <input
                 type="checkbox"
                 checked={preset.includeAgentsMd}
-                onChange={(event) => updatePresetDraft(preset.id, (next) => { next.includeAgentsMd = event.target.checked; })}
+                onChange={(event) => setPresetAgentsMdEnabled(preset.id, event.target.checked)}
               />
             </SettingsField>
             <SettingsField label="Load repository file list" layout="quarter">
               <input
                 type="checkbox"
                 checked={preset.includeRepoFileListing}
-                onChange={(event) => updatePresetDraft(preset.id, (next) => { next.includeRepoFileListing = event.target.checked; })}
+                onChange={(event) => setPresetRepoFileListingEnabled(preset.id, event.target.checked)}
               />
             </SettingsField>
             <SettingsField label="Autoload files" layout="full">
@@ -182,16 +200,12 @@ export function PresetsSection({
                     <input
                       aria-label={`Autoload file ${index + 1}`}
                       value={file}
-                      onChange={(event) => updatePresetDraft(preset.id, (next) => {
-                        next.autoloadFiles[index] = event.target.value;
-                      })}
+                      onChange={(event) => setPresetAutoloadFile(preset.id, index, event.target.value)}
                     />
                     <button
                       type="button"
                       className="ghost-btn"
-                      onClick={() => updatePresetDraft(preset.id, (next) => {
-                        next.autoloadFiles.splice(index, 1);
-                      })}
+                      onClick={() => removePresetAutoloadFile(preset.id, index)}
                     >
                       Remove
                     </button>
@@ -200,9 +214,7 @@ export function PresetsSection({
                 <button
                   type="button"
                   className="ghost-btn"
-                  onClick={() => updatePresetDraft(preset.id, (next) => {
-                    next.autoloadFiles.push('');
-                  })}
+                  onClick={() => addPresetAutoloadFile(preset.id)}
                 >
                   + Add file
                 </button>
@@ -212,11 +224,7 @@ export function PresetsSection({
               <input
                 type="checkbox"
                 checked={preset.useForSummary}
-                onChange={(event) => updateSettingsDraft((next) => {
-                  next.Presets.forEach((entry) => {
-                    entry.useForSummary = entry.id === preset.id ? event.target.checked : false;
-                  });
-                })}
+                onChange={(event) => setDefaultSummaryPreset(preset.id, event.target.checked)}
                 disabled={preset.presetKind !== 'summary'}
               />
             </SettingsField>

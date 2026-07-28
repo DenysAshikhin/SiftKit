@@ -10,7 +10,17 @@ import {
   type SettingsSectionId,
 } from '../settings-sections';
 import { SettingsSectionField } from '../settings/SettingsFields';
-import type { DashboardConfig, DashboardModelRuntimePreset, DashboardPreset, ProviderQuota, WebSearchUsage } from '../types';
+import type {
+  DashboardConfig,
+  DashboardModelRuntimePreset,
+  DashboardPreset,
+  DashboardPresetKind,
+  DashboardPresetOperationMode,
+  DashboardPresetSurface,
+  DashboardPresetToolName,
+  ProviderQuota,
+  WebSearchUsage,
+} from '../types';
 import { PresetsSection } from './settings/PresetsSection';
 import { ModelPresetsSection } from './settings/ModelPresetsSection';
 import { ToolPolicyMatrix } from './settings/ToolPolicyMatrix';
@@ -35,7 +45,19 @@ export type SettingsTabProps = {
   setSelectedSettingsPresetId(presetId: string): void;
   requestSettingsAction(continuation: DirtyContinuation): void;
   updateSettingsDraft(updater: (next: DashboardConfig) => void): void;
-  updatePresetDraft(presetId: string, updater: (preset: DashboardPreset) => void): void;
+  setPresetLabel(presetId: string, label: string): void;
+  setPresetKind(presetId: string, kind: DashboardPresetKind): void;
+  setPresetOperationMode(presetId: string, operationMode: DashboardPresetOperationMode): void;
+  togglePresetTool(presetId: string, tool: DashboardPresetToolName): void;
+  setPresetDescription(presetId: string, description: string): void;
+  setPresetPromptPrefix(presetId: string, promptPrefix: string): void;
+  setPresetSurfaceEnabled(presetId: string, surface: DashboardPresetSurface, enabled: boolean): void;
+  setPresetAgentsMdEnabled(presetId: string, enabled: boolean): void;
+  setPresetRepoFileListingEnabled(presetId: string, enabled: boolean): void;
+  setPresetAutoloadFile(presetId: string, index: number, path: string): void;
+  addPresetAutoloadFile(presetId: string): void;
+  removePresetAutoloadFile(presetId: string, index: number): void;
+  setDefaultSummaryPreset(presetId: string, enabled: boolean): void;
   updateModelPresetDraft(updater: (preset: DashboardModelRuntimePreset) => void): void;
   onAddPreset(): void;
   onDeletePreset(presetId: string): void;
@@ -69,7 +91,19 @@ export function SettingsTab(props: SettingsTabProps) {
     setSelectedSettingsPresetId,
     requestSettingsAction,
     updateSettingsDraft,
-    updatePresetDraft,
+    setPresetLabel,
+    setPresetKind,
+    setPresetOperationMode,
+    togglePresetTool,
+    setPresetDescription,
+    setPresetPromptPrefix,
+    setPresetSurfaceEnabled,
+    setPresetAgentsMdEnabled,
+    setPresetRepoFileListingEnabled,
+    setPresetAutoloadFile,
+    addPresetAutoloadFile,
+    removePresetAutoloadFile,
+    setDefaultSummaryPreset,
     updateModelPresetDraft,
     onAddPreset,
     onDeletePreset,
@@ -375,8 +409,19 @@ export function SettingsTab(props: SettingsTabProps) {
           selectedSettingsPreset={selectedSettingsPreset}
           selectedSettingsPresetId={selectedSettingsPresetId}
           setSelectedSettingsPresetId={setSelectedSettingsPresetId}
-          updateSettingsDraft={updateSettingsDraft}
-          updatePresetDraft={updatePresetDraft}
+          setPresetLabel={setPresetLabel}
+          setPresetKind={setPresetKind}
+          setPresetOperationMode={setPresetOperationMode}
+          togglePresetTool={togglePresetTool}
+          setPresetDescription={setPresetDescription}
+          setPresetPromptPrefix={setPresetPromptPrefix}
+          setPresetSurfaceEnabled={setPresetSurfaceEnabled}
+          setPresetAgentsMdEnabled={setPresetAgentsMdEnabled}
+          setPresetRepoFileListingEnabled={setPresetRepoFileListingEnabled}
+          setPresetAutoloadFile={setPresetAutoloadFile}
+          addPresetAutoloadFile={addPresetAutoloadFile}
+          removePresetAutoloadFile={removePresetAutoloadFile}
+          setDefaultSummaryPreset={setDefaultSummaryPreset}
           onAddPreset={onAddPreset}
           onDeletePreset={onDeletePreset}
         />

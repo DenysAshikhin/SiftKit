@@ -12,8 +12,19 @@ test('presets section renders a master-detail library with badges and tool chips
       selectedSettingsPreset={CUSTOM_PRESET}
       selectedSettingsPresetId={CUSTOM_PRESET.id}
       setSelectedSettingsPresetId={() => {}}
-      updateSettingsDraft={() => {}}
-      updatePresetDraft={() => {}}
+      setPresetLabel={() => {}}
+      setPresetKind={() => {}}
+      setPresetOperationMode={() => {}}
+      togglePresetTool={() => {}}
+      setPresetDescription={() => {}}
+      setPresetPromptPrefix={() => {}}
+      setPresetSurfaceEnabled={() => {}}
+      setPresetAgentsMdEnabled={() => {}}
+      setPresetRepoFileListingEnabled={() => {}}
+      setPresetAutoloadFile={() => {}}
+      addPresetAutoloadFile={() => {}}
+      removePresetAutoloadFile={() => {}}
+      setDefaultSummaryPreset={() => {}}
       onAddPreset={() => {}}
       onDeletePreset={() => {}}
     />,
@@ -43,8 +54,19 @@ test('preset editor shows startup context for summary presets', () => {
       selectedSettingsPreset={preset}
       selectedSettingsPresetId={preset.id}
       setSelectedSettingsPresetId={() => {}}
-      updateSettingsDraft={() => {}}
-      updatePresetDraft={() => {}}
+      setPresetLabel={() => {}}
+      setPresetKind={() => {}}
+      setPresetOperationMode={() => {}}
+      togglePresetTool={() => {}}
+      setPresetDescription={() => {}}
+      setPresetPromptPrefix={() => {}}
+      setPresetSurfaceEnabled={() => {}}
+      setPresetAgentsMdEnabled={() => {}}
+      setPresetRepoFileListingEnabled={() => {}}
+      setPresetAutoloadFile={() => {}}
+      addPresetAutoloadFile={() => {}}
+      removePresetAutoloadFile={() => {}}
+      setDefaultSummaryPreset={() => {}}
       onAddPreset={() => {}}
       onDeletePreset={() => {}}
     />,
