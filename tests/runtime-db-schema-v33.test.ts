@@ -9,6 +9,7 @@ import {
   closeRuntimeDatabase,
   getRuntimeDatabase,
 } from '../src/state/runtime-db.js';
+import { createAppConfigMigrationFixture } from './helpers/app-config-migration-fixture.js';
 
 const SessionIdentityRowSchema = z.object({ model_preset_id: z.string() });
 const MessageRowSchema = z.object({ content: z.string() });
@@ -35,11 +36,6 @@ function seedV32Database(
     PRAGMA foreign_keys = ON;
     CREATE TABLE runtime_schema (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL);
     INSERT INTO runtime_schema (id, version) VALUES (1, 32);
-    CREATE TABLE app_config (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      server_llama_presets_json TEXT NOT NULL,
-      server_llama_active_preset_id TEXT
-    );
     CREATE TABLE chat_sessions (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -60,6 +56,7 @@ function seedV32Database(
       content TEXT NOT NULL
     );
   `);
+  createAppConfigMigrationFixture(database, { omitExpandReads: true });
   database.prepare(`
     INSERT INTO app_config (id, server_llama_presets_json, server_llama_active_preset_id)
     VALUES (1, ?, ?)

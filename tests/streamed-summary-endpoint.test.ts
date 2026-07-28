@@ -8,7 +8,12 @@ test('summary streams progress frames before a schema-valid result frame', async
   const harness = await startHarness('siftkit-streamed-summary-');
   try {
     const response = await requestSse(`${harness.baseUrl}/summary`, {
-      body: { question: 'what is in the text?', inputText: 'alpha beta gamma', backend: 'mock' },
+      body: {
+        question: 'what is in the text?',
+        inputText: 'alpha beta gamma',
+        repoRoot: process.cwd(),
+        backend: 'mock',
+      },
     });
     assert.equal(response.statusCode, 200);
     assert.equal(response.errorMessage, null);
@@ -41,7 +46,12 @@ test('engine failure surfaces as an error frame, not an HTTP error', async () =>
   process.env.SIFTKIT_TEST_PROVIDER_BEHAVIOR = 'throw';
   try {
     const response = await requestSse(`${harness.baseUrl}/summary`, {
-      body: { question: 'q', inputText: 'engine failure input', backend: 'mock' },
+      body: {
+        question: 'q',
+        inputText: 'engine failure input',
+        repoRoot: process.cwd(),
+        backend: 'mock',
+      },
     });
     assert.equal(response.statusCode, 200);
     assert.equal(response.result, null);
@@ -61,10 +71,20 @@ test('concurrent summary streams both complete successfully', async () => {
   try {
     const [first, second] = await Promise.all([
       requestSse(`${harness.baseUrl}/summary`, {
-        body: { question: 'q1', inputText: `slow ${'y'.repeat(50)}`, backend: 'mock' },
+        body: {
+          question: 'q1',
+          inputText: `slow ${'y'.repeat(50)}`,
+          repoRoot: process.cwd(),
+          backend: 'mock',
+        },
       }),
       requestSse(`${harness.baseUrl}/summary`, {
-        body: { question: 'q2', inputText: 'z text', backend: 'mock' },
+        body: {
+          question: 'q2',
+          inputText: 'z text',
+          repoRoot: process.cwd(),
+          backend: 'mock',
+        },
       }),
     ]);
     assert.ok(first.result);

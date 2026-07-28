@@ -6,6 +6,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { z } from 'zod';
 import { getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { createAppConfigMigrationFixture } from './helpers/app-config-migration-fixture.js';
 
 const ColumnNameRowSchema = z.array(z.object({ name: z.string() }));
 
@@ -38,8 +39,12 @@ test('v30 migration adds inference and EXL3 configuration columns', () => {
   seed.exec(`
     CREATE TABLE runtime_schema (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL);
     INSERT INTO runtime_schema (id, version) VALUES (1, 30);
-    CREATE TABLE app_config (id INTEGER PRIMARY KEY CHECK (id = 1));
   `);
+  createAppConfigMigrationFixture(seed, {
+    omitExpandReads: true,
+    omitInference: true,
+    omitServerExl3: true,
+  });
   seed.close();
 
   getRuntimeDatabase(dbPath);

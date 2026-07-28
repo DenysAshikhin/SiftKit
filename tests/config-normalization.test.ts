@@ -211,8 +211,6 @@ test('normalizeConfig preserves an enabled MTP combination with ngram-mod parame
 
 test('normalizeConfig returns the typed live config fields used by server and dashboard', () => {
   const normalized = normalizeConfig({
-    IncludeAgentsMd: false,
-    IncludeRepoFileListing: false,
     OperationModeAllowedTools: {
       summary: ['find_text'],
       'read-only': ['grep'],

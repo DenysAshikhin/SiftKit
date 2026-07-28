@@ -3,17 +3,25 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import { executeRepoSearchRequest } from '../src/repo-search/execute.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
+import { getBuiltinPresets } from '../src/presets.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 
+const CONTEXT_FREE_PRESETS = getBuiltinPresets().map((preset) => ({
+  ...preset,
+  includeAgentsMd: false,
+  includeRepoFileListing: false,
+}));
+
 const MOCK_CONFIG = mockSiftConfig({
   Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
+  Presets: CONTEXT_FREE_PRESETS,
 });
 
 test('executeRepoSearchRequest chat kind returns finalOutput in scorecard, no tools', async () => {
   const events: RepoSearchProgressEvent[] = [];
   const result = await executeRepoSearchRequest({
-      presetId: 'repo-search',
+    presetId: 'chat',
     prompt: 'What did I just say?',
     repoRoot: os.tmpdir(),
     config: MOCK_CONFIG,
@@ -35,7 +43,7 @@ test('executeRepoSearchRequest chat kind returns finalOutput in scorecard, no to
 test('executeRepoSearchRequest chat with web tools runs native web_search', async () => {
   const events: RepoSearchProgressEvent[] = [];
   const result = await executeRepoSearchRequest({
-      presetId: 'repo-search',
+    presetId: 'chat',
     prompt: 'Current GE price of an iron bar?',
     repoRoot: os.tmpdir(),
     taskKind: 'chat',
@@ -45,6 +53,7 @@ test('executeRepoSearchRequest chat with web tools runs native web_search', asyn
     model: 'mock',
     config: mockSiftConfig({
       Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
+      Presets: CONTEXT_FREE_PRESETS,
       WebSearch: { EnabledDefault: true, Providers: { tavily: { Enabled: true, ApiKey: 'test-key' }, firecrawl: { Enabled: false, ApiKey: '' } }, ProviderOrder: ['tavily', 'firecrawl'], ResultCount: 5, FetchMaxPages: 3, TimeoutMs: 15000, FetchMaxCharacters: 12000 },
     }),
     mockResponses: [
@@ -72,7 +81,7 @@ test('executeRepoSearchRequest chat with web tools runs native web_search', asyn
 
 test('chat with web tools rejects snippet-only finish and requires web_fetch', async () => {
   const result = await executeRepoSearchRequest({
-      presetId: 'repo-search',
+    presetId: 'chat',
     taskKind: 'chat',
     prompt: 'What are the major milestones for fastest F2P ironman iron ore?',
     repoRoot: process.cwd(),
@@ -113,7 +122,7 @@ test('chat with web tools rejects snippet-only finish and requires web_fetch', a
 
 test('chat with web tools rejects finish before web_search and requires fetched evidence', async () => {
   const result = await executeRepoSearchRequest({
-      presetId: 'repo-search',
+    presetId: 'chat',
     taskKind: 'chat',
     prompt: 'What use are iron bars in OSRS?',
     repoRoot: process.cwd(),
@@ -154,7 +163,7 @@ test('chat with web tools rejects finish before web_search and requires fetched 
 
 test('reported OSRS failure shape fetches before answering milestones', async () => {
   const result = await executeRepoSearchRequest({
-      presetId: 'repo-search',
+    presetId: 'chat',
     taskKind: 'chat',
     prompt: 'What are the major milestones at which I can get the iron ore fastest as f2p ironman?',
     repoRoot: process.cwd(),
@@ -196,7 +205,7 @@ test('reported OSRS failure shape fetches before answering milestones', async ()
 
 test('chat with web tools does not force finish after duplicate web_search', async () => {
   const result = await executeRepoSearchRequest({
-      presetId: 'repo-search',
+    presetId: 'chat',
     taskKind: 'chat',
     prompt: 'What does OSRS iron bar require?',
     repoRoot: process.cwd(),
@@ -237,7 +246,7 @@ test('chat with web tools does not force finish after duplicate web_search', asy
 
 test('chat with web tools rejects repeated search and fetch calls across the retained loop', async () => {
   const result = await executeRepoSearchRequest({
-      presetId: 'repo-search',
+    presetId: 'chat',
     taskKind: 'chat',
     prompt: 'What use are iron bars in OSRS?',
     repoRoot: process.cwd(),
@@ -277,7 +286,7 @@ test('chat with web tools rejects repeated search and fetch calls across the ret
 
 test('chat executor with thinking off yields zero thinking tokens', async () => {
   const result = await executeRepoSearchRequest({
-      presetId: 'repo-search',
+    presetId: 'chat',
     prompt: 'Hi',
     repoRoot: os.tmpdir(),
     taskKind: 'chat',
@@ -288,6 +297,7 @@ test('chat executor with thinking off yields zero thinking tokens', async () => 
     model: 'mock',
     config: mockSiftConfig({
       Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
+      Presets: CONTEXT_FREE_PRESETS,
       Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', Reasoning: 'on' }] } },
     }),
     mockResponses: ['{"action":"finish","output":"Hello"}'],

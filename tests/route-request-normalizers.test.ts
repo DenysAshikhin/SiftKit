@@ -23,6 +23,7 @@ test('core route request normalizers return typed values', () => {
   assert.deepEqual(parseSummaryRequest({
     question: ' q ',
     inputText: ' text ',
+    repoRoot: ' C:/repo ',
     requestTimeoutSeconds: '5',
     format: 'json',
     backend: 'mock',
@@ -31,6 +32,8 @@ test('core route request normalizers return typed values', () => {
   }), {
     question: 'q',
     inputText: ' text ',
+    repoRoot: 'C:/repo',
+    presetId: undefined,
     format: 'json',
     policyProfile: 'general',
     backend: 'mock',
@@ -44,7 +47,12 @@ test('core route request normalizers return typed values', () => {
   });
 
   assert.throws(
-    () => parseSummaryRequest({ question: 'q', inputText: 'text', backend: 'llama' }),
+    () => parseSummaryRequest({
+      question: 'q',
+      inputText: 'text',
+      repoRoot: 'C:/repo',
+      backend: 'llama',
+    }),
     /Unsupported backend 'llama'/u,
   );
 
@@ -90,6 +98,7 @@ test('parseSummaryRequest carries promptPrefix and llamaCppOverrides.MaxTokens',
   const parsed = parseSummaryRequest({
     question: 'q',
     inputText: 'some input text',
+    repoRoot: 'C:/repo',
     promptPrefix: 'benchmark prefix',
     llamaCppOverrides: { MaxTokens: 256 },
   });
@@ -99,7 +108,7 @@ test('parseSummaryRequest carries promptPrefix and llamaCppOverrides.MaxTokens',
 });
 
 test('parseSummaryRequest omits llamaCppOverrides when MaxTokens is absent', () => {
-  const parsed = parseSummaryRequest({ question: 'q', inputText: 'some input text' });
+  const parsed = parseSummaryRequest({ question: 'q', inputText: 'some input text', repoRoot: 'C:/repo' });
   assert.equal(parsed?.promptPrefix, undefined);
   assert.equal(parsed?.llamaCppOverrides, undefined);
 });
@@ -108,6 +117,11 @@ test('parseSummaryRequest preserves an explicit empty promptPrefix as an overrid
   // SummaryRequest semantics (request-runner.ts:290): undefined => use the
   // configured prefix; a string (including "") => explicit override. The HTTP
   // contract must mirror that, so "" must NOT collapse to undefined.
-  const parsed = parseSummaryRequest({ question: 'q', inputText: 'some input text', promptPrefix: '' });
+  const parsed = parseSummaryRequest({
+    question: 'q',
+    inputText: 'some input text',
+    repoRoot: 'C:/repo',
+    promptPrefix: '',
+  });
   assert.equal(parsed?.promptPrefix, '');
 });

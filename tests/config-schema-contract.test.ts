@@ -128,7 +128,6 @@ test('status-server config consumers keep SiftConfig at config boundaries', () =
         /buildChatSessionResponse\(config: SiftConfig[\s\S]*\): Dict/u,
         /resolveEffectiveRepoFileListing\(config: Dict/u,
         /resolveEffectiveAgentsMd\(config: Dict/u,
-        /resolveRepoSearchAutoAppendOverrides\(\s*config: Dict/u,
         /countPersistTurnThinkingTokens\(config: Dict/u,
         /countPersistedInputTokens\(config: Dict/u,
       ],

@@ -6,6 +6,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { z } from 'zod';
 import { getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { createAppConfigMigrationFixture } from './helpers/app-config-migration-fixture.js';
 
 const ColumnNameRowSchema = z.array(z.object({ name: z.string() }));
 
@@ -53,13 +54,16 @@ test('v25->v26 migration drops columns and synthesizes a preset when presets jso
   seed.exec(`
     CREATE TABLE runtime_schema (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL);
     INSERT INTO runtime_schema (id, version) VALUES (1, 25);
-    CREATE TABLE app_config (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      llama_num_ctx INTEGER,
-      server_num_ctx INTEGER,
-      server_llama_presets_json TEXT,
-      server_llama_active_preset_id TEXT
-    );
+  `);
+  createAppConfigMigrationFixture(seed, {
+    omitExpandReads: true,
+    omitInference: true,
+    omitServerExl3: true,
+    omitWebSearch: true,
+  });
+  seed.exec(`
+    ALTER TABLE app_config ADD COLUMN llama_num_ctx INTEGER;
+    ALTER TABLE app_config ADD COLUMN server_num_ctx INTEGER;
     INSERT INTO app_config (id, llama_num_ctx, server_num_ctx, server_llama_presets_json)
     VALUES (1, 85000, 85000, '[]');
   `);

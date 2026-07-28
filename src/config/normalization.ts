@@ -439,8 +439,6 @@ export function normalizeConfigObject(input: JsonValue): SiftConfig {
   delete merged.Ollama;
   delete merged.Model;
   delete merged.LlamaCpp;
-  delete merged.IncludeAgentsMd;
-  delete merged.IncludeRepoFileListing;
 
   const runtime = getRecord(merged.Runtime);
   delete runtime.PromptPrefix;

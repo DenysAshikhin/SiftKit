@@ -37,14 +37,14 @@ test('summary-family request whose marker matches the active agent run is reject
     const ownerRunId = await waitForActiveModelRequestOwner(harness.baseUrl);
 
     const rejected = await requestSse(`${harness.baseUrl}/command-output/analyze`, {
-      body: ANALYZE_BODY,
+      body: { ...ANALYZE_BODY, repoRoot: process.cwd() },
       headers: { [AGENT_RUN_ID_HEADER]: ownerRunId },
     });
     assert.equal(rejected.statusCode, 409, rejected.rawBody);
     assert.match(rejected.rawBody, /self-call/);
 
     const queued = await requestSse(`${harness.baseUrl}/command-output/analyze`, {
-      body: ANALYZE_BODY,
+      body: { ...ANALYZE_BODY, repoRoot: process.cwd() },
       headers: { [AGENT_RUN_ID_HEADER]: 'some-finished-run' },
       timeoutMs: SSE_REQUEST_TIMEOUT_MS,
     });

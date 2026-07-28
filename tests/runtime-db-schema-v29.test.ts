@@ -6,6 +6,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { z } from 'zod';
 import { getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { createAppConfigMigrationFixture } from './helpers/app-config-migration-fixture.js';
 
 const ColumnNameRowSchema = z.array(z.object({ name: z.string() }));
 
@@ -37,11 +38,6 @@ test('v28->v29 migration adds web search columns', () => {
   seed.exec(`
     CREATE TABLE runtime_schema (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL);
     INSERT INTO runtime_schema (id, version) VALUES (1, 28);
-    CREATE TABLE app_config (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      server_llama_presets_json TEXT,
-      server_llama_active_preset_id TEXT
-    );
     CREATE TABLE chat_sessions (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -56,6 +52,12 @@ test('v28->v29 migration adds web search columns', () => {
       updated_at_utc TEXT NOT NULL
     );
   `);
+  createAppConfigMigrationFixture(seed, {
+    omitExpandReads: true,
+    omitInference: true,
+    omitServerExl3: true,
+    omitWebSearch: true,
+  });
   seed.close();
 
   getRuntimeDatabase(dbPath);
