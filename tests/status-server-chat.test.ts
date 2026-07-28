@@ -17,11 +17,13 @@ import {
   sessionUsesActiveModelPreset,
 } from '../src/status-server/chat.js';
 import { getActiveModelPreset } from '../src/config/getters.js';
+import { getDefaultConfigObject } from '../src/config/defaults.js';
+import { mergeConfig } from '../src/config/normalization.js';
 import { buildChatPromptContext } from '../src/status-server/chat-prompt-context.js';
 import { normalizeConfig } from '../src/status-server/config-store.js';
 import { estimateTokenCount, type ChatSession } from '../src/state/chat-sessions.js';
 import { z } from '../src/lib/zod.js';
-import type { JsonObject } from '../src/lib/json-types.js';
+import { JsonValueSchema, type JsonObject } from '../src/lib/json-types.js';
 import type { SiftConfig } from '../src/config/types.js';
 
 // Brand a deliberately-partial session fixture as ChatSession at one boundary;
@@ -32,7 +34,7 @@ function mockChatSession(session: object): ChatSession {
 }
 
 function createConfig(overrides: JsonObject = {}): SiftConfig {
-  return normalizeConfig({
+  return normalizeConfig(mergeConfig(JsonValueSchema.parse(getDefaultConfigObject()), {
     Runtime: {
       LlamaCpp: {
         BaseUrl: 'http://127.0.0.1:8080',
@@ -47,7 +49,6 @@ function createConfig(overrides: JsonObject = {}): SiftConfig {
         Reasoning: 'on',
       },
     },
-    Presets: [],
     Server: {
       ModelPresets: {
         ActivePresetId: 'default',
@@ -77,7 +78,7 @@ function createConfig(overrides: JsonObject = {}): SiftConfig {
       },
     },
     ...overrides,
-  });
+  }));
 }
 
 function createNoThinkingReplayConfig(): SiftConfig {
@@ -316,13 +317,12 @@ test('appendChatMessagesWithUsage omits empty-thinking turns and persists single
 
 test('buildChatSystemContent contains only system prompt and explicit web instruction', () => {
   const session = createSession();
-  const config = createConfig({
-    Presets: [{
-      id: 'chat',
-      label: 'Chat',
-      promptPrefix: 'custom system prompt',
-    }],
-  });
+  const config = createConfig();
+  const chatPreset = config.Presets.find((preset) => preset.id === 'chat');
+  if (!chatPreset) {
+    throw new Error('Default chat preset is missing.');
+  }
+  chatPreset.promptPrefix = 'custom system prompt';
 
   const systemContent = buildChatSystemContent(config, session);
   const promptContext = buildChatPromptContext(config, session);
@@ -349,16 +349,14 @@ test('buildChatPromptContext exposes repo-search tool schema', () => {
   session.presetId = 'repo-search';
   session.planRepoRoot = process.cwd();
 
-  const context = buildChatPromptContext(createConfig({
-    Presets: [{
-      id: 'repo-search',
-      label: 'Repo Search',
-      presetKind: 'repo-search',
-      operationMode: 'read-only',
-      allowedTools: ['grep'],
-      promptPrefix: 'extra repo instruction',
-    }],
-  }), session);
+  const config = createConfig();
+  const repoSearchPreset = config.Presets.find((preset) => preset.id === 'repo-search');
+  if (!repoSearchPreset) {
+    throw new Error('Default repo-search preset is missing.');
+  }
+  repoSearchPreset.allowedTools = ['grep'];
+  repoSearchPreset.promptPrefix = 'extra repo instruction';
+  const context = buildChatPromptContext(config, session);
 
   assert.match(context.content, /System prompt/u);
   assert.match(context.content, /You are a repo-search planner/u);

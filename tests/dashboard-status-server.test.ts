@@ -329,17 +329,18 @@ test('chat session creation uses pass-through host context window', async () => 
   fs.mkdirSync(path.dirname(statusPath), { recursive: true });
   fs.writeFileSync(statusPath, 'false', 'utf8');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const host = await startHostConfigServer({
-    Runtime: {
-      LlamaCpp: { NumCtx: 75_008, Reasoning: 'off' },
-    },
-    Server: {
-      ModelPresets: {
-        ActivePresetId: 'host',
-        Presets: [{ id: 'host', Model: 'host-loaded-model.gguf', Backend: 'llama' }],
-      },
-    },
-  });
+  const hostConfig = getDefaultConfig();
+  const hostPreset = hostConfig.Server.ModelPresets.Presets[0];
+  if (!hostPreset) {
+    throw new Error('Default model preset is missing.');
+  }
+  hostConfig.Runtime.LlamaCpp.NumCtx = 75_008;
+  hostConfig.Runtime.LlamaCpp.Reasoning = 'off';
+  hostPreset.NumCtx = 75_008;
+  hostPreset.Reasoning = 'off';
+  hostPreset.Model = 'host-loaded-model.gguf';
+  hostPreset.Backend = 'llama';
+  const host = await startHostConfigServer(hostConfig);
   const config = getDefaultConfig();
   const serverConfig = d(config.Server);
   const llamaServerConfig = d(serverConfig.ModelPresets);
@@ -1090,6 +1091,15 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const streamConfig = getDefaultConfig();
+  const planPreset = streamConfig.Presets.find((preset) => preset.id === 'plan');
+  const repoSearchPreset = streamConfig.Presets.find((preset) => preset.id === 'repo-search');
+  if (!planPreset || !repoSearchPreset) {
+    throw new Error('Default plan and repo-search presets are required.');
+  }
+  planPreset.autoloadFiles = ['missing-plan-context.md'];
+  repoSearchPreset.autoloadFiles = ['missing-repo-context.md'];
+  writeConfig(getConfigPath(), streamConfig);
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
@@ -1105,25 +1115,50 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
       }),
     });
     const sessionId = String(d(createSession.body.session).id);
+    const createJsonSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'JSON Plan Session',
+        model: 'Qwen3.5-9B-Q8_0.gguf',
+      }),
+    });
+    const jsonSessionId = String(d(createJsonSession.body.session).id);
+    const planRequestBody = {
+      content: 'Add API tests',
+      repoRoot: tempRoot,
+      maxTurns: 2,
+      availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+      mockResponses: [
+        '<think>inspect test coverage</think>{"action":"git","command":"git grep -n \\"test\\" ."}',
+        '<think>prepare implementation plan</think>{"action":"finish","output":"done"}',
+      ],
+      mockCommandResults: {
+        'git grep -n "test" .': { exitCode: 0, stdout: 'tests/example.test.ts:1:test()', stderr: '' },
+      },
+    };
+    const jsonPlan = await requestJson(`${baseUrl}/dashboard/chat/sessions/${jsonSessionId}/plan`, {
+      method: 'POST',
+      timeoutMs: 3000,
+      body: JSON.stringify(planRequestBody),
+    });
+    assert.equal(jsonPlan.statusCode, 200);
 
     const planSse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/plan/stream`, {
       method: 'POST',
       timeoutMs: 3000,
-      body: JSON.stringify({
-        content: 'Add API tests',
-        repoRoot: tempRoot,
-        maxTurns: 1,
-        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
-        mockResponses: [
-          "{\"action\":\"git\",\"command\":\"git grep -n \\\"test\\\" .\"}",
-          '{"action":"finish","output":"done"}',
-        ],
-        mockCommandResults: {
-          'git grep -n "test" .': { exitCode: 0, stdout: 'tests/example.test.ts:1:test()', stderr: '' },
-        },
-      }),
+      body: JSON.stringify(planRequestBody),
     });
     assert.equal(planSse.statusCode, 200);
+    assert.deepEqual(
+      planSse.events
+        .map((event) => event.event)
+        .filter((event) => ['warning', 'thinking', 'tool_start', 'tool_result', 'done'].includes(event)),
+      ['warning', 'thinking', 'tool_start', 'tool_result', 'thinking', 'done'],
+    );
+    assert.match(
+      String(planSse.events.find((event) => event.event === 'warning')?.payload?.warning || ''),
+      /missing-plan-context\.md/u,
+    );
     const planToolStart = planSse.events.find((event) => event.event === 'tool_start');
     const planToolResult = planSse.events.find((event) => event.event === 'tool_result');
     assert.equal(Number.isFinite(Number(planToolStart?.payload?.promptTokenCount)), true);
@@ -1144,6 +1179,27 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
     assert.equal(planDoneSession.presetId, 'plan');
     assert.equal(planDoneSession.mode, 'plan');
     const planDoneMessages = asObjectArray(planDoneSession.messages);
+    const jsonPlanMessages = asObjectArray(d(jsonPlan.body.session).messages);
+    assert.deepEqual(
+      planDoneMessages.map((message) => ({
+        kind: message.kind,
+        content: String(message.content || '').split('\n\n## Artifacts')[0],
+        toolCallCommand: message.toolCallCommand,
+        toolCallOutput: message.toolCallOutput,
+      })),
+      jsonPlanMessages.map((message) => ({
+        kind: message.kind,
+        content: String(message.content || '').split('\n\n## Artifacts')[0],
+        toolCallCommand: message.toolCallCommand,
+        toolCallOutput: message.toolCallOutput,
+      })),
+    );
+    assert.deepEqual(
+      Object.keys(d(d(planSse.events.find((event) => event.event === 'done')?.payload).repoSearch)).sort(),
+      Object.keys(d(jsonPlan.body.repoSearch)).sort(),
+    );
+    const persistedPlan = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
+    assert.deepEqual(planDoneSession, d(persistedPlan.body.session));
     const latestPlanMessage = planDoneMessages[planDoneMessages.length - 1];
     assert.equal(typeof latestPlanMessage.requestStartedAtUtc, 'string');
     assert.equal(typeof latestPlanMessage.answerStartedAtUtc, 'string');
@@ -1155,11 +1211,11 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
       body: JSON.stringify({
         content: 'Find tests',
         repoRoot: tempRoot,
-        maxTurns: 1,
+        maxTurns: 2,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"git\",\"command\":\"git grep -n \\\"test\\\" .\"}",
-          '{"action":"finish","output":"done"}',
+          '<think>inspect repository tests</think>{"action":"git","command":"git grep -n \\"test\\" ."}',
+          '<think>report repository evidence</think>{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
           'git grep -n "test" .': { exitCode: 0, stdout: 'tests/example.test.ts:1:test()', stderr: '' },
@@ -1167,6 +1223,16 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
       }),
     });
     assert.equal(repoSse.statusCode, 200);
+    assert.deepEqual(
+      repoSse.events
+        .map((event) => event.event)
+        .filter((event) => ['warning', 'answer', 'tool_start', 'tool_result', 'done'].includes(event)),
+      ['warning', 'answer', 'tool_start', 'tool_result', 'answer', 'done'],
+    );
+    assert.match(
+      String(repoSse.events.find((event) => event.event === 'warning')?.payload?.warning || ''),
+      /missing-repo-context\.md/u,
+    );
     const repoToolStart = repoSse.events.find((event) => event.event === 'tool_start');
     const repoToolResult = repoSse.events.find((event) => event.event === 'tool_result');
     assert.equal(Number.isFinite(Number(repoToolStart?.payload?.promptTokenCount)), true);
@@ -1190,6 +1256,8 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
     const repoDoneSession = asObject(d(repoSse.events.find((event) => event.event === 'done')?.payload).session);
     assert.equal(repoDoneSession.presetId, 'repo-search');
     assert.equal(repoDoneSession.mode, 'repo-search');
+    const persistedRepoSearch = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
+    assert.deepEqual(repoDoneSession, d(persistedRepoSearch.body.session));
     const repoDoneMessages = asObjectArray(repoDoneSession.messages);
     const latestRepoMessage = repoDoneMessages[repoDoneMessages.length - 1];
     assert.equal(typeof latestRepoMessage.requestStartedAtUtc, 'string');

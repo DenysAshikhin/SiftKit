@@ -9,7 +9,6 @@ import type {
   ChatSessionResponse,
   ChatSessionsResponse,
 } from '@siftkit/contracts';
-import { WEB_RESEARCH_PRESET_TOOLS } from '@siftkit/contracts';
 import type { ChatMessage as PersistedChatMessage } from '../../state/chat-sessions.js';
 import { existsSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -53,11 +52,8 @@ import {
   buildChatSystemContent,
   buildChatHistoryMessages,
   condenseChatSession,
-  buildPlanRequestPrompt,
-  buildPlanMarkdownFromRepoSearch,
   getScorecardTotal,
   buildPersistTurnsFromRepoSearchResult,
-  buildRepoSearchMarkdown,
   buildRetainedWebToolCalls,
 } from '../chat.js';
 import { buildChatPromptContext } from '../chat-prompt-context.js';
@@ -80,25 +76,21 @@ import {
   saveChatSession,
 } from '../../state/chat-sessions.js';
 import { getRuntimeDatabase } from '../../state/runtime-db.js';
-import {
-  normalizeOperationModeAllowedTools,
-  resolvePresetAllowedTools,
-  type SiftPreset,
-} from '../../presets.js';
+import type { SiftPreset } from '../../presets.js';
 import { PresetCatalog } from '../../preset-catalog.js';
 import {
   ChatOperationPresetSelector,
   type SelectedChatOperationPreset,
 } from '../chat-operation-preset.js';
 import {
+  ChatRepoOperationRunner,
+  type ChatRepoOperationRequest,
+} from '../chat-repo-operation-runner.js';
+import {
   captureManagedLlamaSpeculativeMetricsSnapshot,
   getManagedLlamaSpeculativeMetricsDelta,
 } from '../managed-llama.js';
 import { serverLogger } from '../server-logger.js';
-import {
-  getGenerationTokensPerSecond,
-  getPromptTokensPerSecond,
-} from '../../lib/telemetry-metrics.js';
 import {
   acquireModelRequestWithWait,
   releaseModelRequest,
@@ -124,23 +116,6 @@ function normalizeChatGroundingStatus(value: ChatGroundingStatus | null | undefi
 
 function getChatGroundingStatus(scorecard: OptionalJsonValue): ChatGroundingStatus | null {
   return normalizeChatGroundingStatus(normalizeRepoSearchScorecard(scorecard).tasks[0]?.groundingStatus);
-}
-
-function getEffectivePresetAllowedTools(config: SiftConfig, preset: SiftPreset): SiftPreset['allowedTools'] {
-  return resolvePresetAllowedTools(
-    preset,
-    normalizeOperationModeAllowedTools(config.OperationModeAllowedTools),
-  );
-}
-
-export function withEffectiveWebTools(
-  allowedTools: SiftPreset['allowedTools'] | undefined,
-  enabled: boolean,
-): SiftPreset['allowedTools'] | undefined {
-  if (!enabled || !allowedTools) {
-    return allowedTools;
-  }
-  return [...new Set([...allowedTools, ...WEB_RESEARCH_PRESET_TOOLS])];
 }
 
 function requireToolCallId(event: RepoSearchProgressEvent): string {
@@ -229,14 +204,6 @@ function buildChatSessionResponse(config: SiftConfig, session: ChatSession): Cha
   };
 }
 
-export function getRepoSearchGenerationTokensPerSecond(scorecard: OptionalJsonValue): number | null {
-  return getGenerationTokensPerSecond(
-    getScorecardTotal(scorecard, 'outputTokens'),
-    getScorecardTotal(scorecard, 'thinkingTokens'),
-    getScorecardTotal(scorecard, 'generationDurationMs'),
-  );
-}
-
 function hasEstimatedScorecardTokens(scorecard: OptionalJsonValue, key: keyof RepoSearchTotals): boolean {
   const count = getScorecardTotal(scorecard, key);
   return count !== null && count > 0;
@@ -293,6 +260,37 @@ function readRouteStringArray(reader: JsonRecordReader, key: string): string[] |
 
 function readRouteNumber(reader: JsonRecordReader, key: string): number | undefined {
   return reader.number(key) ?? undefined;
+}
+
+function buildChatRepoOperationRequest(options: {
+  ctx: ServerContext;
+  runtimeRoot: string;
+  session: ChatSession;
+  config: SiftConfig;
+  content: string;
+  repoRoot: string;
+  reader: JsonRecordReader;
+  parsedBody: ReturnType<typeof parseJsonBody>;
+  requestId: string;
+  progressWriter: ProgressWriter<RepoSearchProgressEvent>;
+}): ChatRepoOperationRequest {
+  return {
+    runtimeRoot: options.runtimeRoot,
+    session: options.session,
+    config: options.config,
+    content: options.content,
+    repoRoot: options.repoRoot,
+    statusBackendUrl: `${options.ctx.getServiceBaseUrl()}/status`,
+    engineService: options.ctx.engineService,
+    progressWriter: options.progressWriter,
+    requestId: options.requestId,
+    maxTurns: readRouteNumber(options.reader, 'maxTurns'),
+    logFile: options.reader.optionalString('logFile'),
+    availableModels: readRouteStringArray(options.reader, 'availableModels'),
+    mockResponses: readRouteStringArray(options.reader, 'mockResponses'),
+    mockCommandResults: normalizeRepoSearchMockCommandResults(options.parsedBody.mockCommandResults),
+    managedLlamaRunId: options.ctx.managedLlamaLastStartupLogs?.runId ?? null,
+  };
 }
 
 function readSessionRepoRoot(session: ChatSession): string {
@@ -367,7 +365,7 @@ type ChatTurnPhaseTracker = ReturnType<typeof createChatTurnPhaseTracker>;
 class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
   constructor(
     private readonly writer: SseResponseWriter,
-    private readonly phaseTracker: ChatTurnPhaseTracker,
+    private readonly phaseTracker: ChatTurnPhaseTracker | null,
     private readonly scope: 'plan' | 'rs',
     private readonly requestId: string,
     private readonly thinkingEvent: 'thinking' | 'answer',
@@ -387,7 +385,7 @@ class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
     }
     if (event.kind === 'thinking') {
       const text = event.thinkingText || '';
-      this.phaseTracker.observeThinking(text);
+      this.phaseTracker?.observeThinking(text);
       this.writer.writeEvent(this.thinkingEvent, this.thinkingEvent === 'thinking'
         ? { thinking: text }
         : { answer: text });
@@ -395,7 +393,7 @@ class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
     }
     if (event.kind === 'answer' && this.streamAnswer) {
       const text = event.answerText || '';
-      this.phaseTracker.observeAnswer(text);
+      this.phaseTracker?.observeAnswer(text);
       this.writer.writeEvent('answer', { answer: text });
       return;
     }
@@ -1093,93 +1091,25 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
         sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
         return;
       }
-      const startedAt = Date.now();
-      const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
       const content = repoRequest.content;
       const reader = new JsonRecordReader(parsedBody);
       const config = readConfig(configPath);
-      const mockResponses = readRouteStringArray(reader, 'mockResponses');
-      const mockTokenConfig = getMockTokenConfig(config, mockResponses);
-      const selected = new ChatOperationPresetSelector(config.Presets).select(activeSession, 'plan');
-      const preset = selected.preset;
-      const selectedSession = { ...selected.session, planRepoRoot: resolvedRepoRoot };
       const engineRequestId = randomUUID();
-      const result = await ctx.engineService.executeRepoSearch({
-        presetId: preset.id,
-        taskKind: 'plan',
-        prompt: buildPlanRequestPrompt(content),
-        repoRoot: resolvedRepoRoot,
-        statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
+      const result = await new ChatRepoOperationRunner().runPlan(buildChatRepoOperationRequest({
+        ctx,
+        runtimeRoot,
+        session: activeSession,
         config,
-        allowedTools: withEffectiveWebTools(
-          getEffectivePresetAllowedTools(config, preset),
-          selectedSession.webSearchEnabled === true,
-        ),
-        model: resolveChatSessionModel(config, selectedSession),
-        maxTurns: readRouteNumber(reader, 'maxTurns'),
-        logFile: reader.optionalString('logFile'),
-        availableModels: readRouteStringArray(reader, 'availableModels'),
-        mockResponses,
-        mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
+        content,
+        repoRoot: resolvedRepoRoot,
+        reader,
+        parsedBody,
         requestId: engineRequestId,
         progressWriter: new RepoSearchToolLogProgressWriter('plan', engineRequestId),
-      });
-      const assistantContent = buildPlanMarkdownFromRepoSearch(content, resolvedRepoRoot, result);
-      const speculativeMetrics = resolveSessionSpeculativeMetrics(
-        ctx,
-        managedLlamaCursor,
-        readScorecardSpeculativeMetrics(result?.scorecard),
-      );
-      const inputTokenCount = await countPersistedInputTokens(mockTokenConfig, content);
-      const updatedSession = appendChatMessagesWithUsage(
-        runtimeRoot,
-        selectedSession,
-        content,
-        assistantContent,
-        {
-          promptTokens: getScorecardTotal(result?.scorecard, 'promptTokens'),
-          promptCacheTokens: getScorecardTotal(result?.scorecard, 'promptCacheTokens'),
-          promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
-        },
-        {
-          turns: await countPersistTurnThinkingTokens(mockTokenConfig, buildPersistTurnsFromRepoSearchResult(result).map((turn) => ({
-            thinkingText: turn.thinkingText,
-            toolMessages: turn.toolMessages.map((message) => ({
-              ...message,
-              toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
-            })),
-          }))),
-          maintainPerStepThinking: shouldMaintainPerStepThinking(config, selectedSession),
-          inputTokens: inputTokenCount.tokenCount,
-          inputTokensEstimated: inputTokenCount.estimated,
-          requestDurationMs: Date.now() - startedAt,
-          promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
-          generationDurationMs: getScorecardTotal(result?.scorecard, 'generationDurationMs'),
-          promptTokensPerSecond: (() => {
-            const promptTokens = getScorecardTotal(result?.scorecard, 'promptEvalTokens');
-            const promptDurationMs = getScorecardTotal(result?.scorecard, 'promptEvalDurationMs');
-            return getPromptTokensPerSecond(promptTokens, promptDurationMs);
-          })(),
-          generationTokensPerSecond: (() => {
-            return getRepoSearchGenerationTokensPerSecond(result?.scorecard);
-          })(),
-          speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
-          speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
-          outputTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
-          outputTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'outputTokensEstimatedCount'),
-          thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
-          thinkingTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'thinkingTokensEstimatedCount'),
-          sourceRunId: String(result.requestId || ''),
-        }
-      );
+      }));
       sendJson(res, 200, {
-        ...buildChatSessionResponse(config, updatedSession),
-        repoSearch: {
-          requestId: result.requestId,
-          transcriptPath: result.transcriptPath,
-          artifactPath: result.artifactPath,
-          scorecard: result.scorecard,
-        },
+        ...buildChatSessionResponse(config, result.updatedSession),
+        repoSearch: result.repoSearch,
       });
     } catch (error) {
       sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
@@ -1244,104 +1174,32 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
     const sseWriter = new SseResponseWriter(req, res);
     sseWriter.open();
     try {
-      const startedAt = Date.now();
-      const requestStartedAtUtc = new Date(startedAt).toISOString();
-      const phaseTracker = createChatTurnPhaseTracker(requestStartedAtUtc);
-      const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
       const content = repoRequest.content;
       const reader = new JsonRecordReader(parsedBody);
       const config = readConfig(configPath);
-      const mockResponses = readRouteStringArray(reader, 'mockResponses');
-      const mockTokenConfig = getMockTokenConfig(config, mockResponses);
-      const selected = new ChatOperationPresetSelector(config.Presets).select(activeSession, 'plan');
-      const preset = selected.preset;
-      const selectedSession = { ...selected.session, planRepoRoot: resolvedRepoRoot };
       const engineRequestId = randomUUID();
-      const result = await ctx.engineService.executeRepoSearch({
-        presetId: preset.id,
-        taskKind: 'plan',
-        prompt: buildPlanRequestPrompt(content),
-        repoRoot: resolvedRepoRoot,
-        statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
+      const result = await new ChatRepoOperationRunner().runPlan(buildChatRepoOperationRequest({
+        ctx,
+        runtimeRoot,
+        session: activeSession,
         config,
-        allowedTools: withEffectiveWebTools(
-          getEffectivePresetAllowedTools(config, preset),
-          selectedSession.webSearchEnabled === true,
-        ),
-        model: resolveChatSessionModel(config, selectedSession),
-        maxTurns: readRouteNumber(reader, 'maxTurns'),
-        logFile: reader.optionalString('logFile'),
-        availableModels: readRouteStringArray(reader, 'availableModels'),
-        mockResponses,
-        mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
+        content,
+        repoRoot: resolvedRepoRoot,
+        reader,
+        parsedBody,
         requestId: engineRequestId,
         progressWriter: new ChatStreamProgressWriter(
           sseWriter,
-          phaseTracker,
+          null,
           'plan',
           engineRequestId,
           'thinking',
           false,
         ),
-      });
-      const assistantContent = buildPlanMarkdownFromRepoSearch(content, resolvedRepoRoot, result);
-      phaseTracker.observeAnswer(assistantContent);
-      const speculativeMetrics = resolveSessionSpeculativeMetrics(
-        ctx,
-        managedLlamaCursor,
-        readScorecardSpeculativeMetrics(result?.scorecard),
-      );
-      const inputTokenCount = await countPersistedInputTokens(mockTokenConfig, content);
-      const updatedSession = appendChatMessagesWithUsage(
-        runtimeRoot,
-        selectedSession,
-        content,
-        assistantContent,
-        {
-          promptTokens: getScorecardTotal(result?.scorecard, 'promptTokens'),
-          promptCacheTokens: getScorecardTotal(result?.scorecard, 'promptCacheTokens'),
-          promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
-        },
-        {
-          turns: await countPersistTurnThinkingTokens(mockTokenConfig, buildPersistTurnsFromRepoSearchResult(result).map((turn) => ({
-            thinkingText: turn.thinkingText,
-            toolMessages: turn.toolMessages.map((message) => ({
-              ...message,
-              toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
-            })),
-          }))),
-          maintainPerStepThinking: shouldMaintainPerStepThinking(config, selectedSession),
-          inputTokens: inputTokenCount.tokenCount,
-          inputTokensEstimated: inputTokenCount.estimated,
-          requestDurationMs: Date.now() - startedAt,
-          promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
-          generationDurationMs: getScorecardTotal(result?.scorecard, 'generationDurationMs'),
-          promptTokensPerSecond: (() => {
-            const promptTokens = getScorecardTotal(result?.scorecard, 'promptEvalTokens');
-            const promptDurationMs = getScorecardTotal(result?.scorecard, 'promptEvalDurationMs');
-            return getPromptTokensPerSecond(promptTokens, promptDurationMs);
-          })(),
-          generationTokensPerSecond: (() => {
-            return getRepoSearchGenerationTokensPerSecond(result?.scorecard);
-          })(),
-          ...phaseTracker.snapshot(),
-          speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
-          speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
-          outputTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
-          outputTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'outputTokensEstimatedCount'),
-          thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
-          thinkingTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'thinkingTokensEstimatedCount'),
-          sourceRunId: String(result.requestId || ''),
-        }
-      );
+      }));
       sseWriter.writeEvent('done', {
-        ...buildChatSessionResponse(config, updatedSession),
-        repoSearch: {
-          requestId: result.requestId,
-          transcriptPath: result.transcriptPath,
-          artifactPath: result.artifactPath,
-          scorecard: result.scorecard,
-        },
+        ...buildChatSessionResponse(config, result.updatedSession),
+        repoSearch: result.repoSearch,
       });
     } catch (error) {
       sseWriter.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
@@ -1407,104 +1265,32 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
     const sseWriter = new SseResponseWriter(req, res);
     sseWriter.open();
     try {
-      const startedAt = Date.now();
-      const requestStartedAtUtc = new Date(startedAt).toISOString();
-      const phaseTracker = createChatTurnPhaseTracker(requestStartedAtUtc);
-      const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
       const content = repoRequest.content;
       const reader = new JsonRecordReader(parsedBody);
       const config = readConfig(configPath);
-      const mockResponses = readRouteStringArray(reader, 'mockResponses');
-      const mockTokenConfig = getMockTokenConfig(config, mockResponses);
-      const selected = new ChatOperationPresetSelector(config.Presets).select(activeSession, 'repo-search');
-      const preset = selected.preset;
-      const selectedSession = { ...selected.session, planRepoRoot: resolvedRepoRoot };
       const engineRequestId = randomUUID();
-      const result = await ctx.engineService.executeRepoSearch({
-        presetId: preset.id,
-        taskKind: 'repo-search',
-        prompt: content,
-        repoRoot: resolvedRepoRoot,
-        statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
+      const result = await new ChatRepoOperationRunner().runRepoSearch(buildChatRepoOperationRequest({
+        ctx,
+        runtimeRoot,
+        session: activeSession,
         config,
-        allowedTools: withEffectiveWebTools(
-          getEffectivePresetAllowedTools(config, preset),
-          selectedSession.webSearchEnabled === true,
-        ),
-        model: resolveChatSessionModel(config, selectedSession),
-        maxTurns: readRouteNumber(reader, 'maxTurns'),
-        logFile: reader.optionalString('logFile'),
-        availableModels: readRouteStringArray(reader, 'availableModels'),
-        mockResponses,
-        mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
+        content,
+        repoRoot: resolvedRepoRoot,
+        reader,
+        parsedBody,
         requestId: engineRequestId,
         progressWriter: new ChatStreamProgressWriter(
           sseWriter,
-          phaseTracker,
+          null,
           'rs',
           engineRequestId,
           'answer',
           false,
         ),
-      });
-      const assistantContent = buildRepoSearchMarkdown(content, resolvedRepoRoot, result);
-      phaseTracker.observeAnswer(assistantContent);
-      const speculativeMetrics = resolveSessionSpeculativeMetrics(
-        ctx,
-        managedLlamaCursor,
-        readScorecardSpeculativeMetrics(result?.scorecard),
-      );
-      const inputTokenCount = await countPersistedInputTokens(mockTokenConfig, content);
-      const updatedSession = appendChatMessagesWithUsage(
-        runtimeRoot,
-        selectedSession,
-        content,
-        assistantContent,
-        {
-          promptTokens: getScorecardTotal(result?.scorecard, 'promptTokens'),
-          promptCacheTokens: getScorecardTotal(result?.scorecard, 'promptCacheTokens'),
-          promptEvalTokens: getScorecardTotal(result?.scorecard, 'promptEvalTokens'),
-        },
-        {
-          turns: await countPersistTurnThinkingTokens(mockTokenConfig, buildPersistTurnsFromRepoSearchResult(result).map((turn) => ({
-            thinkingText: turn.thinkingText,
-            toolMessages: turn.toolMessages.map((message) => ({
-              ...message,
-              toolCallPromptTokenCount: getScorecardTotal(result?.scorecard, 'promptTokens'),
-            })),
-          }))),
-          maintainPerStepThinking: shouldMaintainPerStepThinking(config, selectedSession),
-          inputTokens: inputTokenCount.tokenCount,
-          inputTokensEstimated: inputTokenCount.estimated,
-          requestDurationMs: Date.now() - startedAt,
-          promptEvalDurationMs: getScorecardTotal(result?.scorecard, 'promptEvalDurationMs'),
-          generationDurationMs: getScorecardTotal(result?.scorecard, 'generationDurationMs'),
-          promptTokensPerSecond: (() => {
-            const promptTokens = getScorecardTotal(result?.scorecard, 'promptEvalTokens');
-            const promptDurationMs = getScorecardTotal(result?.scorecard, 'promptEvalDurationMs');
-            return getPromptTokensPerSecond(promptTokens, promptDurationMs);
-          })(),
-          generationTokensPerSecond: (() => {
-            return getRepoSearchGenerationTokensPerSecond(result?.scorecard);
-          })(),
-          ...phaseTracker.snapshot(),
-          speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
-          speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
-          outputTokens: getScorecardTotal(result?.scorecard, 'outputTokens'),
-          outputTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'outputTokensEstimatedCount'),
-          thinkingTokens: getScorecardTotal(result?.scorecard, 'thinkingTokens'),
-          thinkingTokensEstimated: hasEstimatedScorecardTokens(result?.scorecard, 'thinkingTokensEstimatedCount'),
-          sourceRunId: String(result.requestId || ''),
-        }
-      );
+      }));
       sseWriter.writeEvent('done', {
-        ...buildChatSessionResponse(config, updatedSession),
-        repoSearch: {
-          requestId: result.requestId,
-          transcriptPath: result.transcriptPath,
-          artifactPath: result.artifactPath,
-          scorecard: result.scorecard,
-        },
+        ...buildChatSessionResponse(config, result.updatedSession),
+        repoSearch: result.repoSearch,
       });
     } catch (error) {
       sseWriter.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
