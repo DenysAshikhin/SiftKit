@@ -32,10 +32,12 @@ export function useChatController(deps: {
     onError: (error) => setChatError(getErrorMessage(error)),
     initialSelectedSessionId: params.get('session') || '',
     refreshToken: deps.refreshToken,
-    buildCreateSessionRequest: () => ({
-      title: `Session ${new Date().toLocaleTimeString()}`,
-      presetId: getDefaultWebPresetId(deps.dashboardConfig),
-    }),
+    buildCreateSessionRequest: () => {
+      const presetId = getDefaultWebPresetId(deps.dashboardConfig);
+      return presetId
+        ? { title: `Session ${new Date().toLocaleTimeString()}`, presetId }
+        : null;
+    },
     confirmDeleteSession: () => window.confirm('Delete this chat session permanently?'),
     applyContextUsage: contextHook.setContextUsage,
   });
@@ -43,10 +45,7 @@ export function useChatController(deps: {
   const selectedSession = chatSessionsHook.selectedSession;
   const isThinkingEnabledForCurrentSession = selectedSession?.thinkingEnabled !== false;
   const webPresets = getSurfacePresets(deps.dashboardConfig, 'web');
-  const selectedChatPreset = getPresetById(deps.dashboardConfig, selectedSession?.presetId)
-    || getPresetById(deps.dashboardConfig, selectedSession?.mode)
-    || webPresets[0]
-    || null;
+  const selectedChatPreset = getPresetById(deps.dashboardConfig, selectedSession?.presetId);
   const chatMode = getPresetFamily(deps.dashboardConfig, selectedSession);
   const isDirectChatMode = chatMode === 'chat' || chatMode === 'summary';
   const isRepoToolMode = chatMode === 'plan' || chatMode === 'repo-search';

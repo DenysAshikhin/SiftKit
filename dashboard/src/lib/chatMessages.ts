@@ -1,9 +1,4 @@
-import type {
-  ChatMessage,
-  ChatPromptContext,
-  ChatSession,
-  DashboardPreset,
-} from '../types';
+import type { ChatMessage } from '../types';
 
 export function hashFnv1a32(value: string): string {
   let hash = 0x811c9dc5;
@@ -29,42 +24,4 @@ export function buildLiveMessageScrollSignature(messages: ChatMessage[]): string
 
 export function estimatePromptTokens(content: string): number {
   return Math.max(1, Math.ceil(content.length / 4));
-}
-
-export function buildFallbackPromptContext(
-  selectedSession: ChatSession,
-  selectedChatPreset: DashboardPreset | null,
-  isRepoToolMode: boolean,
-  planRepoRootInput: string,
-): ChatPromptContext {
-  const promptPrefix = selectedChatPreset?.promptPrefix?.trim() || 'general, coder friendly assistant';
-  const toolNames = Array.isArray(selectedChatPreset?.allowedTools) ? selectedChatPreset.allowedTools : [];
-  const parts = [
-    '## System prompt',
-    '',
-    promptPrefix,
-  ];
-  if (isRepoToolMode) {
-    parts.push(
-      '',
-      '## Tool schema',
-      '',
-      JSON.stringify({
-        mode: selectedChatPreset?.presetKind || selectedSession.mode || 'repo-search',
-        repoRoot: planRepoRootInput || selectedSession.planRepoRoot || '',
-        allowedTools: toolNames,
-        includeAgentsMd: selectedChatPreset?.includeAgentsMd !== false,
-        includeRepoFileListing: selectedChatPreset?.includeRepoFileListing !== false,
-      }, null, 2),
-    );
-  }
-  return {
-    id: `${selectedSession.id}:system-context-fallback`,
-    role: 'system',
-    kind: 'system_context',
-    label: isRepoToolMode ? 'System prompt and tool schema' : 'System prompt',
-    content: parts.join('\n'),
-    createdAtUtc: selectedSession.createdAtUtc,
-    deletable: false,
-  };
 }

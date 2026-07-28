@@ -24,29 +24,14 @@ export function getPresetById(config: DashboardConfig | null, presetId: Optional
   return config.Presets.find((preset) => preset.id === normalizedId) || null;
 }
 
-export function getPresetFamily(config: DashboardConfig | null, session: ChatSession | null): DashboardPresetKind {
+export function getPresetFamily(config: DashboardConfig | null, session: ChatSession | null): DashboardPresetKind | null {
   const preset = getPresetById(config, session?.presetId);
-  if (preset) {
-    return preset.presetKind;
-  }
-  const normalizedPresetId = normalizePresetId(session?.presetId);
-  if (
-    normalizedPresetId === 'summary'
-    || normalizedPresetId === 'chat'
-    || normalizedPresetId === 'plan'
-    || normalizedPresetId === 'repo-search'
-  ) {
-    return normalizedPresetId;
-  }
-  if (session?.mode === 'plan' || session?.mode === 'repo-search') {
-    return session.mode;
-  }
-  return 'chat';
+  return preset?.presetKind ?? null;
 }
 
-export function getDefaultWebPresetId(config: DashboardConfig | null): string {
+export function getDefaultWebPresetId(config: DashboardConfig | null): string | null {
   const webPresets = getSurfacePresets(config, 'web');
-  return webPresets[0]?.id || 'chat';
+  return webPresets[0]?.id ?? null;
 }
 
 export function createPresetIdFromLabel(label: string): string {

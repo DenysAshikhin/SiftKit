@@ -2,12 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  buildFallbackPromptContext,
   buildLiveMessageScrollSignature,
   estimatePromptTokens,
   hashFnv1a32,
 } from '../../src/lib/chatMessages';
-import type { ChatMessage, ChatSession, DashboardPreset } from '../../src/types';
+import type { ChatMessage } from '../../src/types';
 
 const BASE_MESSAGE: ChatMessage = {
   id: 'm1',
@@ -53,59 +52,6 @@ test('buildLiveMessageScrollSignature changes when content of identical length i
   const before = buildLiveMessageScrollSignature([BASE_MESSAGE]);
   const after = buildLiveMessageScrollSignature([{ ...BASE_MESSAGE, toolCallOutputSnippet: 'hot' }]);
   assert.notEqual(before, after);
-});
-
-const SESSION: ChatSession = {
-  id: 'session-1',
-  title: 'session',
-  model: null,
-  contextWindowTokens: 100,
-  condensedSummary: '',
-  createdAtUtc: '2026-06-03T12:00:00.000Z',
-  updatedAtUtc: '2026-06-03T12:00:00.000Z',
-  messages: [],
-  mode: 'chat',
-};
-
-test('buildFallbackPromptContext renders only the system prompt outside repo-tool modes', () => {
-  const result = buildFallbackPromptContext(SESSION, null, false, '');
-  assert.equal(result.label, 'System prompt');
-  assert.match(result.content, /^## System prompt/);
-  assert.doesNotMatch(result.content, /## Tool schema/);
-  assert.equal(result.id, 'session-1:system-context-fallback');
-});
-
-test('buildFallbackPromptContext appends repo-tool schema when in repo-tool mode', () => {
-  const preset: DashboardPreset = {
-    id: 'repo-default',
-    label: 'Repo',
-    description: '',
-    presetKind: 'repo-search',
-    operationMode: 'read-only',
-    executionFamily: 'repo-search',
-    promptPrefix: 'Use strict evidence.',
-    allowedTools: ['grep', 'read'],
-    surfaces: ['cli', 'web'],
-    useForSummary: false,
-    builtin: true,
-    deletable: false,
-    includeAgentsMd: true,
-    includeRepoFileListing: true,
-    autoloadFiles: [],
-    repoRootRequired: true,
-    maxTurns: 30,
-  };
-  const result = buildFallbackPromptContext(SESSION, preset, true, 'C:\\repo');
-  assert.equal(result.label, 'System prompt and tool schema');
-  assert.match(result.content, /Use strict evidence/);
-  assert.match(result.content, /"mode": "repo-search"/);
-  assert.match(result.content, /"repoRoot": "C:\\\\repo"/);
-  assert.match(result.content, /"grep"/);
-});
-
-test('buildFallbackPromptContext uses default prefix when preset prefix is blank', () => {
-  const result = buildFallbackPromptContext(SESSION, null, false, '');
-  assert.match(result.content, /general, coder friendly assistant/);
 });
 
 test('estimatePromptTokens returns at least one token and rounds up by four characters', () => {

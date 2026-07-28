@@ -125,6 +125,13 @@ test('chat does not render first-message context toggles', () => {
   assert.doesNotMatch(markup, /Repo-search auto-append controls|File scan/u);
 });
 
+test('chat does not synthesize system context while the server context is unavailable', () => {
+  const markup = render();
+
+  assert.doesNotMatch(markup, /system-context-bubble/u);
+  assert.doesNotMatch(markup, /general, coder friendly assistant/u);
+});
+
 test('chat renders startup-context warnings as nonfatal banners', () => {
   const markup = render({ warnings: ['missing file'] });
   assert.match(markup, /class="warning-banner"/u);

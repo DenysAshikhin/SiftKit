@@ -12,7 +12,6 @@ import {
   getReplayDisplayTokenCount,
 } from '../lib/format';
 import {
-  buildFallbackPromptContext,
   buildLiveMessageScrollSignature,
 } from '../lib/chatMessages';
 import { getContextBarFillTone } from '../lib/context-bar-tone';
@@ -84,7 +83,7 @@ export type ChatTabProps = {
   sessionPromptCacheStats: SessionPromptCacheStats;
   webPresets: DashboardPreset[];
   selectedChatPreset: DashboardPreset | null;
-  chatMode: DashboardPresetExecutionFamily;
+  chatMode: DashboardPresetExecutionFamily | null;
   isDirectChatMode: boolean;
   isRepoToolMode: boolean;
   isThinkingEnabledForCurrentSession: boolean;
@@ -133,7 +132,7 @@ function SessionIndicatorMark({ indicator }: { indicator: SessionIndicator }) {
   return <span className={indicator === 'failed' ? 'dot bad' : 'dot ok'} />;
 }
 
-function getSendLabel(chatMode: DashboardPresetExecutionFamily): string {
+function getSendLabel(chatMode: DashboardPresetExecutionFamily | null): string {
   if (chatMode === 'plan') { return 'Generate Plan'; }
   if (chatMode === 'repo-search') { return 'Search'; }
   if (chatMode === 'summary') { return 'Summarize'; }
@@ -179,9 +178,7 @@ export function ChatTab({
 }: ChatTabProps) {
   const persistedMessages = selectedSession ? selectedSession.messages : [];
   const visibleMessages = [...persistedMessages, ...liveMessages];
-  const promptContext = selectedSession
-    ? selectedSession.promptContext || buildFallbackPromptContext(selectedSession, selectedChatPreset, isRepoToolMode, planRepoRootInput)
-    : null;
+  const promptContext = selectedSession?.promptContext ?? null;
   const visibleMessageIds = visibleMessages.map((message) => message.id).join('|');
   const liveMessageScrollSignature = buildLiveMessageScrollSignature(liveMessages);
   const { chatLogRef } = useChatScroll(visibleMessageIds, liveMessageScrollSignature);

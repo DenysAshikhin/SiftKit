@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { getPresetById, getPresetFamily } from '../dashboard/src/dashboard-presets.js';
+import {
+  getDefaultWebPresetId,
+  getPresetById,
+  getPresetFamily,
+} from '../dashboard/src/dashboard-presets.js';
 import type { ChatSession, DashboardConfig, DashboardPreset } from '../dashboard/src/types.js';
 import { normalizeConfigObject } from '../src/config/normalization.js';
 import { getTestExl3Engine, getTestInferenceConfig } from './helpers/runtime-config.js';
@@ -126,8 +130,19 @@ test('getPresetFamily routes from preset kind instead of legacy session mode', (
   assert.equal(getPresetFamily(config, session), 'plan');
 });
 
-test('getPresetFamily falls back to preset id before legacy session mode when config is unavailable', () => {
+test('getPresetFamily returns null when configuration is unavailable', () => {
   const session = createSession('repo-search', 'chat');
 
-  assert.equal(getPresetFamily(null, session), 'repo-search');
+  assert.equal(getPresetFamily(null, session), null);
+});
+
+test('getPresetFamily returns null for an unknown session preset', () => {
+  assert.equal(
+    getPresetFamily(createConfig([createPreset('chat')]), createSession('missing')),
+    null,
+  );
+});
+
+test('getDefaultWebPresetId returns null when no web preset exists', () => {
+  assert.equal(getDefaultWebPresetId(createConfig([])), null);
 });

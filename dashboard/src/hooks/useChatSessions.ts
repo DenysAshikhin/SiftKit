@@ -53,7 +53,7 @@ export function useChatSessions(deps: {
   onError(error: Error): void;
   initialSelectedSessionId: string;
   refreshToken: number;
-  buildCreateSessionRequest(): CreateChatSessionRequest;
+  buildCreateSessionRequest(): CreateChatSessionRequest | null;
   confirmDeleteSession(): boolean;
   applyContextUsage(value: ContextUsage | null): void;
 }): UseChatSessionsResult {
@@ -127,9 +127,13 @@ export function useChatSessions(deps: {
   }
 
   async function createSession(): Promise<void> {
+    const request = deps.buildCreateSessionRequest();
+    if (!request) {
+      return;
+    }
     setChatBusy(true);
     try {
-      const response = await createChatSession(deps.buildCreateSessionRequest());
+      const response = await createChatSession(request);
       setSessions((previous) => [response.session, ...previous]);
       setSelectedSessionId(response.session.id);
       applySessionResponse(response);
