@@ -274,7 +274,6 @@ export function buildTaskSystemPrompt(context: PresetSystemContext): string {
     '- Shell syntax in tool args. `grep`/`find`/`ls`/`read` take structured fields, not command lines — there is no `command` key on them.',
     '- Coverage-first noise; tiny-slice progression on one file; chained shell (`;`/`&&`) in `git`; claims of mutation from read-only ops; answers without `file:line` evidence; paths outside the repo root.',
     '- Wrong arg shape — only documented keys (e.g. `startLine`/`endLine` instead of `offset`/`limit`, or empty `{}`, are rejected).',
-    ...(context.content ? ['', context.content] : []),
   ].join('\n');
 }
 
@@ -316,7 +315,6 @@ export function buildAgentSystemPrompt(context: PresetSystemContext): string {
     '- Before calling finish, re-read the original task and any referenced spec or plan, compare the completed work against every requirement, and verify nothing was missed.',
     '- Finish with a short summary of what changed and any follow-ups — plain prose, not file:line anchor bullets.',
     startupScanLine,
-    ...(context.content ? ['', context.content] : []),
   ].join('\n');
 }
 

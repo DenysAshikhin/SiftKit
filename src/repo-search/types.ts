@@ -64,7 +64,7 @@ export type RepoSearchExecutionRequest = {
   statusBackendUrl?: string;
   config?: SiftConfig;
   model?: string;
-  promptPrefix?: string;
+  additionalPromptPrefix?: string;
   allowedTools?: string[];
   history?: ChatMessage[];
   systemPrompt?: string;

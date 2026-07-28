@@ -210,9 +210,7 @@ export class StatusPresetRunner {
       config,
       model: request.model,
       statusBackendUrl: options.statusBackendUrl,
-      systemPrompt: buildChatSystemContent(config, session, {
-        promptPrefix: preset.promptPrefix.trim() || undefined,
-      }),
+      systemPrompt: buildChatSystemContent(config, session),
       history: [],
       thinkingEnabled: true,
       allowedTools: [],
@@ -238,7 +236,6 @@ export class StatusPresetRunner {
       presetId: preset.id,
       taskKind: preset.presetKind === 'plan' ? 'plan' : 'repo-search',
       prompt: preset.presetKind === 'plan' ? buildPlanRequestPrompt(prompt) : prompt,
-      promptPrefix: preset.presetKind === 'repo-search' ? preset.promptPrefix : '',
       repoRoot,
       config,
       model: request.model,

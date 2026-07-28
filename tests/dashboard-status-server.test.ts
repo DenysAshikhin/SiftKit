@@ -2115,6 +2115,10 @@ test('chat completion replays prior tool evidence without hidden system context'
   chatPreset[0].Model = 'Qwen3.5-9B-Q8_0.gguf';
   chatPreset[0].BaseUrl = `http://127.0.0.1:${llamaAddress.port}`;
   chatPreset[0].NumCtx = 85000;
+  chatConfig.Presets = chatConfig.Presets.map((preset) => ({
+    ...preset,
+    promptPrefix: 'UNIQUE_PRESET_PREFIX',
+  }));
   writeConfig(getConfigPath(), chatConfig);
 
   const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
@@ -2195,6 +2199,8 @@ test('chat completion replays prior tool evidence without hidden system context'
     const captured = asObject(parseJsonValueText(capturedChatRawBody));
     assert.equal(Array.isArray(captured.messages), true);
     const systemMessages = asObjectArray(captured.messages).filter((message) => message && message.role === 'system');
+    const systemText = systemMessages.map((message) => String(message.content || '')).join('\n');
+    assert.equal(systemText.match(/UNIQUE_PRESET_PREFIX/gu)?.length, 1);
     assert.equal(systemMessages.some((message) => String(message.content || '').includes('Internal tool-call context from prior session steps.')), false);
     assert.equal(asObjectArray(captured.messages).some((message) =>
       message.role === 'assistant'

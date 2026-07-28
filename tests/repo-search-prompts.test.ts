@@ -34,7 +34,7 @@ function buildTestContext(
   });
 }
 
-test('autoload content is absent from the initial user message', () => {
+test('base task prompt and initial user message exclude autoload content', () => {
   const context = {
     content: '--- Autoloaded file: docs/policy.md ---\n\npolicy text',
     warnings: [],
@@ -46,7 +46,7 @@ test('autoload content is absent from the initial user message', () => {
   const system = buildTaskSystemPrompt(context);
   const user = buildTaskInitialUserPrompt('locate policy use');
 
-  assert.match(system, /Autoloaded file: docs\/policy\.md/u);
+  assert.doesNotMatch(system, /Autoloaded file|policy text/u);
   assert.doesNotMatch(user, /Autoloaded file|policy text/u);
   assert.equal(user, 'Task: locate policy use');
 });
@@ -287,12 +287,13 @@ test('buildAgentSystemPrompt requires a completion review against the task and r
   assert.match(prompt, /verify nothing was missed/u);
 });
 
-test('buildAgentSystemPrompt injects agents.md when present and enabled', () => {
+test('buildAgentSystemPrompt uses context metadata without injecting context content', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-agent-prompt-'));
   try {
     fs.writeFileSync(path.join(dir, 'AGENTS.md'), 'PROJECT RULE: use tabs.');
     const prompt = buildAgentSystemPrompt(buildTestContext(dir, true, true));
-    assert.match(prompt, /PROJECT RULE: use tabs\./u);
+    assert.match(prompt, /repository file listing is provided/u);
+    assert.doesNotMatch(prompt, /PROJECT RULE: use tabs\./u);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

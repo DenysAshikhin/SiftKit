@@ -32,7 +32,8 @@ import type {
   RepoSearchProgressEvent,
 } from './types.js';
 import { PresetSystemContextBuilder } from '../preset-system-context.js';
-import { findPresetById, normalizePresets } from '../presets.js';
+import { PresetSystemPromptComposer } from '../preset-system-prompt.js';
+import { normalizePresets, requirePresetById } from '../presets.js';
 
 export type RepoSearchPreflightSummary = {
   turn: number;
@@ -316,10 +317,7 @@ export async function executeRepoSearchRequest(
 
   try {
     const config = request.config ?? await loadConfig({ ensure: true });
-    const preset = findPresetById(normalizePresets(config.Presets), request.presetId);
-    if (!preset) {
-      throw new Error(`Preset '${request.presetId}' was not found.`);
-    }
+    const preset = requirePresetById(normalizePresets(config.Presets), request.presetId);
     const systemContext = new PresetSystemContextBuilder(repoRoot).build(preset);
     const progressWriter = new RepoSearchLifecycleWriter(
       requestId,
@@ -329,15 +327,15 @@ export async function executeRepoSearchRequest(
     for (const warningText of systemContext.warnings) {
       progressWriter.write({ kind: 'context_warning', warningText });
     }
-    const explicitPromptPrefix = typeof request.promptPrefix === 'string' ? request.promptPrefix.trim() : '';
-    const promptPrefix = [preset.promptPrefix.trim(), explicitPromptPrefix].filter(Boolean).join('\n\n');
-    const systemPromptOverride = isAgent
-      ? [promptPrefix, buildAgentSystemPrompt(systemContext)].filter(Boolean).join('\n\n')
+    const baseSystemPrompt = isAgent
+      ? buildAgentSystemPrompt(systemContext)
       : taskKind === 'chat'
-        ? [request.systemPrompt || '', systemContext.content].filter(Boolean).join('\n\n')
-        : promptPrefix
-          ? [promptPrefix, buildTaskSystemPrompt(systemContext)].join('\n\n')
-          : undefined;
+        ? request.systemPrompt || ''
+        : buildTaskSystemPrompt(systemContext);
+    const systemPromptOverride = new PresetSystemPromptComposer(
+      preset.promptPrefix,
+      systemContext,
+    ).compose(baseSystemPrompt, request.additionalPromptPrefix);
     serverLogger.debug({ scope: 'rs', id: requestId, event: 'run_start', fields: '' });
     const scorecard = await runRepoSearch({
       repoRoot,

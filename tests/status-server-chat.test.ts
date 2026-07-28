@@ -314,13 +314,19 @@ test('appendChatMessagesWithUsage omits empty-thinking turns and persists single
 
 test('buildChatSystemContent contains only system prompt and explicit web instruction', () => {
   const session = createSession();
-
-  const systemContent = buildChatSystemContent(createConfig(), session, { promptPrefix: 'custom system prompt' });
-  const promptContext = buildChatPromptContext(createConfig(), session, {
-    promptPrefix: 'custom system prompt',
+  const config = createConfig({
+    Presets: [{
+      id: 'chat',
+      label: 'Chat',
+      promptPrefix: 'custom system prompt',
+    }],
   });
 
-  assert.equal(systemContent, 'custom system prompt');
+  const systemContent = buildChatSystemContent(config, session);
+  const promptContext = buildChatPromptContext(config, session);
+
+  assert.match(systemContent, /coder friendly assistant/u);
+  assert.doesNotMatch(systemContent, /custom system prompt/u);
   assert.match(promptContext.content, /custom system prompt/u);
   assert.doesNotMatch(promptContext.content, /Internal tool-call context/u);
 });
@@ -344,7 +350,6 @@ test('buildChatPromptContext exposes repo-search tool schema', () => {
 
   assert.match(context.content, /System prompt/u);
   assert.match(context.content, /You are a repo-search planner/u);
-  assert.match(context.content, /Preset prompt prefix/u);
   assert.match(context.content, /extra repo instruction/u);
   assert.match(context.content, /Tool schema/u);
   const toolSchemaSection = context.content.split('## Tool schema')[1] || '';

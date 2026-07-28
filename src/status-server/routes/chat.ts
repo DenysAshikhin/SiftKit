@@ -713,7 +713,7 @@ class ChatMessageTurn {
         repoRoot: process.cwd(),
         statusBackendUrl: `${this.ctx.getServiceBaseUrl()}/status`,
         config: this.config,
-        systemPrompt: buildChatSystemContent(this.config, this.session, { promptPrefix: chatPreset?.promptPrefix || undefined }),
+        systemPrompt: buildChatSystemContent(this.config, this.session),
         history: buildChatHistoryMessages(this.config, this.session),
         thinkingEnabled: this.session.thinkingEnabled !== false,
         allowedTools: [],
@@ -966,7 +966,7 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
         repoRoot: process.cwd(),
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
         config,
-        systemPrompt: buildChatSystemContent(config, activeSession, { promptPrefix: chatPreset?.promptPrefix || undefined }),
+        systemPrompt: buildChatSystemContent(config, activeSession),
         history: buildChatHistoryMessages(config, activeSession),
         thinkingEnabled: activeSession.thinkingEnabled !== false,
         allowedTools: webEnabled ? ['web_search', 'web_fetch'] : [],
@@ -1107,7 +1107,6 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
         repoRoot: resolvedRepoRoot,
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
         config,
-        promptPrefix: preset?.promptPrefix || '',
         allowedTools: withEffectiveWebTools(
           getEffectivePresetAllowedTools(config, preset),
           activeSession.webSearchEnabled === true,
@@ -1264,7 +1263,6 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
         repoRoot: resolvedRepoRoot,
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
         config,
-        promptPrefix: preset?.promptPrefix || '',
         allowedTools: withEffectiveWebTools(
           getEffectivePresetAllowedTools(config, preset),
           activeSession.webSearchEnabled === true,
@@ -1431,7 +1429,6 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
         repoRoot: resolvedRepoRoot,
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
         config,
-        promptPrefix: preset?.promptPrefix || '',
         allowedTools: withEffectiveWebTools(
           getEffectivePresetAllowedTools(config, preset),
           activeSession.webSearchEnabled === true,

@@ -200,7 +200,6 @@ function getChatUsageValue(value: number | null | undefined): number | null {
 
 
 type BuildChatOptions = {
-  promptPrefix?: string;
   webActionInstruction?: string;
 };
 
@@ -320,10 +319,8 @@ export function buildRetainedWebToolCalls(session: ChatSession): RetainedWebTool
   return retained;
 }
 
-export function buildChatSystemContent(_config: SiftConfig, _session: ChatSession, options: Pick<BuildChatOptions, 'promptPrefix' | 'webActionInstruction'> = {}): string {
-  const systemPrompt = typeof options.promptPrefix === 'string' && options.promptPrefix.trim()
-    ? options.promptPrefix.trim()
-    : DEFAULT_CHAT_SYSTEM_PROMPT;
+export function buildChatSystemContent(_config: SiftConfig, _session: ChatSession, options: BuildChatOptions = {}): string {
+  const systemPrompt = DEFAULT_CHAT_SYSTEM_PROMPT;
   return typeof options.webActionInstruction === 'string' && options.webActionInstruction.trim()
     ? `${systemPrompt}\n\n${options.webActionInstruction.trim()}`
     : systemPrompt;

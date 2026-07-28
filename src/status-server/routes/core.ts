@@ -908,7 +908,7 @@ abstract class RepoTaskEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
         prompt: repoSearchRequest.prompt,
         requestId: admission.requestId,
         startedAtUtc: admission.startedAtUtc,
-        promptPrefix: reader.optionalString('promptPrefix'),
+        additionalPromptPrefix: reader.optionalString('promptPrefix'),
         repoRoot: admission.repoRoot,
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
         config,
