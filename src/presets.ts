@@ -452,6 +452,31 @@ export function findPresetById(presets: readonly SiftPreset[], presetId: Optiona
   return presets.find((preset) => preset.id === normalizedId) || null;
 }
 
+export function requirePresetById(
+  presets: readonly SiftPreset[],
+  presetId: string,
+): SiftPreset {
+  const preset = findPresetById(presets, presetId);
+  if (!preset) {
+    throw new Error(`Preset '${presetId}' was not found.`);
+  }
+  return preset;
+}
+
+export function requirePresetKind(
+  presets: readonly SiftPreset[],
+  presetId: string,
+  allowedKinds: readonly PresetKind[],
+): SiftPreset {
+  const preset = requirePresetById(presets, presetId);
+  if (!allowedKinds.includes(preset.presetKind)) {
+    throw new Error(
+      `Preset '${preset.id}' has kind '${preset.presetKind}'; expected: ${allowedKinds.join(', ')}.`,
+    );
+  }
+  return preset;
+}
+
 export function getConfigPresets(config: OptionalJsonValue): SiftPreset[] {
   const reader = JsonRecordReader.fromJsonValue(config);
   return normalizePresets(reader.value('Presets'));
@@ -471,16 +496,20 @@ export function resolveSummaryPreset(presets: readonly SiftPreset[]): SiftPreset
   return found;
 }
 
-export function getPresetExecutionFamily(presetId: OptionalJsonValue, presets: readonly SiftPreset[]): PresetExecutionFamily {
-  return findPresetById(presets, presetId)?.executionFamily || 'chat';
-}
-
 export function getPresetKind(presetId: OptionalJsonValue, presets: readonly SiftPreset[]): PresetKind {
-  return findPresetById(presets, presetId)?.presetKind || 'chat';
+  const normalizedId = normalizePresetId(presetId);
+  if (!normalizedId) {
+    throw new Error(`Preset '${String(presetId)}' was not found.`);
+  }
+  return requirePresetById(presets, normalizedId).presetKind;
 }
 
 export function getPresetExecutionOperationMode(presetId: OptionalJsonValue, presets: readonly SiftPreset[]): PresetOperationMode {
-  return findPresetById(presets, presetId)?.operationMode || 'summary';
+  const normalizedId = normalizePresetId(presetId);
+  if (!normalizedId) {
+    throw new Error(`Preset '${String(presetId)}' was not found.`);
+  }
+  return requirePresetById(presets, normalizedId).operationMode;
 }
 
 export function mapLegacyModeToPresetId(mode: OptionalJsonValue): string {

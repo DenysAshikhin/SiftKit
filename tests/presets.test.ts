@@ -14,6 +14,7 @@ import {
   mapLegacyModeToPresetId,
   normalizePresets,
   normalizeOperationModeAllowedTools,
+  requirePresetKind,
   resolveSummaryPreset,
 } from '../src/presets.js';
 import { READ_ONLY_PRESET_TOOLS } from '@siftkit/contracts';
@@ -252,6 +253,23 @@ test('preset kind and operation mode helpers resolve the selected preset metadat
 
   assert.equal(getPresetKind('custom-research', presets), 'repo-search');
   assert.equal(getPresetExecutionOperationMode('custom-research', presets), 'read-only');
-  assert.equal(getPresetKind('missing', presets), 'chat');
-  assert.equal(getPresetExecutionOperationMode('missing', presets), 'summary');
+});
+
+test('preset metadata helpers reject a missing preset instead of selecting defaults', () => {
+  const presets = normalizePresets([]);
+
+  assert.throws(() => getPresetKind('missing', presets), /Preset 'missing' was not found\./u);
+  assert.throws(
+    () => getPresetExecutionOperationMode('missing', presets),
+    /Preset 'missing' was not found\./u,
+  );
+});
+
+test('requirePresetKind rejects an exact preset with an incompatible kind', () => {
+  const presets = normalizePresets([]);
+
+  assert.throws(
+    () => requirePresetKind(presets, 'chat', ['plan']),
+    /Preset 'chat' has kind 'chat'; expected: plan\./u,
+  );
 });
