@@ -9,12 +9,14 @@
  *   - `routes.ts`        – HTTP route handler
  */
 import { createServer } from 'node:http';
+import { join } from 'node:path';
 import { toError } from '../lib/errors.js';
 import {
   getStatusPath,
   getConfigPath,
   getMetricsPath,
   getIdleSummarySnapshotsPath,
+  getRuntimeRoot,
 } from './paths.js';
 import {
   supportsAnsiColor,
@@ -39,6 +41,8 @@ import {
   normalizeIdleSummarySnapshotRow,
 } from './dashboard-runs.js';
 import { closeRuntimeDatabase, pruneRuntimeHistory } from '../state/runtime-db.js';
+import { getRuntimeHistoryRetentionDays } from '../state/runtime-retention.js';
+import { RepoAgentRunStore } from '../repo-agent/run-store.js';
 import { deleteInferenceRunLogChunksOlderThan } from '../state/inference-runs.js';
 import { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
 import {
@@ -123,16 +127,10 @@ const MANAGED_LLAMA_LOG_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
 const MANAGED_LLAMA_LOG_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 const DEFAULT_TERMINAL_METADATA_IDLE_DELAY_MS = 10_000;
 const DEFAULT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS = 10_000;
-const DEFAULT_RUNTIME_HISTORY_RETENTION_DAYS = 7;
 const RUNTIME_HISTORY_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
-
-function getRuntimeHistoryRetentionDays(): number {
-  const envValue = Number.parseInt(process.env.SIFTKIT_RUNTIME_HISTORY_RETENTION_DAYS || '', 10);
-  if (Number.isFinite(envValue) && envValue > 0) {
-    return envValue;
-  }
-  return DEFAULT_RUNTIME_HISTORY_RETENTION_DAYS;
-}
+const repoAgentRunStore = new RepoAgentRunStore(
+  join(getRuntimeRoot(), 'repo-agent', 'runs'),
+);
 
 function isRuntimeHistoryPruneDisabled(): boolean {
   const value = String(process.env.SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE || '').trim().toLowerCase();
@@ -143,8 +141,9 @@ function runRuntimeHistoryPrune(): void {
   if (isRuntimeHistoryPruneDisabled()) {
     return;
   }
+  const retentionDays = getRuntimeHistoryRetentionDays();
   try {
-    const result = pruneRuntimeHistory(getRuntimeHistoryRetentionDays());
+    const result = pruneRuntimeHistory(retentionDays);
     const totalDeleted = result.deleted.reduce((acc, item) => acc + item.rows, 0);
     if (totalDeleted === 0 && !result.vacuumed) {
       return;
@@ -158,6 +157,18 @@ function runRuntimeHistoryPrune(): void {
     );
   } catch (error) {
     process.stderr.write(`[siftKitStatus] Runtime history prune failed: ${error instanceof Error ? error.message : String(error)}\n`);
+  }
+  try {
+    const prunedRuns = repoAgentRunStore.pruneTerminalRuns(retentionDays, new Date());
+    if (prunedRuns.length > 0) {
+      process.stderr.write(
+        `[siftKitStatus] Pruned ${prunedRuns.length} repo-agent run directories older than ${retentionDays}d.\n`,
+      );
+    }
+  } catch (error) {
+    process.stderr.write(
+      `[siftKitStatus] Repo-agent run prune failed: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
   }
 }
 
