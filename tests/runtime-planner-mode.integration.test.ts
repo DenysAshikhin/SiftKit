@@ -31,6 +31,7 @@ test('planner writes a debug dump with thinking, tool calls, tool output, and fi
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Find all transitions in the Lumbridge Castle area.',
         inputText,
         format: 'text',

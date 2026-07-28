@@ -15,6 +15,7 @@ test('summary emits preflight tokenization progress', async () => {
     await withStubServer(async () => {
       const writer = new CollectingProgressWriter<SummaryProgressEvent>();
       await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'summarize this',
         inputText: 'A'.repeat(5_000),
         format: 'text',
@@ -53,6 +54,7 @@ test('summary rejects before loading configuration when already aborted', async 
   controller.abort(new Error('client disconnected'));
   await assert.rejects(
     () => summarizeRequest({
+      repoRoot: process.cwd(),
       question: 'summarize this',
       inputText: 'ordinary input',
       format: 'text',

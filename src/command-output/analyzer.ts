@@ -168,6 +168,7 @@ export class CommandOutputAnalyzer {
       ? 'risky-operation'
       : policyProfile;
     const summaryResult = await summarizeRequest({
+      repoRoot: request.repoRoot,
       question,
       inputText: combinedText,
       format,

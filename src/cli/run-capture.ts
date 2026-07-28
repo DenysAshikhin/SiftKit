@@ -21,6 +21,7 @@ export async function runCaptureInternalCli(options: ResolvedCliArgs & {
   const captured = captureWithTranscript(resolveExternalCommand(command), argList);
   const fallbackTranscript = `Interactive command completed without a captured transcript.\nCommand: ${command} ${argList.join(' ')}\nExitCode: ${captured.ExitCode}`;
   const result = await new StatusServerApiClient().analyzeCommandOutput({
+    repoRoot: process.cwd(),
     outputKind: 'interactive',
     exitCode: captured.ExitCode,
     combinedText: captured.Transcript.trim() ? captured.Transcript : fallbackTranscript,

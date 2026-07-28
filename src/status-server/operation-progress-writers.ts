@@ -44,7 +44,7 @@ export class LoggedRepoSearchSseProgressWriter extends RepoSearchSseProgressWrit
   }
 
   override write(event: RepoSearchProgressEvent): void {
-    if (event.kind === 'tool_start') {
+    if (event.kind === 'tool_start' || event.kind === 'context_warning') {
       const body = buildRepoSearchProgressLogBody(event);
       if (body) {
         serverLogger.emitBody('rs', this.requestId, body);

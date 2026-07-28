@@ -189,6 +189,7 @@ test('summary pass/fail command output is delegated to the server', async () => 
     assert.equal(server.requests.filter((request) => request.route === '/summary').length, 1);
     assert.equal(server.requests[0].body.sourceKind, 'command-output');
     assert.equal(server.requests[0].body.commandExitCode, 0);
+    assert.equal(server.requests[0].body.repoRoot, process.cwd());
   });
 });
 
@@ -219,6 +220,7 @@ test('run command executes locally and sends captured output to server', async (
     assert.ok(commandRequest);
     assert.equal(commandRequest.body.combinedText, 'client-ran-command');
     assert.equal(commandRequest.body.exitCode, 0);
+    assert.equal(commandRequest.body.repoRoot, process.cwd());
     assert.match(String(commandRequest.body.commandText), /^node -e/u);
   });
 });
@@ -247,6 +249,7 @@ test('repo-search internal op posts to the server endpoint', async () => {
       const repoRequest = server.requests.find((request) => request.route === '/repo-search');
       assert.ok(repoRequest);
       assert.equal(repoRequest.body.prompt, 'find planner tools');
+      assert.equal(repoRequest.body.repoRoot, process.cwd());
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }

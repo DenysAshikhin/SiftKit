@@ -143,6 +143,7 @@ test('repo-search execution dumps temp timing json with llama and tool phases', 
   }, async () => {
     await withTestEnvAndServer(async ({ tempRoot: repoRoot }) => {
       const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
         prompt: 'find build scripts',
         repoRoot,
         maxTurns: 2,
@@ -185,6 +186,7 @@ test('summary planner dumps temp timing json with planner llama and tool phases'
         const threshold = getChunkThresholdCharacters(config);
         const inputText = buildOversizedTransitionsInput(threshold + 1000);
         const result = await summarizeRequest({
+      repoRoot: process.cwd(),
           question: 'Find all transitions in the Lumbridge Castle area.',
           inputText,
           format: 'text',

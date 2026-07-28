@@ -8,6 +8,7 @@ import { ApprovalGate } from '../src/repo-search/engine/approval-gate.js';
 import { ProgressWriter } from '../src/lib/progress-writer.js';
 import { INTERACTIVE_REPO_TOOL_NAMES, resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
+import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 
 type ScriptedDecision = { kind: 'approve' } | { kind: 'deny'; reason: string } | { kind: 'abort' };
 
@@ -35,6 +36,7 @@ function makeLoopOptions(tempRoot: string, mockResponses: string[], writer: Auto
     repoRoot: tempRoot,
     model: 'mock-model',
     baseUrl: 'http://127.0.0.1:1',
+    systemContext: createEmptyPresetSystemContext(),
     maxTurns: 4,
     minToolCallsBeforeFinish: 0,
     mockResponses,
@@ -166,6 +168,7 @@ test('without a gate, mutating tools stay invalid actions (non-interactive uncha
     const writer = new AutoRespondingWriter(() => ({ kind: 'approve' }));
     const result = await runTaskLoop(makeTask('write a file'), {
       repoRoot: tempRoot,
+      systemContext: createEmptyPresetSystemContext(),
       model: 'mock-model',
       baseUrl: 'http://127.0.0.1:1',
       maxTurns: 4,

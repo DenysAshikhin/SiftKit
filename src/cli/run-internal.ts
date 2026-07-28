@@ -65,6 +65,7 @@ export async function runInternal(options: ResolvedCliArgs & {
     case 'summary': {
       const text = request.TextFile ? readTextFileWithEncoding(String(request.TextFile)) : String(request.Text || '');
       result = await apiClient.requestSummary({
+        repoRoot: process.cwd(),
         question: String(request.Question),
         inputText: text,
         format: (request.Format === 'json' ? 'json' : 'text'),
@@ -85,6 +86,7 @@ export async function runInternal(options: ResolvedCliArgs & {
         ? invokeShellProcess(command, shell)
         : invokeProcess(command, argumentList);
       result = await apiClient.analyzeCommandOutput({
+        repoRoot: process.cwd(),
         outputKind: 'command',
         exitCode: processResult.ExitCode,
         combinedText: processResult.Combined,
@@ -104,6 +106,7 @@ export async function runInternal(options: ResolvedCliArgs & {
     case 'command-analyze': {
       const text = request.RawTextFile ? readTextFileWithEncoding(String(request.RawTextFile)) : String(request.RawText || '');
       result = await apiClient.analyzeCommandOutput({
+        repoRoot: process.cwd(),
         outputKind: 'command',
         exitCode: Number(request.ExitCode || 0),
         combinedText: text,
@@ -149,6 +152,7 @@ export async function runInternal(options: ResolvedCliArgs & {
       const captured = captureWithTranscript(resolveExternalCommand(command), argumentList);
       const fallbackTranscript = `Interactive command completed without a captured transcript.\nCommand: ${command} ${argumentList.join(' ')}\nExitCode: ${captured.ExitCode}`;
       result = await apiClient.analyzeCommandOutput({
+        repoRoot: process.cwd(),
         outputKind: 'interactive',
         exitCode: captured.ExitCode,
         combinedText: captured.Transcript.trim() ? captured.Transcript : fallbackTranscript,
@@ -163,6 +167,7 @@ export async function runInternal(options: ResolvedCliArgs & {
     }
     case 'repo-search':
       result = await apiClient.requestRepoSearch({
+        presetId: 'repo-search',
         prompt: String(request.Prompt || ''),
         repoRoot: String(request.RepoRoot || process.cwd()),
         model: request.Model ? String(request.Model) : undefined,

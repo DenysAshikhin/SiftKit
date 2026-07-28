@@ -6,6 +6,7 @@ import { DEFAULT_SUMMARY_PROVIDER } from '../src/summary/types.js';
 
 test('SummaryRequestRunner handles deterministic command-output summaries without model config', async () => {
   const result = await new SummaryRequestRunner({
+      repoRoot: process.cwd(),
     question: 'Determine whether the targeted Jest run passes. Return pass/fail and warnings/errors.',
     inputText: [
       'PASS tests/example.test.ts',
@@ -28,6 +29,7 @@ test('SummaryRequestRunner handles deterministic command-output summaries withou
 
 test('SummaryRequestRunner reports the requested provider on the deterministic path', async () => {
   const result = await new SummaryRequestRunner({
+      repoRoot: process.cwd(),
     question: 'Determine whether the targeted Jest run passes. Return pass/fail and warnings/errors.',
     inputText: [
       'FAIL tests/example.test.ts',

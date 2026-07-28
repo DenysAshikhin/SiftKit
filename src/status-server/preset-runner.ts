@@ -60,10 +60,6 @@ function getCliPresets(): SiftPreset[] {
   return getPresetsForSurface(normalizePresets(config.Presets), 'cli');
 }
 
-function getPromptPrefix(config: SiftConfig, preset: SiftPreset): string {
-  return preset.promptPrefix.trim() || String(config.PromptPrefix || '').trim();
-}
-
 function getPresetById(presetId: string): SiftPreset {
   const preset = findPresetById(getCliPresets(), presetId);
   if (!preset) {
@@ -90,14 +86,6 @@ function getPresetPrompt(request: PresetRunRequest): string {
 
 function getRepoRoot(request: PresetRunRequest): string {
   return String(request.repoRoot || process.cwd()).trim() || process.cwd();
-}
-
-function resolveEffectiveAgentsMd(config: Pick<SiftConfig, 'IncludeAgentsMd'>, preset: Pick<SiftPreset, 'includeAgentsMd'>): boolean {
-  return config.IncludeAgentsMd !== false && preset.includeAgentsMd !== false;
-}
-
-function resolveEffectiveRepoFileListing(config: Pick<SiftConfig, 'IncludeRepoFileListing'>, preset: Pick<SiftPreset, 'includeRepoFileListing'>): boolean {
-  return config.IncludeRepoFileListing !== false && preset.includeRepoFileListing !== false;
 }
 
 /** Which runner branch a preset kind dispatches to; `plan` and `repo-search` share the repo-search runner. */
@@ -168,13 +156,14 @@ export class StatusPresetRunner {
       throw new Error('stdin, --text or --file required');
     }
     const result = await this.engineService.summarize({
+      repoRoot: getRepoRoot(request),
+      presetId: preset.id,
       question,
       inputText,
       format: request.format === 'json' ? 'json' : 'text',
       policyProfile: normalizePresetPolicyProfile(request.profile),
       backend: request.backend,
       model: request.model,
-      promptPrefix: getPromptPrefix(config, preset),
       allowedPlannerTools: effectiveAllowedTools.filter(isSummaryPlannerTool),
       sourceKind: request.sourceKind === 'command-output' ? 'command-output' : 'standalone',
       commandExitCode: Number.isFinite(Number(request.commandExitCode)) ? Number(request.commandExitCode) : undefined,
@@ -214,6 +203,7 @@ export class StatusPresetRunner {
       messages: [],
     };
     const result = await this.engineService.executeRepoSearch({
+      presetId: preset.id,
       taskKind: 'chat',
       prompt,
       repoRoot: getRepoRoot(request),
@@ -245,6 +235,7 @@ export class StatusPresetRunner {
     }
     const repoRoot = getRepoRoot(request);
     const result = await this.engineService.executeRepoSearch({
+      presetId: preset.id,
       taskKind: preset.presetKind === 'plan' ? 'plan' : 'repo-search',
       prompt: preset.presetKind === 'plan' ? buildPlanRequestPrompt(prompt) : prompt,
       promptPrefix: preset.presetKind === 'repo-search' ? preset.promptPrefix : '',
@@ -257,8 +248,6 @@ export class StatusPresetRunner {
         : preset.maxTurns ?? undefined,
       logFile: request.logFile,
       allowedTools: effectiveAllowedTools,
-      includeAgentsMd: resolveEffectiveAgentsMd(config, preset),
-      includeRepoFileListing: resolveEffectiveRepoFileListing(config, preset),
       progressWriter: options.repoSearchProgressWriter,
       abortSignal: options.abortSignal,
     });

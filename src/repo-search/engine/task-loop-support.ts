@@ -2,6 +2,7 @@ import { getActiveModelPreset, type SiftConfig } from '../../config/index.js';
 import { ModelJson } from '../../lib/model-json.js';
 import { z } from '../../lib/zod.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
+import type { PresetSystemContext } from '../../preset-system-context.js';
 import { ToolTypeStatsSchema } from '../../status-server/metrics.js';
 import { resolveRepoSearchPlannerToolDefinitions, type ChatMessage } from '../planner-protocol.js';
 import { ReadOverlapSummarySchema } from './read-overlap.js';
@@ -161,8 +162,7 @@ export type RunTaskLoopOptions = {
   systemPromptOverride?: string;
   historyMessages?: ChatMessage[];
   plannerToolDefinitions?: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;
-  includeAgentsMd?: boolean;
-  includeRepoFileListing?: boolean;
+  systemContext: PresetSystemContext;
   mockResponses?: string[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
   retainedWebToolCalls?: RetainedWebToolCall[];

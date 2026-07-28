@@ -6,6 +6,7 @@ import { join } from 'node:path';
 
 import { runTaskLoop } from '../src/repo-search/engine.js';
 import type { JsonSerializable } from '../src/lib/json-types.js';
+import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 
 // runTaskLoop requires repoRoot/model/baseUrl; the mock-provider path never reads the
 // model/baseUrl, and an empty temp repo produces the same empty listing the prior
@@ -14,6 +15,7 @@ const MOCK_LOOP_DEFAULTS = {
   repoRoot: mkdtempSync(join(tmpdir(), 'siftkit-syn-loop-')),
   model: 'mock-model',
   baseUrl: 'http://127.0.0.1:1',
+  systemContext: createEmptyPresetSystemContext(),
 };
 
 test('synthesis succeeds on attempt 1 sets finalOutput and logs a single result event', async () => {

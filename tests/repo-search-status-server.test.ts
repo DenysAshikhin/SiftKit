@@ -436,6 +436,7 @@ test('managed llama readiness wait is serialized by the model request queue', as
     const secondResponse = await requestSse(`${baseUrl}/summary`, {
       timeoutMs: 15000,
       body: {
+        repoRoot: process.cwd(),
         question: 'summarize',
         inputText: 'short text',
         backend: 'llama.cpp',

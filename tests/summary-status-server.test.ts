@@ -77,6 +77,7 @@ test('summary endpoint waits behind the model request queue', async () => {
     const summary = await requestSse(`${baseUrl}/summary`, {
       timeoutMs: 15000,
       body: {
+        repoRoot: process.cwd(),
         question: 'summarize this',
         inputText: 'Build output: warning appeared.'.repeat(50),
         format: 'text',
@@ -143,6 +144,7 @@ test('summary endpoint processes terminal status before granting next queued sum
       const first = requestSse(`${baseUrl}/summary`, {
         timeoutMs: 15000,
         body: {
+          repoRoot: process.cwd(),
           question: 'summarize this',
           inputText: 'First queued summary input.'.repeat(50),
           format: 'text',
@@ -155,6 +157,7 @@ test('summary endpoint processes terminal status before granting next queued sum
       const second = requestSse(`${baseUrl}/summary`, {
         timeoutMs: 15000,
         body: {
+          repoRoot: process.cwd(),
           question: 'summarize this',
           inputText: 'Second queued summary input.'.repeat(50),
           format: 'text',
@@ -608,6 +611,7 @@ test('summary endpoint returns, logs, and persists diagnostics for 500 responses
     const summary = await requestSse(`${baseUrl}/summary`, {
       timeoutMs: 15000,
       body: {
+        repoRoot: process.cwd(),
         question: 'summarize this',
         inputText: 'Build output: warning appeared.'.repeat(50),
         format: 'text',
@@ -690,6 +694,7 @@ test('command-output endpoint analyzes captured command output on the server', a
   try {
     const response = await requestSse(`${baseUrl}/command-output/analyze`, {
       body: {
+        repoRoot: process.cwd(),
         outputKind: 'command',
         exitCode: 0,
         combinedText: 'Build completed. All tests passed.',
@@ -733,6 +738,7 @@ test('summarizeRequest uses explicit config without requiring config service', a
     config.Runtime.LlamaCpp = runtimeSnapshot.LlamaCpp;
     config.Server.ModelPresets.Presets[0].Model = 'mock-model';
     const result = await summarizeRequest({
+      repoRoot: process.cwd(),
       question: 'summarize this',
       inputText: 'Build output: warning appeared.'.repeat(50),
       format: 'text',

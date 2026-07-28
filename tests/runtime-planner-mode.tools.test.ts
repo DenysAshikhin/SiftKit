@@ -401,6 +401,7 @@ test('planner mode executes multi-tool batches sequentially before finishing', a
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Summarize the Lumbridge transitions.',
         inputText,
         format: 'text',
@@ -497,6 +498,7 @@ test('planner token accounting treats tool-step completion tokens as thinking an
       const baselineThinkingTokens = server.state.metrics.thinkingTokensTotal;
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Find all transitions in the Lumbridge Castle area.',
         inputText,
         format: 'text',
@@ -596,6 +598,7 @@ test('summary below planner threshold disables thinking for fully ingested one-s
       await saveConfig(config);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'summarize this',
         inputText,
         format: 'text',
@@ -634,6 +637,7 @@ test('summary above planner threshold respects runtime reasoning for planner req
       await saveConfig(config);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Summarize the visible transition evidence conservatively.',
         inputText,
         format: 'text',
@@ -736,6 +740,7 @@ test('oversized transition extraction uses planner action grammar before returni
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Find all transitions in the Lumbridge Castle area (worldX 3200-3215, worldY 3210-3225). List their id, label, type, from coordinates (worldX, worldY, plane), to coordinates (worldX, worldY, plane), and bidirectional flag.',
         inputText,
         format: 'text',
@@ -811,6 +816,7 @@ test('planner accepts inputs larger than the former four-chunk cap when it can a
       const inputText = buildOversizedTransitionsInput((threshold * 5) + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Find all transitions in the Lumbridge Castle area (worldX 3200-3215, worldY 3210-3225).',
         inputText,
         format: 'text',
@@ -849,6 +855,7 @@ test('planner handles oversized monolithic JSON instead of forcing chunk fallbac
       });
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Summarize this oversized JSON payload.',
         inputText,
         format: 'text',

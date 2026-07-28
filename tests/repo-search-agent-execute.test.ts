@@ -18,14 +18,13 @@ async function readRepoAgentMaxTurns(requestedMaxTurns?: number): Promise<number
   const events: RepoSearchProgressEvent[] = [];
   try {
     await executeRepoSearchRequest({
+      presetId: 'repo-search',
       taskKind: 'repo-agent',
       prompt: 'finish immediately',
       repoRoot: dir,
       config: MOCK_CONFIG,
       model: 'mock',
       ...(requestedMaxTurns === undefined ? {} : { maxTurns: requestedMaxTurns }),
-      includeAgentsMd: false,
-      includeRepoFileListing: false,
       allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
       availableModels: ['mock'],
       mockResponses: ['{"action":"finish","output":"done"}'],
@@ -48,13 +47,12 @@ test('repo-agent selects fail context policy and surfaces overflow without a mod
   try {
     await assert.rejects(
       executeRepoSearchRequest({
+      presetId: 'repo-search',
         taskKind: 'repo-agent',
         prompt: 'Q'.repeat(60_000),
         repoRoot: dir,
         config: mockSiftConfig({ Runtime: { LlamaCpp: { NumCtx: 9_000 } } }),
         model: 'mock',
-        includeAgentsMd: false,
-        includeRepoFileListing: false,
         allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
         availableModels: ['mock'],
         mockResponses: ['{"action":"finish","output":"must not run"}'],
@@ -81,14 +79,13 @@ test('repo-agent automatically trims noisy validation run output', async () => {
   );
   try {
     const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
       taskKind: 'repo-agent',
       prompt: 'run the validation test',
       repoRoot: dir,
       config: MOCK_CONFIG,
       model: 'mock',
       maxTurns: 4,
-      includeAgentsMd: false,
-      includeRepoFileListing: false,
       allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
       availableModels: ['mock'],
       mockResponses: [
@@ -114,14 +111,13 @@ test('repo-agent taskKind runs the agent prompt and applies a write without appr
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-agent-exec-'));
   try {
     const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
       taskKind: 'repo-agent',
       prompt: 'create out.txt',
       repoRoot: dir,
       config: MOCK_CONFIG,
       model: 'mock',
       maxTurns: 4,
-      includeAgentsMd: false,
-      includeRepoFileListing: true,
       allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
       availableModels: ['mock'],
       mockResponses: [
@@ -146,14 +142,13 @@ test('repo-agent uses ExpandReads=false and records overlapping reads', async ()
   );
   try {
     const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
       taskKind: 'repo-agent',
       prompt: 'Read a file twice.',
       repoRoot: dir,
       config: mockSiftConfig({ ExpandReads: false }),
       model: 'mock',
       maxTurns: 6,
-      includeAgentsMd: false,
-      includeRepoFileListing: true,
       allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
       availableModels: ['mock'],
       mockResponses: [

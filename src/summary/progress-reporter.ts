@@ -1,7 +1,7 @@
 export type SummaryProgressEvent = {
   kind: 'start' | 'config_start' | 'config_done' | 'host_sync' | 'decision_done'
     | 'core_start' | 'core_done' | 'tokenize_start' | 'tokenize_done'
-    | 'completed' | 'failed';
+    | 'context_warning' | 'completed' | 'failed';
   requestId: string;
   inputChars?: number;
   source?: string;
@@ -18,6 +18,7 @@ export type SummaryProgressEvent = {
   tokenSource?: string;
   classification?: string;
   errorMessage?: string;
+  warningText?: string;
 };
 
 /** Emits typed lifecycle events for one summary request. */
@@ -84,6 +85,10 @@ export class SummaryProgressReporter {
 
   failed(errorMessage: string): void {
     this.emit({ kind: 'failed', requestId: this.requestId, errorMessage });
+  }
+
+  contextWarning(warningText: string): void {
+    this.emit({ kind: 'context_warning', requestId: this.requestId, warningText });
   }
 
   private emit(event: SummaryProgressEvent): void {

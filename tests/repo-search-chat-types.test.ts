@@ -20,6 +20,7 @@ test('route RepoSearchProgressEvent carries answerText', () => {
 
 test('RepoSearchExecutionRequest accepts chat taskKind, history, systemPrompt', () => {
   const request: RepoSearchExecutionRequest = {
+    presetId: 'chat',
     prompt: 'hi',
     repoRoot: '/tmp',
     taskKind: 'chat',

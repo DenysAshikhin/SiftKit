@@ -39,6 +39,7 @@ import type {
   RepoSearchMockCommandResult,
   RepoSearchProgressEvent,
 } from './types.js';
+import type { PresetSystemContext } from '../preset-system-context.js';
 
 export { evaluateTaskSignals, type RunTaskLoopOptions, type TaskDefinition, type TaskResult } from './engine/task-loop.js';
 
@@ -161,13 +162,12 @@ export function assertConfiguredModelPresent(model: string, availableModels: str
 // ---------------------------------------------------------------------------
 
 export async function runRepoSearch(options: {
-  repoRoot?: string;
+  repoRoot: string;
+  systemContext: PresetSystemContext;
   config?: SiftConfig;
   model?: string;
   baseUrl?: string;
   allowedTools?: string[];
-  includeAgentsMd?: boolean;
-  includeRepoFileListing?: boolean;
   maxTurns?: number;
   timeoutMs?: number;
   maxInvalidResponses?: number;
@@ -191,7 +191,7 @@ export async function runRepoSearch(options: {
   approvalGate?: ApprovalGate;
   approvalMode?: ApprovalMode;
   timingRecorder?: TemporaryTimingRecorder | null;
-} = {}): Promise<Scorecard> {
+}): Promise<Scorecard> {
   throwIfAborted(options.abortSignal);
   const progressWriter = options.progressWriter ?? new SilentProgressWriter<RepoSearchProgressEvent>();
   const plannerToolDefinitions = resolveRepoSearchPlannerToolDefinitions(options.allowedTools);
@@ -251,8 +251,7 @@ export async function runRepoSearch(options: {
       historyMessages: options.historyMessages,
       thinkingEnabledOverride: options.thinkingEnabledOverride,
       plannerToolDefinitions,
-      includeAgentsMd: options.includeAgentsMd,
-      includeRepoFileListing: options.includeRepoFileListing,
+      systemContext: options.systemContext,
       mockResponses: options.mockResponses,
       mockCommandResults: options.mockCommandResults,
       retainedWebToolCalls: options.retainedWebToolCalls,

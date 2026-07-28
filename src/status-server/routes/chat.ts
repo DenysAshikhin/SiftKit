@@ -473,6 +473,10 @@ class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
   }
 
   write(event: RepoSearchProgressEvent): void {
+    if (event.kind === 'context_warning') {
+      this.writer.writeEvent('warning', { warning: event.warningText ?? '' });
+      return;
+    }
     if (event.kind === 'thinking') {
       const text = event.thinkingText || '';
       this.phaseTracker.observeThinking(text);
@@ -504,7 +508,7 @@ class RepoSearchToolLogProgressWriter extends ProgressWriter<RepoSearchProgressE
   }
 
   write(event: RepoSearchProgressEvent): void {
-    if (event.kind !== 'tool_start') return;
+    if (event.kind !== 'tool_start' && event.kind !== 'context_warning') return;
     const body = buildRepoSearchProgressLogBody(event);
     if (body) {
       serverLogger.emitBody(this.scope, this.requestId, body);
@@ -770,6 +774,7 @@ class ChatMessageTurn {
     try {
       const chatPreset = findPresetById(normalizePresets(this.config.Presets), this.session.presetId);
       const result = await this.ctx.engineService.executeRepoSearch({
+        presetId: chatPreset?.id || 'chat',
         taskKind: 'chat',
         prompt: this.userContent,
         repoRoot: process.cwd(),
@@ -1021,6 +1026,7 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
       const mockTokenConfig = getMockTokenConfig(config, mockResponses);
       const engineRequestId = randomUUID();
       const result = await ctx.engineService.executeRepoSearch({
+        presetId: chatPreset?.id || 'chat',
         requestId: engineRequestId,
         taskKind: 'chat',
         prompt: userContent,
@@ -1160,9 +1166,9 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
         typeof activeSession.presetId === 'string' ? activeSession.presetId : undefined,
         'plan',
       );
-      const autoAppend = resolveRepoSearchAutoAppendOverrides(config, preset, parsedBody);
       const engineRequestId = randomUUID();
       const result = await ctx.engineService.executeRepoSearch({
+        presetId: preset?.id || 'plan',
         taskKind: 'plan',
         prompt: buildPlanRequestPrompt(content),
         repoRoot: resolvedRepoRoot,
@@ -1173,8 +1179,6 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
           getEffectivePresetAllowedTools(config, preset),
           activeSession.webSearchEnabled === true,
         ),
-        includeAgentsMd: autoAppend.includeAgentsMd,
-        includeRepoFileListing: autoAppend.includeRepoFileListing,
         model: resolveChatSessionModel(config, activeSession),
         maxTurns: readRouteNumber(reader, 'maxTurns'),
         logFile: reader.optionalString('logFile'),
@@ -1319,9 +1323,9 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
         typeof activeSession.presetId === 'string' ? activeSession.presetId : undefined,
         'plan',
       );
-      const autoAppend = resolveRepoSearchAutoAppendOverrides(config, preset, parsedBody);
       const engineRequestId = randomUUID();
       const result = await ctx.engineService.executeRepoSearch({
+        presetId: preset?.id || 'plan',
         taskKind: 'plan',
         prompt: buildPlanRequestPrompt(content),
         repoRoot: resolvedRepoRoot,
@@ -1332,8 +1336,6 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
           getEffectivePresetAllowedTools(config, preset),
           activeSession.webSearchEnabled === true,
         ),
-        includeAgentsMd: autoAppend.includeAgentsMd,
-        includeRepoFileListing: autoAppend.includeRepoFileListing,
         model: resolveChatSessionModel(config, activeSession),
         maxTurns: readRouteNumber(reader, 'maxTurns'),
         logFile: reader.optionalString('logFile'),
@@ -1548,9 +1550,9 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
         typeof activeSession.presetId === 'string' ? activeSession.presetId : undefined,
         'repo-search',
       );
-      const autoAppend = resolveRepoSearchAutoAppendOverrides(config, preset, parsedBody);
       const engineRequestId = randomUUID();
       const result = await ctx.engineService.executeRepoSearch({
+        presetId: preset?.id || 'repo-search',
         taskKind: 'repo-search',
         prompt: content,
         repoRoot: resolvedRepoRoot,
@@ -1561,8 +1563,6 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
           getEffectivePresetAllowedTools(config, preset),
           activeSession.webSearchEnabled === true,
         ),
-        includeAgentsMd: autoAppend.includeAgentsMd,
-        includeRepoFileListing: autoAppend.includeRepoFileListing,
         model: resolveChatSessionModel(config, activeSession),
         maxTurns: readRouteNumber(reader, 'maxTurns'),
         logFile: reader.optionalString('logFile'),

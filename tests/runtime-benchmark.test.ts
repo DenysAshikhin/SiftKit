@@ -404,6 +404,7 @@ test('benchmark error-log fixtures now reach the model-first summary path', {
         if (inputText.length > maxChars) {
           await assert.rejects(
             () => summarizeRequest({
+      repoRoot: process.cwd(),
               question: fixture.question,
               inputText,
               format: 'text',
@@ -419,6 +420,7 @@ test('benchmark error-log fixtures now reach the model-first summary path', {
         }
 
         const result = await summarizeRequest({
+      repoRoot: process.cwd(),
           question: fixture.question,
           inputText,
           format: 'text',

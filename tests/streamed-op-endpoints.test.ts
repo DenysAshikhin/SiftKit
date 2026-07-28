@@ -10,6 +10,7 @@ test('command-output/analyze streams progress and a schema-valid result', async 
   try {
     const response = await requestSse(`${harness.baseUrl}/command-output/analyze`, {
       body: {
+        repoRoot: process.cwd(),
         outputKind: 'command',
         exitCode: 0,
         combinedText: 'all tests passed',

@@ -34,6 +34,7 @@ export async function runCommandCli(options: ResolvedCliArgs & {
     ? invokeShellProcess(command, shell)
     : invokeProcess(command, argList);
   const result = await new StatusServerApiClient().analyzeCommandOutput({
+    repoRoot: process.cwd(),
     outputKind: 'command',
     exitCode: processResult.ExitCode,
     combinedText: processResult.Combined,

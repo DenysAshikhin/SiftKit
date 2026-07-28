@@ -121,6 +121,7 @@ test('planner json_filter accepts combined gte and lte bounds in one filter valu
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Find all transitions in the Lumbridge Castle area.',
         inputText,
         format: 'text',
@@ -178,6 +179,7 @@ test('planner iteration running=false notification is fire-and-forget', async ()
       const startedAt = Date.now();
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Find all transitions in the Lumbridge Castle area.',
         inputText,
         format: 'text',
@@ -218,6 +220,7 @@ test('planner retries malformed json_filter schema-placeholder args once and the
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Find ladder transitions near worldX 3228-3230 and worldY 3210-3215. Return full objects.',
         inputText,
         format: 'text',
@@ -280,6 +283,7 @@ test('planner accepts exact nested value scalar wrappers in json_filter args', a
       const inputText = buildOversizedWidgetPayloadInput(threshold + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Find widgetRoots entries where groupId is 12. Return id, groupId, childIndex, and text.',
         inputText,
         format: 'text',
@@ -339,6 +343,7 @@ test('planner malformed json_filter schema-placeholder args fail on invalid resp
 
       await assert.rejects(
         () => summarizeRequest({
+      repoRoot: process.cwd(),
           question: 'Find ladder transitions near worldX 3228-3230 and worldY 3210-3215. Return full objects.',
           inputText,
           format: 'text',
@@ -377,6 +382,7 @@ test('planner json_filter supports scalar timestamp ranges on object-root array 
       const inputText = buildOversizedRunnerStateHistoryInput(threshold + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Summarize runner_state_history between 2026-03-30T18:40:00Z and 18:50:00Z.',
         inputText,
         format: 'text',
@@ -441,6 +447,7 @@ test('planner returns recoverable json_filter collectionPath guidance without co
       const inputText = buildOversizedAmbiguousCollectionInput(threshold + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Find matching id/name rows.',
         inputText,
         format: 'text',
@@ -513,6 +520,7 @@ test('planner json_filter falls back to embedded JSON in command-output text and
       const inputText = `${mixedInput}\n${buildOversizedTransitionsInput(Math.max(1000, threshold - mixedInput.length + 1000))}`;
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Extract names and runtime.',
         inputText,
         format: 'text',
@@ -578,6 +586,7 @@ test('planner surfaces explicit invalid-json message when json_filter fallback c
       const noJsonText = `${badPrefix}\n${'x'.repeat(Math.max(1, threshold + 1000 - badPrefix.length))}`;
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Extract json info.',
         inputText: noJsonText,
         format: 'text',
@@ -636,6 +645,7 @@ test('planner failures write failed artifacts through status posts', async () =>
 
       await assert.rejects(
         () => summarizeRequest({
+      repoRoot: process.cwd(),
           question: 'Find all transitions in the Lumbridge Castle area.',
           inputText,
           format: 'text',
@@ -752,6 +762,7 @@ test('planner debug dumps always write to the repo-local logs directory', async 
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Find all transitions in the Lumbridge Castle area.',
         inputText,
         format: 'text',
@@ -783,6 +794,7 @@ test('planner read_lines tool results use a compact numbered text block', async 
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Read the relevant lines and summarize them.',
         inputText,
         format: 'text',
@@ -830,6 +842,7 @@ test('planner rejects semantically repeated nearby read_lines calls and reprompt
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Read the relevant lines conservatively, then summarize them.',
         inputText,
         format: 'text',
@@ -883,6 +896,7 @@ test('planner keeps the first real tool output and rewrites one duplicate warnin
       await saveConfig(config);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Find the exact route id.',
         inputText,
         format: 'text',
@@ -956,6 +970,7 @@ test('planner find_text and json_filter results use compact text blocks in promp
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Use find_text and json_filter, then summarize.',
         inputText,
         format: 'text',
@@ -1044,6 +1059,7 @@ test('planner keeps short read_lines output when reported token count is high', 
       const inputText = buildOversizedMultilinePlannerInput(threshold + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Read some lines, then summarize.',
         inputText,
         format: 'text',
@@ -1097,6 +1113,7 @@ test('planner keeps tool results when they stay within 70 percent of remaining s
       const inputText = buildOversizedMultilinePlannerInput(threshold + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Read some lines, then summarize.',
         inputText,
         format: 'text',
@@ -1151,6 +1168,7 @@ test('planner keeps read_lines output when tokenize is unavailable', async () =>
       const inputText = buildOversizedMultilinePlannerInput(threshold + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Read many lines, then summarize conservatively.',
         inputText,
         format: 'text',
@@ -1208,6 +1226,7 @@ test('planner fits oversized read_lines output and reports omitted lines', async
       const inputText = buildOversizedMultilinePlannerInput(threshold + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Read many lines, then summarize.',
         inputText,
         format: 'text',
@@ -1266,6 +1285,7 @@ test('planner advances repeated read_lines calls to one unread span', async () =
       const inputText = buildOversizedMultilinePlannerInput(threshold + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Read overlapping lines, then summarize.',
         inputText,
         format: 'text',
@@ -1319,6 +1339,7 @@ test('planner advances repeated read_lines calls from fitted returned lines only
       const inputText = buildOversizedMultilinePlannerInput(threshold + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Read overlapping fitted lines, then summarize.',
         inputText,
         format: 'text',
@@ -1380,6 +1401,7 @@ test('planner forced finish rejects read_lines before unread expansion', async (
       const inputText = buildOversizedMultilinePlannerInput(threshold + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Repeat a search, then try another read.',
         inputText,
         format: 'text',
@@ -1435,6 +1457,7 @@ test('planner fits oversized find_text output and reports omitted results', asyn
         .join('\n');
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Find needle matches, then summarize.',
         inputText,
         format: 'text',
@@ -1496,6 +1519,7 @@ test('planner activates once input exceeds 75 percent of context length even bef
       const inputText = buildOversizedTransitionsInput(plannerActivationThreshold + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Find the relevant Lumbridge Castle transitions.',
         inputText,
         format: 'text',
@@ -1535,6 +1559,7 @@ test('planner allows up to thirty tool calls while prompt headroom remains witho
       const inputText = buildOversizedTransitionsInput(threshold + 5000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Use tools if needed to summarize the relevant transition evidence.',
         inputText,
         format: 'text',
@@ -1589,6 +1614,7 @@ test('planner reuses one slot within a request and assigns a new slot to the nex
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
 
       const first = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Find the relevant Lumbridge Castle transitions.',
         inputText,
         format: 'text',
@@ -1597,6 +1623,7 @@ test('planner reuses one slot within a request and assigns a new slot to the nex
         model: 'mock-model',
       });
       const second = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Find the relevant Lumbridge Castle transitions again.',
         inputText,
         format: 'text',
@@ -1659,6 +1686,7 @@ test('planner fails fast when the next planner turn would exceed non-thinking he
 
       await assert.rejects(
         () => summarizeRequest({
+      repoRoot: process.cwd(),
           question: 'Summarize the visible transition evidence conservatively.',
           inputText,
           format: 'text',
@@ -1709,6 +1737,7 @@ test('planner fails fast when the next planner turn would exceed thinking headro
 
       await assert.rejects(
         () => summarizeRequest({
+      repoRoot: process.cwd(),
           question: 'Summarize the visible transition evidence conservatively.',
           inputText,
           format: 'text',

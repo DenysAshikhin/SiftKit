@@ -9,6 +9,7 @@ import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { asObject } from './helpers/dashboard-http.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
+import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 
 const MOCK_CONFIG = mockSiftConfig({
   Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
@@ -31,6 +32,7 @@ test('runTaskLoop answers on turn 1 with zero tools in chat loopKind', async () 
     { id: 'chat', question: 'What is 2+2?', signals: [] },
     {
       repoRoot: os.tmpdir(),
+      systemContext: createEmptyPresetSystemContext(),
       model: 'mock',
       baseUrl: 'http://127.0.0.1:1',
       maxTurns: 4,
@@ -38,7 +40,6 @@ test('runTaskLoop answers on turn 1 with zero tools in chat loopKind', async () 
       minToolCallsBeforeFinish: 0,
       loopKind: 'chat',
       plannerToolDefinitions: [],
-      includeRepoFileListing: false,
       mockResponses: ['{"action":"finish","output":"4"}'],
       mockCommandResults: {},
     },
@@ -53,6 +54,7 @@ test('chat loopKind with zero planner tools rejects repo-search tool actions', a
     { id: 'chat', question: 'What is this repo?', signals: [] },
     {
       repoRoot: os.tmpdir(),
+      systemContext: createEmptyPresetSystemContext(),
       model: 'mock',
       baseUrl: 'http://127.0.0.1:1',
       maxTurns: 2,
@@ -60,7 +62,6 @@ test('chat loopKind with zero planner tools rejects repo-search tool actions', a
       minToolCallsBeforeFinish: 0,
       loopKind: 'chat',
       plannerToolDefinitions: [],
-      includeRepoFileListing: false,
       mockResponses: [
         '{"action":"git","command":"git grep -n \\"needle\\" ."}',
         '{"action":"finish","output":"done"}',
@@ -82,6 +83,7 @@ test('chat mode streams finish output as answer events', async () => {
     { id: 'chat', question: 'Greet me.', signals: [] },
     {
       repoRoot: os.tmpdir(),
+      systemContext: createEmptyPresetSystemContext(),
       model: 'mock',
       baseUrl: 'http://127.0.0.1:1',
       maxTurns: 2,
@@ -89,7 +91,6 @@ test('chat mode streams finish output as answer events', async () => {
       minToolCallsBeforeFinish: 0,
       loopKind: 'chat',
       plannerToolDefinitions: [],
-      includeRepoFileListing: false,
       streamFinishAsAnswer: true,
       mockResponses: ['{"action":"finish","output":"Hello there!"}'],
       mockCommandResults: {},
@@ -107,11 +108,11 @@ test('tool token totals sum command output tokens', async () => {
     { id: 'repo-search', question: 'Find x.', signals: [] },
     {
       repoRoot: os.tmpdir(),
+      systemContext: createEmptyPresetSystemContext(),
       model: 'mock',
       baseUrl: 'http://127.0.0.1:1',
       maxTurns: 2,
       maxInvalidResponses: 2,
-      includeRepoFileListing: false,
       mockResponses: [
         '{"action":"git","command":"git grep -n \\"x\\" src"}',
         '{"action":"finish","output":"done"}',
@@ -156,6 +157,7 @@ test('chat answer streaming waits for extractable finish output instead of emitt
       { id: 'chat', question: 'Greet me.', signals: [] },
       {
         repoRoot: os.tmpdir(),
+        systemContext: createEmptyPresetSystemContext(),
         config: mockSiftConfig({ Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } } }),
         baseUrl: baseUrl,
         model: 'mock',
@@ -164,7 +166,6 @@ test('chat answer streaming waits for extractable finish output instead of emitt
         minToolCallsBeforeFinish: 0,
         loopKind: 'chat',
         plannerToolDefinitions: [],
-        includeRepoFileListing: false,
         streamFinishAsAnswer: true,
         progressWriter: new CollectingProgressWriter(events),
       },
@@ -230,6 +231,7 @@ test('chat terminal synthesis streams answer deltas before the final answer even
       { id: 'chat', question: 'Answer from terminal synthesis.', signals: [] },
       {
         repoRoot: os.tmpdir(),
+        systemContext: createEmptyPresetSystemContext(),
         config: mockSiftConfig({ Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } } }),
         baseUrl,
         model: 'mock',
@@ -238,7 +240,6 @@ test('chat terminal synthesis streams answer deltas before the final answer even
         minToolCallsBeforeFinish: 0,
         loopKind: 'chat',
         plannerToolDefinitions: [],
-        includeRepoFileListing: false,
         streamFinishAsAnswer: true,
         progressWriter: new CollectingProgressWriter(events),
       },
@@ -260,6 +261,7 @@ test('chat mode seeds system prompt override and history before the question', a
     { id: 'chat', question: 'And now?', signals: [] },
     {
       repoRoot: os.tmpdir(),
+      systemContext: createEmptyPresetSystemContext(),
       model: 'mock',
       baseUrl: 'http://127.0.0.1:1',
       maxTurns: 2,
@@ -267,7 +269,6 @@ test('chat mode seeds system prompt override and history before the question', a
       minToolCallsBeforeFinish: 0,
       loopKind: 'chat',
       plannerToolDefinitions: [],
-      includeRepoFileListing: false,
       streamFinishAsAnswer: true,
       systemPromptOverride: 'general, coder friendly assistant',
       historyMessages: [
@@ -298,6 +299,7 @@ test('chat loop sends replayed tool-call history before the new user message', a
     { id: 'chat', question: 'next question', signals: [] },
     {
       repoRoot: os.tmpdir(),
+      systemContext: createEmptyPresetSystemContext(),
       model: 'mock',
       baseUrl: 'http://127.0.0.1:1',
       maxTurns: 2,
@@ -305,7 +307,6 @@ test('chat loop sends replayed tool-call history before the new user message', a
       minToolCallsBeforeFinish: 0,
       loopKind: 'chat',
       plannerToolDefinitions: [],
-      includeRepoFileListing: false,
       historyMessages: [
         { role: 'user', content: 'previous question' },
         {
@@ -354,6 +355,7 @@ test('thinkingEnabledOverride=false forces enable_thinking:false in the planner 
     { id: 'chat', question: 'Hi', signals: [] },
     {
       repoRoot: os.tmpdir(),
+      systemContext: createEmptyPresetSystemContext(),
       model: 'mock',
       baseUrl: 'http://127.0.0.1:1',
       maxTurns: 1,
@@ -361,7 +363,6 @@ test('thinkingEnabledOverride=false forces enable_thinking:false in the planner 
       minToolCallsBeforeFinish: 0,
       loopKind: 'chat',
       plannerToolDefinitions: [],
-      includeRepoFileListing: false,
       streamFinishAsAnswer: true,
       thinkingEnabledOverride: false,
       // Force config reasoning ON so the override is what matters:
@@ -387,13 +388,13 @@ test('thinkingEnabledOverride=false forces enable_thinking:false in the planner 
 test('runRepoSearch allows zero tools when allowEmptyTools is set', async () => {
   const scorecard = await runRepoSearch({
     repoRoot: os.tmpdir(),
+    systemContext: createEmptyPresetSystemContext(),
     config: MOCK_CONFIG,
     baseUrl: 'http://127.0.0.1:1',
     allowedTools: [],
     allowEmptyTools: true,
     loopKind: 'chat',
     minToolCallsBeforeFinish: 0,
-    includeRepoFileListing: false,
     taskPrompt: 'Say hi.',
     availableModels: ['mock'],
     model: 'mock',

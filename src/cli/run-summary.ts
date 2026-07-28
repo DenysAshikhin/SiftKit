@@ -45,6 +45,7 @@ export async function runSummary(options: ResolvedCliArgs & {
     ? Number.parseInt(process.env.SIFTKIT_SUMMARY_COMMAND_EXIT_CODE, 10)
     : undefined;
   const request: SummaryRequest = {
+    repoRoot: process.cwd(),
     question,
     inputText: inputText ?? '',
     format: normalizeCliFormat(parsed.format),

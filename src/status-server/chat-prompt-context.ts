@@ -11,6 +11,7 @@ import { resolveRepoSearchPlannerToolDefinitions } from '../repo-search/planner-
 import { buildTaskSystemPrompt } from '../repo-search/prompts.js';
 import type { ChatSession } from '../state/chat-sessions.js';
 import { buildChatSystemContent } from './chat.js';
+import { PresetSystemContextBuilder, type PresetSystemContext } from '../preset-system-context.js';
 
 export type ChatPromptContext = {
   id: string;
@@ -47,15 +48,17 @@ function formatSection(title: string, content: string): string {
   return [`## ${title}`, '', content.trim()].join('\n');
 }
 
-function buildRepoToolPromptContextContent(config: SiftConfig, session: ChatSession, preset: SiftPreset | null, promptPrefix: string): string {
-  const repoRoot = readRepoRoot(session);
-  const allowedTools = preset
-    ? resolvePresetAllowedTools(preset, normalizeOperationModeAllowedTools(config.OperationModeAllowedTools))
-    : undefined;
-  const systemPrompt = buildTaskSystemPrompt(repoRoot, {
-    includeAgentsMd: config.IncludeAgentsMd !== false && preset?.includeAgentsMd !== false,
-    includeRepoFileListing: config.IncludeRepoFileListing !== false && preset?.includeRepoFileListing !== false,
-  });
+function buildRepoToolPromptContextContent(
+  config: SiftConfig,
+  preset: SiftPreset,
+  promptPrefix: string,
+  systemContext: PresetSystemContext,
+): string {
+  const allowedTools = resolvePresetAllowedTools(
+    preset,
+    normalizeOperationModeAllowedTools(config.OperationModeAllowedTools),
+  );
+  const systemPrompt = buildTaskSystemPrompt(systemContext);
   const toolDefinitions = resolveRepoSearchPlannerToolDefinitions(allowedTools);
   return [
     formatSection('System prompt', systemPrompt),
@@ -64,8 +67,17 @@ function buildRepoToolPromptContextContent(config: SiftConfig, session: ChatSess
   ].join('\n\n');
 }
 
-function buildDirectPromptContextContent(config: SiftConfig, session: ChatSession, promptPrefix: string): string {
-  return formatSection('System prompt', buildChatSystemContent(config, session, { promptPrefix }));
+function buildDirectPromptContextContent(
+  config: SiftConfig,
+  session: ChatSession,
+  promptPrefix: string,
+  systemContext: PresetSystemContext,
+): string {
+  const content = [
+    buildChatSystemContent(config, session, { promptPrefix }),
+    systemContext.content,
+  ].filter(Boolean).join('\n\n');
+  return formatSection('System prompt', content);
 }
 
 export function buildChatPromptContext(config: SiftConfig, session: ChatSession, options: PromptContextOptions = {}): ChatPromptContext {
@@ -74,11 +86,15 @@ export function buildChatPromptContext(config: SiftConfig, session: ChatSession,
     ? session.presetId.trim()
     : mapLegacyModeToPresetId(session.mode);
   const preset = findPresetById(presets, presetId);
+  if (!preset) {
+    throw new Error(`Chat preset '${presetId}' was not found.`);
+  }
   const mode = normalizeChatMode(session.mode);
   const promptPrefix = readPromptPrefix(preset, options);
+  const systemContext = new PresetSystemContextBuilder(readRepoRoot(session)).build(preset);
   const content = mode === 'plan' || mode === 'repo-search'
-    ? buildRepoToolPromptContextContent(config, session, preset, promptPrefix)
-    : buildDirectPromptContextContent(config, session, promptPrefix);
+    ? buildRepoToolPromptContextContent(config, preset, promptPrefix, systemContext)
+    : buildDirectPromptContextContent(config, session, promptPrefix, systemContext);
   return {
     id: `${String(session.id || 'session')}:system-context`,
     role: 'system',

@@ -8,7 +8,6 @@ import {
   getConfiguredLlamaBaseUrl,
   getConfiguredLlamaNumCtx,
   getConfiguredModel,
-  getConfiguredPromptPrefix,
   notifyStatusBackend,
 } from '../config/index.js';
 import type { NotifyStatusBackendOptions } from '../config/status-backend.js';
@@ -44,6 +43,12 @@ import type {
   SummaryResult,
   SummarySourceKind,
 } from './types.js';
+import { PresetSystemContextBuilder } from '../preset-system-context.js';
+import {
+  findPresetById,
+  normalizePresets,
+  resolveSummaryPreset,
+} from '../presets.js';
 
 type SummaryExecutionContext = {
   config: SiftConfig;
@@ -51,6 +56,7 @@ type SummaryExecutionContext = {
   model: string;
   sourceKind: SummarySourceKind;
   decision: ReturnType<typeof getSummaryDecision>;
+  promptPrefix: string | undefined;
 };
 
 async function notifySummaryTerminalStatus(
@@ -210,6 +216,22 @@ export class SummaryRequestRunner {
     this.model = this.request.model || getConfiguredModel(this.config);
     this.progress.configDone(this.backend, this.model);
     this.config = await this.applyHostLlamaSettings(this.config);
+    const presets = normalizePresets(this.config.Presets);
+    const preset = this.request.presetId
+      ? findPresetById(presets, this.request.presetId)
+      : resolveSummaryPreset(presets);
+    if (!preset) {
+      throw new Error(`Summary preset '${this.request.presetId}' was not found.`);
+    }
+    const systemContext = new PresetSystemContextBuilder(this.request.repoRoot).build(preset);
+    for (const warningText of systemContext.warnings) {
+      this.progress.contextWarning(warningText);
+    }
+    const promptPrefix = [
+      preset.promptPrefix.trim(),
+      this.request.promptPrefix?.trim() || '',
+      systemContext.content,
+    ].filter(Boolean).join('\n\n') || undefined;
 
     const riskLevel = this.request.policyProfile === 'risky-operation' ? 'risky' : 'informational';
     const sourceKind = this.request.sourceKind || 'standalone';
@@ -230,6 +252,7 @@ export class SummaryRequestRunner {
       model: this.model,
       sourceKind,
       decision,
+      promptPrefix,
     };
   }
 
@@ -294,9 +317,6 @@ export class SummaryRequestRunner {
       + `lines=${context.decision.LineCount}`
     );
     const slotId = context.backend === 'llama.cpp' ? allocateLlamaCppSlotId(context.config) : null;
-    const effectivePromptPrefix = this.request.promptPrefix !== undefined
-      ? this.request.promptPrefix
-      : getConfiguredPromptPrefix(context.config);
     traceSummary('invokeSummaryCore start');
     this.progress.coreStart(context.backend);
     const coreSpan = this.timingRecorder?.start('summary.core');
@@ -316,7 +336,7 @@ export class SummaryRequestRunner {
         sourceKind: context.sourceKind,
         commandExitCode: this.request.commandExitCode,
         debugCommand: this.request.debugCommand,
-        promptPrefix: effectivePromptPrefix,
+        promptPrefix: context.promptPrefix,
         allowedPlannerTools: this.request.allowedPlannerTools,
         requestTimeoutSeconds: this.request.requestTimeoutSeconds,
         llamaCppOverrides: this.request.llamaCppOverrides,

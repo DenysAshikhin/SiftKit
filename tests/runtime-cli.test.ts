@@ -234,6 +234,7 @@ test('unsupported input returns the exact terminal message', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Summarize this unsupported input.',
         inputText: 'unsupported fixture marker',
         format: 'text',

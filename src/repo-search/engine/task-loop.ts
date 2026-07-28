@@ -37,7 +37,6 @@ import {
 import {
   buildTaskInitialUserPrompt,
   buildTaskSystemPrompt,
-  scanRepoFiles,
   type TaskCommand,
 } from '../prompts.js';
 import { evaluateFinishAttempt } from '../../tool-loop-governor.js';
@@ -205,23 +204,10 @@ export class TaskLoop {
     });
     this.slotId = options.config ? allocateLlamaCppSlotId(options.config) : 0;
     this.ignorePolicy = buildIgnorePolicy(options.repoRoot);
-    const bootstrapFileListSpan = options.timingRecorder?.start('repo.bootstrap.file_listing', {
-      taskId: task.id,
-      enabled: options.includeRepoFileListing !== false,
-    });
-    const bootstrapFileList = options.includeRepoFileListing === false
-      ? undefined
-      : (scanRepoFiles(options.repoRoot, this.ignorePolicy) || undefined);
-    bootstrapFileListSpan?.end({
-      fileCount: Array.isArray(bootstrapFileList) ? bootstrapFileList.length : 0,
-    });
 
     const baseSystemPrompt = typeof options.systemPromptOverride === 'string' && options.systemPromptOverride.trim()
       ? options.systemPromptOverride.trim()
-      : buildTaskSystemPrompt(options.repoRoot, {
-        includeAgentsMd: options.includeAgentsMd,
-        includeRepoFileListing: options.includeRepoFileListing,
-      });
+      : buildTaskSystemPrompt(options.systemContext);
     const systemPromptContent = this.chatWebGroundingEnabled
       ? `${baseSystemPrompt}\n\n${CHAT_GROUNDING_FINAL_ANSWER_INSTRUCTION}`
       : baseSystemPrompt;
@@ -236,9 +222,7 @@ export class TaskLoop {
       historyMessages: options.historyMessages || [],
       initialUserContent: this.loopKind === 'chat'
         ? task.question
-        : buildTaskInitialUserPrompt(task.question, bootstrapFileList, {
-          includeRepoFileListing: options.includeRepoFileListing,
-        }),
+        : buildTaskInitialUserPrompt(task.question),
     });
     this.promptPreparer = new PromptPreparer({
       taskId: task.id,

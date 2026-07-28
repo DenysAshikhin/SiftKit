@@ -1,7 +1,7 @@
 import { resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { REPO_AGENT_DEFAULT_MAX_TURNS } from '@siftkit/contracts';
-import { notifyStatusBackend } from '../config/index.js';
+import { loadConfig, notifyStatusBackend } from '../config/index.js';
 import type { NotifyStatusBackendOptions } from '../config/status-backend.js';
 import {
   createJsonLogger,
@@ -10,7 +10,7 @@ import {
 } from './logging.js';
 import { runRepoSearch } from './engine.js';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/validation-command-output-policy.js';
-import { buildAgentSystemPrompt } from './prompts.js';
+import { buildAgentSystemPrompt, buildTaskSystemPrompt } from './prompts.js';
 import { getNumericTotal, getOutputCharacterCount } from './scorecard.js';
 import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../state/runtime-db.js';
@@ -31,6 +31,8 @@ import type {
   RepoSearchExecutionResult,
   RepoSearchProgressEvent,
 } from './types.js';
+import { PresetSystemContextBuilder } from '../preset-system-context.js';
+import { findPresetById, normalizePresets } from '../presets.js';
 
 export type RepoSearchPreflightSummary = {
   turn: number;
@@ -71,7 +73,13 @@ export function buildRepoSearchPreflightLogBody(summary: RepoSearchPreflightSumm
 
 function logRepoSearchLifecycleEvent(requestId: string, event: RepoSearchProgressEvent, startedAt: number): void {
   const elapsedMs = Number.isFinite(event.elapsedMs) ? Math.max(0, Math.trunc(Number(event.elapsedMs))) : Date.now() - startedAt;
-  if (event.kind === 'model_inventory_start') {
+  if (event.kind === 'context_warning') {
+    serverLogger.emitBody('rs', requestId, {
+      event: 'context_warning',
+      fields: event.warningText ?? 'startup context was skipped',
+      severity: 'warning',
+    });
+  } else if (event.kind === 'model_inventory_start') {
     serverLogger.debug({
       scope: 'rs',
       id: requestId,
@@ -257,8 +265,7 @@ export async function executeRepoSearchRequest(
       ? 'chat'
       : 'repo-search';
   const basePrompt = String(request.prompt || '').trim();
-  const promptPrefix = typeof request.promptPrefix === 'string' ? request.promptPrefix.trim() : '';
-  const prompt = (taskKind !== 'chat' && promptPrefix) ? `${promptPrefix}\n\n${basePrompt}`.trim() : basePrompt;
+  const prompt = basePrompt;
   if (!prompt) {
     throw new Error('A --prompt is required for repo-search.');
   }
@@ -308,15 +315,34 @@ export async function executeRepoSearchRequest(
   const logger = createJsonLogger(tempTranscriptPath);
 
   try {
+    const config = request.config ?? await loadConfig({ ensure: true });
+    const preset = findPresetById(normalizePresets(config.Presets), request.presetId);
+    if (!preset) {
+      throw new Error(`Preset '${request.presetId}' was not found.`);
+    }
+    const systemContext = new PresetSystemContextBuilder(repoRoot).build(preset);
     const progressWriter = new RepoSearchLifecycleWriter(
       requestId,
       startedAt,
       request.progressWriter ?? new SilentProgressWriter<RepoSearchProgressEvent>(),
     );
+    for (const warningText of systemContext.warnings) {
+      progressWriter.write({ kind: 'context_warning', warningText });
+    }
+    const explicitPromptPrefix = typeof request.promptPrefix === 'string' ? request.promptPrefix.trim() : '';
+    const promptPrefix = [preset.promptPrefix.trim(), explicitPromptPrefix].filter(Boolean).join('\n\n');
+    const systemPromptOverride = isAgent
+      ? [promptPrefix, buildAgentSystemPrompt(systemContext)].filter(Boolean).join('\n\n')
+      : taskKind === 'chat'
+        ? [request.systemPrompt || '', systemContext.content].filter(Boolean).join('\n\n')
+        : promptPrefix
+          ? [promptPrefix, buildTaskSystemPrompt(systemContext)].join('\n\n')
+          : undefined;
     serverLogger.debug({ scope: 'rs', id: requestId, event: 'run_start', fields: '' });
     const scorecard = await runRepoSearch({
       repoRoot,
-      config: request.config,
+      config,
+      systemContext,
       model: request.model,
       maxTurns: request.maxTurns ?? (isAgent ? REPO_AGENT_DEFAULT_MAX_TURNS : undefined),
       allowedTools: Array.isArray(request.allowedTools) ? request.allowedTools : undefined,
@@ -324,18 +350,11 @@ export async function executeRepoSearchRequest(
       validationCommandOutputLineLimit: isAgent
         ? REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT
         : null,
-      includeAgentsMd: request.includeAgentsMd,
-      includeRepoFileListing: request.includeRepoFileListing,
       allowEmptyTools: taskKind === 'chat',
       loopKind: taskKind === 'chat' ? 'chat' : 'repo-search',
       streamFinishAsAnswer: taskKind === 'chat',
       minToolCallsBeforeFinish: (taskKind === 'chat' || isAgent) ? 0 : undefined,
-      systemPromptOverride: isAgent
-        ? buildAgentSystemPrompt(repoRoot, {
-            includeAgentsMd: request.includeAgentsMd,
-            includeRepoFileListing: request.includeRepoFileListing,
-          })
-        : (taskKind === 'chat' ? (request.systemPrompt || '') : undefined),
+      systemPromptOverride,
       historyMessages: taskKind === 'chat' ? (request.history || []) : undefined,
       thinkingEnabledOverride: taskKind === 'chat' ? (request.thinkingEnabled !== false) : undefined,
       taskPrompt: prompt,

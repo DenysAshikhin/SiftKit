@@ -44,6 +44,7 @@ export async function runRepoSearchCli(options: ResolvedCliArgs & {
   const client = new StatusServerApiClient();
 
   const response = await client.requestRepoSearch({
+    presetId: 'repo-search',
     prompt,
     repoRoot: process.cwd(),
     model: parsed.model,

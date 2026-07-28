@@ -47,7 +47,6 @@ import {
   normalizeConfig,
   mergeConfig,
 } from '../config-store.js';
-import { resolveEffectiveAgentsMd, resolveEffectiveRepoFileListing } from './chat.js';
 import {
   buildStatusRequestLogBody,
   upsertRunArtifactPayload,
@@ -717,6 +716,9 @@ class CommandOutputAnalyzeEndpoint extends StreamedOperationEndpoint<ParsedComma
   protected readonly taskKind = 'summary';
 
   protected parseRequest(parsedBody: JsonObject): ParsedStreamedRequest<ParsedCommandOutputRoute> {
+    if (!new JsonRecordReader(parsedBody).optionalString('repoRoot')) {
+      return { ok: false, error: 'Expected repoRoot.' };
+    }
     return { ok: true, value: { parsedBody } };
   }
 
@@ -728,6 +730,7 @@ class CommandOutputAnalyzeEndpoint extends StreamedOperationEndpoint<ParsedComma
     const { parsedBody } = parsed;
     const reader = new JsonRecordReader(parsedBody);
     return ctx.engineService.analyzeCommandOutput({
+      repoRoot: reader.string('repoRoot'),
       outputKind: normalizeCommandOutputKind(parsedBody.outputKind),
       exitCode: reader.number('exitCode') ?? 1,
       combinedText: typeof parsedBody.combinedText === 'string' ? parsedBody.combinedText : '',
@@ -900,6 +903,7 @@ abstract class RepoTaskEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
     }
     try {
       const result = await ctx.engineService.executeRepoSearch({
+        presetId: this.mode === 'agent' ? 'repo-agent' : 'repo-search',
         taskKind: this.mode === 'agent' ? 'repo-agent' : 'repo-search',
         prompt: repoSearchRequest.prompt,
         requestId: admission.requestId,
@@ -909,8 +913,6 @@ abstract class RepoTaskEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
         config,
         allowedTools,
-        includeAgentsMd: resolveEffectiveAgentsMd(config, null),
-        includeRepoFileListing: resolveEffectiveRepoFileListing(config, null),
         model: reader.optionalString('model'),
         maxTurns: reader.number('maxTurns') ?? undefined,
         logFile: reader.optionalString('logFile'),
@@ -1005,6 +1007,8 @@ class SummaryEndpoint extends StreamedOperationEndpoint<ParsedSummaryRoute> {
     stream: StreamedOperationContext,
   ): Promise<JsonSerializable> {
     return ctx.engineService.summarize({
+      repoRoot: summaryRequest.repoRoot,
+      presetId: summaryRequest.presetId,
       question: summaryRequest.question,
       inputText: summaryRequest.inputText,
       format: summaryRequest.format,

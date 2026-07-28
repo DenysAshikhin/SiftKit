@@ -40,6 +40,7 @@ test('repo-search carries TabbyAPI draft stats and second-based timings into the
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
         prompt: 'find planner usage',
         repoRoot: process.cwd(),
         statusBackendUrl: server.statusUrl,
@@ -95,6 +96,7 @@ test('summary carries TabbyAPI draft stats into terminal status metadata', async
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'summarize this',
         inputText: 'A'.repeat(5000),
         format: 'text',

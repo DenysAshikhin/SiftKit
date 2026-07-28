@@ -13,6 +13,7 @@ const MOCK_CONFIG = mockSiftConfig({
 test('executeRepoSearchRequest chat kind returns finalOutput in scorecard, no tools', async () => {
   const events: RepoSearchProgressEvent[] = [];
   const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
     prompt: 'What did I just say?',
     repoRoot: os.tmpdir(),
     config: MOCK_CONFIG,
@@ -34,6 +35,7 @@ test('executeRepoSearchRequest chat kind returns finalOutput in scorecard, no to
 test('executeRepoSearchRequest chat with web tools runs native web_search', async () => {
   const events: RepoSearchProgressEvent[] = [];
   const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
     prompt: 'Current GE price of an iron bar?',
     repoRoot: os.tmpdir(),
     taskKind: 'chat',
@@ -70,6 +72,7 @@ test('executeRepoSearchRequest chat with web tools runs native web_search', asyn
 
 test('chat with web tools rejects snippet-only finish and requires web_fetch', async () => {
   const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
     taskKind: 'chat',
     prompt: 'What are the major milestones for fastest F2P ironman iron ore?',
     repoRoot: process.cwd(),
@@ -110,6 +113,7 @@ test('chat with web tools rejects snippet-only finish and requires web_fetch', a
 
 test('chat with web tools rejects finish before web_search and requires fetched evidence', async () => {
   const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
     taskKind: 'chat',
     prompt: 'What use are iron bars in OSRS?',
     repoRoot: process.cwd(),
@@ -150,6 +154,7 @@ test('chat with web tools rejects finish before web_search and requires fetched 
 
 test('reported OSRS failure shape fetches before answering milestones', async () => {
   const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
     taskKind: 'chat',
     prompt: 'What are the major milestones at which I can get the iron ore fastest as f2p ironman?',
     repoRoot: process.cwd(),
@@ -191,6 +196,7 @@ test('reported OSRS failure shape fetches before answering milestones', async ()
 
 test('chat with web tools does not force finish after duplicate web_search', async () => {
   const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
     taskKind: 'chat',
     prompt: 'What does OSRS iron bar require?',
     repoRoot: process.cwd(),
@@ -231,6 +237,7 @@ test('chat with web tools does not force finish after duplicate web_search', asy
 
 test('chat with web tools rejects repeated search and fetch calls across the retained loop', async () => {
   const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
     taskKind: 'chat',
     prompt: 'What use are iron bars in OSRS?',
     repoRoot: process.cwd(),
@@ -270,6 +277,7 @@ test('chat with web tools rejects repeated search and fetch calls across the ret
 
 test('chat executor with thinking off yields zero thinking tokens', async () => {
   const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
     prompt: 'Hi',
     repoRoot: os.tmpdir(),
     taskKind: 'chat',

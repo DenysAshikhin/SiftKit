@@ -18,6 +18,8 @@ export type RepoSearchRouteRequest = {
 };
 
 export type SummaryRouteRequest = {
+  repoRoot: string;
+  presetId: string | undefined;
   question: string;
   inputText: string;
   format: 'text' | 'json';
@@ -121,12 +123,15 @@ export function parseSummaryRequest(body: JsonObject): SummaryRouteRequest | nul
   const question = reader.optionalString('question');
   const inputTextValue = reader.value('inputText');
   const inputText = typeof inputTextValue === 'string' ? inputTextValue : '';
-  if (!question || !inputText.trim()) {
+  const repoRoot = reader.optionalString('repoRoot');
+  if (!question || !inputText.trim() || !repoRoot) {
     return null;
   }
   const promptPrefixValue = reader.value('promptPrefix');
   const promptPrefix = typeof promptPrefixValue === 'string' ? promptPrefixValue : undefined;
   return {
+    repoRoot,
+    presetId: reader.optionalString('presetId'),
     question,
     inputText,
     format: reader.value('format') === 'json' ? 'json' : 'text',

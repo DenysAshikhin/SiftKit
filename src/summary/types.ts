@@ -55,6 +55,8 @@ export type SummaryTimingInput = {
 };
 
 export type SummaryRequest = {
+  repoRoot: string;
+  presetId?: string;
   question: string;
   inputText: string;
   format: 'text' | 'json';

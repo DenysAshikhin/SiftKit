@@ -15,7 +15,6 @@ import {
   assertConfiguredModelPresent,
   runRepoSearch,
 } from '../src/repo-search/engine.js';
-import { buildTaskSystemPrompt } from '../src/repo-search/prompts.js';
 import {
   preflightPlannerPromptBudget,
   compactPlannerMessagesOnce,
@@ -26,6 +25,7 @@ import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
+import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 
 // Mock-mode runTaskLoop calls do not reach a real provider or repo; these defaults
 // satisfy the required RunTaskLoopOptions fields with an empty repo root (behaviour-
@@ -35,6 +35,7 @@ const MOCK_LOOP_DEFAULTS = {
   repoRoot: MOCK_LOOP_REPO_ROOT,
   model: 'mock-model',
   baseUrl: 'http://127.0.0.1:1',
+  systemContext: createEmptyPresetSystemContext(),
 };
 
 // These mock-mode loops read only Runtime.LlamaCpp. Build a real default config
@@ -113,6 +114,8 @@ test('assertConfiguredModelPresent hard-fails when configured model is missing',
 
 test('runRepoSearch does not fail on model inventory mismatch', async () => {
   const scorecard = await runRepoSearch({
+    repoRoot: process.cwd(),
+    systemContext: createEmptyPresetSystemContext(),
     config: mockSiftConfig({
       Runtime: {
         LlamaCpp: {
@@ -138,6 +141,8 @@ test('runRepoSearch does not fail on model inventory mismatch', async () => {
 test('repo-search executes a native web_search tool when allowed', async () => {
   const events: JsonObject[] = [];
   const scorecard = await runRepoSearch({
+    repoRoot: process.cwd(),
+    systemContext: createEmptyPresetSystemContext(),
     config: mockSiftConfig({
       Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:8097', NumCtx: 70000 } },
       WebSearch: {
@@ -194,9 +199,9 @@ test('runTaskLoop passes a mixed-quote grep regex through to rg without shell ma
     },
     {
       repoRoot,
+      systemContext: createEmptyPresetSystemContext(),
       model: 'mock-model',
       baseUrl: 'http://127.0.0.1:8097',
-      includeRepoFileListing: false,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -442,6 +447,7 @@ test('runTaskLoop reuses preflight prompt token count for tool progress and allo
       },
       {
         repoRoot: process.cwd(),
+        systemContext: createEmptyPresetSystemContext(),
         baseUrl,
         model: 'mock-model',
         config: mockConfig({
@@ -1021,6 +1027,7 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
       },
       {
         repoRoot: process.cwd(),
+        systemContext: createEmptyPresetSystemContext(),
         baseUrl,
         model: 'mock-model',
         config: mockConfig({
@@ -1140,6 +1147,7 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
       },
       {
         repoRoot: process.cwd(),
+        systemContext: createEmptyPresetSystemContext(),
         baseUrl,
         model: 'mock-model',
         config: mockConfig({
@@ -1246,12 +1254,12 @@ test('runTaskLoop uses dynamic max_tokens for planner requests from live prompt 
       },
       {
         repoRoot: process.cwd(),
+        systemContext: createEmptyPresetSystemContext(),
         baseUrl,
         model: 'mock-model',
         totalContextTokens: 20000,
         maxTurns: 1,
         minToolCallsBeforeFinish: 0,
-        includeRepoFileListing: false,
         logger: {
           path: 'test',
           write(event) {
@@ -1316,13 +1324,13 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
       },
       {
         repoRoot: process.cwd(),
+        systemContext: createEmptyPresetSystemContext(),
         baseUrl,
         model: 'mock-model',
         totalContextTokens: 12000,
         maxTurns: 1,
         maxInvalidResponses: 1,
         minToolCallsBeforeFinish: 0,
-        includeRepoFileListing: false,
       }
     );
 

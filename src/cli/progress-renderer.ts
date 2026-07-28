@@ -19,7 +19,7 @@ export class CliProgressRenderer {
   static forCli(stderr: NodeJS.WritableStream, opLabel: string, showProgress: boolean): CliProgressRenderer {
     return showProgress
       ? new CliProgressRenderer(stderr, opLabel)
-      : new SilentProgressRenderer(stderr, opLabel);
+      : new WarningOnlyProgressRenderer(stderr, opLabel);
   }
 
   render(event: JsonObject): void {
@@ -42,6 +42,9 @@ export class CliProgressRenderer {
       const queueLength = reader.number('queueLength') ?? 0;
       const seconds = Math.round((reader.number('elapsedMs') ?? 0) / 1_000);
       return `waiting for model lock (${queueLength} queued, ${seconds}s)`;
+    }
+    if (kind === 'context_warning') {
+      return `warning: ${reader.optionalString('warningText') || 'startup context was skipped'}`;
     }
     if (kind === 'tool_start') {
       return `${turnPrefix}${reader.optionalString('command') || ''}`.trim();
@@ -66,4 +69,12 @@ export class CliProgressRenderer {
 /** Explicit no-op renderer for machine-readable and non-rendering callers. */
 export class SilentProgressRenderer extends CliProgressRenderer {
   override render(_event: JsonObject): void {}
+}
+
+export class WarningOnlyProgressRenderer extends CliProgressRenderer {
+  override render(event: JsonObject): void {
+    if (new JsonRecordReader(event).optionalString('kind') === 'context_warning') {
+      super.render(event);
+    }
+  }
 }

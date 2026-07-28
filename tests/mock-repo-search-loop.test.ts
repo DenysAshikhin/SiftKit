@@ -18,7 +18,6 @@ import {
   type TaskResult,
 } from '../src/repo-search/engine.js';
 import { resolveRepoSearchPlannerToolDefinitions, type ChatMessage } from '../src/repo-search/planner-protocol.js';
-import { buildTaskSystemPrompt } from '../src/repo-search/prompts.js';
 import {
   preflightPlannerPromptBudget,
   compactPlannerMessagesOnce,
@@ -27,6 +26,7 @@ import type { SiftConfig } from '../src/config/types.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
+import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 
 // Mock-mode runTaskLoop calls never reach a real provider or repo; these defaults
 // satisfy the required RunTaskLoopOptions fields. Per-test options override them.
@@ -35,6 +35,7 @@ const MOCK_LOOP_DEFAULTS = {
   repoRoot: MOCK_LOOP_REPO_ROOT,
   model: 'mock-model',
   baseUrl: 'http://127.0.0.1:1',
+  systemContext: createEmptyPresetSystemContext(),
 };
 
 // Mock-mode loops read only a few config fields; the rest of SiftConfig is
@@ -658,7 +659,6 @@ test('runTaskLoop truncates oversized find output with omitted file count', asyn
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       totalContextTokens: 7000,
-      includeRepoFileListing: false,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['find']),
       mockResponses: [
         "{\"action\":\"find\",\"pattern\":\"*.ts\",\"path\":\".\"}",
@@ -700,7 +700,6 @@ test('runTaskLoop records line-read stats for the lines a fitted read actually r
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       totalContextTokens: 20000,
-      includeRepoFileListing: false,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
       mockResponses: [
         '{"action":"read","path":"big.ts","offset":1,"limit":300}',
@@ -1644,7 +1643,6 @@ test('runTaskLoop tracks per-file overlap telemetry and isolates histories acros
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       totalContextTokens: 20000,
-      includeRepoFileListing: false,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
       mockResponses: [
         '{"action":"read","path":"a.ts","offset":100,"limit":20}',
@@ -1694,7 +1692,6 @@ test('runTaskLoop re-reads overlapping windows when ExpandReads is disabled', as
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       totalContextTokens: 20000,
-      includeRepoFileListing: false,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
       mockResponses: [
         '{"action":"read","path":"a.ts","offset":100,"limit":20}',

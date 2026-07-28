@@ -12,6 +12,7 @@ function createAnalyzer(): CommandOutputAnalyzer {
 test('analyzeCommandOutput with NoSummarize returns no-summarize result', async () => {
   await withTestEnvAndServer(async () => {
     const result = await createAnalyzer().analyze({
+      repoRoot: process.cwd(),
       outputKind: 'command',
       exitCode: 0,
       combinedText: 'Build completed successfully.\nAll 42 tests passed.',
@@ -29,6 +30,7 @@ test('analyzeCommandOutput with NoSummarize returns no-summarize result', async 
 test('analyzeCommandOutput with short input returns a result with a policy decision', async () => {
   await withTestEnvAndServer(async () => {
     const result = await createAnalyzer().analyze({
+      repoRoot: process.cwd(),
       outputKind: 'command',
       exitCode: 0,
       combinedText: 'ok',
@@ -44,6 +46,7 @@ test('analyzeCommandOutput with large input summarizes via model', async () => {
   await withTestEnvAndServer(async () => {
     const longOutput = 'Line of output from build\n'.repeat(100);
     const result = await createAnalyzer().analyze({
+      repoRoot: process.cwd(),
       outputKind: 'command',
       exitCode: 0,
       combinedText: longOutput,
@@ -60,6 +63,7 @@ test('analyzeCommandOutput with risky risk level summarizes command output', asy
   await withTestEnvAndServer(async () => {
     const longOutput = 'Deleting row from production database\n'.repeat(100);
     const result = await createAnalyzer().analyze({
+      repoRoot: process.cwd(),
       outputKind: 'command',
       exitCode: 0,
       combinedText: longOutput,
@@ -74,6 +78,7 @@ test('analyzeCommandOutput reducer "none" preserves full text', async () => {
   await withTestEnvAndServer(async () => {
     const lines = Array.from({ length: 250 }, (_, i) => `line ${i}`).join('\n');
     const result = await createAnalyzer().analyze({
+      repoRoot: process.cwd(),
       outputKind: 'command',
       exitCode: 0,
       combinedText: lines,
@@ -89,6 +94,7 @@ test('analyzeCommandOutput reducer "tail" creates reduced log', async () => {
   await withTestEnvAndServer(async () => {
     const lines = Array.from({ length: 250 }, (_, i) => `line ${i}`).join('\n');
     const result = await createAnalyzer().analyze({
+      repoRoot: process.cwd(),
       outputKind: 'command',
       exitCode: 0,
       combinedText: lines,
@@ -109,6 +115,7 @@ test('analyzeCommandOutput reducer "errors" extracts error context', async () =>
       ...Array.from({ length: 120 }, (_, i) => `info line ${120 + i}`),
     ].join('\n');
     const result = await createAnalyzer().analyze({
+      repoRoot: process.cwd(),
       outputKind: 'command',
       exitCode: 1,
       combinedText: lines,
@@ -134,6 +141,7 @@ test('analyzeCommandOutput reducer "diff" filters diff lines', async () => {
       ...Array.from({ length: 250 }, (_, i) => `unchanged line ${i}`),
     ].join('\n');
     const result = await createAnalyzer().analyze({
+      repoRoot: process.cwd(),
       outputKind: 'command',
       exitCode: 0,
       combinedText: lines,
@@ -148,6 +156,7 @@ test('runCommand invokes a real command and produces a result', async () => {
   await withTestEnvAndServer(async () => {
     const processResult = invokeProcess('node', ['-e', 'console.log("hello from test")']);
     const result = await createAnalyzer().analyze({
+      repoRoot: process.cwd(),
       outputKind: 'command',
       exitCode: processResult.ExitCode,
       combinedText: processResult.Combined,
@@ -165,6 +174,7 @@ test('analyzeCommandOutput default/smart reducer combines head and tail for larg
   await withTestEnvAndServer(async () => {
     const lines = Array.from({ length: 250 }, (_, i) => `info line ${i}`).join('\n');
     const result = await createAnalyzer().analyze({
+      repoRoot: process.cwd(),
       outputKind: 'command',
       exitCode: 0,
       combinedText: lines,
@@ -186,6 +196,7 @@ test('analyzeCommandOutput with repeated lines compresses them', async () => {
       ...Array.from({ length: 250 }, (_, i) => `filler ${i}`),
     ].join('\n');
     const result = await createAnalyzer().analyze({
+      repoRoot: process.cwd(),
       outputKind: 'command',
       exitCode: 0,
       combinedText: lines,
@@ -200,6 +211,7 @@ test('analyzeCommandOutput with debug risk level uses risky-operation profile', 
   await withTestEnvAndServer(async () => {
     const longOutput = 'Debug output line\n'.repeat(100);
     const result = await createAnalyzer().analyze({
+      repoRoot: process.cwd(),
       outputKind: 'command',
       exitCode: 0,
       combinedText: longOutput,
@@ -218,6 +230,7 @@ test('analyzeCommandOutput with nonzero exit code and errors reducer', async () 
       ...Array.from({ length: 120 }, (_, i) => `more info ${i}`),
     ].join('\n');
     const result = await createAnalyzer().analyze({
+      repoRoot: process.cwd(),
       outputKind: 'command',
       exitCode: 1,
       combinedText: lines,
@@ -232,6 +245,7 @@ test('runCommand handles nonexistent command gracefully', async () => {
   await withTestEnvAndServer(async () => {
     const processResult = invokeProcess('definitely_not_a_real_command_xyz123');
     const result = await createAnalyzer().analyze({
+      repoRoot: process.cwd(),
       outputKind: 'command',
       exitCode: processResult.ExitCode,
       combinedText: processResult.Combined,
@@ -250,6 +264,7 @@ test('runCommand with Shell mode runs a script through the platform shell', asyn
       : 'x=""; if [ -z "$x" ]; then echo shell-mode-clean; else echo non-empty; fi';
     const processResult = invokeShellProcess(script, 'auto');
     const result = await createAnalyzer().analyze({
+      repoRoot: process.cwd(),
       outputKind: 'command',
       exitCode: processResult.ExitCode,
       combinedText: processResult.Combined,

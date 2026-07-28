@@ -657,6 +657,7 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
       const port = address && typeof address === 'object' ? address.port : 0;
       try {
         const result = await summarizeRequest({
+      repoRoot: process.cwd(),
           question: String(parsed.question || ''),
           inputText: String(parsed.inputText || ''),
           format: parsed.format === 'json' ? 'json' : 'text',

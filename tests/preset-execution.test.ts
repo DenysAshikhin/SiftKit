@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { resolvePresetAllowedTools } from '../src/presets.js';
 import { buildPlannerToolDefinitions, executePlannerTool } from '../src/summary/planner/tools.js';
 import { runRepoSearch } from '../src/repo-search/engine.js';
+import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { getDefaultConfig } from '../src/status-server/config-store.js';
 
 test('summary planner tool definitions respect the preset allowlist', () => {
@@ -26,6 +27,7 @@ test('repo-search rejects presets that disable the repo command tool', async () 
   await assert.rejects(
     () => runRepoSearch({
       repoRoot: process.cwd(),
+      systemContext: createEmptyPresetSystemContext(),
       config: getDefaultConfig(),
       model: 'mock-model',
       availableModels: ['mock-model'],
@@ -41,6 +43,7 @@ test('repo-search rejects presets that resolve to an empty allowed-tools list', 
   await assert.rejects(
     () => runRepoSearch({
       repoRoot: process.cwd(),
+      systemContext: createEmptyPresetSystemContext(),
       config: getDefaultConfig(),
       model: 'mock-model',
       availableModels: ['mock-model'],

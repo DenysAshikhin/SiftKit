@@ -186,6 +186,13 @@ export function buildRepoSearchProgressLogBody(event: RepoSearchProgressEvent | 
     ? Math.max(0, Math.trunc(Number(event?.elapsedMs)))
     : 0;
   const kind = event?.kind;
+  if (kind === 'context_warning') {
+    return {
+      event: 'context_warning',
+      fields: event?.warningText ?? 'startup context was skipped',
+      severity: 'warning',
+    };
+  }
   const fields = `${turnLabel}  prompt=${promptTokenCount}tok  elapsed=${formatElapsed(elapsedMs)}`;
   if (kind === 'llm_start' || kind === 'llm_end') {
     return { event: kind, fields, severity: 'normal' };

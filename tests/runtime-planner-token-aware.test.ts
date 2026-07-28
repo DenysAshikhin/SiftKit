@@ -54,6 +54,7 @@ test('oversized llama.cpp summaries stay on planner status path without leaf chu
       const config = await loadConfig({ ensure: true });
       const threshold = getChunkThresholdCharacters(config);
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'summarize this',
         inputText: 'A'.repeat(threshold * 2),
         format: 'text',
@@ -551,6 +552,7 @@ test('planner activation threshold at exactly 75% stays on non-planner path', as
       const nonPlannerInput = 'A'.repeat(Math.max(plannerThreshold, 1));
 
       await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'summarize this',
         inputText: nonPlannerInput,
         format: 'text',

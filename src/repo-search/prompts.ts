@@ -5,6 +5,7 @@ import { RUN_SHELL_LABEL } from '../lib/powershell.js';
 import type { IgnorePolicy } from './command-safety.js';
 import { APPROVAL_REVIEW_SYSTEM_PROMPT_LINES } from './approval-review-policy.js';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/validation-command-output-policy.js';
+import type { PresetSystemContext } from '../preset-system-context.js';
 
 // ---------------------------------------------------------------------------
 // Repo file scanner (gitignore-aware, no external dependencies)
@@ -208,24 +209,14 @@ export function readAgentsMd(repoRoot: string): string {
 
 // Shared trailing agents.md block for every system prompt: empty when disabled or absent,
 // otherwise the labelled project-instructions section.
-function buildAgentsMdPromptLines(repoRoot: string, includeAgentsMd?: boolean): string[] {
-  const agentsContent = includeAgentsMd === false ? '' : readAgentsMd(repoRoot);
-  return agentsContent
-    ? ['', '--- agents.md (project-specific instructions) ---', '', agentsContent]
-    : [];
-}
-
 // ---------------------------------------------------------------------------
 // System prompt
 // ---------------------------------------------------------------------------
 
-export function buildTaskSystemPrompt(repoRoot: string, options?: {
-  includeAgentsMd?: boolean;
-  includeRepoFileListing?: boolean;
-}): string {
-  const startupScanLine = options?.includeRepoFileListing === false
+export function buildTaskSystemPrompt(context: PresetSystemContext): string {
+  const startupScanLine = !context.hasRepoFileListing
     ? '- No startup file listing provided — derive targeted grep searches from the task wording.'
-    : '- A file listing is provided in the user message; use it to decide where to look.';
+    : '- A repository file listing is provided in this system message; use it to decide where to look.';
   return [
     'You are a repo-search planner. Return ONE valid JSON object — no markdown fences.',
     'Action shape: {"action":"<tool>", ...args}. For independent read-only searches, use one {"action":"tool_batch","calls":[...]}.',
@@ -283,17 +274,14 @@ export function buildTaskSystemPrompt(repoRoot: string, options?: {
     '- Shell syntax in tool args. `grep`/`find`/`ls`/`read` take structured fields, not command lines — there is no `command` key on them.',
     '- Coverage-first noise; tiny-slice progression on one file; chained shell (`;`/`&&`) in `git`; claims of mutation from read-only ops; answers without `file:line` evidence; paths outside the repo root.',
     '- Wrong arg shape — only documented keys (e.g. `startLine`/`endLine` instead of `offset`/`limit`, or empty `{}`, are rejected).',
-    ...buildAgentsMdPromptLines(repoRoot, options?.includeAgentsMd),
+    ...(context.content ? ['', context.content] : []),
   ].join('\n');
 }
 
-export function buildAgentSystemPrompt(repoRoot: string, options?: {
-  includeAgentsMd?: boolean;
-  includeRepoFileListing?: boolean;
-}): string {
-  const startupScanLine = options?.includeRepoFileListing === false
+export function buildAgentSystemPrompt(context: PresetSystemContext): string {
+  const startupScanLine = !context.hasRepoFileListing
     ? '- No startup file listing provided — use grep/find/ls to discover where to work.'
-    : '- A repository file listing is provided in the user message; use it to locate files.';
+    : '- A repository file listing is provided in this system message; use it to locate files.';
   return [
     'You are an expert coding assistant operating inside SiftKit, a repository coding agent.',
     'You help by reading files, searching the repository, editing code, writing new files, and running commands.',
@@ -328,22 +316,15 @@ export function buildAgentSystemPrompt(repoRoot: string, options?: {
     '- Before calling finish, re-read the original task and any referenced spec or plan, compare the completed work against every requirement, and verify nothing was missed.',
     '- Finish with a short summary of what changed and any follow-ups — plain prose, not file:line anchor bullets.',
     startupScanLine,
-    ...buildAgentsMdPromptLines(repoRoot, options?.includeAgentsMd),
+    ...(context.content ? ['', context.content] : []),
   ].join('\n');
 }
 
 // Stable content (file listing) leads and the volatile task trails so consecutive
 // runs share a server-side KV prefix (system prompt + listing) instead of
 // diverging a few tokens into the first user message.
-export function buildTaskInitialUserPrompt(question: string, fileList?: string, options?: {
-  includeRepoFileListing?: boolean;
-}): string {
-  const parts: string[] = [];
-  if (fileList && options?.includeRepoFileListing !== false) {
-    parts.push('--- Repository file listing (respects .gitignore) ---', '', fileList, '');
-  }
-  parts.push(`Task: ${question}`);
-  return parts.join('\n');
+export function buildTaskInitialUserPrompt(question: string): string {
+  return `Task: ${question}`;
 }
 
 // ---------------------------------------------------------------------------

@@ -25,6 +25,7 @@ export async function runCommand(request: RunCommandRequest): Promise<CommandOut
     ? invokeShellProcess(command, shell)
     : invokeProcess(command, argumentList);
   return new CommandOutputAnalyzer().analyze({
+      repoRoot: process.cwd(),
     outputKind: 'command',
     exitCode: processResult.ExitCode,
     combinedText: processResult.Combined,

@@ -53,6 +53,17 @@ test('forCli renders per-turn lines only when showProgress is true', () => {
   assert.equal(hidden.read(), '');
 });
 
+test('warning-only renderer prints context warnings without --progress', () => {
+  const stderr = makeCaptureStream();
+  const renderer = CliProgressRenderer.forCli(stderr.stream, 'summary', false);
+  renderer.render({
+    kind: 'context_warning',
+    warningText: "Autoload file 'missing.md' skipped: does not exist.",
+  });
+
+  assert.match(stderr.read(), /missing\.md.*does not exist/u);
+});
+
 test('renders approval_auto events with verdict, toolName, and reason', () => {
   const stderr = makeCaptureStream();
   const renderer = new CliProgressRenderer(stderr.stream, 'repo-agent');

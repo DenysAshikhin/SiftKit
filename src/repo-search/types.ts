@@ -44,6 +44,7 @@ export type RepoSearchProgressEvent = {
   reviewPayload?: string;
   verdict?: string;
   reason?: string;
+  warningText?: string;
 };
 
 export type RepoSearchMockCommandResult = {
@@ -54,6 +55,7 @@ export type RepoSearchMockCommandResult = {
 };
 
 export type RepoSearchExecutionRequest = {
+  presetId: string;
   requestId?: string;
   startedAtUtc?: string;
   prompt: string;
@@ -67,8 +69,6 @@ export type RepoSearchExecutionRequest = {
   history?: ChatMessage[];
   systemPrompt?: string;
   thinkingEnabled?: boolean;
-  includeAgentsMd?: boolean;
-  includeRepoFileListing?: boolean;
   maxTurns?: number;
   logFile?: string;
   availableModels?: string[];

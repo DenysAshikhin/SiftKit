@@ -101,6 +101,7 @@ test('summarizeRequest uses a single oversized mock summary pass when the extern
       const config = await loadConfig({ ensure: true });
       const threshold = getChunkThresholdCharacters(config);
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'summarize this',
         inputText: 'A'.repeat((threshold * 3) + 1),
         format: 'text',
@@ -130,6 +131,7 @@ test('summary command-output pass/fail with Jest pass output is deterministic an
       const logPath = path.join(tempRoot, 'provider-events-jest-pass.jsonl');
       process.env.SIFTKIT_TEST_PROVIDER_LOG_PATH = logPath;
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Determine whether the targeted Jest run passes. Return pass/fail and warnings/errors.',
         inputText: [
           'PASS tests/manage-manager-task.test.ts',
@@ -178,6 +180,7 @@ test('summarizeRequest does not wait for terminal metadata notification response
     try {
       const startedAt = Date.now();
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Determine whether the targeted Jest run passes. Return pass/fail and warnings/errors.',
         inputText: [
           'PASS tests/async-summary-status.test.ts',
@@ -211,6 +214,7 @@ test('summary command-output pass/fail with Jest failure output is deterministic
       const logPath = path.join(tempRoot, 'provider-events-jest-fail.jsonl');
       process.env.SIFTKIT_TEST_PROVIDER_LOG_PATH = logPath;
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Determine whether the targeted Jest run passes. Return pass/fail, failing tests if any, and any warnings/errors.',
         inputText: [
           'FAIL tests/manage-manager-task.test.ts',
@@ -242,6 +246,7 @@ test('summary ignores legacy busy running status without retrying', async () => 
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'summarize this',
         inputText: 'A'.repeat(5000),
         format: 'text',
@@ -272,6 +277,7 @@ test('summarizeRequest does not split mock summaries when aggregate status total
       const threshold = getChunkThresholdCharacters(config);
       const inputLength = threshold + 1;
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'summarize this',
         inputText: 'A'.repeat(inputLength),
         format: 'text',
@@ -305,6 +311,7 @@ test('summarizeRequest does not recurse forever when token-aware planning return
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'summarize this',
         inputText: 'A'.repeat(5000),
         format: 'text',
@@ -353,6 +360,7 @@ test('summarizeRequest keeps oversized llama.cpp requests on the planner path wi
       const inputText = 'A'.repeat(Math.max(2_000, Math.min(50_000, maxRequestChars)));
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'summarize this',
         inputText,
         format: 'text',
@@ -429,6 +437,7 @@ test('summarizeRequest keeps using bootstrap calibration when only a legacy obse
 
     await withStubServer(async () => {
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'summarize this',
         inputText: 'A'.repeat(5000),
         format: 'text',
@@ -503,6 +512,7 @@ test('summary keeps oversized llama.cpp requests on planner mode when direct pro
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'summarize this',
         inputText: 'A'.repeat(150000),
         format: 'text',
@@ -548,6 +558,7 @@ test('summary hands oversized llama.cpp requests to planner mode before tokeniza
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'summarize this',
         inputText: 'A'.repeat(150000),
         format: 'text',
@@ -593,6 +604,7 @@ test('summary posts the preflight prompt token count in running status updates',
     await withStubServer(async (server) => {
       const inputText = 'A'.repeat(5_000);
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'summarize this',
         inputText,
         format: 'text',
@@ -624,6 +636,7 @@ test('summarizeRequest recovers malformed structured llama.cpp JSON when the exp
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'summarize this',
         inputText: 'A'.repeat(5000),
         format: 'text',
@@ -656,6 +669,7 @@ test('summarizeRequest enables per-request response_format json_schema for struc
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'summarize this',
         inputText: 'A'.repeat(5000),
         format: 'text',
@@ -726,6 +740,7 @@ test('pass markers with zero failed still use the model summary path', async () 
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Summarize any explicit pass/fail test result markers in these logs.',
         inputText: [
           '.godot_logs\\baseline.log:11:TESTS: 2 passed, 0 failed, 0 skipped',
@@ -829,6 +844,7 @@ test('summarizeRequest queues request artifacts on the terminal status post and 
 
     await withStubServer(async (server) => {
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Summarize this short input.',
         inputText: 'Line one.\nLine two.',
         format: 'text',
@@ -892,6 +908,7 @@ test('summary succeeds when deferred artifact persistence is unavailable', async
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Summarize this short input.',
         inputText: 'Line one.\nLine two.',
         format: 'text',
@@ -922,6 +939,7 @@ test('command-output never surfaces unsupported_input for non-empty input', asyn
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Summarize this command output.',
         inputText: 'unsupported fixture marker',
         format: 'text',
@@ -946,6 +964,7 @@ test('provider failures hard fail instead of falling back to a deterministic raw
       process.env.SIFTKIT_TEST_PROVIDER_BEHAVIOR = 'throw';
       await assert.rejects(
         () => summarizeRequest({
+      repoRoot: process.cwd(),
           question: 'Summarize this provider failure.',
           inputText: 'A'.repeat(5000),
           format: 'text',
@@ -965,6 +984,7 @@ test('empty structured output retries once then fails, and subsequent requests s
     await withStubServer(async (server) => {
       await assert.rejects(
         () => summarizeRequest({
+      repoRoot: process.cwd(),
           question: 'Summarize this provider payload.',
           inputText: 'A'.repeat(5000),
           format: 'text',
@@ -976,6 +996,7 @@ test('empty structured output retries once then fails, and subsequent requests s
       );
 
       const secondResult = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Summarize this follow-up payload.',
         inputText: 'B'.repeat(5000),
         format: 'text',

@@ -29,6 +29,7 @@ async function captureInteractiveForTest(request: InteractiveCaptureTestRequest)
   const captured = captureWithTranscript(resolveExternalCommand(request.Command), argumentList);
   const fallbackTranscript = `Interactive command completed without a captured transcript.\nCommand: ${request.Command} ${argumentList.join(' ')}\nExitCode: ${captured.ExitCode}`;
   const result = await new CommandOutputAnalyzer().analyze({
+      repoRoot: process.cwd(),
     outputKind: 'interactive',
     exitCode: captured.ExitCode,
     combinedText: captured.Transcript.trim() ? captured.Transcript : fallbackTranscript,

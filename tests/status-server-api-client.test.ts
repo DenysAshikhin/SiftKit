@@ -43,6 +43,7 @@ test('StatusServerApiClient uses its injected HttpClient and preserves streamed 
 
   await assert.rejects(
     () => client.requestSummary({
+      repoRoot: process.cwd(),
       question: 'What failed?',
       inputText: 'build output',
       format: 'text',

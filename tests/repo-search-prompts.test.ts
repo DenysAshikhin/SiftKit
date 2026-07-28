@@ -8,6 +8,10 @@ import { buildAgentSystemPrompt, buildTaskInitialUserPrompt, buildTaskSystemProm
 import { APPROVAL_REVIEW_REQUEST_MARKER } from '../src/repo-search/approval-review-policy.js';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/validation-command-output-policy.js';
 import { RUN_SHELL_LABEL, POWERSHELL_EXECUTABLE } from '../src/lib/powershell.js';
+import {
+  PresetSystemContextBuilder,
+  type PresetSystemContext,
+} from '../src/preset-system-context.js';
 
 function withTempRepo(fn: (repoRoot: string) => void): void {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-prompt-'));
@@ -18,13 +22,40 @@ function withTempRepo(fn: (repoRoot: string) => void): void {
   }
 }
 
+function buildTestContext(
+  repoRoot: string,
+  includeAgentsMd = false,
+  includeRepoFileListing = false,
+): PresetSystemContext {
+  return new PresetSystemContextBuilder(repoRoot).build({
+    includeAgentsMd,
+    includeRepoFileListing,
+    autoloadFiles: [],
+  });
+}
+
+test('autoload content is absent from the initial user message', () => {
+  const context = {
+    content: '--- Autoloaded file: docs/policy.md ---\n\npolicy text',
+    warnings: [],
+    hasAgentsMd: false,
+    hasRepoFileListing: false,
+    loadedFiles: ['docs/policy.md'],
+  } satisfies PresetSystemContext;
+
+  const system = buildTaskSystemPrompt(context);
+  const user = buildTaskInitialUserPrompt('locate policy use');
+
+  assert.match(system, /Autoloaded file: docs\/policy\.md/u);
+  assert.doesNotMatch(user, /Autoloaded file|policy text/u);
+  assert.equal(user, 'Task: locate policy use');
+});
+
 test('buildTaskSystemPrompt omits agents.md block when disabled', () => {
   withTempRepo((repoRoot) => {
     fs.writeFileSync(path.join(repoRoot, 'agents.md'), 'repo policy', 'utf8');
 
-    const prompt = buildTaskSystemPrompt(repoRoot, {
-      includeAgentsMd: false,
-    });
+    const prompt = buildTaskSystemPrompt(buildTestContext(repoRoot));
 
     assert.doesNotMatch(prompt, /agents\.md \(project-specific instructions\)/u);
     assert.doesNotMatch(prompt, /repo policy/u);
@@ -32,30 +63,18 @@ test('buildTaskSystemPrompt omits agents.md block when disabled', () => {
 });
 
 test('buildTaskInitialUserPrompt omits repository file listing when disabled', () => {
-  const prompt = buildTaskInitialUserPrompt('Find planner code', 'src/index.ts', {
-    includeRepoFileListing: false,
-  });
+  const prompt = buildTaskInitialUserPrompt('Find planner code');
 
   assert.equal(prompt, 'Task: Find planner code');
 });
 
-test('buildTaskInitialUserPrompt puts the stable file listing before the volatile task for prefix caching', () => {
-  const prompt = buildTaskInitialUserPrompt('Find planner code', 'src/index.ts', {
-    includeRepoFileListing: true,
-  });
-
-  assert.equal(prompt, [
-    '--- Repository file listing (respects .gitignore) ---',
-    '',
-    'src/index.ts',
-    '',
-    'Task: Find planner code',
-  ].join('\n'));
+test('buildTaskInitialUserPrompt never contains the repository file listing', () => {
+  assert.equal(buildTaskInitialUserPrompt('Find planner code'), 'Task: Find planner code');
 });
 
 test('buildTaskSystemPrompt advertises the native tool surface and no shell commands', () => {
   withTempRepo((repoRoot) => {
-    const prompt = buildTaskSystemPrompt(repoRoot);
+    const prompt = buildTaskSystemPrompt(buildTestContext(repoRoot));
 
     assert.match(prompt, /Tools: grep, find, ls, read, git/u);
     for (const toolName of ['grep', 'find', 'ls', 'read', 'git']) {
@@ -72,7 +91,7 @@ test('buildTaskSystemPrompt advertises the native tool surface and no shell comm
 
 test('buildTaskSystemPrompt preserves load-bearing planner rules after compression', () => {
   withTempRepo((repoRoot) => {
-    const prompt = buildTaskSystemPrompt(repoRoot);
+    const prompt = buildTaskSystemPrompt(buildTestContext(repoRoot));
 
     // Header / output contract
     assert.match(prompt, /You are a repo-search planner\./u);
@@ -105,7 +124,7 @@ test('buildTaskSystemPrompt preserves load-bearing planner rules after compressi
 
 test('buildTaskSystemPrompt compression keeps prompt under 6000 chars (no agents.md)', () => {
   withTempRepo((repoRoot) => {
-    const prompt = buildTaskSystemPrompt(repoRoot, { includeAgentsMd: false });
+    const prompt = buildTaskSystemPrompt(buildTestContext(repoRoot));
     assert.ok(
       prompt.length <= 6000,
       `expected compressed prompt <= 6000 chars, got ${prompt.length}`,
@@ -115,7 +134,7 @@ test('buildTaskSystemPrompt compression keeps prompt under 6000 chars (no agents
 
 test('buildTaskSystemPrompt turn-1 directive does not hardcode a "src" path', () => {
   withTempRepo((repoRoot) => {
-    const prompt = buildTaskSystemPrompt(repoRoot);
+    const prompt = buildTaskSystemPrompt(buildTestContext(repoRoot));
 
     // The turn-1 grep recipe must not blind-guess a top-level "src" folder —
     // many repos use apps/runner/src, packages/*/src, etc. The model should
@@ -134,7 +153,7 @@ test('buildTaskSystemPrompt turn-1 directive does not hardcode a "src" path', ()
 
 test('buildTaskSystemPrompt illustrative examples do not bias toward "src/" path prefixes', () => {
   withTempRepo((repoRoot) => {
-    const prompt = buildTaskSystemPrompt(repoRoot);
+    const prompt = buildTaskSystemPrompt(buildTestContext(repoRoot));
 
     // The anchor-format example, the `read` JSON example, and the finish-output
     // example all used to start with "src/". Strip that bias so repos with apps/,
@@ -155,7 +174,7 @@ test('buildTaskSystemPrompt illustrative examples do not bias toward "src/" path
 // F14 (A10): prompt-text guidance assertions extracted from runTaskLoop loop cases.
 test('buildTaskSystemPrompt includes anti-loop and larger single-file read guidance', () => {
   withTempRepo((repoRoot) => {
-    const prompt = buildTaskSystemPrompt(repoRoot);
+    const prompt = buildTaskSystemPrompt(buildTestContext(repoRoot));
     assert.match(prompt, /Anchor-before-read/u);
     assert.match(prompt, /grep.*anchor|anchor.*grep/iu);
     assert.match(prompt, /`read`/u);
@@ -168,7 +187,7 @@ test('buildTaskSystemPrompt includes anti-loop and larger single-file read guida
 
 test('buildTaskSystemPrompt examples use larger reads and anchor-first flow', () => {
   withTempRepo((repoRoot) => {
-    const prompt = buildTaskSystemPrompt(repoRoot);
+    const prompt = buildTaskSystemPrompt(buildTestContext(repoRoot));
     assert.match(prompt, /\{"action":"grep","pattern":"invokePlannerMode"\}/u);
     assert.match(prompt, /\{"action":"find","pattern":"\*\*\/\*\.test\.ts"\}/u);
     assert.match(prompt, /\{"action":"read","path":"dir\/foo\.ts","offset":861,"limit":240\}/u);
@@ -178,13 +197,13 @@ test('buildTaskSystemPrompt examples use larger reads and anchor-first flow', ()
 
 test('buildTaskSystemPrompt states ignored paths are auto-filtered by runtime policy', () => {
   withTempRepo((repoRoot) => {
-    const prompt = buildTaskSystemPrompt(repoRoot);
+    const prompt = buildTaskSystemPrompt(buildTestContext(repoRoot));
     assert.match(prompt, /Ignored paths \(node_modules, dist, \.git, …\) are excluded from grep\/find\/ls automatically\./u);
   });
 });
 
 test('buildAgentSystemPrompt has persona, full tool list, edit-first guideline, and no search-discipline lines', () => {
-  const prompt = buildAgentSystemPrompt(process.cwd(), { includeAgentsMd: false, includeRepoFileListing: true });
+  const prompt = buildAgentSystemPrompt(buildTestContext(process.cwd(), false, true));
   assert.match(prompt, /repository coding agent/iu);
   for (const tool of ['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch', 'write', 'edit', 'run']) {
     assert.ok(prompt.includes(tool), `expected tool ${tool} in prompt`);
@@ -198,10 +217,7 @@ test('buildAgentSystemPrompt has persona, full tool list, edit-first guideline, 
 });
 
 test('buildAgentSystemPrompt includes the stable scoped approval-review policy', () => {
-  const prompt = buildAgentSystemPrompt(process.cwd(), {
-    includeAgentsMd: false,
-    includeRepoFileListing: true,
-  });
+  const prompt = buildAgentSystemPrompt(buildTestContext(process.cwd(), false, true));
 
   assert.match(prompt, /Approval review policy/u);
   assert.ok(prompt.includes(APPROVAL_REVIEW_REQUEST_MARKER));
@@ -234,17 +250,14 @@ test('buildAgentSystemPrompt includes the stable scoped approval-review policy',
 });
 
 test('buildTaskSystemPrompt excludes repo-agent approval-review policy', () => {
-  const prompt = buildTaskSystemPrompt(process.cwd(), {
-    includeAgentsMd: false,
-    includeRepoFileListing: true,
-  });
+  const prompt = buildTaskSystemPrompt(buildTestContext(process.cwd(), false, true));
 
   assert.doesNotMatch(prompt, /Approval review policy/u);
   assert.equal(prompt.includes(APPROVAL_REVIEW_REQUEST_MARKER), false);
 });
 
 test('buildAgentSystemPrompt tells the run tool it is PowerShell on Windows with tail-truncated output', () => {
-  const prompt = buildAgentSystemPrompt(process.cwd(), { includeAgentsMd: false, includeRepoFileListing: true });
+  const prompt = buildAgentSystemPrompt(buildTestContext(process.cwd(), false, true));
   // Shell identity is single-sourced from the executor constant, not a duplicated literal.
   assert.ok(RUN_SHELL_LABEL.includes(POWERSHELL_EXECUTABLE), 'label must be built from the executable name');
   assert.ok(prompt.includes(RUN_SHELL_LABEL), 'run tool line must use the executor-derived shell label');
@@ -253,10 +266,7 @@ test('buildAgentSystemPrompt tells the run tool it is PowerShell on Windows with
 });
 
 test('buildAgentSystemPrompt documents automatic validation trimming and full output mode', () => {
-  const prompt = buildAgentSystemPrompt(process.cwd(), {
-    includeAgentsMd: false,
-    includeRepoFileListing: true,
-  });
+  const prompt = buildAgentSystemPrompt(buildTestContext(process.cwd(), false, true));
 
   assert.match(
     prompt,
@@ -268,10 +278,7 @@ test('buildAgentSystemPrompt documents automatic validation trimming and full ou
 });
 
 test('buildAgentSystemPrompt requires a completion review against the task and referenced plans', () => {
-  const prompt = buildAgentSystemPrompt(process.cwd(), {
-    includeAgentsMd: false,
-    includeRepoFileListing: true,
-  });
+  const prompt = buildAgentSystemPrompt(buildTestContext(process.cwd(), false, true));
 
   assert.match(prompt, /Before calling finish/u);
   assert.match(prompt, /re-read the original task/u);
@@ -283,8 +290,8 @@ test('buildAgentSystemPrompt requires a completion review against the task and r
 test('buildAgentSystemPrompt injects agents.md when present and enabled', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-agent-prompt-'));
   try {
-    fs.writeFileSync(path.join(dir, 'agents.md'), 'PROJECT RULE: use tabs.');
-    const prompt = buildAgentSystemPrompt(dir, { includeAgentsMd: true, includeRepoFileListing: true });
+    fs.writeFileSync(path.join(dir, 'AGENTS.md'), 'PROJECT RULE: use tabs.');
+    const prompt = buildAgentSystemPrompt(buildTestContext(dir, true, true));
     assert.match(prompt, /PROJECT RULE: use tabs\./u);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

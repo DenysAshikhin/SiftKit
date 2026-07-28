@@ -17,6 +17,7 @@ export type CommandOutputRiskLevel = 'informational' | 'debug' | 'risky';
 export type CommandOutputReducerProfile = 'smart' | 'errors' | 'tail' | 'diff' | 'none';
 
 export type CommandOutputAnalyzeRequest = {
+  repoRoot: string;
   outputKind: CommandOutputKind;
   exitCode: number;
   combinedText: string;

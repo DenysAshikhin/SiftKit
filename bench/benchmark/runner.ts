@@ -70,6 +70,7 @@ export async function runBenchmarkSuite(options: BenchmarkRunnerOptions = {}): P
       try {
         const response = await runWithFixtureDeadline(
           apiClient.requestSummary({
+      repoRoot: process.cwd(),
             question: fixture.Question,
             inputText,
             format: fixture.Format,

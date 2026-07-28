@@ -26,6 +26,7 @@ test('summary aggregation accumulates provider usage and duration in status metr
       const baselineCompletedRequestCount = server.state.metrics.completedRequestCount;
       const baselineRequestDurationMs = server.state.metrics.requestDurationMsTotal;
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'summarize this',
         inputText: 'A'.repeat(5000),
         format: 'text',
@@ -69,6 +70,7 @@ test('summary aggregation records duration without tokens when provider usage is
       const baselineCompletedRequestCount = server.state.metrics.completedRequestCount;
       const baselineRequestDurationMs = server.state.metrics.requestDurationMsTotal;
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'summarize this',
         inputText: 'A'.repeat(5000),
         format: 'text',
@@ -111,6 +113,7 @@ test('summary aggregation records thinking tokens independently from output metr
       const baselineCompletedRequestCount = server.state.metrics.completedRequestCount;
       const baselineRequestDurationMs = server.state.metrics.requestDurationMsTotal;
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'summarize this',
         inputText: 'A'.repeat(5000),
         format: 'text',
@@ -148,6 +151,7 @@ test('summary aggregation counts only processed prompt tokens when cache metadat
       const baselineInputTokens = server.state.metrics.inputTokensTotal;
       const baselineOutputTokens = server.state.metrics.outputTokensTotal;
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'summarize this',
         inputText: 'A'.repeat(5000),
         format: 'text',
@@ -215,6 +219,7 @@ test('repo-search reports only processed prompt tokens to the status backend whe
     await withStubServer(async (server) => {
       const baselineInputTokens = server.state.metrics.inputTokensTotal;
       const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
         prompt: 'find planner usage',
         repoRoot: process.cwd(),
         statusBackendUrl: server.statusUrl,

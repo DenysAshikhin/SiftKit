@@ -217,7 +217,8 @@ async function waitForStatusCount(readCount: () => number, expected: number): Pr
 test('executeRepoSearchRequest throws on empty prompt', async () => {
   await withTestEnvAndServer(async () => {
     await assert.rejects(
-      () => executeRepoSearchRequest({ prompt: '', repoRoot: process.cwd() }),
+      () => executeRepoSearchRequest({
+      presetId: 'repo-search', prompt: '', repoRoot: process.cwd() }),
       /--prompt is required/u,
     );
   });
@@ -226,7 +227,8 @@ test('executeRepoSearchRequest throws on empty prompt', async () => {
 test('executeRepoSearchRequest throws on whitespace-only prompt', async () => {
   await withTestEnvAndServer(async () => {
     await assert.rejects(
-      () => executeRepoSearchRequest({ prompt: '   ', repoRoot: process.cwd() }),
+      () => executeRepoSearchRequest({
+      presetId: 'repo-search', prompt: '   ', repoRoot: process.cwd() }),
       /--prompt is required/u,
     );
   });
@@ -238,6 +240,7 @@ test('executeRepoSearchRequest forwards an aborted signal to the engine', async 
     controller.abort(new Error('stream disconnected'));
     await assert.rejects(
       () => executeRepoSearchRequest({
+      presetId: 'repo-search',
         prompt: 'find test patterns',
         repoRoot: tempRoot,
         abortSignal: controller.signal,
@@ -253,6 +256,7 @@ test('executeRepoSearchRequest success path writes transcript and artifact', asy
   await withTestEnvAndServer(async ({ tempRoot }) => {
     const progressWriter = new ArtifactCountProgressWriter();
     const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
       prompt: 'find test patterns',
       repoRoot: tempRoot,
       maxTurns: 1,
@@ -300,6 +304,7 @@ test('executeRepoSearchRequest does not wait for running status notification res
       const startedAt = Date.now();
       const progressWriter = new FirstProgressTimingWriter(startedAt);
       const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
         prompt: 'find async running status',
         repoRoot: tempRoot,
         statusBackendUrl: statusServer.statusUrl,
@@ -331,6 +336,7 @@ test('executeRepoSearchRequest does not wait for terminal metadata notification 
     try {
       const startedAt = Date.now();
       const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
         prompt: 'find async terminal status',
         repoRoot: tempRoot,
         statusBackendUrl: statusServer.statusUrl,
@@ -355,6 +361,7 @@ test('executeRepoSearchRequest error path flushes transcript once and exposes fi
   await withTestEnvAndServer(async ({ tempRoot }) => {
     await assert.rejects(
       () => executeRepoSearchRequest({
+      presetId: 'repo-search',
         prompt: 'find test patterns',
         repoRoot: tempRoot,
         allowedTools: [],
@@ -386,6 +393,7 @@ test('executeRepoSearchRequest error path flushes transcript once and exposes fi
 test('executeRepoSearchRequest with mock command executes and returns scorecard', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
     const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
       prompt: 'find build scripts',
       repoRoot: tempRoot,
       maxTurns: 2,
@@ -406,6 +414,7 @@ test('executeRepoSearchRequest logs lifecycle before provider work starts', asyn
   await withTestEnvAndServer(async ({ tempRoot }) => {
     const lines = await captureStdoutLines(async () => {
       await executeRepoSearchRequest({
+      presetId: 'repo-search',
         prompt: 'find lifecycle logs',
         repoRoot: tempRoot,
         maxTurns: 1,
@@ -435,6 +444,7 @@ test('executeRepoSearchRequest logs repo-search preflight tokenization timing', 
   await withTestEnvAndServer(async ({ tempRoot, stub }) => {
     const lines = await captureStdoutLines(async () => {
       await executeRepoSearchRequest({
+      presetId: 'repo-search',
         prompt: 'find tokenize timing logs',
         repoRoot: tempRoot,
         config: asRuntimeSiftConfig(stub.state.config),
@@ -460,6 +470,7 @@ test('executeRepoSearchRequest logs repo-search preflight tokenization timing', 
 test('executeRepoSearchRequest does not force finish from elapsed tool-loop time', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
     const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
       prompt: 'find slow command',
       repoRoot: tempRoot,
       maxTurns: 3,
@@ -495,6 +506,7 @@ test('executeRepoSearchRequest fits native reads using per-tool context limits',
     );
 
     const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
       prompt: 'read enough evidence',
       repoRoot: tempRoot,
       maxTurns: 4,
@@ -576,6 +588,7 @@ test('executeRepoSearchRequest persists summed prompt-eval and generation durati
       const config = asRuntimeSiftConfig(configValue);
 
       const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
         prompt: 'find build scripts',
         repoRoot: tempRoot,
         config,
@@ -607,6 +620,7 @@ test('executeRepoSearchRequest hard-fails when no mock responses are available a
     let thrown: { message: string; artifactPath: string } | null = null;
     try {
       await executeRepoSearchRequest({
+      presetId: 'repo-search',
         prompt: 'find something',
         repoRoot: tempRoot,
         maxTurns: 1,
@@ -632,6 +646,7 @@ test('executeRepoSearchRequest hard-fails on invalid mock response and persists 
     let thrown: { message: string; artifactPath: string } | null = null;
     try {
       await executeRepoSearchRequest({
+      presetId: 'repo-search',
         prompt: 'trigger error handling',
         repoRoot: tempRoot,
         maxTurns: 1,
@@ -660,6 +675,7 @@ test('executeRepoSearchRequest trace output when SIFTKIT_TRACE_REPO_SEARCH=1', a
   try {
     await withTestEnvAndServer(async ({ tempRoot }) => {
       const result = await executeRepoSearchRequest({
+      presetId: 'repo-search',
         prompt: 'find something with tracing',
         repoRoot: tempRoot,
         maxTurns: 1,

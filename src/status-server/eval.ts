@@ -92,6 +92,7 @@ export async function runEvaluation(
     const sourcePath = join(fixtureRoot, fixture.File);
     const source = readFileSync(sourcePath, 'utf8');
     const summaryResult = await summarizeRequest({
+      repoRoot,
       question: fixture.Question,
       inputText: source,
       format: fixture.Format,
@@ -130,6 +131,7 @@ export async function runEvaluation(
 
     const source = readFileSync(logPath, 'utf8');
     const summaryResult = await summarizeRequest({
+      repoRoot,
       question: 'Summarize the important result in up to 5 bullets, preserving only the decisive facts.',
       inputText: source,
       format: 'text',

@@ -209,6 +209,7 @@ export async function runDebugRequest(
   const startedAt = process.hrtime.bigint();
   try {
     const result = await new StatusServerApiClient().requestSummary({
+      repoRoot: process.cwd(),
       question: workItem.question,
       inputText: workItem.inputText,
       format: workItem.format,

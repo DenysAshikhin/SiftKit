@@ -21,6 +21,7 @@ test('planner find_text auto-normalizes lone regex braces like var.*Unlocks.*=.*
       const inputText = `${filler}\nvar Unlocks = {`;
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Summarize the visible transition evidence conservatively.',
         inputText,
         format: 'text',
@@ -67,6 +68,7 @@ test('planner fails fast when the planner response body is empty', async () => {
 
       await assert.rejects(
         () => summarizeRequest({
+      repoRoot: process.cwd(),
           question: 'Find all transitions in the Lumbridge Castle area.',
           inputText,
           format: 'text',
@@ -98,6 +100,7 @@ test('planner tolerates several malformed replies before succeeding instead of a
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Find all transitions in the Lumbridge Castle area.',
         inputText,
         format: 'text',
@@ -135,6 +138,7 @@ test('planner accepts a direct structured summary response for oversized input i
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
 
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Summarize oversized input.',
         inputText,
         format: 'text',
@@ -169,6 +173,7 @@ test('summarizeRequest no longer rejects input larger than 4x chunk threshold wh
       const chunkThreshold = getChunkThresholdCharacters(config);
       const inputChars = (chunkThreshold * 4) + 1;
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'Summarize oversized input.',
         inputText: buildOversizedTransitionsInput(inputChars),
         format: 'text',

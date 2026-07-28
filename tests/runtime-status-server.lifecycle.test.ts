@@ -34,6 +34,7 @@ test('summary status notification failures do not abort provider work', async ()
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const result = await summarizeRequest({
+      repoRoot: process.cwd(),
         question: 'summarize this',
         inputText: 'A'.repeat(5000),
         format: 'text',

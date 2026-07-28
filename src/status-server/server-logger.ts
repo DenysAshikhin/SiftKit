@@ -13,6 +13,7 @@ export const Ansi = {
   scope: '\x1b[36m',
   id: '\x1b[2;35m',
   ok: '\x1b[32m',
+  warning: '\x1b[33m',
   error: '\x1b[31m',
 } as const;
 
@@ -25,7 +26,7 @@ export type ServerLogEvent = {
 };
 
 /** How a builder-produced body is coloured and level-gated, independent of its display verb. */
-export type LogSeverity = 'normal' | 'ok' | 'error';
+export type LogSeverity = 'normal' | 'ok' | 'warning' | 'error';
 
 /** The scope-and-id-free part of a log line, produced by the message builders. */
 export type ServerLogBody = {
@@ -107,6 +108,10 @@ export class ServerLogger {
     this.emit(event, 'quiet', Ansi.error);
   }
 
+  warning(event: ServerLogEvent): void {
+    this.emit(event, 'normal', Ansi.warning);
+  }
+
   /** Emits a builder-produced body at the severity the builder declared. */
   emitBody(scope: string, id: string, body: ServerLogBody): void {
     const line = { scope, id, event: body.event, fields: body.fields };
@@ -116,6 +121,10 @@ export class ServerLogger {
     }
     if (body.severity === 'ok') {
       this.ok(line);
+      return;
+    }
+    if (body.severity === 'warning') {
+      this.warning(line);
       return;
     }
     this.event(line);
