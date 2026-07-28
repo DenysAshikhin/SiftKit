@@ -22,6 +22,7 @@ import {
   type RepoAgentRunState,
   type RepoAgentWorkerRequest,
 } from './run-schemas.js';
+import { RepoAgentRunStateLease } from './run-state-lease.js';
 
 const RunIdSchema = z.string().uuid();
 const RevisionSchema = z.number().int().nonnegative();
@@ -87,22 +88,28 @@ export class RepoAgentRunStore {
   ): RepoAgentRunState {
     const validatedRunId = this.validRunId(runId);
     const validatedRevision = RevisionSchema.parse(expectedRevision);
-    const current = this.readStateFile(validatedRunId);
-    this.assertCurrentRevision(current, validatedRevision);
-    if (isTerminalStatus(current.status)) {
-      throw new Error(`Run ${validatedRunId} is already terminal.`);
-    }
+    const lease = this.stateLease(validatedRunId);
+    lease.acquire();
+    try {
+      const current = this.readStateFile(validatedRunId);
+      this.assertCurrentRevision(current, validatedRevision);
+      if (isTerminalStatus(current.status)) {
+        throw new Error(`Run ${validatedRunId} is already terminal.`);
+      }
 
-    const validatedNext = RepoAgentRunStateSchema.parse(next);
-    if (validatedNext.runId !== validatedRunId) {
-      throw new Error('The next state runId must match the transitioned run identity.');
+      const validatedNext = RepoAgentRunStateSchema.parse(next);
+      if (validatedNext.runId !== validatedRunId) {
+        throw new Error('The next state runId must match the transitioned run identity.');
+      }
+      if (validatedNext.revision !== validatedRevision + 1) {
+        throw new Error('The next revision must increase exactly once.');
+      }
+      this.assertWorkerPidPreserved(current, validatedNext);
+      this.writeState(validatedNext);
+      return validatedNext;
+    } finally {
+      lease.release();
     }
-    if (validatedNext.revision !== validatedRevision + 1) {
-      throw new Error('The next revision must increase exactly once.');
-    }
-    this.assertWorkerPidPreserved(current, validatedNext);
-    this.writeState(validatedNext);
-    return validatedNext;
   }
 
   publishApproval(
@@ -112,29 +119,35 @@ export class RepoAgentRunStore {
   ): RepoAgentRunState {
     const validatedRunId = this.validRunId(runId);
     const validatedRevision = RevisionSchema.parse(expectedRevision);
-    const current = this.readStateFile(validatedRunId);
-    this.assertCurrentRevision(current, validatedRevision);
-    if (current.status !== 'running') {
-      throw new Error('An approval can only be published from running state.');
-    }
-    if (
-      existsSync(this.decisionPath(validatedRunId))
-      || existsSync(this.decisionClaimPath(validatedRunId))
-    ) {
-      throw new Error('A decision already exists for this run.');
-    }
+    const lease = this.stateLease(validatedRunId);
+    lease.acquire();
+    try {
+      const current = this.readStateFile(validatedRunId);
+      this.assertCurrentRevision(current, validatedRevision);
+      if (current.status !== 'running') {
+        throw new Error('An approval can only be published from running state.');
+      }
+      if (
+        existsSync(this.decisionPath(validatedRunId))
+        || existsSync(this.decisionClaimPath(validatedRunId))
+      ) {
+        throw new Error('A decision already exists for this run.');
+      }
 
-    const approval = RepoAgentApprovalSchema.parse(input);
-    const next = RepoAgentRunStateSchema.parse({
-      runId: validatedRunId,
-      revision: validatedRevision + 1,
-      updatedAtUtc: new Date().toISOString(),
-      status: 'approval_required',
-      pid: current.pid,
-      approval,
-    });
-    this.writeState(next);
-    return next;
+      const approval = RepoAgentApprovalSchema.parse(input);
+      const next = RepoAgentRunStateSchema.parse({
+        runId: validatedRunId,
+        revision: validatedRevision + 1,
+        updatedAtUtc: new Date().toISOString(),
+        status: 'approval_required',
+        pid: current.pid,
+        approval,
+      });
+      this.writeState(next);
+      return next;
+    } finally {
+      lease.release();
+    }
   }
 
   submitDecision(input: RepoAgentDecision): void {
@@ -216,25 +229,31 @@ export class RepoAgentRunStore {
   ): RepoAgentRunState {
     const validatedRunId = this.validRunId(runId);
     const validatedRevision = RevisionSchema.parse(expectedRevision);
-    const current = this.readStateFile(validatedRunId);
-    this.assertCurrentRevision(current, validatedRevision);
-    if (current.status !== 'approval_required') {
-      throw new Error(`Run ${validatedRunId} has no pending approval_required state.`);
-    }
+    const lease = this.stateLease(validatedRunId);
+    lease.acquire();
+    try {
+      const current = this.readStateFile(validatedRunId);
+      this.assertCurrentRevision(current, validatedRevision);
+      if (current.status !== 'approval_required') {
+        throw new Error(`Run ${validatedRunId} has no pending approval_required state.`);
+      }
 
-    rmSync(this.decisionPath(validatedRunId), { force: true });
-    rmSync(this.decisionClaimPath(validatedRunId), { force: true });
-    const shared = {
-      runId: validatedRunId,
-      revision: validatedRevision + 1,
-      updatedAtUtc: new Date().toISOString(),
-      pid: current.pid,
-    };
-    const next = status === 'running'
-      ? RepoAgentRunStateSchema.parse({ ...shared, status: 'running' })
-      : RepoAgentRunStateSchema.parse({ ...shared, status: 'aborted' });
-    this.writeState(next);
-    return next;
+      rmSync(this.decisionPath(validatedRunId), { force: true });
+      rmSync(this.decisionClaimPath(validatedRunId), { force: true });
+      const shared = {
+        runId: validatedRunId,
+        revision: validatedRevision + 1,
+        updatedAtUtc: new Date().toISOString(),
+        pid: current.pid,
+      };
+      const next = status === 'running'
+        ? RepoAgentRunStateSchema.parse({ ...shared, status: 'running' })
+        : RepoAgentRunStateSchema.parse({ ...shared, status: 'aborted' });
+      this.writeState(next);
+      return next;
+    } finally {
+      lease.release();
+    }
   }
 
   pruneTerminalRuns(retentionDays: number, now: Date): string[] {
@@ -299,6 +318,10 @@ export class RepoAgentRunStore {
 
   private decisionClaimPath(runId: string): string {
     return join(this.runDir(runId), 'decision.claim');
+  }
+
+  private stateLease(runId: string): RepoAgentRunStateLease {
+    return new RepoAgentRunStateLease(join(this.runDir(runId), 'state.lock'));
   }
 
   private readRequestFile(runId: string): RepoAgentWorkerRequest {

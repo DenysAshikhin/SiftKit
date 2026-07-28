@@ -1,5 +1,7 @@
-import { kill } from 'node:process';
-
+import {
+  NodeProcessInspector,
+  type ProcessInspector,
+} from '../lib/process-inspector.js';
 import {
   RepoAgentRunResultSchema,
   isActiveStatus,
@@ -8,21 +10,6 @@ import {
   type RepoAgentRunState,
 } from './run-schemas.js';
 import type { RepoAgentRunStore } from './run-store.js';
-
-export interface ProcessInspector {
-  isAlive(pid: number): boolean;
-}
-
-export class NodeProcessInspector implements ProcessInspector {
-  isAlive(pid: number): boolean {
-    try {
-      kill(pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-}
 
 const DEFAULT_POLL_INTERVAL_MS = 250;
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;

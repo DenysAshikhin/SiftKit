@@ -21,6 +21,7 @@ import {
   type RepoAgentDecision,
   type RepoAgentWorkerRequest,
 } from '../src/repo-agent/run-schemas.js';
+import { RepoAgentRunStateLease } from '../src/repo-agent/run-state-lease.js';
 import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
 
 const TEMP_ROOT = join(
@@ -391,6 +392,24 @@ test('transition preserves a worker PID and rejects terminal rewrites', () => {
   );
 });
 
+test('transition cannot overwrite state while another owner holds the state lease', () => {
+  const runsRoot = makeRunsRoot();
+  const store = new RepoAgentRunStore(runsRoot);
+  const request = makeRequest();
+  store.create(request);
+  const lease = new RepoAgentRunStateLease(
+    join(runsRoot, request.runId, 'state.lock'),
+  );
+  lease.acquire();
+
+  assert.throws(
+    () => moveToRunning(store, request),
+    /state transition is already active/iu,
+  );
+  assert.equal(store.readState(request.runId).revision, 0);
+  lease.release();
+});
+
 test('publishApproval preserves PID and does not create a decision', () => {
   const runsRoot = makeRunsRoot();
   const store = new RepoAgentRunStore(runsRoot);
@@ -407,6 +426,25 @@ test('publishApproval preserves PID and does not create a decision', () => {
   assert.equal(state.pid, process.pid);
   assert.deepEqual(state.approval, approval);
   assert.equal(existsSync(join(runsRoot, request.runId, 'decision.json')), false);
+});
+
+test('publishApproval cannot overwrite state while another owner holds the state lease', () => {
+  const runsRoot = makeRunsRoot();
+  const store = new RepoAgentRunStore(runsRoot);
+  const request = makeRequest();
+  store.create(request);
+  moveToRunning(store, request);
+  const lease = new RepoAgentRunStateLease(
+    join(runsRoot, request.runId, 'state.lock'),
+  );
+  lease.acquire();
+
+  assert.throws(
+    () => store.publishApproval(request.runId, 1, makeApproval()),
+    /state transition is already active/iu,
+  );
+  assert.equal(store.readState(request.runId).revision, 1);
+  lease.release();
 });
 
 test('submitDecision rejects unknown, stale, mismatched, and duplicate decisions', () => {
@@ -503,6 +541,25 @@ test('clearPendingApproval removes payload and decision while preserving PID', (
 
   const nextApproval = store.publishApproval(request.runId, 3, makeApproval());
   assert.equal(nextApproval.revision, 4);
+});
+
+test('clearPendingApproval cannot overwrite state while another owner holds the state lease', () => {
+  const runsRoot = makeRunsRoot();
+  const store = new RepoAgentRunStore(runsRoot);
+  const request = makeRequest();
+  store.create(request);
+  publishBoundary(store, request);
+  const lease = new RepoAgentRunStateLease(
+    join(runsRoot, request.runId, 'state.lock'),
+  );
+  lease.acquire();
+
+  assert.throws(
+    () => store.clearPendingApproval(request.runId, 2, 'running'),
+    /state transition is already active/iu,
+  );
+  assert.equal(store.readState(request.runId).status, 'approval_required');
+  lease.release();
 });
 
 test('clearPendingApproval aborts and rejects stale or non-pending state', () => {

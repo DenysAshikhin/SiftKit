@@ -18,8 +18,10 @@ import {
 } from '../src/repo-agent/run-schemas.js';
 import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
 import { RepoAgentBoundaryWaiter } from '../src/repo-agent/boundary-waiter.js';
-import type { ProcessInspector } from '../src/repo-agent/boundary-waiter.js';
-import { NodeProcessInspector } from '../src/repo-agent/boundary-waiter.js';
+import {
+  NodeProcessInspector,
+  type ProcessInspector,
+} from '../src/lib/process-inspector.js';
 
 const TEMP_ROOT = join(
   process.cwd(),
