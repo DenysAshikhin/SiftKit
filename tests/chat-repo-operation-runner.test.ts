@@ -91,8 +91,17 @@ function buildResult(finalOutput: string): RepoSearchExecutionResult {
     outputTokensEstimated: false,
   }];
   scorecard.totals.promptTokens = 20;
+  scorecard.totals.promptCacheTokens = 3;
+  scorecard.totals.promptEvalTokens = 10;
+  scorecard.totals.promptEvalDurationMs = 500;
   scorecard.totals.outputTokens = 8;
+  scorecard.totals.outputTokensEstimatedCount = 1;
   scorecard.totals.thinkingTokens = 2;
+  scorecard.totals.thinkingTokensEstimatedCount = 1;
+  scorecard.totals.generationDurationMs = 1_000;
+  scorecard.totals.speculativeAcceptedTokens = 4;
+  scorecard.totals.speculativeGeneratedTokens = 5;
+  task.groundingStatus = 'fetched';
   return {
     requestId: 'engine-request',
     transcriptPath: 'transcript.jsonl',
@@ -158,10 +167,22 @@ test('chat repo operation runner executes and persists equivalent plan and repo-
   for (const operation of ['plan', 'repo-search'] as const) {
     const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), `siftkit-chat-${operation}-`));
     const progressWriter = new RecordingProgressWriter();
-    const engineService = new StubStatusEngineService(buildResult(`${operation} complete`));
+    const engineResult = buildResult(`${operation} complete`);
+    if (operation === 'plan') {
+      const task = engineResult.scorecard.tasks[0];
+      if (!task) {
+        throw new Error('Mock scorecard must contain a task.');
+      }
+      task.turnThinking = { 1: '' };
+    }
+    const engineService = new StubStatusEngineService(engineResult);
     try {
       const runner = new ChatRepoOperationRunner();
       const request = createRequest(runtimeRoot, engineService, progressWriter);
+      if (operation === 'repo-search') {
+        request.maxTurns = undefined;
+        request.session.webSearchEnabled = true;
+      }
       const result = operation === 'plan'
         ? await runner.runPlan(request)
         : await runner.runRepoSearch(request);
@@ -174,16 +195,32 @@ test('chat repo operation runner executes and persists equivalent plan and repo-
       assert.equal(engineRequest.taskKind, operation);
       assert.equal(engineRequest.repoRoot, process.cwd());
       assert.equal(engineRequest.requestId, 'route-request');
-      assert.equal(engineRequest.maxTurns, 7);
+      assert.equal(engineRequest.maxTurns, operation === 'plan' ? 7 : 45);
       assert.equal(engineRequest.model, 'test-model');
+      assert.equal(engineRequest.allowedTools?.includes('web_search'), operation === 'repo-search');
+      assert.equal(engineRequest.allowedTools?.includes('web_fetch'), operation === 'repo-search');
       assert.match(engineRequest.prompt, operation === 'plan' ? /implementation plan/u : /^find target$/u);
       assert.equal(result.updatedSession.presetId, operation);
       assert.equal(result.updatedSession.mode, operation);
       assert.equal(result.updatedSession.planRepoRoot, process.cwd());
       assert.deepEqual(
         result.updatedSession.messages?.map((message) => message.kind),
-        ['user_text', 'assistant_thinking', 'assistant_tool_call', 'assistant_answer'],
+        operation === 'plan'
+          ? ['user_text', 'assistant_tool_call', 'assistant_answer']
+          : ['user_text', 'assistant_thinking', 'assistant_tool_call', 'assistant_answer'],
       );
+      const answer = result.updatedSession.messages?.find((message) => message.kind === 'assistant_answer');
+      assert.equal(answer?.outputTokensEstimate, 8);
+      assert.equal(answer?.outputTokensEstimated, true);
+      assert.equal(answer?.thinkingTokens, 2);
+      assert.equal(answer?.thinkingTokensEstimated, true);
+      assert.equal(answer?.promptCacheTokens, 3);
+      assert.equal(answer?.promptEvalTokens, 10);
+      assert.equal(answer?.promptTokensPerSecond, 20);
+      assert.equal(answer?.generationTokensPerSecond, 10);
+      assert.equal(answer?.speculativeAcceptedTokens, 4);
+      assert.equal(answer?.speculativeGeneratedTokens, 5);
+      assert.equal(answer?.groundingStatus, operation === 'repo-search' ? 'fetched' : null);
       assert.equal(result.repoSearch.requestId, 'engine-request');
       assert.equal(result.repoSearch.transcriptPath, 'transcript.jsonl');
       assert.equal(result.repoSearch.artifactPath, 'artifact.json');

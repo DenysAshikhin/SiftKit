@@ -1,4 +1,72 @@
 import type { DashboardConfig, DashboardModelRuntimePreset, DashboardPreset } from '../src/types.js';
+import type {
+  GeneralSettingsActions,
+  InteractiveSettingsActions,
+  ModelPresetSettingsActions,
+  PresetSettingsActions,
+  ToolPolicySettingsActions,
+  WebSearchSettingsActions,
+} from '../src/settings-action-groups.js';
+
+export const GENERAL_ACTIONS: GeneralSettingsActions = {
+  setString() {},
+  setBoolean() {},
+};
+
+export const TOOL_POLICY_ACTIONS: ToolPolicySettingsActions = {
+  setToolEnabled() {},
+};
+
+export const PRESET_ACTIONS: PresetSettingsActions = {
+  selectPreset() {},
+  setString() {},
+  setKind() {},
+  setOperationMode() {},
+  setToolEnabled() {},
+  setSurfaceEnabled() {},
+  setAgentsMdEnabled() {},
+  setRepoFileListingEnabled() {},
+  setAutoloadFile() {},
+  addAutoloadFile() {},
+  removeAutoloadFile() {},
+  setSummaryDefault() {},
+  addPreset() {},
+  deletePreset() {},
+};
+
+export const INTERACTIVE_ACTIONS: InteractiveSettingsActions = {
+  setThreshold() {},
+  setInteger() {},
+  setBoolean() {},
+  setWrappedCommands() {},
+};
+
+export const WEB_SEARCH_ACTIONS: WebSearchSettingsActions = {
+  setPrimaryProvider() {},
+  setEnabledDefault() {},
+  setProviderEnabled() {},
+  setProviderApiKey() {},
+  setInteger() {},
+};
+
+export const MODEL_PRESET_ACTIONS: ModelPresetSettingsActions = {
+  selectPreset() {},
+  setString() {},
+  setNullableString() {},
+  setModelPath() {},
+  setInteger() {},
+  setFloat() {},
+  setBoolean() {},
+  setBackend() {},
+  setKvCacheQuantization() {},
+  setReasoning() {},
+  setReasoningContent() {},
+  setSpeculativeType() {},
+  addPreset() {},
+  deletePreset() {},
+  async pickPath() {},
+  async testBaseUrl() {},
+};
 
 export const PRESET = {
   id: 'summary-default', label: 'Summary', description: 'Default summary preset',

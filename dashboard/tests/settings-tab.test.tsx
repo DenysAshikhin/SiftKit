@@ -3,7 +3,17 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { SettingsTab } from '../src/tabs/SettingsTab';
-import { DASHBOARD_CONFIG, PRESET, MANAGED_PRESET } from './fixtures';
+import {
+  DASHBOARD_CONFIG,
+  GENERAL_ACTIONS,
+  INTERACTIVE_ACTIONS,
+  MANAGED_PRESET,
+  MODEL_PRESET_ACTIONS,
+  PRESET,
+  PRESET_ACTIONS,
+  TOOL_POLICY_ACTIONS,
+  WEB_SEARCH_ACTIONS,
+} from './fixtures';
 
 type SettingsTabProps = React.ComponentProps<typeof SettingsTab>;
 
@@ -25,29 +35,13 @@ function render(overrides: Partial<SettingsTabProps> = {}): string {
     settingsSaving: false,
     settingsRestarting: false,
     settingsPathPickerBusyTarget: null,
-    setSelectedSettingsPresetId: () => {},
     requestSettingsAction: overrides.requestSettingsAction ?? (() => {}),
-    updateSettingsDraft: () => {},
-    setPresetLabel: () => {},
-    setPresetKind: () => {},
-    setPresetOperationMode: () => {},
-    togglePresetTool: () => {},
-    setPresetDescription: () => {},
-    setPresetPromptPrefix: () => {},
-    setPresetSurfaceEnabled: () => {},
-    setPresetAgentsMdEnabled: () => {},
-    setPresetRepoFileListingEnabled: () => {},
-    setPresetAutoloadFile: () => {},
-    addPresetAutoloadFile: () => {},
-    removePresetAutoloadFile: () => {},
-    setDefaultSummaryPreset: () => {},
-    updateModelPresetDraft: () => {},
-    onAddPreset: () => {},
-    onDeletePreset: () => {},
-    onAddModelPreset: () => {},
-    onDeleteModelPreset: () => {},
-    onPickModelPresetPath: async () => {},
-    onTestLlamaCppBaseUrl: async () => {},
+    generalActions: GENERAL_ACTIONS,
+    toolPolicyActions: TOOL_POLICY_ACTIONS,
+    presetActions: PRESET_ACTIONS,
+    interactiveActions: INTERACTIVE_ACTIONS,
+    webSearchActions: WEB_SEARCH_ACTIONS,
+    modelPresetActions: MODEL_PRESET_ACTIONS,
     onReloadDashboardSettings: async () => {},
     restartDashboardBackendCore: async () => true,
     onSaveDashboardSettings: async () => {},

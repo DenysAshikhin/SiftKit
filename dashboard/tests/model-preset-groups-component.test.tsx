@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ModelPresetsSection } from '../src/tabs/settings/ModelPresetsSection';
-import { DASHBOARD_CONFIG, MANAGED_PRESET } from './fixtures';
+import { DASHBOARD_CONFIG, MANAGED_PRESET, MODEL_PRESET_ACTIONS } from './fixtures';
 import type { DashboardModelRuntimePreset } from '../src/types';
 
 type ModelPresetsSectionProps = React.ComponentProps<typeof ModelPresetsSection>;
@@ -17,12 +17,7 @@ function render(preset: DashboardModelRuntimePreset): string {
     selectedModelPreset: preset,
     settingsActionBusy: false,
     settingsPathPickerBusyTarget: null,
-    updateSettingsDraft: () => {},
-    updateModelPresetDraft: () => {},
-    onAddModelPreset: () => {},
-    onDeleteModelPreset: () => {},
-    onPickModelPresetPath: async () => {},
-    onTestLlamaCppBaseUrl: async () => {},
+    modelPresetActions: MODEL_PRESET_ACTIONS,
   };
   return renderToStaticMarkup(React.createElement(ModelPresetsSection, props));
 }

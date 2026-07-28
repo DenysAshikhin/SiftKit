@@ -115,7 +115,10 @@ test('default config has no top-level Backend field', () => {
 });
 
 test('normalization drops any provided top-level Backend', () => {
-  const normalized = normalizeConfigObject({ Backend: 'llama.cpp' });
+  const normalized = normalizeConfigObject({
+    ...getDefaultConfigObject(),
+    Backend: 'llama.cpp',
+  });
   assert.equal('Backend' in normalized, false);
 });
 
