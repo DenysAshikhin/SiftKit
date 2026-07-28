@@ -24,9 +24,3 @@ export type DashboardPresetOperationMode = PresetOperationMode;
 export type DashboardPresetSurface = PresetSurface;
 export type DashboardPresetToolName = PresetToolName;
 export type IdleSummarySnapshot = IdleSummarySnapshotRow;
-
-// Purely client-side selection state, never crosses the wire.
-export type RepoSearchAutoAppendSelection = {
-  includeAgentsMd: boolean;
-  includeRepoFileListing: boolean;
-};

@@ -12,7 +12,6 @@ import {
   getReplayDisplayTokenCount,
 } from '../lib/format';
 import {
-  buildDisplayedSystemPromptContent,
   buildFallbackPromptContext,
   buildLiveMessageScrollSignature,
 } from '../lib/chatMessages';
@@ -26,8 +25,6 @@ import type {
   ContextUsage,
   DashboardPreset,
   DashboardPresetExecutionFamily,
-  RepoSearchAutoAppendPreview,
-  RepoSearchAutoAppendSelection,
 } from '../types';
 import type { ChatMessage } from '../types';
 
@@ -96,18 +93,15 @@ export type ChatTabProps = {
   planRepoRootInput: string;
   contextUsage: ContextUsage | null;
   liveToolPromptTokenCount: number | null;
-  repoSearchAutoAppendPreview?: RepoSearchAutoAppendPreview | null;
-  repoSearchAutoAppendSelection?: RepoSearchAutoAppendSelection;
-  isRepoSearchAutoAppendPreviewLoading?: boolean;
   liveMessages: ChatMessage[];
   chatInput: string;
   chatBusy: boolean;
   chatError: string | null;
+  warnings: string[];
   onSelectSession(sessionId: string): void;
   onToggleSettings(): void;
   onChangePlanRepoRoot(value: string): void;
   onChangeChatInput(value: string): void;
-  onSetRepoSearchAutoAppendSelection?(selection: RepoSearchAutoAppendSelection): void;
   onCreateSession(): Promise<void>;
   onDeleteSession(): Promise<void>;
   onUpdateSessionPreset(presetId: string): Promise<void>;
@@ -161,18 +155,15 @@ export function ChatTab({
   planRepoRootInput,
   contextUsage,
   liveToolPromptTokenCount,
-  repoSearchAutoAppendPreview = null,
-  repoSearchAutoAppendSelection = { includeAgentsMd: true, includeRepoFileListing: true },
-  isRepoSearchAutoAppendPreviewLoading = false,
   liveMessages,
   chatInput,
   chatBusy,
   chatError,
+  warnings,
   onSelectSession,
   onToggleSettings,
   onChangePlanRepoRoot,
   onChangeChatInput,
-  onSetRepoSearchAutoAppendSelection = () => {},
   onCreateSession,
   onDeleteSession,
   onUpdateSessionPreset,
@@ -188,15 +179,9 @@ export function ChatTab({
 }: ChatTabProps) {
   const persistedMessages = selectedSession ? selectedSession.messages : [];
   const visibleMessages = [...persistedMessages, ...liveMessages];
-  const showRepoSearchAutoAppendControls = chatMode === 'repo-search'
-    && persistedMessages.length === 0
-    && liveMessages.length === 0;
   const promptContext = selectedSession
     ? selectedSession.promptContext || buildFallbackPromptContext(selectedSession, selectedChatPreset, isRepoToolMode, planRepoRootInput)
     : null;
-  const displayedSystemPromptContent = promptContext
-    ? buildDisplayedSystemPromptContent(promptContext.content, showRepoSearchAutoAppendControls, repoSearchAutoAppendSelection)
-    : '';
   const visibleMessageIds = visibleMessages.map((message) => message.id).join('|');
   const liveMessageScrollSignature = buildLiveMessageScrollSignature(liveMessages);
   const { chatLogRef } = useChatScroll(visibleMessageIds, liveMessageScrollSignature);
@@ -288,12 +273,12 @@ export function ChatTab({
             )}
 
             <div className="msgs" ref={chatLogRef}>
-              {promptContext && displayedSystemPromptContent.trim() ? (
+              {promptContext && promptContext.content.trim() ? (
                 <article className="msg ai system_context">
                   <div className="who">system · first message</div>
                   <details className="system-context-bubble">
                     <summary>{promptContext.label}</summary>
-                    <pre className="mono">{displayedSystemPromptContent}</pre>
+                    <pre className="mono">{promptContext.content}</pre>
                   </details>
                 </article>
               ) : null}
@@ -333,6 +318,14 @@ export function ChatTab({
               </div>
             ) : null}
 
+            {warnings.length > 0 ? (
+              <div className="warning-banner" role="status">
+                {warnings.map((warning, index) => (
+                  <span key={`${warning}:${index}`}>{warning}</span>
+                ))}
+              </div>
+            ) : null}
+
             <div className="composer">
               {showSettings ? (
                 <SettingsPopover
@@ -342,52 +335,6 @@ export function ChatTab({
                   chatBusy={chatBusy}
                   onCondense={onCondense}
                 />
-              ) : null}
-              {showRepoSearchAutoAppendControls ? (
-                <div className="repo-auto-append-row" aria-label="Repo-search auto-append controls">
-                  <RepoAutoAppendButton
-                    label="AGENTS.md"
-                    icon="A"
-                    enabled={repoSearchAutoAppendSelection.includeAgentsMd}
-                    loading={isRepoSearchAutoAppendPreviewLoading}
-                    available={repoSearchAutoAppendPreview?.agentsMd.available ?? false}
-                    tokenCount={repoSearchAutoAppendPreview?.agentsMd.tokenCount ?? null}
-                    tokenSource={repoSearchAutoAppendPreview?.agentsMd.tokenSource ?? 'estimate'}
-                    enableTitle="Enable AGENTS.md auto-append for the first repo-search message"
-                    disableTitle="Disable AGENTS.md auto-append for the first repo-search message"
-                    onToggle={() => onSetRepoSearchAutoAppendSelection({
-                      ...repoSearchAutoAppendSelection,
-                      includeAgentsMd: !repoSearchAutoAppendSelection.includeAgentsMd,
-                    })}
-                  />
-                  <RepoAutoAppendButton
-                    label="File scan"
-                    icon="F"
-                    enabled={repoSearchAutoAppendSelection.includeRepoFileListing}
-                    loading={isRepoSearchAutoAppendPreviewLoading}
-                    available={repoSearchAutoAppendPreview?.repoFileListing.available ?? false}
-                    tokenCount={repoSearchAutoAppendPreview?.repoFileListing.tokenCount ?? null}
-                    tokenSource={repoSearchAutoAppendPreview?.repoFileListing.tokenSource ?? 'estimate'}
-                    enableTitle="Enable file scan auto-append for the first repo-search message"
-                    disableTitle="Disable file scan auto-append for the first repo-search message"
-                    onToggle={() => onSetRepoSearchAutoAppendSelection({
-                      ...repoSearchAutoAppendSelection,
-                      includeRepoFileListing: !repoSearchAutoAppendSelection.includeRepoFileListing,
-                    })}
-                  />
-                  <RepoAutoAppendButton
-                    label="Web"
-                    icon="W"
-                    enabled={webSearchEnabled}
-                    loading={false}
-                    available
-                    tokenCount={null}
-                    tokenSource="estimate"
-                    enableTitle="Enable web search for this session"
-                    disableTitle="Disable web search for this session"
-                    onToggle={() => { void onToggleWebSearchEnabled(!webSearchEnabled); }}
-                  />
-                </div>
               ) : null}
               {isRepoToolMode ? (
                 <div className="composer-plan-row">
@@ -497,44 +444,6 @@ function SettingsPopover(props: {
         <button type="button" onClick={() => { void onCondense(); }} disabled={chatBusy}>Condense Now</button>
       )}
     </div>
-  );
-}
-
-function RepoAutoAppendButton(props: {
-  label: string;
-  icon: string;
-  enabled: boolean;
-  loading: boolean;
-  available: boolean;
-  tokenCount: number | null;
-  tokenSource: 'llama.cpp' | 'estimate';
-  enableTitle: string;
-  disableTitle: string;
-  onToggle(): void;
-}) {
-  const tokenLabel = props.loading
-    ? 'loading'
-    : props.available && typeof props.tokenCount === 'number' && props.tokenSource === 'llama.cpp'
-      ? `${formatNumber(props.tokenCount)} tokens`
-      : props.available
-        ? 'tokens unavailable'
-        : 'not found';
-  const title = props.enabled ? props.disableTitle : props.enableTitle;
-  return (
-    <button
-      type="button"
-      className={props.enabled ? 'repo-auto-append-button on' : 'repo-auto-append-button off'}
-      onClick={props.onToggle}
-      aria-label={`${props.enabled ? 'Disable' : 'Enable'} ${props.label === 'File scan' ? 'file scan' : props.label} auto-append`}
-      title={`${title}. ${props.label}: ${tokenLabel}${props.available && props.tokenSource === 'llama.cpp' ? ` (${props.tokenSource})` : ''}.`}
-    >
-      <span className="repo-auto-append-icon" aria-hidden="true">{props.icon}</span>
-      <span className="repo-auto-append-copy">
-        <strong>{props.label}</strong>
-        <span>{tokenLabel}</span>
-      </span>
-      <span className="repo-auto-append-state" aria-hidden="true">{props.enabled ? 'On' : 'Off'}</span>
-    </button>
   );
 }
 

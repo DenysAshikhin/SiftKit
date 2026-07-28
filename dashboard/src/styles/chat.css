@@ -59,16 +59,10 @@
 .composer-settings-popover.warning { border-color: #5a4a2a; }
 .composer-plan-row { display: flex; gap: 8px; align-items: center; }
 .composer-plan-root { flex: 1; }
-.repo-auto-append-row { display: flex; gap: 8px; flex-wrap: wrap; }
-.repo-auto-append-button { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel2); color: var(--dim); padding: 4px 9px; cursor: pointer; font-size: 0.72rem; }
-.repo-auto-append-button.on { border-color: var(--acc); color: var(--acc); }
-.repo-auto-append-icon { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; background: #17222e; font-size: 0.66rem; }
-.repo-auto-append-copy { display: grid; }
-.repo-auto-append-copy strong { font-size: 0.72rem; }
-.repo-auto-append-copy span { font-size: 0.6rem; }
 
 /* ---- error banner ---- */
 .err-banner { border: 1px solid #5a2f33; background: #2a1517; color: #ffb4b4; border-radius: 8px; padding: 8px 12px; font-size: 0.78rem; display: flex; gap: 10px; align-items: center; margin: 0 16px 10px; }
+.warning-banner { border: 1px solid #5a4a2a; background: #2a2415; color: #f4d28d; border-radius: 8px; padding: 8px 12px; font-size: 0.78rem; display: grid; gap: 3px; margin: 0 16px 10px; }
 .mini-btn { font: inherit; font-size: 0.68rem; color: var(--dim); background: none; border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; cursor: pointer; flex: none; text-decoration: none; }
 
 /* ---- states + animations ---- */

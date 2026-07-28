@@ -26,10 +26,6 @@ export type ChatRepoRequest = {
   repoRoot: string | undefined;
 };
 
-export type ChatRepoAppendPreviewRequest = {
-  repoRoot: string | undefined;
-};
-
 function readMode(value: OptionalJsonValue): ChatSessionMode | undefined {
   return value === 'chat' || value === 'plan' || value === 'repo-search' ? value : undefined;
 }
@@ -87,8 +83,4 @@ export function parseChatRepoRequest(body: JsonObject): ChatRepoRequest | null {
     content,
     repoRoot: reader.optionalString('repoRoot'),
   };
-}
-
-export function parseChatRepoAppendPreviewRequest(body: JsonObject): ChatRepoAppendPreviewRequest {
-  return { repoRoot: new JsonRecordReader(body).optionalString('repoRoot') };
 }

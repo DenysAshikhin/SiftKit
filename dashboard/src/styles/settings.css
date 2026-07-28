@@ -80,6 +80,9 @@
 .tchip { font: inherit; font-size: 0.66rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); background: none; cursor: pointer; font-family: ui-monospace, Consolas, monospace; }
 .tchip.on { border-color: var(--acc); color: var(--acc); }
 .tchip.blocked { text-decoration: line-through; opacity: 0.55; cursor: not-allowed; }
+.preset-autoload-files { display: grid; gap: 7px; }
+.preset-autoload-file { display: flex; gap: 7px; align-items: center; }
+.preset-autoload-file input { flex: 1; }
 
 /* ---- model presets ---- */
 .mp-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }

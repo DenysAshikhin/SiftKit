@@ -18,6 +18,13 @@ test('parseChatStreamPacket parses thinking events', () => {
   assert.deepEqual(event, { kind: 'thinking', text: 'hi' });
 });
 
+test('parseChatStreamPacket parses warning events', () => {
+  assert.deepEqual(
+    parseChatStreamPacket('event: warning\ndata: {"warning":"missing file"}\n\n'),
+    { kind: 'warning', text: 'missing file' },
+  );
+});
+
 test('parseChatStreamPacket parses tool_start and tool_result with toolCallId', () => {
   const start = parseChatStreamPacket(
     'event: tool_start\ndata: {"toolCallId":"tc_0","turn":1,"maxTurns":5,"command":"rg foo","promptTokenCount":42}'
@@ -56,6 +63,7 @@ test('parseChatStreamPacket parses tool_start and tool_result with toolCallId', 
 const SAMPLE_SESSION: ChatSessionResponse['session'] = {
   id: 's1',
   title: 't',
+  modelPresetId: 'test-model',
   model: null,
   contextWindowTokens: 0,
   condensedSummary: '',
@@ -73,6 +81,8 @@ const SAMPLE_CONTEXT_USAGE: ChatSessionResponse['contextUsage'] = {
   remainingTokens: 0,
   warnThresholdTokens: 0,
   shouldCondense: false,
+  estimatedTokenFallbackTokens: 0,
+  providerOverheadTokens: 0,
 };
 const SAMPLE_DONE: ChatSessionResponse = { session: SAMPLE_SESSION, contextUsage: SAMPLE_CONTEXT_USAGE };
 

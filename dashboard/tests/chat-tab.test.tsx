@@ -54,15 +54,13 @@ function render(overrides: Partial<ChatTabProps> = {}): string {
     planRepoRootInput: overrides.planRepoRootInput ?? '',
     contextUsage: overrides.contextUsage ?? CONTEXT_USAGE,
     liveToolPromptTokenCount: overrides.liveToolPromptTokenCount ?? null,
-    repoSearchAutoAppendPreview: overrides.repoSearchAutoAppendPreview ?? null,
-    repoSearchAutoAppendSelection: overrides.repoSearchAutoAppendSelection ?? { includeAgentsMd: true, includeRepoFileListing: true },
-    isRepoSearchAutoAppendPreviewLoading: overrides.isRepoSearchAutoAppendPreviewLoading ?? false,
     liveMessages: overrides.liveMessages ?? [],
     chatInput: overrides.chatInput ?? 'hi',
     chatBusy: overrides.chatBusy ?? false,
     chatError: overrides.chatError ?? null,
+    warnings: overrides.warnings ?? [],
     onSelectSession: () => {}, onToggleSettings: () => {}, onChangePlanRepoRoot: () => {}, onChangeChatInput: () => {},
-    onSetRepoSearchAutoAppendSelection: () => {}, onCreateSession: async () => {}, onDeleteSession: async () => {},
+    onCreateSession: async () => {}, onDeleteSession: async () => {},
     onUpdateSessionPreset: async () => {}, onToggleThinking: async () => {}, onToggleWebSearchEnabled: async () => {},
     onSavePlanRepoRoot: async () => {}, onDeleteMessage: async () => {}, onDeleteTurn: async () => {}, onCondense: async () => {},
     onSendPlan: async () => {}, onSendRepoSearch: async () => {}, onSendMessage: async () => {},
@@ -114,4 +112,21 @@ test('backend failure renders an error banner with retry and open logs', () => {
   assert.match(markup, /Backend restart failed/);
   assert.match(markup, /Retry/);
   assert.match(markup, /Open logs/);
+});
+
+test('chat does not render first-message context toggles', () => {
+  const emptySession = { ...SESSION, mode: 'repo-search', messages: [] } satisfies ChatSession;
+  const markup = render({
+    selectedSession: emptySession,
+    chatMode: 'repo-search',
+    isDirectChatMode: false,
+    isRepoToolMode: true,
+  });
+  assert.doesNotMatch(markup, /Repo-search auto-append controls|File scan/u);
+});
+
+test('chat renders startup-context warnings as nonfatal banners', () => {
+  const markup = render({ warnings: ['missing file'] });
+  assert.match(markup, /class="warning-banner"/u);
+  assert.match(markup, /missing file/u);
 });

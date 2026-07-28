@@ -161,24 +161,53 @@ export function PresetsSection({
                 })}
               />
             </SettingsField>
-            {preset.operationMode === 'read-only' ? (
-              <>
-                <SettingsField label="Include AGENTS.md" layout="quarter">
-                  <input
-                    type="checkbox"
-                    checked={preset.includeAgentsMd}
-                    onChange={(event) => updatePresetDraft(preset.id, (next) => { next.includeAgentsMd = event.target.checked; })}
-                  />
-                </SettingsField>
-                <SettingsField label="Include repo file list" layout="quarter">
-                  <input
-                    type="checkbox"
-                    checked={preset.includeRepoFileListing}
-                    onChange={(event) => updatePresetDraft(preset.id, (next) => { next.includeRepoFileListing = event.target.checked; })}
-                  />
-                </SettingsField>
-              </>
-            ) : null}
+            <SettingsField label="Load AGENTS.md" layout="quarter">
+              <input
+                type="checkbox"
+                checked={preset.includeAgentsMd}
+                onChange={(event) => updatePresetDraft(preset.id, (next) => { next.includeAgentsMd = event.target.checked; })}
+              />
+            </SettingsField>
+            <SettingsField label="Load repository file list" layout="quarter">
+              <input
+                type="checkbox"
+                checked={preset.includeRepoFileListing}
+                onChange={(event) => updatePresetDraft(preset.id, (next) => { next.includeRepoFileListing = event.target.checked; })}
+              />
+            </SettingsField>
+            <SettingsField label="Autoload files" layout="full">
+              <div className="preset-autoload-files">
+                {preset.autoloadFiles.map((file, index) => (
+                  <div className="preset-autoload-file" key={`${preset.id}:${index}`}>
+                    <input
+                      aria-label={`Autoload file ${index + 1}`}
+                      value={file}
+                      onChange={(event) => updatePresetDraft(preset.id, (next) => {
+                        next.autoloadFiles[index] = event.target.value;
+                      })}
+                    />
+                    <button
+                      type="button"
+                      className="ghost-btn"
+                      onClick={() => updatePresetDraft(preset.id, (next) => {
+                        next.autoloadFiles.splice(index, 1);
+                      })}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  onClick={() => updatePresetDraft(preset.id, (next) => {
+                    next.autoloadFiles.push('');
+                  })}
+                >
+                  + Add file
+                </button>
+              </div>
+            </SettingsField>
             <SettingsField label="Use for default summary" layout="quarter">
               <input
                 type="checkbox"

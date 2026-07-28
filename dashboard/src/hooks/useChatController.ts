@@ -6,7 +6,6 @@ import { useChatSessions } from './useChatSessions';
 import { useLiveMessages } from './useLiveMessages';
 import { useContextUsage } from './useContextUsage';
 import { usePlanInputs } from './usePlanInputs';
-import { useRepoSearchAutoAppend } from './useRepoSearchAutoAppend';
 import { useChatComposer } from './useChatComposer';
 import type { DashboardConfig } from '../types';
 import type { ChatTabProps } from '../tabs/ChatTab';
@@ -58,14 +57,6 @@ export function useChatController(deps: {
     selectedChatPreset,
   });
 
-  const autoAppend = useRepoSearchAutoAppend({
-    selectedSession,
-    chatMode,
-    planRepoRootInput: planInputs.planRepoRootInput,
-    liveMessages: live.liveMessages,
-    onError: (error) => setChatError(getErrorMessage(error)),
-  });
-
   const composer = useChatComposer({
     selectedSession,
     selectedChatPreset,
@@ -77,7 +68,6 @@ export function useChatController(deps: {
     planMaxTurnsInput: planInputs.planMaxTurnsInput,
     isThinkingEnabledForCurrentSession,
     maintainPerStepThinkingForCurrentPreset: deps.maintainPerStepThinkingForCurrentPreset,
-    repoSearchAutoAppendSelection: autoAppend.selection,
     onError: (message) => setChatError(message),
     resetError: () => setChatError(null),
     setChatBusy: chatSessionsHook.setChatBusy,
@@ -124,18 +114,15 @@ export function useChatController(deps: {
     planRepoRootInput: planInputs.planRepoRootInput,
     contextUsage: contextHook.contextUsage,
     liveToolPromptTokenCount: contextHook.liveToolPromptTokenCount,
-    repoSearchAutoAppendPreview: autoAppend.preview,
-    repoSearchAutoAppendSelection: autoAppend.selection,
-    isRepoSearchAutoAppendPreviewLoading: autoAppend.previewLoading,
     liveMessages: live.liveMessages,
     chatInput: composer.chatInput,
     chatBusy: chatSessionsHook.chatBusy,
     chatError,
+    warnings: composer.warnings,
     onSelectSession: chatSessionsHook.selectSession,
     onToggleSettings: () => setShowSettings((prev) => !prev),
     onChangePlanRepoRoot: planInputs.setPlanRepoRootInput,
     onChangeChatInput: composer.setChatInput,
-    onSetRepoSearchAutoAppendSelection: autoAppend.setSelection,
     onCreateSession: chatSessionsHook.createSession,
     onDeleteSession: chatSessionsHook.deleteSession,
     onUpdateSessionPreset: chatSessionsHook.updateSessionPreset,

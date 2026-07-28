@@ -16,6 +16,7 @@ export type ChatStreamToolEvent = {
 
 export type ChatStreamEvent =
   | { kind: 'thinking'; text: string }
+  | { kind: 'warning'; text: string }
   | { kind: 'tool'; tool: ChatStreamToolEvent }
   | { kind: 'answer'; text: string }
   | { kind: 'done'; payload: ChatSessionResponse }
@@ -63,6 +64,8 @@ export function parseChatStreamPacket(packet: string): ChatStreamEvent | null {
   switch (parsed.eventName) {
     case 'thinking':
       return { kind: 'thinking', text: String(record.thinking ?? '') };
+    case 'warning':
+      return { kind: 'warning', text: String(record.warning ?? '') };
     case 'tool_start':
     case 'tool_result':
       return { kind: 'tool', tool: buildToolEvent(parsed.eventName, record) };

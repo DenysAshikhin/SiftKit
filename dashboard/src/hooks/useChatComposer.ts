@@ -5,19 +5,18 @@ import {
   streamPlanMessage,
   streamRepoSearchMessage,
 } from '../api';
-import { buildRepoSearchAutoAppendPayload } from '../lib/repo-append-controls';
 import type { ChatStreamToolEvent } from '../lib/chat-stream-parser';
 import type {
   ChatSession,
   ContextUsage,
   DashboardPreset,
-  RepoSearchAutoAppendSelection,
 } from '../types';
 import type { UseLiveMessagesResult } from './useLiveMessages';
 import type { UseContextUsageResult } from './useContextUsage';
 
 export type UseChatComposerResult = {
   chatInput: string;
+  warnings: string[];
   setChatInput(value: string): void;
   sendMessage(): Promise<void>;
   sendPlan(): Promise<void>;
@@ -60,12 +59,12 @@ export function useChatComposer(deps: {
   planMaxTurnsInput: string;
   isThinkingEnabledForCurrentSession: boolean;
   maintainPerStepThinkingForCurrentPreset: boolean;
-  repoSearchAutoAppendSelection: RepoSearchAutoAppendSelection;
   onError(message: string): void;
   resetError(): void;
   setChatBusy(busy: boolean): void;
 }): UseChatComposerResult {
   const [chatInput, setChatInput] = useState<string>('');
+  const [warnings, setWarnings] = useState<string[]>([]);
 
   function setChatBusy(busy: boolean): void {
     deps.setChatBusy(busy);
@@ -85,6 +84,7 @@ export function useChatComposer(deps: {
     }
     setChatBusy(true);
     setChatError(null);
+    setWarnings([]);
     deps.live.resetLive();
     deps.context.setLiveToolPromptTokenCount(null);
     try {
@@ -110,7 +110,8 @@ export function useChatComposer(deps: {
           });
         },
       );
-      deps.applySessionResponse({ session: response.session, contextUsage: response.contextUsage });
+      deps.applySessionResponse(response.response);
+      setWarnings(response.warnings);
       setChatInput('');
     } catch (error) {
       setChatError(getErrorMessage(error));
@@ -128,6 +129,7 @@ export function useChatComposer(deps: {
     }
     setChatBusy(true);
     setChatError(null);
+    setWarnings([]);
     deps.live.resetLive();
     deps.context.setLiveToolPromptTokenCount(null);
     try {
@@ -162,7 +164,8 @@ export function useChatComposer(deps: {
           });
         },
       );
-      deps.applySessionResponse({ session: response.session, contextUsage: response.contextUsage });
+      deps.applySessionResponse(response.response);
+      setWarnings(response.warnings);
       setChatInput('');
     } catch (error) {
       setChatError(getErrorMessage(error));
@@ -180,6 +183,7 @@ export function useChatComposer(deps: {
     }
     setChatBusy(true);
     setChatError(null);
+    setWarnings([]);
     deps.live.resetLive();
     deps.context.setLiveToolPromptTokenCount(null);
     try {
@@ -190,7 +194,6 @@ export function useChatComposer(deps: {
           content: chatInput.trim(),
           repoRoot,
           ...parsePlanMaxTurnsOverride(deps.planMaxTurnsInput),
-          ...buildRepoSearchAutoAppendPayload(deps.repoSearchAutoAppendSelection),
         },
         (thinkingText) => {
           deps.live.appendLiveThinking(thinkingText, deps.maintainPerStepThinkingForCurrentPreset);
@@ -212,7 +215,8 @@ export function useChatComposer(deps: {
           deps.live.appendLiveThinking(answerText, deps.maintainPerStepThinkingForCurrentPreset);
         },
       );
-      deps.applySessionResponse({ session: response.session, contextUsage: response.contextUsage });
+      deps.applySessionResponse(response.response);
+      setWarnings(response.warnings);
       setChatInput('');
     } catch (error) {
       setChatError(getErrorMessage(error));
@@ -225,6 +229,7 @@ export function useChatComposer(deps: {
 
   return {
     chatInput,
+    warnings,
     setChatInput,
     sendMessage,
     sendPlan,

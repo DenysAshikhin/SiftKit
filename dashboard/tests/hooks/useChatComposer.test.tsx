@@ -9,7 +9,7 @@ import {
   resolveRepoRoot,
   useChatComposer,
 } from '../../src/hooks/useChatComposer';
-import type { ChatSession, ContextUsage, RepoSearchAutoAppendSelection } from '../../src/types';
+import type { ChatSession, ContextUsage } from '../../src/types';
 
 const SESSION: ChatSession = {
   id: 's1',
@@ -20,11 +20,6 @@ const SESSION: ChatSession = {
   createdAtUtc: '2026-06-03T12:00:00.000Z',
   updatedAtUtc: '2026-06-03T12:00:00.000Z',
   messages: [],
-};
-
-const SELECTION: RepoSearchAutoAppendSelection = {
-  includeAgentsMd: true,
-  includeRepoFileListing: true,
 };
 
 test('parsePlanMaxTurnsOverride returns maxTurns when input is a positive number', () => {
@@ -109,7 +104,6 @@ test('useChatComposer initialises chatInput empty', () => {
       planRepoRootInput: '',
       planMaxTurnsInput: '',
       isThinkingEnabledForCurrentSession: false,
-      repoSearchAutoAppendSelection: SELECTION,
       onError: () => {},
       resetError: () => {},
       setChatBusy: () => {},
@@ -118,10 +112,12 @@ test('useChatComposer initialises chatInput empty', () => {
       dangerouslySetInnerHTML: {
         __html: JSON.stringify({
           chatInput: composer.chatInput,
+          warnings: composer.warnings,
         }),
       },
     });
   }
   const markup = renderToStaticMarkup(React.createElement(Probe));
   assert.match(markup, /"chatInput":""/);
+  assert.match(markup, /"warnings":\[\]/);
 });

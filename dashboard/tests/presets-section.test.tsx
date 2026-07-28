@@ -30,3 +30,30 @@ test('presets section renders a master-detail library with badges and tool chips
   assert.match(markup, /class="tchip on"[^>]*>read_lines/);
   assert.match(markup, /class="tchip blocked"/);
 });
+
+test('preset editor shows startup context for summary presets', () => {
+  const preset = {
+    ...CUSTOM_PRESET,
+    operationMode: 'summary',
+    autoloadFiles: ['C:\\shared\\rules.md'],
+  } satisfies typeof CUSTOM_PRESET;
+  const markup = renderToStaticMarkup(
+    <PresetsSection
+      dashboardConfig={{ ...DASHBOARD_CONFIG, Presets: [preset] }}
+      selectedSettingsPreset={preset}
+      selectedSettingsPresetId={preset.id}
+      setSelectedSettingsPresetId={() => {}}
+      updateSettingsDraft={() => {}}
+      updatePresetDraft={() => {}}
+      onAddPreset={() => {}}
+      onDeletePreset={() => {}}
+    />,
+  );
+
+  assert.match(markup, /Load AGENTS\.md/u);
+  assert.match(markup, /Load repository file list/u);
+  assert.match(markup, /Autoload files/u);
+  assert.match(markup, /C:\\shared\\rules\.md/u);
+  assert.match(markup, /\+ Add file/u);
+  assert.match(markup, /Remove/u);
+});

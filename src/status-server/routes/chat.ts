@@ -18,8 +18,6 @@ import { JsonRecordReader } from '../../lib/json-record-reader.js';
 import type { OptionalJsonValue } from '../../lib/json-types.js';
 import type { ChatGroundingStatus } from '../../repo-search/chat-grounding-policy.js';
 import { getRuntimeRoot } from '../paths.js';
-import { buildIgnorePolicy } from '../../repo-search/command-safety.js';
-import { readAgentsMd, scanRepoFiles } from '../../repo-search/prompts.js';
 import { countTokensWithFallbackDetailed } from '../../repo-search/prompt-budget.js';
 import { toError } from '../../lib/errors.js';
 import {
@@ -67,7 +65,6 @@ import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-no
 import { SseResponseWriter } from '../sse-response-writer.js';
 import {
   parseChatMessageRequest,
-  parseChatRepoAppendPreviewRequest,
   parseChatRepoRequest,
   parseChatSessionCreateRequest,
   parseChatSessionUpdateRequest,
@@ -255,70 +252,6 @@ function resolveRepoSearchRoutePreset(
     return fallbackPreset;
   }
   return presets.find((preset) => preset.presetKind === 'plan' || preset.presetKind === 'repo-search') || null;
-}
-
-export function resolveEffectiveRepoFileListing(config: Partial<Pick<SiftConfig, 'IncludeRepoFileListing'>>, preset: Pick<SiftPreset, 'includeRepoFileListing'> | null): boolean {
-  return config.IncludeRepoFileListing !== false && preset?.includeRepoFileListing !== false;
-}
-
-export function resolveEffectiveAgentsMd(config: Partial<Pick<SiftConfig, 'IncludeAgentsMd'>>, preset: Pick<SiftPreset, 'includeAgentsMd'> | null): boolean {
-  return config.IncludeAgentsMd !== false && preset?.includeAgentsMd !== false;
-}
-
-export function resolveRepoSearchAutoAppendOverrides(
-  config: Pick<SiftConfig, 'IncludeAgentsMd' | 'IncludeRepoFileListing'>,
-  preset: Pick<SiftPreset, 'includeAgentsMd' | 'includeRepoFileListing'> | null,
-  overrides: { includeAgentsMd?: OptionalJsonValue; includeRepoFileListing?: OptionalJsonValue },
-): { includeAgentsMd: boolean; includeRepoFileListing: boolean } {
-  return {
-    includeAgentsMd: typeof overrides.includeAgentsMd === 'boolean'
-      ? overrides.includeAgentsMd
-      : resolveEffectiveAgentsMd(config, preset),
-    includeRepoFileListing: typeof overrides.includeRepoFileListing === 'boolean'
-      ? overrides.includeRepoFileListing
-      : resolveEffectiveRepoFileListing(config, preset),
-  };
-}
-
-type RepoSearchAutoAppendPreviewItem = {
-  key: 'agentsMd' | 'repoFileListing';
-  label: string;
-  enabledDefault: boolean;
-  available: boolean;
-  tokenCount: number;
-  tokenSource: 'llama.cpp' | 'estimate';
-};
-
-async function buildRepoSearchAutoAppendPreviewItem(options: {
-  key: RepoSearchAutoAppendPreviewItem['key'];
-  label: string;
-  enabledDefault: boolean;
-  content: string;
-  config: SiftConfig;
-}): Promise<RepoSearchAutoAppendPreviewItem> {
-  const content = options.content.trim();
-  if (!content) {
-    return {
-      key: options.key,
-      label: options.label,
-      enabledDefault: options.enabledDefault,
-      available: false,
-      tokenCount: 0,
-      tokenSource: 'estimate',
-    };
-  }
-  const count = await countTokensWithFallbackDetailed(getLocalTokenConfig(options.config), content, {
-    timeoutMs: 150,
-    retryMaxWaitMs: 150,
-  });
-  return {
-    key: options.key,
-    label: options.label,
-    enabledDefault: options.enabledDefault,
-    available: true,
-    tokenCount: count.tokenCount,
-    tokenSource: count.source,
-  };
 }
 
 export function getRepoSearchGenerationTokensPerSecond(scorecard: OptionalJsonValue): number | null {
@@ -1421,66 +1354,6 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
   }
 }
 
-class PreviewRepoSearchAppendEndpoint implements RouteEndpoint {
-  async handle(
-    ctx: ServerContext,
-    req: IncomingMessage,
-    res: ServerResponse,
-    routeMatch: RouteMatch,
-  ): Promise<void> {
-    const pathname = routeMatch.pathname;
-    const { configPath } = ctx;
-    const runtimeRoot = getRuntimeRoot();
-    const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/repo-search\/append-preview$/u, ''));
-    const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
-    const session = readChatSessionFromPath(sessionPath);
-    if (!session) {
-      sendJson(res, 404, { error: 'Session not found.' });
-      return;
-    }
-    let parsedBody: ReturnType<typeof parseJsonBody>;
-    try {
-      parsedBody = parseJsonBody(await readBody(req));
-    } catch (error) {
-      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
-      return;
-    }
-    const appendPreviewRequest = parseChatRepoAppendPreviewRequest(parsedBody);
-    const resolvedRepoRoot = resolveChatRepoRoot(appendPreviewRequest, session);
-    if (!existsSync(resolvedRepoRoot) || !statSync(resolvedRepoRoot).isDirectory()) {
-      sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
-      return;
-    }
-    const config = readConfig(configPath);
-    const presets = normalizePresets(config.Presets);
-    const preset = resolveRepoSearchRoutePreset(
-      presets,
-      typeof session.presetId === 'string' ? session.presetId : undefined,
-      'repo-search',
-    );
-    const defaults = resolveRepoSearchAutoAppendOverrides(config, preset, {});
-    const agentsContent = readAgentsMd(resolvedRepoRoot);
-    const fileListing = scanRepoFiles(resolvedRepoRoot, buildIgnorePolicy(resolvedRepoRoot));
-    sendJson(res, 200, {
-      agentsMd: await buildRepoSearchAutoAppendPreviewItem({
-        key: 'agentsMd',
-        label: 'AGENTS.md',
-        enabledDefault: defaults.includeAgentsMd,
-        content: agentsContent,
-        config,
-      }),
-      repoFileListing: await buildRepoSearchAutoAppendPreviewItem({
-        key: 'repoFileListing',
-        label: 'Files',
-        enabledDefault: defaults.includeRepoFileListing,
-        content: fileListing,
-        config,
-      }),
-    });
-    return;
-  }
-}
-
 class StreamRepoSearchEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
@@ -1680,7 +1553,6 @@ const CHAT_ROUTES = new RouteTable([
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/messages\/stream$/u, endpoint: new StreamChatMessageEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/plan$/u, endpoint: new CreateChatPlanEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/plan\/stream$/u, endpoint: new StreamChatPlanEndpoint() },
-  { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-search\/append-preview$/u, endpoint: new PreviewRepoSearchAppendEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-search\/stream$/u, endpoint: new StreamRepoSearchEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/condense$/u, endpoint: new CondenseChatSessionEndpoint() },
 ]);

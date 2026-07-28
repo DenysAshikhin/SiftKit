@@ -6,6 +6,7 @@ const SAMPLE_DONE: ChatSessionResponse = {
   session: {
     id: 's',
     title: 't',
+    modelPresetId: 'test-model',
     model: null,
     contextWindowTokens: 0,
     condensedSummary: '',
@@ -23,6 +24,8 @@ const SAMPLE_DONE: ChatSessionResponse = {
     remainingTokens: 0,
     warnThresholdTokens: 0,
     shouldCondense: false,
+    estimatedTokenFallbackTokens: 0,
+    providerOverheadTokens: 0,
   },
 };
 
@@ -54,7 +57,8 @@ test('streamPlanMessage forwards toolCallId from SSE payload to onToolEvent', as
       (event) => captured.push({ toolCallId: event.toolCallId, command: event.command }),
     );
     assert.deepEqual(captured, [{ toolCallId: 'tc_0', command: 'x' }]);
-    assert.equal(result.session.id, 's');
+    assert.equal(result.response.session.id, 's');
+    assert.deepEqual(result.warnings, []);
   } finally {
     restoreFetch();
   }
@@ -75,7 +79,23 @@ test('streamRepoSearchMessage forwards toolCallId from SSE payload to onToolEven
       (event) => captured.push({ toolCallId: event.toolCallId, kind: event.kind }),
     );
     assert.deepEqual(captured, [{ toolCallId: 'tc_1', kind: 'tool_result' }]);
-    assert.equal(result.session.id, 's');
+    assert.equal(result.response.session.id, 's');
+    assert.deepEqual(result.warnings, []);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('streamRepoSearchMessage returns streamed startup-context warnings', async () => {
+  const { streamRepoSearchMessage } = await import('../src/api');
+  const restoreFetch = mockFetchOnce([
+    'event: warning\ndata: {"warning":"missing file"}\n\n',
+    `event: done\ndata: ${JSON.stringify(SAMPLE_DONE)}\n\n`,
+  ]);
+  try {
+    const result = await streamRepoSearchMessage('sess', { content: 'go' }, () => {}, () => {});
+    assert.deepEqual(result.warnings, ['missing file']);
+    assert.equal(result.response.session.id, 's');
   } finally {
     restoreFetch();
   }

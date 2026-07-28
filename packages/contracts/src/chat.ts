@@ -49,10 +49,3 @@ export const ChatSessionResponseSchema = z.object({ session: ChatSessionSchema, 
 export type ChatSessionResponse = z.infer<typeof ChatSessionResponseSchema>;
 export const ChatSessionsResponseSchema = z.object({ sessions: z.array(ChatSessionSchema) });
 export type ChatSessionsResponse = z.infer<typeof ChatSessionsResponseSchema>;
-
-const AutoAppendItemSchema = z.object({
-  key: z.enum(['agentsMd', 'repoFileListing']), label: z.string(), enabledDefault: z.boolean(),
-  available: z.boolean(), tokenCount: z.number(), tokenSource: z.enum(['llama.cpp', 'estimate']),
-});
-export const RepoSearchAutoAppendPreviewSchema = z.object({ agentsMd: AutoAppendItemSchema, repoFileListing: AutoAppendItemSchema });
-export type RepoSearchAutoAppendPreview = z.infer<typeof RepoSearchAutoAppendPreviewSchema>;

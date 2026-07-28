@@ -44,8 +44,6 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'Backend', layout: 'half', helpText: 'Protocol family used by SiftKit. Inference runtime selection belongs to each model preset.' },
       { label: 'Policy Mode', layout: 'quarter', helpText: 'Controls how assertive SiftKit should be. Conservative favors visible evidence and lower-risk compression; aggressive allows bolder decisions.' },
       { label: 'Raw log retention', layout: 'quarter', helpText: 'Keeps raw runtime logs and request artifacts instead of trimming them more aggressively.' },
-      { label: 'AGENTS.md', layout: 'quarter', helpText: 'Adds root-level AGENTS.md instructions to repo-search and planner tool prompts.' },
-      { label: 'Initial repo file scan', layout: 'quarter', helpText: 'Adds the repository file listing to the first repo-search or planner tool prompt.' },
       { label: 'Expand reads', layout: 'half', helpText: 'When enabled, repeated narrow file reads can be expanded before execution. When disabled, SiftKit runs the requested read window unchanged while still tracking overlap.' },
       { label: 'Prompt prefix', layout: 'full', helpText: 'Default instruction prefix prepended to summarization and compression prompts.' },
     ],

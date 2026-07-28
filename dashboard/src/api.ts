@@ -6,7 +6,7 @@ import {
   DashboardBenchmarkQuestionPresetsResponseSchema, DashboardBenchmarkQuestionPresetSchema,
   DashboardBenchmarkSessionsResponseSchema, DashboardBenchmarkSessionDetailSchema, DashboardBenchmarkAttemptSchema,
   ManagedFilePickerResponseSchema, LlamaCppConnectionTestResponseSchema, ChatSessionResponseSchema,
-  ChatSessionsResponseSchema, RepoSearchAutoAppendPreviewSchema,
+  ChatSessionsResponseSchema,
   type DashboardConfig,
   type DashboardHealth,
   type ChatSessionResponse,
@@ -29,7 +29,6 @@ import {
   type DashboardBenchmarkSessionDetail,
   type DashboardBenchmarkSessionsResponse,
   type DashboardBenchmarkStartRequest,
-  type RepoSearchAutoAppendPreview,
   type WebSearchQuotaResponse,
   InferenceRuntimeStatusSchema,
   type InferenceRuntimeStatus,
@@ -309,13 +308,18 @@ export function updateChatSession(
   });
 }
 
+export type ChatStreamResult = {
+  response: ChatSessionResponse;
+  warnings: string[];
+};
+
 export async function streamChatMessage(
   sessionId: string,
   payload: { content: string },
   onThinking: (thinkingText: string) => void,
   onToolEvent: (event: ChatStreamToolEvent) => void,
   onAnswer: (answerText: string) => void,
-): Promise<ChatSessionResponse> {
+): Promise<ChatStreamResult> {
   return consumeChatStream(
     `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/messages/stream`,
     payload,
@@ -330,17 +334,6 @@ export function condenseChatSession(sessionId: string): Promise<ChatSessionRespo
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: '{}',
-  });
-}
-
-export function getRepoSearchAutoAppendPreview(
-  sessionId: string,
-  payload: { repoRoot?: string },
-): Promise<RepoSearchAutoAppendPreview> {
-  return fetchJson(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-search/append-preview`, RepoSearchAutoAppendPreviewSchema, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
   });
 }
 
@@ -366,7 +359,7 @@ async function consumeChatStream(
   onThinking: (thinkingText: string) => void,
   onToolEvent: (event: ChatStreamToolEvent) => void,
   onAnswer?: (answerText: string) => void,
-): Promise<ChatSessionResponse> {
+): Promise<ChatStreamResult> {
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -380,10 +373,13 @@ async function consumeChatStream(
     throw new Error('Streaming response body was empty.');
   }
   let finalResponse: ChatSessionResponse | null = null;
+  const warnings: string[] = [];
   const reader = new ChatStreamReader(response.body.getReader());
   for await (const event of reader.events()) {
     if (event.kind === 'thinking') {
       onThinking(event.text);
+    } else if (event.kind === 'warning') {
+      warnings.push(event.text);
     } else if (event.kind === 'tool') {
       onToolEvent(event.tool);
     } else if (event.kind === 'answer') {
@@ -397,7 +393,7 @@ async function consumeChatStream(
   if (!finalResponse) {
     throw new Error('Missing final streaming payload.');
   }
-  return finalResponse;
+  return { response: finalResponse, warnings };
 }
 
 export async function streamPlanMessage(
@@ -407,13 +403,11 @@ export async function streamPlanMessage(
     repoRoot?: string;
     model?: string;
     maxTurns?: number;
-    includeAgentsMd?: boolean;
-    includeRepoFileListing?: boolean;
   },
   onThinking: (thinkingText: string) => void,
   onToolEvent: (event: ChatStreamToolEvent) => void,
   onAnswer?: (answerText: string) => void,
-): Promise<ChatSessionResponse> {
+): Promise<ChatStreamResult> {
   return consumeChatStream(
     `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/plan/stream`,
     payload,
@@ -430,13 +424,11 @@ export async function streamRepoSearchMessage(
     repoRoot?: string;
     model?: string;
     maxTurns?: number;
-    includeAgentsMd?: boolean;
-    includeRepoFileListing?: boolean;
   },
   onThinking: (thinkingText: string) => void,
   onToolEvent: (event: ChatStreamToolEvent) => void,
   onAnswer?: (answerText: string) => void,
-): Promise<ChatSessionResponse> {
+): Promise<ChatStreamResult> {
   return consumeChatStream(
     `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-search/stream`,
     payload,

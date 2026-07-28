@@ -79,3 +79,9 @@ test('general section renders an Expand reads toggle bound to config', () => {
   const disabled = render({ dashboardConfig: disabledConfig });
   assert.match(disabled, /Expand reads[\s\S]{0,300}class="settings-live-toggle-control"[\s\S]{0,300}><span>Disabled<\/span>/);
 });
+
+test('general section does not render global startup-context controls', () => {
+  const markup = render();
+  assert.doesNotMatch(markup, />AGENTS\.md</u);
+  assert.doesNotMatch(markup, /Initial repo file scan/u);
+});
