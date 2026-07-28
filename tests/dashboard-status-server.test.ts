@@ -134,6 +134,24 @@ type RuntimeHelpers = {
 const Database = z.custom<DatabaseConstructor>((value) => typeof value === 'function').parse(requireFromHere('better-sqlite3'));
 const runtimeHelpers = z.custom<RuntimeHelpers>((value) => typeof value === 'object' && value !== null).parse(requireFromHere('./_runtime-helpers.js'));
 
+async function waitForActiveModelRequest(baseUrl: string, kind: string): Promise<void> {
+  await runtimeHelpers.waitForAsyncExpectation(async () => {
+    const response = await requestJson(`${baseUrl}/status`);
+    assert.equal(response.statusCode, 200);
+    const activeRequest = asObject(asObject(response.body).modelRequests).activeRequest;
+    assert.equal(asObject(activeRequest).kind, kind);
+  }, 2_000);
+}
+
+async function waitForQueuedModelRequest(baseUrl: string, kind: string): Promise<void> {
+  await runtimeHelpers.waitForAsyncExpectation(async () => {
+    const response = await requestJson(`${baseUrl}/status`);
+    assert.equal(response.statusCode, 200);
+    const queuedRequests = asObjectArray(asObject(asObject(response.body).modelRequests).queuedRequests);
+    assert.equal(queuedRequests.some((request) => request.kind === kind), true);
+  }, 2_000);
+}
+
 type HostConfigServer = {
   baseUrl: string;
   requestUrls: string[];
@@ -2017,6 +2035,175 @@ test('queued model request is dropped when client disconnects before lock grant'
       .map((entry) => String(entry.content || ''));
     assert.equal(userContents.includes('dropped-request'), false);
     assert.equal(userContents.includes('survivor-request'), true);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
+test('queued JSON Plan returns 404 when its session disappears before lock grant', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-plan-session-race-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = getAddressInfo(server);
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Queued Plan session',
+        model: 'Qwen3.5-9B-Q8_0.gguf',
+      }),
+    });
+    const sessionId = String(d(createSession.body.session).id);
+
+    const delayedRepoSearch = requestSse(`${baseUrl}/repo-search`, {
+      method: 'POST',
+      timeoutMs: 6000,
+      body: JSON.stringify({
+        prompt: 'hold lock while queued Plan loses its session',
+        repoRoot: process.cwd(),
+        model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+        maxTurns: 1,
+        simulateWorkMs: 80,
+        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        mockResponses: [
+          "{\"action\":\"git\",\"command\":\"git grep -n \\\"x\\\" src\"}",
+          '{"action":"finish","output":"done"}',
+        ],
+        mockCommandResults: {
+          'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 500 },
+        },
+      }),
+    });
+    await waitForActiveModelRequest(baseUrl, 'repo_search');
+
+    const queuedPlan = requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/plan`, {
+      method: 'POST',
+      timeoutMs: 6000,
+      body: JSON.stringify({
+        content: 'plan after queued session deletion',
+        repoRoot: process.cwd(),
+        maxTurns: 1,
+        availableModels: ['Qwen3.5-9B-Q8_0.gguf'],
+        mockResponses: ['{"action":"finish","output":"must not run"}'],
+        mockCommandResults: {},
+      }),
+    });
+    await waitForQueuedModelRequest(baseUrl, 'dashboard_plan');
+
+    const deleteResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`, {
+      method: 'DELETE',
+    });
+    assert.equal(deleteResponse.statusCode, 200);
+
+    const [holderResponse, planResponse] = await Promise.all([delayedRepoSearch, queuedPlan]);
+    assert.equal(holderResponse.statusCode, 200);
+    assert.equal(planResponse.statusCode, 404);
+    assert.equal(planResponse.body.error, 'Session not found.');
+
+    const deletedSessionResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
+    assert.equal(deletedSessionResponse.statusCode, 404);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
+test('queued Repo Search disconnect leaves the chat session unchanged', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-repo-search-disconnect-'));
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = getAddressInfo(server);
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Queued Repo Search session',
+        model: 'Qwen3.5-9B-Q8_0.gguf',
+      }),
+    });
+    const createdSession = d(createSession.body.session);
+    const sessionId = String(createdSession.id);
+
+    const delayedRepoSearch = requestSse(`${baseUrl}/repo-search`, {
+      method: 'POST',
+      timeoutMs: 6000,
+      body: JSON.stringify({
+        prompt: 'hold lock while queued Repo Search disconnects',
+        repoRoot: process.cwd(),
+        model: 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf',
+        maxTurns: 1,
+        simulateWorkMs: 80,
+        availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
+        mockResponses: [
+          "{\"action\":\"git\",\"command\":\"git grep -n \\\"x\\\" src\"}",
+          '{"action":"finish","output":"done"}',
+        ],
+        mockCommandResults: {
+          'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 1_000 },
+        },
+      }),
+    });
+    await waitForActiveModelRequest(baseUrl, 'repo_search');
+
+    const disconnectedRepoSearch = fireAndAbortJsonRequest(
+      `${baseUrl}/dashboard/chat/sessions/${sessionId}/repo-search/stream`,
+      JSON.stringify({
+        content: 'must not persist after disconnect',
+        repoRoot: process.cwd(),
+        maxTurns: 1,
+        availableModels: ['Qwen3.5-9B-Q8_0.gguf'],
+        mockResponses: ['{"action":"finish","output":"must not run"}'],
+        mockCommandResults: {},
+      }),
+      500,
+    );
+    await waitForQueuedModelRequest(baseUrl, 'dashboard_repo_search_stream');
+    await disconnectedRepoSearch;
+
+    const holderResponse = await delayedRepoSearch;
+    assert.equal(holderResponse.statusCode, 200);
+
+    const sessionResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
+    assert.equal(sessionResponse.statusCode, 200);
+    const persistedSession = d(sessionResponse.body.session);
+    assert.equal(persistedSession.presetId, createdSession.presetId);
+    assert.equal(persistedSession.mode, createdSession.mode);
+    assert.deepEqual(asArray(persistedSession.messages), asArray(createdSession.messages));
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
