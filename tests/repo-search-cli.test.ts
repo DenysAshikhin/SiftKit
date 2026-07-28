@@ -105,6 +105,7 @@ test('repo-search delegates execution to status server', async () => {
     const first = received[0];
     assert.equal(first.prompt, 'find planner tools');
     assert.equal(first.repoRoot, process.cwd());
+    assert.equal(first.interactive, false);
     assert.equal(output.stdout, 'Found planner tools in src/summary.ts\n');
     assert.doesNotMatch(output.stderr, /repo-search t1\/24 llm_start/u);
     assert.doesNotMatch(output.stderr, /http_client\b/u);

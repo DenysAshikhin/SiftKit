@@ -34,6 +34,7 @@ test('POST /repo-agent (approval on): approves a write via the shared /repo-sear
     const response = await requestSse(`${harness.baseUrl}/repo-agent`, {
       body: {
         prompt: 'write a file', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 4,
+        approval: 'interactive',
         availableModels: ['mock-model'],
         mockResponses: [
           '{"action":"write","path":"agent-endpoint-out.txt","content":"approved"}',
@@ -58,6 +59,54 @@ test('POST /repo-agent (approval on): approves a write via the shared /repo-sear
     assert.equal(approvalFrames.length, 1);
     assert.equal(approvalFrames[0].toolName, 'write');
   } finally {
+    await harness.close();
+  }
+});
+
+test('POST /repo-agent defaults omitted approval to auto review', async () => {
+  const harness = await startHarness('siftkit-repo-agent-default-auto-');
+  const written = path.join(process.cwd(), 'default-auto.txt');
+  try {
+    const response = await requestSse(`${harness.baseUrl}/repo-agent`, {
+      body: {
+        prompt: 'write a file',
+        repoRoot: process.cwd(),
+        model: 'mock-model',
+        maxTurns: 4,
+        availableModels: ['mock-model'],
+        mockResponses: [
+          '{"action":"write","path":"default-auto.txt","content":"safe"}',
+          '{"verdict":"approve","reason":"task-scoped write"}',
+          '{"action":"finish","output":"done"}',
+        ],
+        mockCommandResults: {},
+      },
+      timeoutMs: 20_000,
+      onProgress: async (event) => {
+        if (event.kind !== 'approval_request') {
+          return;
+        }
+        await postJson(`${harness.baseUrl}/repo-search/approval`, {
+          requestId: String(event.requestId),
+          approvalId: String(event.approvalId),
+          decision: 'abort',
+        });
+        assert.fail('Omitted repo-agent approval unexpectedly required manual review.');
+      },
+    });
+    assert.ok(response.result, response.rawBody);
+    assert.equal(fs.readFileSync(written, 'utf8'), 'safe');
+    assert.equal(
+      response.progress.filter((event) => event.kind === 'approval_request').length,
+      0,
+    );
+    const autoFrames = response.progress.filter(
+      (event) => event.kind === 'approval_auto',
+    );
+    assert.equal(autoFrames.length, 1);
+    assert.equal(autoFrames[0].verdict, 'approve');
+  } finally {
+    fs.rmSync(written, { force: true });
     await harness.close();
   }
 });

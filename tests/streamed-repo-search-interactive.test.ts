@@ -8,6 +8,7 @@ import { startHarness } from './helpers/streamed-op-harness.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { asObject } from './helpers/dashboard-http.js';
 import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
+import { RepoSearchExecutionResultSchema } from '../src/repo-search/types.js';
 
 function postJson(url: string, body: JsonSerializable): Promise<{ statusCode: number; body: JsonObject }> {
   return new Promise((resolve, reject) => {
@@ -26,6 +27,54 @@ function postJson(url: string, body: JsonSerializable): Promise<{ statusCode: nu
     request.end();
   });
 }
+
+test('default repo-search uses git without approval or repo-agent run control', async () => {
+  const harness = await startHarness('siftkit-default-search-isolation-');
+  try {
+    const runRoot = path.join(
+      process.cwd(),
+      '.siftkit',
+      'repo-agent',
+      'runs',
+    );
+    const response = await requestSse(`${harness.baseUrl}/repo-search`, {
+      body: {
+        prompt: 'inspect status',
+        repoRoot: process.cwd(),
+        model: 'mock-model',
+        maxTurns: 2,
+        availableModels: ['mock-model'],
+        mockResponses: [
+          '{"action":"git","command":"git status --short"}',
+          '{"action":"finish","output":"done"}',
+        ],
+        mockCommandResults: {
+          'git status --short': {
+            exitCode: 0,
+            stdout: ' M src/example.ts',
+            stderr: '',
+          },
+        },
+      },
+      timeoutMs: 20_000,
+    });
+
+    assert.ok(response.result, response.rawBody);
+    const result = RepoSearchExecutionResultSchema.parse(response.result);
+    assert.equal(result.scorecard.tasks[0]?.finalOutput, 'done');
+    assert.equal(
+      response.progress.filter((event) => event.kind === 'approval_request').length,
+      0,
+    );
+    assert.equal(
+      response.progress.filter((event) => event.kind === 'approval_auto').length,
+      0,
+    );
+    assert.equal(fs.existsSync(runRoot), false);
+  } finally {
+    await harness.close();
+  }
+});
 
 test('interactive write run: approval_request precedes execution; approve completes it', async () => {
   const harness = await startHarness('siftkit-interactive-approve-');

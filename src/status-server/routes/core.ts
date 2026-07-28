@@ -879,7 +879,7 @@ abstract class RepoTaskEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
     const requestedAllowedTools = Array.isArray(parsedBody.allowedTools)
       ? parsedBody.allowedTools.map((value) => String(value))
       : undefined;
-    // Agent always gets the full surface; approval mode is interactive|auto|off (default interactive).
+    // Agent always gets the full surface; approval mode is interactive|auto|off (default auto).
     // Search keeps its existing interactive/sanitize logic.
     const approvalMode = this.resolveApprovalMode(parsedBody, interactive);
     const approvalOn = approvalMode !== 'off';
@@ -935,7 +935,7 @@ abstract class RepoTaskEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
     if (this.mode !== 'agent') {
       return interactive ? 'interactive' : 'off';
     }
-    const parsed = ApprovalModeSchema.safeParse(parsedBody.approval ?? 'interactive');
+    const parsed = ApprovalModeSchema.safeParse(parsedBody.approval ?? 'auto');
     if (!parsed.success) {
       throw new Error('approval must be one of: interactive, auto, off.');
     }
