@@ -332,6 +332,36 @@ test('marks active state failed when worker PID is dead', async () => {
   assert.equal(state.status, 'failed');
 });
 
+test('marks a settled approval wait failed when its worker PID is dead', async () => {
+  const runsRoot = makeRunsRoot();
+  const store = new RepoAgentRunStore(runsRoot);
+  const request = makeRequest();
+  store.create(request);
+  store.transition(request.runId, 0, {
+    runId: request.runId,
+    revision: 1,
+    updatedAtUtc: new Date().toISOString(),
+    status: 'running',
+    pid: 99_999_999,
+  });
+  const approvalState = store.publishApproval(
+    request.runId,
+    1,
+    makeApproval(),
+  );
+  const waiter = new RepoAgentBoundaryWaiter({
+    store,
+    runId: request.runId,
+    pollIntervalMs: 5,
+    timeoutMs: 100,
+    processInspector: new NodeProcessInspector(),
+  });
+
+  const result = await waiter.waitForBoundary(approvalState.revision);
+  assert.equal(result.status, 'failed');
+  assert.match(result.error, /died unexpectedly/iu);
+});
+
 test('returns the winning failed boundary when dead-worker transition races', async () => {
   class RacingRunStore extends RepoAgentRunStore {
     private raced = false;

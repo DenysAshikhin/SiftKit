@@ -7,7 +7,7 @@ type CliCommandMetadata = {
 const CLI_COMMAND_DEFINITIONS = [
   { name: 'summary', exposed: true, serverDependent: true, modelLock: true },
   { name: 'repo-search', exposed: true, serverDependent: true, modelLock: true },
-  { name: 'repo-agent', exposed: true, serverDependent: true, modelLock: true },
+  { name: 'repo-agent', exposed: true, serverDependent: false, modelLock: true },
   { name: 'preset', exposed: true, serverDependent: true, modelLock: false },
   { name: 'run', exposed: true, serverDependent: false, modelLock: true },
   { name: 'find-files', exposed: true, serverDependent: false, modelLock: false },

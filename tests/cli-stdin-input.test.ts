@@ -1,8 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Readable } from 'node:stream';
 
 import { commandReadsStdin, readStdinToEnd } from '../src/cli/stdin-input.js';
+
+test('bin entrypoint passes the real stdin stream to TTY-aware commands', () => {
+  const source = readFileSync(
+    join(process.cwd(), 'bin', 'siftkit.js'),
+    'utf8',
+  );
+  assert.match(source, /stdin:\s*process\.stdin/u);
+});
 
 test('commandReadsStdin: stdin-consuming commands without inline input', () => {
   assert.equal(commandReadsStdin(['summary', '--question', 'q']), true);

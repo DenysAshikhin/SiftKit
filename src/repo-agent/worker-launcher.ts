@@ -10,11 +10,15 @@ import type { RepoAgentRunStore } from './run-store.js';
 
 const ProcessIdSchema = z.number().int().positive();
 
+export interface RepoAgentProcessLauncher {
+  launch(runId: string): number;
+}
+
 export function getRepoAgentWorkerEntrypoint(): string {
   return join(moduleDirname(import.meta.url), 'worker-main.js');
 }
 
-export class RepoAgentWorkerLauncher {
+export class RepoAgentWorkerLauncher implements RepoAgentProcessLauncher {
   private readonly nodeExecutable: string;
   private readonly workerEntrypoint: string;
   private readonly store: RepoAgentRunStore;

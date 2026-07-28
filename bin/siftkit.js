@@ -31,6 +31,7 @@ void (async () => {
     const exitCode = await runCli({
       argv: process.argv.slice(2),
       stdinText: stdin.text,
+      stdin: process.stdin,
       stdout: process.stdout,
       stderr: process.stderr,
       timing: {

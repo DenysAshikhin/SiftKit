@@ -36,7 +36,9 @@ function isBoundaryStatus(status: RepoAgentRunState['status']): boolean {
   );
 }
 
-function stateToResult(state: RepoAgentRunState): RepoAgentRunResult {
+export function repoAgentStateToResult(
+  state: RepoAgentRunState,
+): RepoAgentRunResult {
   switch (state.status) {
     case 'completed':
       return RepoAgentRunResultSchema.parse({
@@ -115,7 +117,7 @@ export class RepoAgentBoundaryWaiter {
         throw new Error(`Failed to read state for run ${this.runId}: ${msg}`);
       }
 
-      if (isActiveStatus(state.status) && !isBoundaryStatus(state.status)) {
+      if (isActiveStatus(state.status)) {
         const pid = 'pid' in state ? state.pid : undefined;
         if (pid !== undefined && !this.processInspector.isAlive(pid)) {
           const errorMsg = `Worker process ${pid} died unexpectedly.`;
@@ -134,11 +136,11 @@ export class RepoAgentBoundaryWaiter {
               throw error;
             }
             if (isBoundaryStatus(latest.status)) {
-              return stateToResult(latest);
+              return repoAgentStateToResult(latest);
             }
             continue;
           }
-          return stateToResult(this.store.readState(this.runId));
+          return repoAgentStateToResult(this.store.readState(this.runId));
         }
       }
 
@@ -148,11 +150,11 @@ export class RepoAgentBoundaryWaiter {
       }
 
       if (isTerminalStatus(state.status)) {
-        return stateToResult(state);
+        return repoAgentStateToResult(state);
       }
 
       if (state.status === 'approval_required') {
-        return stateToResult(state);
+        return repoAgentStateToResult(state);
       }
 
       await this.sleep();

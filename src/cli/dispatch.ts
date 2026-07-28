@@ -45,7 +45,14 @@ export async function runCli(options: CliRunOptions): Promise<number> {
   const commandName = invocation.command.name;
   const commandArgs = invocation.args;
   const nestedAgentRunId = readNestedAgentRunId();
-  if (nestedAgentRunId && invocation.command.modelLock && commandName !== 'summary') {
+  const repoAgentControl = commandName === 'repo-agent'
+    && (commandArgs[0] === 'decide' || commandArgs[0] === 'status');
+  if (
+    nestedAgentRunId
+    && invocation.command.modelLock
+    && commandName !== 'summary'
+    && !repoAgentControl
+  ) {
     stderr.write(
       `siftkit ${commandName} is blocked inside agent run ${nestedAgentRunId}: `
       + 'the status server\'s model lock is held by the parent run, so this call would deadlock. '
@@ -62,20 +69,15 @@ export async function runCli(options: CliRunOptions): Promise<number> {
   }
   const commandHelpRequested = commandArgs.some((token) => token === '-h' || token === '--h' || token === '--help' || token === '-help');
   try {
+    const repoAgentInvocation = commandName === 'repo-agent'
+      ? parseRepoAgentInvocation(commandArgs)
+      : null;
     if (commandName === 'repo-search') {
       validateRepoSearchTokens(commandArgs);
       // Fail fast before the server preflight so a non-TTY interactive run never
       // touches the network; run-repo-search re-asserts the same invariant.
       if (!commandHelpRequested) {
         assertStdinIsTty(commandArgs.includes('--interactive'), options.stdin, '--interactive');
-      }
-    }
-    if (commandName === 'repo-agent') {
-      const repoAgentInvocation = parseRepoAgentInvocation(commandArgs);
-      // Interactive and auto modes both prompt on escalation; only --approval off
-      // skips the TTY requirement. Fail before the server preflight; --help stays usable.
-      if (repoAgentInvocation.kind === 'start') {
-        assertStdinIsTty(repoAgentInvocation.approval !== 'off', options.stdin, 'repo-agent approval mode');
       }
     }
     if (commandName === 'repo-search' && commandHelpRequested) {
@@ -133,7 +135,15 @@ export async function runCli(options: CliRunOptions): Promise<number> {
       case 'repo-search':
         return await runRepoSearchCli({ args: commandArgs, stdout, stderr, stdin: options.stdin });
       case 'repo-agent':
-        return await runRepoAgentCli({ args: commandArgs, stdout, stderr, stdin: options.stdin });
+        if (repoAgentInvocation === null) {
+          throw new Error('Repo-agent invocation was not parsed.');
+        }
+        return await runRepoAgentCli({
+          invocation: repoAgentInvocation,
+          stdout,
+          stderr,
+          stdin: options.stdin,
+        });
       case 'find-files':
         return await runFindFiles({ args: commandArgs, stdout });
       case 'test':
