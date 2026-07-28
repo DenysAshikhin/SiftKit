@@ -37,6 +37,29 @@ Instead of a blind `rg` sweep, repo-search runs a constrained planner loop with 
 siftkit repo-search --prompt "find the definition and all call sites of buildPlannerToolDefinitions"
 ```
 
+### `siftkit repo-agent "task"` — agent-style code changes
+Repo-agent runs a constrained planner loop with write capabilities. It defaults to `auto` approval, so safe actions proceed without prompting. In a TTY it runs interactively with human-readable output; in non-TTY environments it emits exactly one JSON object per boundary (completion, approval request, failure, or abort).
+
+```powershell
+siftkit repo-agent "fix the login bug"
+siftkit repo-agent "refactor auth module" --model gpt-4 --approval interactive
+```
+
+Resumable commands for non-TTY callers:
+
+```powershell
+siftkit repo-agent status <run-id>
+siftkit repo-agent decide <run-id> approve
+siftkit repo-agent decide <run-id> deny --reason "out of scope"
+siftkit repo-agent decide <run-id> abort
+```
+
+Machine-readable help:
+
+```powershell
+siftkit repo-agent --help --json
+```
+
 ### `siftkit run --preset <id>` — preset-driven runs
 Presets are reusable personas that bundle a prompt prefix, an operation mode (`summary`, `read-only`, or `full`), an allowed tool list, and optional repo-context controls (agents.md injection, repo file listing). Built-in presets cover summary, chat, plan, and repo-search flows. Custom presets can be created and edited from the dashboard.
 
@@ -127,6 +150,7 @@ Lines are `HH:MM:SS  <scope> <id8>  <event>  <fields>`, where scope is `rs` (rep
 
 - `siftkit summary` — compress piped output
 - `siftkit repo-search` — constrained repo exploration
+- `siftkit repo-agent` — agent-style code changes with resumable JSON boundaries
 - `siftkit preset list` — list available presets
 - `siftkit run` — execute a command or a preset
 - `siftkit install` — bootstrap runtime folders and verify the server

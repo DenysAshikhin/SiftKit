@@ -1,12 +1,12 @@
 import { ensureStatusServerReachable } from '../config/index.js';
 import {
-  readRepoAgentApprovalMode,
-  validateRepoAgentTokens,
   validateRepoSearchTokens,
   type CliRunOptions,
 } from './args.js';
 import { CLI_COMMAND_CATALOG } from './command-catalog.js';
 import { showHelp } from './help.js';
+import { detectRepoAgentHelpInvocation, showRepoAgentHelp } from './repo-agent-help.js';
+import { parseRepoAgentInvocation } from './repo-agent-args.js';
 import { runCaptureInternalCli } from './run-capture.js';
 import { runCommandCli } from './run-command.js';
 import { runConfigGet, runConfigSet } from './run-config.js';
@@ -29,6 +29,12 @@ function failUnknownCommand(commandName: never): never {
 export async function runCli(options: CliRunOptions): Promise<number> {
   const stdout = options.stdout || process.stdout;
   const stderr = options.stderr || process.stderr;
+
+  const repoAgentHelp = detectRepoAgentHelpInvocation(options.argv);
+  if (repoAgentHelp !== null) {
+    showRepoAgentHelp({ stdout, invocation: repoAgentHelp });
+    return 0;
+  }
 
   if (options.argv.length === 0 || ['help', '--help', '--h', '-h', '-help'].includes(options.argv[0])) {
     showHelp(stdout);
@@ -65,18 +71,15 @@ export async function runCli(options: CliRunOptions): Promise<number> {
       }
     }
     if (commandName === 'repo-agent') {
-      validateRepoAgentTokens(commandArgs);
+      const repoAgentInvocation = parseRepoAgentInvocation(commandArgs);
       // Interactive and auto modes both prompt on escalation; only --approval off
       // skips the TTY requirement. Fail before the server preflight; --help stays usable.
-      if (!commandHelpRequested) {
-        assertStdinIsTty(readRepoAgentApprovalMode(commandArgs) !== 'off', options.stdin, 'repo-agent approval mode');
+      if (repoAgentInvocation.kind === 'start') {
+        assertStdinIsTty(repoAgentInvocation.approval !== 'off', options.stdin, 'repo-agent approval mode');
       }
     }
     if (commandName === 'repo-search' && commandHelpRequested) {
       return await runRepoSearchCli({ args: commandArgs, stdout, stderr, stdin: options.stdin });
-    }
-    if (commandName === 'repo-agent' && commandHelpRequested) {
-      return await runRepoAgentCli({ args: commandArgs, stdout, stderr, stdin: options.stdin });
     }
     if (commandName === 'run' && commandHelpRequested) {
       showHelp(stdout);

@@ -9,7 +9,6 @@ export function showHelp(stdout: NodeJS.WritableStream): void {
     '  siftkit summary --question "..." [--text "..."] [--file path]',
     `  ${REPO_SEARCH_SYNOPSIS}`,
     `  ${REPO_AGENT_SYNOPSIS}`,
-    '  siftkit -prompt "find x y z in this repo"',
     '  siftkit preset list',
     '  siftkit run --preset <id> ...',
     '  siftkit run --command <cmd> [--arg <a> ...] --question "..."',

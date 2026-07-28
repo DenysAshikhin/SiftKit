@@ -17,7 +17,7 @@ export const REPO_SEARCH_SYNOPSIS =
 
 /** Canonical repo-agent synopsis — single source for `help` and `repo-agent --help`. */
 export const REPO_AGENT_SYNOPSIS =
-  'siftkit repo-agent --prompt "make change x" [--model <model>] [--log-file <path>] [--approval <interactive|auto|off>] [--progress]';
+  'siftkit repo-agent "task" [--model <model>] [--log-file <path>] [--approval <interactive|auto|off>] [--progress]';
 
 export type CliRunOptions = {
   argv: string[];
@@ -112,43 +112,12 @@ export function validateRepoSearchTokens(tokens: string[]): void {
   }
 }
 
-export function validateRepoAgentTokens(tokens: string[]): void {
-  const flagsWithValues = new Set(['--prompt', '-prompt', '--model', '--log-file', '--approval']);
-  const booleanFlags = new Set(['--progress']);
-  const helpFlags = new Set(['-h', '--h', '--help', '-help']);
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = tokens[index];
-    if (helpFlags.has(token)) {
-      continue;
-    }
-    if (booleanFlags.has(token)) {
-      continue;
-    }
-    if (flagsWithValues.has(token)) {
-      if (tokens[index + 1] === undefined) {
-        throw new Error(`Missing value for repo-agent option: ${token}`);
-      }
-      index += 1;
-      continue;
-    }
-    if (token.startsWith('-')) {
-      throw new Error(`Unknown option for repo-agent: ${token}`);
-    }
-  }
-}
-
 function parseApprovalModeValue(raw: string | undefined): ApprovalMode {
   const parsed = ApprovalModeSchema.safeParse(raw);
   if (!parsed.success) {
     throw new Error(`Invalid --approval value: ${raw ?? '(missing)'}. Expected interactive, auto, or off.`);
   }
   return parsed.data;
-}
-
-/** Pre-parse peek used by dispatch's fail-fast TTY gate. Defaults to interactive. */
-export function readRepoAgentApprovalMode(tokens: string[]): ApprovalMode {
-  const index = tokens.indexOf('--approval');
-  return index === -1 ? 'interactive' : parseApprovalModeValue(tokens[index + 1]);
 }
 
 export function parseArguments(tokens: string[]): ParsedArgs {

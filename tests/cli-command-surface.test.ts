@@ -2,10 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { runCli } from '../src/cli/index.js';
-import {
-  parseArguments,
-  validateRepoAgentTokens,
-} from '../src/cli/args.js';
+import { parseArguments } from '../src/cli/args.js';
 import { CLI_COMMAND_CATALOG } from '../src/cli/command-catalog.js';
 import { makeCaptureStream } from './_test-helpers.js';
 
@@ -33,14 +30,6 @@ test('global backend command is absent from the public command surface', () => {
   const invocation = CLI_COMMAND_CATALOG.resolve(['backend']);
   assert.equal(invocation.command.name, 'summary');
   assert.deepEqual(invocation.args, ['backend']);
-});
-
-test('validateRepoAgentTokens accepts value + boolean flags and rejects unknown', () => {
-  assert.doesNotThrow(() => validateRepoAgentTokens(['--prompt', 'x', '--model', 'm', '--log-file', 'l', '--progress', '--approval', 'auto']));
-  assert.throws(() => validateRepoAgentTokens(['--prompt']), /Missing value for repo-agent option/u);
-  assert.throws(() => validateRepoAgentTokens(['--approval']), /Missing value for repo-agent option/u);
-  assert.throws(() => validateRepoAgentTokens(['--no-approval']), /Unknown option for repo-agent/u);
-  assert.throws(() => validateRepoAgentTokens(['--interactive']), /Unknown option for repo-agent/u);
 });
 
 test('parseArguments maps --approval to approvalMode and rejects invalid values', () => {
