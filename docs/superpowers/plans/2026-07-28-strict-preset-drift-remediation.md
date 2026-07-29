@@ -80,11 +80,17 @@
 **Interfaces:**
 - Exercises existing JSON Plan and SSE Repo Search routes through the real status server and model-request lock.
 
-- [ ] Add an E2E test that queues a Plan request behind active work, deletes its session before lock grant, and expects `404` with no recreated session.
-- [ ] Add an E2E test that queues an SSE Repo Search request, disconnects before lock grant, and proves no preset transition or messages are persisted.
-- [ ] Run both focused tests. They are characterization coverage: each must pass and must fail under the corresponding mutation (removing the post-lock reload or disconnect drop).
-- [ ] Run `npm test -- dashboard-status-server` and verify GREEN.
-- [ ] Commit with `test: cover chat repo operation races`.
+- [x] Add an E2E test that queues a Plan request behind active work, deletes its session before lock grant, and expects `404` with no recreated session.
+- [x] Add an E2E test that queues an SSE Repo Search request, disconnects before lock grant, and proves no preset transition or messages are persisted.
+- [x] Run both focused tests. They are characterization coverage: each must pass and must fail under the corresponding mutation (removing the post-lock reload or disconnect drop).
+- [x] Run `npm test -- dashboard-status-server` and verify GREEN.
+- [x] Commit with `test: cover chat repo operation races`.
+
+**Mutation evidence (2026-07-29):**
+
+- Post-lock reload: replacing the JSON Plan handler's authoritative `readChatSessionFromPath(sessionPath)` reload with the stale pre-lock `session` made `queued JSON Plan returns 404 when its session disappears before lock grant` fail with `200 !== 404`. Restoring the reload returned the dashboard status-server E2Es to green.
+- Disconnect drop: removing response-close cancellation and destroyed-response checks from `acquireModelRequestWithWait` initially exposed that the Repo Search characterization test read persisted state before the uncancelled request completed. After adding condition-based queue-idle synchronization, the same mutation made `queued Repo Search disconnect leaves the chat session unchanged` fail with persisted mode `repo-search` instead of `chat`. Restoring cancellation returned the dashboard status-server E2Es to green.
+- Combined restored command: `npm test -- dashboard-status-server --test-name-pattern "queued JSON Plan returns 404|queued Repo Search disconnect leaves"` passed all 34 tests in the target file.
 
 ### Task 5: Completion gates
 
