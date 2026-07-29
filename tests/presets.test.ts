@@ -106,7 +106,7 @@ test('config persistence rejects an invalid stored preset catalog without repair
   });
 });
 
-test('config persistence restores built-in presets when the stored catalog is blank', () => {
+test('config persistence rejects a blank stored preset catalog without repair', () => {
   withTempRepo((repoRoot) => {
     const configPath = path.join(repoRoot, '.siftkit', 'runtime.sqlite');
     writeConfig(configPath, getDefaultConfig());
@@ -114,7 +114,11 @@ test('config persistence restores built-in presets when the stored catalog is bl
       "UPDATE app_config SET presets_json = '' WHERE id = 1",
     ).run();
 
-    assert.deepEqual(readConfig(configPath).Presets, PresetCatalog.createDefault().list());
+    assert.throws(() => readConfig(configPath), (error: unknown): true => {
+      assert.ok(error instanceof PersistedConfigInvalidError);
+      assert.match(error.message, /DELETE FROM app_config WHERE id = 1/u);
+      return true;
+    });
   });
 });
 

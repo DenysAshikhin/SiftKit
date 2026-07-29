@@ -93,13 +93,6 @@ function parseJsonArray(text: OptionalJsonValue): string[] {
   }
 }
 
-function parsePresetArray(text: OptionalJsonValue): ReturnType<PresetCatalog['list']> {
-  if (typeof text !== 'string' || !text.trim()) {
-    return PresetCatalog.createDefault().list();
-  }
-  return PresetCatalog.parse(parseJsonValueText(text)).list();
-}
-
 function parseOperationModeAllowedTools(text: OptionalJsonValue): ReturnType<typeof normalizeOperationModeAllowedTools> {
   if (typeof text !== 'string' || !text.trim()) {
     return getDefaultOperationModeAllowedTools();
@@ -191,7 +184,7 @@ function rowToConfig(row: AppConfigRow): SiftConfig {
     },
     Inference: parseJsonValueText(row.inference_json),
     OperationModeAllowedTools: parseOperationModeAllowedTools(row.operation_mode_allowed_tools_json),
-    Presets: parsePresetArray(row.presets_json),
+    Presets: PresetCatalog.parse(parseJsonValueText(row.presets_json)).list(),
     WebSearch: parseWebSearchConfig(row.web_search_json),
   });
 }
