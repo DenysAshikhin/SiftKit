@@ -34,6 +34,10 @@ import {
   type PersistTurn,
 } from './chat.js';
 import { ChatOperationPresetSelector } from './chat-operation-preset.js';
+import {
+  ChatTurnPhaseTracker,
+  type ChatTurnPhaseTimestamps,
+} from './chat-turn-phase-tracker.js';
 import { ChatTurnTelemetry } from './chat-turn-telemetry.js';
 import type { StatusEngineService } from './engine-service.js';
 import {
@@ -47,14 +51,6 @@ import {
 } from './repo-search-scorecard-types.js';
 
 type ChatRepoOperation = 'plan' | 'repo-search';
-
-type ChatTurnPhaseTimestamps = {
-  requestStartedAtUtc: string;
-  thinkingStartedAtUtc: string | null;
-  thinkingEndedAtUtc: string | null;
-  answerStartedAtUtc: string | null;
-  answerEndedAtUtc: string | null;
-};
 
 export type ChatRepoOperationRequest = {
   runtimeRoot: string;
@@ -85,11 +81,7 @@ export type ChatRepoOperationResult = {
 };
 
 class ChatRepoOperationProgressTracker extends ProgressWriter<RepoSearchProgressEvent> {
-  private readonly requestStartedAtUtc = new Date().toISOString();
-  private thinkingStartedAtUtc: string | null = null;
-  private thinkingEndedAtUtc: string | null = null;
-  private answerStartedAtUtc: string | null = null;
-  private answerEndedAtUtc: string | null = null;
+  private readonly phaseTracker = new ChatTurnPhaseTracker();
 
   constructor(private readonly writer: ProgressWriter<RepoSearchProgressEvent>) {
     super();
@@ -101,40 +93,20 @@ class ChatRepoOperationProgressTracker extends ProgressWriter<RepoSearchProgress
 
   write(event: RepoSearchProgressEvent): void {
     if (event.kind === 'thinking') {
-      this.observeThinking(event.thinkingText ?? '');
+      this.phaseTracker.observeThinking(event.thinkingText ?? '');
     }
     if (event.kind === 'answer') {
-      this.observeAnswer(event.answerText ?? '');
+      this.phaseTracker.observeAnswer(event.answerText ?? '');
     }
     this.writer.write(event);
   }
 
   observeAnswer(content: string): void {
-    if (!content.trim()) {
-      return;
-    }
-    const now = new Date().toISOString();
-    this.answerStartedAtUtc ??= now;
-    this.answerEndedAtUtc = now;
+    this.phaseTracker.observeAnswer(content);
   }
 
   snapshot(): ChatTurnPhaseTimestamps {
-    return {
-      requestStartedAtUtc: this.requestStartedAtUtc,
-      thinkingStartedAtUtc: this.thinkingStartedAtUtc,
-      thinkingEndedAtUtc: this.thinkingEndedAtUtc,
-      answerStartedAtUtc: this.answerStartedAtUtc,
-      answerEndedAtUtc: this.answerEndedAtUtc,
-    };
-  }
-
-  private observeThinking(content: string): void {
-    if (!content.trim()) {
-      return;
-    }
-    const now = new Date().toISOString();
-    this.thinkingStartedAtUtc ??= now;
-    this.thinkingEndedAtUtc = now;
+    return this.phaseTracker.snapshot();
   }
 }
 

@@ -85,6 +85,7 @@ import {
   ChatRepoOperationRunner,
   type ChatRepoOperationRequest,
 } from '../chat-repo-operation-runner.js';
+import { ChatTurnPhaseTracker } from '../chat-turn-phase-tracker.js';
 import { ChatTurnTelemetry } from '../chat-turn-telemetry.js';
 import {
   captureManagedLlamaSpeculativeMetricsSnapshot,
@@ -265,60 +266,6 @@ type SessionSpeculativeMetrics = {
   speculativeAcceptedTokens: number | null;
   speculativeGeneratedTokens: number | null;
 };
-
-type ChatTurnPhaseTimestamps = {
-  requestStartedAtUtc: string | null;
-  thinkingStartedAtUtc: string | null;
-  thinkingEndedAtUtc: string | null;
-  answerStartedAtUtc: string | null;
-  answerEndedAtUtc: string | null;
-};
-
-function createChatTurnPhaseTracker(requestStartedAtUtc: string): {
-  observeThinking(content: string): void;
-  observeAnswer(content: string): void;
-  snapshot(): ChatTurnPhaseTimestamps;
-} {
-  let thinkingStartedAtUtc: string | null = null;
-  let thinkingEndedAtUtc: string | null = null;
-  let answerStartedAtUtc: string | null = null;
-  let answerEndedAtUtc: string | null = null;
-  const getNowUtc = (): string => new Date().toISOString();
-  const hasContent = (value: string): boolean => String(value || '').trim().length > 0;
-  return {
-    observeThinking(content: string): void {
-      if (!hasContent(content)) {
-        return;
-      }
-      const nowUtc = getNowUtc();
-      if (!thinkingStartedAtUtc) {
-        thinkingStartedAtUtc = nowUtc;
-      }
-      thinkingEndedAtUtc = nowUtc;
-    },
-    observeAnswer(content: string): void {
-      if (!hasContent(content)) {
-        return;
-      }
-      const nowUtc = getNowUtc();
-      if (!answerStartedAtUtc) {
-        answerStartedAtUtc = nowUtc;
-      }
-      answerEndedAtUtc = nowUtc;
-    },
-    snapshot(): ChatTurnPhaseTimestamps {
-      return {
-        requestStartedAtUtc,
-        thinkingStartedAtUtc,
-        thinkingEndedAtUtc,
-        answerStartedAtUtc,
-        answerEndedAtUtc,
-      };
-    },
-  };
-}
-
-type ChatTurnPhaseTracker = ReturnType<typeof createChatTurnPhaseTracker>;
 
 class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
   constructor(
@@ -912,7 +859,7 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
     const userContent = messageRequest.content;
     const startedAt = Date.now();
     const requestStartedAtUtc = new Date(startedAt).toISOString();
-    const phaseTracker = createChatTurnPhaseTracker(requestStartedAtUtc);
+    const phaseTracker = new ChatTurnPhaseTracker(requestStartedAtUtc);
     const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
     // Status reporting for this turn belongs to executeRepoSearchRequest; there is no
     // non-engine branch here to report for.
