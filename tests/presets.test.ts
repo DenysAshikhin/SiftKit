@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import { READ_ONLY_PRESET_TOOLS } from '@siftkit/contracts';
 
+import { PersistedConfigInvalidError } from '../src/config/errors.js';
 import { PresetCatalog } from '../src/preset-catalog.js';
 import {
   getDefaultOperationModeAllowedTools,
@@ -128,5 +129,26 @@ test('config persistence stores global ExpandReads setting in sqlite', () => {
     });
 
     assert.equal(readConfig(configPath).ExpandReads, false);
+  });
+});
+
+test('config persistence reports a legacy preset catalog as an actionable configuration error', () => {
+  withTempRepo((repoRoot) => {
+    const configPath = path.join(repoRoot, '.siftkit', 'runtime.sqlite');
+    writeConfig(configPath, getDefaultConfig());
+    const legacyCatalog = PresetCatalog.createDefault().list()
+      .map((preset) => ({ ...preset, executionFamily: preset.id }));
+    getRuntimeDatabase(configPath).prepare(
+      'UPDATE app_config SET presets_json = ? WHERE id = 1',
+    ).run(JSON.stringify(legacyCatalog));
+
+    assert.throws(() => readConfig(configPath), (error: unknown): true => {
+      assert.ok(error instanceof PersistedConfigInvalidError);
+      assert.match(error.message, /is invalid and is never migrated or repaired automatically/u);
+      assert.match(error.message, /executionFamily/u);
+      assert.match(error.message, /DELETE FROM app_config WHERE id = 1/u);
+      assert.ok(error.message.includes(configPath));
+      return true;
+    });
   });
 });

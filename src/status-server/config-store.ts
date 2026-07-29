@@ -7,6 +7,8 @@ import {
   normalizeOperationModeAllowedTools,
 } from '../presets.js';
 import { PresetCatalog } from '../preset-catalog.js';
+import { toError } from '../lib/errors.js';
+import { PersistedConfigInvalidError } from '../config/errors.js';
 import { getDefaultConfigObject } from '../config/defaults.js';
 import { getActiveModelPreset, managesManagedLlamaLifecycle } from '../config/getters.js';
 import {
@@ -281,15 +283,23 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
   });
 }
 
+function readPersistedConfig(configPath: string): SiftConfig | null {
+  try {
+    const row = readConfigRow(configPath);
+    return row === null ? null : rowToConfig(row);
+  } catch (error) {
+    throw new PersistedConfigInvalidError(configPath, toError(error));
+  }
+}
+
+function createAndPersistDefaultConfig(configPath: string): SiftConfig {
+  const fallback = normalizeConfig(JsonValueSchema.parse(getDefaultConfigObject()));
+  writeConfigRow(configPath, normalizeConfigToRow(fallback));
+  return fallback;
+}
+
 export function readConfig(configPath: string): SiftConfig {
-  const existingRow = readConfigRow(configPath);
-  const config = existingRow
-    ? rowToConfig(existingRow)
-    : (() => {
-      const fallback = normalizeConfig(JsonValueSchema.parse(getDefaultConfigObject()));
-      writeConfigRow(configPath, normalizeConfigToRow(fallback));
-      return fallback;
-    })();
+  const config = readPersistedConfig(configPath) ?? createAndPersistDefaultConfig(configPath);
   // The launch snapshot pins the values the managed server was actually
   // started with (which can diverge from the active preset if the user edits
   // the preset afterwards). Before any launch there is no snapshot, so the

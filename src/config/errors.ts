@@ -42,3 +42,15 @@ export class MissingObservedBudgetError extends Error {
     this.name = 'MissingObservedBudgetError';
   }
 }
+
+export class PersistedConfigInvalidError extends Error {
+  constructor(configPath: string, cause: Error) {
+    super([
+      `SiftKit persisted configuration in ${configPath} is invalid and is never migrated or repaired automatically.`,
+      `Cause: ${cause.message}`,
+      'Recover by deleting the stored config row so defaults are rewritten on the next start: '
+        + 'DELETE FROM app_config WHERE id = 1;',
+    ].join(' '), { cause });
+    this.name = 'PersistedConfigInvalidError';
+  }
+}
