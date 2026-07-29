@@ -2079,6 +2079,7 @@ test('queued Repo Search disconnect leaves the chat session unchanged', async ()
 
     const holderResponse = await delayedRepoSearch;
     assert.equal(holderResponse.statusCode, 200);
+    await harness.waitForModelQueueIdle();
 
     const sessionResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
     assert.equal(sessionResponse.statusCode, 200);

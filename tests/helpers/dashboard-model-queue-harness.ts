@@ -101,6 +101,21 @@ export class DashboardModelQueueHarness {
     throw new Error(`Timed out waiting for queued model request "${kind}".`);
   }
 
+  async waitForModelQueueIdle(): Promise<void> {
+    const deadline = Date.now() + QUEUE_WAIT_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      const response = await requestJson(`${this.getBaseUrl()}/status`);
+      const modelRequests = asObject(response.body.modelRequests);
+      const activeRequest = asObject(modelRequests.activeRequest);
+      const queuedRequests = asObjectArray(modelRequests.queuedRequests);
+      if (activeRequest.kind === undefined && queuedRequests.length === 0) {
+        return;
+      }
+      await delay(QUEUE_POLL_INTERVAL_MS);
+    }
+    throw new Error('Timed out waiting for the model request queue to become idle.');
+  }
+
   holdModelLock(prompt: string, delayMs: number): Promise<SseResponse> {
     return requestSse(`${this.getBaseUrl()}/repo-search`, {
       method: 'POST',
