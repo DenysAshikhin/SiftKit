@@ -93,7 +93,7 @@ function parseJsonArray(text: OptionalJsonValue): string[] {
 
 function parsePresetArray(text: OptionalJsonValue): ReturnType<PresetCatalog['list']> {
   if (typeof text !== 'string' || !text.trim()) {
-    return PresetCatalog.parse(undefined).list();
+    return PresetCatalog.createDefault().list();
   }
   return PresetCatalog.parse(parseJsonValueText(text)).list();
 }

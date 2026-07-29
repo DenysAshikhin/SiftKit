@@ -105,6 +105,18 @@ test('config persistence rejects an invalid stored preset catalog without repair
   });
 });
 
+test('config persistence restores built-in presets when the stored catalog is blank', () => {
+  withTempRepo((repoRoot) => {
+    const configPath = path.join(repoRoot, '.siftkit', 'runtime.sqlite');
+    writeConfig(configPath, getDefaultConfig());
+    getRuntimeDatabase(configPath).prepare(
+      "UPDATE app_config SET presets_json = '' WHERE id = 1",
+    ).run();
+
+    assert.deepEqual(readConfig(configPath).Presets, PresetCatalog.createDefault().list());
+  });
+});
+
 test('config persistence stores global ExpandReads setting in sqlite', () => {
   withTempRepo((repoRoot) => {
     const configPath = path.join(repoRoot, '.siftkit', 'runtime.sqlite');
