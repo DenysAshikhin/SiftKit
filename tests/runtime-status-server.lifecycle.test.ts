@@ -302,7 +302,12 @@ test('failed preset switch returns 503 and keeps the status server alive', async
         body: JSON.stringify(config),
       });
 
-      assert.equal(update.status, 503);
+      // Saving only persists; the preset is applied lazily on the next readiness check.
+      assert.equal(update.status, 200);
+      assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, llamaPreset.id);
+
+      const applied = await fetch(statusServer.configUrl);
+      assert.equal(applied.status, 503);
       assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, exl3Preset.id);
       assert.equal((await fetch(`http://127.0.0.1:${statusServer.port}/health`)).status, 200);
     } finally {

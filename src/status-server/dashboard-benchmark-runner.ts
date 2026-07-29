@@ -86,9 +86,19 @@ function applyCaseConfig(originalConfig: SiftConfig, attempt: BenchmarkAttemptRe
   return normalizeConfig(config);
 }
 
-async function restartManagedLlama(ctx: ServerContext): Promise<void> {
-  await ctx.shutdownManagedLlamaIfNeeded({ force: true });
-  await ctx.ensureManagedLlamaReady();
+/**
+ * A benchmark case is only meaningful against the backend the case config describes,
+ * so this goes through the coordinator: it owns the real stop/start and keeps runtime
+ * state in step with the config just written. Anything it cannot restart throws rather
+ * than letting the run measure the previous process.
+ */
+export async function restartManagedLlama(ctx: ServerContext): Promise<void> {
+  const coordinator = ctx.presetRuntimeCoordinator;
+  if (!coordinator) {
+    throw new Error('Benchmark cannot restart the inference runtime: the preset runtime coordinator is unavailable.');
+  }
+  ctx.modelIdleController?.cancelForPresetChange();
+  await coordinator.restartConfiguredPreset();
 }
 
 export function buildBenchmarkAttemptMetrics(run: RunRecord | null): BenchmarkAttemptMetrics {

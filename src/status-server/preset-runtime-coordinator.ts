@@ -1,11 +1,15 @@
 import type { InferenceRuntimeErrorPhase, InferenceRuntimeStatus } from '@siftkit/contracts';
-import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
+import type { ModelRuntimePreset } from '../config/types.js';
 import type { ManagedInferenceRuntime } from './managed-inference-runtime.js';
 import { readConfig, writeConfig } from './config-store.js';
+
+/** Raised when a restart is asked of a preset whose server SiftKit did not launch. */
+export class ExternalServerRestartError extends Error {}
 
 export class PresetRuntimeCoordinator {
   private activePreset: ModelRuntimePreset;
   private pendingPresetId: string | null = null;
+  private pendingForceRestart = false;
   private modelRequestActive = false;
   private switchPromise: Promise<void> | null = null;
   private errorPhase: InferenceRuntimeErrorPhase | null = null;
@@ -46,29 +50,29 @@ export class PresetRuntimeCoordinator {
       && this.getRuntime(this.activePreset).getModelState() === 'ready'
     ) return 'ready';
     if (this.switchPromise) throw new Error('A preset switch is already in progress.');
-    this.pendingPresetId = presetId;
-    this.errorPhase = null;
-    this.error = null;
-    this.rollback = null;
+    this.setPendingSwitch(presetId, false);
     if (this.modelRequestActive) return 'queued';
     await this.startPendingSwitch();
     return 'ready';
   }
 
-  async applyConfig(config: SiftConfig): Promise<'ready' | 'queued'> {
-    const requestedPresetId = config.Server.ModelPresets.ActivePresetId;
-    const stagedConfig: SiftConfig = {
-      ...config,
-      Server: {
-        ...config.Server,
-        ModelPresets: {
-          ...config.Server.ModelPresets,
-          ActivePresetId: this.activePreset.id,
-        },
-      },
-    };
-    writeConfig(this.configPath, stagedConfig);
-    return await this.applyPreset(requestedPresetId);
+  // Stops and re-readies the preset currently persisted in config, even when it is
+  // byte-identical to the running one. This is the only path that guarantees a real
+  // process restart, so it never short-circuits on an already-ready runtime — and it
+  // refuses outright when the server belongs to someone else, because stopping it is
+  // then impossible and reporting success would be a lie.
+  async restartConfiguredPreset(): Promise<void> {
+    if (this.switchPromise) throw new Error('A preset switch is already in progress.');
+    if (this.modelRequestActive) throw new Error('A model request is in progress; retry once it completes.');
+    const configuredId = readConfig(this.configPath).Server.ModelPresets.ActivePresetId;
+    const configured = this.getPreset(configuredId);
+    if (configured.ExternalServerEnabled) {
+      throw new ExternalServerRestartError(
+        `Preset '${configured.id}' uses an external inference server, so SiftKit does not own its lifecycle and cannot restart it.`,
+      );
+    }
+    this.setPendingSwitch(configuredId, true);
+    await this.startPendingSwitch();
   }
 
   async ensureActivePresetReady(): Promise<void> {
@@ -153,30 +157,40 @@ export class PresetRuntimeCoordinator {
     this.pendingPresetId = null;
   }
 
+  private setPendingSwitch(presetId: string, forceRestart: boolean): void {
+    this.pendingPresetId = presetId;
+    this.pendingForceRestart = forceRestart;
+    this.errorPhase = null;
+    this.error = null;
+    this.rollback = null;
+  }
+
   private async startPendingSwitch(): Promise<void> {
     if (this.switchPromise || this.pendingPresetId === null) return this.switchPromise ?? Promise.resolve();
     const targetId = this.pendingPresetId;
-    this.switchPromise = this.executeSwitch(targetId);
+    this.switchPromise = this.executeSwitch(targetId, this.pendingForceRestart);
     try {
       await this.switchPromise;
     } finally {
       this.switchPromise = null;
+      this.pendingForceRestart = false;
     }
   }
 
-  private async executeSwitch(targetId: string): Promise<void> {
+  private async executeSwitch(targetId: string, forceRestart: boolean): Promise<void> {
     const previous = this.activePreset;
     const target = this.getPreset(targetId);
     const previousRuntime = this.getRuntime(previous);
     const targetRuntime = this.getRuntime(target);
-    const restartSameLlama = previous.Backend === 'llama'
-      && target.Backend === 'llama'
-      && !this.presetsEqual(previous, target);
+    const mustStopPrevious = previous.Backend !== target.Backend
+      || forceRestart
+      || (previous.Backend === 'llama' && !this.presetsEqual(previous, target));
     try {
       if (previous.Backend === 'exl3') await previousRuntime.unloadPreset();
-      if (previous.Backend !== target.Backend || restartSameLlama) await previousRuntime.stopProcess();
+      if (mustStopPrevious) await previousRuntime.stopProcess();
       await targetRuntime.ensurePresetReady(target);
-      this.persistActivePreset(target.id);
+      // Config already holds the requested preset: it is the saved intent this switch is
+      // applying. Writing it back here would clobber a newer save that landed mid-switch.
       this.activePreset = target;
       this.pendingPresetId = null;
     } catch (error) {
@@ -192,7 +206,7 @@ export class PresetRuntimeCoordinator {
               : String(targetCleanupError);
           }
         }
-        if ((previous.Backend !== target.Backend || restartSameLlama) && targetRuntime.getProcessState() !== 'stopped') {
+        if (mustStopPrevious && targetRuntime.getProcessState() !== 'stopped') {
           await targetRuntime.stopProcess();
         }
         this.restorePreset(previous);
@@ -207,12 +221,6 @@ export class PresetRuntimeCoordinator {
       }
       throw error;
     }
-  }
-
-  private persistActivePreset(presetId: string): void {
-    const config = readConfig(this.configPath);
-    config.Server.ModelPresets.ActivePresetId = presetId;
-    writeConfig(this.configPath, config);
   }
 
   private restorePreset(preset: ModelRuntimePreset): void {

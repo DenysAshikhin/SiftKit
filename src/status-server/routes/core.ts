@@ -39,9 +39,9 @@ import {
 } from '../status-file.js';
 import { normalizeMetrics, writeMetrics, type TaskKind, type ToolTypeStats } from '../metrics.js';
 import { recordWebSearchUsage } from '../web-search-usage.js';
+import { ExternalServerRestartError } from '../preset-runtime-coordinator.js';
 import {
   getActiveModelPreset,
-  managesManagedLlamaLifecycle,
   readConfig,
   writeConfig,
   normalizeConfig,
@@ -1700,8 +1700,7 @@ class ConfigUpdateEndpoint implements RouteEndpoint {
     res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
-    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const { configPath } = ctx;
     let parsedBody: JsonValue;
     try {
       parsedBody = parseJsonValueText(await readBody(req) || '{}');
@@ -1719,17 +1718,10 @@ class ConfigUpdateEndpoint implements RouteEndpoint {
       sendJson(res, 400, { error: toError(error).message });
       return;
     }
-    if (ctx.presetRuntimeCoordinator) {
-      ctx.modelIdleController?.cancelForPresetChange();
-      try {
-        await ctx.presetRuntimeCoordinator.applyConfig(nextConfig);
-      } catch (error) {
-        sendServerErrorJson(req, res, 503, error, { taskKind: 'summary' });
-        return;
-      }
-    } else {
-      writeConfig(configPath, nextConfig);
-    }
+    // Saving is pure persistence: the running inference runtime is never touched here.
+    // A changed model preset is applied by POST /status/restart, or lazily by
+    // PresetRuntimeCoordinator.ensureActivePresetReady before the next model request.
+    writeConfig(configPath, nextConfig);
     sendJson(res, 200, nextConfig);
     return;
   }
@@ -1738,26 +1730,29 @@ class ConfigUpdateEndpoint implements RouteEndpoint {
 class StatusRestartEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
-    req: IncomingMessage,
+    _req: IncomingMessage,
     res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
-    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const { configPath, disableManagedLlamaStartup } = ctx;
     if (disableManagedLlamaStartup) {
       sendJson(res, 400, { ok: false, restarted: false, error: 'Managed backend restart is disabled for this server.' });
       return;
     }
-    const currentConfig = readConfig(configPath);
-    if (!managesManagedLlamaLifecycle(currentConfig)) {
-      sendJson(res, 400, { ok: false, restarted: false, error: 'Backend restart is only supported for an active llama.cpp preset.' });
+    const coordinator = ctx.presetRuntimeCoordinator;
+    if (!coordinator) {
+      sendJson(res, 503, { ok: false, restarted: false, error: 'Inference runtime coordinator is unavailable.' });
       return;
     }
     try {
-      await ctx.shutdownManagedLlamaIfNeeded({ force: true, timeoutMs: 10_000 });
-      const nextConfig = await ctx.ensureManagedLlamaReady();
-      sendJson(res, 200, { ok: true, restarted: true, config: nextConfig });
+      ctx.modelIdleController?.cancelForPresetChange();
+      await coordinator.restartConfiguredPreset();
+      sendJson(res, 200, { ok: true, restarted: true, config: readConfig(configPath) });
     } catch (error) {
+      if (error instanceof ExternalServerRestartError) {
+        sendJson(res, 400, { ok: false, restarted: false, error: error.message });
+        return;
+      }
       const startupFailure = getManagedLlamaStartupFailure(toError(error));
       sendJson(res, 503, {
         ok: false,

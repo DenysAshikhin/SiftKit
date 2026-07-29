@@ -1246,6 +1246,11 @@ async function shutdownManagedLlamaConfigIfNeeded(
   const listeningPort = getManagedLlamaListeningPort(config, managed);
   const fallbackPid = hasLaunchConfig ? findListeningProcessIdByPort(listeningPort) : null;
   if (!hasActiveHostProcess && !fallbackPid) {
+    // Nothing to kill. If the server is nevertheless still answering, callers that
+    // depend on "stopped" (preset switch, restart) must not be told this succeeded.
+    if (await isLlamaServerReachable(config)) {
+      throw new Error(`llama.cpp is still serving at ${baseUrl} but SiftKit does not own that process. Stop it manually, or enable "External inference server" for this preset.`);
+    }
     ctx.managedLlamaReady = false;
     publishStatus(ctx);
     return;

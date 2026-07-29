@@ -15,6 +15,15 @@ export type DashboardTestBackend = {
   model: string;
 };
 
+/**
+ * Managed startup is off by default so E2Es never spawn a real llama.cpp. Turning it on
+ * gives the server a live PresetRuntimeCoordinator, which initializes against whatever
+ * backend was seeded before boot.
+ */
+export type DashboardTestServerOptions = {
+  managedLlamaStartup?: boolean;
+};
+
 const DASHBOARD_TEST_ENV_KEYS = [
   'sift_kit_status',
   'SIFTKIT_STATUS_PATH',
@@ -48,7 +57,35 @@ export class DashboardTestServer {
     private readonly envBackup: Record<string, string | undefined>,
   ) {}
 
-  static async start(namePrefix: string, backend?: DashboardTestBackend): Promise<DashboardTestServer> {
+  private static seedExternalBackendConfig(backend: DashboardTestBackend): void {
+    // Config and the launch snapshot both live in the runtime database.
+    const databasePath = getRuntimeDatabasePath();
+    const config = getDefaultConfig();
+    const modelPresets = config.Server.ModelPresets;
+    const activePreset = modelPresets.Presets.find((preset) => preset.id === modelPresets.ActivePresetId)
+      ?? modelPresets.Presets[0];
+    activePreset.ExternalServerEnabled = true;
+    activePreset.Model = backend.model;
+    activePreset.BaseUrl = backend.baseUrl;
+    modelPresets.ActivePresetId = activePreset.id;
+    writeConfig(databasePath, config);
+    // Runtime.LlamaCpp wins over the preset in getConfiguredLlamaBaseUrl, so the
+    // launch snapshot is what actually routes inference at request time.
+    writeRuntimeLaunchSnapshot(databasePath, {
+      Model: backend.model,
+      LlamaCpp: {
+        BaseUrl: backend.baseUrl,
+        NumCtx: activePreset.NumCtx,
+        Reasoning: activePreset.Reasoning,
+      },
+    });
+  }
+
+  static async start(
+    namePrefix: string,
+    backend?: DashboardTestBackend,
+    options: DashboardTestServerOptions = {},
+  ): Promise<DashboardTestServer> {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), namePrefix));
     const previousCwd = process.cwd();
     fs.writeFileSync(
@@ -73,32 +110,10 @@ export class DashboardTestServer {
     process.env.SIFTKIT_STATUS_PORT = '0';
     process.env.SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS = '0';
 
-    const server = startStatusServer({ disableManagedLlamaStartup: true });
+    // The coordinator resolves its preset during startup, so config must land first.
+    if (backend) DashboardTestServer.seedExternalBackendConfig(backend);
+    const server = startStatusServer({ disableManagedLlamaStartup: options.managedLlamaStartup !== true });
     await server.startupPromise;
-    if (backend) {
-      // Config and the launch snapshot both live in the runtime database, which only
-      // exists once the server has booted.
-      const databasePath = getRuntimeDatabasePath();
-      const config = getDefaultConfig();
-      const modelPresets = config.Server.ModelPresets;
-      const activePreset = modelPresets.Presets.find((preset) => preset.id === modelPresets.ActivePresetId)
-        ?? modelPresets.Presets[0];
-      activePreset.ExternalServerEnabled = true;
-      activePreset.Model = backend.model;
-      activePreset.BaseUrl = backend.baseUrl;
-      modelPresets.ActivePresetId = activePreset.id;
-      writeConfig(databasePath, config);
-      // Runtime.LlamaCpp wins over the preset in getConfiguredLlamaBaseUrl, so the
-      // launch snapshot is what actually routes inference at request time.
-      writeRuntimeLaunchSnapshot(databasePath, {
-        Model: backend.model,
-        LlamaCpp: {
-          BaseUrl: backend.baseUrl,
-          NumCtx: activePreset.NumCtx,
-          Reasoning: activePreset.Reasoning,
-        },
-      });
-    }
     const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
     return new DashboardTestServer(tempRoot, baseUrl, server, previousCwd, envBackup);
   }

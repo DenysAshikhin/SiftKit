@@ -1,7 +1,7 @@
 import { basename, dirname, extname, normalize } from 'node:path';
 import { spawn } from 'node:child_process';
+import type { ManagedFilePickerTarget } from '@siftkit/contracts';
 
-export type ManagedFilePickerTarget = 'managed-llama-executable' | 'managed-llama-model';
 export type ManagedFilePickerDialogOptions = {
   title: string;
   filter: string;
@@ -111,9 +111,16 @@ export function getManagedFilePickerDialogOptions(
       initialPath,
     };
   }
+  if (target === 'managed-llama-model') {
+    return {
+      title: 'Select GGUF model',
+      filter: 'GGUF models (*.gguf)|*.gguf|All files (*.*)|*.*',
+      initialPath,
+    };
+  }
   return {
-    title: 'Select GGUF model',
-    filter: 'GGUF models (*.gguf)|*.gguf|All files (*.*)|*.*',
+    title: 'Select autoload file',
+    filter: 'Markdown (*.md)|*.md|Text (*.txt)|*.txt|All files (*.*)|*.*',
     initialPath,
   };
 }

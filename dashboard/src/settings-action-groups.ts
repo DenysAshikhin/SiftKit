@@ -11,6 +11,7 @@ import type {
   ThresholdIntegerField,
   WebSearchIntegerField,
 } from './settings-draft-editor.js';
+import type { ModelPresetPathField } from './settings-flow.js';
 import type {
   DashboardManagedLlamaSpeculativeType,
   DashboardPresetKind,
@@ -45,6 +46,7 @@ export type PresetSettingsActions = {
   setAgentsMdEnabled(presetId: string, enabled: boolean): void;
   setRepoFileListingEnabled(presetId: string, enabled: boolean): void;
   setAutoloadFile(presetId: string, index: number, value: string): void;
+  pickAutoloadFile(presetId: string, index: number): Promise<void>;
   addAutoloadFile(presetId: string): void;
   removeAutoloadFile(presetId: string, index: number): void;
   setSummaryDefault(presetId: string): void;
@@ -82,6 +84,6 @@ export type ModelPresetSettingsActions = {
   setSpeculativeType(value: DashboardManagedLlamaSpeculativeType): void;
   addPreset(): void;
   deletePreset(presetId: string): void;
-  pickPath(target: 'ExecutablePath' | 'ModelPath'): Promise<void>;
+  pickPath(target: ModelPresetPathField): Promise<void>;
   testBaseUrl(baseUrl: string, timeoutMs: number): Promise<void>;
 };

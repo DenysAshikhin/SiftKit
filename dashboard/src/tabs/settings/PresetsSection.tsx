@@ -7,6 +7,10 @@ import {
 import { isPresetKind, isPresetOperationMode } from '../../../../src/presets.js';
 import { SettingsField } from '../../settings/SettingsFields';
 import type { PresetSettingsActions } from '../../settings-action-groups';
+import {
+  isPresetAutoloadPickerBusy,
+  type SettingsPathPickerBusyTarget,
+} from '../../settings-flow';
 import type {
   DashboardConfig,
   DashboardPreset,
@@ -16,6 +20,8 @@ type PresetsSectionProps = {
   dashboardConfig: DashboardConfig | null;
   selectedSettingsPreset: DashboardPreset | null;
   selectedSettingsPresetId: string | null;
+  settingsActionBusy: boolean;
+  settingsPathPickerBusyTarget: SettingsPathPickerBusyTarget | null;
   presetActions: PresetSettingsActions;
 };
 
@@ -23,6 +29,8 @@ export function PresetsSection({
   dashboardConfig,
   selectedSettingsPreset,
   selectedSettingsPresetId,
+  settingsActionBusy,
+  settingsPathPickerBusyTarget,
   presetActions,
 }: PresetsSectionProps) {
   if (!dashboardConfig) {
@@ -169,6 +177,14 @@ export function PresetsSection({
                       value={file}
                       onChange={(event) => presetActions.setAutoloadFile(preset.id, index, event.target.value)}
                     />
+                    <button
+                      type="button"
+                      className="ghost-btn"
+                      onClick={() => { void presetActions.pickAutoloadFile(preset.id, index); }}
+                      disabled={settingsActionBusy}
+                    >
+                      {isPresetAutoloadPickerBusy(settingsPathPickerBusyTarget, preset.id, index) ? 'Opening…' : 'Browse…'}
+                    </button>
                     <button
                       type="button"
                       className="ghost-btn"

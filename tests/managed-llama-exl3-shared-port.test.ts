@@ -136,13 +136,12 @@ test('managed llama startup cleanup does not reap the TabbyAPI process on the sh
         // Startup (which runs the managed-llama preexisting cleanup) has completed by now.
         assert.equal(await victimAlive(port), true, 'startup cleanup reaped the exl3/TabbyAPI process on the shared port');
 
-        // The managed-llama restart endpoint must refuse under an active exl3 preset
-        // (llama.cpp-only) instead of tearing down the coordinator-owned runtime.
+        // Restart is coordinator-driven for exl3 too: an unmanaged TabbyAPI is unloaded and
+        // reloaded through its admin API, never force-killed off the shared port.
         const restart = await postJson(`${statusServer.statusUrl}/restart`);
-        assert.equal(restart.statusCode, 400, 'restart endpoint must reject under an active exl3 preset');
-        assert.equal(restart.body.ok, false);
-        assert.equal(restart.body.restarted, false);
-        assert.equal(restart.body.error, 'Backend restart is only supported for an active llama.cpp preset.');
+        assert.equal(restart.statusCode, 200, 'restart endpoint must drive the coordinator-owned exl3 runtime');
+        assert.equal(restart.body.ok, true);
+        assert.equal(restart.body.restarted, true);
         assert.equal(await victimAlive(port), true, 'restart attempt reaped the exl3/TabbyAPI process on the shared port');
       } finally {
         await statusServer.close();

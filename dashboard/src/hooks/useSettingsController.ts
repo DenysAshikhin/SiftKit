@@ -24,10 +24,17 @@ import type {
   ToolPolicySettingsActions,
   WebSearchSettingsActions,
 } from '../settings-action-groups';
-import { getDirtyActionRequirement, type DirtyContinuation } from '../settings-flow';
+import {
+  getDirtyActionRequirement,
+  isBackendRestartSupported,
+  type DirtyContinuation,
+  type ModelPresetPathField,
+  type SettingsPathPickerBusyTarget,
+} from '../settings-flow';
 import { type SettingsSectionId } from '../settings-sections';
 import { buildManagedLlamaRestartFailureModal } from '../managed-llama-restart';
 import { cloneDashboardConfig, getDashboardConfigSignature } from '../lib/format';
+import type { ManagedFilePickerTarget } from '@siftkit/contracts';
 import type {
   DashboardConfig,
   DashboardModelRuntimePreset,
@@ -84,7 +91,7 @@ export function useSettingsController(deps: {
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsRestarting, setSettingsRestarting] = useState(false);
-  const [settingsPathPickerBusyTarget, setSettingsPathPickerBusyTarget] = useState<'ExecutablePath' | 'ModelPath' | null>(null);
+  const [settingsPathPickerBusyTarget, setSettingsPathPickerBusyTarget] = useState<SettingsPathPickerBusyTarget | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSavedAtUtc, setSettingsSavedAtUtc] = useState<string | null>(null);
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>('general');
@@ -105,8 +112,7 @@ export function useSettingsController(deps: {
       ?? dashboardConfig.Server.ModelPresets.Presets[0]
       ?? null
     : null;
-  // Only the managed llama.cpp runtime is restartable from here; exl3 is owned by TabbyAPI.
-  const settingsRestartSupported = selectedModelPreset?.Backend === 'llama';
+  const settingsRestartSupported = isBackendRestartSupported(selectedModelPreset);
   const maintainPerStepThinkingForCurrentPreset = selectedModelPreset?.Reasoning === 'on'
     ? selectedModelPreset.MaintainPerStepThinking !== false
     : false;
@@ -216,6 +222,9 @@ export function useSettingsController(deps: {
     },
     setAutoloadFile(presetId, index, value) {
       applySettingsAction({ type: 'set-preset-autoload-file', presetId, index, value });
+    },
+    pickAutoloadFile(presetId, index) {
+      return onPickPresetAutoloadFile(presetId, index);
     },
     addAutoloadFile(presetId) {
       applySettingsAction({ type: 'add-preset-autoload-file', presetId });
@@ -393,35 +402,59 @@ export function useSettingsController(deps: {
     await reloadDashboardSettingsCore();
   }
 
-  async function onPickModelPresetPath(target: 'ExecutablePath' | 'ModelPath'): Promise<void> {
-    if (!dashboardConfig || !selectedModelPreset) {
-      return;
-    }
-    const initialPath = target === 'ExecutablePath'
-      ? selectedModelPreset.ExecutablePath
-      : selectedModelPreset.ModelPath;
-    setSettingsPathPickerBusyTarget(target);
+  async function pickFilePath(
+    busyTarget: SettingsPathPickerBusyTarget,
+    pickerTarget: ManagedFilePickerTarget,
+    initialPath: string | null,
+  ): Promise<string | null> {
+    setSettingsPathPickerBusyTarget(busyTarget);
     setSettingsError(null);
     try {
-      const response = await pickManagedFile(
-        target === 'ExecutablePath' ? 'managed-llama-executable' : 'managed-llama-model',
-        initialPath,
-      );
-      if (response.cancelled || !response.path) {
-        return;
-      }
-      if (target === 'ExecutablePath') {
-        modelPresetActions.setNullableString('ExecutablePath', response.path);
-      } else {
-        modelPresetActions.setModelPath(response.path);
-      }
+      const response = await pickManagedFile(pickerTarget, initialPath);
+      return response.cancelled ? null : response.path;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setSettingsError(message);
       deps.enqueueToast('error', `Path picker failed: ${message}`);
+      return null;
     } finally {
       setSettingsPathPickerBusyTarget(null);
     }
+  }
+
+  async function onPickModelPresetPath(target: ModelPresetPathField): Promise<void> {
+    if (!dashboardConfig || !selectedModelPreset) {
+      return;
+    }
+    const picked = await pickFilePath(
+      { kind: 'model-preset', field: target },
+      target === 'ExecutablePath' ? 'managed-llama-executable' : 'managed-llama-model',
+      target === 'ExecutablePath' ? selectedModelPreset.ExecutablePath : selectedModelPreset.ModelPath,
+    );
+    if (picked === null) {
+      return;
+    }
+    if (target === 'ExecutablePath') {
+      modelPresetActions.setNullableString('ExecutablePath', picked);
+    } else {
+      modelPresetActions.setModelPath(picked);
+    }
+  }
+
+  async function onPickPresetAutoloadFile(presetId: string, index: number): Promise<void> {
+    const preset = dashboardConfig?.Presets.find((entry) => entry.id === presetId);
+    if (!preset) {
+      return;
+    }
+    const picked = await pickFilePath(
+      { kind: 'preset-autoload', presetId, index },
+      'preset-autoload-file',
+      preset.autoloadFiles[index] ?? null,
+    );
+    if (picked === null) {
+      return;
+    }
+    presetActions.setAutoloadFile(presetId, index, picked);
   }
 
   async function onTestLlamaCppBaseUrl(baseUrl: string, timeoutMs: number): Promise<void> {

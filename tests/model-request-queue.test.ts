@@ -4,13 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { getDefaultMetrics } from '../src/status-server/metrics.js';
 import { getDefaultConfig } from '../src/status-server/config-store.js';
-import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
-import { StatusEngineService } from '../src/status-server/engine-service.js';
 import {
   DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS,
-  DEFAULT_IDLE_SUMMARY_DELAY_MS,
   acquireModelRequestWithWait,
   clearCompletedStatusRequestIdForDifferentRequest,
   getModelRequestQueueDiagnostics,
@@ -21,90 +17,18 @@ import {
 } from '../src/status-server/server-ops.js';
 import type { ServerContext } from '../src/status-server/server-types.js';
 import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.js';
-import { ManagedInferenceRuntime } from '../src/status-server/managed-inference-runtime.js';
 import { ModelIdleController } from '../src/status-server/model-idle-controller.js';
-import type { InferenceBackendId, ModelRuntimePreset } from '../src/config/types.js';
 import { writeConfig } from '../src/status-server/config-store.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { RecordingInferenceRuntime as QueueRuntime } from './helpers/recording-inference-runtime.js';
+import { createTestServerContext } from './helpers/server-context-fixture.js';
 
 type StdoutLine = string;
-
-class QueueRuntime extends ManagedInferenceRuntime {
-  constructor(id: InferenceBackendId, private readonly events: string[]) {
-    super(id);
-  }
-
-  async startProcess(): Promise<void> {
-    this.events.push(`start:${this.id}`);
-    this.transitionProcessTo('ready');
-  }
-
-  async stopProcess(): Promise<void> {
-    this.events.push(`stop:${this.id}`);
-    this.transitionModelTo('unloaded');
-    this.transitionProcessTo('stopped');
-  }
-
-  async ensurePresetReady(preset: ModelRuntimePreset): Promise<void> {
-    if (this.getProcessState() !== 'ready') await this.startProcess();
-    this.events.push(`load:${preset.id}`);
-    this.transitionModelTo('ready');
-  }
-
-  async unloadPreset(): Promise<void> {
-    this.events.push(`unload:${this.id}`);
-    this.transitionModelTo('unloaded');
-  }
-}
 
 function createQueueContext(configPath = 'config.json'): ServerContext & { readonly wakeCount: number } {
   let wakeCount = 0;
   const context: ServerContext & { readonly wakeCount: number } = {
-    configPath,
-    statusPath: 'status.txt',
-    metricsPath: 'metrics.sqlite',
-    idleSummarySnapshotsPath: 'idle.sqlite',
-    idleSummaryDelayMs: DEFAULT_IDLE_SUMMARY_DELAY_MS,
-    disableManagedLlamaStartup: false,
-    engineService: new StatusEngineService(),
-    terminalMetadataQueue: [],
-    terminalMetadataDrainScheduled: false,
-    terminalMetadataDrainRunning: false,
-    terminalMetadataLastModelRequestFinishedAtMs: null,
-    terminalMetadataIdleDelayMs: 0,
-    runtimeHistoryPruneTimer: null,
-    server: null,
-    getServiceBaseUrl(): string {
-      return 'http://127.0.0.1:0';
-    },
-    metrics: getDefaultMetrics(),
-    activeRunsByRequestId: new Map(),
-    approvalGates: new Map(),
-    activeRequestIdByStatusPath: new Map(),
-    completedRequestIdByStatusPath: new Map(),
-    activeModelRequest: null,
-    modelRequestQueue: [],
-    deferredArtifactQueue: [],
-    deferredArtifactDrainScheduled: false,
-    deferredArtifactDrainRunning: false,
-    pendingIdleSummaryMetadata: {
-      inputCharactersPerContextToken: null,
-      chunkThresholdCharacters: null,
-    },
-    idleSummaryTimer: null,
-    idleSummaryPending: false,
-    idleSummaryDatabase: null,
-    managedLlamaStartupPromise: null,
-    managedLlamaShutdownPromise: null,
-    managedLlamaHostProcess: null,
-    managedLlamaLastStartupLogs: null,
-    managedLlamaStarting: false,
-    managedLlamaReady: false,
-    managedLlamaStartupWarning: null,
-    bootstrapManagedLlamaStartup: false,
-    managedLlamaLogCleanupTimer: null,
-    inferenceRunFlushQueue: new InferenceRunFlushQueue(),
-    async shutdownManagedLlamaIfNeeded(): Promise<void> {},
+    ...createTestServerContext(configPath),
     async ensureManagedLlamaReady() {
       wakeCount += 1;
       return getDefaultConfig();

@@ -3,6 +3,7 @@
  * idle-summary snapshots.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { ManagedFilePickerTargetSchema } from '@siftkit/contracts';
 import type {
   MetricsResponse,
   IdleSummaryResponse,
@@ -98,7 +99,6 @@ const BenchmarkTaskKindSchema = z.enum(['repo-search', 'summary']);
 const BenchmarkSessionStatusFilterSchema = z.enum(['', 'running', 'completed', 'failed', 'cancelled']).catch('');
 const InferenceRunStatusFilterSchema = z.enum(['', 'running', 'ready', 'failed', 'stopped', 'sync_completed']).catch('');
 const BenchmarkMatrixSessionStatusFilterSchema = z.enum(['', 'running', 'completed', 'failed']).catch('');
-const ManagedFilePickerTargetSchema = z.enum(['managed-llama-executable', 'managed-llama-model']);
 
 function readArrayOfStrings(value: OptionalJsonValue): string[] {
   return Array.isArray(value) ? value.map((entry) => String(entry || '').trim()).filter(Boolean) : [];

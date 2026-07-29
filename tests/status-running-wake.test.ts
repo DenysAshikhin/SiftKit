@@ -4,16 +4,13 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { z } from '../src/lib/zod.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import type { JsonObject } from '../src/lib/json-types.js';
-import { getDefaultMetrics } from '../src/status-server/metrics.js';
 import { getDefaultConfig } from '../src/status-server/config-store.js';
-import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
-import { StatusEngineService } from '../src/status-server/engine-service.js';
 import { createRequestHandler } from '../src/status-server/routes.js';
 import type { ServerContext } from '../src/status-server/server-types.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
+import { createTestServerContext } from './helpers/server-context-fixture.js';
 
 type JsonResponse = { statusCode: number; body: JsonObject };
 
@@ -53,57 +50,10 @@ function requestJson(url: string, body: JsonObject): Promise<JsonResponse> {
   });
 }
 
-const StatusContextSchema = z.custom<ServerContext & { readonly wakeCount: number }>(
-  (value) => typeof value === 'object' && value !== null,
-);
-
 function createStatusContext(tempRoot: string): ServerContext & { readonly wakeCount: number } {
   let wakeCount = 0;
-  return StatusContextSchema.parse({
-    configPath: path.join(tempRoot, 'config.json'),
-    statusPath: path.join(tempRoot, 'status.txt'),
-    metricsPath: path.join(tempRoot, 'metrics.json'),
-    idleSummarySnapshotsPath: path.join(tempRoot, 'idle.sqlite'),
-    disableManagedLlamaStartup: false,
-    engineService: new StatusEngineService(),
-    terminalMetadataQueue: [],
-    terminalMetadataDrainScheduled: false,
-    terminalMetadataDrainRunning: false,
-    terminalMetadataLastModelRequestFinishedAtMs: null,
-    terminalMetadataIdleDelayMs: 0,
-    runtimeHistoryPruneTimer: null,
-    server: null,
-    getServiceBaseUrl(): string {
-      return 'http://127.0.0.1:0';
-    },
-    metrics: getDefaultMetrics(),
-    activeRunsByRequestId: new Map(),
-    approvalGates: new Map(),
-    activeRequestIdByStatusPath: new Map(),
-    completedRequestIdByStatusPath: new Map(),
-    activeModelRequest: null,
-    modelRequestQueue: [],
-    deferredArtifactQueue: [],
-    deferredArtifactDrainScheduled: false,
-    deferredArtifactDrainRunning: false,
-    pendingIdleSummaryMetadata: {
-      inputCharactersPerContextToken: null,
-      chunkThresholdCharacters: null,
-    },
-    idleSummaryTimer: null,
-    idleSummaryPending: false,
-    idleSummaryDatabase: null,
-    managedLlamaStartupPromise: null,
-    managedLlamaShutdownPromise: null,
-    managedLlamaHostProcess: null,
-    managedLlamaLastStartupLogs: null,
-    managedLlamaStarting: false,
-    managedLlamaReady: false,
-    managedLlamaStartupWarning: null,
-    bootstrapManagedLlamaStartup: false,
-    managedLlamaLogCleanupTimer: null,
-    inferenceRunFlushQueue: new InferenceRunFlushQueue(),
-    async shutdownManagedLlamaIfNeeded(): Promise<void> {},
+  return {
+    ...createTestServerContext(path.join(tempRoot, 'config.json'), tempRoot),
     async ensureManagedLlamaReady() {
       wakeCount += 1;
       return getDefaultConfig();
@@ -111,7 +61,7 @@ function createStatusContext(tempRoot: string): ServerContext & { readonly wakeC
     get wakeCount(): number {
       return wakeCount;
     },
-  });
+  };
 }
 
 test('running status notifications wake managed llama for direct provider requests', async () => {

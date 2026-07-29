@@ -4,50 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import type { InferenceBackendId, ModelRuntimePreset } from '../src/config/types.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { ManagedInferenceRuntime } from '../src/status-server/managed-inference-runtime.js';
-import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.js';
+import { ExternalServerRestartError, PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.js';
 import { readConfig, writeConfig } from '../src/status-server/config-store.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
-
-class RecordingRuntime extends ManagedInferenceRuntime {
-  constructor(
-    id: InferenceBackendId,
-    private readonly events: string[],
-    private readonly failingPresetIds = new Set<string>(),
-  ) {
-    super(id);
-  }
-
-  async startProcess(): Promise<void> {
-    this.events.push(`start:${this.id}`);
-    this.transitionProcessTo('ready');
-  }
-
-  async stopProcess(): Promise<void> {
-    this.events.push(`stop:${this.id}`);
-    this.transitionModelTo('unloaded');
-    this.transitionProcessTo('stopped');
-  }
-
-  async ensurePresetReady(preset: ModelRuntimePreset): Promise<void> {
-    if (this.getProcessState() !== 'ready') await this.startProcess();
-    this.events.push(`load:${preset.id}`);
-    if (this.failingPresetIds.has(preset.id)) {
-      this.failingPresetIds.delete(preset.id);
-      this.transitionModelTo('failed');
-      throw new Error(`load failed: ${preset.id}`);
-    }
-    this.transitionModelTo('ready');
-  }
-
-  async unloadPreset(): Promise<void> {
-    this.events.push(`unload:${this.id}`);
-    if (this.getModelState() === 'failed') throw new Error(`nothing loaded: ${this.id}`);
-    this.transitionModelTo('unloaded');
-  }
-}
+import { RecordingInferenceRuntime as RecordingRuntime } from './helpers/recording-inference-runtime.js';
 
 function createConfigPath(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-preset-coordinator-'));
@@ -61,6 +22,7 @@ function createConfigPath(): string {
       { ...base, id: 'llama-main', label: 'Llama main', Backend: 'llama' },
       { ...base, id: 'exl3-main', label: 'EXL3 main', Backend: 'exl3' },
       { ...base, id: 'broken-llama', label: 'Broken llama', Backend: 'llama' },
+      { ...base, id: 'external-llama', label: 'External llama', Backend: 'llama', ExternalServerEnabled: true },
     ],
   };
   writeConfig(configPath, config);
@@ -78,6 +40,9 @@ test('preset coordinator drains by preset and switches backend processes', async
   try {
     await coordinator.initialize();
     coordinator.setModelRequestActive(true);
+    const savedConfig = readConfig(configPath);
+    savedConfig.Server.ModelPresets.ActivePresetId = 'exl3-main';
+    writeConfig(configPath, savedConfig);
     assert.equal(await coordinator.applyPreset('exl3-main'), 'queued');
     assert.equal(coordinator.canGrantModelRequest(), false);
     coordinator.setModelRequestActive(false);
@@ -94,7 +59,87 @@ test('preset coordinator drains by preset and switches backend processes', async
   }
 });
 
-test('preset config save stages the selected preset until the active request drains', async () => {
+test('restartConfiguredPreset stops and restarts the running llama preset', async () => {
+  const configPath = createConfigPath();
+  const events: string[] = [];
+  const coordinator = new PresetRuntimeCoordinator(
+    configPath,
+    new RecordingRuntime('llama', events),
+    new RecordingRuntime('exl3', events),
+  );
+  try {
+    await coordinator.initialize();
+    events.length = 0;
+
+    await coordinator.restartConfiguredPreset();
+
+    assert.deepEqual(events, ['stop:llama', 'start:llama', 'load:llama-main']);
+    assert.equal(coordinator.getStatus().activePresetId, 'llama-main');
+    assert.equal(coordinator.getStatus().processState, 'ready');
+  } finally {
+    await coordinator.shutdown();
+    closeRuntimeDatabase();
+    fs.rmSync(path.dirname(configPath), { recursive: true, force: true });
+  }
+});
+
+test('restartConfiguredPreset unloads and restarts the running exl3 preset', async () => {
+  const configPath = createConfigPath();
+  const events: string[] = [];
+  const coordinator = new PresetRuntimeCoordinator(
+    configPath,
+    new RecordingRuntime('llama', events),
+    new RecordingRuntime('exl3', events),
+  );
+  try {
+    await coordinator.initialize();
+    const savedConfig = readConfig(configPath);
+    savedConfig.Server.ModelPresets.ActivePresetId = 'exl3-main';
+    writeConfig(configPath, savedConfig);
+    await coordinator.applyPreset('exl3-main');
+    events.length = 0;
+
+    await coordinator.restartConfiguredPreset();
+
+    assert.deepEqual(events, ['unload:exl3', 'stop:exl3', 'start:exl3', 'load:exl3-main']);
+    assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
+  } finally {
+    await coordinator.shutdown();
+    closeRuntimeDatabase();
+    fs.rmSync(path.dirname(configPath), { recursive: true, force: true });
+  }
+});
+
+test('restartConfiguredPreset applies the preset persisted by a plain config save', async () => {
+  const configPath = createConfigPath();
+  const events: string[] = [];
+  const coordinator = new PresetRuntimeCoordinator(
+    configPath,
+    new RecordingRuntime('llama', events),
+    new RecordingRuntime('exl3', events),
+  );
+  try {
+    await coordinator.initialize();
+    const savedConfig = readConfig(configPath);
+    savedConfig.Server.ModelPresets.ActivePresetId = 'exl3-main';
+    writeConfig(configPath, savedConfig);
+    // A plain save must not have touched the runtime.
+    assert.equal(coordinator.getStatus().activePresetId, 'llama-main');
+    events.length = 0;
+
+    await coordinator.restartConfiguredPreset();
+
+    assert.deepEqual(events, ['stop:llama', 'start:exl3', 'load:exl3-main']);
+    assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
+    assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'exl3-main');
+  } finally {
+    await coordinator.shutdown();
+    closeRuntimeDatabase();
+    fs.rmSync(path.dirname(configPath), { recursive: true, force: true });
+  }
+});
+
+test('restartConfiguredPreset refuses to interrupt an active model request', async () => {
   const configPath = createConfigPath();
   const events: string[] = [];
   const coordinator = new PresetRuntimeCoordinator(
@@ -105,22 +150,36 @@ test('preset config save stages the selected preset until the active request dra
   try {
     await coordinator.initialize();
     coordinator.setModelRequestActive(true);
-    const nextConfig = readConfig(configPath);
-    nextConfig.Server.ModelPresets.ActivePresetId = 'exl3-main';
-    const exl3Preset = nextConfig.Server.ModelPresets.Presets.find((preset) => preset.id === 'exl3-main');
-    if (!exl3Preset) throw new Error('EXL3 preset is missing');
-    exl3Preset.label = 'Updated EXL3';
+    events.length = 0;
 
-    assert.equal(await coordinator.applyConfig(nextConfig), 'queued');
-    assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'llama-main');
-    assert.equal(
-      readConfig(configPath).Server.ModelPresets.Presets.find((preset) => preset.id === 'exl3-main')?.label,
-      'Updated EXL3',
-    );
-
+    await assert.rejects(coordinator.restartConfiguredPreset(), /model request is in progress/u);
+    assert.deepEqual(events, []);
+  } finally {
     coordinator.setModelRequestActive(false);
-    await coordinator.onModelRequestReleased();
-    assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'exl3-main');
+    await coordinator.shutdown();
+    closeRuntimeDatabase();
+    fs.rmSync(path.dirname(configPath), { recursive: true, force: true });
+  }
+});
+
+test('restartConfiguredPreset refuses a preset whose inference server SiftKit does not own', async () => {
+  const configPath = createConfigPath();
+  const events: string[] = [];
+  const coordinator = new PresetRuntimeCoordinator(
+    configPath,
+    new RecordingRuntime('llama', events),
+    new RecordingRuntime('exl3', events),
+  );
+  try {
+    await coordinator.initialize();
+    const savedConfig = readConfig(configPath);
+    savedConfig.Server.ModelPresets.ActivePresetId = 'external-llama';
+    writeConfig(configPath, savedConfig);
+    events.length = 0;
+
+    await assert.rejects(coordinator.restartConfiguredPreset(), ExternalServerRestartError);
+    assert.deepEqual(events, []);
+    assert.equal(coordinator.getStatus().activePresetId, 'llama-main');
   } finally {
     await coordinator.shutdown();
     closeRuntimeDatabase();
@@ -145,8 +204,9 @@ test('editing the active preset reloads it and rolls back the previous definitio
     const activePreset = nextConfig.Server.ModelPresets.Presets.find((preset) => preset.id === 'llama-main');
     if (!activePreset) throw new Error('Active preset is missing');
     activePreset.label = 'Changed llama';
+    writeConfig(configPath, nextConfig);
 
-    await assert.rejects(coordinator.applyConfig(nextConfig), /load failed: llama-main/u);
+    await assert.rejects(coordinator.ensureActivePresetReady(), /load failed: llama-main/u);
     assert.deepEqual(events, [
       'stop:llama', 'start:llama', 'load:llama-main',
       'stop:llama', 'start:llama', 'load:llama-main',

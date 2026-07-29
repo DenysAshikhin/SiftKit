@@ -2,7 +2,7 @@ import React from 'react';
 import type { ReactNode } from 'react';
 
 import { formatDate, formatNumber, parseIntegerInput } from '../lib/format';
-import type { DirtyContinuation } from '../settings-flow';
+import type { DirtyContinuation, SettingsPathPickerBusyTarget } from '../settings-flow';
 import {
   POLICY_MODE_OPTIONS,
   SETTINGS_SECTION_ORDER,
@@ -45,7 +45,7 @@ export type SettingsTabProps = {
   settingsRestartSupported: boolean;
   settingsSaving: boolean;
   settingsRestarting: boolean;
-  settingsPathPickerBusyTarget: 'ExecutablePath' | 'ModelPath' | null;
+  settingsPathPickerBusyTarget: SettingsPathPickerBusyTarget | null;
   requestSettingsAction(continuation: DirtyContinuation): void;
   generalActions: GeneralSettingsActions;
   toolPolicyActions: ToolPolicySettingsActions;
@@ -382,6 +382,8 @@ export function SettingsTab(props: SettingsTabProps) {
           dashboardConfig={dashboardConfig}
           selectedSettingsPreset={selectedSettingsPreset}
           selectedSettingsPresetId={selectedSettingsPresetId}
+          settingsActionBusy={settingsActionBusy}
+          settingsPathPickerBusyTarget={settingsPathPickerBusyTarget}
           presetActions={presetActions}
         />
       );

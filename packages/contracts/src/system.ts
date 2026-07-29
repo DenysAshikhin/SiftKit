@@ -12,7 +12,11 @@ export const DashboardHealthSchema = z.object({
 });
 export type DashboardHealth = z.infer<typeof DashboardHealthSchema>;
 
-export const ManagedFilePickerTargetSchema = z.enum(['managed-llama-executable', 'managed-llama-model']);
+export const ManagedFilePickerTargetSchema = z.enum([
+  'managed-llama-executable',
+  'managed-llama-model',
+  'preset-autoload-file',
+]);
 export type ManagedFilePickerTarget = z.infer<typeof ManagedFilePickerTargetSchema>;
 export const ManagedFilePickerResponseSchema = z.object({ ok: z.boolean(), cancelled: z.boolean(), path: z.string().nullable() });
 export type ManagedFilePickerResponse = z.infer<typeof ManagedFilePickerResponseSchema>;

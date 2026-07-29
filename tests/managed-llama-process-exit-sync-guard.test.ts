@@ -5,59 +5,18 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 
-import { getDefaultMetrics } from '../src/status-server/metrics.js';
 import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
-import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
-import { StatusEngineService } from '../src/status-server/engine-service.js';
 import { shutdownManagedLlamaForProcessExitSync } from '../src/status-server/managed-llama.js';
-import { DEFAULT_IDLE_SUMMARY_DELAY_MS } from '../src/status-server/server-ops.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import type { ServerContext } from '../src/status-server/server-types.js';
 import type { SiftConfig } from '../src/config/types.js';
+import { createTestServerContext } from './helpers/server-context-fixture.js';
 
 function createExitSyncContext(configPath: string, statusRoot: string, hostProcess: ChildProcess): ServerContext {
   return {
-    configPath,
-    statusPath: path.join(statusRoot, 'status.txt'),
-    metricsPath: path.join(statusRoot, 'metrics.sqlite'),
-    idleSummarySnapshotsPath: path.join(statusRoot, 'idle.sqlite'),
-    idleSummaryDelayMs: DEFAULT_IDLE_SUMMARY_DELAY_MS,
-    disableManagedLlamaStartup: false,
-    engineService: new StatusEngineService(),
-    server: null,
-    getServiceBaseUrl: () => 'http://127.0.0.1:0',
-    metrics: getDefaultMetrics(),
-    activeRunsByRequestId: new Map(),
-    approvalGates: new Map(),
-    activeRequestIdByStatusPath: new Map(),
-    completedRequestIdByStatusPath: new Map(),
-    activeModelRequest: null,
-    modelRequestQueue: [],
-    deferredArtifactQueue: [],
-    deferredArtifactDrainScheduled: false,
-    deferredArtifactDrainRunning: false,
-    terminalMetadataQueue: [],
-    terminalMetadataDrainScheduled: false,
-    terminalMetadataDrainRunning: false,
-    terminalMetadataLastModelRequestFinishedAtMs: null,
-    terminalMetadataIdleDelayMs: 0,
-    pendingIdleSummaryMetadata: { inputCharactersPerContextToken: null, chunkThresholdCharacters: null },
-    idleSummaryTimer: null,
-    idleSummaryPending: false,
-    idleSummaryDatabase: null,
-    managedLlamaStartupPromise: null,
-    managedLlamaShutdownPromise: null,
+    ...createTestServerContext(configPath, statusRoot),
     managedLlamaHostProcess: hostProcess,
-    managedLlamaLastStartupLogs: null,
-    managedLlamaStarting: false,
     managedLlamaReady: true,
-    managedLlamaStartupWarning: null,
-    bootstrapManagedLlamaStartup: false,
-    managedLlamaLogCleanupTimer: null,
-    runtimeHistoryPruneTimer: null,
-    inferenceRunFlushQueue: new InferenceRunFlushQueue(),
-    async shutdownManagedLlamaIfNeeded(): Promise<void> {},
-    async ensureManagedLlamaReady(): Promise<SiftConfig> { return getDefaultConfig(); },
   };
 }
 

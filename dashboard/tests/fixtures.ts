@@ -27,6 +27,7 @@ export const PRESET_ACTIONS: PresetSettingsActions = {
   setAgentsMdEnabled() {},
   setRepoFileListingEnabled() {},
   setAutoloadFile() {},
+  async pickAutoloadFile() {},
   addAutoloadFile() {},
   removeAutoloadFile() {},
   setSummaryDefault() {},

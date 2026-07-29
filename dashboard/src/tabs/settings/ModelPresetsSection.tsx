@@ -14,6 +14,10 @@ import type {
   ModelPresetField,
 } from '../../types';
 import type { ModelPresetSettingsActions } from '../../settings-action-groups';
+import {
+  isModelPresetPickerBusy,
+  type SettingsPathPickerBusyTarget,
+} from '../../settings-flow';
 
 const KV_CACHE_QUANT_OPTIONS = ['f32', 'f16', 'bf16', 'q8_0', 'q4_0', 'q4_1', 'iq4_nl', 'q5_0', 'q5_1', 'q8_0/q4_0', 'q8_0/q5_0'] as const;
 const SPECULATIVE_TYPE_OPTIONS = ['draft-simple', 'draft-eagle3', 'draft-mtp', 'ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod', 'ngram-cache'] as const;
@@ -24,7 +28,7 @@ type ModelPresetsSectionProps = {
   dashboardConfig: DashboardConfig | null;
   selectedModelPreset: DashboardModelRuntimePreset | null;
   settingsActionBusy: boolean;
-  settingsPathPickerBusyTarget: 'ExecutablePath' | 'ModelPath' | null;
+  settingsPathPickerBusyTarget: SettingsPathPickerBusyTarget | null;
   modelPresetActions: ModelPresetSettingsActions;
 };
 
@@ -201,7 +205,7 @@ export function ModelPresetsSection({
                     onChange={(event) => modelPresetActions.setNullableString('ExecutablePath', event.target.value.trim() || null)}
                   />
                   <button type="button" onClick={() => { void modelPresetActions.pickPath('ExecutablePath'); }} disabled={settingsActionBusy}>
-                    {settingsPathPickerBusyTarget === 'ExecutablePath' ? 'Opening…' : 'Browse…'}
+                    {isModelPresetPickerBusy(settingsPathPickerBusyTarget, 'ExecutablePath') ? 'Opening…' : 'Browse…'}
                   </button>
                 </div>
               ))}
@@ -218,7 +222,7 @@ export function ModelPresetsSection({
                   onChange={(event) => modelPresetActions.setModelPath(event.target.value.trim() || null)}
                 />
                 <button type="button" onClick={() => { void modelPresetActions.pickPath('ModelPath'); }} disabled={settingsActionBusy}>
-                  {settingsPathPickerBusyTarget === 'ModelPath' ? 'Opening…' : 'Browse…'}
+                  {isModelPresetPickerBusy(settingsPathPickerBusyTarget, 'ModelPath') ? 'Opening…' : 'Browse…'}
                 </button>
               </div>
             </SettingsSectionField>

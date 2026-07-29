@@ -3,7 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import test from 'node:test';
 
-import { InferenceRuntimeStatusSchema } from '@siftkit/contracts';
+import { InferenceRuntimeStatusSchema, type InferenceRuntimeStatus } from '@siftkit/contracts';
 import { z } from 'zod';
 
 import { getConfigPath } from '../src/config/index.js';
@@ -16,6 +16,10 @@ import { readBody } from '../src/status-server/http-utils.js';
 import { getAddressInfo } from './helpers/dashboard-http.js';
 import { FakeTabbyModelState } from './helpers/tabby-fake.js';
 import { getFreePort, withTempEnv } from './_runtime-helpers.js';
+
+async function readInferenceRuntimeStatus(baseUrl: string): Promise<InferenceRuntimeStatus> {
+  return InferenceRuntimeStatusSchema.parse(await (await fetch(`${baseUrl}/runtime/inference`)).json());
+}
 
 async function waitFor(check: () => boolean | Promise<boolean>, timeoutMs = 3_500): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -371,6 +375,14 @@ test('chat queued during a preset switch is translated for the target backend', 
         preserve_thinking: true,
       });
 
+      // The queued chat only proves the request was translated; the switch it triggered
+      // finishes asynchronously, so settle on exl3 before measuring the reverse switch.
+      let runtimeStatus = await readInferenceRuntimeStatus(siftBaseUrl);
+      await waitFor(async () => {
+        runtimeStatus = await readInferenceRuntimeStatus(siftBaseUrl);
+        return runtimeStatus.activePresetId === exl3Preset.id && runtimeStatus.modelState === 'ready';
+      });
+
       const llamaProbesBeforeReverseSwitch = llamaModelProbeCount;
       const tabbyModelProbesBeforeReverseSwitch = tabbyModelProbeCount;
       config.Server.ModelPresets.ActivePresetId = llamaPreset.id;
@@ -380,9 +392,12 @@ test('chat queued during a preset switch is translated for the target backend', 
         body: JSON.stringify(config),
       });
       assert.equal(reverseUpdate.status, 200);
-      const runtimeStatus = InferenceRuntimeStatusSchema.parse(
-        await (await fetch(`${siftBaseUrl}/runtime/inference`)).json(),
-      );
+      // Saving only persists the selection; readiness is what applies it to the runtime.
+      await waitFor(async () => {
+        assert.equal((await fetch(`${siftBaseUrl}/config`)).status, 200);
+        runtimeStatus = await readInferenceRuntimeStatus(siftBaseUrl);
+        return runtimeStatus.activePresetId === llamaPreset.id && runtimeStatus.processState === 'ready';
+      });
       assert.equal(runtimeStatus.activePresetId, llamaPreset.id);
       assert.equal(runtimeStatus.backend, 'llama');
       assert.ok(llamaModelProbeCount > llamaProbesBeforeReverseSwitch);
