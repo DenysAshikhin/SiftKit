@@ -76,7 +76,8 @@ export type ModelBooleanField =
   | 'MaintainPerStepThinking'
   | 'SpeculativeEnabled'
   | 'SpeculativeMtpEnabled'
-  | 'VerboseLogging';
+  | 'VerboseLogging'
+  | 'VisionEnabled';
 
 export type DashboardSettingsDraftAction =
   | { type: 'set-general-string'; field: GeneralStringField; value: string }

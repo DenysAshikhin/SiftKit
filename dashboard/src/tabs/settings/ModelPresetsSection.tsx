@@ -521,6 +521,14 @@ export function ModelPresetsSection({
               </label>
             ))}
           </SettingsSectionField>
+          <SettingsSectionField sectionId="model-presets" label="Vision enabled">
+            {renderCompatibilityControl(preset, 'VisionEnabled', (
+              <label className="settings-live-toggle-control">
+                <input type="checkbox" checked={preset.VisionEnabled} onChange={(event) => modelPresetActions.setBoolean('VisionEnabled', event.target.checked)} />
+                <span>{preset.VisionEnabled ? 'Enabled' : 'Disabled'}</span>
+              </label>
+            ))}
+          </SettingsSectionField>
         </>
       ))}
       <div className="cond-note">Runtime changes take effect on Save settings → backend restart.</div>

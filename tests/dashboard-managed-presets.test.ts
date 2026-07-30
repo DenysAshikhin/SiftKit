@@ -9,6 +9,7 @@ import {
   type DashboardModelRuntimePreset,
 } from '../dashboard/src/model-runtime-presets.js';
 import type { DashboardConfig, DashboardLlamaCppConfig } from '../dashboard/src/types.js';
+import { DashboardSettingsDraftEditor } from '../dashboard/src/settings-draft-editor.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { normalizeConfigObject } from '../src/config/normalization.js';
 import { getTestExl3Engine, getTestInferenceConfig } from './helpers/runtime-config.js';
@@ -284,4 +285,17 @@ test('deleteModelPreset removes the preset and falls back to another preset', ()
   assert.equal(config.Server.ModelPresets.Presets.some((preset) => preset.id === 'default'), false);
   assert.equal(config.Server.ModelPresets.ActivePresetId, 'qwen-27b');
   assert.equal(getActiveModelPreset(config).ModelPath, 'D:\\models\\qwen-27b.gguf');
+});
+
+test('set-model-boolean VisionEnabled toggles the targeted preset and leaves others unchanged', () => {
+  const config = createConfig();
+  const editor = new DashboardSettingsDraftEditor(config);
+
+  editor.apply({ type: 'set-model-boolean', presetId: 'qwen-27b', field: 'VisionEnabled', value: true });
+
+  const result = editor.getConfig();
+  const defaultPreset = result.Server.ModelPresets.Presets.find((p) => p.id === 'default');
+  const qwenPreset = result.Server.ModelPresets.Presets.find((p) => p.id === 'qwen-27b');
+  assert.equal(defaultPreset?.VisionEnabled, false);
+  assert.equal(qwenPreset?.VisionEnabled, true);
 });

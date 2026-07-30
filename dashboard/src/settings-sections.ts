@@ -157,6 +157,7 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'HealthcheckIntervalMs', layout: 'quarter', helpText: 'Delay between consecutive health probes while waiting for readiness.' },
       { label: 'SleepIdleSeconds', layout: 'quarter', helpText: 'Seconds llama-server waits while idle before unloading the model and KV cache.' },
       { label: 'Verbose logging', layout: 'quarter', helpText: 'Enables extra backend launcher logging when supported.' },
+      { label: 'Vision enabled', layout: 'quarter', helpText: 'Enables vision/multimodal input for EXL3 models. Adds roughly 890 MiB resident memory cost.' },
     ],
   },
 };
