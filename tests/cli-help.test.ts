@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { runCli } from '../src/cli/index.js';
-import { makeCaptureStream } from './_test-helpers.js';
+import { makeCaptureStream, withTestEnvAndServer } from './_test-helpers.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import {
   detectRepoAgentHelpInvocation,
@@ -109,16 +109,21 @@ test('repo-search rejects --max-turns for CLI usage', async () => {
   assert.match(stderr.read(), /Unknown option for repo-search: --max-turns/u);
 });
 
+// summary reaches the status server before it validates its input, so the argument error
+// only surfaces against a running backend. The stub supplies one; without it the CLI
+// reports "not reachable" and the real assertion never runs.
 test('summary requires stdin, --text, or --file', async () => {
-  const stdout = makeCaptureStream();
-  const stderr = makeCaptureStream();
-  const code = await runCli({
-    argv: ['summary', '--question', 'hello'],
-    stdout: stdout.stream,
-    stderr: stderr.stream,
+  await withTestEnvAndServer(async () => {
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const code = await runCli({
+      argv: ['summary', '--question', 'hello'],
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+    });
+    assert.equal(code, 1);
+    assert.match(stderr.read(), /stdin, --text or --file required/u);
   });
-  assert.equal(code, 1);
-  assert.match(stderr.read(), /stdin, --text or --file required|not reachable/u);
 });
 
 test('repo-agent --help returns 0 without server', async () => {

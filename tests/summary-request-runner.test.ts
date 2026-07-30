@@ -1,8 +1,14 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { after, before } from 'node:test';
 
 import { SummaryRequestRunner } from '../src/summary/request-runner.js';
 import { DEFAULT_SUMMARY_PROVIDER } from '../src/summary/types.js';
+import { DeadEndpointEnv } from './helpers/dead-endpoints.js';
+
+// The deterministic path still posts terminal status; nothing here asserts on it.
+const deadEndpoints = new DeadEndpointEnv();
+before(() => { deadEndpoints.apply(); });
+after(() => { deadEndpoints.restore(); });
 
 test('SummaryRequestRunner handles deterministic command-output summaries without model config', async () => {
   const result = await new SummaryRequestRunner({

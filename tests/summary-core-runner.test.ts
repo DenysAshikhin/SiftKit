@@ -7,6 +7,7 @@ import test from 'node:test';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { invokeSummaryCore } from '../src/summary/core-runner.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
+import { DEAD_CONFIG_SERVICE_URL, DEAD_STATUS_BACKEND_URL } from './helpers/dead-endpoints.js';
 
 class TempSummaryEnv {
   readonly tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-summary-core-runner-'));
@@ -29,8 +30,8 @@ class TempSummaryEnv {
     process.env.SIFTKIT_CONFIG_PATH = path.join(this.tempRoot, '.siftkit', 'config.json');
     process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH = path.join(this.tempRoot, '.siftkit', 'status', 'idle-summary.sqlite');
     process.env.SIFTKIT_TEST_PROVIDER = 'mock';
-    delete process.env.SIFTKIT_CONFIG_SERVICE_URL;
-    delete process.env.SIFTKIT_STATUS_BACKEND_URL;
+    process.env.SIFTKIT_CONFIG_SERVICE_URL = DEAD_CONFIG_SERVICE_URL;
+    process.env.SIFTKIT_STATUS_BACKEND_URL = DEAD_STATUS_BACKEND_URL;
     fs.writeFileSync(path.join(this.tempRoot, 'package.json'), JSON.stringify({ name: 'siftkit' }), 'utf8');
     process.chdir(this.tempRoot);
   }

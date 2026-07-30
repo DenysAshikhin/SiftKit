@@ -737,6 +737,7 @@ test('real status server falls back to zeroed metrics when the metrics cache is 
     }, {
       statusPath,
       configPath,
+      disableManagedLlamaStartup: true,
     });
   });
 });

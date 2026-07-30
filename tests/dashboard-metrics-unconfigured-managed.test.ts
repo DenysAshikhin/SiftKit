@@ -9,6 +9,7 @@ import {
   withTempEnv,
 } from './_runtime-helpers.js';
 import type { JsonObject, JsonValue } from '../src/lib/json-types.js';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 
 interface MetricsTimeseriesResponse {
   days: JsonValue[];
@@ -20,6 +21,11 @@ test('dashboard metrics timeseries loads when managed llama is unconfigured', as
   await withTempEnv(async (tempRoot) => {
     const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
     const config = getDefaultConfig();
+    // Managed startup still probes the preset, and the default preset points at the
+    // production llama port; a closed port keeps "unconfigured" local to this test.
+    for (const preset of config.Server.ModelPresets.Presets) {
+      preset.BaseUrl = DEAD_BASE_URL;
+    }
     config.Runtime.LlamaCpp.BaseUrl = null;
     config.Runtime.LlamaCpp.NumCtx = 0;
     config.Runtime.LlamaCpp.ModelPath = null;

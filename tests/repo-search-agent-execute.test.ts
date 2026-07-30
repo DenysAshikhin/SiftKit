@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -8,6 +8,12 @@ import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/repo-search/planner-protocol
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
+import { DeadEndpointEnv } from './helpers/dead-endpoints.js';
+
+// Execution posts run status; these tests assert on progress events only.
+const deadEndpoints = new DeadEndpointEnv();
+before(() => { deadEndpoints.apply(); });
+after(() => { deadEndpoints.restore(); });
 
 const MOCK_CONFIG = mockSiftConfig({
   Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },

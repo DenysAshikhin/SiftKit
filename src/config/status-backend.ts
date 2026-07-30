@@ -3,6 +3,7 @@ import { sleep } from '../lib/time.js';
 import { getStatusServerConnectHost } from '../lib/status-host.js';
 import { getErrorMessage, toError } from '../lib/errors.js';
 import { getInferenceStatusPath } from './paths.js';
+import { SIFT_DEFAULT_STATUS_PORT } from './constants.js';
 import { StatusServerUnavailableError } from './errors.js';
 import { parseJsonObjectText } from '../lib/json.js';
 import { z } from '../lib/zod.js';
@@ -71,7 +72,7 @@ export function getStatusBackendUrl(): string {
   }
 
   const host = getStatusServerConnectHost();
-  const port = process.env.SIFTKIT_STATUS_PORT?.trim() || '4765';
+  const port = process.env.SIFTKIT_STATUS_PORT?.trim() || String(SIFT_DEFAULT_STATUS_PORT);
   return `http://${host}:${port}/status`;
 }
 

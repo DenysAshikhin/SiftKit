@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import { executeRepoSearchRequest } from '../src/repo-search/execute.js';
@@ -6,6 +6,12 @@ import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { PresetCatalog } from '../src/preset-catalog.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
+import { DeadEndpointEnv } from './helpers/dead-endpoints.js';
+
+// Execution posts run status; these tests assert on scorecard and progress events only.
+const deadEndpoints = new DeadEndpointEnv();
+before(() => { deadEndpoints.apply(); });
+after(() => { deadEndpoints.restore(); });
 
 const CONTEXT_FREE_PRESETS = PresetCatalog.createDefault().list().map((preset) => ({
   ...preset,

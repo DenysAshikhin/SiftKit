@@ -4,10 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import {
-  StatusServerUnavailableError,
-  getStatusServerHealthUrl,
-} from '../src/config/index.js';
+import { StatusServerUnavailableError } from '../src/config/index.js';
 import {
   serializeErrorDiagnostic,
   getPrimaryCauseDiagnostic,
@@ -52,7 +49,7 @@ test('serializeErrorDiagnostic includes nested causes, stack, and custom status 
   assert.equal(diagnostic.name, 'StatusServerUnavailableError');
   assert.equal(diagnostic.operation, 'status:post');
   assert.equal(diagnostic.serviceUrl, 'http://127.0.0.1:4765/status');
-  assert.equal(diagnostic.healthUrl, getStatusServerHealthUrl());
+  assert.equal(diagnostic.healthUrl, 'http://127.0.0.1:4765/health');
   assert.equal(typeof diagnostic.stack, 'string');
   assert.equal(diagnostic.cause?.name, 'Error');
   assert.equal(diagnostic.cause?.message, 'socket hang up');
