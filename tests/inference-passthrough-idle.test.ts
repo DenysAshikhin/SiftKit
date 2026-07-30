@@ -295,6 +295,7 @@ test('chat queued during a preset switch is translated for the target backend', 
         Model: 'tabby-model',
         ModelPath: path.join(tempRoot, 'tabby-model'),
         RepetitionPenalty: 1.23,
+        PenaltyRange: 2048,
         Reasoning: 'on' as const,
         ReasoningContent: true,
         PreserveThinking: true,
@@ -364,6 +365,7 @@ test('chat queued during a preset switch is translated for the target backend', 
       assert.equal(tabbyChatBodies.length, 1);
       assert.equal(tabbyChatBodies[0]?.repetition_penalty, 1.23);
       assert.equal(tabbyChatBodies[0]?.repeat_penalty, undefined);
+      assert.equal(tabbyChatBodies[0]?.penalty_range, 2048);
       assert.deepEqual(tabbyChatBodies[0]?.tools, tools);
       assert.equal(tabbyChatBodies[0]?.parallel_tool_calls, true);
       assert.deepEqual(tabbyChatBodies[0]?.response_format, responseFormat);

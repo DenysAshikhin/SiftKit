@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { getInferenceRequestCompatibility } from '../src/inference-presets/request-compatibility.js';
 import { InferenceRequestBuilder } from '../src/llm-protocol/inference-request-builder.js';
 import { isJsonObject, type JsonObject, type OptionalJsonValue } from '../src/lib/json-types.js';
 
@@ -206,6 +207,14 @@ test('llama request omits penalty_range because llama.cpp owns its own penalty w
   });
 
   assert.equal('penalty_range' in request, false);
+});
+
+test('llama compatibility strips penalty_range so an EXL3-shaped body cannot reach llama.cpp', () => {
+  const compatibility = getInferenceRequestCompatibility('llama');
+
+  const stripped = compatibility.removedFields.some((field) => field === 'penalty_range');
+
+  assert.equal(stripped, true);
 });
 
 test('explicit request samplers override active preset defaults', () => {
