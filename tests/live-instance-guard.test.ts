@@ -29,20 +29,24 @@ interface ChildResult {
 interface ChildEnvOptions {
   /** Omit to inherit the suite's own NODE_OPTIONS, which is how the wiring gets tested. */
   preloadGuard?: boolean;
-  statusPort?: string;
-  llamaPort?: string;
+  /** Drops SIFTKIT_GUARD_STATUS_PORT so the guard's own missing-env failure can be asserted. */
+  omitStatusPort?: boolean;
 }
 
 function buildChildEnv(options: ChildEnvOptions): NodeJS.ProcessEnv {
   if (!options.preloadGuard) {
     return process.env;
   }
-  return {
+  const childEnv: NodeJS.ProcessEnv = {
     ...process.env,
     NODE_OPTIONS: `--import ${guardUrl}`,
-    SIFTKIT_GUARD_STATUS_PORT: options.statusPort ?? String(SIFT_DEFAULT_STATUS_PORT),
-    SIFTKIT_GUARD_LLAMA_PORT: options.llamaPort ?? String(SIFT_DEFAULT_LLAMA_PORT),
+    SIFTKIT_GUARD_STATUS_PORT: String(SIFT_DEFAULT_STATUS_PORT),
+    SIFTKIT_GUARD_LLAMA_PORT: String(SIFT_DEFAULT_LLAMA_PORT),
   };
+  if (options.omitStatusPort) {
+    delete childEnv.SIFTKIT_GUARD_STATUS_PORT;
+  }
+  return childEnv;
 }
 
 function runGuardedChild(childSource: string, options: ChildEnvOptions = {}): ChildResult {
@@ -74,11 +78,11 @@ function assertChildFinished(result: ChildResult): void {
  * Mirrors the real leak: a fire-and-forget status notification whose error is swallowed,
  * so the process would otherwise exit 0 and the run would report green.
  */
-function buildSwallowedRequestSource(port: number): string {
+function buildSwallowedRequestSource(port: number, protocol: 'http' | 'https'): string {
   return [
-    "import http from 'node:http';",
+    `import ${protocol} from 'node:${protocol}';`,
     'try {',
-    `  const request = http.request({ hostname: '127.0.0.1', port: ${port}, path: '/status', method: 'POST' });`,
+    `  const request = ${protocol}.request({ hostname: '127.0.0.1', port: ${port}, path: '/status', method: 'POST' });`,
     "  request.on('error', () => {});",
     '  request.end();',
     '} catch {',
@@ -88,7 +92,7 @@ function buildSwallowedRequestSource(port: number): string {
 }
 
 test('guard fails a process that contacts the default status port despite a swallowed throw', () => {
-  const result = runGuardedChild(buildSwallowedRequestSource(SIFT_DEFAULT_STATUS_PORT), { preloadGuard: true });
+  const result = runGuardedChild(buildSwallowedRequestSource(SIFT_DEFAULT_STATUS_PORT, 'http'), { preloadGuard: true });
 
   assertChildFinished(result);
   assert.equal(result.status, 1);
@@ -97,7 +101,7 @@ test('guard fails a process that contacts the default status port despite a swal
 });
 
 test('guard fails a process that contacts the default llama port', () => {
-  const result = runGuardedChild(buildSwallowedRequestSource(SIFT_DEFAULT_LLAMA_PORT), { preloadGuard: true });
+  const result = runGuardedChild(buildSwallowedRequestSource(SIFT_DEFAULT_LLAMA_PORT, 'http'), { preloadGuard: true });
 
   assertChildFinished(result);
   assert.equal(result.status, 1);
@@ -127,17 +131,41 @@ test('guard covers fetch and a URL instance, not just http.request options', () 
 });
 
 test('guard leaves an unguarded port alone', () => {
-  const result = runGuardedChild(buildSwallowedRequestSource(1), { preloadGuard: true });
+  const result = runGuardedChild(buildSwallowedRequestSource(1, 'http'), { preloadGuard: true });
 
   assertChildFinished(result);
   assert.equal(result.status, 0);
   assert.doesNotMatch(result.stderr, /LIVE INSTANCE CONTACTED/u);
 });
 
+test('guard covers https.request, not just http.request', () => {
+  const result = runGuardedChild(buildSwallowedRequestSource(SIFT_DEFAULT_STATUS_PORT, 'https'), { preloadGuard: true });
+
+  assertChildFinished(result);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, new RegExp(`live SiftKit status server on port ${SIFT_DEFAULT_STATUS_PORT}`, 'u'));
+});
+
+// http.request() with no arguments reaches the proxy with an undefined target and then
+// defaults to localhost:80 inside Node. The guard has no port to check, so it must hand
+// the call straight through rather than turning it into its own confusing TypeError.
+test('guard passes through a request with no target and reports no violation', () => {
+  const result = runGuardedChild([
+    "import http from 'node:http';",
+    'const request = http.request();',
+    "request.on('error', () => {});",
+    'request.destroy();',
+  ].join('\n'), { preloadGuard: true });
+
+  assertChildFinished(result);
+  assert.equal(result.status, 0, result.stderr);
+  assert.doesNotMatch(result.stderr, /LIVE INSTANCE CONTACTED/u);
+});
+
 test('guard refuses to load unguarded when the port env is missing', () => {
-  const result = runGuardedChild(buildSwallowedRequestSource(SIFT_DEFAULT_STATUS_PORT), {
+  const result = runGuardedChild(buildSwallowedRequestSource(SIFT_DEFAULT_STATUS_PORT, 'http'), {
     preloadGuard: true,
-    statusPort: '',
+    omitStatusPort: true,
   });
 
   assertChildFinished(result);
@@ -160,7 +188,7 @@ test('the suite does not force spawned production processes through the tsx load
 // hand-off: they inherit the suite's own environment and assert it protects exactly the
 // constants src uses.
 test('the suite guards the default status port for every child it spawns', () => {
-  const result = runGuardedChild(buildSwallowedRequestSource(SIFT_DEFAULT_STATUS_PORT));
+  const result = runGuardedChild(buildSwallowedRequestSource(SIFT_DEFAULT_STATUS_PORT, 'http'));
 
   assertChildFinished(result);
   assert.equal(
@@ -172,7 +200,7 @@ test('the suite guards the default status port for every child it spawns', () =>
 });
 
 test('the suite guards the default llama port for every child it spawns', () => {
-  const result = runGuardedChild(buildSwallowedRequestSource(SIFT_DEFAULT_LLAMA_PORT));
+  const result = runGuardedChild(buildSwallowedRequestSource(SIFT_DEFAULT_LLAMA_PORT, 'http'));
 
   assertChildFinished(result);
   assert.equal(
