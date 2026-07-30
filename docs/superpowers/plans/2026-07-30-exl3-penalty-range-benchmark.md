@@ -67,7 +67,7 @@ $commonArguments = @(
     '-mode'
     'qwen35'
     '-cs'
-    '150000'
+    '150016'
     '-cq'
     '8,8'
     '-maxr'
