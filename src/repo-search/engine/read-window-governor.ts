@@ -19,7 +19,9 @@ export type ReadExecutionMetrics = {
  * skip them (see planRead) and so the run can report a read-overlap rate.
  *
  * Overlap is expected to be near zero: planRead advances past already-returned ranges before the
- * read executes. A non-zero rate means ranges were returned by some path that bypassed that check.
+ * read executes. A non-zero rate means ranges were returned by some path that bypassed that
+ * check. Ranges returned before an invalidatePath/invalidateAll do not count toward overlap —
+ * after a mutation the same line numbers hold different content.
  */
 export class ReadWindowGovernor {
   private readonly fileReadStateByPath = new Map<string, FileReadState>();
@@ -44,6 +46,26 @@ export class ReadWindowGovernor {
     fileReadState.uniqueLinesRead += newLinesCovered;
     fileReadState.mergedReturnedRanges = mergeRange(fileReadState.mergedReturnedRanges, returnedRange);
     return { overlapLines, newLinesCovered, cumulativeUniqueLines: fileReadState.uniqueLinesRead };
+  }
+
+  /**
+   * Drops the returned-range bookkeeping for one file after a mutation. Cumulative counters are
+   * kept: lines re-read after a mutation are different content, so they count as unique, not
+   * overlap. This clears only the re-read block — the transcript keeps the earlier read result.
+   */
+  invalidatePath(pathKey: string): void {
+    const fileReadState = this.fileReadStateByPath.get(pathKey);
+    if (!fileReadState) {
+      return;
+    }
+    fileReadState.mergedReturnedRanges = [];
+  }
+
+  /** Same as invalidatePath, for tools that mutate without reporting which paths they touched. */
+  invalidateAll(): void {
+    for (const fileReadState of this.fileReadStateByPath.values()) {
+      fileReadState.mergedReturnedRanges = [];
+    }
   }
 
   summary(): ReadOverlapSummary {

@@ -88,3 +88,43 @@ test('returned ranges are exposed so planRead can skip them', () => {
     { start: 21, end: 31 },
   ]);
 });
+
+test('invalidatePath clears returned ranges for one file and leaves other files alone', () => {
+  const governor = new ReadWindowGovernor();
+  recordRead(governor, 1, 51);
+  recordRead(governor, 1, 21, { pathKey: 'src/b.ts' });
+  governor.invalidatePath('src/a.ts');
+  assert.deepEqual(governor.stateMap.get('src/a.ts')?.mergedReturnedRanges, []);
+  assert.deepEqual(governor.stateMap.get('src/b.ts')?.mergedReturnedRanges, [{ start: 1, end: 21 }]);
+});
+
+test('invalidatePath is a no-op for a file that was never read', () => {
+  const governor = new ReadWindowGovernor();
+  recordRead(governor, 1, 51);
+  governor.invalidatePath('src/never-read.ts');
+  assert.equal(governor.stateMap.has('src/never-read.ts'), false);
+  assert.deepEqual(governor.stateMap.get('src/a.ts')?.mergedReturnedRanges, [{ start: 1, end: 51 }]);
+});
+
+test('invalidateAll clears returned ranges for every file', () => {
+  const governor = new ReadWindowGovernor();
+  recordRead(governor, 1, 51);
+  recordRead(governor, 1, 21, { pathKey: 'src/b.ts' });
+  governor.invalidateAll();
+  assert.deepEqual(governor.stateMap.get('src/a.ts')?.mergedReturnedRanges, []);
+  assert.deepEqual(governor.stateMap.get('src/b.ts')?.mergedReturnedRanges, []);
+});
+
+test('invalidation keeps cumulative counters and re-read lines count as unique, not overlap', () => {
+  const governor = new ReadWindowGovernor();
+  recordRead(governor, 1, 51);
+  governor.invalidatePath('src/a.ts');
+  const metrics = recordRead(governor, 1, 51);
+  assert.equal(metrics.overlapLines, 0);
+  assert.equal(metrics.newLinesCovered, 50);
+  assert.equal(metrics.cumulativeUniqueLines, 100);
+  const summary = governor.summary();
+  assert.equal(summary.totalLinesRead, 100);
+  assert.equal(summary.totalUniqueLinesRead, 100);
+  assert.equal(summary.overlapRatePct, 0);
+});
