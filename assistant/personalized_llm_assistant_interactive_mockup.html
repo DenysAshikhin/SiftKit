@@ -1,0 +1,1378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Personal Local Assistant — Interactive Mockup</title>
+<style>
+  :root {
+    --bg-0:#eaf4ff;
+    --bg-1:#d8e9fb;
+    --ink:#172033;
+    --muted:#6f7a91;
+    --line:rgba(77,91,130,.16);
+    --panel:rgba(255,255,255,.76);
+    --panel-strong:rgba(255,255,255,.93);
+    --shadow:0 24px 80px rgba(49,63,107,.22), 0 2px 12px rgba(49,63,107,.11);
+    --blue:#5378ff;
+    --violet:#916cff;
+    --cyan:#37c7e8;
+    --green:#2fc782;
+    --amber:#f2b755;
+    --red:#ff6d7e;
+    --radius:28px;
+    --sidebar:190px;
+  }
+
+  * { box-sizing:border-box; }
+  html, body { height:100%; }
+  body {
+    margin:0;
+    overflow:hidden;
+    font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color:var(--ink);
+    background:#cfe3f7;
+  }
+
+  button, input { font:inherit; }
+  button { color:inherit; }
+
+  .desktop {
+    position:relative;
+    height:100vh;
+    min-height:720px;
+    overflow:hidden;
+    background:
+      radial-gradient(circle at 18% 45%, rgba(255,224,205,.92), transparent 28%),
+      radial-gradient(circle at 70% 18%, rgba(255,255,255,.65), transparent 31%),
+      linear-gradient(180deg, #bdd5ee 0%, #d8e9f5 44%, #bed7e9 100%);
+  }
+
+  .mountain {
+    position:absolute;
+    inset:auto -8% 72px 38%;
+    height:55%;
+    background:
+      linear-gradient(145deg, transparent 0 18%, rgba(75,105,140,.17) 18% 20%, transparent 20% 23%, rgba(86,113,147,.19) 23% 27%, transparent 27% 31%, rgba(68,100,138,.22) 31% 36%, transparent 36% 100%),
+      linear-gradient(155deg, transparent 0 35%, rgba(86,111,142,.22) 35% 48%, transparent 48% 100%);
+    clip-path:polygon(0 100%, 15% 55%, 24% 69%, 39% 38%, 49% 59%, 63% 22%, 72% 45%, 87% 6%, 100% 30%, 100% 100%);
+    filter:blur(.1px);
+  }
+
+  .lake {
+    position:absolute;
+    left:0; right:0; bottom:62px; height:34%;
+    background:
+      linear-gradient(180deg, rgba(112,152,184,.18), rgba(37,87,126,.28)),
+      repeating-linear-gradient(177deg, rgba(255,255,255,.16) 0 1px, transparent 1px 14px);
+    border-top:1px solid rgba(255,255,255,.5);
+  }
+
+  .tree-line {
+    position:absolute;
+    left:0; right:0; bottom:34%; height:10%;
+    opacity:.38;
+    background:
+      repeating-linear-gradient(78deg, transparent 0 20px, rgba(24,66,88,.62) 20px 24px, transparent 24px 32px);
+    clip-path:polygon(0 65%, 8% 42%, 15% 58%, 28% 36%, 43% 55%, 58% 30%, 72% 50%, 83% 27%, 100% 54%, 100% 100%, 0 100%);
+  }
+
+  .desktop-icons {
+    position:absolute;
+    left:18px; top:20px;
+    display:grid;
+    gap:22px;
+    z-index:2;
+  }
+
+  .desk-icon {
+    width:70px;
+    display:grid;
+    justify-items:center;
+    gap:6px;
+    font-size:11px;
+    color:#1b2638;
+    text-shadow:0 1px 2px rgba(255,255,255,.9);
+  }
+
+  .desk-icon .glyph {
+    width:38px; height:38px;
+    border-radius:9px;
+    display:grid; place-items:center;
+    background:linear-gradient(145deg,#fff,#dbe8f5);
+    box-shadow:0 5px 12px rgba(42,67,95,.16);
+    font-size:21px;
+  }
+  .desk-icon.folder .glyph { background:linear-gradient(145deg,#ffd35d,#f5a51f); }
+
+  .prototype-bar {
+    position:absolute;
+    top:12px; left:50%; transform:translateX(-50%);
+    z-index:20;
+    display:flex;
+    align-items:center;
+    gap:6px;
+    padding:5px;
+    border:1px solid rgba(255,255,255,.72);
+    background:rgba(248,252,255,.76);
+    backdrop-filter:blur(18px);
+    border-radius:999px;
+    box-shadow:0 12px 35px rgba(55,76,107,.14);
+  }
+
+  .prototype-bar button {
+    border:0;
+    background:transparent;
+    padding:8px 13px;
+    border-radius:999px;
+    cursor:pointer;
+    font-size:12px;
+    color:var(--muted);
+  }
+  .prototype-bar button.active {
+    color:#fff;
+    background:linear-gradient(135deg,var(--blue),var(--violet));
+    box-shadow:0 6px 14px rgba(101,91,255,.3);
+  }
+
+  .app-shell {
+    position:absolute;
+    z-index:10;
+    top:48px;
+    left:50%;
+    width:min(1240px, calc(100vw - 120px));
+    height:calc(100vh - 126px);
+    min-height:600px;
+    transform:translateX(-50%) translateY(0) scale(1);
+    opacity:1;
+    transition:all .42s cubic-bezier(.2,.8,.2,1);
+    transform-origin:50% 100%;
+    border:1px solid rgba(255,255,255,.85);
+    border-radius:var(--radius);
+    background:var(--panel);
+    backdrop-filter:blur(26px) saturate(1.1);
+    box-shadow:var(--shadow);
+    overflow:hidden;
+  }
+
+  .app-shell::after {
+    content:"";
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+    border-radius:inherit;
+    box-shadow:inset 0 0 0 1px rgba(105,126,255,.12), inset 0 -50px 120px rgba(122,107,255,.05);
+  }
+
+  .app-shell.hidden {
+    opacity:0;
+    pointer-events:none;
+    transform:translateX(-50%) translateY(120px) scale(.45);
+  }
+
+  .app-header {
+    height:68px;
+    display:flex;
+    align-items:center;
+    padding:0 22px;
+    border-bottom:1px solid var(--line);
+    background:rgba(255,255,255,.48);
+  }
+
+  .brand {
+    display:flex;
+    align-items:center;
+    gap:12px;
+    min-width:260px;
+  }
+  .brand-mini {
+    width:32px; height:32px;
+    border-radius:50%;
+    position:relative;
+    background:radial-gradient(circle at 35% 25%, #a5e5ff 0 8%, #496fff 33%, #6e42d9 70%, #131d68 100%);
+    box-shadow:0 0 0 3px rgba(86,112,255,.12), 0 0 18px rgba(78,102,255,.45);
+  }
+  .brand-mini::before, .brand-mini::after {
+    content:"";
+    position:absolute;
+    top:13px;
+    width:6px; height:4px;
+    border-top:2px solid white;
+    border-radius:50%;
+  }
+  .brand-mini::before { left:8px; }
+  .brand-mini::after { right:8px; }
+
+  .brand-title { font-weight:750; font-size:17px; letter-spacing:-.02em; }
+  .badge {
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    font-size:10px;
+    padding:4px 8px;
+    border-radius:999px;
+    color:#4c55e8;
+    background:#eef0ff;
+    border:1px solid #dfe3ff;
+    margin-left:7px;
+    vertical-align:2px;
+  }
+  .brand-sub { font-size:11px; color:var(--muted); margin-top:2px; }
+
+  .header-spacer { flex:1; }
+
+  .window-actions { display:flex; align-items:center; gap:6px; }
+  .icon-btn {
+    border:0;
+    background:transparent;
+    width:34px; height:34px;
+    border-radius:10px;
+    display:grid; place-items:center;
+    cursor:pointer;
+    color:#69758d;
+  }
+  .icon-btn:hover { background:rgba(86,105,160,.09); color:#26334c; }
+  .icon-btn.close:hover { background:#ffe9ed; color:#b62d42; }
+
+  .workspace {
+    height:calc(100% - 104px);
+    display:grid;
+    grid-template-columns:var(--sidebar) minmax(430px, 1fr) 470px;
+  }
+
+  .sidebar {
+    border-right:1px solid var(--line);
+    padding:14px 12px;
+    display:flex;
+    flex-direction:column;
+    gap:5px;
+    background:rgba(255,255,255,.35);
+  }
+
+  .nav-item {
+    border:0;
+    background:transparent;
+    width:100%;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:10px 12px;
+    border-radius:12px;
+    color:#526078;
+    cursor:pointer;
+    text-align:left;
+    font-size:13px;
+  }
+  .nav-item:hover { background:rgba(75,99,165,.07); color:#26334c; }
+  .nav-item.active {
+    color:#2857ed;
+    background:linear-gradient(90deg,rgba(85,113,255,.14),rgba(138,111,255,.07));
+    font-weight:650;
+  }
+  .nav-ico {
+    width:21px; height:21px;
+    border-radius:7px;
+    display:grid; place-items:center;
+    color:currentColor;
+    font-size:14px;
+  }
+
+  .sidebar-spacer { flex:1; }
+  .mode-card, .privacy-card {
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:12px;
+    background:rgba(255,255,255,.56);
+  }
+  .mode-card { margin-bottom:7px; }
+  .tiny-label { color:var(--muted); font-size:10px; }
+  .mode-main { display:flex; justify-content:space-between; align-items:center; margin-top:4px; font-size:13px; font-weight:700; }
+  .mode-desc { margin-top:3px; color:var(--muted); font-size:10px; }
+  .privacy-line { display:flex; align-items:center; gap:9px; }
+  .privacy-shield {
+    width:30px; height:30px;
+    border-radius:10px;
+    display:grid; place-items:center;
+    color:#1aa466;
+    background:#e4f9ef;
+  }
+  .green-dot { width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 0 4px rgba(47,199,130,.12); display:inline-block; }
+
+  .main-panel {
+    min-width:0;
+    padding:18px 20px 12px;
+    overflow:auto;
+    scrollbar-width:thin;
+    scrollbar-color:#cbd3e3 transparent;
+  }
+
+  .view { display:none; animation:fadeUp .22s ease; }
+  .view.active { display:block; }
+  @keyframes fadeUp { from { opacity:0; transform:translateY(6px); } }
+
+  .chat-stream { display:grid; gap:15px; }
+  .message-row { display:flex; gap:10px; align-items:flex-start; }
+  .message-row.user { justify-content:flex-end; }
+  .avatar {
+    flex:0 0 auto;
+    width:34px; height:34px;
+    border-radius:50%;
+    display:grid; place-items:center;
+    background:linear-gradient(145deg,#7fdcff,#596aff 50%,#8b5de9);
+    color:white;
+    box-shadow:0 7px 18px rgba(80,100,220,.26);
+    font-size:14px;
+  }
+  .bubble {
+    max-width:78%;
+    padding:12px 14px;
+    border-radius:16px;
+    font-size:13px;
+    line-height:1.48;
+  }
+  .bubble.user {
+    border-top-right-radius:6px;
+    background:linear-gradient(145deg,#e8ebff,#f0eaff);
+    border:1px solid rgba(113,100,255,.12);
+  }
+  .bubble.assistant { padding-left:0; padding-top:3px; }
+  .timestamp { display:block; margin-top:6px; color:#8b95a7; font-size:9px; }
+
+  .plan-card {
+    margin-left:44px;
+    width:min(540px, calc(100% - 48px));
+    border:1px solid var(--line);
+    border-radius:17px;
+    background:rgba(255,255,255,.7);
+    box-shadow:0 8px 24px rgba(64,79,124,.07);
+    overflow:hidden;
+  }
+  .plan-head {
+    display:flex; align-items:center; gap:9px;
+    padding:12px 14px;
+    border-bottom:1px solid rgba(77,91,130,.1);
+  }
+  .plan-head strong { font-size:13px; }
+  .plan-head .sub { color:var(--muted); font-size:11px; }
+  .dots { margin-left:auto; color:#8791a5; }
+  .plan-list { padding:8px 14px 10px; }
+  .plan-row {
+    display:grid;
+    grid-template-columns:90px 12px 1fr;
+    gap:8px;
+    padding:9px 0;
+    position:relative;
+  }
+  .plan-row:not(:last-child)::after {
+    content:"";
+    position:absolute;
+    left:96px; top:25px; bottom:-9px;
+    width:1px; background:#d9deea;
+  }
+  .plan-time { color:#6e7990; font-size:10px; padding-top:2px; }
+  .step-dot { width:8px; height:8px; border-radius:50%; margin-top:4px; z-index:1; box-shadow:0 0 0 3px white; }
+  .plan-title { font-weight:700; font-size:12px; }
+  .plan-desc { color:var(--muted); font-size:10px; margin-top:2px; }
+
+  .action-row {
+    margin:12px 0 0 44px;
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+  }
+  .action-btn {
+    border:1px solid var(--line);
+    background:rgba(255,255,255,.66);
+    border-radius:11px;
+    padding:9px 12px;
+    font-size:11px;
+    cursor:pointer;
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+  }
+  .action-btn.primary {
+    color:#138855;
+    border-color:rgba(47,199,130,.32);
+    background:#effbf5;
+  }
+  .action-btn:hover { transform:translateY(-1px); box-shadow:0 7px 15px rgba(57,72,112,.1); }
+
+  .composer {
+    position:sticky;
+    bottom:0;
+    margin-top:16px;
+    padding-top:12px;
+    background:linear-gradient(180deg,transparent,rgba(245,249,255,.95) 28%);
+  }
+  .composer-box {
+    border:1px solid var(--line);
+    border-radius:17px;
+    background:rgba(255,255,255,.85);
+    min-height:74px;
+    padding:10px 12px;
+    box-shadow:0 8px 22px rgba(57,72,112,.08);
+  }
+  .composer input {
+    width:100%;
+    border:0;
+    outline:0;
+    background:transparent;
+    color:var(--ink);
+    font-size:12px;
+  }
+  .composer-tools {
+    display:flex;
+    align-items:center;
+    margin-top:12px;
+    gap:6px;
+  }
+  .tool-btn {
+    width:28px; height:28px;
+    border:0; background:transparent;
+    color:#728097;
+    border-radius:8px; cursor:pointer;
+  }
+  .tool-btn:hover { background:#eef2fa; }
+  .send-btn {
+    margin-left:auto;
+    width:34px; height:34px;
+    border:0; border-radius:50%;
+    color:white; cursor:pointer;
+    background:linear-gradient(145deg,#4f8cff,#7554f4);
+    box-shadow:0 8px 20px rgba(86,92,239,.32);
+  }
+
+  .right-panel {
+    border-left:1px solid var(--line);
+    padding:12px;
+    overflow:auto;
+    scrollbar-width:thin;
+    scrollbar-color:#cbd3e3 transparent;
+  }
+  .right-grid {
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px;
+  }
+  .card {
+    border:1px solid var(--line);
+    border-radius:15px;
+    background:rgba(255,255,255,.58);
+    padding:12px;
+    min-width:0;
+  }
+  .card.wide { grid-column:1 / -1; }
+  .card-head {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    margin-bottom:9px;
+  }
+  .card-title { font-weight:720; font-size:11px; }
+  .card-link { font-size:9px; color:#4869e9; cursor:pointer; }
+  .memory-item {
+    display:grid;
+    grid-template-columns:30px 1fr auto;
+    align-items:center;
+    gap:8px;
+    padding:8px;
+    border:1px solid rgba(82,99,142,.11);
+    border-radius:11px;
+    background:rgba(255,255,255,.48);
+    cursor:pointer;
+  }
+  .memory-item + .memory-item { margin-top:6px; }
+  .memory-item:hover { border-color:rgba(82,99,255,.28); background:white; }
+  .mem-ico {
+    width:28px; height:28px;
+    border-radius:9px;
+    display:grid; place-items:center;
+    font-size:13px;
+  }
+  .mem-name { font-weight:700; font-size:10px; }
+  .mem-desc { color:var(--muted); font-size:8px; margin-top:2px; }
+  .mem-count { color:#496cff; font-weight:750; font-size:11px; }
+
+  .graph {
+    position:relative;
+    height:145px;
+    overflow:hidden;
+  }
+  .graph svg {
+    position:absolute;
+    inset:0;
+    width:100%; height:100%;
+    pointer-events:none;
+  }
+  .node {
+    position:absolute;
+    transform:translate(-50%,-50%);
+    border:0;
+    border-radius:999px;
+    padding:6px 9px;
+    font-size:8px;
+    cursor:pointer;
+    box-shadow:0 5px 13px rgba(55,74,120,.11);
+    white-space:nowrap;
+  }
+  .node:hover { outline:2px solid rgba(83,120,255,.25); }
+  .node.n1 { left:50%; top:17%; background:#e9e1ff; }
+  .node.n2 { left:20%; top:48%; background:#dff1ff; }
+  .node.n3 { left:50%; top:50%; background:#dceaff; font-weight:750; }
+  .node.n4 { left:80%; top:48%; background:#dff5fa; }
+  .node.n5 { left:31%; top:82%; background:#ddf6eb; }
+  .node.n6 { left:70%; top:82%; background:#eee3ff; }
+
+  .observation {
+    display:grid;
+    grid-template-columns:10px 1fr auto;
+    gap:7px;
+    align-items:start;
+    padding:6px 0;
+    font-size:8px;
+  }
+  .obs-dot { width:7px; height:7px; margin-top:2px; border-radius:50%; background:#5678ff; box-shadow:0 0 0 3px #e7ebff; }
+  .obs-date { color:#7f899d; }
+
+  .permission {
+    display:grid;
+    grid-template-columns:27px 1fr auto;
+    align-items:center;
+    gap:7px;
+    padding:5px 0;
+  }
+  .perm-ico { width:25px; height:25px; border-radius:8px; background:#edf0ff; color:#596dff; display:grid; place-items:center; font-size:11px; }
+  .perm-name { font-weight:700; font-size:9px; }
+  .perm-desc { color:var(--muted); font-size:8px; }
+  .switch {
+    width:30px; height:18px;
+    border-radius:999px;
+    background:#cfd5e2;
+    border:0;
+    padding:2px;
+    cursor:pointer;
+    transition:.2s;
+  }
+  .switch::after {
+    content:"";
+    display:block;
+    width:14px; height:14px;
+    border-radius:50%;
+    background:white;
+    box-shadow:0 2px 4px rgba(0,0,0,.16);
+    transition:.2s;
+  }
+  .switch.on { background:#5279ff; }
+  .switch.on::after { transform:translateX(12px); }
+
+  .storage-bar {
+    display:flex;
+    height:7px;
+    border-radius:999px;
+    overflow:hidden;
+    margin:6px 0 9px;
+    background:#e9edf5;
+  }
+  .storage-bar span:nth-child(1){width:34%; background:#905dff;}
+  .storage-bar span:nth-child(2){width:15%; background:#5592ff;}
+  .storage-bar span:nth-child(3){width:9%; background:#2fc782;}
+  .storage-bar span:nth-child(4){width:19%; background:#7f87f4;}
+  .storage-row {
+    display:grid; grid-template-columns:11px 1fr auto;
+    gap:6px; padding:4px 0; font-size:8px;
+  }
+  .source-dot { width:8px; height:8px; border-radius:3px; background:#7f87f4; margin-top:1px; }
+  .source-size { color:#798498; }
+
+  .project-row {
+    display:grid;
+    grid-template-columns:28px 1fr auto;
+    gap:7px;
+    align-items:center;
+    padding:6px 0;
+  }
+  .project-ico {
+    width:26px; height:26px;
+    border-radius:8px;
+    display:grid; place-items:center;
+    background:#ece8ff;
+    color:#7155ef;
+    font-size:11px;
+  }
+  .project-name { font-size:9px; font-weight:750; }
+  .project-desc { font-size:8px; color:var(--muted); }
+  .tag {
+    border-radius:999px;
+    padding:4px 6px;
+    font-size:7px;
+    background:#e4f0ff;
+    color:#3271c7;
+  }
+  .tag.green { background:#e1f7ec; color:#168552; }
+  .tag.amber { background:#fff1d7; color:#997018; }
+
+  .app-footer {
+    height:36px;
+    display:flex;
+    align-items:center;
+    padding:0 18px;
+    gap:10px;
+    border-top:1px solid var(--line);
+    background:rgba(255,255,255,.43);
+    color:#68758b;
+    font-size:9px;
+  }
+  .footer-chip {
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+    padding:5px 9px;
+    border-radius:999px;
+    border:1px solid rgba(85,99,140,.12);
+    background:rgba(255,255,255,.5);
+  }
+  .footer-spacer { flex:1; }
+
+  .orb-wrap {
+    position:absolute;
+    z-index:18;
+    left:50%;
+    bottom:61px;
+    transform:translateX(-50%);
+    transition:all .42s cubic-bezier(.2,.8,.2,1);
+  }
+  .orb-wrap.docked-right {
+    left:auto;
+    right:42px;
+    transform:none;
+  }
+
+  .orb {
+    width:72px; height:72px;
+    border:0;
+    border-radius:50%;
+    position:relative;
+    cursor:pointer;
+    background:
+      radial-gradient(circle at 34% 25%, rgba(166,240,255,.95) 0 7%, transparent 8%),
+      radial-gradient(circle at 42% 38%, #4a8eff 0 23%, #4f57f4 45%, #7d47df 68%, #161958 100%);
+    box-shadow:
+      0 0 0 3px rgba(255,255,255,.7),
+      0 0 0 7px rgba(111,93,255,.18),
+      0 0 30px rgba(68,111,255,.72),
+      0 12px 30px rgba(29,47,105,.3);
+    transition:.25s;
+  }
+  .orb:hover { transform:scale(1.06); }
+  .orb::before, .orb::after {
+    content:"";
+    position:absolute;
+    top:30px;
+    width:12px; height:7px;
+    border-top:3px solid white;
+    border-radius:50%;
+    opacity:.95;
+  }
+  .orb::before { left:17px; transform:rotate(8deg); }
+  .orb::after { right:17px; transform:rotate(-8deg); }
+  .orb-ring {
+    position:absolute;
+    inset:-9px;
+    border-radius:50%;
+    border:2px solid rgba(135,99,255,.55);
+    border-left-color:rgba(77,211,255,.9);
+    animation:spin 5.5s linear infinite;
+    pointer-events:none;
+  }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  .anchor {
+    position:absolute;
+    left:50%;
+    bottom:126px;
+    transform:translateX(-50%) rotate(45deg);
+    width:20px; height:20px;
+    background:rgba(255,255,255,.82);
+    border-right:1px solid rgba(107,116,200,.14);
+    border-bottom:1px solid rgba(107,116,200,.14);
+    z-index:17;
+    transition:.35s;
+  }
+  .anchor.hidden { opacity:0; }
+
+  .peek-card {
+    position:absolute;
+    z-index:17;
+    right:28px;
+    bottom:146px;
+    width:320px;
+    border:1px solid rgba(255,255,255,.88);
+    border-radius:20px;
+    background:rgba(255,255,255,.84);
+    backdrop-filter:blur(22px);
+    box-shadow:0 24px 70px rgba(45,63,104,.24);
+    padding:12px;
+    opacity:0;
+    pointer-events:none;
+    transform:translateY(15px) scale(.96);
+    transform-origin:85% 100%;
+    transition:.28s;
+  }
+  .peek-card.visible {
+    opacity:1;
+    pointer-events:auto;
+    transform:translateY(0) scale(1);
+  }
+  .insight {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:9px 10px;
+    border-radius:12px;
+    background:linear-gradient(90deg,#f1edff,#ecf6ff);
+    font-size:11px;
+    cursor:pointer;
+  }
+  .quick-actions {
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:7px;
+    margin-top:10px;
+  }
+  .quick-action {
+    border:0;
+    background:transparent;
+    border-radius:12px;
+    padding:8px 4px;
+    cursor:pointer;
+    font-size:9px;
+    color:#55627a;
+  }
+  .quick-action:hover { background:#f0f3fb; }
+  .quick-ico {
+    width:34px; height:34px;
+    border-radius:12px;
+    margin:0 auto 5px;
+    display:grid; place-items:center;
+    background:#edf0ff;
+    color:#5b66ef;
+    font-size:15px;
+  }
+  .listening {
+    display:flex;
+    align-items:center;
+    gap:7px;
+    padding:10px 5px 2px;
+    color:#68758b;
+    font-size:10px;
+  }
+  .wave { margin-left:auto; letter-spacing:1px; color:#506eff; }
+
+  .taskbar {
+    position:absolute;
+    z-index:5;
+    left:0; right:0; bottom:0;
+    height:62px;
+    display:flex;
+    align-items:center;
+    padding:0 18px;
+    border-top:1px solid rgba(255,255,255,.62);
+    background:rgba(230,240,251,.78);
+    backdrop-filter:blur(18px);
+    box-shadow:0 -5px 24px rgba(58,81,110,.08);
+  }
+  .weather { width:180px; display:flex; gap:8px; align-items:center; font-size:11px; }
+  .weather .sun { font-size:24px; }
+  .weather small { display:block; color:#65728a; margin-top:2px; }
+  .task-center { flex:1; display:flex; justify-content:center; gap:9px; }
+  .task-icon {
+    width:36px; height:36px; border-radius:10px;
+    display:grid; place-items:center;
+    background:rgba(255,255,255,.45);
+    font-size:18px;
+  }
+  .search-pill {
+    width:190px;
+    border-radius:12px;
+    display:flex; align-items:center; gap:8px;
+    padding:0 12px;
+    background:rgba(255,255,255,.64);
+    font-size:12px;
+  }
+  .tray { width:220px; display:flex; justify-content:flex-end; align-items:center; gap:10px; font-size:11px; }
+  .clock { text-align:right; line-height:1.35; }
+
+  .toast {
+    position:absolute;
+    z-index:50;
+    left:50%; bottom:78px;
+    transform:translateX(-50%) translateY(18px);
+    background:#1f2940;
+    color:white;
+    border-radius:12px;
+    padding:10px 14px;
+    font-size:11px;
+    opacity:0;
+    pointer-events:none;
+    transition:.25s;
+    box-shadow:0 12px 28px rgba(20,29,51,.25);
+  }
+  .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+  .detail-panel {
+    border:1px solid var(--line);
+    border-radius:16px;
+    background:rgba(255,255,255,.65);
+    padding:16px;
+  }
+  .detail-panel h2 { margin:0 0 5px; font-size:18px; }
+  .detail-panel p { color:var(--muted); font-size:12px; line-height:1.55; }
+  .metric-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:14px; }
+  .metric {
+    border:1px solid var(--line);
+    border-radius:13px;
+    padding:13px;
+    background:rgba(255,255,255,.56);
+  }
+  .metric strong { display:block; font-size:22px; }
+  .metric span { color:var(--muted); font-size:10px; }
+  .memory-table { margin-top:12px; display:grid; gap:7px; }
+  .memory-record {
+    display:grid; grid-template-columns:1fr auto auto;
+    gap:10px;
+    align-items:center;
+    border:1px solid var(--line);
+    background:rgba(255,255,255,.52);
+    border-radius:12px;
+    padding:10px 12px;
+    font-size:11px;
+  }
+  .confidence { color:#178a59; font-weight:700; }
+  .small-action {
+    border:1px solid var(--line);
+    background:white;
+    border-radius:8px;
+    padding:5px 8px;
+    font-size:9px;
+    cursor:pointer;
+  }
+
+  body.dark {
+    --ink:#edf2ff;
+    --muted:#a8b1c6;
+    --line:rgba(180,192,226,.14);
+    --panel:rgba(18,24,42,.82);
+    --panel-strong:rgba(28,35,56,.93);
+    background:#12182b;
+  }
+  body.dark .desktop {
+    background:
+      radial-gradient(circle at 18% 45%, rgba(126,72,128,.38), transparent 28%),
+      radial-gradient(circle at 70% 18%, rgba(75,96,167,.26), transparent 31%),
+      linear-gradient(180deg,#121c33,#1d2b44 47%,#101a2e);
+  }
+  body.dark .app-shell,
+  body.dark .peek-card,
+  body.dark .prototype-bar { border-color:rgba(154,171,220,.18); }
+  body.dark .app-header,
+  body.dark .sidebar,
+  body.dark .app-footer { background:rgba(13,18,32,.3); }
+  body.dark .card,
+  body.dark .memory-item,
+  body.dark .mode-card,
+  body.dark .privacy-card,
+  body.dark .plan-card,
+  body.dark .composer-box,
+  body.dark .detail-panel,
+  body.dark .metric,
+  body.dark .memory-record { background:rgba(38,46,70,.55); }
+  body.dark .taskbar { background:rgba(13,20,35,.77); color:#e8eeff; }
+  body.dark .desk-icon { color:#eef3ff; text-shadow:0 2px 3px #0b1020; }
+
+  @media (max-width:1050px) {
+    :root { --sidebar:70px; }
+    .workspace { grid-template-columns:var(--sidebar) minmax(430px,1fr) 400px; }
+    .nav-item span, .sidebar .mode-card, .sidebar .privacy-card { display:none; }
+    .nav-item { justify-content:center; }
+    .brand-sub { display:none; }
+  }
+  @media (max-width:860px) {
+    .app-shell { width:calc(100vw - 26px); }
+    .workspace { grid-template-columns:64px 1fr; }
+    .right-panel { display:none; }
+    .brand { min-width:220px; }
+  }
+</style>
+</head>
+<body>
+<div class="desktop">
+  <div class="mountain"></div>
+  <div class="tree-line"></div>
+  <div class="lake"></div>
+
+  <div class="desktop-icons">
+    <div class="desk-icon"><div class="glyph">♻</div><div>Recycle Bin</div></div>
+    <div class="desk-icon folder"><div class="glyph">📁</div><div>Projects</div></div>
+    <div class="desk-icon"><div class="glyph">📝</div><div>Notes.md</div></div>
+    <div class="desk-icon"><div class="glyph">▦</div><div>Budget.xlsx</div></div>
+    <div class="desk-icon folder"><div class="glyph">📁</div><div>Personal</div></div>
+  </div>
+
+  <div class="prototype-bar" aria-label="Prototype state selector">
+    <button data-state="bubble">Bubble</button>
+    <button data-state="peek">Quick panel</button>
+    <button class="active" data-state="full">Workspace</button>
+  </div>
+
+  <section class="app-shell" id="appShell">
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-mini"></div>
+        <div>
+          <div class="brand-title">Your Assistant <span class="badge">Local LLM</span></div>
+          <div class="brand-sub">Private, personal, and continuously learning · Tauri + SvelteKit</div>
+        </div>
+      </div>
+      <div class="header-spacer"></div>
+      <div class="window-actions">
+        <button class="icon-btn" id="themeBtn" title="Toggle theme">◐</button>
+        <button class="icon-btn" title="Pin window">⌖</button>
+        <button class="icon-btn" id="minimizeBtn" title="Collapse to bubble">—</button>
+        <button class="icon-btn close" id="closeBtn" title="Close">×</button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside class="sidebar">
+        <button class="nav-item active" data-view="chat"><div class="nav-ico">💬</div><span>Chat</span></button>
+        <button class="nav-item" data-view="focus"><div class="nav-ico">◉</div><span>Focus Plan</span></button>
+        <button class="nav-item" data-view="knowledge"><div class="nav-ico">◇</div><span>Knowledge</span></button>
+        <button class="nav-item" data-view="projects"><div class="nav-ico">▣</div><span>Projects</span></button>
+        <button class="nav-item" data-view="calendar"><div class="nav-ico">▦</div><span>Calendar</span></button>
+        <button class="nav-item" data-view="tasks"><div class="nav-ico">✓</div><span>Tasks</span></button>
+        <button class="nav-item" data-view="files"><div class="nav-ico">□</div><span>Files</span></button>
+        <button class="nav-item" data-view="memory"><div class="nav-ico">⬡</div><span>Memory</span></button>
+        <button class="nav-item" data-view="settings"><div class="nav-ico">⚙</div><span>Settings</span></button>
+
+        <div class="sidebar-spacer"></div>
+        <div class="mode-card">
+          <div class="tiny-label">Mode</div>
+          <div class="mode-main"><span>Deep Work</span><span>⌄</span></div>
+          <div class="mode-desc">Focus · Plan · Execute</div>
+        </div>
+        <div class="privacy-card">
+          <div class="privacy-line">
+            <div class="privacy-shield">◆</div>
+            <div>
+              <div style="font-size:11px;font-weight:750">Private & local</div>
+              <div class="mode-desc">Runs on-device <span class="green-dot" style="margin-left:5px"></span></div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main-panel">
+        <section class="view active" id="view-chat">
+          <div class="chat-stream" id="chatStream">
+            <div class="message-row user">
+              <div class="bubble user">Help me plan a focused work session for this afternoon.<span class="timestamp">10:41 AM</span></div>
+            </div>
+            <div class="message-row">
+              <div class="avatar">⌁</div>
+              <div class="bubble assistant">Sure. Based on your calendar, energy patterns, and recent work, here’s a plan that fits.<span class="timestamp">10:42 AM</span></div>
+            </div>
+
+            <article class="plan-card">
+              <div class="plan-head">
+                <span>▦</span><strong>Focus Plan</strong><span class="sub">Today · Afternoon</span><span class="dots">•••</span>
+              </div>
+              <div class="plan-list">
+                <div class="plan-row">
+                  <div class="plan-time">1:00 – 1:15 PM</div><div class="step-dot" style="background:#84a4ff"></div>
+                  <div><div class="plan-title">Plan & Prioritize</div><div class="plan-desc">Define outcomes for the session</div></div>
+                </div>
+                <div class="plan-row">
+                  <div class="plan-time">1:15 – 3:15 PM</div><div class="step-dot" style="background:#4c75ff"></div>
+                  <div><div class="plan-title">Deep Work Block</div><div class="plan-desc">Project Phoenix — Core implementation</div></div>
+                </div>
+                <div class="plan-row">
+                  <div class="plan-time">3:15 – 3:30 PM</div><div class="step-dot" style="background:#2fc782"></div>
+                  <div><div class="plan-title">Break</div><div class="plan-desc">Step away and recharge</div></div>
+                </div>
+                <div class="plan-row">
+                  <div class="plan-time">3:30 – 4:30 PM</div><div class="step-dot" style="background:#9569f5"></div>
+                  <div><div class="plan-title">Review & Next Steps</div><div class="plan-desc">Wrap up and plan tomorrow</div></div>
+                </div>
+              </div>
+            </article>
+
+            <div class="action-row">
+              <button class="action-btn primary" id="focusBtn">▶ Start Focus Session</button>
+              <button class="action-btn" data-toast="Plan opened for editing">✎ Adjust Plan</button>
+              <button class="action-btn" data-toast="Added to local calendar">▦ Add to Calendar</button>
+            </div>
+          </div>
+
+          <div class="composer">
+            <div class="composer-box">
+              <input id="messageInput" placeholder="Ask anything…" aria-label="Message" />
+              <div class="composer-tools">
+                <button class="tool-btn" data-toast="Attachment picker opened">＋</button>
+                <button class="tool-btn" data-toast="Attach a local file">⌕</button>
+                <button class="tool-btn" data-toast="Capture current app context">▣</button>
+                <button class="tool-btn" data-toast="Browser context is opt-in">◎</button>
+                <button class="tool-btn" style="margin-left:auto" data-toast="Voice capture ready">◉</button>
+                <button class="send-btn" id="sendBtn" title="Send">➤</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-focus">
+          <div class="detail-panel">
+            <h2>Focus Plan</h2>
+            <p>A dedicated execution view for the current work block, with task context, interruption controls, and a local activity timeline.</p>
+            <div class="metric-grid">
+              <div class="metric"><strong id="focusTime">01:58:34</strong><span>Remaining</span></div>
+              <div class="metric"><strong>2</strong><span>Protected tasks</span></div>
+              <div class="metric"><strong>92%</strong><span>Context ready</span></div>
+            </div>
+            <div class="memory-table">
+              <div class="memory-record"><span>Implement graph relation indexing</span><span class="confidence">Active</span><button class="small-action" data-toast="Task opened">Open</button></div>
+              <div class="memory-record"><span>Review capture permission boundary</span><span class="confidence">Queued</span><button class="small-action" data-toast="Task moved to active">Start</button></div>
+              <div class="memory-record"><span>Write platform adapter notes</span><span>Later</span><button class="small-action" data-toast="Task rescheduled">Move</button></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-knowledge">
+          <div class="detail-panel">
+            <h2>Knowledge Graph</h2>
+            <p>Explore people, projects, preferences, events, and source-backed relationships. Click any graph node in the right panel to inspect it.</p>
+            <div class="metric-grid">
+              <div class="metric"><strong>284</strong><span>Entities</span></div>
+              <div class="metric"><strong>619</strong><span>Relations</span></div>
+              <div class="metric"><strong>31</strong><span>Pending review</span></div>
+            </div>
+            <div id="nodeInspector" class="memory-record" style="margin-top:14px;grid-template-columns:1fr auto">
+              <span><strong>Selected:</strong> Project Phoenix<br><span style="color:var(--muted);font-size:10px">Project · 18 supporting observations · 6 linked tasks</span></span>
+              <button class="small-action" data-toast="Evidence trail opened">View evidence</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-projects">
+          <div class="detail-panel"><h2>Projects</h2><p>Project views combine conversations, files, goals, tasks, and inferred context without merging their source histories.</p>
+            <div class="memory-table">
+              <div class="memory-record"><span><strong>Project Phoenix</strong><br><span style="color:var(--muted);font-size:10px">Core assistant architecture</span></span><span class="confidence">In progress</span><button class="small-action">Open</button></div>
+              <div class="memory-record"><span><strong>Personal Budget</strong><br><span style="color:var(--muted);font-size:10px">Q3 planning</span></span><span>Planning</span><button class="small-action">Open</button></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-calendar">
+          <div class="detail-panel"><h2>Calendar</h2><p>Local calendar context is available for planning, conflict checks, and proactive reminders.</p>
+            <div class="memory-table">
+              <div class="memory-record"><span>1:00 PM · Focus block</span><span>2h 15m</span><button class="small-action" data-toast="Calendar event opened">Open</button></div>
+              <div class="memory-record"><span>4:30 PM · Daily review</span><span>30m</span><button class="small-action" data-toast="Calendar event opened">Open</button></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-tasks">
+          <div class="detail-panel"><h2>Tasks</h2><p>Tasks stay source-linked and can be promoted into working memory when they become active.</p>
+            <div class="memory-table">
+              <div class="memory-record"><span>Finalize graph schema adapter</span><span class="confidence">High</span><button class="small-action" data-toast="Task completed">Complete</button></div>
+              <div class="memory-record"><span>Test unsupported image-model path</span><span>Medium</span><button class="small-action" data-toast="Task opened">Open</button></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-files">
+          <div class="detail-panel"><h2>Files</h2><p>Only approved folders are indexed. Each extracted fact retains its source file and evidence range.</p>
+            <div class="memory-table">
+              <div class="memory-record"><span>personalized-llm-system.md</span><span>Markdown</span><button class="small-action" data-toast="File preview opened">Preview</button></div>
+              <div class="memory-record"><span>architecture-notes.md</span><span>Markdown</span><button class="small-action" data-toast="File preview opened">Preview</button></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-memory">
+          <div class="detail-panel">
+            <h2>Memory Control Center</h2>
+            <p>Review what the assistant currently holds, how confident it is, and which evidence supports each item.</p>
+            <div class="metric-grid">
+              <div class="metric"><strong>20</strong><span>Short-term</span></div>
+              <div class="metric"><strong>8</strong><span>Working memory</span></div>
+              <div class="metric"><strong>132</strong><span>Long-term</span></div>
+            </div>
+            <div class="memory-table">
+              <div class="memory-record"><span>Prefers detailed technical breakdowns</span><span class="confidence">96%</span><button class="small-action" data-toast="Evidence trail opened">Evidence</button></div>
+              <div class="memory-record"><span>Uses Windows as primary desktop</span><span class="confidence">99%</span><button class="small-action" data-toast="Evidence trail opened">Evidence</button></div>
+              <div class="memory-record"><span>Project uses graph + relation memory</span><span class="confidence">93%</span><button class="small-action" data-toast="Evidence trail opened">Evidence</button></div>
+              <div class="memory-record"><span>Prefers cross-platform architecture</span><span class="confidence">98%</span><button class="small-action" data-toast="Evidence trail opened">Evidence</button></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-settings">
+          <div class="detail-panel">
+            <h2>Assistant Settings</h2>
+            <p>Configure capture boundaries, model routing, retention, and proactive behavior.</p>
+            <div class="memory-table">
+              <div class="memory-record"><span>Local inference endpoint</span><span>Connected</span><button class="small-action" data-toast="Endpoint settings opened">Configure</button></div>
+              <div class="memory-record"><span>Observation review threshold</span><span>Medium</span><button class="small-action" data-toast="Threshold editor opened">Edit</button></div>
+              <div class="memory-record"><span>Cross-platform shell</span><span>Tauri 2</span><button class="small-action" data-toast="Framework details opened">Details</button></div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <aside class="right-panel">
+        <div class="right-grid">
+          <section class="card">
+            <div class="card-head"><div class="card-title">◴ Memory at a glance</div><div class="card-link" data-go="memory">Learn more</div></div>
+            <div class="memory-item" data-memory="Short-term memory">
+              <div class="mem-ico" style="background:#e0f8ed;color:#1da86a">▣</div>
+              <div><div class="mem-name">Short-term</div><div class="mem-desc">Recent conversation context</div></div><div class="mem-count">20</div>
+            </div>
+            <div class="memory-item" data-memory="Working memory">
+              <div class="mem-ico" style="background:#efe7ff;color:#8157ef">◆</div>
+              <div><div class="mem-name">Working memory</div><div class="mem-desc">Active items I’m keeping in mind</div></div><div class="mem-count">8</div>
+            </div>
+            <div class="memory-item" data-memory="Long-term memory">
+              <div class="mem-ico" style="background:#e6edff;color:#4c6ff0">◒</div>
+              <div><div class="mem-name">Long-term</div><div class="mem-desc">Things I know about you</div></div><div class="mem-count">132</div>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="card-head"><div class="card-title">⌁ Knowledge graph</div><div class="card-link" data-go="knowledge">Open</div></div>
+            <div class="graph">
+              <svg viewBox="0 0 220 145" preserveAspectRatio="none">
+                <g stroke="#8da7df" stroke-width="1.4" stroke-dasharray="4 4" fill="none" opacity=".8">
+                  <path d="M110 24 L44 69 M110 24 L110 72 M110 24 L176 69 M110 72 L68 119 M110 72 L154 119"/>
+                </g>
+              </svg>
+              <button class="node n1" data-node="Project Phoenix">Project Phoenix</button>
+              <button class="node n2" data-node="API Design">API Design</button>
+              <button class="node n3" data-node="You">You</button>
+              <button class="node n4" data-node="Focus Time">Focus Time</button>
+              <button class="node n5" data-node="Coffee preference">Coffee preference</button>
+              <button class="node n6" data-node="Learning goals">Learning goals</button>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="card-head"><div class="card-title">▤ Recent observations</div><div class="card-link" data-go="memory">View all</div></div>
+            <div class="observation"><div class="obs-dot"></div><div>You prefer deep work in the afternoon.</div><div class="obs-date">Today</div></div>
+            <div class="observation"><div class="obs-dot"></div><div>You like concise summaries.</div><div class="obs-date">Yesterday</div></div>
+            <div class="observation"><div class="obs-dot"></div><div>You’re exploring SvelteKit.</div><div class="obs-date">May 18</div></div>
+            <div class="observation"><div class="obs-dot"></div><div>You work best in 90–120 min blocks.</div><div class="obs-date">May 17</div></div>
+          </section>
+
+          <section class="card">
+            <div class="card-head"><div class="card-title">▣ Permissions & data</div><div class="card-link" data-go="settings">Manage</div></div>
+            <div class="permission"><div class="perm-ico">▦</div><div><div class="perm-name">Calendar (Local)</div><div class="perm-desc">Read events</div></div><button class="switch on"></button></div>
+            <div class="permission"><div class="perm-ico">□</div><div><div class="perm-name">Files (Local)</div><div class="perm-desc">Read documents</div></div><button class="switch on"></button></div>
+            <div class="permission"><div class="perm-ico">▤</div><div><div class="perm-name">Notes (Local)</div><div class="perm-desc">Read notes</div></div><button class="switch on"></button></div>
+            <div class="permission"><div class="perm-ico">✓</div><div><div class="perm-name">Tasks (Local)</div><div class="perm-desc">Read tasks</div></div><button class="switch on"></button></div>
+            <div class="permission"><div class="perm-ico">◎</div><div><div class="perm-name">Browser (Opt-in)</div><div class="perm-desc">Read browsing context</div></div><button class="switch"></button></div>
+          </section>
+
+          <section class="card">
+            <div class="card-head"><div class="card-title">▥ Data sources (all local)</div><div style="font-size:9px;color:#68758b">12.4 GB used</div></div>
+            <div class="storage-bar"><span></span><span></span><span></span><span></span></div>
+            <div class="storage-row"><div class="source-dot" style="background:#9568f1"></div><div>Documents</div><div class="source-size">4.2 GB</div></div>
+            <div class="storage-row"><div class="source-dot" style="background:#f0b14f"></div><div>Notes & Markdown</div><div class="source-size">1.8 GB</div></div>
+            <div class="storage-row"><div class="source-dot" style="background:#2fc782"></div><div>Calendar & Tasks</div><div class="source-size">1.1 GB</div></div>
+            <div class="storage-row"><div class="source-dot"></div><div>Conversations</div><div class="source-size">2.3 GB</div></div>
+            <div class="storage-row"><div class="source-dot" style="background:#a7b0c4"></div><div>Other</div><div class="source-size">3.0 GB</div></div>
+          </section>
+
+          <section class="card">
+            <div class="card-head"><div class="card-title">▦ Active projects</div><div class="card-link" data-go="projects">View all</div></div>
+            <div class="project-row"><div class="project-ico">▣</div><div><div class="project-name">Project Phoenix</div><div class="project-desc">Core implementation</div></div><div class="tag">In progress</div></div>
+            <div class="project-row"><div class="project-ico" style="background:#e6f7f7;color:#16949b">▤</div><div><div class="project-name">Personal Budget</div><div class="project-desc">Q3 planning</div></div><div class="tag amber">Planning</div></div>
+            <div class="project-row"><div class="project-ico" style="background:#e6f5ff;color:#4d7fdd">◉</div><div><div class="project-name">Health & Fitness</div><div class="project-desc">Weekly tracking</div></div><div class="tag green">Tracking</div></div>
+          </section>
+        </div>
+      </aside>
+    </div>
+
+    <footer class="app-footer">
+      <div class="footer-chip">⬡ Local model: Llama 3.1 8B</div>
+      <div class="footer-chip"><span class="green-dot"></span> Running on-device</div>
+      <div class="footer-chip">〈/〉 Tauri 2 + SvelteKit</div>
+      <div class="footer-spacer"></div>
+      <div>Last sync: 10:41 AM &nbsp; ↻ &nbsp; <span class="green-dot"></span></div>
+    </footer>
+  </section>
+
+  <div class="anchor" id="anchor"></div>
+
+  <div class="peek-card" id="peekCard">
+    <div class="insight" id="insightBtn"><span>✦ &nbsp;<strong>1 new insight</strong><br><span style="color:#68758b">Memory: Project Phoenix update</span></span><span>›</span></div>
+    <div class="quick-actions">
+      <button class="quick-action" data-quick="chat"><div class="quick-ico">◎</div>Quick ask</button>
+      <button class="quick-action" data-quick="focus"><div class="quick-ico">◉</div>Focus time</button>
+      <button class="quick-action" data-quick="calendar"><div class="quick-ico">▦</div>Plan my day</button>
+      <button class="quick-action" data-quick="settings"><div class="quick-ico">•••</div>More</button>
+    </div>
+    <div class="listening"><span class="green-dot"></span> Listening quietly <span class="wave">▂▅▃▆</span></div>
+  </div>
+
+  <div class="orb-wrap" id="orbWrap">
+    <button class="orb" id="orb" aria-label="Toggle assistant"><span class="orb-ring"></span></button>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <div class="taskbar">
+    <div class="weather"><div class="sun">🌤️</div><div>72°F<small>Partly cloudy</small></div></div>
+    <div class="task-center">
+      <div class="task-icon">⊞</div>
+      <div class="search-pill">⌕ &nbsp; Search</div>
+      <div class="task-icon">◧</div>
+      <div class="task-icon">◉</div>
+      <div class="task-icon">📁</div>
+      <div class="task-icon">⌘</div>
+    </div>
+    <div class="tray"><span>⌁</span><span>◖</span><span>▣</span><div class="clock">10:42 AM<br><span style="color:#647189">Jul 30, 2026</span></div><span>♧</span></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const appShell = document.getElementById('appShell');
+  const orbWrap = document.getElementById('orbWrap');
+  const orb = document.getElementById('orb');
+  const peekCard = document.getElementById('peekCard');
+  const anchor = document.getElementById('anchor');
+  const toast = document.getElementById('toast');
+  const stateButtons = [...document.querySelectorAll('[data-state]')];
+
+  let currentState = 'full';
+  let focusTimer = null;
+  let focusRemaining = 2 * 60 * 60 - 86;
+
+  function setState(state) {
+    currentState = state;
+    stateButtons.forEach(b => b.classList.toggle('active', b.dataset.state === state));
+
+    appShell.classList.toggle('hidden', state !== 'full');
+    peekCard.classList.toggle('visible', state === 'peek');
+    orbWrap.classList.toggle('docked-right', state !== 'full');
+    anchor.classList.toggle('hidden', state !== 'full');
+  }
+
+  stateButtons.forEach(btn => btn.addEventListener('click', () => setState(btn.dataset.state)));
+  document.getElementById('minimizeBtn').addEventListener('click', () => setState('bubble'));
+  document.getElementById('closeBtn').addEventListener('click', () => {
+    setState('bubble');
+    showToast('Assistant is still running locally');
+  });
+
+  orb.addEventListener('click', () => {
+    if (currentState === 'bubble') setState('peek');
+    else if (currentState === 'peek') setState('full');
+    else setState('bubble');
+  });
+
+  document.getElementById('themeBtn').addEventListener('click', () => {
+    document.body.classList.toggle('dark');
+    showToast(document.body.classList.contains('dark') ? 'Dark theme enabled' : 'Light theme enabled');
+  });
+
+  function switchView(name) {
+    document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === `view-${name}`));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === name));
+    if (currentState !== 'full') setState('full');
+  }
+
+  document.querySelectorAll('.nav-item').forEach(item => item.addEventListener('click', () => switchView(item.dataset.view)));
+  document.querySelectorAll('[data-go]').forEach(link => link.addEventListener('click', () => switchView(link.dataset.go)));
+  document.querySelectorAll('[data-quick]').forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.quick)));
+
+  document.querySelectorAll('.switch').forEach(sw => sw.addEventListener('click', () => {
+    sw.classList.toggle('on');
+    showToast(sw.classList.contains('on') ? 'Permission enabled' : 'Permission disabled');
+  }));
+
+  document.querySelectorAll('[data-toast]').forEach(btn => btn.addEventListener('click', () => showToast(btn.dataset.toast)));
+
+  document.querySelectorAll('.memory-item').forEach(item => item.addEventListener('click', () => {
+    switchView('memory');
+    showToast(`${item.dataset.memory} opened`);
+  }));
+
+  document.querySelectorAll('.node').forEach(node => node.addEventListener('click', () => {
+    switchView('knowledge');
+    const inspector = document.getElementById('nodeInspector');
+    inspector.querySelector('span').innerHTML = `<strong>Selected:</strong> ${node.dataset.node}<br><span style="color:var(--muted);font-size:10px">Source-backed entity · relation explorer ready</span>`;
+  }));
+
+  document.getElementById('insightBtn').addEventListener('click', () => {
+    switchView('memory');
+    showToast('New memory insight opened');
+  });
+
+  function showToast(message) {
+    toast.textContent = message;
+    toast.classList.add('show');
+    clearTimeout(showToast.timer);
+    showToast.timer = setTimeout(() => toast.classList.remove('show'), 1800);
+  }
+
+  const messageInput = document.getElementById('messageInput');
+  const sendBtn = document.getElementById('sendBtn');
+  function sendMessage() {
+    const value = messageInput.value.trim();
+    if (!value) return;
+    const stream = document.getElementById('chatStream');
+    const user = document.createElement('div');
+    user.className = 'message-row user';
+    user.innerHTML = `<div class="bubble user">${escapeHtml(value)}<span class="timestamp">Now</span></div>`;
+    stream.appendChild(user);
+    messageInput.value = '';
+    user.scrollIntoView({behavior:'smooth', block:'end'});
+    setTimeout(() => {
+      const reply = document.createElement('div');
+      reply.className = 'message-row';
+      reply.innerHTML = `<div class="avatar">⌁</div><div class="bubble assistant">I’ve added that to the active context for this mockup. In the production app, this would route through the local model harness and memory policy layer.<span class="timestamp">Now</span></div>`;
+      stream.appendChild(reply);
+      reply.scrollIntoView({behavior:'smooth', block:'end'});
+    }, 550);
+  }
+
+  function escapeHtml(value) {
+    return value.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+  }
+
+  sendBtn.addEventListener('click', sendMessage);
+  messageInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') sendMessage();
+  });
+
+  document.getElementById('focusBtn').addEventListener('click', (e) => {
+    switchView('focus');
+    e.currentTarget.textContent = '✓ Focus Session Active';
+    showToast('Focus session started');
+    if (!focusTimer) {
+      focusTimer = setInterval(() => {
+        focusRemaining = Math.max(0, focusRemaining - 1);
+        const h = String(Math.floor(focusRemaining / 3600)).padStart(2,'0');
+        const m = String(Math.floor((focusRemaining % 3600) / 60)).padStart(2,'0');
+        const s = String(focusRemaining % 60).padStart(2,'0');
+        document.getElementById('focusTime').textContent = `${h}:${m}:${s}`;
+      }, 1000);
+    }
+  });
+
+  setState('full');
+})();
+</script>
+</body>
+</html>
