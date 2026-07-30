@@ -8,6 +8,7 @@ import {
 } from '../command-safety.js';
 import {
   getRepoSearchCommandTokenForToolName,
+  isMutatingCommandToolName,
   isRepoSearchCommandToolName,
   isRepoSearchNativeToolName,
   type ToolAction,
@@ -91,6 +92,19 @@ type FittedToolOutcome = {
   perToolCapTokens: number;
   remainingTokenAllowance: number;
 };
+
+/**
+ * The kinds of repeat a tool call can be rejected as. The recorded reason, the forced-finish
+ * trigger and whether the repeat counts as semantic are all restatements of the same fact, so they
+ * are derived here rather than passed alongside each other.
+ */
+const REPEAT_KINDS = {
+  exact: { reason: 'duplicate command', trigger: 'consecutive_duplicates', isSemantic: false },
+  semantic: { reason: 'semantic duplicate command', trigger: 'semantic_repetition', isSemantic: true },
+  exhausted_read: { reason: 'exhausted read', trigger: 'exhausted_read', isSemantic: false },
+} as const;
+
+type RepeatKind = keyof typeof REPEAT_KINDS;
 
 export type ToolActionProcessorDeps = {
   task: TaskDefinition;
@@ -423,10 +437,8 @@ export class ToolActionProcessor {
     if (!canAdvanceRepeatedRead && (isExactDuplicate || isSemanticDuplicate)) {
       this.rejectAsDuplicate(turn, context, state, {
         duplicateFingerprint,
-        reason: isExactDuplicate ? 'duplicate command' : 'semantic duplicate command',
-        trigger: isSemanticDuplicate ? 'semantic_repetition' : 'consecutive_duplicates',
+        kind: isExactDuplicate ? 'exact' : 'semantic',
         prospectiveToolType,
-        isSemantic: isSemanticDuplicate,
         bodyText: null,
       });
       return 'next';
@@ -445,21 +457,20 @@ export class ToolActionProcessor {
     state: TurnBatchState,
     options: {
       duplicateFingerprint: string;
-      reason: string;
-      trigger: string;
+      kind: RepeatKind;
       prospectiveToolType: string;
-      isSemantic: boolean;
       bodyText: string | null;
     },
   ): void {
     const { toolAction, normalizedToolName, isNativeTool, command, fingerprint } = context;
     const { commands, counters, duplicates, forcedFinish, toolStats, transcript } = this.deps;
+    const { reason, trigger, isSemantic } = REPEAT_KINDS[options.kind];
     const registration = duplicates.registerDuplicate(options.duplicateFingerprint, transcript.length);
     const repeatSummary = buildRepeatedToolCallSummary(normalizedToolName, registration.count);
     const duplicateMessage = options.bodyText ? `${options.bodyText}\n${repeatSummary}` : repeatSummary;
     counters.commandFailures += 1;
     commands.push({
-      command, turn, safe: false, reason: options.reason, exitCode: null,
+      command, turn, safe: false, reason, exitCode: null,
       output: `Rejected: ${duplicateMessage}`,
     });
     if (registration.activeReplayMessageIndex !== null) {
@@ -477,7 +488,7 @@ export class ToolActionProcessor {
       });
       state.batchDuplicateAnchorIndex = state.batchOutcomes.length - 1;
     }
-    if (options.isSemantic) {
+    if (isSemantic) {
       toolStats.recordSemanticRepeatReject(options.prospectiveToolType);
       this.deps.logger?.write({
         kind: 'turn_semantic_repeat_rejected',
@@ -496,7 +507,7 @@ export class ToolActionProcessor {
         taskId: this.deps.task.id,
         turn,
         attemptsRemaining: FORCED_FINISH_MAX_ATTEMPTS,
-        trigger: options.trigger,
+        trigger,
       });
     }
   }
@@ -564,10 +575,8 @@ export class ToolActionProcessor {
     }
     this.rejectAsDuplicate(turn, context, state, {
       duplicateFingerprint: buildDuplicateFingerprint(normalizedToolName, normalizedKey, fingerprint),
-      reason: 'exhausted read',
-      trigger: 'exhausted_read',
+      kind: 'exhausted_read',
       prospectiveToolType,
-      isSemantic: false,
       bodyText: nativeExecution.output,
     });
     return 'next';
@@ -862,12 +871,12 @@ export class ToolActionProcessor {
    * Clearing them restores the model's ability to re-read what changed. This touches bookkeeping
    * only; the transcript keeps every earlier read result.
    *
-   * `run` and `git` do not report which paths they touched and both can rewrite the tree, so any
+   * Command-shaped tools do not report which paths they touched and can rewrite the tree, so any
    * completion clears everything — a non-zero exit can still have mutated.
    */
   private invalidateReadWindows(context: ExecutedToolContext, commandSucceeded: boolean): void {
     const { normalizedToolName, nativeExecution } = context;
-    if (normalizedToolName === 'run' || normalizedToolName === 'git') {
+    if (isMutatingCommandToolName(normalizedToolName)) {
       this.deps.readWindows.invalidateAll();
       return;
     }

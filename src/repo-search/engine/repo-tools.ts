@@ -3,7 +3,7 @@ import { resolve, relative, isAbsolute, join, dirname, posix } from 'node:path';
 import { type IgnorePolicy } from '../command-safety.js';
 import { estimateTokenCount } from '../prompt-budget.js';
 import { findContiguousUnreadRange, type ToolOutputTruncationUnit, type ToolOutputKeep } from '../../tool-output-fit.js';
-import { getOrCreateFileReadState, type FileReadState } from './read-overlap.js';
+import { buildReadPathKey, getOrCreateFileReadState, type FileReadState } from './read-overlap.js';
 import { parseJsonValueText } from '../../lib/json.js';
 import { readSourceText } from '../../lib/text-encoding.js';
 import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
@@ -368,7 +368,7 @@ export function planRead(
 
   const lines = readSourceText(resolvedPath.absolutePath).split('\n');
   const displayPath = resolvedPath.relativePath;
-  const pathKey = displayPath.toLowerCase();
+  const pathKey = buildReadPathKey(displayPath);
   const totalEndLineExclusive = (lines.length || 0) + 1;
   const clampedStart = Math.min(offset, lines.length || 1);
   const requestedEndExclusive = limit === undefined
@@ -611,7 +611,7 @@ function executeWrite(args: JsonObject, context: RepoToolContext): RepoToolExecu
     ok: true, requestedCommand: command, command, exitCode: 0,
     output: `Wrote ${Buffer.byteLength(content, 'utf8')} bytes to ${resolvedPath.relativePath}.`,
     toolType: 'write', outputUnit: 'lines',
-    mutatedPathKey: resolvedPath.relativePath.toLowerCase(),
+    mutatedPathKey: buildReadPathKey(resolvedPath.relativePath),
   };
 }
 
@@ -680,7 +680,7 @@ function executeEdit(args: JsonObject, context: RepoToolContext): RepoToolExecut
     ok: true, requestedCommand: command, command, exitCode: 0,
     output: `Applied ${resolved.length} edit(s) to ${resolvedPath.relativePath}.`,
     toolType: 'edit', outputUnit: 'lines',
-    mutatedPathKey: resolvedPath.relativePath.toLowerCase(),
+    mutatedPathKey: buildReadPathKey(resolvedPath.relativePath),
   };
 }
 

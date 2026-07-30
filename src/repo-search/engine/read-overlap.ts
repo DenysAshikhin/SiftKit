@@ -76,6 +76,14 @@ export function mergeRange(ranges: ReadRange[], next: ReadRange): ReadRange[] {
   return merged;
 }
 
+/**
+ * Sole derivation of the key used for the read-state map. Readers and mutating tools must both go
+ * through it, or an invalidation silently misses the window it was meant to clear.
+ */
+export function buildReadPathKey(relativePath: string): string {
+  return relativePath.toLowerCase();
+}
+
 export function getOrCreateFileReadState(fileReadStateByPath: Map<string, FileReadState>, pathKey: string): FileReadState {
   const existingState = fileReadStateByPath.get(pathKey);
   if (existingState) {

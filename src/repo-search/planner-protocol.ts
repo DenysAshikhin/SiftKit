@@ -264,8 +264,19 @@ const EXPOSED_REPO_TOOL_NAME_SET = new Set<string>(EXPOSED_REPO_TOOL_NAMES);
 const REGISTERED_REPO_TOOL_NAME_SET = new Set<string>(Object.keys(REPO_TOOL_REGISTRY));
 const WEB_TOOL_NAMES = new Set<string>(['web_search', 'web_fetch']);
 
+/**
+ * Tools that run an arbitrary command and so can rewrite the tree without reporting which paths
+ * they touched. Native tools report a mutated path instead; anything listed here forces callers to
+ * assume every path changed. Add new command-shaped tools here when they join the registry.
+ */
+const MUTATING_COMMAND_TOOL_NAMES = new Set<string>(['run', 'git']);
+
 function normalizeToolName(toolName: string): string {
   return String(toolName || '').trim().toLowerCase();
+}
+
+export function isMutatingCommandToolName(toolName: string): boolean {
+  return MUTATING_COMMAND_TOOL_NAMES.has(normalizeToolName(toolName));
 }
 
 export function getRepoSearchToolNames(): string[] {
