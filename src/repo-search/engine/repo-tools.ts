@@ -37,6 +37,7 @@ export type RepoToolExecution =
       startLine: number;
       endLineExclusive: number;
       totalEndLineExclusive: number;
+      hasUnread: boolean;
     };
     /** Set by mutating tools so the caller can drop stale read windows for that file. */
     mutatedPathKey?: string;
@@ -374,11 +375,14 @@ export function planRead(
     ? totalEndLineExclusive
     : Math.max(clampedStart + 1, Math.min(clampedStart + limit, totalEndLineExclusive));
   const state = fileReadStateByPath ? getOrCreateFileReadState(fileReadStateByPath, pathKey) : null;
-  const hasReturnedRanges = Boolean(state && state.mergedReturnedRanges.length > 0);
+  // Both modes skip lines already returned. expandReads decides only whether the window may run
+  // past the requested limit to end of file.
+  const returnedRanges = state?.mergedReturnedRanges ?? [];
+  const hasReturnedRanges = returnedRanges.length > 0;
   const unreadRange = findContiguousUnreadRange({
     requestedStart: clampedStart,
     totalEnd: expandReads && hasReturnedRanges ? totalEndLineExclusive : requestedEndExclusive,
-    returnedRanges: expandReads ? (state?.mergedReturnedRanges ?? []) : [],
+    returnedRanges,
   });
 
   return {
@@ -393,7 +397,9 @@ export function planRead(
     displayPath,
     lines,
     hasUnread: unreadRange.hasUnread,
-    noUnreadOutput: unreadRange.hasUnread ? null : `No unread lines remain for ${displayPath}.`,
+    noUnreadOutput: unreadRange.hasUnread
+      ? null
+      : `Lines ${clampedStart}-${requestedEndExclusive - 1} of ${displayPath} were already returned in this run. Read a different range, or edit/write the file to re-read it.`,
   };
 }
 
@@ -408,6 +414,7 @@ export function buildReadExecution(
     startLine: plan.effectiveStartLine,
     endLineExclusive: plan.hasUnread ? plan.effectiveEndLineExclusive : plan.effectiveStartLine,
     totalEndLineExclusive: plan.totalEndLineExclusive,
+    hasUnread: plan.hasUnread,
   };
   if (!plan.hasUnread) {
     return {

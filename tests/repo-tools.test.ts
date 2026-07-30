@@ -150,18 +150,70 @@ test('read skips already-returned ranges instead of re-reading them', () => {
   assert.equal(second.effectiveStartLine, 3);
 });
 
-test('planRead with expandReads=false runs the requested window unchanged despite prior ranges', () => {
+function stateWithReturnedRange(pathKey: string, start: number, end: number): Map<string, FileReadState> {
+  return new Map<string, FileReadState>([
+    [pathKey, { mergedReturnedRanges: [{ start, end }], totalLinesRead: end - start, uniqueLinesRead: end - start, overlapLines: 0 }],
+  ]);
+}
+
+test('planRead with expandReads=false skips returned lines but stops at the requested end', () => {
   const root = makeRepo();
-  const stateByPath = new Map<string, FileReadState>();
-  const first = planRead({ path: 'src/a.ts', offset: 1, limit: 2 }, root, buildIgnorePolicy(root), stateByPath, false);
-  assert.ok(!isFailedReadPlan(first));
-  const state = stateByPath.get('src\\a.ts') ?? stateByPath.get('src/a.ts');
-  assert.ok(state);
-  state.mergedReturnedRanges = [{ start: 1, end: 3 }];
-  const second = planRead({ path: 'src/a.ts', offset: 1, limit: 2 }, root, buildIgnorePolicy(root), stateByPath, false);
-  assert.ok(!isFailedReadPlan(second));
-  assert.equal(second.effectiveStartLine, 1);
-  assert.equal(second.effectiveEndLineExclusive, 3);
+  const stateByPath = stateWithReturnedRange('src/a.ts', 1, 3);
+  const plan = planRead({ path: 'src/a.ts', offset: 1, limit: 4 }, root, buildIgnorePolicy(root), stateByPath, false);
+  assert.ok(!isFailedReadPlan(plan));
+  assert.equal(plan.hasUnread, true);
+  assert.equal(plan.effectiveStartLine, 3);
+  assert.equal(plan.effectiveEndLineExclusive, 5);
+});
+
+test('planRead with expandReads=true skips returned lines and runs to end of file', () => {
+  const root = makeRepo();
+  const stateByPath = stateWithReturnedRange('src/a.ts', 1, 3);
+  const plan = planRead({ path: 'src/a.ts', offset: 1, limit: 4 }, root, buildIgnorePolicy(root), stateByPath, true);
+  assert.ok(!isFailedReadPlan(plan));
+  assert.equal(plan.hasUnread, true);
+  assert.equal(plan.effectiveStartLine, 3);
+  assert.equal(plan.effectiveEndLineExclusive, 7);
+});
+
+test('planRead honours limit on a first read in both modes', () => {
+  const root = makeRepo();
+  const policy = buildIgnorePolicy(root);
+  const expanded = planRead({ path: 'src/a.ts', offset: 1, limit: 2 }, root, policy, new Map<string, FileReadState>(), true);
+  assert.ok(!isFailedReadPlan(expanded));
+  assert.equal(expanded.effectiveEndLineExclusive, 3);
+  const clamped = planRead({ path: 'src/a.ts', offset: 1, limit: 2 }, root, policy, new Map<string, FileReadState>(), false);
+  assert.ok(!isFailedReadPlan(clamped));
+  assert.equal(clamped.effectiveEndLineExclusive, 3);
+});
+
+test('planRead reports a fully covered window as exhausted in both modes', () => {
+  const root = makeRepo();
+  const policy = buildIgnorePolicy(root);
+  const clamped = planRead({ path: 'src/a.ts', offset: 1, limit: 2 }, root, policy, stateWithReturnedRange('src/a.ts', 1, 3), false);
+  assert.ok(!isFailedReadPlan(clamped));
+  assert.equal(clamped.hasUnread, false);
+  assert.match(String(clamped.noUnreadOutput), /Lines 1-2 of src\/a\.ts were already returned in this run/u);
+  const expanded = planRead({ path: 'src/a.ts', offset: 1, limit: 2 }, root, policy, stateWithReturnedRange('src/a.ts', 1, 7), true);
+  assert.ok(!isFailedReadPlan(expanded));
+  assert.equal(expanded.hasUnread, false);
+  assert.match(String(expanded.noUnreadOutput), /Lines 1-2 of src\/a\.ts were already returned in this run/u);
+});
+
+test('buildReadExecution reports hasUnread on both branches', () => {
+  const root = makeRepo();
+  const policy = buildIgnorePolicy(root);
+  const fresh = planRead({ path: 'src/a.ts', offset: 1, limit: 2 }, root, policy, new Map<string, FileReadState>(), false);
+  assert.ok(!isFailedReadPlan(fresh));
+  const freshExecution = buildReadExecution('read', fresh);
+  assert.ok(freshExecution.ok);
+  assert.equal(freshExecution.readFile?.hasUnread, true);
+  const covered = planRead({ path: 'src/a.ts', offset: 1, limit: 2 }, root, policy, stateWithReturnedRange('src/a.ts', 1, 3), false);
+  assert.ok(!isFailedReadPlan(covered));
+  const coveredExecution = buildReadExecution('read', covered);
+  assert.ok(coveredExecution.ok);
+  assert.equal(coveredExecution.readFile?.hasUnread, false);
+  assert.match(coveredExecution.output, /already returned in this run/u);
 });
 
 test('planRead decodes a UTF-16LE (BOM) file instead of returning wide-char garbage', () => {
