@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
+import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
 import {
   loadConfig,
@@ -71,6 +73,29 @@ test('SIFTKIT_VERSION matches package.json version', () => {
   assert.equal(typeof SIFTKIT_VERSION, 'string');
   assert.match(SIFTKIT_VERSION, /^\d+\.\d+\.\d+$/u);
   assert.equal(SIFTKIT_VERSION, packageJson.version);
+});
+
+// scripts/run-tests.ts runs from dist/scripts and imports this module as
+// dist/src/config/constants.js, one level deeper than dist/config/constants.js.
+// The module must therefore find the SiftKit package.json by walking up rather
+// than by assuming its own depth, or the import throws on dist/package.json,
+// which carries only { "type": "module" }.
+test('the emitted dist/src copy of the constants module loads and reports the package version', () => {
+  const emittedConstantsPath = path.resolve(__dirname, '..', 'dist', 'src', 'config', 'constants.js');
+  assert.ok(
+    fs.existsSync(emittedConstantsPath),
+    `${emittedConstantsPath} is missing; run "npm run build:test" before this test.`,
+  );
+
+  const childSource = `const constants = await import(${JSON.stringify(pathToFileURL(emittedConstantsPath).href)});`
+    + 'process.stdout.write(constants.SIFTKIT_VERSION);';
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', childSource], {
+    encoding: 'utf8',
+    timeout: 20_000,
+  });
+
+  assert.equal(result.status, 0, `loading the emitted constants failed: ${result.stderr}`);
+  assert.equal(result.stdout, SIFTKIT_VERSION);
 });
 
 test('getDefaultNumCtx returns the default context window', () => {

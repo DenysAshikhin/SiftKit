@@ -155,10 +155,10 @@ test('the suite does not force spawned production processes through the tsx load
   assert.doesNotMatch(process.env.NODE_OPTIONS ?? '', /tsx/u);
 });
 
-// scripts/run-tests.ts spells the guarded ports out as literals because it runs from
-// dist/scripts, where importing src/config/constants.ts resolves into the unloadable
-// dist/src tree. These two cases are what keeps those literals honest: they inherit the
-// suite's own environment and assert it protects exactly the constants src uses.
+// scripts/run-tests.ts passes the guarded ports as env because the preload cannot import
+// a repo module without injecting it into every spawned process. These two cases prove that
+// hand-off: they inherit the suite's own environment and assert it protects exactly the
+// constants src uses.
 test('the suite guards the default status port for every child it spawns', () => {
   const result = runGuardedChild(buildSwallowedRequestSource(SIFT_DEFAULT_STATUS_PORT));
 

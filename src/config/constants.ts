@@ -1,17 +1,33 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { moduleDirname } from '../lib/paths.js';
+import { findNearestSiftKitRepoRoot, moduleDirname } from '../lib/paths.js';
 import { z } from '../lib/zod.js';
 
 const PackageJsonSchema = z.object({ version: z.string() });
 
+// The compiled copies of this module sit at different depths under the output
+// root: dist/config/constants.js after scripts/sync-dist-runtime.js flattens the
+// tree, and dist/src/config/constants.js in the tree it flattens from, which
+// dist/scripts/** imports. A fixed '..','..' hop is only correct for one of
+// them, and the wrong one lands on dist/package.json, which has no version.
+// Walk up to the nearest package.json named "siftkit" instead.
+const moduleDirectory = moduleDirname(import.meta.url);
+const packageRoot = findNearestSiftKitRepoRoot(moduleDirectory);
+if (!packageRoot) {
+  throw new Error(
+    `No SiftKit package.json found above ${moduleDirectory}. `
+    + 'The SiftKit install is incomplete: its package.json must be reachable from the compiled output.',
+  );
+}
+
 const packageJson = PackageJsonSchema.parse(JSON.parse(
-  readFileSync(resolve(moduleDirname(import.meta.url), '..', '..', 'package.json'), 'utf8'),
+  readFileSync(resolve(packageRoot, 'package.json'), 'utf8'),
 ));
 
 export const SIFTKIT_VERSION = packageJson.version;
 export const SIFT_DEFAULT_NUM_CTX = 128_000;
 export const SIFT_DEFAULT_LLAMA_MODEL = 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
+export const SIFT_DEFAULT_STATUS_PORT = 4765;
 export const SIFT_DEFAULT_LLAMA_BASE_URL = 'http://127.0.0.1:8097';
 export const SIFT_DEFAULT_LLAMA_BIND_HOST = '127.0.0.1';
 export const SIFT_DEFAULT_LLAMA_PORT = 8097;

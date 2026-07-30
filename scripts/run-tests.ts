@@ -3,6 +3,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { buildNodeTestArgs } from './test-targets.js';
+import { SIFT_DEFAULT_LLAMA_PORT, SIFT_DEFAULT_STATUS_PORT } from '../src/config/constants.js';
 
 const repoRoot = process.cwd();
 // tsx travels as an execArgv flag on the `node --test` process, never in NODE_OPTIONS.
@@ -22,13 +23,12 @@ const result = spawnSync(process.execPath, ['--import', tsxLoaderUrl, '--test', 
   cwd: repoRoot,
   env: {
     ...process.env,
-    // Ports the guard protects. They are spelled out rather than imported from
-    // src/config/constants.ts: this file is run from dist/scripts, where that import
-    // resolves into the dist/src tree, which cannot load. tests/live-instance-guard.test.ts
-    // asserts a child of this run blocks exactly SIFT_DEFAULT_STATUS_PORT and
-    // SIFT_DEFAULT_LLAMA_PORT, so drift here fails the suite instead of going quiet.
-    SIFTKIT_GUARD_STATUS_PORT: '4765',
-    SIFTKIT_GUARD_LLAMA_PORT: '8097',
+    // The guard preload cannot import this module: it runs inside every process the suite
+    // touches, including the production CLIs the tests spawn, so anything it imports is
+    // injected into their module graphs. The ports therefore travel to it as env, sourced
+    // from the same constants src uses so there is nothing to keep in sync.
+    SIFTKIT_GUARD_STATUS_PORT: String(SIFT_DEFAULT_STATUS_PORT),
+    SIFTKIT_GUARD_LLAMA_PORT: String(SIFT_DEFAULT_LLAMA_PORT),
     NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import ${liveInstanceGuardUrl}`.trim(),
   },
   stdio: 'inherit',

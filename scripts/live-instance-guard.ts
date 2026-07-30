@@ -8,15 +8,15 @@ import type { ClientRequestArgs } from 'node:http';
  * production defaults and lands on the developer's running SiftKit — POST /status/complete
  * and /status/terminal-metadata mutate its runtime database. Any request that reaches a
  * default port therefore fails the test file that made it. Isolation is each file's job:
- * boot a stub, or declare a dead backend with the fixtures in ./helpers/dead-endpoints.ts.
+ * boot a stub, or declare a dead backend with the fixtures in tests/helpers/dead-endpoints.ts.
  *
  * This module must import nothing but node: builtins. It is preloaded through NODE_OPTIONS,
  * so it runs inside every process the suite touches — including the production CLIs and
  * servers the tests spawn. Anything it imports is injected into those processes' module
  * graphs, which both slows them down and stops them from exercising the artifact they ship.
- * The ports therefore arrive as env from scripts/run-tests.ts, and
- * tests/live-instance-guard.test.ts asserts they match SIFT_DEFAULT_STATUS_PORT and
- * SIFT_DEFAULT_LLAMA_PORT so the two cannot drift apart.
+ * The ports therefore arrive as env from scripts/run-tests.ts, which reads them from
+ * src/config/constants.ts, and tests/live-instance-guard.test.ts asserts the hand-off lands
+ * on SIFT_DEFAULT_STATUS_PORT and SIFT_DEFAULT_LLAMA_PORT so the two cannot drift apart.
  *
  * It lives under scripts/ so tsconfig.scripts.json compiles it to dist/scripts alongside the
  * runner. Preloading the compiled .js is what keeps the tsx loader out of NODE_OPTIONS: tsx
