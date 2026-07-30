@@ -18,10 +18,9 @@ The script will:
 - run `penalty_range` values `100000000` and `4096` sequentially with otherwise identical
   sampling and cache arguments;
 - label each arm before launching it;
-- leave normal runs interactive so the user can paste the same long prompt, read the reported
-  tokens/second, and enter `/x` to advance to the next arm;
-- support `-Smoke`, which supplies one fixed short prompt through `chat.py -prompt`, allowing
-  both arms to run unattended during end-to-end validation; and
+- offer exact 24k, 64k, and 128k input-context fixtures stored beside the script;
+- accept the same choices non-interactively through `-Context`;
+- pipe the selected fixture to both arms through stdin, avoiding Windows command-line limits;
 - stop with an error if either child process exits unsuccessfully.
 
 `100000000` is used instead of raw EXL3's `-1`: TabbyAPI maps `-1` to `100000000`, while passing
@@ -29,15 +28,14 @@ The script will:
 
 ## Scope
 
-The wrapper will not reimplement generation, parse TPS output, manage SiftKit processes, or
-claim that the short smoke prompt measures long-context penalty cost. The smoke path verifies
-execution only; performance comparisons require the same long prompt in both interactive arms.
+The wrapper will not reimplement generation, parse TPS output, or manage SiftKit processes.
 
 ## Verification
 
-Before implementation, invoking the missing script with `-Smoke` must fail. After implementation:
+After implementation:
 
 1. PowerShell syntax parsing must succeed.
-2. `-Smoke` must load the model and complete both labeled arms.
-3. Each child must exit with code zero and print tokens/second.
-4. The existing unrelated working-tree changes must remain untouched.
+2. Each fixture plus Qwen3.5 chat framing must tokenize to its labeled context size.
+3. `-Context 24k` must load the model and complete both labeled arms.
+4. Each child must exit with code zero and print tokens/second.
+5. The existing unrelated working-tree changes must remain untouched.
