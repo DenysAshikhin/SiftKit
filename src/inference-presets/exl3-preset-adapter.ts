@@ -7,6 +7,7 @@ import {
   type Exl3CacheModes,
   type PresetRequestDefaults,
 } from './preset-compatibility.js';
+import { Exl3ModelCapabilities } from './exl3-model-capabilities.js';
 
 export const Exl3LoadRequestSchema = z.object({
   model_name: z.string(),
@@ -55,14 +56,24 @@ export const Exl3LaunchEnvironmentSchema = z.object({
 export type Exl3LaunchEnvironment = z.infer<typeof Exl3LaunchEnvironmentSchema>;
 
 export class Exl3PresetAdapter {
+  private readonly capabilities = new Exl3ModelCapabilities();
+
   constructor(private readonly modelRoot: string) {}
 
   validatePreset(preset: ModelRuntimePreset): void {
     if (preset.Backend !== 'exl3') {
       throw new Error(`preset=${preset.id} backend=${preset.Backend} cannot use the EXL3 adapter`);
     }
-    this.getRelativeModelPath(preset);
+    const relativeModelPath = this.getRelativeModelPath(preset);
     this.getCacheModes(preset);
+    if (preset.VisionEnabled) {
+      const modelDirectory = win32.resolve(this.modelRoot, relativeModelPath);
+      if (!this.capabilities.hasVisionTower(modelDirectory)) {
+        throw new Error(
+          `preset=${preset.id} backend=exl3 VisionEnabled=true but ${modelDirectory} has no vision_config`,
+        );
+      }
+    }
   }
 
   buildLoadRequest(preset: ModelRuntimePreset): Exl3LoadRequest {

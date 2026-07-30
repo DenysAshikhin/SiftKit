@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   ManagedLlamaSettingsSchema,
   ModelPresetFieldSchema,
@@ -100,16 +103,24 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
 });
 
 test('EXL3 adapter emits TABBY_MODEL_VISION true when vision is enabled', () => {
-  const preset = createModelPreset({
-    Backend: 'exl3',
-    ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B',
-    KvCacheQuantization: 'q8_0/q4_0',
-    VisionEnabled: true,
-  });
-  const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
+  const baseDir = mkdtempSync(join(tmpdir(), 'exl3-vision-'));
+  try {
+    const modelDir = join(baseDir, '3.6_27B');
+    mkdirSync(modelDir, { recursive: true });
+    writeFileSync(join(modelDir, 'config.json'), JSON.stringify({ vision_config: {} }), { encoding: 'utf8' });
+    const preset = createModelPreset({
+      Backend: 'exl3',
+      ModelPath: modelDir,
+      KvCacheQuantization: 'q8_0/q4_0',
+      VisionEnabled: true,
+    });
+    const adapter = new Exl3PresetAdapter(baseDir);
 
-  const env = adapter.buildLaunchEnvironment(preset);
-  assert.equal(env.TABBY_MODEL_VISION, 'true');
+    const env = adapter.buildLaunchEnvironment(preset);
+    assert.equal(env.TABBY_MODEL_VISION, 'true');
+  } finally {
+    rmSync(baseDir, { recursive: true, force: true });
+  }
 });
 
 test('EXL3 preset validation rejects MTP with a draft cache quantization Tabby cannot express', () => {
