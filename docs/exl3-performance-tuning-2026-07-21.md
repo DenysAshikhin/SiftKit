@@ -98,3 +98,48 @@ ban) is unaffected; production logs show drafting active at up to 28k context.
       `Exl3PresetAdapter.buildLaunchEnvironment` always emits it, so every managed EXL3
       launch (and the process signature that triggers restarts) includes it.
 - [ ] Leave `SpeculativeDraftMax: 4`, MTP on, cache `8,8` as-is.
+
+## `PenaltyRange` (TabbyAPI `penalty_range`) — added 2026-07-30
+
+Preset field, default `4096`, EXL3 only.
+
+TabbyAPI defaults `penalty_range` to `-1`, which `backends/exllamav3/model.py:1140-1141` maps
+to `int(10e7)` — the penalty sampler's window then spans the whole sequence. The kernel at
+`exllamav3_ext/generator/rep_pen.cu:166-181` runs once per vocab block (61 blocks at the
+248,320 vocab of `3.6_27b_4.7bpw`) and each block walks that window independently in pinned
+host memory, so at 134k context decode streams ~65.5 MiB across PCIe per sampled token.
+
+Measured on the real engine, 5 reps per arm, MTP off: bounding the range recovers
+**2.31 ms/token, +7.99% tok/s** — and lands exactly on the temperature-0 greedy ceiling
+(34.48 vs 34.40 tok/s), which is the proof the recovered time is this kernel and nothing else.
+Full protocol and results: [`exl3-penalty-range-validation-2026-07-30.md`](exl3-penalty-range-validation-2026-07-30.md).
+
+`4096` is shipped rather than the tightest value because TabbyAPI mirrors `penalty_range` into
+`decay_range` (`model.py:1151-1153` + `coalesce` at `common/utils.py:17-19`), so the window
+actually scanned is **8192** tokens. That is wide enough to keep repetition suppression useful
+across a long answer while costing ~0.8% against the 2048-token floor. It also stops the
+presence penalty from suppressing every token in the prompt, which for repo-search is the
+retrieved source the model should be quoting.
+
+The field is EXL3 only. llama.cpp's equivalent (`repeat_last_n`) already defaults to a bounded
+64 tokens (`common/common.h:238`) and governs presence, frequency and repeat penalties through
+a single window (`llama.h:1422-1426`), so llama has no defect here. That does mean the same
+`PresencePenalty` value means 64 tokens on llama and 8192 on EXL3.
+
+This is unrelated to the OpenMP spin below — bounding the range does **not** reduce host CPU,
+because `job.py:1316` copies the full sequence regardless of the range.
+
+## `OMP_NUM_THREADS=1` / `KMP_BLOCKTIME=1` — added 2026-07-30
+
+Fixed launch-environment values, alongside `EXL3_QC_ATTN=0`.
+
+The per-token `prepare_sampling_past_ids` copy at `job.py:1316` lands in an OpenMP-parallel
+memcpy that recruits the entire pool for work that is purely memory-bound. Measured decode CPU:
+**10.77 cores at the default thread count, 0.98 with the pool pinned to one thread**; prefill is
+unaffected (−0.06% wall). `KMP_BLOCKTIME=1` cuts Intel OpenMP's 200 ms post-region spin and
+reaches 1.27 cores on its own; both are set because the pin does not cover every parallel region.
+
+The pin is not free — decode wall regresses a repeatable **~1.1%** (B vs A +1.25%, D vs C +1.08%,
+reps tight to ±0.2%). That is a deliberate trade: 10 cores of spin returned to the machine for
+1% of decode. It is also fully independent of `PenaltyRange` — arm D reproduces both effects
+together with no interaction.
