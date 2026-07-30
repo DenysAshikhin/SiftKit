@@ -1,7 +1,12 @@
 # EXL3 decode: penalty_range + OpenMP spin — validation handoff (2026-07-30)
 
-**Status:** root causes identified, reproduced in isolation, and independently re-verified.
-**Not yet done:** confirmation against the real running engine. That is your job.
+**Status:** root causes identified, reproduced in isolation, independently re-verified, and
+**confirmed against the real engine** — see
+[`exl3-penalty-range-validation-2026-07-30.md`](exl3-penalty-range-validation-2026-07-30.md).
+All six §8 falsification criteria resolve in favour of the claims below. Two corrections to
+this document are recorded in that one's §4: `OMP_NUM_THREADS=1` costs ~1% of decode wall
+rather than nothing, and §6's "prefer temperature 0" advice is wrong — at temperature 0
+`sampler.py:57-59` discards the entire penalty stack, so defect 1 is invisible.
 
 **Nothing in the repo, the engine venv, or TabbyAPI has been modified.** All work so far is
 measurement in a scratch directory. There is nothing to revert.
@@ -634,7 +639,8 @@ affirmed after being shown llama's 64-token window). Design settled, no code wri
 **`-1` is sent verbatim** — it is already TabbyAPI's default, so it is a no-op and needs no
 omit-logic special case.
 
-Do not implement this until the A/B confirms the effect is real. If you do implement it,
+The A/B has now confirmed the effect is real (+7.99% tok/s, −2.31 ms/token), so this is
+unblocked. If you implement it,
 remember `Exl3LaunchEnvironmentSchema` is exact and two tests `deepEqual` the full environment
 (§3.3) — that applies to any launch-env var such as `OMP_NUM_THREADS`.
 
@@ -642,9 +648,11 @@ remember `Exl3LaunchEnvironmentSchema` is exact and two tests `deepEqual` the fu
 
 ## 11. Open items
 
-- [ ] Real-engine A/B per §6. Both fixes, plus arm D for independence.
-- [ ] **Prefill under `OMP_NUM_THREADS=1`** — the one genuinely unknown quantity (§6.3).
-- [ ] Identify what actually drives prefill's 2.39 cores. Not `job.py:1247`.
+- [x] Real-engine A/B per §6. Both fixes confirmed, and arm D confirms independence.
+- [x] **Prefill under `OMP_NUM_THREADS=1`** — measured: **−0.06%** wall against a ≥7% noise
+      floor, while prefill CPU drops 0.97 → 0.42 cores. Safe; arm E is not needed.
+- [ ] Identify what actually drives prefill's residual CPU. Not `job.py:1247`. Measured at
+      ~0.97 cores, lower than the 2.39 this document models.
 - [ ] Confirm bounded `penalty_range` does not degrade repo-search output quality.
 - [ ] Decide `PresencePenalty` on quality grounds — 1.5 over a retrieval context is likely
       wrong regardless of window, and `0` deletes the entire 1.55 ms/token kernel cost since
