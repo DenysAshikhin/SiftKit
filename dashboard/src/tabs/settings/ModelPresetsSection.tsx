@@ -345,6 +345,11 @@ export function ModelPresetsSection({
           <SettingsSectionField sectionId="model-presets" label="RepetitionPenalty">
             <input type="number" step="0.01" value={preset.RepetitionPenalty} onChange={(event) => modelPresetActions.setFloat('RepetitionPenalty', parseFloatInput(event.target.value, preset.RepetitionPenalty))} />
           </SettingsSectionField>
+          <SettingsSectionField sectionId="model-presets" label="PenaltyRange">
+            {renderCompatibilityControl(preset, 'PenaltyRange', (
+              <input type="number" value={preset.PenaltyRange} onChange={(event) => modelPresetActions.setInteger('PenaltyRange', parseIntegerInput(event.target.value, preset.PenaltyRange))} />
+            ))}
+          </SettingsSectionField>
         </>
       ))}
 
