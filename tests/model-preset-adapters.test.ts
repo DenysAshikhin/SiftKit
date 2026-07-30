@@ -346,3 +346,25 @@ test('adapters reject presets assigned to the other backend', () => {
     /backend=llama/u,
   );
 });
+
+test('default model preset bounds PenaltyRange to 4096 so the penalty kernel cannot span the context', () => {
+  const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('Default model preset is missing');
+
+  assert.equal(preset.PenaltyRange, 4_096);
+});
+
+test('PenaltyRange is available on EXL3 presets', () => {
+  const preset = createModelPreset({ Backend: 'exl3', ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B' });
+
+  assert.deepEqual(getPresetFieldAvailability(preset, 'PenaltyRange'), { enabled: true, reason: null });
+});
+
+test('PenaltyRange is unavailable on llama presets because llama.cpp owns its own penalty window', () => {
+  const preset = createModelPreset({ Backend: 'llama' });
+
+  assert.deepEqual(getPresetFieldAvailability(preset, 'PenaltyRange'), {
+    enabled: false,
+    reason: 'Not supported by llama.cpp',
+  });
+});

@@ -90,6 +90,7 @@ export const MANAGED_PRESET = {
   ExternalServerEnabled: false, ExecutablePath: null, BaseUrl: 'http://127.0.0.1:8080', BindHost: '127.0.0.1', Port: 8080, ModelPath: null,
   NumCtx: 4096, GpuLayers: 0, Threads: 4, NcpuMoe: 0, FlashAttention: false, ParallelSlots: 1, BatchSize: 512, UBatchSize: 512, CacheRam: 2048,
   KvCacheQuantization: 'f16', MaxTokens: 512, Temperature: 0.7, TopP: 0.9, TopK: 40, MinP: 0.05, PresencePenalty: 0, RepetitionPenalty: 1.1,
+  PenaltyRange: 4096,
   Reasoning: 'off', ReasoningContent: false, PreserveThinking: false, MaintainPerStepThinking: false,
   SpeculativeEnabled: false, SpeculativeType: 'ngram-map-k', SpeculativeMtpEnabled: false,
   SpeculativeNgramSizeN: 8, SpeculativeNgramSizeM: 16, SpeculativeNgramMinHits: 2,

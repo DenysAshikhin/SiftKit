@@ -50,6 +50,12 @@ export function getDefaultConfigObject(): SiftConfig {
     MinP: 0.0,
     PresencePenalty: 1.5,
     RepetitionPenalty: 1.0,
+    /**
+     * TabbyAPI `penalty_range`. EXL3 only. TabbyAPI's own default of -1 maps to the entire
+     * context, which costs ~8% of decode at 134k. 4096 scans 8192 tokens once TabbyAPI mirrors
+     * the value into its decay range. See docs/exl3-performance-tuning-2026-07-21.md.
+     */
+    PenaltyRange: 4_096,
     Reasoning: 'off' as const,
     ReasoningContent: false,
     PreserveThinking: false,

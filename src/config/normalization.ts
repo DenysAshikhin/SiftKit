@@ -78,6 +78,7 @@ export type ManagedLlamaConfig = {
   MinP: number;
   PresencePenalty: number;
   RepetitionPenalty: number;
+  PenaltyRange: number;
   Reasoning: 'on' | 'off';
   ReasoningContent: boolean;
   PreserveThinking: boolean;
@@ -386,6 +387,7 @@ function resolveManagedLlamaSettings(input: MutableJsonObject): ManagedLlamaConf
     MinP: getFiniteNumber(input.MinP, Number(defaults.MinP ?? 0.0)),
     PresencePenalty: getFiniteNumber(input.PresencePenalty, Number(defaults.PresencePenalty ?? 1.5)),
     RepetitionPenalty: getFiniteNumber(input.RepetitionPenalty, Number(defaults.RepetitionPenalty ?? 1.0)),
+    PenaltyRange: getFiniteInteger(input.PenaltyRange, Number(defaults.PenaltyRange ?? 4_096)),
     Reasoning: reasoning === 'on' || reasoning === 'off'
       ? reasoning
       : defaults.Reasoning || 'off',

@@ -69,6 +69,12 @@ export function getPresetFieldAvailability(
   preset: ModelRuntimePreset,
   field: ModelPresetField,
 ): PresetFieldAvailability {
+  if (field === 'PenaltyRange') {
+    return preset.Backend === 'exl3'
+      ? { enabled: true, reason: null }
+      : { enabled: false, reason: 'Not supported by llama.cpp' };
+  }
+
   if (preset.Backend === 'llama') return { enabled: true, reason: null };
 
   if (field === 'UBatchSize') return { enabled: true, reason: null };
