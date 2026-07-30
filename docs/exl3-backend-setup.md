@@ -4,12 +4,12 @@
 
 - TabbyAPI checkout: `C:\Users\denys\Documents\GitHub\TabbyAPI`
 - TabbyAPI commit: `0158fb48d76546a6475d1d63f6cd5b90932d1d11`
-- Python: `C:\envs\rl310\Scripts\python.exe` (`3.10.11`)
+- Python: `C:\envs\rl313\Scripts\python.exe` (`3.13.14`)
 - Torch: `2.9.0+cu128`; CUDA build: `12.8`
-- ExLlamaV3: `1.1.0+cu128.torch2.9.0`
+- ExLlamaV3: `1.2.1+cu128.torch2.9.0`
 - Model: `D:\personal\models\elx3\3.6_27B`
 - Tabby config: `C:\Users\denys\Documents\GitHub\TabbyAPI\config.yml`
-- Managed command: `C:\envs\rl310\Scripts\python.exe main.py`, with the Tabby checkout as its working directory
+- Managed command: `C:\envs\rl313\Scripts\python.exe main.py`, with the Tabby checkout as its working directory
 - API: `http://127.0.0.1:8098/v1`
 
 The checkpoint reports `Qwen3_5ForConditionalGeneration`, EXL3 4.00-bit `mul1` quantization, and one built-in MTP layer. It includes vision metadata, but Tabby is explicitly configured with `vision: false`; startup reports that the model has vision capabilities and vision is disabled. No mmproj or vision tower is loaded.
@@ -30,6 +30,6 @@ Tabby's per-load API supports model, context/cache size, and cache mode. The sha
 
 When `SleepIdleSeconds` elapses, SiftKit unloads the EXL3 model while leaving Tabby running. The next chat or tokenization request reloads it before proxying. This also applies to remote callers and other SiftKit instances. `GET /v1/models` is deliberately no-wake.
 
-## Shared-environment warning
+## Environment notes
 
-TabbyAPI requires NumPy `2.2.6`, while the existing `gym3 0.3.3` and `procgen 0.10.7` packages in `rl310` require NumPy below 2. The environment therefore fails `pip check` for those two packages. Do not use this modified environment for Procgen validation without resolving that conflict in a separate environment. `torchvision` and `torchaudio` were removed because their older Torch build caused a native crash while importing ExLlamaV3, and vision is intentionally disabled.
+`rl313` is dedicated to the engine and carries NumPy `2.2.6` as TabbyAPI requires. `torchvision` and `torchaudio` are not installed; an older Torch build of those caused a native crash while importing ExLlamaV3.
