@@ -83,7 +83,7 @@ const REPO_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
     type: 'function',
     function: {
       name: 'read',
-      description: 'Read the contents of a repository file. Lines are returned numbered. Use offset/limit for large files; when you need the full file, continue with offset until complete. Lines already returned in this task are skipped automatically.',
+      description: 'Read the contents of a repository file. Lines are returned numbered. Use offset/limit for large files; when you need the full file, continue with offset until complete. Lines already returned in this task are skipped automatically, and a read whose whole range was already returned is rejected. Editing or writing a file clears that history, so you can read it again to see your change.',
       parameters: {
         type: 'object',
         properties: {

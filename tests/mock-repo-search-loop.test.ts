@@ -1721,13 +1721,14 @@ test('runTaskLoop tracks per-file overlap telemetry and isolates histories acros
   assert.equal(Number(bFile?.overlapLines), 0);
 });
 
-test('runTaskLoop re-reads overlapping windows when ExpandReads is disabled', async () => {
+test('runTaskLoop with ExpandReads disabled skips returned lines but stops at the requested end', async () => {
   const repoRoot = createTempRepoRoot();
   fs.writeFileSync(
     path.join(repoRoot, 'a.ts'),
     Array.from({ length: 200 }, (_, index) => `a.ts-line-${index + 1}`).join('\n'),
     'utf8',
   );
+  const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
       id: 'task-expand-reads-disabled',
@@ -1750,11 +1751,22 @@ test('runTaskLoop re-reads overlapping windows when ExpandReads is disabled', as
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {},
+      logger: {
+        path: 'memory',
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
+        },
+      },
     }
   );
 
+  const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
   assert.equal(result.reason, 'finish');
-  assert.equal(Number(result.readOverlapSummary?.totalOverlapLines), 10);
+  assert.equal(Number(result.readOverlapSummary?.totalOverlapLines), 0);
+  // Second read starts after the returned range and stops at the requested end, not at EOF.
+  assert.match(String(commandEvents[1]?.executedCommand || ''), /offset=120 limit=10/u);
+  assert.match(String(commandEvents[1]?.insertedResultText || ''), /^120: a\.ts-line-120/mu);
+  assert.doesNotMatch(String(commandEvents[1]?.insertedResultText || ''), /^130: a\.ts-line-130/mu);
 });
 
 test('runTaskLoop does not compact different commands that happen to return the same evidence', async () => {

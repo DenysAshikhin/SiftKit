@@ -139,7 +139,7 @@ test('repo-agent taskKind runs the agent prompt and applies a write without appr
   }
 });
 
-test('repo-agent uses ExpandReads=false and records overlapping reads', async () => {
+test('repo-agent uses ExpandReads=false and still skips already-returned lines', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-agent-exec-'));
   fs.writeFileSync(
     path.join(dir, 'a.ts'),
@@ -166,7 +166,9 @@ test('repo-agent uses ExpandReads=false and records overlapping reads', async ()
       mockCommandResults: {},
     });
     assert.notEqual(result.scorecard.verdict, 'fail');
-    assert.equal(result.scorecard.readOverlapSummary.totalOverlapLines, 10);
+    // 100-119 then 120-129: the second read skips the returned span and stops at its requested end.
+    assert.equal(result.scorecard.readOverlapSummary.totalOverlapLines, 0);
+    assert.equal(result.scorecard.readOverlapSummary.totalUniqueLinesRead, 30);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
