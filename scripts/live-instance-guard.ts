@@ -71,8 +71,16 @@ process.on('exit', () => {
   );
 });
 
-/** http.request/fetch accept a URL string, a URL, or an options bag; only the port matters. */
-function assertRequestAllowed(requestTarget: string | URL | ClientRequestArgs): void {
+/**
+ * http.request/fetch accept a URL string, a URL, or an options bag, and callers may pass
+ * nothing at all — http.request() with no arguments reaches this proxy with an undefined
+ * target and then defaults to localhost:80 inside Node. Only the port matters here.
+ */
+function assertRequestAllowed(requestTarget: string | URL | ClientRequestArgs | undefined): void {
+  // No target means no port to check; leave that call to Node rather than to the guard.
+  if (requestTarget === undefined) {
+    return;
+  }
   if (typeof requestTarget === 'string') {
     const parsedUrl = URL.parse(requestTarget);
     if (parsedUrl) {
@@ -84,21 +92,12 @@ function assertRequestAllowed(requestTarget: string | URL | ClientRequestArgs): 
     failOnGuardedPort(requestTarget.port, requestTarget.href);
     return;
   }
-  // A caller may pass no target at all; leave that failure to Node rather than the guard.
-  if (!requestTarget) {
-    return;
-  }
   failOnGuardedPort(String(requestTarget.port ?? ''), `${requestTarget.hostname ?? ''}${requestTarget.path ?? ''}`);
 }
 
-const httpRequestGuard: ProxyHandler<typeof http.request> = {
-  apply(target, thisArg, argArray) {
-    assertRequestAllowed(argArray[0]);
-    return Reflect.apply(target, thisArg, argArray);
-  },
-};
-
-const httpsRequestGuard: ProxyHandler<typeof https.request> = {
+// http.request and https.request take their target in the same first argument, so one
+// handler covers both; the Proxy keeps each module's own function as its target.
+const requestGuard: ProxyHandler<typeof http.request> = {
   apply(target, thisArg, argArray) {
     assertRequestAllowed(argArray[0]);
     return Reflect.apply(target, thisArg, argArray);
@@ -113,6 +112,6 @@ const fetchGuard: ProxyHandler<typeof globalThis.fetch> = {
   },
 };
 
-http.request = new Proxy(http.request, httpRequestGuard);
-https.request = new Proxy(https.request, httpsRequestGuard);
+http.request = new Proxy(http.request, requestGuard);
+https.request = new Proxy(https.request, requestGuard);
 globalThis.fetch = new Proxy(globalThis.fetch, fetchGuard);
