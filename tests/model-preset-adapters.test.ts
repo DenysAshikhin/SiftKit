@@ -55,6 +55,7 @@ test('EXL3 adapter translates shared batching and MTP settings for managed Tabby
     TABBY_DRAFT_MODEL_DRAFT_MODE: 'mtp',
     TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: '5',
     TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: 'Q8',
+    TABBY_MODEL_VISION: 'false',
     EXL3_QC_ATTN: '0',
     OMP_NUM_THREADS: '1',
     KMP_BLOCKTIME: '1',
@@ -90,11 +91,25 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
     TABBY_MODEL_CHUNK_SIZE: String(preset.UBatchSize),
     TABBY_DRAFT_MODEL_DRAFT_MODE: 'disabled',
     TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: String(preset.SpeculativeDraftMax),
+    TABBY_MODEL_VISION: 'false',
     EXL3_QC_ATTN: '0',
     OMP_NUM_THREADS: '1',
     KMP_BLOCKTIME: '1',
   });
   assert.equal('TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE' in adapter.buildLaunchEnvironment(preset), false);
+});
+
+test('EXL3 adapter emits TABBY_MODEL_VISION true when vision is enabled', () => {
+  const preset = createModelPreset({
+    Backend: 'exl3',
+    ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B',
+    KvCacheQuantization: 'q8_0/q4_0',
+    VisionEnabled: true,
+  });
+  const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
+
+  const env = adapter.buildLaunchEnvironment(preset);
+  assert.equal(env.TABBY_MODEL_VISION, 'true');
 });
 
 test('EXL3 preset validation rejects MTP with a draft cache quantization Tabby cannot express', () => {

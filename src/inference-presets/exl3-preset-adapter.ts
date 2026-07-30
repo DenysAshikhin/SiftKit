@@ -48,8 +48,9 @@ export const Exl3LaunchEnvironmentSchema = z.object({
    * The two have never been measured together — no arm sets both — so this is unvalidated
    * defence in depth for parallel regions the pin may not cover, not a confirmed improvement
    * on the pin alone. See docs/exl3-penalty-range-validation-2026-07-30.md §2.
-   */
+  */
   KMP_BLOCKTIME: z.literal('1'),
+  TABBY_MODEL_VISION: z.enum(['true', 'false']),
 });
 export type Exl3LaunchEnvironment = z.infer<typeof Exl3LaunchEnvironmentSchema>;
 
@@ -97,6 +98,7 @@ export class Exl3PresetAdapter {
       EXL3_QC_ATTN: '0',
       OMP_NUM_THREADS: '1',
       KMP_BLOCKTIME: '1',
+      TABBY_MODEL_VISION: preset.VisionEnabled ? 'true' : 'false',
     });
   }
 
