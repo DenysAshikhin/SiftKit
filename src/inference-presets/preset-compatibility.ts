@@ -67,74 +67,94 @@ export function getExl3CacheModes(value: ManagedLlamaKvCacheQuantization): Exl3C
   }
 }
 
+/**
+ * How one preset field's backend support is decided. Every field names exactly one of these, so a
+ * field's availability is stated in a single place and no backend gets a blanket enable.
+ */
+type PresetFieldSupport =
+  /** Both backends accept it. */
+  | 'both'
+  /** llama.cpp launch or sampler setting with no EXL3 equivalent. */
+  | 'llama-only'
+  /** TabbyAPI-only sampler setting llama.cpp does not accept. */
+  | 'exl3-only'
+  /** Both accept it, but EXL3 can only apply it to an engine SiftKit launches. */
+  | 'exl3-managed-only'
+  /** Both accept it; EXL3 narrows the choices to the modes `getExl3CacheModes` can express. */
+  | 'exl3-cache-modes';
+
+const PRESET_FIELD_SUPPORT = {
+  Model: 'both',
+  ExternalServerEnabled: 'both',
+  ExecutablePath: 'llama-only',
+  BaseUrl: 'both',
+  BindHost: 'llama-only',
+  Port: 'llama-only',
+  ModelPath: 'both',
+  NumCtx: 'both',
+  GpuLayers: 'llama-only',
+  Threads: 'llama-only',
+  NcpuMoe: 'llama-only',
+  FlashAttention: 'llama-only',
+  ParallelSlots: 'exl3-managed-only',
+  BatchSize: 'llama-only',
+  UBatchSize: 'both',
+  CacheRam: 'llama-only',
+  KvCacheQuantization: 'exl3-cache-modes',
+  MaxTokens: 'both',
+  Temperature: 'both',
+  TopP: 'both',
+  TopK: 'both',
+  MinP: 'both',
+  PresencePenalty: 'both',
+  RepetitionPenalty: 'both',
+  PenaltyRange: 'exl3-only',
+  Reasoning: 'both',
+  ReasoningContent: 'both',
+  PreserveThinking: 'both',
+  MaintainPerStepThinking: 'both',
+  SpeculativeEnabled: 'exl3-managed-only',
+  SpeculativeType: 'exl3-managed-only',
+  SpeculativeMtpEnabled: 'llama-only',
+  SpeculativeNgramSizeN: 'llama-only',
+  SpeculativeNgramSizeM: 'llama-only',
+  SpeculativeNgramMinHits: 'llama-only',
+  SpeculativeNgramModNMatch: 'llama-only',
+  SpeculativeNgramModNMin: 'llama-only',
+  SpeculativeNgramModNMax: 'llama-only',
+  SpeculativeDraftMax: 'exl3-managed-only',
+  SpeculativeDraftMin: 'llama-only',
+  ReasoningBudget: 'llama-only',
+  ReasoningBudgetMessage: 'llama-only',
+  StartupTimeoutMs: 'both',
+  HealthcheckTimeoutMs: 'both',
+  HealthcheckIntervalMs: 'both',
+  SleepIdleSeconds: 'both',
+  VerboseLogging: 'llama-only',
+} as const satisfies Record<ModelPresetField, PresetFieldSupport>;
+
 export function getPresetFieldAvailability(
   preset: ModelRuntimePreset,
   field: ModelPresetField,
 ): PresetFieldAvailability {
-  if (field === 'PenaltyRange') {
-    return preset.Backend === 'exl3'
-      ? { enabled: true, reason: null }
-      : { enabled: false, reason: 'Not supported by llama.cpp' };
-  }
-
-  if (preset.Backend === 'llama') return { enabled: true, reason: null };
-
-  if (field === 'UBatchSize') return { enabled: true, reason: null };
-  if (
-    field === 'ParallelSlots'
-    || field === 'SpeculativeEnabled'
-    || field === 'SpeculativeType'
-    || field === 'SpeculativeDraftMax'
-  ) {
-    return preset.ExternalServerEnabled
-      ? { enabled: false, reason: 'Requires SiftKit-managed TabbyAPI' }
-      : { enabled: true, reason: null };
-  }
-
-  switch (field) {
-    case 'ExecutablePath':
-    case 'BindHost':
-    case 'Port':
-    case 'GpuLayers':
-    case 'Threads':
-    case 'NcpuMoe':
-    case 'FlashAttention':
-    case 'BatchSize':
-    case 'CacheRam':
-    case 'ReasoningBudget':
-    case 'ReasoningBudgetMessage':
-    case 'SpeculativeMtpEnabled':
-    case 'SpeculativeDraftMin':
-    case 'SpeculativeNgramSizeN':
-    case 'SpeculativeNgramSizeM':
-    case 'SpeculativeNgramMinHits':
-    case 'SpeculativeNgramModNMatch':
-    case 'SpeculativeNgramModNMin':
-    case 'SpeculativeNgramModNMax':
-    case 'VerboseLogging':
-      return { enabled: false, reason: 'Not supported by EXL3' };
-    case 'KvCacheQuantization':
-      return { enabled: true, reason: 'Only EXL3-compatible cache modes are available' };
-    case 'Model':
-    case 'ExternalServerEnabled':
-    case 'BaseUrl':
-    case 'ModelPath':
-    case 'NumCtx':
-    case 'MaxTokens':
-    case 'Temperature':
-    case 'TopP':
-    case 'TopK':
-    case 'MinP':
-    case 'PresencePenalty':
-    case 'RepetitionPenalty':
-    case 'Reasoning':
-    case 'ReasoningContent':
-    case 'PreserveThinking':
-    case 'MaintainPerStepThinking':
-    case 'StartupTimeoutMs':
-    case 'HealthcheckTimeoutMs':
-    case 'HealthcheckIntervalMs':
-    case 'SleepIdleSeconds':
+  switch (PRESET_FIELD_SUPPORT[field]) {
+    case 'both':
       return { enabled: true, reason: null };
+    case 'llama-only':
+      return preset.Backend === 'llama'
+        ? { enabled: true, reason: null }
+        : { enabled: false, reason: 'Not supported by EXL3' };
+    case 'exl3-only':
+      return preset.Backend === 'exl3'
+        ? { enabled: true, reason: null }
+        : { enabled: false, reason: 'Not supported by llama.cpp' };
+    case 'exl3-managed-only':
+      return preset.Backend === 'llama' || !preset.ExternalServerEnabled
+        ? { enabled: true, reason: null }
+        : { enabled: false, reason: 'Requires SiftKit-managed TabbyAPI' };
+    case 'exl3-cache-modes':
+      return preset.Backend === 'llama'
+        ? { enabled: true, reason: null }
+        : { enabled: true, reason: 'Only EXL3-compatible cache modes are available' };
   }
 }

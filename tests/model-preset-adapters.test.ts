@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ManagedLlamaSettingsSchema,
+  ModelPresetFieldSchema,
   ModelRuntimePresetSchema,
   type ModelRuntimePreset,
   type ModelPresetField,
@@ -369,4 +370,36 @@ test('PenaltyRange is unavailable on llama presets because llama.cpp owns its ow
     enabled: false,
     reason: 'Not supported by llama.cpp',
   });
+});
+
+test('llama availability is decided per field, not by a blanket enable', () => {
+  const managedLlama = createModelPreset({ Backend: 'llama', ExternalServerEnabled: false });
+  const externalLlama = createModelPreset({ Backend: 'llama', ExternalServerEnabled: true });
+
+  for (const preset of [managedLlama, externalLlama]) {
+    const disabled = ModelPresetFieldSchema.options.filter(
+      (field) => !getPresetFieldAvailability(preset, field).enabled,
+    );
+    const explained = ModelPresetFieldSchema.options.filter(
+      (field) => getPresetFieldAvailability(preset, field).reason !== null,
+    );
+
+    assert.deepEqual(disabled, ['PenaltyRange']);
+    assert.deepEqual(explained, ['PenaltyRange']);
+  }
+});
+
+test('every preset field resolves an availability on both backends', () => {
+  const presets = [
+    createModelPreset({ Backend: 'llama' }),
+    createModelPreset({ Backend: 'exl3', ExternalServerEnabled: false }),
+    createModelPreset({ Backend: 'exl3', ExternalServerEnabled: true }),
+  ];
+
+  for (const preset of presets) {
+    for (const field of ModelPresetFieldSchema.options) {
+      const availability = getPresetFieldAvailability(preset, field);
+      assert.equal(typeof availability.enabled, 'boolean', `${preset.Backend}/${field} has no availability`);
+    }
+  }
 });

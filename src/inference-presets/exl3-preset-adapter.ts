@@ -44,8 +44,10 @@ export const Exl3LaunchEnvironmentSchema = z.object({
   OMP_NUM_THREADS: z.literal('1'),
   /**
    * Intel OpenMP keeps worker threads spinning for 200 ms after a parallel region by default;
-   * 1 ms drops them to 1.27 cores on its own. Redundant with the thread pin above, kept as the
-   * second line of defence for any parallel region the pin does not cover.
+   * 1 ms reaches 1.27 decode cores on its own (arm E) against the thread pin's 0.98 (arm B).
+   * The two have never been measured together — no arm sets both — so this is unvalidated
+   * defence in depth for parallel regions the pin may not cover, not a confirmed improvement
+   * on the pin alone. See docs/exl3-penalty-range-validation-2026-07-30.md §2.
    */
   KMP_BLOCKTIME: z.literal('1'),
 });

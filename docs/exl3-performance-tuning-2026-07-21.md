@@ -137,7 +137,14 @@ The per-token `prepare_sampling_past_ids` copy at `job.py:1316` lands in an Open
 memcpy that recruits the entire pool for work that is purely memory-bound. Measured decode CPU:
 **10.77 cores at the default thread count, 0.98 with the pool pinned to one thread**; prefill is
 unaffected (−0.06% wall). `KMP_BLOCKTIME=1` cuts Intel OpenMP's 200 ms post-region spin and
-reaches 1.27 cores on its own; both are set because the pin does not cover every parallel region.
+reaches 1.27 cores on its own (arm E).
+
+**The shipped pair is untested.** Arms A–D never set `KMP_BLOCKTIME`, and arm E never set
+`OMP_NUM_THREADS` — so every measured figure below comes from the thread pin alone. The
+blocktime is kept as unvalidated defence in depth for parallel regions the pin may not cover;
+its cost when combined with the pin is unknown, and each value independently costs ~1.1% of
+decode wall. Closing this needs an arm that sets both. Do not cite the numbers below as
+validation of the two together.
 
 The pin is not free — decode wall regresses a repeatable **~1.1%** (B vs A +1.25%, D vs C +1.08%,
 reps tight to ±0.2%). That is a deliberate trade: 10 cores of spin returned to the machine for

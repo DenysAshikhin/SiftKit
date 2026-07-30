@@ -127,6 +127,9 @@ acceptance-sensitive one, and 2 confounded reps cannot resolve it.
       `custom.py:641-644` drops the step.
 - [ ] Identify what drives prefill's residual ~1 core. Still unknown; not `job.py:1247`.
 - [ ] Re-test §4.5's MTP-depth claim with enough reps to beat acceptance noise.
+- [ ] Measure `OMP_NUM_THREADS=1` **and** `KMP_BLOCKTIME=1` together. SiftKit ships both, but no
+      arm here sets both — B is the pin alone (0.98 cores), E is the blocktime alone (1.27). The
+      shipped configuration's decode cost is therefore unmeasured.
 - [ ] File the two upstream issues in handoff §12.
 - [ ] Implement the `PenaltyRange` preset field per handoff §10.2 — now unblocked, since the
       effect is confirmed real.
