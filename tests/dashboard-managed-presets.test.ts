@@ -66,6 +66,7 @@ function createPreset(overrides: Partial<DashboardModelRuntimePreset> = {}): Das
     SleepIdleSeconds: 600,
     VerboseLogging: false,
     ...overrides,
+    VisionEnabled: overrides.VisionEnabled ?? false,
   };
 }
 
