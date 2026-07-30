@@ -8,6 +8,9 @@ export class InferenceRequestBuilder {
     return {
       ...this.buildCommonRequest(input),
       [compatibility.repetitionPenaltyKey]: input.overrides.repetitionPenalty ?? input.defaults.repetitionPenalty,
+      ...(input.backend === 'exl3'
+        ? { penalty_range: input.overrides.penaltyRange ?? input.defaults.penaltyRange }
+        : {}),
       ...(input.backend === 'llama'
         ? {
             cache_prompt: input.llama.cachePrompt,
