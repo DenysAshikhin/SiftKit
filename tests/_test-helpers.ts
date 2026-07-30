@@ -10,6 +10,7 @@ import { parseJsonValueText } from '../src/lib/json.js';
 import { isJsonObject, type JsonObject } from '../src/lib/json-types.js';
 import type { RepoSearchExecutionResult } from '../src/repo-search/types.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
+import { EnvBackup } from './helpers/env-backup.js';
 import { writeSseResult } from './helpers/sse-http.js';
 
 export type Dict = JsonObject;
@@ -469,30 +470,6 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
   };
 }
 
-export type EnvBackup = {
-  backup: Record<string, string | undefined>;
-  restore: () => void;
-};
-
-export function withEnvBackup(envKeys: string[]): EnvBackup {
-  const backup: Record<string, string | undefined> = {};
-  for (const key of envKeys) {
-    backup[key] = process.env[key];
-  }
-  return {
-    backup,
-    restore() {
-      for (const [key, value] of Object.entries(backup)) {
-        if (value === undefined) {
-          delete process.env[key];
-        } else {
-          process.env[key] = value;
-        }
-      }
-    },
-  };
-}
-
 export type TestEnvContext = {
   tempRoot: string;
   stub: StubServer;
@@ -504,7 +481,7 @@ export async function withTestEnvAndServer(
 ): Promise<void> {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-test-'));
   const previousCwd = process.cwd();
-  const env = withEnvBackup([
+  const envBackup = new EnvBackup([
     'sift_kit_status', 'SIFTKIT_STATUS_PATH', 'SIFTKIT_CONFIG_PATH',
     'SIFTKIT_STATUS_HOST', 'SIFTKIT_STATUS_PORT', 'SIFTKIT_STATUS_BACKEND_URL',
     'SIFTKIT_CONFIG_SERVICE_URL', 'USERPROFILE', 'SIFTKIT_TEST_PROVIDER',
@@ -559,7 +536,7 @@ export async function withTestEnvAndServer(
     process.chdir(previousCwd);
     await stub.close();
     closeRuntimeDatabase();
-    env.restore();
+    envBackup.restore();
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 }

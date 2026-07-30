@@ -15,6 +15,8 @@ import { isJsonObject, JsonValueSchema, type JsonObject, type JsonValue } from '
 import { getActiveModelPreset } from '../src/config/getters.js';
 import { normalizeConfigObject } from '../src/config/normalization.js';
 import { mockSiftConfig, asRuntimeSiftConfig } from './helpers/mock-config.js';
+import { DEAD_CONFIG_SERVICE_URL, DEAD_STATUS_BACKEND_URL } from './helpers/dead-endpoints.js';
+import { EnvBackup } from './helpers/env-backup.js';
 import {
   deriveServiceUrl,
   getDefaultConfig,
@@ -984,23 +986,23 @@ let tempEnvQueue: Promise<void> = Promise.resolve();
 function runWithTempEnv<R>(fn: (tempRoot: string) => R | Promise<R>): Promise<R> {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-node-test-'));
   const previousCwd = process.cwd();
-  const previous = {
-    USERPROFILE: process.env.USERPROFILE,
-    sift_kit_status: process.env.sift_kit_status,
-    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
-    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
-    SIFTKIT_TEST_PROVIDER: process.env.SIFTKIT_TEST_PROVIDER,
-    SIFTKIT_TEST_PROVIDER_BEHAVIOR: process.env.SIFTKIT_TEST_PROVIDER_BEHAVIOR,
-    SIFTKIT_TEST_PROVIDER_LOG_PATH: process.env.SIFTKIT_TEST_PROVIDER_LOG_PATH,
-    SIFTKIT_TEST_PROVIDER_SLEEP_MS: process.env.SIFTKIT_TEST_PROVIDER_SLEEP_MS,
-    SIFTKIT_CONFIG_SERVICE_URL: process.env.SIFTKIT_CONFIG_SERVICE_URL,
-    SIFTKIT_STATUS_BACKEND_URL: process.env.SIFTKIT_STATUS_BACKEND_URL,
-    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
-    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
-    SIFTKIT_IDLE_SUMMARY_DB_PATH: process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH,
-    SIFTKIT_IDLE_SUMMARY_DELAY_MS: process.env.SIFTKIT_IDLE_SUMMARY_DELAY_MS,
-    SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS,
-  };
+  const envBackup = new EnvBackup([
+    'USERPROFILE',
+    'sift_kit_status',
+    'SIFTKIT_STATUS_PATH',
+    'SIFTKIT_CONFIG_PATH',
+    'SIFTKIT_TEST_PROVIDER',
+    'SIFTKIT_TEST_PROVIDER_BEHAVIOR',
+    'SIFTKIT_TEST_PROVIDER_LOG_PATH',
+    'SIFTKIT_TEST_PROVIDER_SLEEP_MS',
+    'SIFTKIT_CONFIG_SERVICE_URL',
+    'SIFTKIT_STATUS_BACKEND_URL',
+    'SIFTKIT_STATUS_PORT',
+    'SIFTKIT_STATUS_HOST',
+    'SIFTKIT_IDLE_SUMMARY_DB_PATH',
+    'SIFTKIT_IDLE_SUMMARY_DELAY_MS',
+    'SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS',
+  ]);
 
   process.env.USERPROFILE = tempRoot;
   process.env.sift_kit_status = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
@@ -1010,8 +1012,8 @@ function runWithTempEnv<R>(fn: (tempRoot: string) => R | Promise<R>): Promise<R>
   delete process.env.SIFTKIT_TEST_PROVIDER_BEHAVIOR;
   delete process.env.SIFTKIT_TEST_PROVIDER_LOG_PATH;
   delete process.env.SIFTKIT_TEST_PROVIDER_SLEEP_MS;
-  delete process.env.SIFTKIT_CONFIG_SERVICE_URL;
-  delete process.env.SIFTKIT_STATUS_BACKEND_URL;
+  process.env.SIFTKIT_CONFIG_SERVICE_URL = DEAD_CONFIG_SERVICE_URL;
+  process.env.SIFTKIT_STATUS_BACKEND_URL = DEAD_STATUS_BACKEND_URL;
   delete process.env.SIFTKIT_STATUS_PORT;
   delete process.env.SIFTKIT_STATUS_HOST;
   process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH = path.join(tempRoot, '.siftkit', 'status', 'idle-summary.sqlite');
@@ -1026,13 +1028,7 @@ function runWithTempEnv<R>(fn: (tempRoot: string) => R | Promise<R>): Promise<R>
   const cleanup = async () => {
     process.chdir(previousCwd);
     closeRuntimeDatabase();
-    for (const [key, value] of Object.entries(previous)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
+    envBackup.restore();
     await removeDirectoryWithRetries(tempRoot);
   };
 
@@ -1064,10 +1060,7 @@ function seedRuntimeConfigFromJson(configPath: string): void {
 }
 
 async function withStubServer<R>(fn: (server: StubServer) => R | Promise<R>, options: StubServerOptions = {}): Promise<R> {
-  const previous = {
-    SIFTKIT_STATUS_BACKEND_URL: process.env.SIFTKIT_STATUS_BACKEND_URL,
-    SIFTKIT_CONFIG_SERVICE_URL: process.env.SIFTKIT_CONFIG_SERVICE_URL,
-  };
+  const envBackup = new EnvBackup(['SIFTKIT_STATUS_BACKEND_URL', 'SIFTKIT_CONFIG_SERVICE_URL']);
   const server = await startStubStatusServer(options);
   process.env.SIFTKIT_STATUS_BACKEND_URL = server.statusUrl;
   process.env.SIFTKIT_CONFIG_SERVICE_URL = server.configUrl;
@@ -1075,16 +1068,7 @@ async function withStubServer<R>(fn: (server: StubServer) => R | Promise<R>, opt
     return await fn(server);
   } finally {
     await server.close();
-    if (previous.SIFTKIT_STATUS_BACKEND_URL === undefined) {
-      delete process.env.SIFTKIT_STATUS_BACKEND_URL;
-    } else {
-      process.env.SIFTKIT_STATUS_BACKEND_URL = previous.SIFTKIT_STATUS_BACKEND_URL;
-    }
-    if (previous.SIFTKIT_CONFIG_SERVICE_URL === undefined) {
-      delete process.env.SIFTKIT_CONFIG_SERVICE_URL;
-    } else {
-      process.env.SIFTKIT_CONFIG_SERVICE_URL = previous.SIFTKIT_CONFIG_SERVICE_URL;
-    }
+    envBackup.restore();
   }
 }
 
