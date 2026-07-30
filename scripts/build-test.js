@@ -11,6 +11,7 @@ const requiredOutputs = [
   path.join(distRoot, 'config', 'index.js'),
   path.join(distRoot, 'scripts', 'run-tests.js'),
   path.join(distRoot, 'scripts', 'test-targets.js'),
+  path.join(distRoot, 'scripts', 'live-instance-guard.js'),
 ];
 const sourceRoots = [
   path.join(repoRoot, 'src'),

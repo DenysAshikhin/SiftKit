@@ -114,7 +114,7 @@ test('config persistence rejects a blank stored preset catalog without repair', 
       "UPDATE app_config SET presets_json = '' WHERE id = 1",
     ).run();
 
-    assert.throws(() => readConfig(configPath), (error: unknown): true => {
+    assert.throws(() => readConfig(configPath), (error): true => {
       assert.ok(error instanceof PersistedConfigInvalidError);
       assert.match(error.message, /DELETE FROM app_config WHERE id = 1/u);
       return true;
@@ -146,7 +146,7 @@ test('config persistence reports a legacy preset catalog as an actionable config
       'UPDATE app_config SET presets_json = ? WHERE id = 1',
     ).run(JSON.stringify(legacyCatalog));
 
-    assert.throws(() => readConfig(configPath), (error: unknown): true => {
+    assert.throws(() => readConfig(configPath), (error): true => {
       assert.ok(error instanceof PersistedConfigInvalidError);
       assert.match(error.message, /is invalid and is never migrated or repaired automatically/u);
       assert.match(error.message, /executionFamily/u);
