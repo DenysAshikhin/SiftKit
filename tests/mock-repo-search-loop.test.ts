@@ -18,6 +18,7 @@ import {
   type TaskResult,
 } from '../src/repo-search/engine.js';
 import { resolveRepoSearchPlannerToolDefinitions, type ChatMessage } from '../src/repo-search/planner-protocol.js';
+import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
 import {
   preflightPlannerPromptBudget,
   compactPlannerMessagesOnce,
@@ -2113,4 +2114,139 @@ test('runTaskLoop records turn thinking for an invalid-parse turn', async () => 
   // The invalid-parse turn (no command pushed) still records its thinking.
   assert.equal(result.turnThinking[1], 'bad reasoning');
   assert.equal(result.turnThinking[2], 'final');
+});
+
+test('runTaskLoop lets a read repeat after an edit invalidates the file window', async () => {
+  const repoRoot = createTempRepoRoot();
+  fs.writeFileSync(path.join(repoRoot, 'target.ts'), ['line-1', 'line-2', 'line-3'].join('\n'), 'utf8');
+  const events: JsonObject[] = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-read-after-edit',
+      question: 'Read and edit target file.',
+      signals: ['done'],
+    },
+    {
+      ...MOCK_LOOP_DEFAULTS,
+      repoRoot,
+      maxTurns: 6,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens: 20000,
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read', 'edit']),
+      mockResponses: [
+        '{"action":"read","path":"target.ts","offset":1,"limit":3}',
+        '{"action":"edit","path":"target.ts","edits":[{"oldText":"line-2","newText":"line-2-EDITED"}]}',
+        '{"action":"read","path":"target.ts","offset":1,"limit":3}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {},
+      logger: {
+        path: 'memory',
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
+        },
+      },
+    }
+  );
+
+  const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
+  assert.equal(result.reason, 'finish');
+  assert.equal(result.commandFailures, 0);
+  // read, edit, read — the third call executed instead of being rejected.
+  assert.equal(commandEvents.length, 3);
+  assert.match(String(commandEvents[2]?.insertedResultText || ''), /^1: line-1/mu);
+  assert.match(String(commandEvents[2]?.insertedResultText || ''), /^2: line-2-EDITED/mu);
+});
+
+test('runTaskLoop lets a read repeat after a git command invalidates every window', async () => {
+  const repoRoot = createTempRepoRoot();
+  fs.writeFileSync(path.join(repoRoot, 'target.ts'), ['line-1', 'line-2', 'line-3'].join('\n'), 'utf8');
+  const events: JsonObject[] = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-read-after-git',
+      question: 'Read target file around a git call.',
+      signals: ['done'],
+    },
+    {
+      ...MOCK_LOOP_DEFAULTS,
+      repoRoot,
+      maxTurns: 6,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens: 20000,
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read', 'git']),
+      mockResponses: [
+        '{"action":"read","path":"target.ts","offset":1,"limit":3}',
+        '{"action":"git","command":"git status --short"}',
+        '{"action":"read","path":"target.ts","offset":1,"limit":3}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        'git status --short': { exitCode: 0, stdout: ' M target.ts', stderr: '' },
+      },
+      logger: {
+        path: 'memory',
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
+        },
+      },
+    }
+  );
+
+  const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
+  assert.equal(result.reason, 'finish');
+  assert.equal(result.commandFailures, 0);
+  assert.equal(commandEvents.length, 3);
+  assert.match(String(commandEvents[2]?.insertedResultText || ''), /^1: line-1/mu);
+});
+
+test('runTaskLoop lets a read repeat after run invalidates every window with ExpandReads off', async () => {
+  const repoRoot = createTempRepoRoot();
+  fs.writeFileSync(path.join(repoRoot, 'target.ts'), ['line-1', 'line-2', 'line-3'].join('\n'), 'utf8');
+  // `run` is native, so the mock key is the synthetic command string, not a shell line.
+  const runCommandKey = buildRepoToolRequestedCommand('run', { command: 'npm run lint' });
+  const events: JsonObject[] = [];
+  const result = await runTaskLoop(
+    {
+      id: 'task-read-after-run',
+      question: 'Read target file around a run call.',
+      signals: ['done'],
+    },
+    {
+      ...MOCK_LOOP_DEFAULTS,
+      repoRoot,
+      config: mockLoopConfig({ ...modelPresetReasoning('off'), ExpandReads: false }),
+      maxTurns: 6,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens: 20000,
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read', 'run']),
+      mockResponses: [
+        '{"action":"read","path":"target.ts","offset":1,"limit":3}',
+        '{"action":"run","command":"npm run lint"}',
+        '{"action":"read","path":"target.ts","offset":1,"limit":3}',
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {
+        [runCommandKey]: { exitCode: 0, stdout: 'lint clean', stderr: '' },
+      },
+      logger: {
+        path: 'memory',
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
+        },
+      },
+    }
+  );
+
+  const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
+  assert.equal(result.reason, 'finish');
+  assert.equal(result.commandFailures, 0);
+  assert.equal(commandEvents.length, 3);
+  assert.match(String(commandEvents[2]?.insertedResultText || ''), /^1: line-1/mu);
 });

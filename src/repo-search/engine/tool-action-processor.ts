@@ -838,6 +838,7 @@ export class ToolActionProcessor {
       outputTokensEstimated: resultTokenCountEstimated,
     });
     const commandSucceeded = Number(executed.exitCode) === 0;
+    this.invalidateReadWindows(context, commandSucceeded);
     if (commandSucceeded) {
       duplicates.recordSuccess(normalizedKey, fingerprint || null);
     }
@@ -854,5 +855,24 @@ export class ToolActionProcessor {
     });
     state.acceptedToolPromptTokensThisTurn += Math.max(0, Math.ceil(resultTokenCount));
     return 'next';
+  }
+
+  /**
+   * A mutation makes prior read windows stale — the same line numbers now hold different content.
+   * Clearing them restores the model's ability to re-read what changed. This touches bookkeeping
+   * only; the transcript keeps every earlier read result.
+   *
+   * `run` and `git` do not report which paths they touched and both can rewrite the tree, so any
+   * completion clears everything — a non-zero exit can still have mutated.
+   */
+  private invalidateReadWindows(context: ExecutedToolContext, commandSucceeded: boolean): void {
+    const { normalizedToolName, nativeExecution } = context;
+    if (normalizedToolName === 'run' || normalizedToolName === 'git') {
+      this.deps.readWindows.invalidateAll();
+      return;
+    }
+    if (commandSucceeded && nativeExecution && nativeExecution.ok && nativeExecution.mutatedPathKey) {
+      this.deps.readWindows.invalidatePath(nativeExecution.mutatedPathKey);
+    }
   }
 }
