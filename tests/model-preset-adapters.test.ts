@@ -232,6 +232,7 @@ test('EXL3 availability disables fields without equivalents and keeps wake setti
     'SpeculativeEnabled',
     'SpeculativeType',
     'SpeculativeDraftMax',
+    'VisionEnabled',
   ] satisfies ModelPresetField[]) {
     assert.deepEqual(getPresetFieldAvailability(managedExl3, field), { enabled: true, reason: null });
   }
@@ -241,6 +242,7 @@ test('EXL3 availability disables fields without equivalents and keeps wake setti
     'SpeculativeEnabled',
     'SpeculativeType',
     'SpeculativeDraftMax',
+    'VisionEnabled',
   ] satisfies ModelPresetField[]) {
     assert.deepEqual(getPresetFieldAvailability(externalExl3, field), {
       enabled: false,
@@ -278,6 +280,29 @@ test('EXL3 availability disables fields without equivalents and keeps wake setti
     assert.deepEqual(getPresetFieldAvailability(managedExl3, field), { enabled: true, reason: null });
   }
   assert.deepEqual(getPresetFieldAvailability(createModelPreset(), 'GpuLayers'), { enabled: true, reason: null });
+});
+
+test('VisionEnabled availability is gated by backend', () => {
+  const llama = createModelPreset({ Backend: 'llama' });
+  const managedExl3 = createModelPreset({ Backend: 'exl3', ExternalServerEnabled: false });
+  const externalExl3 = createModelPreset({ Backend: 'exl3', ExternalServerEnabled: true });
+
+  assert.deepEqual(getPresetFieldAvailability(llama, 'VisionEnabled'), {
+    enabled: false,
+    reason: 'Not supported by llama.cpp',
+  });
+  assert.deepEqual(getPresetFieldAvailability(managedExl3, 'VisionEnabled'), {
+    enabled: true,
+    reason: null,
+  });
+  assert.deepEqual(getPresetFieldAvailability(externalExl3, 'VisionEnabled'), {
+    enabled: false,
+    reason: 'Requires SiftKit-managed TabbyAPI',
+  });
+  assert.deepEqual(getPresetFieldAvailability(llama, 'GpuLayers'), {
+    enabled: true,
+    reason: null,
+  });
 });
 
 test('EXL3 adapter returns common request defaults', () => {
@@ -384,8 +409,8 @@ test('llama availability is decided per field, not by a blanket enable', () => {
       (field) => getPresetFieldAvailability(preset, field).reason !== null,
     );
 
-    assert.deepEqual(disabled, ['PenaltyRange']);
-    assert.deepEqual(explained, ['PenaltyRange']);
+    assert.deepEqual(disabled, ['PenaltyRange', 'VisionEnabled']);
+    assert.deepEqual(explained, ['PenaltyRange', 'VisionEnabled']);
   }
 });
 

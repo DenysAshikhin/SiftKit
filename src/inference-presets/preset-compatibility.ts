@@ -81,7 +81,9 @@ type PresetFieldSupport =
   /** Both accept it, but EXL3 can only apply it to an engine SiftKit launches. */
   | 'exl3-managed-only'
   /** Both accept it; EXL3 narrows the choices to the modes `getExl3CacheModes` can express. */
-  | 'exl3-cache-modes';
+  | 'exl3-cache-modes'
+  /** EXL3-managed only; llama.cpp does not support vision. */
+  | 'vision-exl3-managed-only';
 
 const PRESET_FIELD_SUPPORT = {
   Model: 'both',
@@ -131,7 +133,7 @@ const PRESET_FIELD_SUPPORT = {
   HealthcheckIntervalMs: 'both',
   SleepIdleSeconds: 'both',
   VerboseLogging: 'llama-only',
-  VisionEnabled: 'llama-only',
+  VisionEnabled: 'vision-exl3-managed-only',
 } as const satisfies Record<ModelPresetField, PresetFieldSupport>;
 
 export function getPresetFieldAvailability(
@@ -157,5 +159,11 @@ export function getPresetFieldAvailability(
       return preset.Backend === 'llama'
         ? { enabled: true, reason: null }
         : { enabled: true, reason: 'Only EXL3-compatible cache modes are available' };
+    case 'vision-exl3-managed-only':
+      return preset.Backend === 'llama'
+        ? { enabled: false, reason: 'Not supported by llama.cpp' }
+        : !preset.ExternalServerEnabled
+          ? { enabled: true, reason: null }
+          : { enabled: false, reason: 'Requires SiftKit-managed TabbyAPI' };
   }
 }
