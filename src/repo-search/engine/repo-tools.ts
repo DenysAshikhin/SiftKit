@@ -38,6 +38,8 @@ export type RepoToolExecution =
       endLineExclusive: number;
       totalEndLineExclusive: number;
     };
+    /** Set by mutating tools so the caller can drop stale read windows for that file. */
+    mutatedPathKey?: string;
     outputUnit?: ToolOutputTruncationUnit;
     // Which end survives per-tool truncation. Omitted → 'head'. Command output
     // (`run`) sets 'tail' so the trailing summary/errors survive.
@@ -602,6 +604,7 @@ function executeWrite(args: JsonObject, context: RepoToolContext): RepoToolExecu
     ok: true, requestedCommand: command, command, exitCode: 0,
     output: `Wrote ${Buffer.byteLength(content, 'utf8')} bytes to ${resolvedPath.relativePath}.`,
     toolType: 'write', outputUnit: 'lines',
+    mutatedPathKey: resolvedPath.relativePath.toLowerCase(),
   };
 }
 
@@ -670,6 +673,7 @@ function executeEdit(args: JsonObject, context: RepoToolContext): RepoToolExecut
     ok: true, requestedCommand: command, command, exitCode: 0,
     output: `Applied ${resolved.length} edit(s) to ${resolvedPath.relativePath}.`,
     toolType: 'edit', outputUnit: 'lines',
+    mutatedPathKey: resolvedPath.relativePath.toLowerCase(),
   };
 }
 

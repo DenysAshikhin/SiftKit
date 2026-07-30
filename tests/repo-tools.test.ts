@@ -511,3 +511,35 @@ test('executeRepoTool rejects an unknown tool name', async () => {
   assert.ok(!result.ok);
   assert.match(result.reason, /unknown/iu);
 });
+
+// ---------------------------------------------------------------------------
+// mutatedPathKey
+// ---------------------------------------------------------------------------
+
+test('write reports the mutated path key so read windows can be invalidated', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool('write', { path: 'src/New.ts', content: 'alpha\n' }, makeContext(root));
+  assert.ok(result.ok);
+  assert.equal(result.mutatedPathKey, 'src/new.ts');
+});
+
+test('edit reports the mutated path key so read windows can be invalidated', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool(
+    'edit',
+    { path: 'src/a.ts', edits: [{ oldText: 'line3', newText: 'line3-edited' }] },
+    makeContext(root),
+  );
+  assert.ok(result.ok);
+  assert.equal(result.mutatedPathKey, 'src/a.ts');
+});
+
+test('a failed edit reports no mutated path key because nothing was written', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool(
+    'edit',
+    { path: 'src/a.ts', edits: [{ oldText: 'not-in-the-file', newText: 'x' }] },
+    makeContext(root),
+  );
+  assert.equal(result.ok, false);
+});
