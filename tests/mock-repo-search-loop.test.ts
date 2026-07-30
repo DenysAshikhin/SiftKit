@@ -602,11 +602,11 @@ test('runTaskLoop bounds the unread read span at the next returned range', async
   assert.doesNotMatch(String(commandEvents[1]?.insertedResultText || ''), /^11: line-11/mu);
 });
 
-test('runTaskLoop reports when read has no unread lines left', async () => {
+test('runTaskLoop rejects a read whose whole range was already returned', async () => {
   const repoRoot = createTempRepoRoot();
   fs.writeFileSync(path.join(repoRoot, 'target.ts'), ['line-1', 'line-2', 'line-3'].join('\n'), 'utf8');
   const events: JsonObject[] = [];
-  await runTaskLoop(
+  const result = await runTaskLoop(
     {
       id: 'task-native-read-exhausted',
       question: 'Read target file.',
@@ -621,8 +621,8 @@ test('runTaskLoop reports when read has no unread lines left', async () => {
       totalContextTokens: 20000,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
       mockResponses: [
-        "{\"action\":\"read\",\"path\":\"target.ts\",\"offset\":1,\"limit\":3}",
-        "{\"action\":\"read\",\"path\":\"target.ts\",\"offset\":1,\"limit\":3}",
+        '{"action":"read","path":"target.ts","offset":1,"limit":3}',
+        '{"action":"read","path":"target.ts","offset":1,"limit":3}',
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
@@ -637,7 +637,56 @@ test('runTaskLoop reports when read has no unread lines left', async () => {
   );
 
   const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
-  assert.match(String(commandEvents[1]?.insertedResultText || ''), /No unread lines remain for target\.ts\./u);
+  // The first read executes and logs a result; the rejected second read never does.
+  assert.equal(commandEvents.length, 1);
+  assert.equal(result.commandFailures, 1);
+  const rejected = result.commands.filter((command) => command.safe === false);
+  assert.equal(rejected.length, 1);
+  assert.equal(rejected[0].reason, 'exhausted read');
+  assert.match(String(rejected[0].output), /Lines 1-3 of target\.ts were already returned in this run/u);
+  assert.equal(result.reason, 'finish');
+});
+
+test('runTaskLoop forces finish after repeated exhausted reads', async () => {
+  const repoRoot = createTempRepoRoot();
+  fs.writeFileSync(path.join(repoRoot, 'target.ts'), ['line-1', 'line-2', 'line-3'].join('\n'), 'utf8');
+  const events: JsonObject[] = [];
+  const readAction = '{"action":"read","path":"target.ts","offset":1,"limit":3}';
+  await runTaskLoop(
+    {
+      id: 'task-native-read-exhausted-stagnation',
+      question: 'Read target file.',
+      signals: ['done'],
+    },
+    {
+      ...MOCK_LOOP_DEFAULTS,
+      repoRoot,
+      maxTurns: 8,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      totalContextTokens: 20000,
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
+      mockResponses: [
+        readAction,
+        readAction,
+        readAction,
+        readAction,
+        readAction,
+        '{"action":"finish","output":"done"}',
+        '{"verdict":"pass","reason":"supported"}',
+      ],
+      mockCommandResults: {},
+      logger: {
+        path: 'memory',
+        write(event: Record<string, JsonSerializable>) {
+          events.push(parseLoggedEvent(event));
+        },
+      },
+    }
+  );
+
+  const forcedFinish = events.find((event) => event.kind === 'turn_forced_finish_mode_started');
+  assert.equal(String(forcedFinish?.trigger), 'exhausted_read');
 });
 
 test('runTaskLoop truncates oversized find output with omitted file count', async () => {

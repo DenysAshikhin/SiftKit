@@ -11,6 +11,10 @@ export type DuplicateRegistration = {
   activeReplayMessageIndex: number | null;
 };
 
+export function buildDuplicateFingerprint(toolName: string, normalizedKey: string, fingerprint: string): string {
+  return fingerprint || `${toolName}|${normalizedKey}`;
+}
+
 export class DuplicateTracker {
   private lastSuccessfulNormalizedKey: string | null = null;
   private lastSuccessfulFingerprint: string | null = null;
@@ -37,7 +41,7 @@ export class DuplicateTracker {
     return {
       isExactDuplicate,
       isSemanticDuplicate,
-      duplicateFingerprint: options.fingerprint || `${options.toolName}|${options.normalizedKey}`,
+      duplicateFingerprint: buildDuplicateFingerprint(options.toolName, options.normalizedKey, options.fingerprint),
     };
   }
 

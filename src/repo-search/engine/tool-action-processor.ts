@@ -34,7 +34,7 @@ import {
   type RepoToolExecution,
 } from './repo-tools.js';
 import type { ApprovalRequester } from './approval-gate.js';
-import { DuplicateTracker } from './duplicate-tracker.js';
+import { buildDuplicateFingerprint, DuplicateTracker } from './duplicate-tracker.js';
 import { FORCED_FINISH_MAX_ATTEMPTS, FORCED_FINISH_MODE_MESSAGE, ForcedFinishController } from './forced-finish.js';
 import { ProgressReporter } from './progress-reporter.js';
 import { ReadWindowGovernor } from './read-window-governor.js';
@@ -272,6 +272,10 @@ export class ToolActionProcessor {
     if (rejection !== null) {
       return rejection;
     }
+    const exhausted = this.screenExhaustedRead(turn, context, prospectiveToolType, state);
+    if (exhausted !== null) {
+      return exhausted;
+    }
 
     return this.executeAcceptedTool(turn, context, state, promptTokenCount);
   }
@@ -390,7 +394,7 @@ export class ToolActionProcessor {
     state: TurnBatchState,
   ): ToolActionOutcome | null {
     const { toolAction, normalizedToolName, isNativeTool, command, fingerprint, normalizedKey } = context;
-    const { commands, counters, duplicates, forcedFinish, toolStats, transcript } = this.deps;
+    const { counters, duplicates } = this.deps;
     const { isExactDuplicate, isSemanticDuplicate, duplicateFingerprint } = duplicates.classify({
       toolName: normalizedToolName,
       normalizedKey,
@@ -417,52 +421,84 @@ export class ToolActionProcessor {
       }
     }
     if (!canAdvanceRepeatedRead && (isExactDuplicate || isSemanticDuplicate)) {
-      const registration = duplicates.registerDuplicate(duplicateFingerprint, transcript.length);
-      const duplicateMessage = buildRepeatedToolCallSummary(normalizedToolName, registration.count);
-      counters.commandFailures += 1;
-      const rejectionReason = isExactDuplicate ? 'duplicate command' : 'semantic duplicate command';
-      commands.push({ command, turn, safe: false, reason: rejectionReason, exitCode: null, output: `Rejected: ${duplicateMessage}` });
-      if (registration.activeReplayMessageIndex !== null) {
-        transcript.replaceToolMessage(registration.activeReplayMessageIndex, duplicateMessage);
-      } else {
-        const duplicateToolCallId = `duplicate_call_${commands.length}`;
-        state.batchOutcomes.push({
-          action: buildEffectiveTranscriptAction({
-            toolName: normalizedToolName,
-            rawArgs: toolAction.args,
-            isNativeTool,
-            commandToRun: command,
-          }),
-          toolCallId: duplicateToolCallId,
-          toolContent: duplicateMessage,
-        });
-        state.batchDuplicateAnchorIndex = state.batchOutcomes.length - 1;
-      }
-      if (isSemanticDuplicate) {
-        toolStats.recordSemanticRepeatReject(prospectiveToolType);
-        this.deps.logger?.write({
-          kind: 'turn_semantic_repeat_rejected',
-          taskId: this.deps.task.id,
-          turn,
-          command,
-          fingerprint,
-          repeats: registration.count,
-        });
-      }
-      if (duplicates.shouldForceFinish() && !forcedFinish.isActive()) {
-        state.pendingModeChangeUserMessages.push(forcedFinish.activateFromStagnation());
-        toolStats.recordForcedFinishFromStagnation(prospectiveToolType);
-        this.deps.logger?.write({
-          kind: 'turn_forced_finish_mode_started',
-          taskId: this.deps.task.id,
-          turn,
-          attemptsRemaining: FORCED_FINISH_MAX_ATTEMPTS,
-          trigger: isSemanticDuplicate ? 'semantic_repetition' : 'consecutive_duplicates',
-        });
-      }
+      this.rejectAsDuplicate(turn, context, state, {
+        duplicateFingerprint,
+        reason: isExactDuplicate ? 'duplicate command' : 'semantic duplicate command',
+        trigger: isSemanticDuplicate ? 'semantic_repetition' : 'consecutive_duplicates',
+        prospectiveToolType,
+        isSemantic: isSemanticDuplicate,
+        bodyText: null,
+      });
       return 'next';
     }
     return null;
+  }
+
+  /**
+   * Records a repeat rejection: a safe:false command entry, a transcript message that collapses
+   * onto the previous replay when one is active, and the stagnation pressure that eventually
+   * forces a finish. Shared by string-level duplicates and reads with nothing left to return.
+   */
+  private rejectAsDuplicate(
+    turn: number,
+    context: AcceptedToolContext,
+    state: TurnBatchState,
+    options: {
+      duplicateFingerprint: string;
+      reason: string;
+      trigger: string;
+      prospectiveToolType: string;
+      isSemantic: boolean;
+      bodyText: string | null;
+    },
+  ): void {
+    const { toolAction, normalizedToolName, isNativeTool, command, fingerprint } = context;
+    const { commands, counters, duplicates, forcedFinish, toolStats, transcript } = this.deps;
+    const registration = duplicates.registerDuplicate(options.duplicateFingerprint, transcript.length);
+    const repeatSummary = buildRepeatedToolCallSummary(normalizedToolName, registration.count);
+    const duplicateMessage = options.bodyText ? `${options.bodyText}\n${repeatSummary}` : repeatSummary;
+    counters.commandFailures += 1;
+    commands.push({
+      command, turn, safe: false, reason: options.reason, exitCode: null,
+      output: `Rejected: ${duplicateMessage}`,
+    });
+    if (registration.activeReplayMessageIndex !== null) {
+      transcript.replaceToolMessage(registration.activeReplayMessageIndex, duplicateMessage);
+    } else {
+      state.batchOutcomes.push({
+        action: buildEffectiveTranscriptAction({
+          toolName: normalizedToolName,
+          rawArgs: toolAction.args,
+          isNativeTool,
+          commandToRun: command,
+        }),
+        toolCallId: `duplicate_call_${commands.length}`,
+        toolContent: duplicateMessage,
+      });
+      state.batchDuplicateAnchorIndex = state.batchOutcomes.length - 1;
+    }
+    if (options.isSemantic) {
+      toolStats.recordSemanticRepeatReject(options.prospectiveToolType);
+      this.deps.logger?.write({
+        kind: 'turn_semantic_repeat_rejected',
+        taskId: this.deps.task.id,
+        turn,
+        command,
+        fingerprint,
+        repeats: registration.count,
+      });
+    }
+    if (duplicates.shouldForceFinish() && !forcedFinish.isActive()) {
+      state.pendingModeChangeUserMessages.push(forcedFinish.activateFromStagnation());
+      toolStats.recordForcedFinishFromStagnation(options.prospectiveToolType);
+      this.deps.logger?.write({
+        kind: 'turn_forced_finish_mode_started',
+        taskId: this.deps.task.id,
+        turn,
+        attemptsRemaining: FORCED_FINISH_MAX_ATTEMPTS,
+        trigger: options.trigger,
+      });
+    }
   }
 
   private async runNativeExecution(normalizedToolName: string, toolAction: ToolAction, command: string): Promise<RepoToolExecution> {
@@ -508,6 +544,31 @@ export class ToolActionProcessor {
       reason: nativeExecution.reason,
       output: `Rejected command: ${nativeExecution.reason}`,
       callIdPrefix: 'rejected_call',
+    });
+    return 'next';
+  }
+
+  /**
+   * A read whose whole requested window was already returned has nothing to add. Route it through
+   * the same repeat machinery as a duplicate command so it costs a rejection, not a full result.
+   */
+  private screenExhaustedRead(
+    turn: number,
+    context: AcceptedToolContext,
+    prospectiveToolType: string,
+    state: TurnBatchState,
+  ): ToolActionOutcome | null {
+    const { nativeExecution, normalizedToolName, normalizedKey, fingerprint } = context;
+    if (!nativeExecution || !nativeExecution.ok || !nativeExecution.readFile || nativeExecution.readFile.hasUnread) {
+      return null;
+    }
+    this.rejectAsDuplicate(turn, context, state, {
+      duplicateFingerprint: buildDuplicateFingerprint(normalizedToolName, normalizedKey, fingerprint),
+      reason: 'exhausted read',
+      trigger: 'exhausted_read',
+      prospectiveToolType,
+      isSemantic: false,
+      bodyText: nativeExecution.output,
     });
     return 'next';
   }
