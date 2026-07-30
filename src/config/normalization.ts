@@ -101,6 +101,7 @@ export type ManagedLlamaConfig = {
   HealthcheckIntervalMs: number;
   SleepIdleSeconds: number;
   VerboseLogging: boolean;
+  VisionEnabled: boolean;
 };
 
 function getRecord(value: JsonValue): MutableJsonObject {
@@ -414,6 +415,9 @@ function resolveManagedLlamaSettings(input: MutableJsonObject): ManagedLlamaConf
     HealthcheckIntervalMs: getFinitePositiveInteger(input.HealthcheckIntervalMs, Number(defaults.HealthcheckIntervalMs ?? 1_000)),
     SleepIdleSeconds: getFinitePositiveInteger(input.SleepIdleSeconds, Number(defaults.SleepIdleSeconds ?? SIFT_DEFAULT_LLAMA_SLEEP_IDLE_SECONDS)),
     VerboseLogging: Boolean(input.VerboseLogging),
+    VisionEnabled: input.VisionEnabled === null || input.VisionEnabled === undefined
+      ? Boolean(defaults.VisionEnabled)
+      : Boolean(input.VisionEnabled),
   };
 }
 

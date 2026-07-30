@@ -289,3 +289,19 @@ test('isReadExpansionEnabled defaults on and honors an explicit false', () => {
   assert.equal(isReadExpansionEnabled({ ...enabled, ExpandReads: false }), false);
   assert.equal(isReadExpansionEnabled(undefined), true);
 });
+
+test('VisionEnabled defaults to false and schema accepts true', () => {
+  const normalized = normalizeConfig(getDefaultConfig());
+  const preset = activePreset(normalized);
+
+  assert.equal(preset.VisionEnabled, false);
+
+  const config = defaultConfigObject();
+  activePresetObject(config).VisionEnabled = true;
+  const enabled = activePreset(normalizeConfig(JsonValueSchema.parse(config)));
+  assert.equal(enabled.VisionEnabled, true);
+
+  activePresetObject(config).VisionEnabled = 1;
+  const truthy = activePreset(normalizeConfig(JsonValueSchema.parse(config)));
+  assert.equal(truthy.VisionEnabled, true);
+});

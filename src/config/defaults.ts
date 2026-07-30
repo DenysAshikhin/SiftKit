@@ -12,6 +12,7 @@ import {
   SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
   SIFT_DEFAULT_LLAMA_SLEEP_IDLE_SECONDS,
   SIFT_DEFAULT_LLAMA_UBATCH_SIZE,
+  SIFT_DEFAULT_VISION_ENABLED,
   SIFT_DEFAULT_NUM_CTX,
   SIFT_DEFAULT_PROMPT_PREFIX,
 } from './constants.js';
@@ -78,6 +79,7 @@ export function getDefaultConfigObject(): SiftConfig {
     HealthcheckIntervalMs: 1_000,
     SleepIdleSeconds: SIFT_DEFAULT_LLAMA_SLEEP_IDLE_SECONDS,
     VerboseLogging: false,
+    VisionEnabled: SIFT_DEFAULT_VISION_ENABLED,
   };
   return {
     Version: SIFTKIT_VERSION,

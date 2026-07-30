@@ -62,7 +62,7 @@ const ManagedLlamaSettingsShape = {
   SpeculativeNgramModNMatch: z.number(), SpeculativeNgramModNMin: z.number(), SpeculativeNgramModNMax: z.number(),
   SpeculativeDraftMax: z.number(), SpeculativeDraftMin: z.number(), ReasoningBudget: z.number(),
   ReasoningBudgetMessage: z.string().nullable(), StartupTimeoutMs: z.number(), HealthcheckTimeoutMs: z.number(),
-  HealthcheckIntervalMs: z.number(), SleepIdleSeconds: z.number(), VerboseLogging: z.boolean(),
+  HealthcheckIntervalMs: z.number(), SleepIdleSeconds: z.number(), VerboseLogging: z.boolean(), VisionEnabled: z.boolean(),
 };
 
 export const ModelPresetFieldSchema = z.enum([
@@ -74,7 +74,7 @@ export const ModelPresetFieldSchema = z.enum([
   'SpeculativeNgramSizeM', 'SpeculativeNgramMinHits', 'SpeculativeNgramModNMatch', 'SpeculativeNgramModNMin',
   'SpeculativeNgramModNMax', 'SpeculativeDraftMax', 'SpeculativeDraftMin', 'ReasoningBudget',
   'ReasoningBudgetMessage', 'StartupTimeoutMs', 'HealthcheckTimeoutMs', 'HealthcheckIntervalMs',
-  'SleepIdleSeconds', 'VerboseLogging',
+  'SleepIdleSeconds', 'VerboseLogging', 'VisionEnabled',
 ]);
 export type ModelPresetField = z.infer<typeof ModelPresetFieldSchema>;
 

@@ -131,6 +131,7 @@ const PRESET_FIELD_SUPPORT = {
   HealthcheckIntervalMs: 'both',
   SleepIdleSeconds: 'both',
   VerboseLogging: 'llama-only',
+  VisionEnabled: 'llama-only',
 } as const satisfies Record<ModelPresetField, PresetFieldSupport>;
 
 export function getPresetFieldAvailability(

@@ -39,6 +39,7 @@ export const SIFT_DEFAULT_LLAMA_KV_CACHE_QUANTIZATION = 'f16';
 export const SIFT_DEFAULT_LLAMA_REASONING_BUDGET = 10_000;
 export const SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE = 'Thinking budget exhausted. You have to provide the answer now.';
 export const SIFT_DEFAULT_LLAMA_SLEEP_IDLE_SECONDS = 600;
+export const SIFT_DEFAULT_VISION_ENABLED = false;
 export const SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN = 2.5;
 export const SIFT_DEFAULT_PROMPT_PREFIX = 'Preserve exact technical anchors from the input when they matter: file paths, function names, symbols, commands, error text, and any line numbers or code references that are already present. Quote short code fragments exactly when that precision changes the meaning. Do not invent locations or line numbers that are not in the input.';
 
