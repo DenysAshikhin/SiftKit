@@ -2427,6 +2427,112 @@ test('chat completion replays prior tool evidence without hidden system context'
   }
 });
 
+test('non-streaming chat message runs against the session model preset snapshot', async () => {
+  const tempRoot = createManagedTempDir('siftkit-dashboard-snapshot-cfg-');
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  let capturedChatRawBody = '';
+  const llamaServer = http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/v1/models') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ data: [{ id: 'snapshot-model.gguf' }, { id: 'live-model.gguf' }] }));
+      return;
+    }
+    if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    let raw = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk: string) => {
+      raw += chunk;
+    });
+    req.on('end', () => {
+      capturedChatRawBody = raw;
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"finish\\",\\"output\\":\\"ack\\"}"}}]}\n\n');
+      res.write('data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":20,"completion_tokens":4,"completion_tokens_details":{"reasoning_tokens":0}}}\n\n');
+      res.write('data: [DONE]\n\n');
+      res.end();
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    llamaServer.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
+  });
+  const llamaAddress = getAddressInfo(llamaServer);
+
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const snapshotConfig = getDefaultConfig();
+  const snapshotPreset = snapshotConfig.Server.ModelPresets.Presets[0];
+  snapshotPreset.Model = 'snapshot-model.gguf';
+  snapshotPreset.BaseUrl = `http://127.0.0.1:${llamaAddress.port}`;
+  snapshotPreset.NumCtx = 85000;
+  snapshotPreset.Temperature = 0.31;
+  writeConfig(getConfigPath(), snapshotConfig);
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
+  await server.startupPromise;
+  const address = getAddressInfo(server);
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createSession = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Snapshot Session' }),
+    });
+    assert.equal(createSession.statusCode, 200);
+    const sessionId = String(d(createSession.body.session).id);
+
+    // Swap the live active preset after the session snapshotted preset 'default':
+    // the turn below must still run with the snapshot's model and samplers.
+    const currentConfig = await requestJson(`${baseUrl}/config?skip_ready=1`);
+    assert.equal(currentConfig.statusCode, 200);
+    const updated = d(structuredClone(currentConfig.body));
+    const modelPresets = d(d(updated.Server).ModelPresets);
+    const basePreset = d(asObjectArray(modelPresets.Presets)[0]);
+    modelPresets.Presets = [
+      basePreset,
+      { ...basePreset, id: 'live', label: 'Live', Model: 'live-model.gguf', Temperature: 0.94, Port: Number(basePreset.Port) + 1 },
+    ];
+    modelPresets.ActivePresetId = 'live';
+    const putResponse = await requestJson(`${baseUrl}/config?skip_ready=1`, {
+      method: 'PUT',
+      body: JSON.stringify(updated),
+    });
+    assert.equal(putResponse.statusCode, 200);
+
+    const chatReply = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
+      method: 'POST',
+      timeoutMs: 5000,
+      body: JSON.stringify({ content: 'which preset drives this turn?' }),
+    });
+    assert.equal(chatReply.statusCode, 200);
+    assert.notEqual(capturedChatRawBody, '');
+    const captured = asObject(parseJsonValueText(capturedChatRawBody));
+    assert.equal(captured.model, 'snapshot-model.gguf');
+    assert.equal(captured.temperature, 0.31);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    await new Promise<void>((resolve, reject) => {
+      llamaServer.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
 test('deleting a tool bubble removes chat context and rewrites run detail', async () => {
   const tempRoot = createManagedTempDir('siftkit-dashboard-delete-bubble-');
   const previousCwd = enterDashboardTestRepo(tempRoot);

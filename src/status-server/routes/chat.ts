@@ -617,7 +617,7 @@ class ChatMessageTurn {
         prompt: this.userContent,
         repoRoot: process.cwd(),
         statusBackendUrl: `${this.ctx.getServiceBaseUrl()}/status`,
-        config: this.config,
+        config: resolveChatSessionConfig(this.config, this.session),
         systemPrompt: buildChatSystemContent(this.config, this.session),
         history: buildChatHistoryMessages(this.config, this.session),
         thinkingEnabled: this.session.thinkingEnabled !== false,
