@@ -315,7 +315,7 @@ export type ChatStreamResult = {
 
 export async function streamChatMessage(
   sessionId: string,
-  payload: { content: string },
+  payload: { content: string; images?: string[] },
   onThinking: (thinkingText: string) => void,
   onToolEvent: (event: ChatStreamToolEvent) => void,
   onAnswer: (answerText: string) => void,

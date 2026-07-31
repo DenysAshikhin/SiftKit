@@ -1,5 +1,6 @@
 import { JsonRecordReader } from '../lib/json-record-reader.js';
 import type { JsonObject } from '../lib/json-types.js';
+import { parseImageDataUrls } from '../llm-protocol/image-attachments.js';
 
 export type ChatSessionCreateRequest = {
   presetId: string;
@@ -16,6 +17,7 @@ export type ChatSessionUpdateRequest = {
 
 export type ChatMessageRequest = {
   content: string;
+  images: string[];
   assistantContent: string | undefined;
 };
 
@@ -56,12 +58,14 @@ export function parseChatSessionUpdateRequest(body: JsonObject): ChatSessionUpda
 
 export function parseChatMessageRequest(body: JsonObject): ChatMessageRequest | null {
   const reader = new JsonRecordReader(body);
-  const content = reader.optionalString('content');
-  if (!content) {
+  const content = reader.optionalString('content') ?? '';
+  const images = parseImageDataUrls(reader.value('images'));
+  if (!content && images.length === 0) {
     return null;
   }
   return {
     content,
+    images,
     assistantContent: reader.optionalString('assistantContent'),
   };
 }

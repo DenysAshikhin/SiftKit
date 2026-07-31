@@ -113,6 +113,8 @@ export type ChatTabProps = {
   onSendPlan(): Promise<void>;
   onSendRepoSearch(): Promise<void>;
   onSendMessage(): Promise<void>;
+  pendingImages: string[];
+  onPendingImagesChange(images: string[]): void;
 };
 
 const SESSION_INDICATOR_LABELS: Record<SessionIndicator, string> = {
@@ -137,6 +139,20 @@ function getSendLabel(chatMode: DashboardPresetExecutionFamily | null): string {
   if (chatMode === 'repo-search') { return 'Search'; }
   if (chatMode === 'summary') { return 'Summarize'; }
   return 'Send';
+}
+
+async function readImageFiles(files: FileList | null): Promise<string[]> {
+  if (!files) return [];
+  const results: string[] = [];
+  for (const file of Array.from(files)) {
+    results.push(await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error(`cannot read ${file.name}`));
+      reader.onload = () => resolve(String(reader.result));
+      reader.readAsDataURL(file);
+    }));
+  }
+  return results;
 }
 
 export function ChatTab({
@@ -175,6 +191,8 @@ export function ChatTab({
   onSendPlan,
   onSendRepoSearch,
   onSendMessage,
+  pendingImages,
+  onPendingImagesChange,
 }: ChatTabProps) {
   const persistedMessages = selectedSession ? selectedSession.messages : [];
   const visibleMessages = [...persistedMessages, ...liveMessages];
@@ -372,11 +390,18 @@ export function ChatTab({
                 {contextUsage ? (
                   <span className="ctx-label">{formatCompactTokenCount(contextUsage.totalUsedTokens)} / {formatCompactTokenCount(contextUsage.contextWindowTokens)}</span>
                 ) : null}
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  multiple
+                  onChange={(event) => { void readImageFiles(event.currentTarget.files).then((urls) => onPendingImagesChange([...pendingImages, ...urls])); }}
+                />
+                {pendingImages.length > 0 ? <span className="image-count">{pendingImages.length} image(s) attached</span> : null}
                 <button
                   type="button"
                   className="send"
                   onClick={dispatchSend}
-                  disabled={chatBusy || !chatInput.trim()}
+                  disabled={chatBusy || (!chatInput.trim() && pendingImages.length === 0)}
                 >
                   {getSendLabel(chatMode)}
                 </button>

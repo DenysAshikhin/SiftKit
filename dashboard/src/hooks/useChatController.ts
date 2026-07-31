@@ -115,6 +115,7 @@ export function useChatController(deps: {
     liveToolPromptTokenCount: contextHook.liveToolPromptTokenCount,
     liveMessages: live.liveMessages,
     chatInput: composer.chatInput,
+    pendingImages: composer.pendingImages,
     chatBusy: chatSessionsHook.chatBusy,
     chatError,
     warnings: composer.warnings,
@@ -134,6 +135,7 @@ export function useChatController(deps: {
     onSendPlan: composer.sendPlan,
     onSendRepoSearch: composer.sendRepoSearch,
     onSendMessage: composer.sendMessage,
+    onPendingImagesChange: composer.setPendingImages,
   };
 
   return { tabProps, selectedSessionId: chatSessionsHook.selectedSessionId };

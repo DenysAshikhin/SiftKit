@@ -4,6 +4,7 @@ import http from 'node:http';
 import os from 'node:os';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { parseChatMessageRequest } from '../src/status-server/chat-route-request-normalizers.js';
 import { parseSummaryRequest } from '../src/status-server/route-request-normalizers.js';
 import { buildUserContent } from '../src/llm-protocol/image-attachments.js';
 import { validateRepoSearchTokens } from '../src/cli/args.js';
@@ -139,4 +140,24 @@ test('repo-agent omits images from the request body when none were given', () =>
     images: [],
   });
   assert.equal('images' in request, false);
+});
+
+test('chat message requests carry validated images', () => {
+  const parsed = parseChatMessageRequest({
+    content: 'what is this?',
+    images: ['data:image/webp;base64,AAAA'],
+  });
+  assert.deepEqual(parsed?.images, ['data:image/webp;base64,AAAA']);
+});
+
+test('chat message requests accept an image with empty text', () => {
+  const parsed = parseChatMessageRequest({ content: '', images: ['data:image/png;base64,AAAA'] });
+  assert.notEqual(parsed, null);
+});
+
+test('chat message requests reject a non-image URL', () => {
+  assert.throws(
+    () => parseChatMessageRequest({ content: 'x', images: ['file:///c:/a.png'] }),
+    /supported-image/u,
+  );
 });

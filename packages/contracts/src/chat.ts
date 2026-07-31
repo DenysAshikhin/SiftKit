@@ -19,6 +19,7 @@ export const ChatMessageSchema = z.object({
   toolCallOutput: z.string().nullable().optional(), toolCallStatus: z.enum(['running', 'done']).optional(),
   groundingStatus: z.enum(['ungrounded', 'snippet_only', 'fetched']).nullable().optional(),
   createdAtUtc: z.string(), sourceRunId: z.string().nullable(), compressedIntoSummary: z.boolean().optional(),
+  images: z.array(z.string()).optional(),
 });
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 

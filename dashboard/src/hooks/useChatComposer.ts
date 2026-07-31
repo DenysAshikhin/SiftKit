@@ -16,8 +16,10 @@ import type { UseContextUsageResult } from './useContextUsage';
 
 export type UseChatComposerResult = {
   chatInput: string;
+  pendingImages: string[];
   warnings: string[];
   setChatInput(value: string): void;
+  setPendingImages(images: string[]): void;
   sendMessage(): Promise<void>;
   sendPlan(): Promise<void>;
   sendRepoSearch(): Promise<void>;
@@ -64,6 +66,8 @@ export function useChatComposer(deps: {
   setChatBusy(busy: boolean): void;
 }): UseChatComposerResult {
   const [chatInput, setChatInput] = useState<string>('');
+  // Attachments live beside the text so a successful send clears both together.
+  const [pendingImages, setPendingImages] = useState<string[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
 
   function setChatBusy(busy: boolean): void {
@@ -79,7 +83,7 @@ export function useChatComposer(deps: {
   }
 
   async function sendMessage(): Promise<void> {
-    if (!deps.selectedSession || !chatInput.trim()) {
+    if (!deps.selectedSession || (!chatInput.trim() && pendingImages.length === 0)) {
       return;
     }
     setChatBusy(true);
@@ -90,7 +94,7 @@ export function useChatComposer(deps: {
     try {
       const response = await streamChatMessage(
         deps.selectedSession.id,
-        { content: chatInput.trim() },
+        { content: chatInput.trim(), images: pendingImages },
         (thinkingText) => {
           if (deps.isThinkingEnabledForCurrentSession) {
             deps.live.appendLiveThinking(thinkingText, deps.maintainPerStepThinkingForCurrentPreset);
@@ -113,6 +117,7 @@ export function useChatComposer(deps: {
       deps.applySessionResponse(response.response);
       setWarnings(response.warnings);
       setChatInput('');
+      setPendingImages([]);
     } catch (error) {
       setChatError(getErrorMessage(error));
     } finally {
@@ -229,8 +234,10 @@ export function useChatComposer(deps: {
 
   return {
     chatInput,
+    pendingImages,
     warnings,
     setChatInput,
+    setPendingImages,
     sendMessage,
     sendPlan,
     sendRepoSearch,

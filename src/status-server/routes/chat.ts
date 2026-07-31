@@ -598,6 +598,7 @@ class ChatMessageTurn {
     private readonly config: SiftConfig,
     private readonly preset: SiftPreset,
     private readonly userContent: string,
+    private readonly userImages: string[],
     private readonly mockResponses: string[] | undefined,
   ) {
     this.managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
@@ -620,6 +621,7 @@ class ChatMessageTurn {
         history: buildChatHistoryMessages(this.config, this.session),
         thinkingEnabled: this.session.thinkingEnabled !== false,
         allowedTools: [],
+        initialUserImages: this.userImages,
         ...(this.mockResponses ? { mockResponses: this.mockResponses } : {}),
       });
       const scorecardTasks = normalizeRepoSearchScorecard(result.scorecard).tasks;
@@ -693,6 +695,7 @@ class ChatMessageTurn {
         speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
         speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
         sourceRunId: turn.sourceRunId,
+        images: this.userImages,
       },
     );
     sendJson(this.res, 200, buildChatSessionResponse(this.config, sessionWithTelemetry));
@@ -794,6 +797,7 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
         config,
         selected.preset,
         messageRequest.content,
+        messageRequest.images,
         readRouteStringArray(new JsonRecordReader(parsedBody), 'mockResponses'),
       );
       if (providedAssistantContent) {
@@ -895,6 +899,7 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
         maxTurns: readRouteNumber(reader, 'maxTurns'),
         availableModels: readRouteStringArray(reader, 'availableModels'),
         mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
+        initialUserImages: messageRequest.images,
         ...(mockResponses ? { mockResponses } : {}),
         progressWriter: new ChatStreamProgressWriter(
           sseWriter,
@@ -943,6 +948,7 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
         speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
         groundingStatus: getChatGroundingStatus(result.scorecard),
         sourceRunId: String(result.requestId || ''),
+        images: messageRequest.images,
       });
       sseWriter.writeEvent('done', buildChatSessionResponse(config, updatedSession));
     } catch (error) {
