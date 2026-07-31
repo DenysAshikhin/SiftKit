@@ -17,6 +17,7 @@ import { normalizeConfigObject } from '../src/config/normalization.js';
 import { mockSiftConfig, asRuntimeSiftConfig } from './helpers/mock-config.js';
 import { DEAD_CONFIG_SERVICE_URL, DEAD_STATUS_BACKEND_URL } from './helpers/dead-endpoints.js';
 import { EnvBackup } from './helpers/env-backup.js';
+import { removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 import {
   deriveServiceUrl,
   getDefaultConfig,
@@ -351,21 +352,6 @@ function sendChatCompletionSse(res: http.ServerResponse, body: JsonObject): void
   });
   res.write('data: [DONE]\n\n');
   res.end();
-}
-
-async function removeDirectoryWithRetries(targetPath: string, attempts = 300, delayMs = 100): Promise<void> {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    try {
-      fs.rmSync(targetPath, { recursive: true, force: true });
-      return;
-    } catch (error) {
-      const code = error && typeof error === 'object' && 'code' in error ? String(error.code || '') : '';
-      if (code !== 'EPERM' && code !== 'EBUSY') {
-        throw error;
-      }
-      await sleep(delayMs);
-    }
-  }
 }
 
 function spawnProcess(command: string, args: string[], options: SpawnOptions = {}): Promise<SpawnProcessResult> {
@@ -1029,7 +1015,9 @@ function runWithTempEnv<R>(fn: (tempRoot: string) => R | Promise<R>): Promise<R>
     process.chdir(previousCwd);
     closeRuntimeDatabase();
     envBackup.restore();
-    await removeDirectoryWithRetries(tempRoot);
+    if (!await removeDirectoryWithRetries(tempRoot)) {
+      process.stderr.write(`\nTEMP DIRECTORY LEFT BEHIND: ${tempRoot}\n`);
+    }
   };
 
   return Promise.resolve()
@@ -1587,7 +1575,7 @@ export {
   getPlannerLogsPath, getFailedLogsPath, getRequestLogsPath,
   buildStructuredStubDecision, resolveAssistantContent, readBody,
   resolveArtifactLogPathFromStatusPost, requestJson, sleep,
-  removeDirectoryWithRetries, spawnProcess, waitForTextMatch,
+  spawnProcess, waitForTextMatch,
   startStubStatusServer, withTempEnv, withStubServer, withSummaryTestServer, mockSiftConfig as mockConfig,
   getStatusRouteUrl, postStatusTerminalMetadata, postStatusComplete, postCompletedStatus,
   withRealStatusServer, startStatusServerProcess, stripAnsi, captureStdout,

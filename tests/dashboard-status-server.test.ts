@@ -20,7 +20,6 @@ import {
   asObjectArray,
   fireAndAbortJsonRequest,
   getAddressInfo,
-  removeDirectoryWithRetries,
   requestJson,
   requestSse,
   type Dict,
@@ -30,6 +29,7 @@ import {
   type SseResponse,
   writeJson,
 } from './helpers/dashboard-http.js';
+import { removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
 import { DashboardRunSeeder } from './helpers/dashboard-run-seed.js';
 import {

@@ -12,7 +12,8 @@ import { getDefaultConfig, writeConfig } from '../src/status-server/config-store
 import { getConfigPath } from '../src/config/index.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import type { JsonValue } from '../src/lib/json-types.js';
-import { asObject, getAddressInfo, removeDirectoryWithRetries, type JsonResponse } from './helpers/dashboard-http.js';
+import { asObject, getAddressInfo, type JsonResponse } from './helpers/dashboard-http.js';
+import { removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 
 function writeManagedConfig(
   model: string,

@@ -7,7 +7,8 @@ import { getDefaultConfig, writeConfig } from '../../src/status-server/config-st
 import { readMetrics, type Metrics } from '../../src/status-server/metrics.js';
 import { writeRuntimeLaunchSnapshot } from '../../src/status-server/runtime-launch-snapshot.js';
 import { closeRuntimeDatabase, getRuntimeDatabasePath } from '../../src/state/runtime-db.js';
-import { getAddressInfo, removeDirectoryWithRetries } from './dashboard-http.js';
+import { getAddressInfo } from './dashboard-http.js';
+import { removeDirectoryWithRetries } from './temp-dirs.js';
 
 /** Points the active preset at a stand-in inference backend for engine-backed E2Es. */
 export type DashboardTestBackend = {

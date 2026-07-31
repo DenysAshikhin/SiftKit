@@ -9,12 +9,12 @@ import { startStatusServer } from '../src/status-server/index.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import {
-  removeDirectoryWithRetries,
   requestJson,
   asObjectArray,
   asArray,
   getAddressInfo,
 } from './helpers/dashboard-http.js';
+import { removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 import {
   DashboardRunSeeder,
   buildRepoSearchTranscriptText,

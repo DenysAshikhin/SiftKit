@@ -11,8 +11,8 @@ import {
   getAddressInfo,
   requestSse,
   writeJson,
-  removeDirectoryWithRetries,
 } from './helpers/dashboard-http.js';
+import { removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 
 test('dashboard HTTP helpers read JSON and SSE payloads', async () => {
   const server = http.createServer((req, res) => {
@@ -60,7 +60,7 @@ test('dashboard HTTP helpers read JSON and SSE payloads', async () => {
   }
 });
 
-test('dashboard file helpers write JSON payloads and remove directories', async () => {
+test('dashboard file helpers write JSON payloads', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-http-'));
   const nestedPath = path.join(tempRoot, 'logs', 'entry.json');
 
@@ -68,5 +68,4 @@ test('dashboard file helpers write JSON payloads and remove directories', async 
   assert.deepEqual(JSON.parse(fs.readFileSync(nestedPath, 'utf8')), { ok: true });
 
   await removeDirectoryWithRetries(tempRoot);
-  assert.equal(fs.existsSync(tempRoot), false);
 });

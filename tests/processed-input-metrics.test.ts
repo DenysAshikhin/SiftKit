@@ -17,6 +17,7 @@ import {
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { asObject } from './helpers/dashboard-http.js';
+import { removeDirectorySync } from './helpers/temp-dirs.js';
 import type { JsonObject } from '../src/lib/json-types.js';
 import {
   readMetrics,
@@ -35,24 +36,6 @@ function asRow<T>(value: T): JsonObject {
 
 function asRows<T>(values: readonly T[]): JsonObject[] {
   return values.map((value) => JsonRecordReader.asObject(value) ?? {});
-}
-
-function waitSync(delayMs: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
-}
-
-function removeDirectoryWithRetriesSync(targetPath: string): void {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    try {
-      fs.rmSync(targetPath, { recursive: true, force: true });
-      return;
-    } catch (error) {
-      if (attempt === 19) {
-        return;
-      }
-      waitSync(50);
-    }
-  }
 }
 
 function withTempRepo(fn: (repoRoot: string) => void): void {
@@ -76,7 +59,9 @@ function withTempRepo(fn: (repoRoot: string) => void): void {
       process.env.USERPROFILE = previousUserProfile;
     }
     closeRuntimeDatabase();
-    removeDirectoryWithRetriesSync(repoRoot);
+    if (!removeDirectorySync(repoRoot)) {
+      process.stderr.write(`\nTEMP DIRECTORY LEFT BEHIND: ${repoRoot}\n`);
+    }
   }
 }
 

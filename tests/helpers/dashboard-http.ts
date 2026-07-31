@@ -206,17 +206,3 @@ export function writeJson(targetPath: string, payload: JsonSerializable): void {
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   fs.writeFileSync(targetPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
 }
-
-export async function removeDirectoryWithRetries(targetPath: string, attempts: number = 40, delayMs: number = 100): Promise<void> {
-  for (let index = 0; index < attempts; index += 1) {
-    try {
-      fs.rmSync(targetPath, { recursive: true, force: true });
-      return;
-    } catch {
-      if (index === attempts - 1) {
-        return;
-      }
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
-    }
-  }
-}

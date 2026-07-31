@@ -8,11 +8,11 @@ import {
   asObject,
   asObjectArray,
   getAddressInfo,
-  removeDirectoryWithRetries,
   requestJson,
   requestSse,
   type SseResponse,
 } from './dashboard-http.js';
+import { removeDirectoryWithRetries } from './temp-dirs.js';
 import {
   configureDashboardTestEnv,
   enterDashboardTestRepo,
