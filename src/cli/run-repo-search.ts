@@ -8,6 +8,7 @@ import { CliProgressRenderer } from './progress-renderer.js';
 import { formatRepoTaskOutput } from './repo-task-output.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
 import { assertStdinIsTty } from './tty.js';
+import { ImageAttachmentReader } from '../llm-protocol/image-attachments.js';
 
 export async function runRepoSearchCli(options: ResolvedCliArgs & {
   stdout: NodeJS.WritableStream;
@@ -30,6 +31,7 @@ export async function runRepoSearchCli(options: ResolvedCliArgs & {
     throw new Error('A --prompt is required for repo-search.');
   }
 
+  const images = new ImageAttachmentReader().readAll(parsed.images ?? []);
   const stdin = options.stdin;
   const interactive = parsed.interactive === true;
   assertStdinIsTty(interactive, stdin, '--interactive');
@@ -50,6 +52,7 @@ export async function runRepoSearchCli(options: ResolvedCliArgs & {
     model: parsed.model,
     logFile: parsed.logFile,
     interactive,
+    images,
   }, renderer, approvalPrompter);
 
   options.stdout.write(`${formatRepoTaskOutput(response)}\n`);

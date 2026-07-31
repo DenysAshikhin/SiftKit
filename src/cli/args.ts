@@ -80,7 +80,7 @@ export const SERVER_DEPENDENT_INTERNAL_OPS = new Set([
 ]);
 
 export function validateRepoSearchTokens(tokens: string[]): void {
-  const flagsWithValues = new Set(['--prompt', '-prompt', '--model', '--log-file']);
+  const flagsWithValues = new Set(['--prompt', '-prompt', '--model', '--log-file', '--image']);
   const booleanFlags = new Set(['--interactive', '--progress']);
   const helpFlags = new Set(['-h', '--h', '--help', '-help']);
   for (let index = 0; index < tokens.length; index += 1) {

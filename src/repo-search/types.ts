@@ -75,6 +75,7 @@ export type RepoSearchExecutionRequest = {
   mockResponses?: string[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
   retainedWebToolCalls?: RetainedWebToolCall[];
+  initialUserImages?: readonly string[];
   progressWriter?: ProgressWriter<RepoSearchProgressEvent>;
   approvalGate?: ApprovalGate;
   approvalMode?: ApprovalMode;

@@ -186,6 +186,7 @@ export async function runRepoSearch(options: {
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
   retainedWebToolCalls?: RetainedWebToolCall[];
   abortSignal?: AbortSignal;
+  initialUserImages?: readonly string[];
   logger?: JsonLogger | null;
   progressWriter?: ProgressWriter<RepoSearchProgressEvent>;
   approvalGate?: ApprovalGate;
@@ -255,6 +256,7 @@ export async function runRepoSearch(options: {
       mockResponses: options.mockResponses,
       mockCommandResults: options.mockCommandResults,
       retainedWebToolCalls: options.retainedWebToolCalls,
+      initialUserImages: options.initialUserImages,
       abortSignal: options.abortSignal,
       logger: options.logger || null,
       progressWriter,

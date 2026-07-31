@@ -919,6 +919,7 @@ abstract class RepoTaskEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
         availableModels: Array.isArray(parsedBody.availableModels) ? parsedBody.availableModels.map((value) => String(value)) : undefined,
         mockResponses: Array.isArray(parsedBody.mockResponses) ? parsedBody.mockResponses.map((value) => String(value)) : undefined,
         mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
+        initialUserImages: repoSearchRequest.images.length > 0 ? repoSearchRequest.images : undefined,
         abortSignal: stream.abortSignal,
         progressWriter,
         approvalGate,

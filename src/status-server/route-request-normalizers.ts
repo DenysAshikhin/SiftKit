@@ -16,6 +16,7 @@ export type RepoSearchRouteRequest = {
   repoRoot: string;
   model: string | null;
   maxTurns: number | null;
+  images: string[];
 };
 
 export type SummaryRouteRequest = {
@@ -103,11 +104,13 @@ export function parseRepoSearchRequest(body: JsonObject): RepoSearchRouteRequest
   if (!prompt) {
     return null;
   }
+  const images = parseImageDataUrls(reader.value('images'));
   return {
     prompt,
     repoRoot: reader.optionalString('repoRoot') || process.cwd(),
     model: reader.nullableString('model'),
     maxTurns: reader.nullableNonNegativeInteger('maxTurns'),
+    images,
   };
 }
 

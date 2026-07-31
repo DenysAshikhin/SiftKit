@@ -361,6 +361,7 @@ export async function executeRepoSearchRequest(
       mockResponses: request.mockResponses,
       mockCommandResults: request.mockCommandResults,
       retainedWebToolCalls: request.retainedWebToolCalls,
+      initialUserImages: request.initialUserImages,
       abortSignal: request.abortSignal,
       timingRecorder,
       progressWriter,
