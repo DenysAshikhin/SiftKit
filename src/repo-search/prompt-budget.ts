@@ -11,6 +11,8 @@ import {
 } from '../providers/llama-cpp.js';
 import type { ChatMessage } from './planner-protocol.js';
 import { renderTaskTranscript } from './planner-protocol.js';
+import { SIFT_IMAGE_TOKEN_ESTIMATE } from '../config/constants.js';
+import { countContentImages, extractContentText } from '../llm-protocol/image-attachments.js';
 
 // ---------------------------------------------------------------------------
 // Token estimation
@@ -93,12 +95,22 @@ export async function preflightPlannerPromptBudget(options: {
   const totalContextTokens = Math.max(1, Number(options.totalContextTokens || 0));
   const thinkingBufferTokens = Math.max(0, Number(options.thinkingBufferTokens || 0));
 
+  const messages = Array.isArray(options.messages) ? options.messages : [];
   const promptText = typeof options.prompt === 'string'
     ? options.prompt
-    : renderTaskTranscript(Array.isArray(options.messages) ? options.messages : []);
+    : renderTaskTranscript(messages);
+
+  // Image tokens cannot be derived from a data URI without decoding the image, and the
+  // rendered transcript carries no text for them, so each attachment gets a flat
+  // allowance. Only the transcript path can hold attachments; a caller-supplied prompt
+  // string is already the final text.
+  const imageTokenCount = typeof options.prompt === 'string'
+    ? 0
+    : messages.reduce((total, message) => total + countContentImages(message.content), 0)
+      * SIFT_IMAGE_TOKEN_ESTIMATE;
 
   const tokenCount = await countTokensWithFallbackDetailed(options.config, promptText);
-  const transcriptPromptTokenCount = tokenCount.tokenCount;
+  const transcriptPromptTokenCount = tokenCount.tokenCount + imageTokenCount;
   const providerPromptReserveText = String(options.providerPromptReserveText || '').trim();
   const reserveTokenCount = providerPromptReserveText
     ? await countTokensWithFallbackDetailed(options.config, providerPromptReserveText)
@@ -145,15 +157,17 @@ const COMPRESSED_HISTORY_MARKER = '[COMPRESSED HISTORICAL EVIDENCE]';
 function summarizeMessageForCompaction(message: ChatMessage): string {
   if (!message) return '';
   const role = String(message.role || 'unknown');
-  const content = typeof message.content === 'string'
-    ? message.content.replace(/\s+/gu, ' ').trim()
-    : '';
+  const content = extractContentText(message.content).replace(/\s+/gu, ' ').trim();
   const trimmedContent = content.length > 220 ? `${content.slice(0, 220)}...` : content;
   const toolCallCount = Array.isArray(message.tool_calls) ? message.tool_calls.length : 0;
   const toolCallSuffix = toolCallCount > 0 ? ` | tool_calls=${toolCallCount}` : '';
   const toolCallIdSuffix = typeof message.tool_call_id === 'string' && message.tool_call_id
     ? ` | tool_call_id=${message.tool_call_id}` : '';
-  return `[${role}] ${trimmedContent || '(no content)'}${toolCallSuffix}${toolCallIdSuffix}`.trim();
+  // Without this an image-only turn summarizes as "(no content)", which reads as an
+  // empty message rather than a dropped attachment.
+  const imageCount = countContentImages(message.content);
+  const imageSuffix = imageCount > 0 ? ` | images=${imageCount}` : '';
+  return `[${role}] ${trimmedContent || '(no content)'}${imageSuffix}${toolCallSuffix}${toolCallIdSuffix}`.trim();
 }
 
 function buildCompressedHistorySummary(droppedMessages: ChatMessage[]): string {

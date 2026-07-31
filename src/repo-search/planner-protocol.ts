@@ -1,7 +1,8 @@
 import type { InferenceBackendId, SiftConfig } from '../config/types.js';
 import { getDefaultConfigObject } from '../config/defaults.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
-import type { JsonObject, LlamaCppChatMessage, LlamaCppChatRole, LlamaCppToolCall } from '../llm-protocol/types.js';
+import type { JsonObject, LlamaCppChatMessage, LlamaCppChatRole, LlamaCppContentPart, LlamaCppToolCall } from '../llm-protocol/types.js';
+import { extractContentText } from '../llm-protocol/image-attachments.js';
 import { ModelJson } from '../lib/model-json.js';
 import { toError } from '../lib/errors.js';
 import {
@@ -64,7 +65,7 @@ export type FinishValidationResult = {
 
 export type ChatMessage = {
   role: LlamaCppChatRole;
-  content?: string;
+  content?: string | LlamaCppContentPart[];
   reasoning_content?: string;
   tool_calls?: Array<{
     id: string;
@@ -771,7 +772,10 @@ export { isTransientProviderError } from '../lib/provider-helpers.js';
 export function renderTaskTranscript(messages: ChatMessage[]): string {
   return messages.map((message) => {
     const sections = [`[${String(message.role || 'unknown')}]`];
-    if (typeof message.content === 'string' && message.content) sections.push(message.content);
+    // Content is a parts array whenever the turn carries images; reading only the
+    // string form would drop the user's prose from the rendered transcript too.
+    const contentText = extractContentText(message.content);
+    if (contentText) sections.push(contentText);
     if (Array.isArray(message.tool_calls)) {
       for (const toolCall of message.tool_calls) {
         sections.push(JSON.stringify({

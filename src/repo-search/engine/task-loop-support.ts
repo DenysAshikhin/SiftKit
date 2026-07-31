@@ -161,6 +161,7 @@ export type RunTaskLoopOptions = {
   thinkingEnabledOverride?: boolean;
   systemPromptOverride?: string;
   historyMessages?: ChatMessage[];
+  initialUserImages?: readonly string[];
   plannerToolDefinitions?: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;
   systemContext: PresetSystemContext;
   mockResponses?: string[];

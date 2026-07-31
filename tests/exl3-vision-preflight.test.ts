@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ModelRuntimePresetSchema, type ModelRuntimePreset } from '@siftkit/contracts';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
+import type { JsonValue } from '../src/lib/json-types.js';
 import { Exl3ModelCapabilities } from '../src/inference-presets/exl3-model-capabilities.js';
 import { Exl3PresetAdapter } from '../src/inference-presets/exl3-preset-adapter.js';
 
@@ -12,7 +13,7 @@ function createTempDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix));
 }
 
-function writeConfig(dir: string, obj: unknown): void {
+function writeConfig(dir: string, obj: JsonValue): void {
   writeFileSync(join(dir, 'config.json'), JSON.stringify(obj), { encoding: 'utf8' });
 }
 

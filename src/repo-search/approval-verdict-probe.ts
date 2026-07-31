@@ -2,6 +2,7 @@ import type { InferenceBackendId } from '../config/index.js';
 import { ProgressWriter } from '../lib/progress-writer.js';
 import { z } from '../lib/zod.js';
 import type { RepoSearchProgressEvent } from './types.js';
+import { MessageContentSchema } from '../llm-protocol/image-attachments.js';
 import {
   type ApprovalDecision,
   type ApprovalRequester,
@@ -28,7 +29,8 @@ const ReplayToolCallSchema = z.object({
 
 export const ReplayMessageSchema = z.object({
   role: z.enum(['system', 'user', 'assistant', 'tool']),
-  content: z.string().optional(),
+  // Parts, not just a string: a replayed transcript can contain an image turn.
+  content: MessageContentSchema.optional(),
   reasoning_content: z.string().optional(),
   tool_calls: z.array(ReplayToolCallSchema).optional(),
   tool_call_id: z.string().optional(),

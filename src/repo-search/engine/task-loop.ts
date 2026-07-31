@@ -223,6 +223,7 @@ export class TaskLoop {
       initialUserContent: this.loopKind === 'chat'
         ? task.question
         : buildTaskInitialUserPrompt(task.question),
+      initialUserImages: options.initialUserImages || [],
     });
     this.promptPreparer = new PromptPreparer({
       taskId: task.id,

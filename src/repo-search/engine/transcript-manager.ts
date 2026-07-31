@@ -7,6 +7,7 @@ import {
   type ToolTranscriptAction,
 } from '../../tool-call-messages.js';
 import { ThinkingRetentionPolicy } from '../../thinking-retention-policy.js';
+import { buildUserContent } from '../../llm-protocol/image-attachments.js';
 
 export class TranscriptManager {
   private readonly messages: ChatMessage[];
@@ -16,11 +17,12 @@ export class TranscriptManager {
     systemPromptContent: string;
     historyMessages: ChatMessage[];
     initialUserContent: string;
+    initialUserImages: readonly string[];
   }) {
     this.messages = [
       { role: 'system', content: options.systemPromptContent },
       ...options.historyMessages,
-      { role: 'user', content: options.initialUserContent },
+      { role: 'user', content: buildUserContent(options.initialUserContent, options.initialUserImages) },
     ];
   }
 

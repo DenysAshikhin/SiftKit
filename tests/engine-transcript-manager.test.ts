@@ -10,6 +10,7 @@ function makeTranscript(): TranscriptManager {
     systemPromptContent: 'SYSTEM',
     historyMessages: [{ role: 'user', content: 'earlier' }, { role: 'assistant', content: 'reply' }],
     initialUserContent: 'QUESTION',
+    initialUserImages: [],
   });
 }
 
@@ -95,6 +96,32 @@ test('replaceToolMessage on a non-tool message writes a tool message without an 
   assert.equal(message.role, 'tool');
   assert.equal(message.tool_call_id, undefined);
   assert.equal(message.content, 'replacement');
+});
+
+test('TranscriptManager attaches images to the initial user turn', () => {
+  const manager = new TranscriptManager({
+    systemPromptContent: 'system',
+    historyMessages: [],
+    initialUserContent: 'describe this',
+    initialUserImages: ['data:image/png;base64,AAAA'],
+  });
+  assert.deepEqual(manager.getMessages()[1], {
+    role: 'user',
+    content: [
+      { type: 'text', text: 'describe this' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+    ],
+  });
+});
+
+test('TranscriptManager keeps a plain string when there are no images', () => {
+  const manager = new TranscriptManager({
+    systemPromptContent: 'system',
+    historyMessages: [],
+    initialUserContent: 'plain',
+    initialUserImages: [],
+  });
+  assert.deepEqual(manager.getMessages()[1], { role: 'user', content: 'plain' });
 });
 
 test('replaceToolMessage overwrites in place preserving tool_call_id', () => {

@@ -3,20 +3,21 @@ import { extname } from 'node:path';
 import { z } from '../lib/zod.js';
 import { SIFT_MAX_IMAGE_BYTES } from '../config/constants.js';
 import type { LlamaCppContentPart } from './types.js';
+import type { OptionalJsonValue } from '../lib/json-types.js';
 import type { ModelRuntimePreset } from '../config/types.js';
 
 // ── MIME mapping ────────────────────────────────────────────────────────
 // shared image attachment core
 
-const IMAGE_MIME_MAP = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.gif': 'image/gif',
-} as const;
-
-type ImageExtension = keyof typeof IMAGE_MIME_MAP;
+// A Map keyed by plain string, so an arbitrary file extension is looked up without
+// asserting it into the key union.
+const IMAGE_MIME_MAP: ReadonlyMap<string, string> = new Map([
+  ['.png', 'image/png'],
+  ['.jpg', 'image/jpeg'],
+  ['.jpeg', 'image/jpeg'],
+  ['.webp', 'image/webp'],
+  ['.gif', 'image/gif'],
+]);
 
 // ── Schema ──────────────────────────────────────────────────────────────
 
@@ -32,9 +33,13 @@ export const ImageDataUrlSchema = z.string().refine(
   { message: 'supported-image' },
 );
 
-export function parseImageDataUrls(input: unknown): string[] {
-  const parsed = z.array(ImageDataUrlSchema).parse(input);
-  return parsed;
+/**
+ * Parses an `images` field off a request body or a persisted row. An absent field is an
+ * empty list; anything present but malformed throws rather than being silently dropped.
+ */
+export function parseImageDataUrls(input: OptionalJsonValue): string[] {
+  if (input === undefined || input === null) return [];
+  return z.array(ImageDataUrlSchema).parse(input);
 }
 
 // ── Reader ──────────────────────────────────────────────────────────────
@@ -42,8 +47,8 @@ export function parseImageDataUrls(input: unknown): string[] {
 export class ImageAttachmentReader {
   read(filePath: string): string {
     const rawExt = extname(filePath).toLowerCase();
-    const mime = IMAGE_MIME_MAP[rawExt as ImageExtension];
-    if (!mime) {
+    const mime = IMAGE_MIME_MAP.get(rawExt);
+    if (mime === undefined) {
       throw new Error(`Unsupported image extension: ${rawExt}`);
     }
     const buf = readFileSync(filePath);
@@ -61,7 +66,10 @@ export class ImageAttachmentReader {
 
 // ── Content builder ─────────────────────────────────────────────────────
 
-export function buildUserContent(text: string, imageUris: string[]): string | LlamaCppContentPart[] {
+export function buildUserContent(
+  text: string,
+  imageUris: readonly string[],
+): string | LlamaCppContentPart[] {
   if (imageUris.length === 0) return text;
 
   const parts: LlamaCppContentPart[] = [];
@@ -72,6 +80,37 @@ export function buildUserContent(text: string, imageUris: string[]): string | Ll
     parts.push({ type: 'image_url', image_url: { url: uri } });
   }
   return parts;
+}
+
+// ── Content schema ──────────────────────────────────────────────────────
+// Runtime shape of `LlamaCppContentPart` for IO boundaries that persist or replay
+// message content. Kept here so the part shape has one definition.
+
+export const ContentPartSchema = z.object({
+  type: z.string(),
+  text: z.string().optional(),
+  image_url: z.object({ url: z.string() }).optional(),
+});
+
+export const MessageContentSchema = z.union([z.string(), z.array(ContentPartSchema)]);
+
+// ── Content-part readers ────────────────────────────────────────────────
+// Message content is either a plain string or the parts array `buildUserContent`
+// produces. Every reader that needs the prose or the image count goes through these
+// so the part shape is decoded in exactly one place.
+
+export function extractContentText(content: string | LlamaCppContentPart[] | undefined): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((part) => part.type === 'text')
+    .map((part) => part.text ?? '')
+    .join(' ');
+}
+
+export function countContentImages(content: string | LlamaCppContentPart[] | undefined): number {
+  if (!Array.isArray(content)) return 0;
+  return content.filter((part) => part.type === 'image_url').length;
 }
 
 // ── Preset guard ────────────────────────────────────────────────────────

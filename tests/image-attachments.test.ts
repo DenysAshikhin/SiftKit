@@ -133,16 +133,13 @@ test('parseImageDataUrls rejects array with invalid entry', () => {
 });
 
 test('parseImageDataUrls rejects non-array input', () => {
-  const result = (() => {
-    try {
-      // Pass a number — runtime schema rejects non-arrays
-      parseImageDataUrls(42 as never);
-      return false;
-    } catch {
-      return true;
-    }
-  })();
-  assert.equal(result, true);
+  // A number is valid JSON but not an image list; the runtime schema rejects it.
+  assert.throws(() => parseImageDataUrls(42));
+});
+
+test('parseImageDataUrls treats an absent field as no images', () => {
+  assert.deepEqual(parseImageDataUrls(undefined), []);
+  assert.deepEqual(parseImageDataUrls(null), []);
 });
 
 test('ImageAttachmentReader.read returns data URI for .png', async () => {
@@ -210,15 +207,7 @@ test('ImageAttachmentReader.read throws for unknown extension', async () => {
   const filePath = path.join(tmpDir, 'test.txt');
   fs.writeFileSync(filePath, 'hello');
   const reader = new ImageAttachmentReader();
-  let threw = false;
-  try {
-    await reader.read(filePath);
-  } catch (err: unknown) {
-    threw = true;
-    const msg = String(err);
-    assert.ok(msg.includes('txt'), `expected txt in message, got: ${msg}`);
-  }
-  assert.equal(threw, true);
+  assert.throws(() => reader.read(filePath), /txt/u);
   fs.rmSync(tmpDir, { recursive: true });
 });
 
@@ -314,26 +303,10 @@ test('assertPresetAcceptsImages accepts managed EXL3 with VisionEnabled=true', (
 
 test('assertPresetAcceptsImages throws for llama backend', () => {
   const preset = makePreset({ Backend: 'llama', VisionEnabled: true });
-  let threw = false;
-  try {
-    assertPresetAcceptsImages(preset, [VALID_PNG_URI]);
-  } catch (err: unknown) {
-    threw = true;
-    const msg = String(err).toLowerCase();
-    assert.ok(msg.includes('backend') || msg.includes('llama'), `expected backend/llama in message, got: ${msg}`);
-  }
-  assert.equal(threw, true);
+  assert.throws(() => assertPresetAcceptsImages(preset, [VALID_PNG_URI]), /llama/iu);
 });
 
 test('assertPresetAcceptsImages throws for VisionEnabled=false', () => {
   const preset = makePreset({ Backend: 'exl3', VisionEnabled: false });
-  let threw = false;
-  try {
-    assertPresetAcceptsImages(preset, [VALID_PNG_URI]);
-  } catch (err: unknown) {
-    threw = true;
-    const msg = String(err).toLowerCase();
-    assert.ok(msg.includes('vision'), `expected vision in message, got: ${msg}`);
-  }
-  assert.equal(threw, true);
+  assert.throws(() => assertPresetAcceptsImages(preset, [VALID_PNG_URI]), /vision/iu);
 });
