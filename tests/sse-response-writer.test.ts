@@ -4,12 +4,13 @@ import http from 'node:http';
 import { SseResponseWriter } from '../src/status-server/sse-response-writer.js';
 import { SseFrameParser, type SseFrame } from '../src/lib/sse-frame-parser.js';
 import { getAddressInfo } from './helpers/dashboard-http.js';
+import { testHttpAgent } from './helpers/http-agent.js';
 
 function collectFrames(baseUrl: string): Promise<SseFrame[]> {
   return new Promise((resolve, reject) => {
     const frames: SseFrame[] = [];
     const parser = new SseFrameParser();
-    const request = http.request(`${baseUrl}/`, { method: 'POST' }, (response) => {
+    const request = http.request(`${baseUrl}/`, { method: 'POST', agent: testHttpAgent }, (response) => {
       assert.equal(response.headers['content-type'], 'text/event-stream');
       response.setEncoding('utf8');
       response.on('data', (chunk: string) => frames.push(...parser.push(chunk)));
@@ -55,7 +56,7 @@ test('emits heartbeat comments while idle', async () => {
     const port = getAddressInfo(server).port;
     const raw = await new Promise<string>((resolve, reject) => {
       let result = '';
-      const request = http.request(`http://127.0.0.1:${port}/`, { method: 'POST' }, (response) => {
+      const request = http.request(`http://127.0.0.1:${port}/`, { method: 'POST', agent: testHttpAgent }, (response) => {
         response.setEncoding('utf8');
         response.on('data', (chunk: string) => { result += chunk; });
         response.on('end', () => resolve(result));
@@ -81,7 +82,7 @@ test('suppresses writes after client disconnect and reports it', async () => {
   try {
     const port = getAddressInfo(server).port;
     await new Promise<void>((resolve, reject) => {
-      const request = http.request(`http://127.0.0.1:${port}/`, { method: 'POST' }, (response) => {
+      const request = http.request(`http://127.0.0.1:${port}/`, { method: 'POST', agent: testHttpAgent }, (response) => {
         response.on('data', () => {
           request.destroy();
           resolve();

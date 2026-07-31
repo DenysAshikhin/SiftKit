@@ -13,6 +13,7 @@ import { parseJsonValueText } from '../src/lib/json.js';
 import type { JsonValue } from '../src/lib/json-types.js';
 import { asObject, getAddressInfo, type JsonResponse } from './helpers/dashboard-http.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+import { testHttpAgent } from './helpers/http-agent.js';
 
 function writeManagedConfig(
   model: string,
@@ -43,6 +44,7 @@ function requestJson(url: string, timeoutMs = 5000): Promise<JsonResponse> {
         port: target.port,
         path: `${target.pathname}${target.search}`,
         method: 'GET',
+        agent: testHttpAgent,
       },
       (response) => {
         let responseText = '';
@@ -77,6 +79,7 @@ function requestJsonPost(url: string, body: JsonValue, timeoutMs = 5000): Promis
         port: target.port,
         path: `${target.pathname}${target.search}`,
         method: 'POST',
+        agent: testHttpAgent,
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(payload),

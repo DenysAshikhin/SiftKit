@@ -16,6 +16,7 @@ import {
   withTempEnv,
   writeManagedLlamaLauncher,
 } from './_runtime-helpers.js';
+import { testHttpAgent } from './helpers/http-agent.js';
 
 interface ModelsResponse {
   data: { id: string }[];
@@ -53,6 +54,7 @@ function requestJsonAllowError<T>(
         port: target.port,
         path: `${target.pathname}${target.search}`,
         method: options.method || 'GET',
+        agent: testHttpAgent,
         headers: options.body ? {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(options.body, 'utf8'),

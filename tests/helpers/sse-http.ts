@@ -3,6 +3,7 @@ import { SseFrameParser, type SseFrame } from '../../src/lib/sse-frame-parser.js
 import { parseJsonValueText } from '../../src/lib/json.js';
 import type { JsonObject, JsonSerializable } from '../../src/lib/json-types.js';
 import { asObject } from './dashboard-http.js';
+import { testHttpAgent } from './http-agent.js';
 
 export type CollectedSseResponse = {
   statusCode: number;
@@ -37,6 +38,7 @@ export function requestSse(
     const parser = new SseFrameParser();
     const request = http.request(url, {
       method: 'POST',
+      agent: testHttpAgent,
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(bodyText, 'utf8'),

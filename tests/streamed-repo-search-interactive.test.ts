@@ -9,12 +9,14 @@ import { parseJsonValueText } from '../src/lib/json.js';
 import { asObject } from './helpers/dashboard-http.js';
 import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
 import { RepoSearchExecutionResultSchema } from '../src/repo-search/types.js';
+import { testHttpAgent } from './helpers/http-agent.js';
 
 function postJson(url: string, body: JsonSerializable): Promise<{ statusCode: number; body: JsonObject }> {
   return new Promise((resolve, reject) => {
     const text = JSON.stringify(body);
     const request = http.request(url, {
       method: 'POST',
+      agent: testHttpAgent,
       headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(text, 'utf8') },
     }, (response) => {
       let raw = '';
