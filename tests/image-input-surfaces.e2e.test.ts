@@ -78,6 +78,13 @@ test('repo-search accepts a repeatable --image flag', () => {
 test('repo-search puts the image part on the first user message it sends', async () => {
   const capturedBodies: string[] = [];
   const server = http.createServer((req, res) => {
+    // Only chat completions are recorded; tokenize preflight 404s and falls back to the estimate.
+    if (req.url !== '/v1/chat/completions') {
+      req.resume();
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end('{}');
+      return;
+    }
     let body = '';
     req.setEncoding('utf8');
     req.on('data', (chunk) => { body += chunk; });
@@ -101,6 +108,7 @@ test('repo-search puts the image part on the first user message it sends', async
         systemContext: createEmptyPresetSystemContext(),
         model: 'mock',
         baseUrl: `http://127.0.0.1:${port}`,
+        config: mockSiftConfig({ Runtime: { LlamaCpp: { BaseUrl: `http://127.0.0.1:${port}` } } }),
         maxTurns: 1,
         maxInvalidResponses: 1,
         minToolCallsBeforeFinish: 0,

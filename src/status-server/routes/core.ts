@@ -1022,7 +1022,7 @@ class SummaryEndpoint extends StreamedOperationEndpoint<ParsedSummaryRoute> {
       requestTimeoutSeconds: summaryRequest.requestTimeoutSeconds,
       timing: summaryRequest.timing,
       promptPrefix: summaryRequest.promptPrefix,
-      llamaCppOverrides: summaryRequest.llamaCppOverrides,
+      llamaCppMaxTokens: summaryRequest.llamaCppMaxTokens,
       statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
       config: readConfig(ctx.configPath),
       abortSignal: stream.abortSignal,

@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, join, parse, resolve } from 'node:path';
+import { ModelRuntimePresetSchema } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
+import type { ModelRuntimePreset } from '../config/types.js';
 import {
   toNullableNonNegativeInteger,
   toNullableNonNegativeNumber,
@@ -60,8 +62,8 @@ export type ChatSession = {
   id: string;
   title?: string;
   modelPresetId: string;
-  model?: string | null;
-  contextWindowTokens?: number;
+  /** Full request-shaping preset captured when the session was created. */
+  modelPreset: ModelRuntimePreset;
   thinkingEnabled?: boolean;
   webSearchEnabled?: boolean;
   presetId?: string;
@@ -80,8 +82,7 @@ const SessionRowSchema = z.object({
   id: z.string(),
   title: z.string(),
   model_preset_id: z.string().trim().min(1),
-  model: z.string().nullable(),
-  context_window_tokens: z.number(),
+  model_preset_json: z.string().nullable(),
   thinking_enabled: z.number(),
   web_search_enabled: z.number(),
   preset_id: z.string().nullable(),
@@ -175,12 +176,11 @@ function requireModelPresetId(value: string): string {
   return modelPresetId;
 }
 
-function requireContextWindowTokens(value: number | undefined): number {
-  const contextWindowTokens = toNullableNonNegativeInteger(value);
-  if (contextWindowTokens === null || contextWindowTokens < 1) {
-    throw new Error('Chat session contextWindowTokens must be a positive integer.');
+function parseModelPresetSnapshot(sessionId: string, raw: string | null): ModelRuntimePreset {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    throw new Error(`Chat session ${sessionId} has no model preset snapshot; re-create the session.`);
   }
-  return contextWindowTokens;
+  return ModelRuntimePresetSchema.parse(parseJsonValueText(raw));
 }
 
 function normalizeRole(value: string | null | undefined): ChatMessageRole {
@@ -286,8 +286,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       id,
       title,
       model_preset_id,
-      model,
-      context_window_tokens,
+      model_preset_json,
       thinking_enabled,
       web_search_enabled,
       preset_id,
@@ -355,8 +354,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
     id: session.id,
     title: session.title,
     modelPresetId: session.model_preset_id,
-    model: session.model,
-    contextWindowTokens: session.context_window_tokens,
+    modelPreset: parseModelPresetSnapshot(session.id, session.model_preset_json),
     thinkingEnabled: session.thinking_enabled === 1,
     webSearchEnabled: session.web_search_enabled === 1,
     presetId: requirePresetId(session.preset_id),
@@ -436,7 +434,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
   }
   const now = new Date().toISOString();
   const modelPresetId = requireModelPresetId(session.modelPresetId);
-  const contextWindowTokens = requireContextWindowTokens(session.contextWindowTokens);
+  const modelPresetJson = JSON.stringify(ModelRuntimePresetSchema.parse(session.modelPreset));
   const mode = normalizeMode(session.mode);
   const presetId = requirePresetId(session.presetId);
   const messages = Array.isArray(session.messages) ? session.messages : [];
@@ -448,8 +446,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         id,
         title,
         model_preset_id,
-        model,
-        context_window_tokens,
+        model_preset_json,
         thinking_enabled,
         web_search_enabled,
         preset_id,
@@ -458,12 +455,11 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         condensed_summary,
         created_at_utc,
         updated_at_utc
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         model_preset_id = excluded.model_preset_id,
-        model = excluded.model,
-        context_window_tokens = excluded.context_window_tokens,
+        model_preset_json = excluded.model_preset_json,
         thinking_enabled = excluded.thinking_enabled,
         web_search_enabled = excluded.web_search_enabled,
         preset_id = excluded.preset_id,
@@ -475,8 +471,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
       sessionId,
       typeof session.title === 'string' && session.title.trim() ? session.title.trim() : 'New Session',
       modelPresetId,
-      typeof session.model === 'string' && session.model.trim() ? session.model.trim() : null,
-      contextWindowTokens,
+      modelPresetJson,
       session.thinkingEnabled === false ? 0 : 1,
       session.webSearchEnabled === true ? 1 : 0,
       presetId,

@@ -94,7 +94,6 @@ export type InvokeSummaryCoreOptions = {
   systemContext: PresetSystemContext;
   allowedPlannerTools?: SummaryRequest['allowedPlannerTools'];
   requestTimeoutSeconds?: number;
-  llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
   statusBackendUrl?: string | null;
   chunkContext?: ChunkPromptContext;
   timingRecorder?: TemporaryTimingRecorder | null;
@@ -256,7 +255,6 @@ class SummaryCoreRunner {
       systemContext: this.options.systemContext,
       allowedTools: this.options.allowedPlannerTools,
       requestTimeoutSeconds: this.options.requestTimeoutSeconds,
-      llamaCppOverrides: this.options.llamaCppOverrides,
       statusBackendUrl: this.options.statusBackendUrl,
       timingRecorder: this.options.timingRecorder || null,
     });
@@ -462,7 +460,6 @@ class SummaryCoreRunner {
         chunkPath: this.options.chunkPath ?? null,
         reasoningOverride,
         requestTimeoutSeconds: this.options.requestTimeoutSeconds,
-        llamaCppOverrides: this.options.llamaCppOverrides,
         statusBackendUrl: this.options.statusBackendUrl,
         timingRecorder: this.options.timingRecorder || null,
       });

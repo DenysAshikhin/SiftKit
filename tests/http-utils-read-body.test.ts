@@ -6,6 +6,7 @@ import {
   RequestBodyTooLargeError,
   readBody,
 } from '../src/status-server/http-utils.js';
+import { testHttpAgent } from './helpers/http-agent.js';
 
 type ReadOutcome = { ok: true; text: string } | { ok: false; error: Error };
 
@@ -41,7 +42,7 @@ test('readBody resolves normally for a complete body', async () => {
   try {
     await new Promise<void>((resolve, reject) => {
       const request = http.request(
-        { host: '127.0.0.1', port: server.port, method: 'POST', path: '/' },
+        { host: '127.0.0.1', port: server.port, method: 'POST', path: '/', agent: testHttpAgent },
         (response) => {
           response.resume();
           response.on('end', () => resolve());
@@ -66,6 +67,7 @@ test('readBody settles with an error when the client aborts mid-body', async () 
       port: server.port,
       method: 'POST',
       path: '/',
+      agent: testHttpAgent,
       headers: { 'Content-Length': '1000' },
     });
     request.on('error', () => {});
@@ -90,7 +92,7 @@ test('readBody rejects with RequestBodyTooLargeError past the cap', async () => 
   try {
     await new Promise<void>((resolve) => {
       const request = http.request(
-        { host: '127.0.0.1', port: server.port, method: 'POST', path: '/' },
+        { host: '127.0.0.1', port: server.port, method: 'POST', path: '/', agent: testHttpAgent },
         (response) => {
           response.resume();
           response.on('end', () => resolve());

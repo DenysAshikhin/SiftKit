@@ -1,5 +1,5 @@
-import { getActiveInferenceBackend, type SiftConfig } from '../../config/index.js';
-import { getDynamicMaxOutputTokens } from '../../lib/dynamic-output-cap.js';
+import type { SiftConfig } from '../../config/index.js';
+import { clampToPresetMaxTokens, getDynamicMaxOutputTokens } from '../../lib/dynamic-output-cap.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
 import {
   buildPlannerRequestPromptReserveText,
@@ -33,7 +33,7 @@ export class PromptPreparer {
 
   private buildProviderPromptReserveText(messageRoles: readonly string[], maxTokens: number, stream: boolean): string {
     return buildPlannerRequestPromptReserveText({
-      backend: this.options.config ? getActiveInferenceBackend(this.options.config) : 'llama',
+      config: this.options.config,
       stage: 'planner_action',
       model: String(this.options.model || ''),
       messageRoles,
@@ -86,10 +86,10 @@ export class PromptPreparer {
     if (preflight.tokenizationAttempted) {
       progress.tokenizeDone(turn, prompt.length, preflight);
     }
-    let maxOutputTokens = getDynamicMaxOutputTokens({
+    let maxOutputTokens = clampToPresetMaxTokens(this.options.config, getDynamicMaxOutputTokens({
       totalContextTokens: budget.totalContextTokens,
       promptTokenCount: preflight.promptTokenCount,
-    });
+    }));
 
     this.options.logger?.write({
       kind: 'turn_preflight_budget',
@@ -143,10 +143,10 @@ export class PromptPreparer {
         afterPromptTokenCount: afterCompaction.promptTokenCount,
         droppedMessageCount: compacted.droppedMessageCount,
       });
-      maxOutputTokens = getDynamicMaxOutputTokens({
+      maxOutputTokens = clampToPresetMaxTokens(this.options.config, getDynamicMaxOutputTokens({
         totalContextTokens: budget.totalContextTokens,
         promptTokenCount: afterCompaction.promptTokenCount,
-      });
+      }));
       this.options.logger?.write({
         kind: 'turn_preflight_compaction_applied',
         taskId,

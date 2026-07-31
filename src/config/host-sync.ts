@@ -2,30 +2,31 @@ import { httpClient } from '../lib/http-client.js';
 import { JsonObjectSchema } from '../lib/json-types.js';
 import { getActiveModelPreset, getFinitePositiveNumber } from './getters.js';
 import { normalizeConfigObject } from './normalization.js';
-import type { RuntimeLlamaCppConfig, SiftConfig } from './types.js';
+import { overlayActivePreset } from './overrides.js';
+import type { ModelRuntimePreset, SiftConfig } from './types.js';
 
 /**
- * In pass-through mode this SiftKit does not own the llama.cpp server — a
- * remote "host" SiftKit does. The local config's `NumCtx`/`Reasoning`/`Model`
- * are then only a guess and can silently diverge from what the host actually
- * launched llama.cpp with, which makes prompt-budget math wrong (an oversized
- * prompt passes the preflight check and the real server rejects it with HTTP
- * 400) or addresses a model the host has not loaded. This module fetches the
- * host SiftKit's config over HTTP and overlays its authoritative llama
- * runtime settings onto the local config.
+ * In pass-through mode this SiftKit does not own the inference server — a remote
+ * "host" SiftKit does. The local active preset is then only a guess and can
+ * silently diverge from what the host actually launched, which makes
+ * prompt-budget math wrong (an oversized prompt passes the preflight check and
+ * the real server rejects it with HTTP 400), addresses a model the host has not
+ * loaded, or sends samplers the host's preset does not use. This module fetches
+ * the host SiftKit's config over HTTP and overlays its authoritative
+ * request-shaping preset fields onto the local config.
  */
 
 const HOST_CONFIG_TIMEOUT_MS = 10_000;
+const HOST_SETTINGS_TTL_MS = 60_000;
 
-type HostLlamaSettings = {
-  numCtx: number | null;
-  reasoning: 'on' | 'off' | null;
-  model: string | null;
-};
+/** The preset fields the host owns in pass-through mode; everything else stays local. */
+type HostPresetSettings = Pick<ModelRuntimePreset,
+  'Model' | 'NumCtx' | 'Reasoning' | 'ReasoningContent' | 'PreserveThinking' | 'MaintainPerStepThinking'
+  | 'MaxTokens' | 'Temperature' | 'TopP' | 'TopK' | 'MinP' | 'PresencePenalty' | 'RepetitionPenalty'>;
 
-// Host settings are stable for a server's lifetime, so cache per host base URL:
-// only the first request of a process pays the round-trip.
-const hostSettingsCache = new Map<string, HostLlamaSettings>();
+// A host can swap presets while this process runs, so the snapshot expires
+// instead of pinning the first answer for the process lifetime.
+const hostSettingsCache = new Map<string, { fetchedAtMs: number; settings: HostPresetSettings }>();
 
 function isPassThroughMode(config: SiftConfig): boolean {
   return getActiveModelPreset(config).ExternalServerEnabled;
@@ -39,10 +40,10 @@ function getHostBaseUrl(config: SiftConfig): string | null {
   return candidate.trim().replace(/\/+$/u, '');
 }
 
-async function fetchHostLlamaSettings(baseUrl: string): Promise<HostLlamaSettings> {
+async function fetchHostPresetSettings(baseUrl: string): Promise<HostPresetSettings> {
   const cached = hostSettingsCache.get(baseUrl);
-  if (cached) {
-    return cached;
+  if (cached && Date.now() - cached.fetchedAtMs < HOST_SETTINGS_TTL_MS) {
+    return cached.settings;
   }
   // `skip_ready=1` lets the host return its config without booting managed llama.
   const hostConfig = normalizeConfigObject(await httpClient.requestJson({
@@ -50,24 +51,44 @@ async function fetchHostLlamaSettings(baseUrl: string): Promise<HostLlamaSetting
     method: 'GET',
     timeoutMs: HOST_CONFIG_TIMEOUT_MS,
   }, JsonObjectSchema));
-  const hostLlama: RuntimeLlamaCppConfig = hostConfig.Runtime.LlamaCpp;
-  const hostModel = getActiveModelPreset(hostConfig).Model;
-  const settings: HostLlamaSettings = {
-    numCtx: getFinitePositiveNumber(hostLlama.NumCtx),
-    reasoning: hostLlama.Reasoning === 'on' || hostLlama.Reasoning === 'off' ? hostLlama.Reasoning : null,
-    model: typeof hostModel === 'string' && hostModel.trim() ? hostModel.trim() : null,
+  const hostPreset = getActiveModelPreset(hostConfig);
+  const hostLlama = hostConfig.Runtime.LlamaCpp;
+  const hostModel = typeof hostPreset.Model === 'string' && hostPreset.Model.trim() ? hostPreset.Model.trim() : null;
+  const settings: HostPresetSettings = {
+    Model: hostModel,
+    // A llama-backed host records the launched values on Runtime.LlamaCpp; an
+    // exl3 host only has them on the preset.
+    NumCtx: getFinitePositiveNumber(hostLlama.NumCtx) ?? hostPreset.NumCtx,
+    Reasoning: hostLlama.Reasoning === 'on' || hostLlama.Reasoning === 'off' ? hostLlama.Reasoning : hostPreset.Reasoning,
+    ReasoningContent: hostPreset.ReasoningContent,
+    PreserveThinking: hostPreset.PreserveThinking,
+    MaintainPerStepThinking: hostPreset.MaintainPerStepThinking,
+    MaxTokens: hostPreset.MaxTokens,
+    Temperature: hostPreset.Temperature,
+    TopP: hostPreset.TopP,
+    TopK: hostPreset.TopK,
+    MinP: hostPreset.MinP,
+    PresencePenalty: hostPreset.PresencePenalty,
+    RepetitionPenalty: hostPreset.RepetitionPenalty,
   };
-  hostSettingsCache.set(baseUrl, settings);
+  hostSettingsCache.set(baseUrl, { fetchedAtMs: Date.now(), settings });
   return settings;
 }
 
+/** A host that reports no model has nothing to say about it, so the local model stands. */
+function buildPresetOverlay(settings: HostPresetSettings): Partial<ModelRuntimePreset> {
+  const { Model, ...requestFields } = settings;
+  return Model === null ? requestFields : { ...requestFields, Model };
+}
+
 /**
- * Returns `config` unchanged when this SiftKit owns its llama.cpp server. In
- * pass-through mode, overlays the host SiftKit's `NumCtx`/`Reasoning`/`Model`
- * so prompt-budget math and the requested model match the server that
- * actually serves the request. Falls back to the unchanged local config when
- * the host is unreachable or is not a SiftKit (e.g. `BaseUrl` points straight
- * at a raw llama.cpp endpoint).
+ * Returns `config` unchanged when this SiftKit owns its inference server. In
+ * pass-through mode, overlays the host SiftKit's request-shaping preset fields
+ * so prompt-budget math, the requested model, and the samplers match the server
+ * that actually serves the request. `NumCtx`/`Reasoning` are also written to
+ * `Runtime.LlamaCpp` because that is where the llama-backend getters read them.
+ * Falls back to the unchanged local config when the host is unreachable or is
+ * not a SiftKit (e.g. `BaseUrl` points straight at a raw llama.cpp endpoint).
  */
 export async function applyHostLlamaRuntimeSettings(config: SiftConfig): Promise<SiftConfig> {
   if (!isPassThroughMode(config)) {
@@ -78,39 +99,19 @@ export async function applyHostLlamaRuntimeSettings(config: SiftConfig): Promise
     return config;
   }
 
-  let hostSettings: HostLlamaSettings;
+  let settings: HostPresetSettings;
   try {
-    hostSettings = await fetchHostLlamaSettings(baseUrl);
+    settings = await fetchHostPresetSettings(baseUrl);
   } catch {
     return config;
   }
-  if (hostSettings.numCtx === null && hostSettings.reasoning === null && hostSettings.model === null) {
-    return config;
-  }
 
-  const overlay: RuntimeLlamaCppConfig = {};
-  if (hostSettings.numCtx !== null) {
-    overlay.NumCtx = hostSettings.numCtx;
-  }
-  if (hostSettings.reasoning !== null) {
-    overlay.Reasoning = hostSettings.reasoning;
-  }
+  const overlaid = overlayActivePreset(config, buildPresetOverlay(settings));
   return {
-    ...config,
-    Server: {
-      ...config.Server,
-      ModelPresets: {
-        ...config.Server.ModelPresets,
-        Presets: config.Server.ModelPresets.Presets.map((preset) => (
-          preset.id === config.Server.ModelPresets.ActivePresetId && hostSettings.model !== null
-            ? { ...preset, Model: hostSettings.model }
-            : preset
-        )),
-      },
-    },
+    ...overlaid,
     Runtime: {
-      ...config.Runtime,
-      LlamaCpp: { ...config.Runtime.LlamaCpp, ...overlay },
+      ...overlaid.Runtime,
+      LlamaCpp: { ...overlaid.Runtime.LlamaCpp, NumCtx: settings.NumCtx, Reasoning: settings.Reasoning },
     },
   };
 }

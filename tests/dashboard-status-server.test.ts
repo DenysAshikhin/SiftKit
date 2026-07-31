@@ -29,6 +29,7 @@ import {
   writeJson,
 } from './helpers/dashboard-http.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+import { mockModelPreset } from './helpers/mock-config.js';
 import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
 import { DashboardRunSeeder } from './helpers/dashboard-run-seed.js';
 import {
@@ -379,7 +380,7 @@ class ChatInferenceMetadataFixture {
   seedActiveSession(): void {
     saveChatSession(this.runtimeRoot, {
       id: 'stale-active', title: 'Stale active session', modelPresetId: this.activePresetId,
-      model: 'stale-model', contextWindowTokens: 30_000, thinkingEnabled: true,
+      modelPreset: mockModelPreset({ id: this.activePresetId, Model: 'stale-model', NumCtx: 30_000 }), thinkingEnabled: true,
       presetId: 'chat', mode: 'chat',
       condensedSummary: '', createdAtUtc: '2026-07-21T00:00:00.000Z',
       updatedAtUtc: '2026-07-21T00:00:00.000Z', messages: [],
@@ -389,7 +390,7 @@ class ChatInferenceMetadataFixture {
   seedHistoricalSession(): void {
     saveChatSession(this.runtimeRoot, {
       id: 'historical', title: 'Historical session', modelPresetId: 'historical-preset',
-      model: 'historical-model', contextWindowTokens: 30_000, thinkingEnabled: true,
+      modelPreset: mockModelPreset({ id: 'historical-preset', Model: 'historical-model', NumCtx: 30_000 }), thinkingEnabled: true,
       presetId: 'chat', mode: 'chat',
       condensedSummary: '', createdAtUtc: '2026-07-20T00:00:00.000Z',
       updatedAtUtc: '2026-07-20T00:00:00.000Z', messages: [],
@@ -408,7 +409,7 @@ class ChatInferenceMetadataFixture {
   }
 
   persistedActiveContextWindow(): number | undefined {
-    return readChatSessions(this.runtimeRoot).find((session) => session.id === 'stale-active')?.contextWindowTokens;
+    return readChatSessions(this.runtimeRoot).find((session) => session.id === 'stale-active')?.modelPreset.NumCtx;
   }
 
   async close(): Promise<void> {

@@ -4,6 +4,8 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { getDefaultConfigObject } from '../src/config/defaults.js';
+import { getConfiguredModel } from '../src/config/getters.js';
+import { mockModelPreset } from './helpers/mock-config.js';
 import { ProgressWriter } from '../src/lib/progress-writer.js';
 import type {
   RepoSearchExecutionRequest,
@@ -115,8 +117,7 @@ function createSession(): ChatSession {
     id: 'session-1',
     title: 'Session',
     modelPresetId: 'default',
-    model: 'test-model',
-    contextWindowTokens: 4096,
+    modelPreset: mockModelPreset({ id: 'default', Model: 'test-model', NumCtx: 4096 }),
     thinkingEnabled: true,
     webSearchEnabled: false,
     presetId: 'summary',
@@ -196,7 +197,12 @@ test('chat repo operation runner executes and persists equivalent plan and repo-
       assert.equal(engineRequest.repoRoot, process.cwd());
       assert.equal(engineRequest.requestId, 'route-request');
       assert.equal(engineRequest.maxTurns, operation === 'plan' ? 7 : 45);
-      assert.equal(engineRequest.model, 'test-model');
+      // The session drives the engine through its config, not a separate model argument.
+      assert.equal(engineRequest.model, undefined);
+      if (!engineRequest.config) {
+        throw new Error('Expected the engine request to carry a config.');
+      }
+      assert.equal(getConfiguredModel(engineRequest.config), 'test-model');
       assert.equal(engineRequest.allowedTools?.includes('web_search'), operation === 'repo-search');
       assert.equal(engineRequest.allowedTools?.includes('web_fetch'), operation === 'repo-search');
       assert.match(engineRequest.prompt, operation === 'plan' ? /implementation plan/u : /^find target$/u);

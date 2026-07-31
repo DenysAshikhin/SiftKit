@@ -6,6 +6,13 @@ import {
   buildPlannerRequestPromptReserveText,
   resolveRepoSearchPlannerToolDefinitions,
 } from '../src/repo-search/planner-protocol.js';
+import { mockSiftConfig } from './helpers/mock-config.js';
+
+function configForBackend(backend: 'llama' | 'exl3') {
+  return mockSiftConfig({
+    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', Backend: backend }] } },
+  });
+}
 
 // With no tools there is exactly one action variant, so the schema collapses to that variant
 // directly — no union wrapper at all. See docs/handoff-oneof-grammar-wedge.md: single-variant
@@ -40,7 +47,7 @@ test('planner request with empty toolDefinitions emits a finish-only schema (no 
   const body = PlannerRequestBodySchema.parse(
     JSON.parse(
       buildPlannerRequestPromptReserveText({
-        backend: 'llama',
+        config: configForBackend('llama'),
         stage: 'planner_action',
         model: 'mock',
         maxTokens: 256,
@@ -69,11 +76,11 @@ test('planner prompt reserve mirrors backend-specific schema lowering', () => {
   };
   const llamaText = buildPlannerRequestPromptReserveText({
     ...common,
-    backend: 'llama',
+    config: configForBackend('llama'),
   });
   const exl3Text = buildPlannerRequestPromptReserveText({
     ...common,
-    backend: 'exl3',
+    config: configForBackend('exl3'),
   });
 
   assert.match(llamaText, /"minItems":1/u);

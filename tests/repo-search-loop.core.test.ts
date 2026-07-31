@@ -19,6 +19,7 @@ import {
   compactPlannerMessagesOnce,
 } from '../src/repo-search/prompt-budget.js';
 import { getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
+import { estimateTokenCount } from '../src/repo-search/prompt-budget.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import type { SiftConfig } from '../src/config/types.js';
@@ -627,32 +628,45 @@ test('runTaskLoop executes find with a runner-* glob natively', async () => {
 
 test('runTaskLoop logs provider request error details and surfaces enriched network failures', async () => {
   const events: JsonObject[] = [];
+  // Preflight tokenizes against the config base URL; a 404 there falls back to the
+  // estimate immediately, so only the planner request (a refused port) fails.
+  const tokenizeServer = http.createServer((_req, res) => {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end('{}');
+  });
+  await new Promise<void>((resolve) => tokenizeServer.listen(0, '127.0.0.1', resolve));
+  const tokenizeBaseUrl = `http://127.0.0.1:${getAddressInfo(tokenizeServer).port}`;
   const startedAt = Date.now();
-  await assert.rejects(
-    () => runTaskLoop(
-      {
-        id: 'task-provider-network-error',
-        question: 'Trigger a provider request failure.',
-        signals: [],
-      },
-      {
-        ...MOCK_LOOP_DEFAULTS,
-        baseUrl: 'http://127.0.0.1:1',
-        model: 'mock-model',
-        timeoutMs: 500,
-        maxTurns: 1,
-        maxInvalidResponses: 1,
-        minToolCallsBeforeFinish: 0,
-        logger: {
-          path: 'memory',
-          write(event) {
-            events.push(JSON.parse(JSON.stringify(event)));
-          },
+  try {
+    await assert.rejects(
+      () => runTaskLoop(
+        {
+          id: 'task-provider-network-error',
+          question: 'Trigger a provider request failure.',
+          signals: [],
         },
-      }
-    ),
-    /provider request failed stage=planner_action/u
-  );
+        {
+          ...MOCK_LOOP_DEFAULTS,
+          baseUrl: 'http://127.0.0.1:1',
+          model: 'mock-model',
+          config: mockConfig({ Runtime: { LlamaCpp: { BaseUrl: tokenizeBaseUrl } } }),
+          timeoutMs: 500,
+          maxTurns: 1,
+          maxInvalidResponses: 1,
+          minToolCallsBeforeFinish: 0,
+          logger: {
+            path: 'memory',
+            write(event) {
+              events.push(JSON.parse(JSON.stringify(event)));
+            },
+          },
+        }
+      ),
+      /provider request failed stage=planner_action/u
+    );
+  } finally {
+    await new Promise<void>((resolve, reject) => tokenizeServer.close((error) => (error ? reject(error) : resolve())));
+  }
   assert.equal(Date.now() - startedAt < 2_000, true);
 
   const startEvent = events.find((event) => event.kind === 'provider_request_start');
@@ -1257,6 +1271,11 @@ test('runTaskLoop uses dynamic max_tokens for planner requests from live prompt 
         systemContext: createEmptyPresetSystemContext(),
         baseUrl,
         model: 'mock-model',
+        // MaxTokens is far above the dynamic budget so this case stays about the dynamic math.
+        config: mockConfig({
+          Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 20000 } },
+          Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', MaxTokens: 100_000 }] } },
+        }),
         totalContextTokens: 20000,
         maxTurns: 1,
         minToolCallsBeforeFinish: 0,
@@ -1315,6 +1334,12 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
   const address = server.address();
   const baseUrl = `http://127.0.0.1:${Number(typeof address === 'object' && address ? address.port : 0)}`;
 
+  // MaxTokens is far above the dynamic budget so this case stays about the dynamic math.
+  const config = mockConfig({
+    Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 12000 } },
+    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', MaxTokens: 100_000 }] } },
+  });
+
   try {
     const result = await runTaskLoop(
       {
@@ -1327,6 +1352,7 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
         systemContext: createEmptyPresetSystemContext(),
         baseUrl,
         model: 'mock-model',
+        config,
         totalContextTokens: 12000,
         maxTurns: 1,
         maxInvalidResponses: 1,
@@ -1342,9 +1368,81 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
       Number(chatRequests[1].max_tokens),
       getDynamicMaxOutputTokens({
         totalContextTokens: 12000,
-        promptTokenCount: Math.max(1, Math.ceil(synthesisPrompt.length / 4)),
+        promptTokenCount: estimateTokenCount(config, synthesisPrompt),
       })
     );
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test('runTaskLoop clamps planner and terminal synthesis max_tokens to the preset MaxTokens', async () => {
+  const chatRequests: JsonObject[] = [];
+  const server = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/v1/chat/completions') {
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', () => {
+        const parsed = JSON.parse(body || '{}');
+        chatRequests.push(parsed);
+        const isTerminalSynthesis = String(parsed?.response_format?.type || '') !== 'json_schema';
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          choices: [{
+            message: {
+              role: 'assistant',
+              content: isTerminalSynthesis ? 'best-effort answer' : 'not-json',
+            },
+          }],
+          usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+        }));
+      });
+      return;
+    }
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${Number(typeof address === 'object' && address ? address.port : 0)}`;
+
+  // MaxTokens sits far below the dynamic budget, so the preset cap is what must survive.
+  const config = mockConfig({
+    Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 12000 } },
+    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', MaxTokens: 900 }] } },
+  });
+
+  try {
+    const result = await runTaskLoop(
+      {
+        id: 'task-preset-max-tokens-clamp',
+        question: 'Find planner prompt location.',
+        signals: [],
+      },
+      {
+        repoRoot: process.cwd(),
+        systemContext: createEmptyPresetSystemContext(),
+        baseUrl,
+        model: 'mock-model',
+        config,
+        totalContextTokens: 12000,
+        maxTurns: 1,
+        maxInvalidResponses: 1,
+        minToolCallsBeforeFinish: 0,
+      }
+    );
+
+    assert.equal(result.reason, 'invalid_response_limit');
+    assert.equal(chatRequests.length, 2);
+    const synthesisPrompt = String(asObject(asObjectArray(chatRequests[1].messages)[0]).content || '');
+    assert.ok(getDynamicMaxOutputTokens({
+      totalContextTokens: 12000,
+      promptTokenCount: estimateTokenCount(config, synthesisPrompt),
+    }) > 900);
+    assert.equal(Number(chatRequests[0].max_tokens), 900);
+    assert.equal(Number(chatRequests[1].max_tokens), 900);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }

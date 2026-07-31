@@ -5,6 +5,7 @@ import { recordServerError } from '../src/status-server/error-response.js';
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import { getAddressInfo } from './helpers/dashboard-http.js';
 import { withTempEnv } from './_runtime-helpers.js';
+import { testHttpAgent } from './helpers/http-agent.js';
 
 test('recordServerError returns the persisted diagnostic payload without sending a response', async () => {
   await withTempEnv(async () => {
@@ -20,7 +21,7 @@ test('recordServerError returns the persisted diagnostic payload without sending
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     try {
       const body = await new Promise<string>((resolve, reject) => {
-        const request = http.request(`http://127.0.0.1:${getAddressInfo(server).port}/summary`, (response) => {
+        const request = http.request(`http://127.0.0.1:${getAddressInfo(server).port}/summary`, { agent: testHttpAgent }, (response) => {
           let text = '';
           response.setEncoding('utf8');
           response.on('data', (chunk: string) => { text += chunk; });

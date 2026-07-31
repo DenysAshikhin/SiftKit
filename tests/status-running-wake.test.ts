@@ -11,6 +11,7 @@ import type { ServerContext } from '../src/status-server/server-types.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { createTestServerContext } from './helpers/server-context-fixture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { testHttpAgent } from './helpers/http-agent.js';
 
 type JsonResponse = { statusCode: number; body: JsonObject };
 
@@ -25,6 +26,7 @@ function requestJson(url: string, body: JsonObject): Promise<JsonResponse> {
         port: target.port,
         path: `${target.pathname}${target.search}`,
         method: 'POST',
+        agent: testHttpAgent,
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(bodyText, 'utf8'),

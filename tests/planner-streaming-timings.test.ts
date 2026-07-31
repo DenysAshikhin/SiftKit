@@ -4,6 +4,7 @@ import http from 'node:http';
 import { requestRepoSearchPlannerProtocolAction } from '../src/repo-search/planner-protocol.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { asObject } from './helpers/dashboard-http.js';
+import { mockSiftConfig } from './helpers/mock-config.js';
 import type { JsonObject, JsonValue } from '../src/lib/json-types.js';
 
 const PREDICTED_MS = 4321;
@@ -74,6 +75,7 @@ function startFakeLlamaServer(): Promise<FakeLlamaServer> {
 
 async function runStreamingPlanner(baseUrl: string): Promise<Awaited<ReturnType<typeof requestRepoSearchPlannerProtocolAction>>> {
   return requestRepoSearchPlannerProtocolAction({
+    config: mockSiftConfig({}),
     baseUrl,
     model: 'mock',
     messages: [{ role: 'user', content: 'hi' }],

@@ -20,7 +20,7 @@ import { requestSse } from './helpers/sse-http.js';
 import { captureStdoutLines } from './helpers/stdout-capture.js';
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import { parseJsonValueText } from '../src/lib/json.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 
 const requireFromHere = createRequire(__filename);
 
@@ -463,7 +463,9 @@ test('managed llama readiness wait is serialized by the model request queue', as
       }
     }
     await stopManagedTestProcess(managed.pidFilePath);
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    // Windows releases a terminated launcher's working directory (this temp root) asynchronously,
+    // so removal has to be retried rather than attempted once.
+    await removeDirectoryWithRetries(tempRoot);
   }
 });
 
@@ -529,7 +531,9 @@ test('health reports unavailable while managed llama bootstrap is still starting
       }
     }
     await stopManagedTestProcess(managed.pidFilePath);
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    // Windows releases a terminated launcher's working directory (this temp root) asynchronously,
+    // so removal has to be retried rather than attempted once.
+    await removeDirectoryWithRetries(tempRoot);
   }
 });
 

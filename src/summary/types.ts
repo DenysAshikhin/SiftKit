@@ -70,7 +70,7 @@ export type SummaryRequest = {
   debugCommand?: string | null;
   requestTimeoutSeconds?: number;
   allowedPlannerTools?: PlannerToolName[];
-  llamaCppOverrides?: Pick<RuntimeLlamaCppConfig, 'MaxTokens'>;
+  llamaCppMaxTokens?: number;
   timing?: SummaryTimingInput;
   statusBackendUrl?: string | null;
   config?: SiftConfig;

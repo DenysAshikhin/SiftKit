@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   applyHostLlamaRuntimeSettings,
+  applyModelOverrideToConfig,
   getConfiguredLlamaBaseUrl,
   getConfiguredLlamaNumCtx,
   getConfiguredModel,
@@ -206,11 +207,12 @@ export async function runRepoSearch(options: {
   });
   // In pass-through mode the prompt-budget math must use the host SiftKit's
   // real context window, not this client's (possibly stale) local NumCtx.
-  const config = await applyHostLlamaRuntimeSettings(
-    options.config || await loadConfig({ ensure: true }),
+  const config = applyModelOverrideToConfig(
+    await applyHostLlamaRuntimeSettings(options.config || await loadConfig({ ensure: true })),
+    options.model,
   );
   configSpan?.end();
-  const model = options.model || getConfiguredModel(config);
+  const model = getConfiguredModel(config);
   const baseUrl = options.baseUrl || getConfiguredLlamaBaseUrl(config);
 
   options.logger?.write({ kind: 'run_start', repoRoot, requestedModel: options.model || null, configuredModel: model, baseUrl });

@@ -8,16 +8,18 @@ import { captureStdout, getFreePort, writeManagedLlamaScripts } from './_runtime
 import { startStatusServer } from '../src/status-server/index.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
-import { getConfigPath } from '../src/config/index.js';
+import { getConfigPath, type ModelRuntimePreset } from '../src/config/index.js';
 import { parseJsonValueText } from '../src/lib/json.js';
-import type { JsonValue } from '../src/lib/json-types.js';
+import type { JsonObject, JsonValue } from '../src/lib/json-types.js';
 import { asObject, getAddressInfo, type JsonResponse } from './helpers/dashboard-http.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+import { testHttpAgent } from './helpers/http-agent.js';
 
 function writeManagedConfig(
   model: string,
   managed: { baseUrl: string; modelPath: string; startupScriptPath: string },
   timeouts: { StartupTimeoutMs: number; HealthcheckTimeoutMs: number; HealthcheckIntervalMs: number },
+  presetOverrides: Partial<ModelRuntimePreset> = {},
 ): void {
   const config = getDefaultConfig();
   const preset = config.Server.ModelPresets.Presets[0];
@@ -29,6 +31,7 @@ function writeManagedConfig(
   preset.StartupTimeoutMs = timeouts.StartupTimeoutMs;
   preset.HealthcheckTimeoutMs = timeouts.HealthcheckTimeoutMs;
   preset.HealthcheckIntervalMs = timeouts.HealthcheckIntervalMs;
+  config.Server.ModelPresets.Presets[0] = { ...preset, ...presetOverrides };
   writeConfig(getConfigPath(), config);
 }
 
@@ -43,6 +46,7 @@ function requestJson(url: string, timeoutMs = 5000): Promise<JsonResponse> {
         port: target.port,
         path: `${target.pathname}${target.search}`,
         method: 'GET',
+        agent: testHttpAgent,
       },
       (response) => {
         let responseText = '';
@@ -77,6 +81,7 @@ function requestJsonPost(url: string, body: JsonValue, timeoutMs = 5000): Promis
         port: target.port,
         path: `${target.pathname}${target.search}`,
         method: 'POST',
+        agent: testHttpAgent,
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(payload),
@@ -312,6 +317,136 @@ test('chat passthrough logs every forwarded /v1/chat/completions request', async
     }
     await removeDirectoryWithRetries(tempRoot);
   }
+});
+
+async function withPassthroughChatServer(
+  presetOverrides: Partial<ModelRuntimePreset>,
+  run: (postChat: (body: JsonValue) => Promise<JsonResponse>) => Promise<void>,
+): Promise<void> {
+  const tempRoot = createManagedTempDir('siftkit-inference-passthrough-samplers-');
+  const previousCwd = process.cwd();
+  fs.writeFileSync(
+    path.join(tempRoot, 'package.json'),
+    JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+    'utf8',
+  );
+  process.chdir(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup: Record<string, string | undefined> = {
+    sift_kit_status: process.env.sift_kit_status,
+    SIFTKIT_STATUS_PATH: process.env.SIFTKIT_STATUS_PATH,
+    SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
+    SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
+    SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+  };
+  process.env.sift_kit_status = statusPath;
+  process.env.SIFTKIT_STATUS_PATH = statusPath;
+  process.env.SIFTKIT_CONFIG_PATH = configPath;
+  process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
+  process.env.SIFTKIT_STATUS_PORT = '0';
+
+  const llamaPort = await getFreePort();
+  const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-sampler-model');
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  writeManagedConfig('managed-sampler-model', managed, {
+    StartupTimeoutMs: 10000,
+    HealthcheckTimeoutMs: 2000,
+    HealthcheckIntervalMs: 100,
+  }, presetOverrides);
+
+  const server = startStatusServer();
+  await server.startupPromise;
+  const address = getAddressInfo(server);
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    await run((body) => requestJsonPost(`${baseUrl}/v1/chat/completions`, body, 30_000));
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    process.chdir(previousCwd);
+    closeRuntimeDatabase();
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+}
+
+function readForwardedRequest(response: JsonResponse): JsonObject {
+  assert.equal(response.statusCode, 200);
+  return asObject(response.body.forwardedRequest);
+}
+
+test('chat passthrough forces preset samplers and lets callers only lower max_tokens', async () => {
+  await withPassthroughChatServer({
+    Temperature: 0.6,
+    TopP: 0.8,
+    TopK: 17,
+    MinP: 0.03,
+    PresencePenalty: 0.9,
+    RepetitionPenalty: 1.15,
+    MaxTokens: 15_000,
+    Reasoning: 'off',
+  }, async (postChat) => {
+    const overreaching = readForwardedRequest(await postChat({
+      messages: [{ role: 'user', content: 'hi' }],
+      temperature: 1.9,
+      top_p: 0.1,
+      top_k: 99,
+      min_p: 0.5,
+      presence_penalty: 0,
+      repeat_penalty: 2,
+      max_tokens: 99_999,
+      chat_template_kwargs: { enable_thinking: true },
+    }));
+    assert.equal(overreaching.temperature, 0.6);
+    assert.equal(overreaching.top_p, 0.8);
+    assert.equal(overreaching.top_k, 17);
+    assert.equal(overreaching.min_p, 0.03);
+    assert.equal(overreaching.presence_penalty, 0.9);
+    assert.equal(overreaching.repeat_penalty, 1.15);
+    assert.equal(overreaching.model, 'managed-sampler-model');
+    // min(caller 99999, preset 15000)
+    assert.equal(overreaching.max_tokens, 15_000);
+    // The preset has reasoning off, so the caller cannot turn thinking on.
+    assert.deepEqual(overreaching.chat_template_kwargs, { enable_thinking: false });
+
+    const modest = readForwardedRequest(await postChat({
+      messages: [{ role: 'user', content: 'hi' }],
+      max_tokens: 128,
+    }));
+    assert.equal(modest.max_tokens, 128);
+
+    const unspecified = readForwardedRequest(await postChat({
+      messages: [{ role: 'user', content: 'hi' }],
+    }));
+    assert.equal(unspecified.max_tokens, 15_000);
+  });
+});
+
+test('chat passthrough forwards the preset thinking kwargs when reasoning is on', async () => {
+  await withPassthroughChatServer({
+    Reasoning: 'on',
+    ReasoningContent: true,
+    PreserveThinking: true,
+  }, async (postChat) => {
+    const forwarded = readForwardedRequest(await postChat({
+      messages: [{ role: 'user', content: 'hi' }],
+      chat_template_kwargs: { enable_thinking: false },
+    }));
+    assert.deepEqual(forwarded.chat_template_kwargs, {
+      enable_thinking: true,
+      reasoning_content: true,
+      preserve_thinking: true,
+    });
+  });
 });
 
 test('llama passthrough proxies POST /tokenize to managed llama', async () => {

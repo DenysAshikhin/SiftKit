@@ -49,7 +49,6 @@ export async function invokeProviderSummary(options: {
   chunkPath: string | null;
   reasoningOverride?: 'on' | 'off';
   requestTimeoutSeconds?: number;
-  llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
   statusBackendUrl?: string | null;
   timingRecorder?: TemporaryTimingRecorder | null;
 }): Promise<{ text: string; metrics: ProviderSummaryMetrics }> {
@@ -139,7 +138,6 @@ export async function invokeProviderSummary(options: {
           kind: 'siftkit-decision-json',
           allowUnsupportedInput: options.backend !== 'llama.cpp' || options.phase === 'leaf' && options.chunkPath !== null,
         },
-        overrides: options.llamaCppOverrides,
       });
     } finally {
       llamaSpan?.end();

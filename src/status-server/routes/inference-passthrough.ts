@@ -70,25 +70,16 @@ function buildResponseHeaders(headers: IncomingHttpHeaders): OutgoingHttpHeaders
   return downstream;
 }
 
-function setNumberDefault(body: JsonObject, key: string, value: number): void {
-  if (typeof body[key] !== 'number') body[key] = value;
-}
-
-function applyThinkingDefaults(body: JsonObject, preset: ModelRuntimePreset): void {
+/** The preset owns thinking; a caller's `chat_template_kwargs` is replaced, not merged. */
+function applyThinkingSettings(body: JsonObject, preset: ModelRuntimePreset): void {
   const compatibility = getInferenceRequestCompatibility(preset.Backend);
-  if (!isJsonObject(body.chat_template_kwargs)) body.chat_template_kwargs = {};
-  const template = body.chat_template_kwargs;
   const thinkingEnabled = preset.Reasoning === 'on';
-  if (typeof template.enable_thinking !== 'boolean') template.enable_thinking = thinkingEnabled;
-  if (thinkingEnabled && preset.PreserveThinking && typeof template.preserve_thinking !== 'boolean') {
-    template.preserve_thinking = true;
-  }
-  if (
-    compatibility.reasoningContent
-    && thinkingEnabled
-    && preset.ReasoningContent
-    && typeof template.reasoning_content !== 'boolean'
-  ) template.reasoning_content = true;
+  const reasoningContent = thinkingEnabled && preset.ReasoningContent;
+  body.chat_template_kwargs = {
+    enable_thinking: thinkingEnabled,
+    ...(compatibility.reasoningContent && reasoningContent ? { reasoning_content: true } : {}),
+    ...(reasoningContent && preset.PreserveThinking ? { preserve_thinking: true } : {}),
+  };
 }
 
 function validateChatBody(bodyText: string): number {
@@ -106,15 +97,19 @@ function translateChatBody(bodyText: string, preset: ModelRuntimePreset): string
   }
   const defaults = buildPresetRequestDefaults(preset);
   parsed.model = preset.Model ?? preset.id;
-  setNumberDefault(parsed, 'max_tokens', defaults.maxTokens);
-  setNumberDefault(parsed, 'temperature', defaults.temperature);
-  setNumberDefault(parsed, 'top_p', defaults.topP);
-  setNumberDefault(parsed, 'top_k', defaults.topK);
-  setNumberDefault(parsed, 'min_p', defaults.minP);
-  setNumberDefault(parsed, 'presence_penalty', defaults.presencePenalty);
-  applyThinkingDefaults(parsed, preset);
+  // The preset is authoritative for sampling; a caller may only lower max_tokens.
+  const callerMaxTokens = typeof parsed.max_tokens === 'number' && parsed.max_tokens >= 1
+    ? parsed.max_tokens
+    : defaults.maxTokens;
+  parsed.max_tokens = Math.min(callerMaxTokens, defaults.maxTokens);
+  parsed.temperature = defaults.temperature;
+  parsed.top_p = defaults.topP;
+  parsed.top_k = defaults.topK;
+  parsed.min_p = defaults.minP;
+  parsed.presence_penalty = defaults.presencePenalty;
+  applyThinkingSettings(parsed, preset);
   const compatibility = getInferenceRequestCompatibility(preset.Backend);
-  setNumberDefault(parsed, compatibility.repetitionPenaltyKey, defaults.repetitionPenalty);
+  parsed[compatibility.repetitionPenaltyKey] = defaults.repetitionPenalty;
   // removedFields drops keys the *caller* sent that this backend cannot take; SiftKit never adds them.
   for (const field of compatibility.removedFields) delete parsed[field];
   return JSON.stringify(parsed);

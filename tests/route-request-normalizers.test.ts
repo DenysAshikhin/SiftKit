@@ -45,7 +45,7 @@ test('core route request normalizers return typed values', () => {
     requestTimeoutSeconds: 5,
     timing: undefined,
     promptPrefix: undefined,
-    llamaCppOverrides: undefined,
+    llamaCppMaxTokens: undefined,
   });
 
   assert.throws(
@@ -96,23 +96,23 @@ test('chat route request normalizers return typed values', () => {
   });
 });
 
-test('parseSummaryRequest carries promptPrefix and llamaCppOverrides.MaxTokens', () => {
+test('parseSummaryRequest carries promptPrefix and llamaCppMaxTokens', () => {
   const parsed = parseSummaryRequest({
     question: 'q',
     inputText: 'some input text',
     repoRoot: 'C:/repo',
     promptPrefix: 'benchmark prefix',
-    llamaCppOverrides: { MaxTokens: 256 },
+    llamaCppMaxTokens: 256,
   });
   assert.notEqual(parsed, null);
   assert.equal(parsed?.promptPrefix, 'benchmark prefix');
-  assert.deepEqual(parsed?.llamaCppOverrides, { MaxTokens: 256 });
+  assert.equal(parsed?.llamaCppMaxTokens, 256);
 });
 
-test('parseSummaryRequest omits llamaCppOverrides when MaxTokens is absent', () => {
+test('parseSummaryRequest omits llamaCppMaxTokens when it is absent', () => {
   const parsed = parseSummaryRequest({ question: 'q', inputText: 'some input text', repoRoot: 'C:/repo' });
   assert.equal(parsed?.promptPrefix, undefined);
-  assert.equal(parsed?.llamaCppOverrides, undefined);
+  assert.equal(parsed?.llamaCppMaxTokens, undefined);
 });
 
 test('parseSummaryRequest preserves an explicit empty promptPrefix as an override', () => {

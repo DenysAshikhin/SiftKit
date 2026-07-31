@@ -146,7 +146,7 @@ test('schema 36 removes startup-context columns and preserves preset autoload fi
   const columns = columnNames(dbPath);
   assert.equal(columns.includes('include_agents_md'), false);
   assert.equal(columns.includes('include_repo_file_listing'), false);
-  assert.equal(schemaVersion(dbPath), 36);
+  assert.equal(schemaVersion(dbPath), CURRENT_SCHEMA_VERSION);
   assert.match(readPresetsJson(dbPath), /C:\\\\shared\\\\policy\.md/u);
 });
 

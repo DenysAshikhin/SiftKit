@@ -164,7 +164,6 @@ export type InvokePlannerModeOptions = {
   systemContext: PresetSystemContext;
   allowedTools?: PlannerToolName[];
   requestTimeoutSeconds?: number;
-  llamaCppOverrides?: SummaryRequest['llamaCppOverrides'];
   statusBackendUrl?: string | null;
   timingRecorder?: TemporaryTimingRecorder | null;
 };
@@ -565,7 +564,6 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
             kind: 'siftkit-planner-action-json',
             tools: this.toolDefinitions,
           },
-          overrides: this.options.llamaCppOverrides,
         });
       } finally {
         llamaSpan?.end();

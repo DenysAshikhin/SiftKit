@@ -89,10 +89,15 @@ const server = http.createServer((req, res) => {
     let bodyText = '';
     req.on('data', (chunk) => { bodyText += chunk; });
     req.on('end', () => {
+      let forwarded = null;
+      try { forwarded = JSON.parse(bodyText || 'null'); }
+      catch (parseError) { forwarded = null; }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         choices: [{ message: { content: 'ok' } }],
         usage: { prompt_tokens: 3, completion_tokens: 1 },
+        // Echoed so passthrough tests can assert the body SiftKit actually forwarded.
+        forwardedRequest: forwarded,
       }));
     });
     return;
@@ -195,11 +200,18 @@ if ($captureInvocation) {
   } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $invocationLogPath -Encoding utf8
 }
 
-$child = if ($launchHangingProcess) {
-  Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 60') -PassThru -WindowStyle Hidden
-} else {
-  Start-Process -FilePath $nodePath -ArgumentList @($serverScript) -PassThru -WindowStyle Hidden
+if ($launchHangingProcess) {
+  # The launcher itself is the process that never becomes ready. Spawning a grandchild here
+  # instead would leak: SiftKit aborts a timed-out startup with 'taskkill /T' on this pid, and
+  # a grandchild created just outside that tree snapshot survives with this script's working
+  # directory (the test temp root) inherited, which makes Windows refuse to remove it.
+  Set-Content -LiteralPath $pidFile -Value ([string]$PID) -Encoding utf8 -NoNewline
+  Start-Sleep -Seconds 60
+  Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
+  exit 0
 }
+
+$child = Start-Process -FilePath $nodePath -ArgumentList @($serverScript) -PassThru -WindowStyle Hidden
 Set-Content -LiteralPath $pidFile -Value ([string]$child.Id) -Encoding utf8 -NoNewline
 if ($deferredLogLine) {
   $deadline = (Get-Date).AddSeconds(10)

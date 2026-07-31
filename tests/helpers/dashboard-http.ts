@@ -6,6 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { getErrorMessage } from '../../src/lib/errors.js';
 import { parseJsonValueText } from '../../src/lib/json.js';
 import { isJsonObject, type JsonObject, type JsonValue, type JsonSerializable, type OptionalJsonValue } from '../../src/lib/json-types.js';
+import { testHttpAgent } from './http-agent.js';
 
 export type Dict = JsonObject;
 export type JsonResponse = { statusCode: number; body: Dict };
@@ -46,6 +47,7 @@ export function requestJson(url: string, options: RequestOptions = {}): Promise<
         port: target.port,
         path: `${target.pathname}${target.search}`,
         method: options.method || 'GET',
+        agent: testHttpAgent,
         headers: options.body ? {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(options.body, 'utf8'),
@@ -87,6 +89,7 @@ export function requestSse(url: string, options: RequestOptions = {}): Promise<S
         port: target.port,
         path: `${target.pathname}${target.search}`,
         method: options.method || 'GET',
+        agent: testHttpAgent,
         headers: options.body ? {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(options.body, 'utf8'),
@@ -182,6 +185,7 @@ export function fireAndAbortJsonRequest(url: string, body: string, abortAfterMs:
         port: target.port,
         path: `${target.pathname}${target.search}`,
         method: 'POST',
+        agent: testHttpAgent,
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(body, 'utf8'),

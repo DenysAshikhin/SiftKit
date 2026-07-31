@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import {
   applyHostLlamaRuntimeSettings,
+  applyMaxTokensOverrideToConfig,
+  applyModelOverrideToConfig,
   loadConfig,
   normalizeLoadedConfig,
   type SiftConfig,
@@ -216,9 +218,13 @@ export class SummaryRequestRunner {
     configSpan?.end();
     getConfiguredLlamaBaseUrl(this.config);
     getConfiguredLlamaNumCtx(this.config);
-    this.model = this.request.model || getConfiguredModel(this.config);
-    this.progress.configDone(this.backend, this.model);
+    // Host sync first, then caller overlays: an explicit --model/MaxTokens must win
+    // over whatever the host reports, and both must be visible to every getter below.
     this.config = await this.applyHostLlamaSettings(this.config);
+    this.config = applyModelOverrideToConfig(this.config, this.request.model);
+    this.config = applyMaxTokensOverrideToConfig(this.config, this.request.llamaCppMaxTokens);
+    this.model = getConfiguredModel(this.config);
+    this.progress.configDone(this.backend, this.model);
     assertPresetAcceptsImages(getActiveModelPreset(this.config), this.request.images ?? []);
     const presets = PresetCatalog.fromPresets(this.config.Presets);
     const preset = this.request.presetId
@@ -339,7 +345,6 @@ export class SummaryRequestRunner {
         systemContext: context.systemContext,
         allowedPlannerTools: this.request.allowedPlannerTools,
         requestTimeoutSeconds: this.request.requestTimeoutSeconds,
-        llamaCppOverrides: this.request.llamaCppOverrides,
         statusBackendUrl: this.request.statusBackendUrl,
         timingRecorder: this.timingRecorder,
         progress: this.progress,

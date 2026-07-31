@@ -7,7 +7,7 @@ export class InferenceRequestBuilder {
     const compatibility = getInferenceRequestCompatibility(input.backend);
     return {
       ...this.buildCommonRequest(input),
-      [compatibility.repetitionPenaltyKey]: input.overrides.repetitionPenalty ?? input.defaults.repetitionPenalty,
+      [compatibility.repetitionPenaltyKey]: input.defaults.repetitionPenalty,
       ...(input.backend === 'llama'
         ? {
             cache_prompt: input.llama.cachePrompt,
@@ -29,12 +29,12 @@ export class InferenceRequestBuilder {
 
   private buildCommonRequest(input: InferenceRequestInput): InferenceChatRequest {
     const sampling = {
-      max_tokens: input.overrides.maxTokens ?? input.defaults.maxTokens,
-      temperature: input.overrides.temperature ?? input.defaults.temperature,
-      top_p: input.overrides.topP ?? input.defaults.topP,
-      top_k: input.overrides.topK ?? input.defaults.topK,
-      min_p: input.overrides.minP ?? input.defaults.minP,
-      presence_penalty: input.overrides.presencePenalty ?? input.defaults.presencePenalty,
+      max_tokens: input.maxTokens,
+      temperature: input.defaults.temperature,
+      top_p: input.defaults.topP,
+      top_k: input.defaults.topK,
+      min_p: input.defaults.minP,
+      presence_penalty: input.defaults.presencePenalty,
     };
     return {
       model: input.model,

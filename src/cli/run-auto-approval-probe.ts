@@ -51,7 +51,7 @@ export async function runAutoApprovalVerdictProbeCli(
     const model = getConfiguredModel(config);
     const probe = new AutoApprovalVerdictProbe(
       new ConfiguredApprovalVerdictModelClient({
-        backend,
+        config,
         baseUrl: getConfiguredLlamaBaseUrl(config),
         model,
         slotId: allocateLlamaCppSlotId(config),

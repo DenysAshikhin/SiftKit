@@ -1,4 +1,4 @@
-import { getActiveInferenceBackend, getConfiguredLlamaNumCtx } from '../../config/index.js';
+import { getConfiguredLlamaNumCtx } from '../../config/index.js';
 import { AgentLoop } from '../../agent-loop/agent-loop.js';
 import type {
   AgentLoopFinishAction,
@@ -304,7 +304,7 @@ export class TaskLoop {
       throw new Error('approval_verdict requested before any planner request; there is no executing prompt to extend.');
     }
     const response = await requestApprovalVerdictRequest({
-      backend: this.options.config ? getActiveInferenceBackend(this.options.config) : undefined,
+      config: this.options.config,
       baseUrl: this.options.baseUrl,
       model: this.options.model,
       transcriptMessages: this.transcript.getMessages(),
@@ -518,7 +518,7 @@ export class TaskLoop {
       );
       this.executingPlannerRequest = captureExecutingPlannerRequest(serializedMessages, this.plannerThinking);
       return await requestRepoSearchPlannerProtocolAction({
-        backend: this.options.config ? getActiveInferenceBackend(this.options.config) : undefined,
+        config: this.options.config,
         baseUrl: this.options.baseUrl,
         model: this.options.model,
         messages: serializedMessages,

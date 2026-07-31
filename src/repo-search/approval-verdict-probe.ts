@@ -1,4 +1,4 @@
-import type { InferenceBackendId } from '../config/index.js';
+import type { SiftConfig } from '../config/index.js';
 import { ProgressWriter } from '../lib/progress-writer.js';
 import { z } from '../lib/zod.js';
 import type { RepoSearchProgressEvent } from './types.js';
@@ -72,7 +72,7 @@ export type ApprovalVerdictModelClient = {
 
 export class ConfiguredApprovalVerdictModelClient implements ApprovalVerdictModelClient {
   constructor(private readonly options: {
-    backend: InferenceBackendId;
+    config: SiftConfig;
     baseUrl: string;
     model: string;
     slotId: number;

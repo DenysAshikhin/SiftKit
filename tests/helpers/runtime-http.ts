@@ -5,6 +5,7 @@ import { z } from '../../src/lib/zod.js';
 import { parseJsonValueText } from '../../src/lib/json.js';
 import type { JsonValue } from '../../src/lib/json-types.js';
 import { getRuntimeRootFromStatusPath } from './runtime-config.js';
+import { testHttpAgent } from './http-agent.js';
 
 // The status-server posts these locator fields on every artifact write; a parsed
 // JSON body (JsonObject) is structurally assignable here without a cast.
@@ -73,6 +74,7 @@ export function requestJson<T = JsonValue>(url: string, options: RequestJsonOpti
         port: target.port,
         path: `${target.pathname}${target.search}`,
         method: options.method || 'GET',
+        agent: testHttpAgent,
         headers: options.body ? {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(options.body, 'utf8'),

@@ -1,5 +1,5 @@
-import { getActiveInferenceBackend, type SiftConfig } from '../../config/index.js';
-import { getDynamicMaxOutputTokens } from '../../lib/dynamic-output-cap.js';
+import type { SiftConfig } from '../../config/index.js';
+import { clampToPresetMaxTokens, getDynamicMaxOutputTokens } from '../../lib/dynamic-output-cap.js';
 import { requestTerminalSynthesis, type PlannerThinkingFlags } from '../planner-protocol.js';
 import { countTokensWithFallback } from '../prompt-budget.js';
 import { buildTerminalSynthesisPrompt } from '../prompts.js';
@@ -42,10 +42,10 @@ export class TerminalSynthesizer {
       this.options.useEstimatedTokensOnly ? undefined : this.options.config,
       synthesisPrompt,
     );
-    const synthesisMaxTokens = getDynamicMaxOutputTokens({
+    const synthesisMaxTokens = clampToPresetMaxTokens(this.options.config, getDynamicMaxOutputTokens({
       totalContextTokens: this.options.totalContextTokens,
       promptTokenCount: synthesisPromptTokenCount,
-    });
+    }));
     this.options.logger?.write({
       kind: 'task_terminal_synthesis_requested',
       taskId: input.taskId,
@@ -60,7 +60,7 @@ export class TerminalSynthesizer {
     for (let attempt = 1; attempt <= MAX_SYNTHESIS_ATTEMPTS; attempt += 1) {
       try {
         const synthesisResponse = await requestTerminalSynthesis({
-          backend: this.options.config ? getActiveInferenceBackend(this.options.config) : undefined,
+          config: this.options.config,
           baseUrl: this.options.baseUrl,
           model: this.options.model,
           prompt: synthesisPrompt,
