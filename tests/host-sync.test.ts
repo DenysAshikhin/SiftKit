@@ -1,13 +1,16 @@
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { getAddressInfo } from './helpers/dashboard-http.js';
 
 import {
   applyHostLlamaRuntimeSettings,
+  getActiveModelPreset,
   getConfiguredLlamaNumCtx,
   getConfiguredModel,
+  getConfiguredReasoning,
   resetHostLlamaSettingsCacheForTests,
+  type ModelRuntimePreset,
   type SiftConfig,
 } from '../src/config/index.js';
 import { getPlannerPromptBudget } from '../src/summary.js';
@@ -18,6 +21,7 @@ function makeClientConfig(options: {
   externalServer: boolean;
   baseUrl: string;
   localNumCtx: number;
+  presetFields?: Partial<ModelRuntimePreset>;
 }): SiftConfig {
   const llama = { BaseUrl: options.baseUrl, NumCtx: options.localNumCtx, Reasoning: 'on' } as const;
   return mockConfig({
@@ -35,11 +39,16 @@ function makeClientConfig(options: {
             Model: 'mock-model',
             ExternalServerEnabled: options.externalServer,
             BaseUrl: options.baseUrl,
+            ...options.presetFields,
           },
         ],
       },
     },
   });
+}
+
+function countConfigRequests(requestUrls: string[]): number {
+  return requestUrls.filter((url) => url.startsWith('/config')).length;
 }
 
 type HostConfigServer = {
@@ -121,6 +130,126 @@ test('applyHostLlamaRuntimeSettings overlays the host SiftKit NumCtx/Reasoning/M
     assert.equal(budget.promptReserveTokens, 10_000);
     assert.equal(budget.usablePromptBudgetTokens, 65_008);
   } finally {
+    await host.close();
+  }
+});
+
+test('applyHostLlamaRuntimeSettings overlays the host preset request fields onto the local active preset', async () => {
+  resetHostLlamaSettingsCacheForTests();
+  const hostConfig = makeClientConfig({
+    externalServer: false,
+    baseUrl: 'http://127.0.0.1:1',
+    localNumCtx: 60_000,
+    presetFields: {
+      Temperature: 0.33,
+      TopP: 0.77,
+      TopK: 11,
+      MinP: 0.02,
+      PresencePenalty: 0.4,
+      RepetitionPenalty: 1.2,
+      MaxTokens: 2222,
+      // Normalization only keeps the thinking flags when Reasoning is on.
+      Reasoning: 'on',
+      ReasoningContent: true,
+      PreserveThinking: true,
+      MaintainPerStepThinking: true,
+    },
+  });
+  const host = await startHostConfigServer(hostConfig);
+  try {
+    const config = makeClientConfig({
+      externalServer: true,
+      baseUrl: host.baseUrl,
+      localNumCtx: 150_000,
+      presetFields: {
+        Temperature: 0.9,
+        TopP: 0.1,
+        TopK: 99,
+        MinP: 0.5,
+        PresencePenalty: 0,
+        RepetitionPenalty: 1,
+        MaxTokens: 15_000,
+        Reasoning: 'off',
+        ReasoningContent: false,
+        PreserveThinking: false,
+        MaintainPerStepThinking: false,
+      },
+    });
+
+    const preset = getActiveModelPreset(await applyHostLlamaRuntimeSettings(config));
+
+    assert.equal(preset.Temperature, 0.33);
+    assert.equal(preset.TopP, 0.77);
+    assert.equal(preset.TopK, 11);
+    assert.equal(preset.MinP, 0.02);
+    assert.equal(preset.PresencePenalty, 0.4);
+    assert.equal(preset.RepetitionPenalty, 1.2);
+    assert.equal(preset.MaxTokens, 2222);
+    assert.equal(preset.Reasoning, 'on');
+    assert.equal(preset.ReasoningContent, true);
+    assert.equal(preset.PreserveThinking, true);
+    assert.equal(preset.MaintainPerStepThinking, true);
+    assert.equal(preset.NumCtx, 60_000);
+    // Only request-shaping fields are host-owned; the client stays the pass-through client.
+    assert.equal(preset.ExternalServerEnabled, true);
+    assert.equal(preset.BaseUrl, host.baseUrl);
+  } finally {
+    await host.close();
+  }
+});
+
+test('applyHostLlamaRuntimeSettings makes host NumCtx/Reasoning visible to the exl3 getters', async () => {
+  resetHostLlamaSettingsCacheForTests();
+  const hostConfig = makeClientConfig({
+    externalServer: false,
+    baseUrl: 'http://127.0.0.1:1',
+    localNumCtx: 65_536,
+  });
+  hostConfig.Runtime.LlamaCpp.Reasoning = 'on';
+  const host = await startHostConfigServer(hostConfig);
+  try {
+    const config = makeClientConfig({
+      externalServer: true,
+      baseUrl: host.baseUrl,
+      localNumCtx: 150_000,
+      presetFields: { Backend: 'exl3', NumCtx: 8192, Reasoning: 'off' },
+    });
+
+    const resolved = await applyHostLlamaRuntimeSettings(config);
+
+    // The exl3 getters read the preset, never Runtime.LlamaCpp.
+    assert.equal(getConfiguredLlamaNumCtx(resolved), 65_536);
+    assert.equal(getConfiguredReasoning(resolved), 'on');
+  } finally {
+    await host.close();
+  }
+});
+
+test('applyHostLlamaRuntimeSettings caches host settings and re-fetches after the TTL elapses', async () => {
+  resetHostLlamaSettingsCacheForTests();
+  const hostConfig = makeClientConfig({
+    externalServer: false,
+    baseUrl: 'http://127.0.0.1:1',
+    localNumCtx: 75_008,
+  });
+  const host = await startHostConfigServer(hostConfig);
+  mock.timers.enable({ apis: ['Date'] });
+  try {
+    const config = makeClientConfig({
+      externalServer: true,
+      baseUrl: host.baseUrl,
+      localNumCtx: 150_000,
+    });
+
+    await applyHostLlamaRuntimeSettings(config);
+    await applyHostLlamaRuntimeSettings(config);
+    assert.equal(countConfigRequests(host.requestUrls), 1);
+
+    mock.timers.tick(61_000);
+    await applyHostLlamaRuntimeSettings(config);
+    assert.equal(countConfigRequests(host.requestUrls), 2);
+  } finally {
+    mock.timers.reset();
     await host.close();
   }
 });
