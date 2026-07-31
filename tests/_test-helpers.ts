@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { Writable } from 'node:stream';
 import { z } from '../src/lib/zod.js';
@@ -12,6 +11,7 @@ import type { RepoSearchExecutionResult } from '../src/repo-search/types.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { EnvBackup } from './helpers/env-backup.js';
 import { writeSseResult } from './helpers/sse-http.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 export type Dict = JsonObject;
 
@@ -479,7 +479,7 @@ export async function withTestEnvAndServer(
   fn: (context: TestEnvContext) => Promise<void> | void,
   serverOptions: StubServerOptions = {},
 ): Promise<void> {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-test-'));
+  const tempRoot = createManagedTempDir('siftkit-test-');
   const previousCwd = process.cwd();
   const envBackup = new EnvBackup([
     'sift_kit_status', 'SIFTKIT_STATUS_PATH', 'SIFTKIT_CONFIG_PATH',

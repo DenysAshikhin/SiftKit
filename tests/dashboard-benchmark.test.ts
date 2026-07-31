@@ -1,8 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import os from 'node:os';
 import path from 'node:path';
-import fs from 'node:fs';
 
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db';
 import { buildBenchmarkAttemptMetrics } from '../src/status-server/dashboard-benchmark-runner';
@@ -17,9 +15,10 @@ import {
   updateBenchmarkAttemptGrade,
   updateBenchmarkQuestionPreset,
 } from '../src/state/dashboard-benchmark';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 function createTempDatabasePath(): string {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-benchmark-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-benchmark-');
   return path.join(tempRoot, 'runtime.sqlite');
 }
 

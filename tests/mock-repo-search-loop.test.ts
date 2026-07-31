@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { z } from '../src/lib/zod.js';
 import { parseJsonValueText } from '../src/lib/json.js';
@@ -28,10 +27,11 @@ import { mockSiftConfig } from './helpers/mock-config.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 // Mock-mode runTaskLoop calls never reach a real provider or repo; these defaults
 // satisfy the required RunTaskLoopOptions fields. Per-test options override them.
-const MOCK_LOOP_REPO_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-mock-loop-'));
+const MOCK_LOOP_REPO_ROOT = createManagedTempDir('siftkit-mock-loop-');
 const MOCK_LOOP_DEFAULTS = {
   repoRoot: MOCK_LOOP_REPO_ROOT,
   model: 'mock-model',
@@ -101,7 +101,7 @@ function parseLoggedEvent(event: Record<string, JsonSerializable>): JsonObject {
 }
 
 function createTempRepoRoot(gitignoreText = '') {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-ignore-'));
+  const root = createManagedTempDir('siftkit-repo-search-ignore-');
   fs.writeFileSync(path.join(root, '.gitignore'), gitignoreText, 'utf8');
   return root;
 }
