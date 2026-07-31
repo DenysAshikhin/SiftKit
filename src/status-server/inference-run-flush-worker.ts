@@ -4,7 +4,7 @@ import {
   updateInferenceRunSpeculativeMetrics,
   type InferenceRunPendingLogChunkEntry,
 } from '../state/inference-runs.js';
-import { getRuntimeDatabase } from '../state/runtime-db.js';
+import { closeRuntimeDatabase, getRuntimeDatabase } from '../state/runtime-db.js';
 import type { ManagedLlamaSpeculativeMetricsSnapshot } from './managed-llama-speculative-tracker.js';
 
 type FlushWorkerRequest = {
@@ -51,13 +51,24 @@ function handleFlushRequest(message: FlushWorkerRequest): FlushWorkerResponse {
 }
 
 parentPort?.on('message', (message: FlushWorkerRequest) => {
+  let response: FlushWorkerResponse;
   try {
-    parentPort?.postMessage(handleFlushRequest(message));
+    response = handleFlushRequest(message);
   } catch (error) {
-    parentPort?.postMessage({
+    response = {
       id: message.id,
       ok: false,
       errorMessage: error instanceof Error ? error.message : String(error),
-    } satisfies FlushWorkerResponse);
+    };
   }
+  // This worker is unref'ed and outlives server.close(); a cached connection would keep
+  // runtime.sqlite open (blocking directory removal on Windows) until the thread dies.
+  // Close BEFORE responding — the main thread may terminate the worker as soon as it sees
+  // the response, and terminating mid-close crashes better-sqlite3.
+  try {
+    closeRuntimeDatabase();
+  } catch {
+    // Never let a close failure eat the flush result.
+  }
+  parentPort?.postMessage(response);
 });

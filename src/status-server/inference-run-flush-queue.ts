@@ -71,6 +71,7 @@ export class InferenceRunFlushQueue {
   private failedCount = 0;
   private worker: Worker | null = null;
   private nextWorkerMessageId = 1;
+  private closed = false;
 
   constructor(options: InferenceRunFlushQueueOptions = {}) {
     const configuredIdleDelayMs = Number(options.idleDelayMs ?? 0);
@@ -80,17 +81,25 @@ export class InferenceRunFlushQueue {
   }
 
   async close(): Promise<void> {
+    this.closed = true;
     const worker = this.worker;
     this.worker = null;
     if (!worker) {
       return;
+    }
+    // Terminating mid-flush kills the thread while its sqlite handle is open; the fd then
+    // survives until process exit and blocks removal of the directory holding the DB on
+    // Windows. Let the in-flight flush finish (bounded) before terminating.
+    const deadline = Date.now() + 2000;
+    while (this.runningRunId !== null && Date.now() < deadline) {
+      await sleep(10);
     }
     await worker.terminate();
   }
 
   enqueue(runId: string, backend: InferenceRunBackend): boolean {
     const normalizedRunId = String(runId || '').trim();
-    if (!normalizedRunId) {
+    if (!normalizedRunId || this.closed) {
       return false;
     }
     if (this.pendingByRunId.has(normalizedRunId)) {
@@ -166,7 +175,7 @@ export class InferenceRunFlushQueue {
   }
 
   async drainNow(): Promise<void> {
-    if (this.draining) {
+    if (this.draining || this.closed) {
       return;
     }
     this.scheduled = false;
