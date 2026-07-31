@@ -245,6 +245,7 @@ function createApprovalState(store: RepoAgentRunStore): RepoAgentWorkerRequest {
     repoRoot: process.cwd(),
     approval: 'auto',
     progress: false,
+    images: [],
   };
   store.create(request);
   const running = store.transition(request.runId, 0, {
@@ -294,6 +295,7 @@ test('non-TTY start launches once and emits one completed JSON object', async ()
     logFile: 'agent.log',
     approval: 'auto',
     progress: false,
+    images: [],
   });
   assert.equal(capture.stderr.read(), '');
 });
@@ -339,6 +341,7 @@ test('status returns current state without mutation', async () => {
     repoRoot: process.cwd(),
     approval: 'auto',
     progress: false,
+    images: [],
   };
   harness.store.create(request);
   const before = harness.store.readState(request.runId);

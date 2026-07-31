@@ -11,6 +11,7 @@ export const RepoAgentStartInvocationSchema = z.object({
   logFile: z.string().min(1).optional(),
   approval: ApprovalModeSchema,
   progress: z.boolean(),
+  images: z.array(z.string().min(1)).default([]),
 });
 export type RepoAgentStartInvocation = z.infer<
   typeof RepoAgentStartInvocationSchema
@@ -75,6 +76,7 @@ function parseStartInvocation(tokens: string[]): RepoAgentInvocation {
   let logFile: string | undefined;
   let approval: ApprovalMode = 'auto';
   let progress = false;
+  const images: string[] = [];
 
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
@@ -95,6 +97,11 @@ function parseStartInvocation(tokens: string[]): RepoAgentInvocation {
         throw new Error(`Invalid --approval value: ${raw}. Expected interactive, auto, or off.`);
       }
       approval = parsed.data;
+      index += 1;
+      continue;
+    }
+    if (token === '--image') {
+      images.push(readOptionValue(tokens, index, token));
       index += 1;
       continue;
     }
@@ -120,6 +127,7 @@ function parseStartInvocation(tokens: string[]): RepoAgentInvocation {
     task,
     approval,
     progress,
+    images,
   } as const;
   if (model !== undefined && logFile !== undefined) {
     return RepoAgentStartInvocationSchema.parse({ ...invocation, model, logFile });

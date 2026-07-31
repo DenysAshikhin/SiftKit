@@ -33,6 +33,7 @@ export async function runRepoAgentForegroundCli(options: {
     task: options.invocation.task,
     repoRoot: process.cwd(),
     approval: options.invocation.approval,
+    images: options.invocation.images,
     model: options.invocation.model,
     logFile: options.invocation.logFile,
   });

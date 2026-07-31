@@ -1,7 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
+import os from 'node:os';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { parseSummaryRequest } from '../src/status-server/route-request-normalizers.js';
 import { buildUserContent } from '../src/llm-protocol/image-attachments.js';
+import { validateRepoSearchTokens } from '../src/cli/args.js';
+import { parseRepoAgentInvocation } from '../src/cli/repo-agent-args.js';
+import { buildRepoAgentServerRequest } from '../src/cli/repo-agent-request.js';
+import { runTaskLoop } from '../src/repo-search/engine.js';
+import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
+import { parseJsonValueText } from '../src/lib/json.js';
+import { asObject } from './helpers/dashboard-http.js';
 
 test('parseSummaryRequest accepts images and allows an images-only request', () => {
   const parsed = parseSummaryRequest({
@@ -38,8 +49,6 @@ test('the summary planner puts an image part on the initial user turn', () => {
   ]);
 });
 
-import { validateRepoSearchTokens } from '../src/cli/args.js';
-
 test('repo-search accepts a repeatable --image flag', () => {
   validateRepoSearchTokens(['--prompt', 'find it', '--image', 'a.png', '--image', 'b.png']);
   assert.throws(
@@ -47,13 +56,6 @@ test('repo-search accepts a repeatable --image flag', () => {
     /Missing value for repo-search option: --image/u,
   );
 });
-
-import http from 'node:http';
-import os from 'node:os';
-import { runTaskLoop } from '../src/repo-search/engine.js';
-import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
-import { parseJsonValueText } from '../src/lib/json.js';
-import { asObject } from './helpers/dashboard-http.js';
 
 test('repo-search puts the image part on the first user message it sends', async () => {
   const capturedBodies: string[] = [];
@@ -96,4 +98,45 @@ test('repo-search puts the image part on the first user message it sends', async
   const first = asObject(parseJsonValueText(capturedBodies[0] ?? '{}'));
   assert.equal(JSON.stringify(first).includes('"image_url"'), true);
   assert.equal(JSON.stringify(first).includes('data:image/png;base64,AAAA'), true);
+});
+
+test('repo-agent collects repeatable --image values', () => {
+  const invocation = parseRepoAgentInvocation(['fix the layout', '--image', 'a.png', '--image', 'b.png']);
+  assert.equal(invocation.kind, 'start');
+  assert.deepEqual(invocation.kind === 'start' ? invocation.images : [], ['a.png', 'b.png']);
+});
+
+test('repo-agent defaults images to an empty array', () => {
+  const invocation = parseRepoAgentInvocation(['fix the layout']);
+  assert.deepEqual(invocation.kind === 'start' ? invocation.images : null, []);
+});
+
+// The run record persists local paths, so the worker resolves them to data URIs at
+// send time. This is the one repo-agent-specific link between the flag and the wire.
+test('repo-agent encodes its image paths as data URIs on the request body', () => {
+  const root = mkdtempSync(join(os.tmpdir(), 'siftkit-agent-img-'));
+  const imagePath = join(root, 'shot.png');
+  const bytes = Buffer.from('89504e470d0a1a0a', 'hex');
+  writeFileSync(imagePath, bytes);
+  try {
+    const request = buildRepoAgentServerRequest({
+      task: 'describe the screenshot',
+      repoRoot: root,
+      approval: 'auto',
+      images: [imagePath],
+    });
+    assert.deepEqual(request.images, [`data:image/png;base64,${bytes.toString('base64')}`]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('repo-agent omits images from the request body when none were given', () => {
+  const request = buildRepoAgentServerRequest({
+    task: 'no images here',
+    repoRoot: process.cwd(),
+    approval: 'auto',
+    images: [],
+  });
+  assert.equal('images' in request, false);
 });

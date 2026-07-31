@@ -20,6 +20,7 @@ export const RepoAgentWorkerRequestSchema = z.strictObject({
   logFile: z.string().min(1).optional(),
   approval: ApprovalModeSchema,
   progress: z.boolean(),
+  images: z.array(z.string()).default([]),
 });
 export type RepoAgentWorkerRequest = z.infer<typeof RepoAgentWorkerRequestSchema>;
 

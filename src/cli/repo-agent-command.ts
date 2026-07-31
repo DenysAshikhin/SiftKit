@@ -79,6 +79,7 @@ export class RepoAgentCommand {
       repoRoot: this.repoRoot,
       approval: invocation.approval,
       progress: invocation.progress,
+      images: invocation.images,
       ...(invocation.model === undefined ? {} : { model: invocation.model }),
       ...(invocation.logFile === undefined
         ? {}

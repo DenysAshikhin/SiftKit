@@ -22,6 +22,7 @@ test('parses one positional start task with options on either sides', () => {
       model: 'm',
       approval: 'interactive',
       progress: true,
+      images: [],
     },
   );
   assert.deepEqual(parseRepoAgentInvocation(['make x']), {
@@ -29,6 +30,7 @@ test('parses one positional start task with options on either sides', () => {
     task: 'make x',
     approval: 'auto',
     progress: false,
+    images: [],
   });
 });
 
@@ -41,6 +43,7 @@ test('parses start with log-file option', () => {
       logFile: '/tmp/out.log',
       approval: 'auto',
       progress: false,
+      images: [],
     },
   );
 });
@@ -64,6 +67,7 @@ test('parses start with all options', () => {
       logFile: '/tmp/a.log',
       approval: 'off',
       progress: true,
+      images: [],
     },
   );
 });
