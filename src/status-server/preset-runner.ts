@@ -2,6 +2,7 @@ import {
   getActiveModelPreset,
   getConfigPath,
   getConfiguredLlamaNumCtx,
+  getConfiguredReasoning,
   type SiftConfig,
 } from '../config/index.js';
 import type {
@@ -186,13 +187,14 @@ export class StatusPresetRunner {
     }
     const now = new Date().toISOString();
     const activeModelPreset = getActiveModelPreset(config);
+    const thinkingEnabled = getConfiguredReasoning(config) !== 'off';
     const session: ChatSession = {
       id: 'cli-ephemeral',
       title: preset.label,
       modelPresetId: activeModelPreset.id,
       model: request.model,
       contextWindowTokens: getConfiguredLlamaNumCtx(config),
-      thinkingEnabled: true,
+      thinkingEnabled,
       presetId: preset.id,
       mode: 'chat',
       planRepoRoot: getRepoRoot(request),
@@ -211,7 +213,7 @@ export class StatusPresetRunner {
       statusBackendUrl: options.statusBackendUrl,
       systemPrompt: buildChatSystemContent(config, session),
       history: [],
-      thinkingEnabled: true,
+      thinkingEnabled,
       allowedTools: [],
       progressWriter: options.repoSearchProgressWriter,
       abortSignal: options.abortSignal,
