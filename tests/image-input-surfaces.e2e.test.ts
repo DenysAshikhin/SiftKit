@@ -1,12 +1,14 @@
-import test from 'node:test';
+import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { ModelRuntimePresetSchema } from '@siftkit/contracts';
 import { parseChatMessageRequest } from '../src/status-server/chat-route-request-normalizers.js';
 import { parseSummaryRequest } from '../src/status-server/route-request-normalizers.js';
-import { buildUserContent } from '../src/llm-protocol/image-attachments.js';
+import { buildUserContent, assertPresetAcceptsImages } from '../src/llm-protocol/image-attachments.js';
 import { validateRepoSearchTokens } from '../src/cli/args.js';
 import { parseRepoAgentInvocation } from '../src/cli/repo-agent-args.js';
 import { buildRepoAgentServerRequest } from '../src/cli/repo-agent-request.js';
@@ -14,6 +16,20 @@ import { runTaskLoop } from '../src/repo-search/engine.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { asObject } from './helpers/dashboard-http.js';
+import { getDefaultConfigObject } from '../src/config/defaults.js';
+import { mockSiftConfig } from './helpers/mock-config.js';
+import { SummaryRequestRunner } from '../src/summary/request-runner.js';
+import { executeRepoSearchRequest } from '../src/repo-search/execute.js';
+import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/repo-search/planner-protocol.js';
+import { DeadEndpointEnv } from './helpers/dead-endpoints.js';
+
+const basePreset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+if (!basePreset) throw new Error('Default model preset is missing');
+const visionOff = ModelRuntimePresetSchema.parse({ ...basePreset, Backend: 'exl3', VisionEnabled: false });
+
+const deadEndpoints = new DeadEndpointEnv();
+before(() => { deadEndpoints.apply(); });
+after(() => { deadEndpoints.restore(); });
 
 test('parseSummaryRequest accepts images and allows an images-only request', () => {
   const parsed = parseSummaryRequest({
@@ -159,5 +175,110 @@ test('chat message requests reject a non-image URL', () => {
   assert.throws(
     () => parseChatMessageRequest({ content: 'x', images: ['file:///c:/a.png'] }),
     /supported-image/u,
+  );
+});
+
+// ── Preset guard: direct and per-surface ────────────────────────────────
+
+test('assertPresetAcceptsImages rejects when VisionEnabled is false', () => {
+  assert.throws(
+    () => assertPresetAcceptsImages(visionOff, ['data:image/png;base64,AAAA']),
+    /Vision is not enabled/u,
+  );
+});
+
+test('the summary runner refuses an image when the preset has no vision', async () => {
+  await assert.rejects(
+    () => new SummaryRequestRunner({
+      repoRoot: 'C:\\repo',
+      question: 'what is this?',
+      inputText: 'sample input',
+      images: ['data:image/png;base64,AAAA'],
+      format: 'text',
+      policyProfile: 'general',
+      config: mockSiftConfig({
+        Server: {
+          ModelPresets: {
+            Presets: [visionOff],
+            ActivePresetId: visionOff.id,
+          },
+        },
+      }),
+    }).run(),
+    /Vision is not enabled/u,
+  );
+});
+
+test('the repo-search runner refuses an image when the preset has no vision', async () => {
+  const dir = fs.mkdtempSync(join(os.tmpdir(), 'siftkit-guard-'));
+  try {
+    await assert.rejects(
+      () => executeRepoSearchRequest({
+        presetId: 'repo-search',
+        taskKind: 'repo-search',
+        prompt: 'find it',
+        repoRoot: dir,
+        config: mockSiftConfig({
+          Server: {
+            ModelPresets: {
+              Presets: [visionOff],
+              ActivePresetId: visionOff.id,
+            },
+          },
+        }),
+        model: 'mock',
+        allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
+        availableModels: ['mock'],
+        mockResponses: ['{"action":"finish","output":"done"}'],
+        mockCommandResults: {},
+        initialUserImages: ['data:image/png;base64,AAAA'],
+      }),
+      /Vision is not enabled/u,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// repo-agent reaches the model through the same executeRepoSearchRequest entry as
+// repo-search, so this pins the agent taskKind against the same guard.
+test('the repo-agent runner refuses an image when the preset has no vision', async () => {
+  const dir = fs.mkdtempSync(join(os.tmpdir(), 'siftkit-guard-agent-'));
+  try {
+    await assert.rejects(
+      () => executeRepoSearchRequest({
+        presetId: 'repo-agent',
+        taskKind: 'repo-agent',
+        prompt: 'fix the layout',
+        repoRoot: dir,
+        config: mockSiftConfig({
+          Server: {
+            ModelPresets: {
+              Presets: [visionOff],
+              ActivePresetId: visionOff.id,
+            },
+          },
+        }),
+        model: 'mock',
+        allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
+        availableModels: ['mock'],
+        mockResponses: ['{"action":"finish","output":"done"}'],
+        mockCommandResults: {},
+        initialUserImages: ['data:image/png;base64,AAAA'],
+      }),
+      /Vision is not enabled/u,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The chat guard runs on the preset the chat route resolves, which is the llama-backed
+// default in a fresh config. That is the backend branch rather than the vision branch.
+test('the chat preset guard rejects an image on a llama-backed preset', () => {
+  const llamaPreset = ModelRuntimePresetSchema.parse({ ...basePreset, Backend: 'llama' });
+  assert.throws(
+    () => assertPresetAcceptsImages(llamaPreset, ['data:image/png;base64,AAAA']),
+    /llama/iu,
   );
 });

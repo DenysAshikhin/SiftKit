@@ -115,7 +115,10 @@ export function countContentImages(content: string | LlamaCppContentPart[] | und
 
 // ── Preset guard ────────────────────────────────────────────────────────
 
-export function assertPresetAcceptsImages(preset: ModelRuntimePreset, imageUris: string[]): void {
+export function assertPresetAcceptsImages(
+  preset: ModelRuntimePreset,
+  imageUris: readonly string[],
+): void {
   if (imageUris.length === 0) return;
   if (preset.Backend === 'llama') {
     throw new Error('Images require exl3 backend; llama backend does not support images');

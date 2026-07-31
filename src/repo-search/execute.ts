@@ -34,6 +34,8 @@ import type {
 import { PresetSystemContextBuilder } from '../preset-system-context.js';
 import { PresetSystemPromptComposer } from '../preset-system-prompt.js';
 import { PresetCatalog } from '../preset-catalog.js';
+import { assertPresetAcceptsImages } from '../llm-protocol/image-attachments.js';
+import { getActiveModelPreset } from '../config/index.js';
 
 export type RepoSearchPreflightSummary = {
   turn: number;
@@ -317,6 +319,7 @@ export async function executeRepoSearchRequest(
 
   try {
     const config = request.config ?? await loadConfig({ ensure: true });
+    assertPresetAcceptsImages(getActiveModelPreset(config), request.initialUserImages ?? []);
     const preset = PresetCatalog.fromPresets(config.Presets).requireById(request.presetId);
     const systemContext = new PresetSystemContextBuilder(repoRoot).build(preset);
     const progressWriter = new RepoSearchLifecycleWriter(

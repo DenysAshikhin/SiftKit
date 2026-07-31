@@ -8,6 +8,7 @@ import {
   getConfiguredLlamaBaseUrl,
   getConfiguredLlamaNumCtx,
   getConfiguredModel,
+  getActiveModelPreset,
   notifyStatusBackend,
 } from '../config/index.js';
 import type { NotifyStatusBackendOptions } from '../config/status-backend.js';
@@ -48,6 +49,7 @@ import {
   type PresetSystemContext,
 } from '../preset-system-context.js';
 import { PresetCatalog } from '../preset-catalog.js';
+import { assertPresetAcceptsImages } from '../llm-protocol/image-attachments.js';
 
 type SummaryExecutionContext = {
   config: SiftConfig;
@@ -217,6 +219,7 @@ export class SummaryRequestRunner {
     this.model = this.request.model || getConfiguredModel(this.config);
     this.progress.configDone(this.backend, this.model);
     this.config = await this.applyHostLlamaSettings(this.config);
+    assertPresetAcceptsImages(getActiveModelPreset(this.config), this.request.images ?? []);
     const presets = PresetCatalog.fromPresets(this.config.Presets);
     const preset = this.request.presetId
       ? presets.requireById(this.request.presetId)

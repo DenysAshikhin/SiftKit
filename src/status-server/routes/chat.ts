@@ -35,6 +35,7 @@ import {
   SIFT_DEFAULT_LLAMA_BASE_URL,
   type SiftConfig,
 } from '../../config/index.js';
+import { assertPresetAcceptsImages } from '../../llm-protocol/image-attachments.js';
 import {
   type RepoSearchProgressEvent,
   buildRepoSearchProgressLogBody,
@@ -789,6 +790,7 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
         sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
         return;
       }
+      assertPresetAcceptsImages(getActiveModelPreset(config), messageRequest.images);
       const turn = new ChatMessageTurn(
         ctx,
         res,
@@ -870,6 +872,7 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
     try {
       const config = readConfig(configPath);
       const selected = new ChatOperationPresetSelector(config.Presets).select(activeSession, 'chat');
+      assertPresetAcceptsImages(getActiveModelPreset(config), messageRequest.images);
       const selectedSession = selected.session;
       const reader = new JsonRecordReader(parsedBody);
       const webOverrideRaw = reader.optionalString('webSearchOverride');
