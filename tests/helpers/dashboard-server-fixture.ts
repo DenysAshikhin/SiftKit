@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { startStatusServer } from '../../src/status-server/index.js';
@@ -8,7 +7,7 @@ import { readMetrics, type Metrics } from '../../src/status-server/metrics.js';
 import { writeRuntimeLaunchSnapshot } from '../../src/status-server/runtime-launch-snapshot.js';
 import { closeRuntimeDatabase, getRuntimeDatabasePath } from '../../src/state/runtime-db.js';
 import { getAddressInfo } from './dashboard-http.js';
-import { removeDirectoryWithRetries } from './temp-dirs.js';
+import { createManagedTempDir, removeDirectoryWithRetries } from './temp-dirs.js';
 
 /** Points the active preset at a stand-in inference backend for engine-backed E2Es. */
 export type DashboardTestBackend = {
@@ -87,7 +86,7 @@ export class DashboardTestServer {
     backend?: DashboardTestBackend,
     options: DashboardTestServerOptions = {},
   ): Promise<DashboardTestServer> {
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), namePrefix));
+    const tempRoot = createManagedTempDir(namePrefix);
     const previousCwd = process.cwd();
     fs.writeFileSync(
       path.join(tempRoot, 'package.json'),

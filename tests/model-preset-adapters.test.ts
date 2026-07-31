@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   ManagedLlamaSettingsSchema,
@@ -17,6 +16,7 @@ import {
   getExl3CacheModes,
   getPresetFieldAvailability,
 } from '../src/inference-presets/preset-compatibility.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 function createModelPreset(overrides: Partial<ModelRuntimePreset> = {}): ModelRuntimePreset {
   const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
@@ -99,7 +99,7 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
 });
 
 test('EXL3 adapter emits TABBY_MODEL_VISION true when vision is enabled', () => {
-  const baseDir = mkdtempSync(join(tmpdir(), 'exl3-vision-'));
+  const baseDir = createManagedTempDir('exl3-vision-');
   try {
     const modelDir = join(baseDir, '3.6_27B');
     mkdirSync(modelDir, { recursive: true });

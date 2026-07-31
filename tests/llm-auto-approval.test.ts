@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { runTaskLoop } from '../src/repo-search/engine.js';
 import {
@@ -18,6 +17,7 @@ import { INTERACTIVE_REPO_TOOL_NAMES, resolveRepoSearchPlannerToolDefinitions } 
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import type { JsonSerializable } from '../src/lib/json-types.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 type ScriptedDecision = { kind: 'approve' } | { kind: 'deny'; reason: string } | { kind: 'abort' };
 
@@ -91,7 +91,7 @@ function makeAutoLoopOptions(
 }
 
 test('auto mode: reviewer approve executes the write with no human involvement', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llm-auto-approve-'));
+  const tempRoot = createManagedTempDir('siftkit-llm-auto-approve-');
   try {
     const writer = new RecordingWriter(new AlwaysAbortProvider());
     const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
@@ -127,7 +127,7 @@ test('auto mode: reviewer approve executes the write with no human involvement',
 });
 
 test('auto mode: reviewer deny blocks the write and feeds the reason to the model', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llm-auto-deny-'));
+  const tempRoot = createManagedTempDir('siftkit-llm-auto-deny-');
   try {
     const writer = new RecordingWriter(new AlwaysAbortProvider());
     const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
@@ -150,7 +150,7 @@ test('auto mode: reviewer deny blocks the write and feeds the reason to the mode
 });
 
 test('auto mode: unsure escalates to the human gate, which approves', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llm-auto-unsure-'));
+  const tempRoot = createManagedTempDir('siftkit-llm-auto-unsure-');
   try {
     const writer = new RecordingWriter(new AlwaysApproveProvider());
     const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
@@ -184,7 +184,7 @@ for (const testCase of [
   { toolName: 'ls', action: '{"action":"ls","path":"."}' },
 ]) {
   test(`auto mode: ${testCase.toolName} fast-paths without spending a verdict call`, async () => {
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llm-auto-fastpath-'));
+    const tempRoot = createManagedTempDir('siftkit-llm-auto-fastpath-');
     try {
       fs.writeFileSync(path.join(tempRoot, 'a.txt'), 'content-a', 'utf8');
       const writer = new RecordingWriter(new AlwaysAbortProvider());
@@ -209,7 +209,7 @@ for (const testCase of [
 }
 
 test('auto mode: unparseable verdicts (after one retry) escalate to the human gate', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llm-auto-badverdict-'));
+  const tempRoot = createManagedTempDir('siftkit-llm-auto-badverdict-');
   try {
     const writer = new RecordingWriter(new AlwaysApproveProvider());
     const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
@@ -287,7 +287,7 @@ test('auto mode over HTTP: the verdict request byte-extends the executing planne
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
 
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llm-auto-http-'));
+  const tempRoot = createManagedTempDir('siftkit-llm-auto-http-');
   try {
     fs.writeFileSync(path.join(tempRoot, 'a.txt'), 'content-a', 'utf8');
     const gate = new ApprovalGate({
@@ -351,7 +351,7 @@ test('auto mode over HTTP: the verdict request byte-extends the executing planne
 });
 
 test('auto mode without a human gate fails loudly at construction', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llm-auto-nogate-'));
+  const tempRoot = createManagedTempDir('siftkit-llm-auto-nogate-');
   try {
     const writer = new RecordingWriter(new AlwaysApproveProvider());
     await assert.rejects(

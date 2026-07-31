@@ -1,10 +1,10 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { startStatusServer } from '../../src/status-server/index.js';
 import { closeRuntimeDatabase } from '../../src/state/runtime-db.js';
 import { asObject, getAddressInfo, requestJson } from './dashboard-http.js';
+import { createManagedTempDir } from './temp-dirs.js';
 
 export type StreamedOperationHarness = { baseUrl: string; close: () => Promise<void> };
 
@@ -26,7 +26,7 @@ export async function waitForActiveModelRequestOwner(baseUrl: string): Promise<s
 }
 
 export async function startHarness(namePrefix: string): Promise<StreamedOperationHarness> {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), namePrefix));
+  const tempRoot = createManagedTempDir(namePrefix);
   const previousCwd = process.cwd();
   fs.writeFileSync(path.join(tempRoot, 'package.json'), JSON.stringify({ name: 'siftkit', version: '0.1.0' }), 'utf8');
   process.chdir(tempRoot);
@@ -54,6 +54,10 @@ export async function startHarness(namePrefix: string): Promise<StreamedOperatio
     baseUrl,
     async close() {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+      // Run persistence is deferred to a setImmediate scheduled before the operation resolves.
+      // Drain one immediate turn so that write lands before the DB closes — a late write
+      // reopens runtime.sqlite and blocks temp-dir removal on Windows.
+      await new Promise((resolve) => setImmediate(resolve));
       process.chdir(previousCwd);
       closeRuntimeDatabase();
       for (const [key, value] of Object.entries(envBackup)) {

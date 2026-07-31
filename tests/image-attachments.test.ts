@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { ImageDataUrlSchema, parseImageDataUrls, ImageAttachmentReader, buildUserContent, assertPresetAcceptsImages } from '../src/llm-protocol/image-attachments.js';
 import { SIFT_MAX_IMAGE_BYTES } from '../src/config/constants.js';
 import type { ModelRuntimePreset } from '../src/config/types.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 const VALID_PNG_URI = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 const VALID_JPEG_URI = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/4QCMRXhpZgAATU0AKgAAAAgAAQESAAMAAAABAAEAAAAAAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgAA+/eHxYM';
@@ -143,7 +143,7 @@ test('parseImageDataUrls treats an absent field as no images', () => {
 });
 
 test('ImageAttachmentReader.read returns data URI for .png', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'img-att-'));
+  const tmpDir = createManagedTempDir('img-att-');
   const filePath = path.join(tmpDir, 'test.png');
   fs.writeFileSync(filePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
   const reader = new ImageAttachmentReader();
@@ -153,7 +153,7 @@ test('ImageAttachmentReader.read returns data URI for .png', async () => {
 });
 
 test('ImageAttachmentReader.read returns data URI for .jpg', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'img-att-'));
+  const tmpDir = createManagedTempDir('img-att-');
   const filePath = path.join(tmpDir, 'test.jpg');
   fs.writeFileSync(filePath, Buffer.from([0xff, 0xd8, 0xff]));
   const reader = new ImageAttachmentReader();
@@ -163,7 +163,7 @@ test('ImageAttachmentReader.read returns data URI for .jpg', async () => {
 });
 
 test('ImageAttachmentReader.read returns data URI for .jpeg', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'img-att-'));
+  const tmpDir = createManagedTempDir('img-att-');
   const filePath = path.join(tmpDir, 'test.jpeg');
   fs.writeFileSync(filePath, Buffer.from([0xff, 0xd8, 0xff]));
   const reader = new ImageAttachmentReader();
@@ -173,7 +173,7 @@ test('ImageAttachmentReader.read returns data URI for .jpeg', async () => {
 });
 
 test('ImageAttachmentReader.read returns data URI for .webp', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'img-att-'));
+  const tmpDir = createManagedTempDir('img-att-');
   const filePath = path.join(tmpDir, 'test.webp');
   fs.writeFileSync(filePath, Buffer.from([0x52, 0x49, 0x46, 0x46]));
   const reader = new ImageAttachmentReader();
@@ -183,7 +183,7 @@ test('ImageAttachmentReader.read returns data URI for .webp', async () => {
 });
 
 test('ImageAttachmentReader.read returns data URI for .gif', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'img-att-'));
+  const tmpDir = createManagedTempDir('img-att-');
   const filePath = path.join(tmpDir, 'test.gif');
   fs.writeFileSync(filePath, Buffer.from([0x47, 0x49, 0x46, 0x38]));
   const reader = new ImageAttachmentReader();
@@ -193,7 +193,7 @@ test('ImageAttachmentReader.read returns data URI for .gif', async () => {
 });
 
 test('ImageAttachmentReader.read handles uppercase extensions', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'img-att-'));
+  const tmpDir = createManagedTempDir('img-att-');
   const filePath = path.join(tmpDir, 'test.PNG');
   fs.writeFileSync(filePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
   const reader = new ImageAttachmentReader();
@@ -203,7 +203,7 @@ test('ImageAttachmentReader.read handles uppercase extensions', async () => {
 });
 
 test('ImageAttachmentReader.read throws for unknown extension', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'img-att-'));
+  const tmpDir = createManagedTempDir('img-att-');
   const filePath = path.join(tmpDir, 'test.txt');
   fs.writeFileSync(filePath, 'hello');
   const reader = new ImageAttachmentReader();
@@ -223,7 +223,7 @@ test('ImageAttachmentReader.read throws for missing file', async () => {
 });
 
 test('ImageAttachmentReader.read throws for oversized file', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'img-att-'));
+  const tmpDir = createManagedTempDir('img-att-');
   const filePath = path.join(tmpDir, 'big.png');
   fs.writeFileSync(filePath, Buffer.alloc(SIFT_MAX_IMAGE_BYTES + 1, 0));
   const reader = new ImageAttachmentReader();
@@ -238,7 +238,7 @@ test('ImageAttachmentReader.read throws for oversized file', async () => {
 });
 
 test('ImageAttachmentReader.readAll preserves order', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'img-att-'));
+  const tmpDir = createManagedTempDir('img-att-');
   const paths = [
     path.join(tmpDir, 'a.png'),
     path.join(tmpDir, 'b.png'),

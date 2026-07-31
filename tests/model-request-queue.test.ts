@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -22,6 +21,7 @@ import { writeConfig } from '../src/status-server/config-store.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { RecordingInferenceRuntime as QueueRuntime } from './helpers/recording-inference-runtime.js';
 import { createTestServerContext } from './helpers/server-context-fixture.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 type StdoutLine = string;
 
@@ -64,7 +64,7 @@ test('model request queue timeout default is fifteen minutes', () => {
 });
 
 test('backend transition pauses queued admission until the new runtime is ready', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-model-queue-preset-'));
+  const root = createManagedTempDir('siftkit-model-queue-preset-');
   const configPath = path.join(root, 'runtime.sqlite');
   const config = getDefaultConfig();
   const basePreset = config.Server.ModelPresets.Presets[0];
@@ -110,7 +110,7 @@ test('backend transition pauses queued admission until the new runtime is ready'
 });
 
 test('preset switch arms idle only for the runtime that becomes active', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-model-idle-switch-'));
+  const root = createManagedTempDir('siftkit-model-idle-switch-');
   const configPath = path.join(root, 'runtime.sqlite');
   const config = getDefaultConfig();
   const basePreset = config.Server.ModelPresets.Presets[0];

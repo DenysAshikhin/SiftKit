@@ -1011,6 +1011,9 @@ function runWithTempEnv<R>(fn: (tempRoot: string) => R | Promise<R>): Promise<R>
   process.chdir(tempRoot);
 
   const cleanup = async () => {
+    // Drain immediates scheduled by the test body (e.g. deferred run-log persistence) so no
+    // late write reopens runtime.sqlite after it is closed and blocks temp-dir removal.
+    await new Promise((resolve) => setImmediate(resolve));
     process.chdir(previousCwd);
     closeRuntimeDatabase();
     envBackup.restore();

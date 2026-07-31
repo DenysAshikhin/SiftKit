@@ -1,8 +1,7 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { parseJsonValueText } from '../src/lib/json.js';
 import type { JsonObject } from '../src/lib/json-types.js';
@@ -11,6 +10,12 @@ import { createRequestHandler } from '../src/status-server/routes.js';
 import type { ServerContext } from '../src/status-server/server-types.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { createTestServerContext } from './helpers/server-context-fixture.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+
+// The cached runtime DB handle keeps a file inside the temp dir open on Windows, which
+// blocks the exit-time registry sweep. Root after() runs before the exit handler.
+after(() => closeRuntimeDatabase());
 
 type JsonResponse = { statusCode: number; body: JsonObject };
 
@@ -65,7 +70,7 @@ function createStatusContext(tempRoot: string): ServerContext & { readonly wakeC
 }
 
 test('running status notifications wake managed llama for direct provider requests', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-status-wake-'));
+  const tempRoot = createManagedTempDir('siftkit-status-wake-');
   const ctx = createStatusContext(tempRoot);
   fs.writeFileSync(ctx.configPath, '{}', 'utf8');
 

@@ -1,18 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 
 import { runTaskLoop } from '../src/repo-search/engine.js';
 import type { JsonSerializable } from '../src/lib/json-types.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 // runTaskLoop requires repoRoot/model/baseUrl; the mock-provider path never reads the
 // model/baseUrl, and an empty temp repo produces the same empty listing the prior
 // (untyped) omission did — behaviour-equivalent defaults for these synthesis tests.
 const MOCK_LOOP_DEFAULTS = {
-  repoRoot: mkdtempSync(join(tmpdir(), 'siftkit-syn-loop-')),
+  repoRoot: createManagedTempDir('siftkit-syn-loop-'),
   model: 'mock-model',
   baseUrl: 'http://127.0.0.1:1',
   systemContext: createEmptyPresetSystemContext(),

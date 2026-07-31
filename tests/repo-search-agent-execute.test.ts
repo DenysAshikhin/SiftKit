@@ -1,7 +1,6 @@
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { executeRepoSearchRequest } from '../src/repo-search/execute.js';
 import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/repo-search/planner-protocol.js';
@@ -9,6 +8,7 @@ import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { DeadEndpointEnv } from './helpers/dead-endpoints.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 // Execution posts run status; these tests assert on progress events only.
 const deadEndpoints = new DeadEndpointEnv();
@@ -20,7 +20,7 @@ const MOCK_CONFIG = mockSiftConfig({
 });
 
 async function readRepoAgentMaxTurns(requestedMaxTurns?: number): Promise<number | undefined> {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-agent-turns-'));
+  const dir = createManagedTempDir('siftkit-agent-turns-');
   const events: RepoSearchProgressEvent[] = [];
   try {
     await executeRepoSearchRequest({
@@ -49,7 +49,7 @@ test('repo-agent defaults to 100 turns and preserves an explicit higher override
 });
 
 test('repo-agent selects fail context policy and surfaces overflow without a model call', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-agent-overflow-'));
+  const dir = createManagedTempDir('siftkit-agent-overflow-');
   try {
     await assert.rejects(
       executeRepoSearchRequest({
@@ -72,7 +72,7 @@ test('repo-agent selects fail context policy and surfaces overflow without a mod
 });
 
 test('repo-agent automatically trims noisy validation run output', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-agent-validation-'));
+  const dir = createManagedTempDir('siftkit-agent-validation-');
   fs.writeFileSync(
     path.join(dir, 'validation.cjs'),
     'for (let index = 1; index <= 60; index += 1) console.log(`validation-line-${index}`);\n',
@@ -114,7 +114,7 @@ test('repo-agent automatically trims noisy validation run output', async () => {
 });
 
 test('repo-agent taskKind runs the agent prompt and applies a write without approval gate', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-agent-exec-'));
+  const dir = createManagedTempDir('siftkit-agent-exec-');
   try {
     const result = await executeRepoSearchRequest({
       presetId: 'repo-search',
@@ -140,7 +140,7 @@ test('repo-agent taskKind runs the agent prompt and applies a write without appr
 });
 
 test('repo-agent uses ExpandReads=false and still skips already-returned lines', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-agent-exec-'));
+  const dir = createManagedTempDir('siftkit-agent-exec-');
   fs.writeFileSync(
     path.join(dir, 'a.ts'),
     Array.from({ length: 200 }, (_, index) => `a.ts-line-${index + 1}`).join('\n'),

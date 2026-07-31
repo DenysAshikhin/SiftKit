@@ -533,6 +533,10 @@ export async function withTestEnvAndServer(
   try {
     await fn({ tempRoot, stub });
   } finally {
+    // Repo-search defers run-log persistence to a setImmediate scheduled before its promise
+    // resolves. Drain one immediate turn so that write lands before the DB is closed, instead
+    // of after — a late write reopens runtime.sqlite and blocks the temp-dir sweep on Windows.
+    await new Promise((resolve) => setImmediate(resolve));
     process.chdir(previousCwd);
     await stub.close();
     closeRuntimeDatabase();

@@ -1,16 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { installCodexPolicy, installShellIntegration, installSiftKit } from '../src/install.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 void installShellIntegration;
 
 test('installCodexPolicy creates AGENTS.md with policy block', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-install-policy-'));
+  const tempRoot = createManagedTempDir('siftkit-install-policy-');
   const codexHome = path.join(tempRoot, '.codex');
   try {
     const result = await installCodexPolicy(codexHome);
@@ -26,7 +26,7 @@ test('installCodexPolicy creates AGENTS.md with policy block', async () => {
 });
 
 test('installCodexPolicy updates existing AGENTS.md replacing policy block', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-install-replace-'));
+  const tempRoot = createManagedTempDir('siftkit-install-replace-');
   const codexHome = path.join(tempRoot, '.codex');
   fs.mkdirSync(codexHome, { recursive: true });
   const agentsPath = path.join(codexHome, 'AGENTS.md');
@@ -45,7 +45,7 @@ test('installCodexPolicy updates existing AGENTS.md replacing policy block', asy
 });
 
 test('installCodexPolicy appends to existing AGENTS.md without existing policy', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-install-append-'));
+  const tempRoot = createManagedTempDir('siftkit-install-append-');
   const codexHome = path.join(tempRoot, '.codex');
   fs.mkdirSync(codexHome, { recursive: true });
   const agentsPath = path.join(codexHome, 'AGENTS.md');

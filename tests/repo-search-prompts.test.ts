@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { buildAgentSystemPrompt, buildTaskInitialUserPrompt, buildTaskSystemPrompt } from '../src/repo-search/prompts.js';
@@ -12,9 +11,10 @@ import {
   PresetSystemContextBuilder,
   type PresetSystemContext,
 } from '../src/preset-system-context.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 function withTempRepo(fn: (repoRoot: string) => void): void {
-  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-prompt-'));
+  const repoRoot = createManagedTempDir('siftkit-repo-prompt-');
   try {
     fn(repoRoot);
   } finally {
@@ -288,7 +288,7 @@ test('buildAgentSystemPrompt requires a completion review against the task and r
 });
 
 test('buildAgentSystemPrompt uses context metadata without injecting context content', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-agent-prompt-'));
+  const dir = createManagedTempDir('siftkit-agent-prompt-');
   try {
     fs.writeFileSync(path.join(dir, 'AGENTS.md'), 'PROJECT RULE: use tabs.');
     const prompt = buildAgentSystemPrompt(buildTestContext(dir, true, true));

@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import path from 'node:path';
 
 import { recordWebSearchUsage, readWebSearchUsage, getUsageMonthKey } from '../src/status-server/web-search-usage.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+
+// The cached runtime DB handle keeps a file inside the temp dir open on Windows, which
+// blocks the exit-time registry sweep. Root after() runs before the exit handler.
+after(() => closeRuntimeDatabase());
 
 function tempDbPath(): string {
   const dir = createManagedTempDir('siftkit-usage-');

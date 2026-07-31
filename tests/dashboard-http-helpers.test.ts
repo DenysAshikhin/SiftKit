@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -12,7 +11,7 @@ import {
   requestSse,
   writeJson,
 } from './helpers/dashboard-http.js';
-import { removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 
 test('dashboard HTTP helpers read JSON and SSE payloads', async () => {
   const server = http.createServer((req, res) => {
@@ -61,7 +60,7 @@ test('dashboard HTTP helpers read JSON and SSE payloads', async () => {
 });
 
 test('dashboard file helpers write JSON payloads', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-http-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-http-');
   const nestedPath = path.join(tempRoot, 'logs', 'entry.json');
 
   writeJson(nestedPath, { ok: true });

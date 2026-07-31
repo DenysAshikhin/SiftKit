@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 
@@ -14,7 +13,7 @@ import {
   asArray,
   getAddressInfo,
 } from './helpers/dashboard-http.js';
-import { removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 import {
   DashboardRunSeeder,
   buildRepoSearchTranscriptText,
@@ -169,7 +168,7 @@ function restoreDashboardTestRepo(previousCwd: string): void {
 }
 
 test('dashboard initial runs load returns top 20 overall', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-initial-cap-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-initial-cap-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const runtimeRoot = path.join(tempRoot, '.siftkit');
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
@@ -213,7 +212,7 @@ test('dashboard initial runs load returns top 20 overall', async () => {
 });
 
 test('dashboard filters runs by preset group and deletes the oldest matching logs by count', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-run-delete-count-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-run-delete-count-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const runtimeRoot = path.join(tempRoot, '.siftkit');
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
@@ -289,7 +288,7 @@ test('dashboard filters runs by preset group and deletes the oldest matching log
 });
 
 test('dashboard deletes matching logs before a date and rejects invalid delete criteria', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-run-delete-date-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-run-delete-date-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const runtimeRoot = path.join(tempRoot, '.siftkit');
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
@@ -362,7 +361,7 @@ test('dashboard deletes matching logs before a date and rejects invalid delete c
 });
 
 test('dashboard before_date all-type delete wipes run history across tables while preserving benchmarks, running llama, and post-cutoff rows', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-run-delete-all-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-run-delete-all-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const runtimeRoot = path.join(tempRoot, '.siftkit');
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
@@ -427,7 +426,7 @@ test('dashboard before_date all-type delete wipes run history across tables whil
 });
 
 test('dashboard run-log delete cascades linked runtime artifacts and source files by request id', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-run-delete-linked-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-run-delete-linked-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const runtimeRoot = path.join(tempRoot, '.siftkit');
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');

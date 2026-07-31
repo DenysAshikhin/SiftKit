@@ -1,8 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import {
   captureExecutingPlannerRequest,
   requestApprovalVerdict,
@@ -17,6 +15,7 @@ import {
   RepoSearchApprovalRequestSchema,
 } from '../src/repo-search/engine/approval-gate.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 const transcript: ChatMessage[] = [
   { role: 'system', content: 'sys' },
@@ -128,7 +127,7 @@ test('verdict serializes the transcript with the executing request flags', async
 });
 
 test('a task loop refuses an approval verdict before any planner request', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-verdict-no-planner-'));
+  const tempRoot = createManagedTempDir('siftkit-verdict-no-planner-');
   try {
     const loop = new TaskLoop(
       { id: 'task-1', question: 'q', signals: [] },

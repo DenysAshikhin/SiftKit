@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { runTaskLoop } from '../src/repo-search/engine.js';
 import { ApprovalGate } from '../src/repo-search/engine/approval-gate.js';
@@ -9,6 +8,7 @@ import { ProgressWriter } from '../src/lib/progress-writer.js';
 import { INTERACTIVE_REPO_TOOL_NAMES, resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 type ScriptedDecision = { kind: 'approve' } | { kind: 'deny'; reason: string } | { kind: 'abort' };
 
@@ -48,7 +48,7 @@ function makeLoopOptions(tempRoot: string, mockResponses: string[], writer: Auto
 }
 
 test('approve lets a write execute; the file exists afterwards', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-approval-write-'));
+  const tempRoot = createManagedTempDir('siftkit-approval-write-');
   try {
     const writer = new AutoRespondingWriter(() => ({ kind: 'approve' }));
     const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
@@ -71,7 +71,7 @@ test('approve lets a write execute; the file exists afterwards', async () => {
 });
 
 test('edit approval receives every complete replacement before execution', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-approval-edit-'));
+  const tempRoot = createManagedTempDir('siftkit-approval-edit-');
   try {
     fs.writeFileSync(path.join(tempRoot, 'cleanup.ts'), 'cleanCache();\n', 'utf8');
     const writer = new AutoRespondingWriter(() => ({ kind: 'approve' }));
@@ -103,7 +103,7 @@ test('edit approval receives every complete replacement before execution', async
 });
 
 test('deny blocks execution, feeds the reason to the model, and the run continues', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-approval-deny-'));
+  const tempRoot = createManagedTempDir('siftkit-approval-deny-');
   try {
     const writer = new AutoRespondingWriter((event) => (
       event.toolName === 'write' ? { kind: 'deny', reason: 'not that file' } : { kind: 'approve' }
@@ -126,7 +126,7 @@ test('deny blocks execution, feeds the reason to the model, and the run continue
 });
 
 test('denied read never executes (no read output recorded)', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-approval-read-'));
+  const tempRoot = createManagedTempDir('siftkit-approval-read-');
   try {
     fs.writeFileSync(path.join(tempRoot, 'secret.txt'), 'secret-content', 'utf8');
     const writer = new AutoRespondingWriter(() => ({ kind: 'deny', reason: '' }));
@@ -145,7 +145,7 @@ test('denied read never executes (no read output recorded)', async () => {
 });
 
 test('abort throws out of the run', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-approval-abort-'));
+  const tempRoot = createManagedTempDir('siftkit-approval-abort-');
   try {
     const writer = new AutoRespondingWriter(() => ({ kind: 'abort' }));
     const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
@@ -163,7 +163,7 @@ test('abort throws out of the run', async () => {
 });
 
 test('without a gate, mutating tools stay invalid actions (non-interactive unchanged)', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-approval-off-'));
+  const tempRoot = createManagedTempDir('siftkit-approval-off-');
   try {
     const writer = new AutoRespondingWriter(() => ({ kind: 'approve' }));
     const result = await runTaskLoop(makeTask('write a file'), {

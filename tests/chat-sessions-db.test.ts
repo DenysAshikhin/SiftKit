@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import {
   saveChatSession,
@@ -12,9 +11,10 @@ import {
 } from '../src/state/chat-sessions.js';
 import type { ChatSession } from '../src/state/chat-sessions.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 function withTempRepo(fn: (repoRoot: string) => void): void {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-db-'));
+  const tempRoot = createManagedTempDir('siftkit-chat-db-');
   const previousCwd = process.cwd();
   try {
     fs.writeFileSync(

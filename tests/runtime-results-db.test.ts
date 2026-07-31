@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import {
@@ -13,9 +12,10 @@ import {
   readBenchmarkRun,
   readEvalResult,
 } from '../src/state/runtime-results.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 function withTempRepo(fn: (repoRoot: string) => void): void {
-  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-runtime-results-'));
+  const repoRoot = createManagedTempDir('siftkit-runtime-results-');
   const previousCwd = process.cwd();
   try {
     fs.writeFileSync(

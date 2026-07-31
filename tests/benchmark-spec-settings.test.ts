@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 
@@ -22,6 +21,7 @@ import {
   getRunTelemetryStats,
   sortBenchmarkResults,
 } from '../bench/spec-settings';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 const DEFAULT_SPEC_BENCHMARK_PROMPTS = [
   'trace the managed-llama log-delta source for speculativeAcceptedTokens and speculativeGeneratedTokens; return exact file:line anchors from log parse through benchmark output',
@@ -639,7 +639,7 @@ test('package typecheck command is available for repo, scripts, dashboard, bench
 });
 
 test('syncDistRuntime copies fresh compiled files from dist/src into runtime dist paths', () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-dist-runtime-'));
+  const tempRoot = createManagedTempDir('sync-dist-runtime-');
   const sourceRoot = path.join(tempRoot, 'dist', 'src');
   const targetRoot = path.join(tempRoot, 'dist');
 

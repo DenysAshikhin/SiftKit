@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 import { SIFT_DEFAULT_LLAMA_PORT, SIFT_DEFAULT_STATUS_PORT } from '../src/config/constants.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 // The guard's only job is to fail loudly, so its own failure mode is silence: if the
 // --import wiring or the port env in scripts/run-tests.ts regresses, an unguarded run is
@@ -51,7 +51,7 @@ function buildChildEnv(options: ChildEnvOptions): NodeJS.ProcessEnv {
 
 function runGuardedChild(childSource: string, options: ChildEnvOptions = {}): ChildResult {
   assert.ok(fs.existsSync(guardPath), `${guardPath} is missing; run "npm run build:test" before this suite.`);
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-guard-probe-'));
+  const tempRoot = createManagedTempDir('siftkit-guard-probe-');
   const childPath = path.join(tempRoot, 'probe.mjs');
   fs.writeFileSync(childPath, childSource, 'utf8');
   try {

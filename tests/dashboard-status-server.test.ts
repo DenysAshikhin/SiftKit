@@ -1,7 +1,6 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { createRequire } from 'node:module';
@@ -29,7 +28,7 @@ import {
   type SseResponse,
   writeJson,
 } from './helpers/dashboard-http.js';
-import { removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
 import { DashboardRunSeeder } from './helpers/dashboard-run-seed.js';
 import {
@@ -39,6 +38,11 @@ import {
 } from './helpers/dashboard-test-repo.js';
 import { buildRepoSearchChatSteps } from '../dashboard/src/lib/chat-steps.js';
 import type { RunEvent } from '../dashboard/src/types.js';
+import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+
+// The cached runtime DB handle keeps a file inside the temp dir open on Windows, which
+// blocks the exit-time registry sweep. Root after() runs before the exit handler.
+after(() => closeRuntimeDatabase());
 
 function toRunEvents(value: OptionalJsonValue): RunEvent[] {
   return asObjectArray(value).map((event) => ({
@@ -60,7 +64,7 @@ function toRunEvents(value: OptionalJsonValue): RunEvent[] {
 // chat-route-file-listing, and web-search-quota seams; deleting any case here would drop unique
 // integration branches, so they stay.
 test('GET /dashboard/web-search-quota returns a quotas array', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-quota-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-quota-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
@@ -183,7 +187,7 @@ async function startHostConfigServer(hostConfigBody: Dict): Promise<HostConfigSe
 }
 
 test('config llama cpp test endpoint reports reachable external server', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llama-test-route-'));
+  const tempRoot = createManagedTempDir('siftkit-llama-test-route-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const runtimeRoot = path.join(tempRoot, '.siftkit');
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
@@ -239,7 +243,7 @@ test('config llama cpp test endpoint reports reachable external server', async (
 });
 
 test('config llama cpp test endpoint reports unreachable external server', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llama-test-route-'));
+  const tempRoot = createManagedTempDir('siftkit-llama-test-route-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const runtimeRoot = path.join(tempRoot, '.siftkit');
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
@@ -280,7 +284,7 @@ test('config llama cpp test endpoint reports unreachable external server', async
 });
 
 test('chat session creation uses pass-through host context window', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-host-context-'));
+  const tempRoot = createManagedTempDir('siftkit-chat-host-context-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const runtimeRoot = path.join(tempRoot, '.siftkit');
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
@@ -350,7 +354,7 @@ test('chat session creation uses pass-through host context window', async () => 
 });
 
 class ChatInferenceMetadataFixture {
-  private readonly tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-exl3-context-'));
+  private readonly tempRoot = createManagedTempDir('siftkit-chat-exl3-context-');
   private readonly previousCwd = enterDashboardTestRepo(this.tempRoot);
   private readonly runtimeRoot = path.join(this.tempRoot, '.siftkit');
   private readonly statusPath = path.join(this.runtimeRoot, 'status', 'inference.txt');
@@ -489,7 +493,7 @@ test('reading an active model preset session does not rewrite snapshots', async 
 });
 
 test('dashboard endpoints expose runs, details, metrics, and chat sessions', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-status-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-status-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const runtimeRoot = path.join(tempRoot, '.siftkit');
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
@@ -773,6 +777,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
+    restoreDashboardTestRepo(previousCwd);
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -785,7 +790,7 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
 });
 
 test('dashboard chat message route uses the runtime BaseUrl for exact llama tokens', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-chat-tokenize-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-chat-tokenize-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = getConfigPath();
@@ -882,7 +887,7 @@ test('dashboard chat message route uses the runtime BaseUrl for exact llama toke
 });
 
 test('dashboard metrics expose line-read stats and prompt-baseline recommendations', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-line-read-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-line-read-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const runtimeRoot = path.join(tempRoot, '.siftkit');
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
@@ -983,6 +988,7 @@ test('dashboard metrics expose line-read stats and prompt-baseline recommendatio
     assert.equal(getContentStats.noNewEvidenceCalls, 2);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    restoreDashboardTestRepo(previousCwd);
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {
         delete process.env[key];
@@ -990,11 +996,12 @@ test('dashboard metrics expose line-read stats and prompt-baseline recommendatio
         process.env[key] = value;
       }
     }
+    await removeDirectoryWithRetries(tempRoot);
   }
 });
 
 test('web_search tool calls increment web search usage', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-web-search-usage-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-web-search-usage-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
@@ -1045,7 +1052,7 @@ test('web_search tool calls increment web search usage', async () => {
 });
 
 test('plan/repo-search stream events include backend promptTokenCount', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-stream-tokens-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-stream-tokens-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
@@ -1243,7 +1250,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
 });
 
 test('chat session web search defaults on and update persists webSearchEnabled', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-web-search-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-web-search-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
@@ -1297,7 +1304,7 @@ test('chat session web search defaults on and update persists webSearchEnabled',
 });
 
 test('no-web direct chat persists a single answer with scorecard output tokens', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-chat-noweb-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-chat-noweb-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
@@ -1367,7 +1374,7 @@ test('no-web direct chat persists a single answer with scorecard output tokens',
 });
 
 test('web-on direct chat streams tool events, persists tool step + answer, splits tokens', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-web-stream-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-web-stream-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
@@ -1506,7 +1513,7 @@ test('web-on direct chat streams tool events, persists tool step + answer, split
 });
 
 test('web-on direct chat can answer later turn from retained successful fetch evidence', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-web-replay-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-web-replay-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
@@ -1614,7 +1621,7 @@ test('web-on direct chat can answer later turn from retained successful fetch ev
 });
 
 test('deleting retained web tool step allows the same web call in a later chat turn', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-web-delete-dedupe-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-web-delete-dedupe-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
@@ -1739,7 +1746,7 @@ test('package start script launches the dedicated dual-server start runner', () 
 });
 
 test('repo-search and dashboard chat messages serialize by waiting', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-lock-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-lock-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
@@ -1813,7 +1820,7 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
 });
 
 test('model routes execute in FIFO order across mixed request kinds', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-fifo-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-fifo-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
@@ -1910,7 +1917,7 @@ test('model routes execute in FIFO order across mixed request kinds', async () =
 });
 
 test('queued model request is dropped when client disconnects before lock grant', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-queue-disconnect-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-queue-disconnect-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
@@ -2093,7 +2100,7 @@ test('queued Repo Search disconnect leaves the chat session unchanged', async ()
 });
 
 test('invalid model request is rejected without waiting for active model work', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-validate-first-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-validate-first-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
@@ -2162,7 +2169,7 @@ test('invalid model request is rejected without waiting for active model work', 
 });
 
 test('plan endpoint rejects missing or invalid repo root', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-plan-root-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-plan-root-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
@@ -2208,7 +2215,7 @@ test('plan endpoint rejects missing or invalid repo root', async () => {
 });
 
 test('chat session create and update reject unknown preset ids without persisting them', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-strict-preset-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-strict-preset-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const runtimeRoot = path.join(tempRoot, '.siftkit');
   const statusPath = path.join(runtimeRoot, 'status', 'inference.txt');
@@ -2265,7 +2272,7 @@ test('chat session create and update reject unknown preset ids without persistin
 });
 
 test('chat completion replays prior tool evidence without hidden system context', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-toolctx-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-toolctx-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');
@@ -2425,7 +2432,7 @@ test('chat completion replays prior tool evidence without hidden system context'
 });
 
 test('deleting a tool bubble removes chat context and rewrites run detail', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-dashboard-delete-bubble-'));
+  const tempRoot = createManagedTempDir('siftkit-dashboard-delete-bubble-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
   const configPath = path.join(tempRoot, '.siftkit', 'config.json');

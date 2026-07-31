@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { captureStdout, getFreePort, writeManagedLlamaScripts } from './_runtime-helpers.js';
@@ -13,7 +12,7 @@ import { getConfigPath } from '../src/config/index.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import type { JsonValue } from '../src/lib/json-types.js';
 import { asObject, getAddressInfo, type JsonResponse } from './helpers/dashboard-http.js';
-import { removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 
 function writeManagedConfig(
   model: string,
@@ -107,7 +106,7 @@ function requestJsonPost(url: string, body: JsonValue, timeoutMs = 5000): Promis
 }
 
 test('llama passthrough wakes managed llama when the managed process is offline', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-inference-passthrough-'));
+  const tempRoot = createManagedTempDir('siftkit-inference-passthrough-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -174,7 +173,7 @@ test('llama passthrough wakes managed llama when the managed process is offline'
 });
 
 test('llama passthrough waits through 503 Loading model responses without timing out', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-inference-passthrough-503-'));
+  const tempRoot = createManagedTempDir('siftkit-inference-passthrough-503-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -245,7 +244,7 @@ test('llama passthrough waits through 503 Loading model responses without timing
 });
 
 test('chat passthrough logs every forwarded /v1/chat/completions request', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-inference-passthrough-chat-log-'));
+  const tempRoot = createManagedTempDir('siftkit-inference-passthrough-chat-log-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -316,7 +315,7 @@ test('chat passthrough logs every forwarded /v1/chat/completions request', async
 });
 
 test('llama passthrough proxies POST /tokenize to managed llama', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-inference-passthrough-tokenize-'));
+  const tempRoot = createManagedTempDir('siftkit-inference-passthrough-tokenize-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),

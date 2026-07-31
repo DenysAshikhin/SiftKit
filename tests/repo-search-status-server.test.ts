@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { createRequire, Module } from 'node:module';
 import Database from 'better-sqlite3';
@@ -21,6 +20,7 @@ import { requestSse } from './helpers/sse-http.js';
 import { captureStdoutLines } from './helpers/stdout-capture.js';
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import { parseJsonValueText } from '../src/lib/json.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 const requireFromHere = createRequire(__filename);
 
@@ -74,7 +74,7 @@ async function stopManagedTestProcess(pidFilePath: string): Promise<void> {
 
 
 test('status server stays responsive while repo-search is running', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-status-'));
+  const tempRoot = createManagedTempDir('siftkit-repo-search-status-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -178,7 +178,7 @@ test('status server stays responsive while repo-search is running', async () => 
 });
 
 test('repo-search abandons stale running status after acquiring the model lock', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-stale-status-'));
+  const tempRoot = createManagedTempDir('siftkit-repo-search-stale-status-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -254,7 +254,7 @@ test('repo-search abandons stale running status after acquiring the model lock',
 });
 
 test('repo-search registers before queue wait, exposes queue diagnostics, and fails queued timeouts loudly', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-queue-timeout-'));
+  const tempRoot = createManagedTempDir('siftkit-repo-search-queue-timeout-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -384,7 +384,7 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
 });
 
 test('managed llama readiness wait is serialized by the model request queue', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-readiness-outside-queue-'));
+  const tempRoot = createManagedTempDir('siftkit-readiness-outside-queue-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -468,7 +468,7 @@ test('managed llama readiness wait is serialized by the model request queue', as
 });
 
 test('health reports unavailable while managed llama bootstrap is still starting', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-health-bootstrap-'));
+  const tempRoot = createManagedTempDir('siftkit-health-bootstrap-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -534,7 +534,7 @@ test('health reports unavailable while managed llama bootstrap is still starting
 });
 
 test('status completion flushing does not block health responses', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-status-flush-health-'));
+  const tempRoot = createManagedTempDir('siftkit-status-flush-health-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -645,7 +645,7 @@ test('status completion flushing does not block health responses', async () => {
 });
 
 test('repo-search endpoint logs one model-requested command line per tool call', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-command-log-'));
+  const tempRoot = createManagedTempDir('siftkit-repo-search-command-log-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -776,7 +776,7 @@ test('buildRepoSearchProgressLogBody formats command and llm progress bodies', (
 });
 
 test('repo-search transcript artifact keeps routine normalized flags out of tool replay', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-effective-transcript-'));
+  const tempRoot = createManagedTempDir('siftkit-repo-search-effective-transcript-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -872,7 +872,7 @@ test('repo-search transcript artifact keeps routine normalized flags out of tool
 });
 
 test('repo-search transcript artifact replays the fitted read range using per-tool context limits', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-bounded-transcript-'));
+  const tempRoot = createManagedTempDir('siftkit-repo-search-bounded-transcript-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -977,7 +977,7 @@ test('repo-search transcript artifact replays the fitted read range using per-to
 });
 
 test('repo-search endpoint reloads executor module per request', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-reload-'));
+  const tempRoot = createManagedTempDir('siftkit-repo-search-reload-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -1093,7 +1093,7 @@ test('repo-search endpoint reloads executor module per request', async () => {
 });
 
 test('repo-search endpoint rejects duplicated final output before sending success response', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-search-response-sanity-'));
+  const tempRoot = createManagedTempDir('siftkit-repo-search-response-sanity-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),

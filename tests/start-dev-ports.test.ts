@@ -1,16 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { isBackendReadyStatusCode } from '../scripts/start-dev-health.js';
 import { buildStartupPortChecks } from '../scripts/start-dev-ports.js';
 import { stopChildProcessTree } from '../scripts/start-dev-process.js';
 import { readPackageJson } from './helpers/package-json.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 test('start-dev preflights both status and dashboard ports before spawning services', () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-start-dev-'));
+  const tempRoot = createManagedTempDir('siftkit-start-dev-');
   const dashboardPackagePath = path.join(tempRoot, 'dashboard-package.json');
   fs.writeFileSync(
     dashboardPackagePath,

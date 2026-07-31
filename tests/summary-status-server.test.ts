@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { summarizeRequest } from '../src/summary.js';
@@ -13,6 +12,7 @@ import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import { requestJson, asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { requestSse } from './helpers/sse-http.js';
 import { captureStdoutLines } from './helpers/stdout-capture.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 
 test('summary endpoint defaults model request timeout to 240 seconds', () => {
@@ -28,7 +28,7 @@ test('summary endpoint forwards promptPrefix and llamaCppOverrides to the summar
 });
 
 test('summary endpoint waits behind the model request queue', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-summary-status-'));
+  const tempRoot = createManagedTempDir('siftkit-summary-status-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -111,7 +111,7 @@ test('summary endpoint waits behind the model request queue', async () => {
 });
 
 test('summary endpoint processes terminal status before granting next queued summary', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-summary-terminal-before-release-'));
+  const tempRoot = createManagedTempDir('siftkit-summary-terminal-before-release-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -192,7 +192,7 @@ test('summary endpoint processes terminal status before granting next queued sum
 });
 
 test('terminal metadata route enqueues immediately and drains after idle delay', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-terminal-metadata-queue-'));
+  const tempRoot = createManagedTempDir('siftkit-terminal-metadata-queue-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -280,7 +280,7 @@ test('terminal metadata route enqueues immediately and drains after idle delay',
 });
 
 test('terminal metadata waits for managed llama flush queue to drain first', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-terminal-metadata-after-llama-flush-'));
+  const tempRoot = createManagedTempDir('siftkit-terminal-metadata-after-llama-flush-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -370,7 +370,7 @@ test('terminal metadata waits for managed llama flush queue to drain first', asy
 });
 
 test('split terminal routes clear active request before next running post', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-status-terminal-order-'));
+  const tempRoot = createManagedTempDir('siftkit-status-terminal-order-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -506,7 +506,7 @@ test('split terminal routes clear active request before next running post', asyn
 });
 
 test('legacy terminal status posts to /status are rejected', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-status-no-legacy-terminal-'));
+  const tempRoot = createManagedTempDir('siftkit-status-no-legacy-terminal-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -566,7 +566,7 @@ test('legacy terminal status posts to /status are rejected', async () => {
 });
 
 test('summary endpoint returns, logs, and persists diagnostics for 500 responses', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-summary-error-'));
+  const tempRoot = createManagedTempDir('siftkit-summary-error-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
@@ -663,7 +663,7 @@ test('summary endpoint returns, logs, and persists diagnostics for 500 responses
 });
 
 test('command-output endpoint analyzes captured command output on the server', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-command-output-route-'));
+  const tempRoot = createManagedTempDir('siftkit-command-output-route-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),

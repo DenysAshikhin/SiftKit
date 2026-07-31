@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -9,9 +8,10 @@ import { ExternalServerRestartError, PresetRuntimeCoordinator } from '../src/sta
 import { readConfig, writeConfig } from '../src/status-server/config-store.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { RecordingInferenceRuntime as RecordingRuntime } from './helpers/recording-inference-runtime.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 function createConfigPath(): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-preset-coordinator-'));
+  const root = createManagedTempDir('siftkit-preset-coordinator-');
   const configPath = path.join(root, 'runtime.sqlite');
   const config = getDefaultConfigObject();
   const base = config.Server.ModelPresets.Presets[0];

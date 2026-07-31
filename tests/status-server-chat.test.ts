@@ -1,8 +1,5 @@
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import test from 'node:test';
+import test, { after } from 'node:test';
 
 import {
   appendChatMessagesWithUsage,
@@ -25,6 +22,12 @@ import { estimateTokenCount, type ChatSession } from '../src/state/chat-sessions
 import { z } from '../src/lib/zod.js';
 import { JsonValueSchema, type JsonObject } from '../src/lib/json-types.js';
 import type { SiftConfig } from '../src/config/types.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+
+// The cached runtime DB handle keeps a file inside the temp dir open on Windows, which
+// blocks the exit-time registry sweep. Root after() runs before the exit handler.
+after(() => closeRuntimeDatabase());
 
 // Brand a deliberately-partial session fixture as ChatSession at one boundary;
 // tests exercise only the fields they set.
@@ -211,7 +214,7 @@ test('buildContextUsage uses the resolved active-model context', () => {
 
 
 test('appendChatMessagesWithUsage persists interleaved per-turn thinking and tools', () => {
-  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-turns-'));
+  const runtimeRoot = createManagedTempDir('siftkit-chat-turns-');
   const session = appendChatMessagesWithUsage(
     runtimeRoot,
     createSession(),
@@ -248,7 +251,7 @@ test('appendChatMessagesWithUsage persists interleaved per-turn thinking and too
 });
 
 test('appendChatMessagesWithUsage deletes older thinking transcript entries when per-step thinking is disabled', () => {
-  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-prune-thinking-'));
+  const runtimeRoot = createManagedTempDir('siftkit-chat-prune-thinking-');
   const session = appendChatMessagesWithUsage(
     runtimeRoot,
     createSession(),
@@ -276,7 +279,7 @@ test('appendChatMessagesWithUsage deletes older thinking transcript entries when
 });
 
 test('appendChatMessagesWithUsage marks explicit estimated tool tokens as estimated', () => {
-  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-estimated-tool-'));
+  const runtimeRoot = createManagedTempDir('siftkit-chat-estimated-tool-');
   const session = appendChatMessagesWithUsage(
     runtimeRoot,
     createSession(),
@@ -300,7 +303,7 @@ test('appendChatMessagesWithUsage marks explicit estimated tool tokens as estima
 });
 
 test('appendChatMessagesWithUsage omits empty-thinking turns and persists single-turn chat', () => {
-  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-single-'));
+  const runtimeRoot = createManagedTempDir('siftkit-chat-single-');
   const session = appendChatMessagesWithUsage(
     runtimeRoot, createSession(), 'hi', 'hello',
     { promptTokens: 5, completionTokens: 2, thinkingTokens: 1, promptCacheTokens: null, promptEvalTokens: 5 },
@@ -664,7 +667,7 @@ test('buildContextUsage counts replay-visible context, not internal tool telemet
 });
 
 test('appendChatMessagesWithUsage stores user text token estimate from content, not cumulative prompt eval telemetry', () => {
-  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-user-tokens-'));
+  const runtimeRoot = createManagedTempDir('siftkit-chat-user-tokens-');
   const session = mockChatSession({
     id: 'session-user-tokens',
     title: 'Session',
@@ -765,7 +768,7 @@ test('buildChatHistoryMessages omits retained thinking when preserve thinking is
 });
 
 test('appendChatMessagesWithUsage stores exact user text tokens when caller supplies tokenizer count', () => {
-  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-user-exact-tokens-'));
+  const runtimeRoot = createManagedTempDir('siftkit-chat-user-exact-tokens-');
   const session = mockChatSession({
     id: 'session-user-exact-tokens',
     title: 'Session',
@@ -793,7 +796,7 @@ test('appendChatMessagesWithUsage stores exact user text tokens when caller supp
 });
 
 test('appendChatMessagesWithUsage preserves estimated usage flags on answer tokens', () => {
-  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-answer-estimated-flags-'));
+  const runtimeRoot = createManagedTempDir('siftkit-chat-answer-estimated-flags-');
   const session = appendChatMessagesWithUsage(
     runtimeRoot,
     createSession(),

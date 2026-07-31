@@ -43,6 +43,7 @@ import type { JsonObject } from '../src/lib/json-types.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { ensureDirectory, saveContentAtomically } from '../src/lib/fs.js';
 import { withTestEnvAndServer, type Dict } from './_test-helpers.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 function makeConfig(overrides: Partial<SiftConfig>): SiftConfig {
   return { ...getDefaultConfigObject(), ...overrides };
@@ -124,7 +125,7 @@ test('getDerivedMaxInputCharacters with zero chars-per-token uses default', () =
 });
 
 test('ensureDirectory creates nested directories', () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-ensuredir-'));
+  const tempRoot = createManagedTempDir('siftkit-ensuredir-');
   try {
     const nested = path.join(tempRoot, 'a', 'b', 'c');
     const result = ensureDirectory(nested);
@@ -136,7 +137,7 @@ test('ensureDirectory creates nested directories', () => {
 });
 
 test('saveContentAtomically writes content to a file', () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-atomic-'));
+  const tempRoot = createManagedTempDir('siftkit-atomic-');
   try {
     const filePath = path.join(tempRoot, 'test.txt');
     saveContentAtomically(filePath, 'hello world');
@@ -147,7 +148,7 @@ test('saveContentAtomically writes content to a file', () => {
 });
 
 test('saveContentAtomically creates parent directories', () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-atomic-nested-'));
+  const tempRoot = createManagedTempDir('siftkit-atomic-nested-');
   try {
     const filePath = path.join(tempRoot, 'sub', 'dir', 'test.txt');
     saveContentAtomically(filePath, 'nested content');

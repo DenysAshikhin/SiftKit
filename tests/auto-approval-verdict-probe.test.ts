@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
@@ -14,6 +13,7 @@ import {
 } from '../src/repo-search/approval-review-policy.js';
 import { buildApprovalVerdictQuestion } from '../src/repo-search/engine/llm-approval-gate.js';
 import type { ChatMessage, PlannerActionResponse } from '../src/repo-search/planner-protocol.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 const messages: ChatMessage[] = [
   { role: 'system', content: 'Work only inside C:\\repo.' },
@@ -137,7 +137,7 @@ test('submits existing history followed by one transient approval question', asy
 });
 
 test('returns approve as data without executing the proposed command', async () => {
-  const tempRoot = mkdtempSync(join(tmpdir(), 'siftkit-approval-probe-'));
+  const tempRoot = createManagedTempDir('siftkit-approval-probe-');
   const markerPath = join(tempRoot, 'executed.txt');
   const client = new RecordingVerdictModelClient(
     '{"verdict":"approve","reason":"The command appears scoped."}',

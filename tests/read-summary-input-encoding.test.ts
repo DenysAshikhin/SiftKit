@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { readSummaryInput } from '../src/summary.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 function toUtf16BeBuffer(text: string, withBom = true): Buffer {
   const le = Buffer.from(text, 'utf16le');
@@ -17,7 +17,7 @@ function toUtf16BeBuffer(text: string, withBom = true): Buffer {
 }
 
 test('readSummaryInput reads UTF-8 file input unchanged', () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-encoding-'));
+  const tempDir = createManagedTempDir('siftkit-encoding-');
   try {
     const filePath = path.join(tempDir, 'utf8.txt');
     fs.writeFileSync(filePath, 'alpha\nbeta\n', 'utf8');
@@ -29,7 +29,7 @@ test('readSummaryInput reads UTF-8 file input unchanged', () => {
 });
 
 test('readSummaryInput decodes UTF-16LE file with BOM', () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-encoding-'));
+  const tempDir = createManagedTempDir('siftkit-encoding-');
   try {
     const filePath = path.join(tempDir, 'utf16le-bom.txt');
     const payload = Buffer.concat([
@@ -46,7 +46,7 @@ test('readSummaryInput decodes UTF-16LE file with BOM', () => {
 });
 
 test('readSummaryInput decodes UTF-16BE file with BOM', () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-encoding-'));
+  const tempDir = createManagedTempDir('siftkit-encoding-');
   try {
     const filePath = path.join(tempDir, 'utf16be-bom.txt');
     fs.writeFileSync(filePath, toUtf16BeBuffer('runner_state_history\n'));
@@ -59,7 +59,7 @@ test('readSummaryInput decodes UTF-16BE file with BOM', () => {
 });
 
 test('readSummaryInput detects BOM-less UTF-16LE file', () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-encoding-'));
+  const tempDir = createManagedTempDir('siftkit-encoding-');
   try {
     const filePath = path.join(tempDir, 'utf16le-no-bom.txt');
     fs.writeFileSync(filePath, Buffer.from('runner_logs_window\n', 'utf16le'));
@@ -72,7 +72,7 @@ test('readSummaryInput detects BOM-less UTF-16LE file', () => {
 });
 
 test('readSummaryInput detects BOM-less UTF-16BE file', () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-encoding-'));
+  const tempDir = createManagedTempDir('siftkit-encoding-');
   try {
     const filePath = path.join(tempDir, 'utf16be-no-bom.txt');
     fs.writeFileSync(filePath, toUtf16BeBuffer('latest_runner_manage_run\n', false));

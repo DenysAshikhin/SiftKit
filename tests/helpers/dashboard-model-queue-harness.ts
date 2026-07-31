@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -12,7 +10,7 @@ import {
   requestSse,
   type SseResponse,
 } from './dashboard-http.js';
-import { removeDirectoryWithRetries } from './temp-dirs.js';
+import { createManagedTempDir, removeDirectoryWithRetries } from './temp-dirs.js';
 import {
   configureDashboardTestEnv,
   enterDashboardTestRepo,
@@ -33,7 +31,7 @@ export class DashboardModelQueueHarness {
   private baseUrl: string | null = null;
 
   constructor(tempDirectoryPrefix: string) {
-    this.tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), tempDirectoryPrefix));
+    this.tempRoot = createManagedTempDir(tempDirectoryPrefix);
     this.previousCwd = enterDashboardTestRepo(this.tempRoot);
     const statusPath = path.join(this.tempRoot, '.siftkit', 'status', 'inference.txt');
     const configPath = path.join(this.tempRoot, '.siftkit', 'config.json');

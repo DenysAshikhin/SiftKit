@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -18,6 +17,7 @@ import {
   buildPlannerSystemPrompt,
 } from '../src/summary/planner/prompts.js';
 import type { PresetSystemContext } from '../src/preset-system-context.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 const PRESET = 'PRESET_INSTRUCTIONS';
 const ADDITIONAL = 'ADDITIONAL_INSTRUCTIONS';
@@ -129,7 +129,7 @@ test('benchmark prompt label is fixture metadata rather than a fabricated model 
 });
 
 test('summary repro prompt uses configured preset instructions and startup context', () => {
-  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-summary-repro-prompt-'));
+  const repoRoot = createManagedTempDir('siftkit-summary-repro-prompt-');
   try {
     fs.writeFileSync(path.join(repoRoot, 'AGENTS.md'), 'REPRO_AGENT_RULE', 'utf8');
     fs.writeFileSync(path.join(repoRoot, 'repro-policy.md'), 'REPRO_AUTOLOAD_RULE', 'utf8');

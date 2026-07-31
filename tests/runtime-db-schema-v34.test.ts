@@ -1,16 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
-import os from 'node:os';
 import path from 'node:path';
-import fs from 'node:fs';
 import { z } from 'zod';
 import { getRuntimeDatabase, closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 const NameRowSchema = z.array(z.object({ name: z.string() }));
 
 function tempDbPath(prefix: string): string {
-  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), prefix)), 'runtime.sqlite');
+  return path.join(createManagedTempDir(prefix), 'runtime.sqlite');
 }
 
 function tableNames(dbPath: string): string[] {

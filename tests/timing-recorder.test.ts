@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
 
@@ -17,6 +16,7 @@ import {
   withStubServer,
   withTempEnv,
 } from './_runtime-helpers.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 const TimingTraceSchema = z
   .object({
@@ -89,7 +89,7 @@ test('createTemporaryTimingRecorderFromEnv returns null when temp timing trace i
 });
 
 test('temporary timing recorder writes event details and label summaries to a temp json file', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-timing-test-'));
+  const tempRoot = createManagedTempDir('siftkit-timing-test-');
   const tracePath = path.join(tempRoot, 'trace.json');
 
   await withTemporaryEnv({
@@ -133,7 +133,7 @@ test('temporary timing recorder writes event details and label summaries to a te
 });
 
 test('repo-search execution dumps temp timing json with llama and tool phases', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-timing-test-'));
+  const tempRoot = createManagedTempDir('siftkit-repo-timing-test-');
   const tracePath = path.join(tempRoot, 'repo-trace.json');
 
   await withTemporaryEnv({
@@ -172,7 +172,7 @@ test('repo-search execution dumps temp timing json with llama and tool phases', 
 });
 
 test('summary planner dumps temp timing json with planner llama and tool phases', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-summary-timing-test-'));
+  const tempRoot = createManagedTempDir('siftkit-summary-timing-test-');
   const tracePath = path.join(tempRoot, 'summary-trace.json');
 
   await withTemporaryEnv({

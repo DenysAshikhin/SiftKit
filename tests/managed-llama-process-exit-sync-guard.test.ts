@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 
@@ -11,6 +10,7 @@ import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import type { ServerContext } from '../src/status-server/server-types.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { createTestServerContext } from './helpers/server-context-fixture.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 function createExitSyncContext(configPath: string, statusRoot: string, hostProcess: ChildProcess): ServerContext {
   return {
@@ -74,7 +74,7 @@ test('shutdownManagedLlamaForProcessExitSync: reaps the host process under an ac
 });
 
 async function withExitSyncEnvAsync(run: (configPath: string, statusRoot: string) => Promise<void>): Promise<void> {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-exit-sync-'));
+  const root = createManagedTempDir('siftkit-exit-sync-');
   const configPath = path.join(root, 'runtime.sqlite');
   try {
     await run(configPath, root);

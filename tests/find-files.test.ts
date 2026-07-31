@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { findFiles } from '../src/find-files.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 test('findFiles returns matching files in a directory tree', () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-findfiles-'));
+  const tempRoot = createManagedTempDir('siftkit-findfiles-');
   try {
     fs.mkdirSync(path.join(tempRoot, 'sub'), { recursive: true });
     fs.writeFileSync(path.join(tempRoot, 'readme.md'), 'hello', 'utf8');
@@ -27,7 +27,7 @@ test('findFiles returns matching files in a directory tree', () => {
 });
 
 test('findFiles supports wildcard ? in patterns', () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-findfiles-q-'));
+  const tempRoot = createManagedTempDir('siftkit-findfiles-q-');
   try {
     fs.writeFileSync(path.join(tempRoot, 'a1.txt'), 'a', 'utf8');
     fs.writeFileSync(path.join(tempRoot, 'a2.txt'), 'b', 'utf8');
@@ -43,7 +43,7 @@ test('findFiles supports wildcard ? in patterns', () => {
 });
 
 test('findFiles returns empty array for no matches', () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-findfiles-empty-'));
+  const tempRoot = createManagedTempDir('siftkit-findfiles-empty-');
   try {
     fs.writeFileSync(path.join(tempRoot, 'hello.txt'), 'hi', 'utf8');
     const results = findFiles(['*.py'], tempRoot);
@@ -54,7 +54,7 @@ test('findFiles returns empty array for no matches', () => {
 });
 
 test('findFiles supports multiple patterns', () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-findfiles-multi-'));
+  const tempRoot = createManagedTempDir('siftkit-findfiles-multi-');
   try {
     fs.writeFileSync(path.join(tempRoot, 'a.js'), 'a', 'utf8');
     fs.writeFileSync(path.join(tempRoot, 'b.ts'), 'b', 'utf8');

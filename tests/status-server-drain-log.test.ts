@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { startStatusServer } from '../src/status-server/index.js';
@@ -9,11 +8,12 @@ import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { requestJson, getAddressInfo } from './helpers/dashboard-http.js';
 import { captureStdoutLines } from './helpers/stdout-capture.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 const REQUEST_ID = 'drain-storm-request';
 
 test('a long drain wait logs once on entry and once on resume', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-drain-log-'));
+  const tempRoot = createManagedTempDir('siftkit-drain-log-');
   const previousCwd = process.cwd();
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),

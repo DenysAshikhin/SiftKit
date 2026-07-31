@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 
 import { runCli } from '../src/cli/index.js';
@@ -12,6 +11,7 @@ import type { JsonObject } from '../src/lib/json-types.js';
 import { buildMockScorecard, makeCaptureStream } from './_test-helpers.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { writeSseResult } from './helpers/sse-http.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 type CapturedRequest = {
   route: string;
@@ -227,7 +227,7 @@ test('run command executes locally and sends captured output to server', async (
 
 test('repo-search internal op posts to the server endpoint', async () => {
   await withBoundaryServer(async (server) => {
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-cli-boundary-'));
+    const tempRoot = createManagedTempDir('siftkit-cli-boundary-');
     const requestFile = path.join(tempRoot, 'repo-search.json');
     fs.writeFileSync(requestFile, JSON.stringify({
       Prompt: 'find planner tools',

@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 
@@ -17,7 +16,7 @@ import {
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { asObject } from './helpers/dashboard-http.js';
-import { removeDirectorySync } from './helpers/temp-dirs.js';
+import { createManagedTempDir, removeDirectorySync } from './helpers/temp-dirs.js';
 import type { JsonObject } from '../src/lib/json-types.js';
 import {
   readMetrics,
@@ -39,7 +38,7 @@ function asRows<T>(values: readonly T[]): JsonObject[] {
 }
 
 function withTempRepo(fn: (repoRoot: string) => void): void {
-  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-processed-input-'));
+  const repoRoot = createManagedTempDir('siftkit-processed-input-');
   const previousCwd = process.cwd();
   const previousUserProfile = process.env.USERPROFILE;
   try {

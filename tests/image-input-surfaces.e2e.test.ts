@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ModelRuntimePresetSchema } from '@siftkit/contracts';
 import { parseChatMessageRequest } from '../src/status-server/chat-route-request-normalizers.js';
@@ -14,6 +14,7 @@ import { parseRepoAgentInvocation } from '../src/cli/repo-agent-args.js';
 import { buildRepoAgentServerRequest } from '../src/cli/repo-agent-request.js';
 import { runTaskLoop } from '../src/repo-search/engine.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { asObject } from './helpers/dashboard-http.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
@@ -131,7 +132,7 @@ test('repo-agent defaults images to an empty array', () => {
 // The run record persists local paths, so the worker resolves them to data URIs at
 // send time. This is the one repo-agent-specific link between the flag and the wire.
 test('repo-agent encodes its image paths as data URIs on the request body', () => {
-  const root = mkdtempSync(join(os.tmpdir(), 'siftkit-agent-img-'));
+  const root = createManagedTempDir('siftkit-agent-img-');
   const imagePath = join(root, 'shot.png');
   const bytes = Buffer.from('89504e470d0a1a0a', 'hex');
   writeFileSync(imagePath, bytes);
@@ -210,7 +211,7 @@ test('the summary runner refuses an image when the preset has no vision', async 
 });
 
 test('the repo-search runner refuses an image when the preset has no vision', async () => {
-  const dir = fs.mkdtempSync(join(os.tmpdir(), 'siftkit-guard-'));
+  const dir = createManagedTempDir('siftkit-guard-');
   try {
     await assert.rejects(
       () => executeRepoSearchRequest({
@@ -243,7 +244,7 @@ test('the repo-search runner refuses an image when the preset has no vision', as
 // repo-agent reaches the model through the same executeRepoSearchRequest entry as
 // repo-search, so this pins the agent taskKind against the same guard.
 test('the repo-agent runner refuses an image when the preset has no vision', async () => {
-  const dir = fs.mkdtempSync(join(os.tmpdir(), 'siftkit-guard-agent-'));
+  const dir = createManagedTempDir('siftkit-guard-agent-');
   try {
     await assert.rejects(
       () => executeRepoSearchRequest({

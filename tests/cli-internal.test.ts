@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { runCli } from '../src/cli/index.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { makeCaptureStream, withTestEnvAndServer } from './_test-helpers.js';
 import { asObject, asObjectArray } from './helpers/dashboard-http.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 function toUtf16BeBuffer(text: string, withBom = true): Buffer {
   const le = Buffer.from(text, 'utf16le');
@@ -20,7 +20,7 @@ function toUtf16BeBuffer(text: string, withBom = true): Buffer {
 }
 
 test('find-files command returns matching files', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-cli-ff-'));
+  const tempRoot = createManagedTempDir('siftkit-cli-ff-');
   try {
     fs.writeFileSync(path.join(tempRoot, 'a.js'), 'a', 'utf8');
     fs.writeFileSync(path.join(tempRoot, 'b.ts'), 'b', 'utf8');
@@ -39,7 +39,7 @@ test('find-files command returns matching files', async () => {
 });
 
 test('find-files with --full-path outputs absolute paths', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-cli-ffp-'));
+  const tempRoot = createManagedTempDir('siftkit-cli-ffp-');
   try {
     fs.writeFileSync(path.join(tempRoot, 'x.js'), 'x', 'utf8');
     const stdout = makeCaptureStream();

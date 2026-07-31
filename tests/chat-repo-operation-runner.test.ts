@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -21,6 +20,7 @@ import {
 } from '../src/state/runtime-db.js';
 import type { ChatSession } from '../src/state/chat-sessions.js';
 import { buildMockScorecard } from './_test-helpers.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 class RecordingProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
   readonly events: RepoSearchProgressEvent[] = [];
@@ -165,7 +165,7 @@ function createRequest(
 
 test('chat repo operation runner executes and persists equivalent plan and repo-search data', async () => {
   for (const operation of ['plan', 'repo-search'] as const) {
-    const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), `siftkit-chat-${operation}-`));
+    const runtimeRoot = createManagedTempDir(`siftkit-chat-${operation}-`);
     const progressWriter = new RecordingProgressWriter();
     const engineResult = buildResult(`${operation} complete`);
     if (operation === 'plan') {
@@ -237,7 +237,7 @@ test('chat repo operation runner executes and persists equivalent plan and repo-
 });
 
 test('chat repo operation runner propagates engine failures without persisting messages', async () => {
-  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-chat-failure-'));
+  const runtimeRoot = createManagedTempDir('siftkit-chat-failure-');
   const engineService = new StubStatusEngineService(buildResult('unused'), new Error('engine failed'));
   try {
     const runner = new ChatRepoOperationRunner();

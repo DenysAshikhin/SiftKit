@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
 import {
@@ -10,6 +9,7 @@ import {
   getRuntimeDatabase,
 } from '../src/state/runtime-db.js';
 import { createAppConfigMigrationFixture } from './helpers/app-config-migration-fixture.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 const SessionIdentityRowSchema = z.object({ model_preset_id: z.string() });
 const MessageRowSchema = z.object({ content: z.string() });
@@ -29,7 +29,7 @@ function seedV32Database(
   activePresetId: string,
   sessions: SeedSession[],
 ): string {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sk-v33-'));
+  const tempRoot = createManagedTempDir('sk-v33-');
   const dbPath = path.join(tempRoot, 'runtime.sqlite');
   const database = new Database(dbPath);
   database.exec(`

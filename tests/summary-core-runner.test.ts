@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -8,9 +7,10 @@ import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { invokeSummaryCore } from '../src/summary/core-runner.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { DEAD_CONFIG_SERVICE_URL, DEAD_STATUS_BACKEND_URL } from './helpers/dead-endpoints.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 class TempSummaryEnv {
-  readonly tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-summary-core-runner-'));
+  readonly tempRoot = createManagedTempDir('siftkit-summary-core-runner-');
   private readonly previousCwd = process.cwd();
   private readonly previous = {
     USERPROFILE: process.env.USERPROFILE,

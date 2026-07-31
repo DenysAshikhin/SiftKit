@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { z } from '../src/lib/zod.js';
@@ -12,6 +11,7 @@ import {
   buildBenchmarkArgs,
   pruneOldLauncherLogs,
 } from '../bench/benchmark-matrix/index.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 type MatrixTarget = Parameters<typeof buildLaunchSignature>[0];
 type MatrixManifest = Parameters<typeof buildLauncherArgs>[0];
@@ -137,7 +137,7 @@ test('buildBenchmarkArgs includes prompt-prefix-file when provided', () => {
 });
 
 test('pruneOldLauncherLogs deletes old launcher logs', () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-prune-'));
+  const tempRoot = createManagedTempDir('siftkit-prune-');
   try {
     const newLog = path.join(tempRoot, 'launcher_1_run1_stdout.log');
     fs.writeFileSync(newLog, 'new log', 'utf8');
@@ -156,7 +156,7 @@ test('pruneOldLauncherLogs deletes old launcher logs', () => {
 });
 
 test('pruneOldLauncherLogs returns 0 for empty directory', () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-prune-empty-'));
+  const tempRoot = createManagedTempDir('siftkit-prune-empty-');
   try {
     const deleted = pruneOldLauncherLogs(tempRoot);
     assert.equal(deleted, 0);
@@ -166,7 +166,7 @@ test('pruneOldLauncherLogs returns 0 for empty directory', () => {
 });
 
 test('readMatrixManifest reads and resolves a manifest', () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-manifest-'));
+  const tempRoot = createManagedTempDir('siftkit-manifest-');
   try {
     const fixtureRoot = path.join(tempRoot, 'fixtures');
     const resultsRoot = path.join(tempRoot, 'results');

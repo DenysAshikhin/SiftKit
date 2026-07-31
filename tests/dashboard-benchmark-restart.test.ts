@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -11,9 +10,10 @@ import { writeConfig } from '../src/status-server/config-store.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { RecordingInferenceRuntime } from './helpers/recording-inference-runtime.js';
 import { createTestServerContext } from './helpers/server-context-fixture.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 function createConfigPath(externalServerEnabled: boolean): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-benchmark-restart-'));
+  const root = createManagedTempDir('siftkit-benchmark-restart-');
   const configPath = path.join(root, 'runtime.sqlite');
   const config = getDefaultConfigObject();
   const base = config.Server.ModelPresets.Presets[0];

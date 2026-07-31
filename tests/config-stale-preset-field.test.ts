@@ -1,14 +1,13 @@
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import { getDefaultConfig, readConfig, writeConfig } from '../src/status-server/config-store.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 function tempDbPath(prefix: string): string {
-  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), prefix)), 'runtime.sqlite');
+  return path.join(createManagedTempDir(prefix), 'runtime.sqlite');
 }
 
 function withStalePresetField(dbPath: string, field: string, value: number): void {
