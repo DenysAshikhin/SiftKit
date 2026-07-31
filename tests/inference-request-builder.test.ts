@@ -28,7 +28,6 @@ const defaults = {
   minP: 0,
   presencePenalty: 0,
   repetitionPenalty: 1,
-  penaltyRange: -1,
   reasoning: 'off',
   reasoningContent: false,
   preserveThinking: false,
@@ -153,7 +152,6 @@ test('request builder emits every shared sampler for EXL3', () => {
       minP: 0.05,
       presencePenalty: 0.1,
       repetitionPenalty: 1.05,
-      penaltyRange: 4096,
       reasoning: 'off',
       reasoningContent: false,
       preserveThinking: false,
@@ -172,49 +170,26 @@ test('request builder emits every shared sampler for EXL3', () => {
   assert.equal(request.min_p, 0.05);
   assert.equal(request.presence_penalty, 0.1);
   assert.equal(request.repetition_penalty, 1.05);
-  assert.equal(request.penalty_range, 4096);
   assert.equal(request.tools, undefined);
   assert.equal(request.response_format, undefined);
 });
 
-test('EXL3 request lets an override win over the preset penalty range', () => {
-  const request = new InferenceRequestBuilder().build({
-    backend: 'exl3',
-    model: '3.6_27B',
-    messages,
-    tools: [],
-    defaults: { ...defaults, penaltyRange: 4096 },
-    overrides: { penaltyRange: 256 },
-    stream: false,
-    thinking: { enabled: false, preserve: false, reasoningContent: false },
-    llama: { cachePrompt: false },
-  });
+test('neither backend sends penalty_range — exllamav3 8e08af9 removed the unbounded-window cost', () => {
+  for (const backend of ['exl3', 'llama'] as const) {
+    const request = new InferenceRequestBuilder().build({
+      backend,
+      model: 'model',
+      messages,
+      tools: [],
+      defaults,
+      overrides: {},
+      stream: false,
+      thinking: { enabled: false, preserve: false, reasoningContent: false },
+      llama: { cachePrompt: false },
+    });
 
-  assert.equal(request.penalty_range, 256);
-});
-
-test('llama request omits penalty_range because llama.cpp owns its own penalty window', () => {
-  const request = new InferenceRequestBuilder().build({
-    backend: 'llama',
-    model: 'llama-model',
-    messages,
-    tools: [],
-    defaults: { ...defaults, penaltyRange: 4096 },
-    overrides: {},
-    stream: false,
-    thinking: { enabled: false, preserve: false, reasoningContent: false },
-    llama: { cachePrompt: false },
-  });
-
-  assert.equal('penalty_range' in request, false);
-});
-
-test('llama compatibility strips penalty_range so an EXL3-shaped body cannot reach llama.cpp', () => {
-  const compatibility = getInferenceRequestCompatibility('llama');
-
-  const stripped = compatibility.removedFields.some((field) => field === 'penalty_range');
-
-  assert.equal(stripped, true);
+    assert.equal('penalty_range' in request, false);
+  }
 });
 
 test('explicit request samplers override active preset defaults', () => {
@@ -231,7 +206,6 @@ test('explicit request samplers override active preset defaults', () => {
       minP: 0,
       presencePenalty: 0,
       repetitionPenalty: 1,
-      penaltyRange: -1,
       reasoning: 'off',
       reasoningContent: false,
       preserveThinking: false,

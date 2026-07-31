@@ -2,7 +2,7 @@ import type { InferenceBackendId } from '../config/types.js';
 
 const llamaCompatibility = {
   repetitionPenaltyKey: 'repeat_penalty',
-  removedFields: ['repetition_penalty', 'penalty_range'],
+  removedFields: ['repetition_penalty'],
   reasoningContent: true,
 } as const;
 

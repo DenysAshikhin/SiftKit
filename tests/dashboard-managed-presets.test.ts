@@ -43,7 +43,6 @@ function createPreset(overrides: Partial<DashboardModelRuntimePreset> = {}): Das
     MinP: 0,
     PresencePenalty: 1.5,
     RepetitionPenalty: 1,
-    PenaltyRange: 4096,
     Reasoning: 'off',
     ReasoningContent: false,
     PreserveThinking: false,

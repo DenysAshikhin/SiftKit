@@ -60,8 +60,6 @@ test('EXL3 adapter translates shared batching and MTP settings for managed Tabby
     TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: 'Q8',
     TABBY_MODEL_VISION: 'false',
     EXL3_QC_ATTN: '0',
-    OMP_NUM_THREADS: '1',
-    KMP_BLOCKTIME: '1',
   });
   assert.equal('gpu_layers' in translated, false);
   assert.equal('batch_size' in translated, false);
@@ -96,8 +94,6 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
     TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: String(preset.SpeculativeDraftMax),
     TABBY_MODEL_VISION: 'false',
     EXL3_QC_ATTN: '0',
-    OMP_NUM_THREADS: '1',
-    KMP_BLOCKTIME: '1',
   });
   assert.equal('TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE' in adapter.buildLaunchEnvironment(preset), false);
 });
@@ -348,7 +344,6 @@ test('EXL3 adapter returns common request defaults', () => {
     minP: preset.MinP,
     presencePenalty: preset.PresencePenalty,
     repetitionPenalty: preset.RepetitionPenalty,
-    penaltyRange: preset.PenaltyRange,
     reasoning: 'on',
     reasoningContent: preset.ReasoningContent,
     preserveThinking: preset.PreserveThinking,
@@ -382,7 +377,6 @@ test('llama adapter preserves launch settings and common request defaults', () =
     minP: 0.05,
     presencePenalty: 0.2,
     repetitionPenalty: 1.1,
-    penaltyRange: 4_096,
     reasoning: 'on',
     reasoningContent: true,
     preserveThinking: true,
@@ -401,28 +395,6 @@ test('adapters reject presets assigned to the other backend', () => {
   );
 });
 
-test('default model preset bounds PenaltyRange to 4096 so the penalty kernel cannot span the context', () => {
-  const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
-  if (!preset) throw new Error('Default model preset is missing');
-
-  assert.equal(preset.PenaltyRange, 4_096);
-});
-
-test('PenaltyRange is available on EXL3 presets', () => {
-  const preset = createModelPreset({ Backend: 'exl3', ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B' });
-
-  assert.deepEqual(getPresetFieldAvailability(preset, 'PenaltyRange'), { enabled: true, reason: null });
-});
-
-test('PenaltyRange is unavailable on llama presets because llama.cpp owns its own penalty window', () => {
-  const preset = createModelPreset({ Backend: 'llama' });
-
-  assert.deepEqual(getPresetFieldAvailability(preset, 'PenaltyRange'), {
-    enabled: false,
-    reason: 'Not supported by llama.cpp',
-  });
-});
-
 test('llama availability is decided per field, not by a blanket enable', () => {
   const managedLlama = createModelPreset({ Backend: 'llama', ExternalServerEnabled: false });
   const externalLlama = createModelPreset({ Backend: 'llama', ExternalServerEnabled: true });
@@ -435,8 +407,8 @@ test('llama availability is decided per field, not by a blanket enable', () => {
       (field) => getPresetFieldAvailability(preset, field).reason !== null,
     );
 
-    assert.deepEqual(disabled, ['PenaltyRange', 'VisionEnabled']);
-    assert.deepEqual(explained, ['PenaltyRange', 'VisionEnabled']);
+    assert.deepEqual(disabled, ['VisionEnabled']);
+    assert.deepEqual(explained, ['VisionEnabled']);
   }
 });
 

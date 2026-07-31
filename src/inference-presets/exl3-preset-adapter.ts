@@ -36,21 +36,6 @@ export const Exl3LaunchEnvironmentSchema = z.object({
    * extra peak VRAM. See docs/exl3-performance-tuning-2026-07-21.md.
    */
   EXL3_QC_ATTN: z.literal('0'),
-  /**
-   * The per-token penalty copy at `job.py:1316` lands in an OpenMP-parallel memcpy that recruits
-   * the whole pool: 10.77 CPU cores burned during decode at the default thread count, against
-   * 0.98 with the pool pinned to one thread. The spin costs ~1.1% of decode wall and buys
-   * nothing — the copy is memory-bound. See docs/exl3-penalty-range-validation-2026-07-30.md §2.
-   */
-  OMP_NUM_THREADS: z.literal('1'),
-  /**
-   * Intel OpenMP keeps worker threads spinning for 200 ms after a parallel region by default;
-   * 1 ms reaches 1.27 decode cores on its own (arm E) against the thread pin's 0.98 (arm B).
-   * The two have never been measured together — no arm sets both — so this is unvalidated
-   * defence in depth for parallel regions the pin may not cover, not a confirmed improvement
-   * on the pin alone. See docs/exl3-penalty-range-validation-2026-07-30.md §2.
-  */
-  KMP_BLOCKTIME: z.literal('1'),
   TABBY_MODEL_VISION: z.enum(['true', 'false']),
 });
 export type Exl3LaunchEnvironment = z.infer<typeof Exl3LaunchEnvironmentSchema>;
@@ -107,8 +92,6 @@ export class Exl3PresetAdapter {
       TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: String(preset.SpeculativeDraftMax),
       ...(draftCacheMode === null ? {} : { TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: draftCacheMode }),
       EXL3_QC_ATTN: '0',
-      OMP_NUM_THREADS: '1',
-      KMP_BLOCKTIME: '1',
       TABBY_MODEL_VISION: preset.VisionEnabled ? 'true' : 'false',
     });
   }

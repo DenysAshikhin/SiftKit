@@ -115,7 +115,6 @@ function translateChatBody(bodyText: string, preset: ModelRuntimePreset): string
   applyThinkingDefaults(parsed, preset);
   const compatibility = getInferenceRequestCompatibility(preset.Backend);
   setNumberDefault(parsed, compatibility.repetitionPenaltyKey, defaults.repetitionPenalty);
-  if (preset.Backend === 'exl3') setNumberDefault(parsed, 'penalty_range', defaults.penaltyRange);
   // removedFields drops keys the *caller* sent that this backend cannot take; SiftKit never adds them.
   for (const field of compatibility.removedFields) delete parsed[field];
   return JSON.stringify(parsed);

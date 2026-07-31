@@ -18,7 +18,6 @@ export const PresetRequestDefaultsSchema = z.object({
   minP: z.number(),
   presencePenalty: z.number(),
   repetitionPenalty: z.number(),
-  penaltyRange: z.number(),
   reasoning: z.enum(['on', 'off']),
   reasoningContent: z.boolean(),
   preserveThinking: z.boolean(),
@@ -35,7 +34,6 @@ export function buildPresetRequestDefaults(preset: ModelRuntimePreset): PresetRe
     minP: preset.MinP,
     presencePenalty: preset.PresencePenalty,
     repetitionPenalty: preset.RepetitionPenalty,
-    penaltyRange: preset.PenaltyRange,
     reasoning: preset.Reasoning,
     reasoningContent: preset.ReasoningContent,
     preserveThinking: preset.PreserveThinking,
@@ -76,8 +74,6 @@ type PresetFieldSupport =
   | 'both'
   /** llama.cpp launch or sampler setting with no EXL3 equivalent. */
   | 'llama-only'
-  /** TabbyAPI-only sampler setting llama.cpp does not accept. */
-  | 'exl3-only'
   /** Both accept it, but EXL3 can only apply it to an engine SiftKit launches. */
   | 'exl3-managed-only'
   /** Both accept it; EXL3 narrows the choices to the modes `getExl3CacheModes` can express. */
@@ -110,7 +106,6 @@ const PRESET_FIELD_SUPPORT = {
   MinP: 'both',
   PresencePenalty: 'both',
   RepetitionPenalty: 'both',
-  PenaltyRange: 'exl3-only',
   Reasoning: 'both',
   ReasoningContent: 'both',
   PreserveThinking: 'both',
@@ -147,10 +142,6 @@ export function getPresetFieldAvailability(
       return preset.Backend === 'llama'
         ? { enabled: true, reason: null }
         : { enabled: false, reason: 'Not supported by EXL3' };
-    case 'exl3-only':
-      return preset.Backend === 'exl3'
-        ? { enabled: true, reason: null }
-        : { enabled: false, reason: 'Not supported by llama.cpp' };
     case 'exl3-managed-only':
       return preset.Backend === 'llama' || !preset.ExternalServerEnabled
         ? { enabled: true, reason: null }

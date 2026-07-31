@@ -42,7 +42,6 @@ function makePreset(opts: Partial<ModelRuntimePreset> = {}): ModelRuntimePreset 
     MinP: 0.05,
     PresencePenalty: 0,
     RepetitionPenalty: 1.1,
-    PenaltyRange: -1,
     Reasoning: 'off',
     ReasoningContent: false,
     PreserveThinking: false,

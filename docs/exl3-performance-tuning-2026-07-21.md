@@ -99,54 +99,41 @@ ban) is unaffected; production logs show drafting active at up to 28k context.
       launch (and the process signature that triggers restarts) includes it.
 - [ ] Leave `SpeculativeDraftMax: 4`, MTP on, cache `8,8` as-is.
 
-## `PenaltyRange` (TabbyAPI `penalty_range`) — added 2026-07-30
+## `PenaltyRange` / `OMP_NUM_THREADS` / `KMP_BLOCKTIME` — added 2026-07-30, removed 2026-07-30
 
-Preset field, default `4096`, EXL3 only.
+All three were workarounds for two exllamav3 defects, both fixed upstream by
+[`8e08af9`](https://github.com/turboderp-org/exllamav3/commit/8e08af9) the same day they
+shipped. The engine venv (`C:\envs\rl313`) now runs a source build of exllamav3 `dev` @
+`8e08af9`, so SiftKit sends none of them:
 
-TabbyAPI defaults `penalty_range` to `-1`, which `backends/exllamav3/model.py:1140-1141` maps
-to `int(10e7)` — the penalty sampler's window then spans the whole sequence. The kernel at
-`exllamav3_ext/generator/rep_pen.cu:166-181` runs once per vocab block (61 blocks at the
-248,320 vocab of `3.6_27b_4.7bpw`) and each block walks that window independently in pinned
-host memory, so at 134k context decode streams ~65.5 MiB across PCIe per sampled token.
+- **`PenaltyRange`** was a preset field defaulting to `4096`, sent as TabbyAPI `penalty_range`.
+  It existed because TabbyAPI's own `-1` default maps to `int(10e7)`, spanning the whole
+  sequence, and each of the 61 vocab blocks in `rep_pen.cu` walked that window in *pinned host
+  memory* — ~65.5 MiB across PCIe per sampled token at 134k. `8e08af9` makes `past_ids` device-
+  resident, so the kernel reads VRAM. Bounding the range is worth **+7.70% tok/s on stock and
+  +0.27% on the fix** — a 96% reduction of the defect, i.e. nothing left to buy.
+- **`OMP_NUM_THREADS=1`** pinned the OpenMP pool because the per-token full-sequence
+  CPU→pinned memcpy in `prepare_sampling_past_ids` crossed ATen's `GRAIN_SIZE` and recruited
+  all 12 threads, which then spun. `8e08af9` stages only the appended tail behind a watermark:
+  1.07 MiB/token becomes 8 bytes/token, four orders of magnitude below `GRAIN_SIZE`, so the
+  pool is never recruited. Decode CPU is **1.37–1.54 cores with no launch-env workaround**,
+  against 11.5–11.7 on stock. The pin cost a repeatable ~1.1% of decode wall; that is now
+  recovered.
+- **`KMP_BLOCKTIME=1`** capped Intel OpenMP's 200 ms post-region spin. It was only ever
+  mitigating the same fork/join, and was shipped unvalidated alongside the pin (no arm ever
+  set both). With no parallel region to spin after, it has nothing to do.
 
-Measured on the real engine, 5 reps per arm, MTP off: bounding the range recovers
-**2.31 ms/token, +7.99% tok/s** — and lands exactly on the temperature-0 greedy ceiling
-(34.48 vs 34.40 tok/s), which is the proof the recovered time is this kernel and nothing else.
-Full protocol and results: [`exl3-penalty-range-validation-2026-07-30.md`](exl3-penalty-range-validation-2026-07-30.md).
+Validation of the upstream commit — isolated against the installed 1.2.1 tree, two fixtures,
+staging-invariant check — is in
+[`exl3-penalty-range-upstream-fix-2026-07-30.md`](exl3-penalty-range-upstream-fix-2026-07-30.md).
+The pre-fix measurements that justified the three workarounds are preserved in
+[`exl3-penalty-range-validation-2026-07-30.md`](exl3-penalty-range-validation-2026-07-30.md);
+read them as history, not as current guidance.
 
-`4096` is shipped rather than the tightest value because TabbyAPI mirrors `penalty_range` into
-`decay_range` (`model.py:1151-1153` + `coalesce` at `common/utils.py:17-19`), so the window
-actually scanned is **8192** tokens. That is wide enough to keep repetition suppression useful
-across a long answer while costing ~0.8% against the 2048-token floor. It also stops the
-presence penalty from suppressing every token in the prompt, which for repo-search is the
-retrieved source the model should be quoting.
+**What this costs.** Presence penalty now applies across the entire context again, including
+retrieved source the model is meant to quote verbatim — the generation-quality argument that
+`PenaltyRange` also served (handoff §10.1). That was a deliberate call: the field was removed
+outright rather than kept on quality grounds. If repo-search output starts paraphrasing where
+it used to quote, this is the first thing to re-add.
 
-The field is EXL3 only. llama.cpp's equivalent (`repeat_last_n`) already defaults to a bounded
-64 tokens (`common/common.h:238`) and governs presence, frequency and repeat penalties through
-a single window (`llama.h:1422-1426`), so llama has no defect here. That does mean the same
-`PresencePenalty` value means 64 tokens on llama and 8192 on EXL3.
-
-This is unrelated to the OpenMP spin below — bounding the range does **not** reduce host CPU,
-because `job.py:1316` copies the full sequence regardless of the range.
-
-## `OMP_NUM_THREADS=1` / `KMP_BLOCKTIME=1` — added 2026-07-30
-
-Fixed launch-environment values, alongside `EXL3_QC_ATTN=0`.
-
-The per-token `prepare_sampling_past_ids` copy at `job.py:1316` lands in an OpenMP-parallel
-memcpy that recruits the entire pool for work that is purely memory-bound. Measured decode CPU:
-**10.77 cores at the default thread count, 0.98 with the pool pinned to one thread**; prefill is
-unaffected (−0.06% wall). `KMP_BLOCKTIME=1` cuts Intel OpenMP's 200 ms post-region spin and
-reaches 1.27 cores on its own (arm E).
-
-**The shipped pair is untested.** Arms A–D never set `KMP_BLOCKTIME`, and arm E never set
-`OMP_NUM_THREADS` — so every measured figure below comes from the thread pin alone. The
-blocktime is kept as unvalidated defence in depth for parallel regions the pin may not cover;
-its cost when combined with the pin is unknown, and each value independently costs ~1.1% of
-decode wall. Closing this needs an arm that sets both. Do not cite the numbers below as
-validation of the two together.
-
-The pin is not free — decode wall regresses a repeatable **~1.1%** (B vs A +1.25%, D vs C +1.08%,
-reps tight to ±0.2%). That is a deliberate trade: 10 cores of spin returned to the machine for
-1% of decode. It is also fully independent of `PenaltyRange` — arm D reproduces both effects
-together with no interaction.
+`EXL3_QC_ATTN=0` is unaffected and still shipped.

@@ -27,7 +27,6 @@ export type InferenceRequestInput = {
     minP?: number;
     presencePenalty?: number;
     repetitionPenalty?: number;
-    penaltyRange?: number;
   };
   stream: boolean;
   responseFormat?: LlamaCppResponseFormat;
@@ -48,7 +47,6 @@ export type InferenceChatRequest = {
   presence_penalty?: number;
   repeat_penalty?: number;
   repetition_penalty?: number;
-  penalty_range?: number;
   max_tokens: number;
   stream: boolean;
   stream_options?: { include_usage: boolean };

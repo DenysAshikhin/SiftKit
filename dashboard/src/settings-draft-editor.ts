@@ -49,7 +49,6 @@ export type ModelIntegerField =
   | 'CacheRam'
   | 'MaxTokens'
   | 'TopK'
-  | 'PenaltyRange'
   | 'SpeculativeNgramSizeN'
   | 'SpeculativeNgramSizeM'
   | 'SpeculativeNgramMinHits'
