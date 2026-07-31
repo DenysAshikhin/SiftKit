@@ -636,7 +636,9 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
       return;
     }
 
-    if (req.method === 'GET' && req.url === '/config') {
+    // Query string tolerated so the stub can also act as a pass-through host
+    // (host sync fetches `/config?skip_ready=1`).
+    if (req.method === 'GET' && (req.url || '').split('?')[0] === '/config') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(state.config));
       return;
@@ -658,8 +660,8 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
           backend: typeof parsed.backend === 'string' ? parsed.backend : undefined,
           model: typeof parsed.model === 'string' ? parsed.model : undefined,
           promptPrefix: typeof parsed.promptPrefix === 'string' ? parsed.promptPrefix : undefined,
-          llamaCppOverrides: parsed.llamaCppOverrides && typeof parsed.llamaCppOverrides === 'object' && !Array.isArray(parsed.llamaCppOverrides) && Number.isFinite(Number(parsed.llamaCppOverrides.MaxTokens))
-            ? { MaxTokens: Number(parsed.llamaCppOverrides.MaxTokens) }
+          llamaCppMaxTokens: Number.isFinite(Number(parsed.llamaCppMaxTokens))
+            ? Number(parsed.llamaCppMaxTokens)
             : undefined,
           sourceKind: parsed.sourceKind === 'command-output' ? 'command-output' : 'standalone',
           commandExitCode: Number.isFinite(Number(parsed.commandExitCode)) ? Number(parsed.commandExitCode) : undefined,

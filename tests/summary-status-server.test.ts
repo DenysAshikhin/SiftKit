@@ -21,10 +21,10 @@ test('summary endpoint defaults model request timeout to 240 seconds', () => {
   assert.match(routeText, /const DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_SECONDS = 240;/u);
 });
 
-test('summary endpoint forwards promptPrefix and llamaCppOverrides to the summary engine', () => {
+test('summary endpoint forwards promptPrefix and llamaCppMaxTokens to the summary engine', () => {
   const routeText = fs.readFileSync(path.join(process.cwd(), 'dist', 'status-server', 'routes', 'core.js'), 'utf8');
   assert.match(routeText, /promptPrefix:\s*summaryRequest\.promptPrefix/u);
-  assert.match(routeText, /llamaCppOverrides:\s*summaryRequest\.llamaCppOverrides/u);
+  assert.match(routeText, /llamaCppMaxTokens:\s*summaryRequest\.llamaCppMaxTokens/u);
 });
 
 test('summary endpoint waits behind the model request queue', async () => {

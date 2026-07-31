@@ -413,7 +413,6 @@ export async function generateLlamaCppResponse(options: {
   structuredOutput?: LlamaCppStructuredOutput;
   reasoningOverride?: 'on' | 'off';
   promptTokenCount?: number | null;
-  overrides?: Pick<RuntimeLlamaCppConfig, 'MaxTokens'>;
 }): Promise<LlamaCppGenerateResult> {
   return generateLlamaCppChatResponse({
     config: options.config,
@@ -429,7 +428,6 @@ export async function generateLlamaCppResponse(options: {
     structuredOutput: options.structuredOutput,
     reasoningOverride: options.reasoningOverride,
     promptTokenCount: options.promptTokenCount,
-    overrides: options.overrides,
   });
 }
 
@@ -444,24 +442,18 @@ export async function generateLlamaCppChatResponse(options: {
   structuredOutput?: LlamaCppStructuredOutput;
   reasoningOverride?: 'on' | 'off';
   promptTokenCount?: number | null;
-  overrides?: Pick<RuntimeLlamaCppConfig, 'MaxTokens'>;
 }): Promise<LlamaCppGenerateResult> {
   const baseUrl = getConfiguredLlamaBaseUrl(options.config);
   const structuredOutputResponseFormat = getStructuredOutputResponseFormat(options.structuredOutput);
   const promptChars = options.messages.reduce((total, message) => {
     return total + getTextContent(message.content).length;
   }, 0);
-  const dynamicMaxTokens = getDynamicMaxOutputTokens({
+  const maxTokens = clampToPresetMaxTokens(options.config, getDynamicMaxOutputTokens({
     totalContextTokens: Math.max(1, Number(getConfiguredLlamaNumCtx(options.config) || 0)),
     promptTokenCount: Number.isFinite(options.promptTokenCount) && Number(options.promptTokenCount) > 0
       ? Number(options.promptTokenCount)
       : estimatePromptTokenCountFromCharacters(options.config, promptChars),
-  });
-  // Interim: the explicit MaxTokens override becomes a config overlay in a later task.
-  const overrideMaxTokens = options.overrides?.MaxTokens;
-  const maxTokens = overrideMaxTokens === undefined
-    ? clampToPresetMaxTokens(options.config, dynamicMaxTokens)
-    : Math.max(1, Math.min(dynamicMaxTokens, Math.max(1, Math.floor(Number(overrideMaxTokens) || 1))));
+  }));
 
   let response: NormalizedLlamaCppChatResponse;
   const startedAt = Date.now();

@@ -79,7 +79,7 @@ export async function runBenchmarkSuite(options: BenchmarkRunnerOptions = {}): P
             model,
             promptPrefix,
             requestTimeoutSeconds,
-            llamaCppOverrides: options.llamaCppOverrides,
+            llamaCppMaxTokens: options.llamaCppMaxTokens,
             sourceKind: 'standalone',
           }, renderer),
           {

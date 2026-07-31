@@ -23,7 +23,9 @@ import {
   withTempEnv,
   withStubServer,
   waitForAsyncExpectation,
+  mockConfig,
 } from './_runtime-helpers.js';
+import { resetHostLlamaSettingsCacheForTests } from '../src/config/index.js';
 
 // Index-signature view of the dynamic JsonObject status posts these tests read:
 // named optional fields stay precisely typed while the index keeps it a
@@ -1039,6 +1041,54 @@ test('empty structured output retries once then fails, and subsequent requests s
         completedRequestCount: 0,
         requestDurationMsTotal: 0,
       },
+    });
+  });
+});
+
+test('summary requests use the host model and the caller MaxTokens overlay', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      resetHostLlamaSettingsCacheForTests();
+      const stubBaseUrl = `http://127.0.0.1:${server.port}`;
+      const hostPreset = server.state.config.Server.ModelPresets.Presets[0];
+      if (!hostPreset) {
+        throw new Error('Stub host config has no model preset.');
+      }
+      hostPreset.Model = 'host-loaded-model.gguf';
+      const config = mockConfig({
+        Runtime: { LlamaCpp: { BaseUrl: stubBaseUrl } },
+        Server: {
+          ModelPresets: {
+            ActivePresetId: 'default',
+            Presets: [{
+              id: 'default',
+              label: 'Default',
+              // Stale local guess: host sync must replace it before the request is built.
+              Model: 'stale-local-model',
+              ExternalServerEnabled: true,
+              BaseUrl: stubBaseUrl,
+              MaxTokens: 9000,
+            }],
+          },
+        },
+      });
+
+      const result = await summarizeRequest({
+        repoRoot: process.cwd(),
+        question: 'summarize this',
+        inputText: 'A'.repeat(5000),
+        format: 'text',
+        policyProfile: 'general',
+        backend: 'llama.cpp',
+        config,
+        llamaCppMaxTokens: 321,
+      });
+
+      assert.equal(result.Model, 'host-loaded-model.gguf');
+      const chatRequest = server.state.chatRequests[0];
+      assert.ok(chatRequest);
+      assert.equal(chatRequest.model, 'host-loaded-model.gguf');
+      assert.equal(chatRequest.max_tokens, 321);
     });
   });
 });

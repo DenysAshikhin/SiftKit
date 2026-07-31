@@ -34,7 +34,7 @@ export type SummaryRouteRequest = {
   requestTimeoutSeconds: number;
   timing: SummaryTimingInput | undefined;
   promptPrefix: string | undefined;
-  llamaCppOverrides: Pick<RuntimeLlamaCppConfig, 'MaxTokens'> | undefined;
+  llamaCppMaxTokens: number | undefined;
 };
 
 export type DashboardRunLogDeleteRequest =
@@ -114,13 +114,9 @@ export function parseRepoSearchRequest(body: JsonObject): RepoSearchRouteRequest
   };
 }
 
-function parseLlamaCppOverrides(reader: JsonRecordReader): Pick<RuntimeLlamaCppConfig, 'MaxTokens'> | undefined {
-  const overrides = reader.object('llamaCppOverrides');
-  if (overrides === null) {
-    return undefined;
-  }
-  const maxTokens = new JsonRecordReader(overrides).number('MaxTokens');
-  return maxTokens === null ? undefined : { MaxTokens: maxTokens };
+/** A caller-supplied output cap, applied downstream as an active-preset MaxTokens overlay. */
+function parseLlamaCppMaxTokens(reader: JsonRecordReader): number | undefined {
+  return reader.number('llamaCppMaxTokens') ?? undefined;
 }
 
 export function parseSummaryRequest(body: JsonObject): SummaryRouteRequest | null {
@@ -150,7 +146,7 @@ export function parseSummaryRequest(body: JsonObject): SummaryRouteRequest | nul
     requestTimeoutSeconds: reader.positiveNumber('requestTimeoutSeconds', DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_SECONDS),
     timing: readSummaryTiming(reader.value('timing')),
     promptPrefix,
-    llamaCppOverrides: parseLlamaCppOverrides(reader),
+    llamaCppMaxTokens: parseLlamaCppMaxTokens(reader),
   };
 }
 

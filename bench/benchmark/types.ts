@@ -24,7 +24,7 @@ export type BenchmarkRunnerOptions = {
   promptPrefix?: string;
   promptPrefixFile?: string;
   requestTimeoutSeconds?: number;
-  llamaCppOverrides?: Pick<RuntimeLlamaCppConfig, 'MaxTokens'>;
+  llamaCppMaxTokens?: number;
 };
 
 export type BenchmarkCaseResult = {

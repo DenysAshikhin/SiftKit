@@ -37,8 +37,7 @@ export function parseArguments(argv: string[]): BenchmarkRunnerOptions {
         parsed.requestTimeoutSeconds = Number(argv[++index]);
         break;
       case '--max-tokens':
-        parsed.llamaCppOverrides ??= {};
-        parsed.llamaCppOverrides.MaxTokens = Number(argv[++index]);
+        parsed.llamaCppMaxTokens = Number(argv[++index]);
         break;
       default:
         throw new Error(`Unknown argument: ${token}`);
