@@ -1,8 +1,16 @@
 import {
+  getActiveModelPreset,
   getConfiguredLlamaNumCtx,
   getEffectiveInputCharactersPerContextToken,
   type SiftConfig,
 } from '../config/index.js';
+
+/** Preset MaxTokens is a hard upper bound on any computed output budget. */
+export function clampToPresetMaxTokens(config: SiftConfig | undefined, outputTokens: number): number {
+  if (!config) return outputTokens;
+  const presetMaxTokens = Math.floor(Number(getActiveModelPreset(config).MaxTokens) || 1);
+  return Math.max(1, Math.min(outputTokens, presetMaxTokens));
+}
 
 export function estimatePromptTokenCountFromCharacters(
   config: SiftConfig | undefined,

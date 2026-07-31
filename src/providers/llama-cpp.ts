@@ -1,11 +1,14 @@
 import {
-  getActiveModelPreset,
   getConfiguredLlamaBaseUrl,
   getConfiguredLlamaNumCtx,
   type RuntimeLlamaCppConfig,
   type SiftConfig,
 } from '../config/index.js';
-import { estimatePromptTokenCountFromCharacters, getDynamicMaxOutputTokens } from '../lib/dynamic-output-cap.js';
+import {
+  clampToPresetMaxTokens,
+  estimatePromptTokenCountFromCharacters,
+  getDynamicMaxOutputTokens,
+} from '../lib/dynamic-output-cap.js';
 import { ModelJson } from '../lib/model-json.js';
 import { tryRecordAccurateCharTokenObservation } from '../state/observed-budget.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
@@ -454,11 +457,11 @@ export async function generateLlamaCppChatResponse(options: {
       ? Number(options.promptTokenCount)
       : estimatePromptTokenCountFromCharacters(options.config, promptChars),
   });
-  const configuredMaxTokens = Math.max(
-    1,
-    Math.floor(Number(options.overrides?.MaxTokens ?? getActiveModelPreset(options.config).MaxTokens) || 1),
-  );
-  const maxTokens = Math.min(dynamicMaxTokens, configuredMaxTokens);
+  // Interim: the explicit MaxTokens override becomes a config overlay in a later task.
+  const overrideMaxTokens = options.overrides?.MaxTokens;
+  const maxTokens = overrideMaxTokens === undefined
+    ? clampToPresetMaxTokens(options.config, dynamicMaxTokens)
+    : Math.max(1, Math.min(dynamicMaxTokens, Math.max(1, Math.floor(Number(overrideMaxTokens) || 1))));
 
   let response: NormalizedLlamaCppChatResponse;
   const startedAt = Date.now();
