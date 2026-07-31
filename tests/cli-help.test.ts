@@ -122,7 +122,7 @@ test('summary requires stdin, --text, or --file', async () => {
       stderr: stderr.stream,
     });
     assert.equal(code, 1);
-    assert.match(stderr.read(), /stdin, --text or --file required/u);
+    assert.match(stderr.read(), /stdin, --text, --file or --image required/u);
   });
 });
 

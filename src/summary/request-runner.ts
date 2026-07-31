@@ -321,6 +321,7 @@ export class SummaryRequestRunner {
         slotId,
         question: this.request.question,
         inputText: this.inputText,
+        images: this.request.images ?? [],
         format: this.request.format,
         policyProfile: this.request.policyProfile,
         backend: context.backend,

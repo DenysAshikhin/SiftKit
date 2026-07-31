@@ -1,6 +1,7 @@
 import { JsonRecordReader } from '../lib/json-record-reader.js';
 import type { JsonObject, OptionalJsonValue } from '../lib/json-types.js';
 import { parseOptionalSummaryProvider } from '../summary/types.js';
+import { parseImageDataUrls } from '../llm-protocol/image-attachments.js';
 import type {
   SummaryPolicyProfile,
   SummaryProviderId,
@@ -22,6 +23,7 @@ export type SummaryRouteRequest = {
   presetId: string | undefined;
   question: string;
   inputText: string;
+  images: string[];
   format: 'text' | 'json';
   policyProfile: SummaryPolicyProfile;
   backend: SummaryProviderId | undefined;
@@ -124,7 +126,8 @@ export function parseSummaryRequest(body: JsonObject): SummaryRouteRequest | nul
   const inputTextValue = reader.value('inputText');
   const inputText = typeof inputTextValue === 'string' ? inputTextValue : '';
   const repoRoot = reader.optionalString('repoRoot');
-  if (!question || !inputText.trim() || !repoRoot) {
+  const images = parseImageDataUrls(reader.value('images'));
+  if (!question || (!inputText.trim() && images.length === 0) || !repoRoot) {
     return null;
   }
   const promptPrefixValue = reader.value('promptPrefix');
@@ -133,6 +136,7 @@ export function parseSummaryRequest(body: JsonObject): SummaryRouteRequest | nul
     repoRoot,
     presetId: reader.optionalString('presetId'),
     question,
+    images,
     inputText,
     format: reader.value('format') === 'json' ? 'json' : 'text',
     policyProfile: normalizeSummaryPolicyProfile(reader.value('policyProfile')),

@@ -73,6 +73,7 @@ export type InvokeSummaryCoreOptions = {
   slotId: number | null;
   question: string;
   inputText: string;
+  images: readonly string[];
   format: 'text' | 'json';
   policyProfile: SummaryRequest['policyProfile'];
   backend: SummaryProviderId;
@@ -241,6 +242,7 @@ class SummaryCoreRunner {
       slotId: this.options.slotId,
       question: this.options.question,
       inputText: this.options.inputText,
+      images: this.options.images,
       format: this.options.format,
       backend: this.options.backend,
       model: this.options.model,

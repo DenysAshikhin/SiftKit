@@ -59,6 +59,7 @@ export type SummaryRequest = {
   presetId?: string;
   question: string;
   inputText: string;
+  images?: string[];
   format: 'text' | 'json';
   policyProfile: SummaryPolicyProfile;
   backend?: SummaryProviderId;

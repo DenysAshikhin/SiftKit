@@ -63,6 +63,7 @@ export type ParsedArgs = {
   wait?: boolean;
   interactive?: boolean;
   progress?: boolean;
+  images?: string[];
 };
 
 export const SERVER_DEPENDENT_INTERNAL_OPS = new Set([
@@ -216,6 +217,14 @@ export function parseArguments(tokens: string[]): ParsedArgs {
       case '--progress':
         parsed.progress = true;
         break;
+      case '--image': {
+        const value = tokens[++index];
+        if (value === undefined) {
+          throw new Error('Missing value for option: --image');
+        }
+        parsed.images = [...(parsed.images ?? []), value];
+        break;
+      }
       default:
         parsed.positionals.push(token);
         break;

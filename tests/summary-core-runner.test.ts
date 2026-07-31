@@ -63,6 +63,7 @@ test('invokeSummaryCore summarizes directly through the mock provider', async ()
       slotId: null,
       question: 'summarize this',
       inputText: 'Build output: all tests passed.',
+      images: [],
       format: 'text',
       policyProfile: 'general',
       backend: 'mock',

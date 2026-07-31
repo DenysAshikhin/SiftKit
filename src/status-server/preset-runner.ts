@@ -158,6 +158,7 @@ export class StatusPresetRunner {
       presetId: preset.id,
       question,
       inputText,
+      images: [],
       format: request.format === 'json' ? 'json' : 'text',
       policyProfile: normalizePresetPolicyProfile(request.profile),
       backend: request.backend,

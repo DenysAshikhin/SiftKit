@@ -4,6 +4,7 @@ import { readCliTextInput } from './input.js';
 import { normalizeCliFormat, normalizeCliPolicyProfileOrDefault } from './request-normalizers.js';
 import { CliProgressRenderer } from './progress-renderer.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
+import { ImageAttachmentReader } from '../llm-protocol/image-attachments.js';
 
 export async function runSummary(options: ResolvedCliArgs & {
   stdinText?: string | Buffer;
@@ -23,8 +24,9 @@ export async function runSummary(options: ResolvedCliArgs & {
     file: parsed.file,
     stdinText: options.stdinText,
   });
-  if ((!parsed.file || parsed.file.length === 0) && !inputText?.trim()) {
-    throw new Error('stdin, --text or --file required');
+  const images = new ImageAttachmentReader().readAll(parsed.images ?? []);
+  if ((!parsed.file || parsed.file.length === 0) && !inputText?.trim() && images.length === 0) {
+    throw new Error('stdin, --text, --file or --image required');
   }
 
   if (options.nestedAgentRunId) {
@@ -48,6 +50,7 @@ export async function runSummary(options: ResolvedCliArgs & {
     repoRoot: process.cwd(),
     question,
     inputText: inputText ?? '',
+    images,
     format: normalizeCliFormat(parsed.format),
     policyProfile: normalizeCliPolicyProfileOrDefault(parsed.profile),
     backend: parsed.backend,

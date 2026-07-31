@@ -1011,6 +1011,7 @@ class SummaryEndpoint extends StreamedOperationEndpoint<ParsedSummaryRoute> {
       presetId: summaryRequest.presetId,
       question: summaryRequest.question,
       inputText: summaryRequest.inputText,
+      images: summaryRequest.images,
       format: summaryRequest.format,
       policyProfile: summaryRequest.policyProfile,
       backend: summaryRequest.backend,

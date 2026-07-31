@@ -1,4 +1,5 @@
 import { isReadExpansionEnabled, type SiftConfig } from '../../config/index.js';
+import { buildUserContent } from '../../llm-protocol/image-attachments.js';
 import { AgentLoop } from '../../agent-loop/agent-loop.js';
 import type {
   AgentLoopFinishAction,
@@ -149,6 +150,7 @@ export type InvokePlannerModeOptions = {
   slotId: number | null;
   question: string;
   inputText: string;
+  images: readonly string[];
   format: 'text' | 'json';
   backend: SummaryProviderId;
   model: string;
@@ -1426,10 +1428,13 @@ export async function invokePlannerMode(options: InvokePlannerModeOptions): Prom
     },
     {
       role: 'user',
-      content: buildPlannerInputSection({
-        question: options.question,
-        inputText: options.inputText,
-      }),
+      content: buildUserContent(
+        buildPlannerInputSection({
+          question: options.question,
+          inputText: options.inputText,
+        }),
+        options.images,
+      ),
     },
   ];
   const debugRecorder = createPlannerDebugRecorder({
