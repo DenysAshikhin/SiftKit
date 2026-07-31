@@ -18,6 +18,7 @@ test('core route request normalizers return typed values', () => {
     repoRoot: 'C:/repo',
     model: 'm',
     maxTurns: 3,
+    images: [],
   });
 
   assert.deepEqual(parseSummaryRequest({
@@ -31,6 +32,7 @@ test('core route request normalizers return typed values', () => {
     commandExitCode: 1,
   }), {
     question: 'q',
+    images: [],
     inputText: ' text ',
     repoRoot: 'C:/repo',
     presetId: undefined,
@@ -85,6 +87,7 @@ test('chat route request normalizers return typed values', () => {
   });
   assert.deepEqual(parseChatMessageRequest({ content: ' hello ', assistantContent: ' answer ' }), {
     content: 'hello',
+    images: [],
     assistantContent: 'answer',
   });
   assert.deepEqual(parseChatRepoRequest({ content: ' plan ', repoRoot: ' C:/repo ' }), {

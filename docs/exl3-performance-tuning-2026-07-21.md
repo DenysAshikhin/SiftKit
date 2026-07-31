@@ -137,3 +137,31 @@ outright rather than kept on quality grounds. If repo-search output starts parap
 it used to quote, this is the first thing to re-add.
 
 `EXL3_QC_ATTN=0` is unaffected and still shipped.
+
+## `TABBY_MODEL_VISION` — vision tower
+
+Set from the preset field `VisionEnabled`, which is EXL3-managed only (llama.cpp reports
+`Not supported by llama.cpp`, and an externally-run TabbyAPI does not own its launch flags).
+`managed-tabby.ts` hashes the launch environment into its process signature, so toggling the
+field restarts the engine on its own. Measured on an RTX 4090 against
+`D:\personal\models\elx3\3.6_27b_4.7bpw` (Qwen3.5-27B VL):
+
+- **890.1 MiB resident** while loaded. The tower ships BF16 and exl3 does not quantize it, so
+  the model's 4.7bpw setting does not apply to it.
+- **~0.1 MiB per image token** transient during encode: 31 MiB at 640×480, 89 MiB at 720p,
+  207 MiB at 1080p, 366 MiB at 1440p, 828 MiB at 4K. Nothing remains allocated afterwards —
+  embeddings come back on the CPU.
+- Image tokens consume the preallocated KV cache at the normal rate. With 16 full-attention
+  layers, 4 KV heads and head_dim 256 at `cache_mode: 8,8` that is **34 KiB per token**, so a
+  1080p screenshot is 2040 tokens ≈ 68 MiB of cache and 2040 tokens of context.
+- The model's `preprocessor_config.json` allows up to 16,777,216 pixels per image — 16,384
+  image tokens and roughly 1.6 GiB of transient VRAM. Nothing in SiftKit or TabbyAPI clamps
+  this; exllamav3 reads the cap from the model directory, and TabbyAPI exposes no `max_pixels`
+  knob.
+
+Turning the field on for a model with no `vision_config` in its `config.json` throws at preset
+validation rather than letting TabbyAPI log a warning and run with vision silently off.
+
+Prompt budgeting cannot derive image tokens from a data URI without decoding the image, so
+each attachment is charged a flat `SIFT_IMAGE_TOKEN_ESTIMATE` (2048) pre-flight; the engine's
+reported prompt token count remains authoritative after the request.
