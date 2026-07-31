@@ -13,6 +13,7 @@
     "start:dashboard": "npm --prefix .\\dashboard run dev",
     "build": "npm --prefix .\\packages\\contracts run build && tsc -p .\\tsconfig.json && tsc -p .\\tsconfig.scripts.json && npm --prefix .\\dashboard run build && node .\\scripts\\sync-dist-runtime.js",
     "build:test": "npm --prefix .\\packages\\contracts run build && node .\\scripts\\build-test.js",
+    "purge:temp": "node .\\dist\\scripts\\purge-temp-dirs.js",
     "typecheck": "tsc -b .\\packages\\contracts\\tsconfig.json && tsc -p .\\tsconfig.json --noEmit && tsc -p .\\tsconfig.scripts.json --noEmit && tsc -p .\\dashboard\\tsconfig.json --noEmit && npm run typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test && npm run typecheck:analysis && npm run lint",
     "typecheck:analysis": "tsc -p .\\tsconfig.analysis.json --noEmit",
     "typecheck:test": "tsc -p .\\tsconfig.test.json --noEmit",
