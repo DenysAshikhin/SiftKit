@@ -57,6 +57,19 @@ function mockLoopConfig(config: DeepPartial<SiftConfig>): SiftConfig {
   });
 }
 
+/** An endpoint that answers every route with 404, so tokenize preflight falls back to the estimate without retrying. */
+async function startNotFoundServer(): Promise<{ baseUrl: string; close: () => Promise<void> }> {
+  const server = http.createServer((_req, res) => {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end('{}');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return {
+    baseUrl: `http://127.0.0.1:${getAddressInfo(server).port}`,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
+}
+
 function modelPresetReasoning(reasoning: 'on' | 'off'): DeepPartial<SiftConfig> {
   return {
     Server: {
@@ -302,6 +315,7 @@ test('runTaskLoop cuts off runaway streamed tool JSON and reprompts once', { tim
         ...MOCK_LOOP_DEFAULTS,
         baseUrl,
         model: 'mock-model',
+        config: mockLoopConfig({ Runtime: { LlamaCpp: { BaseUrl: baseUrl } } }),
         maxTurns: 3,
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
@@ -1451,6 +1465,7 @@ test('runTaskLoop retries transient provider network failures via shared retry h
         ...MOCK_LOOP_DEFAULTS,
         baseUrl,
         model: 'mock-model',
+        config: mockLoopConfig({ Runtime: { LlamaCpp: { BaseUrl: baseUrl } } }),
         maxTurns: 6,
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
@@ -1509,6 +1524,7 @@ test('runTaskLoop waits for planner endpoint warm-up when initial connections ar
     });
     delayedServer.listen(port, '127.0.0.1');
   }, 300);
+  const notFound = await startNotFoundServer();
 
   try {
     const result = await runTaskLoop(
@@ -1521,6 +1537,9 @@ test('runTaskLoop waits for planner endpoint warm-up when initial connections ar
         ...MOCK_LOOP_DEFAULTS,
         baseUrl: `http://127.0.0.1:${port}`,
         model: 'mock-model',
+        // Preflight tokenizing must not wait on the delayed port, or the planner
+        // request would only fire once the endpoint is already up.
+        config: mockLoopConfig({ Runtime: { LlamaCpp: { BaseUrl: notFound.baseUrl } } }),
         maxTurns: 1,
         maxInvalidResponses: 1,
         minToolCallsBeforeFinish: 0,
@@ -1543,6 +1562,7 @@ test('runTaskLoop waits for planner endpoint warm-up when initial connections ar
     if (delayedServer) {
       await new Promise<void>((resolve) => delayedServer!.close(() => resolve()));
     }
+    await notFound.close();
   }
 });
 
@@ -1580,6 +1600,7 @@ test('runTaskLoop retries planner calls when endpoint returns HTTP 503 Loading m
         ...MOCK_LOOP_DEFAULTS,
         baseUrl: `http://127.0.0.1:${port}`,
         model: 'mock-model',
+        config: mockLoopConfig({ Runtime: { LlamaCpp: { BaseUrl: `http://127.0.0.1:${port}` } } }),
         maxTurns: 1,
         maxInvalidResponses: 1,
         minToolCallsBeforeFinish: 0,

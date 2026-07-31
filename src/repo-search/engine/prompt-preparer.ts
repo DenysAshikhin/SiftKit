@@ -1,4 +1,4 @@
-import { getActiveInferenceBackend, type SiftConfig } from '../../config/index.js';
+import type { SiftConfig } from '../../config/index.js';
 import { getDynamicMaxOutputTokens } from '../../lib/dynamic-output-cap.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
 import {
@@ -33,7 +33,7 @@ export class PromptPreparer {
 
   private buildProviderPromptReserveText(messageRoles: readonly string[], maxTokens: number, stream: boolean): string {
     return buildPlannerRequestPromptReserveText({
-      backend: this.options.config ? getActiveInferenceBackend(this.options.config) : 'llama',
+      config: this.options.config,
       stage: 'planner_action',
       model: String(this.options.model || ''),
       messageRoles,

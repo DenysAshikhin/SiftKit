@@ -1,5 +1,7 @@
-import type { InferenceBackendId, SiftConfig } from '../config/types.js';
-import { getDefaultConfigObject } from '../config/defaults.js';
+import type { SiftConfig } from '../config/types.js';
+import { getActiveInferenceBackend, getActiveModelPreset } from '../config/index.js';
+import { buildPresetRequestDefaults } from '../inference-presets/preset-compatibility.js';
+import { clampToPresetMaxTokens } from '../lib/dynamic-output-cap.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
 import type { JsonObject, LlamaCppChatMessage, LlamaCppChatRole, LlamaCppContentPart, LlamaCppToolCall } from '../llm-protocol/types.js';
 import { extractContentText } from '../llm-protocol/image-attachments.js';
@@ -346,7 +348,7 @@ export type PlannerThinkingFlags = {
 };
 
 export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFlags & {
-  backend: InferenceBackendId;
+  config: SiftConfig | undefined;
   stage?: string;
   model: string;
   messageRoles: readonly string[];
@@ -356,6 +358,8 @@ export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFla
   responseSchemaName?: string;
   stream?: boolean;
 }): string {
+  const backend = options.config ? getActiveInferenceBackend(options.config) : 'llama';
+  const samplerDefaults = options.config ? buildPresetRequestDefaults(getActiveModelPreset(options.config)) : null;
   const stage = options.stage || 'planner_action';
   const toolDefinitions = Array.isArray(options.toolDefinitions) ? options.toolDefinitions : TOOL_DEFINITIONS;
   const defaultResponseSchema = stage === 'planner_action'
@@ -364,7 +368,7 @@ export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFla
       ? buildFinishValidationJsonSchema()
       : null;
   const responseSchema = options.responseSchema === undefined ? defaultResponseSchema : options.responseSchema;
-  const responseFormat = responseSchema === null ? null : lowerResponseFormatForBackend(options.backend, buildLlamaJsonSchemaResponseFormat({
+  const responseFormat = responseSchema === null ? null : lowerResponseFormatForBackend(backend, buildLlamaJsonSchemaResponseFormat({
     name: options.responseSchemaName || (stage === 'finish_validation' ? 'siftkit_finish_validation' : 'siftkit_repo_search_planner_action'),
     schema: responseSchema,
   }));
@@ -373,8 +377,8 @@ export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFla
     stage,
     model: options.model,
     max_tokens: options.maxTokens,
-    temperature: 0.1,
-    top_p: 0.95,
+    temperature: samplerDefaults?.temperature ?? 0,
+    top_p: samplerDefaults?.topP ?? 0,
     chat_template_kwargs: {
       enable_thinking: Boolean(options.thinkingEnabled),
       ...(options.thinkingEnabled && options.reasoningContentEnabled ? { reasoning_content: true } : {}),
@@ -390,7 +394,8 @@ export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFla
 }
 
 export type PlannerRequestOptions = Partial<PlannerThinkingFlags> & {
-  backend?: InferenceBackendId;
+  /** Real runtime config; required for every non-mock request. Absent only in mock runs. */
+  config?: SiftConfig;
   baseUrl: string;
   model: string;
   /**
@@ -494,42 +499,6 @@ function logProviderRetry(options: {
   });
 }
 
-function buildPlannerRequestConfig(options: PlannerRequestOptions): SiftConfig {
-  const reasoning = options.thinkingEnabled ? 'on' : 'off';
-  const base = getDefaultConfigObject();
-  const defaultPreset = base.Server.ModelPresets.Presets[0];
-  if (!defaultPreset) throw new Error('Default model preset is missing.');
-  return {
-    ...base,
-    Runtime: {
-      ...base.Runtime,
-      LlamaCpp: {
-        ...base.Runtime.LlamaCpp,
-        BaseUrl: options.baseUrl,
-        Reasoning: reasoning,
-      },
-    },
-    Server: {
-      ...base.Server,
-      ModelPresets: {
-        ...base.Server.ModelPresets,
-        ActivePresetId: 'planner',
-        Presets: [{
-          ...defaultPreset,
-          id: 'planner',
-          label: 'planner',
-          Backend: options.backend ?? 'llama',
-          Model: options.model,
-          BaseUrl: options.baseUrl,
-          Reasoning: reasoning,
-          ReasoningContent: options.reasoningContentEnabled === true,
-          PreserveThinking: options.preserveThinking === true,
-        }],
-      },
-    },
-  };
-}
-
 function actionFromProtocolToolCalls(
   toolCalls: readonly LlamaCppToolCall[],
   toolDefinitions: readonly StructuredOutputToolDefinition[],
@@ -577,6 +546,11 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
     return { text, thinkingText, mockExhausted: false, nextMockResponseIndex: index + 1 };
   }
 
+  const config = options.config;
+  if (!config) {
+    throw new Error('Planner request requires a SiftConfig; only mock runs may omit it.');
+  }
+
   const stage = options.stage || 'planner_action';
   const toolDefinitions = Array.isArray(options.toolDefinitions) ? options.toolDefinitions : TOOL_DEFINITIONS;
   const allowedToolNames = toolDefinitions.map((toolDefinition) => toolDefinition.function.name);
@@ -599,14 +573,12 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
   try {
     response = await retryProviderRequest(
       () => new LlamaCppClient().chat({
-        config: buildPlannerRequestConfig(options),
+        config,
         baseUrl: options.baseUrl,
         model: options.model,
         messages: options.messages,
         tools: [],
         maxTokens: options.maxTokens,
-        temperature: 0.1,
-        topP: 0.95,
         slotId: options.slotId,
         stream: options.stream === true,
         responseFormat: responseFormat ?? undefined,
@@ -688,7 +660,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
 }
 
 export async function requestFinishValidation(options: Partial<PlannerThinkingFlags> & {
-  backend?: InferenceBackendId;
+  config?: SiftConfig;
   baseUrl: string;
   model: string;
   prompt: string;
@@ -699,7 +671,7 @@ export async function requestFinishValidation(options: Partial<PlannerThinkingFl
   logger?: JsonLogger | null;
 }): Promise<PlannerActionResponse> {
   return requestRepoSearchPlannerProtocolAction({
-    backend: options.backend,
+    config: options.config,
     baseUrl: options.baseUrl,
     model: options.model,
     messages: serializeProtocolMessages([{ role: 'user', content: options.prompt }], options.reasoningContentEnabled === true),
@@ -766,7 +738,7 @@ const APPROVAL_VERDICT_MAX_TOKENS = 512;
 const APPROVAL_VERDICT_THINKING_MAX_TOKENS = 4096;
 
 export async function requestApprovalVerdict(options: {
-  backend?: InferenceBackendId;
+  config?: SiftConfig;
   baseUrl: string;
   model: string;
   transcriptMessages: ChatMessage[];
@@ -785,15 +757,18 @@ export async function requestApprovalVerdict(options: {
   );
   assertExtendsExecutingPlannerRequest(options.executing, serializedMessages);
   return requestRepoSearchPlannerProtocolAction({
-    backend: options.backend,
+    config: options.config,
     baseUrl: options.baseUrl,
     model: options.model,
     messages: serializedMessages,
     slotId: options.slotId,
     timeoutMs: options.timeoutMs,
-    maxTokens: options.executing.flags.thinkingEnabled
-      ? APPROVAL_VERDICT_THINKING_MAX_TOKENS
-      : APPROVAL_VERDICT_MAX_TOKENS,
+    maxTokens: clampToPresetMaxTokens(
+      options.config,
+      options.executing.flags.thinkingEnabled
+        ? APPROVAL_VERDICT_THINKING_MAX_TOKENS
+        : APPROVAL_VERDICT_MAX_TOKENS,
+    ),
     // The thinking flags mirror the executing planner request: they feed the
     // server-side chat_template_kwargs, and any difference re-renders (and so
     // re-prefills) the shared prompt prefix.
@@ -810,7 +785,7 @@ export async function requestApprovalVerdict(options: {
 }
 
 export async function requestTerminalSynthesis(options: Partial<PlannerThinkingFlags> & {
-  backend?: InferenceBackendId;
+  config?: SiftConfig;
   baseUrl: string;
   model: string;
   prompt: string;
@@ -823,7 +798,7 @@ export async function requestTerminalSynthesis(options: Partial<PlannerThinkingF
   onContentDelta?: (accumulatedContent: string) => void;
 }): Promise<PlannerActionResponse> {
   return requestRepoSearchPlannerProtocolAction({
-    backend: options.backend,
+    config: options.config,
     baseUrl: options.baseUrl,
     model: options.model,
     messages: serializeProtocolMessages([{ role: 'user', content: options.prompt }], options.reasoningContentEnabled === true),

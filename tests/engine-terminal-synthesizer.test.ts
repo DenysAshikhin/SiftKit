@@ -10,6 +10,7 @@ import type { JsonLogger, RepoSearchProgressEvent } from '../src/repo-search/typ
 import type { JsonSerializable } from '../src/lib/json-types.js';
 import { SilentProgressWriter } from '../src/lib/progress-writer.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
+import { mockSiftConfig } from './helpers/mock-config.js';
 
 function makeSynthesizer(tokenUsage: TokenUsageTracker): TerminalSynthesizer {
   return new TerminalSynthesizer({
@@ -48,8 +49,9 @@ function makeStreamingSynthesizer(options: {
     baseUrl: options.baseUrl,
     model: 'mock-model',
     timeoutMs: 1_000,
-    config: undefined,
-    useEstimatedTokensOnly: false,
+    config: mockSiftConfig({}),
+    // Estimate-only: the stub server serves chat completions, not /tokenize.
+    useEstimatedTokensOnly: true,
     totalContextTokens: 32_000,
     thinking: { thinkingEnabled: true, reasoningContentEnabled: true, preserveThinking: true },
     streamFinishAsAnswer: true,

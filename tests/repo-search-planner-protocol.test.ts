@@ -4,18 +4,56 @@ import http from 'node:http';
 
 import { ModelJson } from '../src/lib/model-json.js';
 import type { JsonObject } from '../src/lib/json-types.js';
+import type { ModelRuntimePreset, SiftConfig } from '../src/config/types.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
+import { mockSiftConfig } from './helpers/mock-config.js';
 import {
+  captureExecutingPlannerRequest,
   getRepoSearchToolNames,
   getRepoSearchToolNamesForParsing,
+  requestApprovalVerdict,
   requestRepoSearchPlannerProtocolAction,
   resolveRepoSearchPlannerToolDefinitions,
+  type PlannerActionResponse,
 } from '../src/repo-search/planner-protocol.js';
+
+type PresetOverrides = Partial<ModelRuntimePreset>;
+
+function buildTestConfig(preset: PresetOverrides = {}): SiftConfig {
+  return mockSiftConfig({
+    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', ...preset }] } },
+  });
+}
 
 function parseRepoSearchPlannerAction(text: string, allowedToolNames: readonly string[]) {
   return ModelJson.parseRepoSearchPlannerAction(text, {
     toolDefinitions: resolveRepoSearchPlannerToolDefinitions(allowedToolNames),
   });
+}
+
+async function captureChatRequestBody(
+  run: (baseUrl: string) => Promise<PlannerActionResponse>,
+  responseContent = '{"action":"finish","output":"done"}',
+): Promise<JsonObject> {
+  let capturedBody: JsonObject | null = null;
+  await withServer(
+    (req, res) => {
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
+      req.on('end', () => {
+        capturedBody = JSON.parse(body || '{}');
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ choices: [{ message: { content: responseContent } }] }));
+      });
+    },
+    async (baseUrl) => {
+      await run(baseUrl);
+    },
+  );
+  return asObject(capturedBody);
 }
 
 async function withServer(handler: (req: http.IncomingMessage, res: http.ServerResponse) => void, fn: (baseUrl: string) => Promise<void>): Promise<void> {
@@ -175,6 +213,7 @@ test('requestRepoSearchPlannerProtocolAction reconstructs a tool batch from non-
     },
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
+        config: buildTestConfig(),
         baseUrl,
         model: 'mock-model',
         messages: [{ role: 'user', content: 'find plan and repo-search' }],
@@ -215,6 +254,7 @@ test('requestRepoSearchPlannerProtocolAction reconstructs a tool batch from stre
     },
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
+        config: buildTestConfig(),
         baseUrl,
         model: 'mock-model',
         messages: [{ role: 'user', content: 'find plan and repo-search' }],
@@ -261,6 +301,7 @@ test('requestRepoSearchPlannerProtocolAction stops streamed reasoning after a co
     },
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
+        config: buildTestConfig(),
         baseUrl,
         model: 'mock-model',
         messages: [{ role: 'user', content: 'find planner' }],
@@ -297,6 +338,7 @@ test('requestRepoSearchPlannerProtocolAction stops streamed content when recent 
     },
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
+        config: buildTestConfig(),
         baseUrl,
         model: 'mock-model',
         messages: [{ role: 'user', content: 'find planner' }],
@@ -343,6 +385,7 @@ test('requestRepoSearchPlannerProtocolAction does not stop streamed content for 
     },
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
+        config: buildTestConfig(),
         baseUrl,
         model: 'mock-model',
         messages: [{ role: 'user', content: 'find planner' }],
@@ -390,6 +433,7 @@ test('requestRepoSearchPlannerProtocolAction uses llama timings from the final s
     },
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
+        config: buildTestConfig(),
         baseUrl,
         model: 'mock-model',
         messages: [{ role: 'user', content: 'finish' }],
@@ -429,6 +473,7 @@ test('requestRepoSearchPlannerProtocolAction aborts an in-flight streaming reque
         await assert.rejects(
           () =>
             requestRepoSearchPlannerProtocolAction({
+              config: buildTestConfig(),
               baseUrl,
               model: 'mock-model',
               messages: [{ role: 'user', content: 'finish slowly' }],
@@ -472,6 +517,7 @@ test('requestRepoSearchPlannerProtocolAction sends json_schema response_format w
     },
     async (baseUrl) => {
       await requestRepoSearchPlannerProtocolAction({
+        config: buildTestConfig(),
         baseUrl,
         model: 'mock-model',
         messages: [{ role: 'user', content: 'find plan and repo-search' }],
@@ -509,7 +555,7 @@ test('requestRepoSearchPlannerProtocolAction forwards native EXL3 structured out
     },
     async (baseUrl) => {
       await requestRepoSearchPlannerProtocolAction({
-        backend: 'exl3',
+        config: buildTestConfig({ Backend: 'exl3' }),
         baseUrl,
         model: 'mock-model',
         messages: [{ role: 'user', content: 'find plan and repo-search' }],
@@ -552,6 +598,7 @@ test('requestRepoSearchPlannerProtocolAction assembles planner schema dynamicall
     },
     async (baseUrl) => {
       await requestRepoSearchPlannerProtocolAction({
+        config: buildTestConfig(),
         baseUrl,
         model: 'mock-model',
         messages: [{ role: 'user', content: 'find symbol' }],
@@ -583,6 +630,70 @@ test('requestRepoSearchPlannerProtocolAction assembles planner schema dynamicall
   );
 });
 
+test('requestRepoSearchPlannerProtocolAction sends the active preset sampler values, not hardcoded planner values', async () => {
+  const config = buildTestConfig({
+    Temperature: 0.42,
+    TopP: 0.9,
+    TopK: 33,
+    MinP: 0.05,
+    PresencePenalty: 0.7,
+    RepetitionPenalty: 1.1,
+    MaxTokens: 4000,
+  });
+
+  const captured = await captureChatRequestBody((baseUrl) => requestRepoSearchPlannerProtocolAction({
+    config,
+    baseUrl,
+    model: 'test-model',
+    messages: [{ role: 'user', content: 'hi' }],
+    timeoutMs: 5000,
+    maxTokens: 2048,
+    thinkingEnabled: false,
+    reasoningContentEnabled: false,
+    preserveThinking: false,
+  }));
+
+  assert.equal(captured.temperature, 0.42);
+  assert.equal(captured.top_p, 0.9);
+  assert.equal(captured.top_k, 33);
+  assert.equal(captured.min_p, 0.05);
+  assert.equal(captured.presence_penalty, 0.7);
+  assert.equal(captured.max_tokens, 2048);
+});
+
+test('requestRepoSearchPlannerProtocolAction throws loudly when a non-mock request has no config', async () => {
+  await assert.rejects(
+    () => requestRepoSearchPlannerProtocolAction({
+      baseUrl: 'http://127.0.0.1:9',
+      model: 'm',
+      messages: [],
+      timeoutMs: 1000,
+      maxTokens: 10,
+    }),
+    /requires a SiftConfig/u,
+  );
+});
+
+test('requestApprovalVerdict clamps the verdict maxTokens to the preset MaxTokens', async () => {
+  const config = buildTestConfig({ MaxTokens: 300 });
+
+  const captured = await captureChatRequestBody((baseUrl) => requestApprovalVerdict({
+    config,
+    baseUrl,
+    model: 'test-model',
+    transcriptMessages: [],
+    question: 'ok?',
+    executing: captureExecutingPlannerRequest([], {
+      thinkingEnabled: false,
+      reasoningContentEnabled: false,
+      preserveThinking: false,
+    }),
+    timeoutMs: 5000,
+  }), '{"verdict":"approve","reason":"ok"}');
+
+  assert.equal(captured.max_tokens, 300);
+});
+
 test('requestRepoSearchPlannerProtocolAction hard-fails on json_schema rejection without fallback retry', async () => {
   let requestCount = 0;
   await withServer(
@@ -604,6 +715,7 @@ test('requestRepoSearchPlannerProtocolAction hard-fails on json_schema rejection
       await assert.rejects(
         () =>
           requestRepoSearchPlannerProtocolAction({
+            config: buildTestConfig(),
             baseUrl,
             model: 'mock-model',
             messages: [{ role: 'user', content: 'find plan and repo-search' }],
