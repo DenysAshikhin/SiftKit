@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { recordWebSearchUsage, readWebSearchUsage, getUsageMonthKey } from '../src/status-server/web-search-usage.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 function tempDbPath(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-usage-'));
+  const dir = createManagedTempDir('siftkit-usage-');
   return path.join(dir, 'runtime.db');
 }
 

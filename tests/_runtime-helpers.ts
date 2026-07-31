@@ -4,7 +4,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import type { AddressInfo } from 'node:net';
@@ -17,7 +16,7 @@ import { normalizeConfigObject } from '../src/config/normalization.js';
 import { mockSiftConfig, asRuntimeSiftConfig } from './helpers/mock-config.js';
 import { DEAD_CONFIG_SERVICE_URL, DEAD_STATUS_BACKEND_URL } from './helpers/dead-endpoints.js';
 import { EnvBackup } from './helpers/env-backup.js';
-import { removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 import {
   deriveServiceUrl,
   getDefaultConfig,
@@ -970,7 +969,7 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
 let tempEnvQueue: Promise<void> = Promise.resolve();
 
 function runWithTempEnv<R>(fn: (tempRoot: string) => R | Promise<R>): Promise<R> {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-node-test-'));
+  const tempRoot = createManagedTempDir('siftkit-node-test-');
   const previousCwd = process.cwd();
   const envBackup = new EnvBackup([
     'USERPROFILE',
@@ -1550,7 +1549,7 @@ function runPowerShellScript(scriptPath: string): void {
 
 export {
   // Re-exports from dist modules (used by test files)
-  assert, fs, http, os, path, spawn, spawnSync, Database,
+  assert, fs, http, path, spawn, spawnSync, Database,
   loadConfig, saveConfig, getConfigPath,
   getChunkThresholdCharacters, getConfiguredLlamaNumCtx,
   getEffectiveInputCharactersPerContextToken, initializeRuntime,
