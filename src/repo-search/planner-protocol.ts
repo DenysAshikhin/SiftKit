@@ -434,6 +434,18 @@ export function toProtocolChatMessages(messages: readonly ChatMessage[]): LlamaC
   }));
 }
 
+/**
+ * The single serialization path from a transcript to protocol messages. Every
+ * request that must share a prompt-cache prefix (planner_action and
+ * approval_verdict) is built through this function with the same flags.
+ */
+export function serializeProtocolMessages(
+  messages: readonly ChatMessage[],
+  reasoningContentEnabled: boolean,
+): LlamaCppChatMessage[] {
+  return toProtocolChatMessages(messages.map((message) => serializePlannerMessage(message, reasoningContentEnabled)));
+}
+
 function serializePlannerMessage(message: ChatMessage, reasoningContentEnabled: boolean): ChatMessage {
   if (
     reasoningContentEnabled
@@ -580,7 +592,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
         config: buildPlannerRequestConfig(options),
         baseUrl: options.baseUrl,
         model: options.model,
-        messages: toProtocolChatMessages(options.messages.map((message) => serializePlannerMessage(message, options.reasoningContentEnabled === true))),
+        messages: serializeProtocolMessages(options.messages, options.reasoningContentEnabled === true),
         tools: [],
         maxTokens: options.maxTokens,
         temperature: 0.1,
@@ -699,26 +711,76 @@ export async function requestFinishValidation(options: {
   });
 }
 
+/**
+ * Snapshot of the serialized prompt an in-flight planner request was sent with.
+ * An approval verdict may only be requested as an extension of this prompt —
+ * anything else re-prefills the whole context and breaks the prompt cache.
+ */
+export type ExecutingPlannerRequest = {
+  serializedMessageJson: string[];
+  thinkingEnabled: boolean;
+  reasoningContentEnabled: boolean;
+  preserveThinking: boolean;
+};
+
+export function captureExecutingPlannerRequest(options: {
+  messages: readonly ChatMessage[];
+  thinkingEnabled: boolean;
+  reasoningContentEnabled: boolean;
+  preserveThinking: boolean;
+}): ExecutingPlannerRequest {
+  return {
+    serializedMessageJson: serializeProtocolMessages(options.messages, options.reasoningContentEnabled)
+      .map((message) => JSON.stringify(message)),
+    thinkingEnabled: options.thinkingEnabled,
+    reasoningContentEnabled: options.reasoningContentEnabled,
+    preserveThinking: options.preserveThinking,
+  };
+}
+
 export async function requestApprovalVerdict(options: {
   backend?: InferenceBackendId;
   baseUrl: string;
   model: string;
-  messages: ChatMessage[];
+  transcriptMessages: ChatMessage[];
+  question: string;
+  executing: ExecutingPlannerRequest;
   slotId?: number;
   timeoutMs: number;
   mockResponses?: string[];
   mockResponseIndex?: number;
   abortSignal?: AbortSignal;
-  logger?: JsonLogger | null;}): Promise<PlannerActionResponse> {
+  logger?: JsonLogger | null;
+}): Promise<PlannerActionResponse> {
+  const serialized = serializeProtocolMessages(options.transcriptMessages, options.executing.reasoningContentEnabled)
+    .map((message) => JSON.stringify(message));
+  const prefix = options.executing.serializedMessageJson;
+  if (prefix.length > serialized.length) {
+    throw new Error(
+      `approval_verdict prompt diverged from the executing planner request: the transcript serializes to ${serialized.length} messages but the executing request sent ${prefix.length}; prompt-cache prefix broken.`,
+    );
+  }
+  for (let index = 0; index < prefix.length; index += 1) {
+    if (prefix[index] !== serialized[index]) {
+      throw new Error(
+        `approval_verdict prompt diverged from the executing planner request at message ${index}; prompt-cache prefix broken.`,
+      );
+    }
+  }
   return requestRepoSearchPlannerProtocolAction({
     backend: options.backend,
     baseUrl: options.baseUrl,
     model: options.model,
-    messages: options.messages,
+    messages: [...options.transcriptMessages, { role: 'user', content: options.question }],
     slotId: options.slotId,
     timeoutMs: options.timeoutMs,
-    maxTokens: 512,
-    thinkingEnabled: false,
+    // The thinking flags mirror the executing planner request: they feed the
+    // server-side chat_template_kwargs, and any difference re-renders (and so
+    // re-prefills) the shared prompt prefix. Thinking needs generation headroom.
+    maxTokens: options.executing.thinkingEnabled ? 4096 : 512,
+    thinkingEnabled: options.executing.thinkingEnabled,
+    reasoningContentEnabled: options.executing.reasoningContentEnabled,
+    preserveThinking: options.executing.preserveThinking,
     mockResponses: options.mockResponses,
     mockResponseIndex: options.mockResponseIndex,
     abortSignal: options.abortSignal,

@@ -13,6 +13,7 @@ import {
   type ApprovalVerdictRequester,
 } from './engine/llm-approval-gate.js';
 import {
+  captureExecutingPlannerRequest,
   requestApprovalVerdict,
   type ChatMessage,
   type PlannerActionResponse,
@@ -64,7 +65,7 @@ export const AutoApprovalProbeResultSchema = z.object({
 export type AutoApprovalProbeResult = z.infer<typeof AutoApprovalProbeResultSchema>;
 
 export type ApprovalVerdictModelClient = {
-  request(messages: ChatMessage[]): Promise<PlannerActionResponse>;
+  request(messages: ChatMessage[], question: string): Promise<PlannerActionResponse>;
 };
 
 export class ConfiguredApprovalVerdictModelClient implements ApprovalVerdictModelClient {
@@ -74,12 +75,25 @@ export class ConfiguredApprovalVerdictModelClient implements ApprovalVerdictMode
     model: string;
     slotId: number;
     timeoutMs: number;
+    thinkingEnabled: boolean;
+    reasoningContentEnabled: boolean;
+    preserveThinking: boolean;
   }) {}
 
-  request(messages: ChatMessage[]): Promise<PlannerActionResponse> {
+  request(messages: ChatMessage[], question: string): Promise<PlannerActionResponse> {
+    const { thinkingEnabled, reasoningContentEnabled, preserveThinking, ...request } = this.options;
     return requestApprovalVerdict({
-      ...this.options,
-      messages,
+      ...request,
+      transcriptMessages: messages,
+      question,
+      // Replay reconstructs the executing planner request from the persisted
+      // messages the live run submitted, with the configured thinking flags.
+      executing: captureExecutingPlannerRequest({
+        messages,
+        thinkingEnabled,
+        reasoningContentEnabled,
+        preserveThinking,
+      }),
       logger: null,
     });
   }
@@ -95,7 +109,7 @@ class ReplayVerdictRequester implements ApprovalVerdictRequester {
 
   requestApprovalVerdict(question: string): Promise<PlannerActionResponse> {
     this.submittedMessages = [...this.messages, { role: 'user', content: question }];
-    return this.modelClient.request(this.submittedMessages);
+    return this.modelClient.request(this.messages, question);
   }
 }
 

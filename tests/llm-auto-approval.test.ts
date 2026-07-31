@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { runTaskLoop } from '../src/repo-search/engine.js';
@@ -9,7 +10,10 @@ import {
   APPROVAL_REVIEW_REQUEST_MARKER,
 } from '../src/repo-search/approval-review-policy.js';
 import { ApprovalGate } from '../src/repo-search/engine/approval-gate.js';
-import { ProgressWriter } from '../src/lib/progress-writer.js';
+import { ProgressWriter, SilentProgressWriter } from '../src/lib/progress-writer.js';
+import { parseJsonValueText } from '../src/lib/json.js';
+import { asObject, asArray, getAddressInfo } from './helpers/dashboard-http.js';
+import { mockSiftConfig } from './helpers/mock-config.js';
 import { INTERACTIVE_REPO_TOOL_NAMES, resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import type { JsonSerializable } from '../src/lib/json-types.js';
@@ -225,6 +229,124 @@ test('auto mode: unparseable verdicts (after one retry) escalate to the human ga
     assert.equal(writer.ofKind('approval_request').length, 1);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('auto mode over HTTP: the verdict request byte-extends the executing planner request', async () => {
+  const plannerBodies: ReturnType<typeof asObject>[] = [];
+  const verdictBodies: ReturnType<typeof asObject>[] = [];
+  let plannerCalls = 0;
+
+  function completionBody(content: string, reasoning: string | null): string {
+    return JSON.stringify({
+      choices: [{
+        message: {
+          role: 'assistant',
+          content,
+          ...(reasoning === null ? {} : { reasoning_content: reasoning }),
+        },
+      }],
+      usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+    });
+  }
+
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      if (req.method === 'POST' && req.url === '/tokenize') {
+        const parsed = asObject(parseJsonValueText(body || '{}'));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ count: Math.max(1, Math.ceil(String(parsed.content || '').length / 4)) }));
+        return;
+      }
+      if (req.method === 'POST' && req.url === '/v1/chat/completions') {
+        const parsed = asObject(parseJsonValueText(body));
+        const lastMessage = asObject(asArray(parsed.messages).at(-1));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        if (String(lastMessage.content || '').startsWith(APPROVAL_REVIEW_REQUEST_MARKER)) {
+          verdictBodies.push(parsed);
+          res.end(completionBody('{"verdict":"approve","reason":"scoped write"}', null));
+          return;
+        }
+        plannerBodies.push(parsed);
+        plannerCalls += 1;
+        const content = plannerCalls === 1
+          ? '{"action":"read","path":"a.txt"}'
+          : plannerCalls === 2
+            ? '{"action":"write","path":"out.txt","content":"hello"}'
+            : '{"action":"finish","output":"wrote it"}';
+        res.end(completionBody(content, `thought-${plannerCalls}`));
+        return;
+      }
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end('{}');
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
+
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-llm-auto-http-'));
+  try {
+    fs.writeFileSync(path.join(tempRoot, 'a.txt'), 'content-a', 'utf8');
+    const gate = new ApprovalGate({
+      requestId: 'run-1',
+      progressWriter: new SilentProgressWriter(),
+      timeoutMs: 5000,
+      bypassReadOnlyTools: false,
+    });
+    const result = await runTaskLoop(makeTask('read a file then write a file'), {
+      repoRoot: tempRoot,
+      model: 'mock-model',
+      baseUrl,
+      systemContext: createEmptyPresetSystemContext(),
+      config: mockSiftConfig({
+        Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } },
+        Server: {
+          ModelPresets: {
+            ActivePresetId: 'default',
+            Presets: [{ id: 'default', Reasoning: 'on', ReasoningContent: true, PreserveThinking: true }],
+          },
+        },
+      }),
+      maxTurns: 4,
+      minToolCallsBeforeFinish: 0,
+      mockCommandResults: {},
+      approvalGate: gate,
+      approvalMode: 'auto' as const,
+      plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions([...INTERACTIVE_REPO_TOOL_NAMES]),
+    });
+
+    assert.equal(result.finalOutput, 'wrote it');
+    assert.equal(fs.readFileSync(path.join(tempRoot, 'out.txt'), 'utf8'), 'hello');
+    assert.equal(plannerBodies.length, 3);
+    assert.equal(verdictBodies.length, 1);
+
+    const executing = plannerBodies[1];
+    const verdict = verdictBodies[0];
+    const executingMessages = asArray(executing.messages);
+    const verdictMessages = asArray(verdict.messages);
+
+    // Scenario sanity: the executing request really carries earlier-turn reasoning,
+    // so the prefix equality below proves the verdict preserved it.
+    assert.equal(JSON.stringify(executingMessages).includes('thought-1'), true);
+
+    // The verdict prompt is exactly the executing planner prompt plus one question.
+    assert.equal(verdictMessages.length, executingMessages.length + 1);
+    assert.deepEqual(verdictMessages.slice(0, executingMessages.length), executingMessages);
+    const question = asObject(verdictMessages.at(-1));
+    assert.equal(question.role, 'user');
+    assert.match(String(question.content), /tool: write/u);
+
+    // Identical server-side template rendering: same chat_template_kwargs.
+    assert.deepEqual(verdict.chat_template_kwargs, executing.chat_template_kwargs);
+
+    // The question is popped: it never reaches a later planner request.
+    assert.equal(JSON.stringify(plannerBodies[2]).includes(APPROVAL_REVIEW_REQUEST_MARKER), false);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
 

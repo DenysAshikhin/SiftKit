@@ -49,7 +49,7 @@ test('nested summary passes stdin through raw with a banner and no server contac
 test('nested summary still requires input', async () => {
   const result = await runGuardedCli(['summary', '--question', 'did it pass?']);
   assert.equal(result.code, 1);
-  assert.match(result.stderr, /stdin, --text or --file required/);
+  assert.match(result.stderr, /stdin, --text, --file or --image required/);
 });
 
 test('nested summary with positional input does not reinterpret command words', async () => {

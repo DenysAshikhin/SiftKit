@@ -16,6 +16,9 @@ import {
 import {
   allocateLlamaCppSlotId,
   DEFAULT_TIMEOUT_MS,
+  isPlannerPreserveThinkingEnabled,
+  isPlannerReasoningContentEnabled,
+  isPlannerReasoningEnabled,
 } from '../repo-search/engine/task-loop-support.js';
 
 export type AutoApprovalProbeCliOptions = {
@@ -55,6 +58,9 @@ export async function runAutoApprovalVerdictProbeCli(
         model,
         slotId: allocateLlamaCppSlotId(config),
         timeoutMs: DEFAULT_TIMEOUT_MS,
+        thinkingEnabled: isPlannerReasoningEnabled(config),
+        reasoningContentEnabled: isPlannerReasoningContentEnabled(config),
+        preserveThinking: isPlannerPreserveThinkingEnabled(config),
       }),
     );
     const result = await probe.run(payload);

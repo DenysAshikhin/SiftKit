@@ -43,8 +43,8 @@ class RecordingVerdictModelClient implements ApprovalVerdictModelClient {
 
   constructor(private readonly responseText: string) {}
 
-  request(requestMessages: ChatMessage[]): Promise<PlannerActionResponse> {
-    this.requests.push(requestMessages);
+  request(requestMessages: ChatMessage[], question: string): Promise<PlannerActionResponse> {
+    this.requests.push([...requestMessages, { role: 'user', content: question }]);
     return Promise.resolve({
       text: this.responseText,
       thinkingText: '',

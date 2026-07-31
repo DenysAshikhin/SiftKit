@@ -18,11 +18,13 @@ import { toProtocolTools } from '../../providers/llama-cpp.js';
 import { ModelJson } from '../../lib/model-json.js';
 import { buildIgnorePolicy, type IgnorePolicy } from '../command-safety.js';
 import {
+  captureExecutingPlannerRequest,
   getRepoSearchToolNamesForParsing,
   requestApprovalVerdict as requestApprovalVerdictRequest,
   requestRepoSearchPlannerProtocolAction,
   resolveRepoSearchPlannerToolDefinitions,
   toProtocolChatMessages,
+  type ExecutingPlannerRequest,
   type FinishAction,
   type PlannerActionResponse,
   type ToolAction,
@@ -159,6 +161,7 @@ export class TaskLoop {
   private finalOutput = '';
   private turnsUsed = 0;
   private mockResponseIndex = 0;
+  private executingPlannerRequest: ExecutingPlannerRequest | null = null;
 
   constructor(task: TaskDefinition, options: RunTaskLoopOptions) {
     this.task = task;
@@ -298,13 +301,23 @@ export class TaskLoop {
     });
   }
 
-  /** Ephemeral verdict call: transcript prefix + one user question; never appended to the transcript. */
+  /**
+   * Ephemeral verdict call: the executing planner prompt + one user question,
+   * never appended to the transcript. The request layer verifies the prompt
+   * byte-extends the executing planner request and throws otherwise.
+   */
   async requestApprovalVerdict(question: string): Promise<PlannerActionResponse> {
+    const executing = this.executingPlannerRequest;
+    if (!executing) {
+      throw new Error('approval_verdict requested before any planner request; there is no executing prompt to extend.');
+    }
     const response = await requestApprovalVerdictRequest({
       backend: this.options.config ? getActiveInferenceBackend(this.options.config) : undefined,
       baseUrl: this.options.baseUrl,
       model: this.options.model,
-      messages: [...this.transcript.getMessages(), { role: 'user', content: question }],
+      transcriptMessages: this.transcript.getMessages(),
+      question,
+      executing,
       slotId: this.slotId,
       timeoutMs: this.options.timeoutMs || DEFAULT_TIMEOUT_MS,
       mockResponses: this.options.mockResponses,
@@ -505,6 +518,12 @@ export class TaskLoop {
       mock: Array.isArray(this.options.mockResponses),
     });
     try {
+      this.executingPlannerRequest = captureExecutingPlannerRequest({
+        messages: this.transcript.getMessages(),
+        thinkingEnabled: this.plannerThinkingEnabled,
+        reasoningContentEnabled: this.plannerReasoningContentEnabled,
+        preserveThinking: this.plannerPreserveThinkingEnabled,
+      });
       return await requestRepoSearchPlannerProtocolAction({
         backend: this.options.config ? getActiveInferenceBackend(this.options.config) : undefined,
         baseUrl: this.options.baseUrl,
