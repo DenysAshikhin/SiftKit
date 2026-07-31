@@ -5,11 +5,13 @@ import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { getActiveModelPreset } from '../src/config/index.js';
 import { ChatTurnTelemetry } from '../src/status-server/chat-turn-telemetry.js';
 import type { ChatSession } from '../src/state/chat-sessions.js';
+import { mockModelPreset } from './helpers/mock-config.js';
 
 function createSession(): ChatSession {
   return {
     id: 'telemetry-session',
     modelPresetId: 'default',
+    modelPreset: mockModelPreset({ id: 'default' }),
     thinkingEnabled: true,
   };
 }

@@ -30,7 +30,7 @@ import {
   buildPlanRequestPrompt,
   buildRepoSearchMarkdown,
   getScorecardTotal,
-  resolveChatSessionModel,
+  resolveChatSessionConfig,
   type PersistTurn,
 } from './chat.js';
 import { ChatOperationPresetSelector } from './chat-operation-preset.js';
@@ -140,9 +140,8 @@ export class ChatRepoOperationRunner {
       prompt: this.buildPrompt(operation, request.content),
       repoRoot: request.repoRoot,
       statusBackendUrl: request.statusBackendUrl,
-      config: request.config,
+      config: resolveChatSessionConfig(request.config, session),
       allowedTools: this.getAllowedTools(request.config, selected.preset, session),
-      model: resolveChatSessionModel(request.config, session),
       maxTurns: request.maxTurns ?? selected.preset.maxTurns ?? undefined,
       logFile: request.logFile,
       availableModels: request.availableModels,

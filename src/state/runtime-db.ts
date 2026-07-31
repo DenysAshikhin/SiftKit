@@ -4,7 +4,7 @@ import Database from 'better-sqlite3';
 import { z } from '../lib/zod.js';
 import { ensureDirectory } from '../lib/fs.js';
 import { parseJsonValueText } from '../lib/json.js';
-import type { JsonValue } from '../lib/json-types.js';
+import { JsonObjectSchema, type JsonObject, type JsonValue } from '../lib/json-types.js';
 import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
@@ -27,8 +27,14 @@ const ChatModelPresetMigrationSessionSchema = z.object({
   id: z.string(),
   model: z.string().nullable(),
 });
+const ChatPresetSnapshotSessionRowSchema = z.object({
+  id: z.string(),
+  model_preset_id: z.string(),
+  model: z.string().nullable(),
+  context_window_tokens: z.number(),
+});
 
-export const CURRENT_SCHEMA_VERSION = 36;
+export const CURRENT_SCHEMA_VERSION = 37;
 const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["read","grep","find","ls","git"],"full":[]}';
 const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
@@ -198,8 +204,7 @@ function applyBaseSchema(database: RuntimeDatabase): void {
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       model_preset_id TEXT NOT NULL,
-      model TEXT,
-      context_window_tokens INTEGER NOT NULL,
+      model_preset_json TEXT,
       thinking_enabled INTEGER NOT NULL CHECK (thinking_enabled IN (0, 1)),
       web_search_enabled INTEGER NOT NULL DEFAULT 1 CHECK (web_search_enabled IN (0, 1)),
       preset_id TEXT,
@@ -819,6 +824,57 @@ function migrateChatSessionsToModelPresetIdentity(database: RuntimeDatabase): vo
   rebuildChatSessionsWithModelPresetIdentity(database, identities);
 }
 
+/**
+ * v37: a chat session snapshots the whole request-shaping preset, so `model` and
+ * `context_window_tokens` stop being separate columns. The snapshot is rebuilt
+ * from the app config's preset list — the session's own preset when it still
+ * exists, otherwise the active one — with the row's historical model and context
+ * size overlaid, which is exactly what the old two-column snapshot meant.
+ */
+function migrateChatSessionsToModelPresetSnapshot(database: RuntimeDatabase): void {
+  if (tableHasColumn(database, 'chat_sessions', 'model_preset_json')) {
+    return;
+  }
+  database.exec('ALTER TABLE chat_sessions ADD COLUMN model_preset_json TEXT;');
+  const sessions = z.array(ChatPresetSnapshotSessionRowSchema).parse(
+    database.prepare('SELECT id, model_preset_id, model, context_window_tokens FROM chat_sessions ORDER BY id').all(),
+  );
+  if (sessions.length > 0) {
+    const configRow = ChatModelPresetMigrationConfigRowSchema.parse(database.prepare(`
+      SELECT
+        server_llama_presets_json AS presets_json,
+        server_llama_active_preset_id AS active_preset_id
+      FROM app_config
+      WHERE id = 1
+    `).get());
+    const presets = z.array(JsonObjectSchema).min(1).parse(parseJsonValueText(configRow.presets_json));
+    const presetsById = new Map<string, JsonObject>();
+    for (const preset of presets) {
+      const id = preset.id;
+      if (typeof id === 'string' && id.trim()) {
+        presetsById.set(id.trim(), preset);
+      }
+    }
+    const activePreset = presetsById.get(configRow.active_preset_id?.trim() ?? '') ?? presets[0];
+    if (!activePreset) {
+      throw new Error('Cannot migrate chat sessions: the app config has no model presets.');
+    }
+    const updateSession = database.prepare('UPDATE chat_sessions SET model_preset_json = ? WHERE id = ?');
+    for (const session of sessions) {
+      const basePreset = presetsById.get(session.model_preset_id.trim()) ?? activePreset;
+      updateSession.run(JSON.stringify({
+        ...basePreset,
+        ...(session.model?.trim() ? { Model: session.model.trim() } : {}),
+        ...(session.context_window_tokens >= 1 ? { NumCtx: session.context_window_tokens } : {}),
+      }), session.id);
+    }
+  }
+  database.exec(`
+    ALTER TABLE chat_sessions DROP COLUMN model;
+    ALTER TABLE chat_sessions DROP COLUMN context_window_tokens;
+  `);
+}
+
 function migrateAppConfigRemoveGlobalStartupContext(database: RuntimeDatabase): void {
   database.exec(`
     BEGIN IMMEDIATE;
@@ -1338,6 +1394,11 @@ function ensureSchema(database: RuntimeDatabase): void {
     migrateAppConfigRemoveGlobalStartupContext(database);
     setSchemaVersion(database, 36);
     currentVersion = 36;
+  }
+  if (currentVersion < 37) {
+    migrateChatSessionsToModelPresetSnapshot(database);
+    setSchemaVersion(database, 37);
+    currentVersion = 37;
   }
   ensureChatMessageTimelineSchema(database);
   ensureRuntimeArtifactsSchema(database);

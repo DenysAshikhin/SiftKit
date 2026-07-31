@@ -103,7 +103,7 @@ export function sessionUsesActiveModelPreset(config: SiftConfig, session: ChatSe
 export function resolveChatSessionModel(config: SiftConfig, session: ChatSession): string {
   const model = sessionUsesActiveModelPreset(config, session)
     ? getActiveModelPreset(config).Model?.trim() ?? ''
-    : session.model?.trim() ?? '';
+    : session.modelPreset.Model?.trim() ?? '';
   if (!model) {
     throw new Error(`Chat session ${session.id} has an invalid model snapshot.`);
   }
@@ -118,11 +118,29 @@ export function resolveChatSessionContextWindow(
     return getConfiguredLlamaNumCtx(config);
   }
 
-  const persistedContextWindow = Number(session.contextWindowTokens);
+  const persistedContextWindow = session.modelPreset.NumCtx;
   if (Number.isInteger(persistedContextWindow) && persistedContextWindow > 0) {
     return persistedContextWindow;
   }
   throw new Error(`Chat session ${session.id} has an invalid context window snapshot.`);
+}
+
+/**
+ * Effective config for a session: once the live active preset is a different one,
+ * the session's snapshot preset becomes the active preset so every request it
+ * drives keeps the model, context size, and samplers it started with.
+ */
+export function resolveChatSessionConfig(config: SiftConfig, session: ChatSession): SiftConfig {
+  if (sessionUsesActiveModelPreset(config, session)) {
+    return config;
+  }
+  return {
+    ...config,
+    Server: {
+      ...config.Server,
+      ModelPresets: { Presets: [session.modelPreset], ActivePresetId: session.modelPreset.id },
+    },
+  };
 }
 
 class ContextUsageBuilder {

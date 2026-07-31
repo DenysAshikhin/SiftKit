@@ -1,4 +1,5 @@
 import {
+  applyModelOverrideToConfig,
   getActiveModelPreset,
   getConfigPath,
   getConfiguredLlamaNumCtx,
@@ -186,14 +187,15 @@ export class StatusPresetRunner {
       throw new Error('A prompt is required.');
     }
     const now = new Date().toISOString();
-    const activeModelPreset = getActiveModelPreset(config);
-    const thinkingEnabled = getConfiguredReasoning(config) !== 'off';
+    // Snapshot after the --model overlay so the session records the model it ran with.
+    const effectiveConfig = applyModelOverrideToConfig(config, request.model);
+    const activeModelPreset = getActiveModelPreset(effectiveConfig);
+    const thinkingEnabled = getConfiguredReasoning(effectiveConfig) !== 'off';
     const session: ChatSession = {
       id: 'cli-ephemeral',
       title: preset.label,
       modelPresetId: activeModelPreset.id,
-      model: request.model,
-      contextWindowTokens: getConfiguredLlamaNumCtx(config),
+      modelPreset: activeModelPreset,
       thinkingEnabled,
       presetId: preset.id,
       mode: 'chat',
@@ -208,10 +210,9 @@ export class StatusPresetRunner {
       taskKind: 'chat',
       prompt,
       repoRoot: getRepoRoot(request),
-      config,
-      model: request.model,
+      config: effectiveConfig,
       statusBackendUrl: options.statusBackendUrl,
-      systemPrompt: buildChatSystemContent(config, session),
+      systemPrompt: buildChatSystemContent(effectiveConfig, session),
       history: [],
       thinkingEnabled,
       allowedTools: [],

@@ -10,8 +10,9 @@ import {
   deleteChatSession,
 } from '../src/state/chat-sessions.js';
 import type { ChatSession } from '../src/state/chat-sessions.js';
-import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { mockModelPreset } from './helpers/mock-config.js';
 
 function withTempRepo(fn: (repoRoot: string) => void): void {
   const tempRoot = createManagedTempDir('siftkit-chat-db-');
@@ -41,8 +42,7 @@ test('chat sessions are persisted in runtime sqlite instead of JSON files', () =
       id: sessionId,
       title: 'DB Session',
       modelPresetId: 'preset-a',
-      model: 'model-a',
-      contextWindowTokens: 4096,
+      modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
       thinkingEnabled: true,
       presetId: 'chat',
       mode: 'chat',
@@ -100,6 +100,71 @@ test('chat sessions are persisted in runtime sqlite instead of JSON files', () =
   });
 });
 
+test('chat sessions round-trip the full model preset snapshot', () => {
+  withTempRepo((repoRoot) => {
+    const runtimeRoot = path.join(repoRoot, '.siftkit');
+    const sessionId = 'session-preset-snapshot';
+
+    saveChatSession(runtimeRoot, {
+      id: sessionId,
+      title: 'Snapshot Session',
+      modelPresetId: 'preset-a',
+      modelPreset: mockModelPreset({
+        id: 'preset-a',
+        Model: 'snap-model',
+        NumCtx: 12_345,
+        Temperature: 0.5,
+        MaxTokens: 777,
+        Reasoning: 'on',
+      }),
+      presetId: 'chat',
+      mode: 'chat',
+      planRepoRoot: repoRoot,
+      condensedSummary: '',
+      createdAtUtc: new Date().toISOString(),
+      updatedAtUtc: new Date().toISOString(),
+      messages: [],
+    });
+
+    const loaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+    assert.equal(loaded?.modelPreset.id, 'preset-a');
+    assert.equal(loaded?.modelPreset.Model, 'snap-model');
+    assert.equal(loaded?.modelPreset.NumCtx, 12_345);
+    assert.equal(loaded?.modelPreset.Temperature, 0.5);
+    assert.equal(loaded?.modelPreset.MaxTokens, 777);
+    assert.equal(loaded?.modelPreset.Reasoning, 'on');
+  });
+});
+
+test('reading a chat session row without a preset snapshot fails loudly', () => {
+  withTempRepo((repoRoot) => {
+    const runtimeRoot = path.join(repoRoot, '.siftkit');
+    const sessionId = 'session-no-snapshot';
+
+    saveChatSession(runtimeRoot, {
+      id: sessionId,
+      title: 'Legacy Session',
+      modelPresetId: 'preset-a',
+      modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
+      presetId: 'chat',
+      mode: 'chat',
+      planRepoRoot: repoRoot,
+      condensedSummary: '',
+      createdAtUtc: new Date().toISOString(),
+      updatedAtUtc: new Date().toISOString(),
+      messages: [],
+    });
+    getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite'))
+      .prepare('UPDATE chat_sessions SET model_preset_json = NULL WHERE id = ?')
+      .run(sessionId);
+
+    assert.throws(
+      () => readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId)),
+      /session-no-snapshot has no model preset snapshot/u,
+    );
+  });
+});
+
 test('chat sessions persist webSearchEnabled', () => {
   withTempRepo((repoRoot) => {
     const runtimeRoot = path.join(repoRoot, '.siftkit');
@@ -109,8 +174,7 @@ test('chat sessions persist webSearchEnabled', () => {
       id: sessionId,
       title: 'Web Session',
       modelPresetId: 'preset-a',
-      model: 'model-a',
-      contextWindowTokens: 4096,
+      modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
       thinkingEnabled: true,
       webSearchEnabled: true,
       presetId: 'chat',
@@ -141,8 +205,7 @@ test('chat timeline bubbles persist typed tool payload fields', () => {
       id: sessionId,
       title: 'Timeline Session',
       modelPresetId: 'preset-a',
-      model: 'model-a',
-      contextWindowTokens: 4096,
+      modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
       thinkingEnabled: true,
       presetId: 'repo-search',
       mode: 'repo-search',
@@ -192,8 +255,7 @@ test('chat session persistence keeps typed tool and timing fields', () => {
       id: 'typed-session',
       title: 'Typed Session',
       modelPresetId: 'preset-a',
-      model: 'model-a',
-      contextWindowTokens: 4096,
+      modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
       thinkingEnabled: true,
       webSearchEnabled: false,
       presetId: 'repo-search',
@@ -263,8 +325,7 @@ test('deleteChatSession removes DB rows and reports existence correctly', () => 
       id: sessionId,
       title: 'Delete Me',
       modelPresetId: 'preset-a',
-      model: null,
-      contextWindowTokens: 1024,
+      modelPreset: mockModelPreset({ Model: null, NumCtx: 1024 }),
       presetId: 'chat',
       condensedSummary: '',
       createdAtUtc: new Date().toISOString(),
@@ -287,8 +348,7 @@ test('saveChatSession rejects a missing preset id instead of deriving it from mo
         id: 'missing-preset',
         title: 'Missing preset',
         modelPresetId: 'preset-a',
-        model: null,
-        contextWindowTokens: 1024,
+        modelPreset: mockModelPreset({ Model: null, NumCtx: 1024 }),
         mode: 'plan',
         condensedSummary: '',
         createdAtUtc: new Date().toISOString(),
@@ -309,8 +369,7 @@ test('chat messages round-trip their image data URIs', () => {
       id: sessionId,
       title: 'Image Session',
       modelPresetId: 'preset-a',
-      model: 'model-a',
-      contextWindowTokens: 4096,
+      modelPreset: mockModelPreset({ Model: 'model-a', NumCtx: 4096 }),
       thinkingEnabled: true,
       presetId: 'chat',
       mode: 'chat',
