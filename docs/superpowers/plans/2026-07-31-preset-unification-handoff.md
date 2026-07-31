@@ -1,9 +1,9 @@
-# Preset Unification — Handoff (as of Task 6 complete)
+# Preset Unification — Handoff (plan complete)
 
 Plan: [2026-07-31-preset-unification.md](./2026-07-31-preset-unification.md)
 Branch: `feat/preset-unification` (branched from `main` @ `9737aca`)
 
-## Status
+## Status — all 10 tasks landed
 
 | Task | State | Commit |
 |---|---|---|
@@ -13,73 +13,66 @@ Branch: `feat/preset-unification` (branched from `main` @ `9737aca`)
 | 4. Repo-task output budgets clamp to preset MaxTokens | done | `6edc1a6` |
 | 5. Config overlays replace model / MaxTokens overrides | done | `60c34af` |
 | 6. CLI chat reasoning follows the preset | done | `12b558f` |
-| 7. Host sync overlays full preset + TTL cache | pending | — |
-| 8. Chat sessions snapshot the full model preset | pending | — |
-| 9. Passthrough forces preset samplers | pending | — |
-| 10. Full verification + regression gate | pending | — |
+| 7. Host sync overlays full preset + TTL cache | done | `9eb7823` |
+| 8. Chat sessions snapshot the full model preset | done | `b97d337` |
+| 9. Passthrough forces preset samplers | done | `5d90ace` |
+| 10. Full verification + regression gate | done | `c2613b1` |
 
-Verification at handoff: `npm run typecheck` (includes `eslint .`) clean, `npm test` → 1988 tests, 1986 pass, 0 fail, 2 skipped.
+Final verification: `npm run typecheck` (includes `eslint .`) clean; `npm test` → 2002 tests, 2000 pass, 0 fail, 2 skipped. Working tree clean.
 
-Two commits from the user landed between task 2 and task 3 and are already in the baseline: `ae4bd1f` (managed-llama fixture no longer orphans a process) and `5b8c625` (shared HTTP agent across tests).
+Two commits from the user landed between task 2 and task 3 and are in the baseline: `ae4bd1f` (managed-llama fixture no longer orphans a process) and `5b8c625` (shared HTTP agent across tests).
 
-## Plan corrections that still apply to tasks 7-10
+## Environment notes that held throughout
 
-Carried forward from the previous handoff, all re-confirmed during tasks 3-6:
-
-1. **The test runner is `node:test`, not vitest.** Tests are `import test from 'node:test'` + `assert` from `node:assert/strict`, run via `npm test` (`typecheck:test` → `build:test` → `dist/scripts/run-tests.js`). Single file: `npx tsx --test tests/<file>.test.ts`; single case: add `--test-name-pattern "<substring>"`.
-   - Task 7's `vi.useFakeTimers()` has no equivalent — use `mock.timers` from `node:test` or inject time.
-2. **Build test configs with `mockSiftConfig`** from [tests/helpers/mock-config.ts](../../../tests/helpers/mock-config.ts) (re-exported as `mockConfig` from [tests/_runtime-helpers.ts](../../../tests/_runtime-helpers.ts)). `asRuntimeSiftConfig` is the escape hatch when normalization would repair the value under test.
-   - Normalization **repairs a dangling `ActivePresetId`** (falls back to `Presets[0]`), so a test cannot construct an orphaned-active-id config through `mockSiftConfig`.
-3. **`SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN` is 2.5, not 4.** Use `estimateTokenCount(config, text)` from `src/repo-search/prompt-budget.ts` instead of hardcoded `/4`.
+1. **The test runner is `node:test`, not vitest.** `import test from 'node:test'` + `assert` from `node:assert/strict`, run via `npm test` (`typecheck:test` → `build:test` → `dist/scripts/run-tests.js`). Single file: `npx tsx --test tests/<file>.test.ts`; single case: add `--test-name-pattern "<substring>"`.
+   - Task 7's TTL test uses `mock.timers.enable({ apis: ['Date'] })` + `mock.timers.tick(...)` from `node:test`. Faking only `Date` leaves real timers and real HTTP intact, so the in-flight `/config` fetch is unaffected.
+2. **Build test configs with `mockSiftConfig`** from [tests/helpers/mock-config.ts](../../../tests/helpers/mock-config.ts) (re-exported as `mockConfig` from [tests/_runtime-helpers.ts](../../../tests/_runtime-helpers.ts)). `asRuntimeSiftConfig` is the escape hatch when normalization would repair the value under test. That file now also exports **`mockModelPreset(overrides)`** — a fully-populated `ModelRuntimePreset` built from the default preset, used by every chat-session fixture.
+   - Normalization **repairs a dangling `ActivePresetId`** (falls back to `Presets[0]`).
+   - Normalization also **zeroes the thinking flags when `Reasoning` is not `'on'`**: `ReasoningContent`, `PreserveThinking`, and `MaintainPerStepThinking` are all derived ([normalization.ts:413-415](../../../src/config/normalization.ts#L413-L415)). A fixture that sets `PreserveThinking: true` without `Reasoning: 'on'` silently gets `false`.
+3. **`SIFT_INPUT_CHARACTERS_PER_CONTEXT_TOKEN` is 2.5, not 4.** Use `estimateTokenCount(config, text)` from `src/repo-search/prompt-budget.ts`.
 4. **Supplying a config to a task loop turns on live tokenize preflight.** Stub servers must **404** the tokenize route (non-transient → immediate estimate fallback). ECONNREFUSED/503 are transient and burn up to 30 s of retries.
-5. Task 5 removed the interim `configuredMaxTokens` branch in `src/providers/llama-cpp.ts` as planned; that file now has one pure `clampToPresetMaxTokens(options.config, dynamicMaxTokens)`.
 
-## Deviations from the written plan (already committed)
+## Deviations from the written plan (all committed)
 
-1. **Task 3 — `overrides` bag deleted, not shrunk.** The plan kept `overrides: { maxTokens: number }`. A one-field bag named "overrides" no longer describes anything, so `InferenceRequestInput` now carries a required top-level `maxTokens: number` and `buildCommonRequest` reads every other sampler from `input.defaults`. Same contract, one less layer.
-2. **Task 5 — the `llamaCppOverrides` wire field was flattened too.** The plan assumed the `/summary` HTTP body was independent of `SummaryRequest`. It is not: [status-server-api-client.ts:99](../../../src/cli/status-server-api-client.ts#L99) does `JSON.stringify(request)` on the `SummaryRequest` itself, so keeping a nested wire shape would have required a translation shim. The body field is now `llamaCppMaxTokens: number` end to end (`SummaryRequest`, `parseSummaryRequest`, `bench/benchmark/*`, the test stub server).
-3. **Task 5 — `overlayActivePreset` is exported.** `src/config/overrides.ts` exports the generic overlay alongside the two named helpers so Task 7 can reuse it instead of re-spreading the preset list (see below).
+1. **Task 3 — `overrides` bag deleted, not shrunk.** `InferenceRequestInput` carries a required top-level `maxTokens: number`; `buildCommonRequest` reads every other sampler from `input.defaults`.
+2. **Task 5 — the `llamaCppOverrides` wire field was flattened too.** The `/summary` HTTP body *is* the serialized `SummaryRequest` ([status-server-api-client.ts:99](../../../src/cli/status-server-api-client.ts#L99)), so keeping a nested wire shape would have needed a translation shim. The field is `llamaCppMaxTokens: number` end to end.
+3. **Task 5 — `overlayActivePreset` is exported**, and Tasks 7 use it instead of re-spreading `Server.ModelPresets.Presets`.
+4. **Task 7 — the host `Model` is not overlaid when the host reports none.** The plan wrote `Model: hostPreset.Model` unconditionally, which would null out a working local model whenever the host has no model loaded. `buildPresetOverlay` omits the key in that case, preserving the pre-existing fallback.
+5. **Task 8 — the two replaced columns are dropped, and legacy rows are migrated rather than orphaned.** The plan offered "keep `model`/`context_window_tokens` written from the snapshot"; that is a shim, so schema **v37** adds `model_preset_json`, backfills it, then drops both columns. Backfill uses the session's own preset from `app_config.server_llama_presets_json` (falling back to the active preset when that preset was deleted) with the row's historical `model`/`context_window_tokens` overlaid — which is exactly what the old two-column snapshot meant. No data loss, and no session is left unreadable.
+6. **Task 8 — chat call sites drop the separate `model` argument entirely.** `resolveChatSessionConfig` makes the snapshot preset the active preset, and the engine derives the model from the config (Task 5). `chat-repo-operation-runner.ts` and `routes/chat.ts` now pass only `config:`.
+7. **Task 10 — the gate is broader than the plan's two entries.** It also asserts `src/state/chat-sessions.ts` has no `contextWindowTokens` and walks all of `src/**/*.ts` for `llamaCppOverrides`. Both directions of the gate mechanism were verified manually (a pattern known to be present is caught; the banned ones are not).
 
-## What tasks 3-6 changed
+## What tasks 7-10 changed
 
-**Task 3** (`07d7360`)
-- [src/llm-protocol/inference-backend.ts](../../../src/llm-protocol/inference-backend.ts): `overrides` object replaced by `maxTokens: number`. The `temperature?: number` at the old line 43 belongs to `InferenceChatRequest` (the outgoing wire shape), not to overrides — left alone.
-- [src/llm-protocol/inference-request-builder.ts](../../../src/llm-protocol/inference-request-builder.ts): every sampler and the repetition-penalty key now read `input.defaults`; `max_tokens` reads `input.maxTokens`.
-- [src/llm-protocol/llama-cpp-client.ts](../../../src/llm-protocol/llama-cpp-client.ts): six sampler fields deleted from `LlamaCppChatOptions`; the six conditional spreads in `buildChatRequest` collapse to `maxTokens: options.maxTokens`.
-- Tests: `tests/inference-request-builder.test.ts` (overrides-bag call sites rewritten; the sampler-override case became "sampling always comes from preset defaults"), `tests/llm-protocol.test.ts` (the `temperature: 0.2` chat option is gone; the body assertion now compares against `getActiveModelPreset(protocolConfig).Temperature`).
+**Task 7** (`9eb7823`) — [src/config/host-sync.ts](../../../src/config/host-sync.ts)
+- `HostLlamaSettings` → `HostPresetSettings`: the full request-shaping `Pick` of `ModelRuntimePreset` (`Model`, `NumCtx`, `Reasoning`, `ReasoningContent`, `PreserveThinking`, `MaintainPerStepThinking`, `MaxTokens`, `Temperature`, `TopP`, `TopK`, `MinP`, `PresencePenalty`, `RepetitionPenalty`).
+- `NumCtx`/`Reasoning` resolve as `Runtime.LlamaCpp` first, then the host preset — a llama host records the launched values on `Runtime.LlamaCpp`; an exl3 host only has them on the preset.
+- Cache entries became `{ fetchedAtMs, settings }` with a 60 s TTL (`HOST_SETTINGS_TTL_MS`). `resetHostLlamaSettingsCacheForTests` unchanged.
+- The overlay goes through `overlayActivePreset`, plus the unchanged `Runtime.LlamaCpp` `NumCtx`/`Reasoning` write that keeps llama-backend getter priority intact.
+- Tests in [tests/host-sync.test.ts](../../../tests/host-sync.test.ts): full-field overlay (asserting `ExternalServerEnabled`/`BaseUrl` stay local), exl3 getters seeing host values, and TTL re-fetch. `makeClientConfig` gained a `presetFields` parameter.
 
-**Task 4** (`6edc1a6`)
-- [src/repo-search/engine/prompt-preparer.ts](../../../src/repo-search/engine/prompt-preparer.ts): both `getDynamicMaxOutputTokens` calls (initial turn and post-compaction) wrapped in `clampToPresetMaxTokens(this.options.config, …)`.
-- [src/repo-search/engine/terminal-synthesizer.ts](../../../src/repo-search/engine/terminal-synthesizer.ts): same wrap on `synthesisMaxTokens`.
-- Test: `runTaskLoop clamps planner and terminal synthesis max_tokens to the preset MaxTokens` in [tests/repo-search-loop.core.test.ts](../../../tests/repo-search-loop.core.test.ts) — one loop run (`maxInvalidResponses: 1`) covers both the planner request and the synthesis request, and asserts the dynamic budget would have been larger so the clamp is what is being observed.
+**Task 8** (`b97d337`)
+- [src/state/chat-sessions.ts](../../../src/state/chat-sessions.ts): `ChatSession.model`/`contextWindowTokens` → required `modelPreset: ModelRuntimePreset`; `requireContextWindowTokens` → `parseModelPresetSnapshot` (throws `Chat session <id> has no model preset snapshot; re-create the session.`); row schema/read/write use `model_preset_json`.
+- [src/state/runtime-db.ts](../../../src/state/runtime-db.ts): `CURRENT_SCHEMA_VERSION` 36 → 37; base `chat_sessions` DDL carries `model_preset_json TEXT`; new `migrateChatSessionsToModelPresetSnapshot`.
+- [src/status-server/chat.ts](../../../src/status-server/chat.ts): resolvers read `session.modelPreset`; new `resolveChatSessionConfig`.
+- [src/status-server/routes/chat.ts](../../../src/status-server/routes/chat.ts): creation snapshots `activePreset`; the chat engine call passes `config: resolveChatSessionConfig(...)` and no `model`. `toWireChatSession` still derives the wire `model`/`contextWindowTokens` via the resolvers — **no wire change**.
+- [src/status-server/chat-repo-operation-runner.ts](../../../src/status-server/chat-repo-operation-runner.ts): same substitution.
+- [src/status-server/preset-runner.ts](../../../src/status-server/preset-runner.ts): `applyModelOverrideToConfig(config, request.model)` first, then snapshot and run against that config.
+- Tests: new [tests/runtime-db-schema-v37.test.ts](../../../tests/runtime-db-schema-v37.test.ts) (backfill, active-preset fallback, column drop); snapshot round-trip + loud-read tests in [tests/chat-sessions-db.test.ts](../../../tests/chat-sessions-db.test.ts); `resolveChatSessionConfig` cases in [tests/status-server-chat.test.ts](../../../tests/status-server-chat.test.ts); every `ChatSession` fixture across 6 test files rebuilt on `mockModelPreset`.
 
-**Task 5** (`60c34af`)
-- New [src/config/overrides.ts](../../../src/config/overrides.ts): `overlayActivePreset(config, fields)` (targets the preset `getActiveModelPreset` resolves, so it cannot drift from the getter), `applyModelOverrideToConfig`, `applyMaxTokensOverrideToConfig` (throws on non-finite / < 1). All three exported from `src/config/index.ts`.
-- [src/repo-search/engine.ts](../../../src/repo-search/engine.ts): `applyModelOverrideToConfig(await applyHostLlamaRuntimeSettings(...), options.model)`; `model` now derives from the config.
-- [src/summary/request-runner.ts](../../../src/summary/request-runner.ts) `loadExecutionContext`: host sync → model overlay → MaxTokens overlay → `this.model = getConfiguredModel(this.config)`. This fixes a real ordering bug: the model used to be resolved *before* host sync, so a pass-through host's model was ignored.
-- `llamaCppOverrides` threading deleted from `core-runner.ts`, `provider-invoke.ts`, `planner/mode.ts`, and the `overrides` param removed from `generateLlamaCppResponse` / `generateLlamaCppChatResponse`.
-- Tests: new [tests/config-overrides.test.ts](../../../tests/config-overrides.test.ts); `summary requests use the host model and the caller MaxTokens overlay` in [tests/runtime-summarize.test.ts](../../../tests/runtime-summarize.test.ts) (verified to fail with the old ordering — it reported `stale-local-model`); `tests/route-request-normalizers.test.ts` and `tests/summary-status-server.test.ts` updated for the flat field.
-- Shared fixture change: the stub server's `GET /config` route now ignores the query string, so it can also serve as a pass-through host (`/config?skip_ready=1`). See [tests/_runtime-helpers.ts](../../../tests/_runtime-helpers.ts).
+**Task 9** (`5d90ace`) — [src/status-server/routes/inference-passthrough.ts](../../../src/status-server/routes/inference-passthrough.ts)
+- `setNumberDefault` deleted; `translateChatBody` assigns every sampler from `buildPresetRequestDefaults(preset)` and sets `max_tokens = min(caller, preset)`.
+- `applyThinkingDefaults` → `applyThinkingSettings`: `chat_template_kwargs` is *replaced*, so a caller cannot turn thinking on against a `Reasoning: 'off'` preset. `preserve_thinking` is gated on `ReasoningContent` too, matching `shouldPreserveThinking` in `chat.ts`.
+- The fake llama fixture ([tests/helpers/managed-llama-fixtures.ts](../../../tests/helpers/managed-llama-fixtures.ts)) now echoes the received chat body as `forwardedRequest`, which is what makes the passthrough assertions end-to-end rather than a unit test of a private function.
 
-**Task 6** (`12b558f`)
-- [src/status-server/preset-runner.ts](../../../src/status-server/preset-runner.ts) `runChatPreset`: one `thinkingEnabled = getConfiguredReasoning(config) !== 'off'` feeds both the ephemeral session literal and the `executeRepoSearch` call.
-- Tests in [tests/preset-runner.test.ts](../../../tests/preset-runner.test.ts): a `CapturingEngineService extends StatusEngineService` subclass (override, not an injected function) captures the request; the fixture writes a config with a cli-surfaced clone of the built-in `chat` preset, because the built-in one is `surfaces: ['web']` and `getPresetById` rejects non-cli presets.
+**Task 10** (`c2613b1`) — new [tests/preset-unification-gate.test.ts](../../../tests/preset-unification-gate.test.ts).
 
-## Next step — Task 7
+## Sanctioned overrides that remain (by design)
 
-Host sync overhaul in [src/config/host-sync.ts](../../../src/config/host-sync.ts). Current state of that file: it fetches only `{ numCtx, reasoning, model }`, caches them **forever** per base URL (`Map<string, HostLlamaSettings>` with no timestamp), and overlays `Model` onto the active preset plus `NumCtx`/`Reasoning` onto `Runtime.LlamaCpp`.
-
-Task 7 must:
-1. Widen the snapshot to the full request-shaping set (`Model`, `NumCtx`, `Reasoning`, `ReasoningContent`, `PreserveThinking`, `MaintainPerStepThinking`, `MaxTokens`, `Temperature`, `TopP`, `TopK`, `MinP`, `PresencePenalty`, `RepetitionPenalty`).
-2. Add the 60 s TTL (`{ fetchedAtMs, settings }` cache entries).
-3. Keep writing `NumCtx`/`Reasoning` to `Runtime.LlamaCpp` as well, so the llama-backend getter priority is unchanged, while the preset-level overlay is what makes host values visible to the EXL3 getters.
-
-Use `overlayActivePreset` from `src/config/overrides.ts` for the preset write rather than re-spreading `Server.ModelPresets.Presets` — the plan's snippet predates that helper.
-
-Fixtures to extend: [tests/host-sync.test.ts](../../../tests/host-sync.test.ts) already has `makeClientConfig({ externalServer, baseUrl, localNumCtx })` and `startHostConfigServer(body, { status })` with a `requestUrls` log — the TTL test can count entries in `requestUrls` instead of mocking the clock, if driving time proves awkward. `resetHostLlamaSettingsCacheForTests` must keep working (it is called from `tests/runtime-summarize.test.ts` too).
-
-Then Task 8 (chat session full-preset snapshot; depends on Task 5, which is now done), Task 9 (passthrough), Task 10 (gate test + grep sweep + full suite).
+- Summary llama.cpp non-chunk path forces reasoning off ([core-runner.ts:435](../../../src/summary/core-runner.ts#L435)) — untouched.
+- Chat sessions may toggle reasoning per session (`session.thinkingEnabled` → `thinkingEnabledOverride`) — untouched.
+- Caller-supplied `maxTokens` may only *lower* the preset cap, everywhere.
 
 ## Known flake (pre-existing, not caused by this work)
 
-`managed llama readiness wait is serialized by the model request queue` in [tests/repo-search-status-server.test.ts](../../../tests/repo-search-status-server.test.ts) failed once under full-suite concurrency in an earlier session. It passed on every run during tasks 3-6.
+`managed llama readiness wait is serialized by the model request queue` in [tests/repo-search-status-server.test.ts](../../../tests/repo-search-status-server.test.ts) failed once under full-suite concurrency in an earlier session. It passed on every run during tasks 3-10.
