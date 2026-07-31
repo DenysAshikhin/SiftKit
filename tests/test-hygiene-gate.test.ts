@@ -34,3 +34,18 @@ test('hygiene: no test imports from ../dist', () => {
 test('hygiene: no test file disables type checking', () => {
   assert.deepEqual(filesMatching(new RegExp('@ts' + '-nocheck')), []);
 });
+
+// Temp directories must come from the registry in tests/helpers/temp-dirs.ts, which removes
+// them in a process exit handler. A bare call depends on the test remembering to clean up,
+// and 42 such calls in one file with 3 cleanups is how ~58,000 directories accumulated.
+// The needle is built from fragments so this gate file does not match itself.
+test('hygiene: no test creates a temp directory outside the managed registry', () => {
+  const allowed = new Set([
+    path.join(TESTS_DIR, 'helpers', 'temp-dirs.ts'),
+    path.join(TESTS_DIR, 'temp-dirs.test.ts'),
+  ]);
+  const offenders = filesMatching(new RegExp('mkdtemp' + 'Sync')).filter(
+    (file) => !allowed.has(file),
+  );
+  assert.deepEqual(offenders, []);
+});
