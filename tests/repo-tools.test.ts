@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { buildIgnorePolicy } from '../src/repo-search/command-safety.js';
@@ -16,9 +15,10 @@ import {
 } from '../src/repo-search/engine/repo-tools.js';
 import type { FileReadState } from '../src/repo-search/engine/read-overlap.js';
 import { WebResearchTools } from '../src/web-search/web-research-tools.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 function makeRepo(): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-repo-tools-'));
+  const root = createManagedTempDir('siftkit-repo-tools-');
   fs.mkdirSync(path.join(root, 'src'));
   fs.mkdirSync(path.join(root, 'src', 'nested'));
   // node_modules is on the baseline ignore list used by buildIgnorePolicy.
