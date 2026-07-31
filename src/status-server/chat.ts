@@ -14,6 +14,7 @@ import {
   estimateTokenCount,
   saveChatSession,
 } from '../state/chat-sessions.js';
+import { buildUserContent } from '../llm-protocol/image-attachments.js';
 import {
   parseWebToolCommand,
   type RetainedWebToolCall,
@@ -252,12 +253,15 @@ export function buildChatHistoryMessages(
       continue;
     }
     const content = trimText(message.content);
-    if (!content) {
+    const messageImages = message.images ?? [];
+    if (!content && messageImages.length === 0) {
       continue;
     }
     history.push({
       role: message.role === 'assistant' ? 'assistant' : 'user',
-      content,
+      content: message.role === 'user'
+        ? buildUserContent(content, messageImages)
+        : content,
       ...(message.role === 'assistant' && pendingThinking ? { reasoning_content: pendingThinking } : {}),
     });
     pendingThinking = '';
@@ -386,6 +390,7 @@ type AppendChatOptions = {
   thinkingTokensEstimated?: boolean;
   sourceRunId?: string | null;
   groundingStatus?: ChatGroundingStatus | null;
+  images?: string[];
 };
 
 export function appendChatMessagesWithUsage(
@@ -438,6 +443,7 @@ export function appendChatMessagesWithUsage(
     thinkingTokensEstimated: false,
     createdAtUtc: now,
     sourceRunId: null,
+    images: options.images ?? [],
   });
   const turns = Array.isArray(options.turns) ? options.turns : [];
   let associatedToolTokens = 0;

@@ -299,3 +299,42 @@ test('saveChatSession rejects a missing preset id instead of deriving it from mo
     );
   });
 });
+
+test('chat messages round-trip their image data URIs', () => {
+  withTempRepo((repoRoot) => {
+    const runtimeRoot = path.join(repoRoot, '.siftkit');
+    const sessionId = 'session-images';
+
+    saveChatSession(runtimeRoot, {
+      id: sessionId,
+      title: 'Image Session',
+      modelPresetId: 'preset-a',
+      model: 'model-a',
+      contextWindowTokens: 4096,
+      thinkingEnabled: true,
+      presetId: 'chat',
+      mode: 'chat',
+      planRepoRoot: repoRoot,
+      condensedSummary: '',
+      createdAtUtc: new Date().toISOString(),
+      updatedAtUtc: new Date().toISOString(),
+      messages: [{
+        id: 'user-1',
+        role: 'user',
+        kind: 'user_text',
+        content: 'what is this?',
+        images: ['data:image/png;base64,AAAA'],
+        inputTokensEstimate: 4,
+        outputTokensEstimate: 0,
+        thinkingTokens: 0,
+        promptCacheTokens: null,
+        promptEvalTokens: null,
+        createdAtUtc: new Date().toISOString(),
+        sourceRunId: null,
+      }],
+    });
+
+    const loaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+    assert.deepEqual(loaded?.messages?.[0]?.images, ['data:image/png;base64,AAAA']);
+  });
+});

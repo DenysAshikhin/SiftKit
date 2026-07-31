@@ -6,6 +6,8 @@ import {
   toNullableNonNegativeNumber,
 } from '../lib/telemetry-metrics.js';
 import { getRuntimeDatabase } from './runtime-db.js';
+import { parseImageDataUrls } from '../llm-protocol/image-attachments.js';
+import { parseJsonValueText } from '../lib/json.js';
 import type { ChatPromptContext } from '../status-server/chat-prompt-context.js';
 
 export type ChatSessionMode = 'chat' | 'plan' | 'repo-search';
@@ -51,6 +53,7 @@ export type ChatMessage = {
   sourceRunId?: string | null;
   compressedIntoSummary?: boolean;
   groundingStatus?: ChatGroundingStatus | null;
+  images?: string[];
 };
 
 export type ChatSession = {
@@ -127,6 +130,7 @@ const MessageRowSchema = z.object({
   source_run_id: z.string().nullable(),
   compressed_into_summary: z.number(),
   grounding_status: z.string().nullable(),
+  images: z.string().nullable(),
   position: z.number(),
 });
 type MessageRow = z.infer<typeof MessageRowSchema>;
@@ -241,6 +245,7 @@ function mapMessageRow(row: MessageRow): ChatMessage {
     sourceRunId: row.source_run_id,
     compressedIntoSummary: row.compressed_into_summary === 1,
     groundingStatus: normalizeGroundingStatus(row.grounding_status),
+    images: row.images === null ? [] : parseImageDataUrls(parseJsonValueText(row.images)),
   };
 }
 
@@ -338,6 +343,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       source_run_id,
       compressed_into_summary,
       grounding_status,
+      images,
       position
     FROM chat_messages
     WHERE session_id = ?
@@ -525,8 +531,9 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         source_run_id,
         compressed_into_summary,
         grounding_status,
+        images,
         position
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     for (let index = 0; index < messages.length; index += 1) {
@@ -570,6 +577,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         typeof message.sourceRunId === 'string' && message.sourceRunId.trim() ? message.sourceRunId : null,
         message.compressedIntoSummary === true ? 1 : 0,
         normalizeGroundingStatus(message.groundingStatus),
+        JSON.stringify(message.images ?? []),
         index,
       );
     }
