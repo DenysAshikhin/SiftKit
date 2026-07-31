@@ -23,10 +23,12 @@ import {
   requestApprovalVerdict as requestApprovalVerdictRequest,
   requestRepoSearchPlannerProtocolAction,
   resolveRepoSearchPlannerToolDefinitions,
+  serializeProtocolMessages,
   toProtocolChatMessages,
   type ExecutingPlannerRequest,
   type FinishAction,
   type PlannerActionResponse,
+  type PlannerThinkingFlags,
   type ToolAction,
 } from '../planner-protocol.js';
 import {
@@ -63,10 +65,8 @@ import {
   DEFAULT_MAX_TURNS,
   DEFAULT_TIMEOUT_MS,
   evaluateTaskSignals,
-  isPlannerPreserveThinkingEnabled,
   isPlannerMaintainPerStepThinkingEnabled,
-  isPlannerReasoningContentEnabled,
-  isPlannerReasoningEnabled,
+  resolvePlannerThinkingFlags,
   type LoopCounters,
   MIN_TOOL_CALLS_BEFORE_FINISH,
   type RunTaskLoopOptions,
@@ -129,9 +129,7 @@ export class TaskLoop {
   private readonly minToolCallsBeforeFinish: number;
   private readonly budget: TurnBudget;
   private readonly useEstimatedTokensOnly: boolean;
-  private readonly plannerThinkingEnabled: boolean;
-  private readonly plannerReasoningContentEnabled: boolean;
-  private readonly plannerPreserveThinkingEnabled: boolean;
+  private readonly plannerThinking: PlannerThinkingFlags;
   private readonly plannerMaintainPerStepThinking: boolean;
   private readonly loopKind: 'repo-search' | 'chat';
   private readonly streamFinishAsAnswer: boolean;
@@ -178,12 +176,8 @@ export class TaskLoop {
       totalContextTokens: Math.max(1, Number(options.totalContextTokens || (options.config ? getConfiguredLlamaNumCtx(options.config) : 32000))),
       maxTurns: this.maxTurns,
     });
-    this.plannerThinkingEnabled = typeof options.thinkingEnabledOverride === 'boolean'
-      ? options.thinkingEnabledOverride
-      : isPlannerReasoningEnabled(options.config);
-    this.plannerReasoningContentEnabled = this.plannerThinkingEnabled && isPlannerReasoningContentEnabled(options.config);
-    this.plannerPreserveThinkingEnabled = this.plannerReasoningContentEnabled && isPlannerPreserveThinkingEnabled(options.config);
-    this.plannerMaintainPerStepThinking = this.plannerThinkingEnabled
+    this.plannerThinking = resolvePlannerThinkingFlags(options.config, options.thinkingEnabledOverride);
+    this.plannerMaintainPerStepThinking = this.plannerThinking.thinkingEnabled
       ? isPlannerMaintainPerStepThinkingEnabled(options.config)
       : true;
     this.loopKind = options.loopKind === 'chat' ? 'chat' : 'repo-search';
@@ -235,9 +229,7 @@ export class TaskLoop {
       useEstimatedTokensOnly: this.useEstimatedTokensOnly,
       budget: this.budget,
       plannerToolDefinitions: this.plannerToolDefinitions,
-      thinkingEnabled: this.plannerThinkingEnabled,
-      reasoningContentEnabled: this.plannerReasoningContentEnabled,
-      preserveThinking: this.plannerPreserveThinkingEnabled,
+      thinking: this.plannerThinking,
       contextOverflowPolicy: options.contextOverflowPolicy ?? 'compact',
       transcript: this.transcript,
       progress: this.progress,
@@ -352,7 +344,7 @@ export class TaskLoop {
 
     const prepared = await this.promptPreparer.prepareTurn(turn);
 
-    this.options.logger?.write({ kind: 'turn_model_request', taskId: this.task.id, turn, thinkingEnabled: this.plannerThinkingEnabled });
+    this.options.logger?.write({ kind: 'turn_model_request', taskId: this.task.id, turn, thinkingEnabled: this.plannerThinking.thinkingEnabled });
     this.progress.llmStart(turn, prepared.promptTokenCount);
     const newMessages = this.transcript.takeNewMessagesForLogging();
     this.options.logger?.write({ kind: 'turn_new_messages', taskId: this.task.id, turn, messages: newMessages, promptTokenCount: prepared.promptTokenCount });
@@ -518,23 +510,22 @@ export class TaskLoop {
       mock: Array.isArray(this.options.mockResponses),
     });
     try {
-      this.executingPlannerRequest = captureExecutingPlannerRequest({
-        messages: this.transcript.getMessages(),
-        thinkingEnabled: this.plannerThinkingEnabled,
-        reasoningContentEnabled: this.plannerReasoningContentEnabled,
-        preserveThinking: this.plannerPreserveThinkingEnabled,
-      });
+      // One serialization: the snapshot and the request share the same array, so
+      // the verdict guard proves an extension of the bytes actually sent.
+      const serializedMessages = serializeProtocolMessages(
+        this.transcript.getMessages(),
+        this.plannerThinking.reasoningContentEnabled,
+      );
+      this.executingPlannerRequest = captureExecutingPlannerRequest(serializedMessages, this.plannerThinking);
       return await requestRepoSearchPlannerProtocolAction({
         backend: this.options.config ? getActiveInferenceBackend(this.options.config) : undefined,
         baseUrl: this.options.baseUrl,
         model: this.options.model,
-        messages: this.transcript.getMessages(),
+        messages: serializedMessages,
         slotId: this.slotId,
         timeoutMs: this.options.timeoutMs || DEFAULT_TIMEOUT_MS,
         maxTokens: prepared.maxOutputTokens,
-        thinkingEnabled: this.plannerThinkingEnabled,
-        reasoningContentEnabled: this.plannerReasoningContentEnabled,
-        preserveThinking: this.plannerPreserveThinkingEnabled,
+        ...this.plannerThinking,
         stream: this.progress.enabled,
         onThinkingDelta: this.progress.enabled
           ? (accThinking) => { this.progress.thinking(turn, accThinking); }
@@ -639,9 +630,7 @@ export class TaskLoop {
         config: this.options.config,
         useEstimatedTokensOnly: this.useEstimatedTokensOnly,
         totalContextTokens: this.budget.totalContextTokens,
-        thinkingEnabled: this.plannerThinkingEnabled,
-        reasoningContentEnabled: this.plannerReasoningContentEnabled,
-        preserveThinking: this.plannerPreserveThinkingEnabled,
+        thinking: this.plannerThinking,
         streamFinishAsAnswer: this.streamFinishAsAnswer,
         logger: this.options.logger || null,
         progress: this.progress,

@@ -6,7 +6,9 @@ import path from 'node:path';
 import {
   captureExecutingPlannerRequest,
   requestApprovalVerdict,
+  serializeProtocolMessages,
   type ChatMessage,
+  type PlannerThinkingFlags,
 } from '../src/repo-search/planner-protocol.js';
 import { TaskLoop } from '../src/repo-search/engine/task-loop.js';
 import { buildApprovalVerdictJsonSchema } from '../src/providers/structured-output-schema.js';
@@ -22,13 +24,15 @@ const transcript: ChatMessage[] = [
   { role: 'assistant', content: 'analysis', reasoning_content: 'thinking-1' },
 ];
 
-function captureExecuting(messages: ChatMessage[]) {
-  return captureExecutingPlannerRequest({
-    messages,
-    thinkingEnabled: true,
-    reasoningContentEnabled: true,
-    preserveThinking: true,
-  });
+function captureExecuting(messages: ChatMessage[], flags: PlannerThinkingFlags = {
+  thinkingEnabled: true,
+  reasoningContentEnabled: true,
+  preserveThinking: true,
+}) {
+  return captureExecutingPlannerRequest(
+    serializeProtocolMessages(messages, flags.reasoningContentEnabled),
+    flags,
+  );
 }
 
 const APPROVE_MOCK = '{"verdict":"approve","reason":"ok"}';
@@ -114,8 +118,7 @@ test('verdict fails loud when the transcript is shorter than the executing plann
 test('verdict serializes the transcript with the executing request flags', async () => {
   // Captured with reasoning content disabled: the prefix has reasoning_content
   // stripped, and the fresh verdict serialization must strip it identically.
-  const executing = captureExecutingPlannerRequest({
-    messages: transcript,
+  const executing = captureExecuting(transcript, {
     thinkingEnabled: false,
     reasoningContentEnabled: false,
     preserveThinking: false,

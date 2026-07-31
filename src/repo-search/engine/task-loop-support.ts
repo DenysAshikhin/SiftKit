@@ -4,7 +4,7 @@ import { z } from '../../lib/zod.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
 import type { PresetSystemContext } from '../../preset-system-context.js';
 import { ToolTypeStatsSchema } from '../../status-server/metrics.js';
-import { resolveRepoSearchPlannerToolDefinitions, type ChatMessage } from '../planner-protocol.js';
+import { resolveRepoSearchPlannerToolDefinitions, type ChatMessage, type PlannerThinkingFlags } from '../planner-protocol.js';
 import { ReadOverlapSummarySchema } from './read-overlap.js';
 import { TaskCommandSchema } from '../prompts.js';
 import { ChatGroundingStatusSchema } from '../chat-grounding-policy.js';
@@ -175,16 +175,32 @@ export type RunTaskLoopOptions = {
   timingRecorder?: TemporaryTimingRecorder | null;
 };
 
-export function isPlannerReasoningEnabled(config: SiftConfig | undefined): boolean {
+function isPlannerReasoningEnabled(config: SiftConfig | undefined): boolean {
   return config ? getActiveModelPreset(config).Reasoning === 'on' : false;
 }
 
-export function isPlannerReasoningContentEnabled(config: SiftConfig | undefined): boolean {
+function isPlannerReasoningContentEnabled(config: SiftConfig | undefined): boolean {
   return isPlannerReasoningEnabled(config) && (config ? getActiveModelPreset(config).ReasoningContent : false);
 }
 
-export function isPlannerPreserveThinkingEnabled(config: SiftConfig | undefined): boolean {
+function isPlannerPreserveThinkingEnabled(config: SiftConfig | undefined): boolean {
   return isPlannerReasoningContentEnabled(config) && (config ? getActiveModelPreset(config).PreserveThinking : false);
+}
+
+/** The one place the prefix-affecting rendering flags are derived from config. */
+export function resolvePlannerThinkingFlags(
+  config: SiftConfig | undefined,
+  thinkingEnabledOverride?: boolean,
+): PlannerThinkingFlags {
+  const thinkingEnabled = typeof thinkingEnabledOverride === 'boolean'
+    ? thinkingEnabledOverride
+    : isPlannerReasoningEnabled(config);
+  const reasoningContentEnabled = thinkingEnabled && isPlannerReasoningContentEnabled(config);
+  return {
+    thinkingEnabled,
+    reasoningContentEnabled,
+    preserveThinking: reasoningContentEnabled && isPlannerPreserveThinkingEnabled(config),
+  };
 }
 
 export function isPlannerMaintainPerStepThinkingEnabled(config: SiftConfig | undefined): boolean {

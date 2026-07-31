@@ -1,7 +1,11 @@
 import { getActiveInferenceBackend, type SiftConfig } from '../../config/index.js';
 import { getDynamicMaxOutputTokens } from '../../lib/dynamic-output-cap.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
-import { buildPlannerRequestPromptReserveText, resolveRepoSearchPlannerToolDefinitions } from '../planner-protocol.js';
+import {
+  buildPlannerRequestPromptReserveText,
+  resolveRepoSearchPlannerToolDefinitions,
+  type PlannerThinkingFlags,
+} from '../planner-protocol.js';
 import { compactPlannerMessagesOnce, preflightPlannerPromptBudget } from '../prompt-budget.js';
 import type { JsonLogger } from '../types.js';
 import { ProgressReporter } from './progress-reporter.js';
@@ -18,9 +22,7 @@ export class PromptPreparer {
       useEstimatedTokensOnly: boolean;
       budget: TurnBudget;
       plannerToolDefinitions: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;
-      thinkingEnabled: boolean;
-      reasoningContentEnabled: boolean;
-      preserveThinking: boolean;
+      thinking: PlannerThinkingFlags;
       contextOverflowPolicy: ContextOverflowPolicy;
       transcript: TranscriptManager;
       progress: ProgressReporter;
@@ -29,6 +31,19 @@ export class PromptPreparer {
     },
   ) {}
 
+  private buildProviderPromptReserveText(messageRoles: readonly string[], maxTokens: number, stream: boolean): string {
+    return buildPlannerRequestPromptReserveText({
+      backend: this.options.config ? getActiveInferenceBackend(this.options.config) : 'llama',
+      stage: 'planner_action',
+      model: String(this.options.model || ''),
+      messageRoles,
+      toolDefinitions: this.options.plannerToolDefinitions,
+      maxTokens,
+      ...this.options.thinking,
+      stream,
+    });
+  }
+
   async prepareTurn(turn: number): Promise<{ promptTokenCount: number; maxOutputTokens: number }> {
     const { taskId, budget, transcript, progress } = this.options;
     const promptRenderSpan = this.options.timingRecorder?.start('repo.prompt.render', {
@@ -36,18 +51,11 @@ export class PromptPreparer {
       turn,
       messageCount: transcript.length,
     });
-    let providerPromptReserveText = buildPlannerRequestPromptReserveText({
-      backend: this.options.config ? getActiveInferenceBackend(this.options.config) : 'llama',
-      stage: 'planner_action',
-      model: String(this.options.model || ''),
-      messageRoles: transcript.messageRoles(),
-      toolDefinitions: this.options.plannerToolDefinitions,
-      maxTokens: budget.totalContextTokens,
-      thinkingEnabled: this.options.thinkingEnabled,
-      reasoningContentEnabled: this.options.reasoningContentEnabled,
-      preserveThinking: this.options.preserveThinking,
-      stream: progress.enabled,
-    });
+    let providerPromptReserveText = this.buildProviderPromptReserveText(
+      transcript.messageRoles(),
+      budget.totalContextTokens,
+      progress.enabled,
+    );
     let prompt = transcript.render();
     promptRenderSpan?.end({
       promptChars: prompt.length,
@@ -112,18 +120,11 @@ export class PromptPreparer {
       });
       transcript.replaceWith(compacted.messages);
       const beforeProviderPromptReserveTokenCount = preflight.providerPromptReserveTokenCount;
-      providerPromptReserveText = buildPlannerRequestPromptReserveText({
-        backend: this.options.config ? getActiveInferenceBackend(this.options.config) : 'llama',
-        stage: 'planner_action',
-        model: String(this.options.model || ''),
-        messageRoles: transcript.messageRoles(),
-        toolDefinitions: this.options.plannerToolDefinitions,
-        maxTokens: budget.totalContextTokens,
-        thinkingEnabled: this.options.thinkingEnabled,
-        reasoningContentEnabled: this.options.reasoningContentEnabled,
-        preserveThinking: this.options.preserveThinking,
-        stream: progress.enabled,
-      });
+      providerPromptReserveText = this.buildProviderPromptReserveText(
+        transcript.messageRoles(),
+        budget.totalContextTokens,
+        progress.enabled,
+      );
       prompt = transcript.render();
       if (preflightConfig) {
         progress.tokenizeStart(turn, prompt.length);

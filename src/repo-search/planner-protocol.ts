@@ -334,16 +334,24 @@ export function resolveRepoSearchPlannerToolDefinitions(
 
 export const TOOL_DEFINITIONS = resolveRepoSearchPlannerToolDefinitions();
 
-export function buildPlannerRequestPromptReserveText(options: {
+/**
+ * The rendering flags that decide the shared prompt prefix. They always travel
+ * together: splitting them lets one request render a prefix the next one cannot
+ * reuse, which silently re-prefills the whole context.
+ */
+export type PlannerThinkingFlags = {
+  thinkingEnabled: boolean;
+  reasoningContentEnabled: boolean;
+  preserveThinking: boolean;
+};
+
+export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFlags & {
   backend: InferenceBackendId;
   stage?: string;
   model: string;
   messageRoles: readonly string[];
   toolDefinitions?: StructuredOutputToolDefinition[];
   maxTokens: number;
-  thinkingEnabled: boolean;
-  reasoningContentEnabled: boolean;
-  preserveThinking: boolean;
   responseSchema?: JsonObject | null;
   responseSchemaName?: string;
   stream?: boolean;
@@ -381,17 +389,19 @@ export function buildPlannerRequestPromptReserveText(options: {
   });
 }
 
-export type PlannerRequestOptions = {
+export type PlannerRequestOptions = Partial<PlannerThinkingFlags> & {
   backend?: InferenceBackendId;
   baseUrl: string;
   model: string;
-  messages: ChatMessage[];
+  /**
+   * Already-serialized protocol messages — the exact array that is sent. The
+   * request layer never re-derives them from a transcript, so a caller that
+   * snapshots what it passes here has the sent bytes by construction.
+   */
+  messages: LlamaCppChatMessage[];
   slotId?: number;
   timeoutMs: number;
   maxTokens: number;
-  thinkingEnabled?: boolean;
-  reasoningContentEnabled?: boolean;
-  preserveThinking?: boolean;
   stream?: boolean;
   onThinkingDelta?: (accumulatedThinking: string) => void;
   onContentDelta?: (accumulatedContent: string) => void;
@@ -592,7 +602,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
         config: buildPlannerRequestConfig(options),
         baseUrl: options.baseUrl,
         model: options.model,
-        messages: serializeProtocolMessages(options.messages, options.reasoningContentEnabled === true),
+        messages: options.messages,
         tools: [],
         maxTokens: options.maxTokens,
         temperature: 0.1,
@@ -677,16 +687,13 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
   };
 }
 
-export async function requestFinishValidation(options: {
+export async function requestFinishValidation(options: Partial<PlannerThinkingFlags> & {
   backend?: InferenceBackendId;
   baseUrl: string;
   model: string;
   prompt: string;
   timeoutMs: number;
   maxTokens: number;
-  thinkingEnabled?: boolean;
-  reasoningContentEnabled?: boolean;
-  preserveThinking?: boolean;
   mockResponses?: string[];
   mockResponseIndex?: number;
   logger?: JsonLogger | null;
@@ -695,7 +702,7 @@ export async function requestFinishValidation(options: {
     backend: options.backend,
     baseUrl: options.baseUrl,
     model: options.model,
-    messages: [{ role: 'user', content: options.prompt }],
+    messages: serializeProtocolMessages([{ role: 'user', content: options.prompt }], options.reasoningContentEnabled === true),
     timeoutMs: options.timeoutMs,
     maxTokens: options.maxTokens,
     thinkingEnabled: options.thinkingEnabled,
@@ -718,25 +725,45 @@ export async function requestFinishValidation(options: {
  */
 export type ExecutingPlannerRequest = {
   serializedMessageJson: string[];
-  thinkingEnabled: boolean;
-  reasoningContentEnabled: boolean;
-  preserveThinking: boolean;
+  flags: PlannerThinkingFlags;
 };
 
-export function captureExecutingPlannerRequest(options: {
-  messages: readonly ChatMessage[];
-  thinkingEnabled: boolean;
-  reasoningContentEnabled: boolean;
-  preserveThinking: boolean;
-}): ExecutingPlannerRequest {
+/**
+ * Takes the very array the planner request is sent with, so the snapshot cannot
+ * drift from the sent bytes even if the request layer changes.
+ */
+export function captureExecutingPlannerRequest(
+  serializedMessages: readonly LlamaCppChatMessage[],
+  flags: PlannerThinkingFlags,
+): ExecutingPlannerRequest {
   return {
-    serializedMessageJson: serializeProtocolMessages(options.messages, options.reasoningContentEnabled)
-      .map((message) => JSON.stringify(message)),
-    thinkingEnabled: options.thinkingEnabled,
-    reasoningContentEnabled: options.reasoningContentEnabled,
-    preserveThinking: options.preserveThinking,
+    serializedMessageJson: serializedMessages.map((message) => JSON.stringify(message)),
+    flags,
   };
 }
+
+function assertExtendsExecutingPlannerRequest(
+  executing: ExecutingPlannerRequest,
+  serializedMessages: readonly LlamaCppChatMessage[],
+): void {
+  const prefix = executing.serializedMessageJson;
+  if (prefix.length > serializedMessages.length) {
+    throw new Error(
+      `approval_verdict prompt diverged from the executing planner request: the verdict prompt serializes to ${serializedMessages.length} messages but the executing request sent ${prefix.length}; prompt-cache prefix broken.`,
+    );
+  }
+  for (let index = 0; index < prefix.length; index += 1) {
+    if (prefix[index] !== JSON.stringify(serializedMessages[index])) {
+      throw new Error(
+        `approval_verdict prompt diverged from the executing planner request at message ${index}; prompt-cache prefix broken.`,
+      );
+    }
+  }
+}
+
+/** The verdict is a two-field JSON object; only mirrored thinking needs headroom before it. */
+const APPROVAL_VERDICT_MAX_TOKENS = 512;
+const APPROVAL_VERDICT_THINKING_MAX_TOKENS = 4096;
 
 export async function requestApprovalVerdict(options: {
   backend?: InferenceBackendId;
@@ -752,35 +779,25 @@ export async function requestApprovalVerdict(options: {
   abortSignal?: AbortSignal;
   logger?: JsonLogger | null;
 }): Promise<PlannerActionResponse> {
-  const serialized = serializeProtocolMessages(options.transcriptMessages, options.executing.reasoningContentEnabled)
-    .map((message) => JSON.stringify(message));
-  const prefix = options.executing.serializedMessageJson;
-  if (prefix.length > serialized.length) {
-    throw new Error(
-      `approval_verdict prompt diverged from the executing planner request: the transcript serializes to ${serialized.length} messages but the executing request sent ${prefix.length}; prompt-cache prefix broken.`,
-    );
-  }
-  for (let index = 0; index < prefix.length; index += 1) {
-    if (prefix[index] !== serialized[index]) {
-      throw new Error(
-        `approval_verdict prompt diverged from the executing planner request at message ${index}; prompt-cache prefix broken.`,
-      );
-    }
-  }
+  const serializedMessages = serializeProtocolMessages(
+    [...options.transcriptMessages, { role: 'user', content: options.question }],
+    options.executing.flags.reasoningContentEnabled,
+  );
+  assertExtendsExecutingPlannerRequest(options.executing, serializedMessages);
   return requestRepoSearchPlannerProtocolAction({
     backend: options.backend,
     baseUrl: options.baseUrl,
     model: options.model,
-    messages: [...options.transcriptMessages, { role: 'user', content: options.question }],
+    messages: serializedMessages,
     slotId: options.slotId,
     timeoutMs: options.timeoutMs,
+    maxTokens: options.executing.flags.thinkingEnabled
+      ? APPROVAL_VERDICT_THINKING_MAX_TOKENS
+      : APPROVAL_VERDICT_MAX_TOKENS,
     // The thinking flags mirror the executing planner request: they feed the
     // server-side chat_template_kwargs, and any difference re-renders (and so
-    // re-prefills) the shared prompt prefix. Thinking needs generation headroom.
-    maxTokens: options.executing.thinkingEnabled ? 4096 : 512,
-    thinkingEnabled: options.executing.thinkingEnabled,
-    reasoningContentEnabled: options.executing.reasoningContentEnabled,
-    preserveThinking: options.executing.preserveThinking,
+    // re-prefills) the shared prompt prefix.
+    ...options.executing.flags,
     mockResponses: options.mockResponses,
     mockResponseIndex: options.mockResponseIndex,
     abortSignal: options.abortSignal,
@@ -792,16 +809,13 @@ export async function requestApprovalVerdict(options: {
   });
 }
 
-export async function requestTerminalSynthesis(options: {
+export async function requestTerminalSynthesis(options: Partial<PlannerThinkingFlags> & {
   backend?: InferenceBackendId;
   baseUrl: string;
   model: string;
   prompt: string;
   timeoutMs: number;
   maxTokens: number;
-  thinkingEnabled?: boolean;
-  reasoningContentEnabled?: boolean;
-  preserveThinking?: boolean;
   mockResponses?: string[];
   mockResponseIndex?: number;
   logger?: JsonLogger | null;
@@ -812,7 +826,7 @@ export async function requestTerminalSynthesis(options: {
     backend: options.backend,
     baseUrl: options.baseUrl,
     model: options.model,
-    messages: [{ role: 'user', content: options.prompt }],
+    messages: serializeProtocolMessages([{ role: 'user', content: options.prompt }], options.reasoningContentEnabled === true),
     timeoutMs: options.timeoutMs,
     maxTokens: options.maxTokens,
     thinkingEnabled: options.thinkingEnabled,

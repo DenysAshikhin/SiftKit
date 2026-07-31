@@ -15,8 +15,10 @@ import {
 import {
   captureExecutingPlannerRequest,
   requestApprovalVerdict,
+  serializeProtocolMessages,
   type ChatMessage,
   type PlannerActionResponse,
+  type PlannerThinkingFlags,
 } from './planner-protocol.js';
 
 const ReplayToolCallSchema = z.object({
@@ -75,25 +77,21 @@ export class ConfiguredApprovalVerdictModelClient implements ApprovalVerdictMode
     model: string;
     slotId: number;
     timeoutMs: number;
-    thinkingEnabled: boolean;
-    reasoningContentEnabled: boolean;
-    preserveThinking: boolean;
+    thinking: PlannerThinkingFlags;
   }) {}
 
   request(messages: ChatMessage[], question: string): Promise<PlannerActionResponse> {
-    const { thinkingEnabled, reasoningContentEnabled, preserveThinking, ...request } = this.options;
+    const { thinking, ...request } = this.options;
     return requestApprovalVerdict({
       ...request,
       transcriptMessages: messages,
       question,
       // Replay reconstructs the executing planner request from the persisted
       // messages the live run submitted, with the configured thinking flags.
-      executing: captureExecutingPlannerRequest({
-        messages,
-        thinkingEnabled,
-        reasoningContentEnabled,
-        preserveThinking,
-      }),
+      executing: captureExecutingPlannerRequest(
+        serializeProtocolMessages(messages, thinking.reasoningContentEnabled),
+        thinking,
+      ),
       logger: null,
     });
   }

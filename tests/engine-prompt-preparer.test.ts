@@ -24,9 +24,7 @@ function makePreparer(
     useEstimatedTokensOnly: true,
     budget,
     plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
-    thinkingEnabled: false,
-    reasoningContentEnabled: false,
-    preserveThinking: false,
+    thinking: { thinkingEnabled: false, reasoningContentEnabled: false, preserveThinking: false },
     contextOverflowPolicy,
     transcript,
     progress: new ProgressReporter({

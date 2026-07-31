@@ -19,9 +19,7 @@ function makeSynthesizer(tokenUsage: TokenUsageTracker): TerminalSynthesizer {
     config: undefined,
     useEstimatedTokensOnly: true,
     totalContextTokens: 32_000,
-    thinkingEnabled: false,
-    reasoningContentEnabled: false,
-    preserveThinking: false,
+    thinking: { thinkingEnabled: false, reasoningContentEnabled: false, preserveThinking: false },
     streamFinishAsAnswer: false,
     logger: null,
     progress: new ProgressReporter({
@@ -53,9 +51,7 @@ function makeStreamingSynthesizer(options: {
     config: undefined,
     useEstimatedTokensOnly: false,
     totalContextTokens: 32_000,
-    thinkingEnabled: true,
-    reasoningContentEnabled: true,
-    preserveThinking: true,
+    thinking: { thinkingEnabled: true, reasoningContentEnabled: true, preserveThinking: true },
     streamFinishAsAnswer: true,
     logger,
     progress: new ProgressReporter({

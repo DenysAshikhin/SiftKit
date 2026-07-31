@@ -1,6 +1,6 @@
 import { getActiveInferenceBackend, type SiftConfig } from '../../config/index.js';
 import { getDynamicMaxOutputTokens } from '../../lib/dynamic-output-cap.js';
-import { requestTerminalSynthesis } from '../planner-protocol.js';
+import { requestTerminalSynthesis, type PlannerThinkingFlags } from '../planner-protocol.js';
 import { countTokensWithFallback } from '../prompt-budget.js';
 import { buildTerminalSynthesisPrompt } from '../prompts.js';
 import type { JsonLogger } from '../types.js';
@@ -17,9 +17,7 @@ export class TerminalSynthesizer {
     config: SiftConfig | undefined;
     useEstimatedTokensOnly: boolean;
     totalContextTokens: number;
-    thinkingEnabled: boolean;
-    reasoningContentEnabled: boolean;
-    preserveThinking: boolean;
+    thinking: PlannerThinkingFlags;
     streamFinishAsAnswer: boolean;
     logger: JsonLogger | null;
     progress: ProgressReporter;
@@ -70,9 +68,7 @@ export class TerminalSynthesizer {
           mockResponses: input.mockResponses,
           mockResponseIndex,
           maxTokens: synthesisMaxTokens,
-          thinkingEnabled: this.options.thinkingEnabled,
-          reasoningContentEnabled: this.options.reasoningContentEnabled,
-          preserveThinking: this.options.preserveThinking,
+          ...this.options.thinking,
           logger: this.options.logger,
           stream: this.options.streamFinishAsAnswer && this.options.progress.enabled,
           onContentDelta: this.options.streamFinishAsAnswer && this.options.progress.enabled
