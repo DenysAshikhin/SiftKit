@@ -89,10 +89,15 @@ const server = http.createServer((req, res) => {
     let bodyText = '';
     req.on('data', (chunk) => { bodyText += chunk; });
     req.on('end', () => {
+      let forwarded = null;
+      try { forwarded = JSON.parse(bodyText || 'null'); }
+      catch (parseError) { forwarded = null; }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         choices: [{ message: { content: 'ok' } }],
         usage: { prompt_tokens: 3, completion_tokens: 1 },
+        // Echoed so passthrough tests can assert the body SiftKit actually forwarded.
+        forwardedRequest: forwarded,
       }));
     });
     return;
