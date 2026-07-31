@@ -234,6 +234,23 @@ None of §3's numbers cover them.
   which is the defect handoff §10.1 describes — it suppresses the source the model is meant to
   quote. Nothing measures this today.
 
+### 5.2.1 Both removals are now guarded
+
+Neither removal is silent any more:
+
+- **Launch preflight.** `Exl3ModelCapabilities.hasDeviceResidentPastIds(pythonPath)` reads
+  `<venv>\Lib\site-packages\exllamav3\generator\job.py` and looks for the `pinned_ids_valid`
+  watermark §1.1 added. `ManagedTabbyRuntime.spawnProcess` refuses to launch without it, so
+  reinstalling the released `1.2.1+cu128.torch2.9.0` wheel (or rebuilding the venv, or a new
+  machine) fails loud at startup instead of silently returning to 11.5 burned cores and an
+  unbounded penalty window. Only managed launches are gated — SiftKit does not own an external
+  TabbyAPI's interpreter.
+- **Stale preset fields.** `normalizeModelRuntimePresetRecord` rejects any preset key absent from
+  `ModelPresetFieldSchema`, so a stored `PenaltyRange` throws rather than evaporating during the
+  key-by-key settings rebuild. `parseModelRuntimePresetArray` no longer swallows that error into
+  an empty preset list, so the persisted-config path surfaces it as `PersistedConfigInvalidError`
+  instead of resetting every preset to defaults.
+
 ### 5.3 Still owed
 
 - **Re-measure on the installed build.** §3 isolates one commit against 1.2.1; the venv now

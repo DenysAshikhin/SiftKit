@@ -92,6 +92,12 @@ test('normalization rejects removed global and backend-specific configuration sh
     })),
     /Unsupported configuration field Server\.Exl3; use Server\.Engines\.Exl3\./u,
   );
+  const withPenaltyRange = defaultConfigObject();
+  activePresetObject(withPenaltyRange).PenaltyRange = 2_048;
+  assert.throws(
+    () => normalizeConfig(JsonValueSchema.parse(withPenaltyRange)),
+    /Unsupported model preset field PenaltyRange; it is not part of ModelPresetFieldSchema\./u,
+  );
 });
 
 test('new default config supplies the default preset backend and EXL3 engine', () => {

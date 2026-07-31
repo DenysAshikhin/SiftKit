@@ -5,6 +5,7 @@ import {
   Exl3PresetAdapter,
   type Exl3LaunchEnvironment,
 } from '../inference-presets/exl3-preset-adapter.js';
+import { Exl3ModelCapabilities } from '../inference-presets/exl3-model-capabilities.js';
 import { InferenceRunRecorder } from './inference-run-recorder.js';
 import { ManagedInferenceRuntime } from './managed-inference-runtime.js';
 import type { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
@@ -32,6 +33,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   private residentPresetId: string | null = null;
   private loadPromise: Promise<void> | null = null;
   private readonly adapter: Exl3PresetAdapter;
+  private readonly capabilities = new Exl3ModelCapabilities();
 
   constructor(
     private readonly engine: Exl3EngineConfig,
@@ -56,8 +58,8 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     if (launchEnvironment === null) {
       throw new Error('Managed TabbyAPI requires a launch environment.');
     }
-    if (!this.child || this.child.exitCode !== null) this.spawnProcess(launchEnvironment);
     try {
+      if (!this.child || this.child.exitCode !== null) this.spawnProcess(launchEnvironment);
       await this.waitForProcess(preset, processSignature);
     } catch (error) {
       try {
@@ -174,6 +176,15 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   }
 
   private spawnProcess(launchEnvironment: Exl3LaunchEnvironment): void {
+    if (!this.capabilities.hasDeviceResidentPastIds(this.engine.PythonPath)) {
+      throw new Error(
+        `${this.engine.PythonPath} has no exllamav3 with turboderp-org/exllamav3@8e08af9 `
+        + '(no pinned_ids_valid watermark in generator/job.py). SiftKit no longer ships OMP_NUM_THREADS=1, '
+        + 'KMP_BLOCKTIME=1 or penalty_range, so this build would burn ~11.5 CPU cores per decode step with an '
+        + 'unbounded penalty window. Install exllamav3 at or after 8e08af9 — see '
+        + 'docs/exl3-penalty-range-upstream-fix-2026-07-30.md §5.1.',
+      );
+    }
     this.stopping = false;
     this.startupError = null;
     const recorder = new InferenceRunRecorder({

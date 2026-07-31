@@ -51,10 +51,54 @@ export class FakeTabbyModelState {
 
 export interface FakeTabbyFiles {
   scriptPath: string;
+  pythonPath: string;
   argsPath: string;
   environmentPath: string;
   loadRequestsPath: string;
   startsPath: string;
+}
+
+export interface FakeExl3Venv {
+  pythonPath: string;
+  jobSourcePath: string;
+}
+
+const DEVICE_RESIDENT_JOB_SOURCE = `
+    def prepare_sampling_past_ids(self):
+        n = len(self.sequences[0].sequence_ids)
+        if self.pinned_ids_valid < n:
+            self.pinned_ids_valid = n
+`;
+
+const LEGACY_JOB_SOURCE = `
+    def prepare_sampling_past_ids(self):
+        n = len(self.sequences[0].sequence_ids)
+        self.pinned_ids[:, :n].copy_(self.sequences[0].sequence_ids.torch())
+`;
+
+/**
+ * Windows venv layout the EXL3 preflight reads: `<venv>\\Scripts\\<interpreter>` alongside
+ * `<venv>\\Lib\\site-packages\\exllamav3\\generator\\job.py`. The interpreter is a hard link to
+ * the running Node binary so the fake TabbyAPI script is actually launchable from the venv path;
+ * `deviceResidentPastIds` selects an exllamav3 with or without turboderp-org/exllamav3@8e08af9.
+ */
+export function writeFakeExl3Venv(root: string, deviceResidentPastIds: boolean): FakeExl3Venv {
+  const venvRoot = path.join(root, 'venv');
+  const scriptsDirectory = path.join(venvRoot, 'Scripts');
+  const generatorDirectory = path.join(venvRoot, 'Lib', 'site-packages', 'exllamav3', 'generator');
+  fs.mkdirSync(scriptsDirectory, { recursive: true });
+  fs.mkdirSync(generatorDirectory, { recursive: true });
+  const pythonPath = path.join(scriptsDirectory, path.basename(process.execPath));
+  if (!fs.existsSync(pythonPath)) {
+    try {
+      fs.linkSync(process.execPath, pythonPath);
+    } catch {
+      fs.copyFileSync(process.execPath, pythonPath);
+    }
+  }
+  const jobSourcePath = path.join(generatorDirectory, 'job.py');
+  fs.writeFileSync(jobSourcePath, deviceResidentPastIds ? DEVICE_RESIDENT_JOB_SOURCE : LEGACY_JOB_SOURCE, 'utf8');
+  return { pythonPath, jobSourcePath };
 }
 
 /**
@@ -73,6 +117,7 @@ export function writeFakeTabby(
   const draftingStream = options.draftingStream ?? 'stdout';
   const files: FakeTabbyFiles = {
     scriptPath: path.join(root, 'fake-tabby.cjs'),
+    pythonPath: writeFakeExl3Venv(root, true).pythonPath,
     argsPath: path.join(root, 'args.json'),
     environmentPath: path.join(root, 'environment.json'),
     loadRequestsPath: path.join(root, 'load-requests.txt'),

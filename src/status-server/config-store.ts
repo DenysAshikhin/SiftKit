@@ -104,15 +104,15 @@ function parseOperationModeAllowedTools(text: OptionalJsonValue): ReturnType<typ
   }
 }
 
+/**
+ * Never swallows: a stored preset list that is malformed or carries a removed field must surface as
+ * PersistedConfigInvalidError, not quietly reset every preset to defaults.
+ */
 function parseModelRuntimePresetArray(text: OptionalJsonValue): ModelRuntimePreset[] {
   if (typeof text !== 'string' || !text.trim()) {
     return [];
   }
-  try {
-    return normalizeModelRuntimePresetArray(parseJsonValueText(text), {});
-  } catch {
-    return [];
-  }
+  return normalizeModelRuntimePresetArray(parseJsonValueText(text), {});
 }
 
 function normalizeConfigToRow(config: SiftConfig): AppConfigRow {

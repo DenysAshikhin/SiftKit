@@ -114,7 +114,7 @@ test('Tabby runtime rejects a llama preset before lifecycle work', async () => {
 test('managed Tabby launches with preset environment and uses its startup-loaded model', async () => {
   await withTempEnv(async (root) => {
     const port = await getFreePort();
-    const { scriptPath, argsPath, environmentPath, loadRequestsPath } = writeFakeTabby(root, port, null);
+    const { scriptPath, pythonPath, argsPath, environmentPath, loadRequestsPath } = writeFakeTabby(root, port, null);
     const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
     if (!preset) throw new Error('Default model preset is missing');
     const exl3Preset = {
@@ -135,7 +135,7 @@ test('managed Tabby launches with preset environment and uses its startup-loaded
     const runtime = new ManagedTabbyRuntime({
       Managed: true,
       WorkingDirectory: root,
-      PythonPath: process.execPath,
+      PythonPath: pythonPath,
       Entrypoint: path.basename(scriptPath),
       ModelRoot: root,
       AdminApiKey: '',
@@ -178,14 +178,14 @@ test('managed Tabby launches with preset environment and uses its startup-loaded
 test('managed Tabby rejects a startup-loaded model whose applied context diverges from the preset', async () => {
   await withTempEnv(async (root) => {
     const port = await getFreePort();
-    const { scriptPath } = writeFakeTabby(root, port, 84_992);
+    const { scriptPath, pythonPath } = writeFakeTabby(root, port, 84_992);
     const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
     if (!preset) throw new Error('Default model preset is missing');
     const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
     const runtime = new ManagedTabbyRuntime({
       Managed: true,
       WorkingDirectory: root,
-      PythonPath: process.execPath,
+      PythonPath: pythonPath,
       Entrypoint: path.basename(scriptPath),
       ModelRoot: root,
       AdminApiKey: '',
@@ -211,7 +211,7 @@ test('managed Tabby rejects a startup-loaded model whose applied context diverge
 test('managed Tabby reuses identical launch settings and restarts when UBatch size changes', async () => {
   await withTempEnv(async (root) => {
     const port = await getFreePort();
-    const { scriptPath, startsPath } = writeFakeTabby(root, port, null);
+    const { scriptPath, pythonPath, startsPath } = writeFakeTabby(root, port, null);
     const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
     if (!preset) throw new Error('Default model preset is missing');
     const exl3Preset = {
@@ -228,7 +228,7 @@ test('managed Tabby reuses identical launch settings and restarts when UBatch si
     const runtime = new ManagedTabbyRuntime({
       Managed: true,
       WorkingDirectory: root,
-      PythonPath: process.execPath,
+      PythonPath: pythonPath,
       Entrypoint: path.basename(scriptPath),
       ModelRoot: root,
       AdminApiKey: '',
@@ -277,14 +277,14 @@ test('unmanaged EXL3 preset with speculation fails loud instead of silently losi
 test('managed Tabby accepts MTP drafting announced on stderr, where loguru writes by default', async () => {
   await withTempEnv(async (root) => {
     const port = await getFreePort();
-    const { scriptPath } = writeFakeTabby(root, port, null, { draftingStream: 'stderr' });
+    const { scriptPath, pythonPath } = writeFakeTabby(root, port, null, { draftingStream: 'stderr' });
     const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
     if (!preset) throw new Error('Default model preset is missing');
     const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
     const runtime = new ManagedTabbyRuntime({
       Managed: true,
       WorkingDirectory: root,
-      PythonPath: process.execPath,
+      PythonPath: pythonPath,
       Entrypoint: path.basename(scriptPath),
       ModelRoot: root,
       AdminApiKey: '',
@@ -311,14 +311,14 @@ test('managed Tabby accepts MTP drafting announced on stderr, where loguru write
 test('managed Tabby rejects a speculative preset when the startup log never reports MTP drafting', async () => {
   await withTempEnv(async (root) => {
     const port = await getFreePort();
-    const { scriptPath } = writeFakeTabby(root, port, null, { announceDrafting: false });
+    const { scriptPath, pythonPath } = writeFakeTabby(root, port, null, { announceDrafting: false });
     const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
     if (!preset) throw new Error('Default model preset is missing');
     const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
     const runtime = new ManagedTabbyRuntime({
       Managed: true,
       WorkingDirectory: root,
-      PythonPath: process.execPath,
+      PythonPath: pythonPath,
       Entrypoint: path.basename(scriptPath),
       ModelRoot: root,
       AdminApiKey: '',

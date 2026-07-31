@@ -1,5 +1,5 @@
 import { initializeRuntime } from './paths.js';
-import { SiftPresetCollectionSchema } from '@siftkit/contracts';
+import { ModelPresetFieldSchema, SiftPresetCollectionSchema } from '@siftkit/contracts';
 import {
   SIFT_DEFAULT_LLAMA_BASE_URL,
   SIFT_DEFAULT_LLAMA_BATCH_SIZE,
@@ -308,12 +308,32 @@ export function mergeConfig(baseValue: JsonValue, patchValue: JsonValue): JsonVa
   return JsonValueSchema.parse(patchValue ?? null);
 }
 
+/**
+ * `ModelPresetFieldSchema` is the single source of truth for what a preset may carry; `id`, `label`
+ * and `Backend` are the identity keys it deliberately omits. Anything else is a field this repo has
+ * removed (or never had), and rebuilding the settings key-by-key below would silently swallow it.
+ */
+const MODEL_RUNTIME_PRESET_FIELDS: ReadonlySet<string> = new Set([
+  'id',
+  'label',
+  'Backend',
+  ...ModelPresetFieldSchema.options,
+]);
+
 export function normalizeModelRuntimePresetRecord(
   input: JsonValue,
   fallbackId: string,
   fallbackLabel: string,
 ): ModelRuntimePreset {
   const record = getRecord(input);
+  for (const key of Object.keys(record)) {
+    if (!MODEL_RUNTIME_PRESET_FIELDS.has(key)) {
+      throw new Error(
+        `Unsupported model preset field ${key}; it is not part of ModelPresetFieldSchema. `
+        + 'Delete it from the stored preset — SiftKit never migrates or repairs configuration automatically.',
+      );
+    }
+  }
   return {
     id: getNullableTrimmedString(record.id) || fallbackId,
     label: getNullableTrimmedString(record.label) || fallbackLabel,

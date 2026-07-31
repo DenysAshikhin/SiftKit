@@ -12,14 +12,14 @@ import { writeFakeTabby } from './helpers/tabby-fake.js';
 test('a managed TabbyAPI launch is recorded as an inference run with log chunks', async () => {
   await withTempEnv(async (root) => {
     const port = await getFreePort();
-    const { scriptPath } = writeFakeTabby(root, port, null);
+    const { scriptPath, pythonPath } = writeFakeTabby(root, port, null);
     const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
     if (!preset) throw new Error('Default model preset is missing');
     const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
     const runtime = new ManagedTabbyRuntime({
       Managed: true,
       WorkingDirectory: root,
-      PythonPath: process.execPath,
+      PythonPath: pythonPath,
       Entrypoint: path.basename(scriptPath),
       ModelRoot: root,
       AdminApiKey: '',
@@ -54,14 +54,14 @@ test('a managed TabbyAPI launch is recorded as an inference run with log chunks'
 test('a managed TabbyAPI run is marked stopped when the runtime shuts it down', async () => {
   await withTempEnv(async (root) => {
     const port = await getFreePort();
-    const { scriptPath } = writeFakeTabby(root, port, null);
+    const { scriptPath, pythonPath } = writeFakeTabby(root, port, null);
     const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
     if (!preset) throw new Error('Default model preset is missing');
     const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
     const runtime = new ManagedTabbyRuntime({
       Managed: true,
       WorkingDirectory: root,
-      PythonPath: process.execPath,
+      PythonPath: pythonPath,
       Entrypoint: path.basename(scriptPath),
       ModelRoot: root,
       AdminApiKey: '',
