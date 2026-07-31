@@ -62,7 +62,7 @@ test('llama request includes llama-only cache and slot controls', () => {
     messages,
     tools: [],
     defaults,
-    overrides: {},
+    maxTokens: defaults.maxTokens,
     stream: true,
     thinking: { enabled: false, preserve: false, reasoningContent: false },
     llama: { cachePrompt: true, slotId: 2 },
@@ -81,7 +81,7 @@ test('streamed EXL3 request asks the server for usage in the final chunk', () =>
     messages,
     tools: [],
     defaults,
-    overrides: {},
+    maxTokens: defaults.maxTokens,
     stream: true,
     thinking: { enabled: false, preserve: false, reasoningContent: false },
     llama: { cachePrompt: true },
@@ -97,7 +97,7 @@ test('non-streamed request omits stream_options', () => {
     messages,
     tools: [],
     defaults,
-    overrides: {},
+    maxTokens: defaults.maxTokens,
     stream: false,
     thinking: { enabled: false, preserve: false, reasoningContent: false },
     llama: { cachePrompt: true },
@@ -113,7 +113,7 @@ test('EXL3 request omits llama-only fields and maps thinking policy', () => {
     messages,
     tools,
     defaults,
-    overrides: {},
+    maxTokens: defaults.maxTokens,
     stream: true,
     responseFormat: {
       type: 'json_schema',
@@ -157,7 +157,7 @@ test('request builder emits every shared sampler for EXL3', () => {
       preserveThinking: false,
       maintainPerStepThinking: false,
     },
-    overrides: {},
+    maxTokens: 256,
     stream: false,
     thinking: { enabled: false, preserve: false, reasoningContent: false },
     llama: { cachePrompt: true },
@@ -182,7 +182,7 @@ test('neither backend sends penalty_range — exllamav3 8e08af9 removed the unbo
       messages,
       tools: [],
       defaults,
-      overrides: {},
+      maxTokens: defaults.maxTokens,
       stream: false,
       thinking: { enabled: false, preserve: false, reasoningContent: false },
       llama: { cachePrompt: false },
@@ -192,7 +192,7 @@ test('neither backend sends penalty_range — exllamav3 8e08af9 removed the unbo
   }
 });
 
-test('explicit request samplers override active preset defaults', () => {
+test('sampling always comes from preset defaults; maxTokens is the sole request override', () => {
   const request = new InferenceRequestBuilder().build({
     backend: 'llama',
     model: 'llama-model',
@@ -205,22 +205,25 @@ test('explicit request samplers override active preset defaults', () => {
       topK: 20,
       minP: 0,
       presencePenalty: 0,
-      repetitionPenalty: 1,
+      repetitionPenalty: 1.25,
       reasoning: 'off',
       reasoningContent: false,
       preserveThinking: false,
       maintainPerStepThinking: false,
     },
-    overrides: { maxTokens: 32, temperature: 0.1, topP: 0.95 },
+    maxTokens: 32,
     stream: false,
     thinking: { enabled: false, preserve: false, reasoningContent: false },
     llama: { cachePrompt: true },
   });
 
   assert.equal(request.max_tokens, 32);
-  assert.equal(request.temperature, 0.1);
-  assert.equal(request.top_p, 0.95);
-  assert.equal(request.repeat_penalty, 1);
+  assert.equal(request.temperature, 0.7);
+  assert.equal(request.top_p, 0.8);
+  assert.equal(request.top_k, 20);
+  assert.equal(request.min_p, 0);
+  assert.equal(request.presence_penalty, 0);
+  assert.equal(request.repeat_penalty, 1.25);
   assert.equal(request.repetition_penalty, undefined);
 });
 
@@ -231,7 +234,7 @@ test('request builder omits thinking kwargs when no thinking override is supplie
     messages,
     tools: [],
     defaults,
-    overrides: {},
+    maxTokens: defaults.maxTokens,
     stream: false,
     thinking: { enabled: undefined, preserve: false, reasoningContent: false },
     llama: { cachePrompt: false },
@@ -247,7 +250,7 @@ test('llama request includes reasoning content when requested', () => {
     messages,
     tools: [],
     defaults,
-    overrides: {},
+    maxTokens: defaults.maxTokens,
     stream: false,
     thinking: { enabled: true, preserve: true, reasoningContent: true },
     llama: { cachePrompt: false },
@@ -275,7 +278,7 @@ test('request builder preserves the canonical planner schema for llama', () => {
     messages,
     tools: [],
     defaults,
-    overrides: {},
+    maxTokens: defaults.maxTokens,
     stream: false,
     responseFormat: {
       type: 'json_schema',
@@ -322,7 +325,7 @@ test('request builder lowers only Formatron-incompatible planner constraints for
     messages,
     tools: [],
     defaults,
-    overrides: {},
+    maxTokens: defaults.maxTokens,
     stream: false,
     responseFormat: {
       type: 'json_schema',

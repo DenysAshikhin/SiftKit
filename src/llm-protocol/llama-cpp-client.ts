@@ -165,12 +165,6 @@ export type LlamaCppChatOptions = {
   messages: LlamaCppChatMessage[];
   tools: LlamaCppToolDefinition[];
   maxTokens: number;
-  temperature?: number;
-  topP?: number;
-  topK?: number;
-  minP?: number;
-  presencePenalty?: number;
-  repetitionPenalty?: number;
   cachePrompt?: boolean;
   slotId?: number;
   stream: boolean;
@@ -326,15 +320,7 @@ export class LlamaCppClient {
         messages: options.messages,
         tools: options.tools,
         defaults,
-        overrides: {
-          maxTokens: options.maxTokens,
-          ...(typeof options.temperature === 'number' ? { temperature: options.temperature } : {}),
-          ...(typeof options.topP === 'number' ? { topP: options.topP } : {}),
-          ...(typeof options.topK === 'number' ? { topK: options.topK } : {}),
-          ...(typeof options.minP === 'number' ? { minP: options.minP } : {}),
-          ...(typeof options.presencePenalty === 'number' ? { presencePenalty: options.presencePenalty } : {}),
-          ...(typeof options.repetitionPenalty === 'number' ? { repetitionPenalty: options.repetitionPenalty } : {}),
-        },
+        maxTokens: options.maxTokens,
         stream: options.stream,
         ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}),
         thinking: {

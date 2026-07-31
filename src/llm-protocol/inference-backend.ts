@@ -19,15 +19,8 @@ export type InferenceRequestInput = {
   messages: LlamaCppChatMessage[];
   tools: LlamaCppToolDefinition[];
   defaults: PresetRequestDefaults;
-  overrides: {
-    maxTokens?: number;
-    temperature?: number;
-    topP?: number;
-    topK?: number;
-    minP?: number;
-    presencePenalty?: number;
-    repetitionPenalty?: number;
-  };
+  /** The only per-request sampling value; every other sampler comes from `defaults`. */
+  maxTokens: number;
   stream: boolean;
   responseFormat?: LlamaCppResponseFormat;
   thinking: InferenceThinkingPolicy;

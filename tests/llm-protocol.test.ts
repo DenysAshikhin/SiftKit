@@ -17,6 +17,7 @@ import type { JsonValue } from '../src/lib/json-types.js';
 import type { SseFrame } from '../src/lib/sse-frame-parser.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
+import { getActiveModelPreset } from '../src/config/index.js';
 
 test('llm protocol types model text, reasoning, and tool-call responses', () => {
   assert.equal(LLAMA_CPP_PROTOCOL_FORMAT, 'openai-compatible');
@@ -321,7 +322,6 @@ test('llama client covers non-streaming request and response normalization branc
     messages: [{ role: 'user', content: 'hello' }],
     tools: [],
     maxTokens: 33,
-    temperature: 0.2,
     cachePrompt: false,
     slotId: 2,
     stream: false,
@@ -334,7 +334,7 @@ test('llama client covers non-streaming request and response normalization branc
   const body = JSON.parse(String(http.requests[0]?.body || '{}'));
   assert.equal(body.cache_prompt, false);
   assert.equal(body.id_slot, 2);
-  assert.equal(body.temperature, 0.2);
+  assert.equal(body.temperature, getActiveModelPreset(protocolConfig).Temperature);
   assert.equal(body.tools, undefined);
   assert.deepEqual(body.chat_template_kwargs, { enable_thinking: false });
   assert.deepEqual(body.response_format, { type: 'json_object' });
