@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { awaitRepoSearchRunPersistence } from '../../src/repo-search/execute.js';
 import { startStatusServer } from '../../src/status-server/index.js';
 import { closeRuntimeDatabase } from '../../src/state/runtime-db.js';
 import { asObject, getAddressInfo, requestJson } from './dashboard-http.js';
@@ -54,10 +55,9 @@ export async function startHarness(namePrefix: string): Promise<StreamedOperatio
     baseUrl,
     async close() {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-      // Run persistence is deferred to a setImmediate scheduled before the operation resolves.
-      // Drain one immediate turn so that write lands before the DB closes — a late write
-      // reopens runtime.sqlite and blocks temp-dir removal on Windows.
-      await new Promise((resolve) => setImmediate(resolve));
+      // Deferred run-log writes land after the operation resolves; let them finish before the
+      // database closes, or the late write reopens runtime.sqlite inside the temp root.
+      await awaitRepoSearchRunPersistence();
       process.chdir(previousCwd);
       closeRuntimeDatabase();
       for (const [key, value] of Object.entries(envBackup)) {

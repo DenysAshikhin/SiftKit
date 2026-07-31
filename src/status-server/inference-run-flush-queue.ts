@@ -23,6 +23,16 @@ import { serverLogger } from './server-logger.js';
  */
 export const PENDING_FLUSH_HIGH_WATER_CHARACTERS = 8 * 1024 * 1024;
 
+/** How often the queue re-checks drain state while waiting on the worker. */
+const POLL_INTERVAL_MS = 10;
+
+/**
+ * How long `close` gives an in-flight flush to finish. Terminating the worker mid-flush kills
+ * the thread with its sqlite handle open, and the fd then survives until process exit, holding
+ * the directory that contains the database.
+ */
+const DEFAULT_CLOSE_FLUSH_WAIT_MS = 2000;
+
 type InferenceRunFlushQueueItem = {
   runId: string;
   backend: InferenceRunBackend;
@@ -34,6 +44,7 @@ type InferenceRunFlushQueueItem = {
 
 export type InferenceRunFlushQueueOptions = {
   idleDelayMs?: number;
+  closeFlushWaitMs?: number;
 };
 
 export type InferenceRunModelRequestState = {
@@ -59,6 +70,7 @@ export type InferenceRunFlushQueueSnapshot = {
 
 export class InferenceRunFlushQueue {
   private readonly idleDelayMs: number;
+  private readonly closeFlushWaitMs: number;
   private readonly pendingByRunId = new Map<string, InferenceRunFlushQueueItem>();
   private readonly pendingOrder: string[] = [];
   private scheduled = false;
@@ -78,6 +90,10 @@ export class InferenceRunFlushQueue {
     this.idleDelayMs = Number.isFinite(configuredIdleDelayMs)
       ? Math.max(0, Math.trunc(configuredIdleDelayMs))
       : 0;
+    const configuredCloseFlushWaitMs = Number(options.closeFlushWaitMs ?? DEFAULT_CLOSE_FLUSH_WAIT_MS);
+    this.closeFlushWaitMs = Number.isFinite(configuredCloseFlushWaitMs)
+      ? Math.max(0, Math.trunc(configuredCloseFlushWaitMs))
+      : DEFAULT_CLOSE_FLUSH_WAIT_MS;
   }
 
   async close(): Promise<void> {
@@ -87,12 +103,21 @@ export class InferenceRunFlushQueue {
     if (!worker) {
       return;
     }
-    // Terminating mid-flush kills the thread while its sqlite handle is open; the fd then
-    // survives until process exit and blocks removal of the directory holding the DB on
-    // Windows. Let the in-flight flush finish (bounded) before terminating.
-    const deadline = Date.now() + 2000;
+    const deadline = Date.now() + this.closeFlushWaitMs;
     while (this.runningRunId !== null && Date.now() < deadline) {
-      await sleep(10);
+      await sleep(POLL_INTERVAL_MS);
+    }
+    const abandonedRunId = this.runningRunId;
+    if (abandonedRunId !== null) {
+      // Terminating now leaks the worker's sqlite fd until process exit, which holds the
+      // directory containing the database. Say so rather than fail silently: a flush this slow
+      // is the bug, and no wider budget fixes it.
+      serverLogger.error({
+        scope: 'flush',
+        id: abandonedRunId,
+        event: 'flush_close_timeout',
+        fields: `wait_ms=${this.closeFlushWaitMs}`,
+      });
     }
     await worker.terminate();
   }
@@ -162,7 +187,7 @@ export class InferenceRunFlushQueue {
       if (!this.draining && !this.scheduled && this.pendingOrder.length === 0 && this.runningRunId === null) {
         return;
       }
-      await sleep(10);
+      await sleep(POLL_INTERVAL_MS);
     }
     throw new Error(`Timed out waiting for the inference run flush queue after ${timeoutMs} ms.`);
   }

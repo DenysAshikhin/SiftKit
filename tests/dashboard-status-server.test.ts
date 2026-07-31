@@ -1,4 +1,4 @@
-import test, { after } from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -38,11 +38,6 @@ import {
 } from './helpers/dashboard-test-repo.js';
 import { buildRepoSearchChatSteps } from '../dashboard/src/lib/chat-steps.js';
 import type { RunEvent } from '../dashboard/src/types.js';
-import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
-
-// The cached runtime DB handle keeps a file inside the temp dir open on Windows, which
-// blocks the exit-time registry sweep. Root after() runs before the exit handler.
-after(() => closeRuntimeDatabase());
 
 function toRunEvents(value: OptionalJsonValue): RunEvent[] {
   return asObjectArray(value).map((event) => ({

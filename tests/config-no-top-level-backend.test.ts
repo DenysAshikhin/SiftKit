@@ -1,4 +1,4 @@
-import test, { after } from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import path from 'node:path';
@@ -7,12 +7,8 @@ import { z } from 'zod';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { normalizeConfigObject } from '../src/config/normalization.js';
 import { PresetCatalog } from '../src/preset-catalog.js';
-import { closeRuntimeDatabase, CURRENT_SCHEMA_VERSION, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { CURRENT_SCHEMA_VERSION, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
-
-// The cached runtime DB handle keeps a file inside the temp dir open on Windows, which
-// blocks the exit-time registry sweep. Root after() runs before the exit handler.
-after(() => closeRuntimeDatabase());
 
 const ColumnNameRowSchema = z.array(z.object({ name: z.string() }));
 const VersionRowSchema = z.object({ version: z.number() });

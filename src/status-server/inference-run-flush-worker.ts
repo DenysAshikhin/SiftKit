@@ -67,8 +67,11 @@ parentPort?.on('message', (message: FlushWorkerRequest) => {
   // the response, and terminating mid-close crashes better-sqlite3.
   try {
     closeRuntimeDatabase();
-  } catch {
-    // Never let a close failure eat the flush result.
+  } catch (error) {
+    // A close failure means the handle this worker was told to release is still open. It must
+    // not eat the flush result, so report it on stderr (forwarded to the parent) and answer.
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`inference run flush worker failed to close runtime.sqlite: ${message}\n`);
   }
   parentPort?.postMessage(response);
 });

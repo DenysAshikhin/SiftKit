@@ -5,10 +5,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 
+import { getRuntimeDatabase } from '../src/state/runtime-db.js';
 import {
+  TEMP_DIR_LEAK_HEADER,
   TempDirRegistry,
+  createManagedTempDir,
+  formatTempDirLeakReport,
   removeDirectorySync,
   removeDirectoryWithRetries,
+  sweepManagedTempDirs,
 } from './helpers/temp-dirs.js';
 
 /**
@@ -115,4 +120,28 @@ test('removeDirectoryWithRetries reports success and failure', async () => {
   locked.release();
   await new Promise((resolve) => setTimeout(resolve, 300));
   fs.rmSync(locked.directory, { recursive: true, force: true });
+});
+
+test('formatTempDirLeakReport names every survivor under one header', () => {
+  assert.equal(formatTempDirLeakReport([]), '');
+
+  const report = formatTempDirLeakReport(['/tmp/first', '/tmp/second']);
+
+  assert.equal(report.includes(TEMP_DIR_LEAK_HEADER), true, report);
+  assert.equal(report.includes(process.argv[1] ?? ''), true, report);
+  assert.equal(report.includes('  - /tmp/first\n'), true, report);
+  assert.equal(report.includes('  - /tmp/second\n'), true, report);
+});
+
+// The cached runtime DB handle is the one holder the sweep can release itself. Owning it here
+// is what keeps every test file from needing its own `after(() => closeRuntimeDatabase())`.
+test('sweepManagedTempDirs releases the cached runtime database before removing', () => {
+  const directory = createManagedTempDir('siftkit-registry-db-');
+  const databasePath = path.join(directory, 'runtime.sqlite');
+  getRuntimeDatabase(databasePath);
+  assert.equal(fs.existsSync(databasePath), true);
+
+  assert.deepEqual(sweepManagedTempDirs(), []);
+
+  assert.equal(fs.existsSync(directory), false);
 });

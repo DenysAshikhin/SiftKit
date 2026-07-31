@@ -1,4 +1,4 @@
-import test, { after } from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -11,11 +11,6 @@ import type { ServerContext } from '../src/status-server/server-types.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { createTestServerContext } from './helpers/server-context-fixture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
-
-// The cached runtime DB handle keeps a file inside the temp dir open on Windows, which
-// blocks the exit-time registry sweep. Root after() runs before the exit handler.
-after(() => closeRuntimeDatabase());
 
 type JsonResponse = { statusCode: number; body: JsonObject };
 

@@ -8,6 +8,7 @@ import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { isJsonObject, type JsonObject } from '../src/lib/json-types.js';
 import type { RepoSearchExecutionResult } from '../src/repo-search/types.js';
+import { awaitRepoSearchRunPersistence } from '../src/repo-search/execute.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { EnvBackup } from './helpers/env-backup.js';
 import { writeSseResult } from './helpers/sse-http.js';
@@ -533,10 +534,9 @@ export async function withTestEnvAndServer(
   try {
     await fn({ tempRoot, stub });
   } finally {
-    // Repo-search defers run-log persistence to a setImmediate scheduled before its promise
-    // resolves. Drain one immediate turn so that write lands before the DB is closed, instead
-    // of after — a late write reopens runtime.sqlite and blocks the temp-dir sweep on Windows.
-    await new Promise((resolve) => setImmediate(resolve));
+    // Deferred run-log writes land after the request promise resolves; let them finish before
+    // the database closes, or the late write reopens runtime.sqlite inside the temp root.
+    await awaitRepoSearchRunPersistence();
     process.chdir(previousCwd);
     await stub.close();
     closeRuntimeDatabase();

@@ -176,6 +176,18 @@ type RepoSearchTerminalStatusNotificationOptions = NotifyStatusBackendOptions & 
   timingRecorder: TemporaryTimingRecorder | null;
 };
 
+let pendingRunPersistence: Promise<void> = Promise.resolve();
+
+/**
+ * Resolves once every run log scheduled so far has been written. Persistence is deferred off
+ * the request path, so it lands after the request promise settles: anyone who tears the
+ * runtime down — closing the database, deleting the repo root — must await this first, or the
+ * late write reopens `runtime.sqlite` behind them.
+ */
+export function awaitRepoSearchRunPersistence(): Promise<void> {
+  return pendingRunPersistence;
+}
+
 function scheduleRepoSearchRunPersistence(
   options: RepoSearchRunPersistenceOptions,
   timingRecorder: TemporaryTimingRecorder | null,
@@ -184,18 +196,22 @@ function scheduleRepoSearchRunPersistence(
     terminalState: options.terminalState,
   });
   scheduleSpan?.end();
-  setImmediate(() => {
-    const { databasePath, ...runOptions } = options;
-    try {
-      upsertRepoSearchRun({
-        database: getRuntimeDatabase(databasePath),
-        ...runOptions,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      traceRepoSearch(`async run-log persistence failed request_id=${options.requestId} error=${message}`);
-    }
+  const persisted = new Promise<void>((resolve) => {
+    setImmediate(() => {
+      const { databasePath, ...runOptions } = options;
+      try {
+        upsertRepoSearchRun({
+          database: getRuntimeDatabase(databasePath),
+          ...runOptions,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        traceRepoSearch(`async run-log persistence failed request_id=${options.requestId} error=${message}`);
+      }
+      resolve();
+    });
   });
+  pendingRunPersistence = pendingRunPersistence.then(() => persisted);
 }
 
 async function notifyRepoSearchRunningStatus(options: RepoSearchRunningStatusNotificationOptions): Promise<void> {

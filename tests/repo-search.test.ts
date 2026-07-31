@@ -1,4 +1,4 @@
-import test, { after } from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -21,12 +21,6 @@ import { asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-htt
 import { z } from 'zod';
 import { ProgressWriter, SilentProgressWriter } from '../src/lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
-
-// A fire-and-forget status flush can reopen the cached runtime DB after a test's own cleanup,
-// which recreates the temp dir and holds runtime.sqlite open into the exit-time registry
-// sweep. Root after() runs after every test, before the exit handler.
-after(() => closeRuntimeDatabase());
 
 // Thrown repo-search errors carry artifact/transcript URIs as own properties
 // alongside non-JSON Error internals; validate just those string fields with a

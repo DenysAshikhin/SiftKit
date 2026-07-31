@@ -1,4 +1,4 @@
-import test, { after } from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import {
@@ -6,12 +6,8 @@ import {
   readRuntimeLaunchSnapshot,
   type RuntimeLaunchSnapshot,
 } from '../src/status-server/runtime-launch-snapshot.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
-
-// The cached runtime DB handle keeps a file inside the temp dir open on Windows, which
-// blocks the exit-time registry sweep. Root after() runs before the exit handler.
-after(() => closeRuntimeDatabase());
 
 function tempDbPath(): string {
   const dbPath = path.join(createManagedTempDir('sk-snap-'), 'runtime.sqlite');

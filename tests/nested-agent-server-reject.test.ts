@@ -1,14 +1,9 @@
-import test, { after } from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { requestSse } from './helpers/sse-http.js';
 import { startHarness, waitForActiveModelRequestOwner } from './helpers/streamed-op-harness.js';
 import { AGENT_RUN_ID_HEADER } from '../src/lib/agent-run-marker.js';
-import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
-
-// The cached runtime DB handle keeps a file inside the temp dir open on Windows, which
-// blocks the exit-time registry sweep. Root after() runs before the exit handler.
-after(() => closeRuntimeDatabase());
 
 const AGENT_LOCK_HOLD_MS = 5_000;
 const SSE_REQUEST_TIMEOUT_MS = 30_000;

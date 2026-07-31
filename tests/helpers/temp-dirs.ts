@@ -2,6 +2,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { closeRuntimeDatabase } from '../../src/state/runtime-db.js';
+
+/** The one wording for a leaked temp directory, so acceptance checks grep for a single string. */
+export const TEMP_DIR_LEAK_HEADER = 'TEMP DIRECTORIES LEFT BEHIND';
+
 const SYNC_ATTEMPTS = 20;
 const SYNC_DELAY_MS = 25;
 const ASYNC_ATTEMPTS = 40;
@@ -95,24 +100,50 @@ export class TempDirRegistry {
   }
 }
 
+/** Empty when nothing survived, so the caller writes nothing. */
+export function formatTempDirLeakReport(directories: readonly string[]): string {
+  if (directories.length === 0) {
+    return '';
+  }
+  let report = `\n${TEMP_DIR_LEAK_HEADER} (${process.argv[1]}):\n`;
+  for (const directory of directories) {
+    report += `  - ${directory}\n`;
+  }
+  return report;
+}
+
+/**
+ * Loud, not fatal: throwing here would hide whatever the test itself proved. A survivor is
+ * almost always a spawned process that outlived its test — fix that, do not retry harder.
+ */
+export function reportUndeletableTempDirectories(directories: readonly string[]): void {
+  const report = formatTempDirLeakReport(directories);
+  if (report) {
+    process.stderr.write(report);
+  }
+}
+
 const fileRegistry = new TempDirRegistry();
+
+/**
+ * Removes every managed directory and names the survivors. The cached runtime DB is closed
+ * first: better-sqlite3 keeps `runtime.sqlite` open, and on Windows that open handle blocks
+ * removal of the directory containing it. Owning that here is what spares every test file
+ * its own `after(() => closeRuntimeDatabase())` hook.
+ */
+export function sweepManagedTempDirs(): string[] {
+  closeRuntimeDatabase();
+  const survivors = fileRegistry.removeAll();
+  reportUndeletableTempDirectories(survivors);
+  return survivors;
+}
 
 // Not a node:test `after()` hook. Root after() hooks run in registration order, so one
 // registered when this module is imported would run BEFORE the test file's own teardown —
 // before the server is closed or the child is killed — and race the very thing holding the
 // directory. `exit` runs after every hook. Cost: it must be synchronous.
 process.on('exit', () => {
-  const survivors = fileRegistry.removeAll();
-  if (survivors.length === 0) {
-    return;
-  }
-  let report = `\nTEMP DIRECTORIES LEFT BEHIND (${process.argv[1]}):\n`;
-  for (const directory of survivors) {
-    report += `  - ${directory}\n`;
-  }
-  // Loud, not fatal: failing here would hide whatever the test itself proved. A survivor is
-  // almost always a spawned process that outlived its test — fix that, do not retry harder.
-  process.stderr.write(report);
+  sweepManagedTempDirs();
 });
 
 /**

@@ -2,7 +2,8 @@ import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { executeRepoSearchRequest } from '../src/repo-search/execute.js';
+import { awaitRepoSearchRunPersistence, executeRepoSearchRequest } from '../src/repo-search/execute.js';
+import { loadDashboardRuns } from '../src/status-server/dashboard-runs/queries.js';
 import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/repo-search/planner-protocol.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
@@ -110,6 +111,37 @@ test('repo-agent automatically trims noisy validation run output', async () => {
     assert.match(command.output, /validation-line-60\b/u);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Run-log persistence is deferred off the request path, so the write lands after the request
+// promise resolves. Callers that tear the runtime down — every test harness — need a handle on
+// it; without one the late write reopens runtime.sqlite behind whoever just closed it.
+test('awaitRepoSearchRunPersistence resolves only once the deferred run log has landed', async () => {
+  const dir = createManagedTempDir('siftkit-agent-persist-');
+  const previousCwd = process.cwd();
+  process.chdir(dir);
+  try {
+    await executeRepoSearchRequest({
+      presetId: 'repo-search',
+      taskKind: 'repo-agent',
+      prompt: 'finish immediately',
+      repoRoot: dir,
+      config: MOCK_CONFIG,
+      model: 'mock',
+      allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
+      availableModels: ['mock'],
+      mockResponses: ['{"action":"finish","output":"done"}'],
+      mockCommandResults: {},
+      progressWriter: new CollectingProgressWriter([]),
+    });
+    assert.equal(loadDashboardRuns(path.join(dir, '.siftkit')).length, 0);
+
+    await awaitRepoSearchRunPersistence();
+
+    assert.equal(loadDashboardRuns(path.join(dir, '.siftkit')).length, 1);
+  } finally {
+    process.chdir(previousCwd);
   }
 });
 

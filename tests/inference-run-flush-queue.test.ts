@@ -15,39 +15,16 @@ import {
 } from '../src/state/inference-runs.js';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
+import { captureStdoutLines } from './helpers/stdout-capture.js';
 
-function createStdoutCapture(): { lines: string[]; restore: () => void } {
-  const originalWrite = process.stdout.write.bind(process.stdout);
-  const lines: string[] = [];
-  let buffer = '';
-  process.stdout.write = (
-    chunk: string | Uint8Array,
-    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
-    callback?: (error?: Error | null) => void,
-  ): boolean => {
-    const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
-    buffer += text;
-    const parts = buffer.split(/\r?\n/u);
-    buffer = parts.pop() || '';
-    for (const line of parts) {
-      if (line.trim()) {
-        lines.push(line);
-      }
-    }
-    if (typeof encodingOrCallback === 'function') {
-      return originalWrite(chunk, encodingOrCallback);
-    }
-    return originalWrite(chunk, encodingOrCallback, callback);
-  };
-  return {
-    lines,
-    restore: () => {
-      process.stdout.write = originalWrite;
-      if (buffer.trim()) {
-        lines.push(buffer.trim());
-      }
-    },
-  };
+type FlushQueueInternals = {
+  runningRunId: string | null;
+  draining: boolean;
+};
+
+/** Reaches the drain state the queue never exposes, so close() can be driven deterministically. */
+function flushQueueInternals(queue: InferenceRunFlushQueue): FlushQueueInternals {
+  return z.custom<FlushQueueInternals>((value) => value instanceof InferenceRunFlushQueue).parse(queue);
 }
 
 test('inference run flush queue coalesces duplicate run flushes and drains asynchronously', async () => {
@@ -90,25 +67,25 @@ test('inference run flush queue logs each run under its own backend scope', asyn
     const run = createInferenceRun({ backend: 'exl3', purpose: 'startup' });
     bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'engine_stdout', chunkText: 'exl3-scoped\n' });
     const queue = new InferenceRunFlushQueue();
-    const capture = createStdoutCapture();
 
-    try {
-      assert.equal(queue.enqueue(run.id, 'exl3'), true);
-      await queue.waitForIdle(1000);
-    } finally {
-      capture.restore();
-      await queue.close();
-    }
+    const lines = await captureStdoutLines(async () => {
+      try {
+        assert.equal(queue.enqueue(run.id, 'exl3'), true);
+        await queue.waitForIdle(1000);
+      } finally {
+        await queue.close();
+      }
+    });
 
     assert.equal(
-      capture.lines.some((line) => line.includes(`exl3 ${run.id.slice(0, 8)}  flush_done`)),
+      lines.some((line) => line.includes(`exl3 ${run.id.slice(0, 8)}  flush_done`)),
       true,
-      capture.lines.join('\n'),
+      lines.join('\n'),
     );
     assert.equal(
-      capture.lines.some((line) => line.includes(`llama ${run.id.slice(0, 8)}`)),
+      lines.some((line) => line.includes(`llama ${run.id.slice(0, 8)}`)),
       false,
-      capture.lines.join('\n'),
+      lines.join('\n'),
     );
   });
 });
@@ -117,11 +94,7 @@ test('inference run flush queue records another flush requested while the same r
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
     const queue = new InferenceRunFlushQueue();
-    type FlushQueueInternals = {
-      runningRunId: string | null;
-      draining: boolean;
-    };
-    const internals = z.custom<FlushQueueInternals>((value) => value instanceof InferenceRunFlushQueue).parse(queue);
+    const internals = flushQueueInternals(queue);
     internals.runningRunId = run.id;
     internals.draining = true;
 
@@ -181,22 +154,104 @@ test('inference run flush queue does not log repeated active-request drain waits
     const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
     bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'active-gated\n' });
     const queue = new InferenceRunFlushQueue({ idleDelayMs: 20 });
-    const capture = createStdoutCapture();
+
+    const lines = await captureStdoutLines(async () => {
+      try {
+        queue.setModelRequestState({ active: true, queueLength: 0 });
+        assert.equal(queue.enqueue(run.id, 'llama'), true);
+        await new Promise<void>((resolve) => setTimeout(resolve, 70));
+      } finally {
+        await queue.close();
+      }
+    });
+
+    assert.equal(
+      lines.some((line) => line.includes(`llama ${run.id.slice(0, 8)}  flush_done`)),
+      false,
+      lines.join('\n'),
+    );
+  });
+});
+
+// Terminating the worker mid-flush kills the thread with its sqlite handle open: the write is
+// lost and better-sqlite3 can take the process down with it. close() must let it land first.
+test('closing the queue completes an in-flight flush instead of terminating it', async () => {
+  await withTestEnvAndServer(async () => {
+    const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'in-flight\n' });
+    const queue = new InferenceRunFlushQueue();
+
+    assert.equal(queue.enqueue(run.id, 'llama'), true);
+    // drainNow marks the run running before it awaits the worker, so close() sees it in flight.
+    const draining = queue.drainNow();
+    await queue.close();
+    await draining;
+
+    assert.equal(readInferenceRunLogTextByStream(run.id).launcher_stdout, 'in-flight\n');
+    assert.equal(queue.getSnapshot().completedCount, 1);
+  });
+});
+
+// The worker closes its connection after every message, so the second flush has to reopen it.
+test('the flush worker serves consecutive runs after closing its database each time', async () => {
+  await withTestEnvAndServer(async () => {
+    const first = createInferenceRun({ backend: 'llama', purpose: 'startup' });
+    const second = createInferenceRun({ backend: 'llama', purpose: 'startup' });
+    bufferInferenceRunLogChunk({ runId: first.id, streamKind: 'launcher_stdout', chunkText: 'first\n' });
+    bufferInferenceRunLogChunk({ runId: second.id, streamKind: 'launcher_stdout', chunkText: 'second\n' });
+    const queue = new InferenceRunFlushQueue();
 
     try {
-      queue.setModelRequestState({ active: true, queueLength: 0 });
-      assert.equal(queue.enqueue(run.id, 'llama'), true);
-      await new Promise<void>((resolve) => setTimeout(resolve, 70));
+      assert.equal(queue.enqueue(first.id, 'llama'), true);
+      await queue.waitForIdle(1000);
+      assert.equal(queue.enqueue(second.id, 'llama'), true);
+      await queue.waitForIdle(1000);
     } finally {
-      capture.restore();
       await queue.close();
     }
 
+    assert.equal(readInferenceRunLogTextByStream(first.id).launcher_stdout, 'first\n');
+    assert.equal(readInferenceRunLogTextByStream(second.id).launcher_stdout, 'second\n');
+    assert.equal(queue.getSnapshot().completedCount, 2);
+  });
+});
+
+test('closing the queue reports an in-flight flush that outlives the wait budget', async () => {
+  await withTestEnvAndServer(async () => {
+    const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
+    const queue = new InferenceRunFlushQueue({ closeFlushWaitMs: 40 });
+    assert.equal(queue.enqueue(run.id, 'llama'), true);
+    await queue.waitForIdle(1000);
+
+    const internals = flushQueueInternals(queue);
+    internals.runningRunId = 'run-stuck';
+
+    const lines = await captureStdoutLines(async () => {
+      await queue.close();
+    });
+
     assert.equal(
-      capture.lines.some((line) => line.includes(`llama ${run.id.slice(0, 8)}  flush_done`)),
-      false,
-      capture.lines.join('\n'),
+      lines.some((line) => line.includes('flush_close_timeout') && line.includes('run-stuc')),
+      true,
+      lines.join('\n'),
     );
+  });
+});
+
+test('a closed queue accepts no further work', async () => {
+  await withTestEnvAndServer(async () => {
+    const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
+    bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'ignored\n' });
+    const queue = new InferenceRunFlushQueue();
+
+    await queue.close();
+
+    assert.equal(queue.enqueue(run.id, 'llama'), false);
+    await queue.drainNow();
+    assert.equal(queue.getSnapshot().pendingCount, 0);
+    assert.equal(queue.getSnapshot().completedCount, 0);
+    // Nothing was consumed from the pending buffer, so no flush ran.
+    assert.equal(getInferenceRunPendingLogChunkStats(run.id).totalCharacters, 'ignored\n'.length);
   });
 });
 

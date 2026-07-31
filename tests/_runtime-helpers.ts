@@ -16,7 +16,12 @@ import { normalizeConfigObject } from '../src/config/normalization.js';
 import { mockSiftConfig, asRuntimeSiftConfig } from './helpers/mock-config.js';
 import { DEAD_CONFIG_SERVICE_URL, DEAD_STATUS_BACKEND_URL } from './helpers/dead-endpoints.js';
 import { EnvBackup } from './helpers/env-backup.js';
-import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+import {
+  createManagedTempDir,
+  removeDirectoryWithRetries,
+  reportUndeletableTempDirectories,
+} from './helpers/temp-dirs.js';
+import { awaitRepoSearchRunPersistence } from '../src/repo-search/execute.js';
 import {
   deriveServiceUrl,
   getDefaultConfig,
@@ -1011,14 +1016,14 @@ function runWithTempEnv<R>(fn: (tempRoot: string) => R | Promise<R>): Promise<R>
   process.chdir(tempRoot);
 
   const cleanup = async () => {
-    // Drain immediates scheduled by the test body (e.g. deferred run-log persistence) so no
-    // late write reopens runtime.sqlite after it is closed and blocks temp-dir removal.
-    await new Promise((resolve) => setImmediate(resolve));
+    // Deferred run-log writes land after the request promise resolves; let them finish before
+    // the database closes, or the late write reopens runtime.sqlite inside the temp root.
+    await awaitRepoSearchRunPersistence();
     process.chdir(previousCwd);
     closeRuntimeDatabase();
     envBackup.restore();
     if (!await removeDirectoryWithRetries(tempRoot)) {
-      process.stderr.write(`\nTEMP DIRECTORY LEFT BEHIND: ${tempRoot}\n`);
+      reportUndeletableTempDirectories([tempRoot]);
     }
   };
 

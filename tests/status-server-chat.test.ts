@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test, { after } from 'node:test';
+import test from 'node:test';
 
 import {
   appendChatMessagesWithUsage,
@@ -23,11 +23,6 @@ import { z } from '../src/lib/zod.js';
 import { JsonValueSchema, type JsonObject } from '../src/lib/json-types.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
-
-// The cached runtime DB handle keeps a file inside the temp dir open on Windows, which
-// blocks the exit-time registry sweep. Root after() runs before the exit handler.
-after(() => closeRuntimeDatabase());
 
 // Brand a deliberately-partial session fixture as ChatSession at one boundary;
 // tests exercise only the fields they set.
