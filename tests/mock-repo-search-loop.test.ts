@@ -20,22 +20,14 @@ import {
   compactPlannerMessagesOnce,
 } from '../src/repo-search/prompt-budget.js';
 import type { SiftConfig } from '../src/config/types.js';
-import { MOCK_OFFLINE_BASE_URL, mockOfflineSiftConfig, mockSiftConfig } from './helpers/mock-config.js';
+import { mockSiftConfig } from './helpers/mock-config.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
-import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
+import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
 
-// Mock-mode runTaskLoop calls never reach a real provider or repo; these defaults
-// satisfy the required RunTaskLoopOptions fields. Per-test options override them.
-const MOCK_LOOP_REPO_ROOT = createManagedTempDir('siftkit-mock-loop-');
-const MOCK_LOOP_DEFAULTS = {
-  repoRoot: MOCK_LOOP_REPO_ROOT,
-  model: 'mock-model',
-  baseUrl: MOCK_OFFLINE_BASE_URL,
-  systemContext: createEmptyPresetSystemContext(),
-  config: mockOfflineSiftConfig(),
-};
+const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-mock-loop-');
 
 // Mock-mode loops read only a few config fields; the rest of SiftConfig is
 // irrelevant, so deliberately partial literals are structurally checked against a
@@ -934,7 +926,7 @@ test('runTaskLoop fails with planner_preflight_overflow before provider request 
         },
         {
           ...MOCK_LOOP_DEFAULTS,
-          baseUrl: MOCK_OFFLINE_BASE_URL,
+          baseUrl: DEAD_BASE_URL,
           model: 'mock-model',
           config: mockLoopConfig({ Runtime: { LlamaCpp: { BaseUrl: notFound.baseUrl } } }),
           maxTurns: 1,
@@ -2092,7 +2084,7 @@ test('runTaskLoop keeps only latest planner thinking when per-step thinking is d
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       config: mockLoopConfig({
-        Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
+        Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL, NumCtx: 32000 } },
         Server: {
           ModelPresets: {
             ActivePresetId: 'thinking-off',

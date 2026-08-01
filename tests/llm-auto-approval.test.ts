@@ -18,6 +18,7 @@ import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import type { JsonSerializable } from '../src/lib/json-types.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 
 type ScriptedDecision = { kind: 'approve' } | { kind: 'deny'; reason: string } | { kind: 'abort' };
 
@@ -76,7 +77,7 @@ function makeAutoLoopOptions(
   return {
     repoRoot: tempRoot,
     model: 'mock-model',
-    baseUrl: 'http://127.0.0.1:1',
+    baseUrl: DEAD_BASE_URL,
     systemContext: createEmptyPresetSystemContext(),
     config: mockOfflineSiftConfig(),
     maxTurns: 4,
@@ -361,7 +362,7 @@ test('auto mode without a human gate fails loudly at construction', async () => 
         systemContext: createEmptyPresetSystemContext(),
         config: mockOfflineSiftConfig(),
         model: 'mock-model',
-        baseUrl: 'http://127.0.0.1:1',
+        baseUrl: DEAD_BASE_URL,
         maxTurns: 4,
         minToolCallsBeforeFinish: 0,
         mockResponses: ['{"action":"finish","output":"unreachable"}'],

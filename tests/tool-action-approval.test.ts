@@ -10,6 +10,7 @@ import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 
 type ScriptedDecision = { kind: 'approve' } | { kind: 'deny'; reason: string } | { kind: 'abort' };
 
@@ -36,7 +37,7 @@ function makeLoopOptions(tempRoot: string, mockResponses: string[], writer: Auto
   return {
     repoRoot: tempRoot,
     model: 'mock-model',
-    baseUrl: 'http://127.0.0.1:1',
+    baseUrl: DEAD_BASE_URL,
     systemContext: createEmptyPresetSystemContext(),
     config: mockOfflineSiftConfig(),
     maxTurns: 4,
@@ -173,7 +174,7 @@ test('without a gate, mutating tools stay invalid actions (non-interactive uncha
       systemContext: createEmptyPresetSystemContext(),
       config: mockOfflineSiftConfig(),
       model: 'mock-model',
-      baseUrl: 'http://127.0.0.1:1',
+      baseUrl: DEAD_BASE_URL,
       maxTurns: 4,
       minToolCallsBeforeFinish: 0,
       mockResponses: [

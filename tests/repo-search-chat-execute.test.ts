@@ -6,7 +6,7 @@ import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { PresetCatalog } from '../src/preset-catalog.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
-import { DeadEndpointEnv } from './helpers/dead-endpoints.js';
+import { DEAD_BASE_URL, DeadEndpointEnv } from './helpers/dead-endpoints.js';
 
 // Execution posts run status; these tests assert on scorecard and progress events only.
 const deadEndpoints = new DeadEndpointEnv();
@@ -20,7 +20,7 @@ const CONTEXT_FREE_PRESETS = PresetCatalog.createDefault().list().map((preset) =
 }));
 
 const MOCK_CONFIG = mockSiftConfig({
-  Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
+  Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL, NumCtx: 32000 } },
   Presets: CONTEXT_FREE_PRESETS,
 });
 
@@ -58,7 +58,7 @@ test('executeRepoSearchRequest chat with web tools runs native web_search', asyn
     availableModels: ['mock'],
     model: 'mock',
     config: mockSiftConfig({
-      Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
+      Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL, NumCtx: 32000 } },
       Presets: CONTEXT_FREE_PRESETS,
       WebSearch: { EnabledDefault: true, Providers: { tavily: { Enabled: true, ApiKey: 'test-key' }, firecrawl: { Enabled: false, ApiKey: '' } }, ProviderOrder: ['tavily', 'firecrawl'], ResultCount: 5, FetchMaxPages: 3, TimeoutMs: 15000, FetchMaxCharacters: 12000 },
     }),
@@ -302,7 +302,7 @@ test('chat executor with thinking off yields zero thinking tokens', async () => 
     availableModels: ['mock'],
     model: 'mock',
     config: mockSiftConfig({
-      Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
+      Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL, NumCtx: 32000 } },
       Presets: CONTEXT_FREE_PRESETS,
       Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', Reasoning: 'on' }] } },
     }),

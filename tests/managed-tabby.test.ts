@@ -11,6 +11,7 @@ import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.js';
 import { getFreePort, withTempEnv } from './_runtime-helpers.js';
 import { getAddressInfo } from './helpers/dashboard-http.js';
 import { FakeTabbyModelState, writeFakeTabby } from './helpers/tabby-fake.js';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 
 test('ManagedTabbyRuntime construction requires engine configuration and a flush queue', () => {
   assert.equal(ManagedTabbyRuntime.length, 2);
@@ -265,7 +266,7 @@ test('unmanaged EXL3 preset with speculation fails loud instead of silently losi
     ...preset,
     id: 'external-mtp',
     Backend: 'exl3' as const,
-    BaseUrl: 'http://127.0.0.1:1',
+    BaseUrl: DEAD_BASE_URL,
     Model: 'model-a',
     ModelPath: path.join('.', 'model-a'),
     SpeculativeEnabled: true,

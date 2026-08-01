@@ -3,6 +3,7 @@ import { JsonValueSchema, type OptionalJsonValue } from '../../src/lib/json-type
 import type { ModelRuntimePreset, SiftConfig } from '../../src/config/types.js';
 import { getDefaultConfigObject } from '../../src/config/defaults.js';
 import { mergeConfig, normalizeConfigObject } from '../../src/config/normalization.js';
+import { DEAD_BASE_URL } from './dead-endpoints.js';
 
 // Deliberately-partial SiftConfig fixtures: the input is structurally checked
 // against a DeepPartial view (catching typos / wrong nesting) while the runtime
@@ -21,16 +22,8 @@ export function mockSiftConfig(partial: DeepPartial<SiftConfig>): SiftConfig {
   return normalizeConfigObject(merged);
 }
 
-/**
- * The default config's BaseUrl is the real llama.cpp port, and a mock-mode loop still
- * tokenizes against whatever its config points at. Fixtures that only need "a real
- * config" take this one so the tokenize call lands on a dead port instead of a live
- * instance (which the test harness fails the file for contacting).
- */
-export const MOCK_OFFLINE_BASE_URL = 'http://127.0.0.1:1';
-
 export function mockOfflineSiftConfig(): SiftConfig {
-  return mockSiftConfig({ Runtime: { LlamaCpp: { BaseUrl: MOCK_OFFLINE_BASE_URL } } });
+  return mockSiftConfig({ Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL } } });
 }
 
 // A fully-populated ModelRuntimePreset for fixtures that need a preset snapshot

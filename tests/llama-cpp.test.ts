@@ -13,6 +13,7 @@ import { getErrorMessage } from '../src/lib/errors.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
 import { getAddressInfo } from './helpers/dashboard-http.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 
 test('listLlamaCppModels returns model list from server', async () => {
   await withTestEnvAndServer(async () => {
@@ -39,12 +40,12 @@ test('getLlamaCppProviderStatus returns unreachable when server is down', async 
     Backend: 'llama' as const,
     Runtime: {
       LlamaCpp: {
-        BaseUrl: 'http://127.0.0.1:1',
+        BaseUrl: DEAD_BASE_URL,
         NumCtx: 10000,
       },
     },
     LlamaCpp: {
-      BaseUrl: 'http://127.0.0.1:1',
+      BaseUrl: DEAD_BASE_URL,
     },
     Server: {
       ModelPresets: {

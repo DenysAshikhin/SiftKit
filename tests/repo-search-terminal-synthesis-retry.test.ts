@@ -3,20 +3,9 @@ import assert from 'node:assert/strict';
 
 import { runTaskLoop } from '../src/repo-search/engine.js';
 import type { JsonSerializable } from '../src/lib/json-types.js';
-import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
-import { mockOfflineSiftConfig } from './helpers/mock-config.js';
-import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
 
-// runTaskLoop requires repoRoot/model/baseUrl; the mock-provider path never reads the
-// model/baseUrl, and an empty temp repo produces the same empty listing the prior
-// (untyped) omission did — behaviour-equivalent defaults for these synthesis tests.
-const MOCK_LOOP_DEFAULTS = {
-  repoRoot: createManagedTempDir('siftkit-syn-loop-'),
-  model: 'mock-model',
-  baseUrl: 'http://127.0.0.1:1',
-  systemContext: createEmptyPresetSystemContext(),
-  config: mockOfflineSiftConfig(),
-};
+const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-syn-loop-');
 
 test('synthesis succeeds on attempt 1 sets finalOutput and logs a single result event', async () => {
   const events: Record<string, JsonSerializable>[] = [];

@@ -2,6 +2,7 @@ import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { getAddressInfo } from './helpers/dashboard-http.js';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 
 import {
   applyHostLlamaRuntimeSettings,
@@ -85,7 +86,7 @@ test('applyHostLlamaRuntimeSettings leaves the config untouched when this SiftKi
   resetHostLlamaSettingsCacheForTests();
   const config = makeClientConfig({
     externalServer: false,
-    baseUrl: 'http://127.0.0.1:1',
+    baseUrl: DEAD_BASE_URL,
     localNumCtx: 150_000,
   });
 
@@ -99,7 +100,7 @@ test('applyHostLlamaRuntimeSettings overlays the host SiftKit NumCtx/Reasoning/M
   resetHostLlamaSettingsCacheForTests();
   const hostConfig = makeClientConfig({
     externalServer: false,
-    baseUrl: 'http://127.0.0.1:1',
+    baseUrl: DEAD_BASE_URL,
     localNumCtx: 75_008,
   });
   const hostPreset = hostConfig.Server.ModelPresets.Presets[0];
@@ -138,7 +139,7 @@ test('applyHostLlamaRuntimeSettings overlays the host preset request fields onto
   resetHostLlamaSettingsCacheForTests();
   const hostConfig = makeClientConfig({
     externalServer: false,
-    baseUrl: 'http://127.0.0.1:1',
+    baseUrl: DEAD_BASE_URL,
     localNumCtx: 60_000,
     presetFields: {
       Temperature: 0.33,
@@ -202,7 +203,7 @@ test('applyHostLlamaRuntimeSettings makes host NumCtx/Reasoning visible to the e
   resetHostLlamaSettingsCacheForTests();
   const hostConfig = makeClientConfig({
     externalServer: false,
-    baseUrl: 'http://127.0.0.1:1',
+    baseUrl: DEAD_BASE_URL,
     localNumCtx: 65_536,
   });
   hostConfig.Runtime.LlamaCpp.Reasoning = 'on';
@@ -229,7 +230,7 @@ test('applyHostLlamaRuntimeSettings caches host settings and re-fetches after th
   resetHostLlamaSettingsCacheForTests();
   const hostConfig = makeClientConfig({
     externalServer: false,
-    baseUrl: 'http://127.0.0.1:1',
+    baseUrl: DEAD_BASE_URL,
     localNumCtx: 75_008,
   });
   const host = await startHostConfigServer(hostConfig);

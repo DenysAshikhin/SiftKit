@@ -8,7 +8,7 @@ import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/repo-search/planner-protocol
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
-import { DeadEndpointEnv } from './helpers/dead-endpoints.js';
+import { DEAD_BASE_URL, DeadEndpointEnv } from './helpers/dead-endpoints.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 // Execution posts run status; these tests assert on progress events only.
@@ -17,7 +17,7 @@ before(() => { deadEndpoints.apply(); });
 after(() => { deadEndpoints.restore(); });
 
 const MOCK_CONFIG = mockSiftConfig({
-  Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
+  Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL, NumCtx: 32000 } },
 });
 
 async function readRepoAgentMaxTurns(requestedMaxTurns?: number): Promise<number | undefined> {

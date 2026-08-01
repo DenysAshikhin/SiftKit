@@ -49,3 +49,16 @@ test('hygiene: no test creates a temp directory outside the managed registry', (
   );
   assert.deepEqual(offenders, []);
 });
+
+// `http://127.0.0.1:1` is the closed port sandboxed tests point at so an unstubbed
+// call fails fast with ECONNREFUSED instead of reaching the developer's live SiftKit.
+// It has exactly one definition, DEAD_BASE_URL in tests/helpers/dead-endpoints.ts;
+// inline copies drift the day the port changes. The needle is built from fragments
+// so this gate file does not match itself.
+test('hygiene: no test inlines the dead-port URL instead of importing DEAD_BASE_URL', () => {
+  const allowed = new Set([path.join(TESTS_DIR, 'helpers', 'dead-endpoints.ts')]);
+  const offenders = filesMatching(new RegExp("'http://127\\.0\\.0\\.1:" + "1'")).filter(
+    (file) => !allowed.has(file),
+  );
+  assert.deepEqual(offenders, []);
+});

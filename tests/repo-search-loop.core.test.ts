@@ -23,18 +23,10 @@ import { mockOfflineSiftConfig, mockSiftConfig } from './helpers/mock-config.js'
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
+import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
 
-// Mock-mode runTaskLoop calls do not reach a real provider or repo; these defaults
-// satisfy the required RunTaskLoopOptions fields with an empty repo root (behaviour-
-// equivalent to the values previously omitted while the file was untyped).
-const MOCK_LOOP_REPO_ROOT = createManagedTempDir('siftkit-mock-loop-');
-const MOCK_LOOP_DEFAULTS = {
-  repoRoot: MOCK_LOOP_REPO_ROOT,
-  model: 'mock-model',
-  baseUrl: 'http://127.0.0.1:1',
-  systemContext: createEmptyPresetSystemContext(),
-  config: mockOfflineSiftConfig(),
-};
+const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-mock-loop-');
 
 // These mock-mode loops read only Runtime.LlamaCpp. Build a real default config
 // and override those fields so the value is fully typed (no casts).
@@ -627,7 +619,7 @@ test('runTaskLoop logs provider request error details and surfaces enriched netw
         },
         {
           ...MOCK_LOOP_DEFAULTS,
-          baseUrl: 'http://127.0.0.1:1',
+          baseUrl: DEAD_BASE_URL,
           model: 'mock-model',
           config: mockConfig({ Runtime: { LlamaCpp: { BaseUrl: tokenizeBaseUrl } } }),
           timeoutMs: 500,

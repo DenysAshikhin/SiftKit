@@ -17,6 +17,7 @@ import {
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 
 // Mock-mode requests never reach a provider, but the request layer still derives its
 // model, samplers and budgets from a real config, so every call supplies one.
@@ -44,7 +45,7 @@ const APPROVE_MOCK = '{"verdict":"approve","reason":"ok"}';
 function verdictOptions(transcriptMessages: ChatMessage[], executing: ReturnType<typeof captureExecuting>) {
   return {
     config: MOCK_CONFIG,
-    baseUrl: 'http://127.0.0.1:1',
+    baseUrl: DEAD_BASE_URL,
     model: 'mock-model',
     transcriptMessages,
     question: 'approve?',
@@ -142,7 +143,7 @@ test('a task loop refuses an approval verdict before any planner request', async
         systemContext: createEmptyPresetSystemContext(),
         config: MOCK_CONFIG,
         model: 'mock-model',
-        baseUrl: 'http://127.0.0.1:1',
+        baseUrl: DEAD_BASE_URL,
         maxTurns: 1,
         minToolCallsBeforeFinish: 0,
         mockResponses: [],

@@ -6,6 +6,7 @@ import { JsonValueSchema, type JsonValue } from '../src/lib/json-types.js';
 import { TabbyModelClient } from '../src/status-server/tabby-model-client.js';
 import { getAddressInfo } from './helpers/dashboard-http.js';
 import { FakeTabbyModelState } from './helpers/tabby-fake.js';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 
 test('Tabby model client loads and unloads through validated lifecycle packets', async () => {
   const model = new FakeTabbyModelState();
@@ -151,7 +152,7 @@ test('Tabby model client propagates operation-specific authorization failures', 
 });
 
 test('Tabby process readiness returns false for connection failures', async () => {
-  assert.equal(await new TabbyModelClient('admin-secret').isProcessReady('http://127.0.0.1:1', 50), false);
+  assert.equal(await new TabbyModelClient('admin-secret').isProcessReady(DEAD_BASE_URL, 50), false);
 });
 
 test('Tabby model client rejects successful load when the model is not resident', async () => {

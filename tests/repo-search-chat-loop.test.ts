@@ -10,9 +10,10 @@ import { asObject } from './helpers/dashboard-http.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 
 const MOCK_CONFIG = mockSiftConfig({
-  Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
+  Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL, NumCtx: 32000 } },
 });
 
 async function closeServer(server: http.Server): Promise<void> {
@@ -35,7 +36,7 @@ test('runTaskLoop answers on turn 1 with zero tools in chat loopKind', async () 
       systemContext: createEmptyPresetSystemContext(),
       config: MOCK_CONFIG,
       model: 'mock',
-      baseUrl: 'http://127.0.0.1:1',
+      baseUrl: DEAD_BASE_URL,
       maxTurns: 4,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -58,7 +59,7 @@ test('chat loopKind with zero planner tools rejects repo-search tool actions', a
       systemContext: createEmptyPresetSystemContext(),
       config: MOCK_CONFIG,
       model: 'mock',
-      baseUrl: 'http://127.0.0.1:1',
+      baseUrl: DEAD_BASE_URL,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -88,7 +89,7 @@ test('chat mode streams finish output as answer events', async () => {
       systemContext: createEmptyPresetSystemContext(),
       config: MOCK_CONFIG,
       model: 'mock',
-      baseUrl: 'http://127.0.0.1:1',
+      baseUrl: DEAD_BASE_URL,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -114,7 +115,7 @@ test('tool token totals sum command output tokens', async () => {
       systemContext: createEmptyPresetSystemContext(),
       config: MOCK_CONFIG,
       model: 'mock',
-      baseUrl: 'http://127.0.0.1:1',
+      baseUrl: DEAD_BASE_URL,
       maxTurns: 2,
       maxInvalidResponses: 2,
       mockResponses: [
@@ -268,7 +269,7 @@ test('chat mode seeds system prompt override and history before the question', a
       systemContext: createEmptyPresetSystemContext(),
       config: MOCK_CONFIG,
       model: 'mock',
-      baseUrl: 'http://127.0.0.1:1',
+      baseUrl: DEAD_BASE_URL,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -307,7 +308,7 @@ test('chat loop sends replayed tool-call history before the new user message', a
       systemContext: createEmptyPresetSystemContext(),
       config: MOCK_CONFIG,
       model: 'mock',
-      baseUrl: 'http://127.0.0.1:1',
+      baseUrl: DEAD_BASE_URL,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -363,7 +364,7 @@ test('thinkingEnabledOverride=false forces enable_thinking:false in the planner 
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
       model: 'mock',
-      baseUrl: 'http://127.0.0.1:1',
+      baseUrl: DEAD_BASE_URL,
       maxTurns: 1,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
@@ -373,7 +374,7 @@ test('thinkingEnabledOverride=false forces enable_thinking:false in the planner 
       thinkingEnabledOverride: false,
       // Force config reasoning ON so the override is what matters:
       config: mockSiftConfig({
-        Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:1', NumCtx: 32000 } },
+        Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL, NumCtx: 32000 } },
         Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', Reasoning: 'on' }] } },
       }),
       mockResponses: ['{"action":"finish","output":"hi"}'],
@@ -396,7 +397,7 @@ test('runRepoSearch allows zero tools when allowEmptyTools is set', async () => 
     repoRoot: os.tmpdir(),
     systemContext: createEmptyPresetSystemContext(),
     config: MOCK_CONFIG,
-    baseUrl: 'http://127.0.0.1:1',
+    baseUrl: DEAD_BASE_URL,
     allowedTools: [],
     allowEmptyTools: true,
     loopKind: 'chat',
