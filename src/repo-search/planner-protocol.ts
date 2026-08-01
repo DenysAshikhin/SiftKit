@@ -348,7 +348,7 @@ export type PlannerThinkingFlags = {
 };
 
 export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFlags & {
-  config: SiftConfig | undefined;
+  config: SiftConfig;
   stage?: string;
   model: string;
   messageRoles: readonly string[];
@@ -358,8 +358,8 @@ export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFla
   responseSchemaName?: string;
   stream?: boolean;
 }): string {
-  const backend = options.config ? getActiveInferenceBackend(options.config) : 'llama';
-  const samplerDefaults = options.config ? buildPresetRequestDefaults(getActiveModelPreset(options.config)) : null;
+  const backend = getActiveInferenceBackend(options.config);
+  const samplerDefaults = buildPresetRequestDefaults(getActiveModelPreset(options.config));
   const stage = options.stage || 'planner_action';
   const toolDefinitions = Array.isArray(options.toolDefinitions) ? options.toolDefinitions : TOOL_DEFINITIONS;
   const defaultResponseSchema = stage === 'planner_action'
@@ -377,8 +377,8 @@ export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFla
     stage,
     model: options.model,
     max_tokens: options.maxTokens,
-    temperature: samplerDefaults?.temperature ?? 0,
-    top_p: samplerDefaults?.topP ?? 0,
+    temperature: samplerDefaults.temperature,
+    top_p: samplerDefaults.topP,
     chat_template_kwargs: {
       enable_thinking: Boolean(options.thinkingEnabled),
       ...(options.thinkingEnabled && options.reasoningContentEnabled ? { reasoning_content: true } : {}),
@@ -394,8 +394,8 @@ export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFla
 }
 
 export type PlannerRequestOptions = Partial<PlannerThinkingFlags> & {
-  /** Real runtime config; required for every non-mock request. Absent only in mock runs. */
-  config?: SiftConfig;
+  /** The active preset in here is the sole source of the request's model and samplers. */
+  config: SiftConfig;
   baseUrl: string;
   model: string;
   /**
@@ -546,11 +546,6 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
     return { text, thinkingText, mockExhausted: false, nextMockResponseIndex: index + 1 };
   }
 
-  const config = options.config;
-  if (!config) {
-    throw new Error('Planner request requires a SiftConfig; only mock runs may omit it.');
-  }
-
   const stage = options.stage || 'planner_action';
   const toolDefinitions = Array.isArray(options.toolDefinitions) ? options.toolDefinitions : TOOL_DEFINITIONS;
   const allowedToolNames = toolDefinitions.map((toolDefinition) => toolDefinition.function.name);
@@ -573,7 +568,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
   try {
     response = await retryProviderRequest(
       () => new LlamaCppClient().chat({
-        config,
+        config: options.config,
         baseUrl: options.baseUrl,
         model: options.model,
         messages: options.messages,
@@ -660,7 +655,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
 }
 
 export async function requestFinishValidation(options: Partial<PlannerThinkingFlags> & {
-  config?: SiftConfig;
+  config: SiftConfig;
   baseUrl: string;
   model: string;
   prompt: string;
@@ -738,7 +733,7 @@ const APPROVAL_VERDICT_MAX_TOKENS = 512;
 const APPROVAL_VERDICT_THINKING_MAX_TOKENS = 4096;
 
 export async function requestApprovalVerdict(options: {
-  config?: SiftConfig;
+  config: SiftConfig;
   baseUrl: string;
   model: string;
   transcriptMessages: ChatMessage[];
@@ -785,7 +780,7 @@ export async function requestApprovalVerdict(options: {
 }
 
 export async function requestTerminalSynthesis(options: Partial<PlannerThinkingFlags> & {
-  config?: SiftConfig;
+  config: SiftConfig;
   baseUrl: string;
   model: string;
   prompt: string;

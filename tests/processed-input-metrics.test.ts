@@ -7,7 +7,6 @@ import Database from 'better-sqlite3';
 import {
   ensureRunLogsTable,
   normalizeIdleSummarySnapshotRow,
-  type IdleSummarySnapshotDbRow,
 } from '../src/status-server/dashboard-runs.js';
 import {
   ensureIdleSummarySnapshotsTable,

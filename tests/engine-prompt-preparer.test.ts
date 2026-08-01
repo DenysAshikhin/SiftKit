@@ -10,6 +10,7 @@ import { SilentProgressWriter } from '../src/lib/progress-writer.js';
 import type { JsonSerializable } from '../src/lib/json-types.js';
 import type { ContextOverflowPolicy } from '../src/repo-search/engine/task-loop-support.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
+import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 
 function makePreparer(
   budget: TurnBudget,
@@ -20,7 +21,7 @@ function makePreparer(
   return new PromptPreparer({
     taskId: 't1',
     model: 'mock-model',
-    config: undefined,
+    config: mockOfflineSiftConfig(),
     useEstimatedTokensOnly: true,
     budget,
     plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),

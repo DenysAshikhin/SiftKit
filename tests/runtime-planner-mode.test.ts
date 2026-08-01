@@ -10,7 +10,6 @@ import {
   getConfiguredLlamaNumCtx,
   getEffectiveInputCharactersPerContextToken,
   summarizeRequest,
-  getPlannerPromptBudget,
   getChatRequestText,
   buildOversizedTransitionsInput,
   buildOversizedRunnerStateHistoryInput,
@@ -966,7 +965,6 @@ test('planner find_text and json_filter results use compact text blocks in promp
     const dumpPath = await withStubServerCapturingPlannerDebugDump(async (server) => {
       const config = await loadConfig({ ensure: true });
       const threshold = getChunkThresholdCharacters(config);
-      const plannerBudget = getPlannerPromptBudget(config);
       const inputText = buildOversizedTransitionsInput(threshold + 1000);
 
       const result = await summarizeRequest({

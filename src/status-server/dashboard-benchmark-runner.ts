@@ -1,5 +1,5 @@
 import type { ServerContext } from './server-types.js';
-import { normalizeConfig, readConfig, writeConfig } from './config-store.js';
+import { normalizeConfig, writeConfig } from './config-store.js';
 import { buildDashboardRunDetail, type RunRecord } from './dashboard-runs.js';
 import { JsonObjectSchema, type JsonObject } from '../lib/json-types.js';
 import { parseJsonValueText } from '../lib/json.js';
@@ -72,7 +72,6 @@ function applyCaseConfig(originalConfig: SiftConfig, attempt: BenchmarkAttemptRe
   const server = config.Server;
   const modelPresets = server.ModelPresets;
   const presets = modelPresets.Presets.map((entry) => ({ ...entry }));
-  const selectedPreset = presets.find((entry) => String(entry.id || '') === benchmarkCase.managedPresetId) || benchmarkCase.managedPreset;
   const updatedPresets = presets.map((entry) => (
     String(entry.id || '') === benchmarkCase.managedPresetId
       ? { ...entry, ...benchmarkCase.specOverride }

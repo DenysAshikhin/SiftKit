@@ -95,14 +95,10 @@ import {
   writePublishedStatus,
   clearIdleSummaryTimer,
   scheduleIdleSummaryIfNeeded,
-  acquireModelRequestWithWait,
-  releaseModelRequest,
-  ensureActivePresetReadyForModelRequest,
   enqueueDeferredArtifacts,
   getResolvedRequestId,
   clearRunState,
   logAbandonedRun,
-  hasActiveRuns,
   getIdleSummaryDatabase,
   wakeManagedLlamaForIncomingModelRequest,
   clearCompletedStatusRequestIdForDifferentRequest,
@@ -125,7 +121,6 @@ import {
 const llamaCppClient = new LlamaCppClient();
 /** Folds the per-cycle terminal-metadata drain wait into an entry and a resume line. */
 const terminalMetadataDrainSuppressor = new RepeatSuppressor();
-const DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_SECONDS = 240;
 
 type RepoSearchAdmissionRecord = {
   requestId: string;
@@ -670,7 +665,6 @@ class HealthEndpoint implements RouteEndpoint {
     _match: RouteMatch,
   ): Promise<void> {
     const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
     const startupPending = Boolean(ctx.bootstrapManagedLlamaStartup || ctx.managedLlamaStarting || ctx.managedLlamaStartupPromise);
     sendJson(res, startupPending ? 503 : 200, {
       ok: !startupPending,
@@ -693,8 +687,7 @@ class StatusReadEndpoint implements RouteEndpoint {
     res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
-    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const { configPath, statusPath } = ctx;
     const currentStatus = getPublishedStatusText(ctx);
     sendJson(res, 200, {
       running: currentStatus === STATUS_TRUE,
@@ -757,8 +750,6 @@ class PresetListEndpoint implements RouteEndpoint {
     res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
-    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
     try {
       const result = new StatusPresetRunner(ctx.engineService).listPresets();
       sendJson(res, 200, result);
@@ -1038,8 +1029,7 @@ class StatusCompleteEndpoint implements RouteEndpoint {
     res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
-    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    const { statusPath } = ctx;
     const routeStartedAt = Date.now();
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
@@ -1608,8 +1598,6 @@ class LlamaCppConfigTestEndpoint implements RouteEndpoint {
     res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
-    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
@@ -1660,7 +1648,7 @@ class ConfigReadEndpoint implements RouteEndpoint {
     res: ServerResponse,
     _match: RouteMatch,
   ): Promise<void> {
-    const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
+    const { configPath, disableManagedLlamaStartup } = ctx;
     const requestUrl = new URL(req.url || '/', 'http://localhost');
     const skipReady = requestUrl.searchParams.get('skip_ready') === '1';
     try {

@@ -27,7 +27,6 @@ import {
 } from '../config/normalization.js';
 import { SIFT_DEFAULT_LLAMA_MODEL } from '../config/constants.js';
 import type {
-  RuntimeLlamaCppConfig,
   ModelRuntimePreset,
   SiftConfig,
   WebSearchConfig,
@@ -117,7 +116,6 @@ function parseModelRuntimePresetArray(text: OptionalJsonValue): ModelRuntimePres
 
 function normalizeConfigToRow(config: SiftConfig): AppConfigRow {
   const normalized = normalizeConfig(JsonValueSchema.parse(config));
-  const runtime = normalized.Runtime;
   const thresholds = normalized.Thresholds;
   const interactive = normalized.Interactive;
   const modelPresets = normalized.Server.ModelPresets;

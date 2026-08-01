@@ -2,7 +2,6 @@ import type { Server } from 'node:http';
 import type { ChildProcess } from 'node:child_process';
 import type Database from 'better-sqlite3';
 import type { Metrics } from './metrics.js';
-import type { JsonObject } from '../lib/json-types.js';
 import type { ManagedLlamaSpeculativeMetricsSnapshot } from './managed-llama.js';
 import type { InferenceRunStreamKind } from '../state/inference-runs.js';
 import type { LlamaRunRecorder } from './llama-run-recorder.js';

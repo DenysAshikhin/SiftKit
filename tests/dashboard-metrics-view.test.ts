@@ -7,7 +7,6 @@ import {
   describeToolType,
   getGraphHoverIndex,
   sortToolMetricsByCalls,
-  type ToolMetricRow,
 } from '../dashboard/src/metrics-view.js';
 import type { TaskMetricDay, ToolStatsByTask } from '../dashboard/src/types.js';
 

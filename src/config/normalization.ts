@@ -1,7 +1,6 @@
 import { initializeRuntime } from './paths.js';
 import { ModelPresetFieldSchema, SiftPresetCollectionSchema } from '@siftkit/contracts';
 import {
-  SIFT_DEFAULT_LLAMA_BASE_URL,
   SIFT_DEFAULT_LLAMA_BATCH_SIZE,
   SIFT_DEFAULT_LLAMA_BIND_HOST,
   SIFT_DEFAULT_LLAMA_CACHE_RAM,
@@ -39,16 +38,6 @@ import { JsonRecordReader } from '../lib/json-record-reader.js';
 import { z } from '../lib/zod.js';
 
 const WEB_SEARCH_PROVIDER_IDS: readonly WebSearchProviderId[] = ['tavily', 'firecrawl'];
-const MANAGED_LLAMA_SPECULATIVE_TYPES: readonly ManagedLlamaSpeculativeType[] = [
-  'draft-simple',
-  'draft-eagle3',
-  'draft-mtp',
-  'ngram-simple',
-  'ngram-map-k',
-  'ngram-map-k4v',
-  'ngram-mod',
-  'ngram-cache',
-];
 const MAX_LLAMA_STARTUP_TIMEOUT_MS = 600_000;
 const INFERENCE_BACKEND_IDS: readonly InferenceBackendId[] = ['llama', 'exl3'];
 const SiftConfigSchema = z.custom<SiftConfig>((value) => JsonObjectSchema.safeParse(value).success);

@@ -14,16 +14,12 @@ import {
   assertConfiguredModelPresent,
   runRepoSearch,
 } from '../src/repo-search/engine.js';
-import {
-  preflightPlannerPromptBudget,
-  compactPlannerMessagesOnce,
-} from '../src/repo-search/prompt-budget.js';
 import { getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
 import { estimateTokenCount } from '../src/repo-search/prompt-budget.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import type { SiftConfig } from '../src/config/types.js';
-import { mockSiftConfig } from './helpers/mock-config.js';
+import { mockOfflineSiftConfig, mockSiftConfig } from './helpers/mock-config.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
@@ -37,6 +33,7 @@ const MOCK_LOOP_DEFAULTS = {
   model: 'mock-model',
   baseUrl: 'http://127.0.0.1:1',
   systemContext: createEmptyPresetSystemContext(),
+  config: mockOfflineSiftConfig(),
 };
 
 // These mock-mode loops read only Runtime.LlamaCpp. Build a real default config
@@ -75,24 +72,6 @@ function createTempRepoRoot(gitignoreText = '') {
   const root = createManagedTempDir('siftkit-repo-search-ignore-');
   fs.writeFileSync(path.join(root, '.gitignore'), gitignoreText, 'utf8');
   return root;
-}
-
-async function getFreePort(): Promise<number> {
-  return await new Promise<number>((resolve, reject) => {
-    const probe = http.createServer();
-    probe.once('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const address = probe.address();
-      const port = Number(address && typeof address === 'object' ? address.port : 0);
-      probe.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve(port);
-      });
-    });
-  });
 }
 
 // F14 (test-pyramid rebalance): pure-function decisions previously co-located here were
@@ -201,6 +180,7 @@ test('runTaskLoop passes a mixed-quote grep regex through to rg without shell ma
     {
       repoRoot,
       systemContext: createEmptyPresetSystemContext(),
+      config: mockOfflineSiftConfig(),
       model: 'mock-model',
       baseUrl: 'http://127.0.0.1:8097',
       maxTurns: 2,

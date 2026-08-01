@@ -8,12 +8,9 @@ import { parseJsonValueText } from '../src/lib/json.js';
 import { JsonObjectSchema, type JsonObject, type JsonSerializable } from '../src/lib/json-types.js';
 import { asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
 
-import { isTransientProviderError, retryProviderRequest } from '../src/lib/provider-helpers.js';
 import {
   runTaskLoop,
   buildScorecard,
-  assertConfiguredModelPresent,
-  runRepoSearch,
   type TaskResult,
 } from '../src/repo-search/engine.js';
 import { resolveRepoSearchPlannerToolDefinitions, type ChatMessage } from '../src/repo-search/planner-protocol.js';
@@ -23,7 +20,7 @@ import {
   compactPlannerMessagesOnce,
 } from '../src/repo-search/prompt-budget.js';
 import type { SiftConfig } from '../src/config/types.js';
-import { mockSiftConfig } from './helpers/mock-config.js';
+import { MOCK_OFFLINE_BASE_URL, mockOfflineSiftConfig, mockSiftConfig } from './helpers/mock-config.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
@@ -35,8 +32,9 @@ const MOCK_LOOP_REPO_ROOT = createManagedTempDir('siftkit-mock-loop-');
 const MOCK_LOOP_DEFAULTS = {
   repoRoot: MOCK_LOOP_REPO_ROOT,
   model: 'mock-model',
-  baseUrl: 'http://127.0.0.1:1',
+  baseUrl: MOCK_OFFLINE_BASE_URL,
   systemContext: createEmptyPresetSystemContext(),
+  config: mockOfflineSiftConfig(),
 };
 
 // Mock-mode loops read only a few config fields; the rest of SiftConfig is
@@ -923,31 +921,39 @@ test('compactPlannerMessagesOnce budgets provider prompt overhead while selectin
 
 test('runTaskLoop fails with planner_preflight_overflow before provider request when compaction cannot fit', async () => {
   const events: JsonObject[] = [];
-  await assert.rejects(
-    () => runTaskLoop(
-      {
-        id: 'task-preflight-overflow-hard-fail',
-        question: 'Q'.repeat(12000),
-        signals: [],
-      },
-      {
-        ...MOCK_LOOP_DEFAULTS,
-        baseUrl: 'http://127.0.0.1:1',
-        model: 'mock-model',
-        maxTurns: 1,
-        maxInvalidResponses: 1,
-        minToolCallsBeforeFinish: 0,
-        totalContextTokens: 7000,
-        logger: {
-          path: 'memory',
-          write(event: Record<string, JsonSerializable>) {
-            events.push(parseLoggedEvent(event));
-          },
+  // This loop has no mockResponses, so preflight tokenizes for real: point it at the 404
+  // stub so it falls back to the estimate instead of retrying a refused connection.
+  const notFound = await startNotFoundServer();
+  try {
+    await assert.rejects(
+      () => runTaskLoop(
+        {
+          id: 'task-preflight-overflow-hard-fail',
+          question: 'Q'.repeat(12000),
+          signals: [],
         },
-      }
-    ),
-    /planner_preflight_overflow/u
-  );
+        {
+          ...MOCK_LOOP_DEFAULTS,
+          baseUrl: MOCK_OFFLINE_BASE_URL,
+          model: 'mock-model',
+          config: mockLoopConfig({ Runtime: { LlamaCpp: { BaseUrl: notFound.baseUrl } } }),
+          maxTurns: 1,
+          maxInvalidResponses: 1,
+          minToolCallsBeforeFinish: 0,
+          totalContextTokens: 7000,
+          logger: {
+            path: 'memory',
+            write(event: Record<string, JsonSerializable>) {
+              events.push(parseLoggedEvent(event));
+            },
+          },
+        }
+      ),
+      /planner_preflight_overflow/u
+    );
+  } finally {
+    await notFound.close();
+  }
 
   const providerStart = events.find((event) => event.kind === 'provider_request_start');
   assert.equal(Boolean(providerStart), false);
@@ -994,6 +1000,13 @@ test('runTaskLoop includes planner provider reserve in dynamic output budget', a
   assert.equal(Number(budgetEvent?.maxOutputTokens) > 0, true);
 });
 
+// Multi-line grep output, like the real tool: the per-tool cap truncates line by line, so
+// each turn admits a cap's worth of evidence and the transcript grows until it overflows.
+// A single long line would be all-or-nothing and make the overflow turn a coin flip.
+function grepHitLines(directory: string, count: number): string {
+  return Array.from({ length: count }, (_, index) => `${directory}/file-${index}.ts:${index}: planner reference ${index}`).join('\n');
+}
+
 test('runTaskLoop applies one-pass compaction and continues when compacted prompt fits', async () => {
   const events: JsonObject[] = [];
   const result = await runTaskLoop(
@@ -1004,7 +1017,7 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
     },
     {
       ...MOCK_LOOP_DEFAULTS,
-      maxTurns: 10,
+      maxTurns: 14,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       totalContextTokens: 7200,
@@ -1017,17 +1030,21 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
         "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" scripts\"}",
         "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" examples\"}",
         "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" fixtures\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" bench\"}",
+        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" tools\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'git grep -n "planner" src': { exitCode: 0, stdout: Array.from({ length: 500 }, (_, index) => `a-${index}`).join(' '), stderr: '' },
-        'git grep -n "planner" lib': { exitCode: 0, stdout: Array.from({ length: 500 }, (_, index) => `b-${index}`).join(' '), stderr: '' },
-        'git grep -n "planner" test': { exitCode: 0, stdout: Array.from({ length: 500 }, (_, index) => `c-${index}`).join(' '), stderr: '' },
-        'git grep -n "planner" docs': { exitCode: 0, stdout: Array.from({ length: 500 }, (_, index) => `d-${index}`).join(' '), stderr: '' },
-        'git grep -n "planner" scripts': { exitCode: 0, stdout: Array.from({ length: 500 }, (_, index) => `e-${index}`).join(' '), stderr: '' },
-        'git grep -n "planner" examples': { exitCode: 0, stdout: Array.from({ length: 320 }, (_, index) => `f-${index}`).join(' '), stderr: '' },
-        'git grep -n "planner" fixtures': { exitCode: 0, stdout: Array.from({ length: 320 }, (_, index) => `g-${index}`).join(' '), stderr: '' },
+        'git grep -n "planner" src': { exitCode: 0, stdout: grepHitLines('src', 500), stderr: '' },
+        'git grep -n "planner" lib': { exitCode: 0, stdout: grepHitLines('lib', 500), stderr: '' },
+        'git grep -n "planner" test': { exitCode: 0, stdout: grepHitLines('test', 500), stderr: '' },
+        'git grep -n "planner" docs': { exitCode: 0, stdout: grepHitLines('docs', 500), stderr: '' },
+        'git grep -n "planner" scripts': { exitCode: 0, stdout: grepHitLines('scripts', 500), stderr: '' },
+        'git grep -n "planner" examples': { exitCode: 0, stdout: grepHitLines('examples', 500), stderr: '' },
+        'git grep -n "planner" fixtures': { exitCode: 0, stdout: grepHitLines('fixtures', 500), stderr: '' },
+        'git grep -n "planner" bench': { exitCode: 0, stdout: grepHitLines('bench', 500), stderr: '' },
+        'git grep -n "planner" tools': { exitCode: 0, stdout: grepHitLines('tools', 500), stderr: '' },
       },
       logger: {
         path: 'memory',

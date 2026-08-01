@@ -16,12 +16,9 @@ import { sleep } from '../lib/time.js';
 import { serverLogger } from './server-logger.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
 import {
-  bufferInferenceRunLogChunk,
-  createInferenceRun,
   flushInferenceRunLogChunks,
   readInferenceRunLogTextStatsByStream,
   readInferenceRunLogTextByStream,
-  updateInferenceRun,
   type InferenceRunStatus,
   type InferenceRunStreamKind,
 } from '../state/inference-runs.js';
@@ -49,7 +46,6 @@ import {
   resetPendingIdleSummaryMetadata,
 } from './server-ops.js';
 import {
-  appendManagedLlamaSpeculativeMetricsChunk,
   flushManagedLlamaSpeculativeMetricsTracker,
   getManagedLlamaSpeculativeMetricsTracker,
 } from './managed-llama-speculative-tracker.js';

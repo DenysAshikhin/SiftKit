@@ -47,6 +47,15 @@ function writeSse(res: http.ServerResponse, packets: string[]): void {
   res.end();
 }
 
+/** Consumes an SSE stream to completion and returns every frame it yielded. */
+async function drainSse(stream: AsyncIterable<SseFrame>): Promise<SseFrame[]> {
+  const frames: SseFrame[] = [];
+  for await (const frame of stream) {
+    frames.push(frame);
+  }
+  return frames;
+}
+
 test('HttpClient.requestJsonFull opens a fresh socket per sequential call (no keep-alive pooling)', async () => {
   const client = new HttpClient();
   const server = await startServer((req, res) => {
@@ -71,16 +80,14 @@ test('HttpClient.streamSse opens a fresh socket per sequential call', async () =
     writeSse(res, [JSON.stringify({ choices: [{ delta: { content: 'hi' } }] })]);
   });
   try {
-    for await (const _frame of client.streamSse({
+    const first = await drainSse(client.streamSse({
       url: `${server.baseUrl}/v1/chat/completions`, body: '{}', idleTimeoutMs: 5_000,
-    })) {
-      // Drain the first stream.
-    }
-    for await (const _frame of client.streamSse({
+    }));
+    const second = await drainSse(client.streamSse({
       url: `${server.baseUrl}/v1/chat/completions`, body: '{}', idleTimeoutMs: 5_000,
-    })) {
-      // Drain the second stream.
-    }
+    }));
+    assert.equal(first.length, 2);
+    assert.equal(second.length, 2);
     assert.equal(server.connectionCount(), 2);
   } finally {
     await server.close();
@@ -143,11 +150,9 @@ test('HttpClient.streamSse rejects with HttpResponseError carrying status and bo
   });
   try {
     const iterate = async (): Promise<void> => {
-      for await (const _frame of client.streamSse({
+      await drainSse(client.streamSse({
         url: `${server.baseUrl}/v1/chat/completions`, body: '{}', idleTimeoutMs: 5_000,
-      })) {
-        // Drain the stream.
-      }
+      }));
     };
     await assert.rejects(
       iterate,
@@ -172,13 +177,15 @@ test('HttpClient.streamSse rejects with the abort reason when the signal aborts 
   });
   try {
     const controller = new AbortController();
+    const frames: SseFrame[] = [];
     const iterate = async (): Promise<void> => {
-      for await (const _frame of client.streamSse({
+      for await (const frame of client.streamSse({
         url: `${server.baseUrl}/v1/chat/completions`,
         body: '{}',
         idleTimeoutMs: 5_000,
         abortSignal: controller.signal,
       })) {
+        frames.push(frame);
         controller.abort(new Error('caller cancelled the stream'));
       }
     };
@@ -186,6 +193,8 @@ test('HttpClient.streamSse rejects with the abort reason when the signal aborts 
       iterate,
       /caller cancelled the stream/u,
     );
+    // The partial delta must have been delivered before the abort took effect.
+    assert.equal(frames.length, 1);
   } finally {
     await server.close();
   }
@@ -200,11 +209,14 @@ test('HttpClient.streamSse destroys the request when iteration stops early', asy
     req.on('close', () => { requestClosed = true; });
   });
   try {
-    for await (const _frame of client.streamSse({
+    const frames: SseFrame[] = [];
+    for await (const frame of client.streamSse({
       url: `${server.baseUrl}/v1/chat/completions`, body: '{}', idleTimeoutMs: 5_000,
     })) {
+      frames.push(frame);
       break;
     }
+    assert.equal(frames.length, 1);
     await new Promise((resolve) => setTimeout(resolve, 100));
     assert.equal(requestClosed, true);
   } finally {
@@ -220,11 +232,9 @@ test('HttpClient.streamSse applies an idle timeout to a silent stream', async ()
   });
   try {
     const iterate = async (): Promise<void> => {
-      for await (const _frame of client.streamSse({
+      await drainSse(client.streamSse({
         url: `${server.baseUrl}/operation`, body: '{}', idleTimeoutMs: 100,
-      })) {
-        // Drain until the connection becomes idle.
-      }
+      }));
     };
     await assert.rejects(iterate, /timed out after 100 ms/u);
   } finally {

@@ -7,7 +7,6 @@ import {
   getPresetFamily,
 } from '../dashboard/src/dashboard-presets.js';
 import type { ChatSession, DashboardConfig, DashboardPreset } from '../dashboard/src/types.js';
-import { normalizeConfigObject } from '../src/config/normalization.js';
 import { getTestExl3Engine, getTestInferenceConfig } from './helpers/runtime-config.js';
 
 function createPreset(id: string, overrides: Partial<DashboardPreset> = {}): DashboardPreset {

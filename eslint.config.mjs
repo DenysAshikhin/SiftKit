@@ -15,6 +15,16 @@ const TYPING_RULES = {
     'error', { assertionStyle: 'never' },
   ],
   '@typescript-eslint/no-explicit-any': 'error',
+  // tsc's noUnusedLocals is off (it would fail the editor mid-edit), so nothing else
+  // catches an import or binding a refactor stopped using. Dead references keep
+  // deleted concepts looking alive; a refactor must leave none behind.
+  // Unused function parameters are position-bound in an interface implementation and
+  // `const { dropped, ...rest }` is the idiomatic omit, so neither counts as dead.
+  // There is deliberately no varsIgnorePattern: an unused variable has a real fix.
+  '@typescript-eslint/no-unused-vars': [
+    'error',
+    { args: 'none', caughtErrors: 'none', ignoreRestSiblings: true },
+  ],
   'no-restricted-syntax': [
     'error',
     {
@@ -47,6 +57,7 @@ export default tseslint.config(
       'tests/fixtures/eslint-gate/explicit-any.ts',
       'tests/fixtures/eslint-gate/explicit-unknown.ts',
       'tests/fixtures/eslint-gate/broad-json-union.ts',
+      'tests/fixtures/eslint-gate/unused-var.ts',
       'tests/fixtures/eslint-gate/declaration.d.ts',
     ],
   },

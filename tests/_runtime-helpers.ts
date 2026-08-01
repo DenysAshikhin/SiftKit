@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import { spawn, spawnSync, type SpawnOptions } from 'node:child_process';
 import type { AddressInfo } from 'node:net';
 import Database from 'better-sqlite3';
 import { z } from '../src/lib/zod.js';
@@ -13,7 +13,7 @@ import { toError } from '../src/lib/errors.js';
 import { isJsonObject, JsonValueSchema, type JsonObject, type JsonValue } from '../src/lib/json-types.js';
 import { getActiveModelPreset } from '../src/config/getters.js';
 import { normalizeConfigObject } from '../src/config/normalization.js';
-import { mockSiftConfig, asRuntimeSiftConfig } from './helpers/mock-config.js';
+import { mockSiftConfig } from './helpers/mock-config.js';
 import { DEAD_CONFIG_SERVICE_URL, DEAD_STATUS_BACKEND_URL } from './helpers/dead-endpoints.js';
 import { EnvBackup } from './helpers/env-backup.js';
 import {
@@ -28,6 +28,7 @@ import {
   clone,
   toJsonValue,
   getChatRequestText,
+  ChatRequestSchema,
   type ChatRequest,
   type AssistantResponder,
   setManagedLlamaBaseUrl,
@@ -538,7 +539,10 @@ async function waitForTextMatch(getText: () => string, pattern: RegExp, timeoutM
 
 async function startStubStatusServer(options: StubServerOptions = {}): Promise<StubServer> {
   const state: StubServerState = {
-    config: asRuntimeSiftConfig(mergeConfig(toJsonValue(getDefaultConfig()), options.config || {})),
+    // Normalized like the real config store: a merged-in preset literal carries only the
+    // fields the caller named, and serving that half-filled preset would hand the code
+    // under test a config the product could never produce.
+    config: normalizeConfigObject(mergeConfig(toJsonValue(getDefaultConfig()), options.config || {})),
     statusPosts: [],
     artifactPosts: [],
     chatRequests: [],
@@ -715,7 +719,7 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
 
     if (req.method === 'POST' && req.url === '/v1/chat/completions') {
       const bodyText = await readBody(req);
-      const parsed = bodyText ? JSON.parse(bodyText) : {};
+      const parsed = ChatRequestSchema.parse(bodyText ? JsonValueSchema.parse(JSON.parse(bodyText)) : { messages: [] });
       const promptText = getChatRequestText(parsed);
       state.chatRequests.push(parsed);
       if (Number.isFinite(options.chatDelayMs) && Number(options.chatDelayMs) > 0) {
@@ -787,7 +791,7 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
     if (req.method === 'PUT' && req.url === '/config') {
       const bodyText = await readBody(req);
       const parsed = bodyText ? JSON.parse(bodyText) : {};
-      state.config = asRuntimeSiftConfig(mergeConfig(toJsonValue(getDefaultConfig()), parsed));
+      state.config = normalizeConfigObject(mergeConfig(toJsonValue(getDefaultConfig()), parsed));
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(state.config));
       return;

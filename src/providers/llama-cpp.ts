@@ -1,7 +1,6 @@
 import {
   getConfiguredLlamaBaseUrl,
   getConfiguredLlamaNumCtx,
-  type RuntimeLlamaCppConfig,
   type SiftConfig,
 } from '../config/index.js';
 import {

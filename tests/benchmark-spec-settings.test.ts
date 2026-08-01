@@ -5,7 +5,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 
-import type { DashboardConfig } from '../dashboard/src/types';
 import { mockConfig } from './_runtime-helpers.js';
 import { readPackageJson } from './helpers/package-json.js';
 import { mockRunRecord } from './helpers/mock-run-record.js';

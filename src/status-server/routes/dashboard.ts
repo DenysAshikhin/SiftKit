@@ -29,7 +29,6 @@ import {
   previewDashboardRunLogDeletion,
   deleteDashboardRunLogs,
   type DashboardRunLogDeleteCriteria,
-  type DashboardRunLogType,
   type IdleSummarySnapshotRow,
 } from '../dashboard-runs.js';
 import { queryRecentSnapshots } from '../idle-summary.js';
@@ -184,10 +183,7 @@ class DashboardRunsEndpoint implements RouteEndpoint {
     res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
-    const pathname = match.pathname;
     const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
     const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const query = requestUrl.searchParams;
     const search = (query.get('search') || '').trim().toLowerCase();
@@ -218,9 +214,6 @@ class DashboardRunDetailEndpoint implements RouteEndpoint {
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
     const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const runId = decodeURIComponent(pathname.replace(/^\/dashboard\/runs\//u, ''));
     const detail = idleSummaryDatabase ? queryDashboardRunDetailFromDb(idleSummaryDatabase, runId) : null;
@@ -240,10 +233,7 @@ class DashboardMetricsTimeseriesEndpoint implements RouteEndpoint {
     res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
-    const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
     const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
     const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const config = readConfig(ctx.configPath);
     const days = buildDashboardDailyMetrics(
@@ -266,11 +256,6 @@ class DashboardWebSearchQuotaEndpoint implements RouteEndpoint {
     res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
-    const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const config = readConfig(ctx.configPath);
     const webSearchConfig: WebSearchConfig = config.WebSearch ?? {
       ...DEFAULT_WEB_SEARCH_CONFIG,
@@ -289,11 +274,8 @@ class DashboardIdleSummaryEndpoint implements RouteEndpoint {
     res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
-    const pathname = match.pathname;
     const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
     const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     if (!existsSync(idleSummarySnapshotsPath)) {
       sendJson(res, 200, { latest: null, snapshots: [] } satisfies IdleSummaryResponse);
       return;
@@ -316,11 +298,6 @@ class BenchmarkQuestionPresetListEndpoint implements RouteEndpoint {
     res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
-    const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     seedBenchmarkQuestionPresets();
     sendJson(res, 200, { presets: listBenchmarkQuestionPresets({ includeDisabled: true }) } satisfies DashboardBenchmarkQuestionPresetsResponse);
     return;
@@ -334,11 +311,6 @@ class BenchmarkQuestionPresetCreateEndpoint implements RouteEndpoint {
     res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
-    const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));
@@ -369,10 +341,6 @@ class BenchmarkQuestionPresetMutationEndpoint implements RouteEndpoint {
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const presetId = decodeURIComponent(pathname.replace(/^\/dashboard\/benchmark\/question-presets\//u, ''));
     if (req.method === 'DELETE') {
       sendJson(res, 200, { ok: true, deleted: deleteBenchmarkQuestionPreset(presetId), id: presetId });
@@ -412,11 +380,7 @@ class BenchmarkSessionListEndpoint implements RouteEndpoint {
     res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
-    const pathname = match.pathname;
     const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const limitValue = Number(requestUrl.searchParams.get('limit') || 50);
     const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(500, Math.trunc(limitValue))) : 50;
     const status = BenchmarkSessionStatusFilterSchema.parse(String(requestUrl.searchParams.get('status') || '').trim());
@@ -432,11 +396,6 @@ class BenchmarkSessionCreateEndpoint implements RouteEndpoint {
     res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
-    const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     if (hasActiveBenchmarkJob()) {
       sendJson(res, 409, { error: 'A benchmark session is already running.' });
       return;
@@ -475,10 +434,6 @@ class BenchmarkSessionEventsEndpoint implements RouteEndpoint {
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/benchmark\/sessions\//u, '').replace(/\/events$/u, ''));
     const sseWriter = new SseResponseWriter(req, res);
     sseWriter.open();
@@ -502,10 +457,6 @@ class BenchmarkSessionDetailEndpoint implements RouteEndpoint {
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/benchmark\/sessions\//u, ''));
     const detail = readBenchmarkSessionDetail(sessionId);
     if (!detail) {
@@ -529,10 +480,6 @@ class BenchmarkSessionCancelEndpoint implements RouteEndpoint {
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/benchmark\/sessions\//u, '').replace(/\/cancel$/u, ''));
     sendJson(res, 200, { ok: true, cancelled: cancelBenchmarkJob(sessionId), id: sessionId });
     return;
@@ -547,10 +494,6 @@ class BenchmarkAttemptGradeEndpoint implements RouteEndpoint {
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const attemptId = decodeURIComponent(pathname.replace(/^\/dashboard\/benchmark\/attempts\//u, '').replace(/\/grade$/u, ''));
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
@@ -586,10 +529,6 @@ class RunLogsPreviewEndpoint implements RouteEndpoint {
     res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
-    const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
     const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
@@ -618,10 +557,6 @@ class RunLogsDeleteEndpoint implements RouteEndpoint {
     res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
-    const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
     const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
@@ -650,11 +585,7 @@ class ManagedLlamaRunsEndpoint implements RouteEndpoint {
     res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
-    const pathname = match.pathname;
     const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const limitValue = Number(requestUrl.searchParams.get('limit') || 100);
     const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(500, Math.trunc(limitValue))) : 100;
     const status = InferenceRunStatusFilterSchema.parse(String(requestUrl.searchParams.get('status') || '').trim());
@@ -672,10 +603,6 @@ class ManagedLlamaRunDetailEndpoint implements RouteEndpoint {
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const runId = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/managed-llama\/runs\//u, ''));
     const run = readInferenceRun(runId);
     if (!run) {
@@ -696,10 +623,6 @@ class ManagedLlamaRunDeleteEndpoint implements RouteEndpoint {
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const runId = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/managed-llama\/runs\//u, ''));
     sendJson(res, 200, { ok: true, deleted: deleteInferenceRun(runId), id: runId });
     return;
@@ -713,11 +636,7 @@ class BenchmarkMatrixSessionsEndpoint implements RouteEndpoint {
     res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
-    const pathname = match.pathname;
     const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const limitValue = Number(requestUrl.searchParams.get('limit') || 100);
     const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(500, Math.trunc(limitValue))) : 100;
     const status = BenchmarkMatrixSessionStatusFilterSchema.parse(String(requestUrl.searchParams.get('status') || '').trim());
@@ -735,10 +654,6 @@ class BenchmarkMatrixSessionDetailEndpoint implements RouteEndpoint {
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/benchmark-matrix\/sessions\//u, ''));
     const session = readBenchmarkMatrixSession(sessionId);
     if (!session) {
@@ -762,10 +677,6 @@ class BenchmarkMatrixSessionDeleteEndpoint implements RouteEndpoint {
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/benchmark-matrix\/sessions\//u, ''));
     sendJson(res, 200, { ok: true, deleted: deleteBenchmarkMatrixSession(sessionId), id: sessionId });
     return;
@@ -779,11 +690,7 @@ class BenchmarkRunsEndpoint implements RouteEndpoint {
     res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
-    const pathname = match.pathname;
     const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const limitValue = Number(requestUrl.searchParams.get('limit') || 100);
     const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(500, Math.trunc(limitValue))) : 100;
     sendJson(res, 200, { rows: listBenchmarkRuns({ limit }) });
@@ -799,10 +706,6 @@ class BenchmarkRunDetailEndpoint implements RouteEndpoint {
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const id = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/benchmark-runs\//u, ''));
     const row = readBenchmarkRun(id);
     if (!row) {
@@ -822,10 +725,6 @@ class BenchmarkRunDeleteEndpoint implements RouteEndpoint {
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const id = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/benchmark-runs\//u, ''));
     sendJson(res, 200, { ok: true, deleted: deleteBenchmarkRun(id), id });
     return;
@@ -839,11 +738,7 @@ class EvalResultsEndpoint implements RouteEndpoint {
     res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
-    const pathname = match.pathname;
     const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const limitValue = Number(requestUrl.searchParams.get('limit') || 100);
     const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(500, Math.trunc(limitValue))) : 100;
     sendJson(res, 200, { rows: listEvalResults({ limit }) });
@@ -859,10 +754,6 @@ class EvalResultDetailEndpoint implements RouteEndpoint {
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const id = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/eval-results\//u, ''));
     const row = readEvalResult(id);
     if (!row) {
@@ -882,10 +773,6 @@ class EvalResultDeleteEndpoint implements RouteEndpoint {
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const id = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/eval-results\//u, ''));
     sendJson(res, 200, { ok: true, deleted: deleteEvalResult(id), id });
     return;
@@ -899,11 +786,7 @@ class RuntimeArtifactsEndpoint implements RouteEndpoint {
     res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
-    const pathname = match.pathname;
     const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const limitValue = Number(requestUrl.searchParams.get('limit') || 200);
     const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(1000, Math.trunc(limitValue))) : 200;
     const artifactKind = String(requestUrl.searchParams.get('kind') || '').trim();
@@ -927,10 +810,6 @@ class RuntimeArtifactDetailEndpoint implements RouteEndpoint {
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const id = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/runtime-artifacts\//u, ''));
     const row = readRuntimeArtifact(id);
     if (!row) {
@@ -950,10 +829,6 @@ class RuntimeArtifactDeleteEndpoint implements RouteEndpoint {
     match: RouteMatch,
   ): Promise<void> {
     const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     const id = decodeURIComponent(pathname.replace(/^\/dashboard\/admin\/runtime-artifacts\//u, ''));
     sendJson(res, 200, { ok: true, deleted: deleteRuntimeArtifact(id), id });
     return;
@@ -967,11 +842,6 @@ class SystemPickFileEndpoint implements RouteEndpoint {
     res: ServerResponse,
     match: RouteMatch,
   ): Promise<void> {
-    const pathname = match.pathname;
-    const requestUrl = new URL(req.url || '/', 'http://localhost');
-    const runtimeRoot = getRuntimeRoot();
-    const { idleSummarySnapshotsPath } = ctx;
-    const idleSummaryDatabase = getIdleSummaryDatabase(ctx);
     let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
       parsedBody = parseJsonBody(await readBody(req));

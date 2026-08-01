@@ -9,13 +9,11 @@ import { httpClient, HttpResponseError, LlamaHttpError, type FullJsonResponse } 
 import { parseJsonObjectText } from '../lib/json.js';
 import {
   buildTransientProviderHttpError,
-  buildProviderErrorMessage,
   getCompletionUsageFromResponseBody,
   getPromptUsageFromResponseBody,
   getSpeculativeUsageFromResponseBody,
   getTimingUsageFromResponseBody,
   isTransientProviderHttpResponse,
-  serializeNetworkError,
   retryProviderRequest,
 } from '../lib/provider-helpers.js';
 import { getNormalizedCompletionTokens } from '../lib/telemetry-metrics.js';
@@ -129,7 +127,6 @@ const RawTokenizeResponseSchema = z.object({
   n_tokens: z.number().optional(),
   tokens: z.array(JsonValueSchema).optional(),
 });
-type RawTokenizeResponse = z.infer<typeof RawTokenizeResponseSchema>;
 
 const RawModelReferenceSchema = z.object({
   id: z.string().optional(),
@@ -142,7 +139,6 @@ const RawModelListResponseSchema = z.object({
   models: z.array(RawModelEntrySchema).optional(),
 });
 type RawModelEntry = z.infer<typeof RawModelEntrySchema>;
-type RawModelListResponse = z.infer<typeof RawModelListResponseSchema>;
 const inferenceRequestBuilder = new InferenceRequestBuilder();
 const exl3RequestGate = new SingleRequestGate();
 

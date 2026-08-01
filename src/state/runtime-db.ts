@@ -35,7 +35,6 @@ const ChatPresetSnapshotSessionRowSchema = z.object({
 });
 
 export const CURRENT_SCHEMA_VERSION = 37;
-const METRICS_TASK_KINDS = ['summary', 'plan', 'repo-search', 'chat'] as const;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["read","grep","find","ls","git"],"full":[]}';
 const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
 

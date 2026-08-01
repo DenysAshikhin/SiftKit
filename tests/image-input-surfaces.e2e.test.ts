@@ -1,6 +1,5 @@
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import { rmSync, writeFileSync } from 'node:fs';

@@ -29,7 +29,6 @@ import {
   applyHostLlamaRuntimeSettings,
   getActiveModelPreset,
   getConfiguredLlamaBaseUrl,
-  getConfiguredLlamaNumCtx,
   getConfiguredReasoning,
   notifyStatusBackend,
   SIFT_DEFAULT_LLAMA_BASE_URL,
@@ -46,7 +45,6 @@ import {
   resolveChatSessionModel,
   resolveChatSessionContextWindow,
   resolveChatSessionConfig,
-  type ContextUsage,
   type ChatUsage,
   type PersistTurn,
   appendChatMessagesWithUsage,
@@ -103,7 +101,6 @@ import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.
 import type { ServerContext } from '../server-types.js';
 import { ProgressWriter } from '../../lib/progress-writer.js';
 
-const DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_MS = 30_000;
 
 async function readEffectiveChatRouteConfig(configPath: string): Promise<SiftConfig> {
   const localConfig = readConfig(configPath);
@@ -366,7 +363,6 @@ class ListChatSessionsEndpoint implements RouteEndpoint {
     res: ServerResponse,
     routeMatch: RouteMatch,
   ): Promise<void> {
-    const pathname = routeMatch.pathname;
     const { configPath } = ctx;
     const runtimeRoot = getRuntimeRoot();
     const config = readConfig(configPath);
@@ -472,7 +468,6 @@ class DeleteChatSessionEndpoint implements RouteEndpoint {
     routeMatch: RouteMatch,
   ): Promise<void> {
     const pathname = routeMatch.pathname;
-    const { configPath } = ctx;
     const runtimeRoot = getRuntimeRoot();
     const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, ''));
     const deleted = deleteChatSession(runtimeRoot, sessionId);
@@ -524,7 +519,6 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
     res: ServerResponse,
     routeMatch: RouteMatch,
   ): Promise<void> {
-    const pathname = routeMatch.pathname;
     const { configPath } = ctx;
     const runtimeRoot = getRuntimeRoot();
     let parsedBody: ReturnType<typeof parseJsonBody>;

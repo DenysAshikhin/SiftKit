@@ -13,7 +13,6 @@ import {
   writeManagedLlamaScripts,
   getFreePort,
   waitForAsyncExpectation,
-  startStatusServerProcess,
 } from './_runtime-helpers.js';
 import { requestJson, asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
 import { requestSse } from './helpers/sse-http.js';

@@ -12,7 +12,7 @@ import { ApprovalGate } from '../src/repo-search/engine/approval-gate.js';
 import { ProgressWriter, SilentProgressWriter } from '../src/lib/progress-writer.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { asObject, asArray, getAddressInfo } from './helpers/dashboard-http.js';
-import { mockSiftConfig } from './helpers/mock-config.js';
+import { mockOfflineSiftConfig, mockSiftConfig } from './helpers/mock-config.js';
 import { INTERACTIVE_REPO_TOOL_NAMES, resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import type { JsonSerializable } from '../src/lib/json-types.js';
@@ -78,6 +78,7 @@ function makeAutoLoopOptions(
     model: 'mock-model',
     baseUrl: 'http://127.0.0.1:1',
     systemContext: createEmptyPresetSystemContext(),
+    config: mockOfflineSiftConfig(),
     maxTurns: 4,
     minToolCallsBeforeFinish: 0,
     mockResponses,
@@ -358,6 +359,7 @@ test('auto mode without a human gate fails loudly at construction', async () => 
       runTaskLoop(makeTask('write a file'), {
         repoRoot: tempRoot,
         systemContext: createEmptyPresetSystemContext(),
+        config: mockOfflineSiftConfig(),
         model: 'mock-model',
         baseUrl: 'http://127.0.0.1:1',
         maxTurns: 4,

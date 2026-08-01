@@ -222,7 +222,6 @@ export function getSessionTelemetryStats(session: ChatSession | null): {
       generatedTokensForRateTotal += generatedTokens;
     }
   }
-  const totalPromptTokens = promptCacheTokens + promptEvalTokens;
   return {
     promptCacheTokens,
     promptEvalTokens,

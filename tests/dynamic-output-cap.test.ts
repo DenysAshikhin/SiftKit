@@ -12,7 +12,7 @@ function configWithMaxTokens(maxTokens: number): SiftConfig {
   });
 }
 
-// Normalization repairs a non-positive MaxTokens, so the guard branch needs a raw object.
+// Normalization repairs a non-positive MaxTokens, so the loud-failure branch needs a raw object.
 function configWithRawMaxTokens(maxTokens: number): SiftConfig {
   const base = configWithMaxTokens(15_000);
   return asRuntimeSiftConfig(JsonValueSchema.parse({
@@ -35,12 +35,18 @@ test('clampToPresetMaxTokens keeps the dynamic value when below the preset cap',
   assert.equal(clampToPresetMaxTokens(configWithMaxTokens(15_000), 1234), 1234);
 });
 
-test('clampToPresetMaxTokens passes the value through unchanged when config is undefined', () => {
-  assert.equal(clampToPresetMaxTokens(undefined, 777), 777);
+test('clampToPresetMaxTokens throws on a non-positive preset MaxTokens instead of capping at 1', () => {
+  assert.throws(
+    () => clampToPresetMaxTokens(configWithRawMaxTokens(0), 100),
+    /Active model preset "default" has an invalid MaxTokens: 0/,
+  );
 });
 
-test('clampToPresetMaxTokens never returns less than 1', () => {
-  assert.equal(clampToPresetMaxTokens(configWithRawMaxTokens(0), 100), 1);
+test('clampToPresetMaxTokens throws on a fractional preset MaxTokens', () => {
+  assert.throws(
+    () => clampToPresetMaxTokens(configWithRawMaxTokens(12.5), 100),
+    /Active model preset "default" has an invalid MaxTokens: 12.5/,
+  );
 });
 
 test('clampToPresetMaxTokens composes with getDynamicMaxOutputTokens', () => {

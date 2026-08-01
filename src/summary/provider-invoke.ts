@@ -8,7 +8,6 @@ import { traceSummary } from './artifacts.js';
 import type {
   SummaryPhase,
   SummaryProviderId,
-  SummaryRequest,
 } from './types.js';
 
 export type ProviderSummaryMetrics = {

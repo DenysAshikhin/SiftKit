@@ -36,9 +36,8 @@ import {
   getPlannerToolName,
   type PlannerToolResult,
 } from './tools.js';
-import { createPlannerDebugRecorder, buildPlannerFailureErrorMessage, traceSummary } from '../artifacts.js';
+import { createPlannerDebugRecorder, traceSummary } from '../artifacts.js';
 import {
-  buildPlannerAssistantToolMessage,
   buildPlannerForcedFinishUserPrompt,
   buildPlannerInputSection,
   buildPlannerInvalidResponseUserPrompt,
@@ -63,13 +62,11 @@ import type {
   SummaryClassification,
   StructuredModelDecision,
   SummaryProviderId,
-  SummaryRequest,
   SummarySourceKind,
 } from '../types.js';
 import {
   buildRepeatedToolCallSummary,
   buildPromptToolResult,
-  buildToolReplayFingerprint,
   classifyToolResultNovelty,
   fingerprintToolCall,
 } from '../../tool-loop-governor.js';

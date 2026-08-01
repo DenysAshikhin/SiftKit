@@ -11,7 +11,7 @@ import { WebResearchTools } from '../src/web-search/web-research-tools.js';
 import { TavilySearchProvider } from '../src/web-search/tavily-search-provider.js';
 import { FirecrawlSearchProvider } from '../src/web-search/firecrawl-search-provider.js';
 import { createWebSearchProviders, WebSearchProvider, type WebSearchProviderOptions } from '../src/web-search/web-search-provider.js';
-import type { ProviderQuota, WebSearchConfig, WebSearchResult, WebSearchToolArgs } from '../src/web-search/types.js';
+import type { ProviderQuota, WebSearchConfig, WebSearchResult } from '../src/web-search/types.js';
 import type { HttpClient } from '../src/lib/http-client.js';
 
 const webConfig: WebSearchConfig = {

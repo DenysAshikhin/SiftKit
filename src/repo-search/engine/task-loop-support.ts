@@ -148,7 +148,8 @@ export type RunTaskLoopOptions = {
   repoRoot: string;
   model: string;
   baseUrl: string;
-  config?: SiftConfig;
+  /** The loop's single source of model, samplers and budgets — mock runs supply one too. */
+  config: SiftConfig;
   totalContextTokens?: number;
   timeoutMs?: number;
   maxTurns?: number;
@@ -175,21 +176,21 @@ export type RunTaskLoopOptions = {
   timingRecorder?: TemporaryTimingRecorder | null;
 };
 
-function isPlannerReasoningEnabled(config: SiftConfig | undefined): boolean {
-  return config ? getActiveModelPreset(config).Reasoning === 'on' : false;
+function isPlannerReasoningEnabled(config: SiftConfig): boolean {
+  return getActiveModelPreset(config).Reasoning === 'on';
 }
 
-function isPlannerReasoningContentEnabled(config: SiftConfig | undefined): boolean {
-  return isPlannerReasoningEnabled(config) && (config ? getActiveModelPreset(config).ReasoningContent : false);
+function isPlannerReasoningContentEnabled(config: SiftConfig): boolean {
+  return isPlannerReasoningEnabled(config) && getActiveModelPreset(config).ReasoningContent;
 }
 
-function isPlannerPreserveThinkingEnabled(config: SiftConfig | undefined): boolean {
-  return isPlannerReasoningContentEnabled(config) && (config ? getActiveModelPreset(config).PreserveThinking : false);
+function isPlannerPreserveThinkingEnabled(config: SiftConfig): boolean {
+  return isPlannerReasoningContentEnabled(config) && getActiveModelPreset(config).PreserveThinking;
 }
 
 /** The one place the prefix-affecting rendering flags are derived from config. */
 export function resolvePlannerThinkingFlags(
-  config: SiftConfig | undefined,
+  config: SiftConfig,
   thinkingEnabledOverride?: boolean,
 ): PlannerThinkingFlags {
   const thinkingEnabled = typeof thinkingEnabledOverride === 'boolean'
@@ -203,8 +204,8 @@ export function resolvePlannerThinkingFlags(
   };
 }
 
-export function isPlannerMaintainPerStepThinkingEnabled(config: SiftConfig | undefined): boolean {
-  return isPlannerReasoningEnabled(config) && (config ? getActiveModelPreset(config).MaintainPerStepThinking : true);
+export function isPlannerMaintainPerStepThinkingEnabled(config: SiftConfig): boolean {
+  return isPlannerReasoningEnabled(config) && getActiveModelPreset(config).MaintainPerStepThinking;
 }
 
 export function buildAssistantReplayMessage(content: string, thinkingText: string): ChatMessage {

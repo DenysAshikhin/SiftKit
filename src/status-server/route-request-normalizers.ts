@@ -9,7 +9,6 @@ import type {
   SummaryTimingInput,
 } from '../summary/types.js';
 import type { DashboardRunLogType } from './dashboard-runs.js';
-import type { RuntimeLlamaCppConfig } from '../config/index.js';
 
 export type RepoSearchRouteRequest = {
   prompt: string;

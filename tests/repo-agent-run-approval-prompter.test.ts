@@ -9,13 +9,10 @@ import {
 import { join } from 'node:path';
 import test, { after, before } from 'node:test';
 
-import { parseJsonText } from '../src/lib/json.js';
-import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import type { JsonObject } from '../src/lib/json-types.js';
 import {
   RepoAgentApprovalSchema,
   RepoAgentDecisionSchema,
-  RepoAgentRunStateSchema,
   RepoAgentWorkerRequestSchema,
   type RepoAgentApproval,
   type RepoAgentDecision,

@@ -1,5 +1,4 @@
 import { z } from '../../src/lib/zod.js';
-import type { RuntimeLlamaCppConfig } from '../../src/config/index.js';
 import {
   SummaryPolicyProfileSchema,
   type SummaryClassification,

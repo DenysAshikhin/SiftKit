@@ -1,5 +1,5 @@
 import { z } from '../lib/zod.js';
-import type { RuntimeLlamaCppConfig, SiftConfig } from '../config/index.js';
+import type { SiftConfig } from '../config/index.js';
 import type { JsonObject } from '../lib/json-types.js';
 import type { LlamaCppToolParameterSchema } from '../llm-protocol/types.js';
 import type { SummaryProgressEvent } from './progress-reporter.js';

@@ -14,7 +14,7 @@ export class TerminalSynthesizer {
     baseUrl: string;
     model: string;
     timeoutMs: number;
-    config: SiftConfig | undefined;
+    config: SiftConfig;
     useEstimatedTokensOnly: boolean;
     totalContextTokens: number;
     thinking: PlannerThinkingFlags;

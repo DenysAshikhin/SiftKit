@@ -19,7 +19,6 @@ import {
   LIVE_LLAMA_BASE_URL,
   LIVE_CONFIG_SERVICE_URL,
   getDefaultConfig,
-  clone,
   setManagedLlamaBaseUrl,
   requestJson,
   withTempEnv,

@@ -33,6 +33,7 @@ test('runTaskLoop answers on turn 1 with zero tools in chat loopKind', async () 
     {
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
+      config: MOCK_CONFIG,
       model: 'mock',
       baseUrl: 'http://127.0.0.1:1',
       maxTurns: 4,
@@ -55,6 +56,7 @@ test('chat loopKind with zero planner tools rejects repo-search tool actions', a
     {
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
+      config: MOCK_CONFIG,
       model: 'mock',
       baseUrl: 'http://127.0.0.1:1',
       maxTurns: 2,
@@ -84,6 +86,7 @@ test('chat mode streams finish output as answer events', async () => {
     {
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
+      config: MOCK_CONFIG,
       model: 'mock',
       baseUrl: 'http://127.0.0.1:1',
       maxTurns: 2,
@@ -109,6 +112,7 @@ test('tool token totals sum command output tokens', async () => {
     {
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
+      config: MOCK_CONFIG,
       model: 'mock',
       baseUrl: 'http://127.0.0.1:1',
       maxTurns: 2,
@@ -262,6 +266,7 @@ test('chat mode seeds system prompt override and history before the question', a
     {
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
+      config: MOCK_CONFIG,
       model: 'mock',
       baseUrl: 'http://127.0.0.1:1',
       maxTurns: 2,
@@ -300,6 +305,7 @@ test('chat loop sends replayed tool-call history before the new user message', a
     {
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
+      config: MOCK_CONFIG,
       model: 'mock',
       baseUrl: 'http://127.0.0.1:1',
       maxTurns: 2,

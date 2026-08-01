@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getInferenceRequestCompatibility } from '../src/inference-presets/request-compatibility.js';
 import { InferenceRequestBuilder } from '../src/llm-protocol/inference-request-builder.js';
 import { isJsonObject, type JsonObject, type OptionalJsonValue } from '../src/lib/json-types.js';
 

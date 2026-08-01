@@ -1,4 +1,4 @@
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { ensureDirectory } from '../lib/fs.js';
 import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
 import {

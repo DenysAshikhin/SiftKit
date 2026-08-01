@@ -85,10 +85,9 @@ function buildPresetOverlay(settings: HostPresetSettings): Partial<ModelRuntimeP
  * Returns `config` unchanged when this SiftKit owns its inference server. In
  * pass-through mode, overlays the host SiftKit's request-shaping preset fields
  * so prompt-budget math, the requested model, and the samplers match the server
- * that actually serves the request. `NumCtx`/`Reasoning` are also written to
- * `Runtime.LlamaCpp` because that is where the llama-backend getters read them.
- * Falls back to the unchanged local config when the host is unreachable or is
- * not a SiftKit (e.g. `BaseUrl` points straight at a raw llama.cpp endpoint).
+ * that actually serves the request. Falls back to the unchanged local config when
+ * the host is unreachable or is not a SiftKit (e.g. `BaseUrl` points straight at a
+ * raw llama.cpp endpoint).
  */
 export async function applyHostLlamaRuntimeSettings(config: SiftConfig): Promise<SiftConfig> {
   if (!isPassThroughMode(config)) {
@@ -106,14 +105,7 @@ export async function applyHostLlamaRuntimeSettings(config: SiftConfig): Promise
     return config;
   }
 
-  const overlaid = overlayActivePreset(config, buildPresetOverlay(settings));
-  return {
-    ...overlaid,
-    Runtime: {
-      ...overlaid.Runtime,
-      LlamaCpp: { ...overlaid.Runtime.LlamaCpp, NumCtx: settings.NumCtx, Reasoning: settings.Reasoning },
-    },
-  };
+  return overlayActivePreset(config, buildPresetOverlay(settings));
 }
 
 /** Test-only: clears the in-process host-settings cache. */

@@ -14,7 +14,12 @@ import {
   resolveChatSessionConfig,
   sessionUsesActiveModelPreset,
 } from '../src/status-server/chat.js';
-import { getActiveModelPreset, getConfiguredLlamaNumCtx, getConfiguredModel } from '../src/config/getters.js';
+import {
+  getActiveModelPreset,
+  getConfiguredLlamaNumCtx,
+  getConfiguredModel,
+  getConfiguredReasoning,
+} from '../src/config/getters.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { mergeConfig } from '../src/config/normalization.js';
 import { buildChatPromptContext } from '../src/status-server/chat-prompt-context.js';
@@ -167,6 +172,45 @@ test('inactive model preset identity preserves inference snapshots', () => {
   assert.equal(getActiveModelPreset(resolved).Temperature, 0.2);
   assert.equal(getConfiguredModel(resolved), 'historical-model');
   assert.equal(getConfiguredLlamaNumCtx(resolved), 30_000);
+});
+
+// Runtime.LlamaCpp outranks the preset for a llama-backed snapshot, so the substitution
+// has to reach it too or the session would run against the live launch context window.
+test('a llama-backed snapshot session runs against its own context window and reasoning mode', () => {
+  const config = createConfig();
+  const session = mockChatSession({
+    id: 'historical-llama',
+    modelPresetId: 'historical-preset',
+    modelPreset: mockModelPreset({
+      id: 'historical-preset',
+      Backend: 'llama',
+      Model: 'historical-model',
+      NumCtx: 30_000,
+      Reasoning: 'off',
+    }),
+  });
+
+  const resolved = resolveChatSessionConfig(config, session);
+
+  assert.equal(getConfiguredLlamaNumCtx(resolved), 30_000);
+  assert.equal(getConfiguredReasoning(resolved), 'off');
+  assert.equal(resolveChatSessionContextWindow(config, session), getConfiguredLlamaNumCtx(resolved));
+});
+
+test('substituting a snapshot preset keeps the other presets resolvable', () => {
+  const config = createConfig();
+  config.Server.ModelPresets.Presets.push(mockModelPreset({ id: 'second', Model: 'second-model' }));
+  const session = mockChatSession({
+    id: 'historical-sibling',
+    modelPresetId: 'historical-preset',
+    modelPreset: mockModelPreset({ id: 'historical-preset', Model: 'historical-model', NumCtx: 30_000 }),
+  });
+
+  const resolved = resolveChatSessionConfig(config, session);
+
+  assert.equal(resolved.Server.ModelPresets.Presets.length, 2);
+  assert.equal(resolved.Server.ModelPresets.Presets[1]?.Model, 'second-model');
+  assert.equal(getActiveModelPreset(resolved).id, 'default');
 });
 
 test('inactive model preset identity rejects an invalid context snapshot', () => {

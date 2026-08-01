@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 
 import { detectRecentTokenRepetition } from '../src/repo-search/repetition-guard.js';
 import { readPackageJson } from './helpers/package-json.js';

@@ -6,7 +6,6 @@ import { readStatusText } from '../src/status-server/status-file.js';
 import type { SiftConfig } from '../src/config/index.js';
 import {
   fs,
-  http,
   path,
   Database,
   loadConfig,

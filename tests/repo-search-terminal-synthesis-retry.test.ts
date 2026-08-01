@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { runTaskLoop } from '../src/repo-search/engine.js';
 import type { JsonSerializable } from '../src/lib/json-types.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
+import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 // runTaskLoop requires repoRoot/model/baseUrl; the mock-provider path never reads the
@@ -14,6 +15,7 @@ const MOCK_LOOP_DEFAULTS = {
   model: 'mock-model',
   baseUrl: 'http://127.0.0.1:1',
   systemContext: createEmptyPresetSystemContext(),
+  config: mockOfflineSiftConfig(),
 };
 
 test('synthesis succeeds on attempt 1 sets finalOutput and logs a single result event', async () => {

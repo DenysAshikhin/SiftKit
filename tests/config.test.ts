@@ -42,7 +42,7 @@ import { parseJsonValueText } from '../src/lib/json.js';
 import type { JsonObject } from '../src/lib/json-types.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { ensureDirectory, saveContentAtomically } from '../src/lib/fs.js';
-import { withTestEnvAndServer, type Dict } from './_test-helpers.js';
+import { withTestEnvAndServer } from './_test-helpers.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 function makeConfig(overrides: Partial<SiftConfig>): SiftConfig {

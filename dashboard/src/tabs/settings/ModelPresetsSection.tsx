@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { parseFloatInput, parseIntegerInput } from '../../lib/format';
 import { getExl3CacheModes, getPresetFieldAvailability } from '../../../../src/inference-presets/preset-compatibility.js';
 import { getInferenceRuntimeStatus } from '../../api';
-import { MODEL_PRESET_GROUPS, summarizeModelPresetGroup, type ModelPresetGroupId } from './model-preset-groups';
+import { summarizeModelPresetGroup, type ModelPresetGroupId } from './model-preset-groups';
 import { SettingsSectionField } from '../../settings/SettingsFields';
 import type { InferenceRuntimeStatus } from '@siftkit/contracts';
 import type {

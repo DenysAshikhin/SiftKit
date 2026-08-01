@@ -18,7 +18,7 @@ export class PromptPreparer {
     private readonly options: {
       taskId: string;
       model: string;
-      config: SiftConfig | undefined;
+      config: SiftConfig;
       useEstimatedTokensOnly: boolean;
       budget: TurnBudget;
       plannerToolDefinitions: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;

@@ -1,4 +1,4 @@
-import type { LlamaCppChatMessage, LlamaCppToolDefinition, NormalizedLlamaCppChatResponse } from '../llm-protocol/types.js';
+import type { LlamaCppChatMessage, LlamaCppToolDefinition } from '../llm-protocol/types.js';
 import type {
   AgentLoopAction,
   AgentLoopActionAdapter,

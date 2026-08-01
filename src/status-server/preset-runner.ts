@@ -2,7 +2,6 @@ import {
   applyModelOverrideToConfig,
   getActiveModelPreset,
   getConfigPath,
-  getConfiguredLlamaNumCtx,
   getConfiguredReasoning,
   type SiftConfig,
 } from '../config/index.js';

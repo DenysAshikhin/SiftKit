@@ -10,7 +10,6 @@ import test, { after, before } from 'node:test';
 import {
   RepoAgentApprovalSchema,
   RepoAgentRunResultSchema,
-  RepoAgentRunStateSchema,
   RepoAgentWorkerRequestSchema,
   type RepoAgentApproval,
   type RepoAgentRunState,

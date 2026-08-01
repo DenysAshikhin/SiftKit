@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 
 import { executeRepoSearchRequest } from '../src/repo-search/index.js';
 import {
-  http,
   summarizeRequest,
   buildIdleMetricsLogMessage,
   buildStatusRequestLogBody,

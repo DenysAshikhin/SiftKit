@@ -7,6 +7,7 @@ import { summarizeRequest } from '../src/summary.js';
 import { getDefaultConfig, buildRuntimeLaunchSnapshot } from '../src/status-server/config-store.js';
 import { startStatusServer } from '../src/status-server/index.js';
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
+import { parseSummaryRequest } from '../src/status-server/route-request-normalizers.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import { requestJson, asObject, getAddressInfo } from './helpers/dashboard-http.js';
@@ -16,9 +17,9 @@ import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 
 test('summary endpoint defaults model request timeout to 240 seconds', () => {
-  const routeText = fs.readFileSync(path.join(process.cwd(), 'dist', 'status-server', 'routes', 'core.js'), 'utf8');
+  const parsed = parseSummaryRequest({ question: 'q', inputText: 'text', repoRoot: 'C:/repo' });
 
-  assert.match(routeText, /const DEFAULT_STATUS_MODEL_REQUEST_TIMEOUT_SECONDS = 240;/u);
+  assert.equal(parsed?.requestTimeoutSeconds, 240);
 });
 
 test('summary endpoint forwards promptPrefix and llamaCppMaxTokens to the summary engine', () => {

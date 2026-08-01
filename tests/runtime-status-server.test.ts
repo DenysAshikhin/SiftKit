@@ -13,11 +13,9 @@ const RequestJsonRowSchema = z.object({ request_json: z.string().nullish() }).op
 const SpeculativeRowSchema = z
   .object({ speculative_accepted_tokens: z.number(), speculative_generated_tokens: z.number() })
   .optional();
-import { startStatusServer } from '../src/status-server/index.js';
 import { writeConfig } from '../src/status-server/config-store.js';
 import { readStatusText } from '../src/status-server/status-file.js';
 import { upsertRepoSearchRun } from '../src/status-server/dashboard-runs.js';
-import type { SiftConfig } from '../src/config/types.js';
 
 import {
   applyManagedScriptConfig,
@@ -156,7 +154,6 @@ test('real status server persists aggregate metrics and exposes them from GET /s
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
-    const metricsPath = path.join(tempRoot, 'metrics', 'compression.json');
     const config = getDefaultConfig();
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 

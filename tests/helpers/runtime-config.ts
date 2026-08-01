@@ -37,7 +37,7 @@ const ChatRequestMessageSchema = z.object({
   tool_call_id: z.string().optional(),
 }).catchall(JsonValueSchema);
 
-const ChatRequestSchema = z.object({
+export const ChatRequestSchema = z.object({
   messages: z.array(ChatRequestMessageSchema),
   response_format: z.object({ type: z.string().optional() }).catchall(JsonValueSchema).optional(),
   chat_template_kwargs: JsonObjectSchema.optional(),

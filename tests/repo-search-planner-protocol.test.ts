@@ -661,18 +661,6 @@ test('requestRepoSearchPlannerProtocolAction sends the active preset sampler val
   assert.equal(captured.max_tokens, 2048);
 });
 
-test('requestRepoSearchPlannerProtocolAction throws loudly when a non-mock request has no config', async () => {
-  await assert.rejects(
-    () => requestRepoSearchPlannerProtocolAction({
-      baseUrl: 'http://127.0.0.1:9',
-      model: 'm',
-      messages: [],
-      timeoutMs: 1000,
-      maxTokens: 10,
-    }),
-    /requires a SiftConfig/u,
-  );
-});
 
 test('requestApprovalVerdict clamps the verdict maxTokens to the preset MaxTokens', async () => {
   const config = buildTestConfig({ MaxTokens: 300 });

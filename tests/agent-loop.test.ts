@@ -17,11 +17,8 @@ import type {
   AgentLoopToolAdapter,
   AgentLoopToolExecution,
   AgentLoopToolResult,
-  AgentLoopTurn,
 } from '../src/agent-loop/types.js';
 import type {
-  LlamaCppChatMessage,
-  LlamaCppToolDefinition,
   LlamaCppUsage,
   NormalizedLlamaCppChatResponse,
 } from '../src/llm-protocol/types.js';

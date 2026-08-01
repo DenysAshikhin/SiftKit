@@ -21,6 +21,18 @@ export function mockSiftConfig(partial: DeepPartial<SiftConfig>): SiftConfig {
   return normalizeConfigObject(merged);
 }
 
+/**
+ * The default config's BaseUrl is the real llama.cpp port, and a mock-mode loop still
+ * tokenizes against whatever its config points at. Fixtures that only need "a real
+ * config" take this one so the tokenize call lands on a dead port instead of a live
+ * instance (which the test harness fails the file for contacting).
+ */
+export const MOCK_OFFLINE_BASE_URL = 'http://127.0.0.1:1';
+
+export function mockOfflineSiftConfig(): SiftConfig {
+  return mockSiftConfig({ Runtime: { LlamaCpp: { BaseUrl: MOCK_OFFLINE_BASE_URL } } });
+}
+
 // A fully-populated ModelRuntimePreset for fixtures that need a preset snapshot
 // (chat sessions) rather than a whole config. Starts from the normalized default
 // preset so every required field is present.

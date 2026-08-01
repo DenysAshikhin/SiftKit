@@ -15,7 +15,12 @@ import {
   RepoSearchApprovalRequestSchema,
 } from '../src/repo-search/engine/approval-gate.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
+import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+
+// Mock-mode requests never reach a provider, but the request layer still derives its
+// model, samplers and budgets from a real config, so every call supplies one.
+const MOCK_CONFIG = mockOfflineSiftConfig();
 
 const transcript: ChatMessage[] = [
   { role: 'system', content: 'sys' },
@@ -38,6 +43,7 @@ const APPROVE_MOCK = '{"verdict":"approve","reason":"ok"}';
 
 function verdictOptions(transcriptMessages: ChatMessage[], executing: ReturnType<typeof captureExecuting>) {
   return {
+    config: MOCK_CONFIG,
     baseUrl: 'http://127.0.0.1:1',
     model: 'mock-model',
     transcriptMessages,
@@ -134,6 +140,7 @@ test('a task loop refuses an approval verdict before any planner request', async
       {
         repoRoot: tempRoot,
         systemContext: createEmptyPresetSystemContext(),
+        config: MOCK_CONFIG,
         model: 'mock-model',
         baseUrl: 'http://127.0.0.1:1',
         maxTurns: 1,

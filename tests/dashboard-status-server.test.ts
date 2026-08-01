@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 
 import { z } from '../src/lib/zod.js';
 import { parseJsonValueText } from '../src/lib/json.js';
-import type { JsonValue, OptionalJsonValue } from '../src/lib/json-types.js';
+import type { OptionalJsonValue } from '../src/lib/json-types.js';
 import { startStatusServer } from '../src/status-server/index.js';
 import { writeConfig, getDefaultConfig } from '../src/status-server/config-store.js';
 import { getConfigPath, SIFT_DEFAULT_LLAMA_BASE_URL } from '../src/config/index.js';
@@ -22,11 +22,7 @@ import {
   requestJson,
   requestSse,
   type Dict,
-  type JsonResponse,
-  type RequestOptions,
-  type SseEvent,
   type SseResponse,
-  writeJson,
 } from './helpers/dashboard-http.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 import { mockModelPreset } from './helpers/mock-config.js';
@@ -104,10 +100,6 @@ test('GET /dashboard/web-search-quota returns a quotas array', async () => {
 });
 
 const requireFromHere = createRequire(__filename);
-type DatabaseConstructor = new (path: string, options?: { readonly?: boolean }) => {
-  prepare: (sql: string) => { all: (...args: JsonValue[]) => Dict[]; get: (...args: JsonValue[]) => Dict };
-  close: () => void;
-};
 type RuntimeHelpers = {
   writeManagedLlamaScripts: (tempRoot: string, port: number, modelId?: string) => {
     baseUrl: string;
@@ -136,8 +128,7 @@ type RuntimeHelpers = {
     close: () => Promise<void>;
   }>;
 };
-const Database = z.custom<DatabaseConstructor>((value) => typeof value === 'function').parse(requireFromHere('better-sqlite3'));
-const runtimeHelpers = z.custom<RuntimeHelpers>((value) => typeof value === 'object' && value !== null).parse(requireFromHere('./_runtime-helpers.js'));
+const runtimeHelpers =z.custom<RuntimeHelpers>((value) => typeof value === 'object' && value !== null).parse(requireFromHere('./_runtime-helpers.js'));
 
 type HostConfigServer = {
   baseUrl: string;
@@ -150,16 +141,6 @@ function d(value: OptionalJsonValue): Dict {
 }
 
 const DASHBOARD_CHAT_STREAM_TIMEOUT_MS = 20_000;
-
-function readRunLogRowCount(dbPath: string): number {
-  const database = new Database(dbPath, { readonly: true });
-  try {
-    const row = database.prepare('SELECT COUNT(*) AS count FROM run_logs').get();
-    return Number(row.count || 0);
-  } finally {
-    database.close();
-  }
-}
 
 async function startHostConfigServer(hostConfigBody: Dict): Promise<HostConfigServer> {
   const requestUrls: string[] = [];

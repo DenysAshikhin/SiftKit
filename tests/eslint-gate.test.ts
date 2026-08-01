@@ -85,3 +85,11 @@ test('eslint gate passes clean code', () => {
   assert.equal(result.errorCount, 0);
   assert.deepEqual(result.messages, []);
 });
+
+// An underscore prefix must not silence the unused-vars gate: renaming a dead
+// binding to `_dead` would otherwise be a repo-wide, review-invisible opt-out.
+test('eslint gate flags unused underscore-prefixed variables', () => {
+  const result = lintFixtureAllowingFailure('unused-var.ts');
+  assert.equal(result.errorCount, 1);
+  assert.equal(result.messages[0]?.ruleId, '@typescript-eslint/no-unused-vars');
+});

@@ -6,7 +6,8 @@ import { z } from '../src/lib/zod.js';
 import { PresetCatalog } from '../src/preset-catalog.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { parseJsonValueText } from '../src/lib/json.js';
-import { isJsonObject, type JsonObject } from '../src/lib/json-types.js';
+import { isJsonObject, JsonObjectSchema, type JsonObject } from '../src/lib/json-types.js';
+import { normalizeModelRuntimePresetArray } from '../src/config/normalization.js';
 import type { RepoSearchExecutionResult } from '../src/repo-search/types.js';
 import { awaitRepoSearchRunPersistence } from '../src/repo-search/execute.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
@@ -521,7 +522,9 @@ export async function withTestEnvAndServer(
   server.ModelPresets = modelPresets;
   const stubPort = Number(new URL(stub.baseUrl).port);
   modelPresets.ActivePresetId = 'default';
-  modelPresets.Presets = [{
+  // Normalized, not a literal: a preset missing MaxTokens/samplers is a shape the config
+  // store never produces, and the engine reads those fields on every request.
+  modelPresets.Presets = normalizeModelRuntimePresetArray([{
     id: 'default',
     label: 'Default',
     Backend: 'llama',
@@ -529,7 +532,7 @@ export async function withTestEnvAndServer(
     BaseUrl: stub.baseUrl,
     Port: stubPort,
     NumCtx: 128000,
-  }];
+  }], {}).map((preset) => JsonObjectSchema.parse(JSON.parse(JSON.stringify(preset))));
 
   try {
     await fn({ tempRoot, stub });

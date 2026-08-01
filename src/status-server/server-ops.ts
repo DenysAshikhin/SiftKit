@@ -10,7 +10,6 @@ import { dirname } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import Database from 'better-sqlite3';
 import { getErrorMessage } from '../lib/errors.js';
-import { getRuntimeRoot } from './paths.js';
 import {
   STATUS_TRUE,
   STATUS_FALSE,
@@ -18,13 +17,11 @@ import {
 } from './status-file.js';
 import { ensureDirectory } from '../lib/fs.js';
 import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
-import { normalizeMetrics, writeMetrics } from './metrics.js';
 import {
   buildIdleSummarySnapshot,
   buildIdleSummarySnapshotMessage,
   ensureIdleSummarySnapshotsTable,
   persistIdleSummarySnapshot,
-  queryRecentSnapshots,
 } from './idle-summary.js';
 import {
   type StatusMetadata,

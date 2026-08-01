@@ -5,11 +5,16 @@ import {
   type SiftConfig,
 } from '../config/index.js';
 
-/** Preset MaxTokens is a hard upper bound on any computed output budget. */
-export function clampToPresetMaxTokens(config: SiftConfig | undefined, outputTokens: number): number {
-  if (!config) return outputTokens;
-  const presetMaxTokens = Math.floor(Number(getActiveModelPreset(config).MaxTokens) || 1);
-  return Math.max(1, Math.min(outputTokens, presetMaxTokens));
+/**
+ * Preset MaxTokens is a hard upper bound on any computed output budget. The config is
+ * required: an unconfigured caller must fail here rather than silently skip the cap.
+ */
+export function clampToPresetMaxTokens(config: SiftConfig, outputTokens: number): number {
+  const preset = getActiveModelPreset(config);
+  if (!Number.isInteger(preset.MaxTokens) || preset.MaxTokens < 1) {
+    throw new Error(`Active model preset "${preset.id}" has an invalid MaxTokens: ${preset.MaxTokens}.`);
+  }
+  return Math.min(outputTokens, preset.MaxTokens);
 }
 
 export function estimatePromptTokenCountFromCharacters(

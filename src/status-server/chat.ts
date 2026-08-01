@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ContextUsage } from '@siftkit/contracts';
 import { getActiveModelPreset, getConfiguredLlamaNumCtx } from '../config/getters.js';
+import { overlayActivePreset } from '../config/overrides.js';
 import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
 import type { ChatMessage as PlannerChatMessage } from '../repo-search/planner-protocol.js';
@@ -126,21 +127,18 @@ export function resolveChatSessionContextWindow(
 }
 
 /**
- * Effective config for a session: once the live active preset is a different one,
- * the session's snapshot preset becomes the active preset so every request it
- * drives keeps the model, context size, and samplers it started with.
+ * Effective config for a session: once the live active preset is a different one, the
+ * snapshot's request-shaping fields are overlaid onto the active preset so every request
+ * the session drives keeps the model, context size, and samplers it started with. The
+ * snapshot `id` stays out of the overlay — it names a preset slot that may no longer
+ * exist, and the surrounding preset list has to stay resolvable.
  */
 export function resolveChatSessionConfig(config: SiftConfig, session: ChatSession): SiftConfig {
   if (sessionUsesActiveModelPreset(config, session)) {
     return config;
   }
-  return {
-    ...config,
-    Server: {
-      ...config.Server,
-      ModelPresets: { Presets: [session.modelPreset], ActivePresetId: session.modelPreset.id },
-    },
-  };
+  const { id, ...snapshotFields } = session.modelPreset;
+  return overlayActivePreset(config, snapshotFields);
 }
 
 class ContextUsageBuilder {
