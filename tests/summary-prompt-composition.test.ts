@@ -18,6 +18,8 @@ import {
 } from '../src/summary/planner/prompts.js';
 import type { PresetSystemContext } from '../src/preset-system-context.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { buildPlannerToolDefinitions } from '../src/summary/planner/tools.js';
+import { longestCommonPrefixLength } from './helpers/common-prefix.js';
 
 const PRESET = 'PRESET_INSTRUCTIONS';
 const ADDITIONAL = 'ADDITIONAL_INSTRUCTIONS';
@@ -67,7 +69,7 @@ test('summary prompt exposes separate instruction and input sections in exact or
 
   assert.doesNotMatch(instructions, new RegExp(INPUT, 'u'));
   assert.match(input, new RegExp(INPUT, 'u'));
-  assertOrderedOnce(prompt, [PRESET, ADDITIONAL, BASE, STARTUP, QUESTION, INPUT]);
+  assertOrderedOnce(prompt, [STARTUP, PRESET, BASE, ADDITIONAL, QUESTION, INPUT]);
 });
 
 test('compact summary prompt composes preset and startup context exactly once', () => {
@@ -79,7 +81,7 @@ test('compact summary prompt composes preset and startup context exactly once', 
     systemContext: SYSTEM_CONTEXT,
   });
 
-  assertOrderedOnce(prompt, [PRESET, ADDITIONAL, 'Summarize the input', STARTUP, QUESTION, INPUT]);
+  assertOrderedOnce(prompt, [STARTUP, PRESET, 'Summarize the input', ADDITIONAL, QUESTION, INPUT]);
 });
 
 test('chunk and merge summary prompts independently compose every section once', () => {
@@ -94,8 +96,8 @@ test('chunk and merge summary prompts independently compose every section once',
   });
   const mergePrompt = buildSummaryPrompt(directOptions('merge'));
 
-  assertOrderedOnce(chunkPrompt, [PRESET, ADDITIONAL, BASE, STARTUP, QUESTION, INPUT]);
-  assertOrderedOnce(mergePrompt, [PRESET, ADDITIONAL, 'You are merging', STARTUP, QUESTION, INPUT]);
+  assertOrderedOnce(chunkPrompt, [STARTUP, PRESET, BASE, ADDITIONAL, QUESTION, INPUT]);
+  assertOrderedOnce(mergePrompt, [STARTUP, PRESET, 'You are merging', ADDITIONAL, QUESTION, INPUT]);
 });
 
 test('planner summary request keeps composed system instructions before user input', () => {
@@ -113,7 +115,7 @@ test('planner summary request keeps composed system instructions before user inp
   });
   const request = [systemPrompt, inputSection].join('\n\n');
 
-  assertOrderedOnce(request, [PRESET, ADDITIONAL, BASE, STARTUP, QUESTION, INPUT]);
+  assertOrderedOnce(request, [STARTUP, PRESET, BASE, ADDITIONAL, QUESTION, INPUT]);
 });
 
 test('benchmark prompt label is fixture metadata rather than a fabricated model prompt', () => {
@@ -156,16 +158,114 @@ test('summary repro prompt uses configured preset instructions and startup conte
     });
 
     assertOrderedOnce(prompt, [
-      'REPRO_PRESET_RULE',
-      'REPRO_ADDITIONAL_RULE',
-      BASE,
       'REPRO_AGENT_RULE',
       'Repository file listing',
       'REPRO_AUTOLOAD_RULE',
+      'REPRO_PRESET_RULE',
+      BASE,
+      'REPRO_ADDITIONAL_RULE',
       QUESTION,
       INPUT,
     ]);
   } finally {
     fs.rmSync(repoRoot, { force: true, recursive: true });
   }
+});
+
+type SummaryPromptOptions = Parameters<typeof buildSummaryPrompt>[0];
+type PlannerPromptOptions = Parameters<typeof buildPlannerSystemPrompt>[0];
+
+const REPO_CONTEXT: PresetSystemContext = {
+  content: [
+    '--- Repository file listing (respects ignore policy) ---',
+    '',
+    ...Array.from({ length: 200 }, (_unused, index) => `src/module-${index}.ts`),
+  ].join('\n'),
+  warnings: [],
+  hasAgentsMd: false,
+  hasRepoFileListing: true,
+  loadedFiles: [],
+};
+
+function assertSharedPrefixCoversSystemContext(
+  variants: readonly { label: string; prompt: string }[],
+): void {
+  for (const left of variants) {
+    for (const right of variants) {
+      const shared = longestCommonPrefixLength(left.prompt, right.prompt);
+      assert.ok(
+        shared >= REPO_CONTEXT.content.length,
+        `${left.label} vs ${right.label}: shared prefix is ${shared} chars, `
+        + `system context is ${REPO_CONTEXT.content.length} chars`,
+      );
+    }
+  }
+}
+
+test('every volatile summary prompt input leaves the system context inside the shared prefix', () => {
+  const baseOptions = {
+    question: QUESTION,
+    inputText: INPUT,
+    format: 'text',
+    policyProfile: 'general',
+    rawReviewRequired: false,
+    sourceKind: 'standalone',
+    presetPromptPrefix: PRESET,
+    additionalPromptPrefix: '',
+    systemContext: REPO_CONTEXT,
+  } satisfies SummaryPromptOptions;
+
+  const variants: readonly { label: string; options: SummaryPromptOptions }[] = [
+    { label: 'baseline', options: baseOptions },
+    { label: 'merge phase', options: { ...baseOptions, phase: 'merge' } },
+    { label: 'pass-fail profile', options: { ...baseOptions, policyProfile: 'pass-fail' } },
+    { label: 'json format', options: { ...baseOptions, format: 'json' } },
+    { label: 'raw review required', options: { ...baseOptions, rawReviewRequired: true } },
+    { label: 'exit code 0', options: { ...baseOptions, sourceKind: 'command-output', commandExitCode: 0 } },
+    { label: 'exit code 1', options: { ...baseOptions, sourceKind: 'command-output', commandExitCode: 1 } },
+    { label: 'unsupported input disallowed', options: { ...baseOptions, allowUnsupportedInput: false } },
+    {
+      label: 'default chunk',
+      options: {
+        ...baseOptions,
+        chunkContext: { isGeneratedChunk: true, mayBeTruncated: true, chunkPath: '1/2', retryMode: 'default' },
+      },
+    },
+    {
+      label: 'strict chunk retry',
+      options: {
+        ...baseOptions,
+        chunkContext: { isGeneratedChunk: true, mayBeTruncated: true, chunkPath: '1/2', retryMode: 'strict' },
+      },
+    },
+    { label: 'additional prefix', options: { ...baseOptions, additionalPromptPrefix: ADDITIONAL } },
+  ];
+
+  assertSharedPrefixCoversSystemContext(
+    variants.map((variant) => ({ label: variant.label, prompt: buildSummaryPrompt(variant.options) })),
+  );
+});
+
+test('every volatile planner prompt input leaves the system context inside the shared prefix', () => {
+  const baseOptions = {
+    presetPromptPrefix: PRESET,
+    additionalPromptPrefix: '',
+    systemContext: REPO_CONTEXT,
+    sourceKind: 'standalone',
+    rawReviewRequired: false,
+    toolDefinitions: buildPlannerToolDefinitions(),
+  } satisfies PlannerPromptOptions;
+
+  const variants: readonly { label: string; options: PlannerPromptOptions }[] = [
+    { label: 'baseline', options: baseOptions },
+    { label: 'exit code 0', options: { ...baseOptions, sourceKind: 'command-output', commandExitCode: 0 } },
+    { label: 'exit code 1', options: { ...baseOptions, sourceKind: 'command-output', commandExitCode: 1 } },
+    { label: 'raw review required', options: { ...baseOptions, rawReviewRequired: true } },
+    { label: 'reduced tools', options: { ...baseOptions, toolDefinitions: buildPlannerToolDefinitions(['find_text', 'read_lines']) } },
+    { label: 'additional prefix', options: { ...baseOptions, additionalPromptPrefix: ADDITIONAL } },
+  ];
+
+  assertSharedPrefixCoversSystemContext(
+    variants.map((variant) => ({ label: variant.label, prompt: buildPlannerSystemPrompt(variant.options) })),
+  );
 });

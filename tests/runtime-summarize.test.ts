@@ -713,8 +713,13 @@ test('buildSummaryPrompt composes an additional prompt prefix when provided', ()
     systemContext: createEmptyPresetSystemContext(),
   });
 
-  assert.match(prompt, /^Always answer in terse benchmark mode\./u);
-  assert.match(prompt, /You are SiftKit/u);
+  const baseIndex = prompt.indexOf('You are SiftKit');
+  const additionalIndex = prompt.indexOf('Always answer in terse benchmark mode.');
+  const questionIndex = prompt.indexOf('Question:');
+
+  assert.match(prompt, /^You are SiftKit/u);
+  assert.ok(additionalIndex > baseIndex, 'additional prefix must follow the base instructions');
+  assert.ok(questionIndex > additionalIndex, 'additional prefix must precede the input section');
 });
 
 test('buildSummaryPrompt wraps generated chunk slices as inert literal input', () => {
