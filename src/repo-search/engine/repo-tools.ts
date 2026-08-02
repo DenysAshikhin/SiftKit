@@ -281,12 +281,19 @@ function globToRegExp(glob: string): RegExp {
   let pattern = '^';
   for (let index = 0; index < glob.length; index += 1) {
     const char = glob[index];
-    if (char === '*') {
-      if (glob[index + 1] === '*') {
-        pattern += '.*';
-        index += 1;
+    if (char === '*' && glob[index + 1] === '*') {
+      // `**/` spans zero or more directories, so `**/name.md` also matches a
+      // search-root `name.md`. A bare `**` stays a cross-separator wildcard.
+      if (glob[index + 2] === '/') {
+        pattern += '(?:.*/)?';
+        index += 2;
         continue;
       }
+      pattern += '.*';
+      index += 1;
+      continue;
+    }
+    if (char === '*') {
       pattern += '[^/]*';
       continue;
     }
@@ -298,7 +305,7 @@ function globToRegExp(glob: string): RegExp {
       pattern += `\\${char}`;
       continue;
     }
-    pattern += char === '\\' ? '/' : char;
+    pattern += char;
   }
   pattern += '$';
   return new RegExp(pattern, 'iu');
