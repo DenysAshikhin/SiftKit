@@ -128,19 +128,9 @@ const fs = require('node:fs');
 const http = require('node:http');
 fs.writeFileSync(${JSON.stringify(files.argsPath)}, JSON.stringify(process.argv.slice(2)));
 fs.appendFileSync(${JSON.stringify(files.startsPath)}, process.pid + '\\n');
-const environment = {
-  TABBY_MODEL_MODEL_DIR: process.env.TABBY_MODEL_MODEL_DIR,
-  TABBY_MODEL_MODEL_NAME: process.env.TABBY_MODEL_MODEL_NAME,
-  TABBY_MODEL_MAX_SEQ_LEN: process.env.TABBY_MODEL_MAX_SEQ_LEN,
-  TABBY_MODEL_CACHE_SIZE: process.env.TABBY_MODEL_CACHE_SIZE,
-  TABBY_MODEL_CACHE_MODE: process.env.TABBY_MODEL_CACHE_MODE,
-  TABBY_MODEL_MAX_BATCH_SIZE: process.env.TABBY_MODEL_MAX_BATCH_SIZE,
-  TABBY_MODEL_CHUNK_SIZE: process.env.TABBY_MODEL_CHUNK_SIZE,
-  TABBY_DRAFT_MODEL_DRAFT_MODE: process.env.TABBY_DRAFT_MODEL_DRAFT_MODE,
-  TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: process.env.TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS,
-  TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: process.env.TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE,
-  EXL3_QC_ATTN: process.env.EXL3_QC_ATTN,
-};
+const environment = Object.fromEntries(Object.entries(process.env).filter(
+  ([key]) => key.startsWith('TABBY_') || key.startsWith('EXL3_'),
+));
 fs.writeFileSync(${JSON.stringify(files.environmentPath)}, JSON.stringify(environment));
 if (${JSON.stringify(announceDrafting)} && environment.TABBY_DRAFT_MODEL_DRAFT_MODE === 'mtp') {
   process.${draftingStream}.write('INFO: Using main model MTP component for drafting\\n');

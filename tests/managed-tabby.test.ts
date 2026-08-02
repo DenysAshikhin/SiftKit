@@ -146,6 +146,8 @@ test('managed Tabby launches with preset environment and uses its startup-loaded
       assert.equal(runtime.getProcessState(), 'ready');
       assert.equal(runtime.getModelState(), 'ready');
       assert.deepEqual(JSON.parse(fs.readFileSync(argsPath, 'utf8')), []);
+      // Every TABBY_*/EXL3_* variable the child actually received, so a preset knob that never
+      // reaches the process is a failure here rather than something only a live run would catch.
       assert.deepEqual(JSON.parse(fs.readFileSync(environmentPath, 'utf8')), {
         TABBY_MODEL_MODEL_DIR: root,
         TABBY_MODEL_MODEL_NAME: 'model-a',
@@ -154,9 +156,12 @@ test('managed Tabby launches with preset environment and uses its startup-loaded
         TABBY_MODEL_CACHE_MODE: '8,4',
         TABBY_MODEL_MAX_BATCH_SIZE: '4',
         TABBY_MODEL_CHUNK_SIZE: '1024',
+        TABBY_MEMORY_SYSMEM_PAGE_CACHE: String(exl3Preset.CacheRam),
         TABBY_DRAFT_MODEL_DRAFT_MODE: 'mtp',
         TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: '5',
         TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: 'Q8',
+        TABBY_DRAFT_MODEL_DRAFT_DYNAMIC: 'true',
+        TABBY_MODEL_VISION: 'false',
         EXL3_QC_ATTN: '0',
       });
       assert.equal(fs.existsSync(loadRequestsPath), false);
