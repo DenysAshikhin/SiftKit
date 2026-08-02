@@ -11,8 +11,12 @@ import {
 } from '../src/state/chat-sessions.js';
 import type { ChatSession } from '../src/state/chat-sessions.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { JsonValueSchema } from '../src/lib/json-types.js';
+import { z } from '../src/lib/zod.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { mockModelPreset } from './helpers/mock-config.js';
+
+const SnapshotRowSchema = z.object({ model_preset_json: z.string() });
 
 function withTempRepo(fn: (repoRoot: string) => void): void {
   const tempRoot = createManagedTempDir('siftkit-chat-db-');
@@ -161,6 +165,82 @@ test('reading a chat session row without a preset snapshot fails loudly', () => 
     assert.throws(
       () => readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId)),
       /session-no-snapshot has no model preset snapshot/u,
+    );
+  });
+});
+
+/**
+ * A session snapshot is stored preset JSON, exactly like the config's preset list, so it
+ * must go through the same normalization: a field added to the preset contract after the
+ * row was written resolves to the current default instead of failing the whole read.
+ */
+test('a preset snapshot written before a field existed loads with that field defaulted', () => {
+  withTempRepo((repoRoot) => {
+    const runtimeRoot = path.join(repoRoot, '.siftkit');
+    const sessionId = 'session-pre-field-snapshot';
+
+    saveChatSession(runtimeRoot, {
+      id: sessionId,
+      title: 'Pre-field Session',
+      modelPresetId: 'preset-a',
+      modelPreset: mockModelPreset({ id: 'preset-a', Model: 'model-a', NumCtx: 4096 }),
+      presetId: 'chat',
+      mode: 'chat',
+      planRepoRoot: repoRoot,
+      condensedSummary: '',
+      createdAtUtc: new Date().toISOString(),
+      updatedAtUtc: new Date().toISOString(),
+      messages: [],
+    });
+    const database = getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite'));
+    const stored = SnapshotRowSchema.parse(
+      database.prepare('SELECT model_preset_json FROM chat_sessions WHERE id = ?').get(sessionId),
+    );
+    const snapshot = z.record(z.string(), JsonValueSchema).parse(JSON.parse(stored.model_preset_json));
+    delete snapshot.SpeculativeDynamic;
+    database
+      .prepare('UPDATE chat_sessions SET model_preset_json = ? WHERE id = ?')
+      .run(JSON.stringify(snapshot), sessionId);
+
+    const loaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+    assert.equal(loaded?.modelPreset.SpeculativeDynamic, mockModelPreset().SpeculativeDynamic);
+    assert.equal(loaded?.modelPreset.id, 'preset-a');
+    assert.equal(loaded?.modelPreset.Model, 'model-a');
+    assert.equal(readChatSessions(runtimeRoot).length, 1);
+  });
+});
+
+test('a preset snapshot carrying a field this repo removed still fails loudly', () => {
+  withTempRepo((repoRoot) => {
+    const runtimeRoot = path.join(repoRoot, '.siftkit');
+    const sessionId = 'session-unsupported-field';
+
+    saveChatSession(runtimeRoot, {
+      id: sessionId,
+      title: 'Unsupported Session',
+      modelPresetId: 'preset-a',
+      modelPreset: mockModelPreset({ id: 'preset-a', Model: 'model-a', NumCtx: 4096 }),
+      presetId: 'chat',
+      mode: 'chat',
+      planRepoRoot: repoRoot,
+      condensedSummary: '',
+      createdAtUtc: new Date().toISOString(),
+      updatedAtUtc: new Date().toISOString(),
+      messages: [],
+    });
+    const database = getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite'));
+    const stored = SnapshotRowSchema.parse(
+      database.prepare('SELECT model_preset_json FROM chat_sessions WHERE id = ?').get(sessionId),
+    );
+    const snapshot = z.record(z.string(), JsonValueSchema).parse(JSON.parse(stored.model_preset_json));
+    snapshot.PenaltyRange = 4096;
+    database
+      .prepare('UPDATE chat_sessions SET model_preset_json = ? WHERE id = ?')
+      .run(JSON.stringify(snapshot), sessionId);
+
+    assert.throws(
+      () => readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId)),
+      /Unsupported model preset field PenaltyRange/u,
     );
   });
 });

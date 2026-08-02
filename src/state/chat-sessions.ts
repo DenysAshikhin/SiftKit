@@ -3,6 +3,7 @@ import { basename, dirname, join, parse, resolve } from 'node:path';
 import { ModelRuntimePresetSchema } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import type { ModelRuntimePreset } from '../config/types.js';
+import { normalizeModelRuntimePresetRecord } from '../config/normalization.js';
 import {
   toNullableNonNegativeInteger,
   toNullableNonNegativeNumber,
@@ -176,11 +177,16 @@ function requireModelPresetId(value: string): string {
   return modelPresetId;
 }
 
-function parseModelPresetSnapshot(sessionId: string, raw: string | null): ModelRuntimePreset {
+/**
+ * A snapshot is stored preset JSON, so it is read through the same normalization as the
+ * config's preset list: a field added to the preset contract after the row was written
+ * resolves to its current default, while a field this repo removed still fails loudly.
+ */
+function parseModelPresetSnapshot(sessionId: string, modelPresetId: string, raw: string | null): ModelRuntimePreset {
   if (typeof raw !== 'string' || !raw.trim()) {
     throw new Error(`Chat session ${sessionId} has no model preset snapshot; re-create the session.`);
   }
-  return ModelRuntimePresetSchema.parse(parseJsonValueText(raw));
+  return normalizeModelRuntimePresetRecord(parseJsonValueText(raw), modelPresetId, modelPresetId);
 }
 
 function normalizeRole(value: string | null | undefined): ChatMessageRole {
@@ -354,7 +360,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
     id: session.id,
     title: session.title,
     modelPresetId: session.model_preset_id,
-    modelPreset: parseModelPresetSnapshot(session.id, session.model_preset_json),
+    modelPreset: parseModelPresetSnapshot(session.id, session.model_preset_id, session.model_preset_json),
     thinkingEnabled: session.thinking_enabled === 1,
     webSearchEnabled: session.web_search_enabled === 1,
     presetId: requirePresetId(session.preset_id),
