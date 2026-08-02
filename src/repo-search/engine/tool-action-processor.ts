@@ -11,6 +11,7 @@ import {
   isMutatingCommandToolName,
   isRepoSearchCommandToolName,
   isRepoSearchNativeToolName,
+  isTreeMutatingToolName,
   type ToolAction,
 } from '../planner-protocol.js';
 import { buildApprovalReviewPayload } from '../approval-review-policy.js';
@@ -847,7 +848,7 @@ export class ToolActionProcessor {
       outputTokensEstimated: resultTokenCountEstimated,
     });
     const commandSucceeded = Number(executed.exitCode) === 0;
-    this.invalidateReadWindows(context, commandSucceeded);
+    this.invalidateAfterMutation(context, commandSucceeded);
     if (commandSucceeded) {
       duplicates.recordSuccess(normalizedKey, fingerprint || null);
     }
@@ -873,9 +874,15 @@ export class ToolActionProcessor {
    *
    * Command-shaped tools do not report which paths they touched and can rewrite the tree, so any
    * completion clears everything — a non-zero exit can still have mutated.
+   *
+   * A tool that can actually change the tree also clears the duplicate memory, so a re-query after
+   * a write is not rejected as a repeat of the pre-write answer.
    */
-  private invalidateReadWindows(context: ExecutedToolContext, commandSucceeded: boolean): void {
+  private invalidateAfterMutation(context: ExecutedToolContext, commandSucceeded: boolean): void {
     const { normalizedToolName, nativeExecution } = context;
+    if (isTreeMutatingToolName(normalizedToolName)) {
+      this.deps.duplicates.forgetSuccesses();
+    }
     if (isMutatingCommandToolName(normalizedToolName)) {
       this.deps.readWindows.invalidateAll();
       return;

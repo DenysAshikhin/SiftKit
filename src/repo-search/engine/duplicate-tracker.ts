@@ -16,8 +16,8 @@ export function buildDuplicateFingerprint(toolName: string, normalizedKey: strin
 }
 
 export class DuplicateTracker {
-  private lastSuccessfulNormalizedKey: string | null = null;
-  private lastSuccessfulFingerprint: string | null = null;
+  private readonly successfulNormalizedKeys = new Set<string>();
+  private readonly successfulFingerprints = new Set<string>();
   private replayFingerprint: string | null = null;
   private replayCount = 0;
   private replayToolMessageIndex = -1;
@@ -28,15 +28,12 @@ export class DuplicateTracker {
     fingerprint: string;
     rejected: boolean;
   }): DuplicateClassification {
-    const isExactDuplicate = Boolean(
-      this.lastSuccessfulNormalizedKey && options.normalizedKey === this.lastSuccessfulNormalizedKey,
-    );
+    const isExactDuplicate = this.successfulNormalizedKeys.has(options.normalizedKey);
     const isSemanticDuplicate = Boolean(
       !isExactDuplicate
       && !options.rejected
       && options.fingerprint
-      && this.lastSuccessfulFingerprint
-      && options.fingerprint === this.lastSuccessfulFingerprint,
+      && this.successfulFingerprints.has(options.fingerprint),
     );
     return {
       isExactDuplicate,
@@ -69,7 +66,18 @@ export class DuplicateTracker {
     this.replayFingerprint = null;
     this.replayCount = 0;
     this.replayToolMessageIndex = -1;
-    this.lastSuccessfulNormalizedKey = normalizedKey;
-    this.lastSuccessfulFingerprint = fingerprint;
+    this.successfulNormalizedKeys.add(normalizedKey);
+    if (fingerprint) {
+      this.successfulFingerprints.add(fingerprint);
+    }
+  }
+
+  /**
+   * A tool that changed the working tree makes every earlier query answerable differently, so the
+   * accumulated successes stop being evidence that a repeat is pointless.
+   */
+  forgetSuccesses(): void {
+    this.successfulNormalizedKeys.clear();
+    this.successfulFingerprints.clear();
   }
 }

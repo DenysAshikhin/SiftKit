@@ -274,12 +274,25 @@ const WEB_TOOL_NAMES = new Set<string>(['web_search', 'web_fetch']);
  */
 const MUTATING_COMMAND_TOOL_NAMES = new Set<string>(['run', 'git']);
 
+/**
+ * Tools that can change the working tree, so an identical earlier query may now have a different
+ * answer and must not be rejected as a repeat. `git` is deliberately absent: evaluateCommandSafety
+ * rejects every mutating git command, so a git call cannot change the tree. That is narrower than
+ * MUTATING_COMMAND_TOOL_NAMES above, which stays conservative because a stale read window is worse
+ * than a redundant one.
+ */
+const TREE_MUTATING_TOOL_NAMES = new Set<string>(['run', 'write', 'edit']);
+
 function normalizeToolName(toolName: string): string {
   return String(toolName || '').trim().toLowerCase();
 }
 
 export function isMutatingCommandToolName(toolName: string): boolean {
   return MUTATING_COMMAND_TOOL_NAMES.has(normalizeToolName(toolName));
+}
+
+export function isTreeMutatingToolName(toolName: string): boolean {
+  return TREE_MUTATING_TOOL_NAMES.has(normalizeToolName(toolName));
 }
 
 export function getRepoSearchToolNames(): string[] {

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { DUPLICATE_FORCE_THRESHOLD, DuplicateTracker } from '../src/repo-search/engine/duplicate-tracker.js';
 
-test('classify flags exact duplicates of the last successful normalized key', () => {
+test('classify flags exact duplicates of an earlier successful normalized key', () => {
   const tracker = new DuplicateTracker();
   tracker.recordSuccess('rg -n foo', 'fp-1');
   const result = tracker.classify({ toolName: 'run_repo_cmd', normalizedKey: 'rg -n foo', fingerprint: 'fp-2', rejected: false });
@@ -69,4 +69,45 @@ test('shouldForceFinish fires at DUPLICATE_FORCE_THRESHOLD and recordSuccess res
   tracker.recordSuccess('new key', 'fp-9');
   assert.equal(tracker.shouldForceFinish(), false);
   assert.equal(tracker.registerDuplicate('fp-1', 10).count, 2);
+});
+
+test('classify flags an exact duplicate even after other tools succeeded in between', () => {
+  const tracker = new DuplicateTracker();
+  tracker.recordSuccess('find pattern="**/architecture_overview.md"', 'fp-find');
+  tracker.recordSuccess('ls path="src"', 'fp-ls');
+  const repeat = tracker.classify({
+    toolName: 'find',
+    normalizedKey: 'find pattern="**/architecture_overview.md"',
+    fingerprint: 'fp-find',
+    rejected: false,
+  });
+  assert.equal(repeat.isExactDuplicate, true);
+});
+
+test('classify flags a semantic duplicate of any earlier success, not only the last', () => {
+  const tracker = new DuplicateTracker();
+  tracker.recordSuccess('grep pattern="alpha"', 'fp-grep');
+  tracker.recordSuccess('ls path="src"', 'fp-ls');
+  const repeat = tracker.classify({
+    toolName: 'grep',
+    normalizedKey: 'grep pattern="alpha" limit=50',
+    fingerprint: 'fp-grep',
+    rejected: false,
+  });
+  assert.equal(repeat.isExactDuplicate, false);
+  assert.equal(repeat.isSemanticDuplicate, true);
+});
+
+test('forgetSuccesses clears the run-wide memory so a post-mutation repeat is allowed', () => {
+  const tracker = new DuplicateTracker();
+  tracker.recordSuccess('grep pattern="alpha"', 'fp-grep');
+  tracker.forgetSuccesses();
+  const after = tracker.classify({
+    toolName: 'grep',
+    normalizedKey: 'grep pattern="alpha"',
+    fingerprint: 'fp-grep',
+    rejected: false,
+  });
+  assert.equal(after.isExactDuplicate, false);
+  assert.equal(after.isSemanticDuplicate, false);
 });
