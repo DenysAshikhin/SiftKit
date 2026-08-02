@@ -399,6 +399,19 @@ test('find keeps files whose search-relative path only looks like an ignored pat
   );
 });
 
+test('find and ls order the same names the same way', async () => {
+  const root = makeRepo();
+  fs.mkdirSync(path.join(root, 'order'), { recursive: true });
+  for (const name of ['Beta.ts', 'alpha.ts', 'Alpha.ts', 'beta.ts']) {
+    fs.writeFileSync(path.join(root, 'order', name), 'x\n', 'utf8');
+  }
+  const found = await executeRepoTool('find', { pattern: '*.ts', path: 'order' }, makeContext(root));
+  const listed = await executeRepoTool('ls', { path: 'order' }, makeContext(root));
+  assert.ok(found.ok);
+  assert.ok(listed.ok);
+  assert.deepEqual(found.output.split('\n'), listed.output.split('\n'));
+});
+
 // ---------------------------------------------------------------------------
 // ls
 // ---------------------------------------------------------------------------

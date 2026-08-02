@@ -274,6 +274,14 @@ function failure(toolType: string, command: string, reason: string): RepoToolExe
 }
 
 // ---------------------------------------------------------------------------
+// Output ordering — find and ls must agree on it
+// ---------------------------------------------------------------------------
+
+function compareDisplayNames(left: string, right: string): number {
+  return left.localeCompare(right);
+}
+
+// ---------------------------------------------------------------------------
 // Glob matching
 // ---------------------------------------------------------------------------
 
@@ -558,7 +566,7 @@ function executeFind(args: JsonObject, context: RepoToolContext): RepoToolExecut
   const filtered = repoRelativeFiles
     .map((repoRelativePath) => repoRelativePath.slice(basePrefixLength))
     .filter((searchRelativePath) => matchesGlob(searchRelativePath, pattern))
-    .sort();
+    .sort(compareDisplayNames);
   const limit = readPositiveInteger(args.limit, FIND_DEFAULT_LIMIT);
   const truncated = filtered.length > limit;
   const output = truncated
@@ -593,7 +601,7 @@ function executeLs(args: JsonObject, context: RepoToolContext): RepoToolExecutio
     }
     entries.push(entry.isDirectory() ? `${entry.name}/` : entry.name);
   }
-  entries.sort((left, right) => left.localeCompare(right));
+  entries.sort(compareDisplayNames);
   const limit = readPositiveInteger(args.limit, LS_DEFAULT_LIMIT);
   const truncated = entries.length > limit;
   const output = truncated
