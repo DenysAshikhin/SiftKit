@@ -122,7 +122,7 @@ const REPO_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
     type: 'function',
     function: {
       name: 'find',
-      description: 'Find files by glob pattern. Returns matching paths relative to the search directory. Ignored paths are excluded automatically. Output is capped at limit results (default 1000).',
+      description: 'Find files by glob pattern. Returns matching paths relative to the search directory. A `**/` segment spans zero or more directories, so `**/name.md` also matches `name.md` sitting directly in the search directory. Ignored paths are excluded automatically. Output is capped at limit results (default 1000).',
       parameters: {
         type: 'object',
         properties: {
