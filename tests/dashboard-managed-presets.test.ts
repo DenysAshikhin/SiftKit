@@ -35,6 +35,7 @@ function createPreset(overrides: Partial<DashboardModelRuntimePreset> = {}): Das
     BatchSize: 512,
     UBatchSize: 512,
     CacheRam: 8192,
+    CacheRecurrentRam: 4096,
     KvCacheQuantization: 'f16',
     MaxTokens: 15000,
     Temperature: 0.7,

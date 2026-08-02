@@ -15,6 +15,7 @@ import { LlamaPresetAdapter } from '../src/inference-presets/llama-preset-adapte
 import {
   getExl3CacheModes,
   getPresetFieldAvailability,
+  getPresetFieldBackendScope,
 } from '../src/inference-presets/preset-compatibility.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
@@ -56,6 +57,7 @@ test('EXL3 adapter translates shared batching and MTP settings for managed Tabby
     TABBY_MODEL_MAX_BATCH_SIZE: '4',
     TABBY_MODEL_CHUNK_SIZE: '1024',
     TABBY_MEMORY_SYSMEM_PAGE_CACHE: String(preset.CacheRam),
+    TABBY_MEMORY_SYSMEM_RECURRENT_CACHE: String(preset.CacheRecurrentRam),
     TABBY_DRAFT_MODEL_DRAFT_MODE: 'mtp',
     TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: '5',
     TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: 'Q8',
@@ -93,6 +95,7 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
     TABBY_MODEL_MAX_BATCH_SIZE: String(preset.ParallelSlots),
     TABBY_MODEL_CHUNK_SIZE: String(preset.UBatchSize),
     TABBY_MEMORY_SYSMEM_PAGE_CACHE: String(preset.CacheRam),
+    TABBY_MEMORY_SYSMEM_RECURRENT_CACHE: String(preset.CacheRecurrentRam),
     TABBY_DRAFT_MODEL_DRAFT_MODE: 'disabled',
     TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: String(preset.SpeculativeDraftMax),
     TABBY_DRAFT_MODEL_DRAFT_DYNAMIC: 'false',
@@ -325,7 +328,7 @@ test('fields llama.cpp cannot express are disabled on llama and managed-only on 
   const managedExl3 = createModelPreset({ Backend: 'exl3', ExternalServerEnabled: false });
   const externalExl3 = createModelPreset({ Backend: 'exl3', ExternalServerEnabled: true });
 
-  for (const field of ['VisionEnabled', 'SpeculativeDynamic'] satisfies ModelPresetField[]) {
+  for (const field of ['VisionEnabled', 'SpeculativeDynamic', 'CacheRecurrentRam'] satisfies ModelPresetField[]) {
     assert.deepEqual(getPresetFieldAvailability(llama, field), {
       enabled: false,
       reason: 'Not supported by llama.cpp',
@@ -425,8 +428,29 @@ test('llama availability is decided per field, not by a blanket enable', () => {
       (field) => getPresetFieldAvailability(preset, field).reason !== null,
     );
 
-    assert.deepEqual(disabled, ['SpeculativeDynamic', 'VisionEnabled']);
-    assert.deepEqual(explained, ['SpeculativeDynamic', 'VisionEnabled']);
+    assert.deepEqual(disabled, ['CacheRecurrentRam', 'SpeculativeDynamic', 'VisionEnabled']);
+    assert.deepEqual(explained, ['CacheRecurrentRam', 'SpeculativeDynamic', 'VisionEnabled']);
+  }
+});
+
+test('backend scope marks fields the other backend cannot use at all', () => {
+  assert.equal(getPresetFieldBackendScope('GpuLayers'), 'llama-only');
+  assert.equal(getPresetFieldBackendScope('BindHost'), 'llama-only');
+  assert.equal(getPresetFieldBackendScope('CacheRecurrentRam'), 'exl3-only');
+  assert.equal(getPresetFieldBackendScope('SpeculativeDynamic'), 'exl3-only');
+  assert.equal(getPresetFieldBackendScope('VisionEnabled'), 'exl3-only');
+  assert.equal(getPresetFieldBackendScope('CacheRam'), 'both');
+  assert.equal(getPresetFieldBackendScope('ParallelSlots'), 'both');
+  assert.equal(getPresetFieldBackendScope('NumCtx'), 'both');
+  assert.equal(getPresetFieldBackendScope('KvCacheQuantization'), 'both');
+});
+
+test('every preset field resolves a backend scope', () => {
+  for (const field of ModelPresetFieldSchema.options) {
+    assert.ok(
+      ['llama-only', 'exl3-only', 'both'].includes(getPresetFieldBackendScope(field)),
+      `${field} has no backend scope`,
+    );
   }
 });
 

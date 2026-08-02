@@ -53,20 +53,31 @@ function renderPreset(options: PresetRenderOptions = {}): string {
   }));
 }
 
+function findRenderedField(markup: string, label: string): string | undefined {
+  return markup.split('<div class="field').find((entry) => entry.includes(`<label>${label}<`));
+}
+
 function getRenderedField(markup: string, label: string): string {
-  const chunk = markup.split('<div class="field').find((entry) => entry.includes(`<label>${label}<`));
+  const chunk = findRenderedField(markup, label);
   if (chunk === undefined) throw new Error(`Rendered field '${label}' is missing.`);
   return chunk;
 }
 
-test('managed EXL3 enables supported runtime controls and exposes only MTP drafting', () => {
+function assertFieldAbsent(markup: string, label: string): void {
+  assert.equal(findRenderedField(markup, label), undefined, `Rendered field '${label}' should be hidden.`);
+}
+
+test('managed EXL3 hides llama-only fields and exposes only MTP drafting', () => {
   const markup = renderPreset({ parallelSlots: 2 });
 
   assert.match(markup, /aria-label="Preset backend"/u);
-  assert.match(getRenderedField(markup, 'GpuLayers'), /disabled/u);
-  assert.match(getRenderedField(markup, 'Bind host'), /disabled/u);
-  assert.match(getRenderedField(markup, 'Port'), /disabled/u);
+  assertFieldAbsent(markup, 'GpuLayers');
+  assertFieldAbsent(markup, 'Bind host');
+  assertFieldAbsent(markup, 'Port');
+  assertFieldAbsent(markup, 'BatchSize');
   assert.doesNotMatch(getRenderedField(markup, 'ParallelSlots'), /disabled/u);
+  assert.doesNotMatch(getRenderedField(markup, 'CacheRam'), /disabled/u);
+  assert.doesNotMatch(getRenderedField(markup, 'CacheRecurrentRam'), /disabled/u);
   assert.doesNotMatch(getRenderedField(markup, 'UBatchSize'), /disabled/u);
   assert.doesNotMatch(getRenderedField(markup, 'Enable speculative decoding'), /disabled/u);
   assert.doesNotMatch(getRenderedField(markup, 'SpeculativeDraftMax'), /disabled/u);
@@ -75,7 +86,7 @@ test('managed EXL3 enables supported runtime controls and exposes only MTP draft
   assert.match(markup, /<option value="draft-mtp" selected="">draft-mtp<\/option>/u);
   assert.doesNotMatch(markup, /<option value="ngram-map-k">/u);
   assert.doesNotMatch(markup, /MTP speculative decoding does not support parallel slots/u);
-  assert.match(markup, /Not supported by EXL3/u);
+  assert.doesNotMatch(markup, /Not supported by EXL3/u);
   assert.doesNotMatch(markup, /aria-label="Inference backend"/u);
 });
 
@@ -90,12 +101,15 @@ test('external EXL3 exposes chunk size but disables process-scoped controls', ()
   assert.match(markup, /Requires SiftKit-managed TabbyAPI/u);
 });
 
-test('llama disables SpeculativeDynamic because llama.cpp has no dynamic draft window', () => {
+test('llama hides the EXL3-only fields it has no equivalent for', () => {
   const markup = renderPreset({ backend: 'llama' });
 
   assert.doesNotMatch(getRenderedField(markup, 'SpeculativeDraftMax'), /disabled/u);
-  assert.match(getRenderedField(markup, 'SpeculativeDynamic'), /disabled/u);
-  assert.match(getRenderedField(markup, 'SpeculativeDynamic'), /Not supported by llama\.cpp/u);
+  assertFieldAbsent(markup, 'SpeculativeDynamic');
+  assertFieldAbsent(markup, 'CacheRecurrentRam');
+  assert.doesNotMatch(markup, /Not supported by llama\.cpp/u);
+  assert.doesNotMatch(getRenderedField(markup, 'GpuLayers'), /disabled/u);
+  assert.doesNotMatch(getRenderedField(markup, 'CacheRam'), /disabled/u);
 });
 
 test('EXL3 enum controls disable incompatible values without changing the preset', () => {

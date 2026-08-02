@@ -52,7 +52,8 @@ const ManagedLlamaSettingsShape = {
   ExternalServerEnabled: z.boolean(), ExecutablePath: z.string().nullable(), BaseUrl: z.string().nullable(),
   BindHost: z.string(), Port: z.number(), ModelPath: z.string().nullable(), NumCtx: z.number(),
   GpuLayers: z.number(), Threads: z.number(), NcpuMoe: z.number(), FlashAttention: z.boolean(), ParallelSlots: z.number(),
-  BatchSize: z.number(), UBatchSize: z.number(), CacheRam: z.number(), KvCacheQuantization: ManagedLlamaKvCacheQuantizationSchema,
+  BatchSize: z.number(), UBatchSize: z.number(), CacheRam: z.number(), CacheRecurrentRam: z.number(),
+  KvCacheQuantization: ManagedLlamaKvCacheQuantizationSchema,
   MaxTokens: z.number(), Temperature: z.number(), TopP: z.number(), TopK: z.number(), MinP: z.number(),
   PresencePenalty: z.number(), RepetitionPenalty: z.number(),
   Reasoning: ReasoningSchema, ReasoningContent: z.boolean(),
@@ -69,7 +70,7 @@ const ManagedLlamaSettingsShape = {
 export const ModelPresetFieldSchema = z.enum([
   'Model', 'ExternalServerEnabled', 'ExecutablePath', 'BaseUrl', 'BindHost', 'Port', 'ModelPath', 'NumCtx',
   'GpuLayers', 'Threads', 'NcpuMoe', 'FlashAttention', 'ParallelSlots', 'BatchSize', 'UBatchSize', 'CacheRam',
-  'KvCacheQuantization', 'MaxTokens', 'Temperature', 'TopP', 'TopK', 'MinP', 'PresencePenalty',
+  'CacheRecurrentRam', 'KvCacheQuantization', 'MaxTokens', 'Temperature', 'TopP', 'TopK', 'MinP', 'PresencePenalty',
   'RepetitionPenalty', 'Reasoning', 'ReasoningContent', 'PreserveThinking', 'MaintainPerStepThinking',
   'SpeculativeEnabled', 'SpeculativeType', 'SpeculativeMtpEnabled', 'SpeculativeNgramSizeN',
   'SpeculativeNgramSizeM', 'SpeculativeNgramMinHits', 'SpeculativeNgramModNMatch', 'SpeculativeNgramModNMin',

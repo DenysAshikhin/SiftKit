@@ -34,6 +34,7 @@ function makePreset(opts: Partial<ModelRuntimePreset> = {}): ModelRuntimePreset 
     BatchSize: 512,
     UBatchSize: 512,
     CacheRam: 8192,
+    CacheRecurrentRam: 4096,
     KvCacheQuantization: 'f16',
     MaxTokens: 4096,
     Temperature: 0.7,

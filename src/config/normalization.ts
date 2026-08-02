@@ -3,6 +3,7 @@ import { ModelPresetFieldSchema, SiftPresetCollectionSchema } from '@siftkit/con
 import {
   SIFT_DEFAULT_LLAMA_BATCH_SIZE,
   SIFT_DEFAULT_LLAMA_BIND_HOST,
+  SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM,
   SIFT_DEFAULT_LLAMA_CACHE_RAM,
   SIFT_DEFAULT_LLAMA_GPU_LAYERS,
   SIFT_DEFAULT_LLAMA_KV_CACHE_QUANTIZATION,
@@ -59,6 +60,7 @@ export type ManagedLlamaConfig = {
   BatchSize: number;
   UBatchSize: number;
   CacheRam: number;
+  CacheRecurrentRam: number;
   KvCacheQuantization: ManagedLlamaKvCacheQuantization;
   MaxTokens: number;
   Temperature: number;
@@ -386,6 +388,10 @@ function resolveManagedLlamaSettings(input: MutableJsonObject): ManagedLlamaConf
     BatchSize: getFinitePositiveInteger(input.BatchSize, Number(defaults.BatchSize ?? SIFT_DEFAULT_LLAMA_BATCH_SIZE)),
     UBatchSize: getFinitePositiveInteger(input.UBatchSize, Number(defaults.UBatchSize ?? SIFT_DEFAULT_LLAMA_UBATCH_SIZE)),
     CacheRam: getFinitePositiveInteger(input.CacheRam, Number(defaults.CacheRam ?? SIFT_DEFAULT_LLAMA_CACHE_RAM)),
+    CacheRecurrentRam: getFinitePositiveInteger(
+      input.CacheRecurrentRam,
+      Number(defaults.CacheRecurrentRam ?? SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM),
+    ),
     KvCacheQuantization: getManagedKvCacheQuantization(
       input.KvCacheQuantization,
       defaults.KvCacheQuantization ?? SIFT_DEFAULT_LLAMA_KV_CACHE_QUANTIZATION,

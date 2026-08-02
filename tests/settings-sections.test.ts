@@ -65,6 +65,7 @@ test('settings tooltip labels include the documented fields', () => {
       'BatchSize',
       'UBatchSize',
       'CacheRam',
+      'CacheRecurrentRam',
       'KV cache quant',
       'MaxTokens',
       'Temperature',

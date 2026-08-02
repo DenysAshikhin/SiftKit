@@ -2,7 +2,11 @@ import React from 'react';
 import type { ReactNode } from 'react';
 
 import { parseFloatInput, parseIntegerInput } from '../../lib/format';
-import { getExl3CacheModes, getPresetFieldAvailability } from '../../../../src/inference-presets/preset-compatibility.js';
+import {
+  getExl3CacheModes,
+  getPresetFieldAvailability,
+  getPresetFieldBackendScope,
+} from '../../../../src/inference-presets/preset-compatibility.js';
 import { getInferenceRuntimeStatus } from '../../api';
 import { summarizeModelPresetGroup, type ModelPresetGroupId } from './model-preset-groups';
 import { SettingsSectionField } from '../../settings/SettingsFields';
@@ -64,17 +68,31 @@ function isNgramSpeculativeType(type: DashboardManagedLlamaSpeculativeType): boo
   return type.startsWith('ngram-');
 }
 
-function renderCompatibilityControl(
-  preset: DashboardModelRuntimePreset,
-  field: ModelPresetField,
-  control: ReactNode,
-): ReactNode {
+/**
+ * Renders one preset field with its backend compatibility already applied: fields the active
+ * backend cannot use at all are omitted, and fields it can use only through a SiftKit-managed
+ * engine stay visible but disabled with the reason. Both decisions come from PRESET_FIELD_SUPPORT,
+ * so the form never carries its own copy of which field belongs to which backend.
+ */
+function ModelPresetControl({ preset, field, label, className, children }: {
+  preset: DashboardModelRuntimePreset;
+  field: ModelPresetField;
+  label: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  const scope = getPresetFieldBackendScope(field);
+  if (scope !== 'both' && scope !== `${preset.Backend}-only`) {
+    return null;
+  }
   const availability = getPresetFieldAvailability(preset, field);
   return (
-    <div className="settings-live-stack">
-      <fieldset className="settings-compatibility-control" disabled={!availability.enabled}>{control}</fieldset>
-      {availability.reason ? <span className="hint">{availability.reason}</span> : null}
-    </div>
+    <SettingsSectionField sectionId="model-presets" label={label} className={className}>
+      <div className="settings-live-stack">
+        <fieldset className="settings-compatibility-control" disabled={!availability.enabled}>{children}</fieldset>
+        {availability.reason ? <span className="hint">{availability.reason}</span> : null}
+      </div>
+    </SettingsSectionField>
   );
 }
 
@@ -197,19 +215,17 @@ export function ModelPresetsSection({
             <input value={preset.label} onChange={(event) => modelPresetActions.setString('label', event.target.value)} />
           </SettingsSectionField>
           {!preset.ExternalServerEnabled ? (
-            <SettingsSectionField sectionId="model-presets" label="Executable path" className="be-l">
-              {renderCompatibilityControl(preset, 'ExecutablePath', (
-                <div className="settings-live-nav-control">
-                  <input
-                    value={preset.ExecutablePath || ''}
-                    onChange={(event) => modelPresetActions.setNullableString('ExecutablePath', event.target.value.trim() || null)}
-                  />
-                  <button type="button" onClick={() => { void modelPresetActions.pickPath('ExecutablePath'); }} disabled={settingsActionBusy}>
-                    {isModelPresetPickerBusy(settingsPathPickerBusyTarget, 'ExecutablePath') ? 'Opening…' : 'Browse…'}
-                  </button>
-                </div>
-              ))}
-            </SettingsSectionField>
+            <ModelPresetControl preset={preset} field="ExecutablePath" label="Executable path">
+              <div className="settings-live-nav-control">
+                <input
+                  value={preset.ExecutablePath || ''}
+                  onChange={(event) => modelPresetActions.setNullableString('ExecutablePath', event.target.value.trim() || null)}
+                />
+                <button type="button" onClick={() => { void modelPresetActions.pickPath('ExecutablePath'); }} disabled={settingsActionBusy}>
+                  {isModelPresetPickerBusy(settingsPathPickerBusyTarget, 'ExecutablePath') ? 'Opening…' : 'Browse…'}
+                </button>
+              </div>
+          </ModelPresetControl>
           ) : null}
           {!preset.ExternalServerEnabled ? (
             <SettingsSectionField
@@ -246,16 +262,12 @@ export function ModelPresetsSection({
               ) : null}
             </div>
           </SettingsSectionField>
-          <SettingsSectionField sectionId="model-presets" label="Bind host">
-            {renderCompatibilityControl(preset, 'BindHost', (
-              <input value={preset.BindHost} onChange={(event) => modelPresetActions.setString('BindHost', event.target.value)} />
-            ))}
-          </SettingsSectionField>
-          <SettingsSectionField sectionId="model-presets" label="Port">
-            {renderCompatibilityControl(preset, 'Port', (
-              <input type="number" value={preset.Port} onChange={(event) => modelPresetActions.setInteger('Port', parseIntegerInput(event.target.value, preset.Port))} />
-            ))}
-          </SettingsSectionField>
+          <ModelPresetControl preset={preset} field="BindHost" label="Bind host">
+            <input value={preset.BindHost} onChange={(event) => modelPresetActions.setString('BindHost', event.target.value)} />
+          </ModelPresetControl>
+          <ModelPresetControl preset={preset} field="Port" label="Port">
+            <input type="number" value={preset.Port} onChange={(event) => modelPresetActions.setInteger('Port', parseIntegerInput(event.target.value, preset.Port))} />
+          </ModelPresetControl>
         </>
       ))}
 
@@ -264,61 +276,46 @@ export function ModelPresetsSection({
           <SettingsSectionField sectionId="model-presets" label="NumCtx">
             <input type="number" value={preset.NumCtx} onChange={(event) => modelPresetActions.setInteger('NumCtx', parseIntegerInput(event.target.value, preset.NumCtx))} />
           </SettingsSectionField>
-          <SettingsSectionField sectionId="model-presets" label="GpuLayers" className="be-l">
-            {renderCompatibilityControl(preset, 'GpuLayers', (
-              <input type="number" value={preset.GpuLayers} onChange={(event) => modelPresetActions.setInteger('GpuLayers', parseIntegerInput(event.target.value, preset.GpuLayers))} />
-            ))}
-          </SettingsSectionField>
-          <SettingsSectionField sectionId="model-presets" label="Threads" className="be-l">
-            {renderCompatibilityControl(preset, 'Threads', (
-              <input type="number" value={preset.Threads} onChange={(event) => modelPresetActions.setInteger('Threads', parseIntegerInput(event.target.value, preset.Threads))} />
-            ))}
-          </SettingsSectionField>
-          <SettingsSectionField sectionId="model-presets" label="NcpuMoe" className="be-l">
-            {renderCompatibilityControl(preset, 'NcpuMoe', (
-              <input type="number" value={preset.NcpuMoe} onChange={(event) => modelPresetActions.setInteger('NcpuMoe', parseIntegerInput(event.target.value, preset.NcpuMoe))} />
-            ))}
-          </SettingsSectionField>
-          <SettingsSectionField sectionId="model-presets" label="Flash attention" className="be-l">
-            {renderCompatibilityControl(preset, 'FlashAttention', (
-              <label className="settings-live-toggle-control">
-                <input type="checkbox" checked={preset.FlashAttention} onChange={(event) => modelPresetActions.setBoolean('FlashAttention', event.target.checked)} />
-                <span>{preset.FlashAttention ? 'Enabled' : 'Disabled'}</span>
-              </label>
-            ))}
-          </SettingsSectionField>
-          <SettingsSectionField sectionId="model-presets" label="ParallelSlots">
-            {renderCompatibilityControl(preset, 'ParallelSlots', (
-              <input type="number" value={preset.ParallelSlots} onChange={(event) => modelPresetActions.setInteger('ParallelSlots', parseIntegerInput(event.target.value, preset.ParallelSlots))} />
-            ))}
-          </SettingsSectionField>
-          <SettingsSectionField sectionId="model-presets" label="BatchSize" className="be-l">
-            {renderCompatibilityControl(preset, 'BatchSize', (
-              <input type="number" value={preset.BatchSize} onChange={(event) => modelPresetActions.setInteger('BatchSize', parseIntegerInput(event.target.value, preset.BatchSize))} />
-            ))}
-          </SettingsSectionField>
-          <SettingsSectionField sectionId="model-presets" label="UBatchSize">
-            {renderCompatibilityControl(preset, 'UBatchSize', (
-              <input type="number" value={preset.UBatchSize} onChange={(event) => modelPresetActions.setInteger('UBatchSize', parseIntegerInput(event.target.value, preset.UBatchSize))} />
-            ))}
-          </SettingsSectionField>
-          <SettingsSectionField sectionId="model-presets" label="CacheRam" className="be-l">
-            {renderCompatibilityControl(preset, 'CacheRam', (
-              <input type="number" value={preset.CacheRam} onChange={(event) => modelPresetActions.setInteger('CacheRam', parseIntegerInput(event.target.value, preset.CacheRam))} />
-            ))}
-          </SettingsSectionField>
-          <SettingsSectionField sectionId="model-presets" label="KV cache quant">
-            {renderCompatibilityControl(preset, 'KvCacheQuantization', (
-              <select value={preset.KvCacheQuantization} onChange={(event) => {
-                const value = KV_CACHE_QUANT_OPTIONS.find((option) => option === event.target.value);
-                if (value) modelPresetActions.setKvCacheQuantization(value);
-              }}>
-                {KV_CACHE_QUANT_OPTIONS.map((option) => (
-                  <option key={option} value={option} disabled={preset.Backend === 'exl3' && getExl3CacheModes(option) === null}>{option}</option>
-                ))}
-              </select>
-            ))}
-          </SettingsSectionField>
+          <ModelPresetControl preset={preset} field="GpuLayers" label="GpuLayers">
+            <input type="number" value={preset.GpuLayers} onChange={(event) => modelPresetActions.setInteger('GpuLayers', parseIntegerInput(event.target.value, preset.GpuLayers))} />
+          </ModelPresetControl>
+          <ModelPresetControl preset={preset} field="Threads" label="Threads">
+            <input type="number" value={preset.Threads} onChange={(event) => modelPresetActions.setInteger('Threads', parseIntegerInput(event.target.value, preset.Threads))} />
+          </ModelPresetControl>
+          <ModelPresetControl preset={preset} field="NcpuMoe" label="NcpuMoe">
+            <input type="number" value={preset.NcpuMoe} onChange={(event) => modelPresetActions.setInteger('NcpuMoe', parseIntegerInput(event.target.value, preset.NcpuMoe))} />
+          </ModelPresetControl>
+          <ModelPresetControl preset={preset} field="FlashAttention" label="Flash attention">
+            <label className="settings-live-toggle-control">
+              <input type="checkbox" checked={preset.FlashAttention} onChange={(event) => modelPresetActions.setBoolean('FlashAttention', event.target.checked)} />
+              <span>{preset.FlashAttention ? 'Enabled' : 'Disabled'}</span>
+            </label>
+          </ModelPresetControl>
+          <ModelPresetControl preset={preset} field="ParallelSlots" label="ParallelSlots">
+            <input type="number" value={preset.ParallelSlots} onChange={(event) => modelPresetActions.setInteger('ParallelSlots', parseIntegerInput(event.target.value, preset.ParallelSlots))} />
+          </ModelPresetControl>
+          <ModelPresetControl preset={preset} field="BatchSize" label="BatchSize">
+            <input type="number" value={preset.BatchSize} onChange={(event) => modelPresetActions.setInteger('BatchSize', parseIntegerInput(event.target.value, preset.BatchSize))} />
+          </ModelPresetControl>
+          <ModelPresetControl preset={preset} field="UBatchSize" label="UBatchSize">
+            <input type="number" value={preset.UBatchSize} onChange={(event) => modelPresetActions.setInteger('UBatchSize', parseIntegerInput(event.target.value, preset.UBatchSize))} />
+          </ModelPresetControl>
+          <ModelPresetControl preset={preset} field="CacheRam" label="CacheRam">
+            <input type="number" value={preset.CacheRam} onChange={(event) => modelPresetActions.setInteger('CacheRam', parseIntegerInput(event.target.value, preset.CacheRam))} />
+          </ModelPresetControl>
+          <ModelPresetControl preset={preset} field="CacheRecurrentRam" label="CacheRecurrentRam">
+            <input type="number" value={preset.CacheRecurrentRam} onChange={(event) => modelPresetActions.setInteger('CacheRecurrentRam', parseIntegerInput(event.target.value, preset.CacheRecurrentRam))} />
+          </ModelPresetControl>
+          <ModelPresetControl preset={preset} field="KvCacheQuantization" label="KV cache quant">
+            <select value={preset.KvCacheQuantization} onChange={(event) => {
+              const value = KV_CACHE_QUANT_OPTIONS.find((option) => option === event.target.value);
+              if (value) modelPresetActions.setKvCacheQuantization(value);
+            }}>
+              {KV_CACHE_QUANT_OPTIONS.map((option) => (
+                <option key={option} value={option} disabled={preset.Backend === 'exl3' && getExl3CacheModes(option) === null}>{option}</option>
+              ))}
+            </select>
+          </ModelPresetControl>
         </>
       ))}
 
@@ -387,119 +384,91 @@ export function ModelPresetsSection({
               </label>
             </SettingsSectionField>
           ) : null}
-          <SettingsSectionField sectionId="model-presets" label="ReasoningBudget">
-            {renderCompatibilityControl(preset, 'ReasoningBudget', (
-              <input type="number" value={preset.ReasoningBudget} onChange={(event) => modelPresetActions.setInteger('ReasoningBudget', parseIntegerInput(event.target.value, preset.ReasoningBudget))} />
-            ))}
-          </SettingsSectionField>
-          <SettingsSectionField sectionId="model-presets" label="ReasoningBudgetMessage" className="w4">
-            {renderCompatibilityControl(preset, 'ReasoningBudgetMessage', (
-              <textarea rows={3} value={preset.ReasoningBudgetMessage || ''} onChange={(event) => modelPresetActions.setNullableString('ReasoningBudgetMessage', event.target.value || null)} />
-            ))}
-          </SettingsSectionField>
+          <ModelPresetControl preset={preset} field="ReasoningBudget" label="ReasoningBudget">
+            <input type="number" value={preset.ReasoningBudget} onChange={(event) => modelPresetActions.setInteger('ReasoningBudget', parseIntegerInput(event.target.value, preset.ReasoningBudget))} />
+          </ModelPresetControl>
+          <ModelPresetControl preset={preset} field="ReasoningBudgetMessage" label="ReasoningBudgetMessage" className="w4">
+            <textarea rows={3} value={preset.ReasoningBudgetMessage || ''} onChange={(event) => modelPresetActions.setNullableString('ReasoningBudgetMessage', event.target.value || null)} />
+          </ModelPresetControl>
         </>
       ))}
 
       {group('speculative', (
         <>
-          <SettingsSectionField sectionId="model-presets" label="Enable speculative decoding">
-            {renderCompatibilityControl(preset, 'SpeculativeEnabled', (
-              <label className="settings-live-toggle-control">
-                <input type="checkbox" checked={preset.SpeculativeEnabled} onChange={(event) => modelPresetActions.setBoolean('SpeculativeEnabled', event.target.checked)} />
-                <span>{preset.SpeculativeEnabled ? 'Enabled' : 'Disabled'}</span>
-              </label>
-            ))}
-          </SettingsSectionField>
+          <ModelPresetControl preset={preset} field="SpeculativeEnabled" label="Enable speculative decoding">
+            <label className="settings-live-toggle-control">
+              <input type="checkbox" checked={preset.SpeculativeEnabled} onChange={(event) => modelPresetActions.setBoolean('SpeculativeEnabled', event.target.checked)} />
+              <span>{preset.SpeculativeEnabled ? 'Enabled' : 'Disabled'}</span>
+            </label>
+          </ModelPresetControl>
           {speculativeEnabled ? (
-            <SettingsSectionField sectionId="model-presets" label="Speculative type">
-              {renderCompatibilityControl(preset, 'SpeculativeType', (
-                <select value={preset.SpeculativeType} onChange={(event) => {
-                  const value = SPECULATIVE_TYPE_OPTIONS.find((option) => option === event.target.value);
-                  if (value) modelPresetActions.setSpeculativeType(value);
-                }}>
-                  {speculativeTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-                </select>
-              ))}
-            </SettingsSectionField>
+            <ModelPresetControl preset={preset} field="SpeculativeType" label="Speculative type">
+              <select value={preset.SpeculativeType} onChange={(event) => {
+                const value = SPECULATIVE_TYPE_OPTIONS.find((option) => option === event.target.value);
+                if (value) modelPresetActions.setSpeculativeType(value);
+              }}>
+                {speculativeTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
+          </ModelPresetControl>
           ) : null}
           {mtpCombineAvailable ? (
-            <SettingsSectionField sectionId="model-presets" label="Combine with MTP">
-              {renderCompatibilityControl(preset, 'SpeculativeMtpEnabled', (
-                <label className="settings-live-toggle-control">
-                  <input type="checkbox" checked={preset.SpeculativeMtpEnabled} onChange={(event) => modelPresetActions.setBoolean('SpeculativeMtpEnabled', event.target.checked)} />
-                  <span>{preset.SpeculativeMtpEnabled ? 'Enabled' : 'Disabled'}</span>
-                </label>
-              ))}
-            </SettingsSectionField>
+            <ModelPresetControl preset={preset} field="SpeculativeMtpEnabled" label="Combine with MTP">
+              <label className="settings-live-toggle-control">
+                <input type="checkbox" checked={preset.SpeculativeMtpEnabled} onChange={(event) => modelPresetActions.setBoolean('SpeculativeMtpEnabled', event.target.checked)} />
+                <span>{preset.SpeculativeMtpEnabled ? 'Enabled' : 'Disabled'}</span>
+              </label>
+          </ModelPresetControl>
           ) : null}
           {mtpParallelSlotsWarning ? (
             <div className="field w4"><div className="settings-live-warning cond-note" role="alert">MTP speculative decoding does not support parallel slots above 1 in the upstream llama.cpp implementation.</div></div>
           ) : null}
           {ngramSizeSpeculativeType ? (
-            <SettingsSectionField sectionId="model-presets" label="SpeculativeNgramSizeN" className="be-l">
-              {renderCompatibilityControl(preset, 'SpeculativeNgramSizeN', (
-                <input type="number" value={preset.SpeculativeNgramSizeN} onChange={(event) => modelPresetActions.setInteger('SpeculativeNgramSizeN', parseIntegerInput(event.target.value, preset.SpeculativeNgramSizeN))} />
-              ))}
-            </SettingsSectionField>
+            <ModelPresetControl preset={preset} field="SpeculativeNgramSizeN" label="SpeculativeNgramSizeN">
+              <input type="number" value={preset.SpeculativeNgramSizeN} onChange={(event) => modelPresetActions.setInteger('SpeculativeNgramSizeN', parseIntegerInput(event.target.value, preset.SpeculativeNgramSizeN))} />
+          </ModelPresetControl>
           ) : null}
           {ngramSizeSpeculativeType ? (
-            <SettingsSectionField sectionId="model-presets" label="SpeculativeNgramSizeM" className="be-l">
-              {renderCompatibilityControl(preset, 'SpeculativeNgramSizeM', (
-                <input type="number" value={preset.SpeculativeNgramSizeM} onChange={(event) => modelPresetActions.setInteger('SpeculativeNgramSizeM', parseIntegerInput(event.target.value, preset.SpeculativeNgramSizeM))} />
-              ))}
-            </SettingsSectionField>
+            <ModelPresetControl preset={preset} field="SpeculativeNgramSizeM" label="SpeculativeNgramSizeM">
+              <input type="number" value={preset.SpeculativeNgramSizeM} onChange={(event) => modelPresetActions.setInteger('SpeculativeNgramSizeM', parseIntegerInput(event.target.value, preset.SpeculativeNgramSizeM))} />
+          </ModelPresetControl>
           ) : null}
           {ngramSizeSpeculativeType ? (
-            <SettingsSectionField sectionId="model-presets" label="SpeculativeNgramMinHits" className="be-l">
-              {renderCompatibilityControl(preset, 'SpeculativeNgramMinHits', (
-                <input type="number" value={preset.SpeculativeNgramMinHits} onChange={(event) => modelPresetActions.setInteger('SpeculativeNgramMinHits', parseIntegerInput(event.target.value, preset.SpeculativeNgramMinHits))} />
-              ))}
-            </SettingsSectionField>
+            <ModelPresetControl preset={preset} field="SpeculativeNgramMinHits" label="SpeculativeNgramMinHits">
+              <input type="number" value={preset.SpeculativeNgramMinHits} onChange={(event) => modelPresetActions.setInteger('SpeculativeNgramMinHits', parseIntegerInput(event.target.value, preset.SpeculativeNgramMinHits))} />
+          </ModelPresetControl>
           ) : null}
           {ngramModSpeculativeType ? (
-            <SettingsSectionField sectionId="model-presets" label="SpeculativeNgramModNMatch" className="be-l">
-              {renderCompatibilityControl(preset, 'SpeculativeNgramModNMatch', (
-                <input type="number" value={preset.SpeculativeNgramModNMatch} onChange={(event) => modelPresetActions.setInteger('SpeculativeNgramModNMatch', parseIntegerInput(event.target.value, preset.SpeculativeNgramModNMatch))} />
-              ))}
-            </SettingsSectionField>
+            <ModelPresetControl preset={preset} field="SpeculativeNgramModNMatch" label="SpeculativeNgramModNMatch">
+              <input type="number" value={preset.SpeculativeNgramModNMatch} onChange={(event) => modelPresetActions.setInteger('SpeculativeNgramModNMatch', parseIntegerInput(event.target.value, preset.SpeculativeNgramModNMatch))} />
+          </ModelPresetControl>
           ) : null}
           {ngramModSpeculativeType ? (
-            <SettingsSectionField sectionId="model-presets" label="SpeculativeNgramModNMin" className="be-l">
-              {renderCompatibilityControl(preset, 'SpeculativeNgramModNMin', (
-                <input type="number" value={preset.SpeculativeNgramModNMin} onChange={(event) => modelPresetActions.setInteger('SpeculativeNgramModNMin', parseIntegerInput(event.target.value, preset.SpeculativeNgramModNMin))} />
-              ))}
-            </SettingsSectionField>
+            <ModelPresetControl preset={preset} field="SpeculativeNgramModNMin" label="SpeculativeNgramModNMin">
+              <input type="number" value={preset.SpeculativeNgramModNMin} onChange={(event) => modelPresetActions.setInteger('SpeculativeNgramModNMin', parseIntegerInput(event.target.value, preset.SpeculativeNgramModNMin))} />
+          </ModelPresetControl>
           ) : null}
           {ngramModSpeculativeType ? (
-            <SettingsSectionField sectionId="model-presets" label="SpeculativeNgramModNMax" className="be-l">
-              {renderCompatibilityControl(preset, 'SpeculativeNgramModNMax', (
-                <input type="number" value={preset.SpeculativeNgramModNMax} onChange={(event) => modelPresetActions.setInteger('SpeculativeNgramModNMax', parseIntegerInput(event.target.value, preset.SpeculativeNgramModNMax))} />
-              ))}
-            </SettingsSectionField>
+            <ModelPresetControl preset={preset} field="SpeculativeNgramModNMax" label="SpeculativeNgramModNMax">
+              <input type="number" value={preset.SpeculativeNgramModNMax} onChange={(event) => modelPresetActions.setInteger('SpeculativeNgramModNMax', parseIntegerInput(event.target.value, preset.SpeculativeNgramModNMax))} />
+          </ModelPresetControl>
           ) : null}
           {draftTokenFields ? (
-            <SettingsSectionField sectionId="model-presets" label="SpeculativeDraftMax">
-              {renderCompatibilityControl(preset, 'SpeculativeDraftMax', (
-                <input type="number" value={preset.SpeculativeDraftMax} onChange={(event) => modelPresetActions.setInteger('SpeculativeDraftMax', parseIntegerInput(event.target.value, preset.SpeculativeDraftMax))} />
-              ))}
-            </SettingsSectionField>
+            <ModelPresetControl preset={preset} field="SpeculativeDraftMax" label="SpeculativeDraftMax">
+              <input type="number" value={preset.SpeculativeDraftMax} onChange={(event) => modelPresetActions.setInteger('SpeculativeDraftMax', parseIntegerInput(event.target.value, preset.SpeculativeDraftMax))} />
+          </ModelPresetControl>
           ) : null}
           {draftTokenFields ? (
-            <SettingsSectionField sectionId="model-presets" label="SpeculativeDynamic">
-              {renderCompatibilityControl(preset, 'SpeculativeDynamic', (
-                <label className="settings-live-toggle-control">
-                  <input type="checkbox" checked={preset.SpeculativeDynamic} onChange={(event) => modelPresetActions.setBoolean('SpeculativeDynamic', event.target.checked)} />
-                  <span>{preset.SpeculativeDynamic ? 'Enabled' : 'Disabled'}</span>
-                </label>
-              ))}
-            </SettingsSectionField>
+            <ModelPresetControl preset={preset} field="SpeculativeDynamic" label="SpeculativeDynamic">
+              <label className="settings-live-toggle-control">
+                <input type="checkbox" checked={preset.SpeculativeDynamic} onChange={(event) => modelPresetActions.setBoolean('SpeculativeDynamic', event.target.checked)} />
+                <span>{preset.SpeculativeDynamic ? 'Enabled' : 'Disabled'}</span>
+              </label>
+          </ModelPresetControl>
           ) : null}
           {draftTokenFields ? (
-            <SettingsSectionField sectionId="model-presets" label="SpeculativeDraftMin">
-              {renderCompatibilityControl(preset, 'SpeculativeDraftMin', (
-                <input type="number" value={preset.SpeculativeDraftMin} onChange={(event) => modelPresetActions.setInteger('SpeculativeDraftMin', parseIntegerInput(event.target.value, preset.SpeculativeDraftMin))} />
-              ))}
-            </SettingsSectionField>
+            <ModelPresetControl preset={preset} field="SpeculativeDraftMin" label="SpeculativeDraftMin">
+              <input type="number" value={preset.SpeculativeDraftMin} onChange={(event) => modelPresetActions.setInteger('SpeculativeDraftMin', parseIntegerInput(event.target.value, preset.SpeculativeDraftMin))} />
+          </ModelPresetControl>
           ) : null}
         </>
       ))}
@@ -518,22 +487,18 @@ export function ModelPresetsSection({
           <SettingsSectionField sectionId="model-presets" label="SleepIdleSeconds">
             <input type="number" value={preset.SleepIdleSeconds} onChange={(event) => modelPresetActions.setInteger('SleepIdleSeconds', parseIntegerInput(event.target.value, preset.SleepIdleSeconds))} />
           </SettingsSectionField>
-          <SettingsSectionField sectionId="model-presets" label="Verbose logging">
-            {renderCompatibilityControl(preset, 'VerboseLogging', (
-              <label className="settings-live-toggle-control">
-                <input type="checkbox" checked={preset.VerboseLogging} onChange={(event) => modelPresetActions.setBoolean('VerboseLogging', event.target.checked)} />
-                <span>{preset.VerboseLogging ? 'Enabled' : 'Disabled'}</span>
-              </label>
-            ))}
-          </SettingsSectionField>
-          <SettingsSectionField sectionId="model-presets" label="Vision enabled">
-            {renderCompatibilityControl(preset, 'VisionEnabled', (
-              <label className="settings-live-toggle-control">
-                <input type="checkbox" checked={preset.VisionEnabled} onChange={(event) => modelPresetActions.setBoolean('VisionEnabled', event.target.checked)} />
-                <span>{preset.VisionEnabled ? 'Enabled' : 'Disabled'}</span>
-              </label>
-            ))}
-          </SettingsSectionField>
+          <ModelPresetControl preset={preset} field="VerboseLogging" label="Verbose logging">
+            <label className="settings-live-toggle-control">
+              <input type="checkbox" checked={preset.VerboseLogging} onChange={(event) => modelPresetActions.setBoolean('VerboseLogging', event.target.checked)} />
+              <span>{preset.VerboseLogging ? 'Enabled' : 'Disabled'}</span>
+            </label>
+          </ModelPresetControl>
+          <ModelPresetControl preset={preset} field="VisionEnabled" label="Vision enabled">
+            <label className="settings-live-toggle-control">
+              <input type="checkbox" checked={preset.VisionEnabled} onChange={(event) => modelPresetActions.setBoolean('VisionEnabled', event.target.checked)} />
+              <span>{preset.VisionEnabled ? 'Enabled' : 'Disabled'}</span>
+            </label>
+          </ModelPresetControl>
         </>
       ))}
       <div className="cond-note">Runtime changes take effect on Save settings → backend restart.</div>

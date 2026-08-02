@@ -157,6 +157,7 @@ test('managed Tabby launches with preset environment and uses its startup-loaded
         TABBY_MODEL_MAX_BATCH_SIZE: '4',
         TABBY_MODEL_CHUNK_SIZE: '1024',
         TABBY_MEMORY_SYSMEM_PAGE_CACHE: String(exl3Preset.CacheRam),
+        TABBY_MEMORY_SYSMEM_RECURRENT_CACHE: String(exl3Preset.CacheRecurrentRam),
         TABBY_DRAFT_MODEL_DRAFT_MODE: 'mtp',
         TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: '5',
         TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: 'Q8',

@@ -10,6 +10,9 @@ export interface PresetFieldAvailability {
   reason: string | null;
 }
 
+/** Which backends a field means anything for at all, independent of managed/external. */
+export type PresetFieldBackendScope = 'llama-only' | 'exl3-only' | 'both';
+
 export const PresetRequestDefaultsSchema = z.object({
   maxTokens: z.number(),
   temperature: z.number(),
@@ -98,6 +101,7 @@ const PRESET_FIELD_SUPPORT = {
   BatchSize: 'llama-only',
   UBatchSize: 'both',
   CacheRam: 'exl3-managed-only',
+  CacheRecurrentRam: 'exl3-managed-only-unsupported-by-llama',
   KvCacheQuantization: 'exl3-cache-modes',
   MaxTokens: 'both',
   Temperature: 'both',
@@ -131,6 +135,24 @@ const PRESET_FIELD_SUPPORT = {
   VerboseLogging: 'llama-only',
   VisionEnabled: 'exl3-managed-only-unsupported-by-llama',
 } as const satisfies Record<ModelPresetField, PresetFieldSupport>;
+
+/**
+ * Single source of truth for whether a field belongs on a backend's settings form at all.
+ * Fields the active backend can never use are hidden; fields it can use but only when SiftKit
+ * launches the engine stay visible and `getPresetFieldAvailability` explains why they are disabled.
+ */
+export function getPresetFieldBackendScope(field: ModelPresetField): PresetFieldBackendScope {
+  switch (PRESET_FIELD_SUPPORT[field]) {
+    case 'llama-only':
+      return 'llama-only';
+    case 'exl3-managed-only-unsupported-by-llama':
+      return 'exl3-only';
+    case 'both':
+    case 'exl3-managed-only':
+    case 'exl3-cache-modes':
+      return 'both';
+  }
+}
 
 export function getPresetFieldAvailability(
   preset: ModelRuntimePreset,

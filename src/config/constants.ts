@@ -35,6 +35,8 @@ export const SIFT_DEFAULT_LLAMA_GPU_LAYERS = 999;
 export const SIFT_DEFAULT_LLAMA_BATCH_SIZE = 512;
 export const SIFT_DEFAULT_LLAMA_UBATCH_SIZE = 512;
 export const SIFT_DEFAULT_LLAMA_CACHE_RAM = 8192;
+/** MB of host RAM exllamav3 reserves for recurrent (linear-attention) states; mirrors TabbyAPI's own default. */
+export const SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM = 4096;
 export const SIFT_DEFAULT_LLAMA_KV_CACHE_QUANTIZATION = 'f16';
 export const SIFT_DEFAULT_LLAMA_REASONING_BUDGET = 10_000;
 export const SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE = 'Thinking budget exhausted. You have to provide the answer now.';
