@@ -277,7 +277,8 @@ const MUTATING_COMMAND_TOOL_NAMES = new Set<string>(['run', 'git']);
 /**
  * Tools that can change the working tree, so an identical earlier query may now have a different
  * answer and must not be rejected as a repeat. `git` is deliberately absent: evaluateCommandSafety
- * rejects every mutating git command, so a git call cannot change the tree. That is narrower than
+ * only admits READ_ONLY_GIT_SUBCOMMANDS and allow-listed read-only pipeline stages/script-block
+ * statements, so a git call cannot change the tree. That is narrower than
  * MUTATING_COMMAND_TOOL_NAMES above, which stays conservative because a stale read window is worse
  * than a redundant one.
  */
