@@ -322,6 +322,29 @@ test('find requires a pattern and rejects escapes', async () => {
   assert.match(escape.reason, /repository root/u);
 });
 
+test('find matches a search-root file through a leading **/ segment', async () => {
+  const root = makeRepo();
+  fs.writeFileSync(path.join(root, 'architecture_overview.md'), 'notes\n', 'utf8');
+  const result = await executeRepoTool('find', { pattern: '**/architecture_overview.md' }, makeContext(root));
+  assert.ok(result.ok);
+  assert.equal(result.output, 'architecture_overview.md');
+});
+
+test('find with a leading **/ returns root-level and nested matches together', async () => {
+  const root = makeRepo();
+  fs.writeFileSync(path.join(root, 'root.ts'), 'alpha root\n', 'utf8');
+  const result = await executeRepoTool('find', { pattern: '**/*.ts' }, makeContext(root));
+  assert.ok(result.ok);
+  assert.deepEqual(result.output.split('\n').sort(), ['root.ts', 'src/a.ts', 'src/nested/b.ts']);
+});
+
+test('find with a mid-pattern **/ spans zero directories as well as many', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool('find', { pattern: 'src/**/*.ts' }, makeContext(root));
+  assert.ok(result.ok);
+  assert.deepEqual(result.output.split('\n').sort(), ['src/a.ts', 'src/nested/b.ts']);
+});
+
 // ---------------------------------------------------------------------------
 // ls
 // ---------------------------------------------------------------------------
