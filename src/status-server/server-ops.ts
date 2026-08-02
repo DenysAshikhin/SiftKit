@@ -430,7 +430,7 @@ export function acquireModelRequest(ctx: ServerContext, kind: string, ownerRunId
   }
   const lock = createModelRequestLock(kind, ownerRunId);
   ctx.activeModelRequest = lock;
-  ctx.presetRuntimeCoordinator?.setModelRequestActive(true);
+  ctx.presetRuntimeCoordinator?.setActiveModelRequestCount(1);
   syncInferenceRunFlushQueueModelState(ctx);
   return lock;
 }
@@ -532,7 +532,7 @@ function grantNextModelRequest(ctx: ServerContext): boolean {
     const lock = createModelRequestLock(waiter.kind, waiter.ownerRunId);
     waiter.grantedLock = lock;
     ctx.activeModelRequest = lock;
-    ctx.presetRuntimeCoordinator?.setModelRequestActive(true);
+    ctx.presetRuntimeCoordinator?.setActiveModelRequestCount(1);
     clearModelRequestWaiterTimeout(waiter);
     logModelRequestLockAcquired(lock, getElapsedMsSinceIso(waiter.enqueuedAtUtc));
     syncInferenceRunFlushQueueModelState(ctx);
@@ -631,7 +631,7 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
   }
   const releasedLock = ctx.activeModelRequest;
   ctx.activeModelRequest = null;
-  ctx.presetRuntimeCoordinator?.setModelRequestActive(false);
+  ctx.presetRuntimeCoordinator?.setActiveModelRequestCount(0);
   const finishedAtMs = Date.now();
   ctx.terminalMetadataLastModelRequestFinishedAtMs = finishedAtMs;
   syncInferenceRunFlushQueueModelState(ctx, finishedAtMs);

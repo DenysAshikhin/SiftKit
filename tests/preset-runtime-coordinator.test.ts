@@ -39,19 +39,49 @@ test('preset coordinator drains by preset and switches backend processes', async
   );
   try {
     await coordinator.initialize();
-    coordinator.setModelRequestActive(true);
+    coordinator.setActiveModelRequestCount(1);
     const savedConfig = readConfig(configPath);
     savedConfig.Server.ModelPresets.ActivePresetId = 'exl3-main';
     writeConfig(configPath, savedConfig);
     assert.equal(await coordinator.applyPreset('exl3-main'), 'queued');
     assert.equal(coordinator.canGrantModelRequest(), false);
-    coordinator.setModelRequestActive(false);
+    coordinator.setActiveModelRequestCount(0);
     await coordinator.onModelRequestReleased();
     assert.deepEqual(events, [
       'start:llama', 'load:llama-main', 'stop:llama', 'start:exl3', 'load:exl3-main',
     ]);
     assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
     assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'exl3-main');
+  } finally {
+    await coordinator.shutdown();
+    closeRuntimeDatabase();
+    fs.rmSync(path.dirname(configPath), { recursive: true, force: true });
+  }
+});
+
+test('pending switch waits until the active request count drains to zero', async () => {
+  const configPath = createConfigPath();
+  const events: string[] = [];
+  const coordinator = new PresetRuntimeCoordinator(
+    configPath,
+    new RecordingRuntime('llama', events),
+    new RecordingRuntime('exl3', events),
+  );
+  try {
+    await coordinator.initialize();
+    coordinator.setActiveModelRequestCount(2);
+    const savedConfig = readConfig(configPath);
+    savedConfig.Server.ModelPresets.ActivePresetId = 'exl3-main';
+    writeConfig(configPath, savedConfig);
+    assert.equal(await coordinator.applyPreset('exl3-main'), 'queued');
+
+    coordinator.setActiveModelRequestCount(1);
+    await coordinator.onModelRequestReleased();
+    assert.equal(coordinator.getStatus().activePresetId, 'llama-main');
+
+    coordinator.setActiveModelRequestCount(0);
+    await coordinator.onModelRequestReleased();
+    assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
   } finally {
     await coordinator.shutdown();
     closeRuntimeDatabase();
@@ -149,13 +179,13 @@ test('restartConfiguredPreset refuses to interrupt an active model request', asy
   );
   try {
     await coordinator.initialize();
-    coordinator.setModelRequestActive(true);
+    coordinator.setActiveModelRequestCount(1);
     events.length = 0;
 
     await assert.rejects(coordinator.restartConfiguredPreset(), /model request is in progress/u);
     assert.deepEqual(events, []);
   } finally {
-    coordinator.setModelRequestActive(false);
+    coordinator.setActiveModelRequestCount(0);
     await coordinator.shutdown();
     closeRuntimeDatabase();
     fs.rmSync(path.dirname(configPath), { recursive: true, force: true });

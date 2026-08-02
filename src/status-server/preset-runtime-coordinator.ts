@@ -10,7 +10,7 @@ export class PresetRuntimeCoordinator {
   private activePreset: ModelRuntimePreset;
   private pendingPresetId: string | null = null;
   private pendingForceRestart = false;
-  private modelRequestActive = false;
+  private activeModelRequestCount = 0;
   private switchPromise: Promise<void> | null = null;
   private errorPhase: InferenceRuntimeErrorPhase | null = null;
   private error: string | null = null;
@@ -51,7 +51,7 @@ export class PresetRuntimeCoordinator {
     ) return 'ready';
     if (this.switchPromise) throw new Error('A preset switch is already in progress.');
     this.setPendingSwitch(presetId, false);
-    if (this.modelRequestActive) return 'queued';
+    if (this.activeModelRequestCount > 0) return 'queued';
     await this.startPendingSwitch();
     return 'ready';
   }
@@ -63,7 +63,7 @@ export class PresetRuntimeCoordinator {
   // then impossible and reporting success would be a lie.
   async restartConfiguredPreset(): Promise<void> {
     if (this.switchPromise) throw new Error('A preset switch is already in progress.');
-    if (this.modelRequestActive) throw new Error('A model request is in progress; retry once it completes.');
+    if (this.activeModelRequestCount > 0) throw new Error('A model request is in progress; retry once it completes.');
     const configuredId = readConfig(this.configPath).Server.ModelPresets.ActivePresetId;
     const configured = this.getPreset(configuredId);
     if (configured.ExternalServerEnabled) {
@@ -92,8 +92,8 @@ export class PresetRuntimeCoordinator {
     }
   }
 
-  setModelRequestActive(active: boolean): void {
-    this.modelRequestActive = active;
+  setActiveModelRequestCount(count: number): void {
+    this.activeModelRequestCount = count;
   }
 
   canGrantModelRequest(): boolean {
@@ -105,7 +105,7 @@ export class PresetRuntimeCoordinator {
   }
 
   async unloadActivePresetForIdle(presetId: string): Promise<boolean> {
-    if (presetId !== this.activePreset.id || this.modelRequestActive || this.pendingPresetId !== null) return false;
+    if (presetId !== this.activePreset.id || this.activeModelRequestCount > 0 || this.pendingPresetId !== null) return false;
     const preset = this.activePreset;
     if (preset.Backend !== 'exl3') return false;
     const runtime = this.getRuntime(preset);
@@ -123,7 +123,7 @@ export class PresetRuntimeCoordinator {
   }
 
   async onModelRequestReleased(): Promise<void> {
-    if (!this.modelRequestActive && this.pendingPresetId !== null) await this.startPendingSwitch();
+    if (this.activeModelRequestCount === 0 && this.pendingPresetId !== null) await this.startPendingSwitch();
   }
 
   getStatus(): InferenceRuntimeStatus {
