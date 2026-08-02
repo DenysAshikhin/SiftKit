@@ -345,6 +345,36 @@ test('find with a mid-pattern **/ spans zero directories as well as many', async
   assert.deepEqual(result.output.split('\n').sort(), ['src/a.ts', 'src/nested/b.ts']);
 });
 
+test('find treats a trailing ** as a cross-separator wildcard', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool('find', { pattern: 'src/**' }, makeContext(root));
+  assert.ok(result.ok);
+  assert.deepEqual(result.output.split('\n').sort(), ['src/a.ts', 'src/nested/b.ts', 'src/notes.md']);
+});
+
+test('find matches a slash-free pattern against the basename at any depth', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool('find', { pattern: 'b.ts' }, makeContext(root));
+  assert.ok(result.ok);
+  assert.equal(result.output, 'src/nested/b.ts');
+});
+
+test('find treats ? as a single non-separator character', async () => {
+  const root = makeRepo();
+  const single = await executeRepoTool('find', { pattern: 'src/?.ts' }, makeContext(root));
+  assert.ok(single.ok);
+  assert.equal(single.output, 'src/a.ts');
+});
+
+test('find escapes a literal . in a glob instead of compiling it to any-character', async () => {
+  const root = makeRepo();
+  // A near-miss filename that only an unescaped `.` would match.
+  fs.writeFileSync(path.join(root, 'notesXmd'), 'decoy\n', 'utf8');
+  const result = await executeRepoTool('find', { pattern: '**/notes.md' }, makeContext(root));
+  assert.ok(result.ok);
+  assert.equal(result.output, 'src/notes.md');
+});
+
 // ---------------------------------------------------------------------------
 // ls
 // ---------------------------------------------------------------------------
