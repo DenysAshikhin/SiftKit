@@ -375,6 +375,30 @@ test('find escapes a literal . in a glob instead of compiling it to any-characte
   assert.equal(result.output, 'src/notes.md');
 });
 
+test('find applies the ignore policy relative to the repository root when scoped into a parent of an ignored path', async () => {
+  const root = makeRepo();
+  fs.mkdirSync(path.join(root, 'eval', 'results'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'eval', 'results', 'leak.ts'), 'leak\n', 'utf8');
+  const scoped = await executeRepoTool('find', { pattern: '**/*.ts', path: 'eval' }, makeContext(root));
+  assert.ok(scoped.ok);
+  assert.equal(scoped.output, '');
+});
+
+test('find keeps files whose search-relative path only looks like an ignored path', async () => {
+  const root = makeRepo();
+  fs.mkdirSync(path.join(root, 'sub', 'eval', 'results'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'sub', 'eval', 'results', 'keep.ts'), 'keep\n', 'utf8');
+  const scoped = await executeRepoTool('find', { pattern: '**/*.ts', path: 'sub' }, makeContext(root));
+  assert.ok(scoped.ok);
+  assert.equal(scoped.output, 'eval/results/keep.ts');
+  const fromRoot = await executeRepoTool('find', { pattern: '**/*.ts' }, makeContext(root));
+  assert.ok(fromRoot.ok);
+  assert.deepEqual(
+    fromRoot.output.split('\n').sort(),
+    ['src/a.ts', 'src/nested/b.ts', 'sub/eval/results/keep.ts'],
+  );
+});
+
 // ---------------------------------------------------------------------------
 // ls
 // ---------------------------------------------------------------------------

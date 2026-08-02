@@ -548,9 +548,17 @@ function executeFind(args: JsonObject, context: RepoToolContext): RepoToolExecut
     return failure('find', command, 'path is not a readable directory');
   }
 
-  const matches: string[] = [];
-  listFilesRecursive(resolvedPath.absolutePath, '', context.ignorePolicy, matches);
-  const filtered = matches.filter((relativePath) => matchesGlob(relativePath, pattern)).sort();
+  // The walk must carry repository-root-relative paths, because that is the frame
+  // ignorePolicy.paths is written in. The glob and the output are search-directory
+  // relative, so the base prefix comes back off before matching.
+  const basePath = resolvedPath.relativePath;
+  const repoRelativeFiles: string[] = [];
+  listFilesRecursive(resolvedPath.absolutePath, basePath, context.ignorePolicy, repoRelativeFiles);
+  const basePrefixLength = basePath ? basePath.length + 1 : 0;
+  const filtered = repoRelativeFiles
+    .map((repoRelativePath) => repoRelativePath.slice(basePrefixLength))
+    .filter((searchRelativePath) => matchesGlob(searchRelativePath, pattern))
+    .sort();
   const limit = readPositiveInteger(args.limit, FIND_DEFAULT_LIMIT);
   const truncated = filtered.length > limit;
   const output = truncated
