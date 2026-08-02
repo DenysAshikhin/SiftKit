@@ -290,6 +290,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     configPath,
     new ManagedLlamaRuntime(ctx),
     managedTabbyRuntime,
+    ctx.activeModelRequests,
   );
   if (!disableManagedLlamaStartup) {
     ctx.presetRuntimeCoordinator = presetRuntimeCoordinator;

@@ -7,6 +7,7 @@ import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { ExternalServerRestartError, PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.js';
 import { readConfig, writeConfig } from '../src/status-server/config-store.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
+import type { ModelRequestLock } from '../src/status-server/server-types.js';
 import { RecordingInferenceRuntime as RecordingRuntime } from './helpers/recording-inference-runtime.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
@@ -29,74 +30,99 @@ function createConfigPath(): string {
   return configPath;
 }
 
-test('preset coordinator drains by preset and switches backend processes', async () => {
+interface CoordinatorFixture {
+  coordinator: PresetRuntimeCoordinator;
+  events: string[];
+  configPath: string;
+  /** Stands in for `ServerContext.activeModelRequests`, the one place in-flight requests live. */
+  activeModelRequests: Map<string, ModelRequestLock>;
+}
+
+function createCoordinator(
+  failingLlamaPresetIds = new Set<string>(),
+  failingExl3PresetIds = new Set<string>(),
+): CoordinatorFixture {
   const configPath = createConfigPath();
   const events: string[] = [];
+  const activeModelRequests = new Map<string, ModelRequestLock>();
   const coordinator = new PresetRuntimeCoordinator(
     configPath,
-    new RecordingRuntime('llama', events),
-    new RecordingRuntime('exl3', events),
+    new RecordingRuntime('llama', events, failingLlamaPresetIds),
+    new RecordingRuntime('exl3', events, failingExl3PresetIds),
+    activeModelRequests,
   );
+  return { coordinator, events, configPath, activeModelRequests };
+}
+
+function setActiveModelRequests(activeModelRequests: Map<string, ModelRequestLock>, count: number): void {
+  activeModelRequests.clear();
+  for (let index = 0; index < count; index += 1) {
+    activeModelRequests.set(`token-${index}`, {
+      token: `token-${index}`,
+      kind: 'repo_search',
+      startedAtUtc: new Date().toISOString(),
+      ownerRunId: null,
+    });
+  }
+}
+
+async function disposeCoordinator({ coordinator, configPath }: CoordinatorFixture): Promise<void> {
+  await coordinator.shutdown();
+  closeRuntimeDatabase();
+  fs.rmSync(path.dirname(configPath), { recursive: true, force: true });
+}
+
+test('preset coordinator drains by preset and switches backend processes', async () => {
+  const fixture = createCoordinator();
+  const { coordinator, events, configPath, activeModelRequests } = fixture;
   try {
     await coordinator.initialize();
-    coordinator.setActiveModelRequestCount(1);
+    assert.equal(coordinator.getActiveBackend(), 'llama');
+    setActiveModelRequests(activeModelRequests, 1);
     const savedConfig = readConfig(configPath);
     savedConfig.Server.ModelPresets.ActivePresetId = 'exl3-main';
     writeConfig(configPath, savedConfig);
     assert.equal(await coordinator.applyPreset('exl3-main'), 'queued');
     assert.equal(coordinator.canGrantModelRequest(), false);
-    coordinator.setActiveModelRequestCount(0);
+    setActiveModelRequests(activeModelRequests, 0);
     await coordinator.onModelRequestReleased();
     assert.deepEqual(events, [
       'start:llama', 'load:llama-main', 'stop:llama', 'start:exl3', 'load:exl3-main',
     ]);
     assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
+    assert.equal(coordinator.getActiveBackend(), 'exl3');
     assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'exl3-main');
   } finally {
-    await coordinator.shutdown();
-    closeRuntimeDatabase();
-    fs.rmSync(path.dirname(configPath), { recursive: true, force: true });
+    await disposeCoordinator(fixture);
   }
 });
 
-test('pending switch waits until the active request count drains to zero', async () => {
-  const configPath = createConfigPath();
-  const events: string[] = [];
-  const coordinator = new PresetRuntimeCoordinator(
-    configPath,
-    new RecordingRuntime('llama', events),
-    new RecordingRuntime('exl3', events),
-  );
+test('pending switch waits until the active requests drain to zero', async () => {
+  const fixture = createCoordinator();
+  const { coordinator, configPath, activeModelRequests } = fixture;
   try {
     await coordinator.initialize();
-    coordinator.setActiveModelRequestCount(2);
+    setActiveModelRequests(activeModelRequests, 2);
     const savedConfig = readConfig(configPath);
     savedConfig.Server.ModelPresets.ActivePresetId = 'exl3-main';
     writeConfig(configPath, savedConfig);
     assert.equal(await coordinator.applyPreset('exl3-main'), 'queued');
 
-    coordinator.setActiveModelRequestCount(1);
+    setActiveModelRequests(activeModelRequests, 1);
     await coordinator.onModelRequestReleased();
     assert.equal(coordinator.getStatus().activePresetId, 'llama-main');
 
-    coordinator.setActiveModelRequestCount(0);
+    setActiveModelRequests(activeModelRequests, 0);
     await coordinator.onModelRequestReleased();
     assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
   } finally {
-    await coordinator.shutdown();
-    closeRuntimeDatabase();
-    fs.rmSync(path.dirname(configPath), { recursive: true, force: true });
+    await disposeCoordinator(fixture);
   }
 });
 
 test('restartConfiguredPreset stops and restarts the running llama preset', async () => {
-  const configPath = createConfigPath();
-  const events: string[] = [];
-  const coordinator = new PresetRuntimeCoordinator(
-    configPath,
-    new RecordingRuntime('llama', events),
-    new RecordingRuntime('exl3', events),
-  );
+  const fixture = createCoordinator();
+  const { coordinator, events } = fixture;
   try {
     await coordinator.initialize();
     events.length = 0;
@@ -107,20 +133,13 @@ test('restartConfiguredPreset stops and restarts the running llama preset', asyn
     assert.equal(coordinator.getStatus().activePresetId, 'llama-main');
     assert.equal(coordinator.getStatus().processState, 'ready');
   } finally {
-    await coordinator.shutdown();
-    closeRuntimeDatabase();
-    fs.rmSync(path.dirname(configPath), { recursive: true, force: true });
+    await disposeCoordinator(fixture);
   }
 });
 
 test('restartConfiguredPreset unloads and restarts the running exl3 preset', async () => {
-  const configPath = createConfigPath();
-  const events: string[] = [];
-  const coordinator = new PresetRuntimeCoordinator(
-    configPath,
-    new RecordingRuntime('llama', events),
-    new RecordingRuntime('exl3', events),
-  );
+  const fixture = createCoordinator();
+  const { coordinator, events, configPath } = fixture;
   try {
     await coordinator.initialize();
     const savedConfig = readConfig(configPath);
@@ -134,20 +153,13 @@ test('restartConfiguredPreset unloads and restarts the running exl3 preset', asy
     assert.deepEqual(events, ['unload:exl3', 'stop:exl3', 'start:exl3', 'load:exl3-main']);
     assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
   } finally {
-    await coordinator.shutdown();
-    closeRuntimeDatabase();
-    fs.rmSync(path.dirname(configPath), { recursive: true, force: true });
+    await disposeCoordinator(fixture);
   }
 });
 
 test('restartConfiguredPreset applies the preset persisted by a plain config save', async () => {
-  const configPath = createConfigPath();
-  const events: string[] = [];
-  const coordinator = new PresetRuntimeCoordinator(
-    configPath,
-    new RecordingRuntime('llama', events),
-    new RecordingRuntime('exl3', events),
-  );
+  const fixture = createCoordinator();
+  const { coordinator, events, configPath } = fixture;
   try {
     await coordinator.initialize();
     const savedConfig = readConfig(configPath);
@@ -163,43 +175,29 @@ test('restartConfiguredPreset applies the preset persisted by a plain config sav
     assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
     assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'exl3-main');
   } finally {
-    await coordinator.shutdown();
-    closeRuntimeDatabase();
-    fs.rmSync(path.dirname(configPath), { recursive: true, force: true });
+    await disposeCoordinator(fixture);
   }
 });
 
 test('restartConfiguredPreset refuses to interrupt an active model request', async () => {
-  const configPath = createConfigPath();
-  const events: string[] = [];
-  const coordinator = new PresetRuntimeCoordinator(
-    configPath,
-    new RecordingRuntime('llama', events),
-    new RecordingRuntime('exl3', events),
-  );
+  const fixture = createCoordinator();
+  const { coordinator, events, activeModelRequests } = fixture;
   try {
     await coordinator.initialize();
-    coordinator.setActiveModelRequestCount(1);
+    setActiveModelRequests(activeModelRequests, 1);
     events.length = 0;
 
     await assert.rejects(coordinator.restartConfiguredPreset(), /model request is in progress/u);
     assert.deepEqual(events, []);
   } finally {
-    coordinator.setActiveModelRequestCount(0);
-    await coordinator.shutdown();
-    closeRuntimeDatabase();
-    fs.rmSync(path.dirname(configPath), { recursive: true, force: true });
+    setActiveModelRequests(activeModelRequests, 0);
+    await disposeCoordinator(fixture);
   }
 });
 
 test('restartConfiguredPreset refuses a preset whose inference server SiftKit does not own', async () => {
-  const configPath = createConfigPath();
-  const events: string[] = [];
-  const coordinator = new PresetRuntimeCoordinator(
-    configPath,
-    new RecordingRuntime('llama', events),
-    new RecordingRuntime('exl3', events),
-  );
+  const fixture = createCoordinator();
+  const { coordinator, events, configPath } = fixture;
   try {
     await coordinator.initialize();
     const savedConfig = readConfig(configPath);
@@ -211,21 +209,14 @@ test('restartConfiguredPreset refuses a preset whose inference server SiftKit do
     assert.deepEqual(events, []);
     assert.equal(coordinator.getStatus().activePresetId, 'llama-main');
   } finally {
-    await coordinator.shutdown();
-    closeRuntimeDatabase();
-    fs.rmSync(path.dirname(configPath), { recursive: true, force: true });
+    await disposeCoordinator(fixture);
   }
 });
 
 test('editing the active preset reloads it and rolls back the previous definition on failure', async () => {
-  const configPath = createConfigPath();
-  const events: string[] = [];
   const failingPresetIds = new Set<string>();
-  const coordinator = new PresetRuntimeCoordinator(
-    configPath,
-    new RecordingRuntime('llama', events, failingPresetIds),
-    new RecordingRuntime('exl3', events),
-  );
+  const fixture = createCoordinator(failingPresetIds);
+  const { coordinator, events, configPath } = fixture;
   try {
     await coordinator.initialize();
     failingPresetIds.add('llama-main');
@@ -244,20 +235,13 @@ test('editing the active preset reloads it and rolls back the previous definitio
     assert.equal(readConfig(configPath).Server.ModelPresets.Presets[0]?.label, 'Llama main');
     assert.equal(coordinator.getStatus().activePresetLabel, 'Llama main');
   } finally {
-    await coordinator.shutdown();
-    closeRuntimeDatabase();
-    fs.rmSync(path.dirname(configPath), { recursive: true, force: true });
+    await disposeCoordinator(fixture);
   }
 });
 
 test('preset coordinator rolls back by preset id after target load failure', async () => {
-  const configPath = createConfigPath();
-  const events: string[] = [];
-  const coordinator = new PresetRuntimeCoordinator(
-    configPath,
-    new RecordingRuntime('llama', events, new Set(['broken-llama'])),
-    new RecordingRuntime('exl3', events),
-  );
+  const fixture = createCoordinator(new Set(['broken-llama']));
+  const { coordinator, configPath } = fixture;
   try {
     await coordinator.initialize();
     await assert.rejects(coordinator.applyPreset('broken-llama'), /load failed: broken-llama/u);
@@ -265,20 +249,13 @@ test('preset coordinator rolls back by preset id after target load failure', asy
     assert.equal(coordinator.getStatus().rollback, "Restored preset 'llama-main'.");
     assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'llama-main');
   } finally {
-    await coordinator.shutdown();
-    closeRuntimeDatabase();
-    fs.rmSync(path.dirname(configPath), { recursive: true, force: true });
+    await disposeCoordinator(fixture);
   }
 });
 
 test('cross-backend rollback restores the previous preset when failed target cleanup also fails', async () => {
-  const configPath = createConfigPath();
-  const events: string[] = [];
-  const coordinator = new PresetRuntimeCoordinator(
-    configPath,
-    new RecordingRuntime('llama', events),
-    new RecordingRuntime('exl3', events, new Set(['exl3-main'])),
-  );
+  const fixture = createCoordinator(new Set<string>(), new Set(['exl3-main']));
+  const { coordinator, configPath } = fixture;
   try {
     await coordinator.initialize();
     await assert.rejects(coordinator.applyPreset('exl3-main'), /load failed: exl3-main/u);
@@ -287,8 +264,6 @@ test('cross-backend rollback restores the previous preset when failed target cle
     assert.match(coordinator.getStatus().rollback ?? '', /Restored preset 'llama-main'.*nothing loaded: exl3/u);
     assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'llama-main');
   } finally {
-    await coordinator.shutdown();
-    closeRuntimeDatabase();
-    fs.rmSync(path.dirname(configPath), { recursive: true, force: true });
+    await disposeCoordinator(fixture);
   }
 });

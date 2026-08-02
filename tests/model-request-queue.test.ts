@@ -90,6 +90,7 @@ async function createPresetQueueHarness(prefix: string, activePresetId: string):
     configPath,
     new QueueRuntime('llama', events),
     new QueueRuntime('exl3', events),
+    ctx.activeModelRequests,
   );
   ctx.presetRuntimeCoordinator = coordinator;
   ctx.modelIdleController = new ModelIdleController(ctx);

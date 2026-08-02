@@ -156,17 +156,18 @@ export class DashboardModelQueueHarness {
     return sessionId;
   }
 
-  async waitForActiveRequest(kind: string): Promise<void> {
+  /** Waits until at least `count` active model requests report `kind`. */
+  async waitForActiveRequests(kind: string, count = 1): Promise<void> {
     const deadline = Date.now() + QUEUE_WAIT_TIMEOUT_MS;
     while (Date.now() < deadline) {
       const response = await requestJson(`${this.getBaseUrl()}/status`);
       const activeRequests = asObjectArray(asObject(response.body.modelRequests).activeRequests);
-      if (activeRequests.some((request) => request.kind === kind)) {
+      if (activeRequests.filter((request) => request.kind === kind).length >= count) {
         return;
       }
       await delay(QUEUE_POLL_INTERVAL_MS);
     }
-    throw new Error(`Timed out waiting for active model request "${kind}".`);
+    throw new Error(`Timed out waiting for ${count} active model request(s) "${kind}".`);
   }
 
   async waitForQueuedRequest(kind: string): Promise<void> {

@@ -19,16 +19,13 @@ test('an exl3 preset admits concurrent model requests over HTTP', async () => {
   await harness.start();
   try {
     const first = harness.holdModelLock('first concurrent request', 400);
-    await harness.waitForActiveRequest('repo_search');
+    await harness.waitForActiveRequests('repo_search');
     const second = harness.holdModelLock('second concurrent request', 400);
 
     // Both are admitted: no queueing, so the exl3 paged scheduler — not this lock — decides
     // how the two overlap.
-    const deadline = Date.now() + 2_000;
-    let diagnostics = await readModelRequestDiagnostics(harness.getBaseUrl());
-    while (diagnostics.activeCount < 2 && Date.now() < deadline) {
-      diagnostics = await readModelRequestDiagnostics(harness.getBaseUrl());
-    }
+    await harness.waitForActiveRequests('repo_search', 2);
+    const diagnostics = await readModelRequestDiagnostics(harness.getBaseUrl());
     assert.equal(diagnostics.activeCount, 2);
     assert.deepEqual(diagnostics.activeKinds, ['repo_search', 'repo_search']);
     assert.equal(diagnostics.queueLength, 0);
@@ -52,7 +49,7 @@ test('a llama preset serializes model requests over HTTP', async () => {
   await harness.start();
   try {
     const first = harness.holdModelLock('active request', 400);
-    await harness.waitForActiveRequest('repo_search');
+    await harness.waitForActiveRequests('repo_search');
     const second = harness.holdModelLock('queued request', 10);
     await harness.waitForQueuedRequest('repo_search');
 

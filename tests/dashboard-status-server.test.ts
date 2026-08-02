@@ -1993,7 +1993,7 @@ test('queued JSON Plan returns 404 when its session disappears before lock grant
       'hold lock while queued Plan loses its session',
       500,
     );
-    await harness.waitForActiveRequest('repo_search');
+    await harness.waitForActiveRequests('repo_search');
 
     const queuedPlan = requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/plan`, {
       method: 'POST',
@@ -2044,7 +2044,7 @@ test('queued Repo Search disconnect leaves the chat session unchanged', async ()
       'hold lock while queued Repo Search disconnects',
       1_000,
     );
-    await harness.waitForActiveRequest('repo_search');
+    await harness.waitForActiveRequests('repo_search');
 
     const disconnectedRepoSearch = fireAndAbortJsonRequest(
       `${baseUrl}/dashboard/chat/sessions/${sessionId}/repo-search/stream`,

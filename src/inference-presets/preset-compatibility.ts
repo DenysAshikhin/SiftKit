@@ -78,8 +78,8 @@ type PresetFieldSupport =
   | 'exl3-managed-only'
   /** Both accept it; EXL3 narrows the choices to the modes `getExl3CacheModes` can express. */
   | 'exl3-cache-modes'
-  /** EXL3-managed only; llama.cpp does not support vision. */
-  | 'vision-exl3-managed-only';
+  /** EXL3-managed only; llama.cpp has no equivalent at all, so it is disabled there. */
+  | 'exl3-managed-only-unsupported-by-llama';
 
 const PRESET_FIELD_SUPPORT = {
   Model: 'both',
@@ -120,7 +120,7 @@ const PRESET_FIELD_SUPPORT = {
   SpeculativeNgramModNMin: 'llama-only',
   SpeculativeNgramModNMax: 'llama-only',
   SpeculativeDraftMax: 'exl3-managed-only',
-  SpeculativeDynamic: 'exl3-managed-only',
+  SpeculativeDynamic: 'exl3-managed-only-unsupported-by-llama',
   SpeculativeDraftMin: 'llama-only',
   ReasoningBudget: 'llama-only',
   ReasoningBudgetMessage: 'llama-only',
@@ -129,7 +129,7 @@ const PRESET_FIELD_SUPPORT = {
   HealthcheckIntervalMs: 'both',
   SleepIdleSeconds: 'both',
   VerboseLogging: 'llama-only',
-  VisionEnabled: 'vision-exl3-managed-only',
+  VisionEnabled: 'exl3-managed-only-unsupported-by-llama',
 } as const satisfies Record<ModelPresetField, PresetFieldSupport>;
 
 export function getPresetFieldAvailability(
@@ -151,7 +151,7 @@ export function getPresetFieldAvailability(
       return preset.Backend === 'llama'
         ? { enabled: true, reason: null }
         : { enabled: true, reason: 'Only EXL3-compatible cache modes are available' };
-    case 'vision-exl3-managed-only':
+    case 'exl3-managed-only-unsupported-by-llama':
       return preset.Backend === 'llama'
         ? { enabled: false, reason: 'Not supported by llama.cpp' }
         : !preset.ExternalServerEnabled

@@ -1,6 +1,7 @@
-import type { InferenceRuntimeErrorPhase, InferenceRuntimeStatus } from '@siftkit/contracts';
+import type { InferenceBackendId, InferenceRuntimeErrorPhase, InferenceRuntimeStatus } from '@siftkit/contracts';
 import type { ModelRuntimePreset } from '../config/types.js';
 import type { ManagedInferenceRuntime } from './managed-inference-runtime.js';
+import type { ModelRequestLock } from './server-types.js';
 import { readConfig, writeConfig } from './config-store.js';
 
 /** Raised when a restart is asked of a preset whose server SiftKit did not launch. */
@@ -10,7 +11,6 @@ export class PresetRuntimeCoordinator {
   private activePreset: ModelRuntimePreset;
   private pendingPresetId: string | null = null;
   private pendingForceRestart = false;
-  private activeModelRequestCount = 0;
   private switchPromise: Promise<void> | null = null;
   private errorPhase: InferenceRuntimeErrorPhase | null = null;
   private error: string | null = null;
@@ -22,6 +22,11 @@ export class PresetRuntimeCoordinator {
     private readonly configPath: string,
     private readonly llamaRuntime: ManagedInferenceRuntime,
     private readonly exl3Runtime: ManagedInferenceRuntime,
+    /**
+     * The server's live in-flight request map, read on this coordinator's own terms. It is the
+     * single owner of that fact: nothing has to remember to notify the coordinator when it changes.
+     */
+    private readonly activeModelRequests: ReadonlyMap<string, ModelRequestLock>,
   ) {
     const config = readConfig(configPath);
     const preset = config.Server.ModelPresets.Presets.find(
@@ -51,7 +56,7 @@ export class PresetRuntimeCoordinator {
     ) return 'ready';
     if (this.switchPromise) throw new Error('A preset switch is already in progress.');
     this.setPendingSwitch(presetId, false);
-    if (this.activeModelRequestCount > 0) return 'queued';
+    if (this.hasActiveModelRequests()) return 'queued';
     await this.startPendingSwitch();
     return 'ready';
   }
@@ -63,7 +68,7 @@ export class PresetRuntimeCoordinator {
   // then impossible and reporting success would be a lie.
   async restartConfiguredPreset(): Promise<void> {
     if (this.switchPromise) throw new Error('A preset switch is already in progress.');
-    if (this.activeModelRequestCount > 0) throw new Error('A model request is in progress; retry once it completes.');
+    if (this.hasActiveModelRequests()) throw new Error('A model request is in progress; retry once it completes.');
     const configuredId = readConfig(this.configPath).Server.ModelPresets.ActivePresetId;
     const configured = this.getPreset(configuredId);
     if (configured.ExternalServerEnabled) {
@@ -92,8 +97,12 @@ export class PresetRuntimeCoordinator {
     }
   }
 
-  setActiveModelRequestCount(count: number): void {
-    this.activeModelRequestCount = count;
+  private hasActiveModelRequests(): boolean {
+    return this.activeModelRequests.size > 0;
+  }
+
+  getActiveBackend(): InferenceBackendId {
+    return this.activePreset.Backend;
   }
 
   canGrantModelRequest(): boolean {
@@ -105,7 +114,7 @@ export class PresetRuntimeCoordinator {
   }
 
   async unloadActivePresetForIdle(presetId: string): Promise<boolean> {
-    if (presetId !== this.activePreset.id || this.activeModelRequestCount > 0 || this.pendingPresetId !== null) return false;
+    if (presetId !== this.activePreset.id || this.hasActiveModelRequests() || this.pendingPresetId !== null) return false;
     const preset = this.activePreset;
     if (preset.Backend !== 'exl3') return false;
     const runtime = this.getRuntime(preset);
@@ -123,7 +132,7 @@ export class PresetRuntimeCoordinator {
   }
 
   async onModelRequestReleased(): Promise<void> {
-    if (this.activeModelRequestCount === 0 && this.pendingPresetId !== null) await this.startPendingSwitch();
+    if (!this.hasActiveModelRequests() && this.pendingPresetId !== null) await this.startPendingSwitch();
   }
 
   getStatus(): InferenceRuntimeStatus {

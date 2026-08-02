@@ -7,7 +7,8 @@ import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { ModelPresetsSection } from '../dashboard/src/tabs/settings/ModelPresetsSection.js';
 import type { ModelPresetSettingsActions } from '../dashboard/src/settings-action-groups.js';
 
-interface Exl3RenderOptions {
+interface PresetRenderOptions {
+  backend?: 'llama' | 'exl3';
   externalServerEnabled?: boolean;
   kvCacheQuantization?: 'bf16' | 'f16';
   parallelSlots?: number;
@@ -32,11 +33,11 @@ const MODEL_PRESET_ACTIONS: ModelPresetSettingsActions = {
   async testBaseUrl() {},
 };
 
-function renderExl3Preset(options: Exl3RenderOptions = {}): string {
+function renderPreset(options: PresetRenderOptions = {}): string {
   const config = getDefaultConfigObject();
   const preset = config.Server.ModelPresets.Presets[0];
   if (!preset) throw new Error('Default config must include a model preset.');
-  preset.Backend = 'exl3';
+  preset.Backend = options.backend ?? 'exl3';
   preset.ExternalServerEnabled = options.externalServerEnabled ?? false;
   preset.KvCacheQuantization = options.kvCacheQuantization ?? 'f16';
   preset.ParallelSlots = options.parallelSlots ?? 1;
@@ -59,7 +60,7 @@ function getRenderedField(markup: string, label: string): string {
 }
 
 test('managed EXL3 enables supported runtime controls and exposes only MTP drafting', () => {
-  const markup = renderExl3Preset({ parallelSlots: 2 });
+  const markup = renderPreset({ parallelSlots: 2 });
 
   assert.match(markup, /aria-label="Preset backend"/u);
   assert.match(getRenderedField(markup, 'GpuLayers'), /disabled/u);
@@ -79,7 +80,7 @@ test('managed EXL3 enables supported runtime controls and exposes only MTP draft
 });
 
 test('external EXL3 exposes chunk size but disables process-scoped controls', () => {
-  const markup = renderExl3Preset({ externalServerEnabled: true, parallelSlots: 2 });
+  const markup = renderPreset({ externalServerEnabled: true, parallelSlots: 2 });
 
   assert.match(getRenderedField(markup, 'ParallelSlots'), /disabled/u);
   assert.doesNotMatch(getRenderedField(markup, 'UBatchSize'), /disabled/u);
@@ -89,8 +90,16 @@ test('external EXL3 exposes chunk size but disables process-scoped controls', ()
   assert.match(markup, /Requires SiftKit-managed TabbyAPI/u);
 });
 
+test('llama disables SpeculativeDynamic because llama.cpp has no dynamic draft window', () => {
+  const markup = renderPreset({ backend: 'llama' });
+
+  assert.doesNotMatch(getRenderedField(markup, 'SpeculativeDraftMax'), /disabled/u);
+  assert.match(getRenderedField(markup, 'SpeculativeDynamic'), /disabled/u);
+  assert.match(getRenderedField(markup, 'SpeculativeDynamic'), /Not supported by llama\.cpp/u);
+});
+
 test('EXL3 enum controls disable incompatible values without changing the preset', () => {
-  const markup = renderExl3Preset({ kvCacheQuantization: 'bf16' });
+  const markup = renderPreset({ kvCacheQuantization: 'bf16' });
 
   assert.match(markup, /<option value="bf16"[^>]*disabled=""[^>]*>bf16<\/option>/u);
   assert.match(markup, /<select[^>]*><option value="f32" disabled="">/u);

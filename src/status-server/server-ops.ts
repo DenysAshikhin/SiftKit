@@ -419,7 +419,7 @@ export function wakeManagedLlamaForIncomingModelRequest(ctx: ServerContext): voi
 // llama.cpp serves one request at a time; exl3's paged scheduler dedups, batches and
 // fair-shares everything admitted, so admission past ParallelSlots is its problem, not ours.
 export function getModelRequestCapacity(ctx: ServerContext): number {
-  return ctx.presetRuntimeCoordinator?.getStatus().backend === 'exl3' ? Number.POSITIVE_INFINITY : 1;
+  return ctx.presetRuntimeCoordinator?.getActiveBackend() === 'exl3' ? Number.POSITIVE_INFINITY : 1;
 }
 
 export function acquireModelRequest(ctx: ServerContext, kind: string, ownerRunId: string | null = null): ModelRequestLock | null {
@@ -432,7 +432,6 @@ export function acquireModelRequest(ctx: ServerContext, kind: string, ownerRunId
   }
   const lock = createModelRequestLock(kind, ownerRunId);
   ctx.activeModelRequests.set(lock.token, lock);
-  ctx.presetRuntimeCoordinator?.setActiveModelRequestCount(ctx.activeModelRequests.size);
   syncInferenceRunFlushQueueModelState(ctx);
   return lock;
 }
@@ -532,7 +531,6 @@ function grantQueuedModelRequests(ctx: ServerContext): void {
     const lock = createModelRequestLock(waiter.kind, waiter.ownerRunId);
     waiter.grantedLock = lock;
     ctx.activeModelRequests.set(lock.token, lock);
-    ctx.presetRuntimeCoordinator?.setActiveModelRequestCount(ctx.activeModelRequests.size);
     clearModelRequestWaiterTimeout(waiter);
     logModelRequestLockAcquired(lock, getElapsedMsSinceIso(waiter.enqueuedAtUtc));
     waiter.resolveLock(lock);
@@ -627,7 +625,6 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
     return false;
   }
   ctx.activeModelRequests.delete(token);
-  ctx.presetRuntimeCoordinator?.setActiveModelRequestCount(ctx.activeModelRequests.size);
   const finishedAtMs = Date.now();
   ctx.terminalMetadataLastModelRequestFinishedAtMs = finishedAtMs;
   syncInferenceRunFlushQueueModelState(ctx, finishedAtMs);

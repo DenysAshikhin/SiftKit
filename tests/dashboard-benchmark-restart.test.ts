@@ -34,13 +34,15 @@ function cleanup(configPath: string): void {
 test('benchmark restart drives the preset runtime coordinator', async () => {
   const configPath = createConfigPath(false);
   const events: string[] = [];
+  const baseContext = createTestServerContext(configPath);
   const coordinator = new PresetRuntimeCoordinator(
     configPath,
     new RecordingInferenceRuntime('llama', events),
     new RecordingInferenceRuntime('exl3', events),
+    baseContext.activeModelRequests,
   );
   const ctx = {
-    ...createTestServerContext(configPath),
+    ...baseContext,
     presetRuntimeCoordinator: coordinator,
     async shutdownManagedLlamaIfNeeded(): Promise<never> {
       throw new Error('benchmark restart must not bypass the coordinator');
@@ -63,12 +65,14 @@ test('benchmark restart drives the preset runtime coordinator', async () => {
 test('benchmark restart fails loudly instead of measuring an unrestarted external server', async () => {
   const configPath = createConfigPath(true);
   const events: string[] = [];
+  const baseContext = createTestServerContext(configPath);
   const coordinator = new PresetRuntimeCoordinator(
     configPath,
     new RecordingInferenceRuntime('llama', events),
     new RecordingInferenceRuntime('exl3', events),
+    baseContext.activeModelRequests,
   );
-  const ctx = { ...createTestServerContext(configPath), presetRuntimeCoordinator: coordinator };
+  const ctx = { ...baseContext, presetRuntimeCoordinator: coordinator };
   try {
     await coordinator.initialize();
     events.length = 0;
