@@ -87,6 +87,7 @@ test('settings tooltip labels include the documented fields', () => {
       'SpeculativeNgramModNMin',
       'SpeculativeNgramModNMax',
       'SpeculativeDraftMax',
+      'SpeculativeDynamic',
       'SpeculativeDraftMin',
       'ReasoningBudget',
       'ReasoningBudgetMessage',

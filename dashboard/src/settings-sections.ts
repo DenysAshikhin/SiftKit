@@ -148,6 +148,7 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'SpeculativeNgramModNMin', layout: 'quarter', helpText: 'ngram-mod minimum drafted ngram tokens (`--spec-ngram-mod-n-min`). Use -1 to omit the llama.cpp flag.' },
       { label: 'SpeculativeNgramModNMax', layout: 'quarter', helpText: 'ngram-mod maximum drafted ngram tokens (`--spec-ngram-mod-n-max`). Use -1 to omit the llama.cpp flag.' },
       { label: 'SpeculativeDraftMax', layout: 'quarter', helpText: 'Draft-model token count (`--spec-draft-n-max`) for draft-simple/eagle3/mtp methods, including a chained MTP layer. Use -1 to omit the llama.cpp flag.' },
+      { label: 'SpeculativeDynamic', layout: 'quarter', helpText: 'EXL3 only: adapt each job\'s draft window from its acceptance rate, using SpeculativeDraftMax as the ceiling.' },
       { label: 'SpeculativeDraftMin', layout: 'quarter', helpText: 'Minimum draft-model token count (`--spec-draft-n-min`) for draft-simple/eagle3/mtp methods, including a chained MTP layer. Use -1 to omit the llama.cpp flag.' },
       { label: 'ReasoningBudget', layout: 'quarter', helpText: 'Reasoning token budget passed to llama.cpp when reasoning is enabled.' },
       { label: 'ReasoningBudgetMessage', layout: 'full', helpText: 'Message passed to `--reasoning-budget-message` when the reasoning budget is exhausted.' },

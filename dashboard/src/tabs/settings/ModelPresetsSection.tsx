@@ -485,6 +485,16 @@ export function ModelPresetsSection({
             </SettingsSectionField>
           ) : null}
           {draftTokenFields ? (
+            <SettingsSectionField sectionId="model-presets" label="SpeculativeDynamic">
+              {renderCompatibilityControl(preset, 'SpeculativeDynamic', (
+                <label className="settings-live-toggle-control">
+                  <input type="checkbox" checked={preset.SpeculativeDynamic} onChange={(event) => modelPresetActions.setBoolean('SpeculativeDynamic', event.target.checked)} />
+                  <span>{preset.SpeculativeDynamic ? 'Enabled' : 'Disabled'}</span>
+                </label>
+              ))}
+            </SettingsSectionField>
+          ) : null}
+          {draftTokenFields ? (
             <SettingsSectionField sectionId="model-presets" label="SpeculativeDraftMin">
               {renderCompatibilityControl(preset, 'SpeculativeDraftMin', (
                 <input type="number" value={preset.SpeculativeDraftMin} onChange={(event) => modelPresetActions.setInteger('SpeculativeDraftMin', parseIntegerInput(event.target.value, preset.SpeculativeDraftMin))} />

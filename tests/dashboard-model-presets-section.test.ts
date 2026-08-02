@@ -69,6 +69,8 @@ test('managed EXL3 enables supported runtime controls and exposes only MTP draft
   assert.doesNotMatch(getRenderedField(markup, 'UBatchSize'), /disabled/u);
   assert.doesNotMatch(getRenderedField(markup, 'Enable speculative decoding'), /disabled/u);
   assert.doesNotMatch(getRenderedField(markup, 'SpeculativeDraftMax'), /disabled/u);
+  assert.doesNotMatch(getRenderedField(markup, 'SpeculativeDynamic'), /disabled/u);
+  assert.match(getRenderedField(markup, 'SpeculativeDynamic'), /type="checkbox" checked=""/u);
   assert.match(markup, /<option value="draft-mtp" selected="">draft-mtp<\/option>/u);
   assert.doesNotMatch(markup, /<option value="ngram-map-k">/u);
   assert.doesNotMatch(markup, /MTP speculative decoding does not support parallel slots/u);
@@ -83,6 +85,7 @@ test('external EXL3 exposes chunk size but disables process-scoped controls', ()
   assert.doesNotMatch(getRenderedField(markup, 'UBatchSize'), /disabled/u);
   assert.match(getRenderedField(markup, 'Enable speculative decoding'), /disabled/u);
   assert.match(getRenderedField(markup, 'SpeculativeDraftMax'), /disabled/u);
+  assert.match(getRenderedField(markup, 'SpeculativeDynamic'), /disabled/u);
   assert.match(markup, /Requires SiftKit-managed TabbyAPI/u);
 });
 

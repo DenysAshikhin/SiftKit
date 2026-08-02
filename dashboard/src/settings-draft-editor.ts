@@ -75,6 +75,7 @@ export type ModelBooleanField =
   | 'MaintainPerStepThinking'
   | 'SpeculativeEnabled'
   | 'SpeculativeMtpEnabled'
+  | 'SpeculativeDynamic'
   | 'VerboseLogging'
   | 'VisionEnabled';
 
