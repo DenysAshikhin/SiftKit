@@ -26,6 +26,8 @@ export const Exl3LaunchEnvironmentSchema = z.object({
   TABBY_MODEL_CACHE_MODE: z.string(),
   TABBY_MODEL_MAX_BATCH_SIZE: z.string(),
   TABBY_MODEL_CHUNK_SIZE: z.string(),
+  /** MB of pinned host RAM for exllamav3's second-tier K/V page cache; '0' disables. */
+  TABBY_MEMORY_SYSMEM_PAGE_CACHE: z.string(),
   TABBY_DRAFT_MODEL_DRAFT_MODE: z.enum(['disabled', 'mtp']),
   TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: z.string(),
   /** Omitted when speculation is off: the preset owns no draft cache, so config.yml keeps its value. */
@@ -90,6 +92,7 @@ export class Exl3PresetAdapter {
       TABBY_MODEL_CACHE_MODE: request.cache_mode,
       TABBY_MODEL_MAX_BATCH_SIZE: String(preset.ParallelSlots),
       TABBY_MODEL_CHUNK_SIZE: String(request.chunk_size),
+      TABBY_MEMORY_SYSMEM_PAGE_CACHE: String(preset.CacheRam),
       TABBY_DRAFT_MODEL_DRAFT_MODE: preset.SpeculativeEnabled ? 'mtp' : 'disabled',
       TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: String(preset.SpeculativeDraftMax),
       ...(draftCacheMode === null ? {} : { TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: draftCacheMode }),

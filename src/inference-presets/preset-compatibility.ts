@@ -97,7 +97,7 @@ const PRESET_FIELD_SUPPORT = {
   ParallelSlots: 'exl3-managed-only',
   BatchSize: 'llama-only',
   UBatchSize: 'both',
-  CacheRam: 'llama-only',
+  CacheRam: 'exl3-managed-only',
   KvCacheQuantization: 'exl3-cache-modes',
   MaxTokens: 'both',
   Temperature: 'both',

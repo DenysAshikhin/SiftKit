@@ -55,6 +55,7 @@ test('EXL3 adapter translates shared batching and MTP settings for managed Tabby
     TABBY_MODEL_CACHE_MODE: '8,4',
     TABBY_MODEL_MAX_BATCH_SIZE: '4',
     TABBY_MODEL_CHUNK_SIZE: '1024',
+    TABBY_MEMORY_SYSMEM_PAGE_CACHE: String(preset.CacheRam),
     TABBY_DRAFT_MODEL_DRAFT_MODE: 'mtp',
     TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: '5',
     TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: 'Q8',
@@ -91,6 +92,7 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
     TABBY_MODEL_CACHE_MODE: 'FP16',
     TABBY_MODEL_MAX_BATCH_SIZE: String(preset.ParallelSlots),
     TABBY_MODEL_CHUNK_SIZE: String(preset.UBatchSize),
+    TABBY_MEMORY_SYSMEM_PAGE_CACHE: String(preset.CacheRam),
     TABBY_DRAFT_MODEL_DRAFT_MODE: 'disabled',
     TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: String(preset.SpeculativeDraftMax),
     TABBY_DRAFT_MODEL_DRAFT_DYNAMIC: 'false',
@@ -241,7 +243,6 @@ test('EXL3 availability disables fields without equivalents and keeps wake setti
     'NcpuMoe',
     'FlashAttention',
     'BatchSize',
-    'CacheRam',
     'ReasoningBudget',
     'ReasoningBudgetMessage',
     'SpeculativeMtpEnabled',
@@ -266,9 +267,11 @@ test('EXL3 availability disables fields without equivalents and keeps wake setti
   for (const field of [
     'ParallelSlots',
     'UBatchSize',
+    'CacheRam',
     'SpeculativeEnabled',
     'SpeculativeType',
     'SpeculativeDraftMax',
+    'SpeculativeDynamic',
     'VisionEnabled',
   ] satisfies ModelPresetField[]) {
     assert.deepEqual(getPresetFieldAvailability(managedExl3, field), { enabled: true, reason: null });
@@ -276,9 +279,11 @@ test('EXL3 availability disables fields without equivalents and keeps wake setti
   assert.deepEqual(getPresetFieldAvailability(externalExl3, 'UBatchSize'), { enabled: true, reason: null });
   for (const field of [
     'ParallelSlots',
+    'CacheRam',
     'SpeculativeEnabled',
     'SpeculativeType',
     'SpeculativeDraftMax',
+    'SpeculativeDynamic',
     'VisionEnabled',
   ] satisfies ModelPresetField[]) {
     assert.deepEqual(getPresetFieldAvailability(externalExl3, field), {
