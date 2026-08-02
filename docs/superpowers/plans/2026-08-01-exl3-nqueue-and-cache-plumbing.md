@@ -718,41 +718,38 @@ git -C C:\Users\denys\Documents\GitHub\TabbyAPI commit -m "feat: dynamic draft w
 
 ---
 
-### Task 7: exl3 pip refresh (optional) + live smoke test
+### Task 7: hermetic verification (replaces the originally planned live smoke test)
 
-- [ ] **Step 1 (optional): Refresh the installed exllamav3 to v1.3.0**
+The original Task 7 was a manual live run (real GPU, real model, live config). It was rejected: no
+test may touch or launch real things. It is replaced by three automated, hermetic tests. The exl3
+pip refresh is moot — `C:\envs\rl313` is already exllamav3 1.3.0, and `Generator.__init__` was
+verified to accept both `dynamic_draft_tokens` and `cpu_cache_size`.
 
-The installed build already has every feature this plan uses; refresh only for the trailing dev commits. Check the release assets first, then install the wheel matching cp313 / torch 2.9 / cu128:
+- [x] **7A — launch environment E2E** (`tests/helpers/tabby-fake.ts`, `tests/managed-tabby.test.ts`)
 
-```powershell
-gh release view v1.3.0 -R turboderp-org/exllamav3 --json assets --jq ".assets[].name"
-C:\envs\rl313\Scripts\pip.exe install --upgrade --no-deps <matching wheel URL>
-C:\envs\rl313\Scripts\python.exe -c "from exllamav3.version import __version__; print(__version__)"
-```
+The fake TabbyAPI recorded a hardcoded whitelist of env vars, so a preset knob that never reached
+the child process passed silently (`TABBY_MODEL_VISION` was already in that blind spot). It now
+snapshots every `TABBY_*`/`EXL3_*` variable the child actually receives, and the managed-launch test
+asserts the whole set — including `TABBY_DRAFT_MODEL_DRAFT_DYNAMIC` and
+`TABBY_MEMORY_SYSMEM_PAGE_CACHE` — at the real process boundary.
 
-Expected: `1.3.0`. If no matching wheel exists, skip — do not build from source as part of this plan.
+- [x] **7B — concurrent admission E2E over HTTP** (`tests/model-request-queue-http.test.ts`)
 
-- [ ] **Step 2: Live smoke test**
+`DashboardModelQueueHarness` gained an `exl3ActivePreset` option: it serves TabbyAPI's
+load/unload/model-card surface from an in-process `http.Server` (`Managed: false`, so no child
+process at all) and boots the status server with a real `PresetRuntimeCoordinator`. Two concurrent
+`/repo-search` requests are both admitted (`activeCount: 2`, `queueLength: 0`); the llama harness
+still serializes (`activeCount: 1`, `queueLength: 1`). This is smoke steps 2–3, automated.
 
-Start the status server with an exl3 preset that has `SpeculativeEnabled: true`, `SpeculativeDynamic: true`, `CacheRam: 4096`, `ParallelSlots: 4`:
+- [x] **7C — TabbyAPI plumbing tests** (`tests/test_exl3_draft_dynamic_and_page_cache.py`)
 
-```powershell
-npm run build
-node .\dist\status-server\index.js
-```
+The fork does have a `unittest` suite. The draft-arg parsing was extracted out of
+`ExllamaV3Container.create` into `configure_drafting`, so it runs without loading a model. Tests
+cover `TABBY_DRAFT_MODEL_DRAFT_DYNAMIC`/`TABBY_MEMORY_SYSMEM_PAGE_CACHE` coercing to typed config
+fields, their defaults, MTP carrying the dynamic flag plus token ceiling, and dynamic drafting
+staying off for `disabled`/`ngram` modes.
 
-Verify, in order:
-1. TabbyAPI startup log contains `Using main model MTP component for drafting` (the managed-tabby preflight at `src/status-server/managed-tabby.ts` already hard-fails without it).
-2. Fire two `siftkit summary --text "..." --question "..."` calls simultaneously from two shells; `curl http://127.0.0.1:4765/status` (or the dashboard) shows `modelRequests.activeCount: 2` with `queueLength: 0`.
-3. Switch the active preset to a llama one via the dashboard while a request runs — the switch waits, then llama serializes (second concurrent request queues).
-4. Stop the server.
-
-- [ ] **Step 3: Final commit + wrap up**
-
-```powershell
-git add -A
-git commit -m "docs: record exl3 n-queue plan execution notes"
-```
+Run with: `C:\envs\rl313\Scripts\python.exe -m unittest tests.test_exl3_draft_dynamic_and_page_cache`
 
 Use superpowers:finishing-a-development-branch to merge `feat/exl3-nqueue`.
 
