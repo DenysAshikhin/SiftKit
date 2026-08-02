@@ -46,10 +46,43 @@ test('evaluateCommandSafety rejects a non-read-only pipe stage', () => {
   assert.match(result.reason || '', /is not in the allow-list/u);
 });
 
-test('evaluateCommandSafety rejects a ForEach-Object stage that writes', () => {
-  const result = evaluateCommandSafety('git log --oneline | ForEach-Object { Rename-Item $_ }');
-  assert.equal(result.safe, false);
-  assert.equal(result.reason, 'ForEach-Object must be read-only');
+test('evaluateCommandSafety rejects a script block that writes, whichever cmdlet takes it', () => {
+  for (const command of [
+    'git log --oneline | ForEach-Object { Rename-Item $_ }',
+    'git ls-files | Where-Object { Remove-Item $_ }',
+    'git ls-files | Select-Object -Property @{ n = "x"; e = { Out-File $_ } }',
+  ]) {
+    const result = evaluateCommandSafety(command);
+    assert.equal(result.safe, false, `expected ${command} to be rejected`);
+    assert.equal(result.reason, 'destructive, file-writing, or network command is not allowed');
+  }
+});
+
+test('evaluateCommandSafety allows write-command substrings in path operands and quoted arguments', () => {
+  for (const command of [
+    'git log --oneline -- docs/rm.md',
+    'git log --oneline -- src/cp/index.ts',
+    'git grep -n "export-default"',
+    'git log --grep="remove-item"',
+    'git log --format="%h <%an>"',
+    "git log --grep='back`tick'",
+    'git show HEAD:package.json | Measure-Object -Character',
+  ]) {
+    const result = evaluateCommandSafety(command);
+    assert.equal(result.safe, true, `expected ${command} to be allowed, got ${result.reason}`);
+  }
+});
+
+test('evaluateCommandSafety rejects command substitution and escapes outside single quotes', () => {
+  for (const command of [
+    'git log --grep="$(Remove-Item x)"',
+    'git log --grep=$(whoami)',
+    'git log --grep="a`nb"',
+  ]) {
+    const result = evaluateCommandSafety(command);
+    assert.equal(result.safe, false, `expected ${command} to be rejected`);
+    assert.equal(result.reason, 'command substitution and escape characters are not allowed');
+  }
 });
 
 test('evaluateCommandSafety rejects destructive, network, and chained commands', () => {

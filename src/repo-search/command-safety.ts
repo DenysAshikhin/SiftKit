@@ -80,42 +80,92 @@ const READ_ONLY_PIPE_COMMANDS = new Set([
   'get-unique', 'join-string',
 ]);
 
-const WRITE_OR_NETWORK_COMMAND_PATTERN = /\b(rm|del|mv|cp|move-item|copy-item|remove-item|set-content|add-content|out-file|export-[a-z0-9_-]+|tee-object|curl|wget|invoke-webrequest|invoke-restmethod|start-process)\b/iu;
+// The one list of commands that write, delete, rename, or reach the network. It is applied to
+// script-block bodies only; command positions are already governed by the allow-lists below.
+const WRITE_OR_NETWORK_COMMAND_PATTERN = /\b(rm|del|mv|cp|move-item|copy-item|remove-item|rename-item|set-content|add-content|out-file|export-[a-z0-9_-]+|tee-object|curl|wget|invoke-webrequest|invoke-restmethod|start-process)\b/iu;
 
-const FOREACH_WRITE_COMMAND_PATTERN = /\b(set-content|add-content|out-file|export-[a-z0-9_-]+|tee-object|remove-item|move-item|copy-item|rename-item|invoke-webrequest|invoke-restmethod|start-process)\b/iu;
+type QuoteBlanking = { single: boolean; double: boolean };
 
-function hasBlockedOperator(command: string): boolean {
+/**
+ * Replaces the interior of selected quoted spans with spaces, preserving length and quote
+ * characters, so a scan sees only the shell syntax that can actually execute. Single-quoted spans
+ * are literal in PowerShell; double-quoted spans still expand `$(...)` and honour the backtick
+ * escape, but redirection and chaining operators inside them are inert text.
+ */
+function blankQuotedSpans(command: string, blanking: QuoteBlanking): string {
+  let result = '';
   let inSingle = false;
   let inDouble = false;
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index];
+    if (char === "'" && !inDouble) {
+      inSingle = !inSingle;
+      result += char;
+      continue;
+    }
+    if (char === '"' && !inSingle) {
+      inDouble = !inDouble;
+      result += char;
+      continue;
+    }
+    const shouldBlank = (inSingle && blanking.single) || (inDouble && blanking.double);
+    result += shouldBlank ? ' ' : char;
+  }
+  return result;
+}
 
-  for (let i = 0; i < command.length; i += 1) {
-    const ch = command[i];
-    if (ch === '`') {
+function hasBlockedOperator(operatorScan: string): boolean {
+  let braceDepth = 0;
+  for (let index = 0; index < operatorScan.length; index += 1) {
+    const char = operatorScan[index];
+    if (char === '{') {
+      braceDepth += 1;
+      continue;
+    }
+    if (char === '}') {
+      // Clamp so an unmatched `}` cannot drive the depth negative and unlock the `;` check.
+      braceDepth = Math.max(0, braceDepth - 1);
+      continue;
+    }
+    if (char === ';' && braceDepth === 0) {
       return true;
     }
-    if (ch === "'" && !inDouble) {
-      inSingle = !inSingle;
-      continue;
+    if (char === '&' && operatorScan[index + 1] === '&') {
+      return true;
     }
-    if (ch === '"' && !inSingle) {
-      inDouble = !inDouble;
-      continue;
-    }
-    if (inSingle || inDouble) {
-      continue;
-    }
-    if (ch === ';' || (ch === '&' && command[i + 1] === '&') || (ch === '|' && command[i + 1] === '|')) {
+    if (char === '|' && operatorScan[index + 1] === '|') {
       return true;
     }
   }
-
   return false;
 }
 
-function hasFileRedirection(command: string): boolean {
+function hasFileRedirection(operatorScan: string): boolean {
   // Strip safe stderr-to-stdout merges (2>&1) before checking for real file redirects
-  const withoutStderrMerge = command.replace(/\s*2>&1\s*/gu, ' ');
-  return /[<>]/u.test(withoutStderrMerge);
+  return /[<>]/u.test(operatorScan.replace(/\s*2>&1\s*/gu, ' '));
+}
+
+function hasShellExpansion(expansionScan: string): boolean {
+  return expansionScan.includes('`') || expansionScan.includes('$(');
+}
+
+/** Bodies of `{ ... }` blocks — the one place a cmdlet invocation can hide behind an allow-listed stage. */
+function extractScriptBlockBodies(expansionScan: string): string[] {
+  const bodies: string[] = [];
+  const openIndexes: number[] = [];
+  for (let index = 0; index < expansionScan.length; index += 1) {
+    if (expansionScan[index] === '{') {
+      openIndexes.push(index);
+      continue;
+    }
+    if (expansionScan[index] === '}') {
+      const start = openIndexes.pop();
+      if (start !== undefined) {
+        bodies.push(expansionScan.slice(start + 1, index));
+      }
+    }
+  }
+  return bodies;
 }
 
 function splitTopLevelPipes(command: string): string[] {
@@ -219,16 +269,25 @@ export function evaluateCommandSafety(command: string, repoRoot = ''): SafetyRes
     return { safe: false, reason: 'command must stay within the caller repository scope' };
   }
 
-  if (hasBlockedOperator(trimmed)) {
+  // Chaining and redirection are inert inside quotes of either kind.
+  const operatorScan = blankQuotedSpans(trimmed, { single: true, double: true });
+  if (hasBlockedOperator(operatorScan)) {
     return { safe: false, reason: 'shell chaining/redirection is not allowed' };
   }
-
-  if (hasFileRedirection(trimmed)) {
+  if (hasFileRedirection(operatorScan)) {
     return { safe: false, reason: 'file redirection is not allowed' };
   }
 
-  if (WRITE_OR_NETWORK_COMMAND_PATTERN.test(trimmed)) {
-    return { safe: false, reason: 'destructive, file-writing, or network command is not allowed' };
+  // Subexpressions and escapes still fire inside double quotes; only single quotes neutralize them.
+  const expansionScan = blankQuotedSpans(trimmed, { single: true, double: false });
+  if (hasShellExpansion(expansionScan)) {
+    return { safe: false, reason: 'command substitution and escape characters are not allowed' };
+  }
+
+  for (const scriptBlockBody of extractScriptBlockBodies(expansionScan)) {
+    if (WRITE_OR_NETWORK_COMMAND_PATTERN.test(scriptBlockBody)) {
+      return { safe: false, reason: 'destructive, file-writing, or network command is not allowed' };
+    }
   }
 
   const segments = splitTopLevelPipes(trimmed);
@@ -241,9 +300,6 @@ export function evaluateCommandSafety(command: string, repoRoot = ''): SafetyRes
     const pipeToken = getFirstCommandToken(segment);
     if (!READ_ONLY_PIPE_COMMANDS.has(pipeToken)) {
       return { safe: false, reason: `command '${pipeToken || '<empty>'}' is not in the allow-list` };
-    }
-    if (/\bforeach-object\b/iu.test(segment) && FOREACH_WRITE_COMMAND_PATTERN.test(segment)) {
-      return { safe: false, reason: 'ForEach-Object must be read-only' };
     }
   }
 
