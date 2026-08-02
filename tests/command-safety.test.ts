@@ -54,7 +54,62 @@ test('evaluateCommandSafety rejects a script block that writes, whichever cmdlet
   ]) {
     const result = evaluateCommandSafety(command);
     assert.equal(result.safe, false, `expected ${command} to be rejected`);
-    assert.equal(result.reason, 'destructive, file-writing, or network command is not allowed');
+    assert.match(result.reason || '', /is not in the allow-list/u);
+  }
+});
+
+test('evaluateCommandSafety rejects non-allow-listed invocations inside blocks and subexpressions', () => {
+  for (const command of [
+    'git ls-files | ForEach-Object { New-Item pwned.txt }',
+    'git ls-files | ForEach-Object { Set-Item x y }',
+    'git ls-files | ForEach-Object { Invoke-Expression $_ }',
+    'git ls-files | ForEach-Object { iex $_ }',
+    'git ls-files | ForEach-Object { $null; New-Item pwned.txt }',
+    'git ls-files | Select-Object (New-Item pwned.txt)',
+  ]) {
+    const result = evaluateCommandSafety(command);
+    assert.equal(result.safe, false, `expected ${command} to be rejected`);
+    assert.match(result.reason || '', /is not in the allow-list/u);
+  }
+});
+
+test('evaluateCommandSafety rejects call operators, dot-sourcing, and static member access', () => {
+  for (const command of [
+    'git ls-files | ForEach-Object { & notepad $_ }',
+    'git log & whoami',
+    'git ls-files | ForEach-Object { . .\\payload.ps1 }',
+    'git ls-files | ForEach-Object { [System.IO.File]::Delete($_) }',
+  ]) {
+    const result = evaluateCommandSafety(command);
+    assert.equal(result.safe, false, `expected ${command} to be rejected`);
+  }
+});
+
+test('evaluateCommandSafety rejects mutating git subcommands', () => {
+  for (const command of [
+    'git commit -m "x"',
+    'git checkout .',
+    'git clean -fd',
+    'git reset --hard HEAD~1',
+    'git push origin main',
+    'git add .',
+    'git -c alias.st=status st',
+  ]) {
+    const result = evaluateCommandSafety(command);
+    assert.equal(result.safe, false, `expected ${command} to be rejected`);
+    assert.match(result.reason || '', /is not read-only/u);
+  }
+});
+
+test('evaluateCommandSafety allows expression-only script blocks including multi-statement ones', () => {
+  for (const command of [
+    'git ls-files | Select-Object -Property @{ n = "x"; e = { $_ } }',
+    'git log --oneline | ForEach-Object { $parts = $_ -split " "; $parts[0] }',
+    'git ls-files | Where-Object { -not ($_ -match "test") }',
+    'git log --oneline | Where-Object { ($_ -match "fix") -and ($_ -notmatch "wip") }',
+  ]) {
+    const result = evaluateCommandSafety(command);
+    assert.equal(result.safe, true, `expected ${command} to be allowed, got ${result.reason}`);
   }
 });
 

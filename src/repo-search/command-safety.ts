@@ -80,9 +80,29 @@ const READ_ONLY_PIPE_COMMANDS = new Set([
   'get-unique', 'join-string',
 ]);
 
-// The one list of commands that write, delete, rename, or reach the network. It is applied to
-// script-block bodies only; command positions are already governed by the allow-lists below.
-const WRITE_OR_NETWORK_COMMAND_PATTERN = /\b(rm|del|mv|cp|move-item|copy-item|remove-item|rename-item|set-content|add-content|out-file|export-[a-z0-9_-]+|tee-object|curl|wget|invoke-webrequest|invoke-restmethod|start-process)\b/iu;
+const READ_ONLY_GIT_SUBCOMMANDS = new Set([
+  'status', 'log', 'show', 'diff', 'blame', 'grep', 'ls-files', 'ls-tree',
+  'cat-file', 'rev-parse', 'rev-list', 'describe', 'shortlog', 'reflog',
+  'show-ref', 'for-each-ref', 'merge-base', 'name-rev', 'count-objects',
+  'diff-tree', 'diff-index', 'check-ignore',
+]);
+
+/** Git global flags whose value arrives as the next token (`-C <path>`, `-c <key>=<value>`). */
+const GIT_FLAGS_WITH_SEPARATE_VALUE = new Set(['-C', '-c']);
+
+/** First non-flag token after `git` — flag values are skipped so an alias defined via `-c` cannot smuggle a subcommand. */
+function findGitSubcommand(producerTokens: string[]): string | null {
+  for (let index = 1; index < producerTokens.length; index += 1) {
+    const token = producerTokens[index];
+    if (GIT_FLAGS_WITH_SEPARATE_VALUE.has(token)) {
+      index += 1;
+      continue;
+    }
+    if (token.startsWith('-')) continue;
+    return token.toLowerCase();
+  }
+  return null;
+}
 
 type QuoteBlanking = { single: boolean; double: boolean };
 
@@ -130,7 +150,8 @@ function hasBlockedOperator(operatorScan: string): boolean {
     if (char === ';' && braceDepth === 0) {
       return true;
     }
-    if (char === '&' && operatorScan[index + 1] === '&') {
+    // `&` is the call/background/chaining operator everywhere except a `>&` stream merge (2>&1).
+    if (char === '&' && operatorScan[index - 1] !== '>') {
       return true;
     }
     if (char === '|' && operatorScan[index + 1] === '|') {
@@ -149,23 +170,71 @@ function hasShellExpansion(expansionScan: string): boolean {
   return expansionScan.includes('`') || expansionScan.includes('$(');
 }
 
-/** Bodies of `{ ... }` blocks — the one place a cmdlet invocation can hide behind an allow-listed stage. */
-function extractScriptBlockBodies(expansionScan: string): string[] {
+/**
+ * Bodies of `{ ... }` and `( ... )` groups — the places a command invocation can hide behind an
+ * allow-listed pipeline stage. Operates on the fully quote-blanked scan: quoted braces/parens are
+ * literal text, and anything executable inside double quotes needs `$(`/backtick, blocked separately.
+ */
+function extractBracketBodies(operatorScan: string): string[] {
   const bodies: string[] = [];
-  const openIndexes: number[] = [];
-  for (let index = 0; index < expansionScan.length; index += 1) {
-    if (expansionScan[index] === '{') {
-      openIndexes.push(index);
+  const stack: { open: string; start: number }[] = [];
+  for (let index = 0; index < operatorScan.length; index += 1) {
+    const char = operatorScan[index];
+    if (char === '{' || char === '(') {
+      stack.push({ open: char, start: index });
       continue;
     }
-    if (expansionScan[index] === '}') {
-      const start = openIndexes.pop();
-      if (start !== undefined) {
-        bodies.push(expansionScan.slice(start + 1, index));
+    if (char === '}' || char === ')') {
+      const expectedOpen = char === '}' ? '{' : '(';
+      const top = stack[stack.length - 1];
+      if (top && top.open === expectedOpen) {
+        stack.pop();
+        bodies.push(operatorScan.slice(top.start + 1, index));
       }
     }
   }
   return bodies;
+}
+
+/** Splits a body at `;` and `|` outside nested groups; nested bodies are validated on their own. */
+function splitBodyStatements(body: string): string[] {
+  const statements: string[] = [];
+  let current = '';
+  let depth = 0;
+  for (let index = 0; index < body.length; index += 1) {
+    const char = body[index];
+    if (char === '{' || char === '(') depth += 1;
+    if (char === '}' || char === ')') depth = Math.max(0, depth - 1);
+    if ((char === ';' || char === '|') && depth === 0) {
+      statements.push(current);
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  statements.push(current);
+  return statements;
+}
+
+/** Leading characters that open a PowerShell expression rather than a command invocation. */
+const EXPRESSION_TOKEN_PATTERN = /^[$'"@({[\d,+!-]/u;
+
+/**
+ * First statement-position token in `body` that could invoke a command and is not allow-listed.
+ * Expression starters pass (they cannot invoke without `$(`/`::`/`&`, all blocked elsewhere);
+ * `name = value` hashtable entries and assignments pass; bare words must be read-only cmdlets.
+ */
+function findBlockedBodyToken(body: string): string | null {
+  for (const statement of splitBodyStatements(body)) {
+    const token = getFirstCommandToken(statement);
+    if (!token) continue;
+    if (EXPRESSION_TOKEN_PATTERN.test(token)) continue;
+    const rest = statement.trimStart().slice(token.length).trimStart();
+    if (rest.startsWith('=') && !rest.startsWith('==')) continue;
+    if (READ_ONLY_PIPE_COMMANDS.has(token)) continue;
+    return token;
+  }
+  return null;
 }
 
 function splitTopLevelPipes(command: string): string[] {
@@ -277,6 +346,9 @@ export function evaluateCommandSafety(command: string, repoRoot = ''): SafetyRes
   if (hasFileRedirection(operatorScan)) {
     return { safe: false, reason: 'file redirection is not allowed' };
   }
+  if (operatorScan.includes('::')) {
+    return { safe: false, reason: 'static member access is not allowed' };
+  }
 
   // Subexpressions and escapes still fire inside double quotes; only single quotes neutralize them.
   const expansionScan = blankQuotedSpans(trimmed, { single: true, double: false });
@@ -284,9 +356,10 @@ export function evaluateCommandSafety(command: string, repoRoot = ''): SafetyRes
     return { safe: false, reason: 'command substitution and escape characters are not allowed' };
   }
 
-  for (const scriptBlockBody of extractScriptBlockBodies(expansionScan)) {
-    if (WRITE_OR_NETWORK_COMMAND_PATTERN.test(scriptBlockBody)) {
-      return { safe: false, reason: 'destructive, file-writing, or network command is not allowed' };
+  for (const body of extractBracketBodies(operatorScan)) {
+    const blockedToken = findBlockedBodyToken(body);
+    if (blockedToken !== null) {
+      return { safe: false, reason: `command '${blockedToken}' inside a script block or subexpression is not in the allow-list` };
     }
   }
 
@@ -294,6 +367,10 @@ export function evaluateCommandSafety(command: string, repoRoot = ''): SafetyRes
   const producerToken = getFirstCommandToken(segments[0] || '');
   if (producerToken !== PRODUCER_COMMAND) {
     return { safe: false, reason: `command '${producerToken || '<empty>'}' is not in the allow-list` };
+  }
+  const subcommand = findGitSubcommand(tokenizeSegment(segments[0] || ''));
+  if (subcommand !== null && !READ_ONLY_GIT_SUBCOMMANDS.has(subcommand)) {
+    return { safe: false, reason: `git subcommand '${subcommand}' is not read-only` };
   }
 
   for (const segment of segments.slice(1)) {
