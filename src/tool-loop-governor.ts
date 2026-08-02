@@ -147,6 +147,24 @@ export function classifyToolResultNovelty(options: ClassifyToolResultNoveltyOpti
   };
 }
 
+/**
+ * The novelty of one executed tool call. An empty output carries no anchors and so cannot be
+ * novel — reporting it as new evidence hides a stalling planner from the no-new-evidence counter.
+ */
+export function classifyToolOutputNovelty(options: {
+  baseOutput: string;
+  promptResultText: string;
+  recentEvidenceKeys: Set<string>;
+}): ToolResultNovelty {
+  if (options.baseOutput.length === 0) {
+    return { evidenceKeys: [], hasNewEvidence: false };
+  }
+  return classifyToolResultNovelty({
+    promptResultText: options.promptResultText,
+    recentEvidenceKeys: options.recentEvidenceKeys,
+  });
+}
+
 export function buildPromptToolResult(options: BuildPromptToolResultOptions): string {
   if (!isRepoSearchCommandToolName(options.toolName)) {
     return stripLeadingSuccessExitCode(String(options.rawOutput || '').trim());

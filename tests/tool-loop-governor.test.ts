@@ -5,6 +5,7 @@ import {
   buildRepeatedToolCallSummary,
   buildPromptToolResult,
   buildToolReplayFingerprint,
+  classifyToolOutputNovelty,
   classifyToolResultNovelty,
   evaluateFinishAttempt,
   fingerprintToolCall,
@@ -145,4 +146,33 @@ test('classifyToolResultNovelty detects repeated evidence with no new anchors', 
 
   assert.equal(novelty.hasNewEvidence, false);
   assert.equal(novelty.evidenceKeys.length, 1);
+});
+
+test('classifyToolOutputNovelty treats an empty tool output as no new evidence', () => {
+  const novelty = classifyToolOutputNovelty({
+    baseOutput: '',
+    promptResultText: 'exit_code=0',
+    recentEvidenceKeys: new Set<string>(),
+  });
+  assert.deepEqual(novelty.evidenceKeys, []);
+  assert.equal(novelty.hasNewEvidence, false);
+});
+
+test('classifyToolOutputNovelty defers to the evidence keys when output is present', () => {
+  const recentEvidenceKeys = new Set<string>();
+  const first = classifyToolOutputNovelty({
+    baseOutput: 'src/a.ts:2:alpha',
+    promptResultText: 'exit_code=0\nsrc/a.ts:2:alpha',
+    recentEvidenceKeys,
+  });
+  assert.equal(first.hasNewEvidence, true);
+  for (const key of first.evidenceKeys) {
+    recentEvidenceKeys.add(key);
+  }
+  const repeat = classifyToolOutputNovelty({
+    baseOutput: 'src/a.ts:2:alpha',
+    promptResultText: 'exit_code=0\nsrc/a.ts:2:alpha',
+    recentEvidenceKeys,
+  });
+  assert.equal(repeat.hasNewEvidence, false);
 });

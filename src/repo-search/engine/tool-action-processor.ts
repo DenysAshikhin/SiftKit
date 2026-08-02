@@ -20,7 +20,7 @@ import type { TaskCommand } from '../prompts.js';
 import {
   buildRepeatedToolCallSummary,
   buildPromptToolResult,
-  classifyToolResultNovelty,
+  classifyToolOutputNovelty,
   fingerprintToolCall,
 } from '../../tool-loop-governor.js';
 import { ChatGroundingPolicy } from '../chat-grounding-policy.js';
@@ -796,12 +796,11 @@ export class ToolActionProcessor {
       rawResultTokenCount,
       lineReadStats,
     });
-    const novelty = baseOutput.length === 0
-      ? { evidenceKeys: [], hasNewEvidence: true }
-      : classifyToolResultNovelty({
-        promptResultText: resultText,
-        recentEvidenceKeys,
-      });
+    const novelty = classifyToolOutputNovelty({
+      baseOutput,
+      promptResultText: resultText,
+      recentEvidenceKeys,
+    });
     toolStats.recordNovelty(toolType, novelty.hasNewEvidence);
     for (const evidenceKey of novelty.evidenceKeys) {
       recentEvidenceKeys.add(evidenceKey);
