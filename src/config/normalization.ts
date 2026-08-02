@@ -82,6 +82,7 @@ export type ManagedLlamaConfig = {
   SpeculativeNgramModNMax: number;
   SpeculativeDraftMax: number;
   SpeculativeDraftMin: number;
+  SpeculativeDynamic: boolean;
   ReasoningBudget: number;
   ReasoningBudgetMessage: string | null;
   StartupTimeoutMs: number;
@@ -413,6 +414,9 @@ function resolveManagedLlamaSettings(input: MutableJsonObject): ManagedLlamaConf
     SpeculativeNgramModNMax: getSpeculativeInteger(input.SpeculativeNgramModNMax, Number(defaults.SpeculativeNgramModNMax ?? 16), true),
     SpeculativeDraftMax: getSpeculativeInteger(input.SpeculativeDraftMax, Number(defaults.SpeculativeDraftMax ?? 16), true),
     SpeculativeDraftMin: getSpeculativeInteger(input.SpeculativeDraftMin, Number(defaults.SpeculativeDraftMin ?? 4), false),
+    SpeculativeDynamic: input.SpeculativeDynamic === null || input.SpeculativeDynamic === undefined
+      ? Boolean(defaults.SpeculativeDynamic)
+      : Boolean(input.SpeculativeDynamic),
     ReasoningBudget: getFinitePositiveInteger(input.ReasoningBudget, Number(defaults.ReasoningBudget ?? SIFT_DEFAULT_LLAMA_REASONING_BUDGET)),
     ReasoningBudgetMessage: getNullableTrimmedString(input.ReasoningBudgetMessage)
       || getNullableTrimmedString(defaults.ReasoningBudgetMessage)

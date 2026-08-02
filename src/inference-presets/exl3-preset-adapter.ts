@@ -30,6 +30,8 @@ export const Exl3LaunchEnvironmentSchema = z.object({
   TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: z.string(),
   /** Omitted when speculation is off: the preset owns no draft cache, so config.yml keeps its value. */
   TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: z.string().optional(),
+  /** Per-job draft windows adapted from the acceptance EMA, capped by DRAFT_NUM_TOKENS. */
+  TABBY_DRAFT_MODEL_DRAFT_DYNAMIC: z.enum(['true', 'false']),
   /**
    * exllamav3 defaults to quant-direct attention kernels for quantized caches; the
    * dequantize-then-attend path is ~7% faster at prefill and decode-neutral for ~240 MiB
@@ -91,6 +93,7 @@ export class Exl3PresetAdapter {
       TABBY_DRAFT_MODEL_DRAFT_MODE: preset.SpeculativeEnabled ? 'mtp' : 'disabled',
       TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: String(preset.SpeculativeDraftMax),
       ...(draftCacheMode === null ? {} : { TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: draftCacheMode }),
+      TABBY_DRAFT_MODEL_DRAFT_DYNAMIC: preset.SpeculativeEnabled && preset.SpeculativeDynamic ? 'true' : 'false',
       EXL3_QC_ATTN: '0',
       TABBY_MODEL_VISION: preset.VisionEnabled ? 'true' : 'false',
     });

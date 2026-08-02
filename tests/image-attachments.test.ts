@@ -57,6 +57,7 @@ function makePreset(opts: Partial<ModelRuntimePreset> = {}): ModelRuntimePreset 
     SpeculativeNgramModNMax: 3,
     SpeculativeDraftMax: 16,
     SpeculativeDraftMin: 1,
+    SpeculativeDynamic: true,
     ReasoningBudget: 0,
     ReasoningBudgetMessage: null,
     StartupTimeoutMs: 60000,

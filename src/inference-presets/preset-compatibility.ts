@@ -120,6 +120,7 @@ const PRESET_FIELD_SUPPORT = {
   SpeculativeNgramModNMin: 'llama-only',
   SpeculativeNgramModNMax: 'llama-only',
   SpeculativeDraftMax: 'exl3-managed-only',
+  SpeculativeDynamic: 'exl3-managed-only',
   SpeculativeDraftMin: 'llama-only',
   ReasoningBudget: 'llama-only',
   ReasoningBudgetMessage: 'llama-only',

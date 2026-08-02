@@ -66,6 +66,7 @@ export function getDefaultConfigObject(): SiftConfig {
     SpeculativeNgramModNMax: 16,
     SpeculativeDraftMax: 16,
     SpeculativeDraftMin: 4,
+    SpeculativeDynamic: true,
     ReasoningBudget: SIFT_DEFAULT_LLAMA_REASONING_BUDGET,
     ReasoningBudgetMessage: SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
     StartupTimeoutMs: 600_000,

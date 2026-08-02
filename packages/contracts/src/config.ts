@@ -60,7 +60,8 @@ const ManagedLlamaSettingsShape = {
   SpeculativeType: ManagedLlamaSpeculativeTypeSchema, SpeculativeMtpEnabled: z.boolean(),
   SpeculativeNgramSizeN: z.number(), SpeculativeNgramSizeM: z.number(), SpeculativeNgramMinHits: z.number(),
   SpeculativeNgramModNMatch: z.number(), SpeculativeNgramModNMin: z.number(), SpeculativeNgramModNMax: z.number(),
-  SpeculativeDraftMax: z.number(), SpeculativeDraftMin: z.number(), ReasoningBudget: z.number(),
+  SpeculativeDraftMax: z.number(), SpeculativeDraftMin: z.number(), SpeculativeDynamic: z.boolean(),
+  ReasoningBudget: z.number(),
   ReasoningBudgetMessage: z.string().nullable(), StartupTimeoutMs: z.number(), HealthcheckTimeoutMs: z.number(),
   HealthcheckIntervalMs: z.number(), SleepIdleSeconds: z.number(), VerboseLogging: z.boolean(), VisionEnabled: z.boolean(),
 };
@@ -72,7 +73,7 @@ export const ModelPresetFieldSchema = z.enum([
   'RepetitionPenalty', 'Reasoning', 'ReasoningContent', 'PreserveThinking', 'MaintainPerStepThinking',
   'SpeculativeEnabled', 'SpeculativeType', 'SpeculativeMtpEnabled', 'SpeculativeNgramSizeN',
   'SpeculativeNgramSizeM', 'SpeculativeNgramMinHits', 'SpeculativeNgramModNMatch', 'SpeculativeNgramModNMin',
-  'SpeculativeNgramModNMax', 'SpeculativeDraftMax', 'SpeculativeDraftMin', 'ReasoningBudget',
+  'SpeculativeNgramModNMax', 'SpeculativeDraftMax', 'SpeculativeDraftMin', 'SpeculativeDynamic', 'ReasoningBudget',
   'ReasoningBudgetMessage', 'StartupTimeoutMs', 'HealthcheckTimeoutMs', 'HealthcheckIntervalMs',
   'SleepIdleSeconds', 'VerboseLogging', 'VisionEnabled',
 ]);

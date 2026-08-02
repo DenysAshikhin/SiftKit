@@ -58,6 +58,7 @@ test('EXL3 adapter translates shared batching and MTP settings for managed Tabby
     TABBY_DRAFT_MODEL_DRAFT_MODE: 'mtp',
     TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: '5',
     TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: 'Q8',
+    TABBY_DRAFT_MODEL_DRAFT_DYNAMIC: 'true',
     TABBY_MODEL_VISION: 'false',
     EXL3_QC_ATTN: '0',
   });
@@ -92,10 +93,24 @@ test('EXL3 adapter emits disabled speculative decoding without a token count', (
     TABBY_MODEL_CHUNK_SIZE: String(preset.UBatchSize),
     TABBY_DRAFT_MODEL_DRAFT_MODE: 'disabled',
     TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: String(preset.SpeculativeDraftMax),
+    TABBY_DRAFT_MODEL_DRAFT_DYNAMIC: 'false',
     TABBY_MODEL_VISION: 'false',
     EXL3_QC_ATTN: '0',
   });
   assert.equal('TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE' in adapter.buildLaunchEnvironment(preset), false);
+});
+
+test('EXL3 adapter disables dynamic drafting when the preset opts out', () => {
+  const preset = createModelPreset({
+    Backend: 'exl3',
+    ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B',
+    KvCacheQuantization: 'f16',
+    SpeculativeEnabled: true,
+    SpeculativeType: 'draft-mtp',
+    SpeculativeDynamic: false,
+  });
+  const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
+  assert.equal(adapter.buildLaunchEnvironment(preset).TABBY_DRAFT_MODEL_DRAFT_DYNAMIC, 'false');
 });
 
 test('EXL3 adapter emits TABBY_MODEL_VISION true when vision is enabled', () => {

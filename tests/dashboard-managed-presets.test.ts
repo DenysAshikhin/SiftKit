@@ -58,6 +58,7 @@ function createPreset(overrides: Partial<DashboardModelRuntimePreset> = {}): Das
     SpeculativeNgramModNMax: 16,
     SpeculativeDraftMax: 16,
     SpeculativeDraftMin: 4,
+    SpeculativeDynamic: true,
     ReasoningBudget: 10000,
     ReasoningBudgetMessage: 'Thinking budget exhausted. You have to provide the answer now.',
     StartupTimeoutMs: 600000,
