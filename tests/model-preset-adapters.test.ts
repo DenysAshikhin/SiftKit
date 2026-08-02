@@ -1,4 +1,4 @@
-import test from 'node:test';
+﻿import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -15,7 +15,7 @@ import { LlamaPresetAdapter } from '../src/inference-presets/llama-preset-adapte
 import {
   getExl3CacheModes,
   getPresetFieldAvailability,
-  getPresetFieldBackendScope,
+  type PresetFieldAvailability,
 } from '../src/inference-presets/preset-compatibility.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
@@ -236,116 +236,113 @@ test('EXL3 cache compatibility resolves model and draft modes together', () => {
   ]);
 });
 
-test('EXL3 availability disables fields without equivalents and keeps wake settings enabled', () => {
+/**
+ * One expectation per preset field per backend state, so adding a field forces a deliberate
+ * visibility decision here before `getPresetFieldAvailability` can compile against it.
+ */
+interface PresetFieldExpectation {
+  llama: PresetFieldAvailability;
+  managedExl3: PresetFieldAvailability;
+  externalExl3: PresetFieldAvailability;
+}
+
+const AVAILABLE = { visible: true, enabled: true, reason: null } as const;
+const HIDDEN = { visible: false } as const;
+const NEEDS_MANAGED_TABBY = {
+  visible: true,
+  enabled: false,
+  reason: 'Requires SiftKit-managed TabbyAPI',
+} as const;
+const EXL3_CACHE_MODES = {
+  visible: true,
+  enabled: true,
+  reason: 'Only EXL3-compatible cache modes are available',
+} as const;
+
+/** Both backends accept it in every state. */
+const ON_BOTH_BACKENDS = { llama: AVAILABLE, managedExl3: AVAILABLE, externalExl3: AVAILABLE } as const;
+/** llama.cpp has it; EXL3 has no equivalent, so EXL3 never shows it. */
+const LLAMA_ONLY = { llama: AVAILABLE, managedExl3: HIDDEN, externalExl3: HIDDEN } as const;
+/** Both accept it, but EXL3 can only apply it to an engine SiftKit launches. */
+const EXL3_MANAGED_ONLY = { llama: AVAILABLE, managedExl3: AVAILABLE, externalExl3: NEEDS_MANAGED_TABBY } as const;
+/** EXL3 has it; llama.cpp has no equivalent, so llama never shows it. */
+const EXL3_ONLY = { llama: HIDDEN, managedExl3: AVAILABLE, externalExl3: NEEDS_MANAGED_TABBY } as const;
+/** Both accept it; EXL3 narrows the choices and says so. */
+const EXL3_NARROWED = { llama: AVAILABLE, managedExl3: EXL3_CACHE_MODES, externalExl3: EXL3_CACHE_MODES } as const;
+
+const PRESET_FIELD_EXPECTATIONS = {
+  Model: ON_BOTH_BACKENDS,
+  ExternalServerEnabled: ON_BOTH_BACKENDS,
+  ExecutablePath: LLAMA_ONLY,
+  BaseUrl: ON_BOTH_BACKENDS,
+  BindHost: LLAMA_ONLY,
+  Port: LLAMA_ONLY,
+  ModelPath: ON_BOTH_BACKENDS,
+  NumCtx: ON_BOTH_BACKENDS,
+  GpuLayers: LLAMA_ONLY,
+  Threads: LLAMA_ONLY,
+  NcpuMoe: LLAMA_ONLY,
+  FlashAttention: LLAMA_ONLY,
+  ParallelSlots: EXL3_MANAGED_ONLY,
+  BatchSize: LLAMA_ONLY,
+  UBatchSize: ON_BOTH_BACKENDS,
+  CacheRam: EXL3_MANAGED_ONLY,
+  CacheRecurrentRam: EXL3_ONLY,
+  KvCacheQuantization: EXL3_NARROWED,
+  MaxTokens: ON_BOTH_BACKENDS,
+  Temperature: ON_BOTH_BACKENDS,
+  TopP: ON_BOTH_BACKENDS,
+  TopK: ON_BOTH_BACKENDS,
+  MinP: ON_BOTH_BACKENDS,
+  PresencePenalty: ON_BOTH_BACKENDS,
+  RepetitionPenalty: ON_BOTH_BACKENDS,
+  Reasoning: ON_BOTH_BACKENDS,
+  ReasoningContent: ON_BOTH_BACKENDS,
+  PreserveThinking: ON_BOTH_BACKENDS,
+  MaintainPerStepThinking: ON_BOTH_BACKENDS,
+  SpeculativeEnabled: EXL3_MANAGED_ONLY,
+  SpeculativeType: EXL3_MANAGED_ONLY,
+  SpeculativeMtpEnabled: LLAMA_ONLY,
+  SpeculativeNgramSizeN: LLAMA_ONLY,
+  SpeculativeNgramSizeM: LLAMA_ONLY,
+  SpeculativeNgramMinHits: LLAMA_ONLY,
+  SpeculativeNgramModNMatch: LLAMA_ONLY,
+  SpeculativeNgramModNMin: LLAMA_ONLY,
+  SpeculativeNgramModNMax: LLAMA_ONLY,
+  SpeculativeDraftMax: EXL3_MANAGED_ONLY,
+  SpeculativeDynamic: EXL3_ONLY,
+  SpeculativeDraftMin: LLAMA_ONLY,
+  ReasoningBudget: LLAMA_ONLY,
+  ReasoningBudgetMessage: LLAMA_ONLY,
+  StartupTimeoutMs: ON_BOTH_BACKENDS,
+  HealthcheckTimeoutMs: ON_BOTH_BACKENDS,
+  HealthcheckIntervalMs: ON_BOTH_BACKENDS,
+  SleepIdleSeconds: ON_BOTH_BACKENDS,
+  VerboseLogging: LLAMA_ONLY,
+  VisionEnabled: EXL3_ONLY,
+} satisfies Record<ModelPresetField, PresetFieldExpectation>;
+
+test('every preset field states its visibility and availability for each backend state', () => {
+  const llama = createModelPreset({ Backend: 'llama', ExternalServerEnabled: false });
+  const externalLlama = createModelPreset({ Backend: 'llama', ExternalServerEnabled: true });
   const managedExl3 = createModelPreset({ Backend: 'exl3', ExternalServerEnabled: false });
   const externalExl3 = createModelPreset({ Backend: 'exl3', ExternalServerEnabled: true });
-  const unsupported = [
-    'ExecutablePath',
-    'GpuLayers',
-    'Threads',
-    'NcpuMoe',
-    'FlashAttention',
-    'BatchSize',
-    'ReasoningBudget',
-    'ReasoningBudgetMessage',
-    'SpeculativeMtpEnabled',
-    'SpeculativeDraftMin',
-    'SpeculativeNgramSizeN',
-    'SpeculativeNgramSizeM',
-    'SpeculativeNgramMinHits',
-    'SpeculativeNgramModNMatch',
-    'SpeculativeNgramModNMin',
-    'SpeculativeNgramModNMax',
-    'VerboseLogging',
-    'BindHost',
-    'Port',
-  ] satisfies ModelPresetField[];
 
-  for (const field of unsupported) {
-    assert.deepEqual(getPresetFieldAvailability(managedExl3, field), {
-      enabled: false,
-      reason: 'Not supported by EXL3',
-    });
+  for (const field of ModelPresetFieldSchema.options) {
+    const expected = PRESET_FIELD_EXPECTATIONS[field];
+    assert.deepEqual(getPresetFieldAvailability(llama, field), expected.llama, `llama/${field}`);
+    assert.deepEqual(getPresetFieldAvailability(externalLlama, field), expected.llama, `external-llama/${field}`);
+    assert.deepEqual(getPresetFieldAvailability(managedExl3, field), expected.managedExl3, `managed-exl3/${field}`);
+    assert.deepEqual(getPresetFieldAvailability(externalExl3, field), expected.externalExl3, `external-exl3/${field}`);
   }
-  for (const field of [
-    'ParallelSlots',
-    'UBatchSize',
-    'CacheRam',
-    'SpeculativeEnabled',
-    'SpeculativeType',
-    'SpeculativeDraftMax',
-  ] satisfies ModelPresetField[]) {
-    assert.deepEqual(getPresetFieldAvailability(managedExl3, field), { enabled: true, reason: null });
-  }
-  assert.deepEqual(getPresetFieldAvailability(externalExl3, 'UBatchSize'), { enabled: true, reason: null });
-  for (const field of [
-    'ParallelSlots',
-    'CacheRam',
-    'SpeculativeEnabled',
-    'SpeculativeType',
-    'SpeculativeDraftMax',
-  ] satisfies ModelPresetField[]) {
-    assert.deepEqual(getPresetFieldAvailability(externalExl3, field), {
-      enabled: false,
-      reason: 'Requires SiftKit-managed TabbyAPI',
-    });
-  }
-  assert.deepEqual(getPresetFieldAvailability(managedExl3, 'SleepIdleSeconds'), { enabled: true, reason: null });
-  assert.deepEqual(getPresetFieldAvailability(managedExl3, 'KvCacheQuantization'), {
-    enabled: true,
-    reason: 'Only EXL3-compatible cache modes are available',
-  });
-  const supported = [
-    'Model',
-    'ExternalServerEnabled',
-    'BaseUrl',
-    'ModelPath',
-    'NumCtx',
-    'MaxTokens',
-    'Temperature',
-    'TopP',
-    'TopK',
-    'MinP',
-    'PresencePenalty',
-    'RepetitionPenalty',
-    'Reasoning',
-    'ReasoningContent',
-    'PreserveThinking',
-    'MaintainPerStepThinking',
-    'StartupTimeoutMs',
-    'HealthcheckTimeoutMs',
-    'HealthcheckIntervalMs',
-    'SleepIdleSeconds',
-  ] satisfies ModelPresetField[];
-  for (const field of supported) {
-    assert.deepEqual(getPresetFieldAvailability(managedExl3, field), { enabled: true, reason: null });
-  }
-  assert.deepEqual(getPresetFieldAvailability(createModelPreset(), 'GpuLayers'), { enabled: true, reason: null });
 });
 
-test('fields llama.cpp cannot express are disabled on llama and managed-only on EXL3', () => {
+test('hidden fields carry no availability the form could render', () => {
   const llama = createModelPreset({ Backend: 'llama' });
   const managedExl3 = createModelPreset({ Backend: 'exl3', ExternalServerEnabled: false });
-  const externalExl3 = createModelPreset({ Backend: 'exl3', ExternalServerEnabled: true });
 
-  for (const field of ['VisionEnabled', 'SpeculativeDynamic', 'CacheRecurrentRam'] satisfies ModelPresetField[]) {
-    assert.deepEqual(getPresetFieldAvailability(llama, field), {
-      enabled: false,
-      reason: 'Not supported by llama.cpp',
-    });
-    assert.deepEqual(getPresetFieldAvailability(managedExl3, field), {
-      enabled: true,
-      reason: null,
-    });
-    assert.deepEqual(getPresetFieldAvailability(externalExl3, field), {
-      enabled: false,
-      reason: 'Requires SiftKit-managed TabbyAPI',
-    });
-  }
-  assert.deepEqual(getPresetFieldAvailability(llama, 'GpuLayers'), {
-    enabled: true,
-    reason: null,
-  });
+  assert.deepEqual(getPresetFieldAvailability(managedExl3, 'GpuLayers'), { visible: false });
+  assert.deepEqual(getPresetFieldAvailability(llama, 'CacheRecurrentRam'), { visible: false });
 });
 
 test('EXL3 adapter returns common request defaults', () => {
@@ -416,55 +413,3 @@ test('adapters reject presets assigned to the other backend', () => {
   );
 });
 
-test('llama availability is decided per field, not by a blanket enable', () => {
-  const managedLlama = createModelPreset({ Backend: 'llama', ExternalServerEnabled: false });
-  const externalLlama = createModelPreset({ Backend: 'llama', ExternalServerEnabled: true });
-
-  for (const preset of [managedLlama, externalLlama]) {
-    const disabled = ModelPresetFieldSchema.options.filter(
-      (field) => !getPresetFieldAvailability(preset, field).enabled,
-    );
-    const explained = ModelPresetFieldSchema.options.filter(
-      (field) => getPresetFieldAvailability(preset, field).reason !== null,
-    );
-
-    assert.deepEqual(disabled, ['CacheRecurrentRam', 'SpeculativeDynamic', 'VisionEnabled']);
-    assert.deepEqual(explained, ['CacheRecurrentRam', 'SpeculativeDynamic', 'VisionEnabled']);
-  }
-});
-
-test('backend scope marks fields the other backend cannot use at all', () => {
-  assert.equal(getPresetFieldBackendScope('GpuLayers'), 'llama-only');
-  assert.equal(getPresetFieldBackendScope('BindHost'), 'llama-only');
-  assert.equal(getPresetFieldBackendScope('CacheRecurrentRam'), 'exl3-only');
-  assert.equal(getPresetFieldBackendScope('SpeculativeDynamic'), 'exl3-only');
-  assert.equal(getPresetFieldBackendScope('VisionEnabled'), 'exl3-only');
-  assert.equal(getPresetFieldBackendScope('CacheRam'), 'both');
-  assert.equal(getPresetFieldBackendScope('ParallelSlots'), 'both');
-  assert.equal(getPresetFieldBackendScope('NumCtx'), 'both');
-  assert.equal(getPresetFieldBackendScope('KvCacheQuantization'), 'both');
-});
-
-test('every preset field resolves a backend scope', () => {
-  for (const field of ModelPresetFieldSchema.options) {
-    assert.ok(
-      ['llama-only', 'exl3-only', 'both'].includes(getPresetFieldBackendScope(field)),
-      `${field} has no backend scope`,
-    );
-  }
-});
-
-test('every preset field resolves an availability on both backends', () => {
-  const presets = [
-    createModelPreset({ Backend: 'llama' }),
-    createModelPreset({ Backend: 'exl3', ExternalServerEnabled: false }),
-    createModelPreset({ Backend: 'exl3', ExternalServerEnabled: true }),
-  ];
-
-  for (const preset of presets) {
-    for (const field of ModelPresetFieldSchema.options) {
-      const availability = getPresetFieldAvailability(preset, field);
-      assert.equal(typeof availability.enabled, 'boolean', `${preset.Backend}/${field} has no availability`);
-    }
-  }
-});

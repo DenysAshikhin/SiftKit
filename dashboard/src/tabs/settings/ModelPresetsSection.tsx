@@ -5,7 +5,6 @@ import { parseFloatInput, parseIntegerInput } from '../../lib/format';
 import {
   getExl3CacheModes,
   getPresetFieldAvailability,
-  getPresetFieldBackendScope,
 } from '../../../../src/inference-presets/preset-compatibility.js';
 import { getInferenceRuntimeStatus } from '../../api';
 import { summarizeModelPresetGroup, type ModelPresetGroupId } from './model-preset-groups';
@@ -71,7 +70,7 @@ function isNgramSpeculativeType(type: DashboardManagedLlamaSpeculativeType): boo
 /**
  * Renders one preset field with its backend compatibility already applied: fields the active
  * backend cannot use at all are omitted, and fields it can use only through a SiftKit-managed
- * engine stay visible but disabled with the reason. Both decisions come from PRESET_FIELD_SUPPORT,
+ * engine stay visible but disabled with the reason. Both come from `getPresetFieldAvailability`,
  * so the form never carries its own copy of which field belongs to which backend.
  */
 function ModelPresetControl({ preset, field, label, className, children }: {
@@ -81,11 +80,10 @@ function ModelPresetControl({ preset, field, label, className, children }: {
   className?: string;
   children: ReactNode;
 }) {
-  const scope = getPresetFieldBackendScope(field);
-  if (scope !== 'both' && scope !== `${preset.Backend}-only`) {
+  const availability = getPresetFieldAvailability(preset, field);
+  if (!availability.visible) {
     return null;
   }
-  const availability = getPresetFieldAvailability(preset, field);
   return (
     <SettingsSectionField sectionId="model-presets" label={label} className={className}>
       <div className="settings-live-stack">

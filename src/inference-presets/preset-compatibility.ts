@@ -5,13 +5,14 @@ import type {
   ModelRuntimePreset,
 } from '@siftkit/contracts';
 
-export interface PresetFieldAvailability {
-  enabled: boolean;
-  reason: string | null;
-}
-
-/** Which backends a field means anything for at all, independent of managed/external. */
-export type PresetFieldBackendScope = 'llama-only' | 'exl3-only' | 'both';
+/**
+ * Whether a field belongs on the active backend's form at all and, when it does, whether it can be
+ * edited. A field the backend can never use is simply not there, so there is no disabled state to
+ * explain; a field it can use only through a SiftKit-launched engine stays visible with the reason.
+ */
+export type PresetFieldAvailability =
+  | { visible: false }
+  | { visible: true; enabled: boolean; reason: string | null };
 
 export const PresetRequestDefaultsSchema = z.object({
   maxTokens: z.number(),
@@ -81,7 +82,7 @@ type PresetFieldSupport =
   | 'exl3-managed-only'
   /** Both accept it; EXL3 narrows the choices to the modes `getExl3CacheModes` can express. */
   | 'exl3-cache-modes'
-  /** EXL3-managed only; llama.cpp has no equivalent at all, so it is disabled there. */
+  /** EXL3-managed only; llama.cpp has no equivalent at all, so it is hidden there. */
   | 'exl3-managed-only-unsupported-by-llama';
 
 const PRESET_FIELD_SUPPORT = {
@@ -136,48 +137,36 @@ const PRESET_FIELD_SUPPORT = {
   VisionEnabled: 'exl3-managed-only-unsupported-by-llama',
 } as const satisfies Record<ModelPresetField, PresetFieldSupport>;
 
-/**
- * Single source of truth for whether a field belongs on a backend's settings form at all.
- * Fields the active backend can never use are hidden; fields it can use but only when SiftKit
- * launches the engine stay visible and `getPresetFieldAvailability` explains why they are disabled.
- */
-export function getPresetFieldBackendScope(field: ModelPresetField): PresetFieldBackendScope {
-  switch (PRESET_FIELD_SUPPORT[field]) {
-    case 'llama-only':
-      return 'llama-only';
-    case 'exl3-managed-only-unsupported-by-llama':
-      return 'exl3-only';
-    case 'both':
-    case 'exl3-managed-only':
-    case 'exl3-cache-modes':
-      return 'both';
-  }
-}
+const AVAILABLE = { visible: true, enabled: true, reason: null } as const;
+const HIDDEN = { visible: false } as const;
+const NEEDS_MANAGED_TABBY = {
+  visible: true,
+  enabled: false,
+  reason: 'Requires SiftKit-managed TabbyAPI',
+} as const;
 
+/**
+ * Single source of truth for how a field appears on a backend's settings form. Every decision the
+ * form makes about a field comes from here, so the form never carries its own copy of which field
+ * belongs to which backend.
+ */
 export function getPresetFieldAvailability(
   preset: ModelRuntimePreset,
   field: ModelPresetField,
 ): PresetFieldAvailability {
   switch (PRESET_FIELD_SUPPORT[field]) {
     case 'both':
-      return { enabled: true, reason: null };
+      return AVAILABLE;
     case 'llama-only':
-      return preset.Backend === 'llama'
-        ? { enabled: true, reason: null }
-        : { enabled: false, reason: 'Not supported by EXL3' };
+      return preset.Backend === 'llama' ? AVAILABLE : HIDDEN;
     case 'exl3-managed-only':
-      return preset.Backend === 'llama' || !preset.ExternalServerEnabled
-        ? { enabled: true, reason: null }
-        : { enabled: false, reason: 'Requires SiftKit-managed TabbyAPI' };
+      return preset.Backend === 'llama' || !preset.ExternalServerEnabled ? AVAILABLE : NEEDS_MANAGED_TABBY;
     case 'exl3-cache-modes':
       return preset.Backend === 'llama'
-        ? { enabled: true, reason: null }
-        : { enabled: true, reason: 'Only EXL3-compatible cache modes are available' };
+        ? AVAILABLE
+        : { visible: true, enabled: true, reason: 'Only EXL3-compatible cache modes are available' };
     case 'exl3-managed-only-unsupported-by-llama':
-      return preset.Backend === 'llama'
-        ? { enabled: false, reason: 'Not supported by llama.cpp' }
-        : !preset.ExternalServerEnabled
-          ? { enabled: true, reason: null }
-          : { enabled: false, reason: 'Requires SiftKit-managed TabbyAPI' };
+      if (preset.Backend === 'llama') return HIDDEN;
+      return preset.ExternalServerEnabled ? NEEDS_MANAGED_TABBY : AVAILABLE;
   }
 }

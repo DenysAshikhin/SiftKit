@@ -86,7 +86,6 @@ test('managed EXL3 hides llama-only fields and exposes only MTP drafting', () =>
   assert.match(markup, /<option value="draft-mtp" selected="">draft-mtp<\/option>/u);
   assert.doesNotMatch(markup, /<option value="ngram-map-k">/u);
   assert.doesNotMatch(markup, /MTP speculative decoding does not support parallel slots/u);
-  assert.doesNotMatch(markup, /Not supported by EXL3/u);
   assert.doesNotMatch(markup, /aria-label="Inference backend"/u);
 });
 
@@ -107,7 +106,7 @@ test('llama hides the EXL3-only fields it has no equivalent for', () => {
   assert.doesNotMatch(getRenderedField(markup, 'SpeculativeDraftMax'), /disabled/u);
   assertFieldAbsent(markup, 'SpeculativeDynamic');
   assertFieldAbsent(markup, 'CacheRecurrentRam');
-  assert.doesNotMatch(markup, /Not supported by llama\.cpp/u);
+  assertFieldAbsent(markup, 'Vision enabled');
   assert.doesNotMatch(getRenderedField(markup, 'GpuLayers'), /disabled/u);
   assert.doesNotMatch(getRenderedField(markup, 'CacheRam'), /disabled/u);
 });

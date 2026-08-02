@@ -390,12 +390,15 @@ export function ChatTab({
                 {contextUsage ? (
                   <span className="ctx-label">{formatCompactTokenCount(contextUsage.totalUsedTokens)} / {formatCompactTokenCount(contextUsage.contextWindowTokens)}</span>
                 ) : null}
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp,image/gif"
-                  multiple
-                  onChange={(event) => { void readImageFiles(event.currentTarget.files).then((urls) => onPendingImagesChange([...pendingImages, ...urls])); }}
-                />
+                <label className="mini-btn attach" title="Attach images">
+                  Attach
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    multiple
+                    onChange={(event) => { void readImageFiles(event.currentTarget.files).then((urls) => onPendingImagesChange([...pendingImages, ...urls])); }}
+                  />
+                </label>
                 {pendingImages.length > 0 ? <span className="image-count">{pendingImages.length} image(s) attached</span> : null}
                 <button
                   type="button"

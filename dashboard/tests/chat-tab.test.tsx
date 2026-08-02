@@ -56,6 +56,8 @@ function render(overrides: Partial<ChatTabProps> = {}): string {
     liveToolPromptTokenCount: overrides.liveToolPromptTokenCount ?? null,
     liveMessages: overrides.liveMessages ?? [],
     chatInput: overrides.chatInput ?? 'hi',
+    pendingImages: overrides.pendingImages ?? [],
+    onPendingImagesChange: () => {},
     chatBusy: overrides.chatBusy ?? false,
     chatError: overrides.chatError ?? null,
     warnings: overrides.warnings ?? [],
@@ -130,6 +132,12 @@ test('chat does not synthesize system context while the server context is unavai
 
   assert.doesNotMatch(markup, /system-context-bubble/u);
   assert.doesNotMatch(markup, /general, coder friendly assistant/u);
+});
+
+test('composer attaches images through a styled label wrapping the file input', () => {
+  const markup = render();
+  assert.match(markup, /<label class="mini-btn attach"[^>]*>Attach<input type="file"/u);
+  assert.doesNotMatch(markup, /<div class="row">(?:(?!<label class="mini-btn attach")[\s\S])*?<input type="file"/u);
 });
 
 test('chat renders startup-context warnings as nonfatal banners', () => {
