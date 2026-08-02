@@ -20,11 +20,6 @@ type FingerprintToolCallOptions = {
   args?: JsonObject;
 };
 
-type ClassifyToolResultNoveltyOptions = {
-  promptResultText: string;
-  recentEvidenceKeys: Set<string>;
-};
-
 type BuildPromptToolResultOptions = {
   toolName: string;
   command?: string;
@@ -139,14 +134,6 @@ function extractEvidenceKeys(promptResultText: string): string[] {
   return Array.from(new Set(lines.map(normalizeEvidenceLine)));
 }
 
-export function classifyToolResultNovelty(options: ClassifyToolResultNoveltyOptions): ToolResultNovelty {
-  const evidenceKeys = extractEvidenceKeys(options.promptResultText);
-  return {
-    evidenceKeys,
-    hasNewEvidence: evidenceKeys.some((key) => !options.recentEvidenceKeys.has(key)),
-  };
-}
-
 /**
  * The novelty of one executed tool call. An empty output carries no anchors and so cannot be
  * novel — reporting it as new evidence hides a stalling planner from the no-new-evidence counter.
@@ -159,10 +146,11 @@ export function classifyToolOutputNovelty(options: {
   if (options.baseOutput.length === 0) {
     return { evidenceKeys: [], hasNewEvidence: false };
   }
-  return classifyToolResultNovelty({
-    promptResultText: options.promptResultText,
-    recentEvidenceKeys: options.recentEvidenceKeys,
-  });
+  const evidenceKeys = extractEvidenceKeys(options.promptResultText);
+  return {
+    evidenceKeys,
+    hasNewEvidence: evidenceKeys.some((key) => !options.recentEvidenceKeys.has(key)),
+  };
 }
 
 export function buildPromptToolResult(options: BuildPromptToolResultOptions): string {

@@ -6,7 +6,6 @@ import {
   buildPromptToolResult,
   buildToolReplayFingerprint,
   classifyToolOutputNovelty,
-  classifyToolResultNovelty,
   evaluateFinishAttempt,
   fingerprintToolCall,
 } from '../src/tool-loop-governor.js';
@@ -136,8 +135,9 @@ test('buildRepeatedToolCallSummary renders expected repeat text', () => {
   assert.equal(buildRepeatedToolCallSummary('read_lines', 3), 'duplicate command requested x3. Issue a different/unique tool call');
 });
 
-test('classifyToolResultNovelty detects repeated evidence with no new anchors', () => {
-  const novelty = classifyToolResultNovelty({
+test('classifyToolOutputNovelty detects repeated evidence with no new anchors', () => {
+  const novelty = classifyToolOutputNovelty({
+    baseOutput: 'apps/runner/src\\server.ts:203:  const port = options.port ?? Number(process.env.RUNNER_PORT ?? "4319");',
     promptResultText: 'apps/runner/src\\server.ts:203:  const port = options.port ?? Number(process.env.RUNNER_PORT ?? "4319");',
     recentEvidenceKeys: new Set([
       'apps/runner/src/server.ts:203: const port = options.port ?? Number(process.env.RUNNER_PORT ?? "4319");',

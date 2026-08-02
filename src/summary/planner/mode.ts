@@ -67,7 +67,7 @@ import type {
 import {
   buildRepeatedToolCallSummary,
   buildPromptToolResult,
-  classifyToolResultNovelty,
+  classifyToolOutputNovelty,
   fingerprintToolCall,
 } from '../../tool-loop-governor.js';
 import {
@@ -1243,7 +1243,8 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       toolName: toolAction.tool_name,
       args: toolAction.args,
     });
-    const novelty = classifyToolResultNovelty({
+    const novelty = classifyToolOutputNovelty({
+      baseOutput: formatted.result.text,
       promptResultText: formatted.promptResultText,
       recentEvidenceKeys: this.recentEvidenceKeys,
     });
