@@ -142,6 +142,19 @@ function optionalString(value: OptionalJsonValue): string | undefined {
   return text ? text : undefined;
 }
 
+/**
+ * `limit` is optional, but a present non-positive or non-numeric value is a caller error, not a
+ * request for the default — silently returning the maximum is the opposite of what was asked.
+ * Returns the resolved limit, or the failure reason as a string (same shape as `resolveEdits`).
+ */
+function resolveLimit(value: OptionalJsonValue, fallback: number): number | string {
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+  const parsed = Math.trunc(Number(value));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 'limit must be a positive integer';
+}
+
 export function buildRepoToolRequestedCommand(toolName: string, args: JsonObject): string {
   if (toolName === 'read') {
     return buildReadCommand(readString(args.path), readPositiveInteger(args.offset, 1), optionalPositive(args.limit));
@@ -511,6 +524,10 @@ async function executeGrep(args: JsonObject, context: RepoToolContext): Promise<
     return failure('grep', command, 'path is not a readable file or directory');
   }
 
+  const limit = resolveLimit(args.limit, GREP_DEFAULT_LIMIT);
+  if (typeof limit === 'string') {
+    return failure('grep', command, limit);
+  }
   const searchPath = resolvedPath.relativePath === '' ? '.' : resolvedPath.relativePath;
   const result = await spawnDirectCommand('rg', buildGrepArgs(args, context.ignorePolicy, searchPath), {
     cwd: context.repoRoot,
@@ -527,7 +544,6 @@ async function executeGrep(args: JsonObject, context: RepoToolContext): Promise<
       output: 'No matches found.', toolType: 'grep', outputUnit: 'lines',
     };
   }
-  const limit = readPositiveInteger(args.limit, GREP_DEFAULT_LIMIT);
   const truncated = matchLines.length > limit;
   const output = truncated
     ? `${matchLines.slice(0, limit).join('\n')}\n... ${matchLines.length - limit} more matches beyond limit=${limit}; narrow the pattern, glob, or path.`
@@ -567,7 +583,10 @@ function executeFind(args: JsonObject, context: RepoToolContext): RepoToolExecut
     .map((repoRelativePath) => repoRelativePath.slice(basePrefixLength))
     .filter((searchRelativePath) => matchesGlob(searchRelativePath, pattern))
     .sort(compareDisplayNames);
-  const limit = readPositiveInteger(args.limit, FIND_DEFAULT_LIMIT);
+  const limit = resolveLimit(args.limit, FIND_DEFAULT_LIMIT);
+  if (typeof limit === 'string') {
+    return failure('find', command, limit);
+  }
   const truncated = filtered.length > limit;
   const output = truncated
     ? `${filtered.slice(0, limit).join('\n')}\n... ${filtered.length - limit} more files beyond limit=${limit}; narrow the pattern or path.`
@@ -602,7 +621,10 @@ function executeLs(args: JsonObject, context: RepoToolContext): RepoToolExecutio
     entries.push(entry.isDirectory() ? `${entry.name}/` : entry.name);
   }
   entries.sort(compareDisplayNames);
-  const limit = readPositiveInteger(args.limit, LS_DEFAULT_LIMIT);
+  const limit = resolveLimit(args.limit, LS_DEFAULT_LIMIT);
+  if (typeof limit === 'string') {
+    return failure('ls', command, limit);
+  }
   const truncated = entries.length > limit;
   const output = truncated
     ? `${entries.slice(0, limit).join('\n')}\n... ${entries.length - limit} more entries beyond limit=${limit}.`

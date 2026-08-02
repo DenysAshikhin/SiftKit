@@ -412,6 +412,29 @@ test('find and ls order the same names the same way', async () => {
   assert.deepEqual(found.output.split('\n'), listed.output.split('\n'));
 });
 
+test('grep, find and ls reject a non-positive limit instead of defaulting to the maximum', async () => {
+  const root = makeRepo();
+  for (const [toolName, args] of [
+    ['grep', { pattern: 'alpha', limit: 0 }],
+    ['find', { pattern: '**/*.ts', limit: 0 }],
+    ['ls', { limit: -1 }],
+  ] as const) {
+    const result = await executeRepoTool(toolName, args, makeContext(root));
+    assert.equal(result.ok, false, `expected ${toolName} to reject limit`);
+    assert.equal(result.ok === false ? result.reason : '', 'limit must be a positive integer');
+  }
+});
+
+test('an omitted limit still falls back to the tool default', async () => {
+  const root = makeRepo();
+  const found = await executeRepoTool('find', { pattern: '**/*.ts' }, makeContext(root));
+  assert.ok(found.ok);
+  assert.deepEqual(found.output.split('\n').sort(), ['src/a.ts', 'src/nested/b.ts']);
+  const listed = await executeRepoTool('ls', {}, makeContext(root));
+  assert.ok(listed.ok);
+  assert.deepEqual(listed.output.split('\n'), ['.dotfile', 'src/']);
+});
+
 // ---------------------------------------------------------------------------
 // ls
 // ---------------------------------------------------------------------------
