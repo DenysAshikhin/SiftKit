@@ -254,11 +254,12 @@ test('releaseModelRequest queues buffered managed llama logs for the active host
 
     const flushQueue = new InferenceRunFlushQueue();
     const released = releaseModelRequest(mockReleaseCtx({
-      activeModelRequest: {
+      activeModelRequests: new Map([['token-1', {
         token: 'token-1',
         kind: 'dashboard_chat_stream',
         startedAtUtc: new Date().toISOString(),
-      },
+        ownerRunId: null,
+      }]]),
       modelRequestQueue: [],
       managedLlamaLastStartupLogs: {
         runId: run.id,
@@ -308,11 +309,12 @@ test('releaseModelRequest releases the active request when managed llama log flu
     blocker.exec('BEGIN IMMEDIATE');
     const flushQueue = new InferenceRunFlushQueue();
     const ctx = mockReleaseCtx({
-      activeModelRequest: {
+      activeModelRequests: new Map([['token-locked', {
         token: 'token-locked',
         kind: 'repo_search',
         startedAtUtc: new Date().toISOString(),
-      },
+        ownerRunId: null,
+      }]]),
       modelRequestQueue: [],
       managedLlamaLastStartupLogs: {
         runId: run.id,
@@ -328,7 +330,7 @@ test('releaseModelRequest releases the active request when managed llama log flu
         const released = releaseModelRequest(ctx, 'token-locked');
 
         assert.equal(released, true);
-        assert.equal(ctx.activeModelRequest, null);
+        assert.equal(ctx.activeModelRequests.size, 0);
         assert.equal(flushQueue.getSnapshot().pendingCount, 1);
       } finally {
         blocker.exec('ROLLBACK');

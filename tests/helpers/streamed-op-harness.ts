@@ -4,7 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { awaitRepoSearchRunPersistence } from '../../src/repo-search/execute.js';
 import { startStatusServer } from '../../src/status-server/index.js';
 import { closeRuntimeDatabase } from '../../src/state/runtime-db.js';
-import { asObject, getAddressInfo, requestJson } from './dashboard-http.js';
+import { asObject, asObjectArray, getAddressInfo, requestJson } from './dashboard-http.js';
 import { createManagedTempDir } from './temp-dirs.js';
 
 export type StreamedOperationHarness = { baseUrl: string; close: () => Promise<void> };
@@ -16,10 +16,12 @@ export async function waitForActiveModelRequestOwner(baseUrl: string): Promise<s
   const deadline = Date.now() + MODEL_REQUEST_OWNER_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const status = await requestJson(`${baseUrl}/status`);
-    const activeRequest = asObject(asObject(status.body.modelRequests).activeRequest);
-    const ownerRunId = String(activeRequest.ownerRunId || '').trim();
-    if (ownerRunId) {
-      return ownerRunId;
+    const activeRequests = asObjectArray(asObject(status.body.modelRequests).activeRequests);
+    for (const activeRequest of activeRequests) {
+      const ownerRunId = String(activeRequest.ownerRunId || '').trim();
+      if (ownerRunId) {
+        return ownerRunId;
+      }
     }
     await delay(MODEL_REQUEST_OWNER_POLL_INTERVAL_MS);
   }

@@ -1255,12 +1255,12 @@ async function shutdownManagedLlamaConfigIfNeeded(
     // Final pre-kill guard: a request may have arrived in the microtask gap
     // between the idle-summary timer's sync isIdle check and this point.
     // Caller can pass `force: true` to override (used during process exit).
-    if (!force && ctx.activeModelRequest) {
+    if (!force && ctx.activeModelRequests.size > 0) {
       serverLogger.dim({
         scope: 'llama',
         id: '',
         event: 'stop_aborted',
-        fields: `reason=active_model_request_${ctx.activeModelRequest.kind}`,
+        fields: `reason=active_model_request_${[...ctx.activeModelRequests.values()].map((lock) => lock.kind).join(',')}`,
       });
       return;
     }

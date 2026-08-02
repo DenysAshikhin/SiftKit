@@ -8,13 +8,13 @@ export const OPERATION_STREAM_EVENTS = {
 } as const;
 
 export const ModelRequestQueueDiagnosticsSchema = z.object({
-  active: z.boolean(),
-  activeRequest: z.object({
+  activeCount: z.number(),
+  activeRequests: z.array(z.object({
     kind: z.string(),
     startedAtUtc: z.string(),
     heldMs: z.number(),
     ownerRunId: z.string().nullable(),
-  }).nullable(),
+  })),
   queueLength: z.number(),
   queuedRequests: z.array(z.object({
     kind: z.string(),

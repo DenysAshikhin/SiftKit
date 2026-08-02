@@ -31,7 +31,7 @@ export function createTestServerContext(configPath: string, root = path.dirname(
     approvalGates: new Map(),
     activeRequestIdByStatusPath: new Map(),
     completedRequestIdByStatusPath: new Map(),
-    activeModelRequest: null,
+    activeModelRequests: new Map(),
     modelRequestQueue: [],
     deferredArtifactQueue: [],
     deferredArtifactDrainScheduled: false,

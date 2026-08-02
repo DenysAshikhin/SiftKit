@@ -63,14 +63,21 @@ test('model request queue timeout default is fifteen minutes', () => {
   assert.equal(DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS, 900_000);
 });
 
-test('backend transition pauses queued admission until the new runtime is ready', async () => {
-  const root = createManagedTempDir('siftkit-model-queue-preset-');
+type PresetQueueHarness = {
+  ctx: ServerContext & { readonly wakeCount: number };
+  coordinator: PresetRuntimeCoordinator;
+  events: string[];
+  root: string;
+};
+
+async function createPresetQueueHarness(prefix: string, activePresetId: string): Promise<PresetQueueHarness> {
+  const root = createManagedTempDir(prefix);
   const configPath = path.join(root, 'runtime.sqlite');
   const config = getDefaultConfig();
   const basePreset = config.Server.ModelPresets.Presets[0];
   if (!basePreset) throw new Error('Default model preset is missing');
   config.Server.ModelPresets = {
-    ActivePresetId: 'llama-main',
+    ActivePresetId: activePresetId,
     Presets: [
       { ...basePreset, id: 'llama-main', Backend: 'llama' },
       { ...basePreset, id: 'exl3-main', Backend: 'exl3', SleepIdleSeconds: 1 },
@@ -87,6 +94,25 @@ test('backend transition pauses queued admission until the new runtime is ready'
   ctx.presetRuntimeCoordinator = coordinator;
   ctx.modelIdleController = new ModelIdleController(ctx);
   await coordinator.initialize();
+  return { ctx, coordinator, events, root };
+}
+
+async function closePresetQueueHarness(harness: PresetQueueHarness): Promise<void> {
+  harness.ctx.modelIdleController?.cancelForPresetChange();
+  await harness.ctx.inferenceRunFlushQueue.close();
+  await harness.coordinator.shutdown();
+  closeRuntimeDatabase();
+  fs.rmSync(harness.root, { recursive: true, force: true });
+}
+
+async function waitForActivePreset(coordinator: PresetRuntimeCoordinator, presetId: string): Promise<void> {
+  while (coordinator.getStatus().activePresetId !== presetId) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+test('backend transition pauses queued admission until the new runtime is ready', async () => {
+  const { ctx, coordinator, events, root } = await createPresetQueueHarness('siftkit-model-queue-preset-', 'llama-main');
   try {
     const activeLock = await acquireModelRequestWithWait(ctx, 'summary');
     assert.ok(activeLock);
@@ -101,61 +127,99 @@ test('backend transition pauses queued admission until the new runtime is ready'
     assert.deepEqual(events, ['start:llama', 'load:llama-main', 'stop:llama', 'start:exl3', 'load:exl3-main']);
     assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
   } finally {
-    ctx.modelIdleController.cancelForPresetChange();
-    await ctx.inferenceRunFlushQueue.close();
-    await coordinator.shutdown();
-    closeRuntimeDatabase();
-    fs.rmSync(root, { recursive: true, force: true });
+    await closePresetQueueHarness({ ctx, coordinator, events, root });
+  }
+});
+
+test('exl3 preset grants concurrent model requests', async () => {
+  const harness = await createPresetQueueHarness('siftkit-model-queue-exl3-', 'exl3-main');
+  const { ctx } = harness;
+  try {
+    const first = await acquireModelRequestWithWait(ctx, 'repo_search');
+    const second = await acquireModelRequestWithWait(ctx, 'summary');
+    const third = await acquireModelRequestWithWait(ctx, 'dashboard_chat');
+    assert.ok(first);
+    assert.ok(second);
+    assert.ok(third);
+    const diagnostics = getModelRequestQueueDiagnostics(ctx);
+    assert.equal(diagnostics.activeCount, 3);
+    assert.equal(diagnostics.queueLength, 0);
+    assert.deepEqual(diagnostics.activeRequests.map((entry) => entry.kind), ['repo_search', 'summary', 'dashboard_chat']);
+    assert.equal(releaseModelRequest(ctx, first.token), true);
+    assert.equal(releaseModelRequest(ctx, second.token), true);
+    assert.equal(releaseModelRequest(ctx, third.token), true);
+    assert.equal(getModelRequestQueueDiagnostics(ctx).activeCount, 0);
+  } finally {
+    await closePresetQueueHarness(harness);
+  }
+});
+
+test('llama preset still serializes model requests', async () => {
+  const harness = await createPresetQueueHarness('siftkit-model-queue-llama-', 'llama-main');
+  const { ctx } = harness;
+  try {
+    const first = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(first);
+    let secondResolved = false;
+    const secondPromise = acquireModelRequestWithWait(ctx, 'summary').then((lock) => {
+      secondResolved = true;
+      return lock;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(secondResolved, false);
+    assert.equal(getModelRequestQueueDiagnostics(ctx).activeCount, 1);
+    assert.equal(releaseModelRequest(ctx, first.token), true);
+    const second = await secondPromise;
+    assert.ok(second);
+    assert.equal(releaseModelRequest(ctx, second.token), true);
+  } finally {
+    await closePresetQueueHarness(harness);
+  }
+});
+
+test('switching exl3 to llama drains all concurrent requests first', async () => {
+  const harness = await createPresetQueueHarness('siftkit-model-queue-drain-', 'exl3-main');
+  const { ctx, coordinator } = harness;
+  try {
+    const first = await acquireModelRequestWithWait(ctx, 'repo_search');
+    const second = await acquireModelRequestWithWait(ctx, 'summary');
+    assert.ok(first);
+    assert.ok(second);
+    assert.equal(await coordinator.applyPreset('llama-main'), 'queued');
+    assert.equal(releaseModelRequest(ctx, first.token), true);
+    assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
+    assert.equal(releaseModelRequest(ctx, second.token), true);
+    await waitForActivePreset(coordinator, 'llama-main');
+
+    // Under llama the very next pair must serialize again.
+    const third = await acquireModelRequestWithWait(ctx, 'summary');
+    assert.ok(third);
+    assert.equal(getModelRequestQueueDiagnostics(ctx).activeCount, 1);
+    assert.equal(releaseModelRequest(ctx, third.token), true);
+  } finally {
+    await closePresetQueueHarness(harness);
   }
 });
 
 test('preset switch arms idle only for the runtime that becomes active', async () => {
-  const root = createManagedTempDir('siftkit-model-idle-switch-');
-  const configPath = path.join(root, 'runtime.sqlite');
-  const config = getDefaultConfig();
-  const basePreset = config.Server.ModelPresets.Presets[0];
-  if (!basePreset) throw new Error('Default model preset is missing');
-  config.Server.ModelPresets = {
-    ActivePresetId: 'llama-main',
-    Presets: [
-      { ...basePreset, id: 'llama-main', Backend: 'llama' },
-      { ...basePreset, id: 'exl3-main', Backend: 'exl3', SleepIdleSeconds: 1 },
-    ],
-  };
-  writeConfig(configPath, config);
-  const ctx = createQueueContext(configPath);
-  const coordinator = new PresetRuntimeCoordinator(
-    configPath,
-    new QueueRuntime('llama', []),
-    new QueueRuntime('exl3', []),
-  );
-  ctx.presetRuntimeCoordinator = coordinator;
-  ctx.modelIdleController = new ModelIdleController(ctx);
-  await coordinator.initialize();
+  const harness = await createPresetQueueHarness('siftkit-model-idle-switch-', 'llama-main');
+  const { ctx, coordinator } = harness;
   try {
     const llamaLock = await acquireModelRequestWithWait(ctx, 'summary');
     assert.ok(llamaLock);
     assert.equal(await coordinator.applyPreset('exl3-main'), 'queued');
     assert.equal(releaseModelRequest(ctx, llamaLock.token), true);
-    while (coordinator.getStatus().activePresetId !== 'exl3-main') {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    assert.notEqual(ctx.modelIdleController.getIdleDeadlineUtc(), null);
+    await waitForActivePreset(coordinator, 'exl3-main');
+    assert.notEqual(ctx.modelIdleController?.getIdleDeadlineUtc(), null);
 
     const exl3Lock = await acquireModelRequestWithWait(ctx, 'summary');
     assert.ok(exl3Lock);
     assert.equal(await coordinator.applyPreset('llama-main'), 'queued');
     assert.equal(releaseModelRequest(ctx, exl3Lock.token), true);
-    while (coordinator.getStatus().activePresetId !== 'llama-main') {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    assert.equal(ctx.modelIdleController.getIdleDeadlineUtc(), null);
+    await waitForActivePreset(coordinator, 'llama-main');
+    assert.equal(ctx.modelIdleController?.getIdleDeadlineUtc(), null);
   } finally {
-    ctx.modelIdleController.cancelForPresetChange();
-    await ctx.inferenceRunFlushQueue.close();
-    await coordinator.shutdown();
-    closeRuntimeDatabase();
-    fs.rmSync(root, { recursive: true, force: true });
+    await closePresetQueueHarness(harness);
   }
 });
 
@@ -258,7 +322,7 @@ test('queued model request times out, cancels, and logs the dropped request', as
     });
 
     assert.equal(ctx.modelRequestQueue.length, 0);
-    assert.equal(ctx.activeModelRequest?.token, activeLock.token);
+    assert.deepEqual([...ctx.activeModelRequests.keys()], [activeLock.token]);
     assert.ok(lines.some((line) => /st [\w-]{8}  dropped  reason=model_queue_timeout task=summary/u.test(line)), lines.join('\n'));
 
     assert.equal(releaseModelRequest(ctx, activeLock.token), true);
@@ -322,7 +386,7 @@ test('queued model request still times out after its reset window expires', asyn
     t.mock.timers.tick(35);
     assert.equal(await secondQueuedLockPromise, null);
     assert.equal(ctx.modelRequestQueue.length, 0);
-    assert.equal(ctx.activeModelRequest?.token, activeLock.token);
+    assert.deepEqual([...ctx.activeModelRequests.keys()], [activeLock.token]);
 
     assert.equal(releaseModelRequest(ctx, activeLock.token), true);
   } finally {
@@ -340,11 +404,11 @@ test('model request diagnostics expose the active lock and queued requests', asy
     const queuedLockPromise = acquireModelRequestWithWait(ctx, 'summary');
 
     const diagnostics = getModelRequestQueueDiagnostics(ctx);
-    assert.equal(diagnostics.active, true);
-    assert.equal(diagnostics.activeRequest?.kind, 'repo_search');
+    assert.equal(diagnostics.activeCount, 1);
+    assert.equal(diagnostics.activeRequests[0]?.kind, 'repo_search');
     assert.equal(diagnostics.queueLength, 1);
     assert.equal(diagnostics.queuedRequests[0]?.kind, 'summary');
-    assert.equal(typeof diagnostics.activeRequest?.heldMs, 'number');
+    assert.equal(typeof diagnostics.activeRequests[0]?.heldMs, 'number');
     assert.equal(typeof diagnostics.queuedRequests[0]?.waitMs, 'number');
 
     assert.equal(releaseModelRequest(ctx, activeLock.token), true);
@@ -367,10 +431,10 @@ test('release grants the next queued model request without waiting for polling t
 
     assert.equal(releaseModelRequest(ctx, activeLock.token), true);
     assert.equal(ctx.modelRequestQueue.length, 0);
-    assert.equal(ctx.activeModelRequest?.kind, 'summary');
+    assert.deepEqual([...ctx.activeModelRequests.values()].map((lock) => lock.kind), ['summary']);
     const queuedLock = await queuedLockPromise;
     assert.ok(queuedLock);
-    assert.equal(ctx.activeModelRequest?.token, queuedLock.token);
+    assert.deepEqual([...ctx.activeModelRequests.keys()], [queuedLock.token]);
     assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
   } finally {
     await ctx.inferenceRunFlushQueue.close();

@@ -46,7 +46,7 @@ export class ModelIdleController {
     this.timer = null;
     this.deadlineUtc = null;
     this.ctx.presetRuntimeCoordinator?.setIdleDeadlineUtc(null);
-    if (!expectedPresetId || this.ctx.activeModelRequest || this.ctx.modelRequestQueue.length > 0) return;
+    if (!expectedPresetId || this.ctx.activeModelRequests.size > 0 || this.ctx.modelRequestQueue.length > 0) return;
     const activePreset = getActiveModelPreset(readConfig(this.ctx.configPath));
     if (activePreset.id !== expectedPresetId || activePreset.Backend !== 'exl3') return;
     try {

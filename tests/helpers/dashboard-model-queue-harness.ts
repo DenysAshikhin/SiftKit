@@ -75,8 +75,8 @@ export class DashboardModelQueueHarness {
     const deadline = Date.now() + QUEUE_WAIT_TIMEOUT_MS;
     while (Date.now() < deadline) {
       const response = await requestJson(`${this.getBaseUrl()}/status`);
-      const activeRequest = asObject(asObject(response.body.modelRequests).activeRequest);
-      if (activeRequest.kind === kind) {
+      const activeRequests = asObjectArray(asObject(response.body.modelRequests).activeRequests);
+      if (activeRequests.some((request) => request.kind === kind)) {
         return;
       }
       await delay(QUEUE_POLL_INTERVAL_MS);
@@ -104,9 +104,9 @@ export class DashboardModelQueueHarness {
     while (Date.now() < deadline) {
       const response = await requestJson(`${this.getBaseUrl()}/status`);
       const modelRequests = asObject(response.body.modelRequests);
-      const activeRequest = asObject(modelRequests.activeRequest);
+      const activeRequests = asObjectArray(modelRequests.activeRequests);
       const queuedRequests = asObjectArray(modelRequests.queuedRequests);
-      if (activeRequest.kind === undefined && queuedRequests.length === 0) {
+      if (activeRequests.length === 0 && queuedRequests.length === 0) {
         return;
       }
       await delay(QUEUE_POLL_INTERVAL_MS);

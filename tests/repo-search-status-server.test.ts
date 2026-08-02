@@ -321,7 +321,7 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
       await waitForAsyncExpectation(async () => {
         const statusResponse = await requestJson(`${baseUrl}/status`);
         const modelRequests = asObject(statusResponse.body.modelRequests);
-        assert.equal(modelRequests.active, true);
+        assert.equal(modelRequests.activeCount, 1);
         assert.equal(modelRequests.queueLength, 1);
         const queuedRequests = asObjectArray(modelRequests.queuedRequests);
         assert.equal(queuedRequests[0]?.kind, 'repo_search');

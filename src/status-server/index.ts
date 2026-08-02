@@ -248,7 +248,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     approvalGates: new Map(),
     activeRequestIdByStatusPath: new Map(),
     completedRequestIdByStatusPath: new Map(),
-    activeModelRequest: null,
+    activeModelRequests: new Map(),
     modelRequestQueue: [],
     deferredArtifactQueue: [],
     deferredArtifactDrainScheduled: false,

@@ -470,7 +470,7 @@ function scheduleDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTermi
 }
 
 function getTerminalMetadataIdleWaitMs(ctx: ServerContext, fallbackStartedAtMs: number): number {
-  if (ctx.activeModelRequest || ctx.modelRequestQueue.length > 0) {
+  if (ctx.activeModelRequests.size > 0 || ctx.modelRequestQueue.length > 0) {
     return Math.max(1, Math.min(1000, ctx.terminalMetadataIdleDelayMs || 1000));
   }
   const lastFinishedAtMs = ctx.terminalMetadataLastModelRequestFinishedAtMs ?? fallbackStartedAtMs;
@@ -603,7 +603,7 @@ function drainTerminalMetadataQueue(ctx: ServerContext): void {
         id: nextItem.requestId,
         event: 'drain_wait',
         fields: `state=${nextItem.terminalState} wait_ms=${Math.max(1, Math.trunc(waitMs))} `
-          + `active=${ctx.activeModelRequest ? 'true' : 'false'} `
+          + `active=${ctx.activeModelRequests.size > 0 ? 'true' : 'false'} `
           + `q=${ctx.terminalMetadataQueue.length} model_q=${ctx.modelRequestQueue.length}`,
       });
     }
@@ -1264,7 +1264,7 @@ class StatusPostRequestHandler {
       this.sendCurrentStatus();
       return true;
     }
-    if (running && normalizeTaskKind(metadata.taskKind) !== null && !this.ctx.activeModelRequest) {
+    if (running && normalizeTaskKind(metadata.taskKind) !== null && this.ctx.activeModelRequests.size === 0) {
       wakeManagedLlamaForIncomingModelRequest(this.ctx);
     }
     return false;
@@ -1282,7 +1282,7 @@ class StatusPostRequestHandler {
         id: activeRequestId ?? '',
         event: 'stale_status_abandoned',
         fields: `incoming_request_id=${shortenRequestId(requestId)} `
-          + `lock_task=${this.ctx.activeModelRequest?.kind ?? 'none'}`,
+          + `lock_task=${[...this.ctx.activeModelRequests.values()].map((lock) => lock.kind).join(',') || 'none'}`,
       });
       logAbandonedRun(this.ctx, activeRun, now);
       clearRunState(this.ctx, activeRequestId);

@@ -87,7 +87,7 @@ export function clearCompletedStatusRequestIdForDifferentRequest(
 export function hasPublishedActivity(ctx: ServerContext): boolean {
   return ctx.bootstrapManagedLlamaStartup
     || ctx.managedLlamaStarting
-    || Boolean(ctx.activeModelRequest)
+    || ctx.activeModelRequests.size > 0
     || ctx.modelRequestQueue.some((request) => !request.cancelled)
     || hasActiveRuns(ctx);
 }
@@ -250,7 +250,7 @@ export function enqueueDeferredArtifacts(ctx: ServerContext, artifacts: Deferred
 
 export function isIdle(ctx: ServerContext): boolean {
   return !hasActiveRuns(ctx)
-    && !ctx.activeModelRequest
+    && ctx.activeModelRequests.size === 0
     && ctx.modelRequestQueue.length === 0;
 }
 
@@ -315,8 +315,7 @@ export function scheduleIdleSummaryIfNeeded(ctx: ServerContext): void {
 // ---------------------------------------------------------------------------
 
 function getIncomingModelRequestQueuePosition(ctx: ServerContext): number {
-  const activePosition = ctx.activeModelRequest ? 1 : 0;
-  return activePosition + ctx.modelRequestQueue.length + 1;
+  return ctx.activeModelRequests.size + ctx.modelRequestQueue.length + 1;
 }
 
 function getQueuedModelRequestQueuePosition(ctx: ServerContext, waiter: ModelRequestWaiter): number {
@@ -324,8 +323,7 @@ function getQueuedModelRequestQueuePosition(ctx: ServerContext, waiter: ModelReq
   if (queueIndex < 0) {
     return 0;
   }
-  const activePosition = ctx.activeModelRequest ? 1 : 0;
-  return activePosition + queueIndex + 1;
+  return ctx.activeModelRequests.size + queueIndex + 1;
 }
 
 function logIncomingModelRequest(ctx: ServerContext, kind: string): void {
@@ -345,15 +343,13 @@ function getElapsedMsSinceIso(isoTimestamp: string): number {
 
 export function getModelRequestQueueDiagnostics(ctx: ServerContext): ModelRequestQueueDiagnostics {
   return {
-    active: Boolean(ctx.activeModelRequest),
-    activeRequest: ctx.activeModelRequest
-      ? {
-        kind: ctx.activeModelRequest.kind,
-        startedAtUtc: ctx.activeModelRequest.startedAtUtc,
-        heldMs: getElapsedMsSinceIso(ctx.activeModelRequest.startedAtUtc),
-        ownerRunId: ctx.activeModelRequest.ownerRunId,
-      }
-      : null,
+    activeCount: ctx.activeModelRequests.size,
+    activeRequests: [...ctx.activeModelRequests.values()].map((lock) => ({
+      kind: lock.kind,
+      startedAtUtc: lock.startedAtUtc,
+      heldMs: getElapsedMsSinceIso(lock.startedAtUtc),
+      ownerRunId: lock.ownerRunId,
+    })),
     queueLength: ctx.modelRequestQueue.length,
     queuedRequests: ctx.modelRequestQueue.map((entry) => ({
       kind: entry.kind,
@@ -402,7 +398,7 @@ function logModelRequestDropped(waiter: ModelRequestWaiter, reason: string): voi
 
 function syncInferenceRunFlushQueueModelState(ctx: ServerContext, lastFinishedAtMs?: number): void {
   ctx.inferenceRunFlushQueue.setModelRequestState({
-    active: Boolean(ctx.activeModelRequest),
+    active: ctx.activeModelRequests.size > 0,
     queueLength: ctx.modelRequestQueue.length,
     lastFinishedAtMs: lastFinishedAtMs ?? ctx.terminalMetadataLastModelRequestFinishedAtMs,
   });
@@ -420,17 +416,23 @@ export function wakeManagedLlamaForIncomingModelRequest(ctx: ServerContext): voi
   });
 }
 
+// llama.cpp serves one request at a time; exl3's paged scheduler dedups, batches and
+// fair-shares everything admitted, so admission past ParallelSlots is its problem, not ours.
+export function getModelRequestCapacity(ctx: ServerContext): number {
+  return ctx.presetRuntimeCoordinator?.getStatus().backend === 'exl3' ? Number.POSITIVE_INFINITY : 1;
+}
+
 export function acquireModelRequest(ctx: ServerContext, kind: string, ownerRunId: string | null = null): ModelRequestLock | null {
   if (
-    ctx.activeModelRequest
+    ctx.activeModelRequests.size >= getModelRequestCapacity(ctx)
     || ctx.modelRequestQueue.length > 0
     || ctx.presetRuntimeCoordinator?.canGrantModelRequest() === false
   ) {
     return null;
   }
   const lock = createModelRequestLock(kind, ownerRunId);
-  ctx.activeModelRequest = lock;
-  ctx.presetRuntimeCoordinator?.setActiveModelRequestCount(1);
+  ctx.activeModelRequests.set(lock.token, lock);
+  ctx.presetRuntimeCoordinator?.setActiveModelRequestCount(ctx.activeModelRequests.size);
   syncInferenceRunFlushQueueModelState(ctx);
   return lock;
 }
@@ -512,37 +514,31 @@ function cancelModelRequestWaiter(
     logModelRequestWaitCancelled(waiter);
   }
   waiter.resolveLock(null);
-  const grantedNext = grantNextModelRequest(ctx);
-  if (!grantedNext) {
-    refreshQueuedModelRequestTimeouts(ctx);
-  }
+  grantQueuedModelRequests(ctx);
   syncInferenceRunFlushQueueModelState(ctx);
   scheduleIdleSummaryIfNeeded(ctx);
 }
 
-function grantNextModelRequest(ctx: ServerContext): boolean {
-  if (ctx.activeModelRequest || ctx.presetRuntimeCoordinator?.canGrantModelRequest() === false) {
-    return false;
-  }
-  while (ctx.modelRequestQueue.length > 0) {
+function grantQueuedModelRequests(ctx: ServerContext): void {
+  while (
+    ctx.activeModelRequests.size < getModelRequestCapacity(ctx)
+    && ctx.presetRuntimeCoordinator?.canGrantModelRequest() !== false
+    && ctx.modelRequestQueue.length > 0
+  ) {
     const waiter = ctx.modelRequestQueue.shift();
     if (!waiter || waiter.cancelled) {
       continue;
     }
     const lock = createModelRequestLock(waiter.kind, waiter.ownerRunId);
     waiter.grantedLock = lock;
-    ctx.activeModelRequest = lock;
-    ctx.presetRuntimeCoordinator?.setActiveModelRequestCount(1);
+    ctx.activeModelRequests.set(lock.token, lock);
+    ctx.presetRuntimeCoordinator?.setActiveModelRequestCount(ctx.activeModelRequests.size);
     clearModelRequestWaiterTimeout(waiter);
     logModelRequestLockAcquired(lock, getElapsedMsSinceIso(waiter.enqueuedAtUtc));
-    syncInferenceRunFlushQueueModelState(ctx);
-    refreshQueuedModelRequestTimeouts(ctx);
     waiter.resolveLock(lock);
-    return true;
   }
   syncInferenceRunFlushQueueModelState(ctx);
   refreshQueuedModelRequestTimeouts(ctx);
-  return false;
 }
 
 export async function acquireModelRequestWithWait(
@@ -626,12 +622,12 @@ export async function acquireModelRequestWithWait(
 }
 
 export function releaseModelRequest(ctx: ServerContext, token: string): boolean {
-  if (!ctx.activeModelRequest || ctx.activeModelRequest.token !== token) {
+  const releasedLock = ctx.activeModelRequests.get(token);
+  if (!releasedLock) {
     return false;
   }
-  const releasedLock = ctx.activeModelRequest;
-  ctx.activeModelRequest = null;
-  ctx.presetRuntimeCoordinator?.setActiveModelRequestCount(0);
+  ctx.activeModelRequests.delete(token);
+  ctx.presetRuntimeCoordinator?.setActiveModelRequestCount(ctx.activeModelRequests.size);
   const finishedAtMs = Date.now();
   ctx.terminalMetadataLastModelRequestFinishedAtMs = finishedAtMs;
   syncInferenceRunFlushQueueModelState(ctx, finishedAtMs);
@@ -642,19 +638,16 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
       restartModelRequestWaiterTimeout(ctx, waiter);
     }
     void coordinator.onModelRequestReleased().then(() => {
-      for (const waiter of ctx.modelRequestQueue) {
-        restartModelRequestWaiterTimeout(ctx, waiter);
-      }
-      grantNextModelRequest(ctx);
-      if (!ctx.activeModelRequest) armActivePresetIdle(ctx, Date.now());
+      grantQueuedModelRequests(ctx);
+      if (ctx.activeModelRequests.size === 0) armActivePresetIdle(ctx, Date.now());
       syncInferenceRunFlushQueueModelState(ctx, finishedAtMs);
       scheduleIdleSummaryIfNeeded(ctx);
     }).catch((error) => {
       process.stderr.write(`[siftKitStatus] Backend transition failed: ${getErrorMessage(error)}\n`);
     });
   } else {
-    grantNextModelRequest(ctx);
-    if (!ctx.activeModelRequest) armActivePresetIdle(ctx, finishedAtMs);
+    grantQueuedModelRequests(ctx);
+    if (ctx.activeModelRequests.size === 0) armActivePresetIdle(ctx, finishedAtMs);
   }
   syncInferenceRunFlushQueueModelState(ctx, finishedAtMs);
   if (ctx.managedLlamaLastStartupLogs?.runId) {
@@ -674,7 +667,7 @@ function armActivePresetIdle(ctx: ServerContext, finishedAtMs: number): void {
 }
 
 export function resumeModelRequestAdmission(ctx: ServerContext): void {
-  grantNextModelRequest(ctx);
+  grantQueuedModelRequests(ctx);
 }
 
 export async function ensureActivePresetReadyForModelRequest(ctx: ServerContext): Promise<void> {

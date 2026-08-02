@@ -98,7 +98,7 @@ export type ServerContext = {
   approvalGates: Map<string, ApprovalGate>;
   activeRequestIdByStatusPath: Map<string, string>;
   completedRequestIdByStatusPath: Map<string, string>;
-  activeModelRequest: ModelRequestLock | null;
+  activeModelRequests: Map<string, ModelRequestLock>;
   modelRequestQueue: ModelRequestWaiter[];
   deferredArtifactQueue: DeferredArtifact[];
   deferredArtifactDrainScheduled: boolean;

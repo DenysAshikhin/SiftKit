@@ -18,8 +18,8 @@ const streamedError = {
     cause: { name: 'Error', message: 'socket reset' },
   },
   modelRequests: {
-    active: false,
-    activeRequest: null,
+    activeCount: 0,
+    activeRequests: [],
     queueLength: 2,
     queuedRequests: [
       { kind: 'summary', enqueuedAtUtc: '2026-07-22T12:00:00.000Z', waitMs: 25 },

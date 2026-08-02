@@ -67,7 +67,10 @@ export abstract class StreamedOperationEndpoint<TParsed> implements RouteEndpoin
       return;
     }
     const nestedRunId = String(req.headers[AGENT_RUN_ID_HEADER] || '').trim();
-    if (nestedRunId && ctx.activeModelRequest?.ownerRunId === nestedRunId) {
+    const ownedActiveLock = nestedRunId
+      ? [...ctx.activeModelRequests.values()].find((lock) => lock.ownerRunId === nestedRunId)
+      : undefined;
+    if (ownedActiveLock) {
       const message = `Rejected self-call from agent run ${nestedRunId}: it holds the model lock, so this request would deadlock behind its own run.`;
       const payload = recordServerError(req, 409, new Error(message), { taskKind: this.taskKind });
       sendJson(res, 409, { ...payload, modelRequests: getModelRequestQueueDiagnostics(ctx) });
