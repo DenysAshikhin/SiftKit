@@ -596,14 +596,20 @@ const GREP_MATCH_LINE_PATTERN = /^.+?:\d+:/u;
  */
 function truncateGrepOutput(outputLines: string[], limit: number): string {
   let totalMatches = 0;
+  let lastRetainedMatchIndex = -1;
   let cutIndex = -1;
   for (let index = 0; index < outputLines.length; index += 1) {
     if (!GREP_MATCH_LINE_PATTERN.test(outputLines[index])) {
       continue;
     }
     totalMatches += 1;
-    if (totalMatches === limit + 1 && cutIndex === -1) {
-      cutIndex = index;
+    if (totalMatches <= limit) {
+      lastRetainedMatchIndex = index;
+      continue;
+    }
+    if (cutIndex === -1) {
+      const separatorIndex = outputLines.lastIndexOf('--', index - 1);
+      cutIndex = separatorIndex > lastRetainedMatchIndex ? separatorIndex : index;
     }
   }
   if (cutIndex === -1) {

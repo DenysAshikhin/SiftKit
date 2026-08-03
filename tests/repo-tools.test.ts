@@ -259,7 +259,40 @@ test('grep limit counts matches, not context lines', async () => {
   assert.ok(result.ok);
   const matchLines = result.output.split('\n').filter((line) => /^haystack\.txt:\d+:/u.test(line));
   assert.equal(matchLines.length, 5);
+  assert.ok(result.output.includes('pad5'), `shared trailing context was removed: ${result.output}`);
   assert.ok(result.output.includes('1 more matches beyond limit=5'), `unexpected output: ${result.output}`);
+});
+
+test('grep limit removes the detached context group of the first omitted match', async () => {
+  const root = makeRepo();
+  fs.writeFileSync(
+    path.join(root, 'separated.txt'),
+    [
+      'before first',
+      'needle first',
+      'after first',
+      'gap one',
+      'gap two',
+      'before second',
+      'needle second',
+      'after second',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const result = await executeRepoTool(
+    'grep',
+    { pattern: 'needle', path: 'separated.txt', context: 1, limit: 1 },
+    makeContext(root),
+  );
+
+  assert.ok(result.ok);
+  assert.match(result.output, /needle first/u);
+  assert.match(result.output, /after first/u);
+  assert.doesNotMatch(result.output, /\n--\n/u);
+  assert.doesNotMatch(result.output, /before second/u);
+  assert.doesNotMatch(result.output, /needle second/u);
+  assert.match(result.output, /1 more matches beyond limit=1/u);
 });
 
 test('grep reports no matches as a successful empty search, not a failure', async () => {
