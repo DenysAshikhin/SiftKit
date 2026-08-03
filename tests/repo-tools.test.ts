@@ -173,7 +173,7 @@ test('planRead with expandReads=true skips returned lines and runs to end of fil
   assert.ok(!isFailedReadPlan(plan));
   assert.equal(plan.hasUnread, true);
   assert.equal(plan.effectiveStartLine, 3);
-  assert.equal(plan.effectiveEndLineExclusive, 7);
+  assert.equal(plan.effectiveEndLineExclusive, 6);
 });
 
 test('planRead honours limit on a first read in both modes', () => {
@@ -194,7 +194,7 @@ test('planRead reports a fully covered window as exhausted in both modes', () =>
   assert.ok(!isFailedReadPlan(clamped));
   assert.equal(clamped.hasUnread, false);
   assert.match(String(clamped.noUnreadOutput), /Lines 1-2 of src\/a\.ts were already returned in this run/u);
-  const expanded = planRead({ path: 'src/a.ts', offset: 1, limit: 2 }, root, policy, stateWithReturnedRange('src/a.ts', 1, 7), true);
+  const expanded = planRead({ path: 'src/a.ts', offset: 1, limit: 2 }, root, policy, stateWithReturnedRange('src/a.ts', 1, 6), true);
   assert.ok(!isFailedReadPlan(expanded));
   assert.equal(expanded.hasUnread, false);
   assert.match(String(expanded.noUnreadOutput), /Lines 1-2 of src\/a\.ts were already returned in this run/u);
@@ -433,6 +433,15 @@ test('an omitted limit still falls back to the tool default', async () => {
   const listed = await executeRepoTool('ls', {}, makeContext(root));
   assert.ok(listed.ok);
   assert.deepEqual(listed.output.split('\n'), ['.dotfile', 'src/']);
+});
+
+test('planRead does not count a trailing newline as an extra line', () => {
+  const root = makeRepo();
+  // src/a.ts is 'line1\nalpha\nline3\nalpha\nline5\n' — five lines, one trailing newline.
+  const plan = planRead({ path: 'src/a.ts', offset: 1 }, root, buildIgnorePolicy(root));
+  assert.ok(!isFailedReadPlan(plan));
+  assert.equal(plan.lines.length, 5);
+  assert.equal(plan.totalEndLineExclusive, 6);
 });
 
 // ---------------------------------------------------------------------------

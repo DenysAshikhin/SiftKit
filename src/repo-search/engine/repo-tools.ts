@@ -368,6 +368,12 @@ function listFilesRecursive(
 // read
 // ---------------------------------------------------------------------------
 
+/** A trailing newline terminates the last line; it does not start an empty one after it. */
+function splitSourceLines(text: string): string[] {
+  const lines = text.split('\n');
+  return lines.length > 1 && lines[lines.length - 1] === '' ? lines.slice(0, -1) : lines;
+}
+
 function formatNumberedTextBlock(lines: string[], startLine: number): string {
   return lines.map((line, index) => `${startLine + index}: ${line}`).join('\n');
 }
@@ -394,7 +400,7 @@ export function planRead(
     return { ok: false, command: requestedCommand, reason: 'path is not a readable file' };
   }
 
-  const lines = readSourceText(resolvedPath.absolutePath).split('\n');
+  const lines = splitSourceLines(readSourceText(resolvedPath.absolutePath));
   const displayPath = resolvedPath.relativePath;
   const pathKey = buildReadPathKey(displayPath);
   const totalEndLineExclusive = (lines.length || 0) + 1;
