@@ -11,6 +11,12 @@ export type DirectCommandOptions = {
   cwd?: string;
   windowsHide?: boolean;
   abortSignal?: AbortSignal;
+  /**
+   * When provided, this is the child's ENTIRE environment — nothing is inherited implicitly.
+   * Full replacement (not merge) because scrubbing dangerous inherited variables (GIT_DIR,
+   * GIT_EXTERNAL_DIFF, ...) requires removal, which a merge cannot express.
+   */
+  env?: Record<string, string>;
 };
 
 export function spawnDirectCommand(
@@ -23,6 +29,7 @@ export function spawnDirectCommand(
       cwd: options.cwd,
       windowsHide: options.windowsHide ?? true,
       stdio: ['ignore', 'pipe', 'pipe'],
+      env: options.env,
     });
 
     let stdout = '';

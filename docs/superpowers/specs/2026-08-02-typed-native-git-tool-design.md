@@ -29,10 +29,12 @@ The planner-facing JSON schema is generated from `GitToolArgsSchema` with Zod 4'
 1. Model output is parsed and validated by `GitToolArgsSchema`.
 2. `ReadOnlyGitTool` resolves every supplied path against the repository root using the existing repository-scoped path resolver.
 3. An explicit `switch` over `operation` builds a fixed argv array. Planner text never supplies an executable, Git subcommand, option name, pipeline, redirection, or shell fragment.
-4. The tool invokes `spawnDirectCommand('git', argv, { cwd, abortSignal, env })`.
+4. The tool invokes `spawnDirectCommand('git', argv, { cwd, abortSignal, env })`, where `env` is the scrubbed full-replacement environment described above (`spawnDirectCommand` treats a provided `env` as the child's entire environment).
 5. Standard repo-tool result fitting, transcript insertion, duplicate tracking, and metrics consume the resulting `RepoToolExecution`.
 
-Every argv begins with `--no-optional-locks`. Only fixed read operations and fixed flags are emitted. Options such as `--output`, `--ext-diff`, pager configuration, hooks, aliases, `-C`, `--git-dir`, and `--work-tree` cannot be expressed.
+Every argv begins with `-c core.fsmonitor=false -c diff.external= --no-optional-locks`, and the diff-family operations (`diff`, `show`, `log` with patches, `blame`) additionally pass `--no-ext-diff --no-textconv`. This is deliberate belt-and-braces: options such as `--output`, `--ext-diff`, pager configuration, hooks, aliases, `-C`, `--git-dir`, and `--work-tree` cannot be expressed by the planner, but `diff.external`, `diff.*.textconv`, and `core.fsmonitor` are honoured from repository/user configuration *by default*, so unexpressible is not the same as disabled. The `-c` overrides and `--no-*` flags force them off regardless of what any config file says.
+
+The child environment is constructed, not inherited: `spawnDirectCommand`'s `env` option replaces the entire environment, and the git tool passes a copy of `process.env` with every `GIT_*` variable removed (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_EXTERNAL_DIFF`, `GIT_PAGER`, `GIT_CONFIG_*`, ...), so an inherited variable can neither redirect the repository nor execute a configured program.
 
 ## Removal of the legacy command path
 
@@ -52,6 +54,8 @@ The interactive `run` tool remains separate and approval-gated. This design does
 Every `path` is resolved against the canonical repository root. Absolute paths, traversal outside the root, and ignored paths are rejected before Git runs.
 
 Refs are passed as argv values, never concatenated with a path. A ref must be non-empty, must not begin with `-`, and must not contain NUL or ASCII control characters. `show` uses separate `ref` and `path` fields and constructs the object expression only after both fields pass validation.
+
+The same option-injection rule extends to every planner-supplied positional, not only refs: `grep` passes its pattern behind `-e` (a pattern like `--open-files-in-pager=<cmd>` must arrive as a pattern, never as an option), and every path list is separated from options by a literal `--`. No planner string is ever placed where git could parse it as an option name.
 
 `blame` requires `path`. If either line boundary is supplied, both are required and `startLine <= endLine`.
 
