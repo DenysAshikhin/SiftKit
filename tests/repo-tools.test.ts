@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { buildIgnorePolicy } from '../src/repo-search/command-safety.js';
@@ -451,7 +450,7 @@ test('an omitted limit still falls back to the tool default', async () => {
 
 test('read refuses to follow an in-repo symlink that resolves outside the repository root', async () => {
   const root = makeRepo();
-  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-outside-'));
+  const outside = createManagedTempDir('siftkit-outside-');
   fs.writeFileSync(path.join(outside, 'secret.txt'), 'top secret\n', 'utf8');
   // 'junction' works without elevation on Windows and degrades to a plain dir symlink on POSIX.
   fs.symlinkSync(outside, path.join(root, 'escape'), 'junction');
