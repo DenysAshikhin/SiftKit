@@ -199,6 +199,7 @@ export function buildRepoToolRequestedCommand(toolName: string, args: JsonObject
     return formatToolCommand('run', [
       ['command', readString(args.command)],
       ['outputMode', optionalString(args.outputMode)],
+      ['timeout', optionalPositive(args.timeout)],
     ]);
   }
   if (toolName === 'web_search') {
@@ -803,7 +804,15 @@ async function executeRun(args: JsonObject, context: RepoToolContext): Promise<R
       'run outputMode must be "auto" or "full"',
     );
   }
-  const timeoutSeconds = optionalPositive(args.timeout);
+  const rawTimeout = args.timeout;
+  let timeoutSeconds: number | undefined;
+  if (rawTimeout !== undefined && rawTimeout !== null) {
+    const parsed = Math.trunc(Number(rawTimeout));
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return failure('run', command, 'timeout must be a positive integer (seconds)');
+    }
+    timeoutSeconds = parsed;
+  }
   const result = await spawnPowerShellAsync(commandText, {
     cwd: context.repoRoot,
     abortSignal: context.abortSignal,

@@ -755,3 +755,17 @@ test('a failed edit reports no mutated path key because nothing was written', as
   );
   assert.equal(result.ok, false);
 });
+
+test('run rejects a non-positive timeout', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool('run', { command: 'echo hi', timeout: 0 }, makeContext(root));
+  assert.equal(result.ok, false);
+  assert.equal(result.ok === false ? result.reason : '', 'timeout must be a positive integer (seconds)');
+});
+
+test('run includes timeout in its requested command so differing timeouts are not duplicates', () => {
+  assert.equal(
+    buildRepoToolRequestedCommand('run', { command: 'echo hi', timeout: 30 }),
+    'run command="echo hi" timeout=30',
+  );
+});
