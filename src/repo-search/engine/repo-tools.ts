@@ -546,6 +546,31 @@ function buildGrepArgs(args: JsonObject, ignorePolicy: IgnorePolicy, searchPath:
   return argv;
 }
 
+const GREP_MATCH_LINE_PATTERN = /^.+?:\d+:/u;
+
+/**
+ * Applies `limit` to match lines only. With context enabled, rg interleaves `path-12-text`
+ * context lines and `--` group separators; counting those as matches made the cap fire early and
+ * the "more matches" figure wrong.
+ */
+function truncateGrepOutput(outputLines: string[], limit: number): string {
+  let totalMatches = 0;
+  let cutIndex = -1;
+  for (let index = 0; index < outputLines.length; index += 1) {
+    if (!GREP_MATCH_LINE_PATTERN.test(outputLines[index])) {
+      continue;
+    }
+    totalMatches += 1;
+    if (totalMatches === limit + 1 && cutIndex === -1) {
+      cutIndex = index;
+    }
+  }
+  if (cutIndex === -1) {
+    return outputLines.join('\n');
+  }
+  return `${outputLines.slice(0, cutIndex).join('\n')}\n... ${totalMatches - limit} more matches beyond limit=${limit}; narrow the pattern, glob, or path.`;
+}
+
 async function executeGrep(args: JsonObject, context: RepoToolContext): Promise<RepoToolExecution> {
   const command = buildRepoToolRequestedCommand('grep', args);
   if (!readString(args.pattern)) {
@@ -582,10 +607,7 @@ async function executeGrep(args: JsonObject, context: RepoToolContext): Promise<
       output: 'No matches found.', toolType: 'grep', outputUnit: 'lines',
     };
   }
-  const truncated = matchLines.length > limit;
-  const output = truncated
-    ? `${matchLines.slice(0, limit).join('\n')}\n... ${matchLines.length - limit} more matches beyond limit=${limit}; narrow the pattern, glob, or path.`
-    : matchLines.join('\n');
+  const output = truncateGrepOutput(matchLines, limit);
   return { ok: true, requestedCommand: command, command, exitCode: 0, output, toolType: 'grep', outputUnit: 'lines' };
 }
 

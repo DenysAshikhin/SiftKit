@@ -251,6 +251,17 @@ test('grep limit caps returned matches and says so', async () => {
   assert.match(result.output, /limit/u);
 });
 
+test('grep limit counts matches, not context lines', async () => {
+  const root = makeRepo();
+  const body = Array.from({ length: 6 }, (_unused, index) => `pad${index}\nneedle ${index}\n`).join('');
+  fs.writeFileSync(path.join(root, 'haystack.txt'), body, 'utf8');
+  const result = await executeRepoTool('grep', { pattern: 'needle', path: 'haystack.txt', context: 1, limit: 5 }, makeContext(root));
+  assert.ok(result.ok);
+  const matchLines = result.output.split('\n').filter((line) => /^haystack\.txt:\d+:/u.test(line));
+  assert.equal(matchLines.length, 5);
+  assert.ok(result.output.includes('1 more matches beyond limit=5'), `unexpected output: ${result.output}`);
+});
+
 test('grep reports no matches as a successful empty search, not a failure', async () => {
   const root = makeRepo();
   const result = await executeRepoTool('grep', { pattern: 'zzz-nothing-matches-zzz' }, makeContext(root));
