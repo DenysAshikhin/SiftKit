@@ -338,6 +338,20 @@ test('grep excludes ignored names case-insensitively and as plain files, like th
   assert.ok(!result.output.includes('vendored'), `ignored file name leaked: ${result.output}`);
 });
 
+test('grep excludes ignored root-relative paths as exact files and case-insensitive descendants', async () => {
+  const root = makeRepo();
+  fs.writeFileSync(path.join(root, 'tmp-find'), 'alpha exact ignored path\n', 'utf8');
+  fs.mkdirSync(path.join(root, 'Eval', 'Results'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'Eval', 'Results', 'leak.ts'), 'alpha ignored descendant\n', 'utf8');
+
+  const result = await executeRepoTool('grep', { pattern: 'alpha' }, makeContext(root));
+
+  assert.ok(result.ok);
+  assert.match(result.output, /src[\\/]a\.ts/u);
+  assert.ok(!result.output.includes('tmp-find'), `exact ignored path leaked: ${result.output}`);
+  assert.ok(!result.output.includes('leak.ts'), `case-variant ignored descendant leaked: ${result.output}`);
+});
+
 // ---------------------------------------------------------------------------
 // find
 // ---------------------------------------------------------------------------
