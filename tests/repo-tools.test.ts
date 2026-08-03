@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import { buildIgnorePolicy } from '../src/repo-search/command-safety.js';
@@ -424,6 +425,17 @@ test('an omitted limit still falls back to the tool default', async () => {
   const listed = await executeRepoTool('ls', {}, makeContext(root));
   assert.ok(listed.ok);
   assert.deepEqual(listed.output.split('\n'), ['.dotfile', 'src/']);
+});
+
+test('read refuses to follow an in-repo symlink that resolves outside the repository root', async () => {
+  const root = makeRepo();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-outside-'));
+  fs.writeFileSync(path.join(outside, 'secret.txt'), 'top secret\n', 'utf8');
+  // 'junction' works without elevation on Windows and degrades to a plain dir symlink on POSIX.
+  fs.symlinkSync(outside, path.join(root, 'escape'), 'junction');
+  const result = await executeRepoTool('read', { path: 'escape/secret.txt' }, makeContext(root));
+  assert.equal(result.ok, false);
+  assert.ok(result.ok === false && /repository root/u.test(result.reason), `unexpected: ${JSON.stringify(result)}`);
 });
 
 test('read path keys fold case only on case-insensitive filesystems', () => {

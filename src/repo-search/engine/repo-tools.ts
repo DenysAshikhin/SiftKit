@@ -1,4 +1,4 @@
-import { existsSync, statSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, statSync, readdirSync, writeFileSync, mkdirSync, realpathSync } from 'node:fs';
 import { resolve, relative, isAbsolute, join, dirname, posix } from 'node:path';
 import { type IgnorePolicy } from '../command-safety.js';
 import { estimateTokenCount } from '../prompt-budget.js';
@@ -266,6 +266,32 @@ function isRepoRelativePathIgnored(relativePath: string, ignorePolicy: IgnorePol
   ));
 }
 
+/** The deepest ancestor of the path that exists on disk — the whole path, for read targets. */
+function firstExistingAncestor(absolutePath: string): string {
+  let current = absolutePath;
+  while (!existsSync(current)) {
+    const parent = dirname(current);
+    if (parent === current) {
+      break;
+    }
+    current = parent;
+  }
+  return current;
+}
+
+/**
+ * The lexical check above only constrains the path *string*. Symlinks are resolved by the
+ * filesystem afterwards, so an in-repo link to an outside target passes the string check and
+ * still escapes. Comparing realpaths closes that; realpathing the root too keeps a symlinked
+ * repo root (macOS /tmp) working.
+ */
+function escapesRepoRootViaSymlink(repoRoot: string, absolutePath: string): boolean {
+  const realRoot = realpathSync(repoRoot);
+  const realTarget = realpathSync(firstExistingAncestor(absolutePath));
+  const relativePath = relative(realRoot, realTarget);
+  return relativePath.startsWith('..') || isAbsolute(relativePath);
+}
+
 function resolveRepoScopedPath(repoRoot: string, rawPath: OptionalJsonValue): {
   absolutePath: string;
   relativePath: string;
@@ -277,6 +303,9 @@ function resolveRepoScopedPath(repoRoot: string, rawPath: OptionalJsonValue): {
   const absolutePath = resolve(repoRoot, pathText);
   const relativePath = relative(repoRoot, absolutePath);
   if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
+    return null;
+  }
+  if (escapesRepoRootViaSymlink(repoRoot, absolutePath)) {
     return null;
   }
   return { absolutePath, relativePath: toPosixPath(relativePath) };
