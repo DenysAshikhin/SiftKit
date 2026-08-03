@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { buildIgnorePolicy } from '../src/repo-search/command-safety.js';
+import type { JsonObject } from '../src/lib/json-types.js';
 import {
   buildRepoToolRequestedCommand,
   buildEffectiveTranscriptAction,
@@ -46,8 +47,8 @@ function makeContext(root: string, validationCommandOutputLineLimit: number | nu
 // Synthetic command strings — these are the dedup / transcript / progress key
 // ---------------------------------------------------------------------------
 
-test('buildReadCommand clamps offset and serializes limit only when positive', () => {
-  assert.equal(buildReadCommand('src/a.ts', 0), 'read path="src/a.ts" offset=1');
+test('buildReadCommand serializes normalized offset and optional limit', () => {
+  assert.equal(buildReadCommand('src/a.ts', 1), 'read path="src/a.ts" offset=1');
   assert.equal(buildReadCommand('src/a.ts', 2, 9), 'read path="src/a.ts" offset=2 limit=9');
 });
 
@@ -790,6 +791,58 @@ test('run rejects a non-positive timeout', async () => {
   const result = await executeRepoTool('run', { command: 'echo hi', timeout: 0 }, makeContext(root));
   assert.equal(result.ok, false);
   assert.equal(result.ok === false ? result.reason : '', 'timeout must be a positive integer (seconds)');
+});
+
+test('repo tools reject present positive-integer arguments instead of coercing them', async () => {
+  const root = makeRepo();
+  const invalidCases: Array<{ toolName: string; args: JsonObject; expectedReason: string }> = [
+    {
+      toolName: 'read',
+      args: { path: 'src/a.ts', offset: 1.5 },
+      expectedReason: 'offset must be a positive integer',
+    },
+    {
+      toolName: 'read',
+      args: { path: 'src/a.ts', limit: '2' },
+      expectedReason: 'limit must be a positive integer',
+    },
+    {
+      toolName: 'grep',
+      args: { pattern: 'alpha', context: 1.5 },
+      expectedReason: 'context must be a positive integer',
+    },
+    {
+      toolName: 'grep',
+      args: { pattern: 'alpha', context: null },
+      expectedReason: 'context must be a positive integer',
+    },
+    {
+      toolName: 'grep',
+      args: { pattern: 'alpha', limit: '2' },
+      expectedReason: 'limit must be a positive integer',
+    },
+    {
+      toolName: 'find',
+      args: { pattern: '**/*.ts', limit: 1.5 },
+      expectedReason: 'limit must be a positive integer',
+    },
+    {
+      toolName: 'ls',
+      args: { limit: '2' },
+      expectedReason: 'limit must be a positive integer',
+    },
+    {
+      toolName: 'run',
+      args: { command: 'throw "must not execute"', timeout: 1.5 },
+      expectedReason: 'timeout must be a positive integer (seconds)',
+    },
+  ];
+
+  for (const invalidCase of invalidCases) {
+    const result = await executeRepoTool(invalidCase.toolName, invalidCase.args, makeContext(root));
+    assert.equal(result.ok, false, `${invalidCase.toolName} accepted ${JSON.stringify(invalidCase.args)}`);
+    assert.equal(result.ok === false ? result.reason : '', invalidCase.expectedReason);
+  }
 });
 
 test('run includes timeout in its requested command so differing timeouts are not duplicates', () => {

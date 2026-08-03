@@ -1,5 +1,6 @@
 import { existsSync, statSync, readdirSync, writeFileSync, mkdirSync, realpathSync } from 'node:fs';
 import { resolve, relative, isAbsolute, join, dirname, posix } from 'node:path';
+import { z } from 'zod';
 import { type IgnorePolicy } from '../command-safety.js';
 import { estimateTokenCount } from '../prompt-budget.js';
 import { findContiguousUnreadRange, type ToolOutputTruncationUnit, type ToolOutputKeep } from '../../tool-output-fit.js';
@@ -92,16 +93,40 @@ export function isFailedReadPlan(plan: ReadPlan | FailedPlan): plan is FailedPla
 }
 
 // ---------------------------------------------------------------------------
-// Arg coercion
+// Argument parsing
 // ---------------------------------------------------------------------------
+
+const PositiveIntegerSchema = z.number().int().positive().finite();
+type PositiveInteger = z.infer<typeof PositiveIntegerSchema>;
 
 function readString(value: OptionalJsonValue): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function readPositiveInteger(value: OptionalJsonValue, fallback: number): number {
-  const parsed = Math.trunc(Number(value));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+function parsePositiveInteger(value: OptionalJsonValue): PositiveInteger | undefined {
+  const parsed = PositiveIntegerSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function resolvePositiveInteger(
+  value: OptionalJsonValue,
+  fallback: PositiveInteger,
+  reason: string,
+): PositiveInteger | string {
+  if (value === undefined) {
+    return fallback;
+  }
+  return parsePositiveInteger(value) ?? reason;
+}
+
+function resolveOptionalPositiveInteger(
+  value: OptionalJsonValue,
+  reason: string,
+): PositiveInteger | undefined | string {
+  if (value === undefined) {
+    return undefined;
+  }
+  return parsePositiveInteger(value) ?? reason;
 }
 
 function readBoolean(value: OptionalJsonValue, fallback: boolean): boolean {
@@ -121,17 +146,12 @@ function formatToolCommand(toolName: string, args: CommandArg[]): string {
   return [toolName, ...parts].join(' ');
 }
 
-export function buildReadCommand(pathText: string, offset: number, limit?: number): string {
+export function buildReadCommand(pathText: string, offset: PositiveInteger, limit?: PositiveInteger): string {
   return formatToolCommand('read', [
     ['path', pathText],
-    ['offset', Math.max(1, Math.trunc(Number(offset) || 1))],
-    ['limit', Math.trunc(Number(limit) || 0) > 0 ? Math.trunc(Number(limit)) : undefined],
+    ['offset', offset],
+    ['limit', limit],
   ]);
-}
-
-function optionalPositive(value: OptionalJsonValue): number | undefined {
-  const parsed = Math.trunc(Number(value));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function optionalBoolean(value: OptionalJsonValue): boolean | undefined {
@@ -143,22 +163,13 @@ function optionalString(value: OptionalJsonValue): string | undefined {
   return text ? text : undefined;
 }
 
-/**
- * `limit` is optional, but a present non-positive or non-numeric value is a caller error, not a
- * request for the default — silently returning the maximum is the opposite of what was asked.
- * Returns the resolved limit, or the failure reason as a string (same shape as `resolveEdits`).
- */
-function resolveLimit(value: OptionalJsonValue, fallback: number): number | string {
-  if (value === undefined || value === null) {
-    return fallback;
-  }
-  const parsed = Math.trunc(Number(value));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 'limit must be a positive integer';
-}
-
 export function buildRepoToolRequestedCommand(toolName: string, args: JsonObject): string {
   if (toolName === 'read') {
-    return buildReadCommand(readString(args.path), readPositiveInteger(args.offset, 1), optionalPositive(args.limit));
+    return buildReadCommand(
+      readString(args.path),
+      parsePositiveInteger(args.offset) ?? 1,
+      parsePositiveInteger(args.limit),
+    );
   }
   if (toolName === 'grep') {
     return formatToolCommand('grep', [
@@ -167,21 +178,21 @@ export function buildRepoToolRequestedCommand(toolName: string, args: JsonObject
       ['glob', optionalString(args.glob)],
       ['ignoreCase', optionalBoolean(args.ignoreCase)],
       ['literal', optionalBoolean(args.literal)],
-      ['context', optionalPositive(args.context)],
-      ['limit', optionalPositive(args.limit)],
+      ['context', parsePositiveInteger(args.context)],
+      ['limit', parsePositiveInteger(args.limit)],
     ]);
   }
   if (toolName === 'find') {
     return formatToolCommand('find', [
       ['pattern', readString(args.pattern)],
       ['path', optionalString(args.path)],
-      ['limit', optionalPositive(args.limit)],
+      ['limit', parsePositiveInteger(args.limit)],
     ]);
   }
   if (toolName === 'ls') {
     return formatToolCommand('ls', [
       ['path', readString(args.path) || '.'],
-      ['limit', optionalPositive(args.limit)],
+      ['limit', parsePositiveInteger(args.limit)],
     ]);
   }
   if (toolName === 'write') {
@@ -200,7 +211,7 @@ export function buildRepoToolRequestedCommand(toolName: string, args: JsonObject
     return formatToolCommand('run', [
       ['command', readString(args.command)],
       ['outputMode', optionalString(args.outputMode)],
-      ['timeout', optionalPositive(args.timeout)],
+      ['timeout', parsePositiveInteger(args.timeout)],
     ]);
   }
   if (toolName === 'web_search') {
@@ -417,9 +428,15 @@ export function planRead(
   expandReads = true,
 ): ReadPlan | FailedPlan {
   const commandPath = readString(args.path);
-  const offset = readPositiveInteger(args.offset, 1);
-  const limit = optionalPositive(args.limit);
-  const requestedCommand = buildReadCommand(commandPath, offset, limit);
+  const requestedCommand = buildRepoToolRequestedCommand('read', args);
+  const offset = resolvePositiveInteger(args.offset, 1, 'offset must be a positive integer');
+  if (typeof offset === 'string') {
+    return { ok: false, command: requestedCommand, reason: offset };
+  }
+  const limit = resolveOptionalPositiveInteger(args.limit, 'limit must be a positive integer');
+  if (typeof limit === 'string') {
+    return { ok: false, command: requestedCommand, reason: limit };
+  }
   const resolvedPath = resolveRepoScopedPath(repoRoot, args.path);
   if (!resolvedPath) {
     return { ok: false, command: requestedCommand, reason: 'path must stay within the repository root' };
@@ -539,15 +556,19 @@ export function buildReadExecution(
 // grep — argv is built here, never parsed from a model-authored string
 // ---------------------------------------------------------------------------
 
-function buildGrepArgs(args: JsonObject, ignorePolicy: IgnorePolicy, searchPath: string): string[] {
+function buildGrepArgs(
+  args: JsonObject,
+  ignorePolicy: IgnorePolicy,
+  searchPath: string,
+  contextLines: PositiveInteger | undefined,
+): string[] {
   const argv = ['--no-ignore', '--line-number', '--with-filename', '--color', 'never'];
   argv.push(readBoolean(args.ignoreCase, true) ? '--ignore-case' : '--case-sensitive');
   if (readBoolean(args.literal, false)) {
     argv.push('--fixed-strings');
   }
-  const context = optionalPositive(args.context);
-  if (context !== undefined) {
-    argv.push('--context', String(context));
+  if (contextLines !== undefined) {
+    argv.push('--context', String(contextLines));
   }
   const glob = optionalString(args.glob);
   if (glob !== undefined) {
@@ -607,12 +628,23 @@ async function executeGrep(args: JsonObject, context: RepoToolContext): Promise<
     return failure('grep', command, 'path is not a readable file or directory');
   }
 
-  const limit = resolveLimit(args.limit, GREP_DEFAULT_LIMIT);
+  const contextLines = resolveOptionalPositiveInteger(
+    args.context,
+    'context must be a positive integer',
+  );
+  if (typeof contextLines === 'string') {
+    return failure('grep', command, contextLines);
+  }
+  const limit = resolvePositiveInteger(
+    args.limit,
+    GREP_DEFAULT_LIMIT,
+    'limit must be a positive integer',
+  );
   if (typeof limit === 'string') {
     return failure('grep', command, limit);
   }
   const searchPath = resolvedPath.relativePath === '' ? '.' : resolvedPath.relativePath;
-  const result = await spawnDirectCommand('rg', buildGrepArgs(args, context.ignorePolicy, searchPath), {
+  const result = await spawnDirectCommand('rg', buildGrepArgs(args, context.ignorePolicy, searchPath, contextLines), {
     cwd: context.repoRoot,
     abortSignal: context.abortSignal,
   });
@@ -663,7 +695,11 @@ function executeFind(args: JsonObject, context: RepoToolContext): RepoToolExecut
     .map((repoRelativePath) => repoRelativePath.slice(basePrefixLength))
     .filter((searchRelativePath) => matchesGlob(searchRelativePath, pattern))
     .sort(compareDisplayNames);
-  const limit = resolveLimit(args.limit, FIND_DEFAULT_LIMIT);
+  const limit = resolvePositiveInteger(
+    args.limit,
+    FIND_DEFAULT_LIMIT,
+    'limit must be a positive integer',
+  );
   if (typeof limit === 'string') {
     return failure('find', command, limit);
   }
@@ -703,7 +739,11 @@ function executeLs(args: JsonObject, context: RepoToolContext): RepoToolExecutio
     entries.push(entry.isDirectory() ? `${entry.name}/` : entry.name);
   }
   entries.sort(compareDisplayNames);
-  const limit = resolveLimit(args.limit, LS_DEFAULT_LIMIT);
+  const limit = resolvePositiveInteger(
+    args.limit,
+    LS_DEFAULT_LIMIT,
+    'limit must be a positive integer',
+  );
   if (typeof limit === 'string') {
     return failure('ls', command, limit);
   }
@@ -827,14 +867,12 @@ async function executeRun(args: JsonObject, context: RepoToolContext): Promise<R
       'run outputMode must be "auto" or "full"',
     );
   }
-  const rawTimeout = args.timeout;
-  let timeoutSeconds: number | undefined;
-  if (rawTimeout !== undefined && rawTimeout !== null) {
-    const parsed = Math.trunc(Number(rawTimeout));
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      return failure('run', command, 'timeout must be a positive integer (seconds)');
-    }
-    timeoutSeconds = parsed;
+  const timeoutSeconds = resolveOptionalPositiveInteger(
+    args.timeout,
+    'timeout must be a positive integer (seconds)',
+  );
+  if (typeof timeoutSeconds === 'string') {
+    return failure('run', command, timeoutSeconds);
   }
   const result = await spawnPowerShellAsync(commandText, {
     cwd: context.repoRoot,
