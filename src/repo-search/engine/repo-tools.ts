@@ -649,9 +649,11 @@ function executeFind(args: JsonObject, context: RepoToolContext): RepoToolExecut
     return failure('find', command, limit);
   }
   const truncated = filtered.length > limit;
-  const output = truncated
-    ? `${filtered.slice(0, limit).join('\n')}\n... ${filtered.length - limit} more files beyond limit=${limit}; narrow the pattern or path.`
-    : filtered.join('\n');
+  const output = filtered.length === 0
+    ? 'No files matched.'
+    : truncated
+      ? `${filtered.slice(0, limit).join('\n')}\n... ${filtered.length - limit} more files beyond limit=${limit}; narrow the pattern or path.`
+      : filtered.join('\n');
   return { ok: true, requestedCommand: command, command, exitCode: 0, output, toolType: 'find', outputUnit: 'files' };
 }
 
@@ -687,9 +689,11 @@ function executeLs(args: JsonObject, context: RepoToolContext): RepoToolExecutio
     return failure('ls', command, limit);
   }
   const truncated = entries.length > limit;
-  const output = truncated
-    ? `${entries.slice(0, limit).join('\n')}\n... ${entries.length - limit} more entries beyond limit=${limit}.`
-    : entries.join('\n');
+  const output = entries.length === 0
+    ? 'Directory is empty.'
+    : truncated
+      ? `${entries.slice(0, limit).join('\n')}\n... ${entries.length - limit} more entries beyond limit=${limit}.`
+      : entries.join('\n');
   return { ok: true, requestedCommand: command, command, exitCode: 0, output, toolType: 'ls', outputUnit: 'files' };
 }
 

@@ -395,7 +395,7 @@ test('find applies the ignore policy relative to the repository root when scoped
   fs.writeFileSync(path.join(root, 'eval', 'results', 'leak.ts'), 'leak\n', 'utf8');
   const scoped = await executeRepoTool('find', { pattern: '**/*.ts', path: 'eval' }, makeContext(root));
   assert.ok(scoped.ok);
-  assert.equal(scoped.output, '');
+  assert.equal(scoped.output, 'No files matched.');
 });
 
 test('find keeps files whose search-relative path only looks like an ignored path', async () => {
@@ -694,6 +694,21 @@ test('run requires a command', async () => {
   const result = await executeRepoTool('run', { command: '   ' }, makeContext(root));
   assert.ok(!result.ok);
   assert.match(result.reason, /command/u);
+});
+
+test('find reports an explicit no-match result instead of empty output', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool('find', { pattern: '**/*.zig' }, makeContext(root));
+  assert.ok(result.ok);
+  assert.equal(result.output, 'No files matched.');
+});
+
+test('ls reports an explicit empty-directory result instead of empty output', async () => {
+  const root = makeRepo();
+  fs.mkdirSync(path.join(root, 'hollow'), { recursive: true });
+  const result = await executeRepoTool('ls', { path: 'hollow' }, makeContext(root));
+  assert.ok(result.ok);
+  assert.equal(result.output, 'Directory is empty.');
 });
 
 test('executeRun exposes SIFTKIT_AGENT_RUN_ID to spawned commands', async () => {
