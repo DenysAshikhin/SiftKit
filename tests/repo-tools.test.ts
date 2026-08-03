@@ -679,6 +679,14 @@ test('executeRun exposes SIFTKIT_AGENT_RUN_ID to spawned commands', async () => 
 // dispatch
 // ---------------------------------------------------------------------------
 
+test('a native tool that throws returns a failed result instead of crashing the run', async () => {
+  const root = makeRepo();
+  // src/a.ts is a file; using it as a directory segment makes mkdirSync/writeFileSync throw.
+  const result = await executeRepoTool('write', { path: 'src/a.ts/nested/file.txt', content: 'x' }, makeContext(root));
+  assert.equal(result.ok, false);
+  assert.ok(result.ok === false && result.reason.startsWith('tool error:'), `unexpected result: ${JSON.stringify(result)}`);
+});
+
 test('executeRepoTool rejects an unknown tool name', async () => {
   const root = makeRepo();
   const result = await executeRepoTool('rg', { command: 'rg x' }, makeContext(root));

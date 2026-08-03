@@ -794,7 +794,7 @@ function toWebFetchToolArgs(args: JsonObject): WebFetchToolArgs {
 // Dispatch
 // ---------------------------------------------------------------------------
 
-export async function executeRepoTool(
+async function executeRepoToolUnguarded(
   toolName: string,
   args: JsonObject,
   context: RepoToolContext,
@@ -848,4 +848,25 @@ export async function executeRepoTool(
     }
   }
   return failure(toolName, buildRepoToolRequestedCommand(toolName, args), `unknown repo tool "${toolName}"`);
+}
+
+/**
+ * Native tools run synchronous fs calls that can throw (EPERM, ENOTDIR, delete races). A throw
+ * must cost one failed tool result — the same price as any other failure — not the whole run:
+ * nothing above this function catches.
+ */
+export async function executeRepoTool(
+  toolName: string,
+  args: JsonObject,
+  context: RepoToolContext,
+): Promise<RepoToolExecution> {
+  try {
+    return await executeRepoToolUnguarded(toolName, args, context);
+  } catch (error) {
+    return failure(
+      toolName,
+      buildRepoToolRequestedCommand(toolName, args),
+      `tool error: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
