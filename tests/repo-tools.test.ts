@@ -283,6 +283,17 @@ test('grep requires a pattern', async () => {
   assert.match(result.reason, /pattern/u);
 });
 
+test('grep excludes ignored names case-insensitively and as plain files, like the native ignore check', async () => {
+  const root = makeRepo();
+  fs.mkdirSync(path.join(root, 'Node_Modules'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'Node_Modules', 'dep.ts'), 'alpha dep\n', 'utf8');
+  fs.writeFileSync(path.join(root, 'vendor'), 'alpha vendored\n', 'utf8');
+  const result = await executeRepoTool('grep', { pattern: 'alpha' }, makeContext(root));
+  assert.ok(result.ok);
+  assert.ok(!result.output.includes('dep.ts'), `case-variant ignored dir leaked: ${result.output}`);
+  assert.ok(!result.output.includes('vendored'), `ignored file name leaked: ${result.output}`);
+});
+
 // ---------------------------------------------------------------------------
 // find
 // ---------------------------------------------------------------------------

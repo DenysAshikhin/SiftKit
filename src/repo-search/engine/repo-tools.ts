@@ -531,13 +531,16 @@ function buildGrepArgs(args: JsonObject, ignorePolicy: IgnorePolicy, searchPath:
   }
   const glob = optionalString(args.glob);
   if (glob !== undefined) {
-    argv.push('--glob', glob);
+    // --iglob matches find's case-insensitive glob regex, so one planner glob means one thing.
+    argv.push('--iglob', glob);
   }
+  // Parity with isRepoRelativePathIgnored: names are ignored case-insensitively and whether the
+  // segment is a directory or a plain file; paths exclude the entry itself and its contents.
   for (const name of ignorePolicy.names) {
-    argv.push('--glob', `!**/${name}/**`);
+    argv.push('--iglob', `!**/${name}`, '--iglob', `!**/${name}/**`);
   }
   for (const ignoredPath of ignorePolicy.paths) {
-    argv.push('--glob', `!${ignoredPath}/**`);
+    argv.push('--iglob', `!${ignoredPath}`, '--iglob', `!${ignoredPath}/**`);
   }
   argv.push('--regexp', readString(args.pattern), '--', searchPath);
   return argv;
