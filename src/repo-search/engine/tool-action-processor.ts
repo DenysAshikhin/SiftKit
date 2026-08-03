@@ -296,54 +296,27 @@ export class ToolActionProcessor {
   }
 
   private validateToolAction(turn: number, toolAction: ToolAction, state: TurnBatchState): ValidatedToolAction | ToolActionOutcome {
-    const { counters } = this.deps;
     const normalizedToolName = String(toolAction.tool_name || '').trim().toLowerCase();
     const isCommandTool = isRepoSearchCommandToolName(normalizedToolName);
     const isNativeTool = isRepoSearchNativeToolName(normalizedToolName);
     if (!isCommandTool && !isNativeTool) {
-      counters.invalidResponses += 1;
       const unsupportedToolMessage = `Invalid action: unsupported planner tool "${toolAction.tool_name}" for repo-search. Use one of: ${this.deps.allowedPlannerToolNames.join(', ')}.`;
-      state.batchOutcomes.push({
-        action: { tool_name: String(toolAction.tool_name || '').trim() || 'invalid_tool_call', args: toolAction.args },
-        toolCallId: `invalid_call_${counters.invalidResponses}`,
-        toolContent: unsupportedToolMessage,
-      });
-      return this.logInvalidAction(turn, toolAction, unsupportedToolMessage);
+      return this.recordInvalidToolCall(turn, toolAction, state, String(toolAction.tool_name || '').trim() || 'invalid_tool_call', unsupportedToolMessage);
     }
     if (!this.deps.allowedPlannerToolNames.includes(normalizedToolName)) {
-      counters.invalidResponses += 1;
       const disallowedToolMessage = `Invalid action: tool "${normalizedToolName}" is not enabled for this run. Use one of: ${this.deps.allowedPlannerToolNames.join(', ')}.`;
-      state.batchOutcomes.push({
-        action: { tool_name: normalizedToolName, args: toolAction.args },
-        toolCallId: `invalid_call_${counters.invalidResponses}`,
-        toolContent: disallowedToolMessage,
-      });
-      return this.logInvalidAction(turn, toolAction, disallowedToolMessage);
+      return this.recordInvalidToolCall(turn, toolAction, state, normalizedToolName, disallowedToolMessage);
     }
     const command = isCommandTool
       ? (typeof toolAction.args.command === 'string' ? toolAction.args.command : '')
       : buildRepoToolRequestedCommand(normalizedToolName, toolAction.args);
     if (isCommandTool && !command.trim()) {
-      counters.invalidResponses += 1;
-      const invalidCommandMessage = `Invalid action: ${normalizedToolName} requires args.command.`;
-      state.batchOutcomes.push({
-        action: { tool_name: normalizedToolName, args: toolAction.args },
-        toolCallId: `invalid_call_${counters.invalidResponses}`,
-        toolContent: invalidCommandMessage,
-      });
-      return this.logInvalidAction(turn, toolAction, invalidCommandMessage);
+      return this.recordInvalidToolCall(turn, toolAction, state, normalizedToolName, `Invalid action: ${normalizedToolName} requires args.command.`);
     }
     const expectedCommandToken = isCommandTool ? getRepoSearchCommandTokenForToolName(normalizedToolName) : null;
     const actualCommandToken = isCommandTool ? getFirstCommandToken(command) : null;
     if (isCommandTool && (!expectedCommandToken || actualCommandToken !== expectedCommandToken)) {
-      counters.invalidResponses += 1;
-      const invalidToolCommandMessage = `Invalid action: ${normalizedToolName} only allows commands starting with '${expectedCommandToken || '<unknown>'}'.`;
-      state.batchOutcomes.push({
-        action: { tool_name: normalizedToolName, args: toolAction.args },
-        toolCallId: `invalid_call_${counters.invalidResponses}`,
-        toolContent: invalidToolCommandMessage,
-      });
-      return this.logInvalidAction(turn, toolAction, invalidToolCommandMessage);
+      return this.recordInvalidToolCall(turn, toolAction, state, normalizedToolName, `Invalid action: ${normalizedToolName} only allows commands starting with '${expectedCommandToken || '<unknown>'}'.`);
     }
     return { normalizedToolName, isCommandTool, isNativeTool, command };
   }
@@ -400,6 +373,36 @@ export class ToolActionProcessor {
       return 'stop_batch';
     }
     return 'next';
+  }
+
+  /**
+   * An invalid action must still append exactly one entry to `commands`: the task loop pairs
+   * command results back to tool actions by index, so a skipped entry shifts every later result
+   * onto the wrong action.
+   */
+  private recordInvalidToolCall(
+    turn: number,
+    toolAction: ToolAction,
+    state: TurnBatchState,
+    displayToolName: string,
+    message: string,
+  ): ToolActionOutcome {
+    const { counters, commands } = this.deps;
+    counters.invalidResponses += 1;
+    commands.push({
+      command: displayToolName,
+      turn,
+      safe: false,
+      reason: 'invalid action',
+      exitCode: null,
+      output: message,
+    });
+    state.batchOutcomes.push({
+      action: { tool_name: displayToolName, args: toolAction.args },
+      toolCallId: `invalid_call_${counters.invalidResponses}`,
+      toolContent: message,
+    });
+    return this.logInvalidAction(turn, toolAction, message);
   }
 
   private screenWebAndDuplicates(

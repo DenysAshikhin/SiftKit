@@ -14,7 +14,7 @@ import {
   planRead,
 } from '../src/repo-search/engine/repo-tools.js';
 import type { FileReadState } from '../src/repo-search/engine/read-overlap.js';
-import { WebResearchTools } from '../src/web-search/web-research-tools.js';
+import { makeMockWebTools } from './helpers/mock-web-tools.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 function makeRepo(): string {
@@ -31,20 +31,11 @@ function makeRepo(): string {
   return root;
 }
 
-function makeWebTools(): WebResearchTools {
-  return new WebResearchTools({
-    EnabledDefault: false,
-    Providers: { tavily: { Enabled: false, ApiKey: '' }, firecrawl: { Enabled: false, ApiKey: '' } },
-    ProviderOrder: ['tavily', 'firecrawl'],
-    ResultCount: 5, FetchMaxPages: 3, TimeoutMs: 15000, FetchMaxCharacters: 12000,
-  });
-}
-
 function makeContext(root: string, validationCommandOutputLineLimit: number | null = null) {
   return {
     repoRoot: root,
     ignorePolicy: buildIgnorePolicy(root),
-    webTools: makeWebTools(),
+    webTools: makeMockWebTools(),
     expandReads: true,
     agentRunId: 'test-run',
     validationCommandOutputLineLimit,
