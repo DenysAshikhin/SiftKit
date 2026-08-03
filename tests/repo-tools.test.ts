@@ -703,6 +703,21 @@ test('find reports an explicit no-match result instead of empty output', async (
   assert.equal(result.output, 'No files matched.');
 });
 
+test('planRead rejects an offset past the end of the file', () => {
+  const root = makeRepo();
+  const plan = planRead({ path: 'src/a.ts', offset: 6 }, root, buildIgnorePolicy(root));
+  assert.ok(isFailedReadPlan(plan));
+  assert.match(plan.reason, /past the end/u);
+});
+
+test('planRead rejects a file larger than READ_MAX_BYTES', () => {
+  const root = makeRepo();
+  fs.writeFileSync(path.join(root, 'big.txt'), `${'x'.repeat(1024)}\n`.repeat(2048), 'utf8');
+  const plan = planRead({ path: 'big.txt', offset: 1 }, root, buildIgnorePolicy(root));
+  assert.ok(isFailedReadPlan(plan));
+  assert.match(plan.reason, /read supports files up to/u);
+});
+
 test('ls reports an explicit empty-directory result instead of empty output', async () => {
   const root = makeRepo();
   fs.mkdirSync(path.join(root, 'hollow'), { recursive: true });

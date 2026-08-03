@@ -21,6 +21,7 @@ import type { WebFetchToolArgs, WebSearchToolArgs } from '../../web-search/types
 export const GREP_DEFAULT_LIMIT = 100;
 export const FIND_DEFAULT_LIMIT = 1000;
 export const LS_DEFAULT_LIMIT = 500;
+export const READ_MAX_BYTES = 2_000_000;
 
 export type RepoToolExecution =
   | {
@@ -426,15 +427,33 @@ export function planRead(
   if (isRepoRelativePathIgnored(resolvedPath.relativePath, ignorePolicy)) {
     return { ok: false, command: requestedCommand, reason: 'path is ignored by runtime policy' };
   }
-  if (!existsSync(resolvedPath.absolutePath) || !statSync(resolvedPath.absolutePath).isFile()) {
+  if (!existsSync(resolvedPath.absolutePath)) {
     return { ok: false, command: requestedCommand, reason: 'path is not a readable file' };
+  }
+  const fileStat = statSync(resolvedPath.absolutePath);
+  if (!fileStat.isFile()) {
+    return { ok: false, command: requestedCommand, reason: 'path is not a readable file' };
+  }
+  if (fileStat.size > READ_MAX_BYTES) {
+    return {
+      ok: false,
+      command: requestedCommand,
+      reason: `file is ${fileStat.size} bytes; read supports files up to ${READ_MAX_BYTES} bytes — use grep to extract the lines you need`,
+    };
   }
 
   const lines = splitSourceLines(readSourceText(resolvedPath.absolutePath));
+  if (offset > lines.length) {
+    return {
+      ok: false,
+      command: requestedCommand,
+      reason: `offset ${offset} is past the end of ${resolvedPath.relativePath} (${lines.length} line${lines.length === 1 ? '' : 's'})`,
+    };
+  }
   const displayPath = resolvedPath.relativePath;
   const pathKey = buildReadPathKey(displayPath);
   const totalEndLineExclusive = (lines.length || 0) + 1;
-  const clampedStart = Math.min(offset, lines.length || 1);
+  const clampedStart = offset;
   const requestedEndExclusive = limit === undefined
     ? totalEndLineExclusive
     : Math.max(clampedStart + 1, Math.min(clampedStart + limit, totalEndLineExclusive));
