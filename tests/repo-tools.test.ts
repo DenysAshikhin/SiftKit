@@ -13,7 +13,7 @@ import {
   isFailedReadPlan,
   planRead,
 } from '../src/repo-search/engine/repo-tools.js';
-import type { FileReadState } from '../src/repo-search/engine/read-overlap.js';
+import { buildReadPathKeyForCaseSensitivity, type FileReadState } from '../src/repo-search/engine/read-overlap.js';
 import { makeMockWebTools } from './helpers/mock-web-tools.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
@@ -424,6 +424,11 @@ test('an omitted limit still falls back to the tool default', async () => {
   const listed = await executeRepoTool('ls', {}, makeContext(root));
   assert.ok(listed.ok);
   assert.deepEqual(listed.output.split('\n'), ['.dotfile', 'src/']);
+});
+
+test('read path keys fold case only on case-insensitive filesystems', () => {
+  assert.equal(buildReadPathKeyForCaseSensitivity('Src/App.ts', true), 'src/app.ts');
+  assert.equal(buildReadPathKeyForCaseSensitivity('Src/App.ts', false), 'Src/App.ts');
 });
 
 test('planRead does not count a trailing newline as an extra line', () => {

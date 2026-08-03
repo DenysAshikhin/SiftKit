@@ -76,12 +76,23 @@ export function mergeRange(ranges: ReadRange[], next: ReadRange): ReadRange[] {
   return merged;
 }
 
+const CASE_INSENSITIVE_PATHS = process.platform === 'win32' || process.platform === 'darwin';
+
 /**
  * Sole derivation of the key used for the read-state map. Readers and mutating tools must both go
  * through it, or an invalidation silently misses the window it was meant to clear.
  */
 export function buildReadPathKey(relativePath: string): string {
-  return relativePath.toLowerCase();
+  return buildReadPathKeyForCaseSensitivity(relativePath, CASE_INSENSITIVE_PATHS);
+}
+
+/**
+ * Case folding is a property of the filesystem, not of the tool: on Windows/macOS `Src/App.ts`
+ * and `src/app.ts` are one file and must share one key; on Linux they are two files and folding
+ * them together marks lines of one as already returned by the other.
+ */
+export function buildReadPathKeyForCaseSensitivity(relativePath: string, caseInsensitivePaths: boolean): string {
+  return caseInsensitivePaths ? relativePath.toLowerCase() : relativePath;
 }
 
 export function getOrCreateFileReadState(fileReadStateByPath: Map<string, FileReadState>, pathKey: string): FileReadState {
