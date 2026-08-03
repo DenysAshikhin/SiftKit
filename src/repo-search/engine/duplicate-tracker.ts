@@ -21,6 +21,7 @@ export class DuplicateTracker {
   private replayFingerprint: string | null = null;
   private replayCount = 0;
   private replayToolMessageIndex = -1;
+  private replayTranscriptGeneration = -1;
 
   classify(options: {
     toolName: string;
@@ -42,10 +43,11 @@ export class DuplicateTracker {
     };
   }
 
-  registerDuplicate(duplicateFingerprint: string, messageCount: number): DuplicateRegistration {
+  registerDuplicate(duplicateFingerprint: string, messageCount: number, transcriptGeneration: number): DuplicateRegistration {
     const isActiveReplay = this.replayFingerprint === duplicateFingerprint
       && this.replayToolMessageIndex >= 0
-      && this.replayToolMessageIndex < messageCount;
+      && this.replayToolMessageIndex < messageCount
+      && this.replayTranscriptGeneration === transcriptGeneration;
     this.replayFingerprint = duplicateFingerprint;
     this.replayCount = isActiveReplay ? this.replayCount + 1 : 2;
     return {
@@ -54,8 +56,9 @@ export class DuplicateTracker {
     };
   }
 
-  setReplayToolMessageIndex(index: number): void {
+  setReplayToolMessageIndex(index: number, transcriptGeneration: number): void {
     this.replayToolMessageIndex = index;
+    this.replayTranscriptGeneration = transcriptGeneration;
   }
 
   shouldForceFinish(): boolean {

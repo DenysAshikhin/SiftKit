@@ -147,6 +147,18 @@ test('upsertTrailingUser appends then updates the same trailing user message', (
   assert.equal(transcript.getMessages()[secondIndex].content, 'countdown 1');
 });
 
+test('replaceWith bumps the transcript generation', () => {
+  const transcript = new TranscriptManager({
+    systemPromptContent: 'sys',
+    historyMessages: [],
+    initialUserContent: 'question',
+    initialUserImages: [],
+  });
+  assert.equal(transcript.generation, 0);
+  transcript.replaceWith([{ role: 'user', content: 'compacted' }]);
+  assert.equal(transcript.generation, 1);
+});
+
 test('render and renderTail produce transcripts', () => {
   const transcript = makeTranscript();
   // Intentionally malformed (no role) to exercise the 'unknown' role fallback;

@@ -181,7 +181,7 @@ export class ToolActionProcessor {
     transcript.pruneThinking(this.deps.maintainPerStepThinking);
     appendSpan?.end({ afterMessageCount: transcript.length });
     if (state.batchDuplicateAnchorIndex !== null && state.batchOutcomes.length > 0) {
-      duplicates.setReplayToolMessageIndex(preAppendMessagesLength + 1 + state.batchDuplicateAnchorIndex);
+      duplicates.setReplayToolMessageIndex(preAppendMessagesLength + 1 + state.batchDuplicateAnchorIndex, transcript.generation);
     }
     for (const userMessage of state.pendingModeChangeUserMessages) {
       transcript.pushUser(userMessage);
@@ -469,7 +469,7 @@ export class ToolActionProcessor {
     const { toolAction, normalizedToolName, isNativeTool, command, fingerprint } = context;
     const { commands, counters, duplicates, forcedFinish, toolStats, transcript } = this.deps;
     const { reason, trigger, isSemantic } = REPEAT_KINDS[options.kind];
-    const registration = duplicates.registerDuplicate(options.duplicateFingerprint, transcript.length);
+    const registration = duplicates.registerDuplicate(options.duplicateFingerprint, transcript.length, transcript.generation);
     const repeatSummary = buildRepeatedToolCallSummary(normalizedToolName, registration.count);
     const duplicateMessage = options.bodyText ? `${options.bodyText}\n${repeatSummary}` : repeatSummary;
     counters.commandFailures += 1;

@@ -45,30 +45,30 @@ test('classify returns no duplicate before a success and when the prior success 
 
 test('registerDuplicate starts at 2 and increments only while the replay message is live', () => {
   const tracker = new DuplicateTracker();
-  const first = tracker.registerDuplicate('fp-1', 10);
+  const first = tracker.registerDuplicate('fp-1', 10, 0);
   assert.equal(first.count, 2);
   assert.equal(first.activeReplayMessageIndex, null);
-  tracker.setReplayToolMessageIndex(4);
-  const second = tracker.registerDuplicate('fp-1', 10);
+  tracker.setReplayToolMessageIndex(4, 0);
+  const second = tracker.registerDuplicate('fp-1', 10, 0);
   assert.equal(second.count, 3);
   assert.equal(second.activeReplayMessageIndex, 4);
   // index beyond message count -> treated as fresh
-  const stale = tracker.registerDuplicate('fp-1', 3);
+  const stale = tracker.registerDuplicate('fp-1', 3, 0);
   assert.equal(stale.count, 2);
   assert.equal(stale.activeReplayMessageIndex, null);
 });
 
 test('shouldForceFinish fires at DUPLICATE_FORCE_THRESHOLD and recordSuccess resets everything', () => {
   const tracker = new DuplicateTracker();
-  tracker.setReplayToolMessageIndex(1);
+  tracker.setReplayToolMessageIndex(1, 0);
   for (let i = 0; i < DUPLICATE_FORCE_THRESHOLD - 1; i += 1) {
-    tracker.registerDuplicate('fp-1', 10);
-    tracker.setReplayToolMessageIndex(1);
+    tracker.registerDuplicate('fp-1', 10, 0);
+    tracker.setReplayToolMessageIndex(1, 0);
   }
   assert.equal(tracker.shouldForceFinish(), true);
   tracker.recordSuccess('new key', 'fp-9');
   assert.equal(tracker.shouldForceFinish(), false);
-  assert.equal(tracker.registerDuplicate('fp-1', 10).count, 2);
+  assert.equal(tracker.registerDuplicate('fp-1', 10, 0).count, 2);
 });
 
 test('classify flags an exact duplicate even after other tools succeeded in between', () => {
@@ -110,4 +110,15 @@ test('forgetSuccesses clears the run-wide memory so a post-mutation repeat is al
   });
   assert.equal(after.isExactDuplicate, false);
   assert.equal(after.isSemanticDuplicate, false);
+});
+
+test('registerDuplicate ignores an anchor set before a transcript compaction', () => {
+  const tracker = new DuplicateTracker();
+  tracker.registerDuplicate('fp', 10, 0);
+  tracker.setReplayToolMessageIndex(4, 0);
+  const sameGeneration = tracker.registerDuplicate('fp', 10, 0);
+  assert.equal(sameGeneration.activeReplayMessageIndex, 4);
+  tracker.setReplayToolMessageIndex(4, 0);
+  const afterCompaction = tracker.registerDuplicate('fp', 10, 1);
+  assert.equal(afterCompaction.activeReplayMessageIndex, null);
 });

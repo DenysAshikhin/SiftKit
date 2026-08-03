@@ -12,6 +12,12 @@ import { buildUserContent } from '../../llm-protocol/image-attachments.js';
 export class TranscriptManager {
   private readonly messages: ChatMessage[];
   private lastLoggedMessageCount = 0;
+  private generationCounter = 0;
+
+  /** Incremented whenever compaction rewrites the message array, invalidating absolute indexes. */
+  get generation(): number {
+    return this.generationCounter;
+  }
 
   constructor(options: {
     systemPromptContent: string;
@@ -49,6 +55,7 @@ export class TranscriptManager {
   replaceWith(compactedMessages: ChatMessage[]): void {
     this.messages.splice(0, this.messages.length, ...compactedMessages);
     this.lastLoggedMessageCount = 0;
+    this.generationCounter += 1;
   }
 
   takeNewMessagesForLogging(): ChatMessage[] {
