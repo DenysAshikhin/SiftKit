@@ -124,13 +124,17 @@ export class StatusRunRegistry {
     if (existing) {
       existing.stepCount += 1;
       existing.currentRequestStartedAt = input.nowMs;
-      existing.rawInputCharacterCount = input.rawInputCharacterCount;
-      existing.promptCharacterCount = input.promptCharacterCount;
-      existing.promptTokenCount = input.promptTokenCount;
-      existing.chunkIndex = input.chunkIndex;
-      existing.chunkTotal = input.chunkTotal;
-      existing.chunkPath = input.chunkPath;
-      existing.managedLlamaSpeculativeSnapshot = input.managedLlamaSpeculativeSnapshot;
+      if (existing.rawInputCharacterCount === null && input.rawInputCharacterCount !== null) {
+        existing.rawInputCharacterCount = input.rawInputCharacterCount;
+      }
+      if (input.promptCharacterCount !== null) existing.promptCharacterCount = input.promptCharacterCount;
+      if (input.promptTokenCount !== null) existing.promptTokenCount = input.promptTokenCount;
+      if (input.chunkIndex !== null) existing.chunkIndex = input.chunkIndex;
+      if (input.chunkTotal !== null) existing.chunkTotal = input.chunkTotal;
+      if (input.chunkPath !== null) existing.chunkPath = input.chunkPath;
+      if (input.managedLlamaSpeculativeSnapshot !== null) {
+        existing.managedLlamaSpeculativeSnapshot = input.managedLlamaSpeculativeSnapshot;
+      }
       return createAdvancedResult(existing);
     }
     const run = createActiveRunState(input);

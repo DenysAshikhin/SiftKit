@@ -177,6 +177,57 @@ test('duplicate resolveTerminalRun returns duplicate result', () => {
   assert.equal(resolution.kind, 'duplicate');
 });
 
+function buildSparseStart(requestId: string, nowMs: number) {
+  const metadata = parseStatusMetadata(JSON.stringify({ requestId }));
+  return buildStatusRunStartInput(
+    requestId,
+    'C:/runtime/status.txt',
+    metadata,
+    'chat',
+    null,
+    nowMs,
+  );
+}
+
+test('advancing with sparse metadata preserves values captured on the first step', () => {
+  const registry = new StatusRunRegistry();
+  registry.startOrAdvance(buildStart('request-a', 1_000));
+  const advanced = registry.startOrAdvance(buildSparseStart('request-a', 2_000));
+  if (advanced.kind !== 'advanced') {
+    throw new Error(`Expected advanced result, received ${advanced.kind}.`);
+  }
+  assert.equal(advanced.run.stepCount, 2);
+  assert.equal(advanced.run.currentRequestStartedAt, 2_000);
+  assert.equal(advanced.run.rawInputCharacterCount, 10);
+  assert.equal(advanced.run.promptCharacterCount, 20);
+  assert.equal(advanced.run.promptTokenCount, 5);
+});
+
+test('advancing with fresh prompt metadata overwrites the previous step values', () => {
+  const registry = new StatusRunRegistry();
+  registry.startOrAdvance(buildStart('request-a', 1_000));
+  const secondMetadata = parseStatusMetadata(JSON.stringify({
+    requestId: 'request-a',
+    rawInputCharacterCount: 99,
+    promptCharacterCount: 200,
+    promptTokenCount: 50,
+  }));
+  const advanced = registry.startOrAdvance(buildStatusRunStartInput(
+    'request-a',
+    'C:/runtime/status.txt',
+    secondMetadata,
+    'chat',
+    null,
+    2_000,
+  ));
+  if (advanced.kind !== 'advanced') {
+    throw new Error(`Expected advanced result, received ${advanced.kind}.`);
+  }
+  assert.equal(advanced.run.rawInputCharacterCount, 10);
+  assert.equal(advanced.run.promptCharacterCount, 200);
+  assert.equal(advanced.run.promptTokenCount, 50);
+});
+
 test('completed-without-run when markComplete called without prior start', () => {
   const registry = new StatusRunRegistry();
   const result = registry.markComplete('request-a', 'completed', 1_000);
