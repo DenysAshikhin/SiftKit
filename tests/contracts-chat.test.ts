@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ChatSessionResponseSchema, ChatMessageSchema, ChatSessionSchema, ChatSessionBusyResponseSchema } from '@siftkit/contracts';
+import { ChatSessionResponseSchema, ChatMessageSchema, ChatSessionSchema, ChatSessionBusyResponseSchema, ChatSessionOperationKindSchema } from '@siftkit/contracts';
 
 const message = {
   id: 'm1', role: 'user', content: 'hi',
@@ -40,4 +40,11 @@ test('ChatSessionBusyResponseSchema preserves the conflicting session', () => {
     operationKind: 'message',
   });
   assert.equal(parsed.sessionId, 'session-a');
+});
+
+test('chat session operation kinds cover every leased chat endpoint', () => {
+  assert.deepEqual(
+    ChatSessionOperationKindSchema.options,
+    ['message', 'plan', 'repo-search', 'condense'],
+  );
 });

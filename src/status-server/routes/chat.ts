@@ -6,12 +6,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type {
   ChatSession as WireChatSession,
   ChatMessage as WireChatMessage,
-  ChatSessionOperationKind,
   ChatSessionResponse,
   ChatSessionsResponse,
 } from '@siftkit/contracts';
 import type { ChatMessage as PersistedChatMessage } from '../../state/chat-sessions.js';
-import { existsSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { JsonRecordReader } from '../../lib/json-record-reader.js';
@@ -60,8 +58,6 @@ import { buildChatPromptContext } from '../chat-prompt-context.js';
 import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
 import {
-  parseChatMessageRequest,
-  parseChatRepoRequest,
   parseChatSessionCreateRequest,
   parseChatSessionUpdateRequest,
 } from '../chat-route-request-normalizers.js';
@@ -99,30 +95,17 @@ import {
   ensureActivePresetReadyForModelRequest,
 } from '../server-ops.js';
 import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.js';
-import type { ChatSessionOperation } from '../chat-session-operation-registry.js';
 import type { ServerContext } from '../server-types.js';
 import { ProgressWriter } from '../../lib/progress-writer.js';
-
-function rejectBusyChatSession(
-  ctx: ServerContext,
-  res: ServerResponse,
-  sessionId: string,
-  requestedOperationKind: ChatSessionOperationKind,
-  active: ChatSessionOperation,
-): void {
-  serverLogger.dim({
-    scope: 'chat',
-    id: sessionId,
-    event: 'session_busy_rejected',
-    fields: `requested=${requestedOperationKind} active=${active.operationKind} `
-      + `active_duration_ms=${Date.now() - active.startedAtMs} active_sessions=${ctx.chatSessionOperations.getActiveCount()}`,
-  });
-  sendJson(res, 409, {
-    error: 'Chat session already has an active operation.',
-    sessionId,
-    operationKind: active.operationKind,
-  });
-}
+import {
+  ChatSessionOperationEndpoint,
+  parseChatMessageOperationRequest,
+  parseChatRepoOperationRequest,
+  type ChatSessionOperationRequest,
+  type ResolvedChatRepoRequest,
+} from './chat-session-operation-endpoint.js';
+import type { ChatMessageRequest } from '../chat-route-request-normalizers.js';
+import type { JsonObject } from '../../lib/json-types.js';
 
 async function readEffectiveChatRouteConfig(configPath: string): Promise<SiftConfig> {
   const localConfig = readConfig(configPath);
@@ -271,16 +254,6 @@ function buildChatRepoOperationRequest(options: {
     mockCommandResults: normalizeRepoSearchMockCommandResults(options.parsedBody.mockCommandResults),
     managedLlamaRunId: options.ctx.managedLlamaLastStartupLogs?.runId ?? null,
   };
-}
-
-function readSessionRepoRoot(session: ChatSession): string {
-  return typeof session.planRepoRoot === 'string' && session.planRepoRoot.trim()
-    ? session.planRepoRoot.trim()
-    : process.cwd();
-}
-
-function resolveChatRepoRoot(request: { repoRoot?: string }, session: ChatSession): string {
-  return resolve(request.repoRoot || readSessionRepoRoot(session));
 }
 
 type SessionSpeculativeMetrics = {
@@ -747,47 +720,32 @@ class ChatMessageTurn {
   }
 }
 
-class CreateChatMessageEndpoint implements RouteEndpoint {
-  async handle(
+class CreateChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessageRequest> {
+  protected readonly operationKind = 'message' as const;
+
+  protected parseRequest(
+    res: ServerResponse,
+    _session: ChatSession,
+    parsedBody: JsonObject,
+  ): ChatMessageRequest | null {
+    return parseChatMessageOperationRequest(res, parsedBody);
+  }
+
+  protected async run(
     ctx: ServerContext,
     req: IncomingMessage,
     res: ServerResponse,
-    routeMatch: RouteMatch,
+    request: ChatSessionOperationRequest<ChatMessageRequest>,
   ): Promise<void> {
-    const pathname = routeMatch.pathname;
     const { configPath } = ctx;
     const runtimeRoot = getRuntimeRoot();
-    const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/messages$/u, ''));
-    const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
-    const session = readChatSessionFromPath(sessionPath);
-    if (!session) {
-      sendJson(res, 404, { error: 'Session not found.' });
-      return;
-    }
-    let parsedBody: ReturnType<typeof parseJsonBody>;
-    try {
-      parsedBody = parseJsonBody(await readBody(req));
-    } catch (error) {
-      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
-      return;
-    }
-    const messageRequest = parseChatMessageRequest(parsedBody);
-    if (!messageRequest) {
-      sendJson(res, 400, { error: 'Expected content.' });
-      return;
-    }
+    const messageRequest = request.value;
     const providedAssistantContent = messageRequest.assistantContent || '';
-    const acquisition = ctx.chatSessionOperations.acquire(sessionId, 'message', Date.now());
-    if (acquisition.kind === 'conflict') {
-      rejectBusyChatSession(ctx, res, sessionId, 'message', acquisition.active);
-      return;
-    }
-    try {
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat', req, res);
     if (!modelRequestLock) {
       return;
     }
-    const activeSession = readChatSessionFromPath(sessionPath);
+    const activeSession = readChatSessionFromPath(request.sessionPath);
     if (!activeSession) {
       releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 404, { error: 'Session not found.' });
@@ -806,8 +764,7 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
       const config = readConfig(configPath);
       let selected: SelectedChatOperationPreset;
       try {
-        selected = new ChatOperationPresetSelector(config.Presets)
-          .select(activeSession, 'chat');
+        selected = new ChatOperationPresetSelector(config.Presets).select(activeSession, 'chat');
       } catch (error) {
         sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
         return;
@@ -822,7 +779,7 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
         selected.preset,
         messageRequest.content,
         messageRequest.images,
-        readRouteStringArray(new JsonRecordReader(parsedBody), 'mockResponses'),
+        readRouteStringArray(new JsonRecordReader(request.parsedBody), 'mockResponses'),
       );
       if (providedAssistantContent) {
         await turn.runProvidedAssistantTurn(providedAssistantContent);
@@ -832,53 +789,34 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
     }
-    } finally {
-      ctx.chatSessionOperations.release(acquisition.lease);
-    }
-    return;
   }
 }
 
-class StreamChatMessageEndpoint implements RouteEndpoint {
-  async handle(
+class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessageRequest> {
+  protected readonly operationKind = 'message' as const;
+
+  protected parseRequest(
+    res: ServerResponse,
+    _session: ChatSession,
+    parsedBody: JsonObject,
+  ): ChatMessageRequest | null {
+    return parseChatMessageOperationRequest(res, parsedBody);
+  }
+
+  protected async run(
     ctx: ServerContext,
     req: IncomingMessage,
     res: ServerResponse,
-    routeMatch: RouteMatch,
+    request: ChatSessionOperationRequest<ChatMessageRequest>,
   ): Promise<void> {
-    const pathname = routeMatch.pathname;
     const { configPath } = ctx;
     const runtimeRoot = getRuntimeRoot();
-    const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/messages\/stream$/u, ''));
-    const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
-    const session = readChatSessionFromPath(sessionPath);
-    if (!session) {
-      sendJson(res, 404, { error: 'Session not found.' });
-      return;
-    }
-    let parsedBody: ReturnType<typeof parseJsonBody>;
-    try {
-      parsedBody = parseJsonBody(await readBody(req));
-    } catch (error) {
-      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
-      return;
-    }
-    const messageRequest = parseChatMessageRequest(parsedBody);
-    if (!messageRequest) {
-      sendJson(res, 400, { error: 'Expected content.' });
-      return;
-    }
-    const acquisition = ctx.chatSessionOperations.acquire(sessionId, 'message', Date.now());
-    if (acquisition.kind === 'conflict') {
-      rejectBusyChatSession(ctx, res, sessionId, 'message', acquisition.active);
-      return;
-    }
-    try {
+    const messageRequest = request.value;
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat_stream', req, res);
     if (!modelRequestLock) {
       return;
     }
-    const activeSession = readChatSessionFromPath(sessionPath);
+    const activeSession = readChatSessionFromPath(request.sessionPath);
     if (!activeSession) {
       releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 404, { error: 'Session not found.' });
@@ -905,7 +843,7 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
       const selected = new ChatOperationPresetSelector(config.Presets).select(activeSession, 'chat');
       assertPresetAcceptsImages(getActiveModelPreset(config), messageRequest.images);
       const selectedSession = selected.session;
-      const reader = new JsonRecordReader(parsedBody);
+      const reader = new JsonRecordReader(request.parsedBody);
       const webOverrideRaw = reader.optionalString('webSearchOverride');
       const webEnabled = webOverrideRaw === 'on'
         ? true
@@ -931,7 +869,7 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
         retainedWebToolCalls: webEnabled ? buildRetainedWebToolCalls(selectedSession) : [],
         maxTurns: readRouteNumber(reader, 'maxTurns'),
         availableModels: readRouteStringArray(reader, 'availableModels'),
-        mockCommandResults: normalizeRepoSearchMockCommandResults(parsedBody.mockCommandResults),
+        mockCommandResults: normalizeRepoSearchMockCommandResults(request.parsedBody.mockCommandResults),
         initialUserImages: messageRequest.images,
         ...(mockResponses ? { mockResponses } : {}),
         progressWriter: new ChatStreamProgressWriter(
@@ -990,58 +928,33 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
       releaseModelRequest(ctx, modelRequestLock.token);
       sseWriter.end();
     }
-    } finally {
-      ctx.chatSessionOperations.release(acquisition.lease);
-    }
-    return;
   }
 }
 
-class CreateChatPlanEndpoint implements RouteEndpoint {
-  async handle(
+class CreateChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRepoRequest> {
+  protected readonly operationKind = 'plan' as const;
+
+  protected parseRequest(
+    res: ServerResponse,
+    session: ChatSession,
+    parsedBody: JsonObject,
+  ): ResolvedChatRepoRequest | null {
+    return parseChatRepoOperationRequest(res, session, parsedBody);
+  }
+
+  protected async run(
     ctx: ServerContext,
     req: IncomingMessage,
     res: ServerResponse,
-    routeMatch: RouteMatch,
+    request: ChatSessionOperationRequest<ResolvedChatRepoRequest>,
   ): Promise<void> {
-    const pathname = routeMatch.pathname;
     const { configPath } = ctx;
     const runtimeRoot = getRuntimeRoot();
-    const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/plan$/u, ''));
-    const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
-    const session = readChatSessionFromPath(sessionPath);
-    if (!session) {
-      sendJson(res, 404, { error: 'Session not found.' });
-      return;
-    }
-    let parsedBody: ReturnType<typeof parseJsonBody>;
-    try {
-      parsedBody = parseJsonBody(await readBody(req));
-    } catch (error) {
-      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
-      return;
-    }
-    const repoRequest = parseChatRepoRequest(parsedBody);
-    if (!repoRequest) {
-      sendJson(res, 400, { error: 'Expected content.' });
-      return;
-    }
-    const resolvedRepoRoot = resolveChatRepoRoot(repoRequest, session);
-    if (!existsSync(resolvedRepoRoot) || !statSync(resolvedRepoRoot).isDirectory()) {
-      sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
-      return;
-    }
-    const acquisition = ctx.chatSessionOperations.acquire(sessionId, 'plan', Date.now());
-    if (acquisition.kind === 'conflict') {
-      rejectBusyChatSession(ctx, res, sessionId, 'plan', acquisition.active);
-      return;
-    }
-    try {
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_plan', req, res);
     if (!modelRequestLock) {
       return;
     }
-    const activeSession = readChatSessionFromPath(sessionPath);
+    const activeSession = readChatSessionFromPath(request.sessionPath);
     if (!activeSession) {
       releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 404, { error: 'Session not found.' });
@@ -1054,8 +967,8 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
         sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
         return;
       }
-      const content = repoRequest.content;
-      const reader = new JsonRecordReader(parsedBody);
+      const content = request.value.content;
+      const reader = new JsonRecordReader(request.parsedBody);
       const config = readConfig(configPath);
       const engineRequestId = randomUUID();
       const result = await new ChatRepoOperationRunner().runPlan(buildChatRepoOperationRequest({
@@ -1064,9 +977,9 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
         session: activeSession,
         config,
         content,
-        repoRoot: resolvedRepoRoot,
+        repoRoot: request.value.repoRoot,
         reader,
-        parsedBody,
+        parsedBody: request.parsedBody,
         requestId: engineRequestId,
         progressWriter: new RepoSearchToolLogProgressWriter('plan', engineRequestId),
       }));
@@ -1079,58 +992,33 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
     }
-    } finally {
-      ctx.chatSessionOperations.release(acquisition.lease);
-    }
-    return;
   }
 }
 
-class StreamChatPlanEndpoint implements RouteEndpoint {
-  async handle(
+class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRepoRequest> {
+  protected readonly operationKind = 'plan' as const;
+
+  protected parseRequest(
+    res: ServerResponse,
+    session: ChatSession,
+    parsedBody: JsonObject,
+  ): ResolvedChatRepoRequest | null {
+    return parseChatRepoOperationRequest(res, session, parsedBody);
+  }
+
+  protected async run(
     ctx: ServerContext,
     req: IncomingMessage,
     res: ServerResponse,
-    routeMatch: RouteMatch,
+    request: ChatSessionOperationRequest<ResolvedChatRepoRequest>,
   ): Promise<void> {
-    const pathname = routeMatch.pathname;
     const { configPath } = ctx;
     const runtimeRoot = getRuntimeRoot();
-    const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/plan\/stream$/u, ''));
-    const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
-    const session = readChatSessionFromPath(sessionPath);
-    if (!session) {
-      sendJson(res, 404, { error: 'Session not found.' });
-      return;
-    }
-    let parsedBody: ReturnType<typeof parseJsonBody>;
-    try {
-      parsedBody = parseJsonBody(await readBody(req));
-    } catch (error) {
-      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
-      return;
-    }
-    const repoRequest = parseChatRepoRequest(parsedBody);
-    if (!repoRequest) {
-      sendJson(res, 400, { error: 'Expected content.' });
-      return;
-    }
-    const resolvedRepoRoot = resolveChatRepoRoot(repoRequest, session);
-    if (!existsSync(resolvedRepoRoot) || !statSync(resolvedRepoRoot).isDirectory()) {
-      sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
-      return;
-    }
-    const acquisition = ctx.chatSessionOperations.acquire(sessionId, 'plan', Date.now());
-    if (acquisition.kind === 'conflict') {
-      rejectBusyChatSession(ctx, res, sessionId, 'plan', acquisition.active);
-      return;
-    }
-    try {
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_plan_stream', req, res);
     if (!modelRequestLock) {
       return;
     }
-    const activeSession = readChatSessionFromPath(sessionPath);
+    const activeSession = readChatSessionFromPath(request.sessionPath);
     if (!activeSession) {
       releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 404, { error: 'Session not found.' });
@@ -1146,8 +1034,8 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
     const sseWriter = new SseResponseWriter(req, res);
     sseWriter.open();
     try {
-      const content = repoRequest.content;
-      const reader = new JsonRecordReader(parsedBody);
+      const content = request.value.content;
+      const reader = new JsonRecordReader(request.parsedBody);
       const config = readConfig(configPath);
       const engineRequestId = randomUUID();
       const result = await new ChatRepoOperationRunner().runPlan(buildChatRepoOperationRequest({
@@ -1156,9 +1044,9 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
         session: activeSession,
         config,
         content,
-        repoRoot: resolvedRepoRoot,
+        repoRoot: request.value.repoRoot,
         reader,
-        parsedBody,
+        parsedBody: request.parsedBody,
         requestId: engineRequestId,
         progressWriter: new ChatStreamProgressWriter(
           sseWriter,
@@ -1179,146 +1067,97 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
       releaseModelRequest(ctx, modelRequestLock.token);
       sseWriter.end();
     }
-    } finally {
-      ctx.chatSessionOperations.release(acquisition.lease);
-    }
-    return;
   }
 }
 
-class CreateRepoSearchEndpoint implements RouteEndpoint {
-  async handle(
+class CreateRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRepoRequest> {
+  protected readonly operationKind = 'repo-search' as const;
+
+  protected parseRequest(
+    res: ServerResponse,
+    session: ChatSession,
+    parsedBody: JsonObject,
+  ): ResolvedChatRepoRequest | null {
+    return parseChatRepoOperationRequest(res, session, parsedBody);
+  }
+
+  protected async run(
     ctx: ServerContext,
     req: IncomingMessage,
     res: ServerResponse,
-    routeMatch: RouteMatch,
+    request: ChatSessionOperationRequest<ResolvedChatRepoRequest>,
   ): Promise<void> {
-    const pathname = routeMatch.pathname;
     const { configPath } = ctx;
     const runtimeRoot = getRuntimeRoot();
-    const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/repo-search$/u, ''));
-    const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
-    const session = readChatSessionFromPath(sessionPath);
-    if (!session) {
+    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_repo_search', req, res);
+    if (!modelRequestLock) {
+      return;
+    }
+    const activeSession = readChatSessionFromPath(request.sessionPath);
+    if (!activeSession) {
+      releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 404, { error: 'Session not found.' });
       return;
     }
-    let parsedBody: ReturnType<typeof parseJsonBody>;
     try {
-      parsedBody = parseJsonBody(await readBody(req));
-    } catch (error) {
-      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
-      return;
-    }
-    const repoRequest = parseChatRepoRequest(parsedBody);
-    if (!repoRequest) {
-      sendJson(res, 400, { error: 'Expected content.' });
-      return;
-    }
-    const resolvedRepoRoot = resolveChatRepoRoot(repoRequest, session);
-    if (!existsSync(resolvedRepoRoot) || !statSync(resolvedRepoRoot).isDirectory()) {
-      sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
-      return;
-    }
-    const acquisition = ctx.chatSessionOperations.acquire(sessionId, 'repo-search', Date.now());
-    if (acquisition.kind === 'conflict') {
-      rejectBusyChatSession(ctx, res, sessionId, 'repo-search', acquisition.active);
-      return;
-    }
-    try {
-      const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_repo_search', req, res);
-      if (!modelRequestLock) {
-        return;
-      }
-      const activeSession = readChatSessionFromPath(sessionPath);
-      if (!activeSession) {
-        releaseModelRequest(ctx, modelRequestLock.token);
-        sendJson(res, 404, { error: 'Session not found.' });
-        return;
-      }
       try {
-        try {
-          await ensureActivePresetReadyForModelRequest(ctx);
-        } catch (error) {
-          sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
-          return;
-        }
-        const content = repoRequest.content;
-        const reader = new JsonRecordReader(parsedBody);
-        const config = readConfig(configPath);
-        const engineRequestId = randomUUID();
-        const result = await new ChatRepoOperationRunner().runRepoSearch(buildChatRepoOperationRequest({
-          ctx,
-          runtimeRoot,
-          session: activeSession,
-          config,
-          content,
-          repoRoot: resolvedRepoRoot,
-          reader,
-          parsedBody,
-          requestId: engineRequestId,
-          progressWriter: new RepoSearchToolLogProgressWriter('rs', engineRequestId),
-        }));
-        sendJson(res, 200, {
-          ...buildChatSessionResponse(config, result.updatedSession),
-          repoSearch: result.repoSearch,
-        });
+        await ensureActivePresetReadyForModelRequest(ctx);
       } catch (error) {
-        sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
-      } finally {
-        releaseModelRequest(ctx, modelRequestLock.token);
+        sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
+        return;
       }
+      const content = request.value.content;
+      const reader = new JsonRecordReader(request.parsedBody);
+      const config = readConfig(configPath);
+      const engineRequestId = randomUUID();
+      const result = await new ChatRepoOperationRunner().runRepoSearch(buildChatRepoOperationRequest({
+        ctx,
+        runtimeRoot,
+        session: activeSession,
+        config,
+        content,
+        repoRoot: request.value.repoRoot,
+        reader,
+        parsedBody: request.parsedBody,
+        requestId: engineRequestId,
+        progressWriter: new RepoSearchToolLogProgressWriter('rs', engineRequestId),
+      }));
+      sendJson(res, 200, {
+        ...buildChatSessionResponse(config, result.updatedSession),
+        repoSearch: result.repoSearch,
+      });
+    } catch (error) {
+      sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
     } finally {
-      ctx.chatSessionOperations.release(acquisition.lease);
+      releaseModelRequest(ctx, modelRequestLock.token);
     }
   }
 }
 
-class StreamRepoSearchEndpoint implements RouteEndpoint {
-  async handle(
+class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRepoRequest> {
+  protected readonly operationKind = 'repo-search' as const;
+
+  protected parseRequest(
+    res: ServerResponse,
+    session: ChatSession,
+    parsedBody: JsonObject,
+  ): ResolvedChatRepoRequest | null {
+    return parseChatRepoOperationRequest(res, session, parsedBody);
+  }
+
+  protected async run(
     ctx: ServerContext,
     req: IncomingMessage,
     res: ServerResponse,
-    routeMatch: RouteMatch,
+    request: ChatSessionOperationRequest<ResolvedChatRepoRequest>,
   ): Promise<void> {
-    const pathname = routeMatch.pathname;
     const { configPath } = ctx;
     const runtimeRoot = getRuntimeRoot();
-    const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/repo-search\/stream$/u, ''));
-    const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
-    const session = readChatSessionFromPath(sessionPath);
-    if (!session) {
-      sendJson(res, 404, { error: 'Session not found.' });
-      return;
-    }
-    let parsedBody: ReturnType<typeof parseJsonBody>;
-    try {
-      parsedBody = parseJsonBody(await readBody(req));
-    } catch (error) {
-      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
-      return;
-    }
-    const repoRequest = parseChatRepoRequest(parsedBody);
-    if (!repoRequest) {
-      sendJson(res, 400, { error: 'Expected content.' });
-      return;
-    }
-    const resolvedRepoRoot = resolveChatRepoRoot(repoRequest, session);
-    if (!existsSync(resolvedRepoRoot) || !statSync(resolvedRepoRoot).isDirectory()) {
-      sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
-      return;
-    }
-    const acquisition = ctx.chatSessionOperations.acquire(sessionId, 'repo-search', Date.now());
-    if (acquisition.kind === 'conflict') {
-      rejectBusyChatSession(ctx, res, sessionId, 'repo-search', acquisition.active);
-      return;
-    }
-    try {
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_repo_search_stream', req, res);
     if (!modelRequestLock) {
       return;
     }
-    const activeSession = readChatSessionFromPath(sessionPath);
+    const activeSession = readChatSessionFromPath(request.sessionPath);
     if (!activeSession) {
       releaseModelRequest(ctx, modelRequestLock.token);
       sendJson(res, 404, { error: 'Session not found.' });
@@ -1334,8 +1173,8 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
     const sseWriter = new SseResponseWriter(req, res);
     sseWriter.open();
     try {
-      const content = repoRequest.content;
-      const reader = new JsonRecordReader(parsedBody);
+      const content = request.value.content;
+      const reader = new JsonRecordReader(request.parsedBody);
       const config = readConfig(configPath);
       const engineRequestId = randomUUID();
       const result = await new ChatRepoOperationRunner().runRepoSearch(buildChatRepoOperationRequest({
@@ -1344,9 +1183,9 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
         session: activeSession,
         config,
         content,
-        repoRoot: resolvedRepoRoot,
+        repoRoot: request.value.repoRoot,
         reader,
-        parsedBody,
+        parsedBody: request.parsedBody,
         requestId: engineRequestId,
         progressWriter: new ChatStreamProgressWriter(
           sseWriter,
@@ -1367,32 +1206,24 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
       releaseModelRequest(ctx, modelRequestLock.token);
       sseWriter.end();
     }
-    } finally {
-      ctx.chatSessionOperations.release(acquisition.lease);
-    }
-    return;
   }
 }
 
-class CondenseChatSessionEndpoint implements RouteEndpoint {
-  async handle(
+class CondenseChatSessionEndpoint extends ChatSessionOperationEndpoint<'condense'> {
+  protected readonly operationKind = 'condense' as const;
+
+  protected parseRequest(): 'condense' {
+    return 'condense';
+  }
+
+  protected async run(
     ctx: ServerContext,
-    req: IncomingMessage,
+    _req: IncomingMessage,
     res: ServerResponse,
-    routeMatch: RouteMatch,
+    request: ChatSessionOperationRequest<'condense'>,
   ): Promise<void> {
-    const pathname = routeMatch.pathname;
-    const { configPath } = ctx;
-    const runtimeRoot = getRuntimeRoot();
-    const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/condense$/u, ''));
-    const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
-    if (!session) {
-      sendJson(res, 404, { error: 'Session not found.' });
-      return;
-    }
-    const updatedSession = condenseChatSession(runtimeRoot, session);
-    sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), updatedSession));
-    return;
+    const updatedSession = condenseChatSession(getRuntimeRoot(), request.session);
+    sendJson(res, 200, buildChatSessionResponse(readConfig(ctx.configPath), updatedSession));
   }
 }
 const CHAT_ROUTES = new RouteTable([

@@ -114,3 +114,38 @@ test('aborting one concurrent session releases only that session lease', async (
     await harness.close();
   }
 });
+
+test('condense is rejected while the same session is streaming and allowed once it settles', async () => {
+  const harness = new DashboardModelQueueHarness('siftkit-chat-condense-', { exl3ActivePreset: true });
+  await harness.start();
+  try {
+    const sessionA = await harness.createChatSession('A', 'model-a');
+    const sessionB = await harness.createChatSession('B', 'model-a');
+    const streamA = harness.startChatStream(sessionA, 'prompt-a');
+    await harness.waitForActiveRequests('dashboard_chat_stream', 1);
+
+    const busyCondense = await requestJson(
+      `${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionA}/condense`,
+      { method: 'POST', body: JSON.stringify({}) },
+    );
+    assert.equal(busyCondense.statusCode, 409);
+    assert.equal(asObject(busyCondense.body).operationKind, 'message');
+
+    const otherCondense = await requestJson(
+      `${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionB}/condense`,
+      { method: 'POST', body: JSON.stringify({}) },
+    );
+    assert.equal(otherCondense.statusCode, 200);
+
+    harness.releaseChatResponse('answer-a');
+    await streamA;
+
+    const settledCondense = await requestJson(
+      `${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionA}/condense`,
+      { method: 'POST', body: JSON.stringify({}) },
+    );
+    assert.equal(settledCondense.statusCode, 200);
+  } finally {
+    await harness.close();
+  }
+});
