@@ -48,7 +48,7 @@ function buildDefaultStore(sessionId: string): ChatSessionRuntimeStore {
   return new ChatSessionRuntimeStore()
     .ensureSession('session-a')
     .ensureSession('session-b')
-    .setDraft(sessionId, 'hi');
+    .apply({ kind: 'draft', sessionId, draft: 'hi' });
 }
 
 function render(overrides: Partial<ChatTabProps> = {}): string {
@@ -92,7 +92,7 @@ test('chat tab renders session lane, controls, messages, and composer', () => {
 });
 
 test('busy A stays visible while selected B remains interactive', () => {
-  const store = buildDefaultStore('session-b').begin('session-a', 'message');
+  const store = buildDefaultStore('session-b').apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message' });
   const markup = render({
     selectedSessionId: 'session-b',
     selectedSession: SESSION_B,
@@ -106,7 +106,7 @@ test('busy A stays visible while selected B remains interactive', () => {
 });
 
 test('selected busy A disables only its mutable controls', () => {
-  const store = buildDefaultStore('session-a').begin('session-a', 'message');
+  const store = buildDefaultStore('session-a').apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message' });
   const markup = render({ selectedRuntime: store.get('session-a'), sessionRuntimes: store.getAll() });
   assert.match(markup, /class="send"[^>]*disabled/u);
   assert.match(markup, /class="ghost-btn"[^>]*disabled[^>]*>Delete/u);
@@ -115,8 +115,8 @@ test('selected busy A disables only its mutable controls', () => {
 
 test('selected session alone supplies errors and warnings', () => {
   const store = buildDefaultStore('session-b')
-    .applyWarning('session-a', 'warning-a')
-    .applyFailure('session-a', 'error-a');
+    .apply({ kind: 'warning', sessionId: 'session-a', text: 'warning-a' })
+    .apply({ kind: 'failure', sessionId: 'session-a', message: 'error-a' });
   const selectedB = render({
     selectedSessionId: 'session-b',
     selectedSession: SESSION_B,
@@ -134,18 +134,18 @@ test('selected session alone supplies errors and warnings', () => {
 
 test('a running tool message renders a ToolCallCard with spinner', () => {
   const store = buildDefaultStore('session-a')
-    .begin('session-a', 'message')
-    .applyToolEvent('session-a', { kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2, command: 'rg x' });
+    .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message' })
+    .apply({ kind: 'tool', sessionId: 'session-a', toolEvent: { kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2, command: 'rg x' } });
   const markup = render({ selectedRuntime: store.get('session-a'), sessionRuntimes: store.getAll() });
   assert.match(markup, /class="tcall"/);
   assert.match(markup, /class="sp"/);
 });
 
 test('selected context usage renders the warning context bar', () => {
-  const responseStore = buildDefaultStore('session-a').applyDone('session-a', {
+  const responseStore = buildDefaultStore('session-a').apply({ kind: 'done', sessionId: 'session-a', response: {
     session: SESSION_A,
     contextUsage: CONTEXT_USAGE,
-  });
+  }});
   const markup = render({ selectedRuntime: responseStore.get('session-a'), sessionRuntimes: responseStore.getAll() });
   assert.match(markup, /class="ctx warn"/);
 });

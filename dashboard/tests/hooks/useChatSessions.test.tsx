@@ -51,7 +51,7 @@ test('upsertSession updates A without replacing selected B', () => {
 test('adding a new session leaves another session streaming', () => {
   const runtimeStore = new ChatSessionRuntimeStore()
     .ensureSession('session-a')
-    .begin('session-a', 'message');
+    .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message' });
   const sessions = upsertSession(
     [{ ...SESSION, id: 'session-a' }],
     { ...SESSION, id: 'session-b' },

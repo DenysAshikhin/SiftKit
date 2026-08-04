@@ -24,8 +24,8 @@ function session(messages: ChatMessage[]): ChatSession {
 test('active session with a running tool live message returns tool', () => {
   const runtime = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .begin('s1', 'message')
-    .applyToolEvent('s1', { kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2, command: 'rg x' })
+    .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message' })
+    .apply({ kind: 'tool', sessionId: 's1', toolEvent: { kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2, command: 'rg x' } })
     .get('s1');
   assert.equal(deriveSessionIndicator(session([]), runtime), 'tool');
 });
@@ -33,8 +33,8 @@ test('active session with a running tool live message returns tool', () => {
 test('active streaming assistant with no running tool returns streaming', () => {
   const runtime = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .begin('s1', 'message')
-    .applyAnswer('s1', 'partial')
+    .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message' })
+    .apply({ kind: 'answer', sessionId: 's1', text: 'partial' })
     .get('s1');
   assert.equal(deriveSessionIndicator(session([]), runtime), 'streaming');
 });
@@ -61,7 +61,7 @@ test('completed answer returns completed', () => {
 test('runtime failure overrides completed persisted messages', () => {
   const runtime = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .applyFailure('s1', 'backend failed')
+    .apply({ kind: 'failure', sessionId: 's1', message: 'backend failed' })
     .get('s1');
   assert.equal(deriveSessionIndicator(session([]), runtime), 'failed');
 });

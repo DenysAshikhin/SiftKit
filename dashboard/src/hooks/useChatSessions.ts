@@ -11,6 +11,7 @@ import {
   updateChatSession,
 } from '../api';
 import { ChatSessionRuntimeStore } from '../lib/chat-session-runtime-store';
+import type { ChatStreamToolEvent } from '../lib/chat-stream-parser';
 import type { ChatSession, ChatSessionResponse, ChatSessionOperationKind } from '../types';
 
 export type CreateChatSessionRequest = {
@@ -55,7 +56,7 @@ export function useChatSessions(deps: {
     if (!sessionId) {
       return;
     }
-    setRuntimeStore((previous) => previous.ensureSession(sessionId).applyFailure(sessionId, error.message));
+    setRuntimeStore((prev) => prev.apply({ kind: 'failure', sessionId, message: error.message }));
   }
 
   useEffect(() => {
@@ -100,9 +101,11 @@ export function useChatSessions(deps: {
       .then((response) => {
         if (!cancelled) {
           setSessions((previous) => upsertSession(previous, response.session));
-          setRuntimeStore((previous) => previous
-            .ensureSession(response.session.id)
-            .setContextUsage(response.session.id, response.contextUsage));
+          setRuntimeStore((previous) => previous.apply({
+            kind: 'context-usage',
+            sessionId: response.session.id,
+            contextUsage: response.contextUsage,
+          }));
         }
       })
       .catch((error) => {
@@ -117,29 +120,31 @@ export function useChatSessions(deps: {
 
   function applySessionResponse(response: ChatSessionResponse): void {
     setSessions((previous) => upsertSession(previous, response.session));
-    setRuntimeStore((previous) => previous
-      .ensureSession(response.session.id)
-      .setContextUsage(response.session.id, response.contextUsage));
+    setRuntimeStore((previous) => previous.apply({
+      kind: 'context-usage',
+      sessionId: response.session.id,
+      contextUsage: response.contextUsage,
+    }));
   }
 
   function beginSessionOperation(sessionId: string, operationKind: ChatSessionOperationKind): void {
-    setRuntimeStore((prev) => prev.ensureSession(sessionId).begin(sessionId, operationKind));
+    setRuntimeStore((prev) => prev.apply({ kind: 'begin', sessionId, operationKind }));
   }
 
   function appendSessionThinking(sessionId: string, text: string): void {
-    setRuntimeStore((prev) => prev.appendThinking(sessionId, text));
+    setRuntimeStore((prev) => prev.apply({ kind: 'thinking', sessionId, text }));
   }
 
-  function applySessionToolEvent(sessionId: string, toolEvent: Parameters<ChatSessionRuntimeStore['applyToolEvent']>[1]): void {
-    setRuntimeStore((prev) => prev.applyToolEvent(sessionId, toolEvent));
+  function applySessionToolEvent(sessionId: string, toolEvent: ChatStreamToolEvent): void {
+    setRuntimeStore((prev) => prev.apply({ kind: 'tool', sessionId, toolEvent }));
   }
 
   function applySessionAnswer(sessionId: string, text: string): void {
-    setRuntimeStore((prev) => prev.applyAnswer(sessionId, text));
+    setRuntimeStore((prev) => prev.apply({ kind: 'answer', sessionId, text }));
   }
 
   function applySessionWarning(sessionId: string, text: string): void {
-    setRuntimeStore((prev) => prev.applyWarning(sessionId, text));
+    setRuntimeStore((prev) => prev.apply({ kind: 'warning', sessionId, text }));
   }
 
   function completeSessionOperation(sessionId: string, response: ChatSessionResponse): void {
@@ -147,23 +152,23 @@ export function useChatSessions(deps: {
       throw new Error(`Chat stream session mismatch: expected "${sessionId}", received "${response.session.id}"`);
     }
     setSessions((previous) => upsertSession(previous, response.session));
-    setRuntimeStore((previous) => previous.applyDone(response.session.id, response));
+    setRuntimeStore((previous) => previous.apply({ kind: 'done', sessionId: response.session.id, response }));
   }
 
   function failSessionOperation(sessionId: string, message: string): void {
-    setRuntimeStore((prev) => prev.applyFailure(sessionId, message));
+    setRuntimeStore((prev) => prev.apply({ kind: 'failure', sessionId, message }));
   }
 
   function setSessionDraft(sessionId: string, draft: string): void {
-    setRuntimeStore((prev) => prev.setDraft(sessionId, draft));
+    setRuntimeStore((prev) => prev.apply({ kind: 'draft', sessionId, draft }));
   }
 
   function setSessionImages(sessionId: string, images: string[]): void {
-    setRuntimeStore((prev) => prev.setImages(sessionId, images));
+    setRuntimeStore((prev) => prev.apply({ kind: 'images', sessionId, images }));
   }
 
   function setSessionPlanInputs(sessionId: string, planRepoRootInput: string, planMaxTurnsInput: string): void {
-    setRuntimeStore((prev) => prev.setPlanInputs(sessionId, planRepoRootInput, planMaxTurnsInput));
+    setRuntimeStore((prev) => prev.apply({ kind: 'plan-inputs', sessionId, planRepoRootInput, planMaxTurnsInput }));
   }
 
   async function refreshSessions(): Promise<void> {

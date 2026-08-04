@@ -76,32 +76,32 @@ class RuntimeRecorder implements RuntimeActions {
   readonly completions: string[] = [];
 
   beginSessionOperation(sessionId: string, operationKind: ChatSessionOperationKind): void {
-    this.store = this.store.begin(sessionId, operationKind);
+    this.store = this.store.apply({ kind: 'begin', sessionId, operationKind });
   }
 
   appendSessionThinking(sessionId: string, text: string): void {
-    this.store = this.store.appendThinking(sessionId, text);
+    this.store = this.store.apply({ kind: 'thinking', sessionId, text });
   }
 
   applySessionToolEvent(sessionId: string, toolEvent: ChatStreamToolEvent): void {
-    this.store = this.store.applyToolEvent(sessionId, toolEvent);
+    this.store = this.store.apply({ kind: 'tool', sessionId, toolEvent });
   }
 
   applySessionAnswer(sessionId: string, text: string): void {
-    this.store = this.store.applyAnswer(sessionId, text);
+    this.store = this.store.apply({ kind: 'answer', sessionId, text });
   }
 
   applySessionWarning(sessionId: string, text: string): void {
-    this.store = this.store.applyWarning(sessionId, text);
+    this.store = this.store.apply({ kind: 'warning', sessionId, text });
   }
 
   completeSessionOperation(sessionId: string, value: ChatSessionResponse): void {
     this.completions.push(sessionId);
-    this.store = this.store.applyDone(value.session.id, value);
+    this.store = this.store.apply({ kind: 'done', sessionId: value.session.id, response: value });
   }
 
   failSessionOperation(sessionId: string, message: string): void {
-    this.store = this.store.applyFailure(sessionId, message);
+    this.store = this.store.apply({ kind: 'failure', sessionId, message });
   }
 }
 
@@ -168,7 +168,7 @@ test('two streams complete out of order without crossing session state', async (
 
 test('premature stream close fails only the initiating session and preserves its draft', async () => {
   const runtimes = new RuntimeRecorder();
-  runtimes.store = runtimes.store.setDraft('session-a', 'retry me');
+  runtimes.store = runtimes.store.apply({ kind: 'draft', sessionId: 'session-a', draft: 'retry me' });
   await consumeChatStream('session-a', 'message', prematureStream(), true, runtimes);
   assert.equal(runtimes.store.get('session-a').error, 'Chat stream ended before the done event');
   assert.equal(runtimes.store.get('session-a').draft, 'retry me');

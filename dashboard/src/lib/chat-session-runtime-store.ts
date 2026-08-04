@@ -1,68 +1,122 @@
 import { appendLiveThinkingMessage } from './live-thinking-message';
-import { buildAppendedLiveToolMessage, buildCompletedLiveToolMessage, upsertLiveMessageInto, createLiveMessage } from './chat-live-messages';
+import {
+  buildAppendedLiveToolMessage,
+  buildCompletedLiveToolMessage,
+  createLiveMessage,
+  upsertLiveMessageInto,
+} from './chat-live-messages';
 import type { ChatStreamToolEvent } from './chat-stream-parser';
 import type { ChatMessage, ChatSessionResponse, ChatSessionOperationKind, ContextUsage } from '../types';
 
-function createIdleActivity(): { kind: 'idle' } {
-  return { kind: 'idle' as const };
-}
+export type ChatSessionActivity =
+  | { kind: 'idle' }
+  | { kind: 'active'; operationKind: ChatSessionOperationKind };
 
-function createActiveActivity(operationKind: ChatSessionOperationKind): { kind: 'active'; operationKind: ChatSessionOperationKind } {
-  return { kind: 'active' as const, operationKind };
-}
+export type ChatSessionRuntime = {
+  sessionId: string;
+  activity: ChatSessionActivity;
+  liveMessages: ChatMessage[];
+  error: string | null;
+  warnings: string[];
+  contextUsage: ContextUsage | null;
+  liveToolPromptTokenCount: number | null;
+  draft: string;
+  pendingImages: string[];
+  planRepoRootInput: string;
+  planMaxTurnsInput: string;
+};
 
-type ChatSessionActivity =
-  | ReturnType<typeof createIdleActivity>
-  | ReturnType<typeof createActiveActivity>;
+export type ChatSessionRuntimeTransition =
+  | { kind: 'begin'; sessionId: string; operationKind: ChatSessionOperationKind }
+  | { kind: 'thinking'; sessionId: string; text: string }
+  | { kind: 'tool'; sessionId: string; toolEvent: ChatStreamToolEvent }
+  | { kind: 'answer'; sessionId: string; text: string }
+  | { kind: 'warning'; sessionId: string; text: string }
+  | { kind: 'done'; sessionId: string; response: ChatSessionResponse }
+  | { kind: 'failure'; sessionId: string; message: string }
+  | { kind: 'context-usage'; sessionId: string; contextUsage: ContextUsage }
+  | { kind: 'draft'; sessionId: string; draft: string }
+  | { kind: 'images'; sessionId: string; images: string[] }
+  | { kind: 'plan-inputs'; sessionId: string; planRepoRootInput: string; planMaxTurnsInput: string };
 
-function createChatSessionRuntime(
-  sessionId: string,
-  activity: ChatSessionActivity = createIdleActivity(),
-  liveMessages: ChatMessage[] = [],
-  error: string | null = null,
-  warnings: string[] = [],
-  contextUsage: ContextUsage | null = null,
-  liveToolPromptTokenCount: number | null = null,
-  draft: string = '',
-  pendingImages: string[] = [],
-  planRepoRootInput: string = '',
-  planMaxTurnsInput: string = '',
-) {
+function createChatSessionRuntime(sessionId: string): ChatSessionRuntime {
   return {
     sessionId,
-    activity,
-    liveMessages,
-    error,
-    warnings,
-    contextUsage,
-    liveToolPromptTokenCount,
-    draft,
-    pendingImages,
-    planRepoRootInput,
-    planMaxTurnsInput,
+    activity: { kind: 'idle' },
+    liveMessages: [],
+    error: null,
+    warnings: [],
+    contextUsage: null,
+    liveToolPromptTokenCount: null,
+    draft: '',
+    pendingImages: [],
+    planRepoRootInput: '',
+    planMaxTurnsInput: '',
   };
 }
 
-export type ChatSessionRuntime = ReturnType<typeof createChatSessionRuntime>;
-
-function cloneMap(map: Map<string, ChatSessionRuntime>): Map<string, ChatSessionRuntime> {
-  return new Map(map);
-}
-
-function cloneRuntime(runtime: ChatSessionRuntime): ChatSessionRuntime {
+function applyToolEvent(runtime: ChatSessionRuntime, toolEvent: ChatStreamToolEvent): ChatSessionRuntime {
+  const toolMessage = toolEvent.kind === 'tool_start'
+    ? buildAppendedLiveToolMessage(toolEvent)
+    : buildCompletedLiveToolMessage(toolEvent);
   return {
-    sessionId: runtime.sessionId,
-    activity: runtime.activity,
-    liveMessages: runtime.liveMessages,
-    error: runtime.error,
-    warnings: runtime.warnings,
-    contextUsage: runtime.contextUsage,
-    liveToolPromptTokenCount: runtime.liveToolPromptTokenCount,
-    draft: runtime.draft,
-    pendingImages: runtime.pendingImages,
-    planRepoRootInput: runtime.planRepoRootInput,
-    planMaxTurnsInput: runtime.planMaxTurnsInput,
+    ...runtime,
+    liveMessages: upsertLiveMessageInto(runtime.liveMessages, toolMessage),
+    liveToolPromptTokenCount: typeof toolEvent.promptTokenCount === 'number'
+      ? toolEvent.promptTokenCount
+      : runtime.liveToolPromptTokenCount,
   };
+}
+
+function applyAnswer(runtime: ChatSessionRuntime, text: string): ChatSessionRuntime {
+  const answerMessage = createLiveMessage('live-answer', 'assistant_answer', 'assistant', text);
+  answerMessage.outputTokensEstimate = Math.max(1, Math.ceil(text.length / 4));
+  return { ...runtime, liveMessages: upsertLiveMessageInto(runtime.liveMessages, answerMessage) };
+}
+
+function applyTransition(
+  runtime: ChatSessionRuntime,
+  transition: ChatSessionRuntimeTransition,
+): ChatSessionRuntime {
+  switch (transition.kind) {
+    case 'begin':
+      return { ...runtime, activity: { kind: 'active', operationKind: transition.operationKind } };
+    case 'thinking':
+      return {
+        ...runtime,
+        liveMessages: appendLiveThinkingMessage(runtime.liveMessages, transition.text, true),
+      };
+    case 'tool':
+      return applyToolEvent(runtime, transition.toolEvent);
+    case 'answer':
+      return applyAnswer(runtime, transition.text);
+    case 'warning':
+      return { ...runtime, warnings: [...runtime.warnings, transition.text] };
+    case 'done':
+      return {
+        ...runtime,
+        activity: { kind: 'idle' },
+        contextUsage: transition.response.contextUsage,
+        liveMessages: [],
+        error: null,
+        draft: '',
+        pendingImages: [],
+      };
+    case 'failure':
+      return { ...runtime, activity: { kind: 'idle' }, error: transition.message, liveMessages: [] };
+    case 'context-usage':
+      return { ...runtime, contextUsage: transition.contextUsage };
+    case 'draft':
+      return { ...runtime, draft: transition.draft };
+    case 'images':
+      return { ...runtime, pendingImages: transition.images };
+    case 'plan-inputs':
+      return {
+        ...runtime,
+        planRepoRootInput: transition.planRepoRootInput,
+        planMaxTurnsInput: transition.planMaxTurnsInput,
+      };
+  }
 }
 
 export class ChatSessionRuntimeStore {
@@ -72,6 +126,7 @@ export class ChatSessionRuntimeStore {
     this.runtimesBySessionId = runtimesBySessionId;
   }
 
+  /** Readers must name a session that exists; a miss is a bug, not a default. */
   get(sessionId: string): ChatSessionRuntime {
     const runtime = this.runtimesBySessionId.get(sessionId);
     if (!runtime) {
@@ -81,175 +136,29 @@ export class ChatSessionRuntimeStore {
   }
 
   getAll(): ChatSessionRuntime[] {
-    return Array.from(this.runtimesBySessionId.values());
+    return [...this.runtimesBySessionId.values()];
   }
 
   ensureSession(sessionId: string): ChatSessionRuntimeStore {
     if (this.runtimesBySessionId.has(sessionId)) {
       return this;
     }
-    const next = cloneMap(this.runtimesBySessionId);
+    const next = new Map(this.runtimesBySessionId);
     next.set(sessionId, createChatSessionRuntime(sessionId));
     return new ChatSessionRuntimeStore(next);
   }
 
-  begin(sessionId: string, operationKind: ChatSessionOperationKind): ChatSessionRuntimeStore {
-    const existing = this.runtimesBySessionId.get(sessionId);
-    if (!existing) {
-      throw new Error(`ChatSessionRuntimeStore: unknown session "${sessionId}"`);
-    }
-    const next = cloneMap(this.runtimesBySessionId);
-    next.set(sessionId, {
-      ...cloneRuntime(existing),
-      activity: createActiveActivity(operationKind),
-    });
-    return new ChatSessionRuntimeStore(next);
-  }
-
-  appendThinking(sessionId: string, text: string): ChatSessionRuntimeStore {
-    const existing = this.runtimesBySessionId.get(sessionId);
-    if (!existing) {
-      throw new Error(`ChatSessionRuntimeStore: unknown session "${sessionId}"`);
-    }
-    const next = cloneMap(this.runtimesBySessionId);
-    const updated = cloneRuntime(existing);
-    updated.liveMessages = appendLiveThinkingMessage(updated.liveMessages, text, true);
-    next.set(sessionId, updated);
-    return new ChatSessionRuntimeStore(next);
-  }
-
-  applyToolEvent(sessionId: string, toolEvent: ChatStreamToolEvent): ChatSessionRuntimeStore {
-    const existing = this.runtimesBySessionId.get(sessionId);
-    if (!existing) {
-      throw new Error(`ChatSessionRuntimeStore: unknown session "${sessionId}"`);
-    }
-    const next = cloneMap(this.runtimesBySessionId);
-    const updated = cloneRuntime(existing);
-    if (toolEvent.kind === 'tool_start') {
-      const toolMsg = buildAppendedLiveToolMessage(toolEvent);
-      updated.liveMessages = upsertLiveMessageInto(updated.liveMessages, toolMsg);
-      if (typeof toolEvent.promptTokenCount === 'number') {
-        updated.liveToolPromptTokenCount = toolEvent.promptTokenCount;
-      }
-    } else {
-      const toolMsg = buildCompletedLiveToolMessage(toolEvent);
-      updated.liveMessages = upsertLiveMessageInto(updated.liveMessages, toolMsg);
-      if (typeof toolEvent.promptTokenCount === 'number') {
-        updated.liveToolPromptTokenCount = toolEvent.promptTokenCount;
-      }
-    }
-    next.set(sessionId, updated);
-    return new ChatSessionRuntimeStore(next);
-  }
-
-  applyAnswer(sessionId: string, text: string): ChatSessionRuntimeStore {
-    const existing = this.runtimesBySessionId.get(sessionId);
-    if (!existing) {
-      throw new Error(`ChatSessionRuntimeStore: unknown session "${sessionId}"`);
-    }
-    const next = cloneMap(this.runtimesBySessionId);
-    const updated = cloneRuntime(existing);
-    const answerMsg = createLiveMessage('live-answer', 'assistant_answer', 'assistant', text);
-    answerMsg.outputTokensEstimate = Math.max(1, Math.ceil(String(text || '').length / 4));
-    updated.liveMessages = upsertLiveMessageInto(updated.liveMessages, answerMsg);
-    next.set(sessionId, updated);
-    return new ChatSessionRuntimeStore(next);
-  }
-
-  applyWarning(sessionId: string, text: string): ChatSessionRuntimeStore {
-    const existing = this.runtimesBySessionId.get(sessionId);
-    if (!existing) {
-      throw new Error(`ChatSessionRuntimeStore: unknown session "${sessionId}"`);
-    }
-    const next = cloneMap(this.runtimesBySessionId);
-    const updated = cloneRuntime(existing);
-    updated.warnings = [...updated.warnings, text];
-    next.set(sessionId, updated);
-    return new ChatSessionRuntimeStore(next);
-  }
-
-  applyDone(sessionId: string, response: ChatSessionResponse): ChatSessionRuntimeStore {
-    const existing = this.runtimesBySessionId.get(sessionId);
-    if (!existing) {
-      throw new Error(`ChatSessionRuntimeStore: unknown session "${sessionId}"`);
-    }
-    const next = cloneMap(this.runtimesBySessionId);
-    const updated = cloneRuntime(existing);
-    updated.activity = createIdleActivity();
-    updated.contextUsage = response.contextUsage;
-    updated.liveMessages = [];
-    updated.error = null;
-    updated.draft = '';
-    updated.pendingImages = [];
-    next.set(sessionId, updated);
-    return new ChatSessionRuntimeStore(next);
-  }
-
-  applyFailure(sessionId: string, message: string): ChatSessionRuntimeStore {
-    const existing = this.runtimesBySessionId.get(sessionId);
-    if (!existing) {
-      throw new Error(`ChatSessionRuntimeStore: unknown session "${sessionId}"`);
-    }
-    const next = cloneMap(this.runtimesBySessionId);
-    const updated = cloneRuntime(existing);
-    updated.activity = createIdleActivity();
-    updated.error = message;
-    updated.liveMessages = [];
-    next.set(sessionId, updated);
-    return new ChatSessionRuntimeStore(next);
-  }
-
-  setContextUsage(sessionId: string, contextUsage: ContextUsage): ChatSessionRuntimeStore {
-    const existing = this.runtimesBySessionId.get(sessionId);
-    if (!existing) {
-      throw new Error(`ChatSessionRuntimeStore: unknown session "${sessionId}"`);
-    }
-    const next = cloneMap(this.runtimesBySessionId);
-    const updated = cloneRuntime(existing);
-    updated.contextUsage = contextUsage;
-    next.set(sessionId, updated);
-    return new ChatSessionRuntimeStore(next);
-  }
-
-  setDraft(sessionId: string, draft: string): ChatSessionRuntimeStore {
-    const existing = this.runtimesBySessionId.get(sessionId);
-    if (!existing) {
-      throw new Error(`ChatSessionRuntimeStore: unknown session "${sessionId}"`);
-    }
-    const next = cloneMap(this.runtimesBySessionId);
-    const updated = cloneRuntime(existing);
-    updated.draft = draft;
-    next.set(sessionId, updated);
-    return new ChatSessionRuntimeStore(next);
-  }
-
-  setImages(sessionId: string, images: string[]): ChatSessionRuntimeStore {
-    const existing = this.runtimesBySessionId.get(sessionId);
-    if (!existing) {
-      throw new Error(`ChatSessionRuntimeStore: unknown session "${sessionId}"`);
-    }
-    const next = cloneMap(this.runtimesBySessionId);
-    const updated = cloneRuntime(existing);
-    updated.pendingImages = images;
-    next.set(sessionId, updated);
-    return new ChatSessionRuntimeStore(next);
-  }
-
-  setPlanInputs(sessionId: string, planRepoRootInput: string, planMaxTurnsInput: string): ChatSessionRuntimeStore {
-    const existing = this.runtimesBySessionId.get(sessionId);
-    if (!existing) {
-      throw new Error(`ChatSessionRuntimeStore: unknown session "${sessionId}"`);
-    }
-    const next = cloneMap(this.runtimesBySessionId);
-    const updated = cloneRuntime(existing);
-    updated.planRepoRootInput = planRepoRootInput;
-    updated.planMaxTurnsInput = planMaxTurnsInput;
-    next.set(sessionId, updated);
+  /** The single copy-on-write path. Writers create the runtime if it is absent. */
+  apply(transition: ChatSessionRuntimeTransition): ChatSessionRuntimeStore {
+    const existing = this.runtimesBySessionId.get(transition.sessionId)
+      ?? createChatSessionRuntime(transition.sessionId);
+    const next = new Map(this.runtimesBySessionId);
+    next.set(transition.sessionId, applyTransition(existing, transition));
     return new ChatSessionRuntimeStore(next);
   }
 
   removeSession(sessionId: string): ChatSessionRuntimeStore {
-    const next = cloneMap(this.runtimesBySessionId);
+    const next = new Map(this.runtimesBySessionId);
     next.delete(sessionId);
     return new ChatSessionRuntimeStore(next);
   }

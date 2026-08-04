@@ -30,14 +30,58 @@ const SAMPLE_RESPONSE: ChatSessionResponse = {
   },
 };
 
+test('apply routes every transition through one copy-on-write path', () => {
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession('session-a')
+    .ensureSession('session-b');
+  const next = store
+    .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message' })
+    .apply({ kind: 'draft', sessionId: 'session-a', draft: 'hello' })
+    .apply({ kind: 'answer', sessionId: 'session-a', text: 'hi there' })
+    .apply({ kind: 'warning', sessionId: 'session-a', text: 'careful' });
+
+  assert.deepEqual(next.get('session-a').activity, { kind: 'active', operationKind: 'message' });
+  assert.equal(next.get('session-a').draft, 'hello');
+  assert.equal(next.get('session-a').liveMessages[0]?.content, 'hi there');
+  assert.deepEqual(next.get('session-a').warnings, ['careful']);
+
+  assert.deepEqual(store.get('session-a').activity, { kind: 'idle' });
+  assert.equal(store.get('session-a').draft, '');
+  assert.deepEqual(next.get('session-b'), store.get('session-b'));
+});
+
+test('apply creates a runtime for a session that has not been seeded', () => {
+  const next = new ChatSessionRuntimeStore()
+    .apply({ kind: 'draft', sessionId: 'fresh', draft: 'typed' });
+  assert.equal(next.get('fresh').draft, 'typed');
+  assert.deepEqual(next.get('fresh').activity, { kind: 'idle' });
+});
+
+test('get still throws for a session that was never touched', () => {
+  assert.throws(
+    () => new ChatSessionRuntimeStore().get('ghost'),
+    /unknown session "ghost"/,
+  );
+});
+
+test('plan input and image transitions replace only their own fields', () => {
+  const next = new ChatSessionRuntimeStore()
+    .apply({ kind: 'images', sessionId: 's', images: ['data:image/png;base64,AA'] })
+    .apply({ kind: 'plan-inputs', sessionId: 's', planRepoRootInput: 'C:/repo', planMaxTurnsInput: '12' });
+  assert.deepEqual(next.get('s').pendingImages, ['data:image/png;base64,AA']);
+  assert.equal(next.get('s').planRepoRootInput, 'C:/repo');
+  assert.equal(next.get('s').planMaxTurnsInput, '12');
+  assert.equal(next.get('s').draft, '');
+});
+
 test('session B cannot clear session A streaming state or draft', () => {
   const initial = new ChatSessionRuntimeStore()
     .ensureSession('session-a')
     .ensureSession('session-b')
-    .setDraft('session-a', 'draft-a')
-    .begin('session-a', 'message')
-    .applyAnswer('session-a', 'answer-a')
-    .begin('session-b', 'plan');
+    .apply({ kind: 'draft', sessionId: 'session-a', draft: 'draft-a' })
+    .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message' })
+    .apply({ kind: 'answer', sessionId: 'session-a', text: 'answer-a' })
+    .apply({ kind: 'begin', sessionId: 'session-b', operationKind: 'plan' });
 
   assert.equal(initial.get('session-a').draft, 'draft-a');
   assert.equal(initial.get('session-a').liveMessages[0]?.content, 'answer-a');
@@ -64,7 +108,7 @@ test('ensureSession creates a runtime with idle activity and empty defaults', ()
 test('begin sets active activity with operation kind', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .begin('s1', 'message');
+    .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message' });
   const activity = store.get('s1').activity;
   assert.equal(activity.kind, 'active');
   if (activity.kind === 'active') {
@@ -75,7 +119,7 @@ test('begin sets active activity with operation kind', () => {
 test('applyThinking appends a thinking live message', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .appendThinking('s1', 'thinking text');
+    .apply({ kind: 'thinking', sessionId: 's1', text: 'thinking text' });
   const runtime = store.get('s1');
   assert.equal(runtime.liveMessages.length, 1);
   assert.equal(runtime.liveMessages[0]?.content, 'thinking text');
@@ -84,13 +128,13 @@ test('applyThinking appends a thinking live message', () => {
 test('applyToolEvent appends running tool message on tool_start', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .applyToolEvent('s1', {
+    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
       kind: 'tool_start',
       toolCallId: 'tc1',
       turn: 1,
       maxTurns: 4,
       command: 'rg foo',
-    });
+    }});
   const runtime = store.get('s1');
   assert.equal(runtime.liveMessages.length, 1);
   assert.equal(runtime.liveMessages[0]?.toolCallStatus, 'running');
@@ -99,14 +143,14 @@ test('applyToolEvent appends running tool message on tool_start', () => {
 test('applyToolEvent completes tool message on tool_result', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .applyToolEvent('s1', {
+    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
       kind: 'tool_start',
       toolCallId: 'tc1',
       turn: 1,
       maxTurns: 4,
       command: 'rg foo',
-    })
-    .applyToolEvent('s1', {
+    }})
+    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
       kind: 'tool_result',
       toolCallId: 'tc1',
       turn: 1,
@@ -114,7 +158,7 @@ test('applyToolEvent completes tool message on tool_result', () => {
       command: 'rg foo',
       exitCode: 0,
       outputSnippet: 'hit',
-    });
+    }});
   const runtime = store.get('s1');
   assert.equal(runtime.liveMessages.length, 1);
   assert.equal(runtime.liveMessages[0]?.toolCallStatus, 'done');
@@ -124,7 +168,7 @@ test('applyToolEvent completes tool message on tool_result', () => {
 test('applyAnswer upserts an answer live message', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .applyAnswer('s1', 'hello world');
+    .apply({ kind: 'answer', sessionId: 's1', text: 'hello world' });
   const runtime = store.get('s1');
   assert.equal(runtime.liveMessages.length, 1);
   assert.equal(runtime.liveMessages[0]?.content, 'hello world');
@@ -133,7 +177,7 @@ test('applyAnswer upserts an answer live message', () => {
 test('applyAnswer handles empty answer text', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .applyAnswer('s1', '');
+    .apply({ kind: 'answer', sessionId: 's1', text: '' });
   const runtime = store.get('s1');
   assert.equal(runtime.liveMessages.length, 1);
   assert.equal(runtime.liveMessages[0]?.content, '');
@@ -143,15 +187,15 @@ test('applyAnswer handles empty answer text', () => {
 test('applyWarning appends a warning string', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .applyWarning('s1', 'missing file');
+    .apply({ kind: 'warning', sessionId: 's1', text: 'missing file' });
   assert.deepEqual(store.get('s1').warnings, ['missing file']);
 });
 
 test('applyDone sets idle activity and applies context usage', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .begin('s1', 'message')
-    .applyDone('s1', SAMPLE_RESPONSE);
+    .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message' })
+    .apply({ kind: 'done', sessionId: 's1', response: SAMPLE_RESPONSE });
   const runtime = store.get('s1');
   assert.equal(runtime.activity.kind, 'idle');
   assert.equal(runtime.contextUsage?.totalUsedTokens, 0);
@@ -160,8 +204,8 @@ test('applyDone sets idle activity and applies context usage', () => {
 test('applyFailure sets error and idle activity', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .begin('s1', 'message')
-    .applyFailure('s1', 'boom');
+    .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message' })
+    .apply({ kind: 'failure', sessionId: 's1', message: 'boom' });
   const runtime = store.get('s1');
   assert.equal(runtime.error, 'boom');
   assert.equal(runtime.activity.kind, 'idle');
@@ -170,21 +214,21 @@ test('applyFailure sets error and idle activity', () => {
 test('setDraft replaces the draft text', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .setDraft('s1', 'new draft');
+    .apply({ kind: 'draft', sessionId: 's1', draft: 'new draft' });
   assert.equal(store.get('s1').draft, 'new draft');
 });
 
 test('setImages replaces pending images', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .setImages('s1', ['img1', 'img2']);
+    .apply({ kind: 'images', sessionId: 's1', images: ['img1', 'img2'] });
   assert.deepEqual(store.get('s1').pendingImages, ['img1', 'img2']);
 });
 
 test('setPlanInputs replaces plan input fields', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .setPlanInputs('s1', 'C:\\repo', '30');
+    .apply({ kind: 'plan-inputs', sessionId: 's1', planRepoRootInput: 'C:\\repo', planMaxTurnsInput: '30' });
   assert.equal(store.get('s1').planRepoRootInput, 'C:\\repo');
   assert.equal(store.get('s1').planMaxTurnsInput, '30');
 });
@@ -192,19 +236,6 @@ test('setPlanInputs replaces plan input fields', () => {
 test('unknown session throws on get', () => {
   const store = new ChatSessionRuntimeStore();
   assert.throws(() => store.get('unknown'), /unknown session/);
-});
-
-test('unknown session throws on mutators', () => {
-  const store = new ChatSessionRuntimeStore();
-  assert.throws(() => store.begin('unknown', 'message'), /unknown session/);
-  assert.throws(() => store.setDraft('unknown', 'x'), /unknown session/);
-  assert.throws(() => store.setImages('unknown', []), /unknown session/);
-  assert.throws(() => store.setPlanInputs('unknown', '', ''), /unknown session/);
-  assert.throws(() => store.applyFailure('unknown', 'err'), /unknown session/);
-  assert.throws(() => store.applyWarning('unknown', 'w'), /unknown session/);
-  assert.throws(() => store.appendThinking('unknown', 't'), /unknown session/);
-  assert.throws(() => store.applyToolEvent('unknown', { kind: 'tool_start', toolCallId: 't', turn: 1, maxTurns: 1, command: 'x' }), /unknown session/);
-  assert.throws(() => store.applyDone('unknown', SAMPLE_RESPONSE), /unknown session/);
 });
 
 test('removeSession drops the session and rejects subsequent access', () => {
@@ -231,7 +262,7 @@ test('getAll returns runtimes in insertion order', () => {
 
 test('immutable previous snapshots remain unchanged after mutation', () => {
   const store1 = new ChatSessionRuntimeStore().ensureSession('s1');
-  const store2 = store1.begin('s1', 'message');
+  const store2 = store1.apply({ kind: 'begin', sessionId: 's1', operationKind: 'message' });
   assert.equal(store1.get('s1').activity.kind, 'idle');
   assert.equal(store2.get('s1').activity.kind, 'active');
 });
@@ -239,7 +270,7 @@ test('immutable previous snapshots remain unchanged after mutation', () => {
 test('plan inputs initialize once on ensureSession but do not overwrite dirty draft', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .setDraft('s1', 'dirty')
+    .apply({ kind: 'draft', sessionId: 's1', draft: 'dirty' })
     .ensureSession('s1');
   assert.equal(store.get('s1').draft, 'dirty');
 });
@@ -247,21 +278,21 @@ test('plan inputs initialize once on ensureSession but do not overwrite dirty dr
 test('applyToolEvent sets liveToolPromptTokenCount from tool_start promptTokenCount', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .applyToolEvent('s1', {
+    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
       kind: 'tool_start',
       toolCallId: 'tc1',
       turn: 1,
       maxTurns: 4,
       command: 'rg foo',
       promptTokenCount: 42,
-    });
+    }});
   assert.equal(store.get('s1').liveToolPromptTokenCount, 42);
 });
 
 test('applyToolEvent sets liveToolPromptTokenCount from tool_result promptTokenCount', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .applyToolEvent('s1', {
+    .apply({ kind: 'tool', sessionId: 's1', toolEvent: {
       kind: 'tool_result',
       toolCallId: 'tc1',
       turn: 1,
@@ -269,21 +300,22 @@ test('applyToolEvent sets liveToolPromptTokenCount from tool_result promptTokenC
       command: 'rg foo',
       exitCode: 0,
       promptTokenCount: 55,
-    });
+    }});
   assert.equal(store.get('s1').liveToolPromptTokenCount, 55);
 });
 
-test('applyAnswer throws on unknown session', () => {
+test('applyAnswer creates runtime for unknown session via apply', () => {
   const store = new ChatSessionRuntimeStore();
-  assert.throws(() => store.applyAnswer('unknown', 'text'), /unknown session/);
+  const next = store.apply({ kind: 'answer', sessionId: 'unknown', text: 'text' });
+  assert.equal(next.get('unknown').liveMessages[0]?.content, 'text');
 });
 
 test('applyDone clears live messages and draft for the session', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .setDraft('s1', 'draft')
-    .applyAnswer('s1', 'answer')
-    .applyDone('s1', SAMPLE_RESPONSE);
+    .apply({ kind: 'draft', sessionId: 's1', draft: 'draft' })
+    .apply({ kind: 'answer', sessionId: 's1', text: 'answer' })
+    .apply({ kind: 'done', sessionId: 's1', response: SAMPLE_RESPONSE });
   const runtime = store.get('s1');
   assert.deepEqual(runtime.liveMessages, []);
   assert.equal(runtime.draft, '');
@@ -293,10 +325,10 @@ test('applyDone clears live messages and draft for the session', () => {
 test('applyFailure clears live messages but preserves draft and images for retry', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .setDraft('s1', 'draft')
-    .setImages('s1', ['image'])
-    .applyAnswer('s1', 'answer')
-    .applyFailure('s1', 'boom');
+    .apply({ kind: 'draft', sessionId: 's1', draft: 'draft' })
+    .apply({ kind: 'images', sessionId: 's1', images: ['image'] })
+    .apply({ kind: 'answer', sessionId: 's1', text: 'answer' })
+    .apply({ kind: 'failure', sessionId: 's1', message: 'boom' });
   const runtime = store.get('s1');
   assert.deepEqual(runtime.liveMessages, []);
   assert.equal(runtime.draft, 'draft');
@@ -307,37 +339,7 @@ test('setContextUsage updates only the targeted session', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
     .ensureSession('s2')
-    .setContextUsage('s1', SAMPLE_RESPONSE.contextUsage);
+    .apply({ kind: 'context-usage', sessionId: 's1', contextUsage: SAMPLE_RESPONSE.contextUsage });
   assert.equal(store.get('s1').contextUsage, SAMPLE_RESPONSE.contextUsage);
   assert.equal(store.get('s2').contextUsage, null);
-  assert.throws(
-    () => store.setContextUsage('unknown', SAMPLE_RESPONSE.contextUsage),
-    /unknown session/,
-  );
-});
-
-test('ensureSession is idempotent and does not reset existing state', () => {
-  const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
-    .setDraft('s1', 'existing')
-    .ensureSession('s1');
-  assert.equal(store.get('s1').draft, 'existing');
-});
-
-test('multiple sessions maintain independent state after concurrent operations', () => {
-  const store = new ChatSessionRuntimeStore()
-    .ensureSession('a')
-    .ensureSession('b')
-    .begin('a', 'message')
-    .begin('b', 'plan')
-    .applyAnswer('a', 'a-answer')
-    .applyWarning('b', 'b-warning')
-    .applyFailure('a', 'a-error')
-    .applyDone('b', SAMPLE_RESPONSE);
-  const runtimeA = store.get('a');
-  const runtimeB = store.get('b');
-  assert.equal(runtimeA.error, 'a-error');
-  assert.equal(runtimeA.activity.kind, 'idle');
-  assert.equal(runtimeB.activity.kind, 'idle');
-  assert.deepEqual(runtimeB.warnings, ['b-warning']);
 });
