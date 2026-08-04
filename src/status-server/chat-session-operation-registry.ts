@@ -1,36 +1,23 @@
-/* c8 ignore next */
 import { randomUUID } from 'node:crypto';
 
-/* c8 ignore next */
 import type { ChatSessionOperationKind } from '@siftkit/contracts';
+
+export type ChatSessionOperation = {
+  token: string;
+  sessionId: string;
+  operationKind: ChatSessionOperationKind;
+  startedAtMs: number;
+};
+
+export type ChatSessionOperationAcquireResult =
+  | { kind: 'acquired'; lease: ChatSessionOperation }
+  | { kind: 'conflict'; active: ChatSessionOperation };
 
 function requireSessionId(sessionId: string): void {
   if (!sessionId.trim()) {
     throw new Error('Chat session ID is required.');
   }
 }
-
-function createChatSessionOperation(
-  sessionId: string,
-  operationKind: ChatSessionOperationKind,
-  startedAtMs: number,
-) {
-  return { token: randomUUID(), sessionId, operationKind, startedAtMs };
-}
-
-function createAcquiredResult(lease: ChatSessionOperation) {
-  return { kind: 'acquired' as const, lease };
-}
-
-function createConflictResult(active: ChatSessionOperation) {
-  return { kind: 'conflict' as const, active };
-}
-
-export type ChatSessionOperation = ReturnType<typeof createChatSessionOperation>;
-export type ChatSessionOperationLease = ChatSessionOperation;
-export type ChatSessionOperationAcquireResult =
-  | ReturnType<typeof createAcquiredResult>
-  | ReturnType<typeof createConflictResult>;
 
 export class ChatSessionOperationRegistry {
   private readonly activeBySessionId = new Map<string, ChatSessionOperation>();
@@ -43,14 +30,19 @@ export class ChatSessionOperationRegistry {
     requireSessionId(sessionId);
     const active = this.activeBySessionId.get(sessionId) ?? null;
     if (active !== null) {
-      return createConflictResult(active);
+      return { kind: 'conflict', active };
     }
-    const lease = createChatSessionOperation(sessionId, operationKind, nowMs);
+    const lease: ChatSessionOperation = {
+      token: randomUUID(),
+      sessionId,
+      operationKind,
+      startedAtMs: nowMs,
+    };
     this.activeBySessionId.set(sessionId, lease);
-    return createAcquiredResult(lease);
+    return { kind: 'acquired', lease };
   }
 
-  release(lease: ChatSessionOperationLease): boolean {
+  release(lease: ChatSessionOperation): boolean {
     const active = this.activeBySessionId.get(lease.sessionId) ?? null;
     if (active === null || active.token !== lease.token) {
       return false;
@@ -67,5 +59,4 @@ export class ChatSessionOperationRegistry {
   getActiveCount(): number {
     return this.activeBySessionId.size;
   }
-  /* c8 ignore next */
 }

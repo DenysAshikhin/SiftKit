@@ -3,11 +3,11 @@ import test from 'node:test';
 
 import {
   ChatSessionOperationRegistry,
+  type ChatSessionOperation,
   type ChatSessionOperationAcquireResult,
-  type ChatSessionOperationLease,
 } from '../src/status-server/chat-session-operation-registry.js';
 
-function requireAcquired(result: ChatSessionOperationAcquireResult): ChatSessionOperationLease {
+function requireAcquired(result: ChatSessionOperationAcquireResult): ChatSessionOperation {
   if (result.kind === 'conflict') {
     throw new Error(`Expected acquired lease, active session was ${result.active.sessionId}.`);
   }
