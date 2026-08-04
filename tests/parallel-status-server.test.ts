@@ -1,16 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import type { OptionalJsonValue } from '../src/lib/json-types.js';
 import { requestJson, asObjectArray } from './helpers/dashboard-http.js';
 import { DashboardTestServer } from './helpers/dashboard-server-fixture.js';
 
-function postRunning(baseUrl: string, requestId: string) {
+function postRunning(baseUrl: string, requestId: string, taskKind: 'chat' | 'summary' = 'chat') {
   return requestJson(`${baseUrl}/status`, {
     method: 'POST',
     body: JSON.stringify({
       running: true,
       requestId,
-      taskKind: 'chat',
+      taskKind,
       rawInputCharacterCount: 10,
       promptCharacterCount: 20,
       promptTokenCount: 5,
@@ -77,6 +78,27 @@ test('status endpoint tracks concurrent request ids sharing one path', async () 
       ['request-a', 'request-b'],
     );
     assert.equal(status.body.running, true);
+  } finally {
+    await server.close();
+  }
+});
+
+test('two CLI summaries and one dashboard request remain independently visible', async () => {
+  const server = await DashboardTestServer.start('siftkit-parallel-status-');
+  try {
+    await postRunning(server.baseUrl, 'cli-summary-a', 'summary');
+    await postRunning(server.baseUrl, 'cli-summary-b', 'summary');
+    await postRunning(server.baseUrl, 'dashboard-chat', 'chat');
+    const status = await getStatus(server.baseUrl);
+    const identities: Array<{ requestId: OptionalJsonValue; taskKind: OptionalJsonValue }> = [];
+    for (const run of asObjectArray(status.body.activeRuns)) {
+      identities.push({ requestId: run.requestId, taskKind: run.taskKind });
+    }
+    assert.deepEqual(identities, [
+      { requestId: 'cli-summary-a', taskKind: 'summary' },
+      { requestId: 'cli-summary-b', taskKind: 'summary' },
+      { requestId: 'dashboard-chat', taskKind: 'chat' },
+    ]);
   } finally {
     await server.close();
   }
