@@ -425,14 +425,21 @@ export class ModelJson {
 
     if (action === 'finish') {
       const output = typeof parsed.output === 'string' ? parsed.output.trim() : '';
-      const keys = Object.keys(parsed);
-      if (!output || keys.some((key) => key !== 'action' && key !== 'output')) {
-        throw new Error('Provider returned an invalid planner finish action.');
+      if (!output) {
+        throw new Error('Provider returned an invalid planner finish action: "output" must be a non-empty string');
+      }
+      const extraKeys = Object.keys(parsed).filter((key) => key !== 'action' && key !== 'output');
+      if (extraKeys.length > 0) {
+        throw new Error(
+          `Provider returned an invalid planner finish action: finish accepts only "action" and "output"; remove: ${extraKeys.join(', ')}`,
+        );
       }
       return { action: 'finish', output } satisfies RepoSearchFinishAction;
     }
 
-    throw new Error('Provider returned an unknown planner action.');
+    throw new Error(
+      `Provider returned an unknown planner action "${action}"; valid actions: ${[...allowedToolNames, 'tool_batch', 'finish'].sort().join(', ')}`,
+    );
   }
 
   private static normalizeRepoSearchToolCall(
@@ -574,12 +581,14 @@ export class ModelJson {
 
   private static getBatchToolRecords(parsed: JsonObject): JsonObject[] {
     if (!Array.isArray(parsed.calls) || parsed.calls.length === 0) {
-      throw new Error('Provider returned an invalid planner tool batch action.');
+      throw new Error('Provider returned an invalid planner tool batch action: "calls" must be a non-empty array');
     }
-    return parsed.calls.map((toolCall) => {
+    return parsed.calls.map((toolCall, index) => {
       const toolRecord = this.getRecord(toolCall);
       if (!toolRecord) {
-        throw new Error('Provider returned an invalid planner tool batch action.');
+        throw new Error(
+          `Provider returned an invalid planner tool batch action: call ${index + 1} is not a JSON object`,
+        );
       }
       return toolRecord;
     });

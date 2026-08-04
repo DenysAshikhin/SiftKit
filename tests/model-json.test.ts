@@ -435,6 +435,38 @@ test('ModelJson rejects invalid repo-search planner payloads', () => {
   );
 });
 
+test('ModelJson names the offending extra key on a finish action', () => {
+  assert.throws(
+    () => parseRepoSearchPlannerAction('{"action":"finish","output":"done","confidence":0.7}'),
+    /invalid planner finish action: finish accepts only "action" and "output"; remove: confidence/u,
+  );
+});
+
+test('ModelJson distinguishes an empty finish output from an extra finish key', () => {
+  assert.throws(
+    () => parseRepoSearchPlannerAction('{"action":"finish","output":"   "}'),
+    /invalid planner finish action: "output" must be a non-empty string/u,
+  );
+});
+
+test('ModelJson names the action and the valid alternatives for an unknown action', () => {
+  assert.throws(
+    () => parseRepoSearchPlannerAction('{"action":"read_lines","command":"rg x"}', ['ls', 'grep']),
+    /unknown planner action "read_lines"; valid actions: finish, grep, ls, tool_batch/u,
+  );
+});
+
+test('ModelJson explains an empty or malformed tool batch', () => {
+  assert.throws(
+    () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'tool_batch', calls: [] }), ['grep']),
+    /invalid planner tool batch action: "calls" must be a non-empty array/u,
+  );
+  assert.throws(
+    () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'tool_batch', calls: ['grep'] }), ['grep']),
+    /invalid planner tool batch action: call 1 is not a JSON object/u,
+  );
+});
+
 test('ModelJson repairs malformed escaped command payloads', () => {
   const malformed =
     '{"action":"grep","pattern":"rg -n \\"D:\\\\\\\\|C:\\\\\\\\|\\\\\\\\\\\\\\\\" src --type ts | Select-Object -First 30"';
