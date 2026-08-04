@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { OptionalJsonValue } from '../src/lib/json-types.js';
+import { getConfigPath } from '../src/config/index.js';
+import { getActiveModelPreset, readConfig } from '../src/status-server/config-store.js';
 import { queryDashboardRunsFromDb } from '../src/status-server/dashboard-runs/queries.js';
 import { getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { requestJson, asObjectArray } from './helpers/dashboard-http.js';
@@ -460,6 +462,54 @@ test('matrix: disconnect(A), retry(A), concurrent success(B)', async () => {
       'retry-a': { status: 'completed', outputTokens: 10 },
       'concurrent-b': { status: 'completed', outputTokens: 10 },
     });
+  } finally {
+    await server.close();
+  }
+});
+
+function readActivePresetIdentity(): { model: string | null; backend: string } {
+  const preset = getActiveModelPreset(readConfig(getConfigPath()));
+  return { model: preset.Model, backend: preset.Backend };
+}
+
+test('completed status run logs record the active preset model, backend, and title', async () => {
+  const server = await DashboardTestServer.start('siftkit-parallel-status-');
+  try {
+    await postRunning(server.baseUrl, 'identity-a');
+    await postCompleted(server.baseUrl, 'identity-a');
+    await postTerminalMetadata(server.baseUrl, 'identity-a');
+    await server.readSettledMetrics(1);
+
+    const expected = readActivePresetIdentity();
+    const logs = queryDashboardRunsFromDb(getRuntimeDatabase());
+    const matching = logs.filter((log) => log.id === 'identity-a');
+    assert.equal(matching.length, 1, 'expected one persisted log for identity-a');
+    assert.equal(matching[0]?.backend, expected.backend);
+    assert.equal(matching[0]?.model, expected.model);
+    assert.equal(matching[0]?.title, 'chat identity-a');
+  } finally {
+    await server.close();
+  }
+});
+
+test('a status run with no task kind is titled from the status fallback', async () => {
+  const server = await DashboardTestServer.start('siftkit-parallel-status-');
+  try {
+    await requestJson(`${server.baseUrl}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ running: true, requestId: 'identity-b' }),
+    });
+    await postCompleted(server.baseUrl, 'identity-b');
+    await requestJson(`${server.baseUrl}/status/terminal-metadata`, {
+      method: 'POST',
+      body: JSON.stringify({ running: false, requestId: 'identity-b', terminalState: 'completed', outputTokens: 1 }),
+    });
+    await server.readSettledMetrics(1);
+
+    const logs = queryDashboardRunsFromDb(getRuntimeDatabase());
+    const matching = logs.filter((log) => log.id === 'identity-b');
+    assert.equal(matching.length, 1, 'expected one persisted log for identity-b');
+    assert.equal(matching[0]?.title, 'status identity-b');
   } finally {
     await server.close();
   }

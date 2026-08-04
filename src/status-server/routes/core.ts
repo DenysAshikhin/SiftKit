@@ -347,28 +347,34 @@ type DeferredTerminalMetadataJob = {
 function resolveStatusRunLogIdentity(taskKind: TaskKind | null): {
   runKind: RunLogKind;
   runGroup: RunLogGroup;
+  titlePrefix: string;
 } {
   if (taskKind === 'summary') {
-    return { runKind: 'summary_request', runGroup: 'summary' };
+    return { runKind: 'summary_request', runGroup: 'summary', titlePrefix: 'summary' };
   }
   if (taskKind === 'plan') {
-    return { runKind: 'plan', runGroup: 'planner' };
+    return { runKind: 'plan', runGroup: 'planner', titlePrefix: 'plan' };
   }
   if (taskKind === 'repo-search') {
-    return { runKind: 'repo_search', runGroup: 'repo_search' };
+    return { runKind: 'repo_search', runGroup: 'repo_search', titlePrefix: 'repo-search' };
   }
   if (taskKind === 'chat') {
-    return { runKind: 'chat', runGroup: 'chat' };
+    return { runKind: 'chat', runGroup: 'chat', titlePrefix: 'chat' };
   }
-  return { runKind: 'unknown', runGroup: 'other' };
+  return { runKind: 'unknown', runGroup: 'other', titlePrefix: 'status' };
 }
 
-function persistStatusRunLog(job: DeferredTerminalMetadataJob, taskKind: TaskKind | null): void {
+function persistStatusRunLog(
+  ctx: ServerContext,
+  job: DeferredTerminalMetadataJob,
+  taskKind: TaskKind | null,
+): void {
   const terminalState = job.metadata.terminalState;
   if (terminalState !== 'completed' && terminalState !== 'failed') {
     return;
   }
   const identity = resolveStatusRunLogIdentity(taskKind);
+  const activePreset = getActiveModelPreset(readConfig(ctx.configPath));
   upsertRunLog(getRuntimeDatabase(), {
     runId: job.requestId,
     requestId: job.requestId,
@@ -377,9 +383,9 @@ function persistStatusRunLog(job: DeferredTerminalMetadataJob, taskKind: TaskKin
     terminalState,
     startedAtUtc: job.startedAtUtc,
     finishedAtUtc: job.finishedAtUtc,
-    title: `${taskKind ?? 'status'} ${job.requestId}`,
-    model: null,
-    backend: null,
+    title: `${identity.titlePrefix} ${job.requestId}`,
+    model: activePreset.Model,
+    backend: activePreset.Backend,
     repoRoot: null,
     inputTokens: job.metadata.inputTokens,
     outputTokens: job.metadata.totalOutputTokens ?? job.metadata.outputTokens,
@@ -493,7 +499,7 @@ function applyDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTerminal
     updatedAtUtc: new Date().toISOString(),
   });
   writeMetrics(ctx.metricsPath, ctx.metrics);
-  persistStatusRunLog(job, taskKind);
+  persistStatusRunLog(ctx, job, taskKind);
   recordWebSearchUsage(ctx.metricsPath, Number(metadata.toolStats?.web_search?.calls) || 0, new Date());
   if (job.requestCompleted) {
     ctx.idleSummaryPending = true;
