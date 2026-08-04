@@ -37,7 +37,7 @@ export async function runBenchmarkSuite(options: BenchmarkRunnerOptions = {}): P
   const outputPath = path.resolve(options.outputPath || getDefaultOutputPath(fixtureRoot));
   const manifest = getFixtureManifest(fixtureRoot);
   const config = await loadConfig({ ensure: true });
-  const backend = resolveSummaryProvider(options.backend);
+  const provider = resolveSummaryProvider(options.provider);
   const model = options.model || getConfiguredModel(config);
   const promptPrefix = resolvePromptPrefix(options);
   const requestTimeoutSeconds = getValidatedRequestTimeoutSeconds(options);
@@ -75,7 +75,7 @@ export async function runBenchmarkSuite(options: BenchmarkRunnerOptions = {}): P
             inputText,
             format: fixture.Format,
             policyProfile: fixture.PolicyProfile,
-            backend,
+            provider,
             model,
             promptPrefix,
             requestTimeoutSeconds,
@@ -124,7 +124,7 @@ export async function runBenchmarkSuite(options: BenchmarkRunnerOptions = {}): P
   const artifact = buildBenchmarkArtifact({
     status: fatalError === null ? 'completed' : 'failed',
     startedAt,
-    backend,
+    provider,
     model,
     fixtureRoot,
     outputPath,

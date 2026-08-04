@@ -1,7 +1,9 @@
 import {
+  getActiveInferenceBackend,
   getEffectiveInputCharactersPerContextToken,
   type SiftConfig,
 } from '../config/index.js';
+import type { InferenceBackendId } from '../config/types.js';
 import {
   DEFAULT_LLAMA_CPP_TOKENIZE_RETRY_MAX_WAIT_MS,
   DEFAULT_LLAMA_CPP_TOKENIZE_TIMEOUT_MS,
@@ -25,9 +27,15 @@ export function estimateTokenCount(config: SiftConfig | undefined, text: string)
   return Math.max(1, Math.ceil(String(text || '').length / charsPerToken));
 }
 
+/**
+ * Where a token count came from: the engine that tokenized it, or the local
+ * characters-per-token estimate when no server count was available.
+ */
+export type TokenCountSource = InferenceBackendId | 'estimate';
+
 export type TokenCountWithFallbackResult = {
   tokenCount: number;
-  source: 'llama.cpp' | 'estimate';
+  source: TokenCountSource;
   llamaTokenCount: LlamaCppTokenCountResult | null;
 };
 
@@ -41,7 +49,7 @@ export async function countTokensWithFallbackDetailed(
     if (Number.isFinite(llamaTokenCount.tokenCount) && Number(llamaTokenCount.tokenCount) > 0) {
       return {
         tokenCount: Number(llamaTokenCount.tokenCount),
-        source: 'llama.cpp',
+        source: getActiveInferenceBackend(config),
         llamaTokenCount,
       };
     }
@@ -74,7 +82,7 @@ export type PreflightResult = {
   providerPromptReserveTokenCount: number;
   maxPromptBudget: number;
   overflowTokens: number;
-  tokenCountSource: 'llama.cpp' | 'estimate';
+  tokenCountSource: TokenCountSource;
   tokenizationAttempted: boolean;
   tokenizeElapsedMs: number | null;
   tokenizeRetryCount: number | null;
@@ -129,8 +137,9 @@ export async function preflightPlannerPromptBudget(options: {
     providerPromptReserveTokenCount,
     maxPromptBudget,
     overflowTokens,
-    tokenCountSource: tokenCount.source === 'llama.cpp' && (!reserveTokenCount || reserveTokenCount.source === 'llama.cpp')
-      ? 'llama.cpp'
+    tokenCountSource: tokenCount.source !== 'estimate'
+      && (!reserveTokenCount || reserveTokenCount.source !== 'estimate')
+      ? tokenCount.source
       : 'estimate',
     tokenizationAttempted: llamaTokenCount !== null || reserveLlamaTokenCount !== null,
     tokenizeElapsedMs: (llamaTokenCount?.elapsedMs ?? 0) + (reserveLlamaTokenCount?.elapsedMs ?? 0) || null,

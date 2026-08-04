@@ -6,8 +6,10 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import {
   findSessionByIdStrict,
   pickFirstSessionId,
+  upsertSession,
   useChatSessions,
 } from '../../src/hooks/useChatSessions';
+import { ChatSessionRuntimeStore } from '../../src/lib/chat-session-runtime-store';
 import type { ChatSession } from '../../src/types';
 
 const SESSION: ChatSession = {
@@ -38,15 +40,33 @@ test('findSessionByIdStrict throws when the id is unknown', () => {
   );
 });
 
+test('upsertSession updates A without replacing selected B', () => {
+  const sessionA = { ...SESSION, id: 'session-a' };
+  const sessionB = { ...SESSION, id: 'session-b' };
+  const updated = upsertSession([sessionA, sessionB], { ...sessionA, title: 'A updated' });
+  assert.equal(findSessionByIdStrict(updated, 'session-a').title, 'A updated');
+  assert.equal(findSessionByIdStrict(updated, 'session-b'), sessionB);
+});
+
+test('adding a new session leaves another session streaming', () => {
+  const runtimeStore = new ChatSessionRuntimeStore()
+    .ensureSession('session-a')
+    .begin('session-a', 'message');
+  const sessions = upsertSession(
+    [{ ...SESSION, id: 'session-a' }],
+    { ...SESSION, id: 'session-b' },
+  );
+  assert.equal(sessions[0]?.id, 'session-b');
+  assert.deepEqual(runtimeStore.get('session-a').activity, { kind: 'active', operationKind: 'message' });
+});
+
 test('useChatSessions surfaces the initial selected session id without an immediate fetch result', () => {
   function Probe(): React.JSX.Element {
     const result = useChatSessions({
-      onError: () => {},
       initialSelectedSessionId: 's-preselected',
       refreshToken: 0,
       buildCreateSessionRequest: () => ({ title: 'x' }),
       confirmDeleteSession: () => true,
-      applyContextUsage: () => {},
     });
     return React.createElement('output', {
       dangerouslySetInnerHTML: {

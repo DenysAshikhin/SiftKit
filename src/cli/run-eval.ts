@@ -9,7 +9,7 @@ export async function runEvalCli(options: ResolvedCliArgs & {
   const parsed = parseArguments(options.args);
   const result = await new StatusServerApiClient().runEvaluation({
     FixtureRoot: parsed.fixtureRoot,
-    Backend: parsed.backend,
+    Provider: parsed.provider,
     Model: parsed.model,
   }, new SilentProgressRenderer(options.stderr, 'eval'));
   options.stdout.write(formatPsList(result));

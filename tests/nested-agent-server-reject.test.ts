@@ -13,7 +13,7 @@ const ANALYZE_BODY = {
   exitCode: 0,
   combinedText: 'all tests passed',
   question: 'did it pass?',
-  backend: 'mock',
+  provider: 'mock',
 };
 
 test('summary-family request whose marker matches the active agent run is rejected, others queue', async () => {

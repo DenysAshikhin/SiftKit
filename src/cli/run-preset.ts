@@ -34,7 +34,7 @@ export async function runPresetCli(options: ResolvedCliArgs & {
     question: parsed.question || parsed.positionals[0],
     inputText: inputText ?? undefined,
     format: normalizeCliFormat(parsed.format),
-    backend: parsed.backend,
+    provider: parsed.provider,
     model: parsed.model,
     profile: parsed.profile,
     sourceKind: process.env.SIFTKIT_SUMMARY_SOURCE_KIND === 'command-output' || hasStdinInput

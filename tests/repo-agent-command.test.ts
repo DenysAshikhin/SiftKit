@@ -15,6 +15,7 @@ import { parseJsonValueText } from '../src/lib/json.js';
 import {
   RepoAgentApprovalSchema,
   RepoAgentRunResultSchema,
+  RepoAgentRunStateSchema,
   type RepoAgentDecision,
   type RepoAgentWorkerRequest,
 } from '../src/repo-agent/run-schemas.js';
@@ -359,6 +360,39 @@ test('status returns current state without mutation', async () => {
     readdirSync(join(harness.store.getRunsRoot(), request.runId)),
     filesBefore,
   );
+});
+
+test('status reports a dead worker as failed instead of stale running state', async () => {
+  const harness = makeHarness('completed');
+  const request: RepoAgentWorkerRequest = {
+    runId: randomUUID(),
+    task: 'stale task',
+    repoRoot: process.cwd(),
+    approval: 'auto',
+    progress: false,
+    images: [],
+  };
+  harness.store.create(request);
+  harness.store.transition(request.runId, 0, {
+    runId: request.runId,
+    revision: 1,
+    updatedAtUtc: new Date().toISOString(),
+    status: 'running',
+    pid: 999999999,
+  });
+  const capture = makeStreams();
+  const code = await harness.command.run(
+    parseRepoAgentInvocation(['status', request.runId]),
+    capture.streams,
+  );
+
+  assert.equal(code, 0);
+  const reported = RepoAgentRunStateSchema.parse(
+    parseJsonValueText(capture.stdout.read()),
+  );
+  assert.ok(reported.status === 'failed');
+  assert.match(reported.error, /worker process 999999999 died/iu);
+  assert.equal(harness.store.readState(request.runId).status, 'failed');
 });
 
 test('unknown status fails without creating a run directory', async () => {

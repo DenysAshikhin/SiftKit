@@ -248,12 +248,12 @@ test('real status server falls back to request-start prompt chars and elapsed ti
     try {
       await requestJson(server.statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: true, rawInputCharacterCount: 300, promptCharacterCount: 420 }),
+        body: JSON.stringify({ running: true, requestId: 'minimal-completion', rawInputCharacterCount: 300, promptCharacterCount: 420 }),
       });
       await sleep(20);
       await requestJson(server.statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: false }),
+        body: JSON.stringify({ running: false, requestId: 'minimal-completion' }),
       });
 
       const status = await requestJson<RuntimeStatusResponse>(server.statusUrl);

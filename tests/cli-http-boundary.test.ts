@@ -69,7 +69,7 @@ async function startBoundaryServer(): Promise<BoundaryServer> {
         RequestId: 'summary-boundary',
         WasSummarized: false,
         PolicyDecision: 'deterministic-test-output',
-        Backend: 'mock',
+        Provider: 'mock',
         Model: 'mock-model',
         Summary: 'server summary response',
         Classification: 'summary',
@@ -121,7 +121,7 @@ async function startBoundaryServer(): Promise<BoundaryServer> {
       const body = asObject(parseJsonValueText(await readBody(req) || '{}'));
       requests.push({ route: '/eval/run', body });
       writeSseResult(res, {
-        Backend: 'mock',
+        Provider: 'mock',
         Model: 'mock-model',
         ResultPath: 'db://eval/result',
         Results: [],

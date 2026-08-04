@@ -33,7 +33,7 @@ export type ParsedArgs = {
   question?: string;
   text?: string;
   file?: string;
-  backend?: SummaryProviderId;
+  provider?: SummaryProviderId;
   model?: string;
   profile?: string;
   format?: string;
@@ -121,8 +121,8 @@ export function parseArguments(tokens: string[]): ParsedArgs {
       case '--file':
         parsed.file = tokens[++index];
         break;
-      case '--backend':
-        parsed.backend = parseOptionalSummaryProvider(tokens[++index]);
+      case '--provider':
+        parsed.provider = parseOptionalSummaryProvider(tokens[++index]);
         break;
       case '--model':
         parsed.model = tokens[++index];

@@ -1,9 +1,10 @@
 import type { RepoSearchProgressEvent } from '../types.js';
 import type { ProgressWriter } from '../../lib/progress-writer.js';
+import type { TokenCountSource } from '../prompt-budget.js';
 
 export type TokenizeDoneInfo = {
   promptTokenCount: number;
-  tokenCountSource?: string;
+  tokenCountSource?: TokenCountSource;
   tokenizeElapsedMs?: number | null;
   tokenizeRetryCount?: number | null;
   tokenizeTimeoutMs?: number;

@@ -8,6 +8,8 @@ import type { JsonObject } from '../src/lib/json-types.js';
 import {
   buildRepoToolRequestedCommand,
   buildEffectiveTranscriptAction,
+  buildRejectedTranscriptAction,
+  REJECTED_ARGS_ELISION_LIMIT,
   buildReadCommand,
   buildReadExecution,
   executeRepoTool,
@@ -71,14 +73,40 @@ test('buildRepoToolRequestedCommand covers every tool', () => {
   );
   assert.equal(buildRepoToolRequestedCommand('ls', {}), 'ls path="."');
   assert.equal(buildRepoToolRequestedCommand('ls', { path: 'src', limit: 10 }), 'ls path="src" limit=10');
-  assert.equal(buildRepoToolRequestedCommand('write', { path: 'x.ts', content: 'abc' }), 'write path="x.ts" bytes=3');
+  assert.equal(
+    buildRepoToolRequestedCommand('write', { path: 'x.ts', content: 'abc' }),
+    'write path="x.ts" bytes=3 sha="ba7816bf8f"',
+  );
   assert.equal(
     buildRepoToolRequestedCommand('edit', { path: 'x.ts', edits: [{ oldText: 'a', newText: 'b' }] }),
-    'edit path="x.ts" edits=1',
+    'edit path="x.ts" edits=1 sha="db8992cf94"',
   );
   assert.equal(buildRepoToolRequestedCommand('run', { command: 'git status' }), 'run command="git status"');
   assert.equal(buildRepoToolRequestedCommand('web_search', { query: ' q ' }), 'web_search query="q"');
   assert.equal(buildRepoToolRequestedCommand('web_fetch', { url: 'https://x' }), 'web_fetch url="https://x"');
+});
+
+test('edit command strings differ when edit content differs', () => {
+  const first = buildRepoToolRequestedCommand('edit', {
+    path: 'src/a.ts',
+    edits: [{ oldText: 'alpha', newText: 'beta' }],
+  });
+  const second = buildRepoToolRequestedCommand('edit', {
+    path: 'src/a.ts',
+    edits: [{ oldText: 'line1', newText: 'line0' }],
+  });
+  const repeat = buildRepoToolRequestedCommand('edit', {
+    path: 'src/a.ts',
+    edits: [{ oldText: 'alpha', newText: 'beta' }],
+  });
+  assert.notEqual(first, second);
+  assert.equal(first, repeat);
+});
+
+test('write command strings differ when content differs at equal byte length', () => {
+  const first = buildRepoToolRequestedCommand('write', { path: 'src/w.ts', content: 'AAAA' });
+  const second = buildRepoToolRequestedCommand('write', { path: 'src/w.ts', content: 'BBBB' });
+  assert.notEqual(first, second);
 });
 
 test('buildEffectiveTranscriptAction re-parses the executed read window', () => {
@@ -99,6 +127,44 @@ test('buildEffectiveTranscriptAction passes command tools through as a command a
     commandToRun: 'git status --short',
   });
   assert.deepEqual(action, { tool_name: 'git', args: { command: 'git status --short' } });
+});
+
+test('buildRejectedTranscriptAction keeps small argument payloads intact', () => {
+  const action = buildRejectedTranscriptAction({
+    toolName: 'git',
+    rawArgs: { command: 'git status --short' },
+    isNativeTool: false,
+    commandToRun: 'git status --short',
+  });
+  assert.deepEqual(action, { tool_name: 'git', args: { command: 'git status --short' } });
+});
+
+test('buildRejectedTranscriptAction elides an oversized argument payload', () => {
+  const oldText = 'a'.repeat(25_448);
+  const newText = 'b'.repeat(25_802);
+  const action = buildRejectedTranscriptAction({
+    toolName: 'edit',
+    rawArgs: { path: 'src/summary/core-runner.ts', oldText, newText },
+    isNativeTool: true,
+    commandToRun: 'edit path="src/summary/core-runner.ts"',
+  });
+  assert.equal(action.tool_name, 'edit');
+  assert.deepEqual(Object.keys(action.args), ['elided']);
+  assert.match(String(action.args.elided), /^rejected edit call; 51,3\d\d chars of arguments discarded$/u);
+  assert.ok(JSON.stringify(action.args).length < REJECTED_ARGS_ELISION_LIMIT);
+});
+
+test('buildRejectedTranscriptAction elides exactly above the limit', () => {
+  const build = (padding: number) => buildRejectedTranscriptAction({
+    toolName: 'run_repo_cmd',
+    rawArgs: { command: 'x'.repeat(padding) },
+    isNativeTool: false,
+    commandToRun: 'x'.repeat(padding),
+  });
+  const atLimit = build(REJECTED_ARGS_ELISION_LIMIT - 20);
+  const overLimit = build(REJECTED_ARGS_ELISION_LIMIT);
+  assert.deepEqual(Object.keys(atLimit.args), ['command']);
+  assert.deepEqual(Object.keys(overLimit.args), ['elided']);
 });
 
 // ---------------------------------------------------------------------------
@@ -261,6 +327,29 @@ test('grep limit counts matches, not context lines', async () => {
   assert.equal(matchLines.length, 5);
   assert.ok(result.output.includes('pad5'), `shared trailing context was removed: ${result.output}`);
   assert.ok(result.output.includes('1 more matches beyond limit=5'), `unexpected output: ${result.output}`);
+});
+
+test('grep accepts context 0 as matches-only output', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool(
+    'grep',
+    { pattern: 'alpha', path: 'src/a.ts', context: 0 },
+    makeContext(root),
+  );
+  assert.ok(result.ok, `grep context 0 rejected: ${result.ok ? '' : result.reason}`);
+  const lines = result.output.split(/\r\n|\r|\n/u).filter((line) => line.trim() !== '');
+  assert.deepEqual(lines, ['src/a.ts:2:alpha', 'src/a.ts:4:alpha']);
+});
+
+test('grep rejects a negative context', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool(
+    'grep',
+    { pattern: 'alpha', path: 'src/a.ts', context: -1 },
+    makeContext(root),
+  );
+  assert.ok(!result.ok);
+  assert.match(result.reason, /context must be a non-negative integer/u);
 });
 
 test('grep limit removes the detached context group of the first omitted match', async () => {
@@ -856,12 +945,12 @@ test('repo tools reject present positive-integer arguments instead of coercing t
     {
       toolName: 'grep',
       args: { pattern: 'alpha', context: 1.5 },
-      expectedReason: 'context must be a positive integer',
+      expectedReason: 'context must be a non-negative integer',
     },
     {
       toolName: 'grep',
       args: { pattern: 'alpha', context: null },
-      expectedReason: 'context must be a positive integer',
+      expectedReason: 'context must be a non-negative integer',
     },
     {
       toolName: 'grep',

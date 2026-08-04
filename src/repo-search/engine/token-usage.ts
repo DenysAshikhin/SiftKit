@@ -140,6 +140,6 @@ export class TokenUsageTracker {
       return { tokenCount: estimateTokenCount(this.config, content), estimated: true };
     }
     const result = await countTokensWithFallbackDetailed(this.config, content);
-    return { tokenCount: result.tokenCount, estimated: result.source !== 'llama.cpp' };
+    return { tokenCount: result.tokenCount, estimated: result.source === 'estimate' };
   }
 }

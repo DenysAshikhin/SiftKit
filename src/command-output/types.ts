@@ -27,7 +27,7 @@ export type CommandOutputAnalyzeRequest = {
   reducerProfile?: CommandOutputReducerProfile;
   format?: 'text' | 'json';
   policyProfile?: SummaryPolicyProfile;
-  backend?: SummaryProviderId;
+  provider?: SummaryProviderId;
   model?: string;
   noSummarize?: boolean;
   shell?: ShellName;
@@ -56,7 +56,7 @@ export type PresetRunRequest = {
   question?: string;
   inputText?: string;
   format?: 'text' | 'json';
-  backend?: SummaryProviderId;
+  provider?: SummaryProviderId;
   model?: string;
   profile?: string;
   sourceKind?: SummarySourceKind;

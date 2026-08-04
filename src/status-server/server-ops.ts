@@ -24,10 +24,6 @@ import {
   persistIdleSummarySnapshot,
 } from './idle-summary.js';
 import {
-  type StatusMetadata,
-} from './status-file.js';
-import {
-  buildStatusRequestLogBody,
   ensureRunLogsTable,
   upsertRunArtifactPayload,
 } from './dashboard-runs.js';
@@ -37,7 +33,6 @@ import {
   type DeferredArtifact,
 } from '../state/status-artifacts.js';
 import type {
-  ActiveRunState,
   DatabaseInstance,
   ModelRequestQueueDiagnostics,
   ModelRequestLock,
@@ -48,36 +43,12 @@ import type {
 import { serverLogger } from './server-logger.js';
 import { readConfig } from './config-store.js';
 
-export const MAX_COMPLETED_STATUS_PATH_ENTRIES = 1000;
 export const DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS = 900_000;
 export const DEFAULT_IDLE_SUMMARY_DELAY_MS = 600_000;
 
 function readModelRequestQueueTimeoutMs(): number {
   const parsed = Number.parseInt(String(process.env.SIFTKIT_MODEL_REQUEST_QUEUE_TIMEOUT_MS || ''), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS;
-}
-
-export function rememberCompletedStatusRequestId(ctx: ServerContext, statusPath: string, requestId: string): void {
-  ctx.completedRequestIdByStatusPath.delete(statusPath);
-  ctx.completedRequestIdByStatusPath.set(statusPath, requestId);
-  while (ctx.completedRequestIdByStatusPath.size > MAX_COMPLETED_STATUS_PATH_ENTRIES) {
-    const oldestStatusPath = ctx.completedRequestIdByStatusPath.keys().next().value;
-    if (!oldestStatusPath) {
-      return;
-    }
-    ctx.completedRequestIdByStatusPath.delete(oldestStatusPath);
-  }
-}
-
-export function clearCompletedStatusRequestIdForDifferentRequest(
-  ctx: ServerContext,
-  statusPath: string,
-  requestId: string,
-): void {
-  const completedRequestId = ctx.completedRequestIdByStatusPath.get(statusPath);
-  if (completedRequestId && completedRequestId !== requestId) {
-    ctx.completedRequestIdByStatusPath.delete(statusPath);
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -109,73 +80,7 @@ export function publishStatus(ctx: ServerContext): void {
 // ---------------------------------------------------------------------------
 
 export function hasActiveRuns(ctx: ServerContext): boolean {
-  return ctx.activeRequestIdByStatusPath.has(ctx.statusPath);
-}
-
-export function getResolvedRequestId(metadata: StatusMetadata, currentStatusPath: string): string {
-  if (metadata.requestId) {
-    return metadata.requestId;
-  }
-  return `legacy:${currentStatusPath}`;
-}
-
-export function clearRunState(ctx: ServerContext, requestId: string | null): ActiveRunState | null {
-  if (!requestId) return null;
-  const runState = ctx.activeRunsByRequestId.get(requestId);
-  if (!runState) {
-    return null;
-  }
-  ctx.activeRunsByRequestId.delete(requestId);
-  if (ctx.activeRequestIdByStatusPath.get(runState.statusPath) === requestId) {
-    ctx.activeRequestIdByStatusPath.delete(runState.statusPath);
-  }
-  return runState;
-}
-
-export function logAbandonedRun(ctx: ServerContext, runState: ActiveRunState, now: number): void {
-  serverLogger.emitBody('st', runState.requestId, buildStatusRequestLogBody({
-    running: false,
-    requestId: runState.requestId,
-    terminalState: 'failed',
-    errorMessage: 'Abandoned because a new request started before terminal status.',
-    rawInputCharacterCount: runState.rawInputCharacterCount,
-    promptCharacterCount: runState.promptCharacterCount,
-    promptTokenCount: runState.promptTokenCount,
-    chunkIndex: runState.chunkIndex,
-    chunkTotal: runState.chunkTotal,
-    chunkPath: runState.chunkPath,
-    totalElapsedMs: now - runState.overallStartedAt,
-  }));
-  const payload = {
-    requestId: runState.requestId,
-    reason: 'Abandoned because a new request started before terminal status.',
-    abandonedAtUtc: new Date(now).toISOString(),
-    totalElapsedMs: now - runState.overallStartedAt,
-    stepCount: runState.stepCount,
-    rawInputCharacterCount: runState.rawInputCharacterCount,
-    promptCharacterCount: runState.promptCharacterCount,
-    promptTokenCount: runState.promptTokenCount,
-    outputTokensTotal: runState.outputTokensTotal,
-    chunkIndex: runState.chunkIndex,
-    chunkTotal: runState.chunkTotal,
-    chunkPath: runState.chunkPath,
-  };
-  try {
-    upsertRuntimeJsonArtifact({
-      id: `status:request_abandoned:${runState.requestId}`,
-      artifactKind: 'status_request_abandoned',
-      requestId: runState.requestId,
-      payload,
-    });
-    upsertRunArtifactPayload({
-      database: getIdleSummaryDatabase(ctx),
-      requestId: runState.requestId,
-      artifactType: 'request_abandoned',
-      artifactPayload: payload,
-    });
-  } catch {
-    // Best-effort - don't fail the incoming request.
-  }
+  return ctx.statusRuns.hasActiveRuns(Date.now());
 }
 
 function persistDeferredArtifact(ctx: ServerContext, artifact: DeferredArtifact): void {

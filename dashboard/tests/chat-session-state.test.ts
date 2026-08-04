@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { deriveSessionIndicator } from '../src/lib/chat-session-state';
+import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
 import type { ChatMessage, ChatSession } from '../src/types';
 
 function msg(overrides: Partial<ChatMessage>): ChatMessage {
@@ -20,34 +21,47 @@ function session(messages: ChatMessage[]): ChatSession {
   };
 }
 
-test('active session with a running tool live message → tool', () => {
-  const indicator = deriveSessionIndicator(session([]), {
-    isActive: true, chatBusy: true,
-    liveMessages: [msg({ kind: 'assistant_tool_call', toolCallStatus: 'running' })],
-  });
-  assert.equal(indicator, 'tool');
+test('active session with a running tool live message returns tool', () => {
+  const runtime = new ChatSessionRuntimeStore()
+    .ensureSession('s1')
+    .begin('s1', 'message')
+    .applyToolEvent('s1', { kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2, command: 'rg x' })
+    .get('s1');
+  assert.equal(deriveSessionIndicator(session([]), runtime), 'tool');
 });
 
-test('active streaming assistant with no running tool → streaming', () => {
-  const indicator = deriveSessionIndicator(session([]), {
-    isActive: true, chatBusy: true,
-    liveMessages: [msg({ kind: 'assistant_answer', content: 'partial' })],
-  });
-  assert.equal(indicator, 'streaming');
+test('active streaming assistant with no running tool returns streaming', () => {
+  const runtime = new ChatSessionRuntimeStore()
+    .ensureSession('s1')
+    .begin('s1', 'message')
+    .applyAnswer('s1', 'partial')
+    .get('s1');
+  assert.equal(deriveSessionIndicator(session([]), runtime), 'streaming');
 });
 
-test('last turn errored (non-zero tool exit) → failed', () => {
-  const indicator = deriveSessionIndicator(
-    session([msg({ kind: 'assistant_tool_call', toolCallStatus: 'done', toolCallExitCode: 1 })]),
-    { isActive: false, chatBusy: false, liveMessages: [] },
+test('last turn with a non-zero tool exit returns failed', () => {
+  const runtime = new ChatSessionRuntimeStore().ensureSession('s1').get('s1');
+  assert.equal(
+    deriveSessionIndicator(
+      session([msg({ kind: 'assistant_tool_call', toolCallStatus: 'done', toolCallExitCode: 1 })]),
+      runtime,
+    ),
+    'failed',
   );
-  assert.equal(indicator, 'failed');
 });
 
-test('otherwise → completed', () => {
-  const indicator = deriveSessionIndicator(
-    session([msg({ kind: 'assistant_answer', content: 'done' })]),
-    { isActive: false, chatBusy: false, liveMessages: [] },
+test('completed answer returns completed', () => {
+  const runtime = new ChatSessionRuntimeStore().ensureSession('s1').get('s1');
+  assert.equal(
+    deriveSessionIndicator(session([msg({ kind: 'assistant_answer', content: 'done' })]), runtime),
+    'completed',
   );
-  assert.equal(indicator, 'completed');
+});
+
+test('runtime failure overrides completed persisted messages', () => {
+  const runtime = new ChatSessionRuntimeStore()
+    .ensureSession('s1')
+    .applyFailure('s1', 'backend failed')
+    .get('s1');
+  assert.equal(deriveSessionIndicator(session([]), runtime), 'failed');
 });

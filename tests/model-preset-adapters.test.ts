@@ -1,4 +1,4 @@
-﻿import test from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -400,6 +400,19 @@ test('llama adapter preserves launch settings and common request defaults', () =
     preserveThinking: true,
     maintainPerStepThinking: true,
   });
+});
+
+test('exl3 buildLoadRequest rounds a 140k context up to the next 256-token cache page', () => {
+  const preset = createModelPreset({
+    Backend: 'exl3',
+    ModelPath: 'D:\\personal\\models\\exl3\\3.6_27B',
+    NumCtx: 140_000,
+    KvCacheQuantization: 'q8_0/q4_0',
+  });
+  const adapter = new Exl3PresetAdapter('D:\\personal\\models\\exl3');
+  const request = adapter.buildLoadRequest(preset);
+  assert.equal(request.max_seq_len, 140_000);
+  assert.equal(request.cache_size, 140_032);
 });
 
 test('adapters reject presets assigned to the other backend', () => {

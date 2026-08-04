@@ -406,7 +406,7 @@ test('planner mode executes multi-tool batches sequentially before finishing', a
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -503,7 +503,7 @@ test('planner token accounting treats tool-step completion tokens as thinking an
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -603,7 +603,7 @@ test('summary below planner threshold disables thinking for fully ingested one-s
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -642,7 +642,7 @@ test('summary above planner threshold respects runtime reasoning for planner req
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -745,7 +745,7 @@ test('oversized transition extraction uses planner action grammar before returni
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -821,7 +821,7 @@ test('planner accepts inputs larger than the former four-chunk cap when it can a
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -860,7 +860,7 @@ test('planner handles oversized monolithic JSON instead of forcing chunk fallbac
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 

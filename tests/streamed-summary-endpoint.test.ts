@@ -12,7 +12,7 @@ test('summary streams progress frames before a schema-valid result frame', async
         question: 'what is in the text?',
         inputText: 'alpha beta gamma',
         repoRoot: process.cwd(),
-        backend: 'mock',
+        provider: 'mock',
       },
     });
     assert.equal(response.statusCode, 200);
@@ -50,7 +50,7 @@ test('engine failure surfaces as an error frame, not an HTTP error', async () =>
         question: 'q',
         inputText: 'engine failure input',
         repoRoot: process.cwd(),
-        backend: 'mock',
+        provider: 'mock',
       },
     });
     assert.equal(response.statusCode, 200);
@@ -75,7 +75,7 @@ test('concurrent summary streams both complete successfully', async () => {
           question: 'q1',
           inputText: `slow ${'y'.repeat(50)}`,
           repoRoot: process.cwd(),
-          backend: 'mock',
+          provider: 'mock',
         },
       }),
       requestSse(`${harness.baseUrl}/summary`, {
@@ -83,7 +83,7 @@ test('concurrent summary streams both complete successfully', async () => {
           question: 'q2',
           inputText: 'z text',
           repoRoot: process.cwd(),
-          backend: 'mock',
+          provider: 'mock',
         },
       }),
     ]);

@@ -14,7 +14,7 @@
 
 The checkpoint reports `Qwen3_5ForConditionalGeneration`, EXL3 4.00-bit `mul1` quantization, and one built-in MTP layer. It includes vision metadata, but Tabby is explicitly configured with `vision: false`; startup reports that the model has vision capabilities and vision is disabled. No mmproj or vision tower is loaded.
 
-The Tabby profile uses `max_seq_len: 84992`, `cache_size: 84992`, main `cache_mode: 8,8`, `max_batch_size: 1`, MTP drafting, and a `Q8` draft cache. `/props` must report `total_slots: 1` and `n_ctx: 84992`. SiftKit serializes all EXL3 chat calls at the provider boundary so deferred metadata and top-level requests cannot overlap against that single cache slot.
+The Tabby profile uses `max_seq_len: 84992`, `cache_size: 84992`, main `cache_mode: 8,8`, `max_batch_size: 1`, MTP drafting, and a `Q8` draft cache. `/props` must report `total_slots: 1` and `n_ctx: 84992`. SiftKit uses backend-aware admission: EXL3 accepts concurrent work up to the capacity reported by Tabby, while llama.cpp executes admitted requests FIFO. With this one-slot profile, Tabby itself limits execution to one active generation.
 
 Tabby loads the model folder's `chat_template.jinja`. SiftKit forwards OpenAI `tools` and `response_format` unchanged to both backends. This Qwen template emits tool calls as `<tool_call>` XML, which SiftKit parses locally into the standard tool-call representation. JSON-schema output is also native; when thinking is enabled, constrained content may begin only after reasoning, so the request needs enough output tokens for both.
 
@@ -24,7 +24,7 @@ In Dashboard Settings, create or edit a model preset and select `EXL3 (TabbyAPI)
 
 Set `Server.Engines.Exl3.AdminApiKey` to Tabby's admin API bearer token. SiftKit uses it for readiness checks, model inspection, load, and unload, including idle wake/reload. Leave it empty only when Tabby authentication is disabled. Caller authorization on proxied inference requests remains separate.
 
-The status server persists the active preset only after its runtime is ready. A selection made during inference drains the active request, pauses queued admission, stops or unloads the old runtime, starts and verifies the target model, then resumes the queue. Target startup failure restores the prior preset definition and runtime. Runtime state is available from `GET /runtime/inference`.
+The status server persists the active preset only after its runtime is ready. A selection made during inference drains active work, pauses new admission, stops or unloads the old runtime, starts and verifies the target model, then resumes admission. This preset-switch drain is separate from normal request concurrency. Target startup failure restores the prior preset definition and runtime. Runtime state is available from `GET /runtime/inference`.
 
 Tabby's per-load API supports model, context/cache size, and cache mode. The shared preset fields that have no per-preset EXL3 equivalent remain visible but disabled: executable path, bind host/port, GPU/CPU placement, batch/ubatch sizes, parallel slots, cache RAM, llama reasoning-budget controls, speculative decoding controls, flash attention, and verbose logging. EXL3-compatible cache modes are `FP16`, `8,8`, `4,4`, `5,5`, `8,4`, and `8,5`.
 

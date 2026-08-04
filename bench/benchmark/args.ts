@@ -21,8 +21,8 @@ export function parseArguments(argv: string[]): BenchmarkRunnerOptions {
       case '--output':
         parsed.outputPath = argv[++index];
         break;
-      case '--backend':
-        parsed.backend = parseOptionalSummaryProvider(argv[++index]);
+      case '--provider':
+        parsed.provider = parseOptionalSummaryProvider(argv[++index]);
         break;
       case '--model':
         parsed.model = argv[++index];

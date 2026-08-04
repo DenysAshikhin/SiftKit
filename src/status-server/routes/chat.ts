@@ -6,6 +6,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type {
   ChatSession as WireChatSession,
   ChatMessage as WireChatMessage,
+  ChatSessionOperationKind,
   ChatSessionResponse,
   ChatSessionsResponse,
 } from '@siftkit/contracts';
@@ -98,9 +99,30 @@ import {
   ensureActivePresetReadyForModelRequest,
 } from '../server-ops.js';
 import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.js';
+import type { ChatSessionOperation } from '../chat-session-operation-registry.js';
 import type { ServerContext } from '../server-types.js';
 import { ProgressWriter } from '../../lib/progress-writer.js';
 
+function rejectBusyChatSession(
+  ctx: ServerContext,
+  res: ServerResponse,
+  sessionId: string,
+  requestedOperationKind: ChatSessionOperationKind,
+  active: ChatSessionOperation,
+): void {
+  serverLogger.dim({
+    scope: 'chat',
+    id: sessionId,
+    event: 'session_busy_rejected',
+    fields: `requested=${requestedOperationKind} active=${active.operationKind} `
+      + `active_duration_ms=${Date.now() - active.startedAtMs} active_sessions=${ctx.chatSessionOperations.getActiveCount()}`,
+  });
+  sendJson(res, 409, {
+    error: 'Chat session already has an active operation.',
+    sessionId,
+    operationKind: active.operationKind,
+  });
+}
 
 async function readEffectiveChatRouteConfig(configPath: string): Promise<SiftConfig> {
   const localConfig = readConfig(configPath);
@@ -755,6 +777,12 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
       return;
     }
     const providedAssistantContent = messageRequest.assistantContent || '';
+    const acquisition = ctx.chatSessionOperations.acquire(sessionId, 'message', Date.now());
+    if (acquisition.kind === 'conflict') {
+      rejectBusyChatSession(ctx, res, sessionId, 'message', acquisition.active);
+      return;
+    }
+    try {
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat', req, res);
     if (!modelRequestLock) {
       return;
@@ -804,6 +832,9 @@ class CreateChatMessageEndpoint implements RouteEndpoint {
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
     }
+    } finally {
+      ctx.chatSessionOperations.release(acquisition.lease);
+    }
     return;
   }
 }
@@ -837,6 +868,12 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
       sendJson(res, 400, { error: 'Expected content.' });
       return;
     }
+    const acquisition = ctx.chatSessionOperations.acquire(sessionId, 'message', Date.now());
+    if (acquisition.kind === 'conflict') {
+      rejectBusyChatSession(ctx, res, sessionId, 'message', acquisition.active);
+      return;
+    }
+    try {
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat_stream', req, res);
     if (!modelRequestLock) {
       return;
@@ -953,6 +990,9 @@ class StreamChatMessageEndpoint implements RouteEndpoint {
       releaseModelRequest(ctx, modelRequestLock.token);
       sseWriter.end();
     }
+    } finally {
+      ctx.chatSessionOperations.release(acquisition.lease);
+    }
     return;
   }
 }
@@ -991,6 +1031,12 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
       return;
     }
+    const acquisition = ctx.chatSessionOperations.acquire(sessionId, 'plan', Date.now());
+    if (acquisition.kind === 'conflict') {
+      rejectBusyChatSession(ctx, res, sessionId, 'plan', acquisition.active);
+      return;
+    }
+    try {
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_plan', req, res);
     if (!modelRequestLock) {
       return;
@@ -1033,6 +1079,9 @@ class CreateChatPlanEndpoint implements RouteEndpoint {
     } finally {
       releaseModelRequest(ctx, modelRequestLock.token);
     }
+    } finally {
+      ctx.chatSessionOperations.release(acquisition.lease);
+    }
     return;
   }
 }
@@ -1071,6 +1120,12 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
       return;
     }
+    const acquisition = ctx.chatSessionOperations.acquire(sessionId, 'plan', Date.now());
+    if (acquisition.kind === 'conflict') {
+      rejectBusyChatSession(ctx, res, sessionId, 'plan', acquisition.active);
+      return;
+    }
+    try {
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_plan_stream', req, res);
     if (!modelRequestLock) {
       return;
@@ -1124,7 +1179,98 @@ class StreamChatPlanEndpoint implements RouteEndpoint {
       releaseModelRequest(ctx, modelRequestLock.token);
       sseWriter.end();
     }
+    } finally {
+      ctx.chatSessionOperations.release(acquisition.lease);
+    }
     return;
+  }
+}
+
+class CreateRepoSearchEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: IncomingMessage,
+    res: ServerResponse,
+    routeMatch: RouteMatch,
+  ): Promise<void> {
+    const pathname = routeMatch.pathname;
+    const { configPath } = ctx;
+    const runtimeRoot = getRuntimeRoot();
+    const sessionId = decodeURIComponent(pathname.replace(/^\/dashboard\/chat\/sessions\//u, '').replace(/\/repo-search$/u, ''));
+    const sessionPath = getChatSessionPath(runtimeRoot, sessionId);
+    const session = readChatSessionFromPath(sessionPath);
+    if (!session) {
+      sendJson(res, 404, { error: 'Session not found.' });
+      return;
+    }
+    let parsedBody: ReturnType<typeof parseJsonBody>;
+    try {
+      parsedBody = parseJsonBody(await readBody(req));
+    } catch (error) {
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
+      return;
+    }
+    const repoRequest = parseChatRepoRequest(parsedBody);
+    if (!repoRequest) {
+      sendJson(res, 400, { error: 'Expected content.' });
+      return;
+    }
+    const resolvedRepoRoot = resolveChatRepoRoot(repoRequest, session);
+    if (!existsSync(resolvedRepoRoot) || !statSync(resolvedRepoRoot).isDirectory()) {
+      sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
+      return;
+    }
+    const acquisition = ctx.chatSessionOperations.acquire(sessionId, 'repo-search', Date.now());
+    if (acquisition.kind === 'conflict') {
+      rejectBusyChatSession(ctx, res, sessionId, 'repo-search', acquisition.active);
+      return;
+    }
+    try {
+      const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_repo_search', req, res);
+      if (!modelRequestLock) {
+        return;
+      }
+      const activeSession = readChatSessionFromPath(sessionPath);
+      if (!activeSession) {
+        releaseModelRequest(ctx, modelRequestLock.token);
+        sendJson(res, 404, { error: 'Session not found.' });
+        return;
+      }
+      try {
+        try {
+          await ensureActivePresetReadyForModelRequest(ctx);
+        } catch (error) {
+          sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
+          return;
+        }
+        const content = repoRequest.content;
+        const reader = new JsonRecordReader(parsedBody);
+        const config = readConfig(configPath);
+        const engineRequestId = randomUUID();
+        const result = await new ChatRepoOperationRunner().runRepoSearch(buildChatRepoOperationRequest({
+          ctx,
+          runtimeRoot,
+          session: activeSession,
+          config,
+          content,
+          repoRoot: resolvedRepoRoot,
+          reader,
+          parsedBody,
+          requestId: engineRequestId,
+          progressWriter: new RepoSearchToolLogProgressWriter('rs', engineRequestId),
+        }));
+        sendJson(res, 200, {
+          ...buildChatSessionResponse(config, result.updatedSession),
+          repoSearch: result.repoSearch,
+        });
+      } catch (error) {
+        sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+      } finally {
+        releaseModelRequest(ctx, modelRequestLock.token);
+      }
+    } finally {
+      ctx.chatSessionOperations.release(acquisition.lease);
+    }
   }
 }
 
@@ -1162,6 +1308,12 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
       sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
       return;
     }
+    const acquisition = ctx.chatSessionOperations.acquire(sessionId, 'repo-search', Date.now());
+    if (acquisition.kind === 'conflict') {
+      rejectBusyChatSession(ctx, res, sessionId, 'repo-search', acquisition.active);
+      return;
+    }
+    try {
     const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_repo_search_stream', req, res);
     if (!modelRequestLock) {
       return;
@@ -1215,6 +1367,9 @@ class StreamRepoSearchEndpoint implements RouteEndpoint {
       releaseModelRequest(ctx, modelRequestLock.token);
       sseWriter.end();
     }
+    } finally {
+      ctx.chatSessionOperations.release(acquisition.lease);
+    }
     return;
   }
 }
@@ -1251,6 +1406,7 @@ const CHAT_ROUTES = new RouteTable([
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/messages\/stream$/u, endpoint: new StreamChatMessageEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/plan$/u, endpoint: new CreateChatPlanEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/plan\/stream$/u, endpoint: new StreamChatPlanEndpoint() },
+  { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-search$/u, endpoint: new CreateRepoSearchEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/repo-search\/stream$/u, endpoint: new StreamRepoSearchEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/condense$/u, endpoint: new CondenseChatSessionEndpoint() },
 ]);

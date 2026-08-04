@@ -83,7 +83,7 @@ test('summary endpoint waits behind the model request queue', async () => {
         inputText: 'Build output: warning appeared.'.repeat(50),
         format: 'text',
         policyProfile: 'general',
-        backend: 'mock',
+        provider: 'mock',
         model: 'mock-model',
       },
     });
@@ -150,7 +150,7 @@ test('summary endpoint processes terminal status before granting next queued sum
           inputText: 'First queued summary input.'.repeat(50),
           format: 'text',
           policyProfile: 'general',
-          backend: 'mock',
+          provider: 'mock',
           model: 'mock-model',
         },
       });
@@ -163,7 +163,7 @@ test('summary endpoint processes terminal status before granting next queued sum
           inputText: 'Second queued summary input.'.repeat(50),
           format: 'text',
           policyProfile: 'general',
-          backend: 'mock',
+          provider: 'mock',
           model: 'mock-model',
         },
       });
@@ -617,7 +617,7 @@ test('summary endpoint returns, logs, and persists diagnostics for 500 responses
         inputText: 'Build output: warning appeared.'.repeat(50),
         format: 'text',
         policyProfile: 'general',
-        backend: 'mock',
+        provider: 'mock',
         model: 'mock-model',
       },
     });
@@ -744,14 +744,14 @@ test('summarizeRequest uses explicit config without requiring config service', a
       inputText: 'Build output: warning appeared.'.repeat(50),
       format: 'text',
       policyProfile: 'general',
-      backend: 'mock',
+      provider: 'mock',
       model: 'mock-model',
       statusBackendUrl: 'http://127.0.0.1:1/status',
       config,
     });
 
     assert.equal(result.ModelCallSucceeded, true);
-    assert.equal(result.Backend, 'mock');
+    assert.equal(result.Provider, 'mock');
   } finally {
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {

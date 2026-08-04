@@ -101,7 +101,7 @@ test('summary carries TabbyAPI draft stats into terminal status metadata', async
         inputText: 'A'.repeat(5000),
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 

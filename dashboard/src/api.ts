@@ -7,6 +7,7 @@ import {
   DashboardBenchmarkSessionsResponseSchema, DashboardBenchmarkSessionDetailSchema, DashboardBenchmarkAttemptSchema,
   ManagedFilePickerResponseSchema, LlamaCppConnectionTestResponseSchema, ChatSessionResponseSchema,
   ChatSessionsResponseSchema,
+  ChatSessionBusyResponseSchema,
   type DashboardConfig,
   type DashboardHealth,
   type ChatSessionResponse,
@@ -32,8 +33,10 @@ import {
   type WebSearchQuotaResponse,
   InferenceRuntimeStatusSchema,
   type InferenceRuntimeStatus,
+  type ChatSessionBusyResponse,
 } from '@siftkit/contracts';
-import { ChatStreamReader, type ChatStreamToolEvent } from './lib/chat-stream-parser.js';
+import { ChatStreamReader } from './lib/chat-stream-parser.js';
+import type { ChatStreamEvent } from './lib/chat-stream-parser.js';
 import type { JsonValue, JsonSerializable } from '../../src/lib/json-types.js';
 
 export async function parseJsonResponse<S extends z.ZodTypeAny>(response: Response, schema: S): Promise<z.infer<S>> {
@@ -308,27 +311,6 @@ export function updateChatSession(
   });
 }
 
-export type ChatStreamResult = {
-  response: ChatSessionResponse;
-  warnings: string[];
-};
-
-export async function streamChatMessage(
-  sessionId: string,
-  payload: { content: string; images?: string[] },
-  onThinking: (thinkingText: string) => void,
-  onToolEvent: (event: ChatStreamToolEvent) => void,
-  onAnswer: (answerText: string) => void,
-): Promise<ChatStreamResult> {
-  return consumeChatStream(
-    `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/messages/stream`,
-    payload,
-    onThinking,
-    onToolEvent,
-    onAnswer,
-  );
-}
-
 export function condenseChatSession(sessionId: string): Promise<ChatSessionResponse> {
   return fetchJson(`/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/condense`, ChatSessionResponseSchema, {
     method: 'POST',
@@ -353,71 +335,72 @@ export function createPlanMessage(
   });
 }
 
-async function consumeChatStream(
+export class ChatSessionBusyError extends Error {
+  constructor(readonly response: ChatSessionBusyResponse) {
+    super(response.error);
+    this.name = 'ChatSessionBusyError';
+  }
+}
+
+async function buildChatStreamHttpError(response: Response): Promise<never> {
+  const text = await response.text();
+  if (response.status === 409) {
+    let raw: JsonValue;
+    try {
+      raw = text ? JSON.parse(text) : {};
+    } catch {
+      throw new Error(`Request failed (${response.status}): ${text}`);
+    }
+    const parsed = ChatSessionBusyResponseSchema.safeParse(raw);
+    if (parsed.success) {
+      throw new ChatSessionBusyError(parsed.data);
+    }
+  }
+  throw new Error(`Request failed (${response.status}): ${text}`);
+}
+
+async function* consumeChatStream(
   url: string,
   payload: Record<string, JsonSerializable>,
-  onThinking: (thinkingText: string) => void,
-  onToolEvent: (event: ChatStreamToolEvent) => void,
-  onAnswer?: (answerText: string) => void,
-): Promise<ChatStreamResult> {
+): AsyncGenerator<ChatStreamEvent> {
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Request failed (${response.status}): ${text}`);
+    throw await buildChatStreamHttpError(response);
   }
   if (!response.body) {
     throw new Error('Streaming response body was empty.');
   }
-  let finalResponse: ChatSessionResponse | null = null;
-  const warnings: string[] = [];
+  let completed = false;
   const reader = new ChatStreamReader(response.body.getReader());
   for await (const event of reader.events()) {
-    if (event.kind === 'thinking') {
-      onThinking(event.text);
-    } else if (event.kind === 'warning') {
-      warnings.push(event.text);
-    } else if (event.kind === 'tool') {
-      onToolEvent(event.tool);
-    } else if (event.kind === 'answer') {
-      if (onAnswer) onAnswer(event.text);
-    } else if (event.kind === 'done') {
-      finalResponse = event.payload;
-    } else if (event.kind === 'error') {
+    if (event.kind === 'error') {
       throw new Error(event.message);
     }
+    if (event.kind === 'done') {
+      completed = true;
+    }
+    yield event;
   }
-  if (!finalResponse) {
+  if (!completed) {
     throw new Error('Missing final streaming payload.');
   }
-  return { response: finalResponse, warnings };
 }
 
-export async function streamPlanMessage(
+export function streamChatMessage(
   sessionId: string,
-  payload: {
-    content: string;
-    repoRoot?: string;
-    model?: string;
-    maxTurns?: number;
-  },
-  onThinking: (thinkingText: string) => void,
-  onToolEvent: (event: ChatStreamToolEvent) => void,
-  onAnswer?: (answerText: string) => void,
-): Promise<ChatStreamResult> {
+  payload: { content: string; images?: string[] },
+): AsyncGenerator<ChatStreamEvent> {
   return consumeChatStream(
-    `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/plan/stream`,
+    `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/messages/stream`,
     payload,
-    onThinking,
-    onToolEvent,
-    onAnswer,
   );
 }
 
-export async function streamRepoSearchMessage(
+export function streamPlanMessage(
   sessionId: string,
   payload: {
     content: string;
@@ -425,15 +408,24 @@ export async function streamRepoSearchMessage(
     model?: string;
     maxTurns?: number;
   },
-  onThinking: (thinkingText: string) => void,
-  onToolEvent: (event: ChatStreamToolEvent) => void,
-  onAnswer?: (answerText: string) => void,
-): Promise<ChatStreamResult> {
+): AsyncGenerator<ChatStreamEvent> {
+  return consumeChatStream(
+    `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/plan/stream`,
+    payload,
+  );
+}
+
+export function streamRepoSearchMessage(
+  sessionId: string,
+  payload: {
+    content: string;
+    repoRoot?: string;
+    model?: string;
+    maxTurns?: number;
+  },
+): AsyncGenerator<ChatStreamEvent> {
   return consumeChatStream(
     `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/repo-search/stream`,
     payload,
-    onThinking,
-    onToolEvent,
-    onAnswer,
   );
 }

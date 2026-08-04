@@ -52,6 +52,8 @@ import {
   DEFAULT_IDLE_SUMMARY_DELAY_MS,
 } from './server-ops.js';
 import { StatusEngineService } from './engine-service.js';
+import { StatusRunRegistry } from './status-run-registry.js';
+import { ChatSessionOperationRegistry } from './chat-session-operation-registry.js';
 import {
   terminateProcessTree,
   ensureManagedLlamaReady,
@@ -244,10 +246,9 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       return `http://${getStatusServerConnectHost()}:${port}`;
     },
     metrics,
-    activeRunsByRequestId: new Map(),
+    statusRuns: new StatusRunRegistry(),
+    chatSessionOperations: new ChatSessionOperationRegistry(),
     approvalGates: new Map(),
-    activeRequestIdByStatusPath: new Map(),
-    completedRequestIdByStatusPath: new Map(),
     activeModelRequests: new Map(),
     modelRequestQueue: [],
     deferredArtifactQueue: [],

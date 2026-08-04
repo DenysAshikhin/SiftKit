@@ -9,10 +9,10 @@ const ALLOWED: DashboardOperationModeAllowedTools = {
   full: ['find_text', 'read_lines', 'grep', 'web_search'],
 };
 
-test('groups follow the mockup group order', () => {
+test('groups follow the canonical tool group order', () => {
   const groups = buildToolPolicyMatrixRows(ALLOWED);
-  assert.deepEqual(groups.map((group) => group.title), ['Text & JSON', 'Repository', 'Object pipeline', 'Formatting', 'Web']);
-  assert.equal(TOOL_POLICY_GROUPS.length, 5);
+  assert.deepEqual(groups.map((group) => group.title), ['Text & JSON', 'Repository', 'Web']);
+  assert.equal(TOOL_POLICY_GROUPS.length, 3);
 });
 
 test('rows reflect per-mode membership', () => {
@@ -21,7 +21,7 @@ test('rows reflect per-mode membership', () => {
   assert.deepEqual({ s: findText?.summary, r: findText?.readOnly, f: findText?.full }, { s: true, r: true, f: true });
   const repoRg = groups[1]?.rows.find((row) => row.tool === 'grep');
   assert.deepEqual({ s: repoRg?.summary, r: repoRg?.readOnly, f: repoRg?.full }, { s: false, r: true, f: true });
-  const webSearch = groups[4]?.rows.find((row) => row.tool === 'web_search');
+  const webSearch = groups[2]?.rows.find((row) => row.tool === 'web_search');
   assert.deepEqual({ s: webSearch?.summary, r: webSearch?.readOnly, f: webSearch?.full }, { s: false, r: false, f: true });
 });
 

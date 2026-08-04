@@ -10,31 +10,12 @@ import {
   getChatSessions,
   updateChatSession,
 } from '../api';
-import type { ChatSession, ChatSessionResponse, ContextUsage } from '../types';
+import { ChatSessionRuntimeStore } from '../lib/chat-session-runtime-store';
+import type { ChatSession, ChatSessionResponse, ChatSessionOperationKind } from '../types';
 
 export type CreateChatSessionRequest = {
   title: string;
   presetId?: string;
-};
-
-export type UseChatSessionsResult = {
-  sessions: ChatSession[];
-  selectedSessionId: string;
-  selectedSession: ChatSession | null;
-  selectSession(sessionId: string): void;
-  refreshSessions(): Promise<void>;
-  createSession(): Promise<void>;
-  deleteSession(): Promise<void>;
-  updateSessionPreset(presetId: string): Promise<void>;
-  toggleThinking(enabled: boolean): Promise<void>;
-  toggleWebSearch(enabled: boolean): Promise<void>;
-  savePlanRepoRoot(planRepoRootInput: string, presetId: string | undefined): Promise<void>;
-  condense(): Promise<void>;
-  deleteMessage(messageId: string): Promise<ChatSessionResponse | null>;
-  deleteMessages(messageIds: string[]): Promise<ChatSessionResponse | null>;
-  applySessionResponse(response: ChatSessionResponse): void;
-  setChatBusy(busy: boolean): void;
-  chatBusy: boolean;
 };
 
 export function pickFirstSessionId(sessions: ChatSession[]): string {
@@ -49,18 +30,33 @@ export function findSessionByIdStrict(sessions: ChatSession[], sessionId: string
   return found;
 }
 
+export function upsertSession(sessions: ChatSession[], updated: ChatSession): ChatSession[] {
+  const index = sessions.findIndex((s) => s.id === updated.id);
+  if (index < 0) {
+    return [updated, ...sessions];
+  }
+  const next = sessions.slice();
+  next[index] = updated;
+  return next;
+}
+
 export function useChatSessions(deps: {
-  onError(error: Error): void;
   initialSelectedSessionId: string;
   refreshToken: number;
   buildCreateSessionRequest(): CreateChatSessionRequest | null;
   confirmDeleteSession(): boolean;
-  applyContextUsage(value: ContextUsage | null): void;
-}): UseChatSessionsResult {
+}) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string>(deps.initialSelectedSessionId);
-  const [selectedSession, setSelectedSession] = useState<ChatSession | null>(null);
-  const [chatBusy, setChatBusy] = useState<boolean>(false);
+  const [runtimeStore, setRuntimeStore] = useState<ChatSessionRuntimeStore>(new ChatSessionRuntimeStore());
+  const selectedSession = sessions.find((session) => session.id === selectedSessionId) ?? null;
+
+  function recordSessionError(sessionId: string, error: Error): void {
+    if (!sessionId) {
+      return;
+    }
+    setRuntimeStore((previous) => previous.ensureSession(sessionId).applyFailure(sessionId, error.message));
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -71,6 +67,13 @@ export function useChatSessions(deps: {
           return;
         }
         setSessions(response.sessions);
+        setRuntimeStore((prev) => {
+          let store = prev;
+          for (const session of response.sessions) {
+            store = store.ensureSession(session.id);
+          }
+          return store;
+        });
         if (!selectedSessionId) {
           const firstId = pickFirstSessionId(response.sessions);
           if (firstId) {
@@ -79,7 +82,7 @@ export function useChatSessions(deps: {
         }
       } catch (error) {
         if (!cancelled) {
-          deps.onError(toError(error));
+          recordSessionError(selectedSessionId, toError(error));
         }
       }
     })();
@@ -90,21 +93,21 @@ export function useChatSessions(deps: {
 
   useEffect(() => {
     if (!selectedSessionId) {
-      setSelectedSession(null);
-      deps.applyContextUsage(null);
       return;
     }
     let cancelled = false;
     void getChatSession(selectedSessionId)
       .then((response) => {
         if (!cancelled) {
-          setSelectedSession(response.session);
-          deps.applyContextUsage(response.contextUsage);
+          setSessions((previous) => upsertSession(previous, response.session));
+          setRuntimeStore((previous) => previous
+            .ensureSession(response.session.id)
+            .setContextUsage(response.session.id, response.contextUsage));
         }
       })
       .catch((error) => {
         if (!cancelled) {
-          deps.onError(toError(error));
+          recordSessionError(selectedSessionId, toError(error));
         }
       });
     return () => {
@@ -113,16 +116,69 @@ export function useChatSessions(deps: {
   }, [selectedSessionId]);
 
   function applySessionResponse(response: ChatSessionResponse): void {
-    setSelectedSession(response.session);
-    deps.applyContextUsage(response.contextUsage);
+    setSessions((previous) => upsertSession(previous, response.session));
+    setRuntimeStore((previous) => previous
+      .ensureSession(response.session.id)
+      .setContextUsage(response.session.id, response.contextUsage));
+  }
+
+  function beginSessionOperation(sessionId: string, operationKind: ChatSessionOperationKind): void {
+    setRuntimeStore((prev) => prev.ensureSession(sessionId).begin(sessionId, operationKind));
+  }
+
+  function appendSessionThinking(sessionId: string, text: string): void {
+    setRuntimeStore((prev) => prev.appendThinking(sessionId, text));
+  }
+
+  function applySessionToolEvent(sessionId: string, toolEvent: Parameters<ChatSessionRuntimeStore['applyToolEvent']>[1]): void {
+    setRuntimeStore((prev) => prev.applyToolEvent(sessionId, toolEvent));
+  }
+
+  function applySessionAnswer(sessionId: string, text: string): void {
+    setRuntimeStore((prev) => prev.applyAnswer(sessionId, text));
+  }
+
+  function applySessionWarning(sessionId: string, text: string): void {
+    setRuntimeStore((prev) => prev.applyWarning(sessionId, text));
+  }
+
+  function completeSessionOperation(sessionId: string, response: ChatSessionResponse): void {
+    if (response.session.id !== sessionId) {
+      throw new Error(`Chat stream session mismatch: expected "${sessionId}", received "${response.session.id}"`);
+    }
+    setSessions((previous) => upsertSession(previous, response.session));
+    setRuntimeStore((previous) => previous.applyDone(response.session.id, response));
+  }
+
+  function failSessionOperation(sessionId: string, message: string): void {
+    setRuntimeStore((prev) => prev.applyFailure(sessionId, message));
+  }
+
+  function setSessionDraft(sessionId: string, draft: string): void {
+    setRuntimeStore((prev) => prev.setDraft(sessionId, draft));
+  }
+
+  function setSessionImages(sessionId: string, images: string[]): void {
+    setRuntimeStore((prev) => prev.setImages(sessionId, images));
+  }
+
+  function setSessionPlanInputs(sessionId: string, planRepoRootInput: string, planMaxTurnsInput: string): void {
+    setRuntimeStore((prev) => prev.setPlanInputs(sessionId, planRepoRootInput, planMaxTurnsInput));
   }
 
   async function refreshSessions(): Promise<void> {
     try {
       const response = await getChatSessions();
       setSessions(response.sessions);
+      setRuntimeStore((prev) => {
+        let store = prev;
+        for (const session of response.sessions) {
+          store = store.ensureSession(session.id);
+        }
+        return store;
+      });
     } catch (error) {
-      deps.onError(toError(error));
+      recordSessionError(selectedSessionId, toError(error));
     }
   }
 
@@ -131,16 +187,13 @@ export function useChatSessions(deps: {
     if (!request) {
       return;
     }
-    setChatBusy(true);
     try {
       const response = await createChatSession(request);
       setSessions((previous) => [response.session, ...previous]);
       setSelectedSessionId(response.session.id);
       applySessionResponse(response);
     } catch (error) {
-      deps.onError(toError(error));
-    } finally {
-      setChatBusy(false);
+      recordSessionError(selectedSessionId, toError(error));
     }
   }
 
@@ -151,19 +204,15 @@ export function useChatSessions(deps: {
     if (!deps.confirmDeleteSession()) {
       return;
     }
-    setChatBusy(true);
     try {
       await deleteChatSession(selectedSessionId);
       const response = await getChatSessions();
       setSessions(response.sessions);
       const nextSession = response.sessions[0] ?? null;
       setSelectedSessionId(nextSession ? nextSession.id : '');
-      setSelectedSession(nextSession);
-      deps.applyContextUsage(null);
+      setRuntimeStore((prev) => prev.removeSession(selectedSessionId));
     } catch (error) {
-      deps.onError(toError(error));
-    } finally {
-      setChatBusy(false);
+      recordSessionError(selectedSessionId, toError(error));
     }
   }
 
@@ -171,14 +220,11 @@ export function useChatSessions(deps: {
     if (!selectedSessionId) {
       return;
     }
-    setChatBusy(true);
     try {
       const response = await updateChatSession(selectedSessionId, { presetId });
       applySessionResponse(response);
     } catch (error) {
-      deps.onError(toError(error));
-    } finally {
-      setChatBusy(false);
+      recordSessionError(selectedSessionId, toError(error));
     }
   }
 
@@ -186,14 +232,11 @@ export function useChatSessions(deps: {
     if (!selectedSessionId) {
       return;
     }
-    setChatBusy(true);
     try {
       const response = await updateChatSession(selectedSessionId, { thinkingEnabled: enabled });
       applySessionResponse(response);
     } catch (error) {
-      deps.onError(toError(error));
-    } finally {
-      setChatBusy(false);
+      recordSessionError(selectedSessionId, toError(error));
     }
   }
 
@@ -201,14 +244,11 @@ export function useChatSessions(deps: {
     if (!selectedSessionId) {
       return;
     }
-    setChatBusy(true);
     try {
       const response = await updateChatSession(selectedSessionId, { webSearchEnabled: enabled });
       applySessionResponse(response);
     } catch (error) {
-      deps.onError(toError(error));
-    } finally {
-      setChatBusy(false);
+      recordSessionError(selectedSessionId, toError(error));
     }
   }
 
@@ -216,7 +256,6 @@ export function useChatSessions(deps: {
     if (!selectedSessionId || !planRepoRootInput.trim()) {
       return;
     }
-    setChatBusy(true);
     try {
       const response = await updateChatSession(selectedSessionId, {
         ...(presetId ? { presetId } : {}),
@@ -224,9 +263,7 @@ export function useChatSessions(deps: {
       });
       applySessionResponse(response);
     } catch (error) {
-      deps.onError(toError(error));
-    } finally {
-      setChatBusy(false);
+      recordSessionError(selectedSessionId, toError(error));
     }
   }
 
@@ -234,14 +271,11 @@ export function useChatSessions(deps: {
     if (!selectedSessionId) {
       return;
     }
-    setChatBusy(true);
     try {
       const response = await condenseChatSession(selectedSessionId);
       applySessionResponse(response);
     } catch (error) {
-      deps.onError(toError(error));
-    } finally {
-      setChatBusy(false);
+      recordSessionError(selectedSessionId, toError(error));
     }
   }
 
@@ -249,28 +283,20 @@ export function useChatSessions(deps: {
     if (!selectedSessionId || !messageId) {
       return null;
     }
-    setChatBusy(true);
     try {
       const response = await deleteChatMessage(selectedSessionId, messageId);
       applySessionResponse(response);
       return response;
     } catch (error) {
-      deps.onError(toError(error));
+      recordSessionError(selectedSessionId, toError(error));
       return null;
-    } finally {
-      setChatBusy(false);
     }
   }
 
-  // Non-atomic, best-effort: the backend exposes only a single-message DELETE and
-  // must not change, so deletes run sequentially and each response is applied as it
-  // lands. A mid-loop failure leaves the turn partially deleted (already-removed
-  // messages stay removed), routes the error through deps.onError, and returns null.
   async function deleteMessages(messageIds: string[]): Promise<ChatSessionResponse | null> {
     if (!selectedSessionId || messageIds.length === 0) {
       return null;
     }
-    setChatBusy(true);
     try {
       let response: ChatSessionResponse | null = null;
       for (const messageId of messageIds) {
@@ -282,10 +308,8 @@ export function useChatSessions(deps: {
       }
       return response;
     } catch (error) {
-      deps.onError(toError(error));
+      recordSessionError(selectedSessionId, toError(error));
       return null;
-    } finally {
-      setChatBusy(false);
     }
   }
 
@@ -300,6 +324,7 @@ export function useChatSessions(deps: {
     sessions,
     selectedSessionId,
     selectedSession,
+    runtimeStore,
     selectSession,
     refreshSessions,
     createSession,
@@ -312,7 +337,17 @@ export function useChatSessions(deps: {
     deleteMessage,
     deleteMessages,
     applySessionResponse,
-    setChatBusy,
-    chatBusy,
+    beginSessionOperation,
+    appendSessionThinking,
+    applySessionToolEvent,
+    applySessionAnswer,
+    applySessionWarning,
+    completeSessionOperation,
+    failSessionOperation,
+    setSessionDraft,
+    setSessionImages,
+    setSessionPlanInputs,
   };
 }
+
+export type UseChatSessionsResult = ReturnType<typeof useChatSessions>;

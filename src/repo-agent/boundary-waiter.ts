@@ -13,15 +13,6 @@ import type { RepoAgentRunStore } from './run-store.js';
 
 const DEFAULT_POLL_INTERVAL_MS = 250;
 
-function isBoundaryStatus(status: RepoAgentRunState['status']): boolean {
-  return (
-    status === 'approval_required'
-    || status === 'completed'
-    || status === 'failed'
-    || status === 'aborted'
-  );
-}
-
 export function repoAgentStateToResult(
   state: RepoAgentRunState,
 ): RepoAgentRunResult {
@@ -37,6 +28,11 @@ export function repoAgentStateToResult(
         status: 'approval_required',
         runId: state.runId,
         approval: state.approval,
+        decide: {
+          approve: `siftkit repo-agent decide ${state.runId} approve`,
+          deny: `siftkit repo-agent decide ${state.runId} deny --reason "<why>"`,
+          abort: `siftkit repo-agent decide ${state.runId} abort`,
+        },
       });
     case 'failed':
       return RepoAgentRunResultSchema.parse({
@@ -75,6 +71,30 @@ export class RepoAgentBoundaryWaiter {
     this.processInspector = options.processInspector ?? new NodeProcessInspector();
   }
 
+  /** Reads current state; if the recorded worker pid is dead on a non-terminal state, records the failure first. */
+  reconcileOnce(): RepoAgentRunState {
+    const state = this.store.readState(this.runId);
+    if (isActiveStatus(state.status)) {
+      const pid = 'pid' in state ? state.pid : undefined;
+      if (pid !== undefined && !this.processInspector.isAlive(pid)) {
+        try {
+          this.store.transition(this.runId, state.revision, {
+            runId: this.runId,
+            revision: state.revision + 1,
+            updatedAtUtc: new Date().toISOString(),
+            status: 'failed',
+            pid,
+            error: `Worker process ${pid} died unexpectedly.`,
+          });
+        } catch {
+          // Another writer advanced the state first; the fresh read below wins.
+        }
+        return this.store.readState(this.runId);
+      }
+    }
+    return state;
+  }
+
   async waitForBoundary(fromRevision: number): Promise<RepoAgentRunResult> {
     if (!Number.isInteger(fromRevision) || fromRevision < 0) {
       throw new Error('Boundary revision must be a non-negative integer.');
@@ -82,52 +102,19 @@ export class RepoAgentBoundaryWaiter {
     for (;;) {
       let state: RepoAgentRunState;
       try {
-        state = this.store.readState(this.runId);
+        state = this.reconcileOnce();
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         throw new Error(`Failed to read state for run ${this.runId}: ${msg}`);
-      }
-
-      if (isActiveStatus(state.status)) {
-        const pid = 'pid' in state ? state.pid : undefined;
-        if (pid !== undefined && !this.processInspector.isAlive(pid)) {
-          const errorMsg = `Worker process ${pid} died unexpectedly.`;
-          try {
-            this.store.transition(this.runId, state.revision, {
-              runId: this.runId,
-              revision: state.revision + 1,
-              updatedAtUtc: new Date().toISOString(),
-              status: 'failed',
-              pid,
-              error: errorMsg,
-            });
-          } catch (error) {
-            const latest = this.store.readState(this.runId);
-            if (latest.revision <= state.revision) {
-              throw error;
-            }
-            if (isBoundaryStatus(latest.status)) {
-              return repoAgentStateToResult(latest);
-            }
-            continue;
-          }
-          return repoAgentStateToResult(this.store.readState(this.runId));
-        }
       }
 
       if (state.revision <= fromRevision) {
         await this.sleep();
         continue;
       }
-
-      if (isTerminalStatus(state.status)) {
+      if (isTerminalStatus(state.status) || state.status === 'approval_required') {
         return repoAgentStateToResult(state);
       }
-
-      if (state.status === 'approval_required') {
-        return repoAgentStateToResult(state);
-      }
-
       await this.sleep();
     }
   }

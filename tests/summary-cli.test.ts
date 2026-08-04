@@ -30,7 +30,7 @@ test('summary delegates non-deterministic execution to status server', async () 
           RequestId: 'summary-req-1',
           WasSummarized: true,
           PolicyDecision: 'summary',
-          Backend: 'mock',
+          Provider: 'mock',
           Model: 'mock-model',
           Summary: 'queued summary output',
           Classification: 'summary',

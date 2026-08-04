@@ -1,4 +1,5 @@
 import type { BenchmarkCaseResult, BenchmarkRunResult } from './types.js';
+import type { SummaryProviderId } from '../../src/summary/types.js';
 
 export function roundDuration(durationMs: number): number {
   return Math.round(durationMs * 1000) / 1000;
@@ -7,7 +8,7 @@ export function roundDuration(durationMs: number): number {
 export function buildBenchmarkArtifact(options: {
   status: BenchmarkRunResult['Status'];
   startedAt: Date;
-  backend: string;
+  provider: SummaryProviderId;
   model: string;
   fixtureRoot: string;
   outputPath: string;
@@ -23,7 +24,7 @@ export function buildBenchmarkArtifact(options: {
     TotalDurationMs: roundDuration(totalDurationMs),
     StartedAtUtc: options.startedAt.toISOString(),
     CompletedAtUtc: completedAt.toISOString(),
-    Backend: options.backend,
+    Backend: options.provider,
     Model: options.model,
     FixtureRoot: options.fixtureRoot,
     OutputPath: options.outputPath,

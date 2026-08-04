@@ -4,6 +4,7 @@ import {
   countLlamaCppTokensDetailed,
   type CountLlamaCppTokensOptions,
 } from '../providers/llama-cpp.js';
+import { getActiveInferenceBackend } from '../config/index.js';
 import type { SiftConfig } from '../config/index.js';
 import {
   getChunkThresholdCharacters,
@@ -76,7 +77,7 @@ export type InvokeSummaryCoreOptions = {
   images: readonly string[];
   format: 'text' | 'json';
   policyProfile: SummaryRequest['policyProfile'];
-  backend: SummaryProviderId;
+  provider: SummaryProviderId;
   model: string;
   config: SiftConfig;
   rawReviewRequired: boolean;
@@ -193,12 +194,12 @@ class SummaryCoreRunner {
     const chunkThreshold = Math.max(
       1,
       Math.floor(this.options.chunkThresholdOverride ?? (
-        this.options.backend === 'llama.cpp'
+        this.options.provider === 'real'
           ? getLlamaCppChunkThresholdCharacters(this.options.config)
           : getChunkThresholdCharacters(this.options.config)
       ))
     );
-    const llamaPromptBudget = this.options.backend === 'llama.cpp'
+    const llamaPromptBudget = this.options.provider === 'real'
       ? getPlannerPromptBudget(this.options.config)
       : null;
     return {
@@ -206,7 +207,7 @@ class SummaryCoreRunner {
       phase,
       chunkThreshold,
       llamaPromptBudget,
-      plannerActivationThreshold: this.options.backend === 'llama.cpp'
+      plannerActivationThreshold: this.options.provider === 'real'
         ? getPlannerActivationThresholdCharacters(this.options.config)
         : chunkThreshold,
       chunkLabel: this.options.chunkPath ?? (
@@ -214,7 +215,7 @@ class SummaryCoreRunner {
           ? `${this.options.chunkIndex}/${this.options.chunkTotal}`
           : 'none'
       ),
-      isTopLevelLlamaPass: this.options.backend === 'llama.cpp'
+      isTopLevelLlamaPass: this.options.provider === 'real'
         && phase === 'leaf'
         && !this.options.chunkContext
         && this.options.chunkThresholdOverride == null,
@@ -243,7 +244,7 @@ class SummaryCoreRunner {
       inputText: this.options.inputText,
       images: this.options.images,
       format: this.options.format,
-      backend: this.options.backend,
+      provider: this.options.provider,
       model: this.options.model,
       config: this.options.config,
       rawReviewRequired: this.options.rawReviewRequired,
@@ -283,7 +284,7 @@ class SummaryCoreRunner {
   }
 
   private shouldUseCompactPrompt(state: SummaryCoreState): boolean {
-    return this.options.backend === 'llama.cpp'
+    return this.options.provider === 'real'
       && state.phase === 'leaf'
       && this.options.policyProfile === 'general'
       && !this.options.chunkContext
@@ -293,7 +294,7 @@ class SummaryCoreRunner {
   private shouldAllowUnsupportedInput(useCompactPrompt: boolean): boolean {
     return !useCompactPrompt
       && this.options.sourceKind !== 'command-output'
-      && (this.options.backend !== 'llama.cpp' || isInternalChunkLeaf(this.options));
+      && (this.options.provider !== 'real' || isInternalChunkLeaf(this.options));
   }
 
   private renderPrompt(
@@ -375,19 +376,19 @@ class SummaryCoreRunner {
       return;
     }
     const promptTokenCount = tokenCountResult?.tokenCount ?? null;
-    const tokenSource = promptTokenCount === null ? 'unavailable' : 'llama.cpp';
+    const tokenSource = promptTokenCount === null ? 'unavailable' : getActiveInferenceBackend(this.options.config);
     this.options.progress?.tokenizeDone(state.phase, state.chunkLabel, promptTokenCount, tokenSource);
   }
 
   private effectivePromptLimit(state: SummaryCoreState): number | null {
-    return this.options.backend === 'llama.cpp'
+    return this.options.provider === 'real'
       ? (state.llamaPromptBudget?.usablePromptBudgetTokens ?? 0)
       : null;
   }
 
   private shouldHandoffAfterPreflight(promptContext: SummaryPromptContext): boolean {
     const effectivePromptLimit = this.effectivePromptLimit(promptContext.state);
-    return this.options.backend === 'llama.cpp'
+    return this.options.provider === 'real'
       && promptContext.state.phase === 'leaf'
       && !this.options.chunkContext
       && effectivePromptLimit !== null
@@ -430,13 +431,13 @@ class SummaryCoreRunner {
   }
 
   private async invokeProvider(promptContext: SummaryPromptContext): Promise<string> {
-    const reasoningOverride = this.options.backend === 'llama.cpp' && !this.options.chunkContext
+    const reasoningOverride = this.options.provider === 'real' && !this.options.chunkContext
       ? 'off'
       : undefined;
     const providerSpan = this.options.timingRecorder?.start('summary.provider.request', {
       phase: promptContext.state.phase,
       chunk: promptContext.state.chunkLabel,
-      backend: this.options.backend,
+      provider: this.options.provider,
       promptChars: promptContext.prompt.length,
       promptTokenCount: promptContext.promptTokenCount ?? -1,
     });
@@ -445,7 +446,7 @@ class SummaryCoreRunner {
       providerResult = await invokeProviderSummary({
         requestId: this.options.requestId,
         slotId: this.options.slotId,
-        backend: this.options.backend,
+        provider: this.options.provider,
         config: this.options.config,
         model: this.options.model,
         prompt: promptContext.prompt,
@@ -560,7 +561,7 @@ class SummaryCoreRunner {
   }
 
   private shouldHandoffProviderErrorToPlanner(error: Error, state: SummaryCoreState): boolean {
-    return this.options.backend === 'llama.cpp'
+    return this.options.provider === 'real'
       && state.phase === 'leaf'
       && !this.options.chunkContext
       && /llama\.cpp generate failed with HTTP 400\b/iu.test(getErrorMessage(error));

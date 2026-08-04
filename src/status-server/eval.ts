@@ -78,7 +78,7 @@ export async function runEvaluation(
   } = {},
 ): Promise<EvaluationResult> {
   const config = await loadConfig({ ensure: true });
-  const backend = resolveSummaryProvider(request.Backend);
+  const provider = resolveSummaryProvider(request.Provider);
   const model = request.Model || getConfiguredModel(config);
   const repoRoot = findNearestSiftKitRepoRoot(moduleDirname(import.meta.url));
   if (repoRoot === null) {
@@ -96,7 +96,7 @@ export async function runEvaluation(
       question: fixture.Question,
       inputText: source,
       format: fixture.Format,
-      backend,
+      provider,
       model,
       policyProfile: fixture.PolicyProfile,
       sourceKind: 'standalone',
@@ -135,7 +135,7 @@ export async function runEvaluation(
       question: 'Summarize the important result in up to 5 bullets, preserving only the decisive facts.',
       inputText: source,
       format: 'text',
-      backend,
+      provider,
       model,
       policyProfile: 'general',
       sourceKind: 'standalone',
@@ -164,7 +164,7 @@ export async function runEvaluation(
 
   void initializeRuntime();
   const evalResultPayload = JsonObjectSchema.parse({
-    backend,
+    provider,
     model,
     results,
   });
@@ -178,7 +178,7 @@ export async function runEvaluation(
   });
 
   return {
-    Backend: backend,
+    Provider: provider,
     Model: model,
     ResultPath: persistedEvalResult.uri,
     Results: results,

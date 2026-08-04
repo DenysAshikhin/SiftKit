@@ -149,7 +149,7 @@ export type InvokePlannerModeOptions = {
   inputText: string;
   images: readonly string[];
   format: 'text' | 'json';
-  backend: SummaryProviderId;
+  provider: SummaryProviderId;
   model: string;
   config: SiftConfig;
   rawReviewRequired: boolean;
@@ -1396,7 +1396,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
 }
 
 export async function invokePlannerMode(options: InvokePlannerModeOptions): Promise<StructuredModelDecision | null> {
-  if (options.backend !== 'llama.cpp') {
+  if (options.provider !== 'real') {
     return null;
   }
 

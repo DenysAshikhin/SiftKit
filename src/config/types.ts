@@ -14,8 +14,15 @@ import type {
   ServerModelPresetsConfig as ContractServerModelPresetsConfig,
   SiftConfig as ContractSiftConfig,
 } from '@siftkit/contracts';
+import { InferenceBackendIdSchema } from '@siftkit/contracts';
 import type { OperationModeAllowedTools, SiftPreset } from '../presets.js';
 
+/**
+ * The engine-axis schema every runtime parse goes through, re-exported from the contracts
+ * package so config, run state and CLI surfaces share one enum rather than local literals.
+ * The SQLite CHECK constraints in state/runtime-db.ts are the one unavoidable restatement.
+ */
+export { InferenceBackendIdSchema };
 export type InferenceBackendId = ContractInferenceBackendId;
 export type InferenceProcessState = ContractInferenceProcessState;
 export type InferenceModelState = ContractInferenceModelState;

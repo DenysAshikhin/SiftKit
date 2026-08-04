@@ -20,7 +20,7 @@ test('summary emits preflight tokenization progress', async () => {
         inputText: 'A'.repeat(5_000),
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
         progressWriter: writer,
       });
@@ -33,7 +33,7 @@ test('summary emits preflight tokenization progress', async () => {
       assert.ok((tokenizeStart?.promptChars ?? 0) > 0);
       const tokenizeDone = writer.events.find((event) => event.kind === 'tokenize_done');
       assert.equal(tokenizeDone?.promptTokens, 456);
-      assert.equal(tokenizeDone?.tokenSource, 'llama.cpp');
+      assert.equal(tokenizeDone?.tokenSource, 'llama');
     }, {
       tokenizeTokenCount: () => 456,
       metrics: {
@@ -59,7 +59,7 @@ test('summary rejects before loading configuration when already aborted', async 
       inputText: 'ordinary input',
       format: 'text',
       policyProfile: 'general',
-      backend: 'mock',
+      provider: 'mock',
       progressWriter: new SilentProgressWriter<SummaryProgressEvent>(),
       abortSignal: controller.signal,
     }),

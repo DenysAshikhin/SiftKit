@@ -2,7 +2,6 @@ import type { Server } from 'node:http';
 import type { ChildProcess } from 'node:child_process';
 import type Database from 'better-sqlite3';
 import type { Metrics } from './metrics.js';
-import type { ManagedLlamaSpeculativeMetricsSnapshot } from './managed-llama.js';
 import type { InferenceRunStreamKind } from '../state/inference-runs.js';
 import type { LlamaRunRecorder } from './llama-run-recorder.js';
 import type { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
@@ -12,26 +11,12 @@ import type { SiftConfig } from '../config/types.js';
 import type { PresetRuntimeCoordinator } from './preset-runtime-coordinator.js';
 import type { ModelIdleController } from './model-idle-controller.js';
 import type { DeferredArtifact } from '../state/status-artifacts.js';
+import type { StatusRunRegistry } from './status-run-registry.js';
+import type { ChatSessionOperationRegistry } from './chat-session-operation-registry.js';
 export type { DeferredArtifact };
 export type { ModelRequestQueueDiagnostics } from '../lib/operation-stream.js';
 
 export type DatabaseInstance = InstanceType<typeof Database>;
-
-export type ActiveRunState = {
-  requestId: string;
-  statusPath: string;
-  overallStartedAt: number;
-  currentRequestStartedAt: number;
-  stepCount: number;
-  rawInputCharacterCount: number | null;
-  promptCharacterCount: number | null;
-  promptTokenCount: number | null;
-  outputTokensTotal: number;
-  chunkIndex: number | null;
-  chunkTotal: number | null;
-  chunkPath: string | null;
-  managedLlamaSpeculativeSnapshot: ManagedLlamaSpeculativeMetricsSnapshot | null;
-};
 
 export type ModelRequestLock = { token: string; kind: string; startedAtUtc: string; ownerRunId: string | null };
 export type ModelRequestWaitOptions = { timeoutMs?: number; ownerRunId?: string | null };
@@ -94,10 +79,9 @@ export type ServerContext = {
   metrics: Metrics;
 
   // Run state
-  activeRunsByRequestId: Map<string, ActiveRunState>;
+  statusRuns: StatusRunRegistry;
+  chatSessionOperations: ChatSessionOperationRegistry;
   approvalGates: Map<string, ApprovalGate>;
-  activeRequestIdByStatusPath: Map<string, string>;
-  completedRequestIdByStatusPath: Map<string, string>;
   activeModelRequests: Map<string, ModelRequestLock>;
   modelRequestQueue: ModelRequestWaiter[];
   deferredArtifactQueue: DeferredArtifact[];

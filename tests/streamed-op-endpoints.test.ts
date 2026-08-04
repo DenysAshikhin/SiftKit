@@ -15,7 +15,7 @@ test('command-output/analyze streams progress and a schema-valid result', async 
         exitCode: 0,
         combinedText: 'all tests passed',
         question: 'did it pass?',
-        backend: 'mock',
+        provider: 'mock',
       },
     });
     assert.equal(response.statusCode, 200);
@@ -39,7 +39,7 @@ test('preset/run streams a schema-valid result for a summary preset', async () =
         presetId: String(summaryPreset.id),
         question: 'did it pass?',
         inputText: 'output text here',
-        backend: 'mock',
+        provider: 'mock',
       },
     });
     assert.equal(response.statusCode, 200);
@@ -54,7 +54,7 @@ test('eval/run answers over SSE with a terminal frame', async () => {
   const harness = await startHarness('siftkit-streamed-eval-');
   try {
     const response = await requestSse(`${harness.baseUrl}/eval/run`, {
-      body: { RealLogPath: [], Backend: 'mock' },
+      body: { RealLogPath: [], Provider: 'mock' },
       timeoutMs: 20_000,
     });
     assert.equal(response.statusCode, 200);

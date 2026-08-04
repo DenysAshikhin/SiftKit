@@ -27,7 +27,7 @@ test('runEvaluation runs a fixture manifest and produces scored results', async 
     const result = await runEvaluation({
       FixtureRoot: fixtureRoot,
     });
-    assert.equal(typeof result.Backend, 'string');
+    assert.equal(typeof result.Provider, 'string');
     assert.equal(typeof result.Model, 'string');
     assert.equal(typeof result.ResultPath, 'string');
     assert.ok(Array.isArray(result.Results));

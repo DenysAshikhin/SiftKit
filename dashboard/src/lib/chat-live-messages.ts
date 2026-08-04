@@ -1,8 +1,5 @@
-import { useState } from 'react';
-
-import { buildLiveToolMessageId } from '../lib/live-tool-message';
-import { appendLiveThinkingMessage } from '../lib/live-thinking-message';
-import { type ChatStreamToolEvent } from '../lib/chat-stream-parser';
+import { buildLiveToolMessageId } from './live-tool-message';
+import { type ChatStreamToolEvent } from './chat-stream-parser';
 import type { ChatMessage } from '../types';
 
 type LiveMessageKind = NonNullable<ChatMessage['kind']>;
@@ -71,40 +68,5 @@ export function buildCompletedLiveToolMessage(toolEvent: ChatStreamToolEvent): C
     toolCallPromptTokenCount: typeof toolEvent.promptTokenCount === 'number' ? toolEvent.promptTokenCount : null,
     toolCallOutputSnippet: outputSnippet,
     toolCallStatus: 'done',
-  };
-}
-
-export type UseLiveMessagesResult = {
-  liveMessages: ChatMessage[];
-  resetLive(): void;
-  createLiveMessage(id: string, kind: LiveMessageKind, role: ChatMessage['role'], content: string): ChatMessage;
-  upsertLiveMessage(message: ChatMessage): void;
-  appendLiveThinking(text: string, maintainPerStepThinking: boolean): void;
-  appendLiveToolMessage(toolEvent: ChatStreamToolEvent): void;
-  completeLiveToolMessage(toolEvent: ChatStreamToolEvent): void;
-};
-
-export function useLiveMessages(): UseLiveMessagesResult {
-  const [liveMessages, setLiveMessages] = useState<ChatMessage[]>([]);
-  return {
-    liveMessages,
-    resetLive(): void {
-      setLiveMessages([]);
-    },
-    createLiveMessage,
-    upsertLiveMessage(message: ChatMessage): void {
-      setLiveMessages((previous) => upsertLiveMessageInto(previous, message));
-    },
-    appendLiveThinking(text: string, maintainPerStepThinking: boolean): void {
-      setLiveMessages((previous) => appendLiveThinkingMessage(previous, text, maintainPerStepThinking));
-    },
-    appendLiveToolMessage(toolEvent: ChatStreamToolEvent): void {
-      const built = buildAppendedLiveToolMessage(toolEvent);
-      setLiveMessages((previous) => upsertLiveMessageInto(previous, built));
-    },
-    completeLiveToolMessage(toolEvent: ChatStreamToolEvent): void {
-      const built = buildCompletedLiveToolMessage(toolEvent);
-      setLiveMessages((previous) => upsertLiveMessageInto(previous, built));
-    },
   };
 }

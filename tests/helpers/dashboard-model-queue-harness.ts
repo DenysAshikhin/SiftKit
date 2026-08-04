@@ -3,6 +3,8 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { getDefaultConfigObject } from '../../src/config/defaults.js';
+import { parseJsonValueText } from '../../src/lib/json.js';
+import { z } from '../../src/lib/zod.js';
 import { startStatusServer } from '../../src/status-server/index.js';
 import { writeConfig } from '../../src/status-server/config-store.js';
 import { getConfigPath } from '../../src/status-server/paths.js';
@@ -22,6 +24,27 @@ import {
   restoreDashboardTestEnv,
   restoreDashboardTestRepo,
 } from './dashboard-test-repo.js';
+
+interface PendingChatRequest {
+  sessionId: string;
+  response: http.ServerResponse;
+  released: boolean;
+  aborted: boolean;
+}
+
+const ControlledChatRequestSchema = z.object({
+  messages: z.array(z.object({ role: z.string(), content: z.string() }).loose()),
+}).loose();
+
+function readUserContents(body: string): string[] {
+  const request = ControlledChatRequestSchema.parse(parseJsonValueText(body));
+  const contents: string[] = [];
+  for (let index = request.messages.length - 1; index >= 0; index -= 1) {
+    const message = request.messages[index];
+    if (message.role === 'user') contents.push(message.content);
+  }
+  return contents;
+}
 
 const QUEUE_WAIT_TIMEOUT_MS = 2_000;
 const QUEUE_POLL_INTERVAL_MS = 10;
@@ -44,6 +67,11 @@ export class DashboardModelQueueHarness {
   private readonly exl3ActivePreset: boolean;
   private readonly fakeTabbyModel = new FakeTabbyModelState();
   private fakeTabbyServer: http.Server | null = null;
+  private readonly pendingChatRequests = new Map<string, PendingChatRequest>();
+  private readonly chatSessionIdByContent = new Map<string, string>();
+  private readonly releasedChatResponseBySessionId = new Map<string, string>();
+  private readonly queuedChatResponses: string[] = [];
+  private readonly abortedChatSessionIds = new Set<string>();
   private server: ReturnType<typeof startStatusServer> | null = null;
   private baseUrl: string | null = null;
 
@@ -60,9 +88,7 @@ export class DashboardModelQueueHarness {
     if (this.server !== null) {
       throw new Error('DashboardModelQueueHarness.start() may only be called once.');
     }
-    if (this.exl3ActivePreset) {
-      await this.startFakeTabby();
-    }
+    await this.startFakeTabby();
     const server = startStatusServer({ disableManagedLlamaStartup: !this.exl3ActivePreset });
     this.server = server;
     await server.startupPromise;
@@ -97,6 +123,81 @@ export class DashboardModelQueueHarness {
         this.fakeTabbyModel.respondCurrentModel(response);
         return;
       }
+      if (request.method === 'GET' && request.url === '/v1/models') {
+        response.setHeader('content-type', 'application/json');
+        response.end('{"object":"list","data":[{"id":"model-a"}]}');
+        return;
+      }
+      if (request.method === 'POST' && request.url === '/tokenize') {
+        response.setHeader('content-type', 'application/json');
+        response.end('{"count":10}');
+        return;
+      }
+      if (request.method === 'GET' && request.url === '/health') {
+        response.setHeader('content-type', 'application/json');
+        response.end('{"ok":true}');
+        return;
+      }
+      if (request.method === 'POST' && request.url === '/v1/chat/completions') {
+        let body = '';
+        request.setEncoding('utf8');
+        request.on('data', (chunk: string) => { body += chunk; });
+        request.on('end', () => {
+          let sessionId = '';
+          const userContents = readUserContents(body);
+          for (const content of userContents) {
+            const matchedSessionId = this.chatSessionIdByContent.get(content) ?? '';
+            if (matchedSessionId) {
+              sessionId = matchedSessionId;
+              break;
+            }
+          }
+          if (!sessionId) {
+            response.statusCode = 500;
+            response.end('{"error":"Missing controlled chat session."}');
+            return;
+          }
+          const pending: PendingChatRequest = {
+            sessionId,
+            response,
+            released: false,
+            aborted: false,
+          };
+          this.pendingChatRequests.set(sessionId, pending);
+          if (this.abortedChatSessionIds.has(sessionId)) {
+            pending.aborted = true;
+            this.pendingChatRequests.delete(sessionId);
+            response.statusCode = 499;
+            response.end('{"error":"Controlled chat stream aborted."}');
+            return;
+          }
+          response.writeHead(200, {
+            'content-type': 'text/event-stream',
+            'cache-control': 'no-cache',
+            connection: 'keep-alive',
+          });
+          const onAbort = (): void => {
+            if (pending.released || pending.aborted) return;
+            pending.aborted = true;
+            this.pendingChatRequests.delete(sessionId);
+            response.destroy();
+          };
+          request.on('aborted', onAbort);
+          response.on('close', onAbort);
+          const releasedResponse = this.releasedChatResponseBySessionId.get(sessionId);
+          if (releasedResponse !== undefined) {
+            this.completeChatResponse(pending, releasedResponse);
+            return;
+          }
+          const queuedResponse = this.queuedChatResponses.shift();
+          if (queuedResponse !== undefined) {
+            this.releasedChatResponseBySessionId.set(sessionId, queuedResponse);
+            this.completeChatResponse(pending, queuedResponse);
+          }
+        });
+        request.resume();
+        return;
+      }
       response.setHeader('content-type', 'application/json');
       response.end('{"object":"list","data":[]}');
     });
@@ -106,29 +207,47 @@ export class DashboardModelQueueHarness {
     const config = getDefaultConfigObject();
     const basePreset = config.Server.ModelPresets.Presets[0];
     if (!basePreset) throw new Error('Default model preset is missing');
-    config.Server.Engines.Exl3 = {
-      Managed: false,
-      WorkingDirectory: this.tempRoot,
-      PythonPath: process.execPath,
-      Entrypoint: 'unused',
-      ModelRoot: this.tempRoot,
-      AdminApiKey: '',
-      ShutdownTimeoutMs: 2_000,
-    };
-    config.Server.ModelPresets = {
-      ActivePresetId: 'exl3-main',
-      Presets: [{
-        ...basePreset,
-        id: 'exl3-main',
-        label: 'EXL3 main',
-        Backend: 'exl3',
-        BaseUrl: `http://127.0.0.1:${getAddressInfo(fakeTabby).port}`,
-        Model: 'model-a',
-        ModelPath: path.join(this.tempRoot, 'model-a'),
-        ParallelSlots: 4,
-        HealthcheckIntervalMs: 10,
-      }],
-    };
+    const fakeBaseUrl = `http://127.0.0.1:${getAddressInfo(fakeTabby).port}`;
+    if (this.exl3ActivePreset) {
+      config.Server.Engines.Exl3 = {
+        Managed: false,
+        WorkingDirectory: this.tempRoot,
+        PythonPath: process.execPath,
+        Entrypoint: 'unused',
+        ModelRoot: this.tempRoot,
+        AdminApiKey: '',
+        ShutdownTimeoutMs: 2_000,
+      };
+      config.Server.ModelPresets = {
+        ActivePresetId: 'exl3-main',
+        Presets: [{
+          ...basePreset,
+          id: 'exl3-main',
+          label: 'EXL3 main',
+          Backend: 'exl3',
+          BaseUrl: fakeBaseUrl,
+          Model: 'model-a',
+          ModelPath: path.join(this.tempRoot, 'model-a'),
+          ParallelSlots: 4,
+          HealthcheckIntervalMs: 10,
+        }],
+      };
+    } else {
+      config.Server.ModelPresets = {
+        ActivePresetId: 'llama-main',
+        Presets: [{
+          ...basePreset,
+          id: 'llama-main',
+          label: 'llama.cpp main',
+          Backend: 'llama',
+          BaseUrl: fakeBaseUrl,
+          ExternalServerEnabled: true,
+          Model: 'model-a',
+          ModelPath: null,
+          ParallelSlots: 1,
+        }],
+      };
+    }
     // The server resolves its config from the runtime database under the repo it runs in, so the
     // preset has to be persisted there rather than at the SIFTKIT_CONFIG_PATH override.
     writeConfig(getConfigPath(), config);
@@ -154,6 +273,57 @@ export class DashboardModelQueueHarness {
       throw new Error('Expected chat session creation to return a session id.');
     }
     return sessionId;
+  }
+
+  startChatStream(sessionId: string, content: string): Promise<SseResponse> {
+    this.chatSessionIdByContent.set(content, sessionId);
+    return requestSse(`${this.getBaseUrl()}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
+      method: 'POST',
+      timeoutMs: 30_000,
+      body: JSON.stringify({ content }),
+    });
+  }
+
+  releaseChatResponse(content: string): void {
+    for (const pending of this.pendingChatRequests.values()) {
+      if (pending.released || pending.aborted) {
+        continue;
+      }
+      this.releasedChatResponseBySessionId.set(pending.sessionId, content);
+      this.completeChatResponse(pending, content);
+      return;
+    }
+    this.queuedChatResponses.push(content);
+  }
+
+  abortChatStream(sessionId: string): void {
+    this.abortedChatSessionIds.add(sessionId);
+    const pending = this.pendingChatRequests.get(sessionId) ?? null;
+    if (pending === null) return;
+    if (pending.released || pending.aborted) return;
+    pending.aborted = true;
+    pending.response.write('data: [DONE]\n\n');
+    pending.response.end();
+    this.pendingChatRequests.delete(sessionId);
+  }
+
+  private completeChatResponse(pending: PendingChatRequest, content: string): void {
+    pending.released = true;
+    const action = JSON.stringify({ action: 'finish', output: content });
+    pending.response.write(`data: ${JSON.stringify({
+      id: `chatcmpl-${pending.sessionId}`,
+      object: 'chat.completion.chunk',
+      choices: [{ index: 0, delta: { role: 'assistant', content: action } }],
+    })}\n\n`);
+    pending.response.write(`data: ${JSON.stringify({
+      id: `chatcmpl-${pending.sessionId}`,
+      object: 'chat.completion.chunk',
+      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    })}\n\n`);
+    pending.response.write('data: [DONE]\n\n');
+    pending.response.end();
+    this.pendingChatRequests.delete(pending.sessionId);
   }
 
   /** Waits until at least `count` active model requests report `kind`. */
@@ -229,6 +399,14 @@ export class DashboardModelQueueHarness {
 
   async close(): Promise<void> {
     try {
+      for (const pending of this.pendingChatRequests.values()) {
+        pending.response.destroy();
+      }
+      this.pendingChatRequests.clear();
+      this.chatSessionIdByContent.clear();
+      this.releasedChatResponseBySessionId.clear();
+      this.queuedChatResponses.length = 0;
+      this.abortedChatSessionIds.clear();
       const server = this.server;
       if (server !== null && server.listening) {
         await new Promise<void>((resolve, reject) => {

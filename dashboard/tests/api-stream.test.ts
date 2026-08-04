@@ -42,60 +42,171 @@ function mockFetchOnce(frames: string[]): () => void {
   return () => { globalThis.fetch = originalFetch; };
 }
 
-test('streamPlanMessage forwards toolCallId from SSE payload to onToolEvent', async () => {
+function mockFetchStatus(status: number, bodyText: string): () => void {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(bodyText, { status, headers: { 'Content-Type': 'application/json' } });
+  return () => { globalThis.fetch = originalFetch; };
+}
+
+test('streamPlanMessage yields typed tool and done events in order', async () => {
   const { streamPlanMessage } = await import('../src/api');
   const restoreFetch = mockFetchOnce([
     'event: tool_start\ndata: {"toolCallId":"tc_0","turn":1,"maxTurns":1,"command":"x"}\n\n',
     `event: done\ndata: ${JSON.stringify(SAMPLE_DONE)}\n\n`,
   ]);
   try {
-    const captured: Array<{ toolCallId: string; command: string }> = [];
-    const result = await streamPlanMessage(
-      'sess',
-      { content: 'go' },
-      () => {},
-      (event) => captured.push({ toolCallId: event.toolCallId, command: event.command }),
-    );
-    assert.deepEqual(captured, [{ toolCallId: 'tc_0', command: 'x' }]);
-    assert.equal(result.response.session.id, 's');
-    assert.deepEqual(result.warnings, []);
+    const eventKinds: string[] = [];
+    for await (const event of streamPlanMessage('sess', { content: 'go' })) {
+      eventKinds.push(event.kind);
+    }
+    assert.deepEqual(eventKinds, ['tool', 'done']);
   } finally {
     restoreFetch();
   }
 });
 
-test('streamRepoSearchMessage forwards toolCallId from SSE payload to onToolEvent', async () => {
-  const { streamRepoSearchMessage } = await import('../src/api');
+test('streamChatMessage yields thinking, answer, and done events', async () => {
+  const { streamChatMessage } = await import('../src/api');
   const restoreFetch = mockFetchOnce([
-    'event: tool_result\ndata: {"toolCallId":"tc_1","turn":1,"maxTurns":1,"command":"y","exitCode":0,"outputSnippet":"ok"}\n\n',
+    'event: thinking\ndata: {"thinking":"planning"}\n\n',
+    'event: answer\ndata: {"answer":"result"}\n\n',
     `event: done\ndata: ${JSON.stringify(SAMPLE_DONE)}\n\n`,
   ]);
   try {
-    const captured: Array<{ toolCallId: string; kind: string }> = [];
-    const result = await streamRepoSearchMessage(
-      'sess',
-      { content: 'go' },
-      () => {},
-      (event) => captured.push({ toolCallId: event.toolCallId, kind: event.kind }),
-    );
-    assert.deepEqual(captured, [{ toolCallId: 'tc_1', kind: 'tool_result' }]);
-    assert.equal(result.response.session.id, 's');
-    assert.deepEqual(result.warnings, []);
+    const eventKinds: string[] = [];
+    for await (const event of streamChatMessage('sess', { content: 'hi' })) {
+      eventKinds.push(event.kind);
+    }
+    assert.deepEqual(eventKinds, ['thinking', 'answer', 'done']);
   } finally {
     restoreFetch();
   }
 });
 
-test('streamRepoSearchMessage returns streamed startup-context warnings', async () => {
+test('streamRepoSearchMessage yields warning and done events', async () => {
   const { streamRepoSearchMessage } = await import('../src/api');
   const restoreFetch = mockFetchOnce([
     'event: warning\ndata: {"warning":"missing file"}\n\n',
     `event: done\ndata: ${JSON.stringify(SAMPLE_DONE)}\n\n`,
   ]);
   try {
-    const result = await streamRepoSearchMessage('sess', { content: 'go' }, () => {}, () => {});
-    assert.deepEqual(result.warnings, ['missing file']);
-    assert.equal(result.response.session.id, 's');
+    const events: Array<{ kind: string; text?: string }> = [];
+    for await (const event of streamRepoSearchMessage('sess', { content: 'go' })) {
+      if (event.kind === 'warning') events.push({ kind: 'warning', text: event.text });
+      else if (event.kind === 'done') events.push({ kind: 'done' });
+    }
+    assert.deepEqual(events, [{ kind: 'warning', text: 'missing file' }, { kind: 'done' }]);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('streamPlanMessage throws on server error event', async () => {
+  const { streamPlanMessage } = await import('../src/api');
+  const restoreFetch = mockFetchOnce([
+    'event: error\ndata: {"error":"boom"}\n\n',
+  ]);
+  try {
+    let threw = false;
+    try {
+      for await (const _event of streamPlanMessage('sess', { content: 'go' })) {
+        void _event;
+      }
+    } catch (error) {
+      threw = true;
+      assert.ok(error instanceof Error);
+      assert.equal(error.message, 'boom');
+    }
+    assert.equal(threw, true);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('streamPlanMessage throws when done event is missing', async () => {
+  const { streamPlanMessage } = await import('../src/api');
+  const restoreFetch = mockFetchOnce([
+    'event: thinking\ndata: {"thinking":"partial"}\n\n',
+  ]);
+  try {
+    let threw = false;
+    try {
+      for await (const _event of streamPlanMessage('sess', { content: 'go' })) {
+        void _event;
+      }
+    } catch (error) {
+      threw = true;
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /Missing final streaming payload/u);
+    }
+    assert.equal(threw, true);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('streamPlanMessage throws on empty response body', async () => {
+  const { streamPlanMessage } = await import('../src/api');
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(null, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+  try {
+    let threw = false;
+    try {
+      for await (const _event of streamPlanMessage('sess', { content: 'go' })) {
+        void _event;
+      }
+    } catch (error) {
+      threw = true;
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /Streaming response body was empty/u);
+    }
+    assert.equal(threw, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('streamPlanMessage throws ChatSessionBusyError on valid 409', async () => {
+  const { streamPlanMessage, ChatSessionBusyError } = await import('../src/api');
+  const busyBody = JSON.stringify({
+    error: 'Chat session already has an active operation.',
+    sessionId: 'sess',
+    operationKind: 'message',
+  });
+  const restoreFetch = mockFetchStatus(409, busyBody);
+  try {
+    let threw = false;
+    try {
+      for await (const _event of streamPlanMessage('sess', { content: 'go' })) {
+        void _event;
+      }
+    } catch (error) {
+      threw = true;
+      assert.ok(error instanceof ChatSessionBusyError);
+      assert.equal(error.response.sessionId, 'sess');
+      assert.equal(error.response.operationKind, 'message');
+    }
+    assert.equal(threw, true);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('streamPlanMessage throws generic error on malformed 409', async () => {
+  const { streamPlanMessage } = await import('../src/api');
+  const restoreFetch = mockFetchStatus(409, '{"bad":true}');
+  try {
+    let threw = false;
+    try {
+      for await (const _event of streamPlanMessage('sess', { content: 'go' })) {
+        void _event;
+      }
+    } catch (error) {
+      threw = true;
+      assert.ok(error instanceof Error);
+      assert.equal(error.message, 'Request failed (409): {"bad":true}');
+    }
+    assert.equal(threw, true);
   } finally {
     restoreFetch();
   }

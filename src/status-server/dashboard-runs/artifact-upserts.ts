@@ -1,5 +1,7 @@
 import Database from 'better-sqlite3';
 import { z } from '../../lib/zod.js';
+import { InferenceBackendIdSchema } from '../../config/types.js';
+import type { InferenceBackendId } from '../../config/types.js';
 import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
 import { getProcessedPromptTokens } from '../../lib/provider-helpers.js';
 import { toNullableNonNegativeInteger } from '../../lib/telemetry-metrics.js';
@@ -234,7 +236,7 @@ export function upsertRunArtifactPayload(options: {
       null,
     ),
     model: typeof options.artifactPayload?.model === 'string' ? options.artifactPayload.model : null,
-    backend: typeof options.artifactPayload?.backend === 'string' ? options.artifactPayload.backend : null,
+    backend: InferenceBackendIdSchema.safeParse(options.artifactPayload?.backend).data ?? null,
     repoRoot: typeof options.artifactPayload?.repoRoot === 'string' ? options.artifactPayload.repoRoot : null,
     inputTokens: getProcessedInputTokensValue(
       options.artifactPayload?.inputTokens,
@@ -271,6 +273,7 @@ export function upsertRepoSearchRun(options: {
   prompt: string;
   repoRoot: string;
   model: string | null;
+  backend: InferenceBackendId | null;
   requestMaxTokens: number | null;
   maxTurns: number | null;
   transcriptText: string;
@@ -303,7 +306,7 @@ export function upsertRepoSearchRun(options: {
     finishedAtUtc: options.finishedAtUtc,
     title: options.prompt,
     model: options.model,
-    backend: 'llama.cpp',
+    backend: options.backend,
     repoRoot: options.repoRoot,
     inputTokens: getProcessedInputTokensValue(options.promptTokens, options.promptCacheTokens, options.promptEvalTokens),
     outputTokens: toNullableNonNegativeInteger(options.outputTokens),

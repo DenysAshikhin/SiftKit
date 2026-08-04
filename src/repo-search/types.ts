@@ -1,3 +1,4 @@
+import type { TokenCountSource } from './prompt-budget.js';
 import { z } from '../lib/zod.js';
 import type { JsonSerializable } from '../lib/json-types.js';
 import type { SiftConfig } from '../config/index.js';
@@ -32,7 +33,7 @@ export type RepoSearchProgressEvent = {
   modelCount?: number;
   errorMessage?: string;
   elapsedMs?: number;
-  tokenCountSource?: string;
+  tokenCountSource?: TokenCountSource;
   tokenizeElapsedMs?: number;
   tokenizeRetryCount?: number;
   tokenizeTimeoutMs?: number;

@@ -38,7 +38,7 @@ export class DashboardRunSeeder {
     this.artifact('summary_request', options.requestId, {
       requestId: options.requestId,
       question: options.question,
-      backend: 'llama.cpp',
+      backend: 'llama',
       model: 'Qwen3.5-9B-Q8_0.gguf',
       summary: `Summary output for ${options.requestId}`,
       createdAtUtc: options.createdAtUtc,
@@ -61,6 +61,7 @@ export class DashboardRunSeeder {
       prompt: options.prompt,
       repoRoot: options.repoRoot,
       model: 'mock-model',
+      backend: 'llama',
       requestMaxTokens: 512,
       maxTurns: 2,
       transcriptText: options.transcriptText,

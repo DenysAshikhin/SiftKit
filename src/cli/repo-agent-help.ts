@@ -91,7 +91,11 @@ const ROOT_HELP = RepoAgentHelpSchema.parse({
   resultStatuses: ['completed', 'approval_required', 'failed', 'aborted'],
   results: [
     { status: 'completed', exitCode: 0, meaning: 'Task completed.' },
-    { status: 'approval_required', exitCode: 0, meaning: 'A decision is required.' },
+    {
+      status: 'approval_required',
+      exitCode: 0,
+      meaning: 'A decision is required; the decide field of the result carries the exact approve/deny/abort commands.',
+    },
     { status: 'failed', exitCode: 1, meaning: 'Task failed.' },
     { status: 'aborted', exitCode: 1, meaning: 'Task was aborted.' },
   ],

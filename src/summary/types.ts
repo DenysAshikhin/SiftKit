@@ -7,14 +7,14 @@ import type { ProgressWriter } from '../lib/progress-writer.js';
 
 /**
  * Summary provider identity. NOT the inference engine axis ('llama'/'exl3', see
- * getActiveInferenceBackend): 'llama.cpp' means the real, fully-capable provider
+ * getActiveInferenceBackend): 'real' means the real, fully-capable provider
  * (chunking, planner, slots) and is what the downstream summary gates compare
  * against; 'mock' is the test double. The two axes are unrelated, so this type is
  * threaded end-to-end and an engine id is a compile error wherever it is expected.
  */
-export const SummaryProviderIdSchema = z.enum(['llama.cpp', 'mock']);
+export const SummaryProviderIdSchema = z.enum(['real', 'mock']);
 export type SummaryProviderId = z.infer<typeof SummaryProviderIdSchema>;
-export const DEFAULT_SUMMARY_PROVIDER: SummaryProviderId = 'llama.cpp';
+export const DEFAULT_SUMMARY_PROVIDER: SummaryProviderId = 'real';
 
 export function resolveSummaryProvider(requested: SummaryProviderId | undefined): SummaryProviderId {
   return requested ?? DEFAULT_SUMMARY_PROVIDER;
@@ -25,7 +25,7 @@ export function parseOptionalSummaryProvider(value: string | undefined): Summary
   if (value === undefined) return undefined;
   const parsed = SummaryProviderIdSchema.safeParse(value);
   if (!parsed.success) {
-    throw new Error(`Unsupported backend '${value}'; expected one of: llama.cpp, mock.`);
+    throw new Error(`Unsupported provider '${value}'; expected one of: real, mock.`);
   }
   return parsed.data;
 }
@@ -62,7 +62,7 @@ export type SummaryRequest = {
   images?: string[];
   format: 'text' | 'json';
   policyProfile: SummaryPolicyProfile;
-  backend?: SummaryProviderId;
+  provider?: SummaryProviderId;
   model?: string;
   promptPrefix?: string;
   sourceKind?: SummarySourceKind;
@@ -82,7 +82,7 @@ export const SummaryResultSchema = z.object({
   RequestId: z.string(),
   WasSummarized: z.boolean(),
   PolicyDecision: z.string(),
-  Backend: SummaryProviderIdSchema,
+  Provider: SummaryProviderIdSchema,
   Model: z.string(),
   Summary: z.string(),
   Classification: SummaryClassificationSchema,

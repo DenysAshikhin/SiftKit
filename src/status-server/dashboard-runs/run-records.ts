@@ -1,4 +1,6 @@
 import { JsonRecordReader } from '../../lib/json-record-reader.js';
+import { InferenceBackendIdSchema } from '../../config/types.js';
+import type { InferenceBackendId } from '../../config/types.js';
 import { parseJsonValueText } from '../../lib/json.js';
 import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
 import { toNullableNonNegativeInteger } from '../../lib/telemetry-metrics.js';
@@ -7,6 +9,15 @@ import type { RunLogDbRow, RunRecord } from './types.js';
 
 function optionalStringField(value: OptionalJsonValue): string | null {
   return typeof value === 'string' && value ? value : null;
+}
+
+/**
+ * Sole read path for the engine axis on a run record. Anything that is not a live engine id —
+ * a legacy `'llama.cpp'` label, a summary provider id, a missing field — collapses to null
+ * rather than being reported as a backend.
+ */
+function optionalInferenceBackendField(value: OptionalJsonValue): InferenceBackendId | null {
+  return InferenceBackendIdSchema.safeParse(value).data ?? null;
 }
 
 export function normalizeRunRecord(record: JsonObject): RunRecord {
@@ -18,7 +29,7 @@ export function normalizeRunRecord(record: JsonObject): RunRecord {
     finishedAtUtc: optionalStringField(record.finishedAtUtc),
     title: String(record.title || ''),
     model: optionalStringField(record.model),
-    backend: optionalStringField(record.backend),
+    backend: optionalInferenceBackendField(record.backend),
     inputTokens: Number.isFinite(record.inputTokens) ? Number(record.inputTokens) : null,
     outputTokens: Number.isFinite(record.outputTokens) ? Number(record.outputTokens) : null,
     thinkingTokens: Number.isFinite(record.thinkingTokens) ? Number(record.thinkingTokens) : null,
@@ -116,7 +127,7 @@ export function normalizeRunRecordFromDbRow(row: RunLogDbRow): RunRecord {
     finishedAtUtc: typeof row.finished_at_utc === 'string' ? row.finished_at_utc : null,
     title: String(row.title || ''),
     model: typeof row.model === 'string' ? row.model : null,
-    backend: typeof row.backend === 'string' ? row.backend : null,
+    backend: row.backend,
     inputTokens: toNullableNonNegativeInteger(row.input_tokens),
     outputTokens: toNullableNonNegativeInteger(row.output_tokens),
     thinkingTokens: toNullableNonNegativeInteger(row.thinking_tokens),

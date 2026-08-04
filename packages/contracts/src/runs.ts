@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { InferenceBackendIdSchema } from './config.js';
 import { JsonDataSchema, JsonObjectSchema } from './primitives.js';
 
 export const RunGroupFilterSchema = z.enum(['', 'summary', 'repo_search', 'planner', 'chat', 'other']);
@@ -24,7 +25,7 @@ export type RunLogDeleteResponse = z.infer<typeof RunLogDeleteResponseSchema>;
 export const RunRecordSchema = z.object({
   id: z.string(), kind: z.string(), status: z.string(),
   startedAtUtc: z.string().nullable(), finishedAtUtc: z.string().nullable(),
-  title: z.string(), model: z.string().nullable(), backend: z.string().nullable(),
+  title: z.string(), model: z.string().nullable(), backend: InferenceBackendIdSchema.nullable(),
   inputTokens: z.number().nullable(), outputTokens: z.number().nullable(), thinkingTokens: z.number().nullable(),
   toolTokens: z.number().nullable(), promptCacheTokens: z.number().nullable(), promptEvalTokens: z.number().nullable(),
   promptEvalDurationMs: z.number().nullable(), generationDurationMs: z.number().nullable(),

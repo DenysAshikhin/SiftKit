@@ -361,10 +361,28 @@ export async function countLlamaCppTokensDetailed(
   }
 }
 
+/**
+ * The inference server lists every directory under its model root (TabbyAPI includes
+ * .git/node_modules/datasets), so the inventory only trusts names a preset declares.
+ */
+export function filterModelInventory(
+  serverModels: readonly string[],
+  presetModels: readonly (string | null)[],
+): string[] {
+  const allowed = new Set(
+    presetModels.filter((model): model is string => typeof model === 'string' && model.trim() !== ''),
+  );
+  return serverModels.filter((model) => allowed.has(model));
+}
+
 export async function listLlamaCppModels(config: SiftConfig): Promise<string[]> {
   const baseUrl = getConfiguredLlamaBaseUrl(config);
   try {
-    return await llamaCppClient.listModelsAtBaseUrl(baseUrl, 5000);
+    const serverModels = await llamaCppClient.listModelsAtBaseUrl(baseUrl, 5000);
+    return filterModelInventory(
+      serverModels,
+      config.Server.ModelPresets.Presets.map((preset) => preset.Model),
+    );
   } catch (error) {
     const message = formatProviderHttpError('llama.cpp model list failed', getErrorMessage(error));
     logLlamaCppError('model_list', message);

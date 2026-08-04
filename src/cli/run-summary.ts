@@ -53,7 +53,7 @@ export async function runSummary(options: ResolvedCliArgs & {
     images,
     format: normalizeCliFormat(parsed.format),
     policyProfile: normalizeCliPolicyProfileOrDefault(parsed.profile),
-    backend: parsed.backend,
+    provider: parsed.provider,
     model: parsed.model,
     sourceKind,
     commandExitCode,

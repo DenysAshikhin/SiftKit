@@ -1,7 +1,9 @@
 import { resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { REPO_AGENT_DEFAULT_MAX_TURNS } from '@siftkit/contracts';
-import { loadConfig, notifyStatusBackend } from '../config/index.js';
+import { getActiveInferenceBackend, loadConfig, notifyStatusBackend } from '../config/index.js';
+import type { InferenceBackendId } from '../config/types.js';
+import type { TokenCountSource } from './prompt-budget.js';
 import type { NotifyStatusBackendOptions } from '../config/status-backend.js';
 import {
   createJsonLogger,
@@ -43,7 +45,7 @@ export type RepoSearchPreflightSummary = {
   promptChars: number;
   promptTokenCount: number;
   tokenizeElapsedMs: number;
-  tokenCountSource: string;
+  tokenCountSource: TokenCountSource;
   tokenizeRetryCount: number;
   tokenizeStatus: string;
   elapsedMs: number;
@@ -128,7 +130,7 @@ function logRepoSearchLifecycleEvent(requestId: string, event: RepoSearchProgres
       promptChars: Math.max(0, Math.trunc(Number(event.promptChars || 0))),
       promptTokenCount: Math.max(0, Math.trunc(Number(event.promptTokenCount || 0))),
       tokenizeElapsedMs: Math.max(0, Math.trunc(Number(event.tokenizeElapsedMs || 0))),
-      tokenCountSource: String(event.tokenCountSource || 'unknown'),
+      tokenCountSource: event.tokenCountSource ?? 'estimate',
       tokenizeRetryCount: Math.max(0, Math.trunc(Number(event.tokenizeRetryCount || 0))),
       tokenizeStatus: String(event.tokenizeStatus || 'unknown'),
       elapsedMs,
@@ -332,9 +334,13 @@ export async function executeRepoSearchRequest(
     ? resolve(request.logFile)
     : join(folders.root, `request_${requestId}.jsonl`);
   const logger = createJsonLogger(tempTranscriptPath);
+  // Engine the run actually executed on, for the run log. Stays null when the run fails
+  // before the config loads, because no engine was selected at that point.
+  let activeBackend: InferenceBackendId | null = null;
 
   try {
     const config = request.config ?? await loadConfig({ ensure: true });
+    activeBackend = getActiveInferenceBackend(config);
     assertPresetAcceptsImages(getActiveModelPreset(config), request.initialUserImages ?? []);
     const preset = PresetCatalog.fromPresets(config.Presets).requireById(request.presetId);
     const systemContext = new PresetSystemContextBuilder(repoRoot).build(preset);
@@ -412,6 +418,7 @@ export async function executeRepoSearchRequest(
       prompt,
       repoRoot,
       model: request.model ?? null,
+      backend: activeBackend,
       requestMaxTokens: null,
       maxTurns: request.maxTurns ?? null,
       verdict: scorecard?.verdict ?? 'unknown',
@@ -490,6 +497,7 @@ export async function executeRepoSearchRequest(
       prompt,
       repoRoot,
       model: request.model ?? null,
+      backend: activeBackend,
       requestMaxTokens: null,
       maxTurns: request.maxTurns ?? null,
       transcriptText,
@@ -551,6 +559,7 @@ export async function executeRepoSearchRequest(
       prompt,
       repoRoot,
       model: request.model ?? null,
+      backend: activeBackend,
       requestMaxTokens: null,
       maxTurns: request.maxTurns ?? null,
       error: message,
@@ -604,6 +613,7 @@ export async function executeRepoSearchRequest(
       prompt,
       repoRoot,
       model: request.model ?? null,
+      backend: activeBackend,
       requestMaxTokens: null,
       maxTurns: request.maxTurns ?? null,
       transcriptText,

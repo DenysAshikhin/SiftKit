@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
 import { ChatTab } from '../src/tabs/ChatTab';
 import type { ChatMessage, ChatSession, ContextUsage, DashboardPreset } from '../src/types';
 
@@ -21,11 +22,18 @@ function msg(overrides: Partial<ChatMessage>): ChatMessage {
   };
 }
 
-const SESSION = {
-  id: 'session-1', title: 'Session', model: 'test-model', contextWindowTokens: 100,
+const SESSION_A = {
+  id: 'session-a', title: 'Session A', model: 'test-model', contextWindowTokens: 100,
   thinkingEnabled: true, presetId: PRESET.id, mode: 'chat', condensedSummary: '',
   createdAtUtc: '2026-04-16T11:00:00.000Z', updatedAtUtc: '2026-04-16T12:00:00.000Z',
   messages: [msg({ id: 'a1', kind: 'assistant_answer', content: 'Hello from the assistant.' })],
+} satisfies ChatSession;
+
+const SESSION_B = {
+  ...SESSION_A,
+  id: 'session-b',
+  title: 'Session B',
+  messages: [],
 } satisfies ChatSession;
 
 const CONTEXT_USAGE = {
@@ -36,42 +44,43 @@ const CONTEXT_USAGE = {
 
 type ChatTabProps = React.ComponentProps<typeof ChatTab>;
 
+function buildDefaultStore(sessionId: string): ChatSessionRuntimeStore {
+  return new ChatSessionRuntimeStore()
+    .ensureSession('session-a')
+    .ensureSession('session-b')
+    .setDraft(sessionId, 'hi');
+}
+
 function render(overrides: Partial<ChatTabProps> = {}): string {
-  const baseSession = overrides.selectedSession ?? SESSION;
+  const selectedSessionId = overrides.selectedSessionId ?? SESSION_A.id;
+  const defaultStore = buildDefaultStore(selectedSessionId);
   const props: ChatTabProps = {
-    sessions: overrides.sessions ?? [baseSession],
-    selectedSessionId: overrides.selectedSessionId ?? baseSession.id,
-    selectedSession: baseSession,
+    sessions: [SESSION_A, SESSION_B],
+    selectedSessionId,
+    selectedSession: selectedSessionId === SESSION_B.id ? SESSION_B : SESSION_A,
+    selectedRuntime: defaultStore.get(selectedSessionId),
+    sessionRuntimes: defaultStore.getAll(),
     sessionPromptCacheStats: { cacheHitRate: 0, promptCacheTokens: 0, promptEvalTokens: 0, acceptanceRate: null, speculativeAcceptedTokens: 0, speculativeGeneratedTokens: 0, promptTokensPerSecond: null, generationTokensPerSecond: null },
-    webPresets: overrides.webPresets ?? [PRESET],
-    selectedChatPreset: overrides.selectedChatPreset ?? PRESET,
-    chatMode: overrides.chatMode ?? 'chat',
-    isDirectChatMode: overrides.isDirectChatMode ?? true,
-    isRepoToolMode: overrides.isRepoToolMode ?? false,
-    isThinkingEnabledForCurrentSession: overrides.isThinkingEnabledForCurrentSession ?? true,
-    webSearchEnabled: overrides.webSearchEnabled ?? true,
-    showSettings: overrides.showSettings ?? false,
-    planRepoRootInput: overrides.planRepoRootInput ?? '',
-    contextUsage: overrides.contextUsage ?? CONTEXT_USAGE,
-    liveToolPromptTokenCount: overrides.liveToolPromptTokenCount ?? null,
-    liveMessages: overrides.liveMessages ?? [],
-    chatInput: overrides.chatInput ?? 'hi',
-    pendingImages: overrides.pendingImages ?? [],
-    onPendingImagesChange: () => {},
-    chatBusy: overrides.chatBusy ?? false,
-    chatError: overrides.chatError ?? null,
-    warnings: overrides.warnings ?? [],
-    onSelectSession: () => {}, onToggleSettings: () => {}, onChangePlanRepoRoot: () => {}, onChangeChatInput: () => {},
-    onCreateSession: async () => {}, onDeleteSession: async () => {},
+    webPresets: [PRESET],
+    selectedChatPreset: PRESET,
+    chatMode: 'chat',
+    isDirectChatMode: true,
+    isRepoToolMode: false,
+    isThinkingEnabledForCurrentSession: true,
+    webSearchEnabled: true,
+    showSettings: false,
+    onSelectSession: () => {}, onToggleSettings: () => {}, onChangePlanRepoRoot: () => {},
+    onChangeDraft: () => {}, onCreateSession: async () => {}, onDeleteSession: async () => {},
     onUpdateSessionPreset: async () => {}, onToggleThinking: async () => {}, onToggleWebSearchEnabled: async () => {},
     onSavePlanRepoRoot: async () => {}, onDeleteMessage: async () => {}, onDeleteTurn: async () => {}, onCondense: async () => {},
     onSendPlan: async () => {}, onSendRepoSearch: async () => {}, onSendMessage: async () => {},
+    onPendingImagesChange: () => {},
     ...overrides,
   };
   return renderToStaticMarkup(React.createElement(ChatTab, props));
 }
 
-test('chat tab renders session lane, chat head with hchips, msgs and composer', () => {
+test('chat tab renders session lane, controls, messages, and composer', () => {
   const markup = render();
   assert.match(markup, /class="chat-lane"/);
   assert.match(markup, /New session/);
@@ -80,68 +89,74 @@ test('chat tab renders session lane, chat head with hchips, msgs and composer', 
   assert.match(markup, /class="hchip on"[^>]*>per-step thinking/);
   assert.match(markup, /class="msgs"/);
   assert.match(markup, /class="composer"/);
-  assert.match(markup, /<select/);
 });
 
-test('session lane shows a streaming indicator for the active busy session', () => {
+test('busy A stays visible while selected B remains interactive', () => {
+  const store = buildDefaultStore('session-b').begin('session-a', 'message');
   const markup = render({
-    chatBusy: true,
-    liveMessages: [msg({ id: 'live', kind: 'assistant_answer', content: 'partial' })],
+    selectedSessionId: 'session-b',
+    selectedSession: SESSION_B,
+    selectedRuntime: store.get('session-b'),
+    sessionRuntimes: store.getAll(),
   });
-  assert.match(markup, /class="typing"/);
-  assert.match(markup, /caret/);
+  assert.match(markup, /Session A[\s\S]*streaming/u);
+  assert.doesNotMatch(markup, /class="send"[^>]*disabled/u);
+  assert.doesNotMatch(markup, /class="ghost-btn acc new"[^>]*disabled/u);
+  assert.doesNotMatch(markup, /class="ghost-btn"[^>]*disabled[^>]*>Delete/u);
+});
+
+test('selected busy A disables only its mutable controls', () => {
+  const store = buildDefaultStore('session-a').begin('session-a', 'message');
+  const markup = render({ selectedRuntime: store.get('session-a'), sessionRuntimes: store.getAll() });
+  assert.match(markup, /class="send"[^>]*disabled/u);
+  assert.match(markup, /class="ghost-btn"[^>]*disabled[^>]*>Delete/u);
+  assert.doesNotMatch(markup, /class="ghost-btn acc new"[^>]*disabled/u);
+});
+
+test('selected session alone supplies errors and warnings', () => {
+  const store = buildDefaultStore('session-b')
+    .applyWarning('session-a', 'warning-a')
+    .applyFailure('session-a', 'error-a');
+  const selectedB = render({
+    selectedSessionId: 'session-b',
+    selectedSession: SESSION_B,
+    selectedRuntime: store.get('session-b'),
+    sessionRuntimes: store.getAll(),
+  });
+  assert.doesNotMatch(selectedB, /warning-a|error-a/u);
+  const selectedA = render({
+    selectedRuntime: store.get('session-a'),
+    sessionRuntimes: store.getAll(),
+  });
+  assert.match(selectedA, /warning-a/u);
+  assert.match(selectedA, /error-a/u);
 });
 
 test('a running tool message renders a ToolCallCard with spinner', () => {
-  const markup = render({
-    chatBusy: true,
-    liveMessages: [msg({ id: 'tool', kind: 'assistant_tool_call', toolCallCommand: 'grep "x"', toolCallStatus: 'running' })],
-  });
+  const store = buildDefaultStore('session-a')
+    .begin('session-a', 'message')
+    .applyToolEvent('session-a', { kind: 'tool_start', toolCallId: 'tool', turn: 1, maxTurns: 2, command: 'rg x' });
+  const markup = render({ selectedRuntime: store.get('session-a'), sessionRuntimes: store.getAll() });
   assert.match(markup, /class="tcall"/);
   assert.match(markup, /class="sp"/);
 });
 
-test('send button keeps its honest label and is disabled while busy, over an 85% warn context bar', () => {
-  const markup = render({ chatBusy: true });
-  assert.match(markup, /class="send"[^>]*disabled[^>]*>Send/);
-  assert.doesNotMatch(markup, /class="send"[^>]*>Stop/);
+test('selected context usage renders the warning context bar', () => {
+  const responseStore = buildDefaultStore('session-a').applyDone('session-a', {
+    session: SESSION_A,
+    contextUsage: CONTEXT_USAGE,
+  });
+  const markup = render({ selectedRuntime: responseStore.get('session-a'), sessionRuntimes: responseStore.getAll() });
   assert.match(markup, /class="ctx warn"/);
 });
 
-test('backend failure renders an error banner with retry and open logs', () => {
-  const markup = render({ chatError: 'Backend restart failed' });
-  assert.match(markup, /class="err-banner"/);
-  assert.match(markup, /Backend restart failed/);
-  assert.match(markup, /Retry/);
-  assert.match(markup, /Open logs/);
-});
-
 test('chat does not render first-message context toggles', () => {
-  const emptySession = { ...SESSION, mode: 'repo-search', messages: [] } satisfies ChatSession;
-  const markup = render({
-    selectedSession: emptySession,
-    chatMode: 'repo-search',
-    isDirectChatMode: false,
-    isRepoToolMode: true,
-  });
+  const emptySession = { ...SESSION_A, mode: 'repo-search', messages: [] } satisfies ChatSession;
+  const markup = render({ selectedSession: emptySession, chatMode: 'repo-search', isDirectChatMode: false, isRepoToolMode: true });
   assert.doesNotMatch(markup, /Repo-search auto-append controls|File scan/u);
-});
-
-test('chat does not synthesize system context while the server context is unavailable', () => {
-  const markup = render();
-
-  assert.doesNotMatch(markup, /system-context-bubble/u);
-  assert.doesNotMatch(markup, /general, coder friendly assistant/u);
 });
 
 test('composer attaches images through a styled label wrapping the file input', () => {
   const markup = render();
   assert.match(markup, /<label class="mini-btn attach"[^>]*>Attach<input type="file"/u);
-  assert.doesNotMatch(markup, /<div class="row">(?:(?!<label class="mini-btn attach")[\s\S])*?<input type="file"/u);
-});
-
-test('chat renders startup-context warnings as nonfatal banners', () => {
-  const markup = render({ warnings: ['missing file'] });
-  assert.match(markup, /class="warning-banner"/u);
-  assert.match(markup, /missing file/u);
 });

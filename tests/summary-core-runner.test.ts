@@ -66,7 +66,7 @@ test('invokeSummaryCore summarizes directly through the mock provider', async ()
       images: [],
       format: 'text',
       policyProfile: 'general',
-      backend: 'mock',
+      provider: 'mock',
       model: 'mock-model',
       config,
       rawReviewRequired: false,

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ChatSessionResponseSchema, ChatMessageSchema, ChatSessionSchema } from '@siftkit/contracts';
+import { ChatSessionResponseSchema, ChatMessageSchema, ChatSessionSchema, ChatSessionBusyResponseSchema } from '@siftkit/contracts';
 
 const message = {
   id: 'm1', role: 'user', content: 'hi',
@@ -31,4 +31,13 @@ test('ChatSessionSchema requires modelPresetId', () => {
     ChatSessionSchema.parse({ ...session, modelPresetId: 'preset-a' }).modelPresetId,
     'preset-a',
   );
+});
+
+test('ChatSessionBusyResponseSchema preserves the conflicting session', () => {
+  const parsed = ChatSessionBusyResponseSchema.parse({
+    error: 'Chat session already has an active operation.',
+    sessionId: 'session-a',
+    operationKind: 'message',
+  });
+  assert.equal(parsed.sessionId, 'session-a');
 });

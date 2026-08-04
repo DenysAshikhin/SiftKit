@@ -1,25 +1,17 @@
-import { useState } from 'react';
 import { getErrorMessage } from '../../../src/lib/errors.js';
 import {
   streamChatMessage,
   streamPlanMessage,
   streamRepoSearchMessage,
 } from '../api';
-import type { ChatStreamToolEvent } from '../lib/chat-stream-parser';
+import type { ChatStreamEvent, ChatStreamToolEvent } from '../lib/chat-stream-parser';
 import type {
   ChatSession,
-  ContextUsage,
-  DashboardPreset,
+  ChatSessionOperationKind,
+  ChatSessionResponse,
 } from '../types';
-import type { UseLiveMessagesResult } from './useLiveMessages';
-import type { UseContextUsageResult } from './useContextUsage';
 
 export type UseChatComposerResult = {
-  chatInput: string;
-  pendingImages: string[];
-  warnings: string[];
-  setChatInput(value: string): void;
-  setPendingImages(images: string[]): void;
   sendMessage(): Promise<void>;
   sendPlan(): Promise<void>;
   sendRepoSearch(): Promise<void>;
@@ -50,194 +42,119 @@ export function requireSelectedSession(session: ChatSession | null): ChatSession
   return session;
 }
 
+export type RuntimeActions = {
+  beginSessionOperation(sessionId: string, operationKind: ChatSessionOperationKind): void;
+  appendSessionThinking(sessionId: string, text: string): void;
+  applySessionToolEvent(sessionId: string, toolEvent: ChatStreamToolEvent): void;
+  applySessionAnswer(sessionId: string, text: string): void;
+  applySessionWarning(sessionId: string, text: string): void;
+  completeSessionOperation(sessionId: string, response: ChatSessionResponse): void;
+  failSessionOperation(sessionId: string, message: string): void;
+};
+
+export async function consumeChatStream(
+  sessionId: string,
+  operationKind: ChatSessionOperationKind,
+  stream: AsyncGenerator<ChatStreamEvent>,
+  thinkingEnabled: boolean,
+  runtimes: RuntimeActions,
+): Promise<void> {
+  runtimes.beginSessionOperation(sessionId, operationKind);
+  let completed = false;
+  try {
+    for await (const event of stream) {
+      if (event.kind === 'thinking') {
+        if (thinkingEnabled) {
+          runtimes.appendSessionThinking(sessionId, event.text);
+        }
+      } else if (event.kind === 'warning') {
+        runtimes.applySessionWarning(sessionId, event.text);
+      } else if (event.kind === 'tool') {
+        runtimes.applySessionToolEvent(sessionId, event.tool);
+      } else if (event.kind === 'answer') {
+        runtimes.applySessionAnswer(sessionId, event.text);
+      } else if (event.kind === 'done') {
+        runtimes.completeSessionOperation(sessionId, event.payload);
+        completed = true;
+      }
+    }
+    if (!completed) {
+      throw new Error('Chat stream ended before the done event');
+    }
+  } catch (error) {
+    runtimes.failSessionOperation(sessionId, getErrorMessage(error));
+  }
+}
+
 export function useChatComposer(deps: {
   selectedSession: ChatSession | null;
-  selectedChatPreset: DashboardPreset | null;
-  live: UseLiveMessagesResult;
-  context: UseContextUsageResult;
-  refreshSessions(): Promise<void>;
-  applySessionResponse(response: { session: ChatSession; contextUsage: ContextUsage }): void;
+  draft: string;
+  pendingImages: string[];
   planRepoRootInput: string;
   planMaxTurnsInput: string;
   isThinkingEnabledForCurrentSession: boolean;
-  maintainPerStepThinkingForCurrentPreset: boolean;
-  onError(message: string): void;
-  resetError(): void;
-  setChatBusy(busy: boolean): void;
+  runtimes: RuntimeActions;
 }): UseChatComposerResult {
-  const [chatInput, setChatInput] = useState<string>('');
-  // Attachments live beside the text so a successful send clears both together.
-  const [pendingImages, setPendingImages] = useState<string[]>([]);
-  const [warnings, setWarnings] = useState<string[]>([]);
-
-  function setChatBusy(busy: boolean): void {
-    deps.setChatBusy(busy);
-  }
-
-  function setChatError(value: string | null): void {
-    if (value === null) {
-      deps.resetError();
-    } else {
-      deps.onError(value);
-    }
-  }
-
   async function sendMessage(): Promise<void> {
-    if (!deps.selectedSession || (!chatInput.trim() && pendingImages.length === 0)) {
+    if (!deps.selectedSession || (!deps.draft.trim() && deps.pendingImages.length === 0)) {
       return;
     }
-    setChatBusy(true);
-    setChatError(null);
-    setWarnings([]);
-    deps.live.resetLive();
-    deps.context.setLiveToolPromptTokenCount(null);
-    try {
-      const response = await streamChatMessage(
-        deps.selectedSession.id,
-        { content: chatInput.trim(), images: pendingImages },
-        (thinkingText) => {
-          if (deps.isThinkingEnabledForCurrentSession) {
-            deps.live.appendLiveThinking(thinkingText, deps.maintainPerStepThinkingForCurrentPreset);
-          }
-        },
-        (toolEvent: ChatStreamToolEvent) => {
-          if (toolEvent.kind === 'tool_start') {
-            deps.live.appendLiveToolMessage(toolEvent);
-          } else if (toolEvent.kind === 'tool_result') {
-            deps.live.completeLiveToolMessage(toolEvent);
-          }
-        },
-        (answerText) => {
-          deps.live.upsertLiveMessage({
-            ...deps.live.createLiveMessage('live-answer', 'assistant_answer', 'assistant', answerText),
-            outputTokensEstimate: Math.max(1, Math.ceil(String(answerText || '').length / 4)),
-          });
-        },
-      );
-      deps.applySessionResponse(response.response);
-      setWarnings(response.warnings);
-      setChatInput('');
-      setPendingImages([]);
-    } catch (error) {
-      setChatError(getErrorMessage(error));
-    } finally {
-      deps.live.resetLive();
-      deps.context.setLiveToolPromptTokenCount(null);
-      setChatBusy(false);
-    }
+    const session = deps.selectedSession;
+    const capturedInput = deps.draft.trim();
+    const capturedImages = deps.pendingImages;
+    const thinkingEnabled = deps.isThinkingEnabledForCurrentSession;
+    await consumeChatStream(
+      session.id,
+      'message',
+      streamChatMessage(session.id, { content: capturedInput, images: capturedImages }),
+      thinkingEnabled,
+      deps.runtimes,
+    );
   }
 
   async function sendPlan(): Promise<void> {
     const session = requireSelectedSession(deps.selectedSession);
-    if (!chatInput.trim()) {
+    const capturedInput = deps.draft.trim();
+    const thinkingEnabled = deps.isThinkingEnabledForCurrentSession;
+    if (!capturedInput) {
       return;
     }
-    setChatBusy(true);
-    setChatError(null);
-    setWarnings([]);
-    deps.live.resetLive();
-    deps.context.setLiveToolPromptTokenCount(null);
-    try {
-      const repoRoot = resolveRepoRoot(deps.planRepoRootInput, session.planRepoRoot || '');
-      const response = await streamPlanMessage(
-        session.id,
-        {
-          content: chatInput.trim(),
-          repoRoot,
-          ...parsePlanMaxTurnsOverride(deps.planMaxTurnsInput),
-        },
-        (thinkingText) => {
-          deps.live.appendLiveThinking(thinkingText, deps.maintainPerStepThinkingForCurrentPreset);
-        },
-        (toolEvent: ChatStreamToolEvent) => {
-          if (toolEvent.kind === 'tool_start') {
-            if (typeof toolEvent.promptTokenCount === 'number') {
-              deps.context.setLiveToolPromptTokenCount(toolEvent.promptTokenCount);
-            }
-            deps.live.appendLiveToolMessage(toolEvent);
-          } else if (toolEvent.kind === 'tool_result') {
-            if (typeof toolEvent.promptTokenCount === 'number') {
-              deps.context.setLiveToolPromptTokenCount(toolEvent.promptTokenCount);
-            }
-            deps.live.completeLiveToolMessage(toolEvent);
-          }
-        },
-        (answerText) => {
-          deps.live.upsertLiveMessage({
-            ...deps.live.createLiveMessage('live-answer', 'assistant_answer', 'assistant', answerText),
-            outputTokensEstimate: Math.max(1, Math.ceil(String(answerText || '').length / 4)),
-          });
-        },
-      );
-      deps.applySessionResponse(response.response);
-      setWarnings(response.warnings);
-      setChatInput('');
-    } catch (error) {
-      setChatError(getErrorMessage(error));
-    } finally {
-      deps.live.resetLive();
-      deps.context.setLiveToolPromptTokenCount(null);
-      setChatBusy(false);
-    }
+    const repoRoot = resolveRepoRoot(deps.planRepoRootInput, session.planRepoRoot || '');
+    await consumeChatStream(
+      session.id,
+      'plan',
+      streamPlanMessage(session.id, {
+        content: capturedInput,
+        repoRoot,
+        ...parsePlanMaxTurnsOverride(deps.planMaxTurnsInput),
+      }),
+      thinkingEnabled,
+      deps.runtimes,
+    );
   }
 
   async function sendRepoSearch(): Promise<void> {
     const session = requireSelectedSession(deps.selectedSession);
-    if (!chatInput.trim()) {
+    const capturedInput = deps.draft.trim();
+    const thinkingEnabled = deps.isThinkingEnabledForCurrentSession;
+    if (!capturedInput) {
       return;
     }
-    setChatBusy(true);
-    setChatError(null);
-    setWarnings([]);
-    deps.live.resetLive();
-    deps.context.setLiveToolPromptTokenCount(null);
-    try {
-      const repoRoot = resolveRepoRoot(deps.planRepoRootInput, session.planRepoRoot || '');
-      const response = await streamRepoSearchMessage(
-        session.id,
-        {
-          content: chatInput.trim(),
-          repoRoot,
-          ...parsePlanMaxTurnsOverride(deps.planMaxTurnsInput),
-        },
-        (thinkingText) => {
-          deps.live.appendLiveThinking(thinkingText, deps.maintainPerStepThinkingForCurrentPreset);
-        },
-        (toolEvent: ChatStreamToolEvent) => {
-          if (toolEvent.kind === 'tool_start') {
-            if (typeof toolEvent.promptTokenCount === 'number') {
-              deps.context.setLiveToolPromptTokenCount(toolEvent.promptTokenCount);
-            }
-            deps.live.appendLiveToolMessage(toolEvent);
-          } else if (toolEvent.kind === 'tool_result') {
-            if (typeof toolEvent.promptTokenCount === 'number') {
-              deps.context.setLiveToolPromptTokenCount(toolEvent.promptTokenCount);
-            }
-            deps.live.completeLiveToolMessage(toolEvent);
-          }
-        },
-        (answerText) => {
-          deps.live.appendLiveThinking(answerText, deps.maintainPerStepThinkingForCurrentPreset);
-        },
-      );
-      deps.applySessionResponse(response.response);
-      setWarnings(response.warnings);
-      setChatInput('');
-    } catch (error) {
-      setChatError(getErrorMessage(error));
-    } finally {
-      deps.live.resetLive();
-      deps.context.setLiveToolPromptTokenCount(null);
-      setChatBusy(false);
-    }
+    const repoRoot = resolveRepoRoot(deps.planRepoRootInput, session.planRepoRoot || '');
+    await consumeChatStream(
+      session.id,
+      'repo-search',
+      streamRepoSearchMessage(session.id, {
+        content: capturedInput,
+        repoRoot,
+        ...parsePlanMaxTurnsOverride(deps.planMaxTurnsInput),
+      }),
+      thinkingEnabled,
+      deps.runtimes,
+    );
   }
 
   return {
-    chatInput,
-    pendingImages,
-    warnings,
-    setChatInput,
-    setPendingImages,
     sendMessage,
     sendPlan,
     sendRepoSearch,

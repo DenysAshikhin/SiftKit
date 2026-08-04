@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, statSync, readdirSync, writeFileSync, mkdirSync, realpathSync } from 'node:fs';
 import { resolve, relative, isAbsolute, join, dirname, posix } from 'node:path';
 import { z } from 'zod';
@@ -146,6 +147,26 @@ function formatToolCommand(toolName: string, args: CommandArg[]): string {
   return [toolName, ...parts].join(' ');
 }
 
+function rawString(value: OptionalJsonValue): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function shortSha256(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 10);
+}
+
+/** Order-stable digest over the (oldText, newText) pairs so key order in the model's JSON cannot split fingerprints. */
+function editContentDigest(edits: OptionalJsonValue): string {
+  const pairs = Array.isArray(edits)
+    ? edits.map((edit) => (
+      edit !== null && typeof edit === 'object' && !Array.isArray(edit)
+        ? [rawString(edit.oldText), rawString(edit.newText)]
+        : []
+    ))
+    : [];
+  return shortSha256(JSON.stringify(pairs));
+}
+
 export function buildReadCommand(pathText: string, offset: PositiveInteger, limit?: PositiveInteger): string {
   return formatToolCommand('read', [
     ['path', pathText],
@@ -196,15 +217,18 @@ export function buildRepoToolRequestedCommand(toolName: string, args: JsonObject
     ]);
   }
   if (toolName === 'write') {
+    const content = rawString(args.content);
     return formatToolCommand('write', [
       ['path', readString(args.path)],
-      ['bytes', Buffer.byteLength(typeof args.content === 'string' ? args.content : '', 'utf8')],
+      ['bytes', Buffer.byteLength(content, 'utf8')],
+      ['sha', shortSha256(content)],
     ]);
   }
   if (toolName === 'edit') {
     return formatToolCommand('edit', [
       ['path', readString(args.path)],
       ['edits', Array.isArray(args.edits) ? args.edits.length : 0],
+      ['sha', editContentDigest(args.edits)],
     ]);
   }
   if (toolName === 'run') {
@@ -255,6 +279,36 @@ export function buildEffectiveTranscriptAction(options: {
     return { tool_name: options.toolName, args: parseEffectiveReadArgs(options.commandToRun, options.rawArgs) };
   }
   return { tool_name: options.toolName, args: options.rawArgs };
+}
+
+/**
+ * Serialized-argument size above which a rejected call's arguments are dropped. A rejected call
+ * has no downstream value, but its arguments are re-sent on every later turn; small payloads are
+ * cheaper to keep than to describe.
+ */
+export const REJECTED_ARGS_ELISION_LIMIT = 512;
+
+/**
+ * Transcript action for a call that was rejected before execution. Identical to the effective
+ * action while the payload is small, and an elision marker once it is not.
+ */
+export function buildRejectedTranscriptAction(options: {
+  toolName: string;
+  rawArgs: JsonObject;
+  isNativeTool: boolean;
+  commandToRun: string;
+}): ToolTranscriptAction {
+  const effective = buildEffectiveTranscriptAction(options);
+  const serializedLength = JSON.stringify(effective.args).length;
+  if (serializedLength <= REJECTED_ARGS_ELISION_LIMIT) {
+    return effective;
+  }
+  return {
+    tool_name: effective.tool_name,
+    args: {
+      elided: `rejected ${effective.tool_name} call; ${serializedLength.toLocaleString('en-US')} chars of arguments discarded`,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -634,9 +688,10 @@ async function executeGrep(args: JsonObject, context: RepoToolContext): Promise<
     return failure('grep', command, 'path is not a readable file or directory');
   }
 
+  // The planner tool schema documents context's default as 0, so 0 must parse as "matches only".
   const contextLines = resolveOptionalPositiveInteger(
-    args.context,
-    'context must be a positive integer',
+    args.context === 0 ? undefined : args.context,
+    'context must be a non-negative integer',
   );
   if (typeof contextLines === 'string') {
     return failure('grep', command, contextLines);

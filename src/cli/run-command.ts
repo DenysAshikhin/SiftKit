@@ -44,7 +44,7 @@ export async function runCommandCli(options: ResolvedCliArgs & {
     reducerProfile: normalizeCliReducerProfile(parsed.reducer),
     format: normalizeCliFormat(parsed.format),
     policyProfile: normalizeCliPolicyProfile(parsed.profile),
-    backend: parsed.backend,
+    provider: parsed.provider,
     model: parsed.model,
     shell,
   }, CliProgressRenderer.forCli(options.stderr, 'run', parsed.progress === true));

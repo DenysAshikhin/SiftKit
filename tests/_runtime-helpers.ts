@@ -66,6 +66,7 @@ import {
   getStatusServerUnavailableMessage,
 } from '../src/config/index.js';
 import { summarizeRequest } from '../src/summary/core.js';
+import { parseOptionalSummaryProvider } from '../src/summary/types.js';
 import { buildSummaryPrompt } from '../src/summary/prompt.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { getSummaryDecision } from '../src/summary/decision.js';
@@ -661,7 +662,7 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
           inputText: String(parsed.inputText || ''),
           format: parsed.format === 'json' ? 'json' : 'text',
           policyProfile: parsed.policyProfile || 'general',
-          backend: typeof parsed.backend === 'string' ? parsed.backend : undefined,
+          provider: parseOptionalSummaryProvider(typeof parsed.provider === 'string' ? parsed.provider : undefined),
           model: typeof parsed.model === 'string' ? parsed.model : undefined,
           promptPrefix: typeof parsed.promptPrefix === 'string' ? parsed.promptPrefix : undefined,
           llamaCppMaxTokens: Number.isFinite(Number(parsed.llamaCppMaxTokens))

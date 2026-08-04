@@ -2,11 +2,11 @@ import { extname, join, resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { sleep } from '../lib/time.js';
 import { moduleDirname, moduleFilename } from '../lib/paths.js';
+import type { InferenceBackendId } from '../config/types.js';
 import {
   consumeInferenceRunPendingLogChunks,
   getInferenceRunPendingLogChunkStats,
   restoreInferenceRunPendingLogChunks,
-  type InferenceRunBackend,
   type InferenceRunPendingLogChunkEntry,
 } from '../state/inference-runs.js';
 import { getRuntimeDatabasePath } from '../state/runtime-db.js';
@@ -35,7 +35,7 @@ const DEFAULT_CLOSE_FLUSH_WAIT_MS = 2000;
 
 type InferenceRunFlushQueueItem = {
   runId: string;
-  backend: InferenceRunBackend;
+  backend: InferenceBackendId;
   enqueuedAtMs: number;
   attempts: number;
   entries: InferenceRunPendingLogChunkEntry[] | null;
@@ -122,7 +122,7 @@ export class InferenceRunFlushQueue {
     await worker.terminate();
   }
 
-  enqueue(runId: string, backend: InferenceRunBackend): boolean {
+  enqueue(runId: string, backend: InferenceBackendId): boolean {
     const normalizedRunId = String(runId || '').trim();
     if (!normalizedRunId || this.closed) {
       return false;

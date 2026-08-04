@@ -1,3 +1,4 @@
+import { ActiveStatusRunSchema } from '@siftkit/contracts';
 import { httpClient } from '../lib/http-client.js';
 import { sleep } from '../lib/time.js';
 import { getStatusServerConnectHost } from '../lib/status-host.js';
@@ -21,6 +22,7 @@ const StatusMetricsSnapshotSchema = z.object({
 
 const StatusSnapshotResponseSchema = z.object({
   metrics: StatusMetricsSnapshotSchema.optional(),
+  activeRuns: z.array(ActiveStatusRunSchema),
 }).loose();
 
 const HealthResponseSchema = z.object({ ok: z.boolean().optional() }).loose();
