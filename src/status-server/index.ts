@@ -53,6 +53,7 @@ import {
 } from './server-ops.js';
 import { StatusEngineService } from './engine-service.js';
 import { StatusRunRegistry } from './status-run-registry.js';
+import { ChatSessionOperationRegistry } from './chat-session-operation-registry.js';
 import {
   terminateProcessTree,
   ensureManagedLlamaReady,
@@ -246,6 +247,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     },
     metrics,
     statusRuns: new StatusRunRegistry(),
+    chatSessionOperations: new ChatSessionOperationRegistry(),
     approvalGates: new Map(),
     activeModelRequests: new Map(),
     modelRequestQueue: [],

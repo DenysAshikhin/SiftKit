@@ -52,6 +52,7 @@ export const ChatSessionsResponseSchema = z.object({ sessions: z.array(ChatSessi
 export type ChatSessionsResponse = z.infer<typeof ChatSessionsResponseSchema>;
 
 export const ChatSessionOperationKindSchema = z.enum(['message', 'plan', 'repo-search']);
+export type ChatSessionOperationKind = z.infer<typeof ChatSessionOperationKindSchema>;
 export const ChatSessionBusyResponseSchema = z.object({
   error: z.literal('Chat session already has an active operation.'),
   sessionId: z.string().min(1),

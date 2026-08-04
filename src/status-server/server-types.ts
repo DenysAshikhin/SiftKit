@@ -12,6 +12,7 @@ import type { PresetRuntimeCoordinator } from './preset-runtime-coordinator.js';
 import type { ModelIdleController } from './model-idle-controller.js';
 import type { DeferredArtifact } from '../state/status-artifacts.js';
 import type { StatusRunRegistry } from './status-run-registry.js';
+import type { ChatSessionOperationRegistry } from './chat-session-operation-registry.js';
 export type { DeferredArtifact };
 export type { ModelRequestQueueDiagnostics } from '../lib/operation-stream.js';
 
@@ -79,6 +80,7 @@ export type ServerContext = {
 
   // Run state
   statusRuns: StatusRunRegistry;
+  chatSessionOperations: ChatSessionOperationRegistry;
   approvalGates: Map<string, ApprovalGate>;
   activeModelRequests: Map<string, ModelRequestLock>;
   modelRequestQueue: ModelRequestWaiter[];

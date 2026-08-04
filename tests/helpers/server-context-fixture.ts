@@ -7,6 +7,7 @@ import { InferenceRunFlushQueue } from '../../src/status-server/inference-run-fl
 import { getDefaultMetrics } from '../../src/status-server/metrics.js';
 import { DEFAULT_IDLE_SUMMARY_DELAY_MS } from '../../src/status-server/server-ops.js';
 import { StatusRunRegistry } from '../../src/status-server/status-run-registry.js';
+import { ChatSessionOperationRegistry } from '../../src/status-server/chat-session-operation-registry.js';
 import type { ServerContext } from '../../src/status-server/server-types.js';
 
 /**
@@ -29,6 +30,7 @@ export function createTestServerContext(configPath: string, root = path.dirname(
     },
     metrics: getDefaultMetrics(),
     statusRuns: new StatusRunRegistry(),
+    chatSessionOperations: new ChatSessionOperationRegistry(),
     approvalGates: new Map(),
     activeModelRequests: new Map(),
     modelRequestQueue: [],

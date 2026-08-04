@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createRequire } from 'node:module';
 
 import { z } from '../src/lib/zod.js';
@@ -1796,7 +1797,7 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
   }
 });
 
-test('model routes execute in FIFO order across mixed request kinds', async () => {
+test('same session rejects a second request instead of entering the model FIFO', async () => {
   const tempRoot = createManagedTempDir('siftkit-dashboard-fifo-');
   const previousCwd = enterDashboardTestRepo(tempRoot);
   const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
@@ -1817,8 +1818,6 @@ test('model routes execute in FIFO order across mixed request kinds', async () =
       }),
     });
     const sessionId = String(d(createSession.body.session).id);
-    const completionOrder: string[] = [];
-
     const delayedRepoSearch = requestSse(`${baseUrl}/repo-search`, {
       method: 'POST',
       timeoutMs: 6000,
@@ -1847,11 +1846,21 @@ test('model routes execute in FIFO order across mixed request kinds', async () =
         content: 'fifo-b',
         assistantContent: 'assistant-b',
       }),
-    }).then((response) => {
-      completionOrder.push('b');
-      return response;
     });
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+    let firstSessionRequestQueued = false;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const status = await requestJson(`${baseUrl}/status`);
+      const queuedRequests = asObjectArray(d(status.body.modelRequests).queuedRequests);
+      for (const queuedRequest of queuedRequests) {
+        if (queuedRequest.kind === 'dashboard_chat') {
+          firstSessionRequestQueued = true;
+          break;
+        }
+      }
+      if (firstSessionRequestQueued) break;
+      await delay(10);
+    }
+    assert.equal(firstSessionRequestQueued, true);
     const queuedC = requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
       method: 'POST',
       timeoutMs: 3000,
@@ -1859,16 +1868,14 @@ test('model routes execute in FIFO order across mixed request kinds', async () =
         content: 'fifo-c',
         assistantContent: 'assistant-c',
       }),
-    }).then((response) => {
-      completionOrder.push('c');
-      return response;
     });
 
     const [repoResult, bResult, cResult] = await Promise.all([delayedRepoSearch, queuedB, queuedC]);
     assert.equal(repoResult.statusCode, 200);
     assert.equal(bResult.statusCode, 200);
-    assert.equal(cResult.statusCode, 200);
-    assert.deepEqual(completionOrder, ['b', 'c']);
+    assert.equal(cResult.statusCode, 409);
+    assert.equal(cResult.body.sessionId, sessionId);
+    assert.equal(cResult.body.operationKind, 'message');
 
     const sessionResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
     const messages = asArray(d(d(sessionResponse.body).session).messages);
@@ -1876,7 +1883,7 @@ test('model routes execute in FIFO order across mixed request kinds', async () =
       .map((entry) => d(entry))
       .filter((entry) => entry.role === 'user')
       .map((entry) => String(entry.content || ''));
-    assert.deepEqual(userContents.slice(-2), ['fifo-b', 'fifo-c']);
+    assert.deepEqual(userContents.slice(-1), ['fifo-b']);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
@@ -1890,6 +1897,68 @@ test('model routes execute in FIFO order across mixed request kinds', async () =
       }
     }
     await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
+test('same session conflicts cover message plan and repo-search JSON and SSE routes', async () => {
+  const harness = new DashboardModelQueueHarness('siftkit-dashboard-session-conflicts-');
+  await harness.start();
+  try {
+    const messageSessionId = await harness.createChatSession('Message owner', 'Qwen3.5-9B-Q8_0.gguf');
+    const planSessionId = await harness.createChatSession('Plan owner', 'Qwen3.5-9B-Q8_0.gguf');
+    const repoSearchSessionId = await harness.createChatSession('Repo owner', 'Qwen3.5-9B-Q8_0.gguf');
+    const baseUrl = harness.getBaseUrl();
+    const lockHolder = harness.holdModelLock('hold session-conflict matrix', 2_500);
+    await harness.waitForActiveRequests('repo_search');
+
+    const activeMessage = fireAndAbortJsonRequest(
+      `${baseUrl}/dashboard/chat/sessions/${messageSessionId}/messages`,
+      JSON.stringify({ content: 'active message', assistantContent: 'done' }),
+      1_500,
+    );
+    const activePlan = fireAndAbortJsonRequest(
+      `${baseUrl}/dashboard/chat/sessions/${planSessionId}/plan`,
+      JSON.stringify({ content: 'active plan', repoRoot: process.cwd() }),
+      1_500,
+    );
+    const activeRepoSearch = fireAndAbortJsonRequest(
+      `${baseUrl}/dashboard/chat/sessions/${repoSearchSessionId}/repo-search`,
+      JSON.stringify({ content: 'active repo search', repoRoot: process.cwd() }),
+      1_500,
+    );
+    await harness.waitForQueuedRequest('dashboard_chat');
+    await harness.waitForQueuedRequest('dashboard_plan');
+    await harness.waitForQueuedRequest('dashboard_repo_search');
+
+    const activeSessions = [
+      { sessionId: messageSessionId, operationKind: 'message' },
+      { sessionId: planSessionId, operationKind: 'plan' },
+      { sessionId: repoSearchSessionId, operationKind: 'repo-search' },
+    ] as const;
+    const conflictRoutes = [
+      { suffix: 'messages', body: { content: 'conflict', assistantContent: 'blocked' } },
+      { suffix: 'messages/stream', body: { content: 'conflict' } },
+      { suffix: 'plan', body: { content: 'conflict', repoRoot: process.cwd() } },
+      { suffix: 'plan/stream', body: { content: 'conflict', repoRoot: process.cwd() } },
+      { suffix: 'repo-search', body: { content: 'conflict', repoRoot: process.cwd() } },
+      { suffix: 'repo-search/stream', body: { content: 'conflict', repoRoot: process.cwd() } },
+    ] as const;
+
+    for (const activeSession of activeSessions) {
+      for (const conflictRoute of conflictRoutes) {
+        const response = await requestJson(
+          `${baseUrl}/dashboard/chat/sessions/${activeSession.sessionId}/${conflictRoute.suffix}`,
+          { method: 'POST', body: JSON.stringify(conflictRoute.body) },
+        );
+        assert.equal(response.statusCode, 409);
+        assert.equal(response.body.sessionId, activeSession.sessionId);
+        assert.equal(response.body.operationKind, activeSession.operationKind);
+      }
+    }
+
+    await Promise.all([lockHolder, activeMessage, activePlan, activeRepoSearch]);
+  } finally {
+    await harness.close();
   }
 });
 
