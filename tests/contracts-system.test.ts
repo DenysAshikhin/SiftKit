@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DashboardHealthSchema, WebSearchQuotaResponseSchema, WebSearchProviderIdSchema } from '@siftkit/contracts';
+import { DashboardHealthSchema, WebSearchQuotaResponseSchema, WebSearchProviderIdSchema, ActiveStatusRunSchema } from '@siftkit/contracts';
 import { readWebSearchQuotas } from '../src/status-server/web-search-quota.js';
 import { HttpClient } from '../src/lib/http-client.js';
 import { DEFAULT_WEB_SEARCH_CONFIG } from '../src/status-server/config-store.js';
@@ -41,4 +41,19 @@ test('WebSearchQuotaResponseSchema rejects an unknown provider id', () => {
   assert.throws(() => WebSearchQuotaResponseSchema.parse({
     quotas: [{ provider: 'brave', used: 1, limit: 100, remaining: 99 }],
   }));
+});
+
+test('ActiveStatusRunSchema requires request identity and operational timing', () => {
+  const parsed = ActiveStatusRunSchema.parse({
+    requestId: 'request-a',
+    statusPath: 'C:/runtime/status.txt',
+    taskKind: 'chat',
+    startedAtUtc: '2026-08-02T18:52:53.000Z',
+    currentStepStartedAtUtc: '2026-08-02T18:52:54.000Z',
+    stepCount: 2,
+    chunkIndex: null,
+    chunkTotal: null,
+  });
+  assert.equal(parsed.requestId, 'request-a');
+  assert.throws(() => ActiveStatusRunSchema.parse({ statusPath: 'x' }));
 });

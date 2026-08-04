@@ -5,6 +5,7 @@ import {
   InferenceProcessStateSchema,
   WebSearchProviderIdSchema,
 } from './config.js';
+import { TaskMetricKindSchema } from './metrics.js';
 
 export const DashboardHealthSchema = z.object({
   ok: z.boolean(), disableManagedLlamaStartup: z.boolean(), statusPath: z.string(), configPath: z.string(),
@@ -57,3 +58,15 @@ export const ProviderQuotaSchema = z.object({
 export type ProviderQuota = z.infer<typeof ProviderQuotaSchema>;
 export const WebSearchQuotaResponseSchema = z.object({ quotas: z.array(ProviderQuotaSchema) });
 export type WebSearchQuotaResponse = z.infer<typeof WebSearchQuotaResponseSchema>;
+
+export const ActiveStatusRunSchema = z.object({
+  requestId: z.string().min(1),
+  statusPath: z.string().min(1),
+  taskKind: TaskMetricKindSchema.nullable(),
+  startedAtUtc: z.string().min(1),
+  currentStepStartedAtUtc: z.string().min(1),
+  stepCount: z.number().int().positive(),
+  chunkIndex: z.number().int().nonnegative().nullable(),
+  chunkTotal: z.number().int().positive().nullable(),
+});
+export type ActiveStatusRun = z.infer<typeof ActiveStatusRunSchema>;
