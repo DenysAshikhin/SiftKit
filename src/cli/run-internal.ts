@@ -27,7 +27,7 @@ function readRequestFile(filePath: string): JsonObject {
 
 /** Single provider boundary parse for every internal op; an unknown provider fails loud. */
 function readRequestProvider(request: JsonObject) {
-  return parseOptionalSummaryProvider(new JsonRecordReader(request).optionalString('Backend'));
+  return parseOptionalSummaryProvider(new JsonRecordReader(request).optionalString('Provider'));
 }
 
 export async function runInternal(options: ResolvedCliArgs & {
@@ -126,7 +126,7 @@ export async function runInternal(options: ResolvedCliArgs & {
       result = await apiClient.runEvaluation({
         FixtureRoot: request.FixtureRoot ? String(request.FixtureRoot) : undefined,
         RealLogPath: Array.isArray(request.RealLogPath) ? request.RealLogPath.map(String) : [],
-        Backend: readRequestProvider(request),
+        Provider: readRequestProvider(request),
         Model: request.Model ? String(request.Model) : undefined,
       }, renderer);
       break;

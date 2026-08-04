@@ -78,7 +78,7 @@ export async function runEvaluation(
   } = {},
 ): Promise<EvaluationResult> {
   const config = await loadConfig({ ensure: true });
-  const provider = resolveSummaryProvider(request.Backend);
+  const provider = resolveSummaryProvider(request.Provider);
   const model = request.Model || getConfiguredModel(config);
   const repoRoot = findNearestSiftKitRepoRoot(moduleDirname(import.meta.url));
   if (repoRoot === null) {
@@ -178,7 +178,7 @@ export async function runEvaluation(
   });
 
   return {
-    Backend: provider,
+    Provider: provider,
     Model: model,
     ResultPath: persistedEvalResult.uri,
     Results: results,

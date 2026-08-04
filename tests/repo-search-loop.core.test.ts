@@ -1059,9 +1059,11 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
 
 /**
  * Padded past REJECTED_ARGS_ELISION_LIMIT so the duplicate rejections exercise the elision
- * branch: the accepted call keeps its arguments, the rejected repeats must not.
+ * branch: the accepted call keeps its arguments, the rejected repeats must not. The padding
+ * is derived from the limit so a change to it cannot silently stop exercising the branch.
  */
-const OVERSIZED_DUPLICATE_COMMAND = `git grep -n "planner" src${' src'.repeat(130)}`;
+const DUPLICATE_COMMAND_PADDING = ' src'.repeat(Math.ceil(REJECTED_ARGS_ELISION_LIMIT / ' src'.length));
+const OVERSIZED_DUPLICATE_COMMAND = `git grep -n "planner" src${DUPLICATE_COMMAND_PADDING}`;
 
 test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the fifth duplicate', async () => {
   const chatRequests: JsonObject[] = [];

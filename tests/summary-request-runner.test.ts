@@ -30,7 +30,7 @@ test('SummaryRequestRunner handles deterministic command-output summaries withou
   assert.equal(result.Classification, 'summary');
   assert.equal(result.RawReviewRequired, false);
   assert.equal(result.ModelCallSucceeded, true);
-  assert.equal(result.Backend, DEFAULT_SUMMARY_PROVIDER);
+  assert.equal(result.Provider, DEFAULT_SUMMARY_PROVIDER);
 });
 
 test('SummaryRequestRunner reports the requested provider on the deterministic path', async () => {
@@ -51,5 +51,5 @@ test('SummaryRequestRunner reports the requested provider on the deterministic p
   }).run();
 
   assert.equal(result.PolicyDecision, 'deterministic-test-output');
-  assert.equal(result.Backend, 'mock');
+  assert.equal(result.Provider, 'mock');
 });

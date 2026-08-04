@@ -238,7 +238,7 @@ export type StubServer = {
 };
 
 export async function startMiniStubServer(options: StubServerOptions = {}): Promise<StubServer> {
-  const config = mergeConfig(getDefaultConfig(), { Backend: 'mock', ...(options.config || {}) });
+  const config = mergeConfig(getDefaultConfig(), { ...(options.config || {}) });
   const state: StubServerState = {
     config,
     chatRequests: [],
@@ -313,7 +313,7 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
         RequestId: 'stub-summary-request',
         WasSummarized: true,
         PolicyDecision: 'summary',
-        Backend: 'mock',
+        Provider: 'mock',
         Model: 'mock-model',
         Summary: assistantContent,
         Classification: 'summary',
@@ -365,7 +365,7 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
       const parsed = asObject(bodyText ? parseJsonValueText(bodyText) : {});
       state.chatRequests.push(parsed);
       writeSseResult(res, {
-        Backend: 'mock',
+        Provider: 'mock',
         Model: 'mock-model',
         ResultPath: 'db://eval/result',
         Results: [],
@@ -383,10 +383,14 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
       res.end(JSON.stringify({ data: [{ id: modelId }] }));
       return;
     }
-    if (req.method === 'POST' && req.url === '/tokenize') {
+    // llama.cpp tokenizes at /tokenize with {content}; TabbyAPI/exl3 at /v1/token/encode
+    // with {text}. Both engines answer the same stub token count.
+    if (req.method === 'POST' && (req.url === '/tokenize' || req.url === '/v1/token/encode')) {
       const bodyText = await readBody(req);
       const parsed = asObject(bodyText ? parseJsonValueText(bodyText) : {});
-      const content = typeof parsed.content === 'string' ? parsed.content : '';
+      const content = typeof parsed.content === 'string'
+        ? parsed.content
+        : (typeof parsed.text === 'string' ? parsed.text : '');
       if (typeof options.tokenizeTokenCount === 'function') {
         const tokenCount = options.tokenizeTokenCount(content, parsed);
         if (Number.isFinite(tokenCount) && Number(tokenCount) >= 0) {

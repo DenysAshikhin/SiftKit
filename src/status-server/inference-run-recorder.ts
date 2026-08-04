@@ -1,17 +1,17 @@
 import { InferenceRunLogStorageFilter } from './inference-run-log-storage-filter.js';
 import { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
+import type { InferenceBackendId } from '../config/types.js';
 import {
   bufferInferenceRunLogChunk,
   createInferenceRun,
   flushInferenceRunLogChunks,
   updateInferenceRun,
-  type InferenceRunBackend,
   type InferenceRunStatus,
   type InferenceRunStreamKind,
 } from '../state/inference-runs.js';
 
 export type InferenceRunRecorderOptions = {
-  backend: InferenceRunBackend;
+  backend: InferenceBackendId;
   purpose: string;
   entrypointPath: string | null;
   baseUrl: string | null;
@@ -29,7 +29,7 @@ export type InferenceRunStreamProgress = {
 
 export class InferenceRunRecorder {
   readonly runId: string;
-  readonly backend: InferenceRunBackend;
+  readonly backend: InferenceBackendId;
   readonly purpose: string;
   readonly baseUrl: string | null;
   readonly progress: InferenceRunStreamProgress = { stdoutChars: 0, stderrChars: 0 };

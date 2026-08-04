@@ -471,7 +471,7 @@ test('runCommand saves a raw log and respects no-summarize mode when the externa
         Command: 'node',
         ArgumentList: ['-e', "console.log('stdout line'); console.error('stderr line');"],
         Question: 'what failed?',
-        Backend: 'mock',
+        Provider: 'mock',
         Model: 'mock-model',
         NoSummarize: true,
       });
@@ -834,7 +834,7 @@ test('runCommand classifies missing executables as command failures with raw rev
         Command: 'definitely-not-a-real-command-siftkit',
         ArgumentList: [],
         Question: 'Summarize the main result and any actionable failures.',
-        Backend: 'mock',
+        Provider: 'mock',
         Model: 'mock-model',
       });
 

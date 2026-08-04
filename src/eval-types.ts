@@ -1,11 +1,11 @@
 import { z } from './lib/zod.js';
-import { SummaryClassificationSchema } from './summary/types.js';
+import { SummaryClassificationSchema, SummaryProviderIdSchema } from './summary/types.js';
 import type { SummaryProviderId } from './summary/types.js';
 
 export type EvalRequest = {
   FixtureRoot?: string;
   RealLogPath?: string[];
-  Backend?: SummaryProviderId;
+  Provider?: SummaryProviderId;
   Model?: string;
 };
 
@@ -29,7 +29,7 @@ export const EvalCaseResultSchema = z.object({
 export type EvalCaseResult = z.infer<typeof EvalCaseResultSchema>;
 
 export const EvaluationResultSchema = z.object({
-  Backend: z.string(),
+  Provider: SummaryProviderIdSchema,
   Model: z.string(),
   ResultPath: z.string(),
   Results: z.array(EvalCaseResultSchema),

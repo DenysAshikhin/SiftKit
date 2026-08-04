@@ -751,7 +751,7 @@ test('summarizeRequest uses explicit config without requiring config service', a
     });
 
     assert.equal(result.ModelCallSucceeded, true);
-    assert.equal(result.Backend, 'mock');
+    assert.equal(result.Provider, 'mock');
   } finally {
     for (const [key, value] of Object.entries(envBackup)) {
       if (value === undefined) {

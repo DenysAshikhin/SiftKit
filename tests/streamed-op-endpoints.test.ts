@@ -54,7 +54,7 @@ test('eval/run answers over SSE with a terminal frame', async () => {
   const harness = await startHarness('siftkit-streamed-eval-');
   try {
     const response = await requestSse(`${harness.baseUrl}/eval/run`, {
-      body: { RealLogPath: [], Backend: 'mock' },
+      body: { RealLogPath: [], Provider: 'mock' },
       timeoutMs: 20_000,
     });
     assert.equal(response.statusCode, 200);

@@ -1,12 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { z } from '../lib/zod.js';
+import { InferenceBackendIdSchema, type InferenceBackendId } from '../config/types.js';
 import { getRuntimeDatabase, type RuntimeDatabase } from './runtime-db.js';
 import { formatTimestamp } from '../lib/text-format.js';
 
 const InferenceRunStatusSchema = z.enum(['running', 'ready', 'failed', 'stopped', 'sync_completed']);
 export type InferenceRunStatus = z.infer<typeof InferenceRunStatusSchema>;
-const InferenceBackendSchema = z.enum(['llama', 'exl3']);
-export type InferenceRunBackend = z.infer<typeof InferenceBackendSchema>;
 const InferenceRunStreamKindSchema = z.enum([
   'launcher_stdout',
   'launcher_stderr',
@@ -79,7 +78,7 @@ export type InferenceRunPendingLogChunkEntry = {
 
 export type InferenceRunRecord = {
   id: string;
-  backend: InferenceRunBackend;
+  backend: InferenceBackendId;
   purpose: string;
   entrypointPath: string | null;
   baseUrl: string | null;
@@ -105,8 +104,8 @@ function normalizeStatus(value: string | null | undefined): InferenceRunStatus {
   return result.success ? result.data : 'running';
 }
 
-function normalizeBackend(value: string | null | undefined): InferenceRunBackend {
-  const result = InferenceBackendSchema.safeParse(String(value || '').trim());
+function normalizeBackend(value: string | null | undefined): InferenceBackendId {
+  const result = InferenceBackendIdSchema.safeParse(String(value || '').trim());
   if (!result.success) {
     throw new Error(`Unsupported inference run backend: ${String(value || '')}`);
   }
@@ -207,7 +206,7 @@ function normalizeRecord(row: InferenceRunRow | undefined): InferenceRunRecord |
 
 export function createInferenceRun(options: {
   id?: string;
-  backend: InferenceRunBackend;
+  backend: InferenceBackendId;
   purpose: string;
   entrypointPath?: string | null;
   baseUrl?: string | null;
@@ -633,7 +632,7 @@ export function readInferenceRunLogTextStatsByStream(
 export function listInferenceRuns(options: {
   limit?: number;
   status?: InferenceRunStatus | '';
-  backend?: InferenceRunBackend | '';
+  backend?: InferenceBackendId | '';
   databasePath?: string;
 } = {}): InferenceRunRecord[] {
   const database = getDatabase(options.databasePath);
@@ -646,7 +645,7 @@ export function listInferenceRuns(options: {
     params.push(status);
   }
   const backend = String(options.backend || '').trim();
-  if (backend && InferenceBackendSchema.safeParse(backend).success) {
+  if (backend && InferenceBackendIdSchema.safeParse(backend).success) {
     conditions.push('backend = ?');
     params.push(backend);
   }

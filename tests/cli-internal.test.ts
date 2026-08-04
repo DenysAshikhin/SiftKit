@@ -285,14 +285,14 @@ test('internal op summary via request file produces output', async () => {
   });
 });
 
-test('internal op summary rejects an unknown Backend from the request file', async () => {
+test('internal op summary rejects an unknown Provider from the request file', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
-    const requestFile = path.join(tempRoot, 'req-summary-bad-backend.json');
+    const requestFile = path.join(tempRoot, 'req-summary-bad-provider.json');
     fs.writeFileSync(requestFile, JSON.stringify({
       Question: 'Summarize the build output',
       Text: 'Build output: all 42 tests passed.\n'.repeat(30),
       Format: 'text',
-      Backend: 'llama',
+      Provider: 'llama',
     }), 'utf8');
     const stdout = makeCaptureStream();
     const stderr = makeCaptureStream();
@@ -306,14 +306,14 @@ test('internal op summary rejects an unknown Backend from the request file', asy
   });
 });
 
-test('internal op summary accepts a known Backend from the request file', async () => {
+test('internal op summary accepts a known Provider from the request file', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
-    const requestFile = path.join(tempRoot, 'req-summary-mock-backend.json');
+    const requestFile = path.join(tempRoot, 'req-summary-mock-provider.json');
     fs.writeFileSync(requestFile, JSON.stringify({
       Question: 'Summarize the build output',
       Text: 'Build output: all 42 tests passed.\n'.repeat(30),
       Format: 'text',
-      Backend: 'mock',
+      Provider: 'mock',
     }), 'utf8');
     const stdout = makeCaptureStream();
     const stderr = makeCaptureStream();
@@ -324,7 +324,7 @@ test('internal op summary accepts a known Backend from the request file', async 
     });
     assert.equal(code, 0);
     const parsed = asObject(parseJsonValueText(stdout.read().trim()));
-    assert.equal(parsed.Backend, 'mock');
+    assert.equal(parsed.Provider, 'mock');
   });
 });
 

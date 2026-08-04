@@ -82,7 +82,7 @@ export const SummaryResultSchema = z.object({
   RequestId: z.string(),
   WasSummarized: z.boolean(),
   PolicyDecision: z.string(),
-  Backend: SummaryProviderIdSchema,
+  Provider: SummaryProviderIdSchema,
   Model: z.string(),
   Summary: z.string(),
   Classification: SummaryClassificationSchema,

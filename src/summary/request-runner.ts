@@ -171,7 +171,7 @@ export class SummaryRequestRunner {
       RequestId: this.requestId,
       WasSummarized: true,
       PolicyDecision: 'deterministic-test-output',
-      Backend: this.provider,
+      Provider: this.provider,
       Model: model,
       Summary: deterministicTestSummary.summary,
       Classification: deterministicTestSummary.verdict === 'PASS' ? 'summary' : 'command_failure',
@@ -297,7 +297,7 @@ export class SummaryRequestRunner {
       RequestId: this.requestId,
       WasSummarized: true,
       PolicyDecision: 'deterministic-pass-fail',
-      Backend: context.provider,
+      Provider: context.provider,
       Model: context.model,
       Summary: excerpt
         ? `${passed ? 'PASS' : 'FAIL'}: command exit code was ${Number(this.request.commandExitCode)} and the captured output contains no obvious error signals. Observed output: ${excerpt}`
@@ -385,7 +385,7 @@ export class SummaryRequestRunner {
           question: this.request.question,
           inputText: this.inputText,
           command: this.request.debugCommand ?? null,
-          provider: result.Backend,
+          provider: result.Provider,
           // Deterministic test-output summaries short-circuit before any config load, so no
           // inference engine ran and there is no engine id to report.
           backend: null,
@@ -463,7 +463,7 @@ export class SummaryRequestRunner {
       RequestId: this.requestId,
       WasSummarized: modelDecision.classification !== 'unsupported_input',
       PolicyDecision: getPolicyDecision(modelDecision.classification),
-      Backend: context.provider,
+      Provider: context.provider,
       Model: context.model,
       Summary: modelDecision.output.trim(),
       Classification: modelDecision.classification,

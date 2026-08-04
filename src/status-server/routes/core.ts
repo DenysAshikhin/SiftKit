@@ -916,7 +916,7 @@ class EvalRunEndpoint extends StreamedOperationEndpoint<ParsedEvalRoute> {
     return ctx.engineService.runEvaluation({
       FixtureRoot: reader.optionalString('FixtureRoot'),
       RealLogPath: Array.isArray(parsedBody.RealLogPath) ? parsedBody.RealLogPath.map((value) => String(value)) : [],
-      Backend: parseOptionalSummaryProvider(reader.optionalString('Backend')),
+      Provider: parseOptionalSummaryProvider(reader.optionalString('Provider')),
       Model: reader.optionalString('Model'),
     }, {
       progressWriter: new SummarySseProgressWriter(stream),

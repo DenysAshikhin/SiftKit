@@ -5,6 +5,7 @@ import {
   getConfiguredModel,
   loadConfig,
 } from '../config/index.js';
+import { InferenceBackendIdSchema } from '../config/types.js';
 import { parseJsonText } from '../lib/json.js';
 import { z } from '../lib/zod.js';
 import {
@@ -26,7 +27,7 @@ export type AutoApprovalProbeCliOptions = {
 };
 
 export const AutoApprovalProbeCliOutputSchema = AutoApprovalProbeResultSchema.extend({
-  backend: z.enum(['llama', 'exl3']),
+  backend: InferenceBackendIdSchema,
   model: z.string(),
 });
 

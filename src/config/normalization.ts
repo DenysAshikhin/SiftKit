@@ -21,6 +21,7 @@ import {
   type OperationModeAllowedTools,
 } from '../presets.js';
 import { PresetCatalog } from '../preset-catalog.js';
+import { InferenceBackendIdSchema } from './types.js';
 import type {
   Exl3EngineConfig,
   ManagedLlamaKvCacheQuantization,
@@ -40,7 +41,6 @@ import { z } from '../lib/zod.js';
 
 const WEB_SEARCH_PROVIDER_IDS: readonly WebSearchProviderId[] = ['tavily', 'firecrawl'];
 const MAX_LLAMA_STARTUP_TIMEOUT_MS = 600_000;
-const INFERENCE_BACKEND_IDS: readonly InferenceBackendId[] = ['llama', 'exl3'];
 const SiftConfigSchema = z.custom<SiftConfig>((value) => JsonObjectSchema.safeParse(value).success);
 
 export type ManagedLlamaConfig = {
@@ -113,8 +113,8 @@ function getDefaultModelPreset(): ModelRuntimePreset {
 }
 
 function normalizeInferenceBackend(value: JsonValue): InferenceBackendId {
-  const candidate = getNullableTrimmedString(value);
-  return INFERENCE_BACKEND_IDS.find((backend) => backend === candidate) ?? 'llama';
+  const parsed = InferenceBackendIdSchema.safeParse(getNullableTrimmedString(value));
+  return parsed.success ? parsed.data : 'llama';
 }
 
 function normalizeExl3Engine(value: JsonValue): Exl3EngineConfig {
