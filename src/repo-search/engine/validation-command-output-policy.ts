@@ -21,6 +21,21 @@ const VALIDATION_COMMAND_PATTERNS = [
   /^(?:&\s*)?ctest(?:\.exe)?(?:\s|$)/iu,
 ] as const;
 
+/**
+ * Node's spec reporter prints its counts before an unbounded `✖ failing tests:` block, so pure-tail
+ * retention drops the verdict exactly when there are enough failures for it to matter. These lines are
+ * retained regardless of position; output from any other reporter matches nothing here and degrades to
+ * plain tail.
+ */
+const SUMMARY_LINE_PATTERNS = [
+  /^\s*ℹ /u,
+  /^\s*✖ failing tests:/u,
+] as const;
+
+function pluralizeLines(count: number): string {
+  return count === 1 ? 'line' : 'lines';
+}
+
 export class ValidationCommandOutputPolicy {
   private readonly lineLimit: number;
 
@@ -59,11 +74,50 @@ export class ValidationCommandOutputPolicy {
     if (lines.length <= this.lineLimit) {
       return options.output;
     }
-    const omittedLineCount = lines.length - this.lineLimit;
-    const noun = omittedLineCount === 1 ? 'line' : 'lines';
-    return [
-      `${omittedLineCount} ${noun} omitted from validation command output.`,
-      ...lines.slice(-this.lineLimit),
-    ].join('\n');
+    const retainedIndices = this.selectRetainedIndices(lines);
+    const omittedLineCount = lines.length - retainedIndices.length;
+    const rendered = [
+      `${omittedLineCount} ${pluralizeLines(omittedLineCount)} omitted from validation command output.`,
+    ];
+    let previousIndex: number | null = null;
+    for (const index of retainedIndices) {
+      if (previousIndex !== null) {
+        const gap = index - previousIndex - 1;
+        if (gap > 0) {
+          rendered.push(`… ${gap} ${pluralizeLines(gap)} omitted …`);
+        }
+      }
+      rendered.push(lines[index]);
+      previousIndex = index;
+    }
+    return rendered.join('\n');
+  }
+
+  /**
+   * Summary lines are reserved first, then the remaining budget is filled from the tail. Indices are
+   * returned ascending so the result still reads as a log. With no summary lines this is exactly the
+   * previous tail-only behavior.
+   */
+  private selectRetainedIndices(lines: readonly string[]): number[] {
+    const summaryIndices: number[] = [];
+    for (const [index, line] of lines.entries()) {
+      if (SUMMARY_LINE_PATTERNS.some((pattern) => pattern.test(line))) {
+        summaryIndices.push(index);
+      }
+    }
+    if (summaryIndices.length === 0) {
+      return this.tailIndices(lines.length, this.lineLimit);
+    }
+    const reserved = summaryIndices.slice(-this.lineLimit);
+    const retained = new Set([...reserved, ...this.tailIndices(lines.length, this.lineLimit - reserved.length)]);
+    return [...retained].sort((left, right) => left - right);
+  }
+
+  private tailIndices(lineCount: number, count: number): number[] {
+    const indices: number[] = [];
+    for (let index = Math.max(0, lineCount - count); index < lineCount; index += 1) {
+      indices.push(index);
+    }
+    return indices;
   }
 }

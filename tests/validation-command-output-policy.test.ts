@@ -92,3 +92,68 @@ test('full mode and non-validation commands bypass the fixed line cap', () => {
   assert.equal(policy.apply({ command: 'npm test', output, outputMode: 'full' }), output);
   assert.equal(policy.apply({ command: 'rg test src', output, outputMode: 'auto' }), output);
 });
+
+function buildSpecReporterOutput(passing: number, failures: number): string {
+  const lines: string[] = [];
+  for (let index = 0; index < passing; index += 1) {
+    lines.push(`✔ ok${index} (0.1ms)`);
+  }
+  for (let index = 0; index < failures; index += 1) {
+    lines.push(`✖ boom${index} (0.1ms)`);
+  }
+  lines.push(
+    `ℹ tests ${passing + failures}`,
+    'ℹ suites 0',
+    `ℹ pass ${passing}`,
+    `ℹ fail ${failures}`,
+    'ℹ cancelled 0',
+    'ℹ skipped 0',
+    'ℹ todo 0',
+    'ℹ duration_ms 61',
+    '',
+    '✖ failing tests:',
+    '',
+  );
+  for (let index = 0; index < failures; index += 1) {
+    lines.push(`test at b.test.js:${index + 1}:1`, `✖ boom${index} (0.1ms)`);
+    for (let frame = 0; frame < 18; frame += 1) {
+      lines.push(`    at frame${frame}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+test('retains spec-reporter summary lines that fall outside the tail window', () => {
+  const output = buildSpecReporterOutput(2000, 3);
+  const retained = policy.apply({ command: 'npm test', output, outputMode: 'auto' }).split('\n');
+
+  for (const expected of ['ℹ tests 2003', 'ℹ pass 2000', 'ℹ fail 3', '✖ failing tests:']) {
+    assert.ok(retained.includes(expected), expected);
+  }
+});
+
+test('does not duplicate a summary line that already falls inside the tail window', () => {
+  const output = [...Array.from({ length: 60 }, (_, index) => `line-${index + 1}`), 'ℹ tests 1'].join('\n');
+  const retained = policy.apply({ command: 'npm test', output, outputMode: 'auto' }).split('\n');
+
+  assert.equal(retained.filter((line) => line === 'ℹ tests 1').length, 1);
+});
+
+test('caps reserved summary lines at the line limit and keeps the last ones', () => {
+  const output = Array.from({ length: 60 }, (_, index) => `ℹ marker ${index + 1}`).join('\n');
+  const retained = policy.apply({ command: 'npm test', output, outputMode: 'auto' }).split('\n');
+
+  assert.equal(retained[0], '10 lines omitted from validation command output.');
+  assert.equal(retained[1], 'ℹ marker 11');
+  assert.equal(retained[50], 'ℹ marker 60');
+});
+
+test('marks interior gaps and emits retained lines in original order', () => {
+  const output = ['ℹ tests 1', ...Array.from({ length: 60 }, (_, index) => `line-${index + 1}`)].join('\n');
+  const retained = policy.apply({ command: 'npm test', output, outputMode: 'auto' }).split('\n');
+
+  assert.equal(retained[0], '11 lines omitted from validation command output.');
+  assert.equal(retained[1], 'ℹ tests 1');
+  assert.equal(retained[2], '… 11 lines omitted …');
+  assert.equal(retained[3], 'line-12');
+});
