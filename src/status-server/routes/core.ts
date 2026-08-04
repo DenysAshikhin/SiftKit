@@ -52,6 +52,8 @@ import {
   upsertRunArtifactPayload,
   upsertRunLog,
   updateRunLogSpeculativeMetricsByRequestId,
+  type RunLogGroup,
+  type RunLogKind,
 } from '../dashboard-runs.js';
 import {
   StatusArtifactTypeSchema,
@@ -329,11 +331,74 @@ function logToolStatsLines(
 type DeferredTerminalMetadataJob = {
   requestId: string;
   metadata: ReturnType<typeof parseStatusMetadata>;
+  startedAtUtc: string | null;
+  finishedAtUtc: string;
   elapsedMs: number | null;
   totalElapsedMs: number | null;
   requestCompleted: boolean;
   suppressLogLine: boolean;
 };
+
+function resolveStatusRunLogIdentity(taskKind: TaskKind | null): {
+  runKind: RunLogKind;
+  runGroup: RunLogGroup;
+} {
+  if (taskKind === 'summary') {
+    return { runKind: 'summary_request', runGroup: 'summary' };
+  }
+  if (taskKind === 'plan') {
+    return { runKind: 'plan', runGroup: 'planner' };
+  }
+  if (taskKind === 'repo-search') {
+    return { runKind: 'repo_search', runGroup: 'repo_search' };
+  }
+  if (taskKind === 'chat') {
+    return { runKind: 'chat', runGroup: 'chat' };
+  }
+  return { runKind: 'unknown', runGroup: 'other' };
+}
+
+function persistStatusRunLog(job: DeferredTerminalMetadataJob, taskKind: TaskKind | null): void {
+  const terminalState = job.metadata.terminalState;
+  if (terminalState !== 'completed' && terminalState !== 'failed') {
+    return;
+  }
+  const identity = resolveStatusRunLogIdentity(taskKind);
+  upsertRunLog(getRuntimeDatabase(), {
+    runId: job.requestId,
+    requestId: job.requestId,
+    runKind: identity.runKind,
+    runGroup: identity.runGroup,
+    terminalState,
+    startedAtUtc: job.startedAtUtc,
+    finishedAtUtc: job.finishedAtUtc,
+    title: `${taskKind ?? 'status'} ${job.requestId}`,
+    model: null,
+    backend: null,
+    repoRoot: null,
+    inputTokens: job.metadata.inputTokens,
+    outputTokens: job.metadata.totalOutputTokens ?? job.metadata.outputTokens,
+    thinkingTokens: job.metadata.thinkingTokens,
+    toolTokens: job.metadata.toolTokens,
+    promptCacheTokens: job.metadata.promptCacheTokens,
+    promptEvalTokens: job.metadata.promptEvalTokens,
+    promptEvalDurationMs: null,
+    generationDurationMs: null,
+    speculativeAcceptedTokens: job.metadata.speculativeAcceptedTokens,
+    speculativeGeneratedTokens: job.metadata.speculativeGeneratedTokens,
+    durationMs: job.totalElapsedMs ?? job.metadata.requestDurationMs,
+    providerDurationMs: job.metadata.providerDurationMs,
+    wallDurationMs: job.metadata.wallDurationMs,
+    requestJson: null,
+    plannerDebugJson: null,
+    failedRequestJson: null,
+    abandonedRequestJson: null,
+    repoSearchJson: null,
+    repoSearchTranscriptJsonl: null,
+    sourcePathsJson: '[]',
+    flushedAtUtc: job.finishedAtUtc,
+  });
+}
 
 function applyDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTerminalMetadataJob): void {
   const metadata = job.metadata;
@@ -423,6 +488,7 @@ function applyDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTerminal
     updatedAtUtc: new Date().toISOString(),
   });
   writeMetrics(ctx.metricsPath, ctx.metrics);
+  persistStatusRunLog(job, taskKind);
   recordWebSearchUsage(ctx.metricsPath, Number(metadata.toolStats?.web_search?.calls) || 0, new Date());
   if (job.requestCompleted) {
     ctx.idleSummaryPending = true;
@@ -583,16 +649,18 @@ function processTerminalMetadataBody(ctx: ServerContext, item: TerminalMetadataQ
       totalElapsedMs = item.capturedAtMs - runState.overallStartedAt;
     }
   }
+  ctx.statusRuns.finalizeTerminal(requestId, item.capturedAtMs);
+  writePublishedStatus(ctx, getPublishedStatusText(ctx));
   applyDeferredTerminalMetadata(ctx, {
     requestId,
     metadata: targetMetadata,
+    startedAtUtc: runState ? new Date(runState.overallStartedAt).toISOString() : null,
+    finishedAtUtc: new Date(item.capturedAtMs).toISOString(),
     elapsedMs,
     totalElapsedMs,
     requestCompleted,
     suppressLogLine,
   });
-  ctx.statusRuns.finalizeTerminal(requestId, item.capturedAtMs);
-  writePublishedStatus(ctx, getPublishedStatusText(ctx));
   if (metadata.deferredArtifacts) {
     enqueueDeferredArtifacts(ctx, metadata.deferredArtifacts);
   }
@@ -1356,6 +1424,8 @@ class StatusPostRequestHandler {
     scheduleDeferredTerminalMetadata(this.ctx, {
       requestId,
       metadata: deferredMetadata,
+      startedAtUtc: runState ? new Date(runState.overallStartedAt).toISOString() : null,
+      finishedAtUtc: new Date().toISOString(),
       elapsedMs: timing.elapsedMs,
       totalElapsedMs: timing.totalElapsedMs,
       requestCompleted: timing.requestCompleted,

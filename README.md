@@ -115,12 +115,16 @@ The published status file uses a simple boolean-like activity signal:
 - `true` — SiftKit is currently active.
 - `false` — SiftKit is currently idle.
 
-`GET /status` returns the same boolean-like `status` text and a matching `running` boolean.
+`GET /status` returns the same boolean-like `status` text. Its `running` boolean is an aggregate: it remains `true` while any request is active. `activeRuns` identifies each active request with `requestId`, `statusPath`, `taskKind`, `startedAtUtc`, `currentStepStartedAtUtc`, `stepCount`, `chunkIndex`, and `chunkTotal`. It never includes prompts, generated text, images, credentials, or raw request content.
+
+Each dashboard chat session admits one generation operation at a time. A second message, plan, or repo-search request for that session receives `409` immediately; it is not queued. Different sessions and CLI/CMD requests remain independent. EXL3 admits concurrent work up to backend capacity, while llama.cpp executes admitted model work FIFO.
+
+Dashboard SSE streams are connection-local. Reloading the browser disconnects the stream; there is no resume protocol, although completed session history remains persisted.
 
 ### Server contract
 The client expects these endpoints from the status server:
 
-- `GET /health`, `GET /status`, `POST /status`
+- `GET /health`, `GET /status`, `POST /status`, `POST /status/complete`, `POST /status/terminal-metadata`
 - `GET /config`, `PUT /config`
 - `GET /runtime/inference` (read-only runtime status)
 - `GET /v1/models`, `POST /v1/chat/completions`, `POST /tokenize`, `POST /v1/token/encode`
@@ -132,6 +136,8 @@ Default URLs:
 - `http://127.0.0.1:4765/config`
 
 Overrides: `SIFTKIT_STATUS_BACKEND_URL`, `SIFTKIT_CONFIG_SERVICE_URL`, `SIFTKIT_STATUS_HOST`, `SIFTKIT_STATUS_PORT`.
+
+Status mutations require a non-empty `requestId`; that ID is the sole lifecycle identity across running, completion, and terminal-metadata delivery.
 
 ### Server log output
 
