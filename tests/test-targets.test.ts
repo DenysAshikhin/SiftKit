@@ -73,7 +73,7 @@ test('buildNodeTestArgs preserves explicit test runner overrides without duplica
 test('dashboard option resolves every nested dashboard test and is not forwarded to node', () => {
   const args = buildNodeTestArgs(process.cwd(), ['--dashboard']);
   assert.equal(args.includes(path.join('dashboard', 'tests', 'api-stream.test.ts')), true);
-  assert.equal(args.includes(path.join('dashboard', 'tests', 'hooks', 'useChatComposer.test.tsx')), true);
+  assert.equal(args.includes(path.join('dashboard', 'tests', 'hooks', 'useChatSessions.test.tsx')), true);
   assert.equal(args.includes('--dashboard'), false);
 });
 

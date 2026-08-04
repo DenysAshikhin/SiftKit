@@ -8,10 +8,19 @@ import {
   deleteChatSession,
   getChatSession,
   getChatSessions,
+  streamChatMessage,
+  streamPlanMessage,
+  streamRepoSearchMessage,
   updateChatSession,
 } from '../api';
+import {
+  parsePlanMaxTurnsOverride,
+  requireSelectedSession,
+  resolveRepoRoot,
+} from '../lib/chat-composer-inputs';
 import { ChatSessionRuntimeStore } from '../lib/chat-session-runtime-store';
-import type { ChatStreamToolEvent } from '../lib/chat-stream-parser';
+import { toRuntimeTransitions } from '../lib/chat-stream-transitions';
+import type { ChatStreamEvent } from '../lib/chat-stream-parser';
 import type { ChatSession, ChatSessionResponse, ChatSessionOperationKind } from '../types';
 
 export type CreateChatSessionRequest = {
@@ -125,34 +134,6 @@ export function useChatSessions(deps: {
       sessionId: response.session.id,
       contextUsage: response.contextUsage,
     }));
-  }
-
-  function beginSessionOperation(sessionId: string, operationKind: ChatSessionOperationKind): void {
-    setRuntimeStore((prev) => prev.apply({ kind: 'begin', sessionId, operationKind }));
-  }
-
-  function appendSessionThinking(sessionId: string, text: string): void {
-    setRuntimeStore((prev) => prev.apply({ kind: 'thinking', sessionId, text }));
-  }
-
-  function applySessionToolEvent(sessionId: string, toolEvent: ChatStreamToolEvent): void {
-    setRuntimeStore((prev) => prev.apply({ kind: 'tool', sessionId, toolEvent }));
-  }
-
-  function applySessionAnswer(sessionId: string, text: string): void {
-    setRuntimeStore((prev) => prev.apply({ kind: 'answer', sessionId, text }));
-  }
-
-  function applySessionWarning(sessionId: string, text: string): void {
-    setRuntimeStore((prev) => prev.apply({ kind: 'warning', sessionId, text }));
-  }
-
-  function completeSessionOperation(sessionId: string, response: ChatSessionResponse): void {
-    if (response.session.id !== sessionId) {
-      throw new Error(`Chat stream session mismatch: expected "${sessionId}", received "${response.session.id}"`);
-    }
-    setSessions((previous) => upsertSession(previous, response.session));
-    setRuntimeStore((previous) => previous.apply({ kind: 'done', sessionId: response.session.id, response }));
   }
 
   function failSessionOperation(sessionId: string, message: string): void {
@@ -325,6 +306,76 @@ export function useChatSessions(deps: {
     setSelectedSessionId(sessionId);
   }
 
+  async function runChatStream(
+    sessionId: string,
+    operationKind: ChatSessionOperationKind,
+    stream: AsyncGenerator<ChatStreamEvent>,
+  ): Promise<void> {
+    const thinkingEnabled = selectedSession?.thinkingEnabled !== false;
+    for await (const transition of toRuntimeTransitions(sessionId, operationKind, stream, thinkingEnabled)) {
+      setRuntimeStore((previous) => previous.apply(transition));
+      if (transition.kind === 'done') {
+        setSessions((previous) => upsertSession(previous, transition.response.session));
+      }
+    }
+  }
+
+  function readRuntimeInputs(sessionId: string): {
+    draft: string;
+    pendingImages: string[];
+    planRepoRootInput: string;
+    planMaxTurnsInput: string;
+  } {
+    const runtime = runtimeStore.get(sessionId);
+    return {
+      draft: runtime.draft.trim(),
+      pendingImages: runtime.pendingImages,
+      planRepoRootInput: runtime.planRepoRootInput,
+      planMaxTurnsInput: runtime.planMaxTurnsInput,
+    };
+  }
+
+  async function sendMessage(): Promise<void> {
+    if (!selectedSession) {
+      return;
+    }
+    const inputs = readRuntimeInputs(selectedSession.id);
+    if (!inputs.draft && inputs.pendingImages.length === 0) {
+      return;
+    }
+    await runChatStream(
+      selectedSession.id,
+      'message',
+      streamChatMessage(selectedSession.id, { content: inputs.draft, images: inputs.pendingImages }),
+    );
+  }
+
+  async function sendPlan(): Promise<void> {
+    const session = requireSelectedSession(selectedSession);
+    const inputs = readRuntimeInputs(session.id);
+    if (!inputs.draft) {
+      return;
+    }
+    await runChatStream(session.id, 'plan', streamPlanMessage(session.id, {
+      content: inputs.draft,
+      repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot || ''),
+      ...parsePlanMaxTurnsOverride(inputs.planMaxTurnsInput),
+    }));
+  }
+
+  async function sendRepoSearch(): Promise<void> {
+    const session = requireSelectedSession(selectedSession);
+    const inputs = readRuntimeInputs(session.id);
+    if (!inputs.draft) {
+      return;
+    }
+    await runChatStream(session.id, 'repo-search', streamRepoSearchMessage(session.id, {
+      content: inputs.draft,
+      repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot || ''),
+      ...parsePlanMaxTurnsOverride(inputs.planMaxTurnsInput),
+    }));
+  }
+
   return {
     sessions,
     selectedSessionId,
@@ -342,16 +393,13 @@ export function useChatSessions(deps: {
     deleteMessage,
     deleteMessages,
     applySessionResponse,
-    beginSessionOperation,
-    appendSessionThinking,
-    applySessionToolEvent,
-    applySessionAnswer,
-    applySessionWarning,
-    completeSessionOperation,
     failSessionOperation,
     setSessionDraft,
     setSessionImages,
     setSessionPlanInputs,
+    sendMessage,
+    sendPlan,
+    sendRepoSearch,
   };
 }
 

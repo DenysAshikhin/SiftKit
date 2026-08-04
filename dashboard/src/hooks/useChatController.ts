@@ -3,7 +3,6 @@ import { getDefaultWebPresetId, getPresetById, getPresetFamily, getSurfacePreset
 import { getSessionTelemetryStats, readSearchParams } from '../lib/format';
 import { getErrorMessage } from '../../../src/lib/errors.js';
 import { useChatSessions } from './useChatSessions';
-import { useChatComposer } from './useChatComposer';
 import type { DashboardConfig } from '../types';
 import type { ChatTabProps } from '../tabs/ChatTab';
 
@@ -51,24 +50,6 @@ export function useChatController(deps: {
         }
       })()
     : null;
-
-  const composer = useChatComposer({
-    selectedSession,
-    draft: selectedRuntime?.draft ?? '',
-    pendingImages: selectedRuntime?.pendingImages ?? [],
-    planRepoRootInput: selectedRuntime?.planRepoRootInput ?? '',
-    planMaxTurnsInput: selectedRuntime?.planMaxTurnsInput ?? '',
-    isThinkingEnabledForCurrentSession,
-    runtimes: {
-      beginSessionOperation: chatSessionsHook.beginSessionOperation,
-      appendSessionThinking: chatSessionsHook.appendSessionThinking,
-      applySessionToolEvent: chatSessionsHook.applySessionToolEvent,
-      applySessionAnswer: chatSessionsHook.applySessionAnswer,
-      applySessionWarning: chatSessionsHook.applySessionWarning,
-      completeSessionOperation: chatSessionsHook.completeSessionOperation,
-      failSessionOperation: chatSessionsHook.failSessionOperation,
-    },
-  });
 
   async function refreshAfterChatMessageMutation(): Promise<void> {
     deps.requestDashboardDataRefresh();
@@ -128,9 +109,9 @@ export function useChatController(deps: {
     onDeleteMessage: onDeleteChatMessage,
     onDeleteTurn: onDeleteChatTurn,
     onCondense: chatSessionsHook.condense,
-    onSendPlan: composer.sendPlan,
-    onSendRepoSearch: composer.sendRepoSearch,
-    onSendMessage: composer.sendMessage,
+    onSendPlan: chatSessionsHook.sendPlan,
+    onSendRepoSearch: chatSessionsHook.sendRepoSearch,
+    onSendMessage: chatSessionsHook.sendMessage,
     onPendingImagesChange: (images: string[]) => {
       if (chatSessionsHook.selectedSessionId) {
         chatSessionsHook.setSessionImages(chatSessionsHook.selectedSessionId, images);
