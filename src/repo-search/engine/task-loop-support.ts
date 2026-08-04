@@ -259,3 +259,13 @@ export type LoopCounters = {
   safetyRejects: number;
   reason: string;
 };
+
+/**
+ * A valid tool action steps the invalid-response budget back down. The guard exists to catch a model
+ * wedged in a loop of malformed actions, not to punish a long run for three scattered mistakes, so the
+ * count is per-streak rather than lifetime. Validity means the action parsed and passed tool
+ * validation — a command that exits non-zero (a TDD red step) is still a valid action.
+ */
+export function decayInvalidResponses(counters: LoopCounters): void {
+  counters.invalidResponses = Math.max(0, counters.invalidResponses - 1);
+}

@@ -40,7 +40,13 @@ import { buildDuplicateFingerprint, DuplicateTracker } from './duplicate-tracker
 import { FORCED_FINISH_MAX_ATTEMPTS, FORCED_FINISH_MODE_MESSAGE, ForcedFinishController } from './forced-finish.js';
 import { ProgressReporter } from './progress-reporter.js';
 import { ReadWindowGovernor } from './read-window-governor.js';
-import { applyToolOutputRepetitionGuard, type LoopCounters, type TaskDefinition, type TurnOutcome } from './task-loop-support.js';
+import {
+  applyToolOutputRepetitionGuard,
+  decayInvalidResponses,
+  type LoopCounters,
+  type TaskDefinition,
+  type TurnOutcome,
+} from './task-loop-support.js';
 import { ToolResultBudgeter } from './tool-result-budgeter.js';
 import { TokenUsageTracker } from './token-usage.js';
 import { ToolStatsRecorder } from './tool-stats.js';
@@ -208,6 +214,7 @@ export class ToolActionProcessor {
       return validated;
     }
     const { normalizedToolName, isNativeTool, command } = validated;
+    decayInvalidResponses(counters);
 
     if (inForcedFinishMode) {
       const attempt = forcedFinish.consumeAttempt();

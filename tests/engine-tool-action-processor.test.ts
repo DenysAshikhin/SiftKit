@@ -13,7 +13,7 @@ import { ReadWindowGovernor } from '../src/repo-search/engine/read-window-govern
 import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
 import { ToolActionProcessor } from '../src/repo-search/engine/tool-action-processor.js';
 import { ToolResultBudgeter } from '../src/repo-search/engine/tool-result-budgeter.js';
-import type { LoopCounters } from '../src/repo-search/engine/task-loop-support.js';
+import { decayInvalidResponses, type LoopCounters } from '../src/repo-search/engine/task-loop-support.js';
 import { ToolStatsRecorder } from '../src/repo-search/engine/tool-stats.js';
 import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
 import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
@@ -99,4 +99,63 @@ test('a git action whose command omits the git token is normalized instead of re
 
   assert.equal(counters.invalidResponses, 0);
   assert.equal(commands[0]?.command, 'git status');
+});
+
+test('decayInvalidResponses steps the counter down and floors at zero', () => {
+  const counters = { invalidResponses: 2, commandFailures: 0, safetyRejects: 0, reason: 'max_turns' };
+
+  decayInvalidResponses(counters);
+  assert.equal(counters.invalidResponses, 1);
+  decayInvalidResponses(counters);
+  assert.equal(counters.invalidResponses, 0);
+  decayInvalidResponses(counters);
+  assert.equal(counters.invalidResponses, 0);
+});
+
+test('a valid tool action decays the invalid-response counter', async () => {
+  const root = createManagedTempDir('siftkit-decay-');
+  fs.writeFileSync(path.join(root, 'a.ts'), 'alpha\n', 'utf8');
+  const { processor, counters } = makeProcessor(root);
+  counters.invalidResponses = 2;
+
+  await processor.executeBatch(1, [{ action: 'tool', tool_name: 'ls', args: { path: '.' } }], '', 0, false);
+
+  assert.equal(counters.invalidResponses, 1);
+});
+
+test('an invalid action followed by two valid ones leaves the counter at zero', async () => {
+  const root = createManagedTempDir('siftkit-decay-streak-');
+  fs.writeFileSync(path.join(root, 'a.ts'), 'alpha\n', 'utf8');
+  const { processor, counters } = makeProcessor(root);
+
+  await processor.executeBatch(
+    1,
+    [
+      { action: 'tool', tool_name: 'frobnicate', args: {} },
+      { action: 'tool', tool_name: 'ls', args: { path: '.' } },
+      { action: 'tool', tool_name: 'ls', args: { path: '.' } },
+    ],
+    '',
+    0,
+    false,
+  );
+
+  assert.equal(counters.invalidResponses, 0);
+});
+
+test('a valid action whose command exits non-zero still decays the counter', async () => {
+  const root = createManagedTempDir('siftkit-decay-red-');
+  const { processor, commands, counters } = makeProcessor(root, ['git']);
+  counters.invalidResponses = 2;
+
+  await processor.executeBatch(
+    1,
+    [{ action: 'tool', tool_name: 'git', args: { command: 'git log --oneline -1' } }],
+    '',
+    0,
+    false,
+  );
+
+  assert.notEqual(commands[0]?.exitCode, 0);
+  assert.equal(counters.invalidResponses, 1);
 });
