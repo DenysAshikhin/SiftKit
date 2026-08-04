@@ -69,3 +69,22 @@ test('buildNodeTestArgs preserves explicit test runner overrides without duplica
   assert.equal(args.includes('--test-reporter=spec'), true);
   assert.equal(args.includes('--test-timeout=60000'), true);
 });
+
+test('dashboard option resolves every nested dashboard test and is not forwarded to node', () => {
+  const args = buildNodeTestArgs(process.cwd(), ['--dashboard']);
+  assert.equal(args.includes(path.join('dashboard', 'tests', 'api-stream.test.ts')), true);
+  assert.equal(args.includes(path.join('dashboard', 'tests', 'hooks', 'useChatComposer.test.tsx')), true);
+  assert.equal(args.includes('--dashboard'), false);
+});
+
+test('dashboard targets are deterministic and coexist with test-name-pattern', () => {
+  const args = buildNodeTestArgs(process.cwd(), [
+    '--dashboard',
+    '--test-name-pattern',
+    'two streams complete out of order',
+  ]);
+  const targets = args.filter((value) => value.startsWith(`dashboard${path.sep}tests${path.sep}`));
+  assert.deepEqual(targets, [...targets].sort());
+  assert.equal(args.includes('--test-name-pattern'), true);
+  assert.equal(args.includes('two streams complete out of order'), true);
+});

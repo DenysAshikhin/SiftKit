@@ -150,3 +150,41 @@ test('ChatStreamReader yields events split across chunks', async () => {
   assert.equal(events[1].kind, 'tool');
   assert.equal(events[2].kind, 'done');
 });
+
+test('ChatStreamReader releases the reader lock after complete consumption', async () => {
+  let released = false;
+  const mockReader: ReadableStreamDefaultReader<Uint8Array> = {
+    async read() {
+      return { value: undefined, done: true };
+    },
+    async cancel() {},
+    releaseLock() {
+      released = true;
+    },
+    closed: Promise.resolve(undefined),
+  };
+  for await (const _event of new ChatStreamReader(mockReader).events()) {
+    void _event;
+  }
+  assert.equal(released, true);
+});
+
+test('ChatStreamReader releases the reader lock when consumption stops early', async () => {
+  const encoder = new TextEncoder();
+  let released = false;
+  const mockReader: ReadableStreamDefaultReader<Uint8Array> = {
+    async read() {
+      return { value: encoder.encode('event: thinking\ndata: {"thinking":"partial"}\n\n'), done: false };
+    },
+    async cancel() {},
+    releaseLock() {
+      released = true;
+    },
+    closed: Promise.resolve(undefined),
+  };
+  for await (const _event of new ChatStreamReader(mockReader).events()) {
+    void _event;
+    break;
+  }
+  assert.equal(released, true);
+});

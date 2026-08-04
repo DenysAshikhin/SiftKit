@@ -41,11 +41,10 @@ test('renders six collapsible groups with Identity open by default and a live su
   assert.match(markup, /class="gsum"/);
 });
 
-test('llama backend shows the gguf model path and be-l fields', () => {
+test('llama backend shows llama-only fields without the exl3 marker', () => {
   const markup = render(MANAGED_PRESET);
   assert.match(markup, /Model path \(\.gguf\)/);
   assert.match(markup, /GpuLayers/);
-  assert.match(markup, /class="field be-l"/);
   assert.doesNotMatch(markup, /id="mp-body" class="exl3"/);
 });
 

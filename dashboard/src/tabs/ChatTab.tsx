@@ -15,7 +15,7 @@ import {
   buildLiveMessageScrollSignature,
 } from '../lib/chatMessages';
 import { getContextBarFillTone } from '../lib/context-bar-tone';
-import { deriveSessionIndicator, type SessionIndicator } from '../lib/chat-session-state';
+import { deriveSessionIndicator, isSessionBusy, type ChatSessionRuntimeView, type SessionIndicator } from '../lib/chat-session-state';
 import { ToolCallCard } from '../components/ToolCallCard';
 import { useChatScroll } from '../hooks/useChatScroll';
 import { groupMessagesIntoTurns, normalizeMessageKind, type ChatTurn } from '../lib/chatTurns';
@@ -76,10 +76,17 @@ type SessionPromptCacheStats = {
   generationTokensPerSecond: number | null;
 };
 
+export type ChatSessionIndicatorView = {
+  sessionId: string;
+  indicator: SessionIndicator;
+};
+
 export type ChatTabProps = {
   sessions: ChatSession[];
   selectedSessionId: string;
   selectedSession: ChatSession | null;
+  selectedRuntime: ChatSessionRuntimeView | null;
+  sessionRuntimes: ChatSessionRuntimeView[];
   sessionPromptCacheStats: SessionPromptCacheStats;
   webPresets: DashboardPreset[];
   selectedChatPreset: DashboardPreset | null;
@@ -89,18 +96,10 @@ export type ChatTabProps = {
   isThinkingEnabledForCurrentSession: boolean;
   webSearchEnabled: boolean;
   showSettings: boolean;
-  planRepoRootInput: string;
-  contextUsage: ContextUsage | null;
-  liveToolPromptTokenCount: number | null;
-  liveMessages: ChatMessage[];
-  chatInput: string;
-  chatBusy: boolean;
-  chatError: string | null;
-  warnings: string[];
   onSelectSession(sessionId: string): void;
   onToggleSettings(): void;
   onChangePlanRepoRoot(value: string): void;
-  onChangeChatInput(value: string): void;
+  onChangeDraft(value: string): void;
   onCreateSession(): Promise<void>;
   onDeleteSession(): Promise<void>;
   onUpdateSessionPreset(presetId: string): Promise<void>;
@@ -113,7 +112,6 @@ export type ChatTabProps = {
   onSendPlan(): Promise<void>;
   onSendRepoSearch(): Promise<void>;
   onSendMessage(): Promise<void>;
-  pendingImages: string[];
   onPendingImagesChange(images: string[]): void;
 };
 
@@ -155,10 +153,25 @@ async function readImageFiles(files: FileList | null): Promise<string[]> {
   return results;
 }
 
+function buildSessionIndicators(
+  sessions: ChatSession[],
+  sessionRuntimes: ChatSessionRuntimeView[],
+): ChatSessionIndicatorView[] {
+  return sessions.map((session) => {
+    const runtime = sessionRuntimes.find((r) => r.sessionId === session.id) ?? null;
+    return {
+      sessionId: session.id,
+      indicator: deriveSessionIndicator(session, runtime),
+    };
+  });
+}
+
 export function ChatTab({
   sessions,
   selectedSessionId,
   selectedSession,
+  selectedRuntime,
+  sessionRuntimes,
   webPresets,
   selectedChatPreset,
   chatMode,
@@ -167,18 +180,10 @@ export function ChatTab({
   isThinkingEnabledForCurrentSession,
   webSearchEnabled,
   showSettings,
-  planRepoRootInput,
-  contextUsage,
-  liveToolPromptTokenCount,
-  liveMessages,
-  chatInput,
-  chatBusy,
-  chatError,
-  warnings,
   onSelectSession,
   onToggleSettings,
   onChangePlanRepoRoot,
-  onChangeChatInput,
+  onChangeDraft,
   onCreateSession,
   onDeleteSession,
   onUpdateSessionPreset,
@@ -191,15 +196,24 @@ export function ChatTab({
   onSendPlan,
   onSendRepoSearch,
   onSendMessage,
-  pendingImages,
   onPendingImagesChange,
 }: ChatTabProps) {
+  const planRepoRootInput = selectedRuntime?.planRepoRootInput ?? '';
+  const contextUsage = selectedRuntime?.contextUsage ?? null;
+  const liveToolPromptTokenCount = selectedRuntime?.liveToolPromptTokenCount ?? null;
+  const liveMessages = selectedRuntime?.liveMessages ?? [];
+  const chatError = selectedRuntime?.error ?? null;
+  const warnings = selectedRuntime?.warnings ?? [];
+  const draft = selectedRuntime?.draft ?? '';
+  const pendingImages = selectedRuntime?.pendingImages ?? [];
   const persistedMessages = selectedSession ? selectedSession.messages : [];
   const visibleMessages = [...persistedMessages, ...liveMessages];
   const promptContext = selectedSession?.promptContext ?? null;
   const visibleMessageIds = visibleMessages.map((message) => message.id).join('|');
   const liveMessageScrollSignature = buildLiveMessageScrollSignature(liveMessages);
   const { chatLogRef } = useChatScroll(visibleMessageIds, liveMessageScrollSignature);
+  const sessionIndicators = buildSessionIndicators(sessions, sessionRuntimes);
+  const selectedSessionBusy = isSessionBusy(selectedRuntime);
 
   function dispatchSend(): void {
     if (chatMode === 'plan') { void onSendPlan(); return; }
@@ -215,16 +229,13 @@ export function ChatTab({
   return (
     <>
       <div className="chat-lane">
-        <button type="button" className="ghost-btn acc new" onClick={() => { void onCreateSession(); }} disabled={chatBusy}>
+        <button type="button" className="ghost-btn acc new" onClick={() => { void onCreateSession(); }}>
           + New session
         </button>
         <div className="runs">
           {sessions.map((session) => {
-            const indicator = deriveSessionIndicator(session, {
-              isActive: session.id === selectedSessionId,
-              chatBusy,
-              liveMessages,
-            });
+            const indicatorView = sessionIndicators.find((v) => v.sessionId === session.id);
+            const indicator = indicatorView?.indicator ?? 'completed';
             return (
               <div
                 key={session.id}
@@ -250,7 +261,7 @@ export function ChatTab({
               <select
                 value={selectedChatPreset?.id || ''}
                 onChange={(event) => { void onUpdateSessionPreset(event.target.value); }}
-                disabled={chatBusy || webPresets.length === 0}
+                disabled={selectedSessionBusy || webPresets.length === 0}
               >
                 {webPresets.length === 0 ? <option value="">No presets</option> : null}
                 {webPresets.map((preset) => (
@@ -261,7 +272,7 @@ export function ChatTab({
                 type="button"
                 className={webSearchEnabled ? 'hchip on' : 'hchip'}
                 onClick={() => { void onToggleWebSearchEnabled(!webSearchEnabled); }}
-                disabled={chatBusy}
+                disabled={selectedSessionBusy}
               >
                 web search
               </button>
@@ -270,12 +281,12 @@ export function ChatTab({
                   type="button"
                   className={isThinkingEnabledForCurrentSession ? 'hchip on' : 'hchip'}
                   onClick={() => { void onToggleThinking(!isThinkingEnabledForCurrentSession); }}
-                  disabled={chatBusy}
+                  disabled={selectedSessionBusy}
                 >
                   per-step thinking
                 </button>
               ) : null}
-              <button type="button" className="ghost-btn" onClick={() => { void onDeleteSession(); }} disabled={chatBusy || !selectedSessionId}>
+              <button type="button" className="ghost-btn" onClick={() => { void onDeleteSession(); }} disabled={selectedSessionBusy || !selectedSessionId}>
                 Delete
               </button>
             </div>
@@ -307,7 +318,7 @@ export function ChatTab({
                       message={message}
                       isLive={turn.isLive}
                       isDirectChatMode={isDirectChatMode}
-                      chatBusy={chatBusy}
+                      chatBusy={selectedSessionBusy}
                       onDeleteMessage={onDeleteMessage}
                     />
                   );
@@ -317,7 +328,7 @@ export function ChatTab({
                     key={turn.key}
                     turn={turn}
                     isDirectChatMode={isDirectChatMode}
-                    chatBusy={chatBusy}
+                    chatBusy={selectedSessionBusy}
                     onDeleteMessage={onDeleteMessage}
                     onDeleteTurn={onDeleteTurn}
                   />
@@ -328,7 +339,7 @@ export function ChatTab({
             {chatError ? (
               <div className="err-banner">
                 <span>{chatError}</span>
-                <button type="button" className="mini-btn" onClick={dispatchSend} disabled={chatBusy || !chatInput.trim()}>Retry</button>
+                <button type="button" className="mini-btn" onClick={dispatchSend} disabled={selectedSessionBusy || (!draft.trim() && pendingImages.length === 0)}>Retry</button>
                 <a className="mini-btn" href="?tab=runs">Open logs</a>
               </div>
             ) : null}
@@ -347,7 +358,7 @@ export function ChatTab({
                   contextUsage={contextUsage}
                   liveToolPromptTokenCount={liveToolPromptTokenCount}
                   isRepoToolMode={isRepoToolMode}
-                  chatBusy={chatBusy}
+                  chatBusy={selectedSessionBusy}
                   onCondense={onCondense}
                 />
               ) : null}
@@ -358,9 +369,9 @@ export function ChatTab({
                     placeholder="Repo folder path…"
                     value={planRepoRootInput}
                     onChange={(event) => onChangePlanRepoRoot(event.target.value)}
-                    disabled={chatBusy}
+                    disabled={selectedSessionBusy}
                   />
-                  <button type="button" className="ghost-btn" onClick={() => { void onSavePlanRepoRoot(); }} disabled={chatBusy || !planRepoRootInput.trim()}>
+                  <button type="button" className="ghost-btn" onClick={() => { void onSavePlanRepoRoot(); }} disabled={selectedSessionBusy || !planRepoRootInput.trim()}>
                     Directory
                   </button>
                 </div>
@@ -383,8 +394,8 @@ export function ChatTab({
                 <textarea
                   className="input"
                   placeholder={chatMode === 'plan' ? 'Describe the feature to plan…' : chatMode === 'repo-search' ? 'Enter a repo search query…' : chatMode === 'summary' ? 'Enter a summary request…' : 'Message SiftKit…'}
-                  value={chatInput}
-                  onChange={(event) => onChangeChatInput(event.target.value)}
+                  value={draft}
+                  onChange={(event) => onChangeDraft(event.target.value)}
                   rows={2}
                 />
                 {contextUsage ? (
@@ -404,7 +415,7 @@ export function ChatTab({
                   type="button"
                   className="send"
                   onClick={dispatchSend}
-                  disabled={chatBusy || (!chatInput.trim() && pendingImages.length === 0)}
+                  disabled={selectedSessionBusy || (!draft.trim() && pendingImages.length === 0)}
                 >
                   {getSendLabel(chatMode)}
                 </button>

@@ -1,15 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import React from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
 
 import {
+  consumeChatStream,
   parsePlanMaxTurnsOverride,
   requireSelectedSession,
   resolveRepoRoot,
-  useChatComposer,
+  type RuntimeActions,
 } from '../../src/hooks/useChatComposer';
-import type { ChatSession, ContextUsage } from '../../src/types';
+import { ChatSessionRuntimeStore } from '../../src/lib/chat-session-runtime-store';
+import type { ChatStreamEvent, ChatStreamToolEvent } from '../../src/lib/chat-stream-parser';
+import type { ChatSession, ChatSessionOperationKind, ChatSessionResponse } from '../../src/types';
 
 const SESSION: ChatSession = {
   id: 's1',
@@ -22,102 +23,154 @@ const SESSION: ChatSession = {
   messages: [],
 };
 
+function response(sessionId: string): ChatSessionResponse {
+  return {
+    session: { ...SESSION, id: sessionId },
+    contextUsage: {
+      contextWindowTokens: 100,
+      usedTokens: 0,
+      chatUsedTokens: 0,
+      thinkingUsedTokens: 0,
+      toolUsedTokens: 0,
+      totalUsedTokens: 0,
+      remainingTokens: 100,
+      warnThresholdTokens: 80,
+      shouldCondense: false,
+      estimatedTokenFallbackTokens: 0,
+      providerOverheadTokens: 0,
+    },
+  };
+}
+
+class Gate {
+  private releaseGate: (() => void) | null = null;
+  private announceWaiting: (() => void) | null = null;
+  readonly promise = new Promise<void>((resolve) => {
+    this.releaseGate = resolve;
+  });
+  readonly waiting = new Promise<void>((resolve) => {
+    this.announceWaiting = resolve;
+  });
+
+  markWaiting(): void {
+    const announceWaiting = this.announceWaiting;
+    if (!announceWaiting) {
+      throw new Error('Gate already marked waiting');
+    }
+    this.announceWaiting = null;
+    announceWaiting();
+  }
+
+  open(): void {
+    const releaseGate = this.releaseGate;
+    if (!releaseGate) {
+      throw new Error('Gate already opened');
+    }
+    this.releaseGate = null;
+    releaseGate();
+  }
+}
+
+class RuntimeRecorder implements RuntimeActions {
+  store = new ChatSessionRuntimeStore().ensureSession('session-a').ensureSession('session-b');
+  readonly completions: string[] = [];
+
+  beginSessionOperation(sessionId: string, operationKind: ChatSessionOperationKind): void {
+    this.store = this.store.begin(sessionId, operationKind);
+  }
+
+  appendSessionThinking(sessionId: string, text: string): void {
+    this.store = this.store.appendThinking(sessionId, text);
+  }
+
+  applySessionToolEvent(sessionId: string, toolEvent: ChatStreamToolEvent): void {
+    this.store = this.store.applyToolEvent(sessionId, toolEvent);
+  }
+
+  applySessionAnswer(sessionId: string, text: string): void {
+    this.store = this.store.applyAnswer(sessionId, text);
+  }
+
+  applySessionWarning(sessionId: string, text: string): void {
+    this.store = this.store.applyWarning(sessionId, text);
+  }
+
+  completeSessionOperation(sessionId: string, value: ChatSessionResponse): void {
+    this.completions.push(sessionId);
+    this.store = this.store.applyDone(value.session.id, value);
+  }
+
+  failSessionOperation(sessionId: string, message: string): void {
+    this.store = this.store.applyFailure(sessionId, message);
+  }
+}
+
+async function* controlledStream(
+  sessionId: string,
+  gate: Gate,
+): AsyncGenerator<ChatStreamEvent> {
+  yield { kind: 'answer', text: `answer-${sessionId}` };
+  gate.markWaiting();
+  await gate.promise;
+  yield { kind: 'done', payload: response(sessionId) };
+}
+
+async function* prematureStream(): AsyncGenerator<ChatStreamEvent> {
+  yield { kind: 'answer', text: 'partial' };
+}
+
 test('parsePlanMaxTurnsOverride returns maxTurns when input is a positive number', () => {
   assert.deepEqual(parsePlanMaxTurnsOverride('45'), { maxTurns: 45 });
 });
 
-test('parsePlanMaxTurnsOverride returns empty object when input is zero', () => {
+test('parsePlanMaxTurnsOverride returns empty object for invalid values', () => {
   assert.deepEqual(parsePlanMaxTurnsOverride('0'), {});
-});
-
-test('parsePlanMaxTurnsOverride returns empty object when input is negative', () => {
   assert.deepEqual(parsePlanMaxTurnsOverride('-5'), {});
-});
-
-test('parsePlanMaxTurnsOverride returns empty object when input is not numeric', () => {
   assert.deepEqual(parsePlanMaxTurnsOverride('abc'), {});
   assert.deepEqual(parsePlanMaxTurnsOverride(''), {});
 });
 
-test('resolveRepoRoot trims the input when present', () => {
+test('resolveRepoRoot trims input and falls back for blanks', () => {
   assert.equal(resolveRepoRoot('  C:\\repo  ', 'fallback'), 'C:\\repo');
-});
-
-test('resolveRepoRoot returns the fallback when input is blank', () => {
   assert.equal(resolveRepoRoot('   ', 'fallback'), 'fallback');
   assert.equal(resolveRepoRoot('', ''), '');
 });
 
-test('requireSelectedSession throws when session is null', () => {
+test('requireSelectedSession rejects null and returns a session', () => {
   assert.throws(() => requireSelectedSession(null), /selectedSession is required/);
-});
-
-test('requireSelectedSession returns the session when present', () => {
   assert.equal(requireSelectedSession(SESSION), SESSION);
 });
 
-const CONTEXT_USAGE: ContextUsage = {
-  contextWindowTokens: 100,
-  usedTokens: 0,
-  chatUsedTokens: 0,
-  thinkingUsedTokens: 0,
-  toolUsedTokens: 0,
-  totalUsedTokens: 0,
-  remainingTokens: 100,
-  warnThresholdTokens: 80,
-  shouldCondense: false,
-};
+test('two streams complete out of order without crossing session state', async () => {
+  const runtimes = new RuntimeRecorder();
+  const gateA = new Gate();
+  const gateB = new Gate();
+  const runA = consumeChatStream('session-a', 'message', controlledStream('session-a', gateA), true, runtimes);
+  const runB = consumeChatStream('session-b', 'message', controlledStream('session-b', gateB), true, runtimes);
 
-test('useChatComposer initialises chatInput empty', () => {
-  function Probe(): React.JSX.Element {
-    const composer = useChatComposer({
-      selectedSession: null,
-      selectedChatPreset: null,
-      live: {
-        liveMessages: [],
-        resetLive: () => {},
-        createLiveMessage: (id, kind, role, content) => ({
-          id,
-          role,
-          kind,
-          content,
-          inputTokensEstimate: 0,
-          outputTokensEstimate: 0,
-          thinkingTokens: 0,
-          associatedToolTokens: 0,
-          createdAtUtc: '',
-          sourceRunId: null,
-        }),
-        upsertLiveMessage: () => {},
-        appendLiveThinking: () => {},
-        appendLiveToolMessage: () => {},
-        completeLiveToolMessage: () => {},
-      },
-      context: {
-        contextUsage: CONTEXT_USAGE,
-        setContextUsage: () => {},
-        liveToolPromptTokenCount: null,
-        setLiveToolPromptTokenCount: () => {},
-      },
-      refreshSessions: async () => {},
-      applySessionResponse: () => {},
-      planRepoRootInput: '',
-      planMaxTurnsInput: '',
-      isThinkingEnabledForCurrentSession: false,
-      onError: () => {},
-      resetError: () => {},
-      setChatBusy: () => {},
-    });
-    return React.createElement('output', {
-      dangerouslySetInnerHTML: {
-        __html: JSON.stringify({
-          chatInput: composer.chatInput,
-          warnings: composer.warnings,
-        }),
-      },
-    });
-  }
-  const markup = renderToStaticMarkup(React.createElement(Probe));
-  assert.match(markup, /"chatInput":""/);
-  assert.match(markup, /"warnings":\[\]/);
+  await Promise.all([gateA.waiting, gateB.waiting]);
+  assert.equal(runtimes.store.get('session-a').activity.kind, 'active');
+  assert.equal(runtimes.store.get('session-b').activity.kind, 'active');
+  assert.equal(runtimes.store.get('session-a').liveMessages[0]?.content, 'answer-session-a');
+  assert.equal(runtimes.store.get('session-b').liveMessages[0]?.content, 'answer-session-b');
+
+  gateB.open();
+  await runB;
+  assert.deepEqual(runtimes.completions, ['session-b']);
+  assert.equal(runtimes.store.get('session-a').activity.kind, 'active');
+  assert.equal(runtimes.store.get('session-b').activity.kind, 'idle');
+
+  gateA.open();
+  await runA;
+  assert.deepEqual(runtimes.completions, ['session-b', 'session-a']);
+  assert.equal(runtimes.store.get('session-a').activity.kind, 'idle');
+});
+
+test('premature stream close fails only the initiating session and preserves its draft', async () => {
+  const runtimes = new RuntimeRecorder();
+  runtimes.store = runtimes.store.setDraft('session-a', 'retry me');
+  await consumeChatStream('session-a', 'message', prematureStream(), true, runtimes);
+  assert.equal(runtimes.store.get('session-a').error, 'Chat stream ended before the done event');
+  assert.equal(runtimes.store.get('session-a').draft, 'retry me');
+  assert.equal(runtimes.store.get('session-b').error, null);
 });

@@ -11,6 +11,8 @@ const DEFAULT_TEST_TIMEOUT_MS = 30_000;
 const DEFAULT_TEST_CONCURRENCY = 24;
 const TESTS_DIRECTORY = 'tests';
 const TEST_FILE_SUFFIX = '.test.ts';
+const DASHBOARD_TESTS_DIRECTORY = path.join('dashboard', 'tests');
+const DASHBOARD_TESTS_OPTION = '--dashboard';
 const TIMEOUT_OPTION = '--test-timeout';
 const CONCURRENCY_OPTION = '--test-concurrency';
 
@@ -55,6 +57,23 @@ function getDefaultTestTargets(repoRoot: string): string[] {
     .map((entry) => path.join(TESTS_DIRECTORY, entry));
 }
 
+function collectDashboardTestTargets(repoRoot: string, directory: string): string[] {
+  if (!fs.existsSync(directory)) {
+    return [];
+  }
+  const targets: string[] = [];
+  const entries = fs.readdirSync(directory, { withFileTypes: true });
+  for (const entry of entries) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      targets.push(...collectDashboardTestTargets(repoRoot, entryPath));
+    } else if (/\.test\.tsx?$/u.test(entry.name)) {
+      targets.push(path.relative(repoRoot, entryPath));
+    }
+  }
+  return targets.sort();
+}
+
 export function resolveTestTargets(repoRoot: string, rawArgs: string[]): string[] {
   const resolvedArgs: string[] = [];
   let nextArgumentIsOptionValue = false;
@@ -67,6 +86,13 @@ export function resolveTestTargets(repoRoot: string, rawArgs: string[]): string[
     if (TEST_RUNNER_OPTIONS_WITH_VALUES.has(rawArg)) {
       resolvedArgs.push(rawArg);
       nextArgumentIsOptionValue = true;
+      continue;
+    }
+    if (rawArg === DASHBOARD_TESTS_OPTION) {
+      resolvedArgs.push(...collectDashboardTestTargets(
+        repoRoot,
+        path.resolve(repoRoot, DASHBOARD_TESTS_DIRECTORY),
+      ));
       continue;
     }
     if (rawArg.startsWith('-')) {

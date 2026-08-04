@@ -3,9 +3,6 @@ import { getDefaultWebPresetId, getPresetById, getPresetFamily, getSurfacePreset
 import { getSessionTelemetryStats, readSearchParams } from '../lib/format';
 import { getErrorMessage } from '../../../src/lib/errors.js';
 import { useChatSessions } from './useChatSessions';
-import { useLiveMessages } from './useLiveMessages';
-import { useContextUsage } from './useContextUsage';
-import { usePlanInputs } from './usePlanInputs';
 import { useChatComposer } from './useChatComposer';
 import type { DashboardConfig } from '../types';
 import type { ChatTabProps } from '../tabs/ChatTab';
@@ -18,18 +15,13 @@ export type ChatController = {
 export function useChatController(deps: {
   refreshToken: number;
   dashboardConfig: DashboardConfig | null;
-  maintainPerStepThinkingForCurrentPreset: boolean;
   requestDashboardDataRefresh: () => void;
   refreshSelectedRunDetail: () => Promise<void>;
 }): ChatController {
   const params = readSearchParams();
-  const [chatError, setChatError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
 
-  const live = useLiveMessages();
-  const contextHook = useContextUsage();
   const chatSessionsHook = useChatSessions({
-    onError: (error) => setChatError(getErrorMessage(error)),
     initialSelectedSessionId: params.get('session') || '',
     refreshToken: deps.refreshToken,
     buildCreateSessionRequest: () => {
@@ -39,7 +31,6 @@ export function useChatController(deps: {
         : null;
     },
     confirmDeleteSession: () => window.confirm('Delete this chat session permanently?'),
-    applyContextUsage: contextHook.setContextUsage,
   });
 
   const selectedSession = chatSessionsHook.selectedSession;
@@ -51,25 +42,32 @@ export function useChatController(deps: {
   const isRepoToolMode = chatMode === 'plan' || chatMode === 'repo-search';
   const sessionPromptCacheStats = getSessionTelemetryStats(selectedSession);
 
-  const planInputs = usePlanInputs({
-    selectedSession,
-    selectedChatPreset,
-  });
+  const selectedRuntime = chatSessionsHook.selectedSessionId
+    ? (() => {
+        try {
+          return chatSessionsHook.runtimeStore.get(chatSessionsHook.selectedSessionId);
+        } catch {
+          return null;
+        }
+      })()
+    : null;
 
   const composer = useChatComposer({
     selectedSession,
-    selectedChatPreset,
-    live,
-    context: contextHook,
-    refreshSessions: chatSessionsHook.refreshSessions,
-    applySessionResponse: chatSessionsHook.applySessionResponse,
-    planRepoRootInput: planInputs.planRepoRootInput,
-    planMaxTurnsInput: planInputs.planMaxTurnsInput,
+    draft: selectedRuntime?.draft ?? '',
+    pendingImages: selectedRuntime?.pendingImages ?? [],
+    planRepoRootInput: selectedRuntime?.planRepoRootInput ?? '',
+    planMaxTurnsInput: selectedRuntime?.planMaxTurnsInput ?? '',
     isThinkingEnabledForCurrentSession,
-    maintainPerStepThinkingForCurrentPreset: deps.maintainPerStepThinkingForCurrentPreset,
-    onError: (message) => setChatError(message),
-    resetError: () => setChatError(null),
-    setChatBusy: chatSessionsHook.setChatBusy,
+    runtimes: {
+      beginSessionOperation: chatSessionsHook.beginSessionOperation,
+      appendSessionThinking: chatSessionsHook.appendSessionThinking,
+      applySessionToolEvent: chatSessionsHook.applySessionToolEvent,
+      applySessionAnswer: chatSessionsHook.applySessionAnswer,
+      applySessionWarning: chatSessionsHook.applySessionWarning,
+      completeSessionOperation: chatSessionsHook.completeSessionOperation,
+      failSessionOperation: chatSessionsHook.failSessionOperation,
+    },
   });
 
   async function refreshAfterChatMessageMutation(): Promise<void> {
@@ -77,7 +75,9 @@ export function useChatController(deps: {
     try {
       await deps.refreshSelectedRunDetail();
     } catch (error) {
-      setChatError(getErrorMessage(error));
+      if (chatSessionsHook.selectedSessionId) {
+        chatSessionsHook.failSessionOperation(chatSessionsHook.selectedSessionId, getErrorMessage(error));
+      }
     }
   }
 
@@ -101,6 +101,8 @@ export function useChatController(deps: {
     sessions: chatSessionsHook.sessions,
     selectedSessionId: chatSessionsHook.selectedSessionId,
     selectedSession,
+    selectedRuntime,
+    sessionRuntimes: chatSessionsHook.runtimeStore.getAll(),
     sessionPromptCacheStats,
     webPresets,
     selectedChatPreset,
@@ -110,32 +112,35 @@ export function useChatController(deps: {
     isThinkingEnabledForCurrentSession,
     webSearchEnabled: selectedSession?.webSearchEnabled === true,
     showSettings,
-    planRepoRootInput: planInputs.planRepoRootInput,
-    contextUsage: contextHook.contextUsage,
-    liveToolPromptTokenCount: contextHook.liveToolPromptTokenCount,
-    liveMessages: live.liveMessages,
-    chatInput: composer.chatInput,
-    pendingImages: composer.pendingImages,
-    chatBusy: chatSessionsHook.chatBusy,
-    chatError,
-    warnings: composer.warnings,
     onSelectSession: chatSessionsHook.selectSession,
     onToggleSettings: () => setShowSettings((prev) => !prev),
-    onChangePlanRepoRoot: planInputs.setPlanRepoRootInput,
-    onChangeChatInput: composer.setChatInput,
+    onChangePlanRepoRoot: (value: string) => {
+      if (chatSessionsHook.selectedSessionId) {
+        chatSessionsHook.setSessionPlanInputs(chatSessionsHook.selectedSessionId, value, selectedRuntime?.planMaxTurnsInput ?? '');
+      }
+    },
     onCreateSession: chatSessionsHook.createSession,
     onDeleteSession: chatSessionsHook.deleteSession,
     onUpdateSessionPreset: chatSessionsHook.updateSessionPreset,
     onToggleThinking: chatSessionsHook.toggleThinking,
     onToggleWebSearchEnabled: chatSessionsHook.toggleWebSearch,
-    onSavePlanRepoRoot: () => chatSessionsHook.savePlanRepoRoot(planInputs.planRepoRootInput, selectedChatPreset?.id),
+    onSavePlanRepoRoot: () => chatSessionsHook.savePlanRepoRoot(selectedRuntime?.planRepoRootInput ?? '', selectedChatPreset?.id),
     onDeleteMessage: onDeleteChatMessage,
     onDeleteTurn: onDeleteChatTurn,
     onCondense: chatSessionsHook.condense,
     onSendPlan: composer.sendPlan,
     onSendRepoSearch: composer.sendRepoSearch,
     onSendMessage: composer.sendMessage,
-    onPendingImagesChange: composer.setPendingImages,
+    onPendingImagesChange: (images: string[]) => {
+      if (chatSessionsHook.selectedSessionId) {
+        chatSessionsHook.setSessionImages(chatSessionsHook.selectedSessionId, images);
+      }
+    },
+    onChangeDraft: (value: string) => {
+      if (chatSessionsHook.selectedSessionId) {
+        chatSessionsHook.setSessionDraft(chatSessionsHook.selectedSessionId, value);
+      }
+    },
   };
 
   return { tabProps, selectedSessionId: chatSessionsHook.selectedSessionId };

@@ -1,16 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import React from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
 
 import {
   buildAppendedLiveToolMessage,
   buildCompletedLiveToolMessage,
   createLiveMessage,
   upsertLiveMessageInto,
-  useLiveMessages,
-} from '../../src/hooks/useLiveMessages';
-import type { ChatStreamToolEvent } from '../../src/lib/chat-stream-parser';
+} from '../src/lib/chat-live-messages';
+import type { ChatStreamToolEvent } from '../src/lib/chat-stream-parser';
 
 test('upsertLiveMessageInto appends a new entry when the id is unique', () => {
   const initial = createLiveMessage('a', 'assistant_answer', 'assistant', 'one');
@@ -116,32 +113,4 @@ test('buildCompletedLiveToolMessage throws when toolCallId is missing', () => {
     command: 'rg foo',
   };
   assert.throws(() => buildCompletedLiveToolMessage(event), /toolCallId required/);
-});
-
-test('useLiveMessages exposes an empty live message list on initial render', () => {
-  function Probe(): React.JSX.Element {
-    const live = useLiveMessages();
-    return React.createElement('output', {
-      dangerouslySetInnerHTML: { __html: JSON.stringify(live.liveMessages) },
-    });
-  }
-  const markup = renderToStaticMarkup(React.createElement(Probe));
-  assert.match(markup, /<output>\[\]<\/output>/);
-});
-
-test('useLiveMessages exposes an explicit appendLiveThinking method and no raw setLiveMessages', () => {
-  function Probe(): React.JSX.Element {
-    const live = useLiveMessages();
-    return React.createElement('output', {
-      dangerouslySetInnerHTML: {
-        __html: JSON.stringify({
-          appendLiveThinking: typeof live.appendLiveThinking,
-          setLiveMessages: 'setLiveMessages' in live,
-        }),
-      },
-    });
-  }
-  const markup = renderToStaticMarkup(React.createElement(Probe));
-  assert.match(markup, /"appendLiveThinking":"function"/u);
-  assert.match(markup, /"setLiveMessages":false/u);
 });

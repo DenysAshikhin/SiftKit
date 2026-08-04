@@ -89,25 +89,29 @@ export class ChatStreamReader {
   constructor(private readonly reader: ReadableStreamDefaultReader<Uint8Array>) {}
 
   async *events(): AsyncGenerator<ChatStreamEvent> {
-    for (;;) {
-      const next = await this.reader.read();
-      if (next.done) {
-        break;
+    try {
+      for (;;) {
+        const next = await this.reader.read();
+        if (next.done) {
+          break;
+        }
+        this.buffer += this.decoder.decode(next.value, { stream: true });
+        let boundary = this.buffer.indexOf('\n\n');
+        while (boundary >= 0) {
+          const packet = this.buffer.slice(0, boundary);
+          this.buffer = this.buffer.slice(boundary + 2);
+          const event = parseChatStreamPacket(packet);
+          if (event) yield event;
+          boundary = this.buffer.indexOf('\n\n');
+        }
       }
-      this.buffer += this.decoder.decode(next.value, { stream: true });
-      let boundary = this.buffer.indexOf('\n\n');
-      while (boundary >= 0) {
-        const packet = this.buffer.slice(0, boundary);
-        this.buffer = this.buffer.slice(boundary + 2);
-        const event = parseChatStreamPacket(packet);
-        if (event) yield event;
-        boundary = this.buffer.indexOf('\n\n');
+      if (this.buffer.length > 0) {
+        const finalEvent = parseChatStreamPacket(this.buffer);
+        this.buffer = '';
+        if (finalEvent) yield finalEvent;
       }
-    }
-    if (this.buffer.length > 0) {
-      const finalEvent = parseChatStreamPacket(this.buffer);
-      this.buffer = '';
-      if (finalEvent) yield finalEvent;
+    } finally {
+      this.reader.releaseLock();
     }
   }
 }

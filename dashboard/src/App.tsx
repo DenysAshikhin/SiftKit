@@ -67,7 +67,6 @@ export function App() {
   const chat = useChatController({
     refreshToken: refresh.refreshToken,
     dashboardConfig,
-    maintainPerStepThinkingForCurrentPreset: settings.maintainPerStepThinkingForCurrentPreset,
     requestDashboardDataRefresh: refresh.requestDashboardDataRefresh,
     refreshSelectedRunDetail: runs.refreshSelectedRunDetail,
   });
