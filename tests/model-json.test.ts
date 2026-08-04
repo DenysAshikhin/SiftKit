@@ -366,10 +366,45 @@ test('ModelJson parses valid repo-search tool action', () => {
   });
 });
 
-test('ModelJson rejects a git tool call whose command is not git', () => {
+test('ModelJson prepends the git token to a git command that omits it', () => {
+  assert.deepEqual(parseRepoSearchPlannerAction('{"action":"git","command":"status"}'), {
+    action: 'tool',
+    tool_name: 'git',
+    args: { command: 'git status' },
+  });
+  assert.deepEqual(parseRepoSearchPlannerAction('{"action":"git","command":"rm -rf ."}'), {
+    action: 'tool',
+    tool_name: 'git',
+    args: { command: 'git rm -rf .' },
+  });
+});
+
+test('ModelJson rejects a git tool call with no command and names the missing field', () => {
   assert.throws(
-    () => parseRepoSearchPlannerAction('{"action":"git","command":"rm -rf ."}'),
-    /invalid planner tool action/u,
+    () => parseRepoSearchPlannerAction('{"action":"git","command":"   "}'),
+    /invalid planner tool action: "git" requires a non-empty "command" string/u,
+  );
+});
+
+test('ModelJson reports a distinct reason for each tool-argument rejection path', () => {
+  assert.throws(
+    () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'grep', glob: '*.ts' }), ['grep']),
+    /"grep" requires "pattern" to be a non-empty string/u,
+  );
+  assert.throws(
+    () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'edit', path: 'a.ts', edits: [] }), ['edit']),
+    /"edit" requires "edits" to be a non-empty array/u,
+  );
+  assert.throws(
+    () => parseRepoSearchPlannerAction('{"action":"run","command":"npm test","outputMode":"verbose"}', ['run']),
+    /"run" requires "outputMode" to be "auto" or "full"/u,
+  );
+});
+
+test('ModelJson thrown planner messages do not end in a period', () => {
+  assert.throws(
+    () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'grep', glob: '*.ts' }), ['grep']),
+    (error: unknown) => error instanceof Error && !error.message.endsWith('.'),
   );
 });
 

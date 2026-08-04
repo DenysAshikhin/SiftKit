@@ -1,8 +1,10 @@
 import { jsonrepair } from 'jsonrepair';
 
-import { getFirstCommandToken } from '../repo-search/command-safety.js';
 import { RunOutputModeSchema } from '../repo-search/engine/validation-command-output-policy.js';
-import { getRepoSearchCommandTokenForToolName, isRepoSearchCommandToolName } from '../repo-search/planner-protocol.js';
+import {
+  isRepoSearchCommandToolName,
+  normalizeRepoSearchCommandForToolName,
+} from '../repo-search/planner-protocol.js';
 import type {
   FinishAction as RepoSearchFinishAction,
   FinishValidationResult,
@@ -50,6 +52,10 @@ type ParsedModelObject = {
   repaired: boolean;
   synthesizedNull: boolean;
 };
+
+type RepoSearchToolCallNormalization =
+  | { ok: true; action: RepoSearchToolAction }
+  | { ok: false; reason: string };
 
 /**
  * Per-tool argument shape for the native (non-`git`) repo tools. `requiredText` args must arrive as
@@ -376,35 +382,39 @@ export class ModelJson {
     const allowedToolNames = this.getAllowedToolNames(options);
     const directToolDefinition = this.getToolDefinition(options, action);
     if (allowedToolNames.has(action) && directToolDefinition) {
-      const toolAction = this.normalizeRepoSearchToolCall(
+      const normalized = this.normalizeRepoSearchToolCall(
         action,
         this.getDirectToolArgs(parsed, directToolDefinition),
         allowedToolNames,
       );
-      if (!toolAction) {
-        throw new Error('Provider returned an invalid planner tool action.');
+      if (!normalized.ok) {
+        throw new Error(`Provider returned an invalid planner tool action: ${normalized.reason}`);
       }
-      return toolAction;
+      return normalized.action;
     }
 
     if (action === 'tool_batch') {
-      const toolCalls = this.getBatchToolRecords(parsed).map((toolRecord) => {
+      const toolCalls = this.getBatchToolRecords(parsed).map((toolRecord, index) => {
         const toolName = this.getAction(toolRecord);
         const toolDefinition = this.getToolDefinition(options, toolName);
-        const toolAction =
-          allowedToolNames.has(toolName) && toolDefinition
-            ? this.normalizeRepoSearchToolCall(
-                toolName,
-                this.getDirectToolArgs(toolRecord, toolDefinition),
-                allowedToolNames,
-              )
-            : null;
-        if (!toolAction) {
-          throw new Error('Provider returned an invalid planner tool batch action.');
+        if (!allowedToolNames.has(toolName) || !toolDefinition) {
+          throw new Error(
+            `Provider returned an invalid planner tool batch action: call ${index + 1} uses unavailable tool "${toolName}"`,
+          );
+        }
+        const normalized = this.normalizeRepoSearchToolCall(
+          toolName,
+          this.getDirectToolArgs(toolRecord, toolDefinition),
+          allowedToolNames,
+        );
+        if (!normalized.ok) {
+          throw new Error(
+            `Provider returned an invalid planner tool batch action: call ${index + 1} — ${normalized.reason}`,
+          );
         }
         return {
-          tool_name: toolAction.tool_name,
-          args: toolAction.args,
+          tool_name: normalized.action.tool_name,
+          args: normalized.action.args,
         };
       });
       return {
@@ -426,41 +436,42 @@ export class ModelJson {
   }
 
   private static normalizeRepoSearchToolCall(
-    rawToolName: string,
+    toolName: string,
     rawArgs: JsonObject,
     allowedToolNames: Set<string>,
-  ): RepoSearchToolAction | null {
-    const toolName = rawToolName;
-
+  ): RepoSearchToolCallNormalization {
     if (!allowedToolNames.has(toolName)) {
-      return null;
+      return {
+        ok: false,
+        reason: `tool "${toolName}" is not enabled for this run; enabled tools: ${[...allowedToolNames].sort().join(', ')}`,
+      };
     }
 
     if (isRepoSearchCommandToolName(toolName)) {
-      const command = this.getCommandArgValue(rawArgs);
-      if (!command || getFirstCommandToken(command) !== getRepoSearchCommandTokenForToolName(toolName)) {
-        return null;
+      const command = normalizeRepoSearchCommandForToolName(toolName, this.getCommandArgValue(rawArgs));
+      if (!command) {
+        return { ok: false, reason: `"${toolName}" requires a non-empty "command" string` };
       }
-      return { action: 'tool', tool_name: toolName, args: { command } };
+      return { ok: true, action: { action: 'tool', tool_name: toolName, args: { command } } };
     }
 
     const argSpec = REPO_TOOL_ARG_SPECS[toolName];
     if (!argSpec) {
-      return null;
+      return { ok: false, reason: `tool "${toolName}" has no argument specification` };
     }
     const args: MutableJsonObject = {};
     for (const key of argSpec.requiredText) {
       const rawValue = rawArgs[key];
       const value = typeof rawValue === 'string' ? rawValue.trim() : '';
       if (!value) {
-        return null;
+        return { ok: false, reason: `"${toolName}" requires "${key}" to be a non-empty string` };
       }
       args[key] = value;
     }
     for (const key of argSpec.requiredArray ?? []) {
       const rawValue = rawArgs[key];
       if (!Array.isArray(rawValue) || rawValue.length === 0) {
-        return null;
+        return { ok: false, reason: `"${toolName}" requires "${key}" to be a non-empty array` };
       }
       args[key] = rawValue;
     }
@@ -473,11 +484,11 @@ export class ModelJson {
     if (toolName === 'run' && rawArgs.outputMode !== undefined) {
       const outputMode = RunOutputModeSchema.safeParse(rawArgs.outputMode);
       if (!outputMode.success) {
-        return null;
+        return { ok: false, reason: '"run" requires "outputMode" to be "auto" or "full"' };
       }
       args.outputMode = outputMode.data;
     }
-    return { action: 'tool', tool_name: toolName, args };
+    return { ok: true, action: { action: 'tool', tool_name: toolName, args } };
   }
 
   private static validateFinishValidation(parsed: JsonObject): FinishValidationResult {
