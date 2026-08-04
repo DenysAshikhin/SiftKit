@@ -7,11 +7,8 @@ import { getDefaultConfig } from '../src/status-server/config-store.js';
 import {
   DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS,
   acquireModelRequestWithWait,
-  clearCompletedStatusRequestIdForDifferentRequest,
   getModelRequestQueueDiagnostics,
   isIdle,
-  MAX_COMPLETED_STATUS_PATH_ENTRIES,
-  rememberCompletedStatusRequestId,
   releaseModelRequest,
 } from '../src/status-server/server-ops.js';
 import type { ServerContext } from '../src/status-server/server-types.js';
@@ -39,25 +36,6 @@ function createQueueContext(configPath = 'config.json'): ServerContext & { reado
   };
   return context;
 }
-
-test('completed status request ids are bounded and cleared when a status path is reused', () => {
-  const ctx = createQueueContext();
-
-  for (let index = 0; index <= MAX_COMPLETED_STATUS_PATH_ENTRIES; index += 1) {
-    rememberCompletedStatusRequestId(ctx, `status-${index}.txt`, `request-${index}`);
-  }
-
-  assert.equal(ctx.completedRequestIdByStatusPath.size, MAX_COMPLETED_STATUS_PATH_ENTRIES);
-  assert.equal(ctx.completedRequestIdByStatusPath.has('status-0.txt'), false);
-  assert.equal(ctx.completedRequestIdByStatusPath.get(`status-${MAX_COMPLETED_STATUS_PATH_ENTRIES}.txt`), `request-${MAX_COMPLETED_STATUS_PATH_ENTRIES}`);
-
-  rememberCompletedStatusRequestId(ctx, 'active-status.txt', 'completed-request');
-  clearCompletedStatusRequestIdForDifferentRequest(ctx, 'active-status.txt', 'completed-request');
-  assert.equal(ctx.completedRequestIdByStatusPath.get('active-status.txt'), 'completed-request');
-
-  clearCompletedStatusRequestIdForDifferentRequest(ctx, 'active-status.txt', 'next-request');
-  assert.equal(ctx.completedRequestIdByStatusPath.has('active-status.txt'), false);
-});
 
 test('model request queue timeout default is fifteen minutes', () => {
   assert.equal(DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS, 900_000);
