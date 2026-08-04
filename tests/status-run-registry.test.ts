@@ -215,6 +215,51 @@ function buildSparseStart(requestId: string, nowMs: number) {
   );
 }
 
+test('advancing back-fills a raw input count the first step never captured', () => {
+  const registry = new StatusRunRegistry();
+  const started = registry.startOrAdvance(buildSparseStart('request-a', 1_000));
+  if (started.kind !== 'started') {
+    throw new Error(`Expected started result, received ${started.kind}.`);
+  }
+  assert.equal(started.run.rawInputCharacterCount, null);
+  const advanced = registry.startOrAdvance(buildStart('request-a', 2_000));
+  if (advanced.kind !== 'advanced') {
+    throw new Error(`Expected advanced result, received ${advanced.kind}.`);
+  }
+  assert.equal(advanced.run.rawInputCharacterCount, 10);
+});
+
+test('advancing adopts the chunk path and speculative snapshot supplied on a later step', () => {
+  const registry = new StatusRunRegistry();
+  registry.startOrAdvance(buildSparseStart('request-a', 1_000));
+  const chunkMetadata = parseStatusMetadata(JSON.stringify({
+    requestId: 'request-a',
+    chunkIndex: 2,
+    chunkTotal: 4,
+    chunkPath: 'C:/runtime/chunk-2.txt',
+  }));
+  const advanced = registry.startOrAdvance(buildStatusRunStartInput(
+    'request-a',
+    'C:/runtime/status.txt',
+    chunkMetadata,
+    'chat',
+    { stdoutOffset: 64, stderrOffset: 32, latestSpeculativeAcceptedTokens: 7, latestSpeculativeGeneratedTokens: 9 },
+    2_000,
+  ));
+  if (advanced.kind !== 'advanced') {
+    throw new Error(`Expected advanced result, received ${advanced.kind}.`);
+  }
+  assert.equal(advanced.run.chunkIndex, 2);
+  assert.equal(advanced.run.chunkTotal, 4);
+  assert.equal(advanced.run.chunkPath, 'C:/runtime/chunk-2.txt');
+  assert.deepEqual(advanced.run.managedLlamaSpeculativeSnapshot, {
+    stdoutOffset: 64,
+    stderrOffset: 32,
+    latestSpeculativeAcceptedTokens: 7,
+    latestSpeculativeGeneratedTokens: 9,
+  });
+});
+
 test('advancing with sparse metadata preserves values captured on the first step', () => {
   const registry = new StatusRunRegistry();
   registry.startOrAdvance(buildStart('request-a', 1_000));
