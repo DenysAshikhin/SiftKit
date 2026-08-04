@@ -214,7 +214,6 @@ export class ToolActionProcessor {
       return validated;
     }
     const { normalizedToolName, isNativeTool, command } = validated;
-    decayInvalidResponses(counters);
 
     if (inForcedFinishMode) {
       const attempt = forcedFinish.consumeAttempt();
@@ -639,6 +638,10 @@ export class ToolActionProcessor {
       return 'next';
     }
     const { requestedCommand, commandToRun } = preparedCommand;
+    // The action has cleared every screen and is about to run, which is the only point that counts
+    // as progress. A rejected action parses fine but produces no work, so it must not buy back a
+    // strike — otherwise alternating malformed and rejected actions never reaches the limit.
+    decayInvalidResponses(counters);
 
     const progressToolCallId = `tc_${this.progressToolCallSeq}`;
     this.progressToolCallSeq += 1;

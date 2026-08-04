@@ -261,10 +261,11 @@ export type LoopCounters = {
 };
 
 /**
- * A valid tool action steps the invalid-response budget back down. The guard exists to catch a model
- * wedged in a loop of malformed actions, not to punish a long run for three scattered mistakes, so the
- * count is per-streak rather than lifetime. Validity means the action parsed and passed tool
- * validation — a command that exits non-zero (a TDD red step) is still a valid action.
+ * An executed tool action steps the invalid-response budget back down. The guard exists to catch a
+ * model wedged in a loop of malformed actions, not to punish a long run for three scattered mistakes,
+ * so the count is per-streak rather than lifetime. Only an action that cleared every screen and ran
+ * counts — a command that exits non-zero (a TDD red step) still decays, but an action rejected as a
+ * duplicate, as unsafe, or by forced-finish mode does not.
  */
 export function decayInvalidResponses(counters: LoopCounters): void {
   counters.invalidResponses = Math.max(0, counters.invalidResponses - 1);

@@ -148,12 +148,27 @@ test('caps reserved summary lines at the line limit and keeps the last ones', ()
   assert.equal(retained[50], 'ℹ marker 60');
 });
 
+test('charges gap markers against the line limit', () => {
+  const output = Array.from(
+    { length: 100 },
+    (_, index) => (index % 2 === 0 ? `ℹ marker ${index}` : `line-${index}`),
+  ).join('\n');
+  const retained = policy.apply({ command: 'npm test', output, outputMode: 'auto' }).split('\n');
+
+  assert.ok(retained.length - 1 <= 50, `body was ${retained.length - 1} lines`);
+  assert.equal(retained[0], '50 lines omitted from validation command output.');
+  assert.ok(retained.includes('ℹ marker 98'));
+  assert.ok(!retained.includes('ℹ marker 0'));
+  assert.equal(retained.filter((line) => line.startsWith('ℹ marker ')).length, 25);
+});
+
 test('marks interior gaps and emits retained lines in original order', () => {
   const output = ['ℹ tests 1', ...Array.from({ length: 60 }, (_, index) => `line-${index + 1}`)].join('\n');
   const retained = policy.apply({ command: 'npm test', output, outputMode: 'auto' }).split('\n');
 
-  assert.equal(retained[0], '11 lines omitted from validation command output.');
+  assert.equal(retained[0], '12 lines omitted from validation command output.');
   assert.equal(retained[1], 'ℹ tests 1');
-  assert.equal(retained[2], '… 11 lines omitted …');
-  assert.equal(retained[3], 'line-12');
+  assert.equal(retained[2], '… 12 lines omitted …');
+  assert.equal(retained[3], 'line-13');
+  assert.equal(retained.length - 1, 50);
 });

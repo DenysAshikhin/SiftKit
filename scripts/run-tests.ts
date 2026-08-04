@@ -19,7 +19,9 @@ const tsxLoaderUrl = pathToFileURL(path.resolve(repoRoot, 'node_modules', 'tsx',
 // it, and the URL is absolute so a child in a temp cwd resolves it like one in the repo.
 const liveInstanceGuardUrl = pathToFileURL(path.resolve(__dirname, 'live-instance-guard.js')).href;
 const testArgs = buildNodeTestArgs(repoRoot, process.argv.slice(2));
-const result = spawnSync(process.execPath, ['--import', tsxLoaderUrl, '--test', ...testArgs], {
+// Node defaults to no per-test timeout, so one test awaiting a server or child process that never
+// answers freezes the whole run with no output. A bounded failure is always more useful than a hang.
+const result = spawnSync(process.execPath, ['--import', tsxLoaderUrl, '--test', '--test-timeout=60000', ...testArgs], {
   cwd: repoRoot,
   env: {
     ...process.env,

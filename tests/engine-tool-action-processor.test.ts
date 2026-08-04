@@ -6,6 +6,7 @@ import path from 'node:path';
 import { buildIgnorePolicy } from '../src/repo-search/command-safety.js';
 import { ChatGroundingPolicy } from '../src/repo-search/chat-grounding-policy.js';
 import type { TaskCommand } from '../src/repo-search/prompts.js';
+import type { ToolAction } from '../src/repo-search/planner-protocol.js';
 import { DuplicateTracker } from '../src/repo-search/engine/duplicate-tracker.js';
 import { ForcedFinishController } from '../src/repo-search/engine/forced-finish.js';
 import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.js';
@@ -158,4 +159,42 @@ test('a valid action whose command exits non-zero still decays the counter', asy
 
   assert.notEqual(commands[0]?.exitCode, 0);
   assert.equal(counters.invalidResponses, 1);
+});
+
+test('a duplicate-rejected action does not decay the invalid-response counter', async () => {
+  const root = createManagedTempDir('siftkit-decay-duplicate-');
+  fs.writeFileSync(path.join(root, 'a.ts'), 'alpha\n', 'utf8');
+  const { processor, commands, counters } = makeProcessor(root);
+  counters.invalidResponses = 2;
+
+  await processor.executeBatch(
+    1,
+    [
+      { action: 'tool', tool_name: 'ls', args: { path: '.' } },
+      { action: 'tool', tool_name: 'ls', args: { path: '.' } },
+    ],
+    '',
+    0,
+    false,
+  );
+
+  assert.equal(commands[1]?.reason, 'duplicate command');
+  assert.equal(counters.invalidResponses, 1);
+});
+
+// Rejected actions used to buy back a strike, so a model alternating malformed actions with
+// unsafe-but-distinct commands never reached the limit and only `max_turns` ended the run.
+test('malformed actions alternating with safety-rejected ones still hit the invalid-response limit', async () => {
+  const root = createManagedTempDir('siftkit-decay-unsafe-');
+  const { processor, counters } = makeProcessor(root, ['ls', 'git']);
+  const actions: ToolAction[] = [];
+  for (let index = 0; index < 3; index += 1) {
+    actions.push({ action: 'tool', tool_name: 'frobnicate', args: {} });
+    actions.push({ action: 'tool', tool_name: 'git', args: { command: `git push origin branch-${index}` } });
+  }
+
+  await processor.executeBatch(1, actions, '', 0, false);
+
+  assert.equal(counters.invalidResponses, 3);
+  assert.equal(counters.reason, 'invalid_response_limit');
 });
