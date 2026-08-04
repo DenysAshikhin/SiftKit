@@ -73,14 +73,40 @@ test('buildRepoToolRequestedCommand covers every tool', () => {
   );
   assert.equal(buildRepoToolRequestedCommand('ls', {}), 'ls path="."');
   assert.equal(buildRepoToolRequestedCommand('ls', { path: 'src', limit: 10 }), 'ls path="src" limit=10');
-  assert.equal(buildRepoToolRequestedCommand('write', { path: 'x.ts', content: 'abc' }), 'write path="x.ts" bytes=3');
+  assert.equal(
+    buildRepoToolRequestedCommand('write', { path: 'x.ts', content: 'abc' }),
+    'write path="x.ts" bytes=3 sha="ba7816bf8f"',
+  );
   assert.equal(
     buildRepoToolRequestedCommand('edit', { path: 'x.ts', edits: [{ oldText: 'a', newText: 'b' }] }),
-    'edit path="x.ts" edits=1',
+    'edit path="x.ts" edits=1 sha="db8992cf94"',
   );
   assert.equal(buildRepoToolRequestedCommand('run', { command: 'git status' }), 'run command="git status"');
   assert.equal(buildRepoToolRequestedCommand('web_search', { query: ' q ' }), 'web_search query="q"');
   assert.equal(buildRepoToolRequestedCommand('web_fetch', { url: 'https://x' }), 'web_fetch url="https://x"');
+});
+
+test('edit command strings differ when edit content differs', () => {
+  const first = buildRepoToolRequestedCommand('edit', {
+    path: 'src/a.ts',
+    edits: [{ oldText: 'alpha', newText: 'beta' }],
+  });
+  const second = buildRepoToolRequestedCommand('edit', {
+    path: 'src/a.ts',
+    edits: [{ oldText: 'line1', newText: 'line0' }],
+  });
+  const repeat = buildRepoToolRequestedCommand('edit', {
+    path: 'src/a.ts',
+    edits: [{ oldText: 'alpha', newText: 'beta' }],
+  });
+  assert.notEqual(first, second);
+  assert.equal(first, repeat);
+});
+
+test('write command strings differ when content differs at equal byte length', () => {
+  const first = buildRepoToolRequestedCommand('write', { path: 'src/w.ts', content: 'AAAA' });
+  const second = buildRepoToolRequestedCommand('write', { path: 'src/w.ts', content: 'BBBB' });
+  assert.notEqual(first, second);
 });
 
 test('buildEffectiveTranscriptAction re-parses the executed read window', () => {

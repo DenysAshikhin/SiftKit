@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, statSync, readdirSync, writeFileSync, mkdirSync, realpathSync } from 'node:fs';
 import { resolve, relative, isAbsolute, join, dirname, posix } from 'node:path';
 import { z } from 'zod';
@@ -146,6 +147,26 @@ function formatToolCommand(toolName: string, args: CommandArg[]): string {
   return [toolName, ...parts].join(' ');
 }
 
+function rawString(value: OptionalJsonValue): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function shortSha256(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 10);
+}
+
+/** Order-stable digest over the (oldText, newText) pairs so key order in the model's JSON cannot split fingerprints. */
+function editContentDigest(edits: OptionalJsonValue): string {
+  const pairs = Array.isArray(edits)
+    ? edits.map((edit) => (
+      edit !== null && typeof edit === 'object' && !Array.isArray(edit)
+        ? [rawString(edit.oldText), rawString(edit.newText)]
+        : []
+    ))
+    : [];
+  return shortSha256(JSON.stringify(pairs));
+}
+
 export function buildReadCommand(pathText: string, offset: PositiveInteger, limit?: PositiveInteger): string {
   return formatToolCommand('read', [
     ['path', pathText],
@@ -196,15 +217,18 @@ export function buildRepoToolRequestedCommand(toolName: string, args: JsonObject
     ]);
   }
   if (toolName === 'write') {
+    const content = rawString(args.content);
     return formatToolCommand('write', [
       ['path', readString(args.path)],
-      ['bytes', Buffer.byteLength(typeof args.content === 'string' ? args.content : '', 'utf8')],
+      ['bytes', Buffer.byteLength(content, 'utf8')],
+      ['sha', shortSha256(content)],
     ]);
   }
   if (toolName === 'edit') {
     return formatToolCommand('edit', [
       ['path', readString(args.path)],
       ['edits', Array.isArray(args.edits) ? args.edits.length : 0],
+      ['sha', editContentDigest(args.edits)],
     ]);
   }
   if (toolName === 'run') {
