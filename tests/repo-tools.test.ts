@@ -303,6 +303,29 @@ test('grep limit counts matches, not context lines', async () => {
   assert.ok(result.output.includes('1 more matches beyond limit=5'), `unexpected output: ${result.output}`);
 });
 
+test('grep accepts context 0 as matches-only output', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool(
+    'grep',
+    { pattern: 'alpha', path: 'src/a.ts', context: 0 },
+    makeContext(root),
+  );
+  assert.ok(result.ok, `grep context 0 rejected: ${result.ok ? '' : result.reason}`);
+  const lines = result.output.split(/\r\n|\r|\n/u).filter((line) => line.trim() !== '');
+  assert.deepEqual(lines, ['src/a.ts:2:alpha', 'src/a.ts:4:alpha']);
+});
+
+test('grep rejects a negative context', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool(
+    'grep',
+    { pattern: 'alpha', path: 'src/a.ts', context: -1 },
+    makeContext(root),
+  );
+  assert.ok(!result.ok);
+  assert.match(result.reason, /context must be a non-negative integer/u);
+});
+
 test('grep limit removes the detached context group of the first omitted match', async () => {
   const root = makeRepo();
   fs.writeFileSync(
@@ -896,12 +919,12 @@ test('repo tools reject present positive-integer arguments instead of coercing t
     {
       toolName: 'grep',
       args: { pattern: 'alpha', context: 1.5 },
-      expectedReason: 'context must be a positive integer',
+      expectedReason: 'context must be a non-negative integer',
     },
     {
       toolName: 'grep',
       args: { pattern: 'alpha', context: null },
-      expectedReason: 'context must be a positive integer',
+      expectedReason: 'context must be a non-negative integer',
     },
     {
       toolName: 'grep',

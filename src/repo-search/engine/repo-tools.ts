@@ -664,9 +664,10 @@ async function executeGrep(args: JsonObject, context: RepoToolContext): Promise<
     return failure('grep', command, 'path is not a readable file or directory');
   }
 
+  // The planner tool schema documents context's default as 0, so 0 must parse as "matches only".
   const contextLines = resolveOptionalPositiveInteger(
-    args.context,
-    'context must be a positive integer',
+    args.context === 0 ? undefined : args.context,
+    'context must be a non-negative integer',
   );
   if (typeof contextLines === 'string') {
     return failure('grep', command, contextLines);
