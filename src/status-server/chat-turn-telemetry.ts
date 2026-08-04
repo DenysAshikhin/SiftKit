@@ -23,7 +23,7 @@ export class ChatTurnTelemetry {
     const count = await this.countTokens(content);
     return {
       tokenCount: count.tokenCount,
-      estimated: count.source !== 'llama.cpp',
+      estimated: count.source === 'estimate',
     };
   }
 
@@ -39,7 +39,7 @@ export class ChatTurnTelemetry {
       countedTurns.push({
         ...turn,
         thinkingTokens: count.tokenCount,
-        thinkingTokensEstimated: count.source !== 'llama.cpp',
+        thinkingTokensEstimated: count.source === 'estimate',
       });
     }
     return countedTurns;

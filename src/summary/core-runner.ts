@@ -4,6 +4,7 @@ import {
   countLlamaCppTokensDetailed,
   type CountLlamaCppTokensOptions,
 } from '../providers/llama-cpp.js';
+import { getActiveInferenceBackend } from '../config/index.js';
 import type { SiftConfig } from '../config/index.js';
 import {
   getChunkThresholdCharacters,
@@ -375,7 +376,7 @@ class SummaryCoreRunner {
       return;
     }
     const promptTokenCount = tokenCountResult?.tokenCount ?? null;
-    const tokenSource = promptTokenCount === null ? 'unavailable' : 'llama.cpp';
+    const tokenSource = promptTokenCount === null ? 'unavailable' : getActiveInferenceBackend(this.options.config);
     this.options.progress?.tokenizeDone(state.phase, state.chunkLabel, promptTokenCount, tokenSource);
   }
 

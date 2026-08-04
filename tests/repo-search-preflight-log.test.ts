@@ -11,17 +11,32 @@ test('one preflight body replaces the four preflight events', () => {
       promptChars: 102_949,
       promptTokenCount: 32_944,
       tokenizeElapsedMs: 111,
-      tokenCountSource: 'llama.cpp',
+      tokenCountSource: 'exl3',
       tokenizeRetryCount: 0,
       tokenizeStatus: 'completed',
       elapsedMs: 31_195,
     }),
     {
       event: 'preflight',
-      fields: 't4/45  prompt=32,944tok/102.9kc  tokenize=111ms(llama.cpp)  elapsed=31s',
+      fields: 't4/45  prompt=32,944tok/102.9kc  tokenize=111ms(exl3)  elapsed=31s',
       severity: 'normal',
     },
   );
+});
+
+test('the preflight line reports estimate when the server tokenizer was unavailable', () => {
+  const body = buildRepoSearchPreflightLogBody({
+    turn: 4,
+    maxTurns: 45,
+    promptChars: 102_900,
+    promptTokenCount: 32_944,
+    tokenizeElapsedMs: 111,
+    tokenCountSource: 'estimate',
+    tokenizeRetryCount: 0,
+    tokenizeStatus: 'completed',
+    elapsedMs: 31_000,
+  });
+  assert.match(body.fields, /tokenize=111ms\(estimate\)/u);
 });
 
 test('retries are printed only when the tokenizer actually retried', () => {
@@ -32,7 +47,7 @@ test('retries are printed only when the tokenizer actually retried', () => {
       promptChars: 500,
       promptTokenCount: 120,
       tokenizeElapsedMs: 40,
-      tokenCountSource: 'llama.cpp',
+      tokenCountSource: 'llama',
       tokenizeRetryCount: 2,
       tokenizeStatus: 'completed',
       elapsedMs: 900,
