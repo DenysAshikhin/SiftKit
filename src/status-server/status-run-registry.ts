@@ -1,4 +1,3 @@
-/* c8 ignore next */
 import type { ActiveStatusRun } from '@siftkit/contracts';
 import type { ManagedLlamaSpeculativeMetricsSnapshot } from './managed-llama.js';
 import type { TaskKind } from './metrics.js';
@@ -7,6 +6,71 @@ import type { StatusMetadata } from './status-file.js';
 export const TERMINAL_SNAPSHOT_RETENTION_MS = 300_000;
 export const COMPLETED_REQUEST_RETENTION_MS = 900_000;
 
+export type CompletedStatusTerminalState = Exclude<StatusMetadata['terminalState'], null>;
+
+export type StatusRunStartInput = {
+  requestId: string;
+  statusPath: string;
+  taskKind: TaskKind | null;
+  nowMs: number;
+  rawInputCharacterCount: number | null;
+  promptCharacterCount: number | null;
+  promptTokenCount: number | null;
+  chunkIndex: number | null;
+  chunkTotal: number | null;
+  chunkPath: string | null;
+  managedLlamaSpeculativeSnapshot: ManagedLlamaSpeculativeMetricsSnapshot | null;
+};
+
+export type ActiveRunState = {
+  requestId: string;
+  statusPath: string;
+  taskKind: TaskKind | null;
+  overallStartedAt: number;
+  currentRequestStartedAt: number;
+  stepCount: number;
+  rawInputCharacterCount: number | null;
+  promptCharacterCount: number | null;
+  promptTokenCount: number | null;
+  outputTokensTotal: number;
+  chunkIndex: number | null;
+  chunkTotal: number | null;
+  chunkPath: string | null;
+  managedLlamaSpeculativeSnapshot: ManagedLlamaSpeculativeMetricsSnapshot | null;
+};
+
+export type TerminalRunState = {
+  run: ActiveRunState | null;
+  terminalState: CompletedStatusTerminalState;
+  completedAtMs: number;
+};
+
+export type StatusRunStartResult =
+  | { kind: 'started'; run: ActiveRunState }
+  | { kind: 'advanced'; run: ActiveRunState }
+  | { kind: 'late'; requestId: string };
+
+export type StatusRunCompleteResult =
+  | { kind: 'completed'; run: TerminalRunState }
+  | { kind: 'completed-without-run'; run: TerminalRunState }
+  | { kind: 'duplicate'; requestId: string };
+
+export type StatusTerminalResolution =
+  | { kind: 'active'; run: ActiveRunState }
+  | { kind: 'awaiting'; run: TerminalRunState }
+  | { kind: 'duplicate'; requestId: string }
+  | { kind: 'unknown'; requestId: string };
+
+export type StatusTerminalFinalizeResult =
+  | { kind: 'finalized'; requestId: string }
+  | { kind: 'duplicate'; requestId: string }
+  | { kind: 'unknown'; requestId: string };
+
+export type ExpiredStatusRun = {
+  requestId: string;
+  phase: 'awaiting-terminal-metadata' | 'completed';
+};
+
 export function buildStatusRunStartInput(
   requestId: string,
   statusPath: string,
@@ -14,7 +78,7 @@ export function buildStatusRunStartInput(
   taskKind: TaskKind | null,
   managedLlamaSpeculativeSnapshot: ManagedLlamaSpeculativeMetricsSnapshot | null,
   nowMs: number,
-) {
+): StatusRunStartInput {
   return {
     requestId,
     statusPath,
@@ -30,11 +94,7 @@ export function buildStatusRunStartInput(
   };
 }
 
-export type StatusRunStartInput = ReturnType<typeof buildStatusRunStartInput>;
-
-export type CompletedStatusTerminalState = Exclude<StatusMetadata['terminalState'], null>;
-
-function createActiveRunState(input: StatusRunStartInput) {
+function createActiveRunState(input: StatusRunStartInput): ActiveRunState {
   return {
     requestId: input.requestId,
     statusPath: input.statusPath,
@@ -52,47 +112,6 @@ function createActiveRunState(input: StatusRunStartInput) {
     managedLlamaSpeculativeSnapshot: input.managedLlamaSpeculativeSnapshot,
   };
 }
-
-function createTerminalRunState(run: ActiveRunState | null, terminalState: CompletedStatusTerminalState, completedAtMs: number) {
-  return { run, terminalState, completedAtMs };
-}
-
-function createStartedResult(run: ActiveRunState) { return { kind: 'started' as const, run }; }
-function createAdvancedResult(run: ActiveRunState) { return { kind: 'advanced' as const, run }; }
-function createLateResult(requestId: string) { return { kind: 'late' as const, requestId }; }
-function createCompletedResult(run: TerminalRunState) { return { kind: 'completed' as const, run }; }
-function createCompletedWithoutRunResult(run: TerminalRunState) {
-  return { kind: 'completed-without-run' as const, run };
-}
-function createDuplicateResult(requestId: string) { return { kind: 'duplicate' as const, requestId }; }
-function createUnknownResult(requestId: string) { return { kind: 'unknown' as const, requestId }; }
-function createActiveTerminalResolution(run: ActiveRunState) { return { kind: 'active' as const, run }; }
-function createAwaitingTerminalResolution(run: TerminalRunState) { return { kind: 'awaiting' as const, run }; }
-function createFinalizedResult(requestId: string) { return { kind: 'finalized' as const, requestId }; }
-function createExpiredStatusRun(requestId: string, phase: 'awaiting-terminal-metadata' | 'completed') {
-  return { requestId, phase };
-}
-
-type ActiveRunState = ReturnType<typeof createActiveRunState>;
-type TerminalRunState = ReturnType<typeof createTerminalRunState>;
-export type StatusRunStartResult =
-  | ReturnType<typeof createStartedResult>
-  | ReturnType<typeof createAdvancedResult>
-  | ReturnType<typeof createLateResult>;
-export type StatusRunCompleteResult =
-  | ReturnType<typeof createCompletedResult>
-  | ReturnType<typeof createCompletedWithoutRunResult>
-  | ReturnType<typeof createDuplicateResult>;
-export type StatusTerminalResolution =
-  | ReturnType<typeof createActiveTerminalResolution>
-  | ReturnType<typeof createAwaitingTerminalResolution>
-  | ReturnType<typeof createDuplicateResult>
-  | ReturnType<typeof createUnknownResult>;
-export type StatusTerminalFinalizeResult =
-  | ReturnType<typeof createFinalizedResult>
-  | ReturnType<typeof createDuplicateResult>
-  | ReturnType<typeof createUnknownResult>;
-export type ExpiredStatusRun = ReturnType<typeof createExpiredStatusRun>;
 
 function formatTimestamp(ms: number): string {
   return new Date(ms).toISOString();
@@ -118,7 +137,7 @@ export class StatusRunRegistry {
 
   startOrAdvance(input: StatusRunStartInput): StatusRunStartResult {
     if (this.completedAtByRequestId.has(input.requestId)) {
-      return createLateResult(input.requestId);
+      return { kind: 'late', requestId: input.requestId };
     }
     const existing = this.activeRuns.get(input.requestId) ?? null;
     if (existing) {
@@ -135,67 +154,64 @@ export class StatusRunRegistry {
       if (input.managedLlamaSpeculativeSnapshot !== null) {
         existing.managedLlamaSpeculativeSnapshot = input.managedLlamaSpeculativeSnapshot;
       }
-      return createAdvancedResult(existing);
+      return { kind: 'advanced', run: existing };
     }
     const run = createActiveRunState(input);
     this.activeRuns.set(input.requestId, run);
-    return createStartedResult(run);
+    return { kind: 'started', run };
   }
 
   markComplete(requestId: string, terminalState: CompletedStatusTerminalState, nowMs: number): StatusRunCompleteResult {
     if (this.completedAtByRequestId.has(requestId)) {
-      return createDuplicateResult(requestId);
+      return { kind: 'duplicate', requestId };
     }
     const run = this.activeRuns.get(requestId) ?? null;
     this.activeRuns.delete(requestId);
-    const terminalRun = createTerminalRunState(run, terminalState, nowMs);
+    const terminalRun = { run, terminalState, completedAtMs: nowMs };
     this.awaitingTerminalMetadata.set(requestId, terminalRun);
     this.completedAtByRequestId.set(requestId, nowMs);
     if (run === null) {
-      return createCompletedWithoutRunResult(terminalRun);
+      return { kind: 'completed-without-run', run: terminalRun };
     }
-    return createCompletedResult(terminalRun);
+    return { kind: 'completed', run: terminalRun };
   }
 
-  resolveTerminalRun(requestId: string, nowMs: number): StatusTerminalResolution {
+  resolveTerminalRun(requestId: string): StatusTerminalResolution {
     if (this.completedAtByRequestId.has(requestId) && !this.awaitingTerminalMetadata.has(requestId)) {
-      return createDuplicateResult(requestId);
+      return { kind: 'duplicate', requestId };
     }
     const awaiting = this.awaitingTerminalMetadata.get(requestId) ?? null;
     if (awaiting !== null) {
-      return createAwaitingTerminalResolution(awaiting);
+      return { kind: 'awaiting', run: awaiting };
     }
     const active = this.activeRuns.get(requestId) ?? null;
     if (active !== null) {
-      return createActiveTerminalResolution(active);
+      return { kind: 'active', run: active };
     }
-    return createUnknownResult(requestId);
+    return { kind: 'unknown', requestId };
   }
 
   finalizeTerminal(requestId: string, nowMs: number): StatusTerminalFinalizeResult {
     if (this.completedAtByRequestId.has(requestId) && !this.awaitingTerminalMetadata.has(requestId)) {
-      return createDuplicateResult(requestId);
+      return { kind: 'duplicate', requestId };
     }
     const awaiting = this.awaitingTerminalMetadata.get(requestId) ?? null;
     if (awaiting !== null) {
       this.awaitingTerminalMetadata.delete(requestId);
-      return createFinalizedResult(requestId);
+      return { kind: 'finalized', requestId };
     }
     const active = this.activeRuns.get(requestId) ?? null;
     if (active !== null) {
       this.activeRuns.delete(requestId);
       this.completedAtByRequestId.set(requestId, nowMs);
-      return createFinalizedResult(requestId);
+      return { kind: 'finalized', requestId };
     }
-    return createUnknownResult(requestId);
+    return { kind: 'unknown', requestId };
   }
 
   getActiveRuns(nowMs: number): ActiveStatusRun[] {
     this.pruneExpired(nowMs);
-    const runs: ActiveRunState[] = [];
-    for (const run of this.activeRuns.values()) {
-      runs.push(run);
-    }
+    const runs = [...this.activeRuns.values()];
     runs.sort((a, b) => {
       const timeDiff = a.overallStartedAt - b.overallStartedAt;
       if (timeDiff !== 0) return timeDiff;
@@ -214,16 +230,15 @@ export class StatusRunRegistry {
     for (const [requestId, terminalRun] of this.awaitingTerminalMetadata) {
       if (nowMs - terminalRun.completedAtMs >= TERMINAL_SNAPSHOT_RETENTION_MS) {
         this.awaitingTerminalMetadata.delete(requestId);
-        expired.push(createExpiredStatusRun(requestId, 'awaiting-terminal-metadata'));
+        expired.push({ requestId, phase: 'awaiting-terminal-metadata' });
       }
     }
     for (const [requestId, completedAt] of this.completedAtByRequestId) {
       if (!this.awaitingTerminalMetadata.has(requestId) && nowMs - completedAt >= COMPLETED_REQUEST_RETENTION_MS) {
         this.completedAtByRequestId.delete(requestId);
-        expired.push(createExpiredStatusRun(requestId, 'completed'));
+        expired.push({ requestId, phase: 'completed' });
       }
     }
     return expired;
   }
-  /* c8 ignore next */
 }

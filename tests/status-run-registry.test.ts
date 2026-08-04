@@ -5,6 +5,8 @@ import {
   StatusRunRegistry,
   TERMINAL_SNAPSHOT_RETENTION_MS,
   COMPLETED_REQUEST_RETENTION_MS,
+  type ActiveRunState,
+  type StatusRunStartResult,
 } from '../src/status-server/status-run-registry.js';
 import { parseStatusMetadata } from '../src/status-server/status-file.js';
 
@@ -64,7 +66,7 @@ test('duplicate completion returns duplicate result', () => {
 test('metadata before completion finalizes directly from active run', () => {
   const registry = new StatusRunRegistry();
   registry.startOrAdvance(buildStart('request-a', 1_000));
-  const resolution = registry.resolveTerminalRun('request-a', 2_000);
+  const resolution = registry.resolveTerminalRun('request-a');
   assert.equal(resolution.kind, 'active');
   const finalize = registry.finalizeTerminal('request-a', 2_000);
   assert.equal(finalize.kind, 'finalized');
@@ -76,7 +78,7 @@ test('metadata after completion consumes retained snapshot', () => {
   registry.startOrAdvance(buildStart('request-a', 1_000));
   const complete = registry.markComplete('request-a', 'completed', 2_000);
   assert.equal(complete.kind, 'completed');
-  const resolution = registry.resolveTerminalRun('request-a', 3_000);
+  const resolution = registry.resolveTerminalRun('request-a');
   assert.equal(resolution.kind, 'awaiting');
   const finalize = registry.finalizeTerminal('request-a', 3_000);
   assert.equal(finalize.kind, 'finalized');
@@ -84,7 +86,7 @@ test('metadata after completion consumes retained snapshot', () => {
 
 test('unknown metadata returns unknown result', () => {
   const registry = new StatusRunRegistry();
-  const resolution = registry.resolveTerminalRun('unknown-id', 1_000);
+  const resolution = registry.resolveTerminalRun('unknown-id');
   assert.equal(resolution.kind, 'unknown');
   const finalize = registry.finalizeTerminal('unknown-id', 1_000);
   assert.equal(finalize.kind, 'unknown');
@@ -149,6 +151,30 @@ test('late start after completion returns late result', () => {
   assert.equal(late.kind, 'late');
 });
 
+function requireAdvanced(result: StatusRunStartResult): ActiveRunState {
+  if (result.kind !== 'advanced') {
+    throw new Error(`Expected advanced result, received ${result.kind}.`);
+  }
+  return result.run;
+}
+
+test('resolveTerminalRun resolves from the request id alone', () => {
+  const registry = new StatusRunRegistry();
+  registry.startOrAdvance(buildStart('request-a', 1_000));
+  const resolution = registry.resolveTerminalRun('request-a');
+  assert.equal(resolution.kind, 'active');
+});
+
+test('exported ActiveRunState describes the advanced run', () => {
+  const registry = new StatusRunRegistry();
+  registry.startOrAdvance(buildStart('request-a', 1_000));
+  const run = requireAdvanced(registry.startOrAdvance(buildStart('request-a', 2_000)));
+  assert.equal(run.requestId, 'request-a');
+  assert.equal(run.statusPath, 'C:/runtime/status.txt');
+  assert.equal(run.taskKind, 'chat');
+  assert.equal(run.outputTokensTotal, 0);
+});
+
 test('hasActiveRuns reflects active state', () => {
   const registry = new StatusRunRegistry();
   assert.equal(registry.hasActiveRuns(1_000), false);
@@ -173,7 +199,7 @@ test('duplicate resolveTerminalRun returns duplicate result', () => {
   registry.startOrAdvance(buildStart('request-a', 1_000));
   registry.markComplete('request-a', 'completed', 2_000);
   registry.finalizeTerminal('request-a', 3_000);
-  const resolution = registry.resolveTerminalRun('request-a', 4_000);
+  const resolution = registry.resolveTerminalRun('request-a');
   assert.equal(resolution.kind, 'duplicate');
 });
 

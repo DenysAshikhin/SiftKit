@@ -110,9 +110,7 @@ import type {
   ServerContext,
   TerminalMetadataQueueItem,
 } from '../server-types.js';
-import type {
-  StatusRunStartResult,
-} from '../status-run-registry.js';
+import type { ActiveRunState } from '../status-run-registry.js';
 import { buildStatusRunStartInput } from '../status-run-registry.js';
 import {
   StreamedOperationEndpoint,
@@ -121,7 +119,7 @@ import {
 } from './streamed-operation-endpoint.js';
 
 const llamaCppClient = new LlamaCppClient();
-type StatusRunState = Extract<StatusRunStartResult, { kind: 'started' }>['run'];
+
 /** Folds the per-cycle terminal-metadata drain wait into an entry and a resume line. */
 const terminalMetadataDrainSuppressor = new RepeatSuppressor();
 
@@ -596,8 +594,8 @@ function processTerminalMetadataBody(ctx: ServerContext, item: TerminalMetadataQ
   let totalElapsedMs: number | null = null;
   let requestCompleted = false;
   let suppressLogLine = false;
-  let runState: StatusRunState | null = null;
-  const resolution = ctx.statusRuns.resolveTerminalRun(requestId, item.capturedAtMs);
+  let runState: ActiveRunState | null = null;
+  const resolution = ctx.statusRuns.resolveTerminalRun(requestId);
   switch (resolution.kind) {
     case 'active':
       runState = resolution.run;
@@ -1362,7 +1360,7 @@ class StatusPostRequestHandler {
   }
 
   private handleLateOrRunningPost(running: boolean, requestId: string, metadata: StatusPostMetadata): boolean {
-    const resolution = this.ctx.statusRuns.resolveTerminalRun(requestId, Date.now());
+    const resolution = this.ctx.statusRuns.resolveTerminalRun(requestId);
     switch (resolution.kind) {
       case 'awaiting':
       case 'duplicate':
@@ -1413,7 +1411,7 @@ class StatusPostRequestHandler {
     metadata: StatusPostMetadata,
     deferredMetadata: StatusPostDeferredMetadata | null,
   ): StatusPostTimingResult {
-    const resolution = this.ctx.statusRuns.resolveTerminalRun(requestId, Date.now());
+    const resolution = this.ctx.statusRuns.resolveTerminalRun(requestId);
     const runState = resolution.kind === 'active' ? resolution.run : null;
     if (deferredMetadata && metadata.terminalState !== null) {
       return this.scheduleDeferredTerminalPost(requestId, metadata, deferredMetadata, runState);
@@ -1425,7 +1423,7 @@ class StatusPostRequestHandler {
     requestId: string,
     metadata: StatusPostMetadata,
     deferredMetadata: StatusPostDeferredMetadata,
-    runState: StatusRunState | null,
+    runState: ActiveRunState | null,
   ): StatusPostTimingResult {
     const timing = this.applyRunStateToTerminalMetadata(requestId, metadata, deferredMetadata, runState);
     scheduleDeferredTerminalMetadata(this.ctx, {
@@ -1444,7 +1442,7 @@ class StatusPostRequestHandler {
   private finishDirectTerminalPost(
     requestId: string,
     metadata: StatusPostMetadata,
-    runState: StatusRunState | null,
+    runState: ActiveRunState | null,
   ): StatusPostTimingResult {
     const timing = this.applyRunStateToTerminalMetadata(requestId, metadata, metadata, runState);
     if (!runState && (metadata.speculativeAcceptedTokens !== null || metadata.speculativeGeneratedTokens !== null)) {
@@ -1463,7 +1461,7 @@ class StatusPostRequestHandler {
     requestId: string,
     sourceMetadata: StatusPostMetadata,
     targetMetadata: StatusPostMetadata | StatusPostDeferredMetadata,
-    runState: StatusRunState | null,
+    runState: ActiveRunState | null,
   ): StatusPostTimingResult {
     const timing: StatusPostTimingResult = { elapsedMs: null, totalElapsedMs: null, requestCompleted: false, suppressLogLine: false };
     if (!runState || !Number.isFinite(runState.currentRequestStartedAt)) return timing;
@@ -1489,7 +1487,7 @@ class StatusPostRequestHandler {
     return timing;
   }
 
-  private copyRunStateMetadata(metadata: StatusPostMetadata | StatusPostDeferredMetadata, runState: StatusRunState): void {
+  private copyRunStateMetadata(metadata: StatusPostMetadata | StatusPostDeferredMetadata, runState: ActiveRunState): void {
     if (metadata.rawInputCharacterCount === null && runState.rawInputCharacterCount !== null) metadata.rawInputCharacterCount = runState.rawInputCharacterCount;
     if (metadata.promptCharacterCount === null && runState.promptCharacterCount !== null) metadata.promptCharacterCount = runState.promptCharacterCount;
     if (metadata.promptTokenCount === null && runState.promptTokenCount !== null) metadata.promptTokenCount = runState.promptTokenCount;
@@ -1502,7 +1500,7 @@ class StatusPostRequestHandler {
     requestId: string,
     sourceMetadata: StatusPostMetadata,
     targetMetadata: StatusPostMetadata | StatusPostDeferredMetadata,
-    runState: StatusRunState,
+    runState: ActiveRunState,
   ): void {
     const speculativeMetrics = getManagedLlamaSpeculativeMetricsDelta(
       this.ctx.managedLlamaLastStartupLogs?.runId ?? null,
