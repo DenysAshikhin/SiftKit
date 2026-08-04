@@ -5,6 +5,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import Database from 'better-sqlite3';
 import { z } from 'zod';
+import type { ActiveStatusRun } from '@siftkit/contracts';
 
 import { loadConfig, getConfigPath } from '../src/config/index.js';
 
@@ -46,6 +47,8 @@ interface StatusPostResponse {
   busy?: boolean;
 }
 
+type RuntimeStatusWithActiveRuns = RuntimeStatusResponse & { activeRuns: ActiveStatusRun[] };
+
 test('real status server normalizes legacy non-boolean status text to false', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
@@ -80,7 +83,7 @@ test('real status server normalizes non-boolean statuses in POST /status payload
     await withRealStatusServer(async ({ statusUrl }) => {
       const status = await requestJson<StatusPostResponse>(statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ status: 'foreign_lock' }),
+        body: JSON.stringify({ status: 'foreign_lock', requestId: 'foreign-status' }),
       });
       assert.equal(status.running, false);
       assert.equal(status.status, 'false');
@@ -102,7 +105,7 @@ test('real status server accepts boolean-like running payload variants', async (
     await withRealStatusServer(async ({ statusUrl }) => {
       const stopped = await requestJson<StatusPostResponse>(statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ status: false }),
+        body: JSON.stringify({ status: false, requestId: 'boolean-stopped' }),
       });
       assert.equal(stopped.running, false);
       assert.equal(stopped.status, 'false');
@@ -110,7 +113,7 @@ test('real status server accepts boolean-like running payload variants', async (
 
       const running = await requestJson<StatusPostResponse>(statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: 'true' }),
+        body: JSON.stringify({ running: 'true', requestId: 'boolean-running' }),
       });
       assert.equal(running.running, true);
       assert.equal(running.status, 'true');
@@ -133,7 +136,7 @@ test('real status server preserves true status while an active request is tracke
     await withRealStatusServer(async ({ statusUrl }) => {
       await requestJson(statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: true }),
+        body: JSON.stringify({ running: true, requestId: 'preserved-active' }),
       });
 
       assert.equal(readStatusText(getConfigPath()), 'true');
@@ -160,12 +163,13 @@ test('real status server persists aggregate metrics and exposes them from GET /s
     await withRealStatusServer(async ({ statusUrl }) => {
       await requestJson(statusUrl, {
         method: 'POST',
-        body: JSON.stringify({ running: true, rawInputCharacterCount: 400, taskKind: 'summary' }),
+        body: JSON.stringify({ running: true, requestId: 'aggregate-metrics', rawInputCharacterCount: 400, taskKind: 'summary' }),
       });
       await requestJson(statusUrl, {
         method: 'POST',
         body: JSON.stringify({
           running: false,
+          requestId: 'aggregate-metrics',
           taskKind: 'summary',
           promptCharacterCount: 410,
           inputTokens: 100,
@@ -337,7 +341,7 @@ test('managed llama live stream logs flush after idle without model request rele
   });
 });
 
-test('real status server abandons stale running request instead of returning busy', async () => {
+test('real status server accepts independent running request ids instead of returning busy', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
@@ -361,6 +365,11 @@ test('real status server abandons stale running request instead of returning bus
 
       assert.equal(response.busy, undefined);
       assert.equal(response.ok, true);
+      const status = await requestJson<RuntimeStatusWithActiveRuns>(statusUrl);
+      assert.deepEqual(
+        status.activeRuns.map((run) => run.requestId),
+        ['stale-running-request', 'fresh-running-request'],
+      );
     }, {
       statusPath,
       configPath,
@@ -1205,7 +1214,7 @@ test('real status server logs explicit chunk failures and clears them before the
   });
 });
 
-test('real status server marks a stale active request as abandoned when a new request id starts', async () => {
+test('real status server keeps separate request ids active when a new request starts', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
@@ -1245,11 +1254,13 @@ test('real status server marks a stale active request as abandoned when a new re
         });
       });
 
-      assert.ok(
-        lines.some((line) => /st [\w-]{8}  failed  raw_chars=3,322,607 prompt=342,395 \(147,694\) chunk 1\/10 elapsed=0s error=Abandoned because a new request started before terminal status\./u.test(line)),
-        lines.join('\n'),
-      );
+      assert.equal(lines.some((line) => /Abandoned because a new request started/u.test(line)), false, lines.join('\n'));
       assert.ok(lines.some((line) => /st [\w-]{8}  start  (?:task=summary )?raw_chars=281,469 prompt=283,752 \(99,240\)/u.test(line)), lines.join('\n'));
+      const status = await requestJson<RuntimeStatusWithActiveRuns>(statusUrl);
+      assert.deepEqual(
+        status.activeRuns.map((run) => run.requestId),
+        ['stale-request', 'fresh-request'],
+      );
     }, {
       statusPath,
       configPath,
@@ -1257,4 +1268,3 @@ test('real status server marks a stale active request as abandoned when a new re
     });
   });
 });
-
