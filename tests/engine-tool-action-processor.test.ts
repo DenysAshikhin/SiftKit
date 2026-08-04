@@ -13,6 +13,7 @@ import { ReadWindowGovernor } from '../src/repo-search/engine/read-window-govern
 import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
 import { ToolActionProcessor } from '../src/repo-search/engine/tool-action-processor.js';
 import { ToolResultBudgeter } from '../src/repo-search/engine/tool-result-budgeter.js';
+import type { LoopCounters } from '../src/repo-search/engine/task-loop-support.js';
 import { ToolStatsRecorder } from '../src/repo-search/engine/tool-stats.js';
 import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
 import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
@@ -20,8 +21,12 @@ import { SilentProgressWriter } from '../src/lib/progress-writer.js';
 import { makeMockWebTools } from './helpers/mock-web-tools.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
-function makeProcessor(root: string): { processor: ToolActionProcessor; commands: TaskCommand[] } {
+function makeProcessor(
+  root: string,
+  allowedPlannerToolNames: string[] = ['ls'],
+): { processor: ToolActionProcessor; commands: TaskCommand[]; counters: LoopCounters } {
   const commands: TaskCommand[] = [];
+  const counters: LoopCounters = { invalidResponses: 0, commandFailures: 0, safetyRejects: 0, reason: '' };
   const processor = new ToolActionProcessor({
     task: { id: 'task-alignment', question: 'q', signals: ['done'] },
     repoRoot: root,
@@ -29,7 +34,7 @@ function makeProcessor(root: string): { processor: ToolActionProcessor; commands
     logger: null,
     timingRecorder: null,
     maxInvalidResponses: 3,
-    allowedPlannerToolNames: ['ls'],
+    allowedPlannerToolNames,
     approvalGate: null,
     validationCommandOutputLineLimit: null,
     chatWebGroundingEnabled: false,
@@ -59,9 +64,9 @@ function makeProcessor(root: string): { processor: ToolActionProcessor; commands
     recentEvidenceKeys: new Set<string>(),
     successfulToolCalls: [],
     commands,
-    counters: { invalidResponses: 0, commandFailures: 0, safetyRejects: 0, reason: '' },
+    counters,
   });
-  return { processor, commands };
+  return { processor, commands, counters };
 }
 
 // The task loop pairs command results back to tool actions by array index, so every processed
@@ -84,4 +89,14 @@ test('executeBatch records one command entry per tool action so results stay ali
   assert.equal(commands[0].safe, false);
   assert.equal(commands[0].reason, 'invalid action');
   assert.equal(commands[1].safe, true);
+});
+
+test('a git action whose command omits the git token is normalized instead of rejected', async () => {
+  const root = createManagedTempDir('siftkit-git-prefix-');
+  const { processor, commands, counters } = makeProcessor(root, ['git']);
+
+  await processor.executeBatch(1, [{ action: 'tool', tool_name: 'git', args: { command: 'status' } }], '', 0, false);
+
+  assert.equal(counters.invalidResponses, 0);
+  assert.equal(commands[0]?.command, 'git status');
 });

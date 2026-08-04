@@ -3,15 +3,14 @@ import { getRepoSearchLineReadStats } from '../../line-read-guidance.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
 import {
   evaluateCommandSafety,
-  getFirstCommandToken,
   type IgnorePolicy,
 } from '../command-safety.js';
 import {
-  getRepoSearchCommandTokenForToolName,
   isMutatingCommandToolName,
   isRepoSearchCommandToolName,
   isRepoSearchNativeToolName,
   isTreeMutatingToolName,
+  normalizeRepoSearchCommandForToolName,
   type ToolAction,
 } from '../planner-protocol.js';
 import { buildApprovalReviewPayload } from '../approval-review-policy.js';
@@ -309,15 +308,19 @@ export class ToolActionProcessor {
       return this.recordInvalidToolCall(turn, toolAction, state, normalizedToolName, disallowedToolMessage);
     }
     const command = isCommandTool
-      ? (typeof toolAction.args.command === 'string' ? toolAction.args.command : '')
+      ? normalizeRepoSearchCommandForToolName(
+          normalizedToolName,
+          typeof toolAction.args.command === 'string' ? toolAction.args.command : '',
+        )
       : buildRepoToolRequestedCommand(normalizedToolName, toolAction.args);
-    if (isCommandTool && !command.trim()) {
-      return this.recordInvalidToolCall(turn, toolAction, state, normalizedToolName, `Invalid action: ${normalizedToolName} requires args.command.`);
-    }
-    const expectedCommandToken = isCommandTool ? getRepoSearchCommandTokenForToolName(normalizedToolName) : null;
-    const actualCommandToken = isCommandTool ? getFirstCommandToken(command) : null;
-    if (isCommandTool && (!expectedCommandToken || actualCommandToken !== expectedCommandToken)) {
-      return this.recordInvalidToolCall(turn, toolAction, state, normalizedToolName, `Invalid action: ${normalizedToolName} only allows commands starting with '${expectedCommandToken || '<unknown>'}'.`);
+    if (isCommandTool && !command) {
+      return this.recordInvalidToolCall(
+        turn,
+        toolAction,
+        state,
+        normalizedToolName,
+        `Invalid action: ${normalizedToolName} requires args.command.`,
+      );
     }
     return { normalizedToolName, isCommandTool, isNativeTool, command };
   }
