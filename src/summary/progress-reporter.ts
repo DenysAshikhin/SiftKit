@@ -5,7 +5,7 @@ export type SummaryProgressEvent = {
   requestId: string;
   inputChars?: number;
   source?: string;
-  backend?: string;
+  provider?: SummaryProviderId;
   model?: string;
   numCtxLocal?: number;
   numCtxHost?: number;
@@ -46,24 +46,24 @@ export class SummaryProgressReporter {
     this.emit({ kind: 'config_start', requestId: this.requestId, source });
   }
 
-  configDone(backend: string, model: string): void {
-    this.emit({ kind: 'config_done', requestId: this.requestId, backend, model });
+  configDone(provider: SummaryProviderId, model: string): void {
+    this.emit({ kind: 'config_done', requestId: this.requestId, provider, model });
   }
 
   hostSync(numCtxLocal: number, numCtxHost: number): void {
     this.emit({ kind: 'host_sync', requestId: this.requestId, numCtxLocal, numCtxHost });
   }
 
-  decisionDone(backend: string, rawReviewRequired: boolean, chars: number): void {
-    this.emit({ kind: 'decision_done', requestId: this.requestId, backend, rawReviewRequired, chars });
+  decisionDone(provider: SummaryProviderId, rawReviewRequired: boolean, chars: number): void {
+    this.emit({ kind: 'decision_done', requestId: this.requestId, provider, rawReviewRequired, chars });
   }
 
-  coreStart(backend: string): void {
-    this.emit({ kind: 'core_start', requestId: this.requestId, backend });
+  coreStart(provider: SummaryProviderId): void {
+    this.emit({ kind: 'core_start', requestId: this.requestId, provider });
   }
 
-  coreDone(backend: string): void {
-    this.emit({ kind: 'core_done', requestId: this.requestId, backend });
+  coreDone(provider: SummaryProviderId): void {
+    this.emit({ kind: 'core_done', requestId: this.requestId, provider });
   }
 
   tokenizeStart(phase: string, chunk: string, promptChars: number): void {
@@ -96,3 +96,4 @@ export class SummaryProgressReporter {
   }
 }
 import type { ProgressWriter } from '../lib/progress-writer.js';
+import type { SummaryProviderId } from './types.js';

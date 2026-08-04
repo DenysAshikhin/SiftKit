@@ -418,7 +418,7 @@ test('real status server accepts deferred summary artifacts on terminal posts an
               requestId,
               question: 'Summarize this short input.',
               inputText: 'Line one.\nLine two.',
-              backend: 'mock',
+              provider: 'mock',
               model: 'mock-model',
               classification: 'summary',
               summary: 'mock summary',

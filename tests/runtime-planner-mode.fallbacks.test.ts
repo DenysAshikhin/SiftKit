@@ -26,7 +26,7 @@ test('planner find_text auto-normalizes lone regex braces like var.*Unlocks.*=.*
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -73,7 +73,7 @@ test('planner fails fast when the planner response body is empty', async () => {
           inputText,
           format: 'text',
           policyProfile: 'general',
-          backend: 'llama.cpp',
+          provider: 'real',
           model: 'mock-model',
         }),
         /Planner mode failed: llama\.cpp did not return a response body\./u,
@@ -105,7 +105,7 @@ test('planner tolerates several malformed replies before succeeding instead of a
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -143,7 +143,7 @@ test('planner accepts a direct structured summary response for oversized input i
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -178,7 +178,7 @@ test('summarizeRequest no longer rejects input larger than 4x chunk threshold wh
         inputText: buildOversizedTransitionsInput(inputChars),
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 

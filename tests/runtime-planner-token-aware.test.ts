@@ -65,7 +65,7 @@ test('oversized llama.cpp summaries stay on planner status path without leaf chu
         inputText: 'A'.repeat(threshold * 2),
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -576,7 +576,7 @@ test('planner activation threshold at exactly 75% stays on non-planner path', as
         inputText: nonPlannerInput,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
       const nonPlannerRequest = server.state.chatRequests[server.state.chatRequests.length - 1];

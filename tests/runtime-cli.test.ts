@@ -54,7 +54,7 @@ test('concurrent oversized CLI summary requests are serialized until the first r
           'summarize oversized request A',
           '--file',
           firstInputPath,
-          '--backend',
+          '--provider',
           'mock',
           '--model',
           'mock-model',
@@ -69,7 +69,7 @@ test('concurrent oversized CLI summary requests are serialized until the first r
           'summarize oversized request B',
           '--file',
           secondInputPath,
-          '--backend',
+          '--provider',
           'mock',
           '--model',
           'mock-model',
@@ -296,7 +296,7 @@ test('unsupported input returns the exact terminal message', async () => {
         inputText: 'unsupported fixture marker',
         format: 'text',
         policyProfile: 'general',
-        backend: 'mock',
+        provider: 'mock',
         model: 'mock-model',
       });
 

@@ -197,11 +197,11 @@ export async function planTokenAwareLlamaCppChunks(options: {
 
 export function shouldRetryWithSmallerChunks(options: {
   error: Error;
-  backend: SummaryProviderId;
+  provider: SummaryProviderId;
   inputText: string;
   chunkThreshold: number;
 }): boolean {
-  if (options.backend !== 'llama.cpp') {
+  if (options.provider !== 'real') {
     return false;
   }
 

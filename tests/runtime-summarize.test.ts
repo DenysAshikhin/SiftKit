@@ -109,7 +109,7 @@ test('summarizeRequest uses a single oversized mock summary pass when the extern
         inputText: 'A'.repeat((threshold * 3) + 1),
         format: 'text',
         policyProfile: 'general',
-        backend: 'mock',
+        provider: 'mock',
         model: 'mock-model',
       });
 
@@ -144,7 +144,7 @@ test('summary command-output pass/fail with Jest pass output is deterministic an
         ].join('\n'),
         format: 'text',
         policyProfile: 'general',
-        backend: 'mock',
+        provider: 'mock',
         model: 'mock-model',
         sourceKind: 'command-output',
         commandExitCode: 0,
@@ -192,7 +192,7 @@ test('summarizeRequest does not wait for terminal metadata notification response
         ].join('\n'),
         format: 'text',
         policyProfile: 'general',
-        backend: 'mock',
+        provider: 'mock',
         model: 'mock-model',
         sourceKind: 'command-output',
         commandExitCode: 0,
@@ -230,7 +230,7 @@ test('summary command-output pass/fail with Jest failure output is deterministic
         ].join('\n'),
         format: 'text',
         policyProfile: 'general',
-        backend: 'mock',
+        provider: 'mock',
         model: 'mock-model',
         sourceKind: 'command-output',
         commandExitCode: 1,
@@ -254,7 +254,7 @@ test('summary ignores legacy busy running status without retrying', async () => 
         inputText: 'A'.repeat(5000),
         format: 'text',
         policyProfile: 'general',
-        backend: 'mock',
+        provider: 'mock',
         model: 'mock-model',
       });
 
@@ -285,7 +285,7 @@ test('summarizeRequest does not split mock summaries when aggregate status total
         inputText: 'A'.repeat(inputLength),
         format: 'text',
         policyProfile: 'general',
-        backend: 'mock',
+        provider: 'mock',
         model: 'mock-model',
       });
 
@@ -445,7 +445,7 @@ test('summarizeRequest keeps using bootstrap calibration when only a legacy obse
         inputText: 'A'.repeat(5000),
         format: 'text',
         policyProfile: 'general',
-        backend: 'mock',
+        provider: 'mock',
         model: 'mock-model',
       });
       assert.equal(result.WasSummarized, true);
@@ -520,7 +520,7 @@ test('summary keeps oversized llama.cpp requests on planner mode when direct pro
         inputText: 'A'.repeat(150000),
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -566,7 +566,7 @@ test('summary hands oversized llama.cpp requests to planner mode before tokeniza
         inputText: 'A'.repeat(150000),
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -612,7 +612,7 @@ test('summary posts the preflight prompt token count in running status updates',
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -644,7 +644,7 @@ test('summarizeRequest recovers malformed structured llama.cpp JSON when the exp
         inputText: 'A'.repeat(5000),
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -677,7 +677,7 @@ test('summarizeRequest enables per-request response_format json_schema for struc
         inputText: 'A'.repeat(5000),
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -762,7 +762,7 @@ test('pass markers with zero failed still use the model summary path', async () 
         ].join('\n'),
         format: 'text',
         policyProfile: 'general',
-        backend: 'mock',
+        provider: 'mock',
         model: 'mock-model',
       });
 
@@ -862,7 +862,7 @@ test('summarizeRequest queues request artifacts on the terminal status post and 
         inputText: 'Line one.\nLine two.',
         format: 'text',
         policyProfile: 'general',
-        backend: 'mock',
+        provider: 'mock',
         model: 'mock-model',
         debugCommand: 'echo short input | siftkit "Summarize this short input."',
       });
@@ -910,7 +910,7 @@ test('summarizeRequest queues request artifacts on the terminal status post and 
     assert.equal(requestDump.question, 'Summarize this short input.');
     assert.equal(requestDump.inputText, 'Line one.\nLine two.');
     assert.equal(requestDump.classification, 'summary');
-    assert.equal(requestDump.backend, 'mock');
+    assert.equal(requestDump.provider, 'mock');
     assert.equal(requestDump.model, 'mock-model');
     assert.equal(typeof requestDump.summary, 'string');
     assert.equal(requestDump.error, null);
@@ -926,7 +926,7 @@ test('summary succeeds when deferred artifact persistence is unavailable', async
         inputText: 'Line one.\nLine two.',
         format: 'text',
         policyProfile: 'general',
-        backend: 'mock',
+        provider: 'mock',
         model: 'mock-model',
       });
 
@@ -957,7 +957,7 @@ test('command-output never surfaces unsupported_input for non-empty input', asyn
         inputText: 'unsupported fixture marker',
         format: 'text',
         policyProfile: 'general',
-        backend: 'mock',
+        provider: 'mock',
         model: 'mock-model',
         sourceKind: 'command-output',
       });
@@ -982,7 +982,7 @@ test('provider failures hard fail instead of falling back to a deterministic raw
           inputText: 'A'.repeat(5000),
           format: 'text',
           policyProfile: 'general',
-          backend: 'mock',
+          provider: 'mock',
           model: 'mock-model',
         }),
         /mock provider failure/u
@@ -1002,7 +1002,7 @@ test('empty structured output retries once then fails, and subsequent requests s
           inputText: 'A'.repeat(5000),
           format: 'text',
           policyProfile: 'general',
-          backend: 'llama.cpp',
+          provider: 'real',
           model: 'mock-model',
         }),
         /Provider returned an empty SiftKit decision output\./u
@@ -1014,7 +1014,7 @@ test('empty structured output retries once then fails, and subsequent requests s
         inputText: 'B'.repeat(5000),
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -1084,7 +1084,7 @@ test('summary requests use the host model and the caller MaxTokens overlay', asy
         inputText: 'A'.repeat(5000),
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         config,
         llamaCppMaxTokens: 321,
       });

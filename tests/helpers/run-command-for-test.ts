@@ -12,7 +12,7 @@ export interface RunCommandRequest {
   ReducerProfile?: CommandOutputAnalyzeRequest['reducerProfile'];
   Format?: CommandOutputAnalyzeRequest['format'];
   PolicyProfile?: CommandOutputAnalyzeRequest['policyProfile'];
-  Backend?: CommandOutputAnalyzeRequest['backend'];
+  Backend?: CommandOutputAnalyzeRequest['provider'];
   Model?: CommandOutputAnalyzeRequest['model'];
   NoSummarize?: boolean;
 }
@@ -35,7 +35,7 @@ export async function runCommand(request: RunCommandRequest): Promise<CommandOut
     reducerProfile: request.ReducerProfile,
     format: request.Format,
     policyProfile: request.PolicyProfile,
-    backend: request.Backend,
+    provider: request.Backend,
     model: request.Model,
     noSummarize: request.NoSummarize,
     shell,

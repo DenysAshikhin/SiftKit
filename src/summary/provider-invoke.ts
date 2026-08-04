@@ -33,7 +33,7 @@ export type ProviderSummaryMetrics = {
 export async function invokeProviderSummary(options: {
   requestId: string;
   slotId: number | null;
-  backend: SummaryProviderId;
+  provider: SummaryProviderId;
   config: SiftConfig;
   model: string;
   prompt: string;
@@ -96,9 +96,9 @@ export async function invokeProviderSummary(options: {
   let promptCacheTokens: number | null = null;
   let promptEvalTokens: number | null = null;
   try {
-    if (options.backend === 'mock') {
+    if (options.provider === 'mock') {
       return await runMockProvider({
-        backend: options.backend,
+        provider: options.provider,
         model: options.model,
         prompt: options.prompt,
         question: options.question,
@@ -115,7 +115,7 @@ export async function invokeProviderSummary(options: {
     }
 
     traceSummary(
-      `provider start backend=${options.backend} model=${options.model} phase=${options.phase} `
+      `provider start provider=${options.provider} model=${options.model} phase=${options.phase} `
       + `chunk=${chunkLabel} timeout_s=${options.requestTimeoutSeconds ?? 600}`
     );
     const llamaSpan = options.timingRecorder?.start('summary.llama.request', {
@@ -135,7 +135,7 @@ export async function invokeProviderSummary(options: {
         reasoningOverride: options.reasoningOverride,
         structuredOutput: {
           kind: 'siftkit-decision-json',
-          allowUnsupportedInput: options.backend !== 'llama.cpp' || options.phase === 'leaf' && options.chunkPath !== null,
+          allowUnsupportedInput: options.provider !== 'real' || options.phase === 'leaf' && options.chunkPath !== null,
         },
       });
     } finally {

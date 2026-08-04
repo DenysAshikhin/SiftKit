@@ -39,7 +39,7 @@ test('summary status notification failures do not abort provider work', async ()
         inputText: 'A'.repeat(5000),
         format: 'text',
         policyProfile: 'general',
-        backend: 'mock',
+        provider: 'mock',
         model: 'mock-model',
       });
 

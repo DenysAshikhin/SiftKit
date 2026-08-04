@@ -47,7 +47,7 @@ test('SummaryRequestRunner reports the requested provider on the deterministic p
     policyProfile: 'general',
     sourceKind: 'command-output',
     commandExitCode: 1,
-    backend: 'mock',
+    provider: 'mock',
   }).run();
 
   assert.equal(result.PolicyDecision, 'deterministic-test-output');

@@ -162,7 +162,7 @@ export class StatusPresetRunner {
       images: [],
       format: request.format === 'json' ? 'json' : 'text',
       policyProfile: normalizePresetPolicyProfile(request.profile),
-      backend: request.backend,
+      provider: request.provider,
       model: request.model,
       allowedPlannerTools: effectiveAllowedTools.filter(isSummaryPlannerTool),
       sourceKind: request.sourceKind === 'command-output' ? 'command-output' : 'standalone',

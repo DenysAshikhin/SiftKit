@@ -45,7 +45,7 @@ test('benchmark runner writes prompt, output, classification metadata, per-case 
       const result = await runBenchmarkSuite({
         fixtureRoot,
         outputPath,
-        backend: 'mock',
+        provider: 'mock',
         model: 'mock-model',
       });
       const artifact = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
@@ -105,7 +105,7 @@ test('benchmark runner times out fatally and writes a partial artifact', async (
         () => runBenchmarkSuite({
           fixtureRoot,
           outputPath,
-          backend: 'mock',
+          provider: 'mock',
           model: 'mock-model',
           requestTimeoutSeconds: 0.01,
         }),
@@ -163,7 +163,7 @@ test('benchmark runner uses a 30 minute default request timeout when omitted', a
         const result = await runBenchmarkSuite({
           fixtureRoot,
           outputPath,
-          backend: 'mock',
+          provider: 'mock',
           model: 'mock-model',
         });
 
@@ -199,7 +199,7 @@ test('benchmark runner fails fast on provider errors and writes the fatal error 
         () => runBenchmarkSuite({
           fixtureRoot,
           outputPath,
-          backend: 'mock',
+          provider: 'mock',
           model: 'mock-model',
         }),
         /Benchmark fixture 'provider-error-case' failed: HTTP 500: .*mock provider failure/u,
@@ -342,7 +342,7 @@ test('benchmark runner records a custom prompt prefix from file', async () => {
       const result = await runBenchmarkSuite({
         fixtureRoot,
         outputPath,
-        backend: 'mock',
+        provider: 'mock',
         model: 'mock-model',
         promptPrefixFile: promptPrefixPath,
       });
@@ -409,7 +409,7 @@ test('benchmark error-log fixtures now reach the model-first summary path', {
               inputText,
               format: 'text',
               policyProfile: 'general',
-              backend: 'mock',
+              provider: 'mock',
               model: 'mock-model',
               sourceKind: 'standalone',
             }),
@@ -425,7 +425,7 @@ test('benchmark error-log fixtures now reach the model-first summary path', {
           inputText,
           format: 'text',
           policyProfile: 'general',
-          backend: 'mock',
+          provider: 'mock',
           model: 'mock-model',
           sourceKind: 'standalone',
         });

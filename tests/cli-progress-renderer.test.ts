@@ -30,7 +30,7 @@ test('skips thinking and answer events and renders unknown kinds by name', () =>
   const renderer = new CliProgressRenderer(stderr.stream, 'summary');
   renderer.render({ kind: 'thinking', thinkingText: 'hidden' });
   renderer.render({ kind: 'answer', answerText: 'hidden' });
-  renderer.render({ kind: 'core_start', backend: 'llama.cpp' });
+  renderer.render({ kind: 'core_start', provider: 'real' });
   const lines = stderr.read().trim().split('\n').filter(Boolean);
   assert.equal(lines.length, 1);
   assert.match(lines[0] ?? '', /summary core_start/u);

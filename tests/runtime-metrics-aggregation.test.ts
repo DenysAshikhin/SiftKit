@@ -30,7 +30,7 @@ test('summary aggregation accumulates provider usage and duration in status metr
         inputText: 'A'.repeat(5000),
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -74,7 +74,7 @@ test('summary aggregation records duration without tokens when provider usage is
         inputText: 'A'.repeat(5000),
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -117,7 +117,7 @@ test('summary aggregation records thinking tokens independently from output metr
         inputText: 'A'.repeat(5000),
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -155,7 +155,7 @@ test('summary aggregation counts only processed prompt tokens when cache metadat
         inputText: 'A'.repeat(5000),
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 

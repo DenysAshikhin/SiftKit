@@ -34,7 +34,7 @@ test('planner writes a debug dump with thinking, tool calls, tool output, and fi
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
         debugCommand: 'cat transitions.json | siftkit "Find all transitions in the Lumbridge Castle area."',
       });

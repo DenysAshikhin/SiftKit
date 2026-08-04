@@ -6,7 +6,7 @@ import { asObject } from './helpers/dashboard-http.js';
 
 function baseOptions(overrides: Partial<Parameters<typeof runMockProvider>[0]> = {}) {
   return {
-    backend: 'mock',
+    provider: 'mock' as const,
     model: 'mock-model',
     prompt: 'Input:\nhello world',
     question: 'summarize this',

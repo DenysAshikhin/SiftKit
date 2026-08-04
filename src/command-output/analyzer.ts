@@ -112,7 +112,7 @@ function reduceText(text: string, reducerProfile: CommandOutputReducerProfile): 
 export class CommandOutputAnalyzer {
   async analyze(request: CommandOutputAnalyzeRequest): Promise<CommandOutputAnalyzeResult> {
     const config = request.config || await loadConfig({ ensure: true });
-    const backend = resolveSummaryProvider(request.backend);
+    const provider = resolveSummaryProvider(request.provider);
     const model = request.model || getConfiguredModel(config);
     void initializeRuntime();
 
@@ -173,7 +173,7 @@ export class CommandOutputAnalyzer {
       inputText: combinedText,
       format,
       policyProfile: effectiveProfile,
-      backend,
+      provider,
       model,
       sourceKind: 'command-output',
       commandExitCode: request.exitCode,

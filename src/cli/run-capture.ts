@@ -29,7 +29,7 @@ export async function runCaptureInternalCli(options: ResolvedCliArgs & {
     question: parsed.question,
     format: normalizeCliFormat(parsed.format),
     policyProfile: normalizeCliPolicyProfile(parsed.profile),
-    backend: parsed.backend,
+    provider: parsed.provider,
     model: parsed.model,
   }, CliProgressRenderer.forCli(options.stderr, 'capture', parsed.progress === true));
   options.stdout.write(`${String(result.Summary || 'No summary generated.').trim()}\nRaw transcript: ${result.RawLogPath}\n`);

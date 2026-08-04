@@ -302,7 +302,7 @@ test('internal op summary rejects an unknown Backend from the request file', asy
       stderr: stderr.stream,
     });
     assert.equal(code, 1);
-    assert.match(stderr.read(), /Unsupported backend 'llama'/u);
+    assert.match(stderr.read(), /Unsupported provider 'llama'/u);
   });
 });
 

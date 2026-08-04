@@ -12,12 +12,12 @@ test('emits typed events to the writer with requestId stamped', () => {
   });
   reporter.start(120);
   reporter.configStart('load');
-  reporter.configDone('llama.cpp', 'test-model');
-  reporter.decisionDone('llama.cpp', false, 120);
-  reporter.coreStart('llama.cpp');
+  reporter.configDone('real', 'test-model');
+  reporter.decisionDone('real', false, 120);
+  reporter.coreStart('real');
   reporter.tokenizeStart('planner', 'chunk-1', 900);
   reporter.tokenizeDone('planner', 'chunk-1', 250, 'server');
-  reporter.coreDone('llama.cpp');
+  reporter.coreDone('real');
   reporter.completed('summary');
   assert.deepEqual(writer.events.map((event) => event.kind), [
     'start', 'config_start', 'config_done', 'decision_done', 'core_start',

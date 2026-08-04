@@ -26,7 +26,7 @@ export type SummaryRouteRequest = {
   images: string[];
   format: 'text' | 'json';
   policyProfile: SummaryPolicyProfile;
-  backend: SummaryProviderId | undefined;
+  provider: SummaryProviderId | undefined;
   model: string | undefined;
   sourceKind: SummarySourceKind | undefined;
   commandExitCode: number | undefined;
@@ -138,7 +138,7 @@ export function parseSummaryRequest(body: JsonObject): SummaryRouteRequest | nul
     inputText,
     format: reader.value('format') === 'json' ? 'json' : 'text',
     policyProfile: normalizeSummaryPolicyProfile(reader.value('policyProfile')),
-    backend: parseOptionalSummaryProvider(reader.optionalString('backend')),
+    provider: parseOptionalSummaryProvider(reader.optionalString('provider')),
     model: reader.optionalString('model'),
     sourceKind: normalizeSummarySourceKind(reader.value('sourceKind')),
     commandExitCode: optionalNumber(reader, 'commandExitCode'),

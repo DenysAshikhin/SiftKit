@@ -189,7 +189,7 @@ export function buildSummaryRequestArtifact(options: {
   question: string;
   inputText: string;
   command?: string | null;
-  backend: SummaryProviderId;
+  provider: SummaryProviderId;
   model: string;
   classification?: SummaryClassification | null;
   rawReviewRequired?: boolean | null;
@@ -208,7 +208,7 @@ export function buildSummaryRequestArtifact(options: {
       command: options.command ?? null,
       question: options.question,
       inputText: options.inputText,
-      backend: options.backend,
+      provider: options.provider,
       model: options.model,
       classification: options.classification ?? null,
       ...(options.rawReviewRequired ? { rawReviewRequired: true } : {}),
@@ -231,7 +231,7 @@ export async function writeSummaryRequestDump(options: {
   question: string;
   inputText: string;
   command?: string | null;
-  backend: SummaryProviderId;
+  provider: SummaryProviderId;
   model: string;
   classification?: SummaryClassification | null;
   rawReviewRequired?: boolean | null;

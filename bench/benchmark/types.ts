@@ -18,7 +18,7 @@ export type BenchmarkFixture = z.infer<typeof BenchmarkFixtureSchema>;
 export type BenchmarkRunnerOptions = {
   fixtureRoot?: string;
   outputPath?: string;
-  backend?: SummaryProviderId;
+  provider?: SummaryProviderId;
   model?: string;
   promptPrefix?: string;
   promptPrefixFile?: string;

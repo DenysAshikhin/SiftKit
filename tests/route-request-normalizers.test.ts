@@ -27,7 +27,7 @@ test('core route request normalizers return typed values', () => {
     repoRoot: ' C:/repo ',
     requestTimeoutSeconds: '5',
     format: 'json',
-    backend: 'mock',
+    provider: 'mock',
     model: 'm',
     commandExitCode: 1,
   }), {
@@ -38,7 +38,7 @@ test('core route request normalizers return typed values', () => {
     presetId: undefined,
     format: 'json',
     policyProfile: 'general',
-    backend: 'mock',
+    provider: 'mock',
     model: 'm',
     sourceKind: undefined,
     commandExitCode: 1,
@@ -53,9 +53,9 @@ test('core route request normalizers return typed values', () => {
       question: 'q',
       inputText: 'text',
       repoRoot: 'C:/repo',
-      backend: 'llama',
+      provider: 'llama',
     }),
-    /Unsupported backend 'llama'/u,
+    /Unsupported provider 'llama'/u,
   );
 
   assert.deepEqual(parseDashboardRunLogDeleteRequest({ mode: 'count', type: 'summary', count: '4' }), {

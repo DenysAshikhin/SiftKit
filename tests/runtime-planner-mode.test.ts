@@ -125,7 +125,7 @@ test('planner json_filter accepts combined gte and lte bounds in one filter valu
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -183,7 +183,7 @@ test('planner iteration running=false notification is fire-and-forget', async ()
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
         statusBackendUrl: server.statusUrl,
       });
@@ -224,7 +224,7 @@ test('planner retries malformed json_filter schema-placeholder args once and the
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -287,7 +287,7 @@ test('planner accepts exact nested value scalar wrappers in json_filter args', a
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -347,7 +347,7 @@ test('planner malformed json_filter schema-placeholder args fail on invalid resp
           inputText,
           format: 'text',
           policyProfile: 'general',
-          backend: 'llama.cpp',
+          provider: 'real',
           model: 'mock-model',
         }),
         /planner_invalid_response_limit/u,
@@ -386,7 +386,7 @@ test('planner json_filter supports scalar timestamp ranges on object-root array 
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -451,7 +451,7 @@ test('planner returns recoverable json_filter collectionPath guidance without co
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -524,7 +524,7 @@ test('planner json_filter falls back to embedded JSON in command-output text and
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
         sourceKind: 'command-output',
       });
@@ -590,7 +590,7 @@ test('planner surfaces explicit invalid-json message when json_filter fallback c
         inputText: noJsonText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
         sourceKind: 'command-output',
       });
@@ -649,7 +649,7 @@ test('planner failures write failed artifacts through status posts', async () =>
           inputText,
           format: 'text',
           policyProfile: 'general',
-          backend: 'llama.cpp',
+          provider: 'real',
           model: 'mock-model',
           debugCommand: 'type transitions.json | siftkit "Find all transitions in the Lumbridge Castle area."',
         }),
@@ -766,7 +766,7 @@ test('planner debug dumps always write to the repo-local logs directory', async 
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -798,7 +798,7 @@ test('planner read_lines tool results use a compact numbered text block', async 
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -846,7 +846,7 @@ test('planner rejects semantically repeated nearby read_lines calls and reprompt
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -900,7 +900,7 @@ test('planner keeps the first real tool output and rewrites one duplicate warnin
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -973,7 +973,7 @@ test('planner find_text and json_filter results use compact text blocks in promp
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -1062,7 +1062,7 @@ test('planner keeps short read_lines output when reported token count is high', 
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
         allowedPlannerTools: ['read_lines'],
       });
@@ -1116,7 +1116,7 @@ test('planner keeps tool results when they stay within 70 percent of remaining s
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
         allowedPlannerTools: ['read_lines'],
       });
@@ -1171,7 +1171,7 @@ test('planner keeps read_lines output when tokenize is unavailable', async () =>
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
         allowedPlannerTools: ['read_lines'],
       });
@@ -1229,7 +1229,7 @@ test('planner fits oversized read_lines output and reports omitted lines', async
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
         allowedPlannerTools: ['read_lines'],
       });
@@ -1288,7 +1288,7 @@ test('planner advances repeated read_lines calls to one unread span', async () =
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
         allowedPlannerTools: ['read_lines'],
       });
@@ -1342,7 +1342,7 @@ test('planner advances repeated read_lines calls from fitted returned lines only
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
         allowedPlannerTools: ['read_lines'],
       });
@@ -1404,7 +1404,7 @@ test('planner forced finish rejects read_lines before unread expansion', async (
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
         allowedPlannerTools: ['find_text', 'read_lines'],
       });
@@ -1460,7 +1460,7 @@ test('planner fits oversized find_text output and reports omitted results', asyn
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
         allowedPlannerTools: ['find_text'],
       });
@@ -1522,7 +1522,7 @@ test('planner activates once input exceeds 75 percent of context length even bef
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -1562,7 +1562,7 @@ test('planner allows up to thirty tool calls while prompt headroom remains witho
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -1617,7 +1617,7 @@ test('planner reuses one slot within a request and assigns a new slot to the nex
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
       const second = await summarizeRequest({
@@ -1626,7 +1626,7 @@ test('planner reuses one slot within a request and assigns a new slot to the nex
         inputText,
         format: 'text',
         policyProfile: 'general',
-        backend: 'llama.cpp',
+        provider: 'real',
         model: 'mock-model',
       });
 
@@ -1689,7 +1689,7 @@ test('planner fails fast when the next planner turn would exceed non-thinking he
           inputText,
           format: 'text',
           policyProfile: 'general',
-          backend: 'llama.cpp',
+          provider: 'real',
           model: 'mock-model',
         }),
         /Planner mode failed: planner_headroom_exceeded/u,
@@ -1740,7 +1740,7 @@ test('planner fails fast when the next planner turn would exceed thinking headro
           inputText,
           format: 'text',
           policyProfile: 'general',
-          backend: 'llama.cpp',
+          provider: 'real',
           model: 'mock-model',
         }),
         /Planner mode failed: planner_headroom_exceeded/u,

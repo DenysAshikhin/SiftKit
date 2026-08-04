@@ -55,7 +55,7 @@ import { assertPresetAcceptsImages } from '../llm-protocol/image-attachments.js'
 
 type SummaryExecutionContext = {
   config: SiftConfig;
-  backend: SummaryProviderId;
+  provider: SummaryProviderId;
   model: string;
   sourceKind: SummarySourceKind;
   decision: ReturnType<typeof getSummaryDecision>;
@@ -90,11 +90,11 @@ function getSummaryWallDurationMs(request: SummaryRequest, fallbackStartedAtMs: 
 
 /** Only the mock provider cannot chunk, so mock input above `maxInputCharacters` is rejected. */
 export function isOversizedMockInput(
-  backend: SummaryProviderId,
+  provider: SummaryProviderId,
   inputLength: number,
   maxInputCharacters: number,
 ): boolean {
-  return backend === 'mock' && inputLength > maxInputCharacters;
+  return provider === 'mock' && inputLength > maxInputCharacters;
 }
 
 export class SummaryRequestRunner {
@@ -105,13 +105,13 @@ export class SummaryRequestRunner {
   private readonly timingRecorder: TemporaryTimingRecorder | null;
   private timingStatus: 'completed' | 'failed' = 'failed';
   private config: SiftConfig | null = null;
-  private readonly backend: SummaryProviderId;
+  private readonly provider: SummaryProviderId;
   private readonly progress: SummaryProgressReporter;
   private model = 'unknown';
 
   constructor(request: SummaryRequest) {
     this.request = request;
-    this.backend = resolveSummaryProvider(request.backend);
+    this.provider = resolveSummaryProvider(request.provider);
     this.inputText = normalizeInputText(request.inputText) ?? '';
     this.progress = new SummaryProgressReporter({
       requestId: this.requestId,
@@ -170,7 +170,7 @@ export class SummaryRequestRunner {
       RequestId: this.requestId,
       WasSummarized: true,
       PolicyDecision: 'deterministic-test-output',
-      Backend: this.backend,
+      Backend: this.provider,
       Model: model,
       Summary: deterministicTestSummary.summary,
       Classification: deterministicTestSummary.verdict === 'PASS' ? 'summary' : 'command_failure',
@@ -224,7 +224,7 @@ export class SummaryRequestRunner {
     this.config = applyModelOverrideToConfig(this.config, this.request.model);
     this.config = applyMaxTokensOverrideToConfig(this.config, this.request.llamaCppMaxTokens);
     this.model = getConfiguredModel(this.config);
-    this.progress.configDone(this.backend, this.model);
+    this.progress.configDone(this.provider, this.model);
     assertPresetAcceptsImages(getActiveModelPreset(this.config), this.request.images ?? []);
     const presets = PresetCatalog.fromPresets(this.config.Presets);
     const preset = this.request.presetId
@@ -236,7 +236,7 @@ export class SummaryRequestRunner {
     }
     const riskLevel = this.request.policyProfile === 'risky-operation' ? 'risky' : 'informational';
     const sourceKind = this.request.sourceKind || 'standalone';
-    this.rejectOversizedMockInput(this.config, this.backend);
+    this.rejectOversizedMockInput(this.config, this.provider);
     const decisionSpan = this.timingRecorder?.start('summary.decision');
     const decision = getSummaryDecision(this.inputText, this.request.question, riskLevel, this.config, {
       sourceKind,
@@ -246,10 +246,10 @@ export class SummaryRequestRunner {
       rawReviewRequired: decision.RawReviewRequired,
       characterCount: decision.CharacterCount,
     });
-    this.progress.decisionDone(this.backend, decision.RawReviewRequired, decision.CharacterCount);
+    this.progress.decisionDone(this.provider, decision.RawReviewRequired, decision.CharacterCount);
     return {
       config: this.config,
-      backend: this.backend,
+      provider: this.provider,
       model: this.model,
       sourceKind,
       decision,
@@ -269,9 +269,9 @@ export class SummaryRequestRunner {
     return hostConfig;
   }
 
-  private rejectOversizedMockInput(config: SiftConfig, backend: SummaryProviderId): void {
+  private rejectOversizedMockInput(config: SiftConfig, provider: SummaryProviderId): void {
     const maxInputCharacters = getChunkThresholdCharacters(config) * 4;
-    if (isOversizedMockInput(backend, this.inputText.length, maxInputCharacters)) {
+    if (isOversizedMockInput(provider, this.inputText.length, maxInputCharacters)) {
       throw new Error(`Error: recieved input of ${this.inputText.length} characters, current maximum is ${maxInputCharacters} chars`);
     }
   }
@@ -296,7 +296,7 @@ export class SummaryRequestRunner {
       RequestId: this.requestId,
       WasSummarized: true,
       PolicyDecision: 'deterministic-pass-fail',
-      Backend: context.backend,
+      Backend: context.provider,
       Model: context.model,
       Summary: excerpt
         ? `${passed ? 'PASS' : 'FAIL'}: command exit code was ${Number(this.request.commandExitCode)} and the captured output contains no obvious error signals. Observed output: ${excerpt}`
@@ -315,13 +315,13 @@ export class SummaryRequestRunner {
     context: SummaryExecutionContext,
   ): Promise<SummaryResult> {
     traceSummary(
-      `decision ready backend=${context.backend} model=${context.model} `
+      `decision ready provider=${context.provider} model=${context.model} `
       + `raw_review_required=${context.decision.RawReviewRequired} chars=${context.decision.CharacterCount} `
       + `lines=${context.decision.LineCount}`
     );
-    const slotId = context.backend === 'llama.cpp' ? allocateLlamaCppSlotId(context.config) : null;
+    const slotId = context.provider === 'real' ? allocateLlamaCppSlotId(context.config) : null;
     traceSummary('invokeSummaryCore start');
-    this.progress.coreStart(context.backend);
+    this.progress.coreStart(context.provider);
     const coreSpan = this.timingRecorder?.start('summary.core');
     let summaryCore: SummaryCoreResult;
     try {
@@ -333,7 +333,7 @@ export class SummaryRequestRunner {
         images: this.request.images ?? [],
         format: this.request.format,
         policyProfile: this.request.policyProfile,
-        backend: context.backend,
+        provider: context.provider,
         model: context.model,
         config: context.config,
         rawReviewRequired: context.decision.RawReviewRequired,
@@ -352,7 +352,7 @@ export class SummaryRequestRunner {
     } finally {
       coreSpan?.end();
     }
-    this.progress.coreDone(context.backend);
+    this.progress.coreDone(context.provider);
     traceSummary(`invokeSummaryCore done classification=${summaryCore.decision.classification}`);
     await this.notifyModelCompletion(summaryCore, context);
     const result = this.buildModelResult(summaryCore, context);
@@ -384,7 +384,7 @@ export class SummaryRequestRunner {
           question: this.request.question,
           inputText: this.inputText,
           command: this.request.debugCommand ?? null,
-          backend: result.Backend,
+          provider: result.Backend,
           model: result.Model,
           classification: result.Classification,
           rawReviewRequired: result.RawReviewRequired,
@@ -440,7 +440,7 @@ export class SummaryRequestRunner {
           question: this.request.question,
           inputText: this.inputText,
           command: this.request.debugCommand ?? null,
-          backend: context.backend,
+          provider: context.provider,
           model: context.model,
           classification: modelDecision.classification,
           rawReviewRequired: modelDecision.rawReviewRequired,
@@ -458,7 +458,7 @@ export class SummaryRequestRunner {
       RequestId: this.requestId,
       WasSummarized: modelDecision.classification !== 'unsupported_input',
       PolicyDecision: getPolicyDecision(modelDecision.classification),
-      Backend: context.backend,
+      Backend: context.provider,
       Model: context.model,
       Summary: modelDecision.output.trim(),
       Classification: modelDecision.classification,
