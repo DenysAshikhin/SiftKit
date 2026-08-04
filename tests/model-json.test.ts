@@ -386,6 +386,20 @@ test('ModelJson rejects a git tool call with no command and names the missing fi
   );
 });
 
+test('ModelJson passes a non-empty required array through untouched', () => {
+  assert.deepEqual(
+    parseRepoSearchPlannerAction(
+      JSON.stringify({ action: 'edit', path: 'a.ts', edits: [{ oldText: 'a', newText: 'b' }] }),
+      ['edit'],
+    ),
+    {
+      action: 'tool',
+      tool_name: 'edit',
+      args: { path: 'a.ts', edits: [{ oldText: 'a', newText: 'b' }] },
+    },
+  );
+});
+
 test('ModelJson reports a distinct reason for each tool-argument rejection path', () => {
   assert.throws(
     () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'grep', glob: '*.ts' }), ['grep']),
@@ -401,10 +415,12 @@ test('ModelJson reports a distinct reason for each tool-argument rejection path'
   );
 });
 
+// handleInvalidParse wraps the message in `Invalid action: ${message}. Return a valid …`, so a
+// message carrying its own trailing period produces a double period in the transcript.
 test('ModelJson thrown planner messages do not end in a period', () => {
   assert.throws(
     () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'grep', glob: '*.ts' }), ['grep']),
-    (error: unknown) => error instanceof Error && !error.message.endsWith('.'),
+    /"grep" requires "pattern" to be a non-empty string$/u,
   );
 });
 
@@ -464,6 +480,25 @@ test('ModelJson explains an empty or malformed tool batch', () => {
   assert.throws(
     () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'tool_batch', calls: ['grep'] }), ['grep']),
     /invalid planner tool batch action: call 1 is not a JSON object/u,
+  );
+});
+
+test('ModelJson names the offending call when a batch entry is unavailable or malformed', () => {
+  assert.throws(
+    () =>
+      parseRepoSearchPlannerAction(
+        JSON.stringify({ action: 'tool_batch', calls: [{ action: 'grep', pattern: 'x' }, { action: 'ls', path: '.' }] }),
+        ['grep'],
+      ),
+    /invalid planner tool batch action: call 2 uses unavailable tool "ls"/u,
+  );
+  assert.throws(
+    () =>
+      parseRepoSearchPlannerAction(
+        JSON.stringify({ action: 'tool_batch', calls: [{ action: 'grep', glob: '*.ts' }] }),
+        ['grep'],
+      ),
+    /invalid planner tool batch action: call 1 — "grep" requires "pattern" to be a non-empty string/u,
   );
 });
 

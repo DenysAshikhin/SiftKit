@@ -113,9 +113,10 @@ export class ValidationCommandOutputPolicy {
     return [...retained].sort((left, right) => left - right);
   }
 
+  /** Both callers run after the `lines.length <= this.lineLimit` early return, so `count < lineCount`. */
   private tailIndices(lineCount: number, count: number): number[] {
     const indices: number[] = [];
-    for (let index = Math.max(0, lineCount - count); index < lineCount; index += 1) {
+    for (let index = lineCount - count; index < lineCount; index += 1) {
       indices.push(index);
     }
     return indices;

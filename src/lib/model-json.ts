@@ -385,7 +385,6 @@ export class ModelJson {
       const normalized = this.normalizeRepoSearchToolCall(
         action,
         this.getDirectToolArgs(parsed, directToolDefinition),
-        allowedToolNames,
       );
       if (!normalized.ok) {
         throw new Error(`Provider returned an invalid planner tool action: ${normalized.reason}`);
@@ -405,7 +404,6 @@ export class ModelJson {
         const normalized = this.normalizeRepoSearchToolCall(
           toolName,
           this.getDirectToolArgs(toolRecord, toolDefinition),
-          allowedToolNames,
         );
         if (!normalized.ok) {
           throw new Error(
@@ -442,18 +440,11 @@ export class ModelJson {
     );
   }
 
+  /** Both callers gate on `allowedToolNames` before dispatching here, so this only validates arguments. */
   private static normalizeRepoSearchToolCall(
     toolName: string,
     rawArgs: JsonObject,
-    allowedToolNames: Set<string>,
   ): RepoSearchToolCallNormalization {
-    if (!allowedToolNames.has(toolName)) {
-      return {
-        ok: false,
-        reason: `tool "${toolName}" is not enabled for this run; enabled tools: ${[...allowedToolNames].sort().join(', ')}`,
-      };
-    }
-
     if (isRepoSearchCommandToolName(toolName)) {
       const command = normalizeRepoSearchCommandForToolName(toolName, this.getCommandArgValue(rawArgs));
       if (!command) {
