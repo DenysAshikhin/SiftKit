@@ -70,6 +70,7 @@ test('planner debug and failed-request references in a summary artifact resolve 
       inputText: 'npm test output',
       command: 'npm test',
       provider: 'real',
+      backend: 'llama',
       model: 'mock-model',
       classification: 'command_failure',
       summary: null,

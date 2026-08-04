@@ -47,6 +47,8 @@ import {
   normalizeConfig,
   mergeConfig,
 } from '../config-store.js';
+import { getActiveInferenceBackend } from '../../config/index.js';
+import type { InferenceBackendId, SiftConfig } from '../../config/types.js';
 import {
   buildStatusRequestLogBody,
   upsertRunArtifactPayload,
@@ -130,6 +132,7 @@ type RepoSearchAdmissionRecord = {
   repoRoot: string;
   model: string | null;
   maxTurns: number | null;
+  backend: InferenceBackendId;
 };
 
 function normalizeTaskKind(value: OptionalJsonValue): TaskKind | null {
@@ -138,7 +141,10 @@ function normalizeTaskKind(value: OptionalJsonValue): TaskKind | null {
     : null;
 }
 
-function createRepoSearchAdmissionRecord(parsedBody: RepoSearchRouteRequest): RepoSearchAdmissionRecord {
+function createRepoSearchAdmissionRecord(
+  parsedBody: RepoSearchRouteRequest,
+  config: SiftConfig,
+): RepoSearchAdmissionRecord {
   return {
     requestId: randomUUID(),
     startedAtUtc: new Date().toISOString(),
@@ -146,6 +152,7 @@ function createRepoSearchAdmissionRecord(parsedBody: RepoSearchRouteRequest): Re
     repoRoot: parsedBody.repoRoot,
     model: parsedBody.model,
     maxTurns: parsedBody.maxTurns,
+    backend: getActiveInferenceBackend(config),
   };
 }
 
@@ -160,7 +167,7 @@ function upsertRepoSearchAdmission(record: RepoSearchAdmissionRecord): void {
     finishedAtUtc: null,
     title: record.prompt,
     model: record.model,
-    backend: 'llama.cpp',
+    backend: record.backend,
     repoRoot: record.repoRoot,
     inputTokens: null,
     outputTokens: null,
@@ -205,7 +212,7 @@ function markRepoSearchAdmissionFailed(record: RepoSearchAdmissionRecord, errorM
     finishedAtUtc,
     title: record.prompt,
     model: record.model,
-    backend: 'llama.cpp',
+    backend: record.backend,
     repoRoot: record.repoRoot,
     inputTokens: null,
     outputTokens: null,
@@ -929,12 +936,12 @@ abstract class RepoTaskEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
   protected readonly taskKind = 'repo-search';
   protected abstract readonly mode: 'search' | 'agent';
 
-  protected parseRequest(parsedBody: JsonObject): ParsedStreamedRequest<ParsedRepoSearchRoute> {
+  protected parseRequest(parsedBody: JsonObject, ctx: ServerContext): ParsedStreamedRequest<ParsedRepoSearchRoute> {
     const repoSearchRequest = parseRepoSearchRequest(parsedBody);
     if (!repoSearchRequest) {
       return { ok: false, error: 'Expected prompt.' };
     }
-    const admission = createRepoSearchAdmissionRecord(repoSearchRequest);
+    const admission = createRepoSearchAdmissionRecord(repoSearchRequest, readConfig(ctx.configPath));
     upsertRepoSearchAdmission(admission);
     return { ok: true, value: { parsedBody, repoSearchRequest, admission } };
   }

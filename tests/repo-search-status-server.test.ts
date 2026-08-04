@@ -438,7 +438,7 @@ test('managed llama readiness wait is serialized by the model request queue', as
         repoRoot: process.cwd(),
         question: 'summarize',
         inputText: 'short text',
-        backend: 'llama.cpp',
+        backend: 'llama',
         model: 'managed-test-model',
       },
     });

@@ -34,7 +34,7 @@ const ChatPresetSnapshotSessionRowSchema = z.object({
   context_window_tokens: z.number(),
 });
 
-export const CURRENT_SCHEMA_VERSION = 37;
+export const CURRENT_SCHEMA_VERSION = 38;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["read","grep","find","ls","git"],"full":[]}';
 const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
 
@@ -874,6 +874,23 @@ function migrateChatSessionsToModelPresetSnapshot(database: RuntimeDatabase): vo
   `);
 }
 
+/**
+ * v38: `run_logs.backend` now carries the inference engine (`llama`/`exl3`), not the summary
+ * provider label. Historical rows hold `'llama.cpp'`, which meant "the real provider" and says
+ * nothing about which engine served the run — that engine is unrecoverable, so those rows are
+ * nulled rather than guessed at.
+ */
+function migrateRunLogsBackendToEngineIds(database: RuntimeDatabase): void {
+  if (!tableExists(database, 'run_logs')) {
+    return;
+  }
+  database.prepare(`
+    UPDATE run_logs
+    SET backend = NULL
+    WHERE backend IS NOT NULL AND backend NOT IN ('llama', 'exl3')
+  `).run();
+}
+
 function migrateAppConfigRemoveGlobalStartupContext(database: RuntimeDatabase): void {
   database.exec(`
     BEGIN IMMEDIATE;
@@ -1398,6 +1415,11 @@ function ensureSchema(database: RuntimeDatabase): void {
     migrateChatSessionsToModelPresetSnapshot(database);
     setSchemaVersion(database, 37);
     currentVersion = 37;
+  }
+  if (currentVersion < 38) {
+    migrateRunLogsBackendToEngineIds(database);
+    setSchemaVersion(database, 38);
+    currentVersion = 38;
   }
   ensureChatMessageTimelineSchema(database);
   ensureRuntimeArtifactsSchema(database);

@@ -10,6 +10,7 @@ import {
   getConfiguredLlamaBaseUrl,
   getConfiguredLlamaNumCtx,
   getConfiguredModel,
+  getActiveInferenceBackend,
   getActiveModelPreset,
   notifyStatusBackend,
 } from '../config/index.js';
@@ -385,6 +386,9 @@ export class SummaryRequestRunner {
           inputText: this.inputText,
           command: this.request.debugCommand ?? null,
           provider: result.Backend,
+          // Deterministic test-output summaries short-circuit before any config load, so no
+          // inference engine ran and there is no engine id to report.
+          backend: null,
           model: result.Model,
           classification: result.Classification,
           rawReviewRequired: result.RawReviewRequired,
@@ -441,6 +445,7 @@ export class SummaryRequestRunner {
           inputText: this.inputText,
           command: this.request.debugCommand ?? null,
           provider: context.provider,
+          backend: getActiveInferenceBackend(context.config),
           model: context.model,
           classification: modelDecision.classification,
           rawReviewRequired: modelDecision.rawReviewRequired,

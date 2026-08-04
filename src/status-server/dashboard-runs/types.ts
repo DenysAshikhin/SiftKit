@@ -1,4 +1,6 @@
 import { z } from '../../lib/zod.js';
+import { InferenceBackendIdSchema } from '../../config/types.js';
+import type { InferenceBackendId } from '../../config/types.js';
 import type { JsonObject } from '../../lib/json-types.js';
 
 export type RunLogGroup = 'summary' | 'repo_search' | 'planner' | 'chat' | 'other';
@@ -38,7 +40,7 @@ export const RunLogDbRowSchema = z.object({
   finished_at_utc: z.string().nullable(),
   title: z.string().nullable(),
   model: z.string().nullable(),
-  backend: z.string().nullable(),
+  backend: InferenceBackendIdSchema.nullable(),
   input_tokens: z.number().nullable(),
   output_tokens: z.number().nullable(),
   thinking_tokens: z.number().nullable(),
@@ -72,7 +74,7 @@ export type RunLogUpsertRow = {
   finishedAtUtc: string | null;
   title: string;
   model: string | null;
-  backend: string | null;
+  backend: InferenceBackendId | null;
   repoRoot: string | null;
   inputTokens: number | null;
   outputTokens: number | null;

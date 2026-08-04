@@ -14,8 +14,11 @@ import type {
   ServerModelPresetsConfig as ContractServerModelPresetsConfig,
   SiftConfig as ContractSiftConfig,
 } from '@siftkit/contracts';
+import { InferenceBackendIdSchema } from '@siftkit/contracts';
 import type { OperationModeAllowedTools, SiftPreset } from '../presets.js';
 
+/** Sole runtime source for the inference engine axis; every parse of it goes through here. */
+export { InferenceBackendIdSchema };
 export type InferenceBackendId = ContractInferenceBackendId;
 export type InferenceProcessState = ContractInferenceProcessState;
 export type InferenceModelState = ContractInferenceModelState;

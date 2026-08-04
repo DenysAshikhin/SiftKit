@@ -1,5 +1,6 @@
 import { appendFileSync } from 'node:fs';
 import { createTracer } from '../lib/trace.js';
+import type { InferenceBackendId } from '../config/types.js';
 import type { JsonObject } from '../lib/json-types.js';
 import { getStatusArtifactUri, type DeferredArtifact } from '../state/status-artifacts.js';
 import { getRecord } from './planner/json-filter.js';
@@ -190,6 +191,7 @@ export function buildSummaryRequestArtifact(options: {
   inputText: string;
   command?: string | null;
   provider: SummaryProviderId;
+  backend: InferenceBackendId | null;
   model: string;
   classification?: SummaryClassification | null;
   rawReviewRequired?: boolean | null;
@@ -209,6 +211,7 @@ export function buildSummaryRequestArtifact(options: {
       question: options.question,
       inputText: options.inputText,
       provider: options.provider,
+      backend: options.backend,
       model: options.model,
       classification: options.classification ?? null,
       ...(options.rawReviewRequired ? { rawReviewRequired: true } : {}),
@@ -232,6 +235,7 @@ export async function writeSummaryRequestDump(options: {
   inputText: string;
   command?: string | null;
   provider: SummaryProviderId;
+  backend: InferenceBackendId | null;
   model: string;
   classification?: SummaryClassification | null;
   rawReviewRequired?: boolean | null;
