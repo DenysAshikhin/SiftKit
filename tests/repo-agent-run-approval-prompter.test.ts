@@ -449,6 +449,30 @@ test('stale revision decision is rejected by store', async () => {
   assert.equal(state.approval.approvalId, approval.approvalId);
 });
 
+// ---- Decision timeout ----
+
+test('an undecided approval times out into a deny and resumes the run', async () => {
+  const runsRoot = makeRunsRoot();
+  const store = new RepoAgentRunStore(runsRoot);
+  const request = makeRequest();
+  store.create(request);
+  moveToRunning(store, request);
+
+  const waiter = new RepoAgentBoundaryWaiter({ store, runId: request.runId, pollIntervalMs: 5 });
+  const prompter = new RepoAgentRunApprovalPrompter({
+    store,
+    waiter,
+    runId: request.runId,
+    decisionTimeoutMs: 100,
+  });
+  const decision = await prompter.promptDecision(makeApprovalEvent(makeApproval()));
+  assert.deepEqual(decision, {
+    kind: 'deny',
+    reason: 'No approval decision was received within 100ms; the command was not executed.',
+  });
+  assert.equal(store.readState(request.runId).status, 'running');
+});
+
 // ---- Constructor dependency ----
 
 test('constructor accepts store, waiter, and runId', () => {

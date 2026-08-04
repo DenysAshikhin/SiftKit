@@ -238,8 +238,21 @@ test('public result schema matches the exact four stdout variants', () => {
       status: 'approval_required',
       runId,
       approval: makeApproval(),
+      decide: {
+        approve: `siftkit repo-agent decide ${runId} approve`,
+        deny: `siftkit repo-agent decide ${runId} deny --reason "<why>"`,
+        abort: `siftkit repo-agent decide ${runId} abort`,
+      },
     }).success,
     true,
+  );
+  assert.equal(
+    RepoAgentRunResultSchema.safeParse({
+      status: 'approval_required',
+      runId,
+      approval: makeApproval(),
+    }).success,
+    false,
   );
   assert.equal(
     RepoAgentRunResultSchema.safeParse({ status: 'failed', runId, error: 'failed' }).success,

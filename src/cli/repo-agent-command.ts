@@ -138,7 +138,10 @@ export class RepoAgentCommand {
     invocation: Extract<RepoAgentInvocation, { kind: 'status' }>,
     streams: RepoAgentCommandStreams,
   ): number {
-    const state = this.store.readState(invocation.runId);
+    const state = new RepoAgentBoundaryWaiter({
+      store: this.store,
+      runId: invocation.runId,
+    }).reconcileOnce();
     streams.stdout.write(`${JSON.stringify(state)}\n`);
     return 0;
   }

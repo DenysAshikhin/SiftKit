@@ -313,6 +313,12 @@ test('non-TTY start and decide resume one real detached worker', async () => {
       parseJsonValueText(started.stdout),
     );
     assert.equal(approval.status, 'approval_required');
+    assert.ok(approval.status === 'approval_required');
+    assert.deepEqual(approval.decide, {
+      approve: `siftkit repo-agent decide ${approval.runId} approve`,
+      deny: `siftkit repo-agent decide ${approval.runId} deny --reason "<why>"`,
+      abort: `siftkit repo-agent decide ${approval.runId} abort`,
+    });
     assert.equal(approval.approval.reviewPayload, '{"path":"src/example.ts","content":"safe"}');
 
     const statePath = join(

@@ -101,6 +101,11 @@ export const RepoAgentRunResultSchema = z.discriminatedUnion('status', [
     status: z.literal('approval_required'),
     runId: RunIdSchema,
     approval: RepoAgentApprovalSchema,
+    decide: z.strictObject({
+      approve: z.string().min(1),
+      deny: z.string().min(1),
+      abort: z.string().min(1),
+    }),
   }),
   z.strictObject({
     status: z.literal('failed'),

@@ -12,20 +12,27 @@ import type { RepoAgentRunStore } from './run-store.js';
 import type { RepoAgentBoundaryWaiter } from './boundary-waiter.js';
 
 const DEFAULT_DECISION_POLL_MS = 50;
+export const DEFAULT_DECISION_TIMEOUT_MS = 600_000;
 
 export class RepoAgentRunApprovalPrompter implements ApprovalPrompter {
   private readonly store: RepoAgentRunStore;
   private readonly waiter: RepoAgentBoundaryWaiter;
   private readonly runId: string;
+  private readonly decisionTimeoutMs: number;
 
   constructor(options: {
     store: RepoAgentRunStore;
     waiter: RepoAgentBoundaryWaiter;
     runId: string;
+    decisionTimeoutMs?: number;
   }) {
     this.store = options.store;
     this.waiter = options.waiter;
     this.runId = options.runId;
+    this.decisionTimeoutMs = options.decisionTimeoutMs ?? DEFAULT_DECISION_TIMEOUT_MS;
+    if (!Number.isFinite(this.decisionTimeoutMs) || this.decisionTimeoutMs <= 0) {
+      throw new Error('Approval decision timeout must be a positive number of milliseconds.');
+    }
   }
 
   async promptDecision(event: JsonObject): Promise<ApprovalDecision> {
@@ -84,6 +91,13 @@ export class RepoAgentRunApprovalPrompter implements ApprovalPrompter {
       approval.approvalId,
       approvalState.revision,
     );
+    if (decision === null) {
+      this.store.clearPendingApproval(this.runId, approvalState.revision, 'running');
+      return {
+        kind: 'deny',
+        reason: `No approval decision was received within ${this.decisionTimeoutMs}ms; the command was not executed.`,
+      };
+    }
 
     return this.handleDecision(decision, approvalState);
   }
@@ -91,7 +105,8 @@ export class RepoAgentRunApprovalPrompter implements ApprovalPrompter {
   private async pollDecision(
     approvalId: string,
     revision: number,
-  ): Promise<RepoAgentDecision> {
+  ): Promise<RepoAgentDecision | null> {
+    const deadline = Date.now() + this.decisionTimeoutMs;
     for (;;) {
       const decision = this.store.consumeDecision(
         this.runId,
@@ -108,6 +123,9 @@ export class RepoAgentRunApprovalPrompter implements ApprovalPrompter {
       }
       if (state.status === 'failed') {
         throw new Error(`Run failed during approval wait: ${state.error}`);
+      }
+      if (Date.now() >= deadline) {
+        return null;
       }
 
       await this.sleep(DEFAULT_DECISION_POLL_MS);

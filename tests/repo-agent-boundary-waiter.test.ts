@@ -10,13 +10,17 @@ import test, { after, before } from 'node:test';
 import {
   RepoAgentApprovalSchema,
   RepoAgentRunResultSchema,
+  RepoAgentRunStateSchema,
   RepoAgentWorkerRequestSchema,
   type RepoAgentApproval,
   type RepoAgentRunState,
   type RepoAgentWorkerRequest,
 } from '../src/repo-agent/run-schemas.js';
 import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
-import { RepoAgentBoundaryWaiter } from '../src/repo-agent/boundary-waiter.js';
+import {
+  RepoAgentBoundaryWaiter,
+  repoAgentStateToResult,
+} from '../src/repo-agent/boundary-waiter.js';
 import {
   NodeProcessInspector,
   type ProcessInspector,
@@ -285,6 +289,29 @@ test('returns objects that parse as RepoAgentRunResultSchema', async () => {
   // Must parse through the public schema
   const parsed = RepoAgentRunResultSchema.parse(result);
   assert.equal(parsed.status, 'completed');
+});
+
+test('approval_required results carry the decide command contract', () => {
+  const runId = randomUUID();
+  const result = repoAgentStateToResult(RepoAgentRunStateSchema.parse({
+    runId,
+    revision: 2,
+    updatedAtUtc: new Date().toISOString(),
+    status: 'approval_required',
+    pid: process.pid,
+    approval: {
+      approvalId: randomUUID(),
+      toolName: 'run',
+      command: 'run command="npm test"',
+      reviewPayload: null,
+    },
+  }));
+  assert.ok(result.status === 'approval_required');
+  assert.deepEqual(result.decide, {
+    approve: `siftkit repo-agent decide ${runId} approve`,
+    deny: `siftkit repo-agent decide ${runId} deny --reason "<why>"`,
+    abort: `siftkit repo-agent decide ${runId} abort`,
+  });
 });
 
 // ---- Dead worker detection ----
