@@ -3,11 +3,9 @@ import type { ChatSessionRuntime } from './chat-session-runtime-store';
 
 export type SessionIndicator = 'streaming' | 'tool' | 'failed' | 'completed';
 
-export type ChatSessionRuntimeView = ChatSessionRuntime;
-
 export function deriveSessionIndicator(
   session: ChatSession,
-  runtime: ChatSessionRuntimeView | null,
+  runtime: ChatSessionRuntime | null,
 ): SessionIndicator {
   if (runtime && runtime.activity.kind === 'active') {
     const hasRunningTool = runtime.liveMessages.some((message) => message.toolCallStatus === 'running');
@@ -24,6 +22,6 @@ export function deriveSessionIndicator(
   return 'completed';
 }
 
-export function isSessionBusy(runtime: ChatSessionRuntimeView | null): boolean {
+export function isSessionBusy(runtime: ChatSessionRuntime | null): boolean {
   return runtime !== null && runtime.activity.kind === 'active';
 }

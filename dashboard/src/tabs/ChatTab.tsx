@@ -15,7 +15,8 @@ import {
   buildLiveMessageScrollSignature,
 } from '../lib/chatMessages';
 import { getContextBarFillTone } from '../lib/context-bar-tone';
-import { deriveSessionIndicator, isSessionBusy, type ChatSessionRuntimeView, type SessionIndicator } from '../lib/chat-session-state';
+import { deriveSessionIndicator, isSessionBusy, type SessionIndicator } from '../lib/chat-session-state';
+import type { ChatSessionRuntime } from '../lib/chat-session-runtime-store';
 import { ToolCallCard } from '../components/ToolCallCard';
 import { useChatScroll } from '../hooks/useChatScroll';
 import { groupMessagesIntoTurns, normalizeMessageKind, type ChatTurn } from '../lib/chatTurns';
@@ -85,8 +86,8 @@ export type ChatTabProps = {
   sessions: ChatSession[];
   selectedSessionId: string;
   selectedSession: ChatSession | null;
-  selectedRuntime: ChatSessionRuntimeView | null;
-  sessionRuntimes: ChatSessionRuntimeView[];
+  selectedRuntime: ChatSessionRuntime | null;
+  sessionRuntimes: ChatSessionRuntime[];
   sessionPromptCacheStats: SessionPromptCacheStats;
   webPresets: DashboardPreset[];
   selectedChatPreset: DashboardPreset | null;
@@ -155,7 +156,7 @@ async function readImageFiles(files: FileList | null): Promise<string[]> {
 
 function buildSessionIndicators(
   sessions: ChatSession[],
-  sessionRuntimes: ChatSessionRuntimeView[],
+  sessionRuntimes: ChatSessionRuntime[],
 ): ChatSessionIndicatorView[] {
   return sessions.map((session) => {
     const runtime = sessionRuntimes.find((r) => r.sessionId === session.id) ?? null;

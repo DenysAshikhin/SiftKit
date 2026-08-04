@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deriveSessionIndicator } from '../src/lib/chat-session-state';
+import { deriveSessionIndicator, isSessionBusy } from '../src/lib/chat-session-state';
 import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
+import type { ChatSessionRuntime } from '../src/lib/chat-session-runtime-store';
 import type { ChatMessage, ChatSession } from '../src/types';
 
 function msg(overrides: Partial<ChatMessage>): ChatMessage {
@@ -64,4 +65,16 @@ test('runtime failure overrides completed persisted messages', () => {
     .apply({ kind: 'failure', sessionId: 's1', message: 'backend failed' })
     .get('s1');
   assert.equal(deriveSessionIndicator(session([]), runtime), 'failed');
+});
+
+test('isSessionBusy is true only while an operation is active', () => {
+  const idle: ChatSessionRuntime = new ChatSessionRuntimeStore()
+    .ensureSession('s')
+    .get('s');
+  assert.equal(isSessionBusy(null), false);
+  assert.equal(isSessionBusy(idle), false);
+  const active = new ChatSessionRuntimeStore()
+    .apply({ kind: 'begin', sessionId: 's', operationKind: 'message' })
+    .get('s');
+  assert.equal(isSessionBusy(active), true);
 });
