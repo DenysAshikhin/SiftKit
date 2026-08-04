@@ -257,6 +257,36 @@ export function buildEffectiveTranscriptAction(options: {
   return { tool_name: options.toolName, args: options.rawArgs };
 }
 
+/**
+ * Serialized-argument size above which a rejected call's arguments are dropped. A rejected call
+ * has no downstream value, but its arguments are re-sent on every later turn; small payloads are
+ * cheaper to keep than to describe.
+ */
+export const REJECTED_ARGS_ELISION_LIMIT = 512;
+
+/**
+ * Transcript action for a call that was rejected before execution. Identical to the effective
+ * action while the payload is small, and an elision marker once it is not.
+ */
+export function buildRejectedTranscriptAction(options: {
+  toolName: string;
+  rawArgs: JsonObject;
+  isNativeTool: boolean;
+  commandToRun: string;
+}): ToolTranscriptAction {
+  const effective = buildEffectiveTranscriptAction(options);
+  const serializedLength = JSON.stringify(effective.args).length;
+  if (serializedLength <= REJECTED_ARGS_ELISION_LIMIT) {
+    return effective;
+  }
+  return {
+    tool_name: effective.tool_name,
+    args: {
+      elided: `rejected ${effective.tool_name} call; ${serializedLength.toLocaleString('en-US')} chars of arguments discarded`,
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Repo-scoped path resolution
 // ---------------------------------------------------------------------------

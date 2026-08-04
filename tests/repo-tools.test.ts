@@ -8,6 +8,8 @@ import type { JsonObject } from '../src/lib/json-types.js';
 import {
   buildRepoToolRequestedCommand,
   buildEffectiveTranscriptAction,
+  buildRejectedTranscriptAction,
+  REJECTED_ARGS_ELISION_LIMIT,
   buildReadCommand,
   buildReadExecution,
   executeRepoTool,
@@ -99,6 +101,44 @@ test('buildEffectiveTranscriptAction passes command tools through as a command a
     commandToRun: 'git status --short',
   });
   assert.deepEqual(action, { tool_name: 'git', args: { command: 'git status --short' } });
+});
+
+test('buildRejectedTranscriptAction keeps small argument payloads intact', () => {
+  const action = buildRejectedTranscriptAction({
+    toolName: 'git',
+    rawArgs: { command: 'git status --short' },
+    isNativeTool: false,
+    commandToRun: 'git status --short',
+  });
+  assert.deepEqual(action, { tool_name: 'git', args: { command: 'git status --short' } });
+});
+
+test('buildRejectedTranscriptAction elides an oversized argument payload', () => {
+  const oldText = 'a'.repeat(25_448);
+  const newText = 'b'.repeat(25_802);
+  const action = buildRejectedTranscriptAction({
+    toolName: 'edit',
+    rawArgs: { path: 'src/summary/core-runner.ts', oldText, newText },
+    isNativeTool: true,
+    commandToRun: 'edit path="src/summary/core-runner.ts"',
+  });
+  assert.equal(action.tool_name, 'edit');
+  assert.deepEqual(Object.keys(action.args), ['elided']);
+  assert.match(String(action.args.elided), /^rejected edit call; 51,3\d\d chars of arguments discarded$/u);
+  assert.ok(JSON.stringify(action.args).length < REJECTED_ARGS_ELISION_LIMIT);
+});
+
+test('buildRejectedTranscriptAction elides exactly above the limit', () => {
+  const build = (padding: number) => buildRejectedTranscriptAction({
+    toolName: 'run_repo_cmd',
+    rawArgs: { command: 'x'.repeat(padding) },
+    isNativeTool: false,
+    commandToRun: 'x'.repeat(padding),
+  });
+  const atLimit = build(REJECTED_ARGS_ELISION_LIMIT - 20);
+  const overLimit = build(REJECTED_ARGS_ELISION_LIMIT);
+  assert.deepEqual(Object.keys(atLimit.args), ['command']);
+  assert.deepEqual(Object.keys(overLimit.args), ['elided']);
 });
 
 // ---------------------------------------------------------------------------

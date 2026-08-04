@@ -30,6 +30,7 @@ import { WebResearchTools } from '../../web-search/web-research-tools.js';
 import { executeRepoCommand, normalizeToolTypeFromCommand } from './command-execution.js';
 import {
   buildEffectiveTranscriptAction,
+  buildRejectedTranscriptAction,
   buildReadCommand,
   buildRepoToolRequestedCommand,
   executeRepoTool,
@@ -346,7 +347,7 @@ export class ToolActionProcessor {
       output: rejection.output,
     });
     state.batchOutcomes.push({
-      action: buildEffectiveTranscriptAction({
+      action: buildRejectedTranscriptAction({
         toolName: rejection.toolName,
         rawArgs: rejection.rawArgs,
         isNativeTool: rejection.isNativeTool,
@@ -481,7 +482,7 @@ export class ToolActionProcessor {
       transcript.replaceToolMessage(registration.activeReplayMessageIndex, duplicateMessage);
     } else {
       state.batchOutcomes.push({
-        action: buildEffectiveTranscriptAction({
+        action: buildRejectedTranscriptAction({
           toolName: normalizedToolName,
           rawArgs: toolAction.args,
           isNativeTool,

@@ -16,6 +16,7 @@ import {
 } from '../src/repo-search/engine.js';
 import { getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
 import { estimateTokenCount } from '../src/repo-search/prompt-budget.js';
+import { REJECTED_ARGS_ELISION_LIMIT } from '../src/repo-search/engine/repo-tools.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import type { SiftConfig } from '../src/config/types.js';
@@ -1056,6 +1057,12 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
   }
 });
 
+/**
+ * Padded past REJECTED_ARGS_ELISION_LIMIT so the duplicate rejections exercise the elision
+ * branch: the accepted call keeps its arguments, the rejected repeats must not.
+ */
+const OVERSIZED_DUPLICATE_COMMAND = `git grep -n "planner" src${' src'.repeat(130)}`;
+
 test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the fifth duplicate', async () => {
   const chatRequests: JsonObject[] = [];
   let requestCount = 0;
@@ -1088,7 +1095,7 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
         const content = requestCount <= 5
           ? JSON.stringify({
             action: 'git',
-            command: 'git grep -n "planner" src',
+            command: OVERSIZED_DUPLICATE_COMMAND,
           })
           : JSON.stringify({
             action: 'finish',
@@ -1154,7 +1161,7 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockCommandResults: {
-          'git grep -n "planner" src': { exitCode: 0, stdout: 'src\\planner.ts:10: planner hit', stderr: '' },
+          [OVERSIZED_DUPLICATE_COMMAND]: { exitCode: 0, stdout: 'src\\planner.ts:10: planner hit', stderr: '' },
         },
       }
     );
@@ -1171,6 +1178,18 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
     assert.equal(duplicateToolMessages.length, 1);
     assert.equal(duplicateUserMessages.length, 0);
     assert.match(String(duplicateToolMessages[0]?.content || ''), /duplicate command requested x5\. Issue a different\/unique tool call/u);
+
+    const duplicateAssistant = assistantToolCalls.find((message) => asObjectArray(message?.tool_calls)
+      .some((call) => String(call?.id || '').startsWith('duplicate_call_')));
+    const duplicateArguments = String(asObject(asObjectArray(duplicateAssistant?.tool_calls)[0]?.function)?.arguments || '');
+    assert.match(duplicateArguments, /chars of arguments discarded/u);
+    assert.ok(duplicateArguments.length < REJECTED_ARGS_ELISION_LIMIT);
+    const acceptedAssistant = assistantToolCalls.find((message) => asObjectArray(message?.tool_calls)
+      .some((call) => String(call?.id || '').startsWith('call_')));
+    assert.match(
+      String(asObject(asObjectArray(acceptedAssistant?.tool_calls)[0]?.function)?.arguments || ''),
+      /git grep -n \\"planner\\" src/u,
+    );
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
