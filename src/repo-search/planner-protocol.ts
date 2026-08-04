@@ -324,6 +324,21 @@ export function getRepoSearchCommandTokenForToolName(toolName: string): string |
   return isRepoSearchCommandToolName(toolName) ? REPO_COMMAND_TOOL_NAME : null;
 }
 
+/**
+ * `git` is the only tool whose argument is a raw command line, and the expected leading token is a
+ * constant. A model that omits it (`"status"` instead of `"git status"`) has still supplied a complete,
+ * unambiguous command, so the token is prepended rather than the call rejected. Mutating subcommands
+ * are still stopped downstream by `evaluateCommandSafety`, which is what actually guards PowerShell.
+ */
+export function normalizeRepoSearchCommandForToolName(toolName: string, command: string): string {
+  const trimmed = command.trim();
+  const token = getRepoSearchCommandTokenForToolName(toolName);
+  if (!token || !trimmed) {
+    return trimmed;
+  }
+  return getFirstCommandToken(trimmed) === token ? trimmed : `${token} ${trimmed}`;
+}
+
 export function getRepoSearchToolNameForCommand(command: string): string | null {
   return getFirstCommandToken(String(command || '').trim()) === REPO_COMMAND_TOOL_NAME
     ? REPO_COMMAND_TOOL_NAME

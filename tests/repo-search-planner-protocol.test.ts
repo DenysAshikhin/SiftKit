@@ -720,6 +720,7 @@ test('requestRepoSearchPlannerProtocolAction hard-fails on json_schema rejection
 import {
   INTERACTIVE_REPO_TOOL_NAMES,
   isRepoSearchNativeToolName,
+  normalizeRepoSearchCommandForToolName,
   sanitizeNonInteractiveAllowedTools,
 } from '../src/repo-search/planner-protocol.js';
 
@@ -747,4 +748,19 @@ test('resolver returns definitions for interactive names', () => {
 test('sanitizer strips mutating tools from non-interactive allowed lists', () => {
   assert.deepEqual(sanitizeNonInteractiveAllowedTools(['read', 'write', 'run', 'git']), ['read', 'git']);
   assert.equal(sanitizeNonInteractiveAllowedTools(undefined), undefined);
+});
+
+test('normalizeRepoSearchCommandForToolName prepends the constant git token when it is missing', () => {
+  assert.equal(normalizeRepoSearchCommandForToolName('git', 'status'), 'git status');
+  assert.equal(normalizeRepoSearchCommandForToolName('git', '  log --oneline  '), 'git log --oneline');
+});
+
+test('normalizeRepoSearchCommandForToolName leaves an already-prefixed command untouched', () => {
+  assert.equal(normalizeRepoSearchCommandForToolName('git', 'git status --short'), 'git status --short');
+  assert.equal(normalizeRepoSearchCommandForToolName('git', 'GIT status'), 'GIT status');
+});
+
+test('normalizeRepoSearchCommandForToolName leaves non-command tools and blank commands alone', () => {
+  assert.equal(normalizeRepoSearchCommandForToolName('grep', 'status'), 'status');
+  assert.equal(normalizeRepoSearchCommandForToolName('git', '   '), '');
 });
