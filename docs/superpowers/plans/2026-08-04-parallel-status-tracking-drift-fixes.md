@@ -65,7 +65,7 @@ The advance branch overwrites `rawInputCharacterCount` / `promptCharacterCount` 
 - Modify: `src/status-server/status-run-registry.ts:124-135`
 - Test: `tests/status-run-registry.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `tests/status-run-registry.test.ts`:
 
@@ -124,12 +124,12 @@ test('advancing with fresh prompt metadata overwrites the previous step values',
 
 Note the asymmetry, which mirrors the pre-branch behaviour exactly: `rawInputCharacterCount` is captured once and only back-filled while it is still `null`; the other fields overwrite whenever the new value is non-null.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx tsx --test .\tests\status-run-registry.test.ts`
 Expected: FAIL — `advancing with sparse metadata...` reports `Expected values to be strictly equal: null !== 10`.
 
-- [ ] **Step 3: Restore the null guards**
+- [x] **Step 3: Restore the null guards**
 
 In `src/status-server/status-run-registry.ts`, replace the body of the `if (existing)` branch inside `startOrAdvance`:
 
@@ -153,7 +153,7 @@ In `src/status-server/status-run-registry.ts`, replace the body of the `if (exis
     }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npx tsx --test .\tests\status-run-registry.test.ts`
 Expected: PASS, all tests including the two new ones.
@@ -161,7 +161,7 @@ Expected: PASS, all tests including the two new ones.
 Run: `npx tsx --test .\tests\parallel-status-server.test.ts`
 Expected: PASS (no regression in the end-to-end parallel coverage).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/status-run-registry.test.ts src/status-server/status-run-registry.ts
@@ -179,7 +179,7 @@ Twelve one-line `createXResult` factories exist only so the result unions can be
 - Modify: `src/status-server/routes/core.ts:120` (the `StatusRunState` alias), `:600` (`resolveTerminalRun` call), `:1385` (`resolveTerminalRun` call)
 - Test: `tests/status-run-registry.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 First replace the existing import block at the top of `tests/status-run-registry.test.ts` with:
 
@@ -227,12 +227,12 @@ Update the three existing `resolveTerminalRun` call sites in this test file to d
 - `registry.resolveTerminalRun('unknown-id', 1_000)` → `registry.resolveTerminalRun('unknown-id')`
 - `registry.resolveTerminalRun('request-a', 4_000)` → `registry.resolveTerminalRun('request-a')`
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx tsx --test .\tests\status-run-registry.test.ts`
 Expected: FAIL — `ActiveRunState` is not exported, and `resolveTerminalRun` still requires two arguments.
 
-- [ ] **Step 3: Rewrite the type layer**
+- [x] **Step 3: Rewrite the type layer**
 
 Replace `src/status-server/status-run-registry.ts` lines 1 through 95 (from the `/* c8 ignore next */` on line 1 down to and including `export type ExpiredStatusRun = ...`) with:
 
@@ -372,7 +372,7 @@ function toActiveStatusRun(run: ActiveRunState): ActiveStatusRun {
 
 Then delete the now-duplicated `formatTimestamp` / `toActiveStatusRun` definitions further down the file (the originals at old lines 97-112).
 
-- [ ] **Step 4: Replace every factory call with an object literal**
+- [x] **Step 4: Replace every factory call with an object literal**
 
 In the `StatusRunRegistry` class body, replace each `createX(...)` call with the literal it built:
 
@@ -417,7 +417,7 @@ Simplify `getActiveRuns` — the intermediate array push loop is redundant:
   }
 ```
 
-- [ ] **Step 5: Update the two call sites in `routes/core.ts`**
+- [x] **Step 5: Update the two call sites in `routes/core.ts`**
 
 Delete line 120:
 
@@ -439,7 +439,7 @@ Drop the second argument from both `resolveTerminalRun` calls:
 - in `finishRunState`: `this.ctx.statusRuns.resolveTerminalRun(requestId, Date.now())` → `this.ctx.statusRuns.resolveTerminalRun(requestId)`
 - in `handleLateOrRunningPost`: `this.ctx.statusRuns.resolveTerminalRun(requestId, Date.now())` → `this.ctx.statusRuns.resolveTerminalRun(requestId)`
 
-- [ ] **Step 6: Run tests and typecheck to verify they pass**
+- [x] **Step 6: Run tests and typecheck to verify they pass**
 
 Run: `npx tsx --test .\tests\status-run-registry.test.ts`
 Expected: PASS.
@@ -450,12 +450,12 @@ Expected: exits 0 with no output.
 Run: `npx tsx --test .\tests\parallel-status-server.test.ts .\tests\dashboard-status-server.test.ts .\tests\runtime-status-server.test.ts`
 Expected: PASS.
 
-- [ ] **Step 7: Verify no `c8 ignore` remains in the file**
+- [x] **Step 7: Verify no `c8 ignore` remains in the file**
 
 Run: `npx rg "c8 ignore" src/status-server/status-run-registry.ts`
 Expected: no output (exit code 1).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/status-server/status-run-registry.ts src/status-server/routes/core.ts tests/status-run-registry.test.ts
@@ -473,7 +473,7 @@ Same pattern: two factories exist only to feed `ReturnType<typeof …>`, `ChatSe
 - Modify: `tests/chat-session-operation-registry.test.ts:4-15`
 - Modify: `src/status-server/routes/chat.ts:102` (import)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Replace the import block and helper at the top of `tests/chat-session-operation-registry.test.ts` (lines 4-15) with:
 
@@ -492,12 +492,12 @@ function requireAcquired(result: ChatSessionOperationAcquireResult): ChatSession
 }
 ```
 
-- [ ] **Step 2: Run the guard to verify the alias is still present**
+- [x] **Step 2: Run the guard to verify the alias is still present**
 
 Run: `npx rg "ChatSessionOperationLease" src/ tests/`
 Expected: two hits — the `export type ChatSessionOperationLease = ChatSessionOperation;` declaration and the `release(lease: ChatSessionOperationLease)` parameter. This is the condition Step 3 removes; the command must return no hits at Step 4.
 
-- [ ] **Step 3: Rewrite the file**
+- [x] **Step 3: Rewrite the file**
 
 Replace the entire contents of `src/status-server/chat-session-operation-registry.ts` with:
 
@@ -566,7 +566,7 @@ export class ChatSessionOperationRegistry {
 }
 ```
 
-- [ ] **Step 4: Run tests and typecheck to verify they pass**
+- [x] **Step 4: Run tests and typecheck to verify they pass**
 
 Run: `npx tsx --test .\tests\chat-session-operation-registry.test.ts`
 Expected: PASS (all 5 tests).
@@ -577,7 +577,7 @@ Expected: exits 0 with no output. If it reports `ChatSessionOperationLease` is m
 Run: `npx rg "ChatSessionOperationLease|c8 ignore" src/`
 Expected: no output (exit code 1).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/status-server/chat-session-operation-registry.ts tests/chat-session-operation-registry.test.ts
@@ -596,7 +596,7 @@ git commit -m "refactor: declare chat session operation registry types directly"
 - Modify: `src/status-server/routes/core.ts:342-401`, `:491`
 - Test: `tests/parallel-status-server.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `tests/parallel-status-server.test.ts`, reusing that file's existing `DashboardTestServer` fixture and its `postRunning` / `postCompleted` / `postTerminalMetadata` helpers:
 
@@ -659,12 +659,12 @@ import { getConfigPath } from '../src/config/index.js';
 
 Confirm `server.close()` matches the fixture's real teardown method name used by the file's other tests before running.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx tsx --test .\tests\parallel-status-server.test.ts`
 Expected: FAIL — `backend` is `null`, not the active preset backend.
 
-- [ ] **Step 3: Move the title into the identity resolver and read the active preset**
+- [x] **Step 3: Move the title into the identity resolver and read the active preset**
 
 In `src/status-server/routes/core.ts`, replace `resolveStatusRunLogIdentity` and `persistStatusRunLog` with:
 
@@ -745,7 +745,7 @@ Update the call site (old line 491) inside `applyDeferredTerminalMetadata`:
   persistStatusRunLog(ctx, job, taskKind);
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npx tsx --test .\tests\parallel-status-server.test.ts`
 Expected: PASS, including both new tests.
@@ -753,7 +753,7 @@ Expected: PASS, including both new tests.
 Run: `npx tsx --test .\tests\dashboard-status-server.test.ts .\tests\runtime-status-server.test.ts .\tests\runtime-status-server.idle-summary.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/status-server/routes/core.ts tests/parallel-status-server.test.ts
@@ -772,7 +772,7 @@ Six chat endpoints repeat the same session-lookup → body-parse → request-par
 - Modify: `src/status-server/routes/chat.ts` (six endpoint classes, the `rejectBusyChatSession` helper moves out)
 - Test: `tests/dashboard-chat-concurrency.test.ts`, `tests/contracts-chat.test.ts`
 
-- [ ] **Step 1: Write the failing contract test**
+- [x] **Step 1: Write the failing contract test**
 
 In `tests/contracts-chat.test.ts`, add:
 
@@ -787,7 +787,7 @@ test('chat session operation kinds cover every leased chat endpoint', () => {
 
 Add `ChatSessionOperationKindSchema` to that file's import from `@siftkit/contracts` if it is not already imported.
 
-- [ ] **Step 2: Write the failing concurrency test**
+- [x] **Step 2: Write the failing concurrency test**
 
 Append to `tests/dashboard-chat-concurrency.test.ts`, reusing its existing `DashboardModelQueueHarness` exactly as the neighbouring `aborting one concurrent session releases only that session lease` test does:
 
@@ -830,12 +830,12 @@ test('condense is rejected while the same session is streaming and allowed once 
 
 This proves three things at once: condense now takes the lease, the lease is per-session (B is unaffected), and it is released so a later condense succeeds. There is no test for "two condense calls race each other" because condense is synchronous and cannot be held open — the lease behaviour it would prove is already covered above.
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 Run: `npx tsx --test .\tests\contracts-chat.test.ts .\tests\dashboard-chat-concurrency.test.ts`
 Expected: FAIL — the enum has three options, not four, and the busy condense returns 200 instead of 409.
 
-- [ ] **Step 4: Add `condense` to the contract**
+- [x] **Step 4: Add `condense` to the contract**
 
 In `packages/contracts/src/chat.ts`:
 
@@ -843,7 +843,7 @@ In `packages/contracts/src/chat.ts`:
 export const ChatSessionOperationKindSchema = z.enum(['message', 'plan', 'repo-search', 'condense']);
 ```
 
-- [ ] **Step 5: Create the base endpoint**
+- [x] **Step 5: Create the base endpoint**
 
 Create `src/status-server/routes/chat-session-operation-endpoint.ts`:
 
@@ -1007,7 +1007,7 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
 
 Verify the import specifiers for `ChatSession`, `getChatSessionPath`, `readChatSessionFromPath`, `getRuntimeRoot`, and `JsonObject` against how `src/status-server/routes/chat.ts` currently imports them, and match them exactly. Do not invent module paths.
 
-- [ ] **Step 6: Convert `CondenseChatSessionEndpoint` (the smallest, do it first)**
+- [x] **Step 6: Convert `CondenseChatSessionEndpoint` (the smallest, do it first)**
 
 `null` is the base class's "already responded" sentinel, so an endpoint with no request body must return a non-null unit value from `parseRequest`. Replace the class in `src/status-server/routes/chat.ts` with:
 
@@ -1031,7 +1031,7 @@ class CondenseChatSessionEndpoint extends ChatSessionOperationEndpoint<'condense
 }
 ```
 
-- [ ] **Step 7: Convert `CreateChatMessageEndpoint`**
+- [x] **Step 7: Convert `CreateChatMessageEndpoint`**
 
 Replace the whole class with the form below. The `run` body is the existing body from `const modelRequestLock = ...` through the inner `finally { releaseModelRequest(...) }`, moved verbatim and re-indented one level; the outer lease `try`/`finally` and the acquire block are gone because the base class owns them.
 
@@ -1109,7 +1109,7 @@ class CreateChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
 }
 ```
 
-- [ ] **Step 8: Convert the remaining four endpoints the same way**
+- [x] **Step 8: Convert the remaining four endpoints the same way**
 
 Apply the identical mechanical conversion to `StreamChatMessageEndpoint`, `CreateChatPlanEndpoint`, `StreamChatPlanEndpoint`, `CreateRepoSearchEndpoint`, and `StreamRepoSearchEndpoint`. For each:
 
@@ -1124,7 +1124,7 @@ Delete from `chat.ts`: the local `rejectBusyChatSession` function (now in the ba
 
 Leave the `CHAT_ROUTES` table unchanged — the route definitions and regexes are already correct.
 
-- [ ] **Step 9: Run tests and typecheck to verify they pass**
+- [x] **Step 9: Run tests and typecheck to verify they pass**
 
 Run: `npm run typecheck:test`
 Expected: exits 0 with no output.
@@ -1135,12 +1135,12 @@ Expected: PASS, including the two new condense tests.
 Run: `npx tsx --test .\tests\dashboard-status-server.test.ts .\tests\parallel-status-server.test.ts`
 Expected: PASS.
 
-- [ ] **Step 10: Verify the copy-paste is gone**
+- [x] **Step 10: Verify the copy-paste is gone**
 
 Run: `npx rg -c "chatSessionOperations.acquire" src/status-server/`
 Expected: `src/status-server/routes/chat-session-operation-endpoint.ts:1` — exactly one occurrence, in the base class.
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add src/status-server/routes/chat-session-operation-endpoint.ts src/status-server/routes/chat.ts packages/contracts/src/chat.ts tests/contracts-chat.test.ts tests/dashboard-chat-concurrency.test.ts
@@ -1158,7 +1158,7 @@ Eleven of the store's methods repeat the same six-line lookup-throw-clone-set-re
 - Modify: `dashboard/src/hooks/useChatSessions.ts` (call sites)
 - Test: `dashboard/tests/chat-session-runtime-store.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `dashboard/tests/chat-session-runtime-store.test.ts`:
 
@@ -1226,12 +1226,12 @@ Then rewrite the file's existing tests to call `apply({ kind: ... })` instead of
 
 `get`, `getAll`, `ensureSession`, and `removeSession` are unchanged.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx tsx --test .\dashboard\tests\chat-session-runtime-store.test.ts`
 Expected: FAIL — `next.apply is not a function`.
 
-- [ ] **Step 3: Rewrite the store**
+- [x] **Step 3: Rewrite the store**
 
 Replace the entire contents of `dashboard/src/lib/chat-session-runtime-store.ts` with:
 
@@ -1407,7 +1407,7 @@ Two deliberate behaviour changes, both required by the findings:
 - `apply` creates the runtime when absent instead of throwing; `get` keeps throwing. Writers create, readers must find.
 - `applyDone` no longer takes `response.session.id` — it uses `transition.sessionId`, so a mismatched payload can no longer write to the wrong session. Task 7 turns that mismatch into an explicit failure.
 
-- [ ] **Step 4: Update the call sites in `useChatSessions.ts`**
+- [x] **Step 4: Update the call sites in `useChatSessions.ts`**
 
 Rewrite the eleven forwarders in `dashboard/src/hooks/useChatSessions.ts` to go through `apply`. For now keep their names and signatures — Task 7 deletes most of them:
 
@@ -1443,7 +1443,7 @@ Apply the same substitution to `beginSessionOperation`, `appendSessionThinking`,
 
 The two `ensureSession` loops (in the list effect and in `refreshSessions`) and the `removeSession` call in `deleteSession` are unchanged.
 
-- [ ] **Step 5: Run tests and typecheck to verify they pass**
+- [x] **Step 5: Run tests and typecheck to verify they pass**
 
 Run: `npx tsx --test .\dashboard\tests\chat-session-runtime-store.test.ts`
 Expected: PASS.
@@ -1454,12 +1454,12 @@ Expected: exits 0 with no output.
 Run: `npm run test:dashboard`
 Expected: PASS. `dashboard/tests/hooks/useChatComposer.test.tsx` will still pass here because `RuntimeRecorder` calls the store — update its `store = this.store.X(...)` lines to `store = this.store.apply({...})` if they fail, since Task 7 rewrites that file anyway.
 
-- [ ] **Step 6: Verify the duplication is gone**
+- [x] **Step 6: Verify the duplication is gone**
 
 Run: `npx rg -c "unknown session" dashboard/src/lib/chat-session-runtime-store.ts`
 Expected: `1`.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add dashboard/src/lib/chat-session-runtime-store.ts dashboard/src/hooks/useChatSessions.ts dashboard/tests/chat-session-runtime-store.test.ts dashboard/tests/hooks/useChatComposer.test.tsx
@@ -1479,7 +1479,7 @@ git commit -m "refactor: route chat session runtime updates through one transiti
 - Modify: `dashboard/src/hooks/useChatSessions.ts`, `dashboard/src/hooks/useChatController.ts`
 - Test: rename `dashboard/tests/hooks/useChatComposer.test.tsx` → `dashboard/tests/chat-stream-transitions.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `dashboard/tests/chat-stream-transitions.test.ts` with the content below. It keeps the existing out-of-order and premature-close coverage, expressed against the generator.
 
@@ -1648,12 +1648,12 @@ Also create `dashboard/tests/chat-composer-inputs.test.ts` holding the four pure
 
 Delete `dashboard/tests/hooks/useChatComposer.test.tsx`.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx tsx --test .\dashboard\tests\chat-stream-transitions.test.ts`
 Expected: FAIL — `Cannot find module '../src/lib/chat-stream-transitions'`.
 
-- [ ] **Step 3: Create the transition generator**
+- [x] **Step 3: Create the transition generator**
 
 Create `dashboard/src/lib/chat-stream-transitions.ts`:
 
@@ -1706,11 +1706,11 @@ export async function* toRuntimeTransitions(
 }
 ```
 
-- [ ] **Step 4: Move the pure input helpers**
+- [x] **Step 4: Move the pure input helpers**
 
 Create `dashboard/src/lib/chat-composer-inputs.ts` with `ParsedMaxTurnsOverride`, `parsePlanMaxTurnsOverride`, `resolveRepoRoot`, and `requireSelectedSession` copied verbatim from `useChatComposer.ts:20-43`, changing only the error message in `requireSelectedSession` to `'chat composer: selectedSession is required'` and its `ChatSession` import to `import type { ChatSession } from '../types';`. Update the moved test's regex accordingly (`/selectedSession is required/` still matches).
 
-- [ ] **Step 5: Move the send actions into `useChatSessions`**
+- [x] **Step 5: Move the send actions into `useChatSessions`**
 
 Delete `dashboard/src/hooks/useChatComposer.ts`.
 
@@ -1820,7 +1820,7 @@ Add the drain plus the three send actions. The thinking flag is derived here, fr
 
 Add `sendMessage`, `sendPlan`, `sendRepoSearch` to the returned object.
 
-- [ ] **Step 6: Simplify `useChatController`**
+- [x] **Step 6: Simplify `useChatController`**
 
 In `dashboard/src/hooks/useChatController.ts`:
 
@@ -1834,7 +1834,7 @@ Point the three send props at the hook:
     onSendMessage: chatSessionsHook.sendMessage,
 ```
 
-- [ ] **Step 7: Run tests and typecheck to verify they pass**
+- [x] **Step 7: Run tests and typecheck to verify they pass**
 
 Run: `npx tsx --test .\dashboard\tests\chat-stream-transitions.test.ts .\dashboard\tests\chat-composer-inputs.test.ts`
 Expected: PASS.
@@ -1845,12 +1845,12 @@ Expected: exits 0 with no output.
 Run: `npm run test:dashboard`
 Expected: PASS.
 
-- [ ] **Step 8: Verify the callback bag is gone**
+- [x] **Step 8: Verify the callback bag is gone**
 
 Run: `npx rg "RuntimeActions|useChatComposer" dashboard/`
 Expected: no output (exit code 1).
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add dashboard/src dashboard/tests
@@ -1868,7 +1868,7 @@ git commit -m "refactor: drive chat stream state with transitions instead of cal
 - Modify: `dashboard/src/tabs/ChatTab.tsx:18`, `:88`, `:89`, `:158`
 - Test: `dashboard/tests/chat-session-state.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `dashboard/tests/chat-session-state.test.ts`, change the import to name the real type and add an assertion that pins the signatures:
 
@@ -1893,7 +1893,7 @@ test('isSessionBusy is true only while an operation is active', () => {
 
 Add `import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';` to that file if it is not already imported.
 
-- [ ] **Step 2: Run the guard to verify the alias is still present**
+- [x] **Step 2: Run the guard to verify the alias is still present**
 
 Run: `npx rg -c "ChatSessionRuntimeView" dashboard/`
 Expected: `dashboard/src/lib/chat-session-state.ts:3` and `dashboard/src/tabs/ChatTab.tsx:4`. This is the condition Step 3 removes.
@@ -1901,7 +1901,7 @@ Expected: `dashboard/src/lib/chat-session-state.ts:3` and `dashboard/src/tabs/Ch
 Run: `npx tsx --test .\dashboard\tests\chat-session-state.test.ts`
 Expected: PASS — the new `isSessionBusy` test locks in current behaviour so the alias removal in Step 3 is provably behaviour-preserving. This is a refactor with no behaviour change; the test is the regression net, not a red-first driver.
 
-- [ ] **Step 3: Delete the alias**
+- [x] **Step 3: Delete the alias**
 
 In `dashboard/src/lib/chat-session-state.ts`, delete line 6 and use `ChatSessionRuntime` in both signatures:
 
@@ -1932,7 +1932,7 @@ import type { ChatSessionRuntime } from '../lib/chat-session-runtime-store';
 
 and replace the three `ChatSessionRuntimeView` annotations at lines 88, 89, and 158 with `ChatSessionRuntime`.
 
-- [ ] **Step 4: Run tests and typecheck to verify they pass**
+- [x] **Step 4: Run tests and typecheck to verify they pass**
 
 Run: `npx rg "ChatSessionRuntimeView" dashboard/`
 Expected: no output (exit code 1).
@@ -1943,7 +1943,7 @@ Expected: exits 0 with no output.
 Run: `npm run test:dashboard`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add dashboard/src/lib/chat-session-state.ts dashboard/src/tabs/ChatTab.tsx dashboard/tests/chat-session-state.test.ts
@@ -1954,7 +1954,7 @@ git commit -m "refactor: drop the ChatSessionRuntimeView alias"
 
 ## Task 9: Full verification
 
-- [ ] **Step 1: Confirm every banned pattern is absent from the branch diff**
+- [x] **Step 1: Confirm every banned pattern is absent from the branch diff**
 
 Run each; all must produce no output (exit code 1):
 
@@ -1968,27 +1968,27 @@ git diff main...HEAD -- src packages dashboard/src scripts | rg "^\+.*ReturnType
 
 `as const` matches the second pattern; confirm every hit is `as const` and nothing else.
 
-- [ ] **Step 2: Run the whole typecheck**
+- [x] **Step 2: Run the whole typecheck**
 
 Run: `npm run typecheck`
 Expected: exits 0. This covers contracts, src, scripts, dashboard, bench, tests, dashboard tests, analysis, and eslint.
 
-- [ ] **Step 3: Run the whole backend suite**
+- [x] **Step 3: Run the whole backend suite**
 
 Run: `npm test`
 Expected: all tests pass.
 
-- [ ] **Step 4: Run the whole dashboard suite**
+- [x] **Step 4: Run the whole dashboard suite**
 
 Run: `npm run test:dashboard`
 Expected: all tests pass.
 
-- [ ] **Step 5: Confirm coverage did not regress on the two registries**
+- [x] **Step 5: Confirm coverage did not regress on the two registries**
 
 Run: `npm run test:coverage`
 Expected: `status-run-registry.ts` and `chat-session-operation-registry.ts` each report 100% branch coverage now that the `c8 ignore` markers are gone. If either is below 100%, add a test for the specific uncovered branch reported — do not re-add a suppression comment.
 
-- [ ] **Step 6: Commit any coverage tests added**
+- [x] **Step 6: Commit any coverage tests added**
 
 ```bash
 git add tests
