@@ -6,7 +6,15 @@ import type { NodeStore } from '../storage/node-store.js';
 import type { NodeRow } from '../storage/rows.js';
 
 export type ResolutionStep =
-  | 'canonical_key' | 'user_alias' | 'normalized_alias' | 'context_match';
+  | 'canonical_key' | 'user_alias' | 'normalized_alias' | 'model_suggested' | 'context_match';
+
+/** §9.1 step 5: a model match is only trusted above this deterministic score. */
+export const MODEL_MATCH_SCORE_THRESHOLD = 0.85;
+
+export interface ModelSuggestedMatch {
+  readonly nodeId: string;
+  readonly score: number;
+}
 
 export type ResolutionOutcome =
   | { readonly kind: 'resolved'; readonly nodeId: string; readonly step: ResolutionStep }
@@ -21,6 +29,8 @@ export interface ResolveRequest {
   /** Nodes already established in the surrounding statement, used for step 4 disambiguation. */
   readonly contextNodeIds: readonly string[];
   readonly createIfMissing: boolean;
+  /** Optional proposal from `candidate_consolidator`. Deterministic steps always win. */
+  readonly modelSuggestion?: ModelSuggestedMatch;
 }
 
 /** How many merge hops to follow before treating the chain as corrupt. */
@@ -79,6 +89,22 @@ export class EntityResolver {
         kind: 'needs_confirmation',
         candidateNodeIds: matches.map((node) => node.id),
       };
+    }
+
+    const suggestion = request.modelSuggestion;
+    if (suggestion !== undefined && suggestion.score >= MODEL_MATCH_SCORE_THRESHOLD) {
+      const node = this.nodes.getNode(suggestion.nodeId);
+      if (node !== null && node.status === 'active' && node.type === request.nodeType) {
+        this.audit.recordAuditEvent({
+          ownerId: request.ownerId,
+          eventType: 'entity_resolved_by_model_suggestion',
+          targetType: 'graph_node',
+          targetId: node.id,
+          summary: `Model-suggested match accepted for "${request.displayName}".`,
+          details: { score: suggestion.score },
+        });
+        return { kind: 'resolved', nodeId: node.id, step: 'model_suggested' };
+      }
     }
 
     if (!request.createIfMissing) {

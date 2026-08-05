@@ -215,3 +215,93 @@ test('a merged node is followed to its target rather than returned', () => {
     assert.equal(outcome.kind === 'resolved' && outcome.nodeId, target.id);
   });
 });
+
+test('step 5: a model-suggested match above the threshold resolves, below it does not', () => {
+  withAssistantContext((context) => {
+    const h = harness(context);
+    const existing = h.nodes.createNode({
+      ownerId: context.ownerId, type: 'software', canonicalKey: null,
+      displayName: 'Visual Studio Code', description: null, sensitivity: 'low', properties: {},
+    });
+    const strong = h.resolver.resolve({
+      ownerId: context.ownerId, nodeType: 'software', displayName: 'VS Code',
+      canonicalKey: null, contextNodeIds: [], createIfMissing: false,
+      modelSuggestion: { nodeId: existing.id, score: 0.95 },
+    });
+    assert.equal(strong.kind, 'resolved');
+    assert.equal(strong.kind === 'resolved' ? strong.nodeId : '', existing.id);
+    assert.equal(strong.kind === 'resolved' ? strong.step : '', 'model_suggested');
+
+    const weak = h.resolver.resolve({
+      ownerId: context.ownerId, nodeType: 'software', displayName: 'VS Code',
+      canonicalKey: null, contextNodeIds: [], createIfMissing: false,
+      modelSuggestion: { nodeId: existing.id, score: 0.4 },
+    });
+    assert.notEqual(weak.kind, 'resolved');
+  });
+});
+
+test('step 5: a suggestion naming a missing, merged, or wrongly typed node is ignored', () => {
+  withAssistantContext((context) => {
+    const h = harness(context);
+    const person = h.nodes.createNode({
+      ownerId: context.ownerId, type: 'person', canonicalKey: null, displayName: 'Alex',
+      description: null, sensitivity: 'personal', properties: {},
+    });
+    assert.notEqual(
+      h.resolver.resolve({
+        ownerId: context.ownerId, nodeType: 'software', displayName: 'VS Code',
+        canonicalKey: null, contextNodeIds: [], createIfMissing: false,
+        modelSuggestion: { nodeId: person.id, score: 0.99 },
+      }).kind,
+      'resolved',
+    );
+    assert.notEqual(
+      h.resolver.resolve({
+        ownerId: context.ownerId, nodeType: 'software', displayName: 'VS Code',
+        canonicalKey: null, contextNodeIds: [], createIfMissing: false,
+        modelSuggestion: { nodeId: 'node_missing', score: 0.99 },
+      }).kind,
+      'resolved',
+    );
+
+    const target = h.nodes.createNode({
+      ownerId: context.ownerId, type: 'software', canonicalKey: null, displayName: 'Neovim',
+      description: null, sensitivity: 'low', properties: {},
+    });
+    const merged = h.nodes.createNode({
+      ownerId: context.ownerId, type: 'software', canonicalKey: null, displayName: 'NVim',
+      description: null, sensitivity: 'low', properties: {},
+    });
+    h.nodes.setNodeStatus(merged.id, 'merged', target.id);
+    assert.notEqual(
+      h.resolver.resolve({
+        ownerId: context.ownerId, nodeType: 'software', displayName: 'VS Code',
+        canonicalKey: null, contextNodeIds: [], createIfMissing: false,
+        modelSuggestion: { nodeId: merged.id, score: 0.99 },
+      }).kind,
+      'resolved',
+    );
+  });
+});
+
+test('step 5: a deterministic match still wins over a model suggestion', () => {
+  withAssistantContext((context) => {
+    const h = harness(context);
+    const exact = h.nodes.createNode({
+      ownerId: context.ownerId, type: 'software', canonicalKey: 'software:vs-code',
+      displayName: 'VS Code', description: null, sensitivity: 'low', properties: {},
+    });
+    const decoy = h.nodes.createNode({
+      ownerId: context.ownerId, type: 'software', canonicalKey: 'software:emacs',
+      displayName: 'Emacs', description: null, sensitivity: 'low', properties: {},
+    });
+    const outcome = h.resolver.resolve({
+      ownerId: context.ownerId, nodeType: 'software', displayName: 'VS Code',
+      canonicalKey: 'software:vs-code', contextNodeIds: [], createIfMissing: false,
+      modelSuggestion: { nodeId: decoy.id, score: 0.99 },
+    });
+    assert.equal(outcome.kind === 'resolved' ? outcome.nodeId : '', exact.id);
+    assert.equal(outcome.kind === 'resolved' ? outcome.step : '', 'canonical_key');
+  });
+});
