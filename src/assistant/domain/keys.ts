@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
 
-import { isJsonObject, type JsonValue } from '../../lib/json-types.js';
-import type { ObjectValueType } from './enums.js';
-import type { NodeType } from './node-types.js';
+import { z } from '../../lib/zod.js';
+import { isJsonObject, JsonValueSchema, type JsonValue } from '../../lib/json-types.js';
+import { ObjectValueTypeSchema, type ObjectValueType } from './enums.js';
+import { NodeTypeSchema } from './node-types.js';
 import type { RelationType } from './relation-types.js';
 
 // ASCII unit separator (U+001F): cannot occur in an id, a predicate, or a normalized
@@ -127,14 +128,31 @@ export function buildAssertionKey(input: AssertionKeyInput): string {
   ].join(KEY_SEPARATOR));
 }
 
-export interface UnresolvedNodeRef {
-  readonly nodeType: NodeType;
-  readonly displayName: string;
-}
+/**
+ * A reference to a node that has not been resolved to an id yet — no `kind` discriminator.
+ * The schema is the single definition: every producer (model output) and consumer (stored
+ * candidate JSON) validates against it, and the type is inferred from it.
+ */
+export const UnresolvedNodeRefSchema = z.object({
+  nodeType: NodeTypeSchema,
+  displayName: z.string().min(1),
+}).strict();
+export type UnresolvedNodeRef = z.infer<typeof UnresolvedNodeRefSchema>;
 
-export type CandidateObjectRef =
-  | { readonly kind: 'unresolved'; readonly nodeType: NodeType; readonly displayName: string }
-  | { readonly kind: 'literal'; readonly valueType: ObjectValueType; readonly value: JsonValue };
+/** The object side of a candidate: an unresolved node or a literal value. */
+export const CandidateObjectRefSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('unresolved'),
+    nodeType: NodeTypeSchema,
+    displayName: z.string().min(1),
+  }).strict(),
+  z.object({
+    kind: z.literal('literal'),
+    valueType: ObjectValueTypeSchema,
+    value: JsonValueSchema,
+  }).strict(),
+]);
+export type CandidateObjectRef = z.infer<typeof CandidateObjectRefSchema>;
 
 export interface CandidateFingerprintInput {
   readonly ownerId: string;

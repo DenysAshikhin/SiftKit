@@ -1,39 +1,15 @@
 import { z } from '../../lib/zod.js';
 import { parseJsonText } from '../../lib/json.js';
-import { JsonValueSchema } from '../../lib/json-types.js';
 import type { RuntimeDatabase } from '../../state/runtime-db.js';
 import type { Clock } from '../clock.js';
+import type { AssertionBasis, CandidateStatus, Sensitivity } from '../domain/enums.js';
 import {
-  ObjectValueTypeSchema,
-  type AssertionBasis, type CandidateStatus, type Sensitivity,
-} from '../domain/enums.js';
-import {
-  buildCandidateFingerprint, type CandidateObjectRef, type UnresolvedNodeRef,
+  buildCandidateFingerprint, CandidateObjectRefSchema, UnresolvedNodeRefSchema,
+  type CandidateObjectRef, type UnresolvedNodeRef,
 } from '../domain/keys.js';
-import { NodeTypeSchema } from '../domain/node-types.js';
 import type { RelationType } from '../domain/relation-types.js';
 import type { IdGenerator } from '../ids.js';
 import { CandidateRowSchema, type CandidateRow } from './rows.js';
-
-/** Mirrors `UnresolvedNodeRef` in domain/keys.ts — which has no `kind` discriminator. */
-const UnresolvedNodeRefSchema = z.object({
-  nodeType: NodeTypeSchema,
-  displayName: z.string(),
-});
-
-/** Mirrors `CandidateObjectRef` in domain/keys.ts — which does discriminate. */
-const CandidateObjectRefSchema = z.union([
-  z.object({
-    kind: z.literal('unresolved'),
-    nodeType: NodeTypeSchema,
-    displayName: z.string(),
-  }),
-  z.object({
-    kind: z.literal('literal'),
-    valueType: ObjectValueTypeSchema,
-    value: JsonValueSchema,
-  }),
-]);
 
 export interface ProposeCandidateInput {
   readonly ownerId: string;

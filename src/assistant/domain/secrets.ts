@@ -41,7 +41,7 @@ const TOPIC_RULES: readonly TopicRule[] = [
   },
   {
     topic: 'finance',
-    pattern: /\b(?:bank(?: account)?|iban|salary|mortgage|credit card|loan|invest\w*|net worth|tax return)\b/i,
+    pattern: /\b(?:bank account|bank balance|iban|salary|mortgage|credit card|loan|investment|investing|invests|net worth|tax return)\b/i,
   },
   {
     topic: 'relationship',

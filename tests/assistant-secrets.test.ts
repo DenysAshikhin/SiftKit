@@ -48,10 +48,23 @@ test('a sensitive topic raises the floor to sensitive but is not a secret', () =
 });
 
 test('a secret outranks a topic', () => {
-  const result = scanner.scan('my bank password = hunter2correcthorse');
+  const result = scanner.scan('my bank account password = hunter2correcthorse');
   assert.equal(result.containsSecret, true);
   assert.equal(result.sensitivityFloor, 'secret_prohibited');
   assert.deepEqual(result.topics, ['finance']);
+});
+
+test('a topic noun needs a topic-bearing collocation, not a bare word', () => {
+  const cases = [
+    'I need to investigate the memory bank',
+    'the register bank is full so we spill to the stack',
+    'we invest a lot of CPU in this loop',
+  ];
+  for (const text of cases) {
+    const result = scanner.scan(text);
+    assert.deepEqual(result.topics, [], `should not classify: ${text}`);
+    assert.equal(result.sensitivityFloor, 'personal');
+  }
 });
 
 test('scanning is case-insensitive and reports each rule once', () => {

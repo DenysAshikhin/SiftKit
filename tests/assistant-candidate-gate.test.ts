@@ -8,7 +8,6 @@ import { withAssistantContext } from './helpers/assistant-fixture.js';
 function baseInput(ownerId: string) {
   return {
     ownerId,
-    predicate: 'USES',
     basis: 'explicit_user_statement',
     sourceType: 'conversation_message',
     confidence: 0.9,

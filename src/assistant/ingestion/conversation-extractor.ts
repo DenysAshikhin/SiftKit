@@ -1,8 +1,7 @@
 import { z } from '../../lib/zod.js';
-import { JsonValueSchema } from '../../lib/json-types.js';
 import type { AssistantGraph } from '../assistant-graph.js';
-import { ObjectValueTypeSchema, type ObservationType } from '../domain/enums.js';
-import { NodeTypeSchema } from '../domain/node-types.js';
+import type { ObservationType } from '../domain/enums.js';
+import { CandidateObjectRefSchema, UnresolvedNodeRefSchema } from '../domain/keys.js';
 import { RelationTypeSchema } from '../domain/relation-types.js';
 import type { StructuredOutputRunner } from '../inference/structured-runner.js';
 
@@ -13,21 +12,10 @@ type StatementKind = z.infer<typeof StatementKindSchema>;
 
 const ExtractedStatementSchema = z.object({
   statementKind: StatementKindSchema,
-  subject: z.object({ nodeType: NodeTypeSchema, displayName: z.string().min(1) }).strict(),
+  subject: UnresolvedNodeRefSchema,
   predicate: RelationTypeSchema,
-  object: z.discriminatedUnion('kind', [
-    z.object({
-      kind: z.literal('unresolved'),
-      nodeType: NodeTypeSchema,
-      displayName: z.string().min(1),
-    }).strict(),
-    z.object({
-      kind: z.literal('literal'),
-      valueType: ObjectValueTypeSchema,
-      value: JsonValueSchema,
-    }).strict(),
-  ]),
-  scope: z.object({ nodeType: NodeTypeSchema, displayName: z.string().min(1) }).strict().nullable(),
+  object: CandidateObjectRefSchema,
+  scope: UnresolvedNodeRefSchema.nullable(),
   validFromUtc: z.string().nullable(),
   validToUtc: z.string().nullable(),
   rationale: z.string().min(1),

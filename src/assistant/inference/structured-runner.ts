@@ -32,12 +32,13 @@ export type StructuredRunOutcome<T> =
       readonly attempts: number;
     };
 
-interface ParseAttempt<T> {
-  readonly ok: boolean;
-  readonly value: T | null;
-  readonly code: StructuredRunFailureCode;
-  readonly message: string;
-}
+type ParseAttempt<T> =
+  | { readonly ok: true; readonly value: T }
+  | {
+      readonly ok: false;
+      readonly code: StructuredRunFailureCode;
+      readonly message: string;
+    };
 
 /**
  * Runs one model role and validates its answer against a zod schema. Exactly one repair retry
@@ -59,7 +60,7 @@ export class StructuredOutputRunner {
       abortSignal: request.abortSignal,
     });
     const firstParse = this.parse(first.text, request.schema);
-    if (firstParse.ok && firstParse.value !== null) {
+    if (firstParse.ok) {
       return {
         ok: true, value: firstParse.value, backendId: first.backendId, modelId: first.modelId,
         promptVersion: ROLE_PROMPT_VERSION[request.role], attempts: 1,
@@ -75,7 +76,7 @@ export class StructuredOutputRunner {
       abortSignal: request.abortSignal,
     });
     const secondParse = this.parse(second.text, request.schema);
-    if (secondParse.ok && secondParse.value !== null) {
+    if (secondParse.ok) {
       return {
         ok: true, value: secondParse.value, backendId: second.backendId, modelId: second.modelId,
         promptVersion: ROLE_PROMPT_VERSION[request.role], attempts: 2,
@@ -88,21 +89,18 @@ export class StructuredOutputRunner {
     const trimmed = text.trim();
     const parsed = this.safeJson(trimmed);
     if (parsed === null) {
-      return {
-        ok: false, value: null, code: 'invalid_json',
-        message: 'The response was not valid JSON.',
-      };
+      return { ok: false, code: 'invalid_json', message: 'The response was not valid JSON.' };
     }
     const validated = schema.safeParse(parsed);
     if (!validated.success) {
       return {
-        ok: false, value: null, code: 'schema_invalid',
+        ok: false, code: 'schema_invalid',
         message: validated.error.issues
           .map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
           .join('; '),
       };
     }
-    return { ok: true, value: validated.data, code: 'schema_invalid', message: '' };
+    return { ok: true, value: validated.data };
   }
 
   private safeJson(text: string): JsonObject | null {

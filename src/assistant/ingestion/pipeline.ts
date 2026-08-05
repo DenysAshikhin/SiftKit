@@ -11,7 +11,7 @@ export interface SuppressTurnInput {
 }
 
 export type IngestionOutcome =
-  | { readonly kind: 'accepted'; readonly evidenceId: string; readonly jobId: string | null }
+  | { readonly kind: 'accepted'; readonly evidenceId: string; readonly jobId: string }
   | { readonly kind: 'duplicate'; readonly evidenceId: string }
   | {
       readonly kind: 'discarded';
@@ -90,7 +90,12 @@ export class IngestionPipeline {
         },
         idempotencyKey: `conversation_ingestion:${evidence.id}`,
       });
-      return { kind: 'accepted', evidenceId: evidence.id, jobId: job === null ? null : job.id };
+      if (job === null) {
+        // The key is derived from an evidence id minted moments ago, so no live job can hold
+        // it. Reaching here means id generation is not unique — never silently continue.
+        throw new Error(`Ingestion job key collided for fresh evidence ${evidence.id}.`);
+      }
+      return { kind: 'accepted', evidenceId: evidence.id, jobId: job.id };
     });
   }
 

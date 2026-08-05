@@ -3,7 +3,6 @@ import {
   isExplicitBasis, type AssertionBasis, type EvidenceSourceType,
 } from '../domain/enums.js';
 import type { SecretScanner, SensitiveTopic } from '../domain/secrets.js';
-import type { RelationType } from '../domain/relation-types.js';
 import type { PolicyStore } from '../storage/policy-store.js';
 
 export type CandidateRejectionCode =
@@ -25,7 +24,6 @@ export type CandidateGateOutcome =
 
 export interface CandidateGateInput {
   readonly ownerId: string;
-  readonly predicate: RelationType;
   readonly basis: AssertionBasis;
   readonly sourceType: EvidenceSourceType;
   readonly confidence: number;
