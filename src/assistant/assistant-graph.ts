@@ -19,6 +19,7 @@ import { NodeStore } from './storage/node-store.js';
 import { ObservationStore } from './storage/observation-store.js';
 import { PolicyStore } from './storage/policy-store.js';
 import { ProjectionStore } from './storage/projection-store.js';
+import { AssistantTransactionManager } from './transactions/assistant-transaction-manager.js';
 
 export interface AssistantGraphOptions {
   readonly database: RuntimeDatabase;
@@ -34,7 +35,6 @@ export interface AssistantGraphOptions {
  * readonly fields; nothing outside this class constructs a store.
  */
 export class AssistantGraph {
-  private readonly database: RuntimeDatabase;
   private readonly clock: Clock;
 
   readonly identity: IdentityStore;
@@ -52,10 +52,10 @@ export class AssistantGraph {
   readonly jobs: JobStore;
   readonly observations: ObservationStore;
   readonly candidates: CandidateStore;
+  readonly transactions: AssistantTransactionManager;
 
   constructor(options: AssistantGraphOptions) {
     const { database, clock, ids } = options;
-    this.database = database;
     this.clock = clock;
 
     this.identity = new IdentityStore(database);
@@ -69,12 +69,13 @@ export class AssistantGraph {
     );
 
     this.validator = new AssertionValidator(this.nodes, this.policies);
+    this.transactions = new AssistantTransactionManager(database);
     this.assertionService = new AssertionService(
-      database, clock, this.nodes, this.assertions, this.audit, this.policies, this.validator,
+      this.transactions, database, clock, this.nodes, this.assertions, this.audit, this.policies, this.validator,
     );
     this.resolver = new EntityResolver(this.nodes, this.audit);
     this.merges = new NodeMergeService(
-      database, this.nodes, this.assertions, this.audit, this.policies,
+      this.transactions, this.nodes, this.assertions, this.audit, this.policies,
     );
     this.neighborhoods = new NeighborhoodReader(this.nodes, this.assertions);
     this.projections = new ProjectionStore(database, clock, ids);
@@ -93,10 +94,5 @@ export class AssistantGraph {
 
   nowUtc(): string {
     return this.clock.nowUtc();
-  }
-
-  /** Runs `body` inside one SQLite transaction. The single place assistant writes are grouped. */
-  transaction<T>(body: () => T): T {
-    return this.database.transaction(body)();
   }
 }

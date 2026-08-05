@@ -1,6 +1,5 @@
 import { parseJsonText, parseJsonValueText } from '../../lib/json.js';
 import { z } from '../../lib/zod.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
 import { isExplicitBasis } from '../domain/enums.js';
 import { buildAssertionKey, type AssertionObjectRef } from '../domain/keys.js';
 import type { AssertionStore } from '../storage/assertion-store.js';
@@ -8,6 +7,7 @@ import type { AuditStore } from '../storage/audit-store.js';
 import type { NodeStore } from '../storage/node-store.js';
 import type { PolicyStore } from '../storage/policy-store.js';
 import type { AssertionRow } from '../storage/rows.js';
+import { AssistantTransactionManager } from '../transactions/assistant-transaction-manager.js';
 
 export type MergeBlockCode =
   | 'unknown_node'
@@ -91,7 +91,7 @@ function objectRefOf(assertion: AssertionRow, replacementNodeId: string | null):
  */
 export class NodeMergeService {
   constructor(
-    private readonly database: RuntimeDatabase,
+    private readonly transactions: AssistantTransactionManager,
     private readonly nodes: NodeStore,
     private readonly assertions: AssertionStore,
     private readonly audit: AuditStore,
@@ -99,9 +99,13 @@ export class NodeMergeService {
   ) {}
 
   merge(request: MergeRequest): MergeOutcome {
-    return this.database.transaction((): MergeOutcome => {
+    const transaction = this.transactions.begin();
+    try {
       const guard = this.checkMergeSafety(request);
-      if (guard !== null) return guard;
+      if (guard !== null) {
+        transaction.commit();
+        return guard;
+      }
 
       const payload: MergePayload = {
         sourceNodeId: request.sourceNodeId,
@@ -154,12 +158,16 @@ export class NodeMergeService {
         reason: request.reason,
       });
       this.audit.incrementGraphVersion();
+      transaction.commit();
       return { kind: 'merged', mergeId: mergeRow.id, targetNodeId: request.targetNodeId };
-    })();
+    } catch (error) {
+      return transaction.rollbackAfter(error);
+    }
   }
 
   unmerge(request: UnmergeRequest): void {
-    this.database.transaction((): void => {
+    const transaction = this.transactions.begin();
+    try {
       const mergeRow = this.nodes.requireMerge(request.mergeId);
       if (mergeRow.reversed_at_utc !== null) {
         throw new Error(`Merge ${request.mergeId} has already been reversed.`);
@@ -193,7 +201,10 @@ export class NodeMergeService {
         before: { mergeId: request.mergeId }, after: payload, reason: request.reason,
       });
       this.audit.incrementGraphVersion();
-    })();
+      transaction.commit();
+    } catch (error) {
+      return transaction.rollbackAfter(error);
+    }
   }
 
   private checkMergeSafety(request: MergeRequest): MergeOutcome | null {

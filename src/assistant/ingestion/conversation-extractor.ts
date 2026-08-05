@@ -105,7 +105,8 @@ export class ConversationExtractor {
     const observationIds: string[] = [];
     const candidateIds: string[] = [];
 
-    this.graph.transaction(() => {
+    const transaction = this.graph.transactions.begin();
+    try {
       for (const statement of outcome.value.statements) {
         const observation = this.graph.observations.record({
           ownerId: request.ownerId,
@@ -140,7 +141,10 @@ export class ConversationExtractor {
           candidateIds.push(candidate.id);
         }
       }
-    });
+      transaction.commit();
+    } catch (error) {
+      return transaction.rollbackAfter(error);
+    }
 
     return { observationIds, candidateIds };
   }

@@ -6,6 +6,7 @@ import { AssertionStore } from '../src/assistant/storage/assertion-store.js';
 import { AuditStore } from '../src/assistant/storage/audit-store.js';
 import { NodeStore } from '../src/assistant/storage/node-store.js';
 import { PolicyStore } from '../src/assistant/storage/policy-store.js';
+import { AssistantTransactionManager } from '../src/assistant/transactions/assistant-transaction-manager.js';
 import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.js';
 
 interface MergeHarness {
@@ -22,8 +23,9 @@ function harness(context: AssistantTestContext): MergeHarness {
   const assertions = new AssertionStore(context.database, context.clock, context.ids);
   const audit = new AuditStore(context.database, context.clock, context.ids);
   const policies = new PolicyStore(context.database, context.clock, context.ids);
+  const transactions = new AssistantTransactionManager(context.database);
   const merges = new NodeMergeService(
-    context.database, nodes, assertions, audit, policies,
+    transactions, nodes, assertions, audit, policies,
   );
   const person = nodes.createNode({
     ownerId: context.ownerId, type: 'person', canonicalKey: 'person:self',

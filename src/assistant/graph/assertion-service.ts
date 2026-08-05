@@ -1,6 +1,7 @@
 import type { JsonObject } from '../../lib/json-types.js';
 import type { RuntimeDatabase } from '../../state/runtime-db.js';
 import type { Clock } from '../clock.js';
+import { AssistantTransactionManager } from '../transactions/assistant-transaction-manager.js';
 import { resolveConfidence } from '../domain/confidence.js';
 import {
   isExplicitBasis,
@@ -148,6 +149,7 @@ function snapshot(assertion: AssertionRow): AssertionSnapshot {
  */
 export class AssertionService {
   constructor(
+    private readonly transactions: AssistantTransactionManager,
     private readonly database: RuntimeDatabase,
     private readonly clock: Clock,
     private readonly nodes: NodeStore,
@@ -158,7 +160,8 @@ export class AssertionService {
   ) {}
 
   assert(request: AssertRequest): AssertionWriteOutcome {
-    return this.database.transaction((): AssertionWriteOutcome => {
+    const transaction = this.transactions.begin();
+    try {
       const validation = this.validator.validate({
         ownerId: request.ownerId,
         subjectNodeId: request.subjectNodeId,
@@ -174,6 +177,7 @@ export class AssertionService {
         topics: request.topics,
       });
       if (!validation.ok) {
+        transaction.commit();
         return { kind: 'rejected', code: validation.code, message: validation.message };
       }
       const validated: ValidatedAssertRequest = { ...request, predicate: validation.predicate };
@@ -188,14 +192,19 @@ export class AssertionService {
 
       const sameKey = this.assertions.findLiveByKey(validated.ownerId, assertionKey);
       if (sameKey !== null) {
-        return this.reinforce(sameKey, validated);
+        const result = this.reinforce(sameKey, validated);
+        transaction.commit();
+        return result;
       }
 
       const rival = this.findExclusiveRival(validated, definition.cardinality);
       if (rival === null) {
-        return this.createNew(validated, null);
+        const result = this.createNew(validated, null);
+        transaction.commit();
+        return result;
       }
       if (this.policies.isAssertionLocked(validated.ownerId, rival.id)) {
+        transaction.commit();
         return {
           kind: 'rejected', code: 'assertion_locked',
           message: `Assertion ${rival.id} is locked against automatic change.`,
@@ -203,23 +212,34 @@ export class AssertionService {
       }
 
       if (isExplicitBasis(rival.basis) && !isExplicitBasis(validated.basis)) {
-        return this.recordContradiction(rival, validated);
+        const result = this.recordContradiction(rival, validated);
+        transaction.commit();
+        return result;
       }
       if (definition.temporal !== 'none' && validated.validFromUtc !== null) {
-        return this.closeTemporally(rival, validated);
+        const result = this.closeTemporally(rival, validated);
+        transaction.commit();
+        return result;
       }
       if (
         definition.conflictStrategy === 'mark_disputed'
         && isExplicitBasis(rival.basis) && isExplicitBasis(validated.basis)
       ) {
-        return this.dispute(rival, validated);
+        const result = this.dispute(rival, validated);
+        transaction.commit();
+        return result;
       }
-      return this.supersede(rival, validated);
-    })();
+      const result = this.supersede(rival, validated);
+      transaction.commit();
+      return result;
+    } catch (error) {
+      return transaction.rollbackAfter(error);
+    }
   }
 
   correct(request: CorrectRequest): AssertionWriteOutcome {
-    return this.database.transaction((): AssertionWriteOutcome => {
+    const transaction = this.transactions.begin();
+    try {
       const existing = this.assertions.requireAssertion(request.assertionId);
       const replacement = this.writeAssertion({
         ownerId: existing.owner_id,
@@ -248,14 +268,18 @@ export class AssertionService {
         reason: request.reason,
       });
       this.audit.incrementGraphVersion();
+      transaction.commit();
       return {
         kind: 'superseded', assertionId: replacement.id, supersededAssertionId: existing.id,
       };
-    })();
+    } catch (error) {
+      return transaction.rollbackAfter(error);
+    }
   }
 
   confirm(request: ConfirmRequest): AssertionRow {
-    return this.database.transaction((): AssertionRow => {
+    const transaction = this.transactions.begin();
+    try {
       const before = this.assertions.requireAssertion(request.assertionId);
       this.database
         .prepare('UPDATE graph_assertions SET basis = ?, updated_at_utc = ? WHERE id = ?')
@@ -269,12 +293,16 @@ export class AssertionService {
         before: snapshot(before), after: snapshot(after), reason: request.reason,
       });
       this.audit.incrementGraphVersion();
+      transaction.commit();
       return after;
-    })();
+    } catch (error) {
+      return transaction.rollbackAfter(error);
+    }
   }
 
   setPinned(request: PinRequest): AssertionRow {
-    return this.database.transaction((): AssertionRow => {
+    const transaction = this.transactions.begin();
+    try {
       const before = this.assertions.requireAssertion(request.assertionId);
       const after = this.assertions.setPinned(request.assertionId, request.pinned);
       this.audit.recordMutation({
@@ -284,8 +312,11 @@ export class AssertionService {
         before: snapshot(before), after: snapshot(after), reason: request.reason,
       });
       this.audit.incrementGraphVersion();
+      transaction.commit();
       return after;
-    })();
+    } catch (error) {
+      return transaction.rollbackAfter(error);
+    }
   }
 
   expire(request: StatusChangeRequest): AssertionRow {
@@ -302,7 +333,8 @@ export class AssertionService {
 
   /** Re-derives confidence from the currently live supporting and contradicting evidence. */
   recalculateConfidence(request: RecalculateRequest): number {
-    return this.database.transaction((): number => {
+    const transaction = this.transactions.begin();
+    try {
       const before = this.assertions.requireAssertion(request.assertionId);
       const after = this.applyConfidence(request.assertionId);
       if (after.confidence !== before.confidence) {
@@ -314,8 +346,11 @@ export class AssertionService {
         });
         this.audit.incrementGraphVersion();
       }
+      transaction.commit();
       return after.confidence;
-    })();
+    } catch (error) {
+      return transaction.rollbackAfter(error);
+    }
   }
 
   private changeStatus(
@@ -323,7 +358,8 @@ export class AssertionService {
     status: 'expired' | 'deleted' | 'rejected',
     operation: 'expire_assertion' | 'delete_assertion' | 'reject_assertion',
   ): AssertionRow {
-    return this.database.transaction((): AssertionRow => {
+    const transaction = this.transactions.begin();
+    try {
       const before = this.assertions.requireAssertion(request.assertionId);
       const after = this.assertions.retireAssertion(request.assertionId, status);
       this.audit.recordMutation({
@@ -332,8 +368,11 @@ export class AssertionService {
         before: snapshot(before), after: snapshot(after), reason: request.reason,
       });
       this.audit.incrementGraphVersion();
+      transaction.commit();
       return after;
-    })();
+    } catch (error) {
+      return transaction.rollbackAfter(error);
+    }
   }
 
   /**

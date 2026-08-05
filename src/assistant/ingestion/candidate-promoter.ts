@@ -61,7 +61,8 @@ export class CandidatePromoter {
       return { kind: 'needs_confirmation', reason: gateOutcome.topic };
     }
 
-    return this.graph.transaction(() => {
+    const transaction = this.graph.transactions.begin();
+    try {
       const subjectNodeId = this.resolveNode(request.ownerId, refs.subject);
       const scopeNodeId = refs.scope === null
         ? null
@@ -89,7 +90,7 @@ export class CandidatePromoter {
           evidenceId: evidence.id,
           searchText,
         });
-        return this.finish(candidate, corrected);
+        return this.finish(candidate, corrected, transaction);
       }
 
       const written = this.graph.assertionService.assert({
@@ -110,19 +111,24 @@ export class CandidatePromoter {
         searchText,
         evidence: [{ evidenceId: evidence.id, stance: 'supports', weight: gateOutcome.confidence }],
       });
-      return this.finish(candidate, written);
-    });
+      return this.finish(candidate, written, transaction);
+    } catch (error) {
+      return transaction.rollbackAfter(error);
+    }
   }
 
   private finish(
     candidate: CandidateRow,
     outcome: AssertionWriteOutcome,
+    transaction: { commit(): void },
   ): PromotionOutcome {
     if (outcome.kind === 'rejected') {
       this.graph.candidates.reject(candidate.id, outcome.code);
+      transaction.commit();
       return { kind: 'rejected', code: outcome.code, message: outcome.message };
     }
     this.graph.candidates.accept(candidate.id);
+    transaction.commit();
     return { kind: 'promoted', assertionId: outcome.assertionId };
   }
 

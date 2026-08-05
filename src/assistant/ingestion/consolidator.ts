@@ -75,7 +75,8 @@ export class CandidateConsolidator {
     }
 
     const droppedCandidateIds: string[] = [];
-    this.graph.transaction(() => {
+    const transaction = this.graph.transactions.begin();
+    try {
       for (const group of outcome.value.duplicateGroups) {
         if (!known.has(group.keepCandidateId)) continue;
         for (const dropId of group.dropCandidateIds) {
@@ -85,7 +86,10 @@ export class CandidateConsolidator {
           droppedCandidateIds.push(dropId);
         }
       }
-    });
+      transaction.commit();
+    } catch (error) {
+      return transaction.rollbackAfter(error);
+    }
 
     const entityMatches = outcome.value.entityMatches.filter((match) =>
       known.has(match.candidateId)

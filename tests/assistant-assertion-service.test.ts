@@ -7,6 +7,7 @@ import { AssertionStore } from '../src/assistant/storage/assertion-store.js';
 import { AuditStore } from '../src/assistant/storage/audit-store.js';
 import { NodeStore } from '../src/assistant/storage/node-store.js';
 import { PolicyStore } from '../src/assistant/storage/policy-store.js';
+import { AssistantTransactionManager } from '../src/assistant/transactions/assistant-transaction-manager.js';
 import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.js';
 
 interface ServiceHarness {
@@ -29,8 +30,9 @@ function harness(context: AssistantTestContext): ServiceHarness {
   const audit = new AuditStore(context.database, context.clock, context.ids);
   const policies = new PolicyStore(context.database, context.clock, context.ids);
   const validator = new AssertionValidator(nodes, policies);
+  const transactions = new AssistantTransactionManager(context.database);
   const service = new AssertionService(
-    context.database, context.clock, nodes, assertions, audit, policies, validator,
+    transactions, context.database, context.clock, nodes, assertions, audit, policies, validator,
   );
 
   const make = (type: Parameters<NodeStore['createNode']>[0]['type'], key: string, name: string) =>

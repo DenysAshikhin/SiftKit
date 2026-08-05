@@ -66,7 +66,8 @@ export class IngestionPipeline {
       return { kind: 'duplicate', evidenceId: existing.id };
     }
 
-    return this.graph.transaction(() => {
+    const transaction = this.graph.transactions.begin();
+    try {
       const evidence = this.graph.evidence.recordTextEvidence({
         ownerId: envelope.ownerId,
         deviceId: envelope.deviceId,
@@ -95,8 +96,11 @@ export class IngestionPipeline {
         // it. Reaching here means id generation is not unique — never silently continue.
         throw new Error(`Ingestion job key collided for fresh evidence ${evidence.id}.`);
       }
+      transaction.commit();
       return { kind: 'accepted', evidenceId: evidence.id, jobId: job.id };
-    });
+    } catch (error) {
+      return transaction.rollbackAfter(error);
+    }
   }
 
   private renderText(envelope: IngestionEnvelope): string {
@@ -114,7 +118,8 @@ export class IngestionPipeline {
    * those events is deleted. Only a non-content audit event survives.
    */
   suppressTurn(input: SuppressTurnInput): void {
-    this.graph.transaction(() => {
+    const transaction = this.graph.transactions.begin();
+    try {
       for (const sourceEventId of input.sourceEventIds) {
         const evidence = this.graph.evidence.findBySourceEventId(input.ownerId, sourceEventId);
         if (evidence !== null) {
@@ -129,6 +134,9 @@ export class IngestionPipeline {
         summary: 'User asked not to remember this turn; evidence removed.',
         details: { sourceEventIds: [...input.sourceEventIds] },
       });
-    });
+      transaction.commit();
+    } catch (error) {
+      return transaction.rollbackAfter(error);
+    }
   }
 }
