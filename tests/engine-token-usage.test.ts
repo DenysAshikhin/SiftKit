@@ -165,9 +165,9 @@ test('addOutputTokens and addToolTokens accumulate; tool tokens are ceiled and f
   assert.equal(tracker.snapshot().toolTokens, 4);
 });
 
-test('getDynamicMaxOutputTokens uses the smaller of 25k tokens or 90% of remaining context', () => {
-  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 8192, promptTokenCount: 1000 }), 6472);
-  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 128000, promptTokenCount: 12239 }), 25000);
-  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 200, promptTokenCount: 199 }), 1);
-  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 200, promptTokenCount: 250 }), 1);
+test('getDynamicMaxOutputTokens uses the smaller of the shared reserve or the remaining context', () => {
+  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 8192, promptTokenCount: 1000, config: null }), 4096);
+  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 128000, promptTokenCount: 12239, config: null }), 15000);
+  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 200, promptTokenCount: 199, config: null }), 1);
+  assert.equal(getDynamicMaxOutputTokens({ totalContextTokens: 200, promptTokenCount: 250, config: null }), 1);
 });

@@ -36,7 +36,7 @@ for (const engine of ['exl3', 'llama'] as const) {
         config,
         prompt: PROMPT,
         totalContextTokens: 128_000,
-        thinkingBufferTokens: 4_000,
+        responseReserveTokens: 4_000,
       });
       assert.equal(preflight.promptTokenCount, STUB_TOKEN_COUNT);
       assert.equal(preflight.tokenCountSource, engine);
@@ -58,7 +58,7 @@ test('an unreachable server tokenizer falls back to the local estimate, not the 
       config,
       prompt: PROMPT,
       totalContextTokens: 128_000,
-      thinkingBufferTokens: 4_000,
+      responseReserveTokens: 4_000,
     });
     assert.equal(preflight.tokenCountSource, 'estimate');
   });
@@ -79,7 +79,7 @@ test('an estimated provider reserve downgrades a server-counted transcript to es
       prompt: PROMPT,
       providerPromptReserveText: 'reserve text the tokenizer refuses',
       totalContextTokens: 128_000,
-      thinkingBufferTokens: 4_000,
+      responseReserveTokens: 4_000,
     });
     assert.equal(preflight.tokenCountSource, 'estimate');
   }, {

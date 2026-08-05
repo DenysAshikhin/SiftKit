@@ -1252,6 +1252,12 @@ test('runTaskLoop uses dynamic max_tokens for planner requests from live prompt 
   const address = server.address();
   const baseUrl = `http://127.0.0.1:${Number(typeof address === 'object' && address ? address.port : 0)}`;
 
+  // MaxTokens is far above the dynamic budget so this case stays about the dynamic math.
+  const config = mockConfig({
+    Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 20000 } },
+    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', MaxTokens: 100_000 }] } },
+  });
+
   try {
     const result = await runTaskLoop(
       {
@@ -1264,11 +1270,7 @@ test('runTaskLoop uses dynamic max_tokens for planner requests from live prompt 
         systemContext: createEmptyPresetSystemContext(),
         baseUrl,
         model: 'mock-model',
-        // MaxTokens is far above the dynamic budget so this case stays about the dynamic math.
-        config: mockConfig({
-          Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 20000 } },
-          Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', MaxTokens: 100_000 }] } },
-        }),
+        config,
         totalContextTokens: 20000,
         maxTurns: 1,
         minToolCallsBeforeFinish: 0,
@@ -1288,7 +1290,7 @@ test('runTaskLoop uses dynamic max_tokens for planner requests from live prompt 
     assert.equal(loggedPromptTokenCounts.length, 1);
     assert.equal(
       Number(chatRequests[0].max_tokens),
-      getDynamicMaxOutputTokens({ totalContextTokens: 20000, promptTokenCount: loggedPromptTokenCounts[0] })
+      getDynamicMaxOutputTokens({ config, totalContextTokens: 20000, promptTokenCount: loggedPromptTokenCounts[0] })
     );
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
@@ -1360,6 +1362,7 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
     assert.equal(
       Number(chatRequests[1].max_tokens),
       getDynamicMaxOutputTokens({
+        config,
         totalContextTokens: 12000,
         promptTokenCount: estimateTokenCount(config, synthesisPrompt),
       })
@@ -1431,6 +1434,7 @@ test('runTaskLoop clamps planner and terminal synthesis max_tokens to the preset
     assert.equal(chatRequests.length, 2);
     const synthesisPrompt = String(asObject(asObjectArray(chatRequests[1].messages)[0]).content || '');
     assert.ok(getDynamicMaxOutputTokens({
+      config,
       totalContextTokens: 12000,
       promptTokenCount: estimateTokenCount(config, synthesisPrompt),
     }) > 900);

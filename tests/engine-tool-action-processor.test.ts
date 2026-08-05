@@ -39,7 +39,7 @@ function makeProcessor(
   const commands: TaskCommand[] = [];
   const counters: LoopCounters = { invalidResponses: 0, commandFailures: 0, safetyRejects: 0, reason: '' };
   const tokenUsage = new TokenUsageTracker(undefined, true);
-  const budget = new TurnBudget({ totalContextTokens: 20000, maxTurns: 5 });
+  const budget = new TurnBudget({ totalContextTokens: 20000, maxTurns: 5, config: null });
   const events: JsonObject[] = [];
   const processor = new ToolActionProcessor({
     task: { id: 'task-alignment', question: 'q', signals: ['done'] },

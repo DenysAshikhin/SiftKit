@@ -16,6 +16,7 @@ import {
 import { resolveRepoSearchPlannerToolDefinitions, type ChatMessage } from '../src/repo-search/planner-protocol.js';
 import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
 import { MIN_TURN_TOOL_RESULT_RATIO } from '../src/repo-search/engine/turn-budget.js';
+import { computeResponseReserveTokens } from '../src/lib/response-reserve.js';
 import {
   preflightPlannerPromptBudget,
   compactPlannerMessagesOnce,
@@ -345,8 +346,8 @@ test('runTaskLoop cuts off runaway streamed tool JSON and reprompts once', { tim
 test('runTaskLoop truncates oversized rg output to the largest fitting prefix', async () => {
   const events: JsonObject[] = [];
   const totalContextTokens = 20000;
-  const thinkingBufferTokens = Math.max(Math.ceil(totalContextTokens * 0.15), 4000);
-  const usablePromptTokens = Math.max(totalContextTokens - thinkingBufferTokens, 0);
+  const responseReserveTokens = computeResponseReserveTokens({ totalContextTokens, config: MOCK_LOOP_DEFAULTS.config });
+  const usablePromptTokens = Math.max(totalContextTokens - responseReserveTokens, 0);
   const baselinePerToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * MIN_TURN_TOOL_RESULT_RATIO));
   const oversizedOutput = Array.from(
     { length: 500 },
@@ -830,7 +831,7 @@ test('preflightPlannerPromptBudget reports overflow against context budget', asy
       { role: 'user', content: 'x '.repeat(10000) },
     ],
     totalContextTokens: 7000,
-    thinkingBufferTokens: 4000,
+    responseReserveTokens: 4000,
   });
 
   assert.equal(preflight.ok, false);
@@ -846,7 +847,7 @@ test('preflightPlannerPromptBudget reserves provider prompt overhead against con
       { role: 'user', content: 'short request' },
     ],
     totalContextTokens: 4200,
-    thinkingBufferTokens: 4000,
+    responseReserveTokens: 4000,
   });
   const withReserve = await preflightPlannerPromptBudget({
     messages: [
@@ -855,7 +856,7 @@ test('preflightPlannerPromptBudget reserves provider prompt overhead against con
     ],
     providerPromptReserveText: 'provider tools and response schema '.repeat(900),
     totalContextTokens: 4200,
-    thinkingBufferTokens: 4000,
+    responseReserveTokens: 4000,
   });
 
   assert.equal(withoutReserve.ok, true);
@@ -1060,8 +1061,8 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
 test('runTaskLoop increases per-tool cap as tool-call progress grows', async () => {
   const events: JsonObject[] = [];
   const totalContextTokens = 20000;
-  const thinkingBufferTokens = Math.max(Math.ceil(totalContextTokens * 0.15), 4000);
-  const usablePromptTokens = Math.max(totalContextTokens - thinkingBufferTokens, 0);
+  const responseReserveTokens = computeResponseReserveTokens({ totalContextTokens, config: MOCK_LOOP_DEFAULTS.config });
+  const usablePromptTokens = Math.max(totalContextTokens - responseReserveTokens, 0);
   const baselinePerToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * MIN_TURN_TOOL_RESULT_RATIO));
   const expectedThirdCommandCap = Math.max(1, Math.floor(usablePromptTokens * (2 / 10)));
   const result = await runTaskLoop(

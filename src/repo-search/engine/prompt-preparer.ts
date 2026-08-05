@@ -75,7 +75,7 @@ export class PromptPreparer {
       prompt,
       providerPromptReserveText,
       totalContextTokens: budget.totalContextTokens,
-      thinkingBufferTokens: budget.thinkingBufferTokens,
+      responseReserveTokens: budget.responseReserveTokens,
     });
     preflightSpan?.end({
       promptTokenCount: preflight.promptTokenCount,
@@ -135,7 +135,7 @@ export class PromptPreparer {
         prompt,
         providerPromptReserveText,
         totalContextTokens: budget.totalContextTokens,
-        thinkingBufferTokens: budget.thinkingBufferTokens,
+        responseReserveTokens: budget.responseReserveTokens,
       });
       if (afterCompaction.tokenizationAttempted) {
         progress.tokenizeDone(turn, prompt.length, afterCompaction);
@@ -171,7 +171,7 @@ export class PromptPreparer {
         `planner_preflight_overflow prompt_tokens=${preflight.promptTokenCount} ` +
           `max_prompt_tokens=${preflight.maxPromptBudget} overflow_tokens=${preflight.overflowTokens} ` +
           `max_output_tokens=${maxOutputTokens} total_context_tokens=${budget.totalContextTokens} ` +
-          `thinking_buffer_tokens=${budget.thinkingBufferTokens} ` +
+          `response_reserve_tokens=${budget.responseReserveTokens} ` +
           `context_overflow_policy=${this.options.contextOverflowPolicy}`,
       );
       this.options.logger?.write({
@@ -185,7 +185,7 @@ export class PromptPreparer {
         overflowTokens: preflight.overflowTokens,
         maxOutputTokens,
         totalContextTokens: budget.totalContextTokens,
-        thinkingBufferTokens: budget.thinkingBufferTokens,
+        responseReserveTokens: budget.responseReserveTokens,
         contextOverflowPolicy: this.options.contextOverflowPolicy,
         error: overflowError.message,
       });

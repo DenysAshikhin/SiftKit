@@ -98,10 +98,10 @@ export async function preflightPlannerPromptBudget(options: {
   messages?: ChatMessage[];
   providerPromptReserveText?: string;
   totalContextTokens: number;
-  thinkingBufferTokens: number;
+  responseReserveTokens: number;
 }): Promise<PreflightResult> {
   const totalContextTokens = Math.max(1, Number(options.totalContextTokens || 0));
-  const thinkingBufferTokens = Math.max(0, Number(options.thinkingBufferTokens || 0));
+  const responseReserveTokens = Math.max(0, Number(options.responseReserveTokens || 0));
 
   const messages = Array.isArray(options.messages) ? options.messages : [];
   const promptText = typeof options.prompt === 'string'
@@ -125,7 +125,7 @@ export async function preflightPlannerPromptBudget(options: {
     : null;
   const providerPromptReserveTokenCount = reserveTokenCount?.tokenCount ?? 0;
   const promptTokenCount = transcriptPromptTokenCount + providerPromptReserveTokenCount;
-  const maxPromptBudget = Math.max(totalContextTokens - thinkingBufferTokens, 0);
+  const maxPromptBudget = Math.max(totalContextTokens - responseReserveTokens, 0);
   const overflowTokens = Math.max(promptTokenCount - maxPromptBudget, 0);
   const llamaTokenCount = tokenCount.llamaTokenCount;
   const reserveLlamaTokenCount = reserveTokenCount?.llamaTokenCount ?? null;
