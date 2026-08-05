@@ -1,6 +1,8 @@
 import path from 'node:path';
 
+import { AssistantGraph } from '../../src/assistant/assistant-graph.js';
 import { FixedClock } from '../../src/assistant/clock.js';
+import { FileKeyProvider } from '../../src/assistant/crypto/key-provider.js';
 import { SequentialIdGenerator } from '../../src/assistant/ids.js';
 import { LOCAL_OWNER_ID } from '../../src/assistant/storage/schema.js';
 import {
@@ -14,25 +16,27 @@ export interface AssistantTestContext {
   readonly ids: SequentialIdGenerator;
   readonly ownerId: string;
   readonly runtimeRoot: string;
+  readonly graph: AssistantGraph;
 }
 
 export const FIXTURE_START_INSTANT = '2026-08-05T09:00:00.000Z';
 
 /**
- * Creates an isolated runtime database with the assistant schema migrated, runs `body`, then
- * closes the database. The temp directory is swept by the shared registry on process exit.
+ * Creates an isolated runtime database with the assistant schema migrated, wires an
+ * AssistantGraph over it, runs `body`, then closes the database.
  */
 export function withAssistantContext<T>(body: (context: AssistantTestContext) => T): T {
   const runtimeRoot = createManagedTempDir('siftkit-assistant-');
   const database = getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite'));
   try {
-    return body({
-      database,
-      clock: new FixedClock(FIXTURE_START_INSTANT),
-      ids: new SequentialIdGenerator(),
-      ownerId: LOCAL_OWNER_ID,
+    const clock = new FixedClock(FIXTURE_START_INSTANT);
+    const ids = new SequentialIdGenerator();
+    const graph = new AssistantGraph({
+      database, clock, ids,
+      keys: new FileKeyProvider(path.join(runtimeRoot, 'assistant', 'keys.json')),
       runtimeRoot,
     });
+    return body({ database, clock, ids, ownerId: LOCAL_OWNER_ID, runtimeRoot, graph });
   } finally {
     closeRuntimeDatabase();
   }
