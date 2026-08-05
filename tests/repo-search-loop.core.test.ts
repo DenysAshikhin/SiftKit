@@ -1372,7 +1372,7 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
   }
 });
 
-test('runTaskLoop clamps planner and terminal synthesis max_tokens to the preset MaxTokens', async () => {
+test('runTaskLoop bounds planner and terminal synthesis max_tokens by the preset MaxTokens', async () => {
   const chatRequests: JsonObject[] = [];
   const server = http.createServer((req, res) => {
     if (req.method === 'POST' && req.url === '/v1/chat/completions') {
@@ -1404,7 +1404,7 @@ test('runTaskLoop clamps planner and terminal synthesis max_tokens to the preset
   const address = server.address();
   const baseUrl = `http://127.0.0.1:${Number(typeof address === 'object' && address ? address.port : 0)}`;
 
-  // MaxTokens sits far below the dynamic budget, so the preset cap is what must survive.
+  // MaxTokens sits far below the shared reserve, so the preset cap is what must survive.
   const config = mockConfig({
     Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 12000 } },
     Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', MaxTokens: 900 }] } },
@@ -1433,11 +1433,12 @@ test('runTaskLoop clamps planner and terminal synthesis max_tokens to the preset
     assert.equal(result.reason, 'invalid_response_limit');
     assert.equal(chatRequests.length, 2);
     const synthesisPrompt = String(asObject(asObjectArray(chatRequests[1].messages)[0]).content || '');
-    assert.ok(getDynamicMaxOutputTokens({
+    // The preset bound is applied inside the shared reserve, so no second clamp is needed.
+    assert.equal(getDynamicMaxOutputTokens({
       config,
       totalContextTokens: 12000,
       promptTokenCount: estimateTokenCount(config, synthesisPrompt),
-    }) > 900);
+    }), 900);
     assert.equal(Number(chatRequests[0].max_tokens), 900);
     assert.equal(Number(chatRequests[1].max_tokens), 900);
   } finally {

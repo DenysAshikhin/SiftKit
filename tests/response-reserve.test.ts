@@ -76,6 +76,11 @@ test('the reserve never drops below one token', () => {
   assert.equal(computeResponseReserveTokens({ totalContextTokens: -10, config: null }), 1);
 });
 
+test('a zero or non-numeric context window still yields the minimum reserve', () => {
+  assert.equal(computeResponseReserveTokens({ totalContextTokens: 0, config: null }), 1);
+  assert.equal(computeResponseReserveTokens({ totalContextTokens: Number.NaN, config: null }), 1);
+});
+
 test('getPresetMaxTokens throws on a non-positive preset MaxTokens', () => {
   assert.throws(
     () => getPresetMaxTokens(configWithRawMaxTokens(0)),

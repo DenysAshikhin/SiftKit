@@ -21,6 +21,8 @@ import {
   withTempEnv,
   withStubServer,
   waitForAsyncExpectation,
+  getDefaultConfig,
+  getPlannerPromptBudget,
 } from './_runtime-helpers.js';
 import type { JsonObject, JsonValue } from '../src/lib/json-types.js';
 import {
@@ -1036,16 +1038,36 @@ function buildOversizedMultilinePlannerInput(targetCharacters: number): string {
   return lines.join('\n');
 }
 
+const PLANNER_NUM_CTX = 190000;
+
 function createPlannerConfig(reasoning: 'on' | 'off'): JsonObject {
   return {
-    Runtime: { LlamaCpp: { NumCtx: 190000 } },
+    Runtime: { LlamaCpp: { NumCtx: PLANNER_NUM_CTX } },
     Server: {
       ModelPresets: {
         ActivePresetId: 'default',
-        Presets: [{ id: 'default', NumCtx: 190000, Reasoning: reasoning }],
+        Presets: [{ id: 'default', NumCtx: PLANNER_NUM_CTX, Reasoning: reasoning }],
       },
     },
   };
+}
+
+// The prompt token ceiling the planner actually enforces for that context window, so
+// the tokenize stubs below stay pinned to the shared reserve instead of a copied number.
+function plannerStopLineTokens(): number {
+  const config = getDefaultConfig();
+  config.Runtime.LlamaCpp.NumCtx = PLANNER_NUM_CTX;
+  return getPlannerPromptBudget(config).plannerStopLineTokens;
+}
+
+// Tool-result token rate for the fitting tests. The whole result must land several
+// times over the planner's per-tool fit budget so fitting has to drop segments, while
+// a leading prefix still fits. Rate, not size: the read window itself is capped, so a
+// bigger input does not make the result bigger.
+const OVERSIZED_TOOL_RESULT_TOKENS_PER_CHAR = 40;
+
+function oversizedToolResultTokens(content: string): number {
+  return Math.max(1, content.length * OVERSIZED_TOOL_RESULT_TOKENS_PER_CHAR);
 }
 
 test('planner keeps short read_lines output when reported token count is high', async () => {
@@ -1249,7 +1271,7 @@ test('planner fits oversized read_lines output and reports omitted lines', async
           return 1000;
         }
         if (/read_lines startLine=/u.test(content)) {
-          return Math.max(1, String(content).length * 10);
+          return oversizedToolResultTokens(String(content));
         }
         return 1000;
       },
@@ -1366,7 +1388,7 @@ test('planner advances repeated read_lines calls from fitted returned lines only
           return 1000;
         }
         if (/read_lines startLine=/u.test(content)) {
-          return Math.max(1, String(content).length * 10);
+          return oversizedToolResultTokens(String(content));
         }
         return 1000;
       },
@@ -1479,7 +1501,7 @@ test('planner fits oversized find_text output and reports omitted results', asyn
           return 1000;
         }
         if (/find_text mode=/u.test(content)) {
-          return Math.max(1, String(content).length * 10);
+          return oversizedToolResultTokens(String(content));
         }
         return 1000;
       },
@@ -1702,9 +1724,10 @@ test('planner fails fast when the next planner turn would exceed non-thinking he
       );
     }, {
       config: createPlannerConfig('off'),
+      // The turn carrying the tool result lands just past the planner stop line.
       tokenizeTokenCount(content) {
         if (/Planner mode:/u.test(content) && /\[tool\]/u.test(content)) {
-          return 154000;
+          return plannerStopLineTokens() + 1000;
         }
         return 1000;
       },
@@ -1752,9 +1775,10 @@ test('planner fails fast when the next planner turn would exceed thinking headro
       );
     }, {
       config: createPlannerConfig('on'),
+      // The turn carrying the tool result lands just past the planner stop line.
       tokenizeTokenCount(content) {
         if (/Planner mode:/u.test(content) && /\[tool\]/u.test(content)) {
-          return 149000;
+          return plannerStopLineTokens() + 250;
         }
         return 1000;
       },

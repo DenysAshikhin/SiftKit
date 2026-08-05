@@ -1009,7 +1009,9 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
       maxTurns: 14,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
-      totalContextTokens: 7200,
+      // Half goes to the shared response reserve, leaving the 3200 usable prompt
+      // tokens this overflow-then-compact scenario is tuned to.
+      totalContextTokens: 6400,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['git']),
       mockResponses: [
         "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
@@ -1108,7 +1110,9 @@ test('runTaskLoop increases per-tool cap as tool-call progress grows', async () 
 
 test('runTaskLoop fits tool output that exceeds remaining token allowance', async () => {
   const events: JsonObject[] = [];
-  const totalContextTokens = 30000;
+  // 15k goes to the shared response reserve, leaving the 25500 usable prompt tokens
+  // this scenario is tuned to.
+  const totalContextTokens = 40500;
   // Sized to pin the regime where remainingTokenAllowance < perToolCapTokens after
   // the system prompt + question consume most of totalContextTokens. The prior
   // 84_000 was tuned to the older, larger system prompt; bumped to keep the
