@@ -174,7 +174,6 @@ export class TaskLoop {
     this.minToolCallsBeforeFinish = Math.max(0, Number(options.minToolCallsBeforeFinish ?? MIN_TOOL_CALLS_BEFORE_FINISH));
     this.budget = new TurnBudget({
       totalContextTokens: Math.max(1, Number(options.totalContextTokens || (options.config ? getConfiguredLlamaNumCtx(options.config) : 32000))),
-      maxTurns: this.maxTurns,
     });
     this.plannerThinking = resolvePlannerThinkingFlags(options.config, options.thinkingEnabledOverride);
     this.plannerMaintainPerStepThinking = this.plannerThinking.thinkingEnabled

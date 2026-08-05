@@ -55,7 +55,7 @@ function makeCompactableTranscript(): TranscriptManager {
 
 test('prepareTurn returns a token count and output budget for a small prompt', async () => {
   const transcript = new TranscriptManager({ systemPromptContent: 'SYSTEM', historyMessages: [], initialUserContent: 'short question', initialUserImages: [] });
-  const preparer = makePreparer(new TurnBudget({ totalContextTokens: 32_000, maxTurns: 45 }), transcript);
+  const preparer = makePreparer(new TurnBudget({ totalContextTokens: 32_000 }), transcript);
   const prepared = await preparer.prepareTurn(1);
   assert.ok(prepared.promptTokenCount > 0);
   assert.ok(prepared.maxOutputTokens > 0);
@@ -68,7 +68,7 @@ test('prepareTurn throws planner_preflight_overflow when even compaction cannot 
     initialUserContent: 'question',
     initialUserImages: [],
   });
-  const preparer = makePreparer(new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45 }), transcript);
+  const preparer = makePreparer(new TurnBudget({ totalContextTokens: 9_000 }), transcript);
   await assert.rejects(preparer.prepareTurn(1), /planner_preflight_overflow/u);
 });
 
@@ -77,7 +77,7 @@ test('prepareTurn fail policy preserves overflowing transcript and skips compact
   const originalMessages = JSON.stringify(transcript.getMessages());
   const events: Array<Record<string, JsonSerializable>> = [];
   const preparer = makePreparer(
-    new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45 }),
+    new TurnBudget({ totalContextTokens: 9_000 }),
     transcript,
     'fail',
     events,
@@ -98,7 +98,7 @@ test('prepareTurn compact policy compacts the same transcript and continues', as
   const transcript = makeCompactableTranscript();
   const events: Array<Record<string, JsonSerializable>> = [];
   const preparer = makePreparer(
-    new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45 }),
+    new TurnBudget({ totalContextTokens: 9_000 }),
     transcript,
     'compact',
     events,

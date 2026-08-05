@@ -42,7 +42,7 @@ function makeProcessor(
     chatWebGroundingPolicy: new ChatGroundingPolicy({ enabled: false }),
     ignorePolicy: buildIgnorePolicy(root),
     webTools: makeMockWebTools(),
-    budget: new TurnBudget({ totalContextTokens: 20000, maxTurns: 5 }),
+    budget: new TurnBudget({ totalContextTokens: 20000 }),
     tokenUsage: new TokenUsageTracker(undefined, true),
     toolStats: new ToolStatsRecorder(),
     duplicates: new DuplicateTracker(),
