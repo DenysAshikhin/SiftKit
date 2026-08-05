@@ -7,6 +7,11 @@ import { computeResponseReserveTokens } from '../../lib/response-reserve.js';
 // never granted per call.
 export const MIN_TURN_TOOL_RESULT_RATIO = 0.075;
 
+// Lives here rather than in task-loop-support because it is the denominator of the
+// turn share above, and this module has to stay a leaf that any budget consumer can
+// import without pulling in the loop.
+export const DEFAULT_MAX_TURNS = 45;
+
 export class TurnBudget {
   readonly totalContextTokens: number;
   readonly responseReserveTokens: number;

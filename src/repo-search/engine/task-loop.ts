@@ -62,7 +62,6 @@ import {
   buildInvalidToolCallActionFromResponseText,
   buildWebToolsForTaskLoop,
   DEFAULT_MAX_INVALID_RESPONSES,
-  DEFAULT_MAX_TURNS,
   DEFAULT_TIMEOUT_MS,
   evaluateTaskSignals,
   isPlannerMaintainPerStepThinkingEnabled,
@@ -80,20 +79,20 @@ import { ToolResultBudgeter } from './tool-result-budgeter.js';
 import { TokenUsageTracker, type ResolvedResponseTokens } from './token-usage.js';
 import { ToolStatsRecorder } from './tool-stats.js';
 import { TranscriptManager } from './transcript-manager.js';
-import { TurnBudget } from './turn-budget.js';
+import { DEFAULT_MAX_TURNS, TurnBudget } from './turn-budget.js';
 import { ThinkingRetentionPolicy } from '../../thinking-retention-policy.js';
 import type { ApprovalRequester } from './approval-gate.js';
 import { LlmApprovalGate } from './llm-approval-gate.js';
 
 export {
   DEFAULT_MAX_INVALID_RESPONSES,
-  DEFAULT_MAX_TURNS,
   DEFAULT_TIMEOUT_MS,
   evaluateTaskSignals,
   type RunTaskLoopOptions,
   type TaskDefinition,
   type TaskResult,
 } from './task-loop-support.js';
+export { DEFAULT_MAX_TURNS } from './turn-budget.js';
 
 type RepoSearchModelData = AgentLoopModelData & {
   kind: 'repo-search';

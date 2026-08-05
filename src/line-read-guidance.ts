@@ -5,6 +5,7 @@ import type { SiftConfig } from './config/index.js';
 import { getConfiguredLlamaNumCtx } from './config/index.js';
 import { getIdleSummarySnapshotsPath } from './config/paths.js';
 import { getPlannerPromptBudget } from './summary/chunking.js';
+import { DEFAULT_MAX_TURNS, TurnBudget } from './repo-search/engine/turn-budget.js';
 import { z } from './lib/zod.js';
 import { parseJsonValueText } from './lib/json.js';
 import { ToolTypeStatsSchema, type ToolTypeStats } from './status-server/metrics.js';
@@ -17,9 +18,6 @@ function getGlobalToolStatsSchema() {
   return z.record(z.string(), z.record(z.string(), ToolTypeStatsSchema));
 }
 
-const THINKING_BUFFER_RATIO = 0.15;
-const THINKING_BUFFER_MIN_TOKENS = 4000;
-const REPO_SEARCH_PER_TOOL_RATIO = 0.10;
 const PLANNER_RESULT_RATIO = 0.70;
 const LINE_READ_TARGET_RATIO = 0.50;
 
@@ -180,11 +178,12 @@ export function buildLineReadGuidance(options: {
   };
 }
 
+// The floor allowance the engine grants a lone tool call at the start of a run:
+// no completed commands yet, and a batch of one.
 export function getRepoSearchPromptBaselinePerToolAllowanceTokens(config?: SiftConfig | null): number {
   const totalContextTokens = Math.max(1, Number(config ? getConfiguredLlamaNumCtx(config) : 32000));
-  const thinkingBufferTokens = Math.max(Math.ceil(totalContextTokens * THINKING_BUFFER_RATIO), THINKING_BUFFER_MIN_TOKENS);
-  const usablePromptTokens = Math.max(totalContextTokens - thinkingBufferTokens, 0);
-  return Math.max(1, Math.floor(usablePromptTokens * REPO_SEARCH_PER_TOOL_RATIO));
+  const budget = new TurnBudget({ totalContextTokens, maxTurns: DEFAULT_MAX_TURNS, config });
+  return budget.perToolCapTokens(0, 1);
 }
 
 export function getPlannerPromptBaselinePerToolAllowanceTokens(config: SiftConfig): number {

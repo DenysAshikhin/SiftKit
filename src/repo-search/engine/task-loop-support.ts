@@ -25,7 +25,6 @@ import type { ApprovalGate, ApprovalMode } from './approval-gate.js';
 // Constants
 // ---------------------------------------------------------------------------
 
-export const DEFAULT_MAX_TURNS = 45;
 export const DEFAULT_MAX_INVALID_RESPONSES = 3;
 export const DEFAULT_TIMEOUT_MS = 120_000;
 export const MIN_TOOL_CALLS_BEFORE_FINISH = 5;
