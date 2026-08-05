@@ -4,7 +4,6 @@ import {
   type SiftConfig,
 } from '../config/index.js';
 import {
-  clampToPresetMaxTokens,
   estimatePromptTokenCountFromCharacters,
   getDynamicMaxOutputTokens,
 } from '../lib/dynamic-output-cap.js';
@@ -465,12 +464,13 @@ export async function generateLlamaCppChatResponse(options: {
   const promptChars = options.messages.reduce((total, message) => {
     return total + getTextContent(message.content).length;
   }, 0);
-  const maxTokens = clampToPresetMaxTokens(options.config, getDynamicMaxOutputTokens({
+  const maxTokens = getDynamicMaxOutputTokens({
+    config: options.config,
     totalContextTokens: Math.max(1, Number(getConfiguredLlamaNumCtx(options.config) || 0)),
     promptTokenCount: Number.isFinite(options.promptTokenCount) && Number(options.promptTokenCount) > 0
       ? Number(options.promptTokenCount)
       : estimatePromptTokenCountFromCharacters(options.config, promptChars),
-  }));
+  });
 
   let response: NormalizedLlamaCppChatResponse;
   const startedAt = Date.now();

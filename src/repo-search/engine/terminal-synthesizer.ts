@@ -1,5 +1,5 @@
 import type { SiftConfig } from '../../config/index.js';
-import { clampToPresetMaxTokens, getDynamicMaxOutputTokens } from '../../lib/dynamic-output-cap.js';
+import { getDynamicMaxOutputTokens } from '../../lib/dynamic-output-cap.js';
 import { requestTerminalSynthesis, type PlannerThinkingFlags } from '../planner-protocol.js';
 import { countTokensWithFallback } from '../prompt-budget.js';
 import { buildTerminalSynthesisPrompt } from '../prompts.js';
@@ -42,10 +42,11 @@ export class TerminalSynthesizer {
       this.options.useEstimatedTokensOnly ? undefined : this.options.config,
       synthesisPrompt,
     );
-    const synthesisMaxTokens = clampToPresetMaxTokens(this.options.config, getDynamicMaxOutputTokens({
+    const synthesisMaxTokens = getDynamicMaxOutputTokens({
+      config: this.options.config,
       totalContextTokens: this.options.totalContextTokens,
       promptTokenCount: synthesisPromptTokenCount,
-    }));
+    });
     this.options.logger?.write({
       kind: 'task_terminal_synthesis_requested',
       taskId: input.taskId,
