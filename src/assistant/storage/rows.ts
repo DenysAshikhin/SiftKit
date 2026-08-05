@@ -1,0 +1,192 @@
+import { z } from '../../lib/zod.js';
+
+import {
+  ActorTypeSchema, AliasTypeSchema, AssertionBasisSchema, AssertionStatusSchema,
+  DeviceStatusSchema, EvidenceSourceTypeSchema, EvidenceStanceSchema, EvidenceStatusSchema,
+  MutationOperationSchema, NodeStatusSchema, ObjectKindSchema, ObjectValueTypeSchema,
+  PolicySourceSchema, PolicyTypeSchema, SensitivitySchema,
+} from '../domain/enums.js';
+import { NodeTypeSchema } from '../domain/node-types.js';
+import { RelationTypeSchema } from '../domain/relation-types.js';
+
+const SqliteBooleanSchema = z.number().int().min(0).max(1).transform((value) => value === 1);
+
+export const OwnerRowSchema = z.object({
+  id: z.string(),
+  display_name: z.string(),
+  created_at_utc: z.string(),
+  updated_at_utc: z.string(),
+});
+export type OwnerRow = z.infer<typeof OwnerRowSchema>;
+
+export const DeviceRowSchema = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  platform: z.string(),
+  display_name: z.string(),
+  public_key: z.string().nullable(),
+  status: DeviceStatusSchema,
+  created_at_utc: z.string(),
+  updated_at_utc: z.string(),
+});
+export type DeviceRow = z.infer<typeof DeviceRowSchema>;
+
+export const NodeRowSchema = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  type: NodeTypeSchema,
+  canonical_key: z.string().nullable(),
+  display_name: z.string(),
+  description: z.string().nullable(),
+  sensitivity: SensitivitySchema,
+  status: NodeStatusSchema,
+  properties_json: z.string(),
+  merged_into_node_id: z.string().nullable(),
+  created_at_utc: z.string(),
+  updated_at_utc: z.string(),
+  deleted_at_utc: z.string().nullable(),
+});
+export type NodeRow = z.infer<typeof NodeRowSchema>;
+
+export const AliasRowSchema = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  node_id: z.string(),
+  alias: z.string(),
+  normalized_alias: z.string(),
+  alias_type: AliasTypeSchema,
+  source_evidence_id: z.string().nullable(),
+  created_at_utc: z.string(),
+});
+export type AliasRow = z.infer<typeof AliasRowSchema>;
+
+export const AssertionRowSchema = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  assertion_key: z.string(),
+  subject_node_id: z.string(),
+  predicate: RelationTypeSchema,
+  object_kind: ObjectKindSchema,
+  object_node_id: z.string().nullable(),
+  object_value_type: ObjectValueTypeSchema.nullable(),
+  object_value_json: z.string().nullable(),
+  object_normalized_text: z.string().nullable(),
+  scope_node_id: z.string().nullable(),
+  status: AssertionStatusSchema,
+  basis: AssertionBasisSchema,
+  confidence: z.number(),
+  sensitivity: SensitivitySchema,
+  valid_from_utc: z.string().nullable(),
+  valid_to_utc: z.string().nullable(),
+  first_observed_at_utc: z.string(),
+  last_observed_at_utc: z.string(),
+  recorded_at_utc: z.string(),
+  retired_at_utc: z.string().nullable(),
+  supersedes_assertion_id: z.string().nullable(),
+  pinned: SqliteBooleanSchema,
+  attributes_json: z.string(),
+  created_at_utc: z.string(),
+  updated_at_utc: z.string(),
+});
+export type AssertionRow = z.infer<typeof AssertionRowSchema>;
+
+export const AssertionEvidenceRowSchema = z.object({
+  assertion_id: z.string(),
+  evidence_id: z.string(),
+  stance: EvidenceStanceSchema,
+  weight: z.number(),
+  created_at_utc: z.string(),
+});
+export type AssertionEvidenceRow = z.infer<typeof AssertionEvidenceRowSchema>;
+
+export const EvidenceRowSchema = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  device_id: z.string().nullable(),
+  source_event_id: z.string(),
+  parent_evidence_id: z.string().nullable(),
+  blob_id: z.string().nullable(),
+  source_type: EvidenceSourceTypeSchema,
+  source_ref: z.string().nullable(),
+  captured_at_utc: z.string(),
+  source_timezone: z.string().nullable(),
+  ingested_at_utc: z.string(),
+  content_hash: z.string(),
+  mime_type: z.string().nullable(),
+  sensitivity: SensitivitySchema,
+  retention_until_utc: z.string().nullable(),
+  status: EvidenceStatusSchema,
+  metadata_json: z.string(),
+  created_at_utc: z.string(),
+  updated_at_utc: z.string(),
+});
+export type EvidenceRow = z.infer<typeof EvidenceRowSchema>;
+
+export const BlobRowSchema = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  content_hash: z.string(),
+  byte_length: z.number().int(),
+  mime_type: z.string(),
+  storage_uri: z.string(),
+  encrypted: SqliteBooleanSchema,
+  key_id: z.string().nullable(),
+  created_at_utc: z.string(),
+  deleted_at_utc: z.string().nullable(),
+});
+export type BlobRow = z.infer<typeof BlobRowSchema>;
+
+export const MergeRowSchema = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  source_node_id: z.string(),
+  target_node_id: z.string(),
+  basis: z.string(),
+  reversible: SqliteBooleanSchema,
+  created_at_utc: z.string(),
+  reversed_at_utc: z.string().nullable(),
+});
+export type MergeRow = z.infer<typeof MergeRowSchema>;
+
+export const MutationLogRowSchema = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  actor_type: ActorTypeSchema,
+  actor_ref: z.string().nullable(),
+  operation: MutationOperationSchema,
+  target_type: z.string(),
+  target_id: z.string(),
+  before_json: z.string().nullable(),
+  after_json: z.string().nullable(),
+  reason: z.string(),
+  created_at_utc: z.string(),
+});
+export type MutationLogRow = z.infer<typeof MutationLogRowSchema>;
+
+export const PolicyRowSchema = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  policy_type: PolicyTypeSchema,
+  key: z.string(),
+  value_json: z.string(),
+  enabled: SqliteBooleanSchema,
+  source: PolicySourceSchema,
+  created_at_utc: z.string(),
+  updated_at_utc: z.string(),
+});
+export type PolicyRow = z.infer<typeof PolicyRowSchema>;
+
+export const AuditEventRowSchema = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  event_type: z.string(),
+  target_type: z.string().nullable(),
+  target_id: z.string().nullable(),
+  summary: z.string(),
+  details_json: z.string(),
+  created_at_utc: z.string(),
+});
+export type AuditEventRow = z.infer<typeof AuditEventRowSchema>;
+
+export const MetadataValueRowSchema = z.object({ value: z.string() });
+export const CountRowSchema = z.object({ count: z.number() });
