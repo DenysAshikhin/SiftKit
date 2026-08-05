@@ -242,3 +242,273 @@ test('deleting a node drops it from the FTS index', () => {
     assert.deepEqual(nodes.searchNodes(context.ownerId, 'transient', 10), []);
   });
 });
+
+// ── Task 10: Assertion store ────────────────────────────────────────────────
+
+import { AssertionStore } from '../src/assistant/storage/assertion-store.js';
+import { buildAssertionKey } from '../src/assistant/domain/keys.js';
+
+interface SeededAssertion {
+  readonly assertions: AssertionStore;
+  readonly assertionId: string;
+  readonly evidenceIds: readonly string[];
+}
+
+function seedAssertionWithEvidence(
+  context: Parameters<Parameters<typeof withAssistantContext>[0]>[0],
+): SeededAssertion {
+  const nodes = newNodeStore(context);
+  const assertions = new AssertionStore(context.database, context.clock, context.ids);
+  const person = nodes.createNode({
+    ownerId: context.ownerId, type: 'person', canonicalKey: 'person:self',
+    displayName: 'Denys', description: null, sensitivity: 'personal', properties: {},
+  });
+  const created = assertions.createAssertion({
+    ownerId: context.ownerId, subjectNodeId: person.id, predicate: 'HAS_CONSTRAINT',
+    object: { kind: 'literal', valueType: 'string', value: 'Short answers' },
+    scopeNodeId: null, status: 'active', basis: 'passive_observation', confidence: 0.5,
+    sensitivity: 'personal', validFromUtc: null, validToUtc: null,
+    observedAtUtc: '2026-08-05T09:00:00.000Z', supersedesAssertionId: null,
+    pinned: false, attributes: {},
+    searchText: {
+      subject: 'Denys', predicate: 'has constraint', object: 'Short answers', scope: '',
+    },
+  });
+
+  const evidenceIds: string[] = [];
+  const insert = context.database.prepare(`
+    INSERT INTO evidence_records (
+      id, owner_id, device_id, source_event_id, parent_evidence_id, blob_id, source_type,
+      source_ref, captured_at_utc, source_timezone, ingested_at_utc, content_hash, mime_type,
+      sensitivity, retention_until_utc, status, metadata_json, created_at_utc, updated_at_utc
+    ) VALUES (?, ?, NULL, ?, NULL, NULL, 'conversation_message', NULL, ?, NULL, ?, ?, 'text/plain',
+              'personal', NULL, 'active', '{}', ?, ?)
+  `);
+  for (let index = 0; index < 3; index += 1) {
+    const id = `ev_seed_${index}`;
+    insert.run(
+      id, context.ownerId, `evt_${index}`, '2026-08-05T09:00:00.000Z',
+      '2026-08-05T09:00:00.000Z', `hash_${index}`,
+      '2026-08-05T09:00:00.000Z', '2026-08-05T09:00:00.000Z',
+    );
+    evidenceIds.push(id);
+  }
+  return { assertions, assertionId: created.id, evidenceIds };
+}
+
+test('assertion store writes a node-object assertion and reads it back by subject', () => {
+  withAssistantContext((context) => {
+    const nodes = newNodeStore(context);
+    const assertions = new AssertionStore(context.database, context.clock, context.ids);
+    const person = nodes.createNode({
+      ownerId: context.ownerId, type: 'person', canonicalKey: 'person:self',
+      displayName: 'Denys', description: null, sensitivity: 'personal', properties: {},
+    });
+    const shell = nodes.createNode({
+      ownerId: context.ownerId, type: 'software', canonicalKey: 'software:powershell',
+      displayName: 'PowerShell', description: null, sensitivity: 'low', properties: {},
+    });
+
+    const created = assertions.createAssertion({
+      ownerId: context.ownerId,
+      subjectNodeId: person.id,
+      predicate: 'PREFERS',
+      object: { kind: 'node', nodeId: shell.id },
+      scopeNodeId: null,
+      status: 'active',
+      basis: 'explicit_user_statement',
+      confidence: 0.99,
+      sensitivity: 'personal',
+      validFromUtc: null,
+      validToUtc: null,
+      observedAtUtc: '2026-08-05T09:00:00.000Z',
+      supersedesAssertionId: null,
+      pinned: false,
+      attributes: {},
+      searchText: {
+        subject: 'Denys', predicate: 'prefers', object: 'PowerShell', scope: '',
+      },
+    });
+
+    assert.equal(created.object_kind, 'node');
+    assert.equal(created.object_node_id, shell.id);
+    assert.equal(created.object_value_json, null);
+    assert.equal(created.pinned, false);
+    assert.equal(created.assertion_key, buildAssertionKey({
+      ownerId: context.ownerId, subjectNodeId: person.id, predicate: 'PREFERS',
+      object: { kind: 'node', nodeId: shell.id }, scopeNodeId: null,
+    }));
+
+    const bySubject = assertions.listBySubject(context.ownerId, person.id, ['active']);
+    assert.deepEqual(bySubject.map((row) => row.id), [created.id]);
+    assert.deepEqual(
+      assertions.listByObjectNode(context.ownerId, shell.id, ['active']).map((row) => row.id),
+      [created.id],
+    );
+  });
+});
+
+test('assertion store writes a literal-object assertion with a normalized object text', () => {
+  withAssistantContext((context) => {
+    const nodes = newNodeStore(context);
+    const assertions = new AssertionStore(context.database, context.clock, context.ids);
+    const device = nodes.createNode({
+      ownerId: context.ownerId, type: 'device', canonicalKey: 'device:main',
+      displayName: 'Workstation', description: null, sensitivity: 'personal', properties: {},
+    });
+
+    const created = assertions.createAssertion({
+      ownerId: context.ownerId, subjectNodeId: device.id, predicate: 'HAS_SETTING',
+      object: { kind: 'literal', valueType: 'quantity', value: { amount: 24, unit: 'GB' } },
+      scopeNodeId: null, status: 'active', basis: 'manual_import', confidence: 0.95,
+      sensitivity: 'low', validFromUtc: null, validToUtc: null,
+      observedAtUtc: '2026-08-05T09:00:00.000Z', supersedesAssertionId: null,
+      pinned: false, attributes: {},
+      searchText: { subject: 'Workstation', predicate: 'has setting', object: '24 GB', scope: '' },
+    });
+
+    assert.equal(created.object_kind, 'literal');
+    assert.equal(created.object_node_id, null);
+    assert.equal(created.object_value_type, 'quantity');
+    assert.equal(created.object_normalized_text, '24 gb');
+    assert.equal(JSON.parse(created.object_value_json ?? 'null').amount, 24);
+  });
+});
+
+test('two live assertions cannot share an assertion key', () => {
+  withAssistantContext((context) => {
+    const nodes = newNodeStore(context);
+    const assertions = new AssertionStore(context.database, context.clock, context.ids);
+    const person = nodes.createNode({
+      ownerId: context.ownerId, type: 'person', canonicalKey: 'person:self',
+      displayName: 'Denys', description: null, sensitivity: 'personal', properties: {},
+    });
+    const editor = nodes.createNode({
+      ownerId: context.ownerId, type: 'software', canonicalKey: 'software:vscode',
+      displayName: 'VS Code', description: null, sensitivity: 'low', properties: {},
+    });
+    const write = () => assertions.createAssertion({
+      ownerId: context.ownerId, subjectNodeId: person.id, predicate: 'USES',
+      object: { kind: 'node', nodeId: editor.id }, scopeNodeId: null,
+      status: 'active', basis: 'passive_observation', confidence: 0.5, sensitivity: 'personal',
+      validFromUtc: null, validToUtc: null, observedAtUtc: '2026-08-05T09:00:00.000Z',
+      supersedesAssertionId: null, pinned: false, attributes: {},
+      searchText: { subject: 'Denys', predicate: 'uses', object: 'VS Code', scope: '' },
+    });
+    const first = write();
+    assert.throws(write, /UNIQUE constraint failed/);
+
+    // retiring the first frees the key
+    assertions.retireAssertion(first.id, 'superseded');
+    const second = write();
+    assert.notEqual(second.id, first.id);
+  });
+});
+
+test('evidence links carry stance and weight and drive the support and contradiction split', () => {
+  withAssistantContext((context) => {
+    const { assertions, assertionId, evidenceIds } = seedAssertionWithEvidence(context);
+    assertions.linkEvidence(assertionId, evidenceIds[0], 'supports', 0.9);
+    assertions.linkEvidence(assertionId, evidenceIds[1], 'supports', 0.6);
+    assertions.linkEvidence(assertionId, evidenceIds[2], 'contradicts', 0.4);
+
+    const links = assertions.listEvidence(assertionId);
+    assert.equal(links.length, 3);
+    assert.deepEqual(assertions.supportWeights(assertionId), [0.9, 0.6]);
+    assert.equal(assertions.contradictionCount(assertionId), 1);
+  });
+});
+
+test('the same evidence may support and contextualize one assertion but not duplicate a stance', () => {
+  withAssistantContext((context) => {
+    const { assertions, assertionId, evidenceIds } = seedAssertionWithEvidence(context);
+    assertions.linkEvidence(assertionId, evidenceIds[0], 'supports', 0.9);
+    assertions.linkEvidence(assertionId, evidenceIds[0], 'context', 0.1);
+    assertions.linkEvidence(assertionId, evidenceIds[0], 'supports', 0.7);
+    const links = assertions.listEvidence(assertionId);
+    assert.equal(links.length, 2);
+    assert.deepEqual(assertions.supportWeights(assertionId), [0.7]);
+  });
+});
+
+test('current-state queries exclude superseded, expired, and future-dated assertions', () => {
+  withAssistantContext((context) => {
+    const nodes = newNodeStore(context);
+    const assertions = new AssertionStore(context.database, context.clock, context.ids);
+    const person = nodes.createNode({
+      ownerId: context.ownerId, type: 'person', canonicalKey: 'person:self',
+      displayName: 'Denys', description: null, sensitivity: 'personal', properties: {},
+    });
+    const makeRole = (role: string, validFrom: string | null, validTo: string | null) =>
+      assertions.createAssertion({
+        ownerId: context.ownerId, subjectNodeId: person.id, predicate: 'HAS_ROLE',
+        object: { kind: 'literal', valueType: 'string', value: role },
+        scopeNodeId: null, status: 'active', basis: 'explicit_user_statement',
+        confidence: 0.99, sensitivity: 'personal',
+        validFromUtc: validFrom, validToUtc: validTo,
+        observedAtUtc: '2026-08-05T09:00:00.000Z', supersedesAssertionId: null,
+        pinned: false, attributes: {},
+        searchText: { subject: 'Denys', predicate: 'has role', object: role, scope: '' },
+      });
+
+    const past = makeRole('Junior engineer', '2020-01-01T00:00:00.000Z', '2023-01-01T00:00:00.000Z');
+    const current = makeRole('Staff engineer', '2023-01-01T00:00:00.000Z', null);
+    const future = makeRole('Principal engineer', '2030-01-01T00:00:00.000Z', null);
+
+    const currentIds = assertions
+      .listCurrent(context.ownerId, person.id, '2026-08-05T09:00:00.000Z')
+      .map((row) => row.id);
+    assert.deepEqual(currentIds, [current.id]);
+
+    assertions.retireAssertion(current.id, 'superseded');
+    assert.deepEqual(
+      assertions.listCurrent(context.ownerId, person.id, '2026-08-05T09:00:00.000Z'),
+      [],
+    );
+
+    // history stays queryable
+    const all = assertions.listBySubject(
+      context.ownerId, person.id, ['active', 'superseded', 'expired'],
+    );
+    assert.equal(all.length, 3);
+    assert.ok(all.some((row) => row.id === past.id));
+    assert.ok(all.some((row) => row.id === future.id));
+  });
+});
+
+test('assertion full-text search excludes sensitive assertions', () => {
+  withAssistantContext((context) => {
+    const nodes = newNodeStore(context);
+    const assertions = new AssertionStore(context.database, context.clock, context.ids);
+    const person = nodes.createNode({
+      ownerId: context.ownerId, type: 'person', canonicalKey: 'person:self',
+      displayName: 'Denys', description: null, sensitivity: 'personal', properties: {},
+    });
+    const visible = assertions.createAssertion({
+      ownerId: context.ownerId, subjectNodeId: person.id, predicate: 'HAS_CONSTRAINT',
+      object: { kind: 'literal', valueType: 'string', value: 'Prefers concise answers' },
+      scopeNodeId: null, status: 'active', basis: 'explicit_user_statement', confidence: 0.99,
+      sensitivity: 'personal', validFromUtc: null, validToUtc: null,
+      observedAtUtc: '2026-08-05T09:00:00.000Z', supersedesAssertionId: null,
+      pinned: false, attributes: {},
+      searchText: {
+        subject: 'Denys', predicate: 'has constraint',
+        object: 'Prefers concise answers', scope: '',
+      },
+    });
+    assertions.createAssertion({
+      ownerId: context.ownerId, subjectNodeId: person.id, predicate: 'LIVES_IN',
+      object: { kind: 'literal', valueType: 'string', value: 'Redacted address' },
+      scopeNodeId: null, status: 'active', basis: 'explicit_user_statement', confidence: 0.99,
+      sensitivity: 'highly_sensitive', validFromUtc: null, validToUtc: null,
+      observedAtUtc: '2026-08-05T09:00:00.000Z', supersedesAssertionId: null,
+      pinned: false, attributes: {},
+      searchText: {
+        subject: 'Denys', predicate: 'lives in', object: 'Redacted address', scope: '',
+      },
+    });
+
+    assert.deepEqual(assertions.searchAssertions(context.ownerId, 'concise', 10), [visible.id]);
+    assert.deepEqual(assertions.searchAssertions(context.ownerId, 'redacted', 10), []);
+  });
+});
