@@ -58,11 +58,25 @@ Two live defects this plan removes as a side effect:
 - `src/repo-search/prompt-budget.ts:95-130` — rename the `thinkingBufferTokens` option.
 - `src/summary/types.ts:133-139` — collapse `PlannerPromptBudget` to three fields.
 - `src/summary/chunking.ts` — delete four constants and `getLlamaCppPromptTokenReserve`; rebuild `getPlannerPromptBudget` on the shared reserve.
-- `src/summary/core-runner.ts:385` and `src/summary/planner/mode.ts` — follow the field collapse.
-- `src/summary.ts:9` — re-export list follows the deletions.
+- `src/summary/core-runner.ts:385` — follow the field collapse.
 - `src/line-read-guidance.ts:20-22,183-188` — delete the duplicated constants, build a real `TurnBudget`.
 
-**Tests to update:** `tests/engine-turn-budget.test.ts`, `tests/dynamic-output-cap.test.ts`, plus any assertion breakage surfaced by `npm test` in `tests/engine-prompt-preparer.test.ts`, `tests/engine-token-usage.test.ts`, `tests/token-count-source.test.ts`, `tests/repo-search-loop.core.test.ts`, `tests/mock-repo-search-loop.test.ts`, `tests/runtime-planner-token-aware.test.ts`, `tests/engine-tool-result-budgeter.test.ts`, `tests/engine-tool-action-processor.test.ts`.
+**Verified as needing no change:** `src/summary.ts` (its re-export list at lines 8-11 does not include any deleted symbol), `src/summary/planner/mode.ts` (reads only `plannerStopLineTokens`, which survives), `src/repo-search/planner-protocol.ts:790-795` (clamps fixed constants, not a context-derived budget).
+
+**Tests to update** — every one of these asserts a pre-change number or constructs a pre-change shape, confirmed by grep:
+
+| Test file | What breaks |
+|---|---|
+| `tests/engine-turn-budget.test.ts` | whole file — rewritten in Task 2 |
+| `tests/dynamic-output-cap.test.ts` | whole file — rewritten in Task 3 |
+| `tests/engine-token-usage.test.ts:168-172` | asserts the `25k / 90%` policy by name and value |
+| `tests/host-sync.test.ts:131-132` | asserts `promptReserveTokens` / `usablePromptBudgetTokens` |
+| `tests/runtime-planner-token-aware.test.ts:541-543,556-558` | asserts all three deleted planner-budget fields |
+| `tests/mock-repo-search-loop.test.ts:348-349,833,849,858,1063-1064` | reimplements the `0.15 / 4000` formula and passes `thinkingBufferTokens` |
+| `tests/token-count-source.test.ts:39,61,82` | passes `thinkingBufferTokens` to the preflight |
+| `tests/repo-search-loop.core.test.ts:1291,1362,1433` | calls `getDynamicMaxOutputTokens` without `config` |
+| `tests/engine-tool-action-processor.test.ts:42` | constructs `TurnBudget` without `config` (and with a stale `maxTurns` property) |
+| `tests/engine-prompt-preparer.test.ts:58` | constructs `TurnBudget` without `config` |
 
 ---
 
@@ -902,7 +916,9 @@ with:
       ? (state.llamaPromptBudget?.plannerStopLineTokens ?? 0)
 ```
 
-In `src/summary.ts`, remove `getLlamaCppPromptTokenReserve` from the re-export list at line 9 if it appears there.
+`src/summary.ts` needs no edit — its barrel at lines 8-11 re-exports `getPlannerPromptBudget` and `planTokenAwareLlamaCppChunks` only, neither of which is deleted.
+
+`src/summary/planner/mode.ts` needs no edit either — it derives its local `PlannerPromptBudget` alias via `ReturnType<typeof getPlannerPromptBudget>` (line 168) and reads only `plannerStopLineTokens` (lines 417, 1135, 1198, 1404), all of which survive the collapse.
 
 - [ ] **Step 4: Verify nothing references the deleted names**
 
