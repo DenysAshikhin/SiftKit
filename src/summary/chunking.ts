@@ -5,6 +5,7 @@ import {
   getConfiguredLlamaNumCtx,
   getEffectiveInputCharactersPerContextToken,
 } from '../config/index.js';
+import { computeResponseReserveTokens } from '../lib/response-reserve.js';
 import { countLlamaCppTokens } from '../providers/llama-cpp.js';
 import { buildSummaryPrompt } from './prompt.js';
 import type { PresetSystemContext } from '../preset-system-context.js';
@@ -17,12 +18,8 @@ import type {
   SummarySourceKind,
 } from './types.js';
 
-const LLAMA_CPP_NON_THINKING_PROMPT_TOKEN_RESERVE = 10_000;
-const LLAMA_CPP_THINKING_PROMPT_TOKEN_RESERVE = 15_000;
 export const LLAMA_CPP_PROMPT_TOKEN_TARGET_TOLERANCE = 2000;
 export const MAX_TOKEN_AWARE_CHUNK_ADJUSTMENTS = 8;
-const MIN_PLANNER_HEADROOM_TOKENS = 4000;
-const PLANNER_HEADROOM_RATIO = 0.15;
 export const PLANNER_TRIGGER_CONTEXT_RATIO = 0.75;
 
 let nextLlamaCppSlotId = 0;
@@ -91,7 +88,7 @@ export async function planTokenAwareLlamaCppChunks(options: {
   phase: SummaryPhase;
   chunkContext?: ChunkPromptContext;
 }): Promise<string[] | null> {
-  const effectivePromptLimit = getPlannerPromptBudget(options.config).usablePromptBudgetTokens;
+  const effectivePromptLimit = getPlannerPromptBudget(options.config).plannerStopLineTokens;
   if (effectivePromptLimit <= 0) {
     return null;
   }
@@ -212,13 +209,6 @@ export function shouldRetryWithSmallerChunks(options: {
   return /llama\.cpp generate failed with HTTP 400\b/iu.test(options.error.message);
 }
 
-export function getLlamaCppPromptTokenReserve(config: SiftConfig): number {
-  const reasoning = getActiveModelPreset(config).Reasoning;
-  return reasoning === 'off'
-    ? LLAMA_CPP_NON_THINKING_PROMPT_TOKEN_RESERVE
-    : LLAMA_CPP_THINKING_PROMPT_TOKEN_RESERVE;
-}
-
 export function allocateLlamaCppSlotId(config: SiftConfig): number {
   const configuredSlots = getActiveModelPreset(config).ParallelSlots;
   const slotCount = Math.max(1, Math.floor(Number(configuredSlots) || 1));
@@ -229,18 +219,11 @@ export function allocateLlamaCppSlotId(config: SiftConfig): number {
 
 export function getPlannerPromptBudget(config: SiftConfig): PlannerPromptBudget {
   const numCtxTokens = getConfiguredLlamaNumCtx(config);
-  const promptReserveTokens = getLlamaCppPromptTokenReserve(config);
-  const usablePromptBudgetTokens = Math.max(numCtxTokens - promptReserveTokens, 0);
-  const plannerHeadroomTokens = Math.max(
-    Math.ceil(usablePromptBudgetTokens * PLANNER_HEADROOM_RATIO),
-    MIN_PLANNER_HEADROOM_TOKENS,
-  );
+  const responseReserveTokens = computeResponseReserveTokens({ totalContextTokens: numCtxTokens, config });
   return {
     numCtxTokens,
-    promptReserveTokens,
-    usablePromptBudgetTokens,
-    plannerHeadroomTokens,
-    plannerStopLineTokens: Math.max(usablePromptBudgetTokens - plannerHeadroomTokens, 0),
+    responseReserveTokens,
+    plannerStopLineTokens: Math.max(numCtxTokens - responseReserveTokens, 0),
   };
 }
 
@@ -253,7 +236,8 @@ export function estimatePromptTokenCount(config: SiftConfig, text: string): numb
 
 export function getLlamaCppChunkThresholdCharacters(config: SiftConfig): number {
   const reserveChars = Math.ceil(
-    getLlamaCppPromptTokenReserve(config) * getEffectiveInputCharactersPerContextToken(config)
+    computeResponseReserveTokens({ totalContextTokens: getConfiguredLlamaNumCtx(config), config })
+    * getEffectiveInputCharactersPerContextToken(config)
   );
   return Math.max(getChunkThresholdCharacters(config) - reserveChars, 1);
 }

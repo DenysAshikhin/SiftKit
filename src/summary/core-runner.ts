@@ -382,7 +382,7 @@ class SummaryCoreRunner {
 
   private effectivePromptLimit(state: SummaryCoreState): number | null {
     return this.options.provider === 'real'
-      ? (state.llamaPromptBudget?.usablePromptBudgetTokens ?? 0)
+      ? (state.llamaPromptBudget?.plannerStopLineTokens ?? 0)
       : null;
   }
 

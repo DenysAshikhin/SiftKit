@@ -132,9 +132,7 @@ export type PlannerToolDefinition = {
 
 export type PlannerPromptBudget = {
   numCtxTokens: number;
-  promptReserveTokens: number;
-  usablePromptBudgetTokens: number;
-  plannerHeadroomTokens: number;
+  responseReserveTokens: number;
   plannerStopLineTokens: number;
 };
 

@@ -27,6 +27,7 @@ import {
 } from './_runtime-helpers.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { getActiveModelPreset } from '../src/config/getters.js';
+import { RESPONSE_RESERVE_TOKENS } from '../src/lib/response-reserve.js';
 import type { SummaryPolicyProfile } from '../src/summary/types.js';
 
 interface FixtureManifestEntry {
@@ -41,6 +42,14 @@ const PROMPT_COMPOSITION = {
   additionalPromptPrefix: '',
   systemContext: createEmptyPresetSystemContext(),
 };
+
+// The prompt limit the planner actually enforces for a given context window, so the
+// tokenize stubs below stay pinned to the shared reserve instead of a copied number.
+function plannerPromptLimitForNumCtx(numCtx: number): number {
+  const config = getDefaultConfig();
+  config.Runtime.LlamaCpp.NumCtx = numCtx;
+  return getPlannerPromptBudget(config).plannerStopLineTokens;
+}
 
 function requireConfigServiceUrl(): string {
   const url = process.env.SIFTKIT_CONFIG_SERVICE_URL;
@@ -217,6 +226,7 @@ test('token-aware llama.cpp chunk planning shrinks after an overshooting growth 
       sourceKind: 'standalone',
       phase: 'leaf',
     }).length;
+    const promptLimit = plannerPromptLimitForNumCtx(12_000);
     await withStubServer(async () => {
       const config = getDefaultConfig();
       const baseUrl = requireConfigServiceUrl().replace(/\/config$/u, '');
@@ -249,14 +259,16 @@ test('token-aware llama.cpp chunk planning shrinks after an overshooting growth 
       assert.ok(chunks[0].length >= chunkThreshold);
       assert.ok(chunks[0].length < inputText.length);
     }, {
+      // The initial guess fits comfortably, the first growth probe overshoots the
+      // limit, and anything larger overshoots further.
       tokenizeTokenCount(content) {
         if (content.length <= thresholdPromptLength) {
-          return 500;
+          return Math.round(promptLimit * 0.25);
         }
         if (content.length <= thresholdPromptLength + 500) {
-          return 2200;
+          return Math.round(promptLimit * 1.1);
         }
-        return 3300;
+        return Math.round(promptLimit * 1.65);
       },
       metrics: {
         inputCharactersTotal: 3_461_904,
@@ -286,6 +298,7 @@ test('token-aware llama.cpp chunk planning keeps adjusting until accepted chunks
       sourceKind: 'standalone',
       phase: 'leaf',
     });
+    const promptLimit = plannerPromptLimitForNumCtx(12_000);
     await withStubServer(async () => {
       const config = getDefaultConfig();
       const baseUrl = requireConfigServiceUrl().replace(/\/config$/u, '');
@@ -326,19 +339,19 @@ test('token-aware llama.cpp chunk planning keeps adjusting until accepted chunks
         phase: 'leaf',
       });
       const promptTokenCount = await countLlamaCppTokens(config, prompt);
-      const numCtx = config.Runtime.LlamaCpp.NumCtx;
-      assert.ok(numCtx != null);
-      const effectivePromptLimit = numCtx - 10000;
+      const effectivePromptLimit = getPlannerPromptBudget(config).plannerStopLineTokens;
 
       assert.ok(promptTokenCount != null);
       assert.ok(promptTokenCount <= effectivePromptLimit);
       assert.ok(promptTokenCount >= effectivePromptLimit - 2000);
     }, {
+      // Half the limit at the initial guess, then linear growth that crosses the limit
+      // 500 prompt characters later, whatever the limit works out to be.
       tokenizeTokenCount(content) {
         if (content.length <= thresholdPrompt.length) {
-          return 1000;
+          return Math.round(promptLimit / 2);
         }
-        return 1000 + ((content.length - thresholdPrompt.length) * 2);
+        return Math.round((promptLimit / 2) + ((content.length - thresholdPrompt.length) * (promptLimit / 1000)));
       },
       metrics: {
         inputCharactersTotal: 3_461_904,
@@ -353,7 +366,7 @@ test('token-aware llama.cpp chunk planning keeps adjusting until accepted chunks
   });
 });
 
-test('token-aware llama.cpp chunk planning leaves a 15k token reserve when reasoning is on', async () => {
+test('token-aware llama.cpp chunk planning leaves the shared response reserve when reasoning is on', async () => {
   await withTempEnv(async () => {
     const previewConfig = getDefaultConfig();
     const previewInputText = 'A'.repeat(3_000);
@@ -368,6 +381,7 @@ test('token-aware llama.cpp chunk planning leaves a 15k token reserve when reaso
       sourceKind: 'standalone',
       phase: 'leaf',
     });
+    const promptLimit = plannerPromptLimitForNumCtx(17_000);
     await withStubServer(async () => {
       const config = getDefaultConfig();
       const baseUrl = requireConfigServiceUrl().replace(/\/config$/u, '');
@@ -408,19 +422,19 @@ test('token-aware llama.cpp chunk planning leaves a 15k token reserve when reaso
         phase: 'leaf',
       });
       const promptTokenCount = await countLlamaCppTokens(config, prompt);
-      const numCtx = config.Runtime.LlamaCpp.NumCtx;
-      assert.ok(numCtx != null);
-      const effectivePromptLimit = numCtx - 15000;
+      const effectivePromptLimit = getPlannerPromptBudget(config).plannerStopLineTokens;
 
       assert.ok(promptTokenCount != null);
       assert.ok(promptTokenCount <= effectivePromptLimit);
       assert.ok(promptTokenCount >= effectivePromptLimit - 2000);
     }, {
+      // Half the limit at the initial guess, then linear growth that crosses the limit
+      // 250 prompt characters later, whatever the limit works out to be.
       tokenizeTokenCount(content) {
         if (content.length <= thresholdPrompt.length) {
-          return 1000;
+          return Math.round(promptLimit / 2);
         }
-        return 1000 + ((content.length - thresholdPrompt.length) * 4);
+        return Math.round((promptLimit / 2) + ((content.length - thresholdPrompt.length) * (promptLimit / 500)));
       },
       metrics: {
         inputCharactersTotal: 3_461_904,
@@ -530,7 +544,7 @@ test('live llama token-aware chunk planning preserves the 5m benchmark fixture w
   });
 });
 
-test('getPlannerPromptBudget leaves 27k headroom for a 190k non-thinking context', () => {
+test('getPlannerPromptBudget subtracts the shared response reserve from a 190k context', () => {
   const config = getDefaultConfig();
   config.Runtime.LlamaCpp.NumCtx = 190000;
   getActiveModelPreset(config).Reasoning = 'off';
@@ -538,14 +552,12 @@ test('getPlannerPromptBudget leaves 27k headroom for a 190k non-thinking context
   const budget = getPlannerPromptBudget(config);
   assert.deepEqual(budget, {
     numCtxTokens: 190000,
-    promptReserveTokens: 10000,
-    usablePromptBudgetTokens: 180000,
-    plannerHeadroomTokens: 27000,
-    plannerStopLineTokens: 153000,
+    responseReserveTokens: RESPONSE_RESERVE_TOKENS,
+    plannerStopLineTokens: 190000 - RESPONSE_RESERVE_TOKENS,
   });
 });
 
-test('getPlannerPromptBudget leaves 26,250 tokens of headroom for a 190k thinking context', () => {
+test('the planner budget no longer varies with Reasoning: thinking draws from the same reserve', () => {
   const config = getDefaultConfig();
   config.Runtime.LlamaCpp.NumCtx = 190000;
   getActiveModelPreset(config).Reasoning = 'on';
@@ -553,10 +565,20 @@ test('getPlannerPromptBudget leaves 26,250 tokens of headroom for a 190k thinkin
   const budget = getPlannerPromptBudget(config);
   assert.deepEqual(budget, {
     numCtxTokens: 190000,
-    promptReserveTokens: 15000,
-    usablePromptBudgetTokens: 175000,
-    plannerHeadroomTokens: 26250,
-    plannerStopLineTokens: 148750,
+    responseReserveTokens: RESPONSE_RESERVE_TOKENS,
+    plannerStopLineTokens: 190000 - RESPONSE_RESERVE_TOKENS,
+  });
+});
+
+test('a lower preset MaxTokens shrinks the planner reserve and frees prompt tokens', () => {
+  const config = getDefaultConfig();
+  config.Runtime.LlamaCpp.NumCtx = 190000;
+  getActiveModelPreset(config).MaxTokens = 6000;
+
+  assert.deepEqual(getPlannerPromptBudget(config), {
+    numCtxTokens: 190000,
+    responseReserveTokens: 6000,
+    plannerStopLineTokens: 184000,
   });
 });
 

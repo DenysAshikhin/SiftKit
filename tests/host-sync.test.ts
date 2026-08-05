@@ -15,6 +15,7 @@ import {
   type SiftConfig,
 } from '../src/config/index.js';
 import { getPlannerPromptBudget } from '../src/summary.js';
+import { RESPONSE_RESERVE_TOKENS } from '../src/lib/response-reserve.js';
 import { mockConfig } from './_runtime-helpers.js';
 import type { JsonValue } from '../src/lib/json-types.js';
 
@@ -124,12 +125,12 @@ test('applyHostLlamaRuntimeSettings overlays the host SiftKit NumCtx/Reasoning/M
     // The host config is read without booting the host's managed llama.
     assert.equal(host.requestUrls.some((url) => url.includes('skip_ready=1')), true);
 
-    // Budget math now matches the server that actually serves the request:
-    // reserve drops to 10k because the host's Reasoning ('off') was synced too.
+    // Budget math now matches the server that actually serves the request: the shared
+    // response reserve comes off the host's real NumCtx, not the stale local 150k.
     const budget = getPlannerPromptBudget(resolved);
     assert.equal(budget.numCtxTokens, 75_008);
-    assert.equal(budget.promptReserveTokens, 10_000);
-    assert.equal(budget.usablePromptBudgetTokens, 65_008);
+    assert.equal(budget.responseReserveTokens, RESPONSE_RESERVE_TOKENS);
+    assert.equal(budget.plannerStopLineTokens, 75_008 - RESPONSE_RESERVE_TOKENS);
   } finally {
     await host.close();
   }
