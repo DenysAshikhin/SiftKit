@@ -1,11 +1,19 @@
 import { existsSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { z } from '../lib/zod.js';
 import { ensureDirectory } from '../lib/fs.js';
 import { parseJsonValueText } from '../lib/json.js';
 import { JsonObjectSchema, type JsonObject, type JsonValue } from '../lib/json-types.js';
 import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
+
+import { SystemClock } from '../assistant/clock.js';
+import {
+  ASSISTANT_CORE_SCHEMA_SQL,
+  ASSISTANT_FTS_SCHEMA_SQL,
+  seedAssistantRegistries,
+} from '../assistant/storage/schema.js';
 
 export type RuntimeDatabase = InstanceType<typeof Database>;
 
@@ -34,7 +42,7 @@ const ChatPresetSnapshotSessionRowSchema = z.object({
   context_window_tokens: z.number(),
 });
 
-export const CURRENT_SCHEMA_VERSION = 38;
+export const CURRENT_SCHEMA_VERSION = 40;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["read","grep","find","ls","git"],"full":[]}';
 const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
 
@@ -891,6 +899,11 @@ function migrateRunLogsBackendToEngineIds(database: RuntimeDatabase): void {
   `).run();
 }
 
+function applyAssistantCoreSchema(database: RuntimeDatabase): void {
+  database.exec(ASSISTANT_CORE_SCHEMA_SQL);
+  seedAssistantRegistries(database, new SystemClock(), randomUUID(), 'Local user');
+}
+
 function migrateAppConfigRemoveGlobalStartupContext(database: RuntimeDatabase): void {
   database.exec(`
     BEGIN IMMEDIATE;
@@ -988,6 +1001,8 @@ function ensureSchema(database: RuntimeDatabase): void {
     ensureInferenceRunAndBenchmarkMatrixSchema(database);
     ensureDashboardBenchmarkSchema(database);
     ensureRuntimeErrorEventsSchema(database);
+    applyAssistantCoreSchema(database);
+    database.exec(ASSISTANT_FTS_SCHEMA_SQL);
     setSchemaVersion(database, CURRENT_SCHEMA_VERSION);
     return;
   }
@@ -1420,6 +1435,16 @@ function ensureSchema(database: RuntimeDatabase): void {
     migrateRunLogsBackendToEngineIds(database);
     setSchemaVersion(database, 38);
     currentVersion = 38;
+  }
+  if (currentVersion < 39) {
+    applyAssistantCoreSchema(database);
+    setSchemaVersion(database, 39);
+    currentVersion = 39;
+  }
+  if (currentVersion < 40) {
+    database.exec(ASSISTANT_FTS_SCHEMA_SQL);
+    setSchemaVersion(database, 40);
+    currentVersion = 40;
   }
   ensureChatMessageTimelineSchema(database);
   ensureRuntimeArtifactsSchema(database);
