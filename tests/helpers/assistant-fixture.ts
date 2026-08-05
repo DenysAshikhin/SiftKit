@@ -42,3 +42,22 @@ export function withAssistantContext<T>(body: (context: AssistantTestContext) =>
     closeRuntimeDatabase();
   }
 }
+
+export async function withAssistantContextAsync<T>(
+  body: (context: AssistantTestContext) => Promise<T>,
+): Promise<T> {
+  const runtimeRoot = createManagedTempDir('siftkit-assistant-');
+  const database = getRuntimeDatabase(path.join(runtimeRoot, 'runtime.sqlite'));
+  try {
+    const clock = new FixedClock(FIXTURE_START_INSTANT);
+    const ids = new SequentialIdGenerator();
+    const graph = new AssistantGraph({
+      database, clock, ids,
+      keys: new FileKeyProvider(assistantKeyFile(runtimeRoot)),
+      runtimeRoot,
+    });
+    return await body({ database, clock, ids, ownerId: LOCAL_OWNER_ID, runtimeRoot, graph });
+  } finally {
+    closeRuntimeDatabase();
+  }
+}
