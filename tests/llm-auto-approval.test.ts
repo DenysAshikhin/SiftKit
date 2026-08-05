@@ -8,7 +8,7 @@ import {
   APPROVAL_REVIEW_PAYLOAD_LABEL,
   APPROVAL_REVIEW_REQUEST_MARKER,
 } from '../src/repo-search/approval-review-policy.js';
-import { ApprovalGate } from '../src/repo-search/engine/approval-gate.js';
+import type { ApprovalGate } from '../src/repo-search/engine/approval-gate.js';
 import { ProgressWriter, SilentProgressWriter } from '../src/lib/progress-writer.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { asObject, asArray, getAddressInfo } from './helpers/dashboard-http.js';
@@ -19,6 +19,7 @@ import type { JsonSerializable } from '../src/lib/json-types.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
+import { ApprovalGateHarness } from './helpers/approval-gate-harness.js';
 
 type ScriptedDecision = { kind: 'approve' } | { kind: 'deny'; reason: string } | { kind: 'abort' };
 
@@ -96,7 +97,7 @@ test('auto mode: reviewer approve executes the write with no human involvement',
   const tempRoot = createManagedTempDir('siftkit-llm-auto-approve-');
   try {
     const writer = new RecordingWriter(new AlwaysAbortProvider());
-    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
+    const gate = new ApprovalGateHarness(writer).gate;
     writer.gate = gate;
     const { events: logEvents, logger } = makeRecordingLogger();
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
@@ -132,7 +133,7 @@ test('auto mode: reviewer deny blocks the write and feeds the reason to the mode
   const tempRoot = createManagedTempDir('siftkit-llm-auto-deny-');
   try {
     const writer = new RecordingWriter(new AlwaysAbortProvider());
-    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
+    const gate = new ApprovalGateHarness(writer).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
       '{"action":"write","path":"out.txt","content":"hello"}',
@@ -155,7 +156,7 @@ test('auto mode: unsure escalates to the human gate, which approves', async () =
   const tempRoot = createManagedTempDir('siftkit-llm-auto-unsure-');
   try {
     const writer = new RecordingWriter(new AlwaysApproveProvider());
-    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
+    const gate = new ApprovalGateHarness(writer).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
       '{"action":"write","path":"out.txt","content":"hello"}',
@@ -190,7 +191,7 @@ for (const testCase of [
     try {
       fs.writeFileSync(path.join(tempRoot, 'a.txt'), 'content-a', 'utf8');
       const writer = new RecordingWriter(new AlwaysAbortProvider());
-      const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
+      const gate = new ApprovalGateHarness(writer).gate;
       writer.gate = gate;
       // No verdict mock present: if a verdict call were made it would consume the finish action and fail the run.
       const result = await runTaskLoop(makeTask('read a file'), makeAutoLoopOptions(tempRoot, [
@@ -214,7 +215,7 @@ test('auto mode: unparseable verdicts (after one retry) escalate to the human ga
   const tempRoot = createManagedTempDir('siftkit-llm-auto-badverdict-');
   try {
     const writer = new RecordingWriter(new AlwaysApproveProvider());
-    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
+    const gate = new ApprovalGateHarness(writer).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
       '{"action":"write","path":"out.txt","content":"hello"}',
@@ -292,12 +293,7 @@ test('auto mode over HTTP: the verdict request byte-extends the executing planne
   const tempRoot = createManagedTempDir('siftkit-llm-auto-http-');
   try {
     fs.writeFileSync(path.join(tempRoot, 'a.txt'), 'content-a', 'utf8');
-    const gate = new ApprovalGate({
-      requestId: 'run-1',
-      progressWriter: new SilentProgressWriter(),
-      timeoutMs: 5000,
-      bypassReadOnlyTools: false,
-    });
+    const gate = new ApprovalGateHarness(new SilentProgressWriter()).gate;
     const result = await runTaskLoop(makeTask('read a file then write a file'), {
       repoRoot: tempRoot,
       model: 'mock-model',

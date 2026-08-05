@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from '../../lib/zod.js';
+import { getAbortError } from '../../lib/abort.js';
 import type { ProgressWriter } from '../../lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../types.js';
 
@@ -56,7 +57,7 @@ export function toApprovalDecision(request: RepoSearchApprovalRequest): Approval
 
 type PendingApproval = {
   resolve: (decision: ApprovalDecision) => void;
-  timeoutHandle: NodeJS.Timeout;
+  abortListener: () => void;
 };
 
 /**
@@ -68,18 +69,18 @@ export class ApprovalGate {
   private readonly pending = new Map<string, PendingApproval>();
   private readonly requestId: string;
   private readonly progressWriter: ProgressWriter<RepoSearchProgressEvent>;
-  private readonly timeoutMs: number;
+  private readonly abortSignal: AbortSignal;
   private readonly bypassReadOnlyTools: boolean;
 
   constructor(options: {
     requestId: string;
     progressWriter: ProgressWriter<RepoSearchProgressEvent>;
-    timeoutMs: number;
+    abortSignal: AbortSignal;
     bypassReadOnlyTools: boolean;
   }) {
     this.requestId = options.requestId;
     this.progressWriter = options.progressWriter;
-    this.timeoutMs = options.timeoutMs;
+    this.abortSignal = options.abortSignal;
     this.bypassReadOnlyTools = options.bypassReadOnlyTools;
   }
 
@@ -93,12 +94,17 @@ export class ApprovalGate {
     }
     const approvalId = randomUUID();
     return new Promise<ApprovalDecision>((resolve, reject) => {
-      const timeoutHandle = setTimeout(() => {
+      const abortListener = () => {
         this.pending.delete(approvalId);
-        reject(new Error(`Approval request timed out after ${this.timeoutMs} ms.`));
-      }, this.timeoutMs);
-      timeoutHandle.unref?.();
-      this.pending.set(approvalId, { resolve, timeoutHandle });
+        this.abortSignal.removeEventListener('abort', abortListener);
+        reject(getAbortError(this.abortSignal));
+      };
+      this.pending.set(approvalId, { resolve, abortListener });
+      this.abortSignal.addEventListener('abort', abortListener, { once: true });
+      if (this.abortSignal.aborted) {
+        abortListener();
+        return;
+      }
       this.progressWriter.write({
         kind: 'approval_request',
         requestId: this.requestId,
@@ -119,7 +125,7 @@ export class ApprovalGate {
       return false;
     }
     this.pending.delete(approvalId);
-    clearTimeout(entry.timeoutHandle);
+    this.abortSignal.removeEventListener('abort', entry.abortListener);
     entry.resolve(decision);
     return true;
   }

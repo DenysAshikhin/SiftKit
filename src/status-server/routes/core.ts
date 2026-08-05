@@ -985,7 +985,7 @@ abstract class RepoTaskEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
       ? new ApprovalGate({
         requestId: admission.requestId,
         progressWriter,
-        timeoutMs: readApprovalTimeoutMs(),
+        abortSignal: stream.abortSignal,
         bypassReadOnlyTools: this.mode === 'agent',
       })
       : undefined;
@@ -1043,13 +1043,6 @@ class RepoSearchEndpoint extends RepoTaskEndpoint {
 
 class RepoAgentEndpoint extends RepoTaskEndpoint {
   protected readonly mode = 'agent';
-}
-
-const DEFAULT_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;
-
-function readApprovalTimeoutMs(): number {
-  const raw = Number(process.env.SIFTKIT_APPROVAL_TIMEOUT_MS);
-  return Number.isFinite(raw) && raw > 0 ? Math.trunc(raw) : DEFAULT_APPROVAL_TIMEOUT_MS;
 }
 
 class RepoSearchApprovalEndpoint implements RouteEndpoint {

@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ApprovalGate } from '../src/repo-search/engine/approval-gate.js';
+import { setTimeout as delay } from 'node:timers/promises';
 import { ProgressWriter } from '../src/lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
+import { ApprovalGateHarness } from './helpers/approval-gate-harness.js';
 
 class CollectingWriter extends ProgressWriter<RepoSearchProgressEvent> {
   public readonly events: RepoSearchProgressEvent[] = [];
@@ -12,7 +13,7 @@ class CollectingWriter extends ProgressWriter<RepoSearchProgressEvent> {
 
 test('request emits approval_request and resolves with the submitted decision', async () => {
   const writer = new CollectingWriter();
-  const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
+  const gate = new ApprovalGateHarness(writer).gate;
   const pending = gate.request({
     turn: 2,
     toolName: 'write',
@@ -33,7 +34,7 @@ test('request emits approval_request and resolves with the submitted decision', 
 
 test('deny decision carries its reason', async () => {
   const writer = new CollectingWriter();
-  const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
+  const gate = new ApprovalGateHarness(writer).gate;
   const pending = gate.request({
     turn: 1,
     toolName: 'git',
@@ -46,7 +47,7 @@ test('deny decision carries its reason', async () => {
 
 test('unknown or already-resolved approvalId returns false', async () => {
   const writer = new CollectingWriter();
-  const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: false });
+  const gate = new ApprovalGateHarness(writer).gate;
   assert.equal(gate.submit('nope', { kind: 'approve' }), false);
   const pending = gate.request({
     turn: 1,
@@ -60,24 +61,84 @@ test('unknown or already-resolved approvalId returns false', async () => {
   assert.equal(gate.submit(approvalId, { kind: 'approve' }), false);
 });
 
-test('timeout rejects with a distinct error', async () => {
+test('pending approval remains live until an explicit decision', async () => {
   const writer = new CollectingWriter();
-  const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 30, bypassReadOnlyTools: false });
-  await assert.rejects(
-    gate.request({
-      turn: 1,
-      toolName: 'read',
-      command: 'read path=a.ts',
-      reviewPayload: null,
-    }),
-    /Approval request timed out after 30 ms\./u,
+  const gate = new ApprovalGateHarness(writer).gate;
+  const pending = gate.request({
+    turn: 1,
+    toolName: 'write',
+    command: 'write path=a.ts',
+    reviewPayload: null,
+  });
+  await delay(50);
+  assert.equal(
+    gate.submit(String(writer.events[0].approvalId), { kind: 'approve' }),
+    true,
   );
+  assert.deepEqual(await pending, { kind: 'approve' });
+});
+
+test('abort rejects every pending approval and makes their IDs stale', async () => {
+  const writer = new CollectingWriter();
+  const harness = new ApprovalGateHarness(writer);
+  const first = harness.gate.request({
+    turn: 1, toolName: 'write', command: 'write path=a.ts', reviewPayload: null,
+  });
+  const second = harness.gate.request({
+    turn: 2, toolName: 'edit', command: 'edit path=b.ts', reviewPayload: null,
+  });
+  const firstId = String(writer.events[0].approvalId);
+  const secondId = String(writer.events[1].approvalId);
+  const reason = new Error('client disconnected');
+  harness.controller.abort(reason);
+
+  await assert.rejects(first, reason);
+  await assert.rejects(second, reason);
+  assert.equal(harness.gate.submit(firstId, { kind: 'approve' }), false);
+  assert.equal(harness.gate.submit(secondId, { kind: 'approve' }), false);
+});
+
+test('an already-aborted signal rejects without emitting approval_request', async () => {
+  const writer = new CollectingWriter();
+  const harness = new ApprovalGateHarness(writer);
+  harness.controller.abort(new Error('stream already closed'));
+  await assert.rejects(
+    harness.gate.request({
+      turn: 1, toolName: 'write', command: 'write path=a.ts', reviewPayload: null,
+    }),
+    /stream already closed/u,
+  );
+  assert.equal(writer.events.length, 0);
+});
+
+test('submission removes abort handling from the resolved approval', async () => {
+  const writer = new CollectingWriter();
+  const harness = new ApprovalGateHarness(writer);
+  const pending = harness.gate.request({
+    turn: 1, toolName: 'write', command: 'write path=a.ts', reviewPayload: null,
+  });
+  assert.equal(
+    harness.gate.submit(String(writer.events[0].approvalId), { kind: 'approve' }),
+    true,
+  );
+  harness.controller.abort(new Error('late disconnect'));
+  assert.deepEqual(await pending, { kind: 'approve' });
+});
+
+test('read-only bypass still approves when the signal is already aborted', async () => {
+  const writer = new CollectingWriter();
+  const harness = new ApprovalGateHarness(writer, true);
+  harness.controller.abort(new Error('closed'));
+  assert.deepEqual(await harness.gate.request({
+    turn: 1, toolName: 'read', command: 'read path=a.ts', reviewPayload: null,
+  }), { kind: 'approve' });
+  assert.equal(writer.events.length, 0);
 });
 
 for (const toolName of ['read', 'grep', 'find', 'ls']) {
   test(`bypassReadOnlyTools: true — ${toolName} returns approve immediately with no event`, async () => {
     const writer = new CollectingWriter();
-    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: true });
+    const gate = new ApprovalGateHarness(writer, true).gate;
     const decision = gate.request({
       turn: 1,
       toolName,
@@ -99,7 +160,7 @@ for (const { toolName, command } of [
 ]) {
   test(`bypassReadOnlyTools: true — ${toolName} still emits approval_request`, async () => {
     const writer = new CollectingWriter();
-    const gate = new ApprovalGate({ requestId: 'run-1', progressWriter: writer, timeoutMs: 5000, bypassReadOnlyTools: true });
+    const gate = new ApprovalGateHarness(writer, true).gate;
     const pending = gate.request({
       turn: 1,
       toolName,
@@ -115,12 +176,7 @@ for (const { toolName, command } of [
 
 test('manual approval event carries the transient review payload but the decision does not', async () => {
   const writer = new CollectingWriter();
-  const gate = new ApprovalGate({
-    requestId: 'run-1',
-    progressWriter: writer,
-    timeoutMs: 5000,
-    bypassReadOnlyTools: false,
-  });
+  const gate = new ApprovalGateHarness(writer).gate;
   const reviewPayload = '{\n  "content": "manual-review-sentinel"\n}';
   const pending = gate.request({
     turn: 1,

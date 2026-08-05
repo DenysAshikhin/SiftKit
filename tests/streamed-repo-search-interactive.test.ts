@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { requestSse } from './helpers/sse-http.js';
 import { startHarness } from './helpers/streamed-op-harness.js';
 import { parseJsonValueText } from '../src/lib/json.js';
+import { SseFrameParser } from '../src/lib/sse-frame-parser.js';
 import { asObject } from './helpers/dashboard-http.js';
 import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
 import { RepoSearchExecutionResultSchema } from '../src/repo-search/types.js';
@@ -28,6 +30,65 @@ function postJson(url: string, body: JsonSerializable): Promise<{ statusCode: nu
     request.write(text);
     request.end();
   });
+}
+
+function disconnectAtApproval(
+  url: string,
+  body: JsonSerializable,
+): Promise<{ requestId: string; approvalId: string }> {
+  return new Promise((resolve, reject) => {
+    const text = JSON.stringify(body);
+    const parser = new SseFrameParser();
+    let disconnected = false;
+    const request = http.request(url, {
+      method: 'POST',
+      agent: testHttpAgent,
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(text, 'utf8'),
+      },
+    }, (response) => {
+      response.setEncoding('utf8');
+      response.on('data', (chunk: string) => {
+        for (const frame of parser.push(chunk)) {
+          if (frame.event !== 'progress') continue;
+          const event = asObject(parseJsonValueText(frame.data));
+          if (event.kind !== 'approval_request') continue;
+          disconnected = true;
+          request.destroy();
+          resolve({
+            requestId: String(event.requestId),
+            approvalId: String(event.approvalId),
+          });
+          return;
+        }
+      });
+    });
+    request.on('error', (error) => {
+      if (!disconnected) reject(error);
+    });
+    request.write(text);
+    request.end();
+  });
+}
+
+async function waitForApprovalRegistryRemoval(
+  baseUrl: string,
+  requestId: string,
+  approvalId: string,
+): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  for (;;) {
+    const stale = await postJson(`${baseUrl}/repo-search/approval`, {
+      requestId,
+      approvalId: `${approvalId}-stale`,
+      decision: 'approve',
+    });
+    if (stale.statusCode === 404) return;
+    assert.equal(stale.statusCode, 409);
+    if (Date.now() >= deadline) assert.fail('approval registry was not removed');
+    await delay(10);
+  }
 }
 
 test('default repo-search uses git without approval or repo-agent run control', async () => {
@@ -162,7 +223,7 @@ test('interactive deny: reason reaches the transcript; abort ends with error fra
   }
 });
 
-test('approval endpoint: 404 unknown requestId, 409 stale approvalId; timeout aborts the run', async () => {
+test('approval endpoint returns 404 for unknown and disconnected runs', async () => {
   const harness = await startHarness('siftkit-interactive-edge-');
   try {
     const notFound = await postJson(`${harness.baseUrl}/repo-search/approval`, {
@@ -170,39 +231,35 @@ test('approval endpoint: 404 unknown requestId, 409 stale approvalId; timeout ab
     });
     assert.equal(notFound.statusCode, 404);
 
-    process.env.SIFTKIT_APPROVAL_TIMEOUT_MS = '150';
-    try {
-      let staleCheck: Promise<void> | null = null;
-      const timedOut = await requestSse(`${harness.baseUrl}/repo-search`, {
-        body: {
-          prompt: 'time out', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 4,
-          interactive: true,
-          availableModels: ['mock-model'],
-          mockResponses: ['{"action":"ls"}', '{"action":"finish","output":"unreachable"}'],
-          mockCommandResults: {},
-        },
-        timeoutMs: 20_000,
-        onProgress: async (event) => {
-          if (event.kind !== 'approval_request') return;
-          // Answer AFTER the timeout to exercise the stale path.
-          staleCheck = new Promise<void>((resolve) => {
-            setTimeout(async () => {
-              const stale = await postJson(`${harness.baseUrl}/repo-search/approval`, {
-                requestId: String(event.requestId), approvalId: String(event.approvalId), decision: 'approve',
-              });
-              // Run may already be unregistered (404) or gate resolved (409); both are stale outcomes.
-              assert.ok(stale.statusCode === 409 || stale.statusCode === 404, String(stale.statusCode));
-              resolve();
-            }, 400);
-          });
-        },
-      });
-      assert.equal(timedOut.result, null);
-      assert.match(String(timedOut.errorMessage), /Approval request timed out/u);
-      if (staleCheck) await staleCheck;
-    } finally {
-      delete process.env.SIFTKIT_APPROVAL_TIMEOUT_MS;
-    }
+    const pending = await disconnectAtApproval(`${harness.baseUrl}/repo-search`, {
+      prompt: 'disconnect at approval',
+      repoRoot: process.cwd(),
+      model: 'mock-model',
+      maxTurns: 2,
+      interactive: true,
+      availableModels: ['mock-model'],
+      mockResponses: ['{"action":"ls"}', '{"action":"finish","output":"unreachable"}'],
+      mockCommandResults: {},
+    });
+    await waitForApprovalRegistryRemoval(
+      harness.baseUrl,
+      pending.requestId,
+      pending.approvalId,
+    );
+
+    const followUp = await requestSse(`${harness.baseUrl}/repo-search`, {
+      body: {
+        prompt: 'after disconnect',
+        repoRoot: process.cwd(),
+        model: 'mock-model',
+        maxTurns: 1,
+        availableModels: ['mock-model'],
+        mockResponses: ['{"action":"finish","output":"after disconnect done"}'],
+        mockCommandResults: {},
+      },
+      timeoutMs: 20_000,
+    });
+    assert.ok(followUp.result, followUp.rawBody);
   } finally {
     await harness.close();
   }
