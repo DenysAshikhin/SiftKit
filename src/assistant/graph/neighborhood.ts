@@ -1,5 +1,5 @@
 import type { RelationType } from '../domain/relation-types.js';
-import type { AssertionStore } from '../storage/assertion-store.js';
+import { LIVE_ASSERTION_STATUSES, type AssertionStore } from '../storage/assertion-store.js';
 import type { NodeStore } from '../storage/node-store.js';
 import type { AssertionRow } from '../storage/rows.js';
 
@@ -95,40 +95,43 @@ export class NeighborhoodReader {
     ownerId: string, frontier: readonly string[], allowed: ReadonlySet<RelationType>,
     collectedAssertions: ReadonlySet<string>,
   ): boolean {
-    const live = ['active', 'disputed'] as const;
-    for (const nodeId of frontier) {
-      const edges = [
-        ...this.assertions.listBySubject(ownerId, nodeId, live),
-        ...this.assertions.listByObjectNode(ownerId, nodeId, live),
-      ];
-      if (edges.some(
-        (row) => row.object_kind === 'node' && allowed.has(row.predicate) && !collectedAssertions.has(row.id),
-      )) {
-        return true;
-      }
-    }
-    return false;
+    return frontier.some((nodeId) => this.liveEdges(ownerId, nodeId, allowed).some(
+      (row) => !collectedAssertions.has(row.id),
+    ));
   }
 
   /**
-   * Live edges touching `nodeId` in either direction, grouped by predicate so the fanout cap is
-   * applied per node and predicate rather than per node.
+   * The traversable edges of `nodeId`: live node-to-node assertions in either direction whose
+   * predicate is allowlisted, deduplicated because a self-edge is returned by both lookups. Both
+   * the traversal and the truncation detector read this, so they can never disagree about which
+   * edges exist.
    */
+  private liveEdges(
+    ownerId: string, nodeId: string, allowed: ReadonlySet<RelationType>,
+  ): AssertionRow[] {
+    const byId = new Map<string, AssertionRow>();
+    const edges = [
+      ...this.assertions.listBySubject(ownerId, nodeId, LIVE_ASSERTION_STATUSES),
+      ...this.assertions.listByObjectNode(ownerId, nodeId, LIVE_ASSERTION_STATUSES),
+    ];
+    for (const edge of edges) {
+      if (edge.object_kind === 'node' && allowed.has(edge.predicate)) {
+        byId.set(edge.id, edge);
+      }
+    }
+    return [...byId.values()];
+  }
+
+  /** Traversable edges grouped by predicate, so the fanout cap applies per node and predicate. */
   private groupByPredicate(
     ownerId: string, nodeId: string, allowed: ReadonlySet<RelationType>,
   ): Map<RelationType, AssertionRow[]> {
-    const live = ['active', 'disputed'] as const;
-    const edges = [
-      ...this.assertions.listBySubject(ownerId, nodeId, live),
-      ...this.assertions.listByObjectNode(ownerId, nodeId, live),
-    ].filter((row) => row.object_kind === 'node' && allowed.has(row.predicate));
-
     const grouped = new Map<RelationType, AssertionRow[]>();
-    for (const edge of edges) {
+    for (const edge of this.liveEdges(ownerId, nodeId, allowed)) {
       const bucket = grouped.get(edge.predicate);
       if (bucket === undefined) {
         grouped.set(edge.predicate, [edge]);
-      } else if (!bucket.some((existing) => existing.id === edge.id)) {
+      } else {
         bucket.push(edge);
       }
     }

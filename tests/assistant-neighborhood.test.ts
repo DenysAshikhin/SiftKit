@@ -214,6 +214,33 @@ test('a cycle in the graph terminates without repeating a node', () => {
   });
 });
 
+test('frontier edges the traversal cannot follow are not reported as a hop truncation', () => {
+  withAssistantContext((context) => {
+    const h = harness(context);
+    const root = makeNode(h, context, 'project', 'Root');
+    const hop1 = makeNode(h, context, 'software', 'Hop 1');
+    const offPredicate = makeNode(h, context, 'device', 'Workstation');
+    link(h, context, root, 'DEPENDS_ON', hop1);
+    link(h, context, hop1, 'RUNS_ON', offPredicate);
+    h.assertions.createAssertion({
+      ownerId: context.ownerId, subjectNodeId: hop1, predicate: 'DEPENDS_ON',
+      object: { kind: 'literal', valueType: 'string', value: 'libc' },
+      scopeNodeId: null, status: 'active', basis: 'manual_import', confidence: 0.9,
+      sensitivity: 'low', validFromUtc: null, validToUtc: null,
+      observedAtUtc: '2026-08-05T09:00:00.000Z', supersedesAssertionId: null,
+      pinned: false, attributes: {},
+      searchText: { subject: hop1, predicate: 'DEPENDS_ON', object: 'libc', scope: '' },
+    });
+
+    const result = h.reader.read({
+      ownerId: context.ownerId, rootNodeId: root, predicates: ['DEPENDS_ON'],
+      ...LIMITS, maxHops: 1,
+    });
+    assert.deepEqual([...result.nodeIds].sort(), [root, hop1].sort());
+    assert.deepEqual(result.truncatedBy, []);
+  });
+});
+
 test('retired and deleted assertions are not traversed', () => {
   withAssistantContext((context) => {
     const h = harness(context);

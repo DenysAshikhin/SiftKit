@@ -5,6 +5,10 @@ import { RELATION_DEFINITIONS, RELATION_TYPES } from '../domain/relation-types.j
 
 /** The single owner row id. One human user per installation (design: out of scope, multi-user). */
 export const LOCAL_OWNER_ID = 'own_local';
+/** Placeholder shown until the user names themselves; the owner row is created before any UI. */
+const LOCAL_OWNER_DISPLAY_NAME = 'Local user';
+/** Placeholder for this machine's device row, named on the same terms as the owner row. */
+const LOCAL_DEVICE_DISPLAY_NAME = 'This device';
 /** Runtime metadata key holding the monotonic graph version. */
 export const GRAPH_VERSION_METADATA_KEY = 'assistant.graph_version';
 /** Runtime metadata key holding the id of this machine's device row. */
@@ -302,7 +306,6 @@ export function seedAssistantRegistries(
   database: RuntimeDatabase,
   clock: Clock,
   localDeviceId: string,
-  ownerDisplayName: string,
 ): void {
   const nowUtc = clock.nowUtc();
 
@@ -335,14 +338,16 @@ export function seedAssistantRegistries(
     INSERT INTO assistant_owners (id, display_name, created_at_utc, updated_at_utc)
     VALUES (?, ?, ?, ?)
     ON CONFLICT(id) DO NOTHING
-  `).run(LOCAL_OWNER_ID, ownerDisplayName, nowUtc, nowUtc);
+  `).run(LOCAL_OWNER_ID, LOCAL_OWNER_DISPLAY_NAME, nowUtc, nowUtc);
 
   database.prepare(`
     INSERT INTO assistant_devices (
       id, owner_id, platform, display_name, public_key, status, created_at_utc, updated_at_utc
     ) VALUES (?, ?, ?, ?, NULL, 'active', ?, ?)
     ON CONFLICT(id) DO NOTHING
-  `).run(localDeviceId, LOCAL_OWNER_ID, process.platform, 'This device', nowUtc, nowUtc);
+  `).run(
+    localDeviceId, LOCAL_OWNER_ID, process.platform, LOCAL_DEVICE_DISPLAY_NAME, nowUtc, nowUtc,
+  );
 
   database.prepare(`
     INSERT INTO runtime_metadata (key, value, updated_at_utc)

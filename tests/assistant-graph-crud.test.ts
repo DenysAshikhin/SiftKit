@@ -204,14 +204,27 @@ test('full-text search matches display name, alias, and description', () => {
   });
 });
 
-test('sensitive and highly sensitive nodes are excluded from the FTS index', () => {
+test('the node FTS exclusion floor sits exactly at sensitive', () => {
   withAssistantContext((context) => {
     const nodes = newNodeStore(context);
+    const indexed = nodes.createNode({
+      ownerId: context.ownerId, type: 'person', canonicalKey: null,
+      displayName: 'Colleague', description: null,
+      sensitivity: 'personal', properties: {},
+    });
+    nodes.createNode({
+      ownerId: context.ownerId, type: 'financial_account', canonicalKey: null,
+      displayName: 'Chequing account', description: null,
+      sensitivity: 'sensitive', properties: {},
+    });
     nodes.createNode({
       ownerId: context.ownerId, type: 'financial_account', canonicalKey: null,
       displayName: 'Brokerage account', description: null,
       sensitivity: 'highly_sensitive', properties: {},
     });
+
+    assert.deepEqual(nodes.searchNodes(context.ownerId, 'colleague', 10), [indexed.id]);
+    assert.deepEqual(nodes.searchNodes(context.ownerId, 'chequing', 10), []);
     assert.deepEqual(nodes.searchNodes(context.ownerId, 'brokerage', 10), []);
   });
 });
@@ -476,7 +489,7 @@ test('current-state queries exclude superseded, expired, and future-dated assert
   });
 });
 
-test('assertion full-text search excludes sensitive assertions', () => {
+test('the assertion FTS exclusion floor sits exactly at sensitive', () => {
   withAssistantContext((context) => {
     const nodes = newNodeStore(context);
     const assertions = new AssertionStore(context.database, context.clock, context.ids);
@@ -508,7 +521,20 @@ test('assertion full-text search excludes sensitive assertions', () => {
       },
     });
 
+    assertions.createAssertion({
+      ownerId: context.ownerId, subjectNodeId: person.id, predicate: 'HAS_CONSTRAINT',
+      object: { kind: 'literal', valueType: 'string', value: 'Withheld salary band' },
+      scopeNodeId: null, status: 'active', basis: 'explicit_user_statement', confidence: 0.99,
+      sensitivity: 'sensitive', validFromUtc: null, validToUtc: null,
+      observedAtUtc: '2026-08-05T09:00:00.000Z', supersedesAssertionId: null,
+      pinned: false, attributes: {},
+      searchText: {
+        subject: 'Denys', predicate: 'has constraint', object: 'Withheld salary band', scope: '',
+      },
+    });
+
     assert.deepEqual(assertions.searchAssertions(context.ownerId, 'concise', 10), [visible.id]);
+    assert.deepEqual(assertions.searchAssertions(context.ownerId, 'withheld', 10), []);
     assert.deepEqual(assertions.searchAssertions(context.ownerId, 'redacted', 10), []);
   });
 });

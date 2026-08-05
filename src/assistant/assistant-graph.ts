@@ -1,5 +1,3 @@
-import path from 'node:path';
-
 import type { RuntimeDatabase } from '../state/runtime-db.js';
 import type { Clock } from './clock.js';
 import { BlobCipher } from './crypto/blob-cipher.js';
@@ -10,6 +8,7 @@ import { NodeMergeService } from './graph/merge-service.js';
 import { NeighborhoodReader } from './graph/neighborhood.js';
 import { AssertionValidator } from './graph/validation.js';
 import type { IdGenerator } from './ids.js';
+import { assistantEvidenceDir } from './layout.js';
 import { AssertionStore } from './storage/assertion-store.js';
 import { AuditStore } from './storage/audit-store.js';
 import { EvidenceStore } from './storage/evidence-store.js';
@@ -53,7 +52,7 @@ export class AssistantGraph {
     this.policies = new PolicyStore(database, clock, ids);
     this.evidence = new EvidenceStore(
       database, clock, ids, new BlobCipher(options.keys),
-      path.join(options.runtimeRoot, 'assistant', 'evidence'),
+      assistantEvidenceDir(options.runtimeRoot),
     );
 
     this.validator = new AssertionValidator(this.nodes, this.policies);

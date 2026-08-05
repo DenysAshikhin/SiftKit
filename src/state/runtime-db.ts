@@ -901,7 +901,7 @@ function migrateRunLogsBackendToEngineIds(database: RuntimeDatabase): void {
 
 function applyAssistantCoreSchema(database: RuntimeDatabase): void {
   database.exec(ASSISTANT_CORE_SCHEMA_SQL);
-  seedAssistantRegistries(database, new SystemClock(), randomUUID(), 'Local user');
+  seedAssistantRegistries(database, new SystemClock(), randomUUID());
 }
 
 function migrateAppConfigRemoveGlobalStartupContext(database: RuntimeDatabase): void {

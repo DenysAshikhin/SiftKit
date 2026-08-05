@@ -6,20 +6,34 @@ import path from 'node:path';
 import { BlobCipher } from '../src/assistant/crypto/blob-cipher.js';
 import { FileKeyProvider } from '../src/assistant/crypto/key-provider.js';
 import { hashBytes, hashTextContent } from '../src/assistant/domain/keys.js';
+import { assistantEvidenceDir, assistantKeyFile } from '../src/assistant/layout.js';
 import { EvidenceStore } from '../src/assistant/storage/evidence-store.js';
 import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.js';
 
 function newKeyProvider(context: AssistantTestContext): FileKeyProvider {
-  return new FileKeyProvider(path.join(context.runtimeRoot, 'assistant', 'keys.json'));
+  return new FileKeyProvider(assistantKeyFile(context.runtimeRoot));
 }
 
 function newEvidenceStore(context: AssistantTestContext): EvidenceStore {
   const keys = newKeyProvider(context);
   return new EvidenceStore(
     context.database, context.clock, context.ids,
-    new BlobCipher(keys), path.join(context.runtimeRoot, 'assistant', 'evidence'),
+    new BlobCipher(keys), assistantEvidenceDir(context.runtimeRoot),
   );
 }
+
+function blobPath(context: AssistantTestContext, contentHash: string): string {
+  return path.join(
+    assistantEvidenceDir(context.runtimeRoot), contentHash.slice(0, 2), contentHash,
+  );
+}
+
+test('the assistant on-disk layout is fixed under the runtime root', () => {
+  assert.equal(assistantKeyFile('/runtime'), path.join('/runtime', 'assistant', 'keys.json'));
+  assert.equal(
+    assistantEvidenceDir('/runtime'), path.join('/runtime', 'assistant', 'evidence'),
+  );
+});
 
 test('the key provider creates a 256-bit key once and reuses it', () => {
   withAssistantContext((context) => {
@@ -36,7 +50,7 @@ test('the key provider creates a 256-bit key once and reuses it', () => {
 
     // The key lives outside the runtime database on purpose: a stolen database alone must not
     // decrypt evidence blobs.
-    assert.ok(fs.existsSync(path.join(context.runtimeRoot, 'assistant', 'keys.json')));
+    assert.ok(fs.existsSync(assistantKeyFile(context.runtimeRoot)));
     const encoded = first.material.toString('base64');
     const leaked = context.database
       .prepare('SELECT COUNT(*) AS count FROM runtime_metadata WHERE value LIKE ?')
@@ -128,10 +142,7 @@ test('blob evidence writes one content-addressed encrypted file and shares it ac
     assert.equal(blob.key_id, newKeyProvider(context).getActiveKey().keyId);
     assert.equal(blob.content_hash, hashBytes(bytes));
 
-    const onDisk = path.join(
-      context.runtimeRoot, 'assistant', 'evidence',
-      blob.content_hash.slice(0, 2), blob.content_hash,
-    );
+    const onDisk = blobPath(context, blob.content_hash);
     assert.ok(fs.existsSync(onDisk));
     assert.equal(fs.readFileSync(onDisk).includes(bytes), false, 'plaintext must not hit disk');
 
@@ -150,10 +161,7 @@ test('reading a blob whose file was swapped for different content is rejected', 
       mimeType: 'image/png', bytes,
     });
     const blob = evidence.requireBlob(record.blob_id ?? '');
-    const onDisk = path.join(
-      context.runtimeRoot, 'assistant', 'evidence',
-      blob.content_hash.slice(0, 2), blob.content_hash,
-    );
+    const onDisk = blobPath(context, blob.content_hash);
 
     const cipher = new BlobCipher(newKeyProvider(context));
     fs.writeFileSync(onDisk, cipher.encrypt(Buffer.from('substituted', 'utf8')).envelope);
@@ -183,10 +191,7 @@ test('deleting evidence purges the blob file and marks the record deleted', () =
       mimeType: 'image/png', bytes: Buffer.from('bytes', 'utf8'),
     });
     const blob = evidence.requireBlob(record.blob_id ?? '');
-    const onDisk = path.join(
-      context.runtimeRoot, 'assistant', 'evidence',
-      blob.content_hash.slice(0, 2), blob.content_hash,
-    );
+    const onDisk = blobPath(context, blob.content_hash);
     assert.ok(fs.existsSync(onDisk));
 
     evidence.deleteEvidence(record.id);

@@ -4,6 +4,7 @@ import { AssistantGraph } from '../../src/assistant/assistant-graph.js';
 import { FixedClock } from '../../src/assistant/clock.js';
 import { FileKeyProvider } from '../../src/assistant/crypto/key-provider.js';
 import { SequentialIdGenerator } from '../../src/assistant/ids.js';
+import { assistantKeyFile } from '../../src/assistant/layout.js';
 import { LOCAL_OWNER_ID } from '../../src/assistant/storage/schema.js';
 import {
   closeRuntimeDatabase, getRuntimeDatabase, type RuntimeDatabase,
@@ -33,7 +34,7 @@ export function withAssistantContext<T>(body: (context: AssistantTestContext) =>
     const ids = new SequentialIdGenerator();
     const graph = new AssistantGraph({
       database, clock, ids,
-      keys: new FileKeyProvider(path.join(runtimeRoot, 'assistant', 'keys.json')),
+      keys: new FileKeyProvider(assistantKeyFile(runtimeRoot)),
       runtimeRoot,
     });
     return body({ database, clock, ids, ownerId: LOCAL_OWNER_ID, runtimeRoot, graph });

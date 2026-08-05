@@ -18,6 +18,17 @@ export function isSensitivityAtLeast(value: Sensitivity, floor: Sensitivity): bo
   return SENSITIVITY_RANK[value] >= SENSITIVITY_RANK[floor];
 }
 
+/** Content at or above this sensitivity never reaches a plaintext index (§5.3). */
+const FTS_EXCLUSION_FLOOR: Sensitivity = 'sensitive';
+
+/**
+ * Whether content at this sensitivity may be written to a plaintext FTS table. The single
+ * definition of the exclusion floor: every index that stores plaintext gates on this.
+ */
+export function isIndexableInPlaintext(sensitivity: Sensitivity): boolean {
+  return !isSensitivityAtLeast(sensitivity, FTS_EXCLUSION_FLOOR);
+}
+
 export const ASSERTION_STATUSES = [
   'active', 'disputed', 'superseded', 'rejected', 'expired', 'deleted',
 ] as const;

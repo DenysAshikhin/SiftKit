@@ -1,3 +1,4 @@
+import type { Sensitivity } from '../domain/enums.js';
 import { normalizeAliasText } from '../domain/keys.js';
 import type { NodeType } from '../domain/node-types.js';
 import type { AuditStore } from '../storage/audit-store.js';
@@ -20,11 +21,17 @@ export interface ResolveRequest {
   /** Nodes already established in the surrounding statement, used for step 4 disambiguation. */
   readonly contextNodeIds: readonly string[];
   readonly createIfMissing: boolean;
-  readonly sensitivity?: 'low' | 'personal';
 }
 
 /** How many merge hops to follow before treating the chain as corrupt. */
 const MAX_MERGE_HOPS = 16;
+
+/**
+ * Resolution never knows how sensitive a newly seen entity is, so a created node starts here and
+ * is reclassified by an explicit `updateNode`. Never below `personal`: an unclassified entity is
+ * treated as private until something says otherwise.
+ */
+const RESOLVED_NODE_SENSITIVITY: Sensitivity = 'personal';
 
 /**
  * Deterministic entity resolution, §9.1. Name similarity alone never merges entities: the
@@ -87,7 +94,7 @@ export class EntityResolver {
       canonicalKey: request.canonicalKey,
       displayName: request.displayName,
       description: null,
-      sensitivity: request.sensitivity ?? 'personal',
+      sensitivity: RESOLVED_NODE_SENSITIVITY,
       properties: {},
     });
     this.nodes.addAlias({

@@ -3,7 +3,7 @@ import type { JsonObject } from '../../lib/json-types.js';
 import type { RuntimeDatabase } from '../../state/runtime-db.js';
 import type { Clock } from '../clock.js';
 import {
-  isSensitivityAtLeast, type AliasType, type NodeStatus, type Sensitivity,
+  isIndexableInPlaintext, type AliasType, type NodeStatus, type Sensitivity,
 } from '../domain/enums.js';
 import { normalizeAliasText } from '../domain/keys.js';
 import type { NodeType } from '../domain/node-types.js';
@@ -45,9 +45,6 @@ export interface RecordMergeInput {
   readonly basis: string;
   readonly reversible: boolean;
 }
-
-/** A node at or above this sensitivity is never written to the plaintext FTS index (§5.3). */
-const FTS_EXCLUSION_FLOOR: Sensitivity = 'sensitive';
 
 export class NodeStore {
   constructor(
@@ -247,7 +244,7 @@ export class NodeStore {
     this.database.prepare('DELETE FROM graph_nodes_fts WHERE node_id = ?').run(nodeId);
     const node = this.getNode(nodeId);
     if (node === null || node.status !== 'active') return;
-    if (isSensitivityAtLeast(node.sensitivity, FTS_EXCLUSION_FLOOR)) return;
+    if (!isIndexableInPlaintext(node.sensitivity)) return;
     const aliases = this.listAliases(nodeId).map((alias) => alias.alias).join(' ');
     this.database.prepare(`
       INSERT INTO graph_nodes_fts (node_id, owner_id, display_name, aliases, description)

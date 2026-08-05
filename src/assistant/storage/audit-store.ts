@@ -10,9 +10,6 @@ import {
 } from './rows.js';
 import { GRAPH_VERSION_METADATA_KEY } from './schema.js';
 
-/** Snapshot of a row before or after a mutation. Pass null when the row did not exist. */
-export type MutationSnapshot = JsonValue;
-
 export interface MutationLogEntry {
   readonly ownerId: string;
   readonly actorType: ActorType;
@@ -20,8 +17,10 @@ export interface MutationLogEntry {
   readonly operation: MutationOperation;
   readonly targetType: string;
   readonly targetId: string;
-  readonly before: MutationSnapshot;
-  readonly after: MutationSnapshot;
+  /** Row state before the mutation, or `null` when the row did not exist. */
+  readonly before: JsonValue;
+  /** Row state after the mutation, or `null` when the row no longer exists. */
+  readonly after: JsonValue;
   readonly reason: string;
 }
 

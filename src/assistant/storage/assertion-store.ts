@@ -3,7 +3,7 @@ import type { JsonObject } from '../../lib/json-types.js';
 import type { RuntimeDatabase } from '../../state/runtime-db.js';
 import type { Clock } from '../clock.js';
 import {
-  isSensitivityAtLeast,
+  isIndexableInPlaintext,
   type AssertionBasis, type AssertionStatus, type EvidenceStance, type Sensitivity,
 } from '../domain/enums.js';
 import {
@@ -45,9 +45,6 @@ export interface CreateAssertionInput {
 
 /** Statuses that hold the unique assertion key. */
 export const LIVE_ASSERTION_STATUSES: readonly AssertionStatus[] = ['active', 'disputed'];
-
-/** An assertion at or above this sensitivity is never written to the plaintext FTS index. */
-const FTS_EXCLUSION_FLOOR: Sensitivity = 'sensitive';
 
 export class AssertionStore {
   constructor(
@@ -311,7 +308,7 @@ export class AssertionStore {
     this.database.prepare('DELETE FROM graph_assertions_fts WHERE assertion_id = ?').run(assertionId);
     const assertion = this.requireAssertion(assertionId);
     if (!LIVE_ASSERTION_STATUSES.includes(assertion.status)) return;
-    if (isSensitivityAtLeast(assertion.sensitivity, FTS_EXCLUSION_FLOOR)) return;
+    if (!isIndexableInPlaintext(assertion.sensitivity)) return;
     this.database.prepare(`
       INSERT INTO graph_assertions_fts (
         assertion_id, owner_id, subject_text, predicate_text, object_text, scope_text
