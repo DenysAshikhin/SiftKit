@@ -27,9 +27,19 @@ export type ValidationCode =
   | 'temporal_window_malformed'
   | 'temporal_window_inconsistent';
 
+export interface ValidationFailure {
+  readonly ok: false;
+  readonly code: ValidationCode;
+  readonly message: string;
+}
+
+/**
+ * On success the predicate is carried back already narrowed to a `RelationType`, so callers index
+ * the registry without re-testing a branch this validator has already made unreachable.
+ */
 export type ValidationResult =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly code: ValidationCode; readonly message: string };
+  | { readonly ok: true; readonly predicate: RelationType }
+  | ValidationFailure;
 
 export interface AssertionValidationRequest {
   readonly ownerId: string;
@@ -49,7 +59,7 @@ export interface AssertionValidationRequest {
 /** The only node type permitted as an assertion scope (§4.8). */
 const SCOPE_NODE_TYPE = 'preference_context';
 
-function reject(code: ValidationCode, message: string): ValidationResult {
+function reject(code: ValidationCode, message: string): ValidationFailure {
   return { ok: false, code, message };
 }
 
@@ -83,8 +93,9 @@ export class AssertionValidator {
       );
     }
 
-    const objectResult = this.validateObject(request, request.predicate);
-    if (!objectResult.ok) return objectResult;
+    const predicate = request.predicate;
+    const objectFailure = this.validateObject(request, predicate);
+    if (objectFailure !== null) return objectFailure;
 
     if (request.scopeNodeId !== null) {
       const scope = this.nodes.getNode(request.scopeNodeId);
@@ -117,13 +128,16 @@ export class AssertionValidator {
       }
     }
 
-    return this.validateTemporal(request, definition.temporal);
+    const temporalFailure = this.validateTemporal(request, definition.temporal);
+    if (temporalFailure !== null) return temporalFailure;
+
+    return { ok: true, predicate };
   }
 
   private validateObject(
     request: AssertionValidationRequest,
     predicate: RelationType,
-  ): ValidationResult {
+  ): ValidationFailure | null {
     const literalAllowed = allowsLiteralObject(predicate);
 
     if (request.object.kind === 'literal') {
@@ -141,7 +155,7 @@ export class AssertionValidator {
           error instanceof Error ? error.message : 'Literal value is invalid.',
         );
       }
-      return { ok: true };
+      return null;
     }
 
     if (literalAllowed) {
@@ -160,13 +174,13 @@ export class AssertionValidator {
         `${predicate} does not accept a ${object.type} object.`,
       );
     }
-    return { ok: true };
+    return null;
   }
 
   private validateTemporal(
     request: AssertionValidationRequest,
     temporal: 'none' | 'optional' | 'required',
-  ): ValidationResult {
+  ): ValidationFailure | null {
     const from = request.validFromUtc;
     const to = request.validToUtc;
 
@@ -187,6 +201,6 @@ export class AssertionValidator {
         'validToUtc must be strictly after validFromUtc.',
       );
     }
-    return { ok: true };
+    return null;
   }
 }
