@@ -18,7 +18,7 @@
 |---|---|---|
 | Migration steps v37 (tables) and v38 (FTS) | Steps **v39** (tables + seed) and **v40** (FTS); `CURRENT_SCHEMA_VERSION` goes 38 → 40 | `src/state/runtime-db.ts:37` already reads `38`; v37/v38 are taken by `migrateChatSessionsToModelPresetSnapshot` and `migrateRunLogsBackendToEngineIds`. Later gates shift by two: **B = v41** (`memory_projections`), **C = v42** (questions, jobs, retrieval), **D = v43** (activity, capture). Each gate's own plan adds its step. |
 | "clock/ID abstractions" (unspecified) | `Clock` / `IdGenerator` interfaces implemented by classes, injected as objects | Repo has no clock abstraction today; `@typescript-eslint` bans passing bare functions around per repo rules. |
-| Evidence key held by the OS keychain (§13.4) | Gate A ships `AssistantKeyProvider` + `RuntimeMetadataKeyProvider` (key in `runtime_metadata`); Gate D adds the native keychain provider as a second implementation | The Tauri shell does not exist until Gate D, and the assistant must work with no desktop shell (§20.4). This is a real fallback, not a shim — the honest-storage statement in §4.7 covers it. |
+| Evidence key held by the OS keychain (§13.4) | Gate A ships `AssistantKeyProvider` + `FileKeyProvider` (key in a `0600` file at `<runtimeRoot>/assistant/keys.json`, **outside** the runtime database); Gate D adds the native keychain provider as a second implementation | The Tauri shell does not exist until Gate D, and the assistant must work with no desktop shell (§20.4). Keeping the key out of the runtime database means stealing the database alone does not yield the evidence blobs. This is a real fallback, not a shim — the honest-storage statement in §4.7 covers it. |
 | Entity resolution step 5 — "model-suggested match that clears a deterministic score threshold" (§9.1) | Not implemented in Gate A. `EntityResolver` implements steps 1, 2, 3, 4, 6, 7. Step 5 arrives with `candidate_consolidator` in Gate B. | No model call exists in Gate A. Implementing an unreachable branch would be dead machinery. |
 | Confidence pipeline includes a staleness function (§4.6) | Gate A implements aggregation → basis ceiling → contradiction penalty → explicit-user override → cardinality rule. Staleness lands with tier routing (§10.4) in Gate B. | The staleness decay classes are defined only by the Tier-routing table, which is Gate B. |
 
@@ -42,7 +42,7 @@
 |---|---|
 | `src/assistant/clock.ts` | `Clock` interface, `SystemClock`, `FixedClock` |
 | `src/assistant/ids.ts` | `IdGenerator` interface, `RandomIdGenerator`, `SequentialIdGenerator` |
-| `src/assistant/crypto/key-provider.ts` | `AssistantKeyProvider` interface, `RuntimeMetadataKeyProvider` |
+| `src/assistant/crypto/key-provider.ts` | `AssistantKeyProvider` interface, `FileKeyProvider` |
 | `src/assistant/crypto/blob-cipher.ts` | `BlobCipher` — AES-256-GCM envelope encode/decode with tamper detection |
 
 **Created — storage (the only place SQL lives):**
@@ -3764,13 +3764,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { BlobCipher } from '../src/assistant/crypto/blob-cipher.js';
-import { RuntimeMetadataKeyProvider } from '../src/assistant/crypto/key-provider.js';
+import { FileKeyProvider } from '../src/assistant/crypto/key-provider.js';
 import { hashBytes, hashTextContent } from '../src/assistant/domain/keys.js';
 import { EvidenceStore } from '../src/assistant/storage/evidence-store.js';
 import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.js';
 
+function newKeyProvider(context: AssistantTestContext): FileKeyProvider {
+  return new FileKeyProvider(path.join(context.runtimeRoot, 'assistant', 'keys.json'));
+}
+
 function newEvidenceStore(context: AssistantTestContext): EvidenceStore {
-  const keys = new RuntimeMetadataKeyProvider(context.database, context.clock);
+  const keys = newKeyProvider(context);
   return new EvidenceStore(
     context.database, context.clock, context.ids,
     new BlobCipher(keys), path.join(context.runtimeRoot, 'assistant', 'evidence'),
@@ -3779,22 +3783,31 @@ function newEvidenceStore(context: AssistantTestContext): EvidenceStore {
 
 test('the key provider creates a 256-bit key once and reuses it', () => {
   withAssistantContext((context) => {
-    const keys = new RuntimeMetadataKeyProvider(context.database, context.clock);
+    const keys = newKeyProvider(context);
     const first = keys.getActiveKey();
     const second = keys.getActiveKey();
     assert.equal(first.material.byteLength, 32);
     assert.equal(first.keyId, second.keyId);
     assert.deepEqual([...first.material], [...second.material]);
 
-    const reloaded = new RuntimeMetadataKeyProvider(context.database, context.clock).getActiveKey();
+    const reloaded = newKeyProvider(context).getActiveKey();
     assert.equal(reloaded.keyId, first.keyId);
     assert.deepEqual([...reloaded.material], [...first.material]);
+
+    // The key lives outside the runtime database on purpose: a stolen database alone must not
+    // decrypt evidence blobs.
+    assert.ok(fs.existsSync(path.join(context.runtimeRoot, 'assistant', 'keys.json')));
+    const encoded = first.material.toString('base64');
+    const leaked = context.database
+      .prepare('SELECT COUNT(*) AS count FROM runtime_metadata WHERE value LIKE ?')
+      .get(`%${encoded}%`);
+    assert.deepEqual(leaked, { count: 0 });
   });
 });
 
 test('blob cipher round-trips bytes and records the plaintext hash', () => {
   withAssistantContext((context) => {
-    const cipher = new BlobCipher(new RuntimeMetadataKeyProvider(context.database, context.clock));
+    const cipher = new BlobCipher(newKeyProvider(context));
     const plaintext = Buffer.from('screenshot bytes would go here', 'utf8');
     const envelope = cipher.encrypt(plaintext);
     assert.notEqual(envelope.indexOf(plaintext), 0);
@@ -3805,7 +3818,7 @@ test('blob cipher round-trips bytes and records the plaintext hash', () => {
 
 test('a tampered ciphertext, auth tag, or header is a hard read error', () => {
   withAssistantContext((context) => {
-    const cipher = new BlobCipher(new RuntimeMetadataKeyProvider(context.database, context.clock));
+    const cipher = new BlobCipher(newKeyProvider(context));
     const envelope = cipher.encrypt(Buffer.from('sensitive', 'utf8'));
 
     const flippedCiphertext = Buffer.from(envelope);
@@ -3900,7 +3913,7 @@ test('reading a blob whose file was swapped for different content is rejected', 
       blob.content_hash.slice(0, 2), blob.content_hash,
     );
 
-    const cipher = new BlobCipher(new RuntimeMetadataKeyProvider(context.database, context.clock));
+    const cipher = new BlobCipher(newKeyProvider(context));
     fs.writeFileSync(onDisk, cipher.encrypt(Buffer.from('substituted', 'utf8')));
     assert.throws(() => evidence.readBlobBytes(blob.id), /hash mismatch/i);
   });
@@ -3975,10 +3988,11 @@ Expected: FAIL — `Cannot find module '../src/assistant/crypto/blob-cipher.js'`
 
 ```ts
 import { randomBytes, randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 
+import { parseJsonText } from '../../lib/json.js';
 import { z } from '../../lib/zod.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
-import type { Clock } from '../clock.js';
 
 export interface AssistantEncryptionKey {
   readonly keyId: string;
@@ -3994,37 +4008,49 @@ export interface AssistantKeyProvider {
   getKeyById(keyId: string): AssistantEncryptionKey;
 }
 
-const KEY_ID_METADATA_KEY = 'assistant.evidence.key_id';
-const KEY_MATERIAL_METADATA_PREFIX = 'assistant.evidence.key.';
 const KEY_BYTE_LENGTH = 32;
+const KEY_FILE_MODE = 0o600;
+
+const KeyFileSchema = z.object({
+  version: z.literal(1),
+  activeKeyId: z.string().min(1),
+  keys: z.record(z.string(), z.string().min(1)),
+});
+
+type KeyFile = z.infer<typeof KeyFileSchema>;
 
 /**
- * Stores the key in `runtime_metadata`. This protects evidence blobs against casual file
- * inspection and against blob theft without the database, but NOT against an attacker who can
- * read the runtime database. The UI must say so plainly (design §4.7) and must not describe the
- * database itself as encrypted at rest.
+ * Holds the evidence key in a `0600` JSON file under the runtime root — deliberately NOT inside
+ * the runtime database, so a stolen database alone cannot decrypt evidence blobs. It does not
+ * protect against an attacker who can already read the user's profile directory. The UI must say
+ * so plainly (design §4.7) and must not describe the database itself as encrypted at rest.
+ * Gate D adds the OS-keychain provider as a second implementation of `AssistantKeyProvider`.
  */
-export class RuntimeMetadataKeyProvider implements AssistantKeyProvider {
-  constructor(
-    private readonly database: RuntimeDatabase,
-    private readonly clock: Clock,
-  ) {}
+export class FileKeyProvider implements AssistantKeyProvider {
+  constructor(private readonly keyFilePath: string) {}
 
   getActiveKey(): AssistantEncryptionKey {
-    const existingId = this.readMetadata(KEY_ID_METADATA_KEY);
-    if (existingId !== null) {
-      return this.getKeyById(existingId);
+    const existing = this.readKeyFile();
+    if (existing !== null) {
+      return this.materializeKey(existing.activeKeyId, existing.keys[existing.activeKeyId]);
     }
     const keyId = randomUUID();
     const material = randomBytes(KEY_BYTE_LENGTH);
-    this.writeMetadata(`${KEY_MATERIAL_METADATA_PREFIX}${keyId}`, material.toString('base64'));
-    this.writeMetadata(KEY_ID_METADATA_KEY, keyId);
+    this.writeKeyFile({
+      version: 1,
+      activeKeyId: keyId,
+      keys: { [keyId]: material.toString('base64') },
+    });
     return { keyId, material };
   }
 
   getKeyById(keyId: string): AssistantEncryptionKey {
-    const encoded = this.readMetadata(`${KEY_MATERIAL_METADATA_PREFIX}${keyId}`);
-    if (encoded === null) {
+    const file = this.readKeyFile();
+    return this.materializeKey(keyId, file === null ? undefined : file.keys[keyId]);
+  }
+
+  private materializeKey(keyId: string, encoded: string | undefined): AssistantEncryptionKey {
+    if (encoded === undefined) {
       throw new Error(`Evidence encryption key ${keyId} is not available.`);
     }
     const material = Buffer.from(encoded, 'base64');
@@ -4034,20 +4060,17 @@ export class RuntimeMetadataKeyProvider implements AssistantKeyProvider {
     return { keyId, material };
   }
 
-  private readMetadata(key: string): string | null {
-    const row = this.database
-      .prepare('SELECT value FROM runtime_metadata WHERE key = ?')
-      .get(key);
-    return row === undefined || row === null
-      ? null
-      : z.object({ value: z.string() }).parse(row).value;
+  private readKeyFile(): KeyFile | null {
+    if (!fs.existsSync(this.keyFilePath)) {
+      return null;
+    }
+    return parseJsonText(fs.readFileSync(this.keyFilePath, 'utf8'), KeyFileSchema);
   }
 
-  private writeMetadata(key: string, value: string): void {
-    this.database.prepare(`
-      INSERT INTO runtime_metadata (key, value, updated_at_utc) VALUES (?, ?, ?)
-      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at_utc = excluded.updated_at_utc
-    `).run(key, value, this.clock.nowUtc());
+  private writeKeyFile(contents: KeyFile): void {
+    fs.mkdirSync(path.dirname(this.keyFilePath), { recursive: true });
+    fs.writeFileSync(this.keyFilePath, JSON.stringify(contents), { mode: KEY_FILE_MODE });
+    fs.chmodSync(this.keyFilePath, KEY_FILE_MODE);
   }
 }
 ```
@@ -7613,7 +7636,7 @@ import path from 'node:path';
 
 import { AssistantGraph } from '../../src/assistant/assistant-graph.js';
 import { FixedClock } from '../../src/assistant/clock.js';
-import { RuntimeMetadataKeyProvider } from '../../src/assistant/crypto/key-provider.js';
+import { FileKeyProvider } from '../../src/assistant/crypto/key-provider.js';
 import { SequentialIdGenerator } from '../../src/assistant/ids.js';
 import { LOCAL_OWNER_ID } from '../../src/assistant/storage/schema.js';
 import {
@@ -7644,7 +7667,7 @@ export function withAssistantContext<T>(body: (context: AssistantTestContext) =>
     const ids = new SequentialIdGenerator();
     const graph = new AssistantGraph({
       database, clock, ids,
-      keys: new RuntimeMetadataKeyProvider(database, clock),
+      keys: new FileKeyProvider(path.join(runtimeRoot, 'assistant', 'keys.json')),
       runtimeRoot,
     });
     return body({ database, clock, ids, ownerId: LOCAL_OWNER_ID, runtimeRoot, graph });

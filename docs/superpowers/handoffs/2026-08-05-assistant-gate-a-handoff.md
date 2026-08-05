@@ -155,11 +155,13 @@ after the previous gate is green and its diff reviewed.
 - **Gate D scope question (design §22.2).** Accessibility-tree text is obtainable without capturing
   pixels. Gate D may ship activity + accessibility text only and defer capture to the vision design.
   Nothing in Gate A forecloses either choice — the evidence store handles both text and blobs.
-- **`RuntimeMetadataKeyProvider` security posture.** Storing the key in the same database as the
-  metadata protects against blob theft without the database, not against an attacker who can read
-  the database. If that trade is unacceptable to the user, the alternative is deferring encrypted
-  blobs entirely until Gate D. I chose to ship it with an honest doc comment; the user has not been
-  asked to ratify that. Worth a one-line confirmation before Task 11.
+- ~~**`RuntimeMetadataKeyProvider` security posture.**~~ **Resolved 2026-08-05 by the user before
+  Task 1.** Storing the key in `runtime_metadata` was rejected. Gate A ships **`FileKeyProvider`**
+  instead: the AES-256 key lives in a `0600` file at `<runtimeRoot>/assistant/keys.json`, outside
+  the runtime database, so a stolen database alone does not decrypt evidence blobs. The
+  `AssistantKeyProvider` interface, `BlobCipher`, and the evidence store are unchanged; Gate D still
+  adds the OS-keychain provider as a second implementation. Task 11 and the Task 18 fixture in the
+  plan have been amended accordingly.
 - **Performance targets (§19.5)** are not measured anywhere in Gate A. The design says "record
   measured results, do not claim unmeasured performance." No task in this plan claims them. A
   benchmark task belongs in Gate E.
