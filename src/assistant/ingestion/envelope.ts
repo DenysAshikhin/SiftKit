@@ -1,0 +1,25 @@
+import { z } from '../../lib/zod.js';
+import { JsonObjectSchema, JsonValueSchema } from '../../lib/json-types.js';
+import { EvidenceSourceTypeSchema } from '../domain/enums.js';
+
+/**
+ * §7.1. Gate B carries text and json payloads; the blob payload arrives with Gate D capture,
+ * which is the first caller that can produce one.
+ */
+export const IngestionEnvelopeSchema = z.object({
+  ownerId: z.string(),
+  deviceId: z.string().nullable(),
+  sourceType: EvidenceSourceTypeSchema,
+  /** Idempotency key for re-ingestion: the same event never produces two evidence rows. */
+  sourceEventId: z.string().min(1),
+  sourceRef: z.string().nullable(),
+  capturedAtUtc: z.string(),
+  sourceTimezone: z.string().nullable(),
+  payload: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('text'), text: z.string() }),
+    z.object({ kind: z.literal('json'), value: JsonValueSchema }),
+  ]),
+  metadata: JsonObjectSchema,
+}).strict();
+
+export type IngestionEnvelope = z.infer<typeof IngestionEnvelopeSchema>;

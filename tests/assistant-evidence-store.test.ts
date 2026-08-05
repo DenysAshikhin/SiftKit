@@ -101,7 +101,7 @@ test('text evidence is stored, deduplicated by source event id, and read back', 
     });
     assert.equal(first.content_hash, hashTextContent('I prefer PowerShell on Windows.'));
     assert.equal(first.status, 'active');
-    assert.equal(first.blob_id, null);
+    assert.notEqual(first.blob_id, null);
 
     const replay = evidence.recordTextEvidence({
       ownerId: context.ownerId, deviceId: null, sourceEventId: 'chat:msg_1',
@@ -178,6 +178,23 @@ test('a storage uri that escapes the evidence root is rejected before any file a
     );
     assert.throws(() => evidence.resolveBlobPath('..'), /content hash|evidence root/i);
     assert.throws(() => evidence.resolveBlobPath(''), /content hash|evidence root/i);
+  });
+});
+
+test('text evidence is recoverable and stored encrypted on disk', () => {
+  withAssistantContext(({ graph, ownerId, runtimeRoot }) => {
+    const evidence = graph.evidence.recordTextEvidence({
+      ownerId, deviceId: null, sourceType: 'conversation_message', parentEvidenceId: null,
+      sourceEventId: 'chat_1:msg_1', sourceRef: 'chat_1', sourceTimezone: null,
+      capturedAtUtc: '2026-08-05T09:00:00.000Z', sensitivity: 'personal',
+      retentionUntilUtc: null, metadata: {}, text: 'I use PowerShell.',
+    });
+    assert.equal(graph.evidence.readTextContent(evidence), 'I use PowerShell.');
+    assert.notEqual(evidence.blob_id, null);
+    const blob = graph.evidence.requireBlob(evidence.blob_id ?? '');
+    const onDisk = fs.readFileSync(graph.evidence.resolveBlobPath(blob.storage_uri));
+    assert.ok(!onDisk.toString('utf8').includes('PowerShell'), 'blob file must be ciphertext');
+    assert.ok(runtimeRoot.length > 0);
   });
 });
 

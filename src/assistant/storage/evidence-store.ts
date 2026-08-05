@@ -53,7 +53,21 @@ export class EvidenceStore {
   recordTextEvidence(input: RecordTextEvidenceInput): EvidenceRow {
     const existing = this.findBySourceEventId(input.ownerId, input.sourceEventId);
     if (existing !== null) return existing;
-    return this.insertEvidence(input, hashTextContent(input.text), null, 'text/plain');
+    const bytes = Buffer.from(input.text, 'utf8');
+    const contentHash = hashTextContent(input.text);
+    const blob = this.persistBlob(input.ownerId, contentHash, 'text/plain', bytes);
+    return this.insertEvidence(input, contentHash, blob.id, 'text/plain');
+  }
+
+  /** Decrypts and returns the text of a text evidence record. */
+  readTextContent(evidence: EvidenceRow): string {
+    if (evidence.blob_id === null) {
+      throw new Error(`Evidence ${evidence.id} has no stored content.`);
+    }
+    if (evidence.mime_type !== 'text/plain') {
+      throw new Error(`Evidence ${evidence.id} is ${evidence.mime_type}, not text.`);
+    }
+    return this.readBlobBytes(evidence.blob_id).toString('utf8');
   }
 
   recordBlobEvidence(input: RecordBlobEvidenceInput): EvidenceRow {

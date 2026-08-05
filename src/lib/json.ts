@@ -17,3 +17,11 @@ export function parseJsonValueText(text: string): JsonValue {
 export function parseJsonObjectText(text: string): JsonObject {
   return JsonObjectSchema.parse(JSON.parse(normalizeJsonText(text)));
 }
+
+export function stableStringify(value: JsonValue): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  const entries = Object.keys(value).sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key] ?? null)}`);
+  return `{${entries.join(',')}}`;
+}

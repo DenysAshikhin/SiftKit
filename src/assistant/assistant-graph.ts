@@ -34,6 +34,8 @@ export interface AssistantGraphOptions {
  * readonly fields; nothing outside this class constructs a store.
  */
 export class AssistantGraph {
+  private readonly database: RuntimeDatabase;
+
   readonly identity: IdentityStore;
   readonly audit: AuditStore;
   readonly nodes: NodeStore;
@@ -52,6 +54,7 @@ export class AssistantGraph {
 
   constructor(options: AssistantGraphOptions) {
     const { database, clock, ids } = options;
+    this.database = database;
 
     this.identity = new IdentityStore(database);
     this.audit = new AuditStore(database, clock, ids);
@@ -84,5 +87,10 @@ export class AssistantGraph {
 
   get graphVersion(): number {
     return this.audit.getGraphVersion();
+  }
+
+  /** Runs `body` inside one SQLite transaction. The single place assistant writes are grouped. */
+  transaction<T>(body: () => T): T {
+    return this.database.transaction(body)();
   }
 }
