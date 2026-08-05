@@ -35,6 +35,7 @@ export interface AssistantGraphOptions {
  */
 export class AssistantGraph {
   private readonly database: RuntimeDatabase;
+  private readonly clock: Clock;
 
   readonly identity: IdentityStore;
   readonly audit: AuditStore;
@@ -55,6 +56,7 @@ export class AssistantGraph {
   constructor(options: AssistantGraphOptions) {
     const { database, clock, ids } = options;
     this.database = database;
+    this.clock = clock;
 
     this.identity = new IdentityStore(database);
     this.audit = new AuditStore(database, clock, ids);
@@ -87,6 +89,10 @@ export class AssistantGraph {
 
   get graphVersion(): number {
     return this.audit.getGraphVersion();
+  }
+
+  nowUtc(): string {
+    return this.clock.nowUtc();
   }
 
   /** Runs `body` inside one SQLite transaction. The single place assistant writes are grouped. */

@@ -13,6 +13,8 @@ const LOCAL_DEVICE_DISPLAY_NAME = 'This device';
 export const GRAPH_VERSION_METADATA_KEY = 'assistant.graph_version';
 /** Runtime metadata key holding the id of this machine's device row. */
 export const LOCAL_DEVICE_METADATA_KEY = 'assistant.local_device_id';
+/** Canonical key identifying the owner's own person node. */
+export const OWNER_PERSON_CANONICAL_KEY = 'person:owner';
 
 export const ASSISTANT_CORE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS assistant_owners (
