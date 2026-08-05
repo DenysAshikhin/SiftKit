@@ -4,6 +4,7 @@ import {
   TIER_TOKEN_LIMIT, compareViewsByValue, isProjectableInPlaintext,
   type AssertionView, type CompiledDocument,
 } from './assertion-view.js';
+import { TokenLimitEnforcer } from './token-limit-enforcer.js';
 
 export interface ProfileCompileRequest {
   readonly views: readonly AssertionView[];
@@ -25,7 +26,10 @@ const SECTIONS: readonly ProfileSection[] = [
 
 /** Tier 1: the single `profile` document (§10.3). */
 export class ProfileCompiler {
-  constructor(private readonly tokens: TokenCounter) {}
+  constructor(
+    private readonly tokens: TokenCounter,
+    private readonly enforcer: TokenLimitEnforcer,
+  ) {}
 
   async compile(request: ProfileCompileRequest): Promise<CompiledDocument> {
     const eligible = request.views.filter(isProjectableInPlaintext).sort(compareViewsByValue);
@@ -54,8 +58,7 @@ export class ProfileCompiler {
     }
     lines.push('');
 
-    const body = lines.join('\n');
-    const trimmed = await this.enforceLimit(body, lines);
+    const trimmed = await this.enforcer.enforce(lines, TIER_TOKEN_LIMIT[1]);
     const count = await this.tokens.count(trimmed.body);
     return {
       tier: 1,
@@ -70,22 +73,5 @@ export class ProfileCompiler {
       tokenCount: count.tokenCount,
       tokenizerId: count.tokenizerId,
     };
-  }
-
-  private async enforceLimit(
-    body: string,
-    lines: readonly string[],
-  ): Promise<{ body: string; droppedLines: number }> {
-    let current = body;
-    const working = [...lines];
-    let droppedLines = 0;
-    while ((await this.tokens.count(current)).tokenCount > TIER_TOKEN_LIMIT[1]) {
-      const lastCitedIndex = working.map((line) => line.startsWith('- ')).lastIndexOf(true);
-      if (lastCitedIndex < 0) break;
-      working.splice(lastCitedIndex, 1);
-      droppedLines += 1;
-      current = working.join('\n');
-    }
-    return { body: current, droppedLines };
   }
 }

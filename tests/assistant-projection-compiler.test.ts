@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
 import { DossierCompiler } from '../src/assistant/projections/dossier-compiler.js';
 import { ProfileCompiler } from '../src/assistant/projections/profile-compiler.js';
+import { TokenLimitEnforcer } from '../src/assistant/projections/token-limit-enforcer.js';
 import type { AssertionView } from '../src/assistant/projections/assertion-view.js';
 import { renderFrontmatter, parseFrontmatter } from '../src/assistant/projections/frontmatter.js';
 import { renderAssertionSentence } from '../src/assistant/projections/assertion-sentence.js';
@@ -150,7 +151,8 @@ function view(overrides: Partial<AssertionView> & { assertionId: string }): Asse
 }
 
 test('the profile renders the documented sections and cites every line', async () => {
-  const compiler = new ProfileCompiler(new EstimateTokenCounter(4));
+  const tokens = new EstimateTokenCounter(4);
+  const compiler = new ProfileCompiler(tokens, new TokenLimitEnforcer(tokens));
   const document = await compiler.compile({
     views: [
       view({ assertionId: 'ast_1', predicate: 'PREFERS', objectText: 'PowerShell' }),
@@ -172,7 +174,8 @@ test('the profile renders the documented sections and cites every line', async (
 });
 
 test('the profile never contains a sensitive assertion', async () => {
-  const compiler = new ProfileCompiler(new EstimateTokenCounter(4));
+  const tokens = new EstimateTokenCounter(4);
+  const compiler = new ProfileCompiler(tokens, new TokenLimitEnforcer(tokens));
   const document = await compiler.compile({
     views: [
       view({ assertionId: 'ast_1' }),
@@ -187,7 +190,8 @@ test('the profile never contains a sensitive assertion', async () => {
 });
 
 test('a dossier renders every documented section heading', async () => {
-  const compiler = new DossierCompiler(new EstimateTokenCounter(4));
+  const tokens = new EstimateTokenCounter(4);
+  const compiler = new DossierCompiler(tokens, new TokenLimitEnforcer(tokens));
   const document = await compiler.compile({
     tier: 2,
     topicKey: 'siftkit',
@@ -218,7 +222,8 @@ test('a dossier renders every documented section heading', async () => {
 });
 
 test('compiling the same input twice is byte-identical', async () => {
-  const compiler = new DossierCompiler(new EstimateTokenCounter(4));
+  const tokens = new EstimateTokenCounter(4);
+  const compiler = new DossierCompiler(tokens, new TokenLimitEnforcer(tokens));
   const input = {
     tier: 3 as const,
     topicKey: 'kayaking',
@@ -233,7 +238,8 @@ test('compiling the same input twice is byte-identical', async () => {
 });
 
 test('a document over its tier token limit drops the lowest-value lines and says so', async () => {
-  const compiler = new DossierCompiler(new EstimateTokenCounter(4));
+  const tokens = new EstimateTokenCounter(4);
+  const compiler = new DossierCompiler(tokens, new TokenLimitEnforcer(tokens));
   const views = Array.from({ length: 4_000 }, (_unused, index) =>
     view({ assertionId: `ast_${index}`, objectText: `tool number ${index}` }));
   const document = await compiler.compile({

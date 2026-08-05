@@ -14,6 +14,7 @@ import {
 import { DossierCompiler } from './dossier-compiler.js';
 import { renderFrontmatter } from './frontmatter.js';
 import { ProfileCompiler } from './profile-compiler.js';
+import { TokenLimitEnforcer } from './token-limit-enforcer.js';
 
 export interface CompileSummary {
   readonly written: number;
@@ -43,8 +44,9 @@ export class ProjectionCompiler {
     tokens: TokenCounter,
   ) {
     this.views = new AssertionViewBuilder(graph);
-    this.profiles = new ProfileCompiler(tokens);
-    this.dossiers = new DossierCompiler(tokens);
+    const enforcer = new TokenLimitEnforcer(tokens);
+    this.profiles = new ProfileCompiler(tokens, enforcer);
+    this.dossiers = new DossierCompiler(tokens, enforcer);
   }
 
   async compileAll(ownerId: string): Promise<CompileSummary> {
