@@ -71,7 +71,7 @@ Assert durable database state, not implementation counters or mocks. Use fixed l
 Run:
 
 ```powershell
-node --experimental-strip-types --test tests/assistant-transaction-manager.test.ts
+npx tsx --test tests/assistant-transaction-manager.test.ts
 ```
 
 Expected: FAIL because `src/assistant/transactions/assistant-transaction-manager.ts` does not exist.
@@ -138,7 +138,7 @@ Delete `AssistantGraph.database` if it becomes unused. Delete `AssistantGraph.tr
 Run:
 
 ```powershell
-node --experimental-strip-types --test tests/assistant-transaction-manager.test.ts tests/assistant-assertion-service.test.ts tests/assistant-merge.test.ts tests/assistant-candidate-promoter.test.ts tests/assistant-consolidator.test.ts tests/assistant-conversation-extractor.test.ts tests/assistant-ingestion-pipeline.test.ts tests/assistant-gate-a-e2e.test.ts
+npx tsx --test tests/assistant-transaction-manager.test.ts tests/assistant-assertion-service.test.ts tests/assistant-merge.test.ts tests/assistant-candidate-promoter.test.ts tests/assistant-consolidator.test.ts tests/assistant-conversation-extractor.test.ts tests/assistant-ingestion-pipeline.test.ts tests/assistant-gate-a-e2e.test.ts
 ```
 
 Expected: all focused tests PASS.
@@ -184,7 +184,7 @@ Assert the exact joined body and exact `droppedLines` count. A removable line is
 Run:
 
 ```powershell
-node --experimental-strip-types --test tests/assistant-token-limit-enforcer.test.ts
+npx tsx --test tests/assistant-token-limit-enforcer.test.ts
 ```
 
 Expected: FAIL because `src/assistant/projections/token-limit-enforcer.ts` does not exist.
@@ -228,7 +228,7 @@ Expected: all enforcer tests PASS.
 Run:
 
 ```powershell
-node --experimental-strip-types --test tests/assistant-token-limit-enforcer.test.ts tests/assistant-projection-compiler.test.ts
+npx tsx --test tests/assistant-token-limit-enforcer.test.ts tests/assistant-projection-compiler.test.ts
 npm run typecheck
 npm test
 ```
@@ -238,4 +238,3 @@ Expected: all focused tests, typecheck/lint stages, and the full suite PASS with
 Search the two compiler files for `private async enforceLimit`; expected: no matches. Review the diff for casts, `any`, non-null assertions, namespace imports, callback values, compatibility shims, duplicated trimming loops, and unrelated changes.
 
 Parent review gate: inspect only Task 2's diff, independently rerun focused tests/typecheck/full suite, clean scratch artifacts, then commit the reviewed task.
-
