@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from '../src/lib/zod.js';
 import { parseJsonValueText } from '../src/lib/json.js';
-import { JsonObjectSchema, type JsonObject, type JsonSerializable } from '../src/lib/json-types.js';
+import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
 import { asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
 
 import {
@@ -25,6 +25,7 @@ import { mockSiftConfig } from './helpers/mock-config.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { parseLoggedEvent } from './helpers/logged-events.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
 
@@ -96,12 +97,6 @@ function plannerLogMessages(event: JsonObject | undefined): PlannerLogMessage[] 
     return [];
   }
   return raw.map((message) => PlannerLogMessageSchema.parse(message));
-}
-
-// Logged events may carry undefined-valued fields; the real JSONL logger drops
-// them via JSON.stringify, so normalize the same way before schema-validating.
-function parseLoggedEvent(event: Record<string, JsonSerializable>): JsonObject {
-  return JsonObjectSchema.parse(JSON.parse(JSON.stringify(event)));
 }
 
 function createTempRepoRoot(gitignoreText = '') {
