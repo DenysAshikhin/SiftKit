@@ -12,6 +12,7 @@ import { SystemClock } from '../assistant/clock.js';
 import {
   ASSISTANT_CORE_SCHEMA_SQL,
   ASSISTANT_FTS_SCHEMA_SQL,
+  ASSISTANT_MEMORY_SCHEMA_SQL,
   seedAssistantRegistries,
 } from '../assistant/storage/schema.js';
 
@@ -42,7 +43,7 @@ const ChatPresetSnapshotSessionRowSchema = z.object({
   context_window_tokens: z.number(),
 });
 
-export const CURRENT_SCHEMA_VERSION = 40;
+export const CURRENT_SCHEMA_VERSION = 41;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["read","grep","find","ls","git"],"full":[]}';
 const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
 
@@ -106,7 +107,7 @@ function detectEffectiveSchemaVersion(database: RuntimeDatabase, storedVersion: 
   return storedVersion;
 }
 
-function getSchemaVersion(database: RuntimeDatabase): number {
+export function getSchemaVersion(database: RuntimeDatabase): number {
   database.exec(`
     CREATE TABLE IF NOT EXISTS runtime_schema (
       id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -1003,6 +1004,7 @@ function ensureSchema(database: RuntimeDatabase): void {
     ensureRuntimeErrorEventsSchema(database);
     applyAssistantCoreSchema(database);
     database.exec(ASSISTANT_FTS_SCHEMA_SQL);
+    database.exec(ASSISTANT_MEMORY_SCHEMA_SQL);
     setSchemaVersion(database, CURRENT_SCHEMA_VERSION);
     return;
   }
@@ -1445,6 +1447,11 @@ function ensureSchema(database: RuntimeDatabase): void {
     database.exec(ASSISTANT_FTS_SCHEMA_SQL);
     setSchemaVersion(database, 40);
     currentVersion = 40;
+  }
+  if (currentVersion < 41) {
+    database.exec(ASSISTANT_MEMORY_SCHEMA_SQL);
+    setSchemaVersion(database, 41);
+    currentVersion = 41;
   }
   ensureChatMessageTimelineSchema(database);
   ensureRuntimeArtifactsSchema(database);

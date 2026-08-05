@@ -298,6 +298,65 @@ CREATE VIRTUAL TABLE IF NOT EXISTS graph_assertions_fts USING fts5(
 `;
 
 /**
+ * Gate B (migration v41): memory projections and the durable job queue. Projections are rows,
+ * not files — `relative_path` exists only so a future export can render a stable .md tree.
+ */
+export const ASSISTANT_MEMORY_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS memory_projections (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL REFERENCES assistant_owners(id) ON DELETE CASCADE,
+    tier INTEGER NOT NULL CHECK (tier IN (1, 2, 3)),
+    topic_key TEXT NOT NULL,
+    relative_path TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    token_count INTEGER NOT NULL,
+    tokenizer_id TEXT NOT NULL,
+    graph_version INTEGER NOT NULL,
+    included_assertion_ids_json TEXT NOT NULL,
+    sensitivity TEXT NOT NULL CHECK (
+        sensitivity IN ('low', 'personal', 'sensitive', 'highly_sensitive', 'secret_prohibited')),
+    generated_at_utc TEXT NOT NULL,
+    last_retrieved_at_utc TEXT,
+    retrieval_count INTEGER NOT NULL DEFAULT 0,
+    utility_score REAL NOT NULL DEFAULT 0.0,
+    status TEXT NOT NULL CHECK (status IN ('active', 'demoted', 'archived', 'deleted')),
+    UNIQUE(owner_id, tier, topic_key)
+);
+CREATE INDEX IF NOT EXISTS memory_projections_tier_idx
+  ON memory_projections(owner_id, tier, status, utility_score DESC);
+
+CREATE TABLE IF NOT EXISTS assistant_jobs (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL REFERENCES assistant_owners(id) ON DELETE CASCADE,
+    job_type TEXT NOT NULL,
+    priority INTEGER NOT NULL,
+    payload_json TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN (
+        'queued', 'running', 'paused', 'completed', 'failed', 'cancelled', 'dead_letter')),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 3,
+    available_at_utc TEXT NOT NULL,
+    lease_owner TEXT,
+    lease_expires_at_utc TEXT,
+    last_error TEXT,
+    created_at_utc TEXT NOT NULL,
+    updated_at_utc TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS assistant_jobs_pending_idempotency_uq
+  ON assistant_jobs(owner_id, idempotency_key)
+  WHERE status IN ('queued', 'running', 'paused');
+CREATE INDEX IF NOT EXISTS assistant_jobs_claim_idx
+  ON assistant_jobs(status, priority DESC, available_at_utc, created_at_utc);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS memory_projections_fts USING fts5(
+    projection_id UNINDEXED, owner_id UNINDEXED, tier UNINDEXED,
+    topic_key, content, tokenize = 'unicode61');
+`;
+
+/**
  * Seeds the registry tables, the single owner row, and this machine's device row from the
  * TypeScript registries. The registry constants are the source of truth; these rows are their
  * projection, so seeding is a full upsert and is safe to re-run.

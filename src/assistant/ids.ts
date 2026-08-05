@@ -5,7 +5,8 @@ import { randomUUID } from 'node:crypto';
  * valid-looking id in the wrong family.
  */
 export type IdPrefix =
-  | 'node' | 'alias' | 'merge' | 'ast' | 'ev' | 'blob' | 'mut' | 'audit' | 'pol';
+  | 'node' | 'alias' | 'merge' | 'ast' | 'ev' | 'blob' | 'mut' | 'audit' | 'pol'
+  | 'obs' | 'cand' | 'memproj' | 'job';
 
 /**
  * Opaque identifier source. `prefix` names the row family so an id is self-describing in a log

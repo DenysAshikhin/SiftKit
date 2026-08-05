@@ -124,3 +124,23 @@ export const CANDIDATE_STATUSES = [
 ] as const;
 export const CandidateStatusSchema = z.enum(CANDIDATE_STATUSES);
 export type CandidateStatus = z.infer<typeof CandidateStatusSchema>;
+
+export const JOB_STATUSES = [
+  'queued', 'running', 'paused', 'completed', 'failed', 'cancelled', 'dead_letter',
+] as const;
+export const JobStatusSchema = z.enum(JOB_STATUSES);
+export type JobStatus = z.infer<typeof JobStatusSchema>;
+
+/** Live statuses hold the unique idempotency slot, so a replayed enqueue is a no-op (§12.2). */
+export const LIVE_JOB_STATUSES = ['queued', 'running', 'paused'] as const;
+
+export const PROJECTION_STATUSES = ['active', 'demoted', 'archived', 'deleted'] as const;
+export const ProjectionStatusSchema = z.enum(PROJECTION_STATUSES);
+export type ProjectionStatus = z.infer<typeof ProjectionStatusSchema>;
+
+export const OBSERVATION_TYPES = [
+  'conversation_statement', 'conversation_correction', 'conversation_request',
+  'conversation_third_party', 'conversation_hypothetical', 'conversation_quotation',
+] as const;
+export const ObservationTypeSchema = z.enum(OBSERVATION_TYPES);
+export type ObservationType = z.infer<typeof ObservationTypeSchema>;

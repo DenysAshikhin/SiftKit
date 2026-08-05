@@ -2,12 +2,14 @@ import { z } from '../../lib/zod.js';
 
 import {
   ActorTypeSchema, AliasTypeSchema, AssertionBasisSchema, AssertionStatusSchema,
-  DeviceStatusSchema, EvidenceSourceTypeSchema, EvidenceStanceSchema, EvidenceStatusSchema,
-  MutationOperationSchema, NodeStatusSchema, ObjectKindSchema, ObjectValueTypeSchema,
-  PolicySourceSchema, PolicyTypeSchema, SensitivitySchema,
+  CandidateStatusSchema, DeviceStatusSchema, EvidenceSourceTypeSchema, EvidenceStanceSchema,
+  EvidenceStatusSchema, JobStatusSchema, MutationOperationSchema, NodeStatusSchema,
+  ObjectKindSchema, ObservationTypeSchema, ObjectValueTypeSchema, PolicySourceSchema,
+  PolicyTypeSchema, ProjectionStatusSchema, SensitivitySchema,
 } from '../domain/enums.js';
 import { NodeTypeSchema } from '../domain/node-types.js';
 import { RelationTypeSchema } from '../domain/relation-types.js';
+import { AssistantJobTypeSchema } from '../jobs/job-types.js';
 
 const SqliteBooleanSchema = z.number().int().min(0).max(1).transform((value) => value === 1);
 
@@ -190,3 +192,82 @@ export type AuditEventRow = z.infer<typeof AuditEventRowSchema>;
 
 export const MetadataValueRowSchema = z.object({ value: z.string() });
 export const CountRowSchema = z.object({ count: z.number() });
+
+export const ObservationRowSchema = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  evidence_id: z.string(),
+  observation_type: ObservationTypeSchema,
+  payload_json: z.string(),
+  confidence: z.number(),
+  sensitivity: SensitivitySchema,
+  extractor_name: z.string(),
+  extractor_version: z.string(),
+  created_at_utc: z.string(),
+});
+export type ObservationRow = z.infer<typeof ObservationRowSchema>;
+
+export const CandidateRowSchema = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  observation_id: z.string().nullable(),
+  candidate_fingerprint: z.string(),
+  subject_ref_json: z.string(),
+  predicate: RelationTypeSchema,
+  object_ref_json: z.string(),
+  scope_ref_json: z.string().nullable(),
+  basis: AssertionBasisSchema,
+  confidence: z.number(),
+  sensitivity: SensitivitySchema,
+  valid_from_utc: z.string().nullable(),
+  valid_to_utc: z.string().nullable(),
+  rationale: z.string(),
+  status: CandidateStatusSchema,
+  rejection_reason: z.string().nullable(),
+  created_at_utc: z.string(),
+  updated_at_utc: z.string(),
+});
+export type CandidateRow = z.infer<typeof CandidateRowSchema>;
+
+export const ProjectionRowSchema = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  tier: z.number().int().min(1).max(3),
+  topic_key: z.string(),
+  relative_path: z.string(),
+  title: z.string(),
+  content: z.string(),
+  content_hash: z.string(),
+  token_count: z.number().int(),
+  tokenizer_id: z.string(),
+  graph_version: z.number().int(),
+  included_assertion_ids_json: z.string(),
+  sensitivity: SensitivitySchema,
+  generated_at_utc: z.string(),
+  last_retrieved_at_utc: z.string().nullable(),
+  retrieval_count: z.number().int(),
+  utility_score: z.number(),
+  status: ProjectionStatusSchema,
+});
+export type ProjectionRow = z.infer<typeof ProjectionRowSchema>;
+
+export const JobRowSchema = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  job_type: AssistantJobTypeSchema,
+  priority: z.number().int(),
+  payload_json: z.string(),
+  idempotency_key: z.string(),
+  status: JobStatusSchema,
+  attempts: z.number().int(),
+  max_attempts: z.number().int(),
+  available_at_utc: z.string(),
+  lease_owner: z.string().nullable(),
+  lease_expires_at_utc: z.string().nullable(),
+  last_error: z.string().nullable(),
+  created_at_utc: z.string(),
+  updated_at_utc: z.string(),
+});
+export type JobRow = z.infer<typeof JobRowSchema>;
+
+export const IdRowSchema = z.object({ id: z.string() });
