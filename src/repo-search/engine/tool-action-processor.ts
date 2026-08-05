@@ -61,6 +61,13 @@ type TurnBatchState = {
   pendingForcedFinishCountdownText: string | null;
   batchDuplicateAnchorIndex: number | null;
   acceptedToolPromptTokensThisTurn: number;
+  // Number of tool actions in this turn's batch. The turn's tool budget is split
+  // across them, so every member is capped at its share up front.
+  batchCommandCount: number;
+  // Commands completed before this turn started. Snapshotted so the progress term
+  // that grows the turn share cannot also grow *within* a batch, which would let
+  // later members of the batch claim more than their share.
+  completedCommandCountAtTurnStart: number;
 };
 
 type ValidatedToolAction = {
@@ -165,6 +172,8 @@ export class ToolActionProcessor {
       pendingForcedFinishCountdownText: null,
       batchDuplicateAnchorIndex: null,
       acceptedToolPromptTokensThisTurn: 0,
+      batchCommandCount: toolActions.length,
+      completedCommandCountAtTurnStart: this.deps.commands.length,
     };
 
     for (const toolAction of toolActions) {
@@ -731,7 +740,7 @@ export class ToolActionProcessor {
       resultText = `${zeroOutputWarningText}\n\n${resultText}`.trim();
     }
     resultText = applyToolOutputRepetitionGuard(resultText);
-    const perToolCapTokens = this.deps.budget.perToolCapTokens(this.deps.commands.length);
+    const perToolCapTokens = this.deps.budget.perToolCapTokens(state.completedCommandCountAtTurnStart, state.batchCommandCount);
     const remainingTokenAllowance = this.deps.budget.remainingToolAllowance(promptTokenCount, state.acceptedToolPromptTokensThisTurn);
     const fitted = await this.deps.resultBudgeter.fit({
       taskId: this.deps.task.id,

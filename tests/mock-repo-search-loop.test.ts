@@ -15,6 +15,7 @@ import {
 } from '../src/repo-search/engine.js';
 import { resolveRepoSearchPlannerToolDefinitions, type ChatMessage } from '../src/repo-search/planner-protocol.js';
 import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
+import { MIN_TURN_TOOL_RESULT_RATIO } from '../src/repo-search/engine/turn-budget.js';
 import {
   preflightPlannerPromptBudget,
   compactPlannerMessagesOnce,
@@ -351,7 +352,7 @@ test('runTaskLoop truncates oversized rg output to the largest fitting prefix', 
   const totalContextTokens = 20000;
   const thinkingBufferTokens = Math.max(Math.ceil(totalContextTokens * 0.15), 4000);
   const usablePromptTokens = Math.max(totalContextTokens - thinkingBufferTokens, 0);
-  const baselinePerToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * 0.10));
+  const baselinePerToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * MIN_TURN_TOOL_RESULT_RATIO));
   const oversizedOutput = Array.from(
     { length: 500 },
     (_, index) => `src/example-${index + 1}.ts:${index + 1}: ${'x'.repeat(80)}`
@@ -1066,7 +1067,7 @@ test('runTaskLoop increases per-tool cap as tool-call progress grows', async () 
   const totalContextTokens = 20000;
   const thinkingBufferTokens = Math.max(Math.ceil(totalContextTokens * 0.15), 4000);
   const usablePromptTokens = Math.max(totalContextTokens - thinkingBufferTokens, 0);
-  const baselinePerToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * 0.10));
+  const baselinePerToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * MIN_TURN_TOOL_RESULT_RATIO));
   const expectedThirdCommandCap = Math.max(1, Math.floor(usablePromptTokens * (2 / 10)));
   const result = await runTaskLoop(
     {

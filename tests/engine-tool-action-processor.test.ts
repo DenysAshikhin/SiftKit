@@ -7,6 +7,7 @@ import { buildIgnorePolicy } from '../src/repo-search/command-safety.js';
 import { ChatGroundingPolicy } from '../src/repo-search/chat-grounding-policy.js';
 import type { TaskCommand } from '../src/repo-search/prompts.js';
 import type { ToolAction } from '../src/repo-search/planner-protocol.js';
+import type { JsonSerializable } from '../src/lib/json-types.js';
 import { DuplicateTracker } from '../src/repo-search/engine/duplicate-tracker.js';
 import { ForcedFinishController } from '../src/repo-search/engine/forced-finish.js';
 import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.js';
@@ -25,14 +26,27 @@ import { createManagedTempDir } from './helpers/temp-dirs.js';
 function makeProcessor(
   root: string,
   allowedPlannerToolNames: string[] = ['ls'],
-): { processor: ToolActionProcessor; commands: TaskCommand[]; counters: LoopCounters } {
+): {
+  processor: ToolActionProcessor;
+  commands: TaskCommand[];
+  counters: LoopCounters;
+  tokenUsage: TokenUsageTracker;
+  events: Array<Record<string, JsonSerializable>>;
+} {
   const commands: TaskCommand[] = [];
   const counters: LoopCounters = { invalidResponses: 0, commandFailures: 0, safetyRejects: 0, reason: '' };
+  const tokenUsage = new TokenUsageTracker(undefined, true);
+  const events: Array<Record<string, JsonSerializable>> = [];
   const processor = new ToolActionProcessor({
     task: { id: 'task-alignment', question: 'q', signals: ['done'] },
     repoRoot: root,
     config: undefined,
-    logger: null,
+    logger: {
+      path: 'memory',
+      write(event: Record<string, JsonSerializable>): void {
+        events.push(event);
+      },
+    },
     timingRecorder: null,
     maxInvalidResponses: 3,
     allowedPlannerToolNames,
@@ -42,8 +56,8 @@ function makeProcessor(
     chatWebGroundingPolicy: new ChatGroundingPolicy({ enabled: false }),
     ignorePolicy: buildIgnorePolicy(root),
     webTools: makeMockWebTools(),
-    budget: new TurnBudget({ totalContextTokens: 20000 }),
-    tokenUsage: new TokenUsageTracker(undefined, true),
+    budget: new TurnBudget({ totalContextTokens: 20000, maxTurns: 5 }),
+    tokenUsage,
     toolStats: new ToolStatsRecorder(),
     duplicates: new DuplicateTracker(),
     forcedFinish: new ForcedFinishController(),
@@ -67,7 +81,13 @@ function makeProcessor(
     commands,
     counters,
   });
-  return { processor, commands, counters };
+  return { processor, commands, counters, tokenUsage, events };
+}
+
+function perToolCapTokensFromEvents(events: Array<Record<string, JsonSerializable>>): number[] {
+  return events
+    .filter((event) => event.kind === 'turn_command_result')
+    .map((event) => Number(event.perToolCapTokens));
 }
 
 // The task loop pairs command results back to tool actions by array index, so every processed
@@ -197,4 +217,89 @@ test('malformed actions alternating with safety-rejected ones still hit the inva
 
   assert.equal(counters.invalidResponses, 3);
   assert.equal(counters.reason, 'invalid_response_limit');
+});
+
+// A 3-wide batch must not consume more prompt budget than one call would have been
+// allowed on its own: the per-turn tool share is divided across the batch, not
+// granted to each member. Regression guard for batches eating the context window.
+test('a parallel batch spends no more tool budget in total than a single call is allowed', async () => {
+  const root = createManagedTempDir('siftkit-batch-budget-');
+  const lines: string[] = [];
+  for (let index = 0; index < 4000; index += 1) {
+    lines.push(`export const alpha${index} = 'beta${index} gamma${index} delta${index}';`);
+  }
+  fs.writeFileSync(path.join(root, 'big.ts'), `${lines.join('\n')}\n`, 'utf8');
+
+  // Both runs start from an empty command log, so the progress term is at its floor
+  // and the only difference between them is how the turn share is split.
+  const singleCallCapTokens = new TurnBudget({ totalContextTokens: 20000, maxTurns: 5 }).perToolCapTokens(0, 1);
+
+  const single = makeProcessor(root, ['grep']);
+  await single.processor.executeBatch(
+    1,
+    [{ action: 'tool', tool_name: 'grep', args: { pattern: 'alpha', path: '.' } }],
+    '',
+    0,
+    false,
+  );
+  const singleCallToolTokens = single.tokenUsage.snapshot().toolTokens;
+  assert.ok(singleCallToolTokens > 0, 'the single grep produced no tool tokens');
+  assert.ok(
+    singleCallToolTokens <= singleCallCapTokens,
+    `single grep spent ${singleCallToolTokens} tool tokens, above its own cap ${singleCallCapTokens}`,
+  );
+
+  const batch = makeProcessor(root, ['grep']);
+  await batch.processor.executeBatch(
+    1,
+    [
+      { action: 'tool', tool_name: 'grep', args: { pattern: 'alpha', path: '.' } },
+      { action: 'tool', tool_name: 'grep', args: { pattern: 'beta', path: '.' } },
+      { action: 'tool', tool_name: 'grep', args: { pattern: 'gamma', path: '.' } },
+    ],
+    '',
+    0,
+    false,
+  );
+  assert.equal(batch.commands.length, 3);
+  for (const command of batch.commands) {
+    assert.equal(command.safe, true);
+  }
+  const batchToolTokens = batch.tokenUsage.snapshot().toolTokens;
+
+  assert.ok(
+    batchToolTokens <= singleCallCapTokens,
+    `batch of 3 spent ${batchToolTokens} tool tokens, above the single-call cap ${singleCallCapTokens}`,
+  );
+});
+
+// The turn share grows with commands completed *before* the turn. Reading that counter
+// live would let it climb inside a batch, handing each successive member a larger cap
+// than the one before and breaking the even split.
+test('every member of a batch is capped at the same share regardless of position', async () => {
+  const root = createManagedTempDir('siftkit-batch-cap-snapshot-');
+  fs.writeFileSync(path.join(root, 'a.ts'), 'alpha beta gamma\n', 'utf8');
+  const { processor, commands, events } = makeProcessor(root, ['grep']);
+  // Put the run far enough along that the progress term, not the floor, sets the share.
+  for (let index = 0; index < 3; index += 1) {
+    commands.push({ command: `ls prior-${index}`, turn: index + 1, safe: true, reason: null, exitCode: 0, output: 'prior' });
+  }
+
+  await processor.executeBatch(
+    4,
+    [
+      { action: 'tool', tool_name: 'grep', args: { pattern: 'alpha', path: '.' } },
+      { action: 'tool', tool_name: 'grep', args: { pattern: 'beta', path: '.' } },
+      { action: 'tool', tool_name: 'grep', args: { pattern: 'gamma', path: '.' } },
+    ],
+    '',
+    0,
+    false,
+  );
+
+  const caps = perToolCapTokensFromEvents(events);
+  assert.equal(caps.length, 3);
+  assert.deepEqual(caps, [caps[0], caps[0], caps[0]]);
+  // maxTurns 5, usable 16000, 3 commands completed -> share max(0.075, 3/5) = 0.6, split 3 ways.
+  assert.equal(caps[0], Math.floor((16000 * 0.6) / 3));
 });
