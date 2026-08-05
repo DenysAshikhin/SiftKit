@@ -148,6 +148,33 @@ diff line by line rather than trusting green tests.
 Then, and only then, write the Gate B plan. The design is explicit: one gate, one plan, written
 after the previous gate is green and its diff reviewed.
 
+### Execution record (2026-08-05) — met
+
+Branch `feat/assistant-gate-a-graph-foundation`, 18 task commits plus one plan-amendment commit.
+`npm test` 2326 tests / 0 failures / 2 skipped; `npm run lint` clean. Every acceptance-checklist
+file was run on its own and its named tests read.
+
+Five deviations from the plan text were made during execution. **The code, not the plan, is
+authoritative where they disagree:**
+
+1. **`FileKeyProvider` replaces `RuntimeMetadataKeyProvider`** (user decision, §7 above).
+2. **`ensureSchema`'s fresh-database branch** also applies the assistant schema. The plan only
+   patched the migration ladder, so a brand-new database would have reported v40 with no assistant
+   tables. It reuses `applyAssistantCoreSchema` rather than duplicating the seed.
+3. **`BlobCipher.encrypt` returns `{ envelope, keyId }`.** The plan inserted `evidence_blobs.key_id`
+   as a literal `NULL` while setting `encrypted = 1`, leaving the column permanently dead and
+   Gate D unable to find blobs sealed with a rotated key without opening every file.
+4. **`AssertionValidator.validate` returns the narrowed predicate on success**, and
+   `AssertionService` threads a `ValidatedAssertRequest` through every write path. The plan's
+   version re-tested `isRelationType` on branches the validator had already made unreachable, and
+   fell back to writing predicate `'RELATED_TO'` — silently recording a *different fact* than the
+   one proposed.
+5. **`NodeMergeService`**: dropped the unreachable `findLiveCollision` helper and replaced the `??`
+   fallbacks in the prospective-key computation with loud errors, for the same reason as (4).
+
+Also corrected, without changing behaviour: four duplicated inline count/metadata row schemas now
+use the `CountRowSchema` / `MetadataValueRowSchema` exports the plan already declared in `rows.ts`.
+
 ---
 
 ## 7. Open items I did not resolve
