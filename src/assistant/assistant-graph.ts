@@ -11,10 +11,14 @@ import type { IdGenerator } from './ids.js';
 import { assistantEvidenceDir } from './layout.js';
 import { AssertionStore } from './storage/assertion-store.js';
 import { AuditStore } from './storage/audit-store.js';
+import { CandidateStore } from './storage/candidate-store.js';
 import { EvidenceStore } from './storage/evidence-store.js';
 import { IdentityStore } from './storage/identity-store.js';
+import { JobStore } from './storage/job-store.js';
 import { NodeStore } from './storage/node-store.js';
+import { ObservationStore } from './storage/observation-store.js';
 import { PolicyStore } from './storage/policy-store.js';
+import { ProjectionStore } from './storage/projection-store.js';
 
 export interface AssistantGraphOptions {
   readonly database: RuntimeDatabase;
@@ -41,6 +45,10 @@ export class AssistantGraph {
   readonly resolver: EntityResolver;
   readonly merges: NodeMergeService;
   readonly neighborhoods: NeighborhoodReader;
+  readonly projections: ProjectionStore;
+  readonly jobs: JobStore;
+  readonly observations: ObservationStore;
+  readonly candidates: CandidateStore;
 
   constructor(options: AssistantGraphOptions) {
     const { database, clock, ids } = options;
@@ -64,6 +72,10 @@ export class AssistantGraph {
       database, this.nodes, this.assertions, this.audit, this.policies,
     );
     this.neighborhoods = new NeighborhoodReader(this.nodes, this.assertions);
+    this.projections = new ProjectionStore(database, clock, ids);
+    this.jobs = new JobStore(database, clock, ids);
+    this.observations = new ObservationStore(database, clock, ids);
+    this.candidates = new CandidateStore(database, clock, ids);
   }
 
   get ownerId(): string {
