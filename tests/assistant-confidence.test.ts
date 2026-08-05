@@ -38,6 +38,8 @@ test('resolveConfidence clamps to the basis ceiling', () => {
     contradictionCount: 0,
     singleScreenshotTextObservation: false,
     userCorrected: false,
+    stalenessClass: 'none',
+    observationAgeDays: 0,
   });
   assert.equal(resolved, 0.85);
 });
@@ -49,6 +51,8 @@ test('a single screenshot-text observation is clamped to 0.55 regardless of basi
     contradictionCount: 0,
     singleScreenshotTextObservation: true,
     userCorrected: false,
+    stalenessClass: 'none',
+    observationAgeDays: 0,
   });
   assert.equal(resolved, 0.55);
 });
@@ -57,14 +61,17 @@ test('contradictions reduce confidence monotonically', () => {
   const none = resolveConfidence({
     basis: 'explicit_user_statement', supportWeights: [0.9],
     contradictionCount: 0, singleScreenshotTextObservation: false, userCorrected: false,
+    stalenessClass: 'none', observationAgeDays: 0,
   });
   const one = resolveConfidence({
     basis: 'explicit_user_statement', supportWeights: [0.9],
     contradictionCount: 1, singleScreenshotTextObservation: false, userCorrected: false,
+    stalenessClass: 'none', observationAgeDays: 0,
   });
   const two = resolveConfidence({
     basis: 'explicit_user_statement', supportWeights: [0.9],
     contradictionCount: 2, singleScreenshotTextObservation: false, userCorrected: false,
+    stalenessClass: 'none', observationAgeDays: 0,
   });
   assert.ok(none > one);
   assert.ok(one > two);
@@ -78,6 +85,8 @@ test('an explicit user correction pins confidence at 1.00 and ignores contradict
     contradictionCount: 5,
     singleScreenshotTextObservation: false,
     userCorrected: true,
+    stalenessClass: 'none',
+    observationAgeDays: 0,
   });
   assert.equal(resolved, 1);
 });
@@ -87,6 +96,7 @@ test('a user correction is only honoured for an explicit basis', () => {
     () => resolveConfidence({
       basis: 'passive_observation', supportWeights: [0.9],
       contradictionCount: 0, singleScreenshotTextObservation: false, userCorrected: true,
+      stalenessClass: 'none', observationAgeDays: 0,
     }),
     /explicit basis/i,
   );
@@ -101,8 +111,48 @@ test('resolved confidence always lands inside [0, 1]', () => {
         contradictionCount: contradictions,
         singleScreenshotTextObservation: false,
         userCorrected: false,
+        stalenessClass: 'none',
+        observationAgeDays: 0,
       });
       assert.ok(resolved >= 0 && resolved <= 1, `out of range: ${resolved}`);
     }
   }
+});
+
+test('staleness reduces confidence for a fast-decaying relation', () => {
+  const fresh = resolveConfidence({
+    basis: 'passive_observation', supportWeights: [0.8], contradictionCount: 0,
+    singleScreenshotTextObservation: false, userCorrected: false,
+    stalenessClass: 'fast', observationAgeDays: 0,
+  });
+  const stale = resolveConfidence({
+    basis: 'passive_observation', supportWeights: [0.8], contradictionCount: 0,
+    singleScreenshotTextObservation: false, userCorrected: false,
+    stalenessClass: 'fast', observationAgeDays: 120,
+  });
+  assert.ok(stale < fresh, 'a two-half-life-old observation must weigh less');
+  assert.ok(stale > 0);
+});
+
+test('a non-decaying relation is unaffected by age', () => {
+  const input = {
+    basis: 'passive_observation', supportWeights: [0.8], contradictionCount: 0,
+    singleScreenshotTextObservation: false, userCorrected: false,
+    stalenessClass: 'none',
+  } as const;
+  assert.equal(
+    resolveConfidence({ ...input, observationAgeDays: 0 }),
+    resolveConfidence({ ...input, observationAgeDays: 5_000 }),
+  );
+});
+
+test('an explicit user correction still overrides an ancient observation', () => {
+  assert.equal(
+    resolveConfidence({
+      basis: 'explicit_user_statement', supportWeights: [0.2], contradictionCount: 3,
+      singleScreenshotTextObservation: false, userCorrected: true,
+      stalenessClass: 'very_rapid', observationAgeDays: 10_000,
+    }),
+    1,
+  );
 });

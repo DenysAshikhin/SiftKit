@@ -1,4 +1,4 @@
-﻿import type { JsonObject } from '../../lib/json-types.js';
+import type { JsonObject } from '../../lib/json-types.js';
 import type { RuntimeDatabase } from '../../state/runtime-db.js';
 import type { Clock } from '../clock.js';
 import { resolveConfidence } from '../domain/confidence.js';
@@ -482,12 +482,19 @@ export class AssertionService {
 
   private applyConfidence(assertionId: string, userCorrected = false): AssertionRow {
     const assertion = this.assertions.requireAssertion(assertionId);
+    const definition = RELATION_DEFINITIONS[assertion.predicate];
+    const observationAgeDays = Math.max(
+      0,
+      (Date.parse(this.clock.nowUtc()) - Date.parse(assertion.last_observed_at_utc)) / 86_400_000,
+    );
     const confidence = resolveConfidence({
       basis: assertion.basis,
       supportWeights: this.assertions.supportWeights(assertionId),
       contradictionCount: this.assertions.contradictionCount(assertionId),
       singleScreenshotTextObservation: false,
       userCorrected,
+      stalenessClass: definition.stalenessClass,
+      observationAgeDays,
     });
     return this.assertions.setConfidence(assertionId, confidence);
   }

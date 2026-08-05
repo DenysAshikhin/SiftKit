@@ -1,4 +1,5 @@
 import { type AssertionBasis, isExplicitBasis } from './enums.js';
+import { stalenessFactor, type StalenessClass } from './staleness.js';
 
 /** Maximum automatic confidence per basis (§4.6). Confidence never substitutes for basis. */
 export const BASIS_CONFIDENCE_CEILING = {
@@ -37,6 +38,10 @@ export interface ConfidenceInput {
   readonly contradictionCount: number;
   readonly singleScreenshotTextObservation: boolean;
   readonly userCorrected: boolean;
+  /** Decay class of the predicate this confidence belongs to (§10.4). */
+  readonly stalenessClass: StalenessClass;
+  /** Days between the most recent supporting observation and now. */
+  readonly observationAgeDays: number;
 }
 
 /**
@@ -60,5 +65,6 @@ export function resolveConfidence(input: ConfidenceInput): number {
     : BASIS_CONFIDENCE_CEILING[input.basis];
   const capped = Math.min(aggregated, ceiling);
   const penalised = capped / (1 + input.contradictionCount * CONTRADICTION_PENALTY_PER_CLUSTER);
-  return Math.min(1, Math.max(0, penalised));
+  const decayed = penalised * stalenessFactor(input.stalenessClass, input.observationAgeDays);
+  return Math.min(1, Math.max(0, decayed));
 }
