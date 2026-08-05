@@ -175,6 +175,7 @@ export class TaskLoop {
     this.budget = new TurnBudget({
       totalContextTokens: Math.max(1, Number(options.totalContextTokens || (options.config ? getConfiguredLlamaNumCtx(options.config) : 32000))),
       maxTurns: this.maxTurns,
+      config: options.config,
     });
     this.plannerThinking = resolvePlannerThinkingFlags(options.config, options.thinkingEnabledOverride);
     this.plannerMaintainPerStepThinking = this.plannerThinking.thinkingEnabled
