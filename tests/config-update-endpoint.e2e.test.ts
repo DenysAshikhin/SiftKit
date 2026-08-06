@@ -93,6 +93,31 @@ test('saving a different active model preset persists it without switching the r
   }
 });
 
+test('PUT /config preserves zero CacheRam and CacheRecurrentRam', async () => {
+  const { server, close } = await startServerWithRuntime('siftkit-config-cache-ram-');
+  try {
+    const config = await readConfigBody(server.baseUrl);
+    const modelPresets = asObject(asObject(config.Server).ModelPresets);
+    const presets = asObjectArray(modelPresets.Presets);
+    const activePreset = presets[0];
+    assert.ok(activePreset, 'expected at least one model preset');
+    activePreset.CacheRam = 0;
+    activePreset.CacheRecurrentRam = 0;
+
+    const saved = await requestJson(`${server.baseUrl}/config`, {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    });
+    assert.equal(saved.statusCode, 200);
+
+    const persisted = asObjectArray(asObject(asObject((await readConfigBody(server.baseUrl)).Server).ModelPresets).Presets);
+    assert.equal(persisted[0]?.CacheRam, 0, 'CacheRam must persist as zero');
+    assert.equal(persisted[0]?.CacheRecurrentRam, 0, 'CacheRecurrentRam must persist as zero');
+  } finally {
+    await close();
+  }
+});
+
 test('rejects a config payload that normalization refuses', async () => {
   const server = await DashboardTestServer.start('siftkit-config-invalid-');
   try {

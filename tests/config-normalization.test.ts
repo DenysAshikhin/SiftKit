@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { getDefaultConfig, normalizeConfig, normalizeWebSearchConfig } from '../src/status-server/config-store';
 import { isReadExpansionEnabled } from '../src/config/index';
+import { SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM, SIFT_DEFAULT_LLAMA_CACHE_RAM } from '../src/config/constants';
 import { JsonValueSchema, type JsonObject } from '../src/lib/json-types';
 import type { SiftConfig, ModelRuntimePreset } from '../src/config/types';
 import { asObject, asObjectArray } from './helpers/dashboard-http';
@@ -294,6 +295,38 @@ test('isReadExpansionEnabled defaults on and honors an explicit false', () => {
   assert.equal(isReadExpansionEnabled(enabled), true);
   assert.equal(isReadExpansionEnabled({ ...enabled, ExpandReads: false }), false);
   assert.equal(isReadExpansionEnabled(undefined), true);
+});
+
+test('cache RAM fields preserve zero and reject negative, fractional, and invalid values', () => {
+  const cases = [
+    { value: 0, expected: 0 },
+    { value: 4096, expected: 4096 },
+    { value: -1, expected: SIFT_DEFAULT_LLAMA_CACHE_RAM },
+    { value: 1.5, expected: SIFT_DEFAULT_LLAMA_CACHE_RAM },
+    { value: 'invalid', expected: SIFT_DEFAULT_LLAMA_CACHE_RAM },
+  ] as const;
+
+  for (const { value, expected } of cases) {
+    const config = defaultConfigObject();
+    activePresetObject(config).CacheRam = value;
+    const preset = activePreset(normalizeConfig(JsonValueSchema.parse(config)));
+    assert.equal(preset.CacheRam, expected, `CacheRam=${JSON.stringify(value)} should normalize to ${expected}`);
+  }
+
+  const recurrentCases = [
+    { value: 0, expected: 0 },
+    { value: 4096, expected: 4096 },
+    { value: -1, expected: SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM },
+    { value: 1.5, expected: SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM },
+    { value: 'invalid', expected: SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM },
+  ] as const;
+
+  for (const { value, expected } of recurrentCases) {
+    const config = defaultConfigObject();
+    activePresetObject(config).CacheRecurrentRam = value;
+    const preset = activePreset(normalizeConfig(JsonValueSchema.parse(config)));
+    assert.equal(preset.CacheRecurrentRam, expected, `CacheRecurrentRam=${JSON.stringify(value)} should normalize to ${expected}`);
+  }
 });
 
 test('VisionEnabled defaults to false and schema accepts true', () => {

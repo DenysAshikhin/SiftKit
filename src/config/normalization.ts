@@ -144,6 +144,15 @@ export function getFinitePositiveInteger(value: JsonValue, fallback: number): nu
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function getFiniteNonNegativeInteger(value: JsonValue, fallback: number): number {
+  const text = String(value ?? '').trim();
+  if (!text) {
+    return fallback;
+  }
+  const parsed = Number(text);
+  return Number.isFinite(parsed) && Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 export function getManagedStartupTimeoutMs(value: JsonValue, fallback: number): number {
   return Math.min(getFinitePositiveInteger(value, fallback), MAX_LLAMA_STARTUP_TIMEOUT_MS);
 }
@@ -387,8 +396,8 @@ function resolveManagedLlamaSettings(input: MutableJsonObject): ManagedLlamaConf
     ParallelSlots: getFinitePositiveInteger(input.ParallelSlots, Number(defaults.ParallelSlots ?? 1)),
     BatchSize: getFinitePositiveInteger(input.BatchSize, Number(defaults.BatchSize ?? SIFT_DEFAULT_LLAMA_BATCH_SIZE)),
     UBatchSize: getFinitePositiveInteger(input.UBatchSize, Number(defaults.UBatchSize ?? SIFT_DEFAULT_LLAMA_UBATCH_SIZE)),
-    CacheRam: getFinitePositiveInteger(input.CacheRam, Number(defaults.CacheRam ?? SIFT_DEFAULT_LLAMA_CACHE_RAM)),
-    CacheRecurrentRam: getFinitePositiveInteger(
+    CacheRam: getFiniteNonNegativeInteger(input.CacheRam, Number(defaults.CacheRam ?? SIFT_DEFAULT_LLAMA_CACHE_RAM)),
+    CacheRecurrentRam: getFiniteNonNegativeInteger(
       input.CacheRecurrentRam,
       Number(defaults.CacheRecurrentRam ?? SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM),
     ),
