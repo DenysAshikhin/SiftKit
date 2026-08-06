@@ -35,6 +35,7 @@ function createConfigPath(): string {
 interface CoordinatorFixture {
   coordinator: PresetRuntimeCoordinator;
   appliedState: AppliedModelPresetState;
+  exl3Runtime: RecordingRuntime;
   events: string[];
   configPath: string;
   /** Stands in for `ServerContext.activeModelRequests`, the one place in-flight requests live. */
@@ -49,14 +50,22 @@ function createCoordinator(
   const events: string[] = [];
   const activeModelRequests = new Map<string, ModelRequestLock>();
   const appliedState = new AppliedModelPresetState(getActiveModelPreset(readConfig(configPath)));
+  const exl3Runtime = new RecordingRuntime('exl3', events, failingExl3PresetIds);
   const coordinator = new PresetRuntimeCoordinator(
     configPath,
     new RecordingRuntime('llama', events, failingLlamaPresetIds),
-    new RecordingRuntime('exl3', events, failingExl3PresetIds),
+    exl3Runtime,
     activeModelRequests,
     appliedState,
   );
-  return { coordinator, appliedState, events, configPath, activeModelRequests };
+  return {
+    coordinator,
+    appliedState,
+    exl3Runtime,
+    events,
+    configPath,
+    activeModelRequests,
+  };
 }
 
 function setActiveModelRequests(activeModelRequests: Map<string, ModelRequestLock>, count: number): void {
@@ -76,6 +85,14 @@ async function disposeCoordinator({ coordinator, configPath }: CoordinatorFixtur
   await coordinator.shutdown();
   closeRuntimeDatabase();
   fs.rmSync(path.dirname(configPath), { recursive: true, force: true });
+}
+
+async function applyExl3Preset(fixture: CoordinatorFixture): Promise<void> {
+  const config = readConfig(fixture.configPath);
+  config.Server.ModelPresets.ActivePresetId = 'exl3-main';
+  writeConfig(fixture.configPath, config);
+  await fixture.coordinator.applyPreset('exl3-main');
+  assert.equal(fixture.coordinator.getStatus().activePresetId, 'exl3-main');
 }
 
 test('preset coordinator drains by preset and switches backend processes', async () => {
@@ -122,6 +139,87 @@ test('pending switch waits until the active requests drain to zero', async () =>
     setActiveModelRequests(activeModelRequests, 0);
     await coordinator.onModelRequestReleased();
     assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});
+
+test('idle unload refuses a preset id that is not applied', async () => {
+  const fixture = createCoordinator();
+  const { coordinator, events } = fixture;
+  try {
+    await coordinator.initialize();
+    await applyExl3Preset(fixture);
+    events.length = 0;
+
+    assert.equal(await coordinator.unloadActivePresetForIdle('llama-main'), false);
+    assert.deepEqual(events, []);
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});
+
+test('idle unload refuses while a model request is active', async () => {
+  const fixture = createCoordinator();
+  const { coordinator, events, activeModelRequests } = fixture;
+  try {
+    await coordinator.initialize();
+    await applyExl3Preset(fixture);
+    setActiveModelRequests(activeModelRequests, 1);
+    events.length = 0;
+
+    assert.equal(await coordinator.unloadActivePresetForIdle('exl3-main'), false);
+    assert.deepEqual(events, []);
+  } finally {
+    setActiveModelRequests(activeModelRequests, 0);
+    await disposeCoordinator(fixture);
+  }
+});
+
+test('idle unload refuses while a preset switch is pending', async () => {
+  const fixture = createCoordinator();
+  const { coordinator, events, activeModelRequests } = fixture;
+  try {
+    await coordinator.initialize();
+    setActiveModelRequests(activeModelRequests, 1);
+    assert.equal(await coordinator.applyPreset('exl3-main'), 'queued');
+    setActiveModelRequests(activeModelRequests, 0);
+    events.length = 0;
+
+    assert.equal(await coordinator.unloadActivePresetForIdle('llama-main'), false);
+    assert.deepEqual(events, []);
+  } finally {
+    setActiveModelRequests(activeModelRequests, 0);
+    await coordinator.onModelRequestReleased();
+    await disposeCoordinator(fixture);
+  }
+});
+
+test('idle unload refuses a non-exl3 applied preset', async () => {
+  const fixture = createCoordinator();
+  const { coordinator, events } = fixture;
+  try {
+    await coordinator.initialize();
+    events.length = 0;
+
+    assert.equal(await coordinator.unloadActivePresetForIdle('llama-main'), false);
+    assert.deepEqual(events, []);
+  } finally {
+    await disposeCoordinator(fixture);
+  }
+});
+
+test('idle unload refuses an exl3 runtime whose model is not ready', async () => {
+  const fixture = createCoordinator();
+  const { coordinator, exl3Runtime, events } = fixture;
+  try {
+    await coordinator.initialize();
+    await applyExl3Preset(fixture);
+    await exl3Runtime.unloadPreset();
+    events.length = 0;
+
+    assert.equal(await coordinator.unloadActivePresetForIdle('exl3-main'), false);
+    assert.deepEqual(events, []);
   } finally {
     await disposeCoordinator(fixture);
   }

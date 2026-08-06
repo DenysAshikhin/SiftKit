@@ -122,6 +122,18 @@ async function waitForActivePreset(coordinator: PresetRuntimeCoordinator, preset
   }
 }
 
+async function waitForEvent(
+  events: readonly string[],
+  expected: string,
+  timeoutMs = 2_500,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!events.includes(expected)) {
+    if (Date.now() >= deadline) throw new Error(`Timed out waiting for event '${expected}'.`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 test('backend transition pauses queued admission until the new runtime is ready', async () => {
   const { ctx, coordinator, events, root } = await createPresetQueueHarness('siftkit-model-queue-preset-', 'llama-main');
   try {
@@ -204,7 +216,7 @@ test('ParallelSlots allows two llama requests before queueing the third', async 
 
 test('releasing the last request arms exl3 idle unload from the applied preset after config drift', async () => {
   const harness = await createPresetQueueHarness('siftkit-model-queue-idle-drift-', 'exl3-main');
-  const { ctx, coordinator } = harness;
+  const { ctx, coordinator, events } = harness;
   try {
     const lock = await acquireModelRequestWithWait(ctx, 'repo_search');
     assert.ok(lock);
@@ -223,6 +235,8 @@ test('releasing the last request arms exl3 idle unload from the applied preset a
 
     assert.equal(releaseModelRequest(ctx, lock.token), true);
     assert.equal(typeof coordinator.getStatus().idleDeadlineUtc, 'string');
+    await waitForEvent(events, 'unload:exl3');
+    assert.equal(coordinator.getStatus().modelState, 'unloaded');
   } finally {
     await closePresetQueueHarness(harness);
   }
