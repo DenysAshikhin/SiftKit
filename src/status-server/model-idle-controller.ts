@@ -1,5 +1,4 @@
 import type { ModelRuntimePreset } from '../config/types.js';
-import { getActiveModelPreset, readConfig } from './config-store.js';
 import { resumeModelRequestAdmission } from './server-ops.js';
 import type { ServerContext } from './server-types.js';
 
@@ -47,8 +46,8 @@ export class ModelIdleController {
     this.deadlineUtc = null;
     this.ctx.presetRuntimeCoordinator?.setIdleDeadlineUtc(null);
     if (!expectedPresetId || this.ctx.activeModelRequests.size > 0 || this.ctx.modelRequestQueue.length > 0) return;
-    const activePreset = getActiveModelPreset(readConfig(this.ctx.configPath));
-    if (activePreset.id !== expectedPresetId || activePreset.Backend !== 'exl3') return;
+    // `unloadActivePresetForIdle` already refuses a preset that is no longer applied or is
+    // not EXL3, so re-deriving those facts from config here would only duplicate the check.
     try {
       await this.ctx.presetRuntimeCoordinator?.unloadActivePresetForIdle(expectedPresetId);
     } catch (error) {

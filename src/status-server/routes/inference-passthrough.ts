@@ -203,6 +203,8 @@ async function proxyTokenizeRequest(
   sendJson(res, 200, { tokens, length: tokens.length });
 }
 
+// Deliberately no-wake. It reports the configured preset because that is the preset a
+// following workload request routes to, even while the runtime still holds another one.
 class ModelsEndpoint implements RouteEndpoint {
   async handle(ctx: ServerContext, _req: IncomingMessage, res: ServerResponse): Promise<void> {
     const config = readConfig(ctx.configPath);

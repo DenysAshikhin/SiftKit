@@ -1,5 +1,5 @@
 import type { InferenceBackendId, InferenceRuntimeErrorPhase, InferenceRuntimeStatus } from '@siftkit/contracts';
-import type { ModelRuntimePreset } from '../config/types.js';
+import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
 import type { ManagedInferenceRuntime } from './managed-inference-runtime.js';
 import type { ModelRequestLock } from './server-types.js';
 import type { AppliedModelPresetState } from './applied-model-preset-state.js';
@@ -29,12 +29,7 @@ export class PresetRuntimeCoordinator {
     private readonly activeModelRequests: ReadonlyMap<string, ModelRequestLock>,
     private readonly appliedModelPresetState: AppliedModelPresetState,
   ) {
-    const config = readConfig(configPath);
-    const preset = config.Server.ModelPresets.Presets.find(
-      (candidate) => candidate.id === config.Server.ModelPresets.ActivePresetId,
-    );
-    if (!preset) throw new Error(`Model preset '${config.Server.ModelPresets.ActivePresetId}' does not exist.`);
-    this.appliedModelPresetState.applyPreset(preset);
+    this.appliedModelPresetState.applyPreset(this.getConfiguredPreset());
   }
 
   async initialize(): Promise<void> {
@@ -70,21 +65,21 @@ export class PresetRuntimeCoordinator {
   async restartConfiguredPreset(): Promise<void> {
     if (this.switchPromise) throw new Error('A preset switch is already in progress.');
     if (this.hasActiveModelRequests()) throw new Error('A model request is in progress; retry once it completes.');
-    const configuredId = readConfig(this.configPath).Server.ModelPresets.ActivePresetId;
-    const configured = this.getPreset(configuredId);
+    const configured = this.getConfiguredPreset();
     if (configured.ExternalServerEnabled) {
       throw new ExternalServerRestartError(
         `Preset '${configured.id}' uses an external inference server, so SiftKit does not own its lifecycle and cannot restart it.`,
       );
     }
-    this.setPendingSwitch(configuredId, true);
+    this.setPendingSwitch(configured.id, true);
     await this.startPendingSwitch();
   }
 
   async ensureActivePresetReady(): Promise<void> {
-    const configuredId = readConfig(this.configPath).Server.ModelPresets.ActivePresetId;
-    const configuredPreset = this.getPreset(configuredId);
-    if (!this.presetsEqual(configuredPreset, this.appliedModelPresetState.getPreset())) await this.applyPreset(configuredId);
+    const configuredPreset = this.getConfiguredPreset();
+    if (!this.presetsEqual(configuredPreset, this.appliedModelPresetState.getPreset())) {
+      await this.applyPreset(configuredPreset.id);
+    }
     if (this.switchPromise) await this.switchPromise;
     const preset = this.appliedModelPresetState.getPreset();
     const runtime = this.getRuntime(preset);
@@ -242,11 +237,20 @@ export class PresetRuntimeCoordinator {
     writeConfig(this.configPath, config);
   }
 
-  private getPreset(presetId: string): ModelRuntimePreset {
-    const config = readConfig(this.configPath);
+  private findPreset(config: SiftConfig, presetId: string): ModelRuntimePreset {
     const preset = config.Server.ModelPresets.Presets.find((candidate) => candidate.id === presetId);
     if (!preset) throw new Error(`Model preset '${presetId}' does not exist.`);
     return preset;
+  }
+
+  private getPreset(presetId: string): ModelRuntimePreset {
+    return this.findPreset(readConfig(this.configPath), presetId);
+  }
+
+  /** The persisted active preset, resolved from a single config read. */
+  private getConfiguredPreset(): ModelRuntimePreset {
+    const config = readConfig(this.configPath);
+    return this.findPreset(config, config.Server.ModelPresets.ActivePresetId);
   }
 
   private getRuntime(preset: ModelRuntimePreset): ManagedInferenceRuntime {

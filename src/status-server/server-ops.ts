@@ -41,7 +41,6 @@ import type {
   ServerContext,
 } from './server-types.js';
 import { serverLogger } from './server-logger.js';
-import { readConfig } from './config-store.js';
 
 export const DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS = 900_000;
 /**
@@ -604,12 +603,11 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
 }
 
 function armActivePresetIdle(ctx: ServerContext, finishedAtMs: number): void {
-  const coordinator = ctx.presetRuntimeCoordinator;
-  if (!coordinator) return;
-  const status = coordinator.getStatus();
-  const config = readConfig(ctx.configPath);
-  const preset = config.Server.ModelPresets.Presets.find((candidate) => candidate.id === status.activePresetId);
-  if (preset) ctx.modelIdleController?.armAfterRequest(preset, finishedAtMs);
+  // Only a coordinator can unload, and the applied state already holds the preset the
+  // runtime is actually running — looking it back up in config would only reintroduce a
+  // second source of truth that silently skips arming whenever the two drift.
+  if (!ctx.presetRuntimeCoordinator) return;
+  ctx.modelIdleController?.armAfterRequest(ctx.appliedModelPresetState.getPreset(), finishedAtMs);
 }
 
 export function resumeModelRequestAdmission(ctx: ServerContext): void {

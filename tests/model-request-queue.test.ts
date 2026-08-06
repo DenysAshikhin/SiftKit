@@ -202,6 +202,32 @@ test('ParallelSlots allows two llama requests before queueing the third', async 
   }
 });
 
+test('releasing the last request arms exl3 idle unload from the applied preset after config drift', async () => {
+  const harness = await createPresetQueueHarness('siftkit-model-queue-idle-drift-', 'exl3-main');
+  const { ctx, coordinator } = harness;
+  try {
+    const lock = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(lock);
+
+    // The running preset is the applied one, and config can drift from it: renaming the
+    // preset leaves no row to find by id. Arming must come from the applied state instead,
+    // or the EXL3 model silently stays resident in VRAM with no countdown at all.
+    const drifted = readConfig(ctx.configPath);
+    drifted.Server.ModelPresets = {
+      ActivePresetId: 'exl3-renamed',
+      Presets: drifted.Server.ModelPresets.Presets.map((preset) => (
+        preset.id === 'exl3-main' ? { ...preset, id: 'exl3-renamed' } : preset
+      )),
+    };
+    writeConfig(ctx.configPath, drifted);
+
+    assert.equal(releaseModelRequest(ctx, lock.token), true);
+    assert.equal(typeof coordinator.getStatus().idleDeadlineUtc, 'string');
+  } finally {
+    await closePresetQueueHarness(harness);
+  }
+});
+
 test('ParallelSlots limits coordinator-free capacity to configured value', async () => {
   const root = createManagedTempDir('siftkit-model-queue-config-');
   const configPath = path.join(root, 'runtime.sqlite');

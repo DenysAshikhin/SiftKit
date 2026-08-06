@@ -1081,7 +1081,9 @@ async function ensureManagedLlamaConfigReady(
     publishStatus(ctx);
     process.stderr.write(`[siftKitStatus] ${message}\n`);
     if (options.allowUnconfigured === true) {
-      return readConfig(ctx.configPath);
+      // Nothing on the path to here rewrote the launch snapshot, and re-reading would
+      // drop the preset this call was pinned to.
+      return config;
     }
     throw new Error(message);
   }

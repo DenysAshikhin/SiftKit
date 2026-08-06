@@ -6,8 +6,10 @@ import path from 'node:path';
 
 import { getConfigPath } from '../src/config/index.js';
 import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
+import { ensureManagedLlamaPresetReady } from '../src/status-server/managed-llama.js';
 import { readStatusText } from '../src/status-server/status-file.js';
 import type { SiftConfig, ModelRuntimePreset } from '../src/config/types.js';
+import { createTestServerContext } from './helpers/server-context-fixture.js';
 import {
   getFreePort,
   requestJson,
@@ -174,5 +176,58 @@ test('missing local llama files log degraded startup instead of crashing', async
     }
 
     assert.match(stderrWrites.join(''), /Managed llama\.cpp is not configured/u);
+  });
+});
+
+test('an unconfigured preset readiness check reports the requested preset, not the persisted active one', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const configPath = getConfigPath();
+    const unusedPort = await getFreePort();
+    const config = getDefaultConfig();
+    const base = activePreset(config);
+    const unconfigured = {
+      ...base,
+      ExternalServerEnabled: false,
+      BaseUrl: `http://127.0.0.1:${unusedPort}`,
+      ExecutablePath: null,
+      ModelPath: null,
+      StartupTimeoutMs: 50,
+      HealthcheckTimeoutMs: 50,
+      HealthcheckIntervalMs: 10,
+    };
+    config.Server.ModelPresets = {
+      ActivePresetId: 'persisted-active',
+      Presets: [
+        { ...unconfigured, id: 'persisted-active', label: 'Persisted active' },
+        { ...unconfigured, id: 'requested-target', label: 'Requested target' },
+      ],
+    };
+    writeConfig(configPath, config);
+    const target = config.Server.ModelPresets.Presets[1];
+    if (!target) throw new Error('Requested target preset is missing');
+
+    // The unconfigured branch logs to stderr by design; swallow it so test output stays clean.
+    const originalWrite = process.stderr.write;
+    process.stderr.write = function swallowWrite(
+      _chunk: string | Uint8Array,
+      encoding?: BufferEncoding | ((error?: Error | null) => void),
+      callback?: (error?: Error | null) => void,
+    ): boolean {
+      if (typeof encoding === 'function') encoding();
+      else if (typeof callback === 'function') callback();
+      return true;
+    };
+    let resolved: SiftConfig;
+    try {
+      resolved = await ensureManagedLlamaPresetReady(
+        createTestServerContext(configPath, tempRoot),
+        target,
+        { allowUnconfigured: true },
+      );
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+
+    assert.equal(resolved.Server.ModelPresets.ActivePresetId, 'requested-target');
   });
 });
