@@ -105,6 +105,10 @@ export class PresetRuntimeCoordinator {
     return this.activePreset.Backend;
   }
 
+  getActiveParallelSlots(): number {
+    return this.activePreset.ParallelSlots;
+  }
+
   canGrantModelRequest(): boolean {
     return this.pendingPresetId === null && this.switchPromise === null && !this.idleUnloadInProgress;
   }

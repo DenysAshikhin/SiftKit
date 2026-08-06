@@ -57,6 +57,10 @@ export interface DashboardModelQueueHarnessOptions {
    * in-process fake TabbyAPI, so backend-aware admission is exercised over HTTP without a GPU.
    */
   exl3ActivePreset?: boolean;
+  /**
+   * Override the ParallelSlots value on the active preset to control global queue capacity.
+   */
+  parallelSlots?: number;
 }
 
 export class DashboardModelQueueHarness {
@@ -65,6 +69,7 @@ export class DashboardModelQueueHarness {
   private readonly previousCwd: string;
   private readonly envBackup: Record<string, string | undefined>;
   private readonly exl3ActivePreset: boolean;
+  private readonly parallelSlots: number;
   private readonly fakeTabbyModel = new FakeTabbyModelState();
   private fakeTabbyServer: http.Server | null = null;
   private readonly pendingChatRequests = new Map<string, PendingChatRequest>();
@@ -82,6 +87,7 @@ export class DashboardModelQueueHarness {
     this.configPath = path.join(this.tempRoot, '.siftkit', 'config.json');
     this.envBackup = configureDashboardTestEnv(this.tempRoot, statusPath, this.configPath);
     this.exl3ActivePreset = options.exl3ActivePreset ?? false;
+    this.parallelSlots = options.parallelSlots ?? (this.exl3ActivePreset ? 4 : 1);
   }
 
   async start(): Promise<void> {
@@ -228,7 +234,7 @@ export class DashboardModelQueueHarness {
           BaseUrl: fakeBaseUrl,
           Model: 'model-a',
           ModelPath: path.join(this.tempRoot, 'model-a'),
-          ParallelSlots: 4,
+          ParallelSlots: this.parallelSlots,
           HealthcheckIntervalMs: 10,
         }],
       };
@@ -244,7 +250,7 @@ export class DashboardModelQueueHarness {
           ExternalServerEnabled: true,
           Model: 'model-a',
           ModelPath: null,
-          ParallelSlots: 1,
+          ParallelSlots: this.parallelSlots,
         }],
       };
     }

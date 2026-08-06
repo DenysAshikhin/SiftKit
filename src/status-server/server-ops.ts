@@ -42,6 +42,7 @@ import type {
 } from './server-types.js';
 import { serverLogger } from './server-logger.js';
 import { readConfig } from './config-store.js';
+import { getActiveModelPreset } from '../config/getters.js';
 
 export const DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS = 900_000;
 export const DEFAULT_IDLE_SUMMARY_DELAY_MS = 600_000;
@@ -321,10 +322,12 @@ export function wakeManagedLlamaForIncomingModelRequest(ctx: ServerContext): voi
   });
 }
 
-// llama.cpp serves one request at a time; exl3's paged scheduler dedups, batches and
-// fair-shares everything admitted, so admission past ParallelSlots is its problem, not ours.
 export function getModelRequestCapacity(ctx: ServerContext): number {
-  return ctx.presetRuntimeCoordinator?.getActiveBackend() === 'exl3' ? Number.POSITIVE_INFINITY : 1;
+  const coordinator = ctx.presetRuntimeCoordinator;
+  if (coordinator) {
+    return coordinator.getActiveParallelSlots();
+  }
+  return getActiveModelPreset(readConfig(ctx.configPath)).ParallelSlots;
 }
 
 export function acquireModelRequest(ctx: ServerContext, kind: string, ownerRunId: string | null = null): ModelRequestLock | null {

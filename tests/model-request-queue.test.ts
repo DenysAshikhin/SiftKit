@@ -22,10 +22,33 @@ import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 type StdoutLine = string;
 
-function createQueueContext(configPath = 'config.json'): ServerContext & { readonly wakeCount: number } {
+const queueContextRoot = createManagedTempDir('siftkit-model-queue-contexts-');
+let queueContextIndex = 0;
+
+test.after(async () => {
+  closeRuntimeDatabase();
+  fs.rmSync(queueContextRoot, { recursive: true, force: true });
+});
+
+type PresetParallelSlots = {
+  llama: number;
+  exl3: number;
+};
+
+const DEFAULT_PRESET_PARALLEL_SLOTS = {
+  llama: 1,
+  exl3: 2,
+} satisfies PresetParallelSlots;
+
+function createQueueContext(configPath?: string): ServerContext & { readonly wakeCount: number } {
+  const resolvedConfigPath = configPath
+    ?? path.join(queueContextRoot, `runtime-${queueContextIndex += 1}.sqlite`);
+  if (configPath === undefined) {
+    writeConfig(resolvedConfigPath, getDefaultConfig());
+  }
   let wakeCount = 0;
-  const context: ServerContext & { readonly wakeCount: number } = {
-    ...createTestServerContext(configPath),
+  return {
+    ...createTestServerContext(resolvedConfigPath),
     async ensureManagedLlamaReady() {
       wakeCount += 1;
       return getDefaultConfig();
@@ -34,7 +57,6 @@ function createQueueContext(configPath = 'config.json'): ServerContext & { reado
       return wakeCount;
     },
   };
-  return context;
 }
 
 test('model request queue timeout default is fifteen minutes', () => {
@@ -48,7 +70,11 @@ type PresetQueueHarness = {
   root: string;
 };
 
-async function createPresetQueueHarness(prefix: string, activePresetId: string): Promise<PresetQueueHarness> {
+async function createPresetQueueHarness(
+  prefix: string,
+  activePresetId: string,
+  parallelSlots: PresetParallelSlots = DEFAULT_PRESET_PARALLEL_SLOTS,
+): Promise<PresetQueueHarness> {
   const root = createManagedTempDir(prefix);
   const configPath = path.join(root, 'runtime.sqlite');
   const config = getDefaultConfig();
@@ -57,8 +83,8 @@ async function createPresetQueueHarness(prefix: string, activePresetId: string):
   config.Server.ModelPresets = {
     ActivePresetId: activePresetId,
     Presets: [
-      { ...basePreset, id: 'llama-main', Backend: 'llama' },
-      { ...basePreset, id: 'exl3-main', Backend: 'exl3', SleepIdleSeconds: 1 },
+      { ...basePreset, id: 'llama-main', Backend: 'llama', ParallelSlots: parallelSlots.llama },
+      { ...basePreset, id: 'exl3-main', Backend: 'exl3', SleepIdleSeconds: 1, ParallelSlots: parallelSlots.exl3 },
     ],
   };
   writeConfig(configPath, config);
@@ -110,54 +136,104 @@ test('backend transition pauses queued admission until the new runtime is ready'
   }
 });
 
-test('exl3 preset grants concurrent model requests', async () => {
+test('ParallelSlots limits exl3 global admission and grants the FIFO waiter', async () => {
   const harness = await createPresetQueueHarness('siftkit-model-queue-exl3-', 'exl3-main');
   const { ctx } = harness;
   try {
     const first = await acquireModelRequestWithWait(ctx, 'repo_search');
     const second = await acquireModelRequestWithWait(ctx, 'summary');
-    const third = await acquireModelRequestWithWait(ctx, 'dashboard_chat');
     assert.ok(first);
     assert.ok(second);
-    assert.ok(third);
-    const diagnostics = getModelRequestQueueDiagnostics(ctx);
-    assert.equal(diagnostics.activeCount, 3);
-    assert.equal(diagnostics.queueLength, 0);
-    assert.deepEqual(diagnostics.activeRequests.map((entry) => entry.kind), ['repo_search', 'summary', 'dashboard_chat']);
+
+    let thirdResolved = false;
+    const thirdPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat').then((lock) => {
+      thirdResolved = true;
+      return lock;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    assert.equal(thirdResolved, false);
+    const waitingDiagnostics = getModelRequestQueueDiagnostics(ctx);
+    assert.equal(waitingDiagnostics.activeCount, 2);
+    assert.deepEqual(waitingDiagnostics.activeRequests.map((entry) => entry.kind), ['repo_search', 'summary']);
+    assert.equal(waitingDiagnostics.queueLength, 1);
+    assert.deepEqual(waitingDiagnostics.queuedRequests.map((entry) => entry.kind), ['dashboard_chat']);
     assert.equal(releaseModelRequest(ctx, first.token), true);
+    const third = await thirdPromise;
+    assert.ok(third);
     assert.equal(releaseModelRequest(ctx, second.token), true);
     assert.equal(releaseModelRequest(ctx, third.token), true);
-    assert.equal(getModelRequestQueueDiagnostics(ctx).activeCount, 0);
   } finally {
     await closePresetQueueHarness(harness);
   }
 });
 
-test('llama preset still serializes model requests', async () => {
-  const harness = await createPresetQueueHarness('siftkit-model-queue-llama-', 'llama-main');
+test('ParallelSlots allows two llama requests before queueing the third', async () => {
+  const harness = await createPresetQueueHarness(
+    'siftkit-model-queue-llama-',
+    'llama-main',
+    { llama: 2, exl3: 2 },
+  );
   const { ctx } = harness;
   try {
     const first = await acquireModelRequestWithWait(ctx, 'repo_search');
+    const second = await acquireModelRequestWithWait(ctx, 'summary');
     assert.ok(first);
-    let secondResolved = false;
-    const secondPromise = acquireModelRequestWithWait(ctx, 'summary').then((lock) => {
-      secondResolved = true;
-      return lock;
-    });
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.equal(secondResolved, false);
-    assert.equal(getModelRequestQueueDiagnostics(ctx).activeCount, 1);
-    assert.equal(releaseModelRequest(ctx, first.token), true);
-    const second = await secondPromise;
     assert.ok(second);
+    const thirdPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(getModelRequestQueueDiagnostics(ctx).activeCount, 2);
+    assert.equal(getModelRequestQueueDiagnostics(ctx).queueLength, 1);
+    assert.equal(releaseModelRequest(ctx, first.token), true);
+    const third = await thirdPromise;
+    assert.ok(third);
     assert.equal(releaseModelRequest(ctx, second.token), true);
+    assert.equal(releaseModelRequest(ctx, third.token), true);
   } finally {
     await closePresetQueueHarness(harness);
+  }
+});
+
+test('ParallelSlots limits coordinator-free capacity to configured value', async () => {
+  const root = createManagedTempDir('siftkit-model-queue-config-');
+  const configPath = path.join(root, 'runtime.sqlite');
+  const config = getDefaultConfig();
+  const basePreset = config.Server.ModelPresets.Presets[0];
+  if (!basePreset) throw new Error('Default model preset is missing');
+  config.Server.ModelPresets = {
+    ActivePresetId: 'llama-main',
+    Presets: [
+      { ...basePreset, id: 'llama-main', Backend: 'llama', ParallelSlots: 2 },
+    ],
+  };
+  writeConfig(configPath, config);
+  const ctx = createQueueContext(configPath);
+  try {
+    const first = await acquireModelRequestWithWait(ctx, 'repo_search');
+    const second = await acquireModelRequestWithWait(ctx, 'summary');
+    assert.ok(first);
+    assert.ok(second);
+    const thirdPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(getModelRequestQueueDiagnostics(ctx).activeCount, 2);
+    assert.equal(getModelRequestQueueDiagnostics(ctx).queueLength, 1);
+    assert.equal(releaseModelRequest(ctx, first.token), true);
+    const third = await thirdPromise;
+    assert.ok(third);
+    assert.equal(releaseModelRequest(ctx, second.token), true);
+    assert.equal(releaseModelRequest(ctx, third.token), true);
+  } finally {
+    closeRuntimeDatabase();
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
 test('switching exl3 to llama drains all concurrent requests first', async () => {
-  const harness = await createPresetQueueHarness('siftkit-model-queue-drain-', 'exl3-main');
+  const harness = await createPresetQueueHarness(
+    'siftkit-model-queue-drain-',
+    'exl3-main',
+    { llama: 1, exl3: 2 },
+  );
   const { ctx, coordinator } = harness;
   try {
     const first = await acquireModelRequestWithWait(ctx, 'repo_search');
