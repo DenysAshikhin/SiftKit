@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import test, { after, before } from 'node:test';
 
+import { CliProgressRenderer } from '../src/cli/progress-renderer.js';
 import { parseRepoAgentInvocation } from '../src/cli/repo-agent-args.js';
 import {
   RepoAgentCommand,
@@ -169,6 +170,57 @@ class FixtureLauncher implements RepoAgentProcessLauncher {
   }
 }
 
+/** Mirrors `worker-main.ts`: a detached worker renders progress on its own stderr. */
+class SummaryRenderingLauncher implements RepoAgentProcessLauncher {
+  private readonly store: RepoAgentRunStore;
+  private readonly workerStderr: NodeJS.WritableStream;
+
+  constructor(store: RepoAgentRunStore, workerStderr: NodeJS.WritableStream) {
+    this.store = store;
+    this.workerStderr = workerStderr;
+  }
+
+  launch(runId: string): number {
+    const renderer = CliProgressRenderer.forCli(
+      this.workerStderr,
+      'repo-agent',
+      false,
+    );
+    const starting = this.store.readState(runId);
+    const running = this.store.transition(runId, starting.revision, {
+      runId,
+      revision: starting.revision + 1,
+      updatedAtUtc: new Date().toISOString(),
+      status: 'running',
+      pid: process.pid,
+    });
+    renderer.render({
+      kind: 'tool_start',
+      turn: 10,
+      maxTurns: 45,
+      command: 'read path=src/example.ts',
+    });
+    renderer.render({
+      kind: 'activity_summary',
+      turn: 10,
+      maxTurns: 45,
+      entries: [
+        { category: 'read_files', label: 'src/example.ts', failed: false },
+        { category: 'tests', label: 'npm test', failed: true },
+      ],
+    });
+    this.store.transition(runId, running.revision, {
+      runId,
+      revision: running.revision + 1,
+      updatedAtUtc: new Date().toISOString(),
+      status: 'completed',
+      pid: process.pid,
+      output: 'fixture completed',
+    });
+    return process.pid;
+  }
+}
+
 let healthServer: HealthServer;
 let oldStatusUrl: string | undefined;
 let oldConfigUrl: string | undefined;
@@ -215,6 +267,19 @@ function makeHarness(mode: FixtureLaunchMode): CommandHarness {
     launcher,
     store,
   };
+}
+
+function makeSummaryRenderingCommand(
+  workerStderr: NodeJS.WritableStream,
+): RepoAgentCommand {
+  const runsRoot = join(TEMP_ROOT, randomUUID());
+  mkdirSync(runsRoot);
+  const store = new SettlingRunStore(runsRoot);
+  return new RepoAgentCommand({
+    store,
+    launcher: new SummaryRenderingLauncher(store, workerStderr),
+    repoRoot: process.cwd(),
+  });
 }
 
 function makeStreams(isTty = false): CapturedStreams {
@@ -299,6 +364,26 @@ test('non-TTY start launches once and emits one completed JSON object', async ()
     images: [],
   });
   assert.equal(capture.stderr.read(), '');
+});
+
+test('non-TTY start keeps activity summaries on stderr and stdout parseable', async () => {
+  const capture = makeStreams();
+  const command = makeSummaryRenderingCommand(capture.streams.stderr);
+  const code = await command.run(
+    parseRepoAgentInvocation(['implement it']),
+    capture.streams,
+  );
+
+  assert.equal(code, 0);
+  const result = parseSingleResult(capture.stdout);
+  assert.equal(result.status, 'completed');
+
+  const stderr = capture.stderr.read();
+  assert.match(stderr, /--- activity summary t10\/45 ---/u);
+  assert.match(stderr, /\n {2}read_files \(1\): src\/example\.ts\n/u);
+  assert.match(stderr, /\n {2}tests \(1\): npm test \[failed\]\n/u);
+  assert.equal(stderr.includes('read path=src/example.ts'), false);
+  assert.equal(capture.stdout.read().includes('activity summary'), false);
 });
 
 test('non-TTY start emits the complete approval boundary', async () => {

@@ -58,11 +58,11 @@ test('turn 10 returns one event with unique entries', () => {
 
   const event = collector.takeSummary(10, 45);
   assert.ok(event !== null);
-  assert.equal(event!.kind, 'activity_summary');
-  assert.equal(event!.turn, 10);
-  assert.equal(event!.maxTurns, 45);
+  assert.equal(event.kind, 'activity_summary');
+  assert.equal(event.turn, 10);
+  assert.equal(event.maxTurns, 45);
 
-  const categories = event!.entries.map((e) => e.category);
+  const categories = event.entries.map((e) => e.category);
   assert.ok(categories.includes('read_files'), 'expected read_files');
   assert.ok(categories.includes('repository_searches'), 'expected repository_searches');
   assert.ok(categories.includes('commands'), 'expected commands');
@@ -71,13 +71,13 @@ test('turn 10 returns one event with unique entries', () => {
   assert.ok(categories.includes('web'), 'expected web');
 
   // Verify de-duplication: read a.ts appeared twice but should be one entry; b.ts is separate
-  const readEntries = event!.entries.filter((e) => e.category === 'read_files');
+  const readEntries = event.entries.filter((e) => e.category === 'read_files');
   assert.equal(readEntries.length, 2);
   const readLabels = readEntries.map((e) => e.label).sort();
   assert.deepEqual(readLabels, ['a.ts', 'b.ts']);
 
   // Verify failed marker
-  const failedEntries = event!.entries.filter((e) => e.failed);
+  const failedEntries = event.entries.filter((e) => e.failed);
   assert.equal(failedEntries.length, 1);
 });
 
@@ -98,8 +98,8 @@ test('multiple actions in turn-10 batch produce one event', () => {
 
   const event = collector.takeSummary(10, 45);
   assert.ok(event !== null);
-  assert.equal(event!.turn, 10);
-  const categories = event!.entries.map((e) => e.category);
+  assert.equal(event.turn, 10);
+  const categories = event.entries.map((e) => e.category);
   assert.ok(categories.includes('read_files'));
   assert.ok(categories.includes('tests'));
   assert.ok(categories.includes('edited_files'));
@@ -125,7 +125,7 @@ test('turn 20 contains only activity recorded after turn 10', () => {
   assert.ok(event20 !== null);
 
   // Turn 20 should NOT contain a.ts, b.ts, or the turn-5 npm test
-  const labels20 = event20!.entries.map((e) => e.label);
+  const labels20 = event20.entries.map((e) => e.label);
   assert.ok(!labels20.includes('a.ts'), 'a.ts from turn 1 must not appear in turn 20');
   assert.ok(!labels20.includes('b.ts'), 'b.ts from turn 10 must not appear in turn 20');
 
@@ -165,7 +165,7 @@ test('classifies test commands by recognized patterns', () => {
   collector.recordBatch(10, [makeReadAction('x.ts')], [makeCommand('read x.ts', 10)]);
   const event = collector.takeSummary(10, 45);
   assert.ok(event !== null);
-  const testEntries = event!.entries.filter((e) => e.category === 'tests');
+  const testEntries = event.entries.filter((e) => e.category === 'tests');
   assert.equal(testEntries.length, testCommands.length, 'all recognized test commands should be in tests category');
 });
 
@@ -176,8 +176,72 @@ test('does not classify arbitrary commands containing substring test', () => {
   collector.recordBatch(10, [makeReadAction('x.ts')], [makeCommand('read x.ts', 10)]);
   const event = collector.takeSummary(10, 45);
   assert.ok(event !== null);
-  const testEntries = event!.entries.filter((e) => e.category === 'tests');
+  const testEntries = event.entries.filter((e) => e.category === 'tests');
   assert.equal(testEntries.length, 0, 'arbitrary commands with "test" substring must not be classified as tests');
-  const cmdEntries = event!.entries.filter((e) => e.category === 'commands');
+  const cmdEntries = event.entries.filter((e) => e.category === 'commands');
   assert.equal(cmdEntries.length, 2, 'both commands should be in commands category');
+});
+
+test('skips actions that produced no command in the batch', () => {
+  const collector = new ActivitySummaryCollector();
+  collector.recordBatch(
+    10,
+    [makeReadAction('a.ts'), makeReadAction('b.ts')],
+    [makeCommand('read a.ts', 10)],
+  );
+  const event = collector.takeSummary(10, 45);
+  assert.ok(event !== null);
+  assert.deepEqual(event.entries, [
+    { category: 'read_files', label: 'a.ts', failed: false },
+  ]);
+});
+
+test('labels actions whose planner args omit the expected field', () => {
+  const collector = new ActivitySummaryCollector();
+  collector.recordBatch(
+    10,
+    [
+      { action: 'tool', tool_name: 'read', args: {} },
+      { action: 'tool', tool_name: 'web_search', args: {} },
+      { action: 'tool', tool_name: 'run', args: {} },
+    ],
+    [makeCommand('read', 10), makeCommand('web_search', 10), makeCommand('run', 10)],
+  );
+  const event = collector.takeSummary(10, 45);
+  assert.ok(event !== null);
+  assert.deepEqual(event.entries, [
+    { category: 'read_files', label: 'unknown', failed: false },
+    { category: 'web', label: 'web', failed: false },
+    { category: 'commands', label: 'run', failed: false },
+  ]);
+});
+
+test('marks entries failed for a missing exit code and for a non-zero exit code', () => {
+  const collector = new ActivitySummaryCollector();
+  collector.recordBatch(
+    10,
+    [makeRunAction('killed'), makeRunAction('boom')],
+    [
+      { command: 'killed', turn: 10, safe: true, reason: null, exitCode: null, output: '' },
+      makeCommand('boom', 10, true, 2),
+    ],
+  );
+  const event = collector.takeSummary(10, 45);
+  assert.ok(event !== null);
+  assert.deepEqual(event.entries, [
+    { category: 'commands', label: 'killed', failed: true },
+    { category: 'commands', label: 'boom', failed: true },
+  ]);
+});
+
+test('a repeated label becomes failed once any occurrence fails', () => {
+  const collector = new ActivitySummaryCollector();
+  collector.recordBatch(1, [makeRunAction('npm test')], [makeCommand('npm test', 1)]);
+  collector.recordBatch(2, [makeRunAction('npm test')], [makeCommand('npm test', 2, true, 1)]);
+  collector.recordBatch(10, [makeRunAction('npm test')], [makeCommand('npm test', 10)]);
+  const event = collector.takeSummary(10, 45);
+  assert.ok(event !== null);
+  assert.deepEqual(event.entries, [
+    { category: 'tests', label: 'npm test', failed: true },
+  ]);
 });

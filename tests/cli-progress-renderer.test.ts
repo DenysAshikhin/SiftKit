@@ -136,3 +136,17 @@ test('warning-only renderer forwards context_warning alongside activity_summary'
   assert.ok(output.includes('missing.md'), 'context_warning must be shown');
   assert.ok(output.includes('activity summary'), 'activity_summary must be shown');
 });
+
+test('an activity_summary that fails validation renders as a bare kind line', () => {
+  const stderr = makeCaptureStream();
+  const renderer = new CliProgressRenderer(stderr.stream, 'repo-search');
+  renderer.render({
+    kind: 'activity_summary',
+    turn: 10,
+    maxTurns: 45,
+    entries: [{ category: 'unknown_category', label: 'x.ts', failed: false }],
+  });
+  const lines = stderr.read().trim().split('\n');
+  assert.equal(lines.length, 1);
+  assert.match(lines[0] ?? '', /repo-search t10\/45 activity_summary$/u);
+});
