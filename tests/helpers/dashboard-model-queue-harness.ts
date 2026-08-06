@@ -59,9 +59,10 @@ export interface DashboardModelQueueHarnessOptions {
    */
   exl3ActivePreset?: boolean;
   /**
-   * Override the ParallelSlots value on the active preset to control global queue capacity.
+   * ParallelSlots value on the active preset, controlling global queue capacity. Required so a
+   * test's intended capacity is always visible at its call site rather than implied by the backend.
    */
-  parallelSlots?: number;
+  parallelSlots: number;
 }
 
 export class DashboardModelQueueHarness {
@@ -81,14 +82,14 @@ export class DashboardModelQueueHarness {
   private server: ReturnType<typeof startStatusServer> | null = null;
   private baseUrl: string | null = null;
 
-  constructor(tempDirectoryPrefix: string, options: DashboardModelQueueHarnessOptions = {}) {
+  constructor(tempDirectoryPrefix: string, options: DashboardModelQueueHarnessOptions) {
     this.tempRoot = createManagedTempDir(tempDirectoryPrefix);
     this.previousCwd = enterDashboardTestRepo(this.tempRoot);
     const statusPath = path.join(this.tempRoot, '.siftkit', 'status', 'inference.txt');
     this.configPath = path.join(this.tempRoot, '.siftkit', 'config.json');
     this.envBackup = configureDashboardTestEnv(this.tempRoot, statusPath, this.configPath);
     this.exl3ActivePreset = options.exl3ActivePreset ?? false;
-    this.parallelSlots = options.parallelSlots ?? (this.exl3ActivePreset ? 4 : 1);
+    this.parallelSlots = options.parallelSlots;
   }
 
   async start(): Promise<void> {

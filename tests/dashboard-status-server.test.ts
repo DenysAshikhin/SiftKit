@@ -1901,7 +1901,7 @@ test('same session rejects a second request instead of entering the model FIFO',
 });
 
 test('same session conflicts cover message plan and repo-search JSON and SSE routes', async () => {
-  const harness = new DashboardModelQueueHarness('siftkit-dashboard-session-conflicts-');
+  const harness = new DashboardModelQueueHarness('siftkit-dashboard-session-conflicts-', { parallelSlots: 1 });
   await harness.start();
   try {
     const messageSessionId = await harness.createChatSession('Message owner', 'Qwen3.5-9B-Q8_0.gguf');
@@ -2050,7 +2050,7 @@ test('queued model request is dropped when client disconnects before lock grant'
 });
 
 test('queued JSON Plan returns 404 when its session disappears before lock grant', async () => {
-  const harness = new DashboardModelQueueHarness('siftkit-dashboard-plan-session-race-');
+  const harness = new DashboardModelQueueHarness('siftkit-dashboard-plan-session-race-', { parallelSlots: 1 });
   try {
     await harness.start();
     const baseUrl = harness.getBaseUrl();
@@ -2096,7 +2096,7 @@ test('queued JSON Plan returns 404 when its session disappears before lock grant
 });
 
 test('queued Repo Search disconnect leaves the chat session unchanged', async () => {
-  const harness = new DashboardModelQueueHarness('siftkit-dashboard-repo-search-disconnect-');
+  const harness = new DashboardModelQueueHarness('siftkit-dashboard-repo-search-disconnect-', { parallelSlots: 1 });
   try {
     await harness.start();
     const baseUrl = harness.getBaseUrl();

@@ -155,8 +155,8 @@ test('ParallelSlots limits exl3 global admission and grants the FIFO waiter', as
       thirdResolved = true;
       return lock;
     });
-    await new Promise((resolve) => setTimeout(resolve, 20));
 
+    // The waiter is enqueued synchronously, so the queued state is observable without waiting.
     assert.equal(thirdResolved, false);
     const waitingDiagnostics = getModelRequestQueueDiagnostics(ctx);
     assert.equal(waitingDiagnostics.activeCount, 2);
@@ -166,6 +166,7 @@ test('ParallelSlots limits exl3 global admission and grants the FIFO waiter', as
     assert.equal(releaseModelRequest(ctx, first.token), true);
     const third = await thirdPromise;
     assert.ok(third);
+    assert.equal(thirdResolved, true);
     assert.equal(releaseModelRequest(ctx, second.token), true);
     assert.equal(releaseModelRequest(ctx, third.token), true);
   } finally {
@@ -186,12 +187,13 @@ test('ParallelSlots allows two llama requests before queueing the third', async 
     assert.ok(first);
     assert.ok(second);
     const thirdPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat');
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.equal(getModelRequestQueueDiagnostics(ctx).activeCount, 2);
-    assert.equal(getModelRequestQueueDiagnostics(ctx).queueLength, 1);
+    const waiting = getModelRequestQueueDiagnostics(ctx);
+    assert.equal(waiting.activeCount, 2);
+    assert.equal(waiting.queueLength, 1);
     assert.equal(releaseModelRequest(ctx, first.token), true);
     const third = await thirdPromise;
     assert.ok(third);
+    assert.equal(getModelRequestQueueDiagnostics(ctx).queueLength, 0);
     assert.equal(releaseModelRequest(ctx, second.token), true);
     assert.equal(releaseModelRequest(ctx, third.token), true);
   } finally {
@@ -219,12 +221,13 @@ test('ParallelSlots limits coordinator-free capacity to configured value', async
     assert.ok(first);
     assert.ok(second);
     const thirdPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat');
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.equal(getModelRequestQueueDiagnostics(ctx).activeCount, 2);
-    assert.equal(getModelRequestQueueDiagnostics(ctx).queueLength, 1);
+    const waiting = getModelRequestQueueDiagnostics(ctx);
+    assert.equal(waiting.activeCount, 2);
+    assert.equal(waiting.queueLength, 1);
     assert.equal(releaseModelRequest(ctx, first.token), true);
     const third = await thirdPromise;
     assert.ok(third);
+    assert.equal(getModelRequestQueueDiagnostics(ctx).queueLength, 0);
     assert.equal(releaseModelRequest(ctx, second.token), true);
     assert.equal(releaseModelRequest(ctx, third.token), true);
   } finally {

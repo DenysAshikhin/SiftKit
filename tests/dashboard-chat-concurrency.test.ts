@@ -33,7 +33,7 @@ function readDoneAssistantContent(response: SseResponse): string {
 }
 
 test('exl3 streams different chat sessions concurrently without mixing results', async () => {
-  const harness = new DashboardModelQueueHarness('siftkit-chat-parallel-', { exl3ActivePreset: true });
+  const harness = new DashboardModelQueueHarness('siftkit-chat-parallel-', { exl3ActivePreset: true, parallelSlots: 4 });
   await harness.start();
   try {
     const sessionA = await harness.createChatSession('A', 'model-a');
@@ -55,7 +55,7 @@ test('exl3 streams different chat sessions concurrently without mixing results',
 });
 
 test('llama.cpp serializes fifo and keeps session status independent', async () => {
-  const harness = new DashboardModelQueueHarness('siftkit-chat-fifo-');
+  const harness = new DashboardModelQueueHarness('siftkit-chat-fifo-', { parallelSlots: 1 });
   await harness.start();
   try {
     const sessionA = await harness.createChatSession('A', 'model-a');
@@ -79,7 +79,7 @@ test('llama.cpp serializes fifo and keeps session status independent', async () 
 });
 
 test('aborting one concurrent session releases only that session lease', async () => {
-  const harness = new DashboardModelQueueHarness('siftkit-chat-abort-', { exl3ActivePreset: true });
+  const harness = new DashboardModelQueueHarness('siftkit-chat-abort-', { exl3ActivePreset: true, parallelSlots: 4 });
   await harness.start();
   try {
     const sessionA = await harness.createChatSession('A', 'model-a');
@@ -116,7 +116,7 @@ test('aborting one concurrent session releases only that session lease', async (
 });
 
 test('condense is rejected while the same session is streaming and allowed once it settles', async () => {
-  const harness = new DashboardModelQueueHarness('siftkit-chat-condense-', { exl3ActivePreset: true });
+  const harness = new DashboardModelQueueHarness('siftkit-chat-condense-', { exl3ActivePreset: true, parallelSlots: 4 });
   await harness.start();
   try {
     const sessionA = await harness.createChatSession('A', 'model-a');
