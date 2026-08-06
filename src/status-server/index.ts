@@ -10,6 +10,7 @@
  */
 import { createServer } from 'node:http';
 import { join } from 'node:path';
+import { getActiveModelPreset } from '../config/getters.js';
 import { toError } from '../lib/errors.js';
 import {
   getStatusPath,
@@ -215,7 +216,8 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   const metricsPath = getMetricsPath();
   const idleSummarySnapshotsPath = getIdleSummarySnapshotsPath();
   ensureStatusFile(statusPath);
-  writeConfig(configPath, readConfig(configPath));
+  const initialConfig = readConfig(configPath);
+  writeConfig(configPath, initialConfig);
   const loadedMetrics = readMetricsWithResetDecision(metricsPath);
   const metrics = loadedMetrics.metrics;
   void loadedMetrics.resetRequired;
@@ -250,6 +252,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     chatSessionOperations: new ChatSessionOperationRegistry(),
     approvalGates: new Map(),
     activeModelRequests: new Map(),
+    modelRequestCapacity: getActiveModelPreset(initialConfig).ParallelSlots,
     modelRequestQueue: [],
     deferredArtifactQueue: [],
     deferredArtifactDrainScheduled: false,
@@ -282,7 +285,6 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     shutdownManagedLlamaIfNeeded: (opts) => shutdownManagedLlamaIfNeeded(ctx, opts),
     ensureManagedLlamaReady: (opts) => ensureManagedLlamaReady(ctx, opts),
   };
-  const initialConfig = readConfig(configPath);
   const managedTabbyRuntime = new ManagedTabbyRuntime(
     initialConfig.Server.Engines.Exl3,
     ctx.inferenceRunFlushQueue,

@@ -260,6 +260,7 @@ test('releaseModelRequest queues buffered managed llama logs for the active host
         startedAtUtc: new Date().toISOString(),
         ownerRunId: null,
       }]]),
+      modelRequestCapacity: 1,
       modelRequestQueue: [],
       managedLlamaLastStartupLogs: {
         runId: run.id,
@@ -315,6 +316,7 @@ test('releaseModelRequest releases the active request when managed llama log flu
         startedAtUtc: new Date().toISOString(),
         ownerRunId: null,
       }]]),
+      modelRequestCapacity: 1,
       modelRequestQueue: [],
       managedLlamaLastStartupLogs: {
         runId: run.id,

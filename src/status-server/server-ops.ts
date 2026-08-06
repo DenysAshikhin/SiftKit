@@ -42,7 +42,6 @@ import type {
 } from './server-types.js';
 import { serverLogger } from './server-logger.js';
 import { readConfig } from './config-store.js';
-import { getActiveModelPreset } from '../config/getters.js';
 
 export const DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS = 900_000;
 export const DEFAULT_IDLE_SUMMARY_DELAY_MS = 600_000;
@@ -327,7 +326,7 @@ export function getModelRequestCapacity(ctx: ServerContext): number {
   if (coordinator) {
     return coordinator.getActiveParallelSlots();
   }
-  return getActiveModelPreset(readConfig(ctx.configPath)).ParallelSlots;
+  return ctx.modelRequestCapacity;
 }
 
 export function acquireModelRequest(ctx: ServerContext, kind: string, ownerRunId: string | null = null): ModelRequestLock | null {

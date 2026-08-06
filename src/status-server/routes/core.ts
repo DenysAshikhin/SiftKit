@@ -1781,10 +1781,13 @@ class ConfigUpdateEndpoint implements RouteEndpoint {
       sendJson(res, 400, { error: toError(error).message });
       return;
     }
-    // Saving is pure persistence: the running inference runtime is never touched here.
-    // A changed model preset is applied by POST /status/restart, or lazily by
-    // PresetRuntimeCoordinator.ensureActivePresetReady before the next model request.
+    // Saving never touches a managed inference runtime. A managed preset is applied by
+    // POST /status/restart or lazily before the next model request. Coordinator-free
+    // servers have no runtime transition, so their in-memory admission capacity updates here.
     writeConfig(configPath, nextConfig);
+    if (!ctx.presetRuntimeCoordinator) {
+      ctx.modelRequestCapacity = getActiveModelPreset(nextConfig).ParallelSlots;
+    }
     sendJson(res, 200, nextConfig);
     return;
   }

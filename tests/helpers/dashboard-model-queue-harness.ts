@@ -3,10 +3,11 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { getDefaultConfigObject } from '../../src/config/defaults.js';
+import { getActiveModelPreset } from '../../src/config/getters.js';
 import { parseJsonValueText } from '../../src/lib/json.js';
 import { z } from '../../src/lib/zod.js';
 import { startStatusServer } from '../../src/status-server/index.js';
-import { writeConfig } from '../../src/status-server/config-store.js';
+import { readConfig, writeConfig } from '../../src/status-server/config-store.js';
 import { getConfigPath } from '../../src/status-server/paths.js';
 import { FakeTabbyModelState } from './tabby-fake.js';
 import {
@@ -264,6 +265,18 @@ export class DashboardModelQueueHarness {
       throw new Error('DashboardModelQueueHarness.start() must complete before use.');
     }
     return this.baseUrl;
+  }
+
+  async updateParallelSlots(parallelSlots: number): Promise<void> {
+    const config = readConfig(getConfigPath());
+    getActiveModelPreset(config).ParallelSlots = parallelSlots;
+    const response = await requestJson(`${this.getBaseUrl()}/config?skip_ready=1`, {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    });
+    if (response.statusCode !== 200) {
+      throw new Error(`Expected config update to succeed, received ${response.statusCode}.`);
+    }
   }
 
   async createChatSession(title: string, model: string): Promise<string> {

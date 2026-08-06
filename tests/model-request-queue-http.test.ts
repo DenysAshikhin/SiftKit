@@ -84,3 +84,27 @@ test('ParallelSlots is one global FIFO limit across repo-search and dashboard ch
     await harness.close();
   }
 });
+
+test('coordinator-free config update refreshes ParallelSlots admission capacity', async () => {
+  const harness = new DashboardModelQueueHarness('siftkit-http-queue-config-', { parallelSlots: 1 });
+  await harness.start();
+  try {
+    const first = harness.holdModelLock('first request before config update', 400);
+    await harness.waitForActiveRequests('repo_search');
+    const second = harness.holdModelLock('second queued request', 10);
+    await harness.waitForQueuedRequest('repo_search');
+
+    await harness.updateParallelSlots(2);
+    assert.equal((await first).statusCode, 200);
+    await harness.waitForActiveRequests('repo_search');
+
+    const third = harness.holdModelLock('third request after config update', 10);
+    await harness.waitForActiveRequests('repo_search', 2);
+    for (const response of await Promise.all([second, third])) {
+      assert.equal(response.statusCode, 200);
+    }
+    await harness.waitForModelQueueIdle();
+  } finally {
+    await harness.close();
+  }
+});

@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { getDefaultConfig } from '../src/status-server/config-store.js';
+import { getActiveModelPreset } from '../src/config/getters.js';
+import { getDefaultConfig, readConfig } from '../src/status-server/config-store.js';
 import {
   DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS,
   acquireModelRequestWithWait,
@@ -43,12 +44,14 @@ const DEFAULT_PRESET_PARALLEL_SLOTS = {
 function createQueueContext(configPath?: string): ServerContext & { readonly wakeCount: number } {
   const resolvedConfigPath = configPath
     ?? path.join(queueContextRoot, `runtime-${queueContextIndex += 1}.sqlite`);
+  const config = configPath === undefined ? getDefaultConfig() : readConfig(resolvedConfigPath);
   if (configPath === undefined) {
-    writeConfig(resolvedConfigPath, getDefaultConfig());
+    writeConfig(resolvedConfigPath, config);
   }
   let wakeCount = 0;
   return {
     ...createTestServerContext(resolvedConfigPath),
+    modelRequestCapacity: getActiveModelPreset(config).ParallelSlots,
     async ensureManagedLlamaReady() {
       wakeCount += 1;
       return getDefaultConfig();

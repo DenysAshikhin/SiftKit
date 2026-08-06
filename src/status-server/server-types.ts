@@ -83,6 +83,7 @@ export type ServerContext = {
   chatSessionOperations: ChatSessionOperationRegistry;
   approvalGates: Map<string, ApprovalGate>;
   activeModelRequests: Map<string, ModelRequestLock>;
+  modelRequestCapacity: number;
   modelRequestQueue: ModelRequestWaiter[];
   deferredArtifactQueue: DeferredArtifact[];
   deferredArtifactDrainScheduled: boolean;

@@ -1,5 +1,6 @@
 import path from 'node:path';
 
+import { getActiveModelPreset } from '../../src/config/getters.js';
 import type { SiftConfig } from '../../src/config/types.js';
 import { getDefaultConfig } from '../../src/status-server/config-store.js';
 import { StatusEngineService } from '../../src/status-server/engine-service.js';
@@ -33,6 +34,7 @@ export function createTestServerContext(configPath: string, root = path.dirname(
     chatSessionOperations: new ChatSessionOperationRegistry(),
     approvalGates: new Map(),
     activeModelRequests: new Map(),
+    modelRequestCapacity: getActiveModelPreset(getDefaultConfig()).ParallelSlots,
     modelRequestQueue: [],
     deferredArtifactQueue: [],
     deferredArtifactDrainScheduled: false,
