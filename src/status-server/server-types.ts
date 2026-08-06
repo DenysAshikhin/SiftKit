@@ -9,6 +9,7 @@ import type { StatusEngineService } from './engine-service.js';
 import type { ApprovalGate } from '../repo-search/engine/approval-gate.js';
 import type { SiftConfig } from '../config/types.js';
 import type { PresetRuntimeCoordinator } from './preset-runtime-coordinator.js';
+import type { AppliedModelPresetState } from './applied-model-preset-state.js';
 import type { ModelIdleController } from './model-idle-controller.js';
 import type { DeferredArtifact } from '../state/status-artifacts.js';
 import type { StatusRunRegistry } from './status-run-registry.js';
@@ -71,6 +72,7 @@ export type ServerContext = {
   readonly engineService: StatusEngineService;
   presetRuntimeCoordinator?: PresetRuntimeCoordinator;
   modelIdleController?: ModelIdleController;
+  appliedModelPresetState: AppliedModelPresetState;
 
   server: ExtendedServer | null;
   getServiceBaseUrl(): string;
@@ -83,7 +85,6 @@ export type ServerContext = {
   chatSessionOperations: ChatSessionOperationRegistry;
   approvalGates: Map<string, ApprovalGate>;
   activeModelRequests: Map<string, ModelRequestLock>;
-  modelRequestCapacity: number;
   modelRequestQueue: ModelRequestWaiter[];
   deferredArtifactQueue: DeferredArtifact[];
   deferredArtifactDrainScheduled: boolean;

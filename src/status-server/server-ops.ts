@@ -322,11 +322,7 @@ export function wakeManagedLlamaForIncomingModelRequest(ctx: ServerContext): voi
 }
 
 export function getModelRequestCapacity(ctx: ServerContext): number {
-  const coordinator = ctx.presetRuntimeCoordinator;
-  if (coordinator) {
-    return coordinator.getActiveParallelSlots();
-  }
-  return ctx.modelRequestCapacity;
+  return ctx.appliedModelPresetState.getParallelSlots();
 }
 
 export function acquireModelRequest(ctx: ServerContext, kind: string, ownerRunId: string | null = null): ModelRequestLock | null {

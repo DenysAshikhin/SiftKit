@@ -66,6 +66,7 @@ import {
 } from './managed-llama.js';
 import { createRequestHandler } from './routes.js';
 import { PresetRuntimeCoordinator } from './preset-runtime-coordinator.js';
+import { AppliedModelPresetState } from './applied-model-preset-state.js';
 import { ManagedLlamaRuntime } from './managed-llama-runtime.js';
 import { ManagedTabbyRuntime } from './managed-tabby.js';
 import { ModelIdleController } from './model-idle-controller.js';
@@ -252,7 +253,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     chatSessionOperations: new ChatSessionOperationRegistry(),
     approvalGates: new Map(),
     activeModelRequests: new Map(),
-    modelRequestCapacity: getActiveModelPreset(initialConfig).ParallelSlots,
+    appliedModelPresetState: new AppliedModelPresetState(getActiveModelPreset(initialConfig)),
     modelRequestQueue: [],
     deferredArtifactQueue: [],
     deferredArtifactDrainScheduled: false,
@@ -294,6 +295,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     new ManagedLlamaRuntime(ctx),
     managedTabbyRuntime,
     ctx.activeModelRequests,
+    ctx.appliedModelPresetState,
   );
   if (!disableManagedLlamaStartup) {
     ctx.presetRuntimeCoordinator = presetRuntimeCoordinator;

@@ -20,6 +20,7 @@ import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { RecordingInferenceRuntime as QueueRuntime } from './helpers/recording-inference-runtime.js';
 import { createTestServerContext } from './helpers/server-context-fixture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.js';
 
 type StdoutLine = string;
 
@@ -51,7 +52,7 @@ function createQueueContext(configPath?: string): ServerContext & { readonly wak
   let wakeCount = 0;
   return {
     ...createTestServerContext(resolvedConfigPath),
-    modelRequestCapacity: getActiveModelPreset(config).ParallelSlots,
+    appliedModelPresetState: new AppliedModelPresetState(getActiveModelPreset(config)),
     async ensureManagedLlamaReady() {
       wakeCount += 1;
       return getDefaultConfig();
@@ -98,6 +99,7 @@ async function createPresetQueueHarness(
     new QueueRuntime('llama', events),
     new QueueRuntime('exl3', events),
     ctx.activeModelRequests,
+    ctx.appliedModelPresetState,
   );
   ctx.presetRuntimeCoordinator = coordinator;
   ctx.modelIdleController = new ModelIdleController(ctx);

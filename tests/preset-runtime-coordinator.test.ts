@@ -10,6 +10,8 @@ import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import type { ModelRequestLock } from '../src/status-server/server-types.js';
 import { RecordingInferenceRuntime as RecordingRuntime } from './helpers/recording-inference-runtime.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.js';
+import { getActiveModelPreset } from '../src/config/getters.js';
 
 function createConfigPath(): string {
   const root = createManagedTempDir('siftkit-preset-coordinator-');
@@ -32,6 +34,7 @@ function createConfigPath(): string {
 
 interface CoordinatorFixture {
   coordinator: PresetRuntimeCoordinator;
+  appliedState: AppliedModelPresetState;
   events: string[];
   configPath: string;
   /** Stands in for `ServerContext.activeModelRequests`, the one place in-flight requests live. */
@@ -45,13 +48,15 @@ function createCoordinator(
   const configPath = createConfigPath();
   const events: string[] = [];
   const activeModelRequests = new Map<string, ModelRequestLock>();
+  const appliedState = new AppliedModelPresetState(getActiveModelPreset(readConfig(configPath)));
   const coordinator = new PresetRuntimeCoordinator(
     configPath,
     new RecordingRuntime('llama', events, failingLlamaPresetIds),
     new RecordingRuntime('exl3', events, failingExl3PresetIds),
     activeModelRequests,
+    appliedState,
   );
-  return { coordinator, events, configPath, activeModelRequests };
+  return { coordinator, appliedState, events, configPath, activeModelRequests };
 }
 
 function setActiveModelRequests(activeModelRequests: Map<string, ModelRequestLock>, count: number): void {
@@ -74,7 +79,7 @@ async function disposeCoordinator({ coordinator, configPath }: CoordinatorFixtur
 
 test('preset coordinator drains by preset and switches backend processes', async () => {
   const fixture = createCoordinator();
-  const { coordinator, events, configPath, activeModelRequests } = fixture;
+  const { coordinator, appliedState, events, configPath, activeModelRequests } = fixture;
   try {
     await coordinator.initialize();
     assert.equal(coordinator.getActiveBackend(), 'llama');
@@ -92,6 +97,7 @@ test('preset coordinator drains by preset and switches backend processes', async
     assert.equal(coordinator.getStatus().activePresetId, 'exl3-main');
     assert.equal(coordinator.getActiveBackend(), 'exl3');
     assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'exl3-main');
+    assert.equal(appliedState.getPreset().id, 'exl3-main');
   } finally {
     await disposeCoordinator(fixture);
   }
@@ -241,13 +247,15 @@ test('editing the active preset reloads it and rolls back the previous definitio
 
 test('preset coordinator rolls back by preset id after target load failure', async () => {
   const fixture = createCoordinator(new Set(['broken-llama']));
-  const { coordinator, configPath } = fixture;
+  const { coordinator, appliedState, configPath } = fixture;
   try {
     await coordinator.initialize();
+    const previous = appliedState.getPreset();
     await assert.rejects(coordinator.applyPreset('broken-llama'), /load failed: broken-llama/u);
     assert.equal(coordinator.getStatus().activePresetId, 'llama-main');
     assert.equal(coordinator.getStatus().rollback, "Restored preset 'llama-main'.");
     assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, 'llama-main');
+    assert.equal(appliedState.getPreset().id, previous.id); // after failed switch rollback
   } finally {
     await disposeCoordinator(fixture);
   }

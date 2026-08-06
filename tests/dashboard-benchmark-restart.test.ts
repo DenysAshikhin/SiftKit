@@ -40,6 +40,7 @@ test('benchmark restart drives the preset runtime coordinator', async () => {
     new RecordingInferenceRuntime('llama', events),
     new RecordingInferenceRuntime('exl3', events),
     baseContext.activeModelRequests,
+    baseContext.appliedModelPresetState,
   );
   const ctx = {
     ...baseContext,
@@ -71,6 +72,7 @@ test('benchmark restart fails loudly instead of measuring an unrestarted externa
     new RecordingInferenceRuntime('llama', events),
     new RecordingInferenceRuntime('exl3', events),
     baseContext.activeModelRequests,
+    baseContext.appliedModelPresetState,
   );
   const ctx = { ...baseContext, presetRuntimeCoordinator: coordinator };
   try {

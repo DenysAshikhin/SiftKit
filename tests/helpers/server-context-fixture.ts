@@ -9,6 +9,7 @@ import { getDefaultMetrics } from '../../src/status-server/metrics.js';
 import { DEFAULT_IDLE_SUMMARY_DELAY_MS } from '../../src/status-server/server-ops.js';
 import { StatusRunRegistry } from '../../src/status-server/status-run-registry.js';
 import { ChatSessionOperationRegistry } from '../../src/status-server/chat-session-operation-registry.js';
+import { AppliedModelPresetState } from '../../src/status-server/applied-model-preset-state.js';
 import type { ServerContext } from '../../src/status-server/server-types.js';
 
 /**
@@ -34,7 +35,7 @@ export function createTestServerContext(configPath: string, root = path.dirname(
     chatSessionOperations: new ChatSessionOperationRegistry(),
     approvalGates: new Map(),
     activeModelRequests: new Map(),
-    modelRequestCapacity: getActiveModelPreset(getDefaultConfig()).ParallelSlots,
+    appliedModelPresetState: new AppliedModelPresetState(getActiveModelPreset(getDefaultConfig())),
     modelRequestQueue: [],
     deferredArtifactQueue: [],
     deferredArtifactDrainScheduled: false,

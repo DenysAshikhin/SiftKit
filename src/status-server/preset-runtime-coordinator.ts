@@ -2,13 +2,13 @@ import type { InferenceBackendId, InferenceRuntimeErrorPhase, InferenceRuntimeSt
 import type { ModelRuntimePreset } from '../config/types.js';
 import type { ManagedInferenceRuntime } from './managed-inference-runtime.js';
 import type { ModelRequestLock } from './server-types.js';
+import type { AppliedModelPresetState } from './applied-model-preset-state.js';
 import { readConfig, writeConfig } from './config-store.js';
 
 /** Raised when a restart is asked of a preset whose server SiftKit did not launch. */
 export class ExternalServerRestartError extends Error {}
 
 export class PresetRuntimeCoordinator {
-  private activePreset: ModelRuntimePreset;
   private pendingPresetId: string | null = null;
   private pendingForceRestart = false;
   private switchPromise: Promise<void> | null = null;
@@ -27,17 +27,18 @@ export class PresetRuntimeCoordinator {
      * single owner of that fact: nothing has to remember to notify the coordinator when it changes.
      */
     private readonly activeModelRequests: ReadonlyMap<string, ModelRequestLock>,
+    private readonly appliedModelPresetState: AppliedModelPresetState,
   ) {
     const config = readConfig(configPath);
     const preset = config.Server.ModelPresets.Presets.find(
       (candidate) => candidate.id === config.Server.ModelPresets.ActivePresetId,
     );
     if (!preset) throw new Error(`Model preset '${config.Server.ModelPresets.ActivePresetId}' does not exist.`);
-    this.activePreset = preset;
+    this.appliedModelPresetState.applyPreset(preset);
   }
 
   async initialize(): Promise<void> {
-    const preset = this.activePreset;
+    const preset = this.appliedModelPresetState.getPreset();
     const runtime = this.getRuntime(preset);
     try {
       await runtime.ensurePresetReady(preset);
@@ -50,9 +51,9 @@ export class PresetRuntimeCoordinator {
   async applyPreset(presetId: string): Promise<'ready' | 'queued'> {
     const target = this.getPreset(presetId);
     if (
-      this.presetsEqual(target, this.activePreset)
+      this.presetsEqual(target, this.appliedModelPresetState.getPreset())
       && this.pendingPresetId === null
-      && this.getRuntime(this.activePreset).getModelState() === 'ready'
+      && this.getRuntime(this.appliedModelPresetState.getPreset()).getModelState() === 'ready'
     ) return 'ready';
     if (this.switchPromise) throw new Error('A preset switch is already in progress.');
     this.setPendingSwitch(presetId, false);
@@ -83,9 +84,9 @@ export class PresetRuntimeCoordinator {
   async ensureActivePresetReady(): Promise<void> {
     const configuredId = readConfig(this.configPath).Server.ModelPresets.ActivePresetId;
     const configuredPreset = this.getPreset(configuredId);
-    if (!this.presetsEqual(configuredPreset, this.activePreset)) await this.applyPreset(configuredId);
+    if (!this.presetsEqual(configuredPreset, this.appliedModelPresetState.getPreset())) await this.applyPreset(configuredId);
     if (this.switchPromise) await this.switchPromise;
-    const preset = this.activePreset;
+    const preset = this.appliedModelPresetState.getPreset();
     const runtime = this.getRuntime(preset);
     try {
       await runtime.ensurePresetReady(preset);
@@ -102,11 +103,7 @@ export class PresetRuntimeCoordinator {
   }
 
   getActiveBackend(): InferenceBackendId {
-    return this.activePreset.Backend;
-  }
-
-  getActiveParallelSlots(): number {
-    return this.activePreset.ParallelSlots;
+    return this.appliedModelPresetState.getPreset().Backend;
   }
 
   canGrantModelRequest(): boolean {
@@ -118,8 +115,8 @@ export class PresetRuntimeCoordinator {
   }
 
   async unloadActivePresetForIdle(presetId: string): Promise<boolean> {
-    if (presetId !== this.activePreset.id || this.hasActiveModelRequests() || this.pendingPresetId !== null) return false;
-    const preset = this.activePreset;
+    if (presetId !== this.appliedModelPresetState.getPreset().id || this.hasActiveModelRequests() || this.pendingPresetId !== null) return false;
+    const preset = this.appliedModelPresetState.getPreset();
     if (preset.Backend !== 'exl3') return false;
     const runtime = this.getRuntime(preset);
     if (runtime.getModelState() !== 'ready') return false;
@@ -140,7 +137,7 @@ export class PresetRuntimeCoordinator {
   }
 
   getStatus(): InferenceRuntimeStatus {
-    const preset = this.activePreset;
+    const preset = this.appliedModelPresetState.getPreset();
     const runtime = this.getRuntime(preset);
     return {
       activePresetId: preset.id,
@@ -164,7 +161,7 @@ export class PresetRuntimeCoordinator {
         // Continue with best-effort shutdown of the active runtime.
       }
     }
-    const runtime = this.getRuntime(this.activePreset);
+    const runtime = this.getRuntime(this.appliedModelPresetState.getPreset());
     if (runtime.id === 'exl3' && runtime.getModelState() === 'ready') await runtime.unloadPreset();
     await runtime.stopProcess();
     this.pendingPresetId = null;
@@ -191,7 +188,7 @@ export class PresetRuntimeCoordinator {
   }
 
   private async executeSwitch(targetId: string, forceRestart: boolean): Promise<void> {
-    const previous = this.activePreset;
+    const previous = this.appliedModelPresetState.getPreset();
     const target = this.getPreset(targetId);
     const previousRuntime = this.getRuntime(previous);
     const targetRuntime = this.getRuntime(target);
@@ -204,7 +201,7 @@ export class PresetRuntimeCoordinator {
       await targetRuntime.ensurePresetReady(target);
       // Config already holds the requested preset: it is the saved intent this switch is
       // applying. Writing it back here would clobber a newer save that landed mid-switch.
-      this.activePreset = target;
+      this.appliedModelPresetState.applyPreset(target);
       this.pendingPresetId = null;
     } catch (error) {
       this.fail('preset-switch', error instanceof Error ? error.message : String(error));
@@ -224,7 +221,7 @@ export class PresetRuntimeCoordinator {
         }
         this.restorePreset(previous);
         await previousRuntime.ensurePresetReady(previous);
-        this.activePreset = previous;
+        this.appliedModelPresetState.applyPreset(previous);
         this.pendingPresetId = null;
         this.rollback = cleanupError
           ? `Restored preset '${previous.id}'. Target cleanup warning: ${cleanupError}`

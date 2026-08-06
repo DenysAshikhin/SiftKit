@@ -31,6 +31,9 @@ import { z } from '../src/lib/zod.js';
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import type { JsonObject } from '../src/lib/json-types.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
+import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.js';
+import { getActiveModelPreset } from '../src/config/getters.js';
+import { getDefaultConfig } from '../src/status-server/config-store.js';
 
 // SQLite .get()/.all() return `unknown`; narrow to JsonObject at the boundary.
 function asRow<T>(value: T): JsonObject {
@@ -260,7 +263,7 @@ test('releaseModelRequest queues buffered managed llama logs for the active host
         startedAtUtc: new Date().toISOString(),
         ownerRunId: null,
       }]]),
-      modelRequestCapacity: 1,
+      appliedModelPresetState: new AppliedModelPresetState(getActiveModelPreset(getDefaultConfig())),
       modelRequestQueue: [],
       managedLlamaLastStartupLogs: {
         runId: run.id,
@@ -316,7 +319,7 @@ test('releaseModelRequest releases the active request when managed llama log flu
         startedAtUtc: new Date().toISOString(),
         ownerRunId: null,
       }]]),
-      modelRequestCapacity: 1,
+      appliedModelPresetState: new AppliedModelPresetState(getActiveModelPreset(getDefaultConfig())),
       modelRequestQueue: [],
       managedLlamaLastStartupLogs: {
         runId: run.id,
