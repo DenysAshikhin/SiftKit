@@ -12,7 +12,7 @@ import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
 import type { ToolTranscriptAction } from '../../tool-call-messages.js';
 import { spawnDirectCommand } from '../../lib/command-spawn.js';
 import { AGENT_RUN_ID_ENV } from '../../lib/agent-run-marker.js';
-import { spawnPowerShellAsync } from '../../lib/powershell.js';
+import { DEFAULT_RUN_TIMEOUT_MS, MAX_RUN_TIMEOUT_MS, spawnPowerShellAsync } from '../../lib/powershell.js';
 import {
   RunOutputModeSchema,
   ValidationCommandOutputPolicy,
@@ -134,6 +134,32 @@ function readBoolean(value: OptionalJsonValue, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
+/**
+ * Resolves the `run` tool's timeout, in milliseconds, or returns the failure reason.
+ *
+ * Every run is bounded: an omitted argument takes the default rather than running forever, and
+ * an over-large one is rejected rather than clamped, so a unit mistake surfaces as a tool error
+ * the model can correct instead of a silently uncapped command.
+ */
+export function resolveRunTimeoutMs(args: JsonObject): number | string {
+  if (args.timeout !== undefined) {
+    return 'timeout is not a valid argument; use timeoutMs (milliseconds)';
+  }
+  const timeoutMs = resolveOptionalPositiveInteger(
+    args.timeoutMs,
+    'timeoutMs must be a positive integer (milliseconds)',
+  );
+  if (typeof timeoutMs === 'string') {
+    return timeoutMs;
+  }
+  if (timeoutMs === undefined) {
+    return DEFAULT_RUN_TIMEOUT_MS;
+  }
+  return timeoutMs > MAX_RUN_TIMEOUT_MS
+    ? `timeoutMs must not exceed ${MAX_RUN_TIMEOUT_MS} (milliseconds)`
+    : timeoutMs;
+}
+
 // ---------------------------------------------------------------------------
 // Synthetic command strings — the dedup / transcript / progress key for a call
 // ---------------------------------------------------------------------------
@@ -235,7 +261,7 @@ export function buildRepoToolRequestedCommand(toolName: string, args: JsonObject
     return formatToolCommand('run', [
       ['command', readString(args.command)],
       ['outputMode', optionalString(args.outputMode)],
-      ['timeout', parsePositiveInteger(args.timeout)],
+      ['timeoutMs', parsePositiveInteger(args.timeoutMs)],
     ]);
   }
   if (toolName === 'web_search') {
@@ -928,17 +954,14 @@ async function executeRun(args: JsonObject, context: RepoToolContext): Promise<R
       'run outputMode must be "auto" or "full"',
     );
   }
-  const timeoutSeconds = resolveOptionalPositiveInteger(
-    args.timeout,
-    'timeout must be a positive integer (seconds)',
-  );
-  if (typeof timeoutSeconds === 'string') {
-    return failure('run', command, timeoutSeconds);
+  const timeoutMs = resolveRunTimeoutMs(args);
+  if (typeof timeoutMs === 'string') {
+    return failure('run', command, timeoutMs);
   }
   const result = await spawnPowerShellAsync(commandText, {
     cwd: context.repoRoot,
     abortSignal: context.abortSignal,
-    timeoutMs: timeoutSeconds === undefined ? undefined : timeoutSeconds * 1000,
+    timeoutMs,
     env: { [AGENT_RUN_ID_ENV]: context.agentRunId },
   });
   const output =

@@ -38,6 +38,7 @@ import {
 import type { ApprovalRequester } from './approval-gate.js';
 import { buildDuplicateFingerprint, DuplicateTracker } from './duplicate-tracker.js';
 import { FORCED_FINISH_MAX_ATTEMPTS, FORCED_FINISH_MODE_MESSAGE, ForcedFinishController } from './forced-finish.js';
+import { ActivitySummaryCollector } from './activity-summary-collector.js';
 import { ProgressReporter } from './progress-reporter.js';
 import { ReadWindowGovernor } from './read-window-governor.js';
 import {
@@ -153,6 +154,7 @@ export type ToolActionProcessorDeps = {
 };
 
 export class ToolActionProcessor {
+  private readonly collector = new ActivitySummaryCollector();
   private progressToolCallSeq = 0;
   private forcedFinishCountdownUserMessageIndex = -1;
 
@@ -176,12 +178,16 @@ export class ToolActionProcessor {
       completedCommandCountAtTurnStart: this.deps.commands.length,
     };
 
+    const commandsAtBatchStart = this.deps.commands.length;
     for (const toolAction of toolActions) {
       const outcome = await this.processToolAction(turn, toolAction, state, promptTokenCount, inForcedFinishMode);
       if (outcome === 'stop_batch') {
         break;
       }
     }
+
+    const batchCommands = this.deps.commands.slice(commandsAtBatchStart);
+    this.collector.recordBatch(turn, toolActions, batchCommands);
 
     const appendSpan = this.deps.timingRecorder?.start('repo.tool.append', {
       taskId: this.deps.task.id,
@@ -206,6 +212,10 @@ export class ToolActionProcessor {
         this.forcedFinishCountdownUserMessageIndex,
         state.pendingForcedFinishCountdownText,
       );
+    }
+    const summary = this.collector.takeSummary(turn, this.deps.progress.getMaxTurns());
+    if (summary !== null) {
+      this.deps.progress.activitySummary(summary);
     }
     return counters.reason === 'forced_finish_attempt_limit' ? 'stop' : 'continue';
   }

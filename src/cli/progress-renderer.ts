@@ -1,6 +1,7 @@
 import { JsonRecordReader } from '../lib/json-record-reader.js';
 import type { JsonObject } from '../lib/json-types.js';
 import { formatTimestamp } from '../lib/text-format.js';
+import { ActivitySummaryProgressEventSchema } from '../repo-search/engine/activity-summary-collector.js';
 
 const SKIPPED_KINDS = new Set(['thinking', 'answer']);
 
@@ -28,13 +29,13 @@ export class CliProgressRenderer {
     if (!kind || SKIPPED_KINDS.has(kind)) {
       return;
     }
-    const line = this.describe(kind, reader);
+    const line = this.describe(kind, reader, event);
     if (line) {
       this.stderr.write(`${formatTimestamp()} ${this.opLabel} ${line}\n`);
     }
   }
 
-  private describe(kind: string, reader: JsonRecordReader): string {
+  private describe(kind: string, reader: JsonRecordReader, event: JsonObject): string {
     const turn = reader.number('turn');
     const maxTurns = reader.number('maxTurns');
     const turnPrefix = turn !== null && maxTurns !== null ? `t${turn}/${maxTurns} ` : '';
@@ -62,7 +63,34 @@ export class CliProgressRenderer {
       const reason = reader.optionalString('reason') || '';
       return `${turnPrefix}auto-approval ${verdict}: ${reader.optionalString('toolName') || ''} — ${reason}`.trim();
     }
+    if (kind === 'activity_summary') {
+      const result = ActivitySummaryProgressEventSchema.safeParse(event);
+      if (result.success) {
+        return this.formatActivitySummary(result.data);
+      }
+    }
     return `${turnPrefix}${kind}`.trim();
+  }
+
+  private formatActivitySummary(event: { turn: number; maxTurns: number; entries: { category: string; label: string; failed: boolean }[] }): string {
+    const lines: string[] = [`--- activity summary t${event.turn}/${event.maxTurns} ---`];
+    const grouped = new Map<string, { label: string; failed: boolean }[]>();
+    for (const entry of event.entries) {
+      const bucket = grouped.get(entry.category) ?? [];
+      bucket.push({ label: entry.label, failed: entry.failed });
+      grouped.set(entry.category, bucket);
+    }
+    const categoryOrder = ['read_files', 'repository_searches', 'commands', 'edited_files', 'tests', 'web'];
+    for (const category of categoryOrder) {
+      const items = grouped.get(category);
+      if (!items || items.length === 0) {
+        continue;
+      }
+      const count = items.length;
+      const labels = items.map((item) => `${item.label}${item.failed ? ' [failed]' : ''}`).join(', ');
+      lines.push(`  ${category} (${count}): ${labels}`);
+    }
+    return lines.join('\n');
   }
 }
 
@@ -73,7 +101,8 @@ export class SilentProgressRenderer extends CliProgressRenderer {
 
 export class WarningOnlyProgressRenderer extends CliProgressRenderer {
   override render(event: JsonObject): void {
-    if (new JsonRecordReader(event).optionalString('kind') === 'context_warning') {
+    const kind = new JsonRecordReader(event).optionalString('kind');
+    if (kind === 'context_warning' || kind === 'activity_summary') {
       super.render(event);
     }
   }

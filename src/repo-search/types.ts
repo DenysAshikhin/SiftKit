@@ -12,6 +12,9 @@ import type { RetainedWebToolCall } from '../web-search/web-tool-command.js';
 import type { ApprovalGate, ApprovalMode } from './engine/approval-gate.js';
 import type { ChatMessage } from './planner-protocol.js';
 import { ScorecardSchema } from './engine.js';
+import type { ActivitySummaryEntry } from './engine/activity-summary-collector.js';
+
+export type { ActivitySummaryCategory, ActivitySummaryEntry, ActivitySummaryProgressEvent } from './engine/activity-summary-collector.js';
 
 export type { RetainedWebToolCall } from '../web-search/web-tool-command.js';
 
@@ -46,6 +49,7 @@ export type RepoSearchProgressEvent = {
   verdict?: string;
   reason?: string;
   warningText?: string;
+  entries?: ActivitySummaryEntry[];
 };
 
 export type RepoSearchMockCommandResult = {

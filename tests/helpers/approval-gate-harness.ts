@@ -9,12 +9,14 @@ export class ApprovalGateHarness {
   constructor(
     progressWriter: ProgressWriter<RepoSearchProgressEvent>,
     bypassReadOnlyTools = false,
+    decisionTimeoutMs?: number,
   ) {
     this.gate = new ApprovalGate({
       requestId: 'run-1',
       progressWriter,
       abortSignal: this.controller.signal,
       bypassReadOnlyTools,
+      ...(decisionTimeoutMs === undefined ? {} : { decisionTimeoutMs }),
     });
   }
 }

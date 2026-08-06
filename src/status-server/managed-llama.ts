@@ -2,16 +2,17 @@
  * Managed llama.cpp lifecycle: spawning the configured launcher executable,
  * health checks, log scanning, and readiness management.
  *
- * Free helper functions (terminateProcessTree, resolveManagedExecutablePath, etc.)
- * are exported directly. Lifecycle functions that need mutable server state
- * take a `ServerContext` as their first argument.
+ * Free helper functions (resolveManagedExecutablePath, etc.) are exported directly.
+ * Lifecycle functions that need mutable server state take a `ServerContext` as their
+ * first argument.
  */
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import type { ChildProcess, SpawnSyncReturns } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { toError, getErrorMessage } from '../lib/errors.js';
 import { POWERSHELL_BASE_ARGS } from '../lib/powershell.js';
+import { terminateProcessTree } from '../lib/process-tree.js';
 import { sleep } from '../lib/time.js';
 import { serverLogger } from './server-logger.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
@@ -412,39 +413,6 @@ export function getManagedLlamaSpeculativeMetricsDelta(
 // ---------------------------------------------------------------------------
 // Process tree termination
 // ---------------------------------------------------------------------------
-
-export type TerminateProcessTreeOptions = {
-  processObject?: { platform: string; kill: (pid: number, signal?: string) => boolean };
-  spawnSyncImpl?: typeof spawnSync;
-};
-
-export function terminateProcessTree(pid: number | string, options: TerminateProcessTreeOptions = {}): boolean {
-  const processObject = options.processObject || process;
-  const spawnSyncImpl = options.spawnSyncImpl || spawnSync;
-  const numericPid = Number(pid);
-  if (!Number.isFinite(numericPid) || numericPid <= 0) {
-    return false;
-  }
-  if (processObject.platform === 'win32') {
-    try {
-      const result: SpawnSyncReturns<Buffer> = spawnSyncImpl('taskkill', ['/PID', String(Math.trunc(numericPid)), '/T', '/F'], {
-        stdio: 'ignore',
-        windowsHide: true,
-      });
-      if ((result?.status ?? 1) === 0) {
-        return true;
-      }
-    } catch {
-      // Fall back to process.kill below.
-    }
-  }
-  try {
-    processObject.kill(Math.trunc(numericPid), 'SIGTERM');
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function findListeningProcessIdByPort(port: number): number | null {
   if (!Number.isFinite(port) || port <= 0) {

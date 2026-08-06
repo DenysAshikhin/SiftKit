@@ -19,137 +19,152 @@ const REPO_SEARCH_BODY = {
   },
 };
 
-test('repo-search streams tool progress then a schema-valid result', async () => {
-  const harness = await startHarness('siftkit-streamed-rs-');
-  try {
-    const response = await requestSse(`${harness.baseUrl}/repo-search`, {
-      body: { ...REPO_SEARCH_BODY, repoRoot: process.cwd() },
-    });
-    assert.equal(response.statusCode, 200);
-    assert.ok(response.result, response.rawBody);
-    const parsed = RepoSearchExecutionResultSchema.parse(response.result);
-    assert.equal(parsed.scorecard.tasks[0]?.finalOutput, 'done');
-    const kinds = response.progress.map((event) => String(event.kind || ''));
-    assert.ok(kinds.includes('tool_start'), kinds.join(','));
-    assert.ok(kinds.includes('tool_result'), kinds.join(','));
-    assert.ok(!kinds.includes('thinking'), 'thinking frames must be filtered');
-    assert.ok(!kinds.includes('answer'), 'answer frames must be filtered');
-  } finally {
-    await harness.close();
-  }
+test('repo-search streams tool progress then a schema-valid result', async (t) => {
+  const harness = await startHarness('siftkit-streamed-rs-', t);
+  const response = await requestSse(`${harness.baseUrl}/repo-search`, {
+    body: { ...REPO_SEARCH_BODY, repoRoot: process.cwd() },
+  });
+  assert.equal(response.statusCode, 200);
+  assert.ok(response.result, response.rawBody);
+  const parsed = RepoSearchExecutionResultSchema.parse(response.result);
+  assert.equal(parsed.scorecard.tasks[0]?.finalOutput, 'done');
+  const kinds = response.progress.map((event) => String(event.kind || ''));
+  assert.ok(kinds.includes('tool_start'), kinds.join(','));
+  assert.ok(kinds.includes('tool_result'), kinds.join(','));
+  assert.ok(!kinds.includes('thinking'), 'thinking frames must be filtered');
+  assert.ok(!kinds.includes('answer'), 'answer frames must be filtered');
 });
 
-test('queued repo-search sees lock_wait progress while a slow run holds the lock', async () => {
-  const harness = await startHarness('siftkit-streamed-rs-lock-');
-  try {
-    const slowBody = {
-      ...REPO_SEARCH_BODY,
-      repoRoot: process.cwd(),
-      mockCommandResults: {
-        'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 3_000 },
-      },
-    };
-    const holder = requestSse(`${harness.baseUrl}/repo-search`, { body: slowBody, timeoutMs: 20_000 });
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    const queued = await requestSse(`${harness.baseUrl}/repo-search`, {
-      body: {
-        prompt: 'queued',
-        repoRoot: process.cwd(),
-        model: 'mock-model',
-        maxTurns: 1,
-        availableModels: ['mock-model'],
-        mockResponses: ['{"action":"finish","output":"queued done"}'],
-        mockCommandResults: {},
-      },
-      timeoutMs: 20_000,
-    });
-    const holderResponse = await holder;
-    assert.ok(holderResponse.result);
-    assert.ok(queued.result);
-    assert.ok(
-      queued.progress.some((event) => event.kind === 'lock_wait'),
-      'expected lock_wait progress while queued',
-    );
-  } finally {
-    await harness.close();
+test('repo-search emits activity_summary after ten tool turns', async (t) => {
+  const harness = await startHarness('siftkit-streamed-rs-activity-', t);
+  const mockResponses: string[] = [];
+  const mockCommandResults: Record<string, { exitCode: number; stdout: string; stderr: string; delayMs: number }> = {};
+  for (let i = 1; i <= 10; i++) {
+    mockResponses.push(`{"action":"git","command":"git grep -n \\"x\\" src${i}"}`);
+    mockCommandResults[`git grep -n "x" src${i}`] = { exitCode: 0, stdout: `src${i}/example.ts:1:x`, stderr: '', delayMs: 50 };
   }
-});
-
-test('client disconnect aborts the run and frees the lock', async () => {
-  const harness = await startHarness('siftkit-streamed-rs-abort-');
-  try {
-    const slowBody = JSON.stringify({
-      ...REPO_SEARCH_BODY,
-      repoRoot: process.cwd(),
-      mockCommandResults: {
-        'git grep -n "x" src': { exitCode: 0, stdout: 'x', stderr: '', delayMs: 10_000 },
-      },
-    });
-    await new Promise<void>((resolve, reject) => {
-      const request = httpRequest(`${harness.baseUrl}/repo-search`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(slowBody, 'utf8'),
-        },
-      }, (response) => {
-        response.once('data', () => {
-          request.destroy();
-          resolve();
-        });
-      });
-      request.on('error', reject);
-      request.write(slowBody);
-      request.end();
-    });
-    const startedAt = Date.now();
-    const followUp = await requestSse(`${harness.baseUrl}/repo-search`, {
-      body: {
-        prompt: 'after abort',
-        repoRoot: process.cwd(),
-        model: 'mock-model',
-        maxTurns: 1,
-        availableModels: ['mock-model'],
-        mockResponses: ['{"action":"finish","output":"after abort done"}'],
-        mockCommandResults: {},
-      },
-      timeoutMs: 20_000,
-    });
-    assert.ok(followUp.result, followUp.rawBody);
-    assert.ok(Date.now() - startedAt < 8_000, 'lock was not freed by the aborted run');
-  } finally {
-    await harness.close();
-  }
-});
-
-test('sanity-check failure surfaces as an error frame', async () => {
-  const harness = await startHarness('siftkit-streamed-rs-sanity-');
-  try {
-    const duplicated = [
-      'The first result line contains enough implementation detail to exceed the safety threshold.',
-      'The second result line confirms the same repository evidence with a stable conclusion.',
-      'Conclusion: the duplicated whole-output block must be rejected before transport.',
-    ];
-    const terms = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'];
-    const body = {
-      prompt: 'find duplicated response',
+  mockResponses.push('{"action":"finish","output":"done"}');
+  const response = await requestSse(`${harness.baseUrl}/repo-search`, {
+    body: {
+      prompt: 'find x',
       repoRoot: process.cwd(),
       model: 'mock-model',
-      maxTurns: 8,
+      maxTurns: 12,
       availableModels: ['mock-model'],
-      mockResponses: [
-        ...terms.map((term) => JSON.stringify({ action: 'git', command: `git grep -n "${term}" src` })),
-        JSON.stringify({ action: 'finish', output: [...duplicated, ...duplicated].join('\n') }),
-      ],
-      mockCommandResults: Object.fromEntries(terms.map((term, index) => [
-        `git grep -n "${term}" src`,
-        { exitCode: 0, stdout: `src/${index}.ts:1:${term}`, stderr: '' },
-      ])),
-    };
-    const response = await requestSse(`${harness.baseUrl}/repo-search`, { body, timeoutMs: 20_000 });
-    assert.equal(response.result, null);
-    assert.match(String(response.errorMessage), /sanity check failed/iu);
-  } finally {
-    await harness.close();
-  }
+      mockResponses,
+      mockCommandResults,
+    },
+    timeoutMs: 30_000,
+  });
+  assert.equal(response.statusCode, 200);
+  assert.ok(response.result, response.rawBody);
+  const kinds = response.progress.map((event) => String(event.kind || ''));
+  assert.ok(kinds.includes('activity_summary'), `expected activity_summary in: ${kinds.join(',')}`);
+  const summaryEvents = response.progress.filter((event) => event.kind === 'activity_summary');
+  assert.equal(summaryEvents.length, 1);
+  assert.equal(summaryEvents[0].turn, 10);
+  assert.ok(Array.isArray(summaryEvents[0].entries));
+});
+
+test('queued repo-search sees lock_wait progress while a slow run holds the lock', async (t) => {
+  const harness = await startHarness('siftkit-streamed-rs-lock-', t);
+  const slowBody = {
+    ...REPO_SEARCH_BODY,
+    repoRoot: process.cwd(),
+    mockCommandResults: {
+      'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 3_000 },
+    },
+  };
+  const holder = requestSse(`${harness.baseUrl}/repo-search`, { body: slowBody, timeoutMs: 20_000 });
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  const queued = await requestSse(`${harness.baseUrl}/repo-search`, {
+    body: {
+      prompt: 'queued',
+      repoRoot: process.cwd(),
+      model: 'mock-model',
+      maxTurns: 1,
+      availableModels: ['mock-model'],
+      mockResponses: ['{"action":"finish","output":"queued done"}'],
+      mockCommandResults: {},
+    },
+    timeoutMs: 20_000,
+  });
+  const holderResponse = await holder;
+  assert.ok(holderResponse.result);
+  assert.ok(queued.result);
+  assert.ok(
+    queued.progress.some((event) => event.kind === 'lock_wait'),
+    'expected lock_wait progress while queued',
+  );
+});
+
+test('client disconnect aborts the run and frees the lock', async (t) => {
+  const harness = await startHarness('siftkit-streamed-rs-abort-', t);
+  const slowBody = JSON.stringify({
+    ...REPO_SEARCH_BODY,
+    repoRoot: process.cwd(),
+    mockCommandResults: {
+      'git grep -n "x" src': { exitCode: 0, stdout: 'x', stderr: '', delayMs: 10_000 },
+    },
+  });
+  await new Promise<void>((resolve, reject) => {
+    const request = httpRequest(`${harness.baseUrl}/repo-search`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(slowBody, 'utf8'),
+      },
+    }, (response) => {
+      response.once('data', () => {
+        request.destroy();
+        resolve();
+      });
+    });
+    request.on('error', reject);
+    request.write(slowBody);
+    request.end();
+  });
+  const startedAt = Date.now();
+  const followUp = await requestSse(`${harness.baseUrl}/repo-search`, {
+    body: {
+      prompt: 'after abort',
+      repoRoot: process.cwd(),
+      model: 'mock-model',
+      maxTurns: 1,
+      availableModels: ['mock-model'],
+      mockResponses: ['{"action":"finish","output":"after abort done"}'],
+      mockCommandResults: {},
+    },
+    timeoutMs: 20_000,
+  });
+  assert.ok(followUp.result, followUp.rawBody);
+  assert.ok(Date.now() - startedAt < 8_000, 'lock was not freed by the aborted run');
+});
+
+test('sanity-check failure surfaces as an error frame', async (t) => {
+  const harness = await startHarness('siftkit-streamed-rs-sanity-', t);
+  const duplicated = [
+    'The first result line contains enough implementation detail to exceed the safety threshold.',
+    'The second result line confirms the same repository evidence with a stable conclusion.',
+    'Conclusion: the duplicated whole-output block must be rejected before transport.',
+  ];
+  const terms = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'];
+  const body = {
+    prompt: 'find duplicated response',
+    repoRoot: process.cwd(),
+    model: 'mock-model',
+    maxTurns: 8,
+    availableModels: ['mock-model'],
+    mockResponses: [
+      ...terms.map((term) => JSON.stringify({ action: 'git', command: `git grep -n "${term}" src` })),
+      JSON.stringify({ action: 'finish', output: [...duplicated, ...duplicated].join('\n') }),
+    ],
+    mockCommandResults: Object.fromEntries(terms.map((term, index) => [
+      `git grep -n "${term}" src`,
+      { exitCode: 0, stdout: `src/${index}.ts:1:${term}`, stderr: '' },
+    ])),
+  };
+  const response = await requestSse(`${harness.baseUrl}/repo-search`, { body, timeoutMs: 20_000 });
+  assert.equal(response.result, null);
+  assert.match(String(response.errorMessage), /sanity check failed/iu);
 });

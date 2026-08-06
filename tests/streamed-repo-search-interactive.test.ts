@@ -91,199 +91,179 @@ async function waitForApprovalRegistryRemoval(
   }
 }
 
-test('default repo-search uses git without approval or repo-agent run control', async () => {
-  const harness = await startHarness('siftkit-default-search-isolation-');
-  try {
-    const runRoot = path.join(
-      process.cwd(),
-      '.siftkit',
-      'repo-agent',
-      'runs',
-    );
-    const response = await requestSse(`${harness.baseUrl}/repo-search`, {
-      body: {
-        prompt: 'inspect status',
-        repoRoot: process.cwd(),
-        model: 'mock-model',
-        maxTurns: 2,
-        availableModels: ['mock-model'],
-        mockResponses: [
-          '{"action":"git","command":"git status --short"}',
-          '{"action":"finish","output":"done"}',
-        ],
-        mockCommandResults: {
-          'git status --short': {
-            exitCode: 0,
-            stdout: ' M src/example.ts',
-            stderr: '',
-          },
-        },
-      },
-      timeoutMs: 20_000,
-    });
-
-    assert.ok(response.result, response.rawBody);
-    const result = RepoSearchExecutionResultSchema.parse(response.result);
-    assert.equal(result.scorecard.tasks[0]?.finalOutput, 'done');
-    assert.equal(
-      response.progress.filter((event) => event.kind === 'approval_request').length,
-      0,
-    );
-    assert.equal(
-      response.progress.filter((event) => event.kind === 'approval_auto').length,
-      0,
-    );
-    assert.equal(fs.existsSync(runRoot), false);
-  } finally {
-    await harness.close();
-  }
-});
-
-test('interactive write run: approval_request precedes execution; approve completes it', async () => {
-  const harness = await startHarness('siftkit-interactive-approve-');
-  try {
-    const response = await requestSse(`${harness.baseUrl}/repo-search`, {
-      body: {
-        prompt: 'write a file', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 4,
-        interactive: true,
-        availableModels: ['mock-model'],
-        mockResponses: [
-          '{"action":"write","path":"interactive-out.txt","content":"approved"}',
-          '{"action":"finish","output":"wrote it"}',
-        ],
-        mockCommandResults: {},
-      },
-      timeoutMs: 20_000,
-      onProgress: async (event) => {
-        if (event.kind !== 'approval_request') return;
-        const submitted = await postJson(`${harness.baseUrl}/repo-search/approval`, {
-          requestId: String(event.requestId), approvalId: String(event.approvalId), decision: 'approve',
-        });
-        assert.equal(submitted.statusCode, 200);
-        assert.equal(submitted.body.accepted, true);
-      },
-    });
-    assert.ok(response.result, response.rawBody);
-    const written = path.join(process.cwd(), 'interactive-out.txt');
-    assert.equal(fs.readFileSync(written, 'utf8'), 'approved');
-    fs.rmSync(written, { force: true });
-    const approvalFrames = response.progress.filter((event) => event.kind === 'approval_request');
-    assert.equal(approvalFrames.length, 1);
-    assert.equal(approvalFrames[0].toolName, 'write');
-  } finally {
-    await harness.close();
-  }
-});
-
-test('interactive deny: reason reaches the transcript; abort ends with error frame', async () => {
-  const harness = await startHarness('siftkit-interactive-deny-');
-  try {
-    const denyResponse = await requestSse(`${harness.baseUrl}/repo-search`, {
-      body: {
-        prompt: 'write then stop', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 4,
-        interactive: true,
-        availableModels: ['mock-model'],
-        mockResponses: [
-          '{"action":"write","path":"never.txt","content":"never"}',
-          '{"action":"finish","output":"gave up"}',
-        ],
-        mockCommandResults: {},
-      },
-      timeoutMs: 20_000,
-      onProgress: async (event) => {
-        if (event.kind !== 'approval_request') return;
-        await postJson(`${harness.baseUrl}/repo-search/approval`, {
-          requestId: String(event.requestId), approvalId: String(event.approvalId), decision: 'deny', reason: 'wrong path',
-        });
-      },
-    });
-    assert.ok(denyResponse.result);
-    assert.equal(fs.existsSync(path.join(process.cwd(), 'never.txt')), false);
-
-    const abortResponse = await requestSse(`${harness.baseUrl}/repo-search`, {
-      body: {
-        prompt: 'abort me', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 4,
-        interactive: true,
-        availableModels: ['mock-model'],
-        mockResponses: ['{"action":"ls"}', '{"action":"finish","output":"unreachable"}'],
-        mockCommandResults: {},
-      },
-      timeoutMs: 20_000,
-      onProgress: async (event) => {
-        if (event.kind !== 'approval_request') return;
-        await postJson(`${harness.baseUrl}/repo-search/approval`, {
-          requestId: String(event.requestId), approvalId: String(event.approvalId), decision: 'abort',
-        });
-      },
-    });
-    assert.equal(abortResponse.result, null);
-    assert.match(String(abortResponse.errorMessage), /Aborted by user\./u);
-  } finally {
-    await harness.close();
-  }
-});
-
-test('approval endpoint returns 404 for unknown and disconnected runs', async () => {
-  const harness = await startHarness('siftkit-interactive-edge-');
-  try {
-    const notFound = await postJson(`${harness.baseUrl}/repo-search/approval`, {
-      requestId: 'missing', approvalId: 'x', decision: 'approve',
-    });
-    assert.equal(notFound.statusCode, 404);
-
-    const pending = await disconnectAtApproval(`${harness.baseUrl}/repo-search`, {
-      prompt: 'disconnect at approval',
+test('default repo-search uses git without approval or repo-agent run control', async (t) => {
+  const harness = await startHarness('siftkit-default-search-isolation-', t);
+  const runRoot = path.join(
+    process.cwd(),
+    '.siftkit',
+    'repo-agent',
+    'runs',
+  );
+  const response = await requestSse(`${harness.baseUrl}/repo-search`, {
+    body: {
+      prompt: 'inspect status',
       repoRoot: process.cwd(),
       model: 'mock-model',
       maxTurns: 2,
+      availableModels: ['mock-model'],
+      mockResponses: [
+        '{"action":"git","command":"git status --short"}',
+        '{"action":"finish","output":"done"}',
+      ],
+      mockCommandResults: {
+        'git status --short': {
+          exitCode: 0,
+          stdout: ' M src/example.ts',
+          stderr: '',
+        },
+      },
+    },
+    timeoutMs: 20_000,
+  });
+
+  assert.ok(response.result, response.rawBody);
+  const result = RepoSearchExecutionResultSchema.parse(response.result);
+  assert.equal(result.scorecard.tasks[0]?.finalOutput, 'done');
+  assert.equal(
+    response.progress.filter((event) => event.kind === 'approval_request').length,
+    0,
+  );
+  assert.equal(
+    response.progress.filter((event) => event.kind === 'approval_auto').length,
+    0,
+  );
+  assert.equal(fs.existsSync(runRoot), false);
+});
+
+test('interactive write run: approval_request precedes execution; approve completes it', async (t) => {
+  const harness = await startHarness('siftkit-interactive-approve-', t);
+  const response = await requestSse(`${harness.baseUrl}/repo-search`, {
+    body: {
+      prompt: 'write a file', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 4,
+      interactive: true,
+      availableModels: ['mock-model'],
+      mockResponses: [
+        '{"action":"write","path":"interactive-out.txt","content":"approved"}',
+        '{"action":"finish","output":"wrote it"}',
+      ],
+      mockCommandResults: {},
+    },
+    timeoutMs: 20_000,
+    onProgress: async (event) => {
+      if (event.kind !== 'approval_request') return;
+      const submitted = await postJson(`${harness.baseUrl}/repo-search/approval`, {
+        requestId: String(event.requestId), approvalId: String(event.approvalId), decision: 'approve',
+      });
+      assert.equal(submitted.statusCode, 200);
+      assert.equal(submitted.body.accepted, true);
+    },
+  });
+  assert.ok(response.result, response.rawBody);
+  const written = path.join(process.cwd(), 'interactive-out.txt');
+  assert.equal(fs.readFileSync(written, 'utf8'), 'approved');
+  fs.rmSync(written, { force: true });
+  const approvalFrames = response.progress.filter((event) => event.kind === 'approval_request');
+  assert.equal(approvalFrames.length, 1);
+  assert.equal(approvalFrames[0].toolName, 'write');
+});
+
+test('interactive deny: reason reaches the transcript; abort ends with error frame', async (t) => {
+  const harness = await startHarness('siftkit-interactive-deny-', t);
+  const denyResponse = await requestSse(`${harness.baseUrl}/repo-search`, {
+    body: {
+      prompt: 'write then stop', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 4,
+      interactive: true,
+      availableModels: ['mock-model'],
+      mockResponses: [
+        '{"action":"write","path":"never.txt","content":"never"}',
+        '{"action":"finish","output":"gave up"}',
+      ],
+      mockCommandResults: {},
+    },
+    timeoutMs: 20_000,
+    onProgress: async (event) => {
+      if (event.kind !== 'approval_request') return;
+      await postJson(`${harness.baseUrl}/repo-search/approval`, {
+        requestId: String(event.requestId), approvalId: String(event.approvalId), decision: 'deny', reason: 'wrong path',
+      });
+    },
+  });
+  assert.ok(denyResponse.result);
+  assert.equal(fs.existsSync(path.join(process.cwd(), 'never.txt')), false);
+
+  const abortResponse = await requestSse(`${harness.baseUrl}/repo-search`, {
+    body: {
+      prompt: 'abort me', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 4,
       interactive: true,
       availableModels: ['mock-model'],
       mockResponses: ['{"action":"ls"}', '{"action":"finish","output":"unreachable"}'],
       mockCommandResults: {},
-    });
-    await waitForApprovalRegistryRemoval(
-      harness.baseUrl,
-      pending.requestId,
-      pending.approvalId,
-    );
-
-    const followUp = await requestSse(`${harness.baseUrl}/repo-search`, {
-      body: {
-        prompt: 'after disconnect',
-        repoRoot: process.cwd(),
-        model: 'mock-model',
-        maxTurns: 1,
-        availableModels: ['mock-model'],
-        mockResponses: ['{"action":"finish","output":"after disconnect done"}'],
-        mockCommandResults: {},
-      },
-      timeoutMs: 20_000,
-    });
-    assert.ok(followUp.result, followUp.rawBody);
-  } finally {
-    await harness.close();
-  }
+    },
+    timeoutMs: 20_000,
+    onProgress: async (event) => {
+      if (event.kind !== 'approval_request') return;
+      await postJson(`${harness.baseUrl}/repo-search/approval`, {
+        requestId: String(event.requestId), approvalId: String(event.approvalId), decision: 'abort',
+      });
+    },
+  });
+  assert.equal(abortResponse.result, null);
+  assert.match(String(abortResponse.errorMessage), /Aborted by user\./u);
 });
 
-test('non-interactive body cannot smuggle mutating tools via allowedTools', async () => {
-  const harness = await startHarness('siftkit-interactive-guard-');
-  try {
-    const response = await requestSse(`${harness.baseUrl}/repo-search`, {
-      body: {
-        prompt: 'write a file', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 4,
-        allowedTools: ['read', 'write', 'run'],
-        availableModels: ['mock-model'],
-        mockResponses: [
-          '{"action":"write","path":"smuggled.txt","content":"nope"}',
-          '{"action":"finish","output":"done"}',
-        ],
-        mockCommandResults: {},
-      },
-      timeoutMs: 20_000,
-    });
-    assert.ok(response.result);
-    assert.equal(fs.existsSync(path.join(process.cwd(), 'smuggled.txt')), false);
-  } finally {
-    await harness.close();
-  }
+test('approval endpoint returns 404 for unknown and disconnected runs', async (t) => {
+  const harness = await startHarness('siftkit-interactive-edge-', t);
+  const notFound = await postJson(`${harness.baseUrl}/repo-search/approval`, {
+    requestId: 'missing', approvalId: 'x', decision: 'approve',
+  });
+  assert.equal(notFound.statusCode, 404);
+
+  const pending = await disconnectAtApproval(`${harness.baseUrl}/repo-search`, {
+    prompt: 'disconnect at approval',
+    repoRoot: process.cwd(),
+    model: 'mock-model',
+    maxTurns: 2,
+    interactive: true,
+    availableModels: ['mock-model'],
+    mockResponses: ['{"action":"ls"}', '{"action":"finish","output":"unreachable"}'],
+    mockCommandResults: {},
+  });
+  await waitForApprovalRegistryRemoval(
+    harness.baseUrl,
+    pending.requestId,
+    pending.approvalId,
+  );
+
+  const followUp = await requestSse(`${harness.baseUrl}/repo-search`, {
+    body: {
+      prompt: 'after disconnect',
+      repoRoot: process.cwd(),
+      model: 'mock-model',
+      maxTurns: 1,
+      availableModels: ['mock-model'],
+      mockResponses: ['{"action":"finish","output":"after disconnect done"}'],
+      mockCommandResults: {},
+    },
+    timeoutMs: 20_000,
+  });
+  assert.ok(followUp.result, followUp.rawBody);
+});
+
+test('non-interactive body cannot smuggle mutating tools via allowedTools', async (t) => {
+  const harness = await startHarness('siftkit-interactive-guard-', t);
+  const response = await requestSse(`${harness.baseUrl}/repo-search`, {
+    body: {
+      prompt: 'write a file', repoRoot: process.cwd(), model: 'mock-model', maxTurns: 4,
+      allowedTools: ['read', 'write', 'run'],
+      availableModels: ['mock-model'],
+      mockResponses: [
+        '{"action":"write","path":"smuggled.txt","content":"nope"}',
+        '{"action":"finish","output":"done"}',
+      ],
+      mockCommandResults: {},
+    },
+    timeoutMs: 20_000,
+  });
+  assert.ok(response.result);
+  assert.equal(fs.existsSync(path.join(process.cwd(), 'smuggled.txt')), false);
 });

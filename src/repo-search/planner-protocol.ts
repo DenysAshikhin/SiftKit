@@ -6,6 +6,7 @@ import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
 import type { JsonObject, LlamaCppChatMessage, LlamaCppChatRole, LlamaCppContentPart, LlamaCppToolCall } from '../llm-protocol/types.js';
 import { extractContentText } from '../llm-protocol/image-attachments.js';
 import { ModelJson } from '../lib/model-json.js';
+import { DEFAULT_RUN_TIMEOUT_MS, MAX_RUN_TIMEOUT_MS } from '../lib/powershell.js';
 import { toError } from '../lib/errors.js';
 import {
   buildProviderErrorMessage,
@@ -199,7 +200,10 @@ const REPO_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
         type: 'object',
         properties: {
           command: { type: 'string', description: 'Command to execute' },
-          timeout: { type: 'integer', description: 'Timeout in seconds (optional, no default timeout)' },
+          timeoutMs: {
+            type: 'integer',
+            description: `Timeout in milliseconds (optional, default ${DEFAULT_RUN_TIMEOUT_MS}, max ${MAX_RUN_TIMEOUT_MS})`,
+          },
           outputMode: {
             type: 'string',
             enum: ['auto', 'full'],

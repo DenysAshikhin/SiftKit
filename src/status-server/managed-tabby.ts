@@ -9,7 +9,7 @@ import { Exl3ModelCapabilities } from '../inference-presets/exl3-model-capabilit
 import { InferenceRunRecorder } from './inference-run-recorder.js';
 import { ManagedInferenceRuntime } from './managed-inference-runtime.js';
 import type { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
-import { terminateProcessTree } from './managed-llama.js';
+import { terminateProcessTree } from '../lib/process-tree.js';
 import { readInferenceRunLogTextByStream } from '../state/inference-runs.js';
 import { TabbyModelClient } from './tabby-model-client.js';
 

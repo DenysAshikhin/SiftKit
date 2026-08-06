@@ -1,3 +1,4 @@
+import type { ActivitySummaryProgressEvent } from '../types.js';
 import type { RepoSearchProgressEvent } from '../types.js';
 import type { ProgressWriter } from '../../lib/progress-writer.js';
 import type { TokenCountSource } from '../prompt-budget.js';
@@ -104,5 +105,13 @@ export class ProgressReporter {
     promptTokenCount: number;
   }): void {
     this.emit({ kind: 'tool_result', ...options, maxTurns: this.maxTurns, elapsedMs: this.elapsedMs() });
+  }
+
+  getMaxTurns(): number {
+    return this.maxTurns;
+  }
+
+  activitySummary(event: ActivitySummaryProgressEvent): void {
+    this.emit(event);
   }
 }

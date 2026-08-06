@@ -44,11 +44,24 @@ import { serverLogger } from './server-logger.js';
 import { readConfig } from './config-store.js';
 
 export const DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS = 900_000;
+/**
+ * Longest a single request may hold the model before the server takes the lock back.
+ *
+ * Deliberately far beyond any legitimate operation: this is not a work deadline, it is the floor
+ * under a wedge. A holder that deadlocks keeps the lock forever — one held it for 943s with a
+ * queue behind it — and every later request waits on a run that will never finish.
+ */
+export const DEFAULT_MODEL_REQUEST_HOLD_CEILING_MS = 3_600_000;
 export const DEFAULT_IDLE_SUMMARY_DELAY_MS = 600_000;
 
 function readModelRequestQueueTimeoutMs(): number {
   const parsed = Number.parseInt(String(process.env.SIFTKIT_MODEL_REQUEST_QUEUE_TIMEOUT_MS || ''), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS;
+}
+
+function readModelRequestHoldCeilingMs(): number {
+  const parsed = Number.parseInt(String(process.env.SIFTKIT_MODEL_REQUEST_HOLD_CEILING_MS || ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MODEL_REQUEST_HOLD_CEILING_MS;
 }
 
 // ---------------------------------------------------------------------------
@@ -292,6 +305,15 @@ function logModelRequestWaitCancelled(waiter: ModelRequestWaiter): void {
   });
 }
 
+function logModelRequestExpired(lock: ModelRequestLock): void {
+  serverLogger.error({
+    scope: 'st',
+    id: lock.token,
+    event: 'expired',
+    fields: `reason=model_hold_ceiling task=${lock.kind} held_ms=${getElapsedMsSinceIso(lock.startedAtUtc)}`,
+  });
+}
+
 function logModelRequestDropped(waiter: ModelRequestWaiter, reason: string): void {
   serverLogger.error({
     scope: 'st',
@@ -334,7 +356,7 @@ export function acquireModelRequest(ctx: ServerContext, kind: string, ownerRunId
     return null;
   }
   const lock = createModelRequestLock(kind, ownerRunId);
-  ctx.activeModelRequests.set(lock.token, lock);
+  registerActiveModelRequest(ctx, lock);
   syncInferenceRunFlushQueueModelState(ctx);
   return lock;
 }
@@ -345,7 +367,30 @@ function createModelRequestLock(kind: string, ownerRunId: string | null): ModelR
     kind: String(kind),
     startedAtUtc: new Date().toISOString(),
     ownerRunId,
+    holdTimeoutHandle: null,
   };
+}
+
+/**
+ * The only way a lock enters the active set, so no path can grant one without a ceiling.
+ * Expiry runs the ordinary release, which is what drains the queue behind the stuck holder.
+ */
+function registerActiveModelRequest(ctx: ServerContext, lock: ModelRequestLock): void {
+  ctx.activeModelRequests.set(lock.token, lock);
+  const holdTimeoutHandle = setTimeout(() => {
+    logModelRequestExpired(lock);
+    releaseModelRequest(ctx, lock.token);
+  }, readModelRequestHoldCeilingMs());
+  holdTimeoutHandle.unref?.();
+  lock.holdTimeoutHandle = holdTimeoutHandle;
+}
+
+function clearModelRequestHoldCeiling(lock: ModelRequestLock): void {
+  if (!lock.holdTimeoutHandle) {
+    return;
+  }
+  clearTimeout(lock.holdTimeoutHandle);
+  lock.holdTimeoutHandle = null;
 }
 
 function removeModelRequestWaiter(ctx: ServerContext, queueToken: string): boolean {
@@ -433,7 +478,7 @@ function grantQueuedModelRequests(ctx: ServerContext): void {
     }
     const lock = createModelRequestLock(waiter.kind, waiter.ownerRunId);
     waiter.grantedLock = lock;
-    ctx.activeModelRequests.set(lock.token, lock);
+    registerActiveModelRequest(ctx, lock);
     clearModelRequestWaiterTimeout(waiter);
     logModelRequestLockAcquired(lock, getElapsedMsSinceIso(waiter.enqueuedAtUtc));
     waiter.resolveLock(lock);
@@ -527,6 +572,7 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
   if (!releasedLock) {
     return false;
   }
+  clearModelRequestHoldCeiling(releasedLock);
   ctx.activeModelRequests.delete(token);
   const finishedAtMs = Date.now();
   ctx.terminalMetadataLastModelRequestFinishedAtMs = finishedAtMs;

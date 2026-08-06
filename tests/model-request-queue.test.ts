@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import test from 'node:test';
+import test, { type TestContext } from 'node:test';
 
 import { getActiveModelPreset } from '../src/config/getters.js';
 import { getDefaultConfig, readConfig } from '../src/status-server/config-store.js';
 import {
+  DEFAULT_MODEL_REQUEST_HOLD_CEILING_MS,
   DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS,
   acquireModelRequestWithWait,
   getModelRequestQueueDiagnostics,
@@ -452,6 +453,69 @@ test('queued model request still times out after its reset window expires', asyn
     assert.deepEqual([...ctx.activeModelRequests.keys()], [activeLock.token]);
 
     assert.equal(releaseModelRequest(ctx, activeLock.token), true);
+  } finally {
+    t.mock.timers.reset();
+    await ctx.inferenceRunFlushQueue.close();
+  }
+});
+
+test('model request hold ceiling default is one hour', () => {
+  assert.equal(DEFAULT_MODEL_REQUEST_HOLD_CEILING_MS, 3_600_000);
+});
+
+function useHoldCeiling(t: TestContext, ceilingMs: number): void {
+  process.env.SIFTKIT_MODEL_REQUEST_HOLD_CEILING_MS = String(ceilingMs);
+  t.after(() => {
+    delete process.env.SIFTKIT_MODEL_REQUEST_HOLD_CEILING_MS;
+  });
+}
+
+// Without a ceiling a holder that never releases wedges the server for every later request:
+// one stuck operation held the lock for 943s with a queue behind it and no way out.
+test('a model request held past the ceiling is force-released and the queue drains', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  useHoldCeiling(t, 25);
+  const ctx = createQueueContext();
+  try {
+    const stuckLock = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(stuckLock);
+    const queuedLockPromise = acquireModelRequestWithWait(ctx, 'summary');
+    assert.equal(ctx.modelRequestQueue.length, 1);
+
+    const lines = await captureStdoutLines(async () => {
+      t.mock.timers.tick(25);
+      const queuedLock = await queuedLockPromise;
+      assert.ok(queuedLock);
+      assert.deepEqual([...ctx.activeModelRequests.keys()], [queuedLock.token]);
+      assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
+    });
+
+    assert.ok(
+      lines.some((line) => /st [\w-]{8}  expired  reason=model_hold_ceiling task=repo_search/u.test(line)),
+      lines.join('\n'),
+    );
+    // The holder's own release finds nothing left to release, which is how it learns it lost the lock.
+    assert.equal(releaseModelRequest(ctx, stuckLock.token), false);
+  } finally {
+    t.mock.timers.reset();
+    await ctx.inferenceRunFlushQueue.close();
+  }
+});
+
+test('releasing a model request cancels its hold ceiling', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  useHoldCeiling(t, 25);
+  const ctx = createQueueContext();
+  try {
+    const lock = await acquireModelRequestWithWait(ctx, 'repo_search');
+    assert.ok(lock);
+    assert.equal(releaseModelRequest(ctx, lock.token), true);
+
+    const lines = await captureStdoutLines(async () => {
+      t.mock.timers.tick(100);
+    });
+
+    assert.equal(lines.some((line) => line.includes('model_hold_ceiling')), false, lines.join('\n'));
   } finally {
     t.mock.timers.reset();
     await ctx.inferenceRunFlushQueue.close();

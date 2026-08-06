@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { SseFrameParser, type SseFrame } from '../../src/lib/sse-frame-parser.js';
 import { parseJsonValueText } from '../../src/lib/json.js';
+import { toError } from '../../src/lib/errors.js';
 import type { JsonObject, JsonSerializable } from '../../src/lib/json-types.js';
 import { asObject } from './dashboard-http.js';
 import { testHttpAgent } from './http-agent.js';
@@ -15,6 +16,15 @@ export type CollectedSseResponse = {
   rawBody: string;
 };
 
+const DEFAULT_REQUEST_DEADLINE_MS = 15_000;
+
+/**
+ * Collects an SSE response, failing hard once `timeoutMs` has elapsed.
+ *
+ * The deadline runs from the request, not from the last byte. `request.setTimeout` measures
+ * socket inactivity, which a stream that keeps emitting progress frames resets forever — an
+ * operation stuck in a loop that still reports would never time out client-side.
+ */
 export function requestSse(
   url: string,
   options: {
@@ -26,6 +36,17 @@ export function requestSse(
 ): Promise<CollectedSseResponse> {
   return new Promise((resolve, reject) => {
     const bodyText = JSON.stringify(options.body);
+    let deadlineHandle: NodeJS.Timeout | null = null;
+    const clearDeadline = (): void => {
+      if (deadlineHandle) {
+        clearTimeout(deadlineHandle);
+        deadlineHandle = null;
+      }
+    };
+    const settle = (outcome: () => void): void => {
+      clearDeadline();
+      outcome();
+    };
     const collected: CollectedSseResponse = {
       statusCode: 0,
       frames: [],
@@ -54,7 +75,11 @@ export function requestSse(
           const data = asObject(parseJsonValueText(frame.data));
           if (frame.event === 'progress') {
             if (options.onProgress) {
-              void Promise.resolve(options.onProgress(data)).catch(reject);
+              // `catch` hands back an untyped rejection reason; toError is the repo's only
+              // sanctioned normalization, so a non-Error throw still fails as a real Error.
+              void Promise.resolve(options.onProgress(data)).catch((error) => {
+                settle(() => reject(toError(error)));
+              });
             }
             collected.progress.push(data);
           } else if (frame.event === 'result') {
@@ -65,11 +90,14 @@ export function requestSse(
           }
         }
       });
-      response.on('end', () => resolve(collected));
-      response.on('error', reject);
+      response.on('end', () => settle(() => resolve(collected)));
+      response.on('error', (error: Error) => settle(() => reject(error)));
     });
-    request.setTimeout(options.timeoutMs ?? 15_000, () => request.destroy(new Error('requestSse timed out')));
-    request.on('error', reject);
+    const deadlineMs = options.timeoutMs ?? DEFAULT_REQUEST_DEADLINE_MS;
+    deadlineHandle = setTimeout(() => {
+      request.destroy(new Error(`requestSse timed out after ${deadlineMs}ms`));
+    }, deadlineMs);
+    request.on('error', (error: Error) => settle(() => reject(error)));
     request.write(bodyText);
     request.end();
   });

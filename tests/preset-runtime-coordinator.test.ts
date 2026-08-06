@@ -67,6 +67,7 @@ function setActiveModelRequests(activeModelRequests: Map<string, ModelRequestLoc
       kind: 'repo_search',
       startedAtUtc: new Date().toISOString(),
       ownerRunId: null,
+      holdTimeoutHandle: null,
     });
   }
 }

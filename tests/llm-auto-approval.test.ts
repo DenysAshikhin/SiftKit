@@ -9,6 +9,7 @@ import {
   APPROVAL_REVIEW_REQUEST_MARKER,
 } from '../src/repo-search/approval-review-policy.js';
 import type { ApprovalGate } from '../src/repo-search/engine/approval-gate.js';
+import { LlmApprovalGate } from '../src/repo-search/engine/llm-approval-gate.js';
 import { ProgressWriter, SilentProgressWriter } from '../src/lib/progress-writer.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { asObject, asArray, getAddressInfo } from './helpers/dashboard-http.js';
@@ -20,6 +21,54 @@ import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-co
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { ApprovalGateHarness } from './helpers/approval-gate-harness.js';
+
+const ESCALATION_DECISION_TIMEOUT_MS = 25;
+
+/** Records everything and answers nothing — a caller that ignores approval frames. */
+class UnansweringWriter extends ProgressWriter<RepoSearchProgressEvent> {
+  public readonly events: RepoSearchProgressEvent[] = [];
+  get enabled(): boolean { return true; }
+  write(event: RepoSearchProgressEvent): void { this.events.push(event); }
+}
+
+/**
+ * Regression for the deadlock behind a 17-minute freeze: when the auto-reviewer cannot produce a
+ * verdict it escalates to the human gate, and a caller that never answers left that escalation
+ * parked forever while holding the model lock. It must terminate as a denial instead.
+ */
+test('an auto-review that reaches no verdict denies when nobody answers the escalation', async () => {
+  const writer = new UnansweringWriter();
+  const harness = new ApprovalGateHarness(writer, false, ESCALATION_DECISION_TIMEOUT_MS);
+  const gate = new LlmApprovalGate({
+    requestId: 'run-1',
+    humanGate: harness.gate,
+    verdictRequester: {
+      // What the real reviewer returns when the model answers with anything but a verdict.
+      requestApprovalVerdict: () => Promise.resolve({
+        text: '{"action":"git","command":"git grep -n \\"x\\" src2"}',
+        thinkingText: '',
+        mockExhausted: false,
+      }),
+    },
+    progressWriter: writer,
+  });
+
+  const decision = await gate.request({
+    turn: 1,
+    toolName: 'git',
+    command: 'git grep -n "x" src1',
+    reviewPayload: null,
+  });
+
+  assert.deepEqual(decision, {
+    kind: 'deny',
+    reason: `No approval decision was received within ${ESCALATION_DECISION_TIMEOUT_MS}ms; the command was not executed.`,
+  });
+  assert.deepEqual(
+    writer.events.map((event) => event.kind),
+    ['approval_auto', 'approval_request'],
+  );
+});
 
 type ScriptedDecision = { kind: 'approve' } | { kind: 'deny'; reason: string } | { kind: 'abort' };
 

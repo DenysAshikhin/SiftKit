@@ -19,7 +19,14 @@ export type { ModelRequestQueueDiagnostics } from '../lib/operation-stream.js';
 
 export type DatabaseInstance = InstanceType<typeof Database>;
 
-export type ModelRequestLock = { token: string; kind: string; startedAtUtc: string; ownerRunId: string | null };
+export type ModelRequestLock = {
+  token: string;
+  kind: string;
+  startedAtUtc: string;
+  ownerRunId: string | null;
+  /** Fires the hold ceiling that force-releases a holder which never releases on its own. */
+  holdTimeoutHandle: NodeJS.Timeout | null;
+};
 export type ModelRequestWaitOptions = { timeoutMs?: number; ownerRunId?: string | null };
 export type ModelRequestWaiter = {
   queueToken: string;

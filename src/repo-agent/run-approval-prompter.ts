@@ -1,6 +1,10 @@
 import { JsonRecordReader } from '../lib/json-record-reader.js';
 import type { JsonObject } from '../lib/json-types.js';
-import type { ApprovalDecision } from '../repo-search/engine/approval-gate.js';
+import {
+  buildApprovalTimeoutDenial,
+  DEFAULT_DECISION_TIMEOUT_MS,
+  type ApprovalDecision,
+} from '../repo-search/engine/approval-gate.js';
 import type { ApprovalPrompter } from '../cli/approval-prompter.js';
 import {
   RepoAgentApprovalSchema,
@@ -12,7 +16,6 @@ import type { RepoAgentRunStore } from './run-store.js';
 import type { RepoAgentBoundaryWaiter } from './boundary-waiter.js';
 
 const DEFAULT_DECISION_POLL_MS = 50;
-export const DEFAULT_DECISION_TIMEOUT_MS = 600_000;
 
 export class RepoAgentRunApprovalPrompter implements ApprovalPrompter {
   private readonly store: RepoAgentRunStore;
@@ -93,10 +96,7 @@ export class RepoAgentRunApprovalPrompter implements ApprovalPrompter {
     );
     if (decision === null) {
       this.store.clearPendingApproval(this.runId, approvalState.revision, 'running');
-      return {
-        kind: 'deny',
-        reason: `No approval decision was received within ${this.decisionTimeoutMs}ms; the command was not executed.`,
-      };
+      return buildApprovalTimeoutDenial(this.decisionTimeoutMs);
     }
 
     return this.handleDecision(decision, approvalState);

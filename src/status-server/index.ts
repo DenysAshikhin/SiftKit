@@ -56,7 +56,6 @@ import { StatusEngineService } from './engine-service.js';
 import { StatusRunRegistry } from './status-run-registry.js';
 import { ChatSessionOperationRegistry } from './chat-session-operation-registry.js';
 import {
-  terminateProcessTree,
   ensureManagedLlamaReady,
   shutdownManagedLlamaIfNeeded,
   shutdownManagedLlamaForProcessExitSync,
@@ -88,7 +87,7 @@ import type { ColorOptions } from '../lib/text-format.js';
 import type { StatusMetadata } from './status-file.js';
 import type { Metrics } from './metrics.js';
 import type { IdleSummarySnapshot } from './idle-summary.js';
-import type { TerminateProcessTreeOptions } from './managed-llama.js';
+import { terminateProcessTree, type TerminateProcessTreeOptions } from '../lib/process-tree.js';
 
 // ---------------------------------------------------------------------------
 // Re-exports (preserves the public API expected by consumers & tests)

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ProgressWriter } from '../src/lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
+import { DEFAULT_DECISION_TIMEOUT_MS } from '../src/repo-search/engine/approval-gate.js';
 import { ApprovalGateHarness } from './helpers/approval-gate-harness.js';
 
 class CollectingWriter extends ProgressWriter<RepoSearchProgressEvent> {
@@ -76,6 +77,68 @@ test('pending approval remains live until an explicit decision', async () => {
     true,
   );
   assert.deepEqual(await pending, { kind: 'approve' });
+});
+
+test('the decision timeout matches the ten minutes the repo-agent prompter waits', () => {
+  assert.equal(DEFAULT_DECISION_TIMEOUT_MS, 600_000);
+});
+
+// Without this bound the gate parks forever: a run whose client never answers holds the model
+// lock indefinitely, which is how one operation held it for 943s with a queue behind it.
+test('an unanswered approval denies once the decision timeout elapses', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const writer = new CollectingWriter();
+  const gate = new ApprovalGateHarness(writer).gate;
+  const pending = gate.request({
+    turn: 1,
+    toolName: 'git',
+    command: 'git grep -n "x" src1',
+    reviewPayload: null,
+  });
+
+  t.mock.timers.tick(DEFAULT_DECISION_TIMEOUT_MS);
+
+  assert.deepEqual(await pending, {
+    kind: 'deny',
+    reason: `No approval decision was received within ${DEFAULT_DECISION_TIMEOUT_MS}ms; the command was not executed.`,
+  });
+  // The approval is gone, so a late decision cannot resurrect a command already reported as denied.
+  assert.equal(gate.submit(String(writer.events[0].approvalId), { kind: 'approve' }), false);
+});
+
+test('a submitted decision cancels the pending timeout', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const writer = new CollectingWriter();
+  const gate = new ApprovalGateHarness(writer).gate;
+  const pending = gate.request({
+    turn: 1,
+    toolName: 'write',
+    command: 'write path=a.ts',
+    reviewPayload: null,
+  });
+
+  assert.equal(gate.submit(String(writer.events[0].approvalId), { kind: 'approve' }), true);
+  t.mock.timers.tick(DEFAULT_DECISION_TIMEOUT_MS * 2);
+
+  assert.deepEqual(await pending, { kind: 'approve' });
+});
+
+test('abort clears the timeout so it cannot resolve an already-rejected approval', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const writer = new CollectingWriter();
+  const harness = new ApprovalGateHarness(writer);
+  const pending = harness.gate.request({
+    turn: 1,
+    toolName: 'write',
+    command: 'write path=a.ts',
+    reviewPayload: null,
+  });
+  const reason = new Error('client disconnected');
+  harness.controller.abort(reason);
+
+  await assert.rejects(pending, reason);
+  t.mock.timers.tick(DEFAULT_DECISION_TIMEOUT_MS * 2);
+  assert.equal(harness.gate.submit(String(writer.events[0].approvalId), { kind: 'approve' }), false);
 });
 
 test('abort rejects every pending approval and makes their IDs stale', async () => {

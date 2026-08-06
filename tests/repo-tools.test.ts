@@ -15,7 +15,9 @@ import {
   executeRepoTool,
   isFailedReadPlan,
   planRead,
+  resolveRunTimeoutMs,
 } from '../src/repo-search/engine/repo-tools.js';
+import { DEFAULT_RUN_TIMEOUT_MS, MAX_RUN_TIMEOUT_MS } from '../src/lib/powershell.js';
 import { buildReadPathKeyForCaseSensitivity, type FileReadState } from '../src/repo-search/engine/read-overlap.js';
 import { makeMockWebTools } from './helpers/mock-web-tools.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
@@ -922,11 +924,50 @@ test('a failed edit reports no mutated path key because nothing was written', as
   assert.equal(result.ok, false);
 });
 
-test('run rejects a non-positive timeout', async () => {
+test('run rejects a non-positive timeoutMs', async () => {
   const root = makeRepo();
-  const result = await executeRepoTool('run', { command: 'echo hi', timeout: 0 }, makeContext(root));
+  const result = await executeRepoTool('run', { command: 'echo hi', timeoutMs: 0 }, makeContext(root));
   assert.equal(result.ok, false);
-  assert.equal(result.ok === false ? result.reason : '', 'timeout must be a positive integer (seconds)');
+  assert.equal(result.ok === false ? result.reason : '', 'timeoutMs must be a positive integer (milliseconds)');
+});
+
+test('run defaults to a bounded timeout when timeoutMs is omitted', () => {
+  assert.equal(resolveRunTimeoutMs({ command: 'echo hi' }), DEFAULT_RUN_TIMEOUT_MS);
+});
+
+test('run passes an in-range timeoutMs through unchanged', () => {
+  assert.equal(resolveRunTimeoutMs({ command: 'echo hi', timeoutMs: 5_000 }), 5_000);
+});
+
+test('run rejects a timeoutMs above the ceiling instead of clamping it silently', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool(
+    'run',
+    { command: 'throw "must not execute"', timeoutMs: MAX_RUN_TIMEOUT_MS + 1 },
+    makeContext(root),
+  );
+  assert.equal(result.ok, false);
+  assert.equal(
+    result.ok === false ? result.reason : '',
+    `timeoutMs must not exceed ${MAX_RUN_TIMEOUT_MS} (milliseconds)`,
+  );
+});
+
+// The seconds-based `timeout` argument was renamed to `timeoutMs`. A model carrying the old
+// name must fail loudly: silently reading it as milliseconds would reinstate the unit bug that
+// turned an intended 120000ms into 120000 seconds.
+test('run rejects the removed seconds-based timeout argument', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool(
+    'run',
+    { command: 'throw "must not execute"', timeout: 120_000 },
+    makeContext(root),
+  );
+  assert.equal(result.ok, false);
+  assert.equal(
+    result.ok === false ? result.reason : '',
+    'timeout is not a valid argument; use timeoutMs (milliseconds)',
+  );
 });
 
 test('repo tools reject present positive-integer arguments instead of coercing them', async () => {
@@ -969,8 +1010,8 @@ test('repo tools reject present positive-integer arguments instead of coercing t
     },
     {
       toolName: 'run',
-      args: { command: 'throw "must not execute"', timeout: 1.5 },
-      expectedReason: 'timeout must be a positive integer (seconds)',
+      args: { command: 'throw "must not execute"', timeoutMs: 1.5 },
+      expectedReason: 'timeoutMs must be a positive integer (milliseconds)',
     },
   ];
 
@@ -981,9 +1022,9 @@ test('repo tools reject present positive-integer arguments instead of coercing t
   }
 });
 
-test('run includes timeout in its requested command so differing timeouts are not duplicates', () => {
+test('run includes timeoutMs in its requested command so differing timeouts are not duplicates', () => {
   assert.equal(
-    buildRepoToolRequestedCommand('run', { command: 'echo hi', timeout: 30 }),
-    'run command="echo hi" timeout=30',
+    buildRepoToolRequestedCommand('run', { command: 'echo hi', timeoutMs: 30_000 }),
+    'run command="echo hi" timeoutMs=30000',
   );
 });

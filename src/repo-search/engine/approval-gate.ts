@@ -55,9 +55,29 @@ export function toApprovalDecision(request: RepoSearchApprovalRequest): Approval
   return { kind: request.decision };
 }
 
+/**
+ * How long a pending approval waits for a decision before denying the command.
+ *
+ * Shared with the repo-agent `decide` flow so both ways of answering an approval expire together.
+ * The wait must be bounded: a run parked here holds the model lock, so a caller that never answers
+ * — a CLI run, or a client that ignores approval frames — would wedge the server for every later
+ * request. It must also stay well under the server's model-lock hold ceiling, or the lock would be
+ * force-released out from under a run that still believes it holds it.
+ */
+export const DEFAULT_DECISION_TIMEOUT_MS = 600_000;
+
+/** One wording for an expired approval, so the gate and the repo-agent prompter cannot drift. */
+export function buildApprovalTimeoutDenial(timeoutMs: number): ApprovalDecision {
+  return {
+    kind: 'deny',
+    reason: `No approval decision was received within ${timeoutMs}ms; the command was not executed.`,
+  };
+}
+
 type PendingApproval = {
   resolve: (decision: ApprovalDecision) => void;
   abortListener: () => void;
+  timeoutHandle: NodeJS.Timeout | null;
 };
 
 /**
@@ -71,17 +91,23 @@ export class ApprovalGate {
   private readonly progressWriter: ProgressWriter<RepoSearchProgressEvent>;
   private readonly abortSignal: AbortSignal;
   private readonly bypassReadOnlyTools: boolean;
+  private readonly decisionTimeoutMs: number;
 
   constructor(options: {
     requestId: string;
     progressWriter: ProgressWriter<RepoSearchProgressEvent>;
     abortSignal: AbortSignal;
     bypassReadOnlyTools: boolean;
+    decisionTimeoutMs?: number;
   }) {
     this.requestId = options.requestId;
     this.progressWriter = options.progressWriter;
     this.abortSignal = options.abortSignal;
     this.bypassReadOnlyTools = options.bypassReadOnlyTools;
+    this.decisionTimeoutMs = options.decisionTimeoutMs ?? DEFAULT_DECISION_TIMEOUT_MS;
+    if (!Number.isFinite(this.decisionTimeoutMs) || this.decisionTimeoutMs <= 0) {
+      throw new Error('Approval decision timeout must be a positive number of milliseconds.');
+    }
   }
 
   getRequestId(): string {
@@ -95,16 +121,22 @@ export class ApprovalGate {
     const approvalId = randomUUID();
     return new Promise<ApprovalDecision>((resolve, reject) => {
       const abortListener = () => {
-        this.pending.delete(approvalId);
-        this.abortSignal.removeEventListener('abort', abortListener);
+        this.clearPending(approvalId);
         reject(getAbortError(this.abortSignal));
       };
-      this.pending.set(approvalId, { resolve, abortListener });
+      const entry: PendingApproval = { resolve, abortListener, timeoutHandle: null };
+      this.pending.set(approvalId, entry);
       this.abortSignal.addEventListener('abort', abortListener, { once: true });
       if (this.abortSignal.aborted) {
         abortListener();
         return;
       }
+      // Not unref'd: this timer is the only guarantee the run resolves, and it is always cleared
+      // on the paths that settle the approval, so it cannot outlive the request.
+      entry.timeoutHandle = setTimeout(() => {
+        this.clearPending(approvalId);
+        resolve(buildApprovalTimeoutDenial(this.decisionTimeoutMs));
+      }, this.decisionTimeoutMs);
       this.progressWriter.write({
         kind: 'approval_request',
         requestId: this.requestId,
@@ -124,9 +156,22 @@ export class ApprovalGate {
     if (!entry) {
       return false;
     }
-    this.pending.delete(approvalId);
-    this.abortSignal.removeEventListener('abort', entry.abortListener);
+    this.clearPending(approvalId);
     entry.resolve(decision);
     return true;
+  }
+
+  /** Forgets an approval and releases everything holding it open, whichever path settled it. */
+  private clearPending(approvalId: string): void {
+    const entry = this.pending.get(approvalId);
+    if (!entry) {
+      return;
+    }
+    this.pending.delete(approvalId);
+    if (entry.timeoutHandle) {
+      clearTimeout(entry.timeoutHandle);
+      entry.timeoutHandle = null;
+    }
+    this.abortSignal.removeEventListener('abort', entry.abortListener);
   }
 }
