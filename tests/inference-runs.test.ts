@@ -136,9 +136,9 @@ test('managed llama pending log chunks emit peak size logs only after one-kiloby
     const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
 
     const lines = await captureStdoutLines(() => {
-      bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'engine_stdout', chunkText: 'a'.repeat(1023) });
+      bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'engine_stdout', chunkText: 'a'.repeat(262_143) });
       bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'engine_stdout', chunkText: 'b' });
-      bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'engine_stdout', chunkText: 'c'.repeat(1023) });
+      bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'engine_stdout', chunkText: 'c'.repeat(262_143) });
       bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'engine_stdout', chunkText: 'd' });
     });
 
@@ -146,8 +146,8 @@ test('managed llama pending log chunks emit peak size logs only after one-kiloby
     assert.deepEqual(
       peakLines.map((line) => line.replace(/^.*inference_run/u, 'inference_run')),
       [
-        `inference_run pending_log_peak run_id=${run.id} pending_chars=1024 stream=engine_stdout stream_chars=1024`,
-        `inference_run pending_log_peak run_id=${run.id} pending_chars=2048 stream=engine_stdout stream_chars=2048`,
+        `inference_run pending_log_peak run_id=${run.id} pending_chars=262144 stream=engine_stdout stream_chars=262144`,
+        `inference_run pending_log_peak run_id=${run.id} pending_chars=524288 stream=engine_stdout stream_chars=524288`,
       ],
     );
   });

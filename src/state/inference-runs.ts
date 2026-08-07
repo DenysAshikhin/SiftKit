@@ -48,7 +48,7 @@ const InferenceRunLogChunkRowSchema = z.object({
   chunk_text: z.string().nullable(),
 });
 
-const PENDING_LOG_PEAK_MIN_STREAM_CHARACTER_DELTA = 1024;
+const PENDING_LOG_PEAK_MIN_STREAM_CHARACTER_DELTA = 256 * 1024;
 
 type PendingRunChunks = {
   chunksByStream: Map<InferenceRunStreamKind, string[]>;
