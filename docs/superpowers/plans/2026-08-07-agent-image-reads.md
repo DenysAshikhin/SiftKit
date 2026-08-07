@@ -4,7 +4,7 @@
 
 **Goal:** Make images a first-class input everywhere in SiftKit — an images-only chat turn executes, the repo-search/plan endpoints stop dropping attachments, the agent's `read` tool can look at a repository image, every image is size- and dimension-admitted before it reaches the model, and the dashboard renders images inline with a collapsed annotation.
 
-**Architecture:** One shared admission path (`src/llm-protocol/image-admission.ts`) validates bytes, reads dimensions, and downscales to a per-preset token ceiling; every entry point (CLI `--image`, HTTP data URLs, agent `read`, browser paste) goes through it. The agent `read` tool dispatches on file extension and returns a text result plus an `imageDataUrl`, which the engine appends as a `role: 'user'` message immediately after the tool result. That synthetic message is persisted as a first-class row so chat replay reconstructs it in position, and a new `VisionImageRetention` preset field ages old images out of context.
+**Architecture:** One shared admission path (`src/llm-protocol/image-admission.ts`) validates bytes, reads dimensions, and downscales to a per-preset ceiling — the model's own pixel limit, narrowed by a user-tunable `VisionMaxImageEdge`; every entry point (CLI `--image`, HTTP data URLs, agent `read`, browser paste) goes through it. The agent `read` tool dispatches on file extension and returns a text result plus an `imageDataUrl`, which the engine appends as a `role: 'user'` message immediately after the tool result. That synthetic message is persisted as a first-class row so chat replay reconstructs it in position, and a new `VisionImageRetention` preset field ages old images out of context.
 
 **Tech Stack:** TypeScript (ESM, `node:test` + `node:assert/strict`), zod (via `src/lib/zod.js`), better-sqlite3, `@napi-rs/image` (new runtime dependency), React (dashboard), ESLint.
 
@@ -29,7 +29,7 @@ Consequence for Task 5: implement `resolveImageTokenBudget` exactly as designed 
 | File | Responsibility |
 |---|---|
 | `src/llm-protocol/image-admission.ts` | Dimension reading, target-dimension math, server-side downscale, and the single `admitImageBuffer` / `admitImageDataUrl` entry points. |
-| `src/llm-protocol/image-token-budget.ts` | `resolveImageTokenBudget(preset)` — derives max pixels from the preset's `preprocessor_config.json`, caches per preset, logs its source. |
+| `src/llm-protocol/image-token-budget.ts` | `resolveImageTokenBudget(preset)` — derives max pixels from the preset's `preprocessor_config.json`, caches per preset, logs its source. Also owns `resolveEffectiveImagePixelCeiling` (model ceiling narrowed by the user's edge cap) and `estimateVisionPeakVramBytes`, so the number the settings panel promises and the number admission enforces come from one calculation. |
 | `src/repo-search/engine/image-read.ts` | The `read` image branch: `planImageRead` + `buildImageReadExecution`. Keeps `repo-tools.ts` from growing another 100 lines. |
 | `src/image-retention-policy.ts` | `ImageRetentionPolicy` — ages images out of a message array, mirroring `src/thinking-retention-policy.ts`. |
 | `src/status-server/routes/chat-image-caption.ts` | The on-demand caption endpoint. |
@@ -44,7 +44,7 @@ Consequence for Task 5: implement `resolveImageTokenBudget` exactly as designed 
 
 **Modified files** (each named at its task)
 
-`src/config/constants.ts`, `src/config/defaults.ts`, `src/config/normalization.ts`, `packages/contracts/src/config.ts`, `packages/contracts/src/chat.ts`, `src/llm-protocol/image-attachments.ts`, `src/repo-search/execute.ts`, `src/repo-search/planner-protocol.ts`, `src/repo-search/engine/repo-tools.ts`, `src/repo-search/engine/tool-action-processor.ts`, `src/repo-search/engine/transcript-manager.ts`, `src/repo-search/engine.ts`, `src/repo-search/prompts.ts`, `src/state/runtime-db.ts`, `src/state/chat-sessions.ts`, `src/status-server/chat.ts`, `src/status-server/chat-repo-operation-runner.ts`, `src/status-server/chat-route-request-normalizers.ts`, `src/status-server/routes/chat.ts`, `src/status-server/routes/chat-session-operation-endpoint.ts`, `src/status-server/route-table.ts`, `dashboard/src/api.ts`, `dashboard/src/hooks/useChatSessions.ts`, `dashboard/src/tabs/ChatTab.tsx`, `dashboard/src/tabs/settings/ModelPresetsSection.tsx`, `dashboard/src/styles.css`, `tests/repo-search.test.ts`, `tests/image-attachments.test.ts`.
+`src/config/constants.ts`, `src/config/defaults.ts`, `src/config/normalization.ts`, `src/inference-presets/preset-compatibility.ts`, `packages/contracts/src/config.ts`, `packages/contracts/src/chat.ts`, `src/llm-protocol/image-attachments.ts`, `src/repo-search/execute.ts`, `src/repo-search/planner-protocol.ts`, `src/repo-search/engine/repo-tools.ts`, `src/repo-search/engine/tool-action-processor.ts`, `src/repo-search/engine/transcript-manager.ts`, `src/repo-search/engine.ts`, `src/repo-search/prompts.ts`, `src/state/runtime-db.ts`, `src/state/chat-sessions.ts`, `src/status-server/chat.ts`, `src/status-server/chat-repo-operation-runner.ts`, `src/status-server/chat-route-request-normalizers.ts`, `src/status-server/routes/chat.ts`, `src/status-server/routes/chat-session-operation-endpoint.ts`, `src/status-server/route-table.ts`, `dashboard/src/api.ts`, `dashboard/src/hooks/useChatSessions.ts`, `dashboard/src/tabs/ChatTab.tsx`, `dashboard/src/tabs/settings/ModelPresetsSection.tsx`, `dashboard/src/styles.css`, `tests/repo-search.test.ts`, `tests/image-attachments.test.ts`.
 
 ---
 
@@ -1117,6 +1117,14 @@ export const SIFT_DEFAULT_VISION_IMAGE_RETENTION = 8;
 
 `src/config/normalization.ts` — add the field beside the existing `VisionEnabled` normalization. Find the line with `git grep -n "VisionEnabled" src/config/normalization.ts` and mirror the numeric-field pattern already used there for e.g. `SleepIdleSeconds`, defaulting to `SIFT_DEFAULT_VISION_IMAGE_RETENTION`.
 
+`src/inference-presets/preset-compatibility.ts:137` — add to `PRESET_FIELD_SUPPORT`, beside `VisionEnabled`:
+
+```ts
+  VisionImageRetention: 'exl3-managed-only-unsupported-by-llama',
+```
+
+That map is `satisfies Record<ModelPresetField, PresetFieldSupport>`, so omitting the entry is a typecheck failure, not a silent default. Vision is exl3-only — `assertPresetAcceptsImages` already refuses the llama backend outright — so the field is hidden there.
+
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npm test && npm run typecheck`
@@ -1127,6 +1135,319 @@ Expected: PASS. The typecheck will name every other place a full `ModelRuntimePr
 ```bash
 git add -A
 git commit -m "feat: add the VisionImageRetention preset field"
+```
+
+---
+
+### Task 8b: `VisionMaxImageEdge` — a user-tunable dimension cap
+
+The model's `preprocessor_config.json` gives a hard ceiling. This field gives the **user** a lever below it: a smaller cap costs less peak VRAM and fewer image tokens, at the price of resolution.
+
+**Shape decision:** one integer, the maximum length of an image's **longer side** in pixels. That is the only single-number form that reads as a dimension and stays editable. Admission then fits **both** constraints — long edge ≤ `VisionMaxImageEdge` **and** total pixels ≤ the model's `maxPixels`. When the field sits at its auto-set default, `floor(sqrt(maxPixels))`, a square image hits both limits at once and a wide image hits the pixel ceiling first, so the two rules never disagree. Tuning the value *down* is always safe: a smaller square can only be under the pixel ceiling.
+
+`0` means "no user cap — the model ceiling is the only limit".
+
+**Files:**
+- Modify: `src/config/constants.ts`
+- Modify: `packages/contracts/src/config.ts`
+- Modify: `src/config/defaults.ts`
+- Modify: `src/config/normalization.ts`
+- Modify: `src/inference-presets/preset-compatibility.ts:137`
+- Modify: `src/llm-protocol/image-token-budget.ts`
+- Test: `tests/image-token-budget.test.ts` and the preset-normalization test file from Task 8
+
+- [ ] **Step 1: Write the failing test**
+
+Append to `tests/image-token-budget.test.ts`:
+
+```ts
+test('the budget exposes the largest square edge that fits the pixel ceiling', () => {
+  clearImageTokenBudgetCache();
+  const directory = createManagedTempDir('image-budget-edge');
+  writePreprocessorConfig(directory, { patch_size: 14, merge_size: 2, max_pixels: 1_000_000 });
+
+  const budget = resolveImageTokenBudget(makeTestPreset({ id: 'edge', ModelPath: directory }));
+
+  assert.equal(budget.maxEdgeCeiling, 1000);
+});
+
+test('estimateVisionPeakVramBytes scales with the image token count', () => {
+  const small = estimateVisionPeakVramBytes(256);
+  const large = estimateVisionPeakVramBytes(2048);
+
+  assert.ok(small > 0);
+  assert.equal(large, small * 8);
+});
+
+test('resolveEffectiveImagePixelCeiling clamps to the user edge cap', () => {
+  const budget = { maxPixels: 1_000_000, pixelsPerToken: 784, maxImageTokens: 1275, maxEdgeCeiling: 1000, source: 'fallback' as const };
+
+  // A 500px edge cap can never exceed 250_000 pixels.
+  assert.equal(resolveEffectiveImagePixelCeiling(budget, 500), 250_000);
+  // 0 means no user cap.
+  assert.equal(resolveEffectiveImagePixelCeiling(budget, 0), 1_000_000);
+  // A cap above the ceiling cannot raise it.
+  assert.equal(resolveEffectiveImagePixelCeiling(budget, 99_999), 1_000_000);
+});
+```
+
+Append to the preset-normalization test file from Task 8:
+
+```ts
+test('VisionMaxImageEdge defaults to 0, meaning no user cap', () => {
+  const [preset] = getDefaultConfigObject().Server.ModelPresets.Presets;
+  assert.equal(preset.VisionMaxImageEdge, 0);
+});
+
+test('VisionMaxImageEdge is a recognised model preset field', () => {
+  assert.equal(ModelPresetFieldSchema.safeParse('VisionMaxImageEdge').success, true);
+});
+
+test('VisionMaxImageEdge rejects a negative value', () => {
+  assert.equal(
+    ModelRuntimePresetSchema.safeParse({ ...makeTestPreset(), VisionMaxImageEdge: -1 }).success,
+    false,
+  );
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npm test`
+Expected: FAIL — the field, `maxEdgeCeiling`, `estimateVisionPeakVramBytes` and `resolveEffectiveImagePixelCeiling` do not exist.
+
+- [ ] **Step 3: Add the preset field**
+
+`src/config/constants.ts` — insert after `SIFT_DEFAULT_VISION_IMAGE_RETENTION`:
+
+```ts
+/** 0 = no user-set edge cap; the model's own pixel ceiling is the only limit. */
+export const SIFT_DEFAULT_VISION_MAX_IMAGE_EDGE = 0;
+
+/**
+ * Peak transient VRAM per image token while the vision encoder runs, in bytes.
+ *
+ * This is a deliberately conservative ESTIMATE, not a measurement: the spike is dominated by
+ * encoder attention over patch tokens and varies by model. Re-measure by watching peak VRAM
+ * during a single vision turn and adjust this one constant — every displayed figure derives
+ * from it, so there is exactly one number to correct.
+ */
+export const SIFT_VISION_PEAK_VRAM_BYTES_PER_IMAGE_TOKEN = 512 * 1024;
+```
+
+`packages/contracts/src/config.ts` — add to `ManagedLlamaSettingsShape` beside `VisionImageRetention`:
+
+```ts
+  VisionMaxImageEdge: z.number().int().min(0),
+```
+
+and `'VisionMaxImageEdge',` to the `ModelPresetFieldSchema` enum.
+
+`src/config/defaults.ts` — add `VisionMaxImageEdge: SIFT_DEFAULT_VISION_MAX_IMAGE_EDGE,`.
+
+`src/config/normalization.ts` — normalize it beside `VisionImageRetention`.
+
+`src/inference-presets/preset-compatibility.ts:137` — add `VisionMaxImageEdge: 'exl3-managed-only-unsupported-by-llama',`.
+
+- [ ] **Step 4: Extend the budget module**
+
+In `src/llm-protocol/image-token-budget.ts`, add `maxEdgeCeiling` to `ImageTokenBudget`:
+
+```ts
+export type ImageTokenBudget = {
+  pixelsPerToken: number;
+  maxPixels: number;
+  maxImageTokens: number;
+  /**
+   * Largest long edge the model ceiling can accept in the worst case (a square image). This is
+   * the auto-set value and the upper bound for VisionMaxImageEdge.
+   */
+  maxEdgeCeiling: number;
+  source: 'preprocessor_config' | 'fallback';
+};
+```
+
+Set it inside `buildBudget`:
+
+```ts
+    maxEdgeCeiling: Math.floor(Math.sqrt(maxPixels)),
+```
+
+and append two exported functions:
+
+```ts
+/**
+ * The pixel ceiling actually applied to an image: the model's ceiling, further narrowed by the
+ * user's edge cap. A square is the worst case for a given edge, so `edge²` is the most pixels
+ * that cap can admit.
+ */
+export function resolveEffectiveImagePixelCeiling(
+  budget: ImageTokenBudget,
+  visionMaxImageEdge: number,
+): number {
+  if (visionMaxImageEdge <= 0) {
+    return budget.maxPixels;
+  }
+  return Math.min(budget.maxPixels, visionMaxImageEdge * visionMaxImageEdge);
+}
+
+/**
+ * Estimated peak VRAM the vision encoder needs free while it processes one image. The spike is
+ * transient — it is released once encoding finishes — which is exactly why it is reported
+ * separately from steady-state usage.
+ */
+export function estimateVisionPeakVramBytes(imageTokens: number): number {
+  return imageTokens * SIFT_VISION_PEAK_VRAM_BYTES_PER_IMAGE_TOKEN;
+}
+```
+
+- [ ] **Step 5: Run test to verify it passes**
+
+Run: `npm test && npm run typecheck && npm run lint`
+Expected: PASS. Every `ImageTokenBudget` literal in the Task 3–6 tests needs `maxEdgeCeiling`; the typecheck names each one.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add -A
+git commit -m "feat: add the VisionMaxImageEdge preset field and a peak-VRAM estimate"
+```
+
+---
+
+### Task 8c: Admission honours the edge cap
+
+**Files:**
+- Modify: `src/llm-protocol/image-admission.ts` (`computeTargetDimensions`, `admitImageBuffer`)
+- Modify: `src/repo-search/engine/image-read.ts`
+- Modify: `src/repo-search/engine/repo-tools.ts` (`RepoToolContext`)
+- Modify: `dashboard/src/lib/downscale-image.ts` — **only if Task 21 is already done**; otherwise Task 21 picks this up
+- Test: `tests/image-admission.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+test('computeTargetDimensions caps the long edge even when the pixel budget is not binding', () => {
+  // 2000x100 is 200_000 px — well under the ceiling — but its long edge is over 1000.
+  const target = computeTargetDimensions(2000, 100, 10_000_000, 1000);
+
+  assert.notEqual(target, null);
+  assert.equal(target!.width, 1000);
+  assert.equal(target!.height, 50);
+});
+
+test('computeTargetDimensions applies whichever constraint binds harder', () => {
+  // Edge cap allows 1000x1000; the pixel ceiling allows only 250_000.
+  const target = computeTargetDimensions(4000, 4000, 250_000, 1000);
+
+  assert.ok(target!.width * target!.height <= 250_000);
+  assert.ok(Math.max(target!.width, target!.height) <= 1000);
+});
+
+test('computeTargetDimensions with an edge cap of 0 applies only the pixel ceiling', () => {
+  assert.equal(computeTargetDimensions(2000, 100, 10_000_000, 0), null);
+});
+
+test('an image within both limits is untouched', () => {
+  assert.equal(computeTargetDimensions(800, 600, 10_000_000, 1000), null);
+});
+
+test('admitImageBuffer downscales to the user edge cap', () => {
+  const admitted = admitImageBuffer(
+    rasterBuffer('png', 2000, 1000),
+    'image/png',
+    { maxPixels: 10_000_000, pixelsPerToken: 784, maxImageTokens: 12755, maxEdgeCeiling: 3162, source: 'fallback' },
+    600,
+  );
+
+  assert.equal(admitted.metadata.width, 600);
+  assert.equal(admitted.metadata.height, 300);
+  assert.equal(admitted.metadata.resized, true);
+  assert.equal(admitted.metadata.originalWidth, 2000);
+});
+
+test('an oversized GIF names the effective ceiling, not the raw model ceiling', () => {
+  assert.throws(
+    () => admitImageBuffer(
+      gifBufferWithSize(8000, 8000),
+      'image/gif',
+      { maxPixels: 12_500_000, pixelsPerToken: 6104, maxImageTokens: 2048, maxEdgeCeiling: 3535, source: 'fallback' },
+      1000,
+    ),
+    /this preset accepts up to 1\.0 MP/u,
+  );
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npm test`
+Expected: FAIL — both functions take no edge argument.
+
+- [ ] **Step 3: Write minimal implementation**
+
+Replace `computeTargetDimensions` in `src/llm-protocol/image-admission.ts`:
+
+```ts
+/**
+ * Returns the dimensions that bring the image under BOTH the pixel ceiling and the long-edge
+ * cap at the original aspect ratio, or null when it already fits both. `maxEdge <= 0` means no
+ * edge cap. Both dimensions are clamped to at least 1, so a pathologically thin image degrades
+ * rather than collapsing to zero.
+ */
+export function computeTargetDimensions(
+  width: number,
+  height: number,
+  maxPixels: number,
+  maxEdge = 0,
+): ImageDimensions | null {
+  const pixelScale = width * height <= maxPixels ? 1 : Math.sqrt(maxPixels / (width * height));
+  const longEdge = Math.max(width, height);
+  const edgeScale = maxEdge <= 0 || longEdge <= maxEdge ? 1 : maxEdge / longEdge;
+  const scale = Math.min(pixelScale, edgeScale);
+  if (scale >= 1) {
+    return null;
+  }
+  return {
+    width: Math.max(1, Math.floor(width * scale)),
+    height: Math.max(1, Math.floor(height * scale)),
+  };
+}
+```
+
+Give `admitImageBuffer` and `admitImageDataUrl` a fourth parameter, `visionMaxImageEdge = 0`, pass it into `computeTargetDimensions`, and compute the message's stated ceiling from `resolveEffectiveImagePixelCeiling(budget, visionMaxImageEdge)` so the rejection names the limit the user actually set rather than the model's raw one:
+
+```ts
+  const effectiveMaxPixels = resolveEffectiveImagePixelCeiling(budget, visionMaxImageEdge);
+  const target = computeTargetDimensions(original.width, original.height, budget.maxPixels, visionMaxImageEdge);
+  if (target === null) {
+    return buildAdmittedImage(buffer, mime, original, original, budget, false);
+  }
+  if (mime === 'image/gif') {
+    throw new Error(
+      `image is ${original.width}×${original.height} (${formatMegapixels(original.width, original.height)} MP); `
+      + `this preset accepts up to ${(effectiveMaxPixels / 1_000_000).toFixed(1)} MP `
+      + `(≈${Math.ceil(effectiveMaxPixels / budget.pixelsPerToken)} image tokens) — resize and retry`,
+    );
+  }
+```
+
+- [ ] **Step 4: Thread the cap to the agent read path**
+
+Add `visionMaxImageEdge: number` to `RepoToolContext` beside `visionImageRetention`, populate it in `tool-action-processor.ts` from `getActiveModelPreset(options.config).VisionMaxImageEdge`, add it to `tests/helpers/repo-tool-context.ts` (defaulting to `0`), and pass it as the fourth argument to `admitImageBuffer` in `executeImageRead`.
+
+Do the same for `ImageAttachmentReader`, which already holds a budget: give its constructor a second parameter `visionMaxImageEdge` and forward it.
+
+- [ ] **Step 5: Run test to verify it passes**
+
+Run: `npm test && npm run typecheck && npm run lint`
+Expected: PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add -A
+git commit -m "feat: honour the user image edge cap in admission"
 ```
 
 ---
@@ -2760,19 +3081,24 @@ Fixes the problem at its source: a 60 MB paste never becomes an 80 MB base64 POS
 
 ```ts
 test('computeBrowserTargetDimensions matches the server-side math', () => {
-  assert.equal(computeBrowserTargetDimensions(800, 600, 1_000_000), null);
-  const target = computeBrowserTargetDimensions(4000, 2000, 1_000_000);
+  assert.equal(computeBrowserTargetDimensions(800, 600, 1_000_000, 0), null);
+  const target = computeBrowserTargetDimensions(4000, 2000, 1_000_000, 0);
   assert.ok(target!.width * target!.height <= 1_000_000);
 });
 
+test('computeBrowserTargetDimensions applies the same edge cap as the server', () => {
+  const target = computeBrowserTargetDimensions(2000, 100, 10_000_000, 1000);
+  assert.deepEqual(target, { width: 1000, height: 50 });
+});
+
 test('downscaleDataUrl leaves a within-budget image untouched and reports no resize', async () => {
-  const result = await downscaleDataUrl(SMALL_PNG, 1_000_000);
+  const result = await downscaleDataUrl(SMALL_PNG, 1_000_000, 0);
   assert.equal(result.dataUrl, SMALL_PNG);
   assert.equal(result.note, null);
 });
 
 test('downscaleDataUrl reports original and final dimensions when it resizes', async () => {
-  const result = await downscaleDataUrl(LARGE_PNG, 1_000);
+  const result = await downscaleDataUrl(LARGE_PNG, 1_000, 0);
   assert.notEqual(result.dataUrl, LARGE_PNG);
   assert.match(result.note ?? '', /^Resized from \d+×\d+ to \d+×\d+$/u);
 });
@@ -2792,16 +3118,20 @@ Create `dashboard/src/lib/downscale-image.ts`:
 ```ts
 export type PendingImage = { dataUrl: string; note: string | null };
 
-/** Mirrors computeTargetDimensions in src/llm-protocol/image-admission.ts. */
+/** Mirrors computeTargetDimensions in src/llm-protocol/image-admission.ts, edge cap included. */
 export function computeBrowserTargetDimensions(
   width: number,
   height: number,
   maxPixels: number,
+  maxEdge: number,
 ): { width: number; height: number } | null {
-  if (width * height <= maxPixels) {
+  const pixelScale = width * height <= maxPixels ? 1 : Math.sqrt(maxPixels / (width * height));
+  const longEdge = Math.max(width, height);
+  const edgeScale = maxEdge <= 0 || longEdge <= maxEdge ? 1 : maxEdge / longEdge;
+  const scale = Math.min(pixelScale, edgeScale);
+  if (scale >= 1) {
     return null;
   }
-  const scale = Math.sqrt(maxPixels / (width * height));
   return {
     width: Math.max(1, Math.floor(width * scale)),
     height: Math.max(1, Math.floor(height * scale)),
@@ -2827,9 +3157,13 @@ async function blobToDataUrl(blob: Blob): Promise<string> {
  * decode GIF natively, so this is also the only path that can shrink one; the result is a
  * single frame, which is what the model sees anyway.
  */
-export async function downscaleDataUrl(dataUrl: string, maxPixels: number): Promise<PendingImage> {
+export async function downscaleDataUrl(
+  dataUrl: string,
+  maxPixels: number,
+  maxEdge: number,
+): Promise<PendingImage> {
   const bitmap = await createImageBitmap(await (await fetch(dataUrl)).blob());
-  const target = computeBrowserTargetDimensions(bitmap.width, bitmap.height, maxPixels);
+  const target = computeBrowserTargetDimensions(bitmap.width, bitmap.height, maxPixels, maxEdge);
   if (target === null) {
     bitmap.close();
     return { dataUrl, note: null };
@@ -2849,7 +3183,7 @@ export async function downscaleDataUrl(dataUrl: string, maxPixels: number): Prom
 }
 ```
 
-In `dashboard/src/tabs/ChatTab.tsx`, have `readImageFiles` run each file's data URL through `downscaleDataUrl`, hold the returned notes in component state keyed by index, and pass them to `PendingImageStrip` as `resizeNotes`. The pixel ceiling comes from the session's preset — surface it on the existing preset/context payload the composer already receives rather than hardcoding a second constant in the browser.
+In `dashboard/src/tabs/ChatTab.tsx`, have `readImageFiles` run each file's data URL through `downscaleDataUrl`, hold the returned notes in component state keyed by index, and pass them to `PendingImageStrip` as `resizeNotes`. The pixel ceiling and the edge cap both come from the session's preset — surface `{ maxPixels, visionMaxImageEdge }` on the existing preset/context payload the composer already receives rather than hardcoding a second copy of either number in the browser. Task 24 puts the same two values on the settings payload; use one shared shape, not two.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -3223,65 +3557,203 @@ git commit -m "feat: caption a chat image on demand with a single vision pass"
 
 ---
 
-### Task 24: `VisionImageRetention` in the preset panel
+### Task 24: The vision block in the preset panel
+
+Three controls, shown only once `VisionEnabled` is on, following the `speculativeEnabled` conditional-group pattern already in this file (`dashboard/src/tabs/settings/ModelPresetsSection.tsx:402-419`).
 
 **Files:**
-- Modify: `dashboard/src/tabs/settings/ModelPresetsSection.tsx:494-497`
+- Modify: `dashboard/src/tabs/settings/ModelPresetsSection.tsx:494-501`
+- Modify: whichever server payload feeds the settings panel, to carry `imageTokenBudget`
 - Test: the existing settings-section test file (`git grep -ln "VisionEnabled" dashboard/src`)
 
 - [ ] **Step 1: Write the failing test**
 
 ```tsx
-test('the preset panel exposes VisionImageRetention beside VisionEnabled', () => {
-  render(<ModelPresetsSection {...defaultProps} />);
+const BUDGET = { maxPixels: 1_605_632, maxImageTokens: 2048, pixelsPerToken: 784, maxEdgeCeiling: 1267, source: 'fallback' as const };
+
+function visionProps(overrides: Partial<DashboardModelRuntimePreset> = {}) {
+  return {
+    ...defaultProps,
+    imageTokenBudget: BUDGET,
+    preset: { ...defaultProps.preset, Backend: 'exl3' as const, VisionEnabled: true, VisionImageRetention: 8, VisionMaxImageEdge: 0, ...overrides },
+  };
+}
+
+test('the vision controls are hidden while VisionEnabled is off', () => {
+  render(<ModelPresetsSection {...visionProps({ VisionEnabled: false })} />);
+  assert.equal(screen.queryByLabelText(/Max image dimension/iu), null);
+  assert.equal(screen.queryByLabelText(/Vision image retention/iu), null);
+});
+
+test('enabling vision reveals the max image dimension field', () => {
+  render(<ModelPresetsSection {...visionProps()} />);
+  assert.ok(screen.getByLabelText(/Max image dimension/iu));
   assert.ok(screen.getByLabelText(/Vision image retention/iu));
 });
 
-test('the preset panel shows the resolved image ceiling', () => {
-  render(<ModelPresetsSection {...defaultProps} imageTokenBudget={{ maxPixels: 1_605_632, maxImageTokens: 2048, pixelsPerToken: 784, source: 'fallback' }} />);
-  assert.ok(screen.getByText(/1\.6 MP.*2,048 image tokens.*default ratio/iu));
+test('toggling VisionEnabled on auto-sets the dimension to the model maximum', () => {
+  const calls: Array<[string, number]> = [];
+  render(<ModelPresetsSection {...visionProps({ VisionEnabled: false, VisionMaxImageEdge: 0 })} modelPresetActions={{ ...actions, setInteger: (field, value) => calls.push([field, value]) }} />);
+
+  fireEvent.click(screen.getByLabelText(/Vision enabled/iu));
+
+  assert.deepEqual(calls, [['VisionMaxImageEdge', 1267]]);
+});
+
+test('toggling vision on does not overwrite a dimension the user already tuned', () => {
+  const calls: Array<[string, number]> = [];
+  render(<ModelPresetsSection {...visionProps({ VisionEnabled: false, VisionMaxImageEdge: 800 })} modelPresetActions={{ ...actions, setInteger: (field, value) => calls.push([field, value]) }} />);
+
+  fireEvent.click(screen.getByLabelText(/Vision enabled/iu));
+
+  assert.deepEqual(calls, []);
+});
+
+test('the dimension field caps at the model ceiling', () => {
+  render(<ModelPresetsSection {...visionProps({ VisionMaxImageEdge: 1267 })} />);
+  assert.equal(screen.getByLabelText(/Max image dimension/iu).getAttribute('max'), '1267');
+});
+
+test('the peak VRAM figure sits beside the dimension and tracks it down', () => {
+  render(<ModelPresetsSection {...visionProps({ VisionMaxImageEdge: 1267 })} />);
+  // 1267² = 1_605_289 px / 784 = 2048 tokens x 512 KB = 1.0 GB.
+  assert.ok(screen.getByText(/≈1\.0 GB free VRAM/iu));
+
+  cleanup();
+  render(<ModelPresetsSection {...visionProps({ VisionMaxImageEdge: 640 })} />);
+  // 640² = 409_600 px / 784 = 523 tokens x 512 KB = 0.3 GB.
+  assert.ok(screen.getByText(/≈0\.3 GB free VRAM/iu));
+});
+
+test('the VRAM figure is labelled as a transient estimate, not steady-state usage', () => {
+  render(<ModelPresetsSection {...visionProps()} />);
+  assert.ok(screen.getByText(/released once the image is encoded/iu));
+});
+
+test('the dimension hint explains that larger images are downscaled', () => {
+  render(<ModelPresetsSection {...visionProps()} />);
+  assert.ok(screen.getByText(/downscaled to fit.*highest quality/iu));
+});
+
+test('the panel names the fallback ratio when no preprocessor_config.json was found', () => {
+  render(<ModelPresetsSection {...visionProps()} />);
+  assert.ok(screen.getByText(/no preprocessor_config\.json found/iu));
 });
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `npm test`
-Expected: FAIL — neither control exists.
+Expected: FAIL — none of the controls exist.
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **Step 3: Surface the budget on the settings payload**
 
-Insert into `dashboard/src/tabs/settings/ModelPresetsSection.tsx` immediately after the `VisionEnabled` control at line 494-497, matching the numeric-field pattern the section already uses for e.g. `SleepIdleSeconds`:
+`resolveImageTokenBudget(preset)` is server-side. Add its result to whichever config/status payload `ModelPresetsSection` already consumes, as `imageTokenBudget: ImageTokenBudget | null` (null on a non-exl3 preset). Use the same shape Task 21 puts on the chat payload — one type, exported from `packages/contracts`, not two near-identical ones.
+
+- [ ] **Step 4: Write the controls**
+
+Replace the `VisionEnabled` control at `dashboard/src/tabs/settings/ModelPresetsSection.tsx:494-501` with:
 
 ```tsx
+          <ModelPresetControl preset={preset} field="VisionEnabled" label="Vision enabled">
+            <label className="settings-live-toggle-control">
+              <input
+                type="checkbox"
+                checked={preset.VisionEnabled}
+                onChange={(event) => {
+                  modelPresetActions.setBoolean('VisionEnabled', event.target.checked);
+                  // Auto-set to the model maximum on first enable. A value the user already
+                  // tuned is never overwritten.
+                  if (event.target.checked && imageTokenBudget && preset.VisionMaxImageEdge === 0) {
+                    modelPresetActions.setInteger('VisionMaxImageEdge', imageTokenBudget.maxEdgeCeiling);
+                  }
+                }}
+              />
+              <span>{preset.VisionEnabled ? 'Enabled' : 'Disabled'}</span>
+            </label>
+          </ModelPresetControl>
+          {preset.VisionEnabled && imageTokenBudget ? (
+            <>
+              <ModelPresetControl preset={preset} field="VisionMaxImageEdge" label="Max image dimension">
+                <div className="settings-inline-readout">
+                  <input
+                    type="number"
+                    min={64}
+                    max={imageTokenBudget.maxEdgeCeiling}
+                    step={16}
+                    value={preset.VisionMaxImageEdge}
+                    onChange={(event) => modelPresetActions.setInteger('VisionMaxImageEdge', parseIntegerInput(event.target.value, preset.VisionMaxImageEdge))}
+                  />
+                  <span className="unit">px (longest side)</span>
+                  <span className="vram-estimate">
+                    {`≈${formatGigabytes(estimateVisionPeakVramBytes(imageTokensForEdge(preset.VisionMaxImageEdge, imageTokenBudget)))} GB free VRAM`}
+                  </span>
+                </div>
+              </ModelPresetControl>
+              <p className="field-hint">
+                Any image longer than this on its longest side is downscaled to fit, at the highest
+                quality the resize can produce (Lanczos3), keeping its aspect ratio. Lower it to
+                spend less VRAM and fewer context tokens per image; raise it for finer detail.
+              </p>
+              <p className="field-hint">
+                {`Model ceiling ${imageTokenBudget.maxEdgeCeiling} px `}
+                {`(${(imageTokenBudget.maxPixels / 1_000_000).toFixed(1)} MP, ≈${imageTokenBudget.maxImageTokens.toLocaleString('en-US')} image tokens)`}
+                {imageTokenBudget.source === 'fallback' ? ' — default ratio; no preprocessor_config.json found' : ''}
+              </p>
+              <p className="field-hint">
+                The VRAM figure is the estimated peak while one image is encoded. It spikes for the
+                duration of the encode and is released once the image is encoded, so it is the
+                headroom to keep free — not steady-state usage.
+              </p>
               <ModelPresetControl preset={preset} field="VisionImageRetention" label="Vision image retention">
-                <input type="number" min={-1} step={1} />
+                <input
+                  type="number"
+                  min={-1}
+                  step={1}
+                  value={preset.VisionImageRetention}
+                  onChange={(event) => modelPresetActions.setInteger('VisionImageRetention', parseIntegerInput(event.target.value, preset.VisionImageRetention))}
+                />
               </ModelPresetControl>
               <p className="field-hint">
                 Images kept live in context. -1 keeps every image; 0 refuses images entirely.
               </p>
-              {imageTokenBudget ? (
-                <p className="field-hint">
-                  {`Image ceiling ${(imageTokenBudget.maxPixels / 1_000_000).toFixed(1)} MP `}
-                  {`(≈${imageTokenBudget.maxImageTokens.toLocaleString('en-US')} image tokens)`}
-                  {imageTokenBudget.source === 'fallback' ? ' — default ratio; no preprocessor_config.json found' : ''}
-                </p>
-              ) : null}
+            </>
+          ) : null}
 ```
 
-Surface `imageTokenBudget` on whichever status/config payload the settings panel already consumes, computed server-side by `resolveImageTokenBudget(preset)`. The resolved ceiling must be visible before it is hit.
+Add the two local helpers above the component:
 
-Copy the exact `ModelPresetControl` invocation shape from the `SleepIdleSeconds` control in the same file; the snippet above is the intent, not necessarily the exact prop signature.
+```tsx
+/** Worst case for a given long edge is a square, so edge² is the pixel count to budget for. */
+function imageTokensForEdge(edge: number, budget: ImageTokenBudget): number {
+  return Math.ceil(resolveEffectiveImagePixelCeiling(budget, edge) / budget.pixelsPerToken);
+}
 
-- [ ] **Step 4: Run test to verify it passes**
+function formatGigabytes(bytes: number): string {
+  return (bytes / 1_073_741_824).toFixed(1);
+}
+```
 
-Run: `npm test && npm run lint`
+`resolveEffectiveImagePixelCeiling` and `estimateVisionPeakVramBytes` are pure and already exported from Task 8b; re-export them through `packages/contracts` (or a shared module the dashboard can import) rather than reimplementing either in the browser. The VRAM figure and the admission ceiling must come from one calculation, or the panel will promise a limit admission does not enforce.
+
+Append to `dashboard/src/styles.css`:
+
+```css
+.settings-inline-readout { display: flex; align-items: center; gap: 8px; }
+.settings-inline-readout .unit { font-size: 11px; opacity: 0.6; }
+.settings-inline-readout .vram-estimate { font-size: 11px; opacity: 0.85; white-space: nowrap; }
+```
+
+- [ ] **Step 5: Run test to verify it passes**
+
+Run: `npm test && npm run typecheck && npm run lint`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add -A
-git commit -m "feat: expose VisionImageRetention and the image ceiling in the preset panel"
+git commit -m "feat: add a tunable max image dimension with a peak-VRAM readout"
 ```
 
 ---
@@ -3336,3 +3808,11 @@ Expected: clean. If not, the residue is scope drift — remove it or commit it d
 - **`preflightPlannerPromptBudget`** is unchanged (spec §4.5). Admission now guarantees every image is at or under `SIFT_IMAGE_TOKEN_ESTIMATE`, so the existing flat per-image charge at `src/repo-search/prompt-budget.ts:139-142` is accurate by construction rather than a guess.
 - **Video, PDF, multi-frame GIF beyond frame one, automatic re-captioning on preset change** — out of scope per spec §Scope.
 - **End-to-end verification against a live vision model** is blocked: TabbyAPI returned 503 on every completion during the design work, and no vision model is installed on this machine. Every task above is verifiable by unit and route tests without a live provider; the first live run is the acceptance test the environment currently cannot provide.
+
+## Open items carried by this plan
+
+1. **`SIFT_VISION_PEAK_VRAM_BYTES_PER_IMAGE_TOKEN` is an unmeasured estimate.** 512 KB per merged image token is a conservative guess, not a measurement — the environment has no vision model to profile against (see pre-flight findings). Everything the settings panel displays derives from that one constant, and the UI labels the figure as an estimate, so correcting it later is a one-line change with no other code to chase. **First live vision turn: watch peak VRAM and correct the constant.** Until then, treat the displayed GB figure as an order-of-magnitude guide, not a guarantee.
+
+2. **`VisionMaxImageEdge` caps the long edge; VRAM scales with pixels.** The two agree at the auto-set default (`floor(sqrt(maxPixels))`) and the panel budgets the worst case — a square at the cap — so the displayed figure is an upper bound for any image shape, never an under-estimate. A wide image at the same edge cap uses proportionally less.
+
+3. **A preset that changes `ModelPath` keeps its cached budget** until the process restarts (`resolveImageTokenBudget` caches per preset id). That matches how the rest of the preset system treats a model swap; if it becomes a problem, invalidate the cache where the preset is saved rather than dropping the cache entirely.
