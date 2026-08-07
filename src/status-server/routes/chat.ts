@@ -312,6 +312,10 @@ class RepoSearchToolLogProgressWriter extends ProgressWriter<RepoSearchProgressE
     return true;
   }
 
+  override get wantsLiveText(): boolean {
+    return false;
+  }
+
   write(event: RepoSearchProgressEvent): void {
     if (event.kind !== 'tool_start' && event.kind !== 'context_warning') return;
     const body = buildRepoSearchProgressLogBody(event);

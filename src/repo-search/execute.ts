@@ -152,6 +152,10 @@ class RepoSearchLifecycleWriter extends ProgressWriter<RepoSearchProgressEvent> 
     return true;
   }
 
+  override get wantsLiveText(): boolean {
+    return this.target.enabled && this.target.wantsLiveText;
+  }
+
   write(event: RepoSearchProgressEvent): void {
     logRepoSearchLifecycleEvent(this.requestId, event, this.startedAt);
     this.target.write({

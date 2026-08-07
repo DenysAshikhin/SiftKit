@@ -88,6 +88,203 @@ const JSON_ESCAPE_CHARS: Record<string, string> = {
   '/': '/',
 };
 
+/**
+ * Incrementally decodes the streamed value of a finish action's "output"
+ * string over append-only accumulated content. Action classification,
+ * output-marker detection, and value decoding all consume only newly
+ * appended characters. A push shorter than the previous one resets the
+ * state for early-stop truncation.
+ */
+const ACTION_FIELD_KEY = 'action';
+const OUTPUT_FIELD_KEY = 'output';
+const JSON_WHITESPACE_CHAR = /\s/u;
+const JSON_UNICODE_ESCAPE = /^[0-9a-fA-F]{4}$/u;
+
+type FinishOutputStage = 'scanning' | 'non-finish' | 'closed' | 'stalled';
+type JsonEscapeStage = 'plain' | 'escape' | 'unicode';
+type JsonStringRole = 'key' | 'action' | 'output' | 'ignored';
+
+export class StreamingFinishOutputExtractor {
+  private scannedTo = 0;
+  private stage: FinishOutputStage = 'scanning';
+  private depth = 0;
+  private expectsTopLevelKey = false;
+  private expectsTopLevelValue = false;
+  private topLevelKey: string | null = null;
+  private stringRole: JsonStringRole | null = null;
+  private stringValue = '';
+  private escapeStage: JsonEscapeStage = 'plain';
+  private unicodeHex = '';
+  private actionIsFinish = false;
+  private outputStarted = false;
+  private outputClosed = false;
+  private decoded = '';
+
+  push(text: string): string | null {
+    if (text.length < this.scannedTo) {
+      this.resetState();
+    }
+    if (this.isTerminal()) {
+      this.scannedTo = text.length;
+      return this.result();
+    }
+    for (let index = this.scannedTo; index < text.length; index += 1) {
+      this.scanChar(text[index]);
+      if (this.isTerminal()) {
+        break;
+      }
+    }
+    this.scannedTo = text.length;
+    return this.result();
+  }
+
+  private scanChar(char: string): void {
+    if (this.stringRole !== null) {
+      this.scanStringChar(char);
+      return;
+    }
+    if (char === '"') {
+      this.startString();
+      return;
+    }
+    if (this.depth === 0) {
+      if (char === '{') {
+        this.depth = 1;
+        this.expectsTopLevelKey = true;
+      }
+      return;
+    }
+    if (this.depth === 1 && this.expectsTopLevelValue && !JSON_WHITESPACE_CHAR.test(char)) {
+      this.expectsTopLevelValue = false;
+      if (this.topLevelKey === ACTION_FIELD_KEY) {
+        this.stage = 'non-finish';
+        return;
+      }
+    }
+    if (char === '{' || char === '[') {
+      this.depth += 1;
+    } else if (char === '}' || char === ']') {
+      this.depth -= 1;
+    } else if (this.depth === 1 && char === ':' && this.topLevelKey !== null) {
+      this.expectsTopLevelValue = true;
+    } else if (this.depth === 1 && char === ',') {
+      this.topLevelKey = null;
+      this.expectsTopLevelKey = true;
+    }
+  }
+
+  private startString(): void {
+    if (this.depth === 1 && this.expectsTopLevelKey) {
+      this.stringRole = 'key';
+      this.expectsTopLevelKey = false;
+    } else if (this.depth === 1 && this.expectsTopLevelValue) {
+      this.expectsTopLevelValue = false;
+      if (this.topLevelKey === ACTION_FIELD_KEY) {
+        this.stringRole = 'action';
+      } else if (this.topLevelKey === OUTPUT_FIELD_KEY) {
+        this.stringRole = 'output';
+        this.outputStarted = true;
+      } else {
+        this.stringRole = 'ignored';
+      }
+    } else {
+      this.stringRole = 'ignored';
+    }
+    this.stringValue = '';
+    this.escapeStage = 'plain';
+    this.unicodeHex = '';
+  }
+
+  private scanStringChar(char: string): void {
+    if (this.escapeStage === 'unicode') {
+      this.unicodeHex += char;
+      if (this.unicodeHex.length === 4) {
+        if (!JSON_UNICODE_ESCAPE.test(this.unicodeHex)) {
+          this.stage = 'stalled';
+          return;
+        }
+        this.appendStringChar(String.fromCharCode(parseInt(this.unicodeHex, 16)));
+        this.unicodeHex = '';
+        this.escapeStage = 'plain';
+      }
+      return;
+    }
+    if (this.escapeStage === 'escape') {
+      if (char === 'u') {
+        this.escapeStage = 'unicode';
+      } else {
+        this.appendStringChar(JSON_ESCAPE_CHARS[char] ?? char);
+        this.escapeStage = 'plain';
+      }
+      return;
+    }
+    if (char === '"') {
+      this.closeString();
+    } else if (char === '\\') {
+      this.escapeStage = 'escape';
+    } else {
+      this.appendStringChar(char);
+    }
+  }
+
+  private appendStringChar(char: string): void {
+    if (this.stringRole === 'output') {
+      this.decoded += char;
+    } else if (this.stringRole === 'key' || this.stringRole === 'action') {
+      this.stringValue += char;
+    }
+  }
+
+  private closeString(): void {
+    if (this.stringRole === 'key') {
+      this.topLevelKey = this.stringValue;
+    } else if (this.stringRole === 'action') {
+      if (this.stringValue !== 'finish') {
+        this.stage = 'non-finish';
+      } else {
+        this.actionIsFinish = true;
+        if (this.outputClosed) {
+          this.stage = 'closed';
+        }
+      }
+    } else if (this.stringRole === 'output') {
+      this.outputClosed = true;
+      if (this.actionIsFinish) {
+        this.stage = 'closed';
+      }
+    }
+    this.stringRole = null;
+    this.stringValue = '';
+    this.escapeStage = 'plain';
+    this.unicodeHex = '';
+  }
+
+  private isTerminal(): boolean {
+    return this.stage === 'non-finish' || this.stage === 'closed' || this.stage === 'stalled';
+  }
+
+  private result(): string | null {
+    return this.actionIsFinish && this.outputStarted ? this.decoded : null;
+  }
+
+  private resetState(): void {
+    this.scannedTo = 0;
+    this.stage = 'scanning';
+    this.depth = 0;
+    this.expectsTopLevelKey = false;
+    this.expectsTopLevelValue = false;
+    this.topLevelKey = null;
+    this.stringRole = null;
+    this.stringValue = '';
+    this.escapeStage = 'plain';
+    this.unicodeHex = '';
+    this.actionIsFinish = false;
+    this.outputStarted = false;
+    this.outputClosed = false;
+    this.decoded = '';
+  }
+}
+
 export class ModelJson {
   static parseSummaryDecision(text: string): StructuredModelDecision {
     const parsed = this.parseModelObject(text, 'SiftKit decision').value;
@@ -103,50 +300,6 @@ export class ModelJson {
     const parsed = this.parsePlannerObject(text);
     return this.validateRepoSearchPlannerAction(parsed, options);
   }
-
-  static extractStreamingFinishOutput(text: string): string | null {
-    if (!/"action"\s*:\s*"finish"/.test(text)) {
-      return null;
-    }
-    const openMatch = /"output"\s*:\s*"/.exec(text);
-    if (!openMatch) {
-      return null;
-    }
-    return this.decodeJsonStringPrefix(text, openMatch.index + openMatch[0].length);
-  }
-
-  private static decodeJsonStringPrefix(text: string, start: number): string {
-    let result = '';
-    let index = start;
-    while (index < text.length) {
-      const char = text[index];
-      if (char === '"') {
-        break;
-      }
-      if (char === '\\') {
-        const escape = text[index + 1];
-        if (escape === undefined) {
-          break;
-        }
-        if (escape === 'u') {
-          const hex = text.slice(index + 2, index + 6);
-          if (hex.length < 4 || !/^[0-9a-fA-F]{4}$/.test(hex)) {
-            break;
-          }
-          result += String.fromCharCode(parseInt(hex, 16));
-          index += 6;
-          continue;
-        }
-        result += JSON_ESCAPE_CHARS[escape] ?? escape;
-        index += 2;
-        continue;
-      }
-      result += char;
-      index += 1;
-    }
-    return result;
-  }
-
   static parseRepoSearchFinishValidation(text: string): FinishValidationResult {
     const parsed = this.parseModelObject(text, 'finish validation').value;
     return this.validateFinishValidation(parsed);

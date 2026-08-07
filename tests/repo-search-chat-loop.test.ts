@@ -16,6 +16,12 @@ const MOCK_CONFIG = mockSiftConfig({
   Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL, NumCtx: 32000 } },
 });
 
+class NonLiveTextProgressWriter extends CollectingProgressWriter<RepoSearchProgressEvent> {
+  override get wantsLiveText(): boolean {
+    return false;
+  }
+}
+
 async function closeServer(server: http.Server): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     server.close((error) => {
@@ -105,6 +111,32 @@ test('chat mode streams finish output as answer events', async () => {
   const answerEvents = events.filter((event) => event.kind === 'answer');
   assert.ok(answerEvents.length >= 1, 'expected at least one answer event');
   assert.equal(answerEvents[answerEvents.length - 1].answerText, 'Hello there!');
+});
+
+test('non-live writers do not receive the final planner answer event', async () => {
+  const events: RepoSearchProgressEvent[] = [];
+  const result = await runTaskLoop(
+    { id: 'chat', question: 'Greet me.', signals: [] },
+    {
+      repoRoot: os.tmpdir(),
+      systemContext: createEmptyPresetSystemContext(),
+      config: MOCK_CONFIG,
+      model: 'mock',
+      baseUrl: DEAD_BASE_URL,
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      loopKind: 'chat',
+      plannerToolDefinitions: [],
+      streamFinishAsAnswer: true,
+      mockResponses: ['{"action":"finish","output":"Hello there!"}'],
+      mockCommandResults: {},
+      progressWriter: new NonLiveTextProgressWriter(events),
+    },
+  );
+
+  assert.equal(result.finalOutput, 'Hello there!');
+  assert.deepEqual(events.filter((event) => event.kind === 'thinking' || event.kind === 'answer'), []);
 });
 
 test('tool token totals sum command output tokens', async () => {
@@ -255,6 +287,72 @@ test('chat terminal synthesis streams answer deltas before the final answer even
       .map((event) => String(event.answerText || ''));
     assert.equal(result.finalOutput, 'Terminal answer done');
     assert.deepEqual(answerTexts, ['Terminal ', 'Terminal answer done', 'Terminal answer done']);
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test('non-live writers keep planner and terminal streaming without receiving live-text events', async () => {
+  const events: RepoSearchProgressEvent[] = [];
+  const streamRequests: boolean[] = [];
+  let requestCount = 0;
+  const server = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/tokenize') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ count: 10 }));
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/v1/chat/completions') {
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', () => {
+        requestCount += 1;
+        const parsed = asObject(parseJsonValueText(body || '{}'));
+        streamRequests.push(parsed.stream === true);
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        if (requestCount === 1) {
+          res.write(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: 'planning' } }] })}\n\n`);
+          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: '{"action":"finish","output":"draft","extra":true}' } }] })}\n\n`);
+        } else {
+          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'Terminal ' } }] })}\n\n`);
+          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'answer done' } }] })}\n\n`);
+        }
+        res.write('data: [DONE]\n\n');
+        res.end();
+      });
+      return;
+    }
+    res.writeHead(404, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${Number(typeof address === 'object' && address ? address.port : 0)}`;
+
+  try {
+    const result = await runTaskLoop(
+      { id: 'chat', question: 'Answer from terminal synthesis.', signals: [] },
+      {
+        repoRoot: os.tmpdir(),
+        systemContext: createEmptyPresetSystemContext(),
+        config: mockSiftConfig({ Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } } }),
+        baseUrl,
+        model: 'mock',
+        maxTurns: 1,
+        maxInvalidResponses: 2,
+        minToolCallsBeforeFinish: 0,
+        loopKind: 'chat',
+        plannerToolDefinitions: [],
+        streamFinishAsAnswer: true,
+        progressWriter: new NonLiveTextProgressWriter(events),
+      },
+    );
+
+    assert.equal(result.finalOutput, 'Terminal answer done');
+    assert.deepEqual(streamRequests, [true, true]);
+    assert.deepEqual(events.filter((event) => event.kind === 'thinking' || event.kind === 'answer'), []);
   } finally {
     await closeServer(server);
   }

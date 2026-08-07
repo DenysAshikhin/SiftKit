@@ -24,6 +24,12 @@ const MOCK_CONFIG = mockSiftConfig({
   Presets: CONTEXT_FREE_PRESETS,
 });
 
+class DisabledCollectingProgressWriter extends CollectingProgressWriter<RepoSearchProgressEvent> {
+  override get enabled(): boolean {
+    return false;
+  }
+}
+
 test('executeRepoSearchRequest chat kind returns finalOutput in scorecard, no tools', async () => {
   const events: RepoSearchProgressEvent[] = [];
   const result = await executeRepoSearchRequest({
@@ -44,6 +50,27 @@ test('executeRepoSearchRequest chat kind returns finalOutput in scorecard, no to
   assert.equal(tasks[0].finalOutput, 'You like green.');
   assert.equal(tasks[0].groundingStatus, undefined);
   assert.ok(events.some((event) => event.kind === 'answer' && event.answerText === 'You like green.'));
+});
+
+test('lifecycle reporting stays active without sending live text to a disabled target', async () => {
+  const events: RepoSearchProgressEvent[] = [];
+  const result = await executeRepoSearchRequest({
+    presetId: 'chat',
+    prompt: 'Say hello.',
+    repoRoot: os.tmpdir(),
+    config: MOCK_CONFIG,
+    taskKind: 'chat',
+    systemPrompt: 'general, coder friendly assistant',
+    allowedTools: [],
+    availableModels: ['mock'],
+    model: 'mock',
+    mockResponses: ['{"action":"finish","output":"Hello."}'],
+    progressWriter: new DisabledCollectingProgressWriter(events),
+  });
+
+  assert.equal(result.scorecard.tasks[0].finalOutput, 'Hello.');
+  assert.ok(events.some((event) => event.kind === 'llm_start'));
+  assert.deepEqual(events.filter((event) => event.kind === 'thinking' || event.kind === 'answer'), []);
 });
 
 test('executeRepoSearchRequest chat with web tools runs native web_search', async () => {

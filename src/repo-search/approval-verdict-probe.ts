@@ -124,6 +124,10 @@ class ProbeProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
     return true;
   }
 
+  override get wantsLiveText(): boolean {
+    return false;
+  }
+
   write(event: RepoSearchProgressEvent): void {
     if (event.kind === 'approval_auto') {
       this.event = AutoApprovalEventSchema.parse(event);

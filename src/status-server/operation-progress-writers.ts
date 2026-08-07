@@ -28,6 +28,10 @@ export class RepoSearchSseProgressWriter extends ProgressWriter<RepoSearchProgre
     return true;
   }
 
+  override get wantsLiveText(): boolean {
+    return false;
+  }
+
   write(event: RepoSearchProgressEvent): void {
     if (event.kind !== 'thinking' && event.kind !== 'answer') {
       this.stream.writeProgress(event);

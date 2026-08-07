@@ -15,7 +15,7 @@ import type {
 import type { NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
 import { JsonObjectSchema } from '../../lib/json-types.js';
 import { toProtocolTools } from '../../providers/llama-cpp.js';
-import { ModelJson } from '../../lib/model-json.js';
+import { StreamingFinishOutputExtractor } from '../../lib/model-json.js';
 import { buildIgnorePolicy, type IgnorePolicy } from '../command-safety.js';
 import {
   captureExecutingPlannerRequest,
@@ -389,7 +389,7 @@ export class TaskLoop {
     const resolvedTokens = await this.tokenUsage.recordModelResponse(response);
 
     // Emit native thinking text (from reasoning_content) to UI
-    if (response.thinkingText) {
+    if (response.thinkingText && this.progress.liveTextEnabled) {
       this.progress.thinking(turn, response.thinkingText);
     }
 
@@ -517,6 +517,7 @@ export class TaskLoop {
         this.plannerThinking.reasoningContentEnabled,
       );
       this.executingPlannerRequest = captureExecutingPlannerRequest(serializedMessages, this.plannerThinking);
+      const finishOutputExtractor = new StreamingFinishOutputExtractor();
       return await requestRepoSearchPlannerProtocolAction({
         config: this.options.config,
         baseUrl: this.options.baseUrl,
@@ -527,18 +528,18 @@ export class TaskLoop {
         maxTokens: prepared.maxOutputTokens,
         ...this.plannerThinking,
         stream: this.progress.enabled,
-        onThinkingDelta: this.progress.enabled
+        onThinkingDelta: this.progress.liveTextEnabled
           ? (accThinking) => { this.progress.thinking(turn, accThinking); }
           : undefined,
-        onContentDelta: this.progress.enabled
+        onContentDelta: this.progress.liveTextEnabled
           ? (accContent) => {
               if (this.streamFinishAsAnswer) {
-                const finishOutput = ModelJson.extractStreamingFinishOutput(accContent);
+                const finishOutput = finishOutputExtractor.push(accContent);
                 if (finishOutput !== null) {
                   this.progress.answer(turn, finishOutput);
                 }
               } else {
-                const finishOutput = ModelJson.extractStreamingFinishOutput(accContent) ?? accContent;
+                const finishOutput = finishOutputExtractor.push(accContent) ?? accContent;
                 this.progress.thinking(turn, finishOutput);
               }
             }
@@ -613,7 +614,7 @@ export class TaskLoop {
       return 'continue';
     }
     this.finalOutput = action.output;
-    if (this.streamFinishAsAnswer) {
+    if (this.streamFinishAsAnswer && this.progress.liveTextEnabled) {
       this.progress.answer(turn, this.finalOutput);
     }
     this.counters.reason = 'finish';

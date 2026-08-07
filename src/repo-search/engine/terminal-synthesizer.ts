@@ -72,7 +72,7 @@ export class TerminalSynthesizer {
           ...this.options.thinking,
           logger: this.options.logger,
           stream: this.options.streamFinishAsAnswer && this.options.progress.enabled,
-          onContentDelta: this.options.streamFinishAsAnswer && this.options.progress.enabled
+          onContentDelta: this.options.streamFinishAsAnswer && this.options.progress.liveTextEnabled
             ? (answerText: string) => { this.options.progress.answer(input.turnsUsed, answerText); }
             : undefined,
         });
@@ -85,7 +85,7 @@ export class TerminalSynthesizer {
         const text = String(synthesisResponse.text || '').trim();
         if (!synthesisResponse.mockExhausted && text) {
           finalOutput = text;
-          if (this.options.streamFinishAsAnswer && this.options.progress.enabled) {
+          if (this.options.streamFinishAsAnswer && this.options.progress.liveTextEnabled) {
             this.options.progress.answer(input.turnsUsed, finalOutput);
           }
           successAttempt = attempt;

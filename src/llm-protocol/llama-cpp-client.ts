@@ -363,6 +363,7 @@ export class LlamaCppClient {
       options.onContentDelta?.(contentText);
       return true;
     };
+    const reasoningActionScanner = new FirstJsonObjectScanner();
 
     try {
       streamFrames: for await (const frame of this.client.streamSse({
@@ -404,7 +405,7 @@ export class LlamaCppClient {
           }
           if (deltaReasoning) {
             reasoningText += deltaReasoning;
-            const completedAction = findFirstCompleteJsonObjectText(reasoningText);
+            const completedAction = reasoningActionScanner.push(reasoningText);
             if (completedAction && /"action"\s*:/u.test(completedAction)) {
               contentText = completedAction;
               reasoningText = '';
@@ -587,39 +588,76 @@ function getRecentTokenRepetition(text: string): { reason: string; truncatedText
   return null;
 }
 
-function findFirstCompleteJsonObjectText(text: string): string | null {
-  const startIndex = text.indexOf('{');
-  if (startIndex < 0) return null;
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let index = startIndex; index < text.length; index += 1) {
-    const char = text[index];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === '\\') {
-        escaped = true;
-      } else if (char === '"') {
-        inString = false;
+/**
+ * Incrementally finds the first complete JSON object in an append-only text
+ * stream. State persists across push() calls so each call scans only newly
+ * appended characters; a push shorter than what was already scanned
+ * (early-stop truncation) resets the scan. After the first object completes,
+ * it is cached and returned on every later push.
+ */
+export class FirstJsonObjectScanner {
+  private scannedTo = 0;
+  private startIndex = -1;
+  private depth = 0;
+  private inString = false;
+  private escaped = false;
+  private result: string | null = null;
+
+  push(text: string): string | null {
+    if (text.length < this.scannedTo) {
+      this.resetState();
+    }
+    if (this.result !== null) {
+      return this.result;
+    }
+    for (let index = this.scannedTo; index < text.length; index += 1) {
+      const char = text[index];
+      if (this.startIndex < 0) {
+        if (char === '{') {
+          this.startIndex = index;
+          this.depth = 1;
+        }
+        continue;
       }
-      continue;
+      if (this.inString) {
+        if (this.escaped) {
+          this.escaped = false;
+        } else if (char === '\\') {
+          this.escaped = true;
+        } else if (char === '"') {
+          this.inString = false;
+        }
+        continue;
+      }
+      if (char === '"') {
+        this.inString = true;
+        continue;
+      }
+      if (char === '{') {
+        this.depth += 1;
+        continue;
+      }
+      if (char === '}') {
+        this.depth -= 1;
+        if (this.depth === 0) {
+          this.scannedTo = text.length;
+          this.result = text.slice(this.startIndex, index + 1).trim();
+          return this.result;
+        }
+      }
     }
-    if (char === '"') {
-      inString = true;
-      continue;
-    }
-    if (char === '{') {
-      depth += 1;
-      continue;
-    }
-    if (char === '}') {
-      depth -= 1;
-      if (depth === 0) return text.slice(startIndex, index + 1).trim();
-      if (depth < 0) return null;
-    }
+    this.scannedTo = text.length;
+    return null;
   }
-  return null;
+
+  private resetState(): void {
+    this.scannedTo = 0;
+    this.startIndex = -1;
+    this.depth = 0;
+    this.inString = false;
+    this.escaped = false;
+    this.result = null;
+  }
 }
 
 function getUsageValue(value: OptionalJsonValue): number | null {

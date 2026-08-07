@@ -4,7 +4,7 @@
 
 **Goal:** Make images a first-class input everywhere in SiftKit — an images-only chat turn executes, the repo-search/plan endpoints stop dropping attachments, the agent's `read` tool can look at a repository image, every image is size- and dimension-admitted before it reaches the model, and the dashboard renders images inline with a collapsed annotation.
 
-**Architecture:** One shared admission path (`src/llm-protocol/image-admission.ts`) validates bytes, reads dimensions, and downscales to a per-preset ceiling — the model's own pixel limit, narrowed by a user-tunable `VisionMaxImageEdge`; every entry point (CLI `--image`, HTTP data URLs, agent `read`, browser paste) goes through it. The agent `read` tool dispatches on file extension and returns a text result plus an `imageDataUrl`, which the engine appends as a `role: 'user'` message immediately after the tool result. That synthetic message is persisted as a first-class row so chat replay reconstructs it in position, and a new `VisionImageRetention` preset field ages old images out of context.
+**Architecture:** One shared admission path (`src/llm-protocol/image-admission.ts`) validates bytes, reads dimensions, and downscales to a per-preset ceiling — the model's own pixel limit, narrowed by a user-tunable `VisionMaxImagePixels`; every entry point (CLI `--image`, HTTP data URLs, agent `read`, browser paste) goes through it. The agent `read` tool dispatches on file extension and returns a text result plus an `imageDataUrl`, which the engine appends as a `role: 'user'` message immediately after the tool result. That synthetic message is persisted as a first-class row so chat replay reconstructs it in position, and a new `VisionImageRetention` preset field ages old images out of context.
 
 **Tech Stack:** TypeScript (ESM, `node:test` + `node:assert/strict`), zod (via `src/lib/zod.js`), better-sqlite3, `@napi-rs/image` (new runtime dependency), React (dashboard), ESLint.
 
@@ -14,9 +14,39 @@
 
 ## Pre-flight findings (already verified — do not re-verify)
 
-Spec §9 risk 1 asked whether `preprocessor_config.json` sits beside the weights. **Verified 2026-08-07 on this machine: it does not exist.** The only exl3 model directory is `C:\exl3_work\Laguna-S-2.1-4.0bpw`, which contains `args.json` and safetensors only — it is a text-only model, so no vision preprocessor config is expected. There is no vision model installed locally to confirm against.
+Spec §9 risk 1 asked whether `preprocessor_config.json` sits beside the weights. **Verified 2026-08-07 against the live model: it does, and the derived path is the one that will run.** Risk 1 is closed.
 
-Consequence for Task 5: implement `resolveImageTokenBudget` exactly as designed — read `preprocessor_config.json` from the preset's `ModelPath`, fall back loudly when absent — and test it against a **fixture** config written into a temp directory. On the current machine the fallback branch is what will run at runtime; that is expected, not a bug.
+The resident TabbyAPI model (`127.0.0.1:8098`, id `3.6_27b_4.7bpw`, `"use_vision": true`, Qwen3-VL chat template with `<|vision_start|><|image_pad|><|vision_end|>`) lives at `D:\personal\models\elx3\3.6_27b_4.7bpw` and ships both files this plan reads:
+
+`preprocessor_config.json` (verbatim, trimmed to the fields that matter):
+
+```json
+{
+  "size": { "longest_edge": 16777216, "shortest_edge": 65536 },
+  "patch_size": 16,
+  "temporal_patch_size": 2,
+  "merge_size": 2,
+  "processor_class": "Qwen3VLProcessor",
+  "image_processor_type": "Qwen2VLImageProcessorFast"
+}
+```
+
+**Two corrections this forces on the design, both load-bearing:**
+
+1. **There is no `max_pixels` key.** Newer Qwen processors moved the pixel budget to `size.longest_edge` / `size.shortest_edge`, and those values are **total pixel counts, not edge lengths** — `16777216` is 2²⁴ px (16.8 MP), not a 16-million-pixel-wide image. A schema that reads only `max_pixels` would silently fall back on the one model actually installed, which is exactly the failure §4.3 says to avoid. Task 5 reads both shapes.
+2. **`patch_size` is 16, not 14.** So one image token covers `(16 × 2)² = 1024` px, not 784. Task 5's fallback constants change to match the model family present.
+
+Concrete numbers for this model: `pixelsPerToken = 1024`; `maxPixels = min(16_777_216, 2048 × 1024) = 2_097_152` — **2.1 MP**, so the SiftKit token estimate binds, not the model. For scale, a 1920×1080 screenshot is 2.07 MP and fits with almost nothing to spare; a 2560×1440 one is 3.69 MP and gets downscaled.
+
+`config.json` sits beside it and carries the vision encoder geometry Task 8b uses for the VRAM estimate:
+
+```json
+"vision_config": { "depth": 27, "hidden_size": 1152, "intermediate_size": 4304,
+                   "num_heads": 16, "patch_size": 16, "spatial_merge_size": 2,
+                   "out_hidden_size": 5120 }
+```
+
+**Current GPU state:** RTX 4090, 24564 MiB total, **831 MiB free** with the model resident. Headroom is genuinely tight, which is why the VRAM readout in Task 24 is worth getting right rather than approximating.
 
 `@napi-rs/image` is **not** currently installed (`node_modules/@napi-rs/image` absent). Task 3 adds it.
 
@@ -29,7 +59,7 @@ Consequence for Task 5: implement `resolveImageTokenBudget` exactly as designed 
 | File | Responsibility |
 |---|---|
 | `src/llm-protocol/image-admission.ts` | Dimension reading, target-dimension math, server-side downscale, and the single `admitImageBuffer` / `admitImageDataUrl` entry points. |
-| `src/llm-protocol/image-token-budget.ts` | `resolveImageTokenBudget(preset)` — derives max pixels from the preset's `preprocessor_config.json`, caches per preset, logs its source. Also owns `resolveEffectiveImagePixelCeiling` (model ceiling narrowed by the user's edge cap) and `estimateVisionPeakVramBytes`, so the number the settings panel promises and the number admission enforces come from one calculation. |
+| `src/llm-protocol/image-token-budget.ts` | `resolveImageTokenBudget(preset)` — derives max pixels from the preset's `preprocessor_config.json`, caches per preset, logs its source. Also owns `resolveEffectiveImagePixelCeiling` (model ceiling narrowed by the user's `VisionMaxImagePixels`) and `estimateVisionPeakVramBytes`, so the number the settings panel promises and the number admission enforces come from one calculation. |
 | `src/repo-search/engine/image-read.ts` | The `read` image branch: `planImageRead` + `buildImageReadExecution`. Keeps `repo-tools.ts` from growing another 100 lines. |
 | `src/image-retention-policy.ts` | `ImageRetentionPolicy` — ages images out of a message array, mirroring `src/thinking-retention-policy.ts`. |
 | `src/status-server/routes/chat-image-caption.ts` | The on-demand caption endpoint. |
@@ -278,6 +308,14 @@ export function rasterBuffer(
 export function toDataUrl(mime: string, buffer: Buffer): string {
   return `data:${mime};base64,${buffer.toString('base64')}`;
 }
+
+/**
+ * The installed model's vision encoder geometry, from
+ * D:\personal\models\elx3\3.6_27b_4.7bpw\config.json. Lives here rather than in one test file
+ * because both tests/image-token-budget.test.ts and tests/image-admission.test.ts need it.
+ * Task 8b is what gives it a consumer.
+ */
+export const INSTALLED_ENCODER = { hiddenSize: 1152, intermediateSize: 4304, patchesPerToken: 4 };
 ```
 
 - [ ] **Step 3: Write the failing test**
@@ -507,7 +545,7 @@ git commit -m "feat: add target-dimension math and server-side image downscaling
 - Create: `src/llm-protocol/image-token-budget.ts`
 - Create: `tests/image-token-budget.test.ts`
 
-Background: a Qwen-VL–family `preprocessor_config.json` carries `patch_size`, `merge_size` and `max_pixels`. One image token covers `(patch_size * merge_size)^2` pixels. The ceiling this codebase can afford is `SIFT_IMAGE_TOKEN_ESTIMATE` (2048) tokens, so `maxPixels = min(config.max_pixels, 2048 * pixelsPerToken)`.
+Background: a Qwen-VL–family `preprocessor_config.json` carries `patch_size` and `merge_size`. One image token covers `(patch_size * merge_size)^2` pixels. The pixel budget lives under **one of two keys depending on processor vintage** — older configs use a flat `max_pixels`; the `Qwen2VLImageProcessorFast` generation moved it to `size.longest_edge` (still a total pixel count, despite the name). The installed model uses the newer shape, so a reader that knows only `max_pixels` falls back silently on the only model present. The ceiling this codebase can afford is `SIFT_IMAGE_TOKEN_ESTIMATE` (2048) tokens, so `maxPixels = min(configuredMaxPixels, 2048 * pixelsPerToken)`.
 
 - [ ] **Step 1: Add the fallback constants**
 
@@ -516,9 +554,10 @@ Insert into `src/config/constants.ts` immediately after line 46:
 ```ts
 /**
  * Pixels covered by one image token when a preset carries no preprocessor_config.json.
- * 14px patches merged 2x2 — the Qwen-VL default — cover 28x28 = 784 pixels per token.
+ * 16px patches merged 2x2 — the Qwen3-VL geometry the installed model uses — cover
+ * 32x32 = 1024 pixels per token.
  */
-export const SIFT_FALLBACK_IMAGE_PATCH_SIZE = 14;
+export const SIFT_FALLBACK_IMAGE_PATCH_SIZE = 16;
 export const SIFT_FALLBACK_IMAGE_MERGE_SIZE = 2;
 ```
 
@@ -538,28 +577,60 @@ import type { ModelRuntimePreset } from '../src/config/types.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { makeTestPreset } from './helpers/model-presets.js';
 
-function writePreprocessorConfig(directory: string, body: Record<string, number>): void {
+function writePreprocessorConfig(directory: string, body: Record<string, unknown>): void {
   fs.writeFileSync(path.join(directory, 'preprocessor_config.json'), JSON.stringify(body));
 }
 
-test('resolveImageTokenBudget derives the ceiling from preprocessor_config.json', () => {
+/** Byte-for-byte the shape the installed model ships. */
+const INSTALLED_MODEL_CONFIG = {
+  size: { longest_edge: 16_777_216, shortest_edge: 65_536 },
+  patch_size: 16,
+  temporal_patch_size: 2,
+  merge_size: 2,
+  processor_class: 'Qwen3VLProcessor',
+  image_processor_type: 'Qwen2VLImageProcessorFast',
+};
+
+test('resolveImageTokenBudget derives the ceiling from the installed model config shape', () => {
   clearImageTokenBudgetCache();
   const directory = createManagedTempDir('image-budget-derived');
-  writePreprocessorConfig(directory, { patch_size: 14, merge_size: 2, max_pixels: 12_845_056 });
+  writePreprocessorConfig(directory, INSTALLED_MODEL_CONFIG);
   const preset: ModelRuntimePreset = makeTestPreset({ id: 'derived', ModelPath: directory });
 
   const budget = resolveImageTokenBudget(preset);
 
   assert.equal(budget.source, 'preprocessor_config');
+  assert.equal(budget.pixelsPerToken, 1024);
+  // 16.8 MP would need 16_384 tokens, so the SiftKit token estimate is the binding limit.
+  assert.equal(budget.maxPixels, SIFT_IMAGE_TOKEN_ESTIMATE * 1024);
+  // 2.1 MP — for scale, a 1920x1080 screenshot is 2.07 MP and just fits.
+  assert.equal(budget.maxPixels, 2_097_152);
+});
+
+test('resolveImageTokenBudget still reads the older flat max_pixels key', () => {
+  clearImageTokenBudgetCache();
+  const directory = createManagedTempDir('image-budget-legacy');
+  writePreprocessorConfig(directory, { patch_size: 14, merge_size: 2, max_pixels: 12_845_056 });
+
+  const budget = resolveImageTokenBudget(makeTestPreset({ id: 'legacy', ModelPath: directory }));
+
+  assert.equal(budget.source, 'preprocessor_config');
   assert.equal(budget.pixelsPerToken, 784);
-  // 12_845_056 px would need 16_384 tokens, so the SiftKit token estimate is the binding limit.
   assert.equal(budget.maxPixels, SIFT_IMAGE_TOKEN_ESTIMATE * 784);
 });
 
-test('resolveImageTokenBudget honours a max_pixels lower than the SiftKit token ceiling', () => {
+test('size.longest_edge wins over max_pixels when a config carries both', () => {
+  clearImageTokenBudgetCache();
+  const directory = createManagedTempDir('image-budget-both');
+  writePreprocessorConfig(directory, { patch_size: 16, merge_size: 2, max_pixels: 999_999, size: { longest_edge: 200_000 } });
+
+  assert.equal(resolveImageTokenBudget(makeTestPreset({ id: 'both', ModelPath: directory })).maxPixels, 200_000);
+});
+
+test('resolveImageTokenBudget honours a configured budget lower than the SiftKit token ceiling', () => {
   clearImageTokenBudgetCache();
   const directory = createManagedTempDir('image-budget-tight');
-  writePreprocessorConfig(directory, { patch_size: 14, merge_size: 2, max_pixels: 200_000 });
+  writePreprocessorConfig(directory, { patch_size: 16, merge_size: 2, size: { longest_edge: 200_000 } });
 
   const budget = resolveImageTokenBudget(makeTestPreset({ id: 'tight', ModelPath: directory }));
 
@@ -573,8 +644,8 @@ test('resolveImageTokenBudget falls back when the file is absent, and says which
   const budget = resolveImageTokenBudget(makeTestPreset({ id: 'absent', ModelPath: directory }));
 
   assert.equal(budget.source, 'fallback');
-  assert.equal(budget.pixelsPerToken, 784);
-  assert.equal(budget.maxPixels, SIFT_IMAGE_TOKEN_ESTIMATE * 784);
+  assert.equal(budget.pixelsPerToken, 1024);
+  assert.equal(budget.maxPixels, SIFT_IMAGE_TOKEN_ESTIMATE * 1024);
 });
 
 test('resolveImageTokenBudget falls back when the file is unparseable', () => {
@@ -593,7 +664,7 @@ test('resolveImageTokenBudget falls back when ModelPath is null', () => {
 test('resolveImageTokenBudget caches per preset id', () => {
   clearImageTokenBudgetCache();
   const directory = createManagedTempDir('image-budget-cache');
-  writePreprocessorConfig(directory, { patch_size: 14, merge_size: 2, max_pixels: 200_000 });
+  writePreprocessorConfig(directory, { patch_size: 16, merge_size: 2, size: { longest_edge: 200_000 } });
   const preset = makeTestPreset({ id: 'cached', ModelPath: directory });
 
   assert.equal(resolveImageTokenBudget(preset).maxPixels, 200_000);
@@ -652,11 +723,23 @@ export type ImageTokenBudget = {
   source: 'preprocessor_config' | 'fallback';
 };
 
+/**
+ * Two vintages of the same file. Older Qwen processors carry a flat `max_pixels`; the
+ * `Qwen2VLImageProcessorFast` generation moved it to `size.longest_edge`, which is still a
+ * total pixel count despite the name. Both are read, newer key first.
+ */
 const PreprocessorConfigSchema = z.object({
   patch_size: z.number().int().positive().optional(),
   merge_size: z.number().int().positive().optional(),
   max_pixels: z.number().int().positive().optional(),
+  size: z.object({
+    longest_edge: z.number().int().positive().optional(),
+  }).optional(),
 });
+
+function readConfiguredMaxPixels(config: z.infer<typeof PreprocessorConfigSchema>): number | undefined {
+  return config.size?.longest_edge ?? config.max_pixels;
+}
 
 const budgetByPresetId = new Map<string, ImageTokenBudget>();
 
@@ -703,7 +786,7 @@ function readBudget(preset: ModelRuntimePreset): ImageTokenBudget {
   }
   const patchSize = parsed.data.patch_size ?? SIFT_FALLBACK_IMAGE_PATCH_SIZE;
   const mergeSize = parsed.data.merge_size ?? SIFT_FALLBACK_IMAGE_MERGE_SIZE;
-  return buildBudget((patchSize * mergeSize) ** 2, parsed.data.max_pixels, 'preprocessor_config');
+  return buildBudget((patchSize * mergeSize) ** 2, readConfiguredMaxPixels(parsed.data), 'preprocessor_config');
 }
 
 /**
@@ -1139,13 +1222,17 @@ git commit -m "feat: add the VisionImageRetention preset field"
 
 ---
 
-### Task 8b: `VisionMaxImageEdge` — a user-tunable dimension cap
+### Task 8b: `VisionMaxImagePixels` — a user-tunable size cap, measured in megapixels
 
 The model's `preprocessor_config.json` gives a hard ceiling. This field gives the **user** a lever below it: a smaller cap costs less peak VRAM and fewer image tokens, at the price of resolution.
 
-**Shape decision:** one integer, the maximum length of an image's **longer side** in pixels. That is the only single-number form that reads as a dimension and stays editable. Admission then fits **both** constraints — long edge ≤ `VisionMaxImageEdge` **and** total pixels ≤ the model's `maxPixels`. When the field sits at its auto-set default, `floor(sqrt(maxPixels))`, a square image hits both limits at once and a wide image hits the pixel ceiling first, so the two rules never disagree. Tuning the value *down* is always safe: a smaller square can only be under the pixel ceiling.
+**Shape decision:** the budget is a **total pixel count** all the way down — `size.longest_edge` in the model config is a pixel count, `pixelsPerToken` converts pixels to tokens, and the VRAM estimate scales with pixels. So the field is a pixel count too, stored as an integer and presented as **megapixels**. Nothing in the pipeline constrains an edge length, so exposing one would have been a second, weaker constraint layered on top of the real one, and it would have mis-priced non-square images: a 4000×500 panorama and a 1414×1414 square are both 2 MP and cost identical VRAM, but a long-edge cap treats them as eight times apart.
+
+Storing pixels and displaying MP keeps every internal calculation exact and puts the conversion in exactly one place, the settings panel.
 
 `0` means "no user cap — the model ceiling is the only limit".
+
+Because the constraint is now purely pixels, `computeTargetDimensions` from Task 4 needs **no change at all** — Task 8c only chooses which ceiling to hand it.
 
 **Files:**
 - Modify: `src/config/constants.ts`
@@ -1158,54 +1245,75 @@ The model's `preprocessor_config.json` gives a hard ceiling. This field gives th
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `tests/image-token-budget.test.ts`:
+Append to `tests/image-token-budget.test.ts`, importing `INSTALLED_ENCODER` from
+`./helpers/image-fixtures.js` — it is shared with `tests/image-admission.test.ts` in Task 8c, so
+it is defined there rather than in either test file:
 
 ```ts
-test('the budget exposes the largest square edge that fits the pixel ceiling', () => {
-  clearImageTokenBudgetCache();
-  const directory = createManagedTempDir('image-budget-edge');
-  writePreprocessorConfig(directory, { patch_size: 14, merge_size: 2, max_pixels: 1_000_000 });
-
-  const budget = resolveImageTokenBudget(makeTestPreset({ id: 'edge', ModelPath: directory }));
-
-  assert.equal(budget.maxEdgeCeiling, 1000);
-});
-
-test('estimateVisionPeakVramBytes scales with the image token count', () => {
-  const small = estimateVisionPeakVramBytes(256);
-  const large = estimateVisionPeakVramBytes(2048);
+test('estimateVisionPeakVramBytes scales linearly with the image token count', () => {
+  const small = estimateVisionPeakVramBytes(256, INSTALLED_ENCODER);
+  const large = estimateVisionPeakVramBytes(2048, INSTALLED_ENCODER);
 
   assert.ok(small > 0);
   assert.equal(large, small * 8);
 });
 
-test('resolveEffectiveImagePixelCeiling clamps to the user edge cap', () => {
-  const budget = { maxPixels: 1_000_000, pixelsPerToken: 784, maxImageTokens: 1275, maxEdgeCeiling: 1000, source: 'fallback' as const };
+test('estimateVisionPeakVramBytes matches the installed model geometry', () => {
+  // 4 patches x (1152 + 4304) x 2 bytes x 2.5 = 109_120 B per image token.
+  assert.equal(estimateVisionPeakVramBytes(1, INSTALLED_ENCODER), 109_120);
+  // A full 2048-token image: ~223 MB transient, which fits the 831 MiB currently free.
+  assert.equal(estimateVisionPeakVramBytes(2048, INSTALLED_ENCODER), 223_477_760);
+});
 
-  // A 500px edge cap can never exceed 250_000 pixels.
-  assert.equal(resolveEffectiveImagePixelCeiling(budget, 500), 250_000);
+test('the budget carries the encoder geometry read from config.json', () => {
+  clearImageTokenBudgetCache();
+  const directory = createManagedTempDir('image-budget-encoder');
+  writePreprocessorConfig(directory, INSTALLED_MODEL_CONFIG);
+  fs.writeFileSync(path.join(directory, 'config.json'), JSON.stringify({
+    vision_config: { hidden_size: 1152, intermediate_size: 4304, spatial_merge_size: 2 },
+  }));
+
+  const budget = resolveImageTokenBudget(makeTestPreset({ id: 'encoder', ModelPath: directory }));
+
+  assert.deepEqual(budget.encoder, INSTALLED_ENCODER);
+});
+
+test('the encoder geometry falls back when config.json is absent', () => {
+  clearImageTokenBudgetCache();
+  const directory = createManagedTempDir('image-budget-encoder-absent');
+  writePreprocessorConfig(directory, INSTALLED_MODEL_CONFIG);
+
+  const budget = resolveImageTokenBudget(makeTestPreset({ id: 'encoder-absent', ModelPath: directory }));
+
+  assert.deepEqual(budget.encoder, INSTALLED_ENCODER);
+});
+
+test('resolveEffectiveImagePixelCeiling clamps to the user pixel cap', () => {
+  const budget = { maxPixels: 2_097_152, pixelsPerToken: 1024, maxImageTokens: 2048, encoder: INSTALLED_ENCODER, source: 'preprocessor_config' as const };
+
+  assert.equal(resolveEffectiveImagePixelCeiling(budget, 1_000_000), 1_000_000);
   // 0 means no user cap.
-  assert.equal(resolveEffectiveImagePixelCeiling(budget, 0), 1_000_000);
-  // A cap above the ceiling cannot raise it.
-  assert.equal(resolveEffectiveImagePixelCeiling(budget, 99_999), 1_000_000);
+  assert.equal(resolveEffectiveImagePixelCeiling(budget, 0), 2_097_152);
+  // A cap above the model ceiling cannot raise it.
+  assert.equal(resolveEffectiveImagePixelCeiling(budget, 99_000_000), 2_097_152);
 });
 ```
 
 Append to the preset-normalization test file from Task 8:
 
 ```ts
-test('VisionMaxImageEdge defaults to 0, meaning no user cap', () => {
+test('VisionMaxImagePixels defaults to 0, meaning no user cap', () => {
   const [preset] = getDefaultConfigObject().Server.ModelPresets.Presets;
-  assert.equal(preset.VisionMaxImageEdge, 0);
+  assert.equal(preset.VisionMaxImagePixels, 0);
 });
 
-test('VisionMaxImageEdge is a recognised model preset field', () => {
-  assert.equal(ModelPresetFieldSchema.safeParse('VisionMaxImageEdge').success, true);
+test('VisionMaxImagePixels is a recognised model preset field', () => {
+  assert.equal(ModelPresetFieldSchema.safeParse('VisionMaxImagePixels').success, true);
 });
 
-test('VisionMaxImageEdge rejects a negative value', () => {
+test('VisionMaxImagePixels rejects a negative value', () => {
   assert.equal(
-    ModelRuntimePresetSchema.safeParse({ ...makeTestPreset(), VisionMaxImageEdge: -1 }).success,
+    ModelRuntimePresetSchema.safeParse({ ...makeTestPreset(), VisionMaxImagePixels: -1 }).success,
     false,
   );
 });
@@ -1214,166 +1322,194 @@ test('VisionMaxImageEdge rejects a negative value', () => {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `npm test`
-Expected: FAIL — the field, `maxEdgeCeiling`, `estimateVisionPeakVramBytes` and `resolveEffectiveImagePixelCeiling` do not exist.
+Expected: FAIL — the field, `estimateVisionPeakVramBytes` and `resolveEffectiveImagePixelCeiling` do not exist.
 
 - [ ] **Step 3: Add the preset field**
 
 `src/config/constants.ts` — insert after `SIFT_DEFAULT_VISION_IMAGE_RETENTION`:
 
 ```ts
-/** 0 = no user-set edge cap; the model's own pixel ceiling is the only limit. */
-export const SIFT_DEFAULT_VISION_MAX_IMAGE_EDGE = 0;
+/** 0 = no user-set cap; the model's own pixel ceiling is the only limit. */
+export const SIFT_DEFAULT_VISION_MAX_IMAGE_PIXELS = 0;
 
 /**
- * Peak transient VRAM per image token while the vision encoder runs, in bytes.
- *
- * This is a deliberately conservative ESTIMATE, not a measurement: the spike is dominated by
- * encoder attention over patch tokens and varies by model. Re-measure by watching peak VRAM
- * during a single vision turn and adjust this one constant — every displayed figure derives
- * from it, so there is exactly one number to correct.
+ * Multiplier on the vision encoder's per-patch residual+MLP footprint, covering Q/K/V
+ * projections, the attention workspace and allocator slack. The only hand-tuned number in the
+ * VRAM estimate — everything else comes from the model's own vision_config — so this is the one
+ * value to correct if a measured peak disagrees.
  */
-export const SIFT_VISION_PEAK_VRAM_BYTES_PER_IMAGE_TOKEN = 512 * 1024;
+export const SIFT_VISION_PEAK_VRAM_WORKING_SET_FACTOR = 2.5;
+
+/** Encoder activations are fp16. */
+export const SIFT_VISION_ACTIVATION_BYTES = 2;
+
+/**
+ * Fallback vision encoder geometry when a preset ships no config.json, taken from the installed
+ * Qwen3-VL model so the default matches the hardware in front of us.
+ */
+export const SIFT_FALLBACK_VISION_HIDDEN_SIZE = 1152;
+export const SIFT_FALLBACK_VISION_INTERMEDIATE_SIZE = 4304;
 ```
 
 `packages/contracts/src/config.ts` — add to `ManagedLlamaSettingsShape` beside `VisionImageRetention`:
 
 ```ts
-  VisionMaxImageEdge: z.number().int().min(0),
+  VisionMaxImagePixels: z.number().int().min(0),
 ```
 
-and `'VisionMaxImageEdge',` to the `ModelPresetFieldSchema` enum.
+and `'VisionMaxImagePixels',` to the `ModelPresetFieldSchema` enum.
 
-`src/config/defaults.ts` — add `VisionMaxImageEdge: SIFT_DEFAULT_VISION_MAX_IMAGE_EDGE,`.
+`src/config/defaults.ts` — add `VisionMaxImagePixels: SIFT_DEFAULT_VISION_MAX_IMAGE_PIXELS,`.
 
 `src/config/normalization.ts` — normalize it beside `VisionImageRetention`.
 
-`src/inference-presets/preset-compatibility.ts:137` — add `VisionMaxImageEdge: 'exl3-managed-only-unsupported-by-llama',`.
+`src/inference-presets/preset-compatibility.ts:137` — add `VisionMaxImagePixels: 'exl3-managed-only-unsupported-by-llama',`.
 
 - [ ] **Step 4: Extend the budget module**
 
-In `src/llm-protocol/image-token-budget.ts`, add `maxEdgeCeiling` to `ImageTokenBudget`:
+In `src/llm-protocol/image-token-budget.ts`, add the encoder geometry to `ImageTokenBudget`:
 
 ```ts
 export type ImageTokenBudget = {
   pixelsPerToken: number;
   maxPixels: number;
   maxImageTokens: number;
-  /**
-   * Largest long edge the model ceiling can accept in the worst case (a square image). This is
-   * the auto-set value and the upper bound for VisionMaxImageEdge.
-   */
-  maxEdgeCeiling: number;
+  /** Vision encoder geometry from config.json, for the peak-VRAM estimate. */
+  encoder: VisionEncoderGeometry;
   source: 'preprocessor_config' | 'fallback';
 };
-```
-
-Set it inside `buildBudget`:
-
-```ts
-    maxEdgeCeiling: Math.floor(Math.sqrt(maxPixels)),
 ```
 
 and append two exported functions:
 
 ```ts
 /**
- * The pixel ceiling actually applied to an image: the model's ceiling, further narrowed by the
- * user's edge cap. A square is the worst case for a given edge, so `edge²` is the most pixels
- * that cap can admit.
+ * The pixel ceiling actually applied to an image: the model's ceiling, narrowed by the user's
+ * cap. Both are plain pixel counts, so this is a min — there is no second constraint to
+ * reconcile, which is the point of storing pixels rather than an edge length.
  */
 export function resolveEffectiveImagePixelCeiling(
   budget: ImageTokenBudget,
-  visionMaxImageEdge: number,
+  visionMaxImagePixels: number,
 ): number {
-  if (visionMaxImageEdge <= 0) {
+  if (visionMaxImagePixels <= 0) {
     return budget.maxPixels;
   }
-  return Math.min(budget.maxPixels, visionMaxImageEdge * visionMaxImageEdge);
+  return Math.min(budget.maxPixels, visionMaxImagePixels);
 }
 
 /**
- * Estimated peak VRAM the vision encoder needs free while it processes one image. The spike is
- * transient — it is released once encoding finishes — which is exactly why it is reported
- * separately from steady-state usage.
+ * Estimated peak VRAM the vision encoder needs free while it processes one image, derived from
+ * the model's own encoder geometry rather than a flat guess. The spike is transient — released
+ * once encoding finishes — which is why it is reported separately from steady-state usage.
+ *
+ * Each post-merge image token is `mergeSize²` patches; each patch carries a residual stream of
+ * `hidden_size` plus an MLP intermediate of `intermediate_size`, in fp16, scaled by the working
+ * set factor for Q/K/V and the attention workspace.
  */
-export function estimateVisionPeakVramBytes(imageTokens: number): number {
-  return imageTokens * SIFT_VISION_PEAK_VRAM_BYTES_PER_IMAGE_TOKEN;
+export function estimateVisionPeakVramBytes(
+  imageTokens: number,
+  encoder: VisionEncoderGeometry,
+): number {
+  const bytesPerPatch = (encoder.hiddenSize + encoder.intermediateSize)
+    * SIFT_VISION_ACTIVATION_BYTES
+    * SIFT_VISION_PEAK_VRAM_WORKING_SET_FACTOR;
+  return Math.round(imageTokens * encoder.patchesPerToken * bytesPerPatch);
 }
 ```
+
+`VisionEncoderGeometry` is read from `config.json`, which sits beside `preprocessor_config.json` in the same directory, and is resolved and cached by the same function:
+
+```ts
+export type VisionEncoderGeometry = {
+  hiddenSize: number;
+  intermediateSize: number;
+  /** `spatial_merge_size²` — patches collapsed into one image token. */
+  patchesPerToken: number;
+};
+
+const ModelConfigSchema = z.object({
+  vision_config: z.object({
+    hidden_size: z.number().int().positive().optional(),
+    intermediate_size: z.number().int().positive().optional(),
+    spatial_merge_size: z.number().int().positive().optional(),
+  }).optional(),
+});
+```
+
+Read it inside `readBudget` from `join(modelPath, 'config.json')`, falling back to the `SIFT_FALLBACK_VISION_*` constants with `patchesPerToken` defaulting to `mergeSize²` from the preprocessor config, and hang the result on `ImageTokenBudget` as `encoder: VisionEncoderGeometry`. One file read, one cache entry, one log line — the budget and the VRAM estimate must never disagree about which model they describe.
 
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `npm test && npm run typecheck && npm run lint`
-Expected: PASS. Every `ImageTokenBudget` literal in the Task 3–6 tests needs `maxEdgeCeiling`; the typecheck names each one.
+Expected: PASS. Every `ImageTokenBudget` literal in the Task 3–6 tests needs `encoder`; the typecheck names each one.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add -A
-git commit -m "feat: add the VisionMaxImageEdge preset field and a peak-VRAM estimate"
+git commit -m "feat: add the VisionMaxImagePixels preset field and a peak-VRAM estimate"
 ```
 
 ---
 
-### Task 8c: Admission honours the edge cap
+### Task 8c: Admission honours the user pixel cap
+
+`computeTargetDimensions` is **unchanged** from Task 4 — the cap is a pixel count, so it is the same constraint the function already applies. All this task does is decide which ceiling to pass it.
 
 **Files:**
-- Modify: `src/llm-protocol/image-admission.ts` (`computeTargetDimensions`, `admitImageBuffer`)
+- Modify: `src/llm-protocol/image-admission.ts` (`admitImageBuffer`, `admitImageDataUrl`)
 - Modify: `src/repo-search/engine/image-read.ts`
 - Modify: `src/repo-search/engine/repo-tools.ts` (`RepoToolContext`)
-- Modify: `dashboard/src/lib/downscale-image.ts` — **only if Task 21 is already done**; otherwise Task 21 picks this up
+- Modify: `src/llm-protocol/image-attachments.ts` (`ImageAttachmentReader`)
 - Test: `tests/image-admission.test.ts`
 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
-test('computeTargetDimensions caps the long edge even when the pixel budget is not binding', () => {
-  // 2000x100 is 200_000 px — well under the ceiling — but its long edge is over 1000.
-  const target = computeTargetDimensions(2000, 100, 10_000_000, 1000);
+const MODEL_BUDGET = {
+  maxPixels: 2_097_152,
+  pixelsPerToken: 1024,
+  maxImageTokens: 2048,
+  encoder: INSTALLED_ENCODER,
+  source: 'preprocessor_config' as const,
+};
 
-  assert.notEqual(target, null);
-  assert.equal(target!.width, 1000);
-  assert.equal(target!.height, 50);
-});
+test('admitImageBuffer downscales to the user pixel cap, below the model ceiling', () => {
+  // 2000x1000 is 2.0 MP — under the model's 2.1 MP — but over a 0.5 MP user cap.
+  const admitted = admitImageBuffer(rasterBuffer('png', 2000, 1000), 'image/png', MODEL_BUDGET, 500_000);
 
-test('computeTargetDimensions applies whichever constraint binds harder', () => {
-  // Edge cap allows 1000x1000; the pixel ceiling allows only 250_000.
-  const target = computeTargetDimensions(4000, 4000, 250_000, 1000);
-
-  assert.ok(target!.width * target!.height <= 250_000);
-  assert.ok(Math.max(target!.width, target!.height) <= 1000);
-});
-
-test('computeTargetDimensions with an edge cap of 0 applies only the pixel ceiling', () => {
-  assert.equal(computeTargetDimensions(2000, 100, 10_000_000, 0), null);
-});
-
-test('an image within both limits is untouched', () => {
-  assert.equal(computeTargetDimensions(800, 600, 10_000_000, 1000), null);
-});
-
-test('admitImageBuffer downscales to the user edge cap', () => {
-  const admitted = admitImageBuffer(
-    rasterBuffer('png', 2000, 1000),
-    'image/png',
-    { maxPixels: 10_000_000, pixelsPerToken: 784, maxImageTokens: 12755, maxEdgeCeiling: 3162, source: 'fallback' },
-    600,
-  );
-
-  assert.equal(admitted.metadata.width, 600);
-  assert.equal(admitted.metadata.height, 300);
+  assert.ok(admitted.metadata.width * admitted.metadata.height <= 500_000);
   assert.equal(admitted.metadata.resized, true);
   assert.equal(admitted.metadata.originalWidth, 2000);
+  // Aspect ratio survives the downscale.
+  assert.ok(Math.abs(admitted.metadata.width / admitted.metadata.height - 2) < 0.01);
+});
+
+test('a cap of 0 leaves the model ceiling as the only limit', () => {
+  const admitted = admitImageBuffer(rasterBuffer('png', 1000, 1000), 'image/png', MODEL_BUDGET, 0);
+  assert.equal(admitted.metadata.resized, false);
+});
+
+test('a cap above the model ceiling cannot raise it', () => {
+  const admitted = admitImageBuffer(rasterBuffer('png', 2000, 2000), 'image/png', MODEL_BUDGET, 99_000_000);
+
+  assert.ok(admitted.metadata.width * admitted.metadata.height <= 2_097_152);
+  assert.equal(admitted.metadata.resized, true);
+});
+
+test('two images of equal area but different shape cost the same tokens', () => {
+  // 4000x500 and 1414x1414 are both ~2 MP. A pixel cap prices them identically; an edge cap
+  // would not. This is the regression that pins the field's unit.
+  const wide = admitImageBuffer(rasterBuffer('png', 4000, 500), 'image/png', MODEL_BUDGET, 1_000_000);
+  const square = admitImageBuffer(rasterBuffer('png', 1414, 1414), 'image/png', MODEL_BUDGET, 1_000_000);
+
+  assert.equal(wide.metadata.tokenEstimate, square.metadata.tokenEstimate);
 });
 
 test('an oversized GIF names the effective ceiling, not the raw model ceiling', () => {
   assert.throws(
-    () => admitImageBuffer(
-      gifBufferWithSize(8000, 8000),
-      'image/gif',
-      { maxPixels: 12_500_000, pixelsPerToken: 6104, maxImageTokens: 2048, maxEdgeCeiling: 3535, source: 'fallback' },
-      1000,
-    ),
+    () => admitImageBuffer(gifBufferWithSize(8000, 8000), 'image/gif', MODEL_BUDGET, 1_000_000),
     /this preset accepts up to 1\.0 MP/u,
   );
 });
@@ -1382,44 +1518,15 @@ test('an oversized GIF names the effective ceiling, not the raw model ceiling', 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `npm test`
-Expected: FAIL — both functions take no edge argument.
+Expected: FAIL — `admitImageBuffer` takes three arguments.
 
 - [ ] **Step 3: Write minimal implementation**
 
-Replace `computeTargetDimensions` in `src/llm-protocol/image-admission.ts`:
+Give `admitImageBuffer` and `admitImageDataUrl` a fourth parameter, `visionMaxImagePixels = 0`, and resolve the effective ceiling once at the top. Both the resize target and the rejection message read that one value, so the message can never name a limit the resize did not apply:
 
 ```ts
-/**
- * Returns the dimensions that bring the image under BOTH the pixel ceiling and the long-edge
- * cap at the original aspect ratio, or null when it already fits both. `maxEdge <= 0` means no
- * edge cap. Both dimensions are clamped to at least 1, so a pathologically thin image degrades
- * rather than collapsing to zero.
- */
-export function computeTargetDimensions(
-  width: number,
-  height: number,
-  maxPixels: number,
-  maxEdge = 0,
-): ImageDimensions | null {
-  const pixelScale = width * height <= maxPixels ? 1 : Math.sqrt(maxPixels / (width * height));
-  const longEdge = Math.max(width, height);
-  const edgeScale = maxEdge <= 0 || longEdge <= maxEdge ? 1 : maxEdge / longEdge;
-  const scale = Math.min(pixelScale, edgeScale);
-  if (scale >= 1) {
-    return null;
-  }
-  return {
-    width: Math.max(1, Math.floor(width * scale)),
-    height: Math.max(1, Math.floor(height * scale)),
-  };
-}
-```
-
-Give `admitImageBuffer` and `admitImageDataUrl` a fourth parameter, `visionMaxImageEdge = 0`, pass it into `computeTargetDimensions`, and compute the message's stated ceiling from `resolveEffectiveImagePixelCeiling(budget, visionMaxImageEdge)` so the rejection names the limit the user actually set rather than the model's raw one:
-
-```ts
-  const effectiveMaxPixels = resolveEffectiveImagePixelCeiling(budget, visionMaxImageEdge);
-  const target = computeTargetDimensions(original.width, original.height, budget.maxPixels, visionMaxImageEdge);
+  const effectiveMaxPixels = resolveEffectiveImagePixelCeiling(budget, visionMaxImagePixels);
+  const target = computeTargetDimensions(original.width, original.height, effectiveMaxPixels);
   if (target === null) {
     return buildAdmittedImage(buffer, mime, original, original, budget, false);
   }
@@ -1432,11 +1539,11 @@ Give `admitImageBuffer` and `admitImageDataUrl` a fourth parameter, `visionMaxIm
   }
 ```
 
-- [ ] **Step 4: Thread the cap to the agent read path**
+- [ ] **Step 4: Thread the cap to the CLI path**
 
-Add `visionMaxImageEdge: number` to `RepoToolContext` beside `visionImageRetention`, populate it in `tool-action-processor.ts` from `getActiveModelPreset(options.config).VisionMaxImageEdge`, add it to `tests/helpers/repo-tool-context.ts` (defaulting to `0`), and pass it as the fourth argument to `admitImageBuffer` in `executeImageRead`.
+`ImageAttachmentReader` already holds a budget (Task 6): give its constructor a second parameter, `visionMaxImagePixels`, and forward it to `admitImageBuffer`. Update the call sites found by `git grep -n "new ImageAttachmentReader"` to pass `preset.VisionMaxImagePixels`.
 
-Do the same for `ImageAttachmentReader`, which already holds a budget: give its constructor a second parameter `visionMaxImageEdge` and forward it.
+**The agent `read` path is deliberately not touched here.** `RepoToolContext`, `executeImageRead` and `tests/helpers/repo-tool-context.ts` do not exist until Task 11, which creates all three and threads `visionMaxImagePixels` alongside `visionEnabled` in one place. Reaching forward from this task would not compile.
 
 - [ ] **Step 5: Run test to verify it passes**
 
@@ -1447,7 +1554,7 @@ Expected: PASS.
 
 ```bash
 git add -A
-git commit -m "feat: honour the user image edge cap in admission"
+git commit -m "feat: honour the user image pixel cap in admission"
 ```
 
 ---
@@ -1790,6 +1897,7 @@ export function makeRepoToolContext(overrides: {
   repoRoot: string;
   visionEnabled: boolean;
   visionImageRetention?: number;
+  visionMaxImagePixels?: number;
 }): RepoToolContext {
   return {
     repoRoot: overrides.repoRoot,
@@ -1800,6 +1908,7 @@ export function makeRepoToolContext(overrides: {
     validationCommandOutputLineLimit: null,
     visionEnabled: overrides.visionEnabled,
     visionImageRetention: overrides.visionImageRetention ?? 8,
+    visionMaxImagePixels: overrides.visionMaxImagePixels ?? 0,
     imageTokenBudget: resolveImageTokenBudget(makeTestPreset()),
     liveImagePathKeys: new Set<string>(),
   };
@@ -1835,6 +1944,8 @@ Add to `RepoToolContext` (line 64-73):
   visionEnabled: boolean;
   /** 0 refuses images on every path, including this one. -1 is unbounded. */
   visionImageRetention: number;
+  /** User pixel cap from Task 8b; 0 means the model ceiling is the only limit. */
+  visionMaxImagePixels: number;
   imageTokenBudget: ImageTokenBudget;
   /**
    * Path keys of images currently live in the transcript. Keyed off "in context", not "ever
@@ -1919,7 +2030,7 @@ export function executeImageRead(options: {
   }
   let admitted;
   try {
-    admitted = admitImageBuffer(buffer, mime, context.imageTokenBudget);
+    admitted = admitImageBuffer(buffer, mime, context.imageTokenBudget, context.visionMaxImagePixels);
   } catch (error) {
     return {
       ok: false,
@@ -1981,16 +2092,20 @@ Replace `src/repo-search/engine/repo-tools.ts:1010-1015` with:
 ```ts
       visionEnabled: this.deps.visionEnabled,
       visionImageRetention: this.deps.visionImageRetention,
+      visionMaxImagePixels: this.deps.visionMaxImagePixels,
       imageTokenBudget: this.deps.imageTokenBudget,
       liveImagePathKeys: this.deps.liveImagePathKeys,
 ```
 
-Add those four to the processor's `deps` type and thread them from the task loop, where `getActiveModelPreset(options.config)` is already available (`src/repo-search/engine/task-loop-support.ts:179`):
+Add those five to the processor's `deps` type and thread them from the task loop, where `getActiveModelPreset(options.config)` is already available (`src/repo-search/engine/task-loop-support.ts:179`). Resolve the preset once — five calls to `getActiveModelPreset` in one object literal is the kind of thing that silently disagrees with itself later:
 
 ```ts
-      visionEnabled: getActiveModelPreset(options.config).VisionEnabled === true,
-      visionImageRetention: getActiveModelPreset(options.config).VisionImageRetention,
-      imageTokenBudget: resolveImageTokenBudget(getActiveModelPreset(options.config)),
+      const visionPreset = getActiveModelPreset(options.config);
+      // ...
+      visionEnabled: visionPreset.VisionEnabled === true,
+      visionImageRetention: visionPreset.VisionImageRetention,
+      visionMaxImagePixels: visionPreset.VisionMaxImagePixels,
+      imageTokenBudget: resolveImageTokenBudget(visionPreset),
       liveImagePathKeys: new Set<string>(),
 ```
 
@@ -2674,7 +2789,9 @@ Expected: FAIL — `TranscriptManager` takes no `liveImagePathKeys` and `replace
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add `liveImagePathKeys: Set<string>` to the `TranscriptManager` constructor options, store it, and rewrite `replaceWith` (`src/repo-search/engine/transcript-manager.ts:55-59`):
+Add `liveImagePathKeys: Set<string>` to the `TranscriptManager` constructor options, store it, and rewrite `replaceWith` (`src/repo-search/engine/transcript-manager.ts:55-59`).
+
+**Expect Task 12's `pushUser` test to stop compiling here** — it constructs a `TranscriptManager` without the new option. That is this task doing its job, not a regression: add `liveImagePathKeys: new Set()` to that construction and move on. The same applies to every other `new TranscriptManager(` the typecheck names.
 
 ```ts
   replaceWith(compactedMessages: ChatMessage[]): void {
@@ -3081,28 +3198,25 @@ Fixes the problem at its source: a 60 MB paste never becomes an 80 MB base64 POS
 
 ```ts
 test('computeBrowserTargetDimensions matches the server-side math', () => {
-  assert.equal(computeBrowserTargetDimensions(800, 600, 1_000_000, 0), null);
-  const target = computeBrowserTargetDimensions(4000, 2000, 1_000_000, 0);
+  assert.equal(computeBrowserTargetDimensions(800, 600, 1_000_000), null);
+  const target = computeBrowserTargetDimensions(4000, 2000, 1_000_000);
   assert.ok(target!.width * target!.height <= 1_000_000);
 });
 
-test('computeBrowserTargetDimensions applies the same edge cap as the server', () => {
-  const target = computeBrowserTargetDimensions(2000, 100, 10_000_000, 1000);
-  assert.deepEqual(target, { width: 1000, height: 50 });
-});
-
 test('downscaleDataUrl leaves a within-budget image untouched and reports no resize', async () => {
-  const result = await downscaleDataUrl(SMALL_PNG, 1_000_000, 0);
+  const result = await downscaleDataUrl(SMALL_PNG, 1_000_000);
   assert.equal(result.dataUrl, SMALL_PNG);
   assert.equal(result.note, null);
 });
 
 test('downscaleDataUrl reports original and final dimensions when it resizes', async () => {
-  const result = await downscaleDataUrl(LARGE_PNG, 1_000, 0);
+  const result = await downscaleDataUrl(LARGE_PNG, 1_000);
   assert.notEqual(result.dataUrl, LARGE_PNG);
   assert.match(result.note ?? '', /^Resized from \d+×\d+ to \d+×\d+$/u);
 });
 ```
+
+The caller passes `resolveEffectiveImagePixelCeiling(budget, preset.VisionMaxImagePixels)` — one ceiling, already reconciled, exactly as the server does.
 
 If the dashboard test environment has no `createImageBitmap`/`OffscreenCanvas`, keep `computeBrowserTargetDimensions` as the pure, directly-tested unit and cover `downscaleDataUrl` with a jsdom stub of both globals in the test file. Do not weaken the assertions to route around a missing global.
 
@@ -3118,20 +3232,16 @@ Create `dashboard/src/lib/downscale-image.ts`:
 ```ts
 export type PendingImage = { dataUrl: string; note: string | null };
 
-/** Mirrors computeTargetDimensions in src/llm-protocol/image-admission.ts, edge cap included. */
+/** Mirrors computeTargetDimensions in src/llm-protocol/image-admission.ts. */
 export function computeBrowserTargetDimensions(
   width: number,
   height: number,
   maxPixels: number,
-  maxEdge: number,
 ): { width: number; height: number } | null {
-  const pixelScale = width * height <= maxPixels ? 1 : Math.sqrt(maxPixels / (width * height));
-  const longEdge = Math.max(width, height);
-  const edgeScale = maxEdge <= 0 || longEdge <= maxEdge ? 1 : maxEdge / longEdge;
-  const scale = Math.min(pixelScale, edgeScale);
-  if (scale >= 1) {
+  if (width * height <= maxPixels) {
     return null;
   }
+  const scale = Math.sqrt(maxPixels / (width * height));
   return {
     width: Math.max(1, Math.floor(width * scale)),
     height: Math.max(1, Math.floor(height * scale)),
@@ -3157,13 +3267,9 @@ async function blobToDataUrl(blob: Blob): Promise<string> {
  * decode GIF natively, so this is also the only path that can shrink one; the result is a
  * single frame, which is what the model sees anyway.
  */
-export async function downscaleDataUrl(
-  dataUrl: string,
-  maxPixels: number,
-  maxEdge: number,
-): Promise<PendingImage> {
+export async function downscaleDataUrl(dataUrl: string, maxPixels: number): Promise<PendingImage> {
   const bitmap = await createImageBitmap(await (await fetch(dataUrl)).blob());
-  const target = computeBrowserTargetDimensions(bitmap.width, bitmap.height, maxPixels, maxEdge);
+  const target = computeBrowserTargetDimensions(bitmap.width, bitmap.height, maxPixels);
   if (target === null) {
     bitmap.close();
     return { dataUrl, note: null };
@@ -3183,7 +3289,7 @@ export async function downscaleDataUrl(
 }
 ```
 
-In `dashboard/src/tabs/ChatTab.tsx`, have `readImageFiles` run each file's data URL through `downscaleDataUrl`, hold the returned notes in component state keyed by index, and pass them to `PendingImageStrip` as `resizeNotes`. The pixel ceiling and the edge cap both come from the session's preset — surface `{ maxPixels, visionMaxImageEdge }` on the existing preset/context payload the composer already receives rather than hardcoding a second copy of either number in the browser. Task 24 puts the same two values on the settings payload; use one shared shape, not two.
+In `dashboard/src/tabs/ChatTab.tsx`, have `readImageFiles` run each file's data URL through `downscaleDataUrl`, hold the returned notes in component state keyed by index, and pass them to `PendingImageStrip` as `resizeNotes`. The pixel ceiling comes from the session's preset — surface the already-reconciled `resolveEffectiveImagePixelCeiling(budget, preset.VisionMaxImagePixels)` on the existing preset/context payload the composer receives, rather than shipping both numbers to the browser and re-deriving the min there. Task 24 needs the full `ImageTokenBudget` for its reference table; the composer needs only the one resolved ceiling.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -3569,60 +3675,87 @@ Three controls, shown only once `VisionEnabled` is on, following the `speculativ
 - [ ] **Step 1: Write the failing test**
 
 ```tsx
-const BUDGET = { maxPixels: 1_605_632, maxImageTokens: 2048, pixelsPerToken: 784, maxEdgeCeiling: 1267, source: 'fallback' as const };
+/** The installed model's real numbers: 16px patches merged 2x2, 2.1 MP ceiling. */
+const BUDGET = {
+  maxPixels: 2_097_152,
+  maxImageTokens: 2048,
+  pixelsPerToken: 1024,
+  encoder: { hiddenSize: 1152, intermediateSize: 4304, patchesPerToken: 4 },
+  source: 'preprocessor_config' as const,
+};
 
 function visionProps(overrides: Partial<DashboardModelRuntimePreset> = {}) {
   return {
     ...defaultProps,
     imageTokenBudget: BUDGET,
-    preset: { ...defaultProps.preset, Backend: 'exl3' as const, VisionEnabled: true, VisionImageRetention: 8, VisionMaxImageEdge: 0, ...overrides },
+    preset: { ...defaultProps.preset, Backend: 'exl3' as const, VisionEnabled: true, VisionImageRetention: 8, VisionMaxImagePixels: 0, ...overrides },
   };
 }
 
 test('the vision controls are hidden while VisionEnabled is off', () => {
   render(<ModelPresetsSection {...visionProps({ VisionEnabled: false })} />);
-  assert.equal(screen.queryByLabelText(/Max image dimension/iu), null);
+  assert.equal(screen.queryByLabelText(/Max image size/iu), null);
   assert.equal(screen.queryByLabelText(/Vision image retention/iu), null);
 });
 
-test('enabling vision reveals the max image dimension field', () => {
+test('enabling vision reveals the max image size field, labelled in MP', () => {
   render(<ModelPresetsSection {...visionProps()} />);
-  assert.ok(screen.getByLabelText(/Max image dimension/iu));
+  assert.ok(screen.getByLabelText(/Max image size \(MP\)/iu));
   assert.ok(screen.getByLabelText(/Vision image retention/iu));
 });
 
-test('toggling VisionEnabled on auto-sets the dimension to the model maximum', () => {
+test('toggling VisionEnabled on auto-sets the size to the model maximum', () => {
   const calls: Array<[string, number]> = [];
-  render(<ModelPresetsSection {...visionProps({ VisionEnabled: false, VisionMaxImageEdge: 0 })} modelPresetActions={{ ...actions, setInteger: (field, value) => calls.push([field, value]) }} />);
+  render(<ModelPresetsSection {...visionProps({ VisionEnabled: false, VisionMaxImagePixels: 0 })} modelPresetActions={{ ...actions, setInteger: (field, value) => calls.push([field, value]) }} />);
 
   fireEvent.click(screen.getByLabelText(/Vision enabled/iu));
 
-  assert.deepEqual(calls, [['VisionMaxImageEdge', 1267]]);
+  assert.deepEqual(calls, [['VisionMaxImagePixels', 2_097_152]]);
 });
 
-test('toggling vision on does not overwrite a dimension the user already tuned', () => {
+test('toggling vision on does not overwrite a size the user already tuned', () => {
   const calls: Array<[string, number]> = [];
-  render(<ModelPresetsSection {...visionProps({ VisionEnabled: false, VisionMaxImageEdge: 800 })} modelPresetActions={{ ...actions, setInteger: (field, value) => calls.push([field, value]) }} />);
+  render(<ModelPresetsSection {...visionProps({ VisionEnabled: false, VisionMaxImagePixels: 500_000 })} modelPresetActions={{ ...actions, setInteger: (field, value) => calls.push([field, value]) }} />);
 
   fireEvent.click(screen.getByLabelText(/Vision enabled/iu));
 
   assert.deepEqual(calls, []);
 });
 
-test('the dimension field caps at the model ceiling', () => {
-  render(<ModelPresetsSection {...visionProps({ VisionMaxImageEdge: 1267 })} />);
-  assert.equal(screen.getByLabelText(/Max image dimension/iu).getAttribute('max'), '1267');
+test('the field displays megapixels while storing pixels', () => {
+  render(<ModelPresetsSection {...visionProps({ VisionMaxImagePixels: 2_097_152 })} />);
+  assert.equal(screen.getByLabelText(/Max image size \(MP\)/iu).getAttribute('value'), '2.1');
 });
 
-test('the peak VRAM figure sits beside the dimension and tracks it down', () => {
-  render(<ModelPresetsSection {...visionProps({ VisionMaxImageEdge: 1267 })} />);
-  // 1267² = 1_605_289 px / 784 = 2048 tokens x 512 KB = 1.0 GB.
-  assert.ok(screen.getByText(/≈1\.0 GB free VRAM/iu));
+test('editing the field in MP stores the value back in pixels', () => {
+  const calls: Array<[string, number]> = [];
+  render(<ModelPresetsSection {...visionProps()} modelPresetActions={{ ...actions, setInteger: (field, value) => calls.push([field, value]) }} />);
+
+  fireEvent.change(screen.getByLabelText(/Max image size \(MP\)/iu), { target: { value: '1.5' } });
+
+  assert.deepEqual(calls, [['VisionMaxImagePixels', 1_500_000]]);
+});
+
+test('the field caps at the model ceiling in MP', () => {
+  render(<ModelPresetsSection {...visionProps()} />);
+  assert.equal(screen.getByLabelText(/Max image size \(MP\)/iu).getAttribute('max'), '2.1');
+});
+
+test('the peak VRAM and token cost sit beside the field and track it down', () => {
+  render(<ModelPresetsSection {...visionProps({ VisionMaxImagePixels: 2_097_152 })} />);
+  // 2_097_152 px / 1024 = 2048 tokens x 109_120 B = 223 MB.
+  assert.ok(screen.getByText(/≈223 MB free VRAM · 2,048 image tokens/iu));
 
   cleanup();
-  render(<ModelPresetsSection {...visionProps({ VisionMaxImageEdge: 640 })} />);
-  // 640² = 409_600 px / 784 = 523 tokens x 512 KB = 0.3 GB.
-  assert.ok(screen.getByText(/≈0\.3 GB free VRAM/iu));
+  render(<ModelPresetsSection {...visionProps({ VisionMaxImagePixels: 409_600 })} />);
+  // 409_600 px / 1024 = 400 tokens x 109_120 B = 44 MB.
+  assert.ok(screen.getByText(/≈44 MB free VRAM · 400 image tokens/iu));
+});
+
+test('the VRAM figure switches to GB once it passes a gigabyte', () => {
+  const bigBudget = { ...BUDGET, maxPixels: 40_000_000, maxImageTokens: 39_062 };
+  render(<ModelPresetsSection {...visionProps({ VisionMaxImagePixels: 40_000_000 })} imageTokenBudget={bigBudget} />);
+  assert.ok(screen.getByText(/≈4\.1 GB free VRAM/iu));
 });
 
 test('the VRAM figure is labelled as a transient estimate, not steady-state usage', () => {
@@ -3630,13 +3763,50 @@ test('the VRAM figure is labelled as a transient estimate, not steady-state usag
   assert.ok(screen.getByText(/released once the image is encoded/iu));
 });
 
-test('the dimension hint explains that larger images are downscaled', () => {
+test('the hint explains that larger images are downscaled', () => {
   render(<ModelPresetsSection {...visionProps()} />);
   assert.ok(screen.getByText(/downscaled to fit.*highest quality/iu));
 });
 
-test('the panel names the fallback ratio when no preprocessor_config.json was found', () => {
+test('the reference table translates MP into dimensions a user recognises', () => {
+  render(<ModelPresetsSection {...visionProps({ VisionMaxImagePixels: 2_097_152 })} />);
+  fireEvent.click(screen.getByText(/What does MP mean/iu));
+
+  assert.ok(screen.getByText('512×512'));
+  assert.ok(screen.getByText('0.26 MP'));
+  assert.ok(screen.getByText('1024×1024'));
+  assert.ok(screen.getByText('1.05 MP'));
+  assert.ok(screen.getByText('1920×1080 (1080p)'));
+  assert.ok(screen.getByText('2.07 MP'));
+  assert.ok(screen.getByText('2048×2048'));
+  assert.ok(screen.getByText('4.19 MP'));
+});
+
+test('the reference table marks which sizes fit the current setting', () => {
+  render(<ModelPresetsSection {...visionProps({ VisionMaxImagePixels: 2_097_152 })} />);
+  fireEvent.click(screen.getByText(/What does MP mean/iu));
+
+  // 1080p at 2.07 MP fits under 2.1; 2048x2048 at 4.19 MP does not.
+  assert.equal(screen.getByText('1920×1080 (1080p)').closest('tr')?.className, 'fits');
+  assert.equal(screen.getByText('2048×2048').closest('tr')?.className, 'downscaled');
+});
+
+test('lowering the cap moves the fit boundary in the reference table', () => {
+  render(<ModelPresetsSection {...visionProps({ VisionMaxImagePixels: 500_000 })} />);
+  fireEvent.click(screen.getByText(/What does MP mean/iu));
+
+  assert.equal(screen.getByText('512×512').closest('tr')?.className, 'fits');
+  assert.equal(screen.getByText('1024×1024').closest('tr')?.className, 'downscaled');
+});
+
+test('the panel states the model ceiling without a fallback note when the config was read', () => {
   render(<ModelPresetsSection {...visionProps()} />);
+  assert.ok(screen.getByText(/Model ceiling 2\.1 MP \(≈2,048 image tokens\)/iu));
+  assert.equal(screen.queryByText(/no preprocessor_config\.json found/iu), null);
+});
+
+test('the panel names the fallback ratio when no preprocessor_config.json was found', () => {
+  render(<ModelPresetsSection {...visionProps()} imageTokenBudget={{ ...BUDGET, source: 'fallback' }} />);
   assert.ok(screen.getByText(/no preprocessor_config\.json found/iu));
 });
 ```
@@ -3664,8 +3834,8 @@ Replace the `VisionEnabled` control at `dashboard/src/tabs/settings/ModelPresets
                   modelPresetActions.setBoolean('VisionEnabled', event.target.checked);
                   // Auto-set to the model maximum on first enable. A value the user already
                   // tuned is never overwritten.
-                  if (event.target.checked && imageTokenBudget && preset.VisionMaxImageEdge === 0) {
-                    modelPresetActions.setInteger('VisionMaxImageEdge', imageTokenBudget.maxEdgeCeiling);
+                  if (event.target.checked && imageTokenBudget && preset.VisionMaxImagePixels === 0) {
+                    modelPresetActions.setInteger('VisionMaxImagePixels', imageTokenBudget.maxPixels);
                   }
                 }}
               />
@@ -3674,30 +3844,50 @@ Replace the `VisionEnabled` control at `dashboard/src/tabs/settings/ModelPresets
           </ModelPresetControl>
           {preset.VisionEnabled && imageTokenBudget ? (
             <>
-              <ModelPresetControl preset={preset} field="VisionMaxImageEdge" label="Max image dimension">
+              <ModelPresetControl preset={preset} field="VisionMaxImagePixels" label="Max image size (MP)">
                 <div className="settings-inline-readout">
                   <input
                     type="number"
-                    min={64}
-                    max={imageTokenBudget.maxEdgeCeiling}
-                    step={16}
-                    value={preset.VisionMaxImageEdge}
-                    onChange={(event) => modelPresetActions.setInteger('VisionMaxImageEdge', parseIntegerInput(event.target.value, preset.VisionMaxImageEdge))}
+                    min={0.1}
+                    max={toMegapixels(imageTokenBudget.maxPixels)}
+                    step={0.1}
+                    value={toMegapixels(effectivePixels)}
+                    onChange={(event) => modelPresetActions.setInteger(
+                      'VisionMaxImagePixels',
+                      fromMegapixels(parseFloatInput(event.target.value, toMegapixels(effectivePixels))),
+                    )}
                   />
-                  <span className="unit">px (longest side)</span>
+                  <span className="unit">MP</span>
                   <span className="vram-estimate">
-                    {`≈${formatGigabytes(estimateVisionPeakVramBytes(imageTokensForEdge(preset.VisionMaxImageEdge, imageTokenBudget)))} GB free VRAM`}
+                    {`≈${formatVramEstimate(estimateVisionPeakVramBytes(imageTokens, imageTokenBudget.encoder))} free VRAM`}
+                    {` · ${imageTokens.toLocaleString('en-US')} image tokens`}
                   </span>
                 </div>
               </ModelPresetControl>
               <p className="field-hint">
-                Any image longer than this on its longest side is downscaled to fit, at the highest
-                quality the resize can produce (Lanczos3), keeping its aspect ratio. Lower it to
-                spend less VRAM and fewer context tokens per image; raise it for finer detail.
+                Any image larger than this is downscaled to fit, at the highest quality the resize
+                can produce (Lanczos3), keeping its aspect ratio. Lower it to spend less VRAM and
+                fewer context tokens per image; raise it for finer detail. Only total area matters,
+                not shape — a wide panorama and a square of the same MP cost the same.
               </p>
+              <details className="field-reference">
+                <summary>What does MP mean here?</summary>
+                <table>
+                  <tbody>
+                    {IMAGE_SIZE_REFERENCE.map((entry) => (
+                      <tr key={entry.label} className={entry.pixels <= effectivePixels ? 'fits' : 'downscaled'}>
+                        <td>{entry.label}</td>
+                        <td>{`${toMegapixels(entry.pixels).toFixed(2)} MP`}</td>
+                        <td>{`${Math.ceil(entry.pixels / imageTokenBudget.pixelsPerToken).toLocaleString('en-US')} tok`}</td>
+                        <td>{entry.pixels <= effectivePixels ? 'fits' : 'downscaled'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </details>
               <p className="field-hint">
-                {`Model ceiling ${imageTokenBudget.maxEdgeCeiling} px `}
-                {`(${(imageTokenBudget.maxPixels / 1_000_000).toFixed(1)} MP, ≈${imageTokenBudget.maxImageTokens.toLocaleString('en-US')} image tokens)`}
+                {`Model ceiling ${toMegapixels(imageTokenBudget.maxPixels).toFixed(1)} MP `}
+                {`(≈${imageTokenBudget.maxImageTokens.toLocaleString('en-US')} image tokens)`}
                 {imageTokenBudget.source === 'fallback' ? ' — default ratio; no preprocessor_config.json found' : ''}
               </p>
               <p className="field-hint">
@@ -3721,18 +3911,48 @@ Replace the `VisionEnabled` control at `dashboard/src/tabs/settings/ModelPresets
           ) : null}
 ```
 
-Add the two local helpers above the component:
+Derive the two values the block reads, once, just above the returned JSX:
 
 ```tsx
-/** Worst case for a given long edge is a square, so edge² is the pixel count to budget for. */
-function imageTokensForEdge(edge: number, budget: ImageTokenBudget): number {
-  return Math.ceil(resolveEffectiveImagePixelCeiling(budget, edge) / budget.pixelsPerToken);
+const effectivePixels = resolveEffectiveImagePixelCeiling(imageTokenBudget, preset.VisionMaxImagePixels);
+const imageTokens = Math.ceil(effectivePixels / imageTokenBudget.pixelsPerToken);
+```
+
+and add the helpers above the component:
+
+```tsx
+/**
+ * Sizes a user can picture, so "2.1 MP" stops being an abstract number. 1080p is the load-bearing
+ * row: at 2.07 MP a full-screen screenshot fits the installed model's 2.1 MP ceiling with almost
+ * nothing to spare, and the next step up does not.
+ */
+const IMAGE_SIZE_REFERENCE = [
+  { label: '512×512', pixels: 512 * 512 },
+  { label: '1024×1024', pixels: 1024 * 1024 },
+  { label: '1920×1080 (1080p)', pixels: 1920 * 1080 },
+  { label: '2048×2048', pixels: 2048 * 2048 },
+  { label: '2560×1440 (1440p)', pixels: 2560 * 1440 },
+  { label: '3840×2160 (4K)', pixels: 3840 * 2160 },
+] as const;
+
+/** Pixels are stored; MP is shown. The conversion lives here and nowhere else. */
+function toMegapixels(pixels: number): number {
+  return pixels / 1_000_000;
 }
 
-function formatGigabytes(bytes: number): string {
-  return (bytes / 1_073_741_824).toFixed(1);
+function fromMegapixels(megapixels: number): number {
+  return Math.round(megapixels * 1_000_000);
+}
+
+/** MB below a gigabyte: at the installed model's ceiling the figure is ~223 MB, and "0.2 GB" reads as noise. */
+function formatVramEstimate(bytes: number): string {
+  return bytes >= 1_073_741_824
+    ? `${(bytes / 1_073_741_824).toFixed(1)} GB`
+    : `${Math.round(bytes / 1_048_576)} MB`;
 }
 ```
+
+**On the reference being a disclosure rather than a hover tooltip:** a `title` tooltip cannot hold a six-row table, is invisible on touch, and is unreachable by keyboard — and this plan already rejected hover-only affordances for the composer's remove button (Task 20). `<details>` is the same one-click gesture, holds real markup, and stays reachable. If a hover hint is still wanted on top, add `title` to the `MP` unit span; do not move the table into it.
 
 `resolveEffectiveImagePixelCeiling` and `estimateVisionPeakVramBytes` are pure and already exported from Task 8b; re-export them through `packages/contracts` (or a shared module the dashboard can import) rather than reimplementing either in the browser. The VRAM figure and the admission ceiling must come from one calculation, or the panel will promise a limit admission does not enforce.
 
@@ -3740,8 +3960,14 @@ Append to `dashboard/src/styles.css`:
 
 ```css
 .settings-inline-readout { display: flex; align-items: center; gap: 8px; }
+.settings-inline-readout input { width: 6em; }
 .settings-inline-readout .unit { font-size: 11px; opacity: 0.6; }
 .settings-inline-readout .vram-estimate { font-size: 11px; opacity: 0.85; white-space: nowrap; }
+.field-reference summary { cursor: pointer; font-size: 11px; opacity: 0.7; }
+.field-reference table { font-size: 11px; border-collapse: collapse; margin-top: 4px; }
+.field-reference td { padding: 1px 10px 1px 0; white-space: nowrap; }
+.field-reference tr.downscaled { opacity: 0.55; }
+.field-reference tr.fits td:last-child { color: var(--ok, #4a8); }
 ```
 
 - [ ] **Step 5: Run test to verify it passes**
@@ -3753,7 +3979,7 @@ Expected: PASS.
 
 ```bash
 git add -A
-git commit -m "feat: add a tunable max image dimension with a peak-VRAM readout"
+git commit -m "feat: add a tunable max image size in MP with a peak-VRAM readout"
 ```
 
 ---
@@ -3807,12 +4033,12 @@ Expected: clean. If not, the residue is scope drift — remove it or commit it d
 - **Server-side GIF resize.** `@napi-rs/image` cannot decode GIF, so an oversized GIF on the `read` or CLI path is rejected with the resize message. The browser path handles GIF because browsers decode it natively. If server-side GIF resize later proves to matter, that is the trigger to switch that path to `sharp`, which handles it via libvips — not a reason to add a second image library now.
 - **`preflightPlannerPromptBudget`** is unchanged (spec §4.5). Admission now guarantees every image is at or under `SIFT_IMAGE_TOKEN_ESTIMATE`, so the existing flat per-image charge at `src/repo-search/prompt-budget.ts:139-142` is accurate by construction rather than a guess.
 - **Video, PDF, multi-frame GIF beyond frame one, automatic re-captioning on preset change** — out of scope per spec §Scope.
-- **End-to-end verification against a live vision model** is blocked: TabbyAPI returned 503 on every completion during the design work, and no vision model is installed on this machine. Every task above is verifiable by unit and route tests without a live provider; the first live run is the acceptance test the environment currently cannot provide.
+- **End-to-end verification against a live vision model** is possible here — `3.6_27b_4.7bpw` is resident with `use_vision: true` — but was blocked during the design work by TabbyAPI returning 503 on every completion. Every task above is verifiable by unit and route tests without a live provider; once completions work again, one real image read through `read` is the acceptance test, and the same run calibrates open item 1.
 
 ## Open items carried by this plan
 
-1. **`SIFT_VISION_PEAK_VRAM_BYTES_PER_IMAGE_TOKEN` is an unmeasured estimate.** 512 KB per merged image token is a conservative guess, not a measurement — the environment has no vision model to profile against (see pre-flight findings). Everything the settings panel displays derives from that one constant, and the UI labels the figure as an estimate, so correcting it later is a one-line change with no other code to chase. **First live vision turn: watch peak VRAM and correct the constant.** Until then, treat the displayed GB figure as an order-of-magnitude guide, not a guarantee.
+1. **The VRAM figure is derived, but one factor in it is still hand-tuned.** Everything except `SIFT_VISION_PEAK_VRAM_WORKING_SET_FACTOR` (2.5) comes from the model's own `vision_config`: 4 patches per token × (1152 + 4304) × 2 bytes, giving ~109 KB per image token and ~223 MB at the installed model's 2048-token ceiling. That fits comfortably in the 831 MiB currently free, which is the sanity check that matters. **Calibrate on the first live vision turn:** watch peak VRAM with `nvidia-smi --query-gpu=memory.used --format=csv -l 1` while reading one full-size image, then adjust that single factor. Do not attempt the calibration while free VRAM is under ~400 MiB — a failed allocation evicts the resident model.
 
-2. **`VisionMaxImageEdge` caps the long edge; VRAM scales with pixels.** The two agree at the auto-set default (`floor(sqrt(maxPixels))`) and the panel budgets the worst case — a square at the cap — so the displayed figure is an upper bound for any image shape, never an under-estimate. A wide image at the same edge cap uses proportionally less.
+2. **The displayed VRAM figure is the cost of a *full-size* image, not of every image.** It prices an image that exactly hits the cap; anything smaller costs proportionally less, because tokens and VRAM both scale with pixel count. That makes it the right number for "how much headroom must I keep free", which is the question the panel is answering.
 
 3. **A preset that changes `ModelPath` keeps its cached budget** until the process restarts (`resolveImageTokenBudget` caches per preset id). That matches how the rest of the preset system treats a model swap; if it becomes a problem, invalidate the cache where the preset is saved rather than dropping the cache entirely.

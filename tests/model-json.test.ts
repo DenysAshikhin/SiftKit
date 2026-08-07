@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ModelJson } from '../src/lib/model-json.js';
+import { ModelJson, StreamingFinishOutputExtractor } from '../src/lib/model-json.js';
 import {
   getRepoSearchToolNamesForParsing,
   resolveRepoSearchPlannerToolDefinitions,
@@ -73,42 +73,123 @@ test('ModelJson repairs missing commas in summary planner actions', () => {
   });
 });
 
-test('ModelJson extracts decoded output from a complete streaming finish action', () => {
-  const output = ModelJson.extractStreamingFinishOutput('{"action":"finish","output":"Line one\\nLine two"}');
-
+test('extractor decodes a complete streaming finish action', () => {
+  const output = new StreamingFinishOutputExtractor().push('{"action":"finish","output":"Line one\\nLine two"}');
   assert.equal(output, 'Line one\nLine two');
 });
 
-test('ModelJson extracts the decoded prefix while a finish output is still streaming', () => {
-  const output = ModelJson.extractStreamingFinishOutput(
+test('extractor decodes the prefix while a finish output is still streaming', () => {
+  const output = new StreamingFinishOutputExtractor().push(
     '{"action":"finish","output":"Tool calls are handled\\n- Backend',
   );
-
   assert.equal(output, 'Tool calls are handled\n- Backend');
 });
 
-test('ModelJson decodes escaped quotes inside a streaming finish output', () => {
-  const output = ModelJson.extractStreamingFinishOutput('{"action":"finish","output":"He said \\"hi\\" loudly"}');
-
+test('extractor decodes escaped quotes inside a streaming finish output', () => {
+  const output = new StreamingFinishOutputExtractor().push('{"action":"finish","output":"He said \\"hi\\" loudly"}');
   assert.equal(output, 'He said "hi" loudly');
 });
 
-test('ModelJson ignores a trailing incomplete escape in a streaming finish output', () => {
-  const output = ModelJson.extractStreamingFinishOutput('{"action":"finish","output":"first line\\');
-
+test('extractor ignores a trailing incomplete escape', () => {
+  const output = new StreamingFinishOutputExtractor().push('{"action":"finish","output":"first line\\');
   assert.equal(output, 'first line');
 });
 
-test('ModelJson returns null for a streaming tool action (no finish output)', () => {
-  const output = ModelJson.extractStreamingFinishOutput('{"action":"read","args":{"path":"a.ts"}}');
-
+test('extractor returns null for a streaming tool action', () => {
+  const output = new StreamingFinishOutputExtractor().push('{"action":"read","args":{"path":"a.ts"}}');
   assert.equal(output, null);
 });
 
-test('ModelJson returns null before the finish output key has streamed', () => {
-  const output = ModelJson.extractStreamingFinishOutput('{"action":"finish"');
+test('extractor permanently ignores later finish markers after a non-finish action', () => {
+  const extractor = new StreamingFinishOutputExtractor();
+  const readAction = '{"action":"read","args":{"path":"a.ts"}}';
+  assert.equal(extractor.push(readAction), null);
+  assert.equal(extractor.push(`${readAction}{"action":"finish","output":"wrong"}`), null);
+});
 
+test('extractor recognizes a top-level finish action after its output', () => {
+  const extractor = new StreamingFinishOutputExtractor();
+  const output = '{"output":"done"';
+  assert.equal(extractor.push(output), null);
+  assert.equal(extractor.push(`${output},"action":"finish"}`), 'done');
+});
+
+test('extractor ignores a nested non-finish action before a top-level finish action', () => {
+  const extractor = new StreamingFinishOutputExtractor();
+  const metadata = '{"metadata":{"action":"read"}';
+  assert.equal(extractor.push(metadata), null);
+  assert.equal(extractor.push(`${metadata},"action":"finish","output":"done"}`), 'done');
+});
+
+test('extractor ignores nested output fields in a finish action', () => {
+  const output = new StreamingFinishOutputExtractor().push(
+    '{"action":"finish","metadata":{"output":"wrong"},"output":"done"}',
+  );
+  assert.equal(output, 'done');
+});
+
+test('extractor returns null before the finish output key has streamed', () => {
+  const output = new StreamingFinishOutputExtractor().push('{"action":"finish"');
   assert.equal(output, null);
+});
+
+test('extractor carries action and output markers with whitespace across pushes', () => {
+  const extractor = new StreamingFinishOutputExtractor();
+  const t1 = '{"act';
+  const t2 = `${t1}ion" \n: "finish", "out`;
+  const t3 = `${t2}put"\t: "done`;
+  assert.equal(extractor.push(t1), null);
+  assert.equal(extractor.push(t2), null);
+  assert.equal(extractor.push(t3), 'done');
+});
+
+test('extractor decodes incrementally across pushes, resuming pending escapes', () => {
+  const extractor = new StreamingFinishOutputExtractor();
+  const t1 = '{"action":"finish","output":"ab';
+  const t2 = `${t1}c\\`;
+  const t3 = `${t2}n def`;
+  assert.equal(extractor.push(t1), 'ab');
+  assert.equal(extractor.push(t2), 'abc');
+  assert.equal(extractor.push(t3), 'abc\n def');
+});
+
+test('extractor resumes a unicode escape split across pushes', () => {
+  const extractor = new StreamingFinishOutputExtractor();
+  const t1 = '{"action":"finish","output":"A\\u00';
+  assert.equal(extractor.push(t1), 'A');
+  assert.equal(extractor.push(`${t1}2F!`), 'A/!');
+});
+
+test('extractor freezes after a complete invalid unicode escape', () => {
+  const extractor = new StreamingFinishOutputExtractor();
+  const invalid = '{"action":"finish","output":"ok\\u0G00';
+  assert.equal(extractor.push(invalid), 'ok');
+  assert.equal(extractor.push(`${invalid} ignored`), 'ok');
+});
+
+test('extractor clears an invalid unicode stall when the text shrinks', () => {
+  const extractor = new StreamingFinishOutputExtractor();
+  assert.equal(extractor.push('{"action":"finish","output":"ok\\u0G00'), 'ok');
+  assert.equal(extractor.push('{"action":"finish","output":"new'), 'new');
+});
+
+test('extractor freezes the value once the closing quote streams', () => {
+  const extractor = new StreamingFinishOutputExtractor();
+  const closed = '{"action":"finish","output":"done"}';
+  assert.equal(extractor.push(closed), 'done');
+  assert.equal(extractor.push(`${closed} trailing`), 'done');
+});
+
+test('extractor finds markers that only appear on a later push', () => {
+  const extractor = new StreamingFinishOutputExtractor();
+  assert.equal(extractor.push('{"action":"fin'), null);
+  assert.equal(extractor.push('{"action":"finish","output":"hi'), 'hi');
+});
+
+test('extractor resets when the text shrinks', () => {
+  const extractor = new StreamingFinishOutputExtractor();
+  assert.equal(extractor.push('{"action":"finish","output":"done"}'), 'done');
+  assert.equal(extractor.push('{"action":"finish","output":"d'), 'd');
 });
 
 test('ModelJson repairs escaped JSON strings before validating tool arguments', () => {

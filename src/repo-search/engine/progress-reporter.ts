@@ -36,6 +36,10 @@ export class ProgressReporter {
     return this.progressWriter.enabled;
   }
 
+  get liveTextEnabled(): boolean {
+    return this.progressWriter.enabled && this.progressWriter.wantsLiveText;
+  }
+
   private elapsedMs(): number {
     return Date.now() - this.taskStartedAt;
   }
