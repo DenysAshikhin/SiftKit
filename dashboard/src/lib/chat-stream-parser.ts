@@ -1,5 +1,5 @@
 import type { JsonValue, JsonObject } from '../../../src/lib/json-types.js';
-import { ChatSessionResponseSchema, type ChatSessionResponse } from '@siftkit/contracts';
+import { ChatSessionResponseSchema, ChatStreamTextDeltaSchema, type ChatSessionResponse, type ChatStreamTextDelta } from '@siftkit/contracts';
 
 export type ChatStreamToolEvent = {
   kind: 'tool_start' | 'tool_result';
@@ -15,10 +15,10 @@ export type ChatStreamToolEvent = {
 };
 
 export type ChatStreamEvent =
-  | { kind: 'thinking'; text: string }
+  | { kind: 'thinking'; delta: ChatStreamTextDelta }
   | { kind: 'warning'; text: string }
   | { kind: 'tool'; tool: ChatStreamToolEvent }
-  | { kind: 'answer'; text: string }
+  | { kind: 'answer'; delta: ChatStreamTextDelta }
   | { kind: 'done'; payload: ChatSessionResponse }
   | { kind: 'error'; message: string };
 
@@ -62,15 +62,19 @@ export function parseChatStreamPacket(packet: string): ChatStreamEvent | null {
   if (!parsed || !isRecord(parsed.data)) return null;
   const record = parsed.data;
   switch (parsed.eventName) {
-    case 'thinking':
-      return { kind: 'thinking', text: String(record.thinking ?? '') };
+    case 'thinking': {
+      const result = ChatStreamTextDeltaSchema.safeParse(record);
+      return result.success ? { kind: 'thinking', delta: result.data } : null;
+    }
     case 'warning':
       return { kind: 'warning', text: String(record.warning ?? '') };
     case 'tool_start':
     case 'tool_result':
       return { kind: 'tool', tool: buildToolEvent(parsed.eventName, record) };
-    case 'answer':
-      return { kind: 'answer', text: String(record.answer ?? '') };
+    case 'answer': {
+      const result = ChatStreamTextDeltaSchema.safeParse(record);
+      return result.success ? { kind: 'answer', delta: result.data } : null;
+    }
     case 'done': {
       const result = ChatSessionResponseSchema.safeParse(record);
       return result.success ? { kind: 'done', payload: result.data } : null;

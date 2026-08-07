@@ -1,3 +1,5 @@
+import { applyTextDelta } from './stream-text-delta';
+import type { ChatStreamTextDelta } from '@siftkit/contracts';
 import type { ChatMessage } from '../types';
 
 const LIVE_THINKING_ID_PREFIX = 'live-thinking-';
@@ -36,19 +38,19 @@ function pruneOlderThinkingMessages(messages: ChatMessage[]): ChatMessage[] {
   });
 }
 
-export function appendLiveThinkingMessage(
+export function applyLiveThinkingDelta(
   previous: ChatMessage[],
-  thinkingText: string,
+  delta: ChatStreamTextDelta,
   maintainPerStepThinking: boolean,
 ): ChatMessage[] {
-  const last = previous[previous.length - 1];
+  const id = `${LIVE_THINKING_ID_PREFIX}${delta.turn}`;
+  const index = previous.findIndex((message) => message.id === id);
   let next: ChatMessage[];
-  if (last && last.kind === 'assistant_thinking') {
+  if (index >= 0) {
     next = previous.slice();
-    next[next.length - 1] = buildThinkingMessage(last.id, thinkingText);
+    next[index] = buildThinkingMessage(id, applyTextDelta(previous[index]?.content ?? '', delta));
   } else {
-    const id = `${LIVE_THINKING_ID_PREFIX}${previous.length}`;
-    next = [...previous, buildThinkingMessage(id, thinkingText)];
+    next = [...previous, buildThinkingMessage(id, applyTextDelta('', delta))];
   }
   return maintainPerStepThinking ? next : pruneOlderThinkingMessages(next);
 }

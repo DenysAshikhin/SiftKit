@@ -77,14 +77,14 @@ class StoreDrain {
 }
 
 async function* controlledStream(sessionId: string, gate: Gate): AsyncGenerator<ChatStreamEvent> {
-  yield { kind: 'answer', text: `answer-${sessionId}` };
+  yield { kind: 'answer', delta: { turn: 1, offset: 0, text: `answer-${sessionId}` } };
   gate.markWaiting();
   await gate.promise;
   yield { kind: 'done', payload: response(sessionId) };
 }
 
 async function* prematureStream(): AsyncGenerator<ChatStreamEvent> {
-  yield { kind: 'answer', text: 'partial' };
+  yield { kind: 'answer', delta: { turn: 1, offset: 0, text: 'partial' } };
 }
 
 async function* mismatchedStream(): AsyncGenerator<ChatStreamEvent> {
@@ -108,7 +108,7 @@ test('the first transition begins the operation for the requested session', asyn
 
 test('thinking events are dropped when thinking is disabled', async () => {
   async function* thinkingStream(): AsyncGenerator<ChatStreamEvent> {
-    yield { kind: 'thinking', text: 'pondering' };
+    yield { kind: 'thinking', delta: { turn: 1, offset: 0, text: 'pondering' } };
     yield { kind: 'done', payload: response('session-a') };
   }
   assert.deepEqual(await collect(thinkingStream(), false), ['begin', 'done']);

@@ -68,8 +68,8 @@ test('streamPlanMessage yields typed tool and done events in order', async () =>
 test('streamChatMessage yields thinking, answer, and done events', async () => {
   const { streamChatMessage } = await import('../src/api');
   const restoreFetch = mockFetchOnce([
-    'event: thinking\ndata: {"thinking":"planning"}\n\n',
-    'event: answer\ndata: {"answer":"result"}\n\n',
+    'event: thinking\ndata: {"turn":1,"offset":0,"text":"planning"}\n\n',
+    'event: answer\ndata: {"turn":1,"offset":0,"text":"result"}\n\n',
     `event: done\ndata: ${JSON.stringify(SAMPLE_DONE)}\n\n`,
   ]);
   try {
@@ -126,7 +126,7 @@ test('streamPlanMessage throws on server error event', async () => {
 test('streamPlanMessage throws when done event is missing', async () => {
   const { streamPlanMessage } = await import('../src/api');
   const restoreFetch = mockFetchOnce([
-    'event: thinking\ndata: {"thinking":"partial"}\n\n',
+    'event: thinking\ndata: {"turn":1,"offset":0,"text":"partial"}\n\n',
   ]);
   try {
     let threw = false;

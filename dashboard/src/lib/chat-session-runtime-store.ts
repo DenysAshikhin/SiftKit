@@ -1,12 +1,14 @@
-import { appendLiveThinkingMessage } from './live-thinking-message';
+import { applyLiveThinkingDelta } from './live-thinking-message';
 import {
   buildAppendedLiveToolMessage,
   buildCompletedLiveToolMessage,
   createLiveMessage,
   upsertLiveMessageInto,
 } from './chat-live-messages';
+import { applyTextDelta } from './stream-text-delta';
 import type { ChatStreamToolEvent } from './chat-stream-parser';
 import type { ChatMessage, ChatSessionResponse, ChatSessionOperationKind, ContextUsage } from '../types';
+import type { ChatStreamTextDelta } from '@siftkit/contracts';
 
 export type ChatSessionActivity =
   | { kind: 'idle' }
@@ -28,9 +30,9 @@ export type ChatSessionRuntime = {
 
 export type ChatSessionRuntimeTransition =
   | { kind: 'begin'; sessionId: string; operationKind: ChatSessionOperationKind }
-  | { kind: 'thinking'; sessionId: string; text: string }
+  | { kind: 'thinking'; sessionId: string; delta: ChatStreamTextDelta }
   | { kind: 'tool'; sessionId: string; toolEvent: ChatStreamToolEvent }
-  | { kind: 'answer'; sessionId: string; text: string }
+  | { kind: 'answer'; sessionId: string; delta: ChatStreamTextDelta }
   | { kind: 'warning'; sessionId: string; text: string }
   | { kind: 'done'; sessionId: string; response: ChatSessionResponse }
   | { kind: 'failure'; sessionId: string; message: string }
@@ -68,7 +70,9 @@ function applyToolEvent(runtime: ChatSessionRuntime, toolEvent: ChatStreamToolEv
   };
 }
 
-function applyAnswer(runtime: ChatSessionRuntime, text: string): ChatSessionRuntime {
+function applyAnswer(runtime: ChatSessionRuntime, delta: ChatStreamTextDelta): ChatSessionRuntime {
+  const existing = runtime.liveMessages.find((message) => message.id === 'live-answer');
+  const text = applyTextDelta(existing?.content ?? '', delta);
   const answerMessage = createLiveMessage('live-answer', 'assistant_answer', 'assistant', text);
   answerMessage.outputTokensEstimate = Math.max(1, Math.ceil(text.length / 4));
   return { ...runtime, liveMessages: upsertLiveMessageInto(runtime.liveMessages, answerMessage) };
@@ -84,12 +88,12 @@ function applyTransition(
     case 'thinking':
       return {
         ...runtime,
-        liveMessages: appendLiveThinkingMessage(runtime.liveMessages, transition.text, true),
+        liveMessages: applyLiveThinkingDelta(runtime.liveMessages, transition.delta, true),
       };
     case 'tool':
       return applyToolEvent(runtime, transition.toolEvent);
     case 'answer':
-      return applyAnswer(runtime, transition.text);
+      return applyAnswer(runtime, transition.delta);
     case 'warning':
       return { ...runtime, warnings: [...runtime.warnings, transition.text] };
     case 'done':

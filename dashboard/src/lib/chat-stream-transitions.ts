@@ -19,14 +19,14 @@ export async function* toRuntimeTransitions(
     for await (const event of stream) {
       if (event.kind === 'thinking') {
         if (thinkingEnabled) {
-          yield { kind: 'thinking', sessionId, text: event.text };
+          yield { kind: 'thinking', sessionId, delta: event.delta };
         }
       } else if (event.kind === 'warning') {
         yield { kind: 'warning', sessionId, text: event.text };
       } else if (event.kind === 'tool') {
         yield { kind: 'tool', sessionId, toolEvent: event.tool };
       } else if (event.kind === 'answer') {
-        yield { kind: 'answer', sessionId, text: event.text };
+        yield { kind: 'answer', sessionId, delta: event.delta };
       } else if (event.kind === 'done') {
         if (event.payload.session.id !== sessionId) {
           throw new Error(

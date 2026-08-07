@@ -35,7 +35,7 @@ test('active streaming assistant with no running tool returns streaming', () => 
   const runtime = new ChatSessionRuntimeStore()
     .ensureSession('s1')
     .apply({ kind: 'begin', sessionId: 's1', operationKind: 'message' })
-    .apply({ kind: 'answer', sessionId: 's1', text: 'partial' })
+    .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'partial' } })
     .get('s1');
   assert.equal(deriveSessionIndicator(session([]), runtime), 'streaming');
 });

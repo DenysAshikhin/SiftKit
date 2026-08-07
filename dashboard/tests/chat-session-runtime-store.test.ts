@@ -37,7 +37,7 @@ test('apply routes every transition through one copy-on-write path', () => {
   const next = store
     .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message' })
     .apply({ kind: 'draft', sessionId: 'session-a', draft: 'hello' })
-    .apply({ kind: 'answer', sessionId: 'session-a', text: 'hi there' })
+    .apply({ kind: 'answer', sessionId: 'session-a', delta: { turn: 1, offset: 0, text: 'hi there' } })
     .apply({ kind: 'warning', sessionId: 'session-a', text: 'careful' });
 
   assert.deepEqual(next.get('session-a').activity, { kind: 'active', operationKind: 'message' });
@@ -80,7 +80,7 @@ test('session B cannot clear session A streaming state or draft', () => {
     .ensureSession('session-b')
     .apply({ kind: 'draft', sessionId: 'session-a', draft: 'draft-a' })
     .apply({ kind: 'begin', sessionId: 'session-a', operationKind: 'message' })
-    .apply({ kind: 'answer', sessionId: 'session-a', text: 'answer-a' })
+    .apply({ kind: 'answer', sessionId: 'session-a', delta: { turn: 1, offset: 0, text: 'answer-a' } })
     .apply({ kind: 'begin', sessionId: 'session-b', operationKind: 'plan' });
 
   assert.equal(initial.get('session-a').draft, 'draft-a');
@@ -116,13 +116,25 @@ test('begin sets active activity with operation kind', () => {
   }
 });
 
-test('applyThinking appends a thinking live message', () => {
-  const store = new ChatSessionRuntimeStore()
-    .ensureSession('s1')
-    .apply({ kind: 'thinking', sessionId: 's1', text: 'thinking text' });
-  const runtime = store.get('s1');
-  assert.equal(runtime.liveMessages.length, 1);
-  assert.equal(runtime.liveMessages[0]?.content, 'thinking text');
+test('thinking deltas assemble per turn into separate live messages', () => {
+  let store = new ChatSessionRuntimeStore();
+  store = store.apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'first ' } });
+  store = store.apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 6, text: 'turn' } });
+  store = store.apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 2, offset: 0, text: 'second turn' } });
+  const messages = store.get('s1').liveMessages;
+  assert.equal(messages.length, 2);
+  assert.equal(messages[0]?.content, 'first turn');
+  assert.equal(messages[0]?.id, 'live-thinking-1');
+  assert.equal(messages[1]?.content, 'second turn');
+  assert.equal(messages[1]?.id, 'live-thinking-2');
+});
+
+test('answer deltas assemble on the live answer message', () => {
+  let store = new ChatSessionRuntimeStore();
+  store = store.apply({ kind: 'answer', sessionId: 's1', delta: { turn: 4, offset: 0, text: 'Answer' } });
+  store = store.apply({ kind: 'answer', sessionId: 's1', delta: { turn: 4, offset: 6, text: ' body' } });
+  const answer = store.get('s1').liveMessages.find((message) => message.id === 'live-answer');
+  assert.equal(answer?.content, 'Answer body');
 });
 
 test('applyToolEvent appends running tool message on tool_start', () => {
@@ -168,7 +180,7 @@ test('applyToolEvent completes tool message on tool_result', () => {
 test('applyAnswer upserts an answer live message', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .apply({ kind: 'answer', sessionId: 's1', text: 'hello world' });
+    .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'hello world' } });
   const runtime = store.get('s1');
   assert.equal(runtime.liveMessages.length, 1);
   assert.equal(runtime.liveMessages[0]?.content, 'hello world');
@@ -177,7 +189,7 @@ test('applyAnswer upserts an answer live message', () => {
 test('applyAnswer handles empty answer text', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .apply({ kind: 'answer', sessionId: 's1', text: '' });
+    .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: '' } });
   const runtime = store.get('s1');
   assert.equal(runtime.liveMessages.length, 1);
   assert.equal(runtime.liveMessages[0]?.content, '');
@@ -306,7 +318,7 @@ test('applyToolEvent sets liveToolPromptTokenCount from tool_result promptTokenC
 
 test('applyAnswer creates runtime for unknown session via apply', () => {
   const store = new ChatSessionRuntimeStore();
-  const next = store.apply({ kind: 'answer', sessionId: 'unknown', text: 'text' });
+  const next = store.apply({ kind: 'answer', sessionId: 'unknown', delta: { turn: 1, offset: 0, text: 'text' } });
   assert.equal(next.get('unknown').liveMessages[0]?.content, 'text');
 });
 
@@ -314,7 +326,7 @@ test('applyDone clears live messages and draft for the session', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
     .apply({ kind: 'draft', sessionId: 's1', draft: 'draft' })
-    .apply({ kind: 'answer', sessionId: 's1', text: 'answer' })
+    .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'answer' } })
     .apply({ kind: 'done', sessionId: 's1', response: SAMPLE_RESPONSE });
   const runtime = store.get('s1');
   assert.deepEqual(runtime.liveMessages, []);
@@ -327,7 +339,7 @@ test('applyFailure clears live messages but preserves draft and images for retry
     .ensureSession('s1')
     .apply({ kind: 'draft', sessionId: 's1', draft: 'draft' })
     .apply({ kind: 'images', sessionId: 's1', images: ['image'] })
-    .apply({ kind: 'answer', sessionId: 's1', text: 'answer' })
+    .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'answer' } })
     .apply({ kind: 'failure', sessionId: 's1', message: 'boom' });
   const runtime = store.get('s1');
   assert.deepEqual(runtime.liveMessages, []);

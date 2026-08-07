@@ -13,9 +13,25 @@ test('parseChatStreamPacket returns null for empty or data-less packets', () => 
   assert.equal(parseChatStreamPacket('event: thinking'), null);
 });
 
-test('parseChatStreamPacket parses thinking events', () => {
-  const event = parseChatStreamPacket('event: thinking\ndata: {"thinking":"hi"}');
-  assert.deepEqual(event, { kind: 'thinking', text: 'hi' });
+test('parses a thinking delta payload', () => {
+  const packet = 'event: thinking\ndata: {"turn":2,"offset":5,"text":" more"}';
+  assert.deepEqual(parseChatStreamPacket(packet), {
+    kind: 'thinking',
+    delta: { turn: 2, offset: 5, text: ' more' },
+  });
+});
+
+test('parses an answer delta payload', () => {
+  const packet = 'event: answer\ndata: {"turn":3,"offset":0,"text":"Answer start"}';
+  assert.deepEqual(parseChatStreamPacket(packet), {
+    kind: 'answer',
+    delta: { turn: 3, offset: 0, text: 'Answer start' },
+  });
+});
+
+test('rejects a malformed thinking payload', () => {
+  const packet = 'event: thinking\ndata: {"thinking":"legacy snapshot"}';
+  assert.equal(parseChatStreamPacket(packet), null);
 });
 
 test('parseChatStreamPacket parses warning events', () => {
@@ -86,8 +102,7 @@ const SAMPLE_CONTEXT_USAGE: ChatSessionResponse['contextUsage'] = {
 };
 const SAMPLE_DONE: ChatSessionResponse = { session: SAMPLE_SESSION, contextUsage: SAMPLE_CONTEXT_USAGE };
 
-test('parseChatStreamPacket parses answer, done, error', () => {
-  assert.deepEqual(parseChatStreamPacket('event: answer\ndata: {"answer":"hello"}'), { kind: 'answer', text: 'hello' });
+test('parseChatStreamPacket parses done and error', () => {
   const done = parseChatStreamPacket(`event: done\ndata: ${JSON.stringify(SAMPLE_DONE)}`);
   assert.ok(done?.kind === 'done');
   assert.deepEqual(done.payload, SAMPLE_DONE);
@@ -95,7 +110,7 @@ test('parseChatStreamPacket parses answer, done, error', () => {
 });
 
 test('parseChatStreamPacket returns null on malformed JSON', () => {
-  assert.equal(parseChatStreamPacket('event: thinking\ndata: {not json'), null);
+  assert.equal(parseChatStreamPacket('event: answer\ndata: {not json'), null);
 });
 
 test('ChatStreamReader flushes a trailing packet that ends without a blank line', async () => {
@@ -124,7 +139,7 @@ test('ChatStreamReader yields events split across chunks', async () => {
   const encoder = new TextEncoder();
   const doneFrame = `event: done\ndata: ${JSON.stringify(SAMPLE_DONE)}\n\n`;
   const chunks = [
-    'event: thinking\ndata: {"thinking":"a"}\n\nevent: too',
+    'event: thinking\ndata: {"turn":1,"offset":0,"text":"a"}\n\nevent: too',
     'l_start\ndata: {"toolCallId":"tc_0","turn":1,"maxTurns":1,"command":"x"}\n\n',
     doneFrame,
   ].map((chunk) => encoder.encode(chunk));
@@ -174,7 +189,7 @@ test('ChatStreamReader releases the reader lock when consumption stops early', a
   let released = false;
   const mockReader: ReadableStreamDefaultReader<Uint8Array> = {
     async read() {
-      return { value: encoder.encode('event: thinking\ndata: {"thinking":"partial"}\n\n'), done: false };
+      return { value: encoder.encode('event: thinking\ndata: {"turn":1,"offset":0,"text":"partial"}\n\n'), done: false };
     },
     async cancel() {},
     releaseLock() {
