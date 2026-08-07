@@ -19,6 +19,7 @@ import { deriveSessionIndicator, isSessionBusy, type SessionIndicator } from '..
 import type { ChatSessionRuntime } from '../lib/chat-session-runtime-store';
 import { ToolCallCard } from '../components/ToolCallCard';
 import { useChatScroll } from '../hooks/useChatScroll';
+import { useSmoothedText } from '../hooks/useSmoothedText';
 import { groupMessagesIntoTurns, normalizeMessageKind, type ChatTurn } from '../lib/chatTurns';
 import type {
   ChatSession,
@@ -518,30 +519,45 @@ function MessageHeader({ message, isLive, chatBusy, onDeleteMessage }: {
   );
 }
 
-function renderMessageBody(message: ChatMessage, isDirectChatMode: boolean, isLive: boolean) {
+function ThinkingBody({ message, isLive }: { message: ChatMessage; isLive: boolean }) {
+  const content = useSmoothedText(message.content, isLive);
+  return <div className="think">{content}</div>;
+}
+
+function AssistantAnswerBody({ message, isLive, isDirectChatMode }: {
+  message: ChatMessage;
+  isLive: boolean;
+  isDirectChatMode: boolean;
+}) {
+  const content = useSmoothedText(message.content, isLive);
   const messageKind = normalizeMessageKind(message);
   const groundingStatusLabel = messageKind === 'assistant_answer'
     ? getGroundingStatusLabel(message.groundingStatus)
     : null;
+  return (
+    <div className={isLive ? 'markdown-body caret' : 'markdown-body'}>
+      {groundingStatusLabel ? <span className="chat-grounding-badge">{groundingStatusLabel}</span> : null}
+      {isDirectChatMode && message.thinkingContent ? (
+        <details className="thinking-box">
+          <summary>Thinking</summary>
+          <pre className="mono">{message.thinkingContent}</pre>
+        </details>
+      ) : null}
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+    </div>
+  );
+}
+
+function renderMessageBody(message: ChatMessage, isDirectChatMode: boolean, isLive: boolean) {
+  const messageKind = normalizeMessageKind(message);
   if (messageKind === 'assistant_tool_call') {
     return <ToolCallCard message={message} />;
   }
   if (messageKind === 'assistant_thinking') {
-    return <div className="think">{message.content}</div>;
+    return <ThinkingBody message={message} isLive={isLive} />;
   }
   if (message.role === 'assistant') {
-    return (
-      <div className={isLive ? 'markdown-body caret' : 'markdown-body'}>
-        {groundingStatusLabel ? <span className="chat-grounding-badge">{groundingStatusLabel}</span> : null}
-        {isDirectChatMode && message.thinkingContent ? (
-          <details className="thinking-box">
-            <summary>Thinking</summary>
-            <pre className="mono">{message.thinkingContent}</pre>
-          </details>
-        ) : null}
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
-      </div>
-    );
+    return <AssistantAnswerBody message={message} isLive={isLive} isDirectChatMode={isDirectChatMode} />;
   }
   return <p className="user-message">{message.content}</p>;
 }
