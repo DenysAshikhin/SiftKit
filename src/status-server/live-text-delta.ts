@@ -44,8 +44,12 @@ export class LiveTextDeltaTracker {
     if (!due) {
       return null;
     }
-    const delta = this.pending;
-    this.pending = null;
+    const text = this.pending.text.slice(0, LIVE_TEXT_FLUSH_MAX_PENDING_CHARS);
+    const delta = { ...this.pending, text };
+    const remaining = this.pending.text.slice(text.length);
+    this.pending = remaining
+      ? { turn: delta.turn, offset: delta.offset + text.length, text: remaining }
+      : null;
     this.sentTurn = delta.turn;
     this.sentLength = delta.offset + delta.text.length;
     return delta;

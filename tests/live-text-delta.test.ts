@@ -27,6 +27,37 @@ test('flushes when the pending delta reaches the size threshold', () => {
   });
 });
 
+test('splits an oversized append into bounded contiguous deltas', () => {
+  const tracker = new LiveTextDeltaTracker();
+  const text = 'a'.repeat(LIVE_TEXT_FLUSH_MAX_PENDING_CHARS * 2 + 17);
+  tracker.pushSnapshot(1, text, 0);
+
+  const first = tracker.takeDue(0, true);
+  const second = tracker.takeDue(0, true);
+  const third = tracker.takeDue(0, true);
+
+  assert.deepEqual(first, {
+    turn: 1,
+    offset: 0,
+    text: text.slice(0, LIVE_TEXT_FLUSH_MAX_PENDING_CHARS),
+  });
+  assert.deepEqual(second, {
+    turn: 1,
+    offset: LIVE_TEXT_FLUSH_MAX_PENDING_CHARS,
+    text: text.slice(LIVE_TEXT_FLUSH_MAX_PENDING_CHARS, LIVE_TEXT_FLUSH_MAX_PENDING_CHARS * 2),
+  });
+  assert.deepEqual(third, {
+    turn: 1,
+    offset: LIVE_TEXT_FLUSH_MAX_PENDING_CHARS * 2,
+    text: text.slice(LIVE_TEXT_FLUSH_MAX_PENDING_CHARS * 2),
+  });
+  assert.equal(tracker.takeDue(0, true), null);
+  assert.equal([first, second, third].every((delta) => (
+    delta !== null && delta.text.length <= LIVE_TEXT_FLUSH_MAX_PENDING_CHARS
+  )), true);
+  assert.equal([first, second, third].map((delta) => delta?.text ?? '').join(''), text);
+});
+
 test('a turn change pends a keyframe that replaces anything pending', () => {
   const tracker = new LiveTextDeltaTracker();
   tracker.pushSnapshot(1, 'turn one', 0);

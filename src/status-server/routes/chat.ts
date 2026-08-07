@@ -319,14 +319,8 @@ class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
 
   private emitDueDeltas(force: boolean): void {
     const now = Date.now();
-    const thinking = this.thinkingDeltas.takeDue(now, force);
-    if (thinking) {
-      this.writer.writeEvent(this.thinkingEvent, thinking);
-    }
-    const answer = this.answerDeltas.takeDue(now, force);
-    if (answer) {
-      this.writer.writeEvent('answer', answer);
-    }
+    this.emitTrackerDeltas(this.thinkingDeltas, this.thinkingEvent, now, force);
+    this.emitTrackerDeltas(this.answerDeltas, 'answer', now, force);
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
@@ -336,6 +330,21 @@ class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
         this.flushTimer = null;
         this.emitDueDeltas(true);
       }, LIVE_TEXT_FLUSH_MAX_LATENCY_MS);
+    }
+  }
+
+  private emitTrackerDeltas(
+    tracker: LiveTextDeltaTracker,
+    event: 'thinking' | 'answer',
+    now: number,
+    force: boolean,
+  ): void {
+    for (
+      let delta = tracker.takeDue(now, force);
+      delta !== null;
+      delta = tracker.takeDue(now, force)
+    ) {
+      this.writer.writeEvent(event, delta);
     }
   }
 }

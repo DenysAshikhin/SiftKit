@@ -162,3 +162,23 @@ decouples display cadence from arrival cadence:
   under normal jitter; instant completion on done).
 - Old snapshot payloads are fully gone from server and dashboard.
 - All suites, typecheck, lint green.
+
+## Post-implementation remediation clarifications
+
+The 2026-08-07 session-drift review tightened three requirements that the
+initial implementation did not fully prove:
+
+- `LIVE_TEXT_FLUSH_MAX_PENDING_CHARS` is a hard per-event limit, not only a
+  flush trigger. `takeDue` emits at most 1024 characters, retains any suffix
+  with the next contiguous offset, and the writer drains every immediately
+  due chunk. Forced boundary flushes drain the complete remainder before the
+  boundary event.
+- `useSmoothedText` has real React lifecycle coverage in a jsdom root. Tests
+  observe progressive rendering, snapping when `live` becomes false,
+  cancellation on rerender, and timer cleanup on unmount. The test uses the
+  existing React DOM and jsdom dependencies; production clock/scheduler
+  injection is not added.
+- Real-HTTP endpoint coverage validates strict `{ turn, offset, text }` SSE
+  payloads, the 1024-character maximum, flush-before-boundary ordering, and
+  latency-based delivery before `done`. Module-private writer internals stay
+  private and no testing-only production interface is introduced.

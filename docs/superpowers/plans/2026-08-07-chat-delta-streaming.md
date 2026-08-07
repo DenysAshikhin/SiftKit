@@ -879,3 +879,185 @@ State result, changed files, validation evidence (test output, observed event si
 - Names consistent: `ChatStreamTextDeltaSchema`/`ChatStreamTextDelta`, `LiveTextDeltaTracker.pushSnapshot/takeDue/hasPending`, `applyTextDelta`, `applyLiveThinkingDelta`, `SmoothStreamPacer.push/sample/snap/isCaughtUp`, `useSmoothedText`.
 - Arithmetic in tests verified: tracker latency/size thresholds use the exported constants; pacer jump = 10000 − round(0.06 × 300) = 9982.
 - Known interaction: this plan and `2026-08-07-streaming-scan-state.md` both touch `src/status-server/routes/chat.ts`; merge both edits (different regions: this plan rewrites `ChatStreamProgressWriter` and endpoint tails, that plan adds an override to `RepoSearchToolLogProgressWriter`).
+
+---
+
+## Post-implementation remediation
+
+### Task 8: Enforce the hard 1024-character event bound
+
+**Files:**
+- Modify: `src/status-server/live-text-delta.ts`
+- Modify: `src/status-server/routes/chat.ts`
+- Test: `tests/live-text-delta.test.ts`
+
+**Interfaces:**
+- Consumes: `LiveTextDeltaTracker.takeDue(atMs, force)` and the existing
+  `ChatStreamProgressWriter.emitDueDeltas(force)` call path.
+- Produces: every returned `ChatStreamTextDelta.text` is at most
+  `LIVE_TEXT_FLUSH_MAX_PENDING_CHARS`; retained suffixes use contiguous
+  offsets and remain available through subsequent `takeDue` calls.
+
+- [ ] **Step 1: Write the failing oversized-append regression test**
+
+Append one snapshot containing `2 * LIVE_TEXT_FLUSH_MAX_PENDING_CHARS + 17`
+characters. Assert that three forced `takeDue` calls return lengths
+`1024`, `1024`, and `17`, offsets `0`, `1024`, and `2048`, and that a fourth
+call returns `null`. Also assert every emitted text length is at most the
+exported maximum.
+
+- [ ] **Step 2: Verify RED**
+
+Run: `npx tsx --test tests/live-text-delta.test.ts`
+
+Expected: FAIL because the first delta currently contains the entire
+oversized append and no suffix remains.
+
+- [ ] **Step 3: Implement bounded extraction and writer draining**
+
+In `takeDue`, return only `pending.text.slice(0,
+LIVE_TEXT_FLUSH_MAX_PENDING_CHARS)`. Preserve any suffix as a new pending
+delta whose offset is the emitted offset plus emitted length. Update
+`sentTurn` and `sentLength` after each emitted chunk. Preserve
+`pendingSinceMs` for the retained suffix.
+
+In `ChatStreamProgressWriter.emitDueDeltas`, drain each tracker with a
+straightforward loop until `takeDue(now, force)` returns `null`. With
+`force === false`, complete 1024-character chunks drain immediately and a
+short tail remains pending; with `force === true`, the complete remainder
+drains before the boundary event. Keep thinking before answer ordering.
+
+- [ ] **Step 4: Verify GREEN**
+
+Run: `npx tsx --test tests/live-text-delta.test.ts`
+
+Expected: PASS, including the oversized-append regression.
+
+- [ ] **Step 5: Acceptance criteria**
+
+- No emitted delta exceeds 1024 characters.
+- Concatenating emitted texts reconstructs the source snapshot exactly.
+- Offsets remain contiguous.
+- Existing latency, turn-change, shrink, and empty-snapshot tests pass.
+- No new compatibility path, assertion, or dynamic dependency is added.
+
+### Task 9: Add real React lifecycle coverage for `useSmoothedText`
+
+**Files:**
+- Create: `dashboard/tests/useSmoothedText.test.tsx`
+- Modify only if a test exposes a real defect: `dashboard/src/hooks/useSmoothedText.ts`
+
+**Interfaces:**
+- Consumes: `useSmoothedText(text, live)`, React 19 `createRoot`/`act`, and
+  the existing root `jsdom` dependency.
+- Produces: behavioral regression coverage without a production-only clock,
+  scheduler, or exported test seam.
+
+- [ ] **Step 1: Add a real hook harness**
+
+Create a small component that renders the hook result into a jsdom container
+through `createRoot`. Install jsdom globals with `Object.defineProperty`
+rather than type assertions. Preserve and restore all globals in test
+cleanup.
+
+- [ ] **Step 2: Add lifecycle behavior tests**
+
+Cover these observable branches:
+
+1. Initial mount renders the complete existing text.
+2. A larger live rerender initially retains the displayed prefix and advances
+   after the 33 ms timer fires.
+3. Rerendering with `live === false` snaps immediately to the complete text
+   and cancels the pending timer.
+4. Unmounting while behind cancels the pending timer and causes no later
+   render/update.
+
+Use `node:test` mock tracking for `clearTimeout` while calling the original
+implementation. Do not suppress React errors or add a dependency.
+
+- [ ] **Step 3: Verify behavior and test sensitivity**
+
+Run: `npm run test:dashboard`
+
+Expected: PASS. Then temporarily disable the hook's cleanup `clearTimeout`
+call, rerun the new test, and confirm the cancellation assertion fails.
+Restore production code immediately and rerun to PASS; the temporary mutation
+must not remain in the diff.
+
+- [ ] **Step 4: Acceptance criteria**
+
+- Tests exercise React effects, not server rendering or the pure pacer alone.
+- Progressive rendering, non-live snapping, rerender cleanup, and unmount
+  cleanup are observed through public hook behavior/effects.
+- Test output contains no unhandled state-update or React `act` warnings.
+- Production code changes only when the test demonstrates a real defect.
+
+### Task 10: Add real-HTTP SSE contract, ordering, and latency coverage
+
+**Files:**
+- Modify: `tests/dashboard-status-server.test.ts`
+- Reuse: `tests/helpers/dashboard-http.ts`
+- Modify only if a regression test fails: `src/status-server/routes/chat.ts`
+
+**Interfaces:**
+- Consumes: `startStatusServer`, `requestJson`, `requestSse`, mock response
+  request fields, and parsed `SseEvent.payload` dictionaries.
+- Produces: endpoint-level proof of strict delta shape, bounded text,
+  boundary ordering, and timer-driven delivery.
+
+- [ ] **Step 1: Add strict payload and ordering assertions to the existing streaming endpoint test**
+
+For every `thinking` and `answer` event, assert that the sorted payload keys
+are exactly `['offset', 'text', 'turn']`, `turn` and `offset` are nonnegative
+integers, `text` is a string, and `text.length <=
+LIVE_TEXT_FLUSH_MAX_PENDING_CHARS`. Reassemble channel text by applying each
+offset and assert it matches the expected mock-response thinking/answer
+content. Assert pending thinking precedes `tool_start`, and all live-text
+events precede `done`.
+
+- [ ] **Step 2: Add oversized and latency endpoint cases**
+
+Use the existing mock-response request fields and real HTTP SSE helper. An
+oversized thinking/answer fixture must produce multiple bounded contiguous
+deltas whose reassembled content is exact. A short live-text fixture followed
+by a delayed mock operation must yield its delta after the 100 ms latency
+deadline and before the terminal boundary. Keep the timeout explicit and
+bounded; do not export `ChatStreamProgressWriter` or inject production clocks.
+
+- [ ] **Step 3: Run the focused endpoint test**
+
+Run: `npx tsx --test --test-name-pattern "chat delta SSE" tests/dashboard-status-server.test.ts`
+
+Expected: PASS after Task 8. If any assertion fails, make the minimum route
+correction and rerun until green.
+
+- [ ] **Step 4: Verify test sensitivity and the surrounding file**
+
+Temporarily bypass one production `flushPending()` boundary call and confirm
+the ordering test fails, then restore it. Run:
+`npx tsx --test tests/dashboard-status-server.test.ts`
+
+Expected: PASS with the original boundary call restored; no temporary
+mutation remains.
+
+- [ ] **Step 5: Acceptance criteria**
+
+- Real HTTP SSE events prove exact delta keys and runtime value constraints.
+- The 1024-character limit is asserted at the endpoint.
+- Ordering is asserted across live text, tool/warning boundaries, and `done`.
+- The real 100 ms timer path is exercised.
+- No testing-only production export, compatibility branch, or injected
+  dynamic function is added.
+
+## Remediation self-review
+
+- Spec coverage: hard bound -> Task 8; hook lifecycle -> Task 9; endpoint
+  schema/order/timer -> Task 10.
+- Type consistency: all tasks reuse the existing inferred
+  `ChatStreamTextDelta`, `SseEvent`, and hook signatures; no duplicate schema
+  type is introduced.
+- TDD: Task 8 has a required RED failure. Tasks 9 and 10 add missing tests for
+  existing behavior and require mutation checks to prove the assertions catch
+  cleanup and ordering regressions.
+- Scope: no new dependency, clock abstraction, scheduler abstraction, public
+  writer export, fallback, or compatibility path.
