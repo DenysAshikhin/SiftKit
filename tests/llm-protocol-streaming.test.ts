@@ -401,3 +401,63 @@ test('streaming assembler covers non-runaway punctuation and word-tail branches'
   });
   assert.equal(wordTailResponse.stoppedEarly, false);
 });
+
+test('llama streaming client throttles runaway checks to the 256-char stride', async () => {
+  const contentUpdates: string[] = [];
+  // Frame 1 is 15 chars; each brace frame adds 8. Per-frame checking would
+  // stop at 111 chars (96 trailing braces, 13 callbacks). The throttled check
+  // first runs at 263 chars: 31 normal callbacks, then the stop callback.
+  const packets: JsonObject[] = [
+    { choices: [{ delta: { content: '{"action":"x"} ' } }] },
+    ...Array.from({ length: 60 }, (): JsonObject => ({ choices: [{ delta: { content: '}}}}}}}}' } }] })),
+  ];
+  const http = new StreamingHttpClient(packets);
+
+  const response = await new LlamaCppClient(http).chat({
+    config: streamingConfig,
+    model: 'local',
+    messages: [{ role: 'user', content: 'hello' }],
+    tools: [],
+    maxTokens: 64,
+    stream: true,
+    allowedToolNames: [],
+    onContentDelta: (value) => contentUpdates.push(value),
+  });
+
+  assert.equal(response.stoppedEarly, true);
+  assert.match(response.earlyStopReason || '', /runaway streamed planner content repeated/u);
+  assert.equal(response.text, `{"action":"x"} ${'}'.repeat(96)}`);
+  assert.equal(contentUpdates.length, 32);
+});
+
+test('llama streaming client detects a runaway completing after the last throttled check', async () => {
+  const contentUpdates: string[] = [];
+  // 'prefix ' (7 chars) + 48 tag frames (12 chars each) = 583 chars total.
+  // Throttled checks run at 259 chars (21 tags) and 523 chars (43 tags) —
+  // both below the 48-tag trigger. The final 60 chars arrive unchecked, so
+  // only the end-of-stream check can catch the completed 48-tag flood.
+  const packets: JsonObject[] = [
+    { choices: [{ delta: { content: 'prefix ' } }] },
+    ...Array.from({ length: 48 }, (): JsonObject => ({ choices: [{ delta: { content: '</arg_value>' } }] })),
+  ];
+  const http = new StreamingHttpClient(packets);
+
+  const response = await new LlamaCppClient(http).chat({
+    config: streamingConfig,
+    model: 'local',
+    messages: [{ role: 'user', content: 'hello' }],
+    tools: [],
+    maxTokens: 64,
+    stream: true,
+    allowedToolNames: [],
+    onContentDelta: (value) => contentUpdates.push(value),
+  });
+
+  assert.equal(response.stoppedEarly, true);
+  assert.match(response.earlyStopReason || '', /recent planner content tokens repeated/u);
+  assert.equal(response.text, 'prefix');
+  // 49 normal per-frame callbacks plus one truncation callback from the
+  // end-of-stream check. Per-frame checking stops inside the loop at frame
+  // 49 and produces only 49 callbacks.
+  assert.equal(contentUpdates.length, 50);
+});

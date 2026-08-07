@@ -351,6 +351,18 @@ export class LlamaCppClient {
     let speculativeAcceptedTokens: number | null = null;
     let speculativeGeneratedTokens: number | null = null;
     let earlyStopReason: string | null = null;
+    let lastRunawayCheckLength = 0;
+    const detectRunaway = (): boolean => {
+      const runaway = getRecentTokenRepetition(contentText)
+        || getRecentTokenRepetition(reasoningText)
+        || getRunawayStructuralTail(contentText)
+        || getRunawayStructuralTail(reasoningText);
+      if (!runaway) return false;
+      earlyStopReason = runaway.reason;
+      if (contentText) contentText = runaway.truncatedText;
+      options.onContentDelta?.(contentText);
+      return true;
+    };
 
     try {
       streamFrames: for await (const frame of this.client.streamSse({
@@ -418,23 +430,19 @@ export class LlamaCppClient {
             }
           }
 
-          const repetition = getRecentTokenRepetition(contentText) || getRecentTokenRepetition(reasoningText);
-          if (repetition) {
-            earlyStopReason = repetition.reason;
-            if (contentText) contentText = repetition.truncatedText;
-            options.onContentDelta?.(contentText);
-            break streamFrames;
-          }
-          const structural = getRunawayStructuralTail(contentText) || getRunawayStructuralTail(reasoningText);
-          if (structural) {
-            earlyStopReason = structural.reason;
-            if (contentText) contentText = structural.truncatedText;
-            options.onContentDelta?.(contentText);
-            break streamFrames;
+          const streamedLength = contentText.length + reasoningText.length;
+          if (streamedLength - lastRunawayCheckLength >= RUNAWAY_CHECK_INTERVAL_CHARS) {
+            lastRunawayCheckLength = streamedLength;
+            if (detectRunaway()) {
+              break streamFrames;
+            }
           }
           if (deltaContent) {
             options.onContentDelta?.(contentText);
           }
+      }
+      if (!earlyStopReason) {
+        detectRunaway();
       }
     } catch (error) {
       if (error instanceof HttpResponseError && isTransientProviderHttpResponse(error.statusCode, error.rawText)) {
@@ -530,6 +538,14 @@ function getString(value: OptionalJsonValue): string {
 function isRecord(value: OptionalJsonValue): value is JsonObject {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
+
+/**
+ * The runaway detectors scan the full accumulated text, so the stream loop
+ * runs them only after this many new streamed characters (~64 tokens), plus
+ * once at stream end. Every detector trigger spans well over this window, so
+ * the added latency cannot miss a live runaway.
+ */
+const RUNAWAY_CHECK_INTERVAL_CHARS = 256;
 
 function getRunawayStructuralTail(text: string): { reason: string; truncatedText: string } | null {
   if (!/"action"\s*:/u.test(text)) return null;
