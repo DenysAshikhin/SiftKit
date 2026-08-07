@@ -59,3 +59,10 @@ export const ChatSessionBusyResponseSchema = z.object({
   operationKind: ChatSessionOperationKindSchema,
 });
 export type ChatSessionBusyResponse = z.infer<typeof ChatSessionBusyResponseSchema>;
+
+export const ChatStreamTextDeltaSchema = z.object({
+  turn: z.number().int().nonnegative(),
+  offset: z.number().int().nonnegative(),
+  text: z.string(),
+});
+export type ChatStreamTextDelta = z.infer<typeof ChatStreamTextDeltaSchema>;
