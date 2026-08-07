@@ -89,6 +89,7 @@ import {
   getManagedLlamaSpeculativeMetricsDelta,
 } from '../managed-llama.js';
 import { serverLogger } from '../server-logger.js';
+import { LIVE_TEXT_FLUSH_MAX_LATENCY_MS, LiveTextDeltaTracker } from '../live-text-delta.js';
 import {
   acquireModelRequestWithWait,
   releaseModelRequest,
@@ -261,6 +262,13 @@ type SessionSpeculativeMetrics = {
   speculativeGeneratedTokens: number | null;
 };
 
+function requireProgressTurn(event: RepoSearchProgressEvent): number {
+  if (event.turn === undefined) {
+    throw new Error(`Missing turn for ${event.kind} progress event.`);
+  }
+  return event.turn;
+}
+
 class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
   constructor(
     private readonly writer: SseResponseWriter,
@@ -277,26 +285,58 @@ class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
     return true;
   }
 
+  private readonly thinkingDeltas = new LiveTextDeltaTracker();
+  private readonly answerDeltas = new LiveTextDeltaTracker();
+  private flushTimer: NodeJS.Timeout | null = null;
+
   write(event: RepoSearchProgressEvent): void {
-    if (event.kind === 'context_warning') {
-      this.writer.writeEvent('warning', { warning: event.warningText ?? '' });
-      return;
-    }
     if (event.kind === 'thinking') {
       const text = event.thinkingText || '';
       this.phaseTracker?.observeThinking(text);
-      this.writer.writeEvent(this.thinkingEvent, this.thinkingEvent === 'thinking'
-        ? { thinking: text }
-        : { answer: text });
+      this.thinkingDeltas.pushSnapshot(requireProgressTurn(event), text, Date.now());
+      this.emitDueDeltas(false);
       return;
     }
     if (event.kind === 'answer' && this.streamAnswer) {
       const text = event.answerText || '';
       this.phaseTracker?.observeAnswer(text);
-      this.writer.writeEvent('answer', { answer: text });
+      this.answerDeltas.pushSnapshot(requireProgressTurn(event), text, Date.now());
+      this.emitDueDeltas(false);
       return;
     }
+    if (event.kind === 'context_warning') {
+      this.flushPending();
+      this.writer.writeEvent('warning', { warning: event.warningText ?? '' });
+      return;
+    }
+    this.flushPending();
     forwardRepoSearchToolEvent(this.writer, event, this.scope, this.requestId);
+  }
+
+  flushPending(): void {
+    this.emitDueDeltas(true);
+  }
+
+  private emitDueDeltas(force: boolean): void {
+    const now = Date.now();
+    const thinking = this.thinkingDeltas.takeDue(now, force);
+    if (thinking) {
+      this.writer.writeEvent(this.thinkingEvent, thinking);
+    }
+    const answer = this.answerDeltas.takeDue(now, force);
+    if (answer) {
+      this.writer.writeEvent('answer', answer);
+    }
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    if (this.thinkingDeltas.hasPending() || this.answerDeltas.hasPending()) {
+      this.flushTimer = setTimeout(() => {
+        this.flushTimer = null;
+        this.emitDueDeltas(true);
+      }, LIVE_TEXT_FLUSH_MAX_LATENCY_MS);
+    }
   }
 }
 
@@ -840,6 +880,8 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
     const requestStartedAtUtc = new Date(startedAt).toISOString();
     const phaseTracker = new ChatTurnPhaseTracker(requestStartedAtUtc);
     const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
+    const engineRequestId = randomUUID();
+    const progressWriter = new ChatStreamProgressWriter(sseWriter, phaseTracker, 'plan', engineRequestId, 'thinking', true);
     // Status reporting for this turn belongs to executeRepoSearchRequest; there is no
     // non-engine branch here to report for.
     try {
@@ -857,7 +899,6 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
       const mockResponses = readRouteStringArray(reader, 'mockResponses');
       const mockTokenConfig = getMockTokenConfig(config, mockResponses);
       const telemetry = new ChatTurnTelemetry(config, mockTokenConfig);
-      const engineRequestId = randomUUID();
       const result = await ctx.engineService.executeRepoSearch({
         presetId: selected.preset.id,
         requestId: engineRequestId,
@@ -876,14 +917,7 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         mockCommandResults: normalizeRepoSearchMockCommandResults(request.parsedBody.mockCommandResults),
         initialUserImages: messageRequest.images,
         ...(mockResponses ? { mockResponses } : {}),
-        progressWriter: new ChatStreamProgressWriter(
-          sseWriter,
-          phaseTracker,
-          'plan',
-          engineRequestId,
-          'thinking',
-          true,
-        ),
+        progressWriter,
       });
       const scorecardTasks = normalizeRepoSearchScorecard(result.scorecard).tasks;
       const assistantContent = String(scorecardTasks[0]?.finalOutput || '').trim();
@@ -925,10 +959,13 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         sourceRunId: String(result.requestId || ''),
         images: messageRequest.images,
       });
+      progressWriter.flushPending();
       sseWriter.writeEvent('done', buildChatSessionResponse(config, updatedSession));
     } catch (error) {
+      progressWriter.flushPending();
       sseWriter.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
     } finally {
+      progressWriter.flushPending();
       releaseModelRequest(ctx, modelRequestLock.token);
       sseWriter.end();
     }
@@ -1037,11 +1074,12 @@ class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
     }
     const sseWriter = new SseResponseWriter(req, res);
     sseWriter.open();
+    const engineRequestId = randomUUID();
+    const progressWriter = new ChatStreamProgressWriter(sseWriter, null, 'plan', engineRequestId, 'thinking', false);
     try {
       const content = request.value.content;
       const reader = new JsonRecordReader(request.parsedBody);
       const config = readConfig(configPath);
-      const engineRequestId = randomUUID();
       const result = await new ChatRepoOperationRunner().runPlan(buildChatRepoOperationRequest({
         ctx,
         runtimeRoot,
@@ -1052,22 +1090,18 @@ class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
         reader,
         parsedBody: request.parsedBody,
         requestId: engineRequestId,
-        progressWriter: new ChatStreamProgressWriter(
-          sseWriter,
-          null,
-          'plan',
-          engineRequestId,
-          'thinking',
-          false,
-        ),
+        progressWriter,
       }));
+      progressWriter.flushPending();
       sseWriter.writeEvent('done', {
         ...buildChatSessionResponse(config, result.updatedSession),
         repoSearch: result.repoSearch,
       });
     } catch (error) {
+      progressWriter.flushPending();
       sseWriter.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
     } finally {
+      progressWriter.flushPending();
       releaseModelRequest(ctx, modelRequestLock.token);
       sseWriter.end();
     }
@@ -1176,11 +1210,12 @@ class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
     }
     const sseWriter = new SseResponseWriter(req, res);
     sseWriter.open();
+    const engineRequestId = randomUUID();
+    const progressWriter = new ChatStreamProgressWriter(sseWriter, null, 'rs', engineRequestId, 'answer', false);
     try {
       const content = request.value.content;
       const reader = new JsonRecordReader(request.parsedBody);
       const config = readConfig(configPath);
-      const engineRequestId = randomUUID();
       const result = await new ChatRepoOperationRunner().runRepoSearch(buildChatRepoOperationRequest({
         ctx,
         runtimeRoot,
@@ -1191,22 +1226,18 @@ class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
         reader,
         parsedBody: request.parsedBody,
         requestId: engineRequestId,
-        progressWriter: new ChatStreamProgressWriter(
-          sseWriter,
-          null,
-          'rs',
-          engineRequestId,
-          'answer',
-          false,
-        ),
+        progressWriter,
       }));
+      progressWriter.flushPending();
       sseWriter.writeEvent('done', {
         ...buildChatSessionResponse(config, result.updatedSession),
         repoSearch: result.repoSearch,
       });
     } catch (error) {
+      progressWriter.flushPending();
       sseWriter.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
     } finally {
+      progressWriter.flushPending();
       releaseModelRequest(ctx, modelRequestLock.token);
       sseWriter.end();
     }
