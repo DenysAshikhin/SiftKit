@@ -34,6 +34,12 @@ export function repoAgentStateToResult(
           abort: `siftkit repo-agent decide ${state.runId} abort`,
         },
       });
+    case 'approval_timeout':
+      return RepoAgentRunResultSchema.parse({
+        status: 'approval_timeout',
+        runId: state.runId,
+        approval: state.approval,
+      });
     case 'failed':
       return RepoAgentRunResultSchema.parse({
         status: 'failed',

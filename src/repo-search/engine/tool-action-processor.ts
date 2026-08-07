@@ -279,7 +279,7 @@ export class ToolActionProcessor {
         }),
       });
       if (decision.kind === 'abort') {
-        throw new Error('Aborted by user.');
+        throw new Error(decision.reason);
       }
       if (decision.kind === 'deny') {
         counters.safetyRejects += 1;

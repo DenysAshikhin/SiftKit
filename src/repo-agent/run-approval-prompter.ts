@@ -1,8 +1,9 @@
 import { JsonRecordReader } from '../lib/json-record-reader.js';
 import type { JsonObject } from '../lib/json-types.js';
 import {
-  buildApprovalTimeoutDenial,
+  CLIENT_ABORT_MESSAGE,
   DEFAULT_DECISION_TIMEOUT_MS,
+  buildApprovalTimeoutMessage,
   type ApprovalDecision,
 } from '../repo-search/engine/approval-gate.js';
 import type { ApprovalPrompter } from '../cli/approval-prompter.js';
@@ -95,8 +96,10 @@ export class RepoAgentRunApprovalPrompter implements ApprovalPrompter {
       approvalState.revision,
     );
     if (decision === null) {
-      this.store.clearPendingApproval(this.runId, approvalState.revision, 'running');
-      return buildApprovalTimeoutDenial(this.decisionTimeoutMs);
+      // Recorded locally before anything touches the network: the run's terminal state
+      // must survive a dead SSE stream or an unreachable server.
+      this.store.clearPendingApproval(this.runId, approvalState.revision, 'approval_timeout');
+      return { kind: 'abort', reason: buildApprovalTimeoutMessage(this.decisionTimeoutMs) };
     }
 
     return this.handleDecision(decision, approvalState);
@@ -161,7 +164,7 @@ export class RepoAgentRunApprovalPrompter implements ApprovalPrompter {
           approvalState.revision,
           'aborted',
         );
-        return { kind: 'abort' };
+        return { kind: 'abort', reason: CLIENT_ABORT_MESSAGE };
       }
     }
   }

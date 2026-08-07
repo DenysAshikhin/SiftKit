@@ -16,6 +16,7 @@ import type { RepoAgentProcessLauncher } from '../repo-agent/worker-launcher.js'
 import type {
   RepoAgentInvocation,
 } from './repo-agent-args.js';
+import { REPO_AGENT_EXIT_CODES } from './repo-agent-help.js';
 import { runRepoAgentForegroundCli } from './run-repo-agent-foreground.js';
 
 export type RepoAgentCommandStreams = {
@@ -23,6 +24,27 @@ export type RepoAgentCommandStreams = {
   stdout: NodeJS.WritableStream;
   stderr: NodeJS.WritableStream;
 };
+
+function buildApprovalRequiredNotice(
+  result: Extract<RepoAgentRunResult, { status: 'approval_required' }>,
+): string {
+  const lines = [
+    'Exiting: approval required before the agent may continue.',
+    `Run: ${result.runId}`,
+    `Tool: ${result.approval.toolName}`,
+    `Command: ${result.approval.command}`,
+  ];
+  if (result.approval.reviewPayload !== null) {
+    lines.push('Review payload:', result.approval.reviewPayload);
+  }
+  lines.push(
+    'Respond with one of:',
+    `  ${result.decide.approve}`,
+    `  ${result.decide.deny}`,
+    `  ${result.decide.abort}`,
+  );
+  return `${lines.join('\n')}\n`;
+}
 
 export class RepoAgentCommand {
   private readonly store: RepoAgentRunStore;
@@ -93,13 +115,13 @@ export class RepoAgentCommand {
       if (state.status !== 'failed') {
         throw error;
       }
-      return this.writeResult(repoAgentStateToResult(state), streams.stdout);
+      return this.writeResult(repoAgentStateToResult(state), streams);
     }
     const result = await new RepoAgentBoundaryWaiter({
       store: this.store,
       runId,
     }).waitForBoundary(0);
-    return this.writeResult(result, streams.stdout);
+    return this.writeResult(result, streams);
   }
 
   private async runDecision(
@@ -131,7 +153,7 @@ export class RepoAgentCommand {
       store: this.store,
       runId: invocation.runId,
     }).waitForBoundary(current.revision);
-    return this.writeResult(result, streams.stdout);
+    return this.writeResult(result, streams);
   }
 
   private runStatus(
@@ -148,12 +170,13 @@ export class RepoAgentCommand {
 
   private writeResult(
     input: RepoAgentRunResult,
-    stdout: NodeJS.WritableStream,
+    streams: RepoAgentCommandStreams,
   ): number {
     const result = RepoAgentRunResultSchema.parse(input);
-    stdout.write(`${JSON.stringify(result)}\n`);
-    return result.status === 'completed' || result.status === 'approval_required'
-      ? 0
-      : 1;
+    if (result.status === 'approval_required') {
+      streams.stderr.write(buildApprovalRequiredNotice(result));
+    }
+    streams.stdout.write(`${JSON.stringify(result)}\n`);
+    return REPO_AGENT_EXIT_CODES[result.status];
   }
 }

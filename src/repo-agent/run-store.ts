@@ -225,7 +225,7 @@ export class RepoAgentRunStore {
   clearPendingApproval(
     runId: string,
     expectedRevision: number,
-    status: 'running' | 'aborted',
+    status: 'running' | 'aborted' | 'approval_timeout',
   ): RepoAgentRunState {
     const validatedRunId = this.validRunId(runId);
     const validatedRevision = RevisionSchema.parse(expectedRevision);
@@ -246,9 +246,15 @@ export class RepoAgentRunStore {
         updatedAtUtc: new Date().toISOString(),
         pid: current.pid,
       };
-      const next = status === 'running'
-        ? RepoAgentRunStateSchema.parse({ ...shared, status: 'running' })
-        : RepoAgentRunStateSchema.parse({ ...shared, status: 'aborted' });
+      // approval_timeout keeps what stalled visible to the overseer but drops the
+      // bulky review payload, matching the no-sensitive-content rule for settled states.
+      const next = status === 'approval_timeout'
+        ? RepoAgentRunStateSchema.parse({
+          ...shared,
+          status: 'approval_timeout',
+          approval: { ...current.approval, reviewPayload: null },
+        })
+        : RepoAgentRunStateSchema.parse({ ...shared, status });
       this.writeState(next);
       return next;
     } finally {

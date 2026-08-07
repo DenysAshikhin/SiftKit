@@ -6,17 +6,56 @@
 
 **Architecture:** One shared admission path (`src/llm-protocol/image-admission.ts`) validates bytes, reads dimensions, and downscales to a per-preset ceiling — the model's own pixel limit, narrowed by a user-tunable `VisionMaxImagePixels`; every entry point (CLI `--image`, HTTP data URLs, agent `read`, browser paste) goes through it. The agent `read` tool dispatches on file extension and returns a text result plus an `imageDataUrl`, which the engine appends as a `role: 'user'` message immediately after the tool result. That synthetic message is persisted as a first-class row so chat replay reconstructs it in position, and a new `VisionImageRetention` preset field ages old images out of context.
 
-**Tech Stack:** TypeScript (ESM, `node:test` + `node:assert/strict`), zod (via `src/lib/zod.js`), better-sqlite3, `@napi-rs/image` (new runtime dependency), React (dashboard), ESLint.
+**Tech Stack:** TypeScript (ESM, `node:test` + `node:assert/strict`), zod (via `src/lib/zod.js`), better-sqlite3, `@napi-rs/image` (new runtime dependency), React, jsdom and `@testing-library/react` (new dashboard test dependency), ESLint.
 
 **Source spec:** `docs/superpowers/specs/2026-08-07-agent-image-reads-design.md`
 
+## Global Constraints
+
+- Execute phases A–F and their tasks sequentially. Do not begin the next task until the current
+  task's focused tests and applicable phase checks pass.
+- Use TDD for every behavior change: failing test, minimal implementation, passing test, refactor.
+- All code and tests are TypeScript with runtime-schema-validated IO and types derived with
+  `z.infer`. Do not introduce `any`, unknown-laundering, type assertions, non-null assertions,
+  namespace imports, duplicated schema types, or dynamically passed functions.
+- Refactors are complete replacements. Remove obsolete artifacts; do not add compatibility paths,
+  shims, silent fallbacks, or parallel implementations unless the approved spec requires one.
+- Do not use worktrees. Preserve unrelated changes. Keep temporary artifacts in one scratch
+  directory and remove them before final verification.
+- Do not commit unless the user explicitly requests it. Each task ends with a diff review and
+  verification boundary instead of a commit.
+- Follow the repository's SiftKit-first gate for discovery. Use `siftkit repo-agent` exactly once
+  for each task delegated to it, parse its JSON `status`, continue approval with the returned exact
+  `decide` command, review its diff, and independently verify acceptance criteria. At least one
+  implementation task must be executed through `repo-agent`; tasks remain sequential.
+- Give every `siftkit summary`, `repo-search`, and `repo-agent` invocation a 15-minute timeout.
+- Before completion run focused tests, the broader applicable suite, `npm test`,
+  `npm run typecheck`, and `npm run lint`; report environmental blocks and unverified scope.
+
+### Required `repo-agent` execution protocol
+
+For each task delegated to SiftKit, dispatch it exactly once with a 15-minute timeout:
+
+```text
+siftkit repo-agent 'Implement ONLY "<task heading>" from docs/superpowers/plans/2026-08-07-agent-image-reads.md. Follow its steps verbatim, TDD. Do not commit, do not create temp files, do not touch other tasks.'
+```
+
+Parse the returned JSON `status`; exit code alone is not success. If it returns
+`approval_required`, continue that same attempt using the exact returned `decide` command. Review
+all changed files and the task diff, run its acceptance tests independently, and remove scope drift
+before continuing. Never retry or redispatch a task. On failure, abort, partial completion, or a
+rejected review, finish that task directly and restore the tree to green before starting the next.
+
 ---
 
-## Pre-flight findings (already verified — do not re-verify)
+## Pre-flight findings (verified fixture facts — not runtime assumptions)
 
-Spec §9 risk 1 asked whether `preprocessor_config.json` sits beside the weights. **Verified 2026-08-07 against the live model: it does, and the derived path is the one that will run.** Risk 1 is closed.
+The original draft asked whether `preprocessor_config.json` sits beside the weights. **Verified
+2026-08-07 against the available model: it does.** The approved spec now records this under §4.3.
+Implementation still derives the file from each preset's `ModelPath`; it never embeds the observed
+machine path or model id.
 
-The resident TabbyAPI model (`127.0.0.1:8098`, id `3.6_27b_4.7bpw`, `"use_vision": true`, Qwen3-VL chat template with `<|vision_start|><|image_pad|><|vision_end|>`) lives at `D:\personal\models\elx3\3.6_27b_4.7bpw` and ships both files this plan reads:
+The verified Qwen3-VL fixture ships both files this plan reads:
 
 `preprocessor_config.json` (verbatim, trimmed to the fields that matter):
 
@@ -46,7 +85,9 @@ Concrete numbers for this model: `pixelsPerToken = 1024`; `maxPixels = min(16_77
                    "out_hidden_size": 5120 }
 ```
 
-**Current GPU state:** RTX 4090, 24564 MiB total, **831 MiB free** with the model resident. Headroom is genuinely tight, which is why the VRAM readout in Task 24 is worth getting right rather than approximating.
+An RTX 4090 sample had only 831 MiB free with the model resident. This is motivation and fixture
+data only: runtime headroom always comes from `readGpuMemory()` and no test or implementation may
+treat 831 MiB as the current state.
 
 ### `VisionMaxImagePixels` does not affect startup VRAM — verified in exllamav3 1.3.0
 
@@ -78,16 +119,17 @@ Incidentally, `qwen2_5_vl.py:139-146` reads **both** config shapes (`max_pixels`
 
 | File | Responsibility |
 |---|---|
+| `packages/contracts/src/image.ts` | Shared image data-URL, MIME, metadata, budget, and GPU-readout schemas plus browser-safe pure calculations. |
 | `src/llm-protocol/image-admission.ts` | Dimension reading, target-dimension math, server-side downscale, and the single `admitImageBuffer` / `admitImageDataUrl` entry points. |
-| `src/llm-protocol/image-token-budget.ts` | `resolveImageTokenBudget(preset)` — derives max pixels from the preset's `preprocessor_config.json`, caches per preset, logs its source. Also owns `resolveEffectiveImagePixelCeiling` (model ceiling narrowed by the user's `VisionMaxImagePixels`) and `estimateVisionPeakVramBytes`, so the number the settings panel promises and the number admission enforces come from one calculation. |
+| `src/llm-protocol/image-token-budget.ts` | `resolveImageTokenBudget(preset)` — derives and caches the budget from model files and logs its source; browser-safe schemas and calculations live in `packages/contracts/src/image.ts`. |
 | `src/repo-search/engine/image-read.ts` | The `read` image branch: `planImageRead` + `buildImageReadExecution`. Keeps `repo-tools.ts` from growing another 100 lines. |
 | `src/image-retention-policy.ts` | `ImageRetentionPolicy` — ages images out of a message array, mirroring `src/thinking-retention-policy.ts`. |
 | `src/status-server/routes/chat-image-caption.ts` | The on-demand caption endpoint. |
 | `src/status-server/gpu-memory.ts` | `readGpuMemory()` — free VRAM via `nvidia-smi`, briefly cached, `null` when unavailable. |
-| `src/llm-protocol/image-vram-headroom.ts` | `assessImageVramHeadroom()` — grades free VRAM against the encode peak into a toast level. One function, used by both the preset panel and the send path, so they cannot disagree. |
 | `dashboard/src/lib/downscale-image.ts` | Browser-side `createImageBitmap` + `OffscreenCanvas` downscale. |
 | `dashboard/src/components/PendingImageStrip.tsx` | Composer thumbnail strip with per-image removal. |
 | `dashboard/src/components/MessageImages.tsx` | Inline image rendering + collapsed annotation + caption fetch. |
+| `dashboard/tests/react-test-environment.ts` | One jsdom-backed Testing Library setup shared by interactive dashboard component tests. |
 | `tests/image-admission.test.ts` | Admission unit tests. |
 | `tests/image-token-budget.test.ts` | Token-budget derivation tests. |
 | `tests/image-read-tool.test.ts` | `read`-returns-image tests. |
@@ -107,12 +149,17 @@ Incidentally, `qwen2_5_vl.py:139-146` reads **both** config shapes (`max_pixels`
 Today `SIFT_MAX_IMAGE_BYTES` is enforced only in `ImageAttachmentReader.read`. Every HTTP route that goes through `parseImageDataUrls` is unguarded.
 
 **Files:**
-- Modify: `src/llm-protocol/image-attachments.ts:26-34`
+- Create: `packages/contracts/src/image.ts`
+- Modify: `packages/contracts/src/index.ts`
+- Modify: `packages/contracts/src/chat.ts`
+- Modify: `src/config/constants.ts:45`
+- Modify: `src/llm-protocol/image-attachments.ts:4,26-34`
 - Test: `tests/image-attachments.test.ts`
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `tests/image-attachments.test.ts`:
+Update `tests/image-attachments.test.ts` to import `ImageDataUrlSchema` and
+`SIFT_MAX_IMAGE_BYTES` from `@siftkit/contracts`, then append:
 
 ```ts
 test('ImageDataUrlSchema rejects a data URL whose payload exceeds SIFT_MAX_IMAGE_BYTES', () => {
@@ -139,11 +186,14 @@ test('parseImageDataUrls rejects an oversized entry rather than dropping it', ()
 Run: `npm test`
 Expected: the three new tests FAIL — the oversized URL currently parses successfully.
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **Step 3: Move the shared wire schema into contracts**
 
-Replace `src/llm-protocol/image-attachments.ts:26-34` with:
+Create `packages/contracts/src/image.ts` and export it from `packages/contracts/src/index.ts` so the
+same runtime schema is available to server and dashboard:
 
 ```ts
+import { z } from 'zod';
+
 /**
  * Decoded byte length of a base64 payload, without decoding it. Every 4 characters carry
  * 3 bytes; trailing `=` padding characters carry none.
@@ -153,29 +203,45 @@ function base64PayloadByteLength(base64: string): number {
   return Math.floor((base64.length * 3) / 4) - padding;
 }
 
+export const SIFT_MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+
+export const ImageMimeSchema = z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+export type ImageMime = z.infer<typeof ImageMimeSchema>;
+
 export const ImageDataUrlSchema = z.string().refine(
   (val) => {
     if (!val.startsWith('data:image/')) return false;
     const mimeMatch = val.match(/^data:(image\/\w+);base64,/);
     if (!mimeMatch) return false;
-    if (!SUPPORTED_MIMES.has(mimeMatch[1])) return false;
+    if (!ImageMimeSchema.safeParse(mimeMatch[1]).success) return false;
     return base64PayloadByteLength(val.slice(mimeMatch[0].length)) <= SIFT_MAX_IMAGE_BYTES;
   },
   { message: 'supported-image' },
 );
+export type ImageDataUrl = z.infer<typeof ImageDataUrlSchema>;
 ```
+
+In `packages/contracts/src/chat.ts`, import `ImageDataUrlSchema` from `./image.js` and change
+`ChatMessageSchema.images` from `z.array(z.string()).optional()` to
+`z.array(ImageDataUrlSchema).optional()` so persisted and dashboard-visible image data uses the
+same wire schema.
+
+Delete `SIFT_MAX_IMAGE_BYTES` from `src/config/constants.ts`. In
+`src/llm-protocol/image-attachments.ts`, delete the local `ImageDataUrlSchema`, import
+`ImageDataUrlSchema` and `SIFT_MAX_IMAGE_BYTES` from `@siftkit/contracts`, and leave
+`parseImageDataUrls` as the single server helper around `z.array(ImageDataUrlSchema).parse(input)`.
+This is a complete move: update the test imports and leave no re-export or duplicate schema behind.
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npm test`
 Expected: PASS, including the pre-existing `ImageAttachmentReader` oversize test at `tests/image-attachments.test.ts:230` (its file-path check is unchanged).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Review the task boundary**
 
-```bash
-git add src/llm-protocol/image-attachments.ts tests/image-attachments.test.ts
-git commit -m "fix: enforce the image byte limit on the data-URL path"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 1 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -253,12 +319,11 @@ Then rewrite `ImageAttachmentReader.read`'s first three lines (currently `src/ll
 Run: `npm test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Review the task boundary**
 
-```bash
-git add src/llm-protocol/image-attachments.ts tests/image-attachments.test.ts
-git commit -m "feat: export image extension predicates from the MIME map"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 2 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -332,8 +397,7 @@ export function toDataUrl(mime: string, buffer: Buffer): string {
 }
 
 /**
- * The installed model's vision encoder geometry, from
- * D:\personal\models\elx3\3.6_27b_4.7bpw\config.json. Lives here rather than in one test file
+ * Verified Qwen3-VL vision encoder geometry. Lives here rather than in one test file
  * because both tests/image-token-budget.test.ts and tests/image-admission.test.ts need it.
  * Task 8b is what gives it a consumer.
  */
@@ -434,12 +498,11 @@ If `metadataSync` is not the exported name in the installed version, run
 `node -e "const {Transformer}=require('@napi-rs/image');console.log(Object.getOwnPropertyNames(Transformer.prototype).join(','))"`
 and use the synchronous metadata method it lists. Do not add an `any` cast to work around a name mismatch.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Review the task boundary**
 
-```bash
-git add package.json package-lock.json src/llm-protocol/image-admission.ts tests/helpers/image-fixtures.ts tests/image-admission.test.ts
-git commit -m "feat: read image dimensions for png, jpeg, webp and gif"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 3 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -460,17 +523,17 @@ test('computeTargetDimensions returns null when the image already fits', () => {
 
 test('computeTargetDimensions scales to fit the pixel ceiling and preserves aspect ratio', () => {
   const target = computeTargetDimensions(4000, 2000, 1_000_000);
-  assert.notEqual(target, null);
-  assert.ok(target!.width * target!.height <= 1_000_000);
+  assert.ok(target);
+  assert.ok(target.width * target.height <= 1_000_000);
   // 2:1 stays 2:1 within a pixel of rounding.
-  assert.ok(Math.abs(target!.width / target!.height - 2) < 0.01);
+  assert.ok(Math.abs(target.width / target.height - 2) < 0.01);
 });
 
 test('computeTargetDimensions never returns a zero dimension', () => {
   const target = computeTargetDimensions(10_000, 2, 100);
-  assert.notEqual(target, null);
-  assert.ok(target!.width >= 1);
-  assert.ok(target!.height >= 1);
+  assert.ok(target);
+  assert.ok(target.width >= 1);
+  assert.ok(target.height >= 1);
 });
 
 test('downscaleImageBuffer resizes a PNG to the target and keeps the format', () => {
@@ -551,12 +614,11 @@ export function downscaleImageBuffer(
 Run: `npm test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Review the task boundary**
 
-```bash
-git add src/llm-protocol/image-admission.ts tests/image-admission.test.ts
-git commit -m "feat: add target-dimension math and server-side image downscaling"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 4 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -564,6 +626,7 @@ git commit -m "feat: add target-dimension math and server-side image downscaling
 
 **Files:**
 - Modify: `src/config/constants.ts:46`
+- Modify: `packages/contracts/src/image.ts`
 - Create: `src/llm-protocol/image-token-budget.ts`
 - Create: `tests/image-token-budget.test.ts`
 
@@ -596,10 +659,11 @@ import path from 'node:path';
 import { resolveImageTokenBudget, clearImageTokenBudgetCache } from '../src/llm-protocol/image-token-budget.js';
 import { SIFT_IMAGE_TOKEN_ESTIMATE } from '../src/config/constants.js';
 import type { ModelRuntimePreset } from '../src/config/types.js';
+import type { JsonValue } from '../src/lib/json-types.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { makeTestPreset } from './helpers/model-presets.js';
 
-function writePreprocessorConfig(directory: string, body: Record<string, unknown>): void {
+function writePreprocessorConfig(directory: string, body: JsonValue): void {
   fs.writeFileSync(path.join(directory, 'preprocessor_config.json'), JSON.stringify(body));
 }
 
@@ -683,7 +747,7 @@ test('resolveImageTokenBudget falls back when ModelPath is null', () => {
   assert.equal(resolveImageTokenBudget(makeTestPreset({ id: 'nopath', ModelPath: null })).source, 'fallback');
 });
 
-test('resolveImageTokenBudget caches per preset id', () => {
+test('resolveImageTokenBudget caches per preset id and ModelPath', () => {
   clearImageTokenBudgetCache();
   const directory = createManagedTempDir('image-budget-cache');
   writePreprocessorConfig(directory, { patch_size: 16, merge_size: 2, size: { longest_edge: 200_000 } });
@@ -693,6 +757,17 @@ test('resolveImageTokenBudget caches per preset id', () => {
   fs.rmSync(path.join(directory, 'preprocessor_config.json'));
   // Second call must not re-read the (now missing) file.
   assert.equal(resolveImageTokenBudget(preset).maxPixels, 200_000);
+});
+
+test('resolveImageTokenBudget recomputes when ModelPath changes under the same preset id', () => {
+  clearImageTokenBudgetCache();
+  const firstDirectory = createManagedTempDir('image-budget-cache-first');
+  const secondDirectory = createManagedTempDir('image-budget-cache-second');
+  writePreprocessorConfig(firstDirectory, { patch_size: 16, merge_size: 2, size: { longest_edge: 200_000 } });
+  writePreprocessorConfig(secondDirectory, { patch_size: 16, merge_size: 2, size: { longest_edge: 300_000 } });
+
+  assert.equal(resolveImageTokenBudget(makeTestPreset({ id: 'same', ModelPath: firstDirectory })).maxPixels, 200_000);
+  assert.equal(resolveImageTokenBudget(makeTestPreset({ id: 'same', ModelPath: secondDirectory })).maxPixels, 300_000);
 });
 ```
 
@@ -720,7 +795,19 @@ Expected: FAIL — `src/llm-protocol/image-token-budget.ts` does not exist.
 
 - [ ] **Step 4: Write minimal implementation**
 
-Create `src/llm-protocol/image-token-budget.ts`:
+Add the schema-owned budget shape to `packages/contracts/src/image.ts`:
+
+```ts
+export const ImageTokenBudgetSchema = z.object({
+  pixelsPerToken: z.number().int().positive(),
+  maxPixels: z.number().int().positive(),
+  maxImageTokens: z.number().int().positive(),
+  source: z.enum(['preprocessor_config', 'fallback']),
+});
+export type ImageTokenBudget = z.infer<typeof ImageTokenBudgetSchema>;
+```
+
+Then create `src/llm-protocol/image-token-budget.ts`:
 
 ```ts
 import { existsSync, readFileSync } from 'node:fs';
@@ -732,18 +819,10 @@ import {
   SIFT_FALLBACK_IMAGE_PATCH_SIZE,
   SIFT_IMAGE_TOKEN_ESTIMATE,
 } from '../config/constants.js';
+import { parseJsonValueText } from '../lib/json.js';
 import { serverLogger } from '../status-server/server-logger.js';
 import type { ModelRuntimePreset } from '../config/types.js';
-
-export type ImageTokenBudget = {
-  /** Pixels one image token covers. */
-  pixelsPerToken: number;
-  /** Hard pixel ceiling for a single admitted image. */
-  maxPixels: number;
-  /** Image tokens the ceiling costs. */
-  maxImageTokens: number;
-  source: 'preprocessor_config' | 'fallback';
-};
+import { ImageTokenBudgetSchema, type ImageTokenBudget } from '@siftkit/contracts';
 
 /**
  * Two vintages of the same file. Older Qwen processors carry a flat `max_pixels`; the
@@ -751,8 +830,8 @@ export type ImageTokenBudget = {
  * total pixel count despite the name. Both are read, newer key first.
  */
 const PreprocessorConfigSchema = z.object({
-  patch_size: z.number().int().positive().optional(),
-  merge_size: z.number().int().positive().optional(),
+  patch_size: z.number().int().positive(),
+  merge_size: z.number().int().positive(),
   max_pixels: z.number().int().positive().optional(),
   size: z.object({
     longest_edge: z.number().int().positive().optional(),
@@ -763,11 +842,11 @@ function readConfiguredMaxPixels(config: z.infer<typeof PreprocessorConfigSchema
   return config.size?.longest_edge ?? config.max_pixels;
 }
 
-const budgetByPresetId = new Map<string, ImageTokenBudget>();
+const budgetByPresetAndModelPath = new Map<string, ImageTokenBudget>();
 
 /** Test seam. Production code never calls this. */
 export function clearImageTokenBudgetCache(): void {
-  budgetByPresetId.clear();
+  budgetByPresetAndModelPath.clear();
 }
 
 function buildBudget(pixelsPerToken: number, configuredMaxPixels: number | undefined, source: ImageTokenBudget['source']): ImageTokenBudget {
@@ -775,59 +854,70 @@ function buildBudget(pixelsPerToken: number, configuredMaxPixels: number | undef
   const maxPixels = configuredMaxPixels === undefined
     ? affordableMaxPixels
     : Math.min(configuredMaxPixels, affordableMaxPixels);
-  return {
+  return ImageTokenBudgetSchema.parse({
     pixelsPerToken,
     maxPixels,
     maxImageTokens: Math.ceil(maxPixels / pixelsPerToken),
     source,
-  };
+  });
 }
 
-function fallbackBudget(): ImageTokenBudget {
-  return buildBudget(
+function fallbackBudget(preset: ModelRuntimePreset, reason: string): ImageTokenBudget {
+  const budget = buildBudget(
     (SIFT_FALLBACK_IMAGE_PATCH_SIZE * SIFT_FALLBACK_IMAGE_MERGE_SIZE) ** 2,
     undefined,
     'fallback',
   );
+  serverLogger.event({
+    scope: 'img',
+    id: preset.id,
+    event: 'token_budget_fallback',
+    fields: `reason=${reason} pixels_per_token=${budget.pixelsPerToken} max_pixels=${budget.maxPixels}`,
+  });
+  return budget;
 }
 
 function readBudget(preset: ModelRuntimePreset): ImageTokenBudget {
   const modelPath = typeof preset.ModelPath === 'string' ? preset.ModelPath.trim() : '';
   if (!modelPath) {
-    return fallbackBudget();
+    return fallbackBudget(preset, 'model_path_missing');
   }
   const configPath = join(modelPath, 'preprocessor_config.json');
   if (!existsSync(configPath)) {
-    return fallbackBudget();
+    return fallbackBudget(preset, 'preprocessor_config_missing');
   }
   const parsed = PreprocessorConfigSchema.safeParse(
-    JSON.parse(readFileSync(configPath, 'utf8')) as unknown,
+    parseJsonValueText(readFileSync(configPath, 'utf8')),
   );
   if (!parsed.success) {
-    return fallbackBudget();
+    return fallbackBudget(preset, 'preprocessor_config_invalid');
   }
-  const patchSize = parsed.data.patch_size ?? SIFT_FALLBACK_IMAGE_PATCH_SIZE;
-  const mergeSize = parsed.data.merge_size ?? SIFT_FALLBACK_IMAGE_MERGE_SIZE;
-  return buildBudget((patchSize * mergeSize) ** 2, readConfiguredMaxPixels(parsed.data), 'preprocessor_config');
+  return buildBudget(
+    (parsed.data.patch_size * parsed.data.merge_size) ** 2,
+    readConfiguredMaxPixels(parsed.data),
+    'preprocessor_config',
+  );
 }
 
 /**
- * The pixel ceiling a single image may occupy for this preset. Cached per preset id and
+ * The pixel ceiling a single image may occupy for this preset. Cached per preset id and ModelPath
  * logged with its source, so a silently-defaulted ceiling is visible in the log rather than
  * showing up later as an unexplained downscale.
  */
 export function resolveImageTokenBudget(preset: ModelRuntimePreset): ImageTokenBudget {
-  const cached = budgetByPresetId.get(preset.id);
+  const modelPath = typeof preset.ModelPath === 'string' ? preset.ModelPath.trim() : '';
+  const cacheKey = `${preset.id}\u0000${modelPath}`;
+  const cached = budgetByPresetAndModelPath.get(cacheKey);
   if (cached) {
     return cached;
   }
   let budget: ImageTokenBudget;
   try {
     budget = readBudget(preset);
-  } catch {
-    budget = fallbackBudget();
+  } catch (error) {
+    budget = fallbackBudget(preset, `preprocessor_config_read_failed:${String(error)}`);
   }
-  budgetByPresetId.set(preset.id, budget);
+  budgetByPresetAndModelPath.set(cacheKey, budget);
   serverLogger.event({
     scope: 'img',
     id: preset.id,
@@ -847,12 +937,11 @@ export function resolveImageTokenBudget(preset: ModelRuntimePreset): ImageTokenB
 Run: `npm test`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Review the task boundary**
 
-```bash
-git add src/config/constants.ts src/llm-protocol/image-token-budget.ts tests/image-token-budget.test.ts tests/helpers/model-presets.ts tests/image-attachments.test.ts
-git commit -m "feat: derive the per-preset image token ceiling from preprocessor_config.json"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 5 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -930,7 +1019,8 @@ Expected: FAIL — neither admit function is exported.
 
 Append to `src/llm-protocol/image-admission.ts`:
 
-First add the metadata schema to **`packages/contracts/src/chat.ts`**, not to `image-admission.ts`. It crosses the wire and is read by both the server and the dashboard, and the dashboard cannot import from `src/`:
+First add the metadata schema to **`packages/contracts/src/image.ts`**, not to
+`image-admission.ts`. It crosses the wire and is read by both server and dashboard:
 
 ```ts
 /** Persisted alongside a message so the dashboard annotation costs nothing to render. */
@@ -951,9 +1041,12 @@ export type ImageMetadata = z.infer<typeof ImageMetadataSchema>;
 Then append to `src/llm-protocol/image-admission.ts`:
 
 ```ts
-import { ImageMetadataSchema, type ImageMetadata } from '@siftkit/contracts';
-import { ImageDataUrlSchema } from './image-attachments.js';
-import type { ImageTokenBudget } from './image-token-budget.js';
+import {
+  ImageDataUrlSchema,
+  ImageMetadataSchema,
+  type ImageTokenBudget,
+  type ImageMetadata,
+} from '@siftkit/contracts';
 
 export type AdmittedImage = { dataUrl: string; metadata: ImageMetadata };
 
@@ -1060,7 +1153,7 @@ export class ImageAttachmentReader {
 Update every `new ImageAttachmentReader()` call site to pass `resolveImageTokenBudget(preset)`. Find them with:
 
 ```bash
-git grep -n "new ImageAttachmentReader"
+siftkit repo-search 'Find every ImageAttachmentReader construction. Return exact file:line anchors and the preset or budget available at each call site; facts only.'
 ```
 
 Update `tests/image-attachments.test.ts` construction sites the same way. A construction site with no preset in scope is a signal the preset must be threaded there — thread it; do not add a default-argument shim.
@@ -1070,12 +1163,11 @@ Update `tests/image-attachments.test.ts` construction sites the same way. A cons
 Run: `npm test && npm run typecheck && npm run lint`
 Expected: all PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Review the task boundary**
 
-```bash
-git add -A
-git commit -m "feat: add one shared image admission path with downscaling"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 6 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -1153,12 +1245,11 @@ The CLI guard at `src/cli/run-repo-search.ts:31` **stays strict and keeps its cu
 Run: `npm test`
 Expected: PASS, including `tests/cli-internal.test.ts:263`.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Review the task boundary**
 
-```bash
-git add src/repo-search/execute.ts tests/repo-search.test.ts
-git commit -m "fix: let an images-only turn past the engine prompt guard"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 7 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -1169,7 +1260,8 @@ git commit -m "fix: let an images-only turn past the engine prompt guard"
 - Modify: `packages/contracts/src/config.ts:67,79`
 - Modify: `src/config/defaults.ts`
 - Modify: `src/config/normalization.ts`
-- Test: `tests/config.test.ts` (or the existing preset-normalization test file — locate it with `git grep -ln "VisionEnabled" tests/`)
+- Test: the existing preset-normalization test file. Locate it first with
+  `siftkit repo-search 'Find tests covering VisionEnabled preset defaults and normalization. Return exact paths, test names, and file:line anchors; facts only.'`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1220,7 +1312,9 @@ export const SIFT_DEFAULT_VISION_IMAGE_RETENTION = 8;
 
 `src/config/defaults.ts` — add `VisionImageRetention: SIFT_DEFAULT_VISION_IMAGE_RETENTION,` to `defaultModelPreset` beside `VisionEnabled`, importing the constant.
 
-`src/config/normalization.ts` — add the field beside the existing `VisionEnabled` normalization. Find the line with `git grep -n "VisionEnabled" src/config/normalization.ts` and mirror the numeric-field pattern already used there for e.g. `SleepIdleSeconds`, defaulting to `SIFT_DEFAULT_VISION_IMAGE_RETENTION`.
+`src/config/normalization.ts` — add the field beside the existing `VisionEnabled` normalization.
+Use the numeric-field pattern already present for `SleepIdleSeconds`, defaulting to
+`SIFT_DEFAULT_VISION_IMAGE_RETENTION`.
 
 `src/inference-presets/preset-compatibility.ts:137` — add to `PRESET_FIELD_SUPPORT`, beside `VisionEnabled`:
 
@@ -1235,12 +1329,11 @@ That map is `satisfies Record<ModelPresetField, PresetFieldSupport>`, so omittin
 Run: `npm test && npm run typecheck`
 Expected: PASS. The typecheck will name every other place a full `ModelRuntimePreset` literal is constructed; add the field there too.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Review the task boundary**
 
-```bash
-git add -A
-git commit -m "feat: add the VisionImageRetention preset field"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 8 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -1259,6 +1352,7 @@ Because the constraint is now purely pixels, `computeTargetDimensions` from Task
 **Files:**
 - Modify: `src/config/constants.ts`
 - Modify: `packages/contracts/src/config.ts`
+- Modify: `packages/contracts/src/image.ts`
 - Modify: `src/config/defaults.ts`
 - Modify: `src/config/normalization.ts`
 - Modify: `src/inference-presets/preset-compatibility.ts:137`
@@ -1283,7 +1377,7 @@ test('estimateVisionPeakVramBytes scales linearly with the image token count', (
 test('estimateVisionPeakVramBytes matches the installed model geometry', () => {
   // 4 patches x (1152 + 4304) x 2 bytes x 2.5 = 109_120 B per image token.
   assert.equal(estimateVisionPeakVramBytes(1, INSTALLED_ENCODER), 109_120);
-  // A full 2048-token image: ~223 MB transient, which fits the 831 MiB currently free.
+  // A full 2048-token image is an estimated ~223 MB transient allocation.
   assert.equal(estimateVisionPeakVramBytes(2048, INSTALLED_ENCODER), 223_477_760);
 });
 
@@ -1353,24 +1447,25 @@ Expected: FAIL — the field, `estimateVisionPeakVramBytes` and `resolveEffectiv
 ```ts
 /** 0 = no user-set cap; the model's own pixel ceiling is the only limit. */
 export const SIFT_DEFAULT_VISION_MAX_IMAGE_PIXELS = 0;
-
-/**
- * Multiplier on the vision encoder's per-patch residual+MLP footprint, covering Q/K/V
- * projections, the attention workspace and allocator slack. The only hand-tuned number in the
- * VRAM estimate — everything else comes from the model's own vision_config — so this is the one
- * value to correct if a measured peak disagrees.
- */
-export const SIFT_VISION_PEAK_VRAM_WORKING_SET_FACTOR = 2.5;
-
-/** Encoder activations are fp16. */
-export const SIFT_VISION_ACTIVATION_BYTES = 2;
-
 /**
  * Fallback vision encoder geometry when a preset ships no config.json, taken from the installed
  * Qwen3-VL model so the default matches the hardware in front of us.
  */
 export const SIFT_FALLBACK_VISION_HIDDEN_SIZE = 1152;
 export const SIFT_FALLBACK_VISION_INTERMEDIATE_SIZE = 4304;
+```
+
+Add the browser-safe estimator constants to `packages/contracts/src/image.ts`:
+
+```ts
+/**
+ * Multiplier on the vision encoder's per-patch residual+MLP footprint, covering Q/K/V
+ * projections, attention workspace, and allocator slack. Calibrated in Task 25.
+ */
+export const SIFT_VISION_PEAK_VRAM_WORKING_SET_FACTOR = 2.5;
+
+/** Encoder activations are fp16. */
+export const SIFT_VISION_ACTIVATION_BYTES = 2;
 ```
 
 `packages/contracts/src/config.ts` — add to `ManagedLlamaSettingsShape` beside `VisionImageRetention`:
@@ -1389,20 +1484,31 @@ and `'VisionMaxImagePixels',` to the `ModelPresetFieldSchema` enum.
 
 - [ ] **Step 4: Extend the budget module**
 
-In `src/llm-protocol/image-token-budget.ts`, add the encoder geometry to `ImageTokenBudget`:
+In `packages/contracts/src/image.ts`, add the encoder schema and replace Task 5's
+`ImageTokenBudgetSchema` with its final shape:
 
 ```ts
-export type ImageTokenBudget = {
-  pixelsPerToken: number;
-  maxPixels: number;
-  maxImageTokens: number;
-  /** Vision encoder geometry from config.json, for the peak-VRAM estimate. */
-  encoder: VisionEncoderGeometry;
-  source: 'preprocessor_config' | 'fallback';
-};
+export const VisionEncoderGeometrySchema = z.object({
+  hiddenSize: z.number().int().positive(),
+  intermediateSize: z.number().int().positive(),
+  patchesPerToken: z.number().int().positive(),
+});
+export type VisionEncoderGeometry = z.infer<typeof VisionEncoderGeometrySchema>;
+
+export const ImageTokenBudgetSchema = z.object({
+  pixelsPerToken: z.number().int().positive(),
+  maxPixels: z.number().int().positive(),
+  maxImageTokens: z.number().int().positive(),
+  encoder: VisionEncoderGeometrySchema,
+  source: z.enum(['preprocessor_config', 'fallback']),
+});
+export type ImageTokenBudget = z.infer<typeof ImageTokenBudgetSchema>;
 ```
 
-and append two exported functions:
+Replace Task 5's schema in place; its inferred `ImageTokenBudget` import remains the only budget
+type in `src/llm-protocol/image-token-budget.ts`. Extend `buildBudget` to supply `encoder` and keep
+returning `ImageTokenBudgetSchema.parse(...)`. Append two browser-safe pure functions to
+`packages/contracts/src/image.ts`:
 
 ```ts
 /**
@@ -1440,16 +1546,11 @@ export function estimateVisionPeakVramBytes(
 }
 ```
 
-`VisionEncoderGeometry` is read from `config.json`, which sits beside `preprocessor_config.json` in the same directory, and is resolved and cached by the same function:
+`VisionEncoderGeometry` is read from `config.json`, which sits beside `preprocessor_config.json` in
+the same directory and is resolved and cached by the same function. Add this IO-only schema to
+`src/llm-protocol/image-token-budget.ts`:
 
 ```ts
-export type VisionEncoderGeometry = {
-  hiddenSize: number;
-  intermediateSize: number;
-  /** `spatial_merge_size²` — patches collapsed into one image token. */
-  patchesPerToken: number;
-};
-
 const ModelConfigSchema = z.object({
   vision_config: z.object({
     hidden_size: z.number().int().positive().optional(),
@@ -1459,19 +1560,23 @@ const ModelConfigSchema = z.object({
 });
 ```
 
-Read it inside `readBudget` from `join(modelPath, 'config.json')`, falling back to the `SIFT_FALLBACK_VISION_*` constants with `patchesPerToken` defaulting to `mergeSize²` from the preprocessor config, and hang the result on `ImageTokenBudget` as `encoder: VisionEncoderGeometry`. One file read, one cache entry, one log line — the budget and the VRAM estimate must never disagree about which model they describe.
+Read it inside `readBudget` with `parseJsonValueText` and `ModelConfigSchema.safeParse`. Build the
+normalized value through `VisionEncoderGeometrySchema.parse`, using the explicit
+`SIFT_FALLBACK_VISION_*` constants and preprocessor `merge_size²` only after logging
+`vision_encoder_geometry_fallback`. Hang it on `ImageTokenBudget` as `encoder`. One cache entry and
+one resolved-budget log line cover both files, so admission and the dashboard cannot describe
+different models.
 
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `npm test && npm run typecheck && npm run lint`
 Expected: PASS. Every `ImageTokenBudget` literal in the Task 3–6 tests needs `encoder`; the typecheck names each one.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Review the task boundary**
 
-```bash
-git add -A
-git commit -m "feat: add the VisionMaxImagePixels preset field and a peak-VRAM estimate"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 8b files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -1563,7 +1668,9 @@ Give `admitImageBuffer` and `admitImageDataUrl` a fourth parameter, `visionMaxIm
 
 - [ ] **Step 4: Thread the cap to the CLI path**
 
-`ImageAttachmentReader` already holds a budget (Task 6): give its constructor a second parameter, `visionMaxImagePixels`, and forward it to `admitImageBuffer`. Update the call sites found by `git grep -n "new ImageAttachmentReader"` to pass `preset.VisionMaxImagePixels`.
+`ImageAttachmentReader` already holds a budget (Task 6): give its constructor a second parameter,
+`visionMaxImagePixels`, and forward it to `admitImageBuffer`. Reuse the Task 6 call-site inventory
+and pass `preset.VisionMaxImagePixels` at every construction.
 
 **The agent `read` path is deliberately not touched here.** `RepoToolContext`, `executeImageRead` and `tests/helpers/repo-tool-context.ts` do not exist until Task 11, which creates all three and threads `visionMaxImagePixels` alongside `visionEnabled` in one place. Reaching forward from this task would not compile.
 
@@ -1572,12 +1679,11 @@ Give `admitImageBuffer` and `admitImageDataUrl` a fourth parameter, `visionMaxIm
 Run: `npm test && npm run typecheck && npm run lint`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Review the task boundary**
 
-```bash
-git add -A
-git commit -m "feat: honour the user image pixel cap in admission"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 8c files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -1636,34 +1742,39 @@ Expected: PASS.
 
 - [ ] **Step 5: Confirm CLI `--image` is covered by the same guard**
 
-Spec §5.2 requires retention 0 to refuse images on **every** path, including CLI `--image`. Find where the CLI resolves attachments:
-
-```bash
-git grep -n "readAll\|initialUserImages" src/cli/
-```
-
-If that path does not already call `assertPresetAcceptsImages(preset, images)`, add the call there and cover it:
+Spec §5.2 requires retention 0 to refuse images on **every** path, including CLI `--image`.
+Verified call paths already converge on the shared guard: repo-search reaches
+`executeRepoSearchRequest` (`src/repo-search/execute.ts:348`) and summary reaches
+`SummaryRequestRunner` (`src/summary/request-runner.ts:229`). Do not duplicate the guard in the CLI
+readers. Add regressions through the existing CLI/runner harnesses:
 
 ```ts
-test('the CLI image path refuses images when retention is zero', async () => {
-  await assert.rejects(
-    () => runRepoSearchCli({ prompt: 'look', images: ['docs/arch.png'], preset: presetWithZeroRetention }),
-    /Image input is disabled for this preset \(VisionImageRetention = 0\)/u,
-  );
+test('repo-search rejects a CLI-provided image when retention is zero', async () => {
+  const result = await runRepoSearchWithPreset(presetWithZeroRetention, { images: [PNG] });
+  assert.match(result.stderr, /Image input is disabled for this preset \(VisionImageRetention = 0\)/u);
+  assert.notEqual(result.exitCode, 0);
+});
+
+test('summary rejects a CLI-provided image when retention is zero', async () => {
+  const result = await runSummaryWithPreset(presetWithZeroRetention, { images: [PNG] });
+  assert.match(result.stderr, /Image input is disabled for this preset \(VisionImageRetention = 0\)/u);
+  assert.notEqual(result.exitCode, 0);
 });
 ```
 
-Match the CLI test harness already used in `tests/cli-internal.test.ts`. The agent `read` path gets its own guard in Task 11; the HTTP routes get theirs in Task 19.
+Use the existing subprocess/request helpers in `tests/cli-internal.test.ts` and
+`tests/image-input-surfaces.e2e.test.ts`; name thin wrappers `runRepoSearchWithPreset` and
+`runSummaryWithPreset` in that test file if the common invocation is not already named. The agent
+`read` path gets its own guard in Task 11; the HTTP routes get theirs in Task 19.
 
 Run: `npm test`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Review the task boundary**
 
-```bash
-git add -A
-git commit -m "feat: reject images with a distinct message when retention is zero"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 9 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -1674,7 +1785,9 @@ git commit -m "feat: reject images with a distinct message when retention is zer
 - Modify: `src/repo-search/engine.ts:199`
 - Modify: `src/status-server/chat-prompt-context.ts:48`
 - Modify: `src/agent-loop/action-parser.ts:13`
-- Test: `tests/planner-protocol.test.ts` (locate with `git grep -ln "TOOL_DEFINITIONS" tests/`; create the file if none exists)
+- Test: the existing planner/tool-definition test file. Locate it first with
+  `siftkit repo-search 'Find tests that assert TOOL_DEFINITIONS or planner tool descriptions. Return exact paths, test names, and file:line anchors; facts only.'`; create
+  `tests/planner-protocol.test.ts` only if the search confirms none exists.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1779,12 +1892,11 @@ Then thread `visionEnabled` at the two call sites that build definitions for a l
 Run: `npm test && npm run typecheck`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Review the task boundary**
 
-```bash
-git add -A
-git commit -m "feat: swap in a vision read tool description when the preset supports images"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 10 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -1937,7 +2049,9 @@ export function makeRepoToolContext(overrides: {
 }
 ```
 
-If `buildIgnorePolicy` / `new WebResearchTools()` do not have those exact signatures, read `src/repo-search/command-safety.ts` and `src/web-search/web-research-tools.ts` and use the real ones — or copy the construction from whichever existing test already builds a `RepoToolContext` (`git grep -ln "expandReads" tests/`).
+Before writing the harness, use
+`siftkit repo-search 'Find existing tests that construct RepoToolContext or set expandReads. Return exact paths, constructors, dependencies, and file:line anchors; facts only.'`
+Then reuse the verified construction. Do not add casts or a second test harness.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -1946,7 +2060,9 @@ Expected: FAIL — `RepoToolContext` has no `visionEnabled`, and `read` returns 
 
 - [ ] **Step 3: Extend the tool context and execution types**
 
-`src/repo-search/engine/repo-tools.ts` — add to `RepoToolExecution`'s success branch (after `lineReadStats`, line 55):
+In `src/repo-search/engine/repo-tools.ts`, import `ImageMetadata`, `ImageTokenBudget`, and
+`ImageDataUrl` as types from `@siftkit/contracts`. Add to `RepoToolExecution`'s success branch after
+`lineReadStats`:
 
 ```ts
     /**
@@ -1954,7 +2070,7 @@ Expected: FAIL — `RepoToolContext` has no `visionEnabled`, and `read` returns 
      * tool result: OpenAI-compatible endpoints are not required to scan tool-role messages for
      * `image_url` parts, and the user-message form needs no such guarantee.
      */
-    imageDataUrl?: string;
+    imageDataUrl?: ImageDataUrl;
     imageMetadata?: ImageMetadata;
     /** Path key of the image, so the caller can track what is live in context. */
     imagePathKey?: string;
@@ -2138,12 +2254,11 @@ The `Set` is created once per run and owned by the task loop, so Task 13 and Tas
 Run: `npm test && npm run typecheck && npm run lint`
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 8: Review the task boundary**
 
-```bash
-git add -A
-git commit -m "feat: let the read tool return a repository image"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 11 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -2196,7 +2311,10 @@ test('two image reads in one batch each land after their own tool result', async
 });
 ```
 
-`runImageReadTurnRoles(repoRoot, paths)` drives one `ToolActionProcessor` batch with one `read` action per path and returns `transcript.messageRoles()`. Build it in the test file using whatever harness the existing tool-action-processor tests use — find it with `git grep -ln "ToolActionProcessor" tests/` and reuse that setup rather than inventing a second one.
+`runImageReadTurnRoles(repoRoot, paths)` drives one `ToolActionProcessor` batch with one `read`
+action per path and returns `transcript.messageRoles()`. First use
+`siftkit repo-search 'Find the existing ToolActionProcessor test harness. Return exact paths, helper signatures, dependencies, and file:line anchors; facts only.'`
+Then reuse that setup rather than inventing a second one.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -2267,12 +2385,11 @@ Insertion shifts `duplicates.setReplayToolMessageIndex` (line 204-206), so move 
 Run: `npm test && npm run typecheck`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Review the task boundary**
 
-```bash
-git add -A
-git commit -m "feat: append an image read as a user message after its tool result"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 12 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -2322,12 +2439,11 @@ test('re-reading is permitted again once the image is no longer live', async () 
 Run: `npm test`
 Expected: PASS with no production change — Task 11 already implements the predicate. If either test fails, the guard was keyed off "ever read" instead of "in context"; fix `executeImageRead` to consult `context.liveImagePathKeys` only.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Review the task boundary**
 
-```bash
-git add tests/image-read-tool.test.ts
-git commit -m "test: pin the image re-read guard to in-context, not ever-read"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 13 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -2411,7 +2527,10 @@ test('a persisted tool_image row survives a session reload with its data URL and
 });
 ```
 
-`tests/helpers/chat-sessions.ts` should reuse whatever the existing chat tests already use to create a session — find it with `git grep -ln "createChatSession" tests/` and export a thin `createTestChatSession(runtimeRoot)` around it rather than duplicating setup.
+`tests/helpers/chat-sessions.ts` should reuse the existing chat-session test setup. Locate it with
+`siftkit repo-search 'Find test helpers or tests that create a chat session. Return exact paths, signatures, setup dependencies, and file:line anchors; facts only.'`
+and export a thin `createTestChatSession(runtimeRoot)` around the verified helper rather than
+duplicating setup.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -2456,7 +2575,8 @@ export type ChatMessageKind = 'user_text' | 'assistant_answer' | 'assistant_thin
 
 `src/state/chat-sessions.ts:495-537` — add `image_meta` to the INSERT column list, one more `?` placeholder, and bind `message.imageMeta && message.imageMeta.length > 0 ? JSON.stringify(message.imageMeta) : null`.
 
-`packages/contracts/src/chat.ts` — extend `ChatMessageSchema` beside `images` (line 22):
+`packages/contracts/src/chat.ts` — import `ImageMetadataSchema` from `./image.js` and extend
+`ChatMessageSchema` beside `images`:
 
 ```ts
   imageMeta: z.array(ImageMetadataSchema).optional(),
@@ -2514,12 +2634,11 @@ In `src/repo-search/engine/tool-action-processor.ts`, where the command record i
 Run: `npm test && npm run typecheck && npm run lint`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Review the task boundary**
 
-```bash
-git add -A
-git commit -m "feat: persist agent image reads as first-class tool_image messages"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 14 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -2576,12 +2695,11 @@ Placing it inside the same loop, before the generic branch, is what keeps it in 
 Run: `npm test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Review the task boundary**
 
-```bash
-git add src/status-server/chat.ts tests/image-retention.test.ts
-git commit -m "feat: replay persisted tool images in position"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 15 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -2750,12 +2868,11 @@ so the degraded form reads `[image docs/arch.png — 1440×900, dropped from con
 Run: `npm test && npm run typecheck && npm run lint`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Review the task boundary**
 
-```bash
-git add -A
-git commit -m "feat: bound live images with VisionImageRetention"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 16 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -2848,12 +2965,11 @@ Pass the task loop's `liveImagePathKeys` set into the `TranscriptManager` constr
 Run: `npm test && npm run typecheck && npm run lint`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Review the task boundary**
 
-```bash
-git add -A
-git commit -m "fix: release the image re-read guard when compaction drops the image"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 17 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -2868,7 +2984,8 @@ git commit -m "fix: release the image re-read guard when compaction drops the im
 - Modify: `src/status-server/chat-repo-operation-runner.ts:55-71,137-152,240-244`
 - Modify: `dashboard/src/api.ts:403-431`
 - Modify: `dashboard/src/hooks/useChatSessions.ts:353-377`
-- Test: `tests/status-server-chat-routes.test.ts` (locate with `git grep -ln "repo-search/stream" tests/`)
+- Test: the existing status-server chat-route test file. Locate it with
+  `siftkit repo-search 'Find route tests for repo-search/stream and plan/stream. Return exact paths, test names, request helpers, and file:line anchors; facts only.'`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2996,12 +3113,11 @@ and line 105: `return { content: repoRequest.content, images: repoRequest.images
 Run: `npm test && npm run typecheck && npm run lint`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Review the task boundary**
 
-```bash
-git add -A
-git commit -m "fix: stop dropping attached images on the repo-search and plan routes"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 18 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -3064,12 +3180,11 @@ Placing it after preset selection is deliberate: the guard must judge the preset
 Run: `npm test && npm run typecheck && npm run lint`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Review the task boundary**
 
-```bash
-git add -A
-git commit -m "fix: enforce the preset image guard on the repo-search and plan routes"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 19 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -3081,37 +3196,86 @@ Replaces the `N image(s) attached` text at `dashboard/src/tabs/ChatTab.tsx:414`.
 
 **Files:**
 - Create: `dashboard/src/components/PendingImageStrip.tsx`
+- Create: `dashboard/tests/react-test-environment.ts`
+- Modify: `package.json`
+- Modify: `package-lock.json`
 - Modify: `dashboard/src/tabs/ChatTab.tsx:405-414`
 - Modify: `dashboard/src/styles.css`
-- Test: `dashboard/src/components/PendingImageStrip.test.tsx` (match the existing dashboard test convention — find it with `git grep -ln "render(" dashboard/src`; if the dashboard has no component tests, put the assertions in the nearest existing dashboard test file instead of introducing a second harness)
+- Test: `dashboard/tests/pending-image-strip.test.tsx` using the repository's existing
+  `node:test`, `renderToStaticMarkup`, and jsdom conventions.
+
+- [ ] **Step 0: Add one shared interactive component-test environment**
+
+Run: `npm install --save-dev @testing-library/react`
+
+Create `dashboard/tests/react-test-environment.ts`:
+
+```ts
+import { afterEach } from 'node:test';
+import { JSDOM } from 'jsdom';
+
+const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
+Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator });
+Object.assign(globalThis, {
+  window: dom.window,
+  document: dom.window.document,
+  HTMLElement: dom.window.HTMLElement,
+  HTMLButtonElement: dom.window.HTMLButtonElement,
+  IS_REACT_ACT_ENVIRONMENT: true,
+});
+
+const testingLibrary = await import('@testing-library/react');
+
+export const render = testingLibrary.render;
+export const screen = testingLibrary.screen;
+export const fireEvent = testingLibrary.fireEvent;
+export const cleanup = testingLibrary.cleanup;
+
+afterEach(() => cleanup());
+```
+
+Expected: one explicit dev dependency and one shared setup; do not duplicate global jsdom setup in
+each component test.
 
 - [ ] **Step 1: Write the failing test**
 
 ```tsx
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { JSDOM } from 'jsdom';
+
+import { PendingImageStrip, removePendingImage } from '../src/components/PendingImageStrip.js';
+
+const PNG_A = 'data:image/png;base64,AA==';
+const PNG_B = 'data:image/png;base64,AQ==';
+const PNG_C = 'data:image/png;base64,Ag==';
+
+function renderStrip(images: string[]): string {
+  return renderToStaticMarkup(<PendingImageStrip images={images} onChange={() => undefined} />);
+}
+
 test('renders one thumbnail per pending image', () => {
-  render(<PendingImageStrip images={[PNG_A, PNG_B]} onChange={() => {}} />);
-  assert.equal(screen.getAllByRole('img').length, 2);
+  const html = renderStrip([PNG_A, PNG_B]);
+  assert.equal((html.match(/<img\b/gu) ?? []).length, 2);
 });
 
 test('the remove control removes the right index', () => {
-  const changes: string[][] = [];
-  render(<PendingImageStrip images={[PNG_A, PNG_B, PNG_C]} onChange={(next) => changes.push(next)} />);
-
-  fireEvent.click(screen.getAllByRole('button', { name: /remove image 2/iu })[0]);
-
-  assert.deepEqual(changes, [[PNG_A, PNG_C]]);
+  assert.deepEqual(removePendingImage([PNG_A, PNG_B, PNG_C], 1), [PNG_A, PNG_C]);
 });
 
 test('the remove control is reachable by keyboard, not hover-only', () => {
-  render(<PendingImageStrip images={[PNG_A]} onChange={() => {}} />);
-  const button = screen.getByRole('button', { name: /remove image 1/iu });
+  const dom = new JSDOM(renderStrip([PNG_A]));
+  const button = dom.window.document.querySelector('button[aria-label="Remove image 1"]');
+  assert.ok(button instanceof dom.window.HTMLButtonElement);
   button.focus();
-  assert.equal(document.activeElement, button);
+  assert.equal(dom.window.document.activeElement, button);
+  dom.window.close();
 });
 
 test('renders nothing when there are no pending images', () => {
-  const { container } = render(<PendingImageStrip images={[]} onChange={() => {}} />);
-  assert.equal(container.firstChild, null);
+  assert.equal(renderStrip([]), '');
 });
 ```
 
@@ -3125,7 +3289,9 @@ Expected: FAIL — the component does not exist.
 Create `dashboard/src/components/PendingImageStrip.tsx`:
 
 ```tsx
-import type { PendingImage } from '../lib/downscale-image.js';
+export function removePendingImage(images: string[], index: number): string[] {
+  return images.filter((_, position) => position !== index);
+}
 
 export function PendingImageStrip({ images, resizeNotes, onChange }: {
   images: string[];
@@ -3148,7 +3314,7 @@ export function PendingImageStrip({ images, resizeNotes, onChange }: {
             className="pending-image-remove"
             aria-label={`Remove image ${index + 1}`}
             title={`Remove image ${index + 1}`}
-            onClick={() => onChange(images.filter((_, position) => position !== index))}
+            onClick={() => onChange(removePendingImage(images, index))}
           >
             ×
           </button>
@@ -3198,12 +3364,11 @@ Append to `dashboard/src/styles.css`:
 Run: `npm test && npm run lint`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Review the task boundary**
 
-```bash
-git add -A
-git commit -m "feat: preview pending composer images with per-image removal"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 20 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -3214,7 +3379,8 @@ Fixes the problem at its source: a 60 MB paste never becomes an 80 MB base64 POS
 **Files:**
 - Create: `dashboard/src/lib/downscale-image.ts`
 - Modify: `dashboard/src/tabs/ChatTab.tsx:143-155` (`readImageFiles`)
-- Test: alongside the Task 20 tests
+- Test: `dashboard/tests/message-images.test.tsx` using `node:test` and
+  `renderToStaticMarkup`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3222,7 +3388,8 @@ Fixes the problem at its source: a 60 MB paste never becomes an 80 MB base64 POS
 test('computeBrowserTargetDimensions matches the server-side math', () => {
   assert.equal(computeBrowserTargetDimensions(800, 600, 1_000_000), null);
   const target = computeBrowserTargetDimensions(4000, 2000, 1_000_000);
-  assert.ok(target!.width * target!.height <= 1_000_000);
+  assert.ok(target);
+  assert.ok(target.width * target.height <= 1_000_000);
 });
 
 test('downscaleDataUrl leaves a within-budget image untouched and reports no resize', async () => {
@@ -3252,7 +3419,14 @@ Expected: FAIL — the module does not exist.
 Create `dashboard/src/lib/downscale-image.ts`:
 
 ```ts
-export type PendingImage = { dataUrl: string; note: string | null };
+import {
+  ImageDataUrlSchema,
+  ImageMimeSchema,
+  type ImageDataUrl,
+  type ImageMime,
+} from '@siftkit/contracts';
+
+export type PendingImage = { dataUrl: ImageDataUrl; note: string | null };
 
 /** Mirrors computeTargetDimensions in src/llm-protocol/image-admission.ts. */
 export function computeBrowserTargetDimensions(
@@ -3270,18 +3444,21 @@ export function computeBrowserTargetDimensions(
   };
 }
 
-function mimeOf(dataUrl: string): string {
+function mimeOf(dataUrl: string): ImageMime {
   const separator = dataUrl.indexOf(';base64,');
-  return separator < 0 ? 'image/png' : dataUrl.slice('data:'.length, separator);
+  if (separator < 0) {
+    throw new Error('invalid image data URL: missing base64 separator');
+  }
+  return ImageMimeSchema.parse(dataUrl.slice('data:'.length, separator));
 }
 
-async function blobToDataUrl(blob: Blob): Promise<string> {
+async function blobToDataUrl(blob: Blob): Promise<ImageDataUrl> {
   const buffer = await blob.arrayBuffer();
   let binary = '';
   for (const byte of new Uint8Array(buffer)) {
     binary += String.fromCharCode(byte);
   }
-  return `data:${blob.type};base64,${btoa(binary)}`;
+  return ImageDataUrlSchema.parse(`data:${blob.type};base64,${btoa(binary)}`);
 }
 
 /**
@@ -3290,11 +3467,13 @@ async function blobToDataUrl(blob: Blob): Promise<string> {
  * single frame, which is what the model sees anyway.
  */
 export async function downscaleDataUrl(dataUrl: string, maxPixels: number): Promise<PendingImage> {
-  const bitmap = await createImageBitmap(await (await fetch(dataUrl)).blob());
+  const admittedDataUrl = ImageDataUrlSchema.parse(dataUrl);
+  const inputMime = mimeOf(admittedDataUrl);
+  const bitmap = await createImageBitmap(await (await fetch(admittedDataUrl)).blob());
   const target = computeBrowserTargetDimensions(bitmap.width, bitmap.height, maxPixels);
   if (target === null) {
     bitmap.close();
-    return { dataUrl, note: null };
+    return { dataUrl: admittedDataUrl, note: null };
   }
   const canvas = new OffscreenCanvas(target.width, target.height);
   const context = canvas.getContext('2d');
@@ -3303,10 +3482,10 @@ export async function downscaleDataUrl(dataUrl: string, maxPixels: number): Prom
     throw new Error('image downscaling is unavailable: 2d canvas context could not be created');
   }
   context.drawImage(bitmap, 0, 0, target.width, target.height);
-  const note = `Resized from ${bitmap.width}×${bitmap.height} to ${target.width}×${target.height}`;
+  const formatNote = inputMime === 'image/gif' ? '; GIF frame one converted to PNG' : '';
+  const note = `Resized from ${bitmap.width}×${bitmap.height} to ${target.width}×${target.height}${formatNote}`;
   bitmap.close();
-  // GIF is not an encodable output type; a downscaled GIF ships as PNG.
-  const outputType = mimeOf(dataUrl) === 'image/gif' ? 'image/png' : mimeOf(dataUrl);
+  const outputType = inputMime === 'image/gif' ? 'image/png' : inputMime;
   return { dataUrl: await blobToDataUrl(await canvas.convertToBlob({ type: outputType })), note };
 }
 ```
@@ -3318,12 +3497,11 @@ In `dashboard/src/tabs/ChatTab.tsx`, have `readImageFiles` run each file's data 
 Run: `npm test && npm run lint`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Review the task boundary**
 
-```bash
-git add -A
-git commit -m "feat: downscale oversized composer attachments in the browser"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 21 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -3338,27 +3516,38 @@ git commit -m "feat: downscale oversized composer attachments in the browser"
 - [ ] **Step 1: Write the failing test**
 
 ```tsx
-const META = { width: 1440, height: 900, originalWidth: 1440, originalHeight: 900, mime: 'image/png', byteLength: 421_888, tokenEstimate: 1024, resized: false, caption: null };
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { ImageMetadataSchema } from '@siftkit/contracts';
+
+import { MessageImages } from '../src/components/MessageImages.js';
+
+const PNG_A = 'data:image/png;base64,AA==';
+const PNG_B = 'data:image/png;base64,AQ==';
+const META = ImageMetadataSchema.parse({ width: 1440, height: 900, originalWidth: 1440, originalHeight: 900, mime: 'image/png', byteLength: 421_888, tokenEstimate: 1024, resized: false, caption: null });
+
+function renderImages(images: string[], imageMeta = [META]): string {
+  return renderToStaticMarkup(<MessageImages messageId="m1" images={images} imageMeta={imageMeta} />);
+}
 
 test('renders each image inline in the bubble', () => {
-  render(<MessageImages messageId="m1" images={[PNG_A, PNG_B]} imageMeta={[META, META]} />);
-  assert.equal(screen.getAllByRole('img').length, 2);
+  assert.equal((renderImages([PNG_A, PNG_B], [META, META]).match(/<img\b/gu) ?? []).length, 2);
 });
 
 test('the annotation is collapsed and shows dimensions, format, size and tokens', () => {
-  render(<MessageImages messageId="m1" images={[PNG_A]} imageMeta={[META]} />);
-  const disclosure = screen.getByText('1440×900 · png · 412 KB · 1,024 tok');
-  assert.equal(disclosure.closest('details')?.hasAttribute('open'), false);
+  const html = renderImages([PNG_A]);
+  assert.match(html, /1440×900 · png · 412 KB · 1,024 tok/u);
+  assert.doesNotMatch(html, /<details[^>]*\sopen(?:=|\s|>)/u);
 });
 
 test('a user message with no metadata still renders the image', () => {
-  render(<MessageImages messageId="m1" images={[PNG_A]} imageMeta={[]} />);
-  assert.equal(screen.getAllByRole('img').length, 1);
+  assert.equal((renderImages([PNG_A], []).match(/<img\b/gu) ?? []).length, 1);
 });
 
 test('renders nothing when the message has no images', () => {
-  const { container } = render(<MessageImages messageId="m1" images={[]} imageMeta={[]} />);
-  assert.equal(container.firstChild, null);
+  assert.equal(renderImages([], []), '');
 });
 ```
 
@@ -3475,12 +3664,11 @@ Append to `dashboard/src/styles.css`:
 Run: `npm test && npm run lint`
 Expected: PASS (the caption tests come in Task 23; `requestImageCaption` must at least exist as an export by then).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Review the task boundary**
 
-```bash
-git add -A
-git commit -m "feat: render chat images inline with a collapsed annotation"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 22 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -3553,11 +3741,15 @@ Create `src/status-server/routes/chat-image-caption.ts`:
 ```ts
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { JsonRecordReader } from '../../lib/json-record-reader.js';
+import { z } from '../../lib/zod.js';
 import type { JsonObject } from '../../lib/json-types.js';
 import { assertPresetAcceptsImages } from '../../llm-protocol/image-attachments.js';
+import { normalizeRepoSearchScorecard } from '../repo-search-scorecard-types.js';
 import type { ChatSession } from '../../state/chat-sessions.js';
 import { updateChatMessageImageCaption } from '../../state/chat-sessions.js';
+import { getActiveModelPreset } from '../../config/index.js';
+import { readConfig } from '../config-store.js';
+import { ChatOperationPresetSelector } from '../chat-operation-preset.js';
 import { getRuntimeRoot } from '../paths.js';
 import { sendJson } from '../http-utils.js';
 import {
@@ -3574,7 +3766,12 @@ import {
 const CAPTION_PROMPT = 'Describe this image in two or three sentences. Say what is legible and '
   + 'what is not at this resolution. Do not speculate about anything you cannot see.';
 
-type CaptionRequest = { messageId: string; imageIndex: number; mockResponses: string[] | undefined };
+const CaptionRequestSchema = z.object({
+  messageId: z.string().min(1),
+  imageIndex: z.number().int().nonnegative(),
+  mockResponses: z.array(z.string()).optional(),
+});
+type CaptionRequest = z.infer<typeof CaptionRequestSchema>;
 
 /**
  * One single-turn vision pass per image, on demand and cached, so a run's GPU cost stays bounded.
@@ -3584,19 +3781,12 @@ export class ChatImageCaptionEndpoint extends ChatSessionOperationEndpoint<Capti
   protected readonly operationKind = 'message' as const;
 
   protected parseRequest(res: ServerResponse, _session: ChatSession, parsedBody: JsonObject): CaptionRequest | null {
-    const reader = new JsonRecordReader(parsedBody);
-    const messageId = reader.optionalString('messageId');
-    const imageIndex = reader.number('imageIndex');
-    if (!messageId || imageIndex === null || imageIndex < 0) {
+    const parsed = CaptionRequestSchema.safeParse(parsedBody);
+    if (!parsed.success) {
       sendJson(res, 400, { error: 'Expected messageId and imageIndex.' });
       return null;
     }
-    const mockResponses = parsedBody.mockResponses;
-    return {
-      messageId,
-      imageIndex,
-      mockResponses: Array.isArray(mockResponses) ? mockResponses.map(String) : undefined,
-    };
+    return parsed.data;
   }
 
   protected async run(
@@ -3605,7 +3795,12 @@ export class ChatImageCaptionEndpoint extends ChatSessionOperationEndpoint<Capti
     res: ServerResponse,
     request: ChatSessionOperationRequest<CaptionRequest>,
   ): Promise<void> {
-    const message = (request.session.messages ?? []).find((entry) => entry.id === request.value.messageId);
+    const messages = request.session.messages;
+    if (!messages) {
+      sendJson(res, 404, { error: 'Image not found.' });
+      return;
+    }
+    const message = messages.find((entry) => entry.id === request.value.messageId);
     const dataUrl = message?.images?.[request.value.imageIndex];
     const meta = message?.imageMeta?.[request.value.imageIndex];
     if (!message || !dataUrl || !meta) {
@@ -3621,15 +3816,32 @@ export class ChatImageCaptionEndpoint extends ChatSessionOperationEndpoint<Capti
       return;
     }
     try {
-      const preset = ctx.getActiveSessionPreset(request.session);
-      assertPresetAcceptsImages(preset, [dataUrl]);
+      const config = readConfig(ctx.configPath);
+      const selected = new ChatOperationPresetSelector(config.Presets).select(request.session, 'chat');
+      assertPresetAcceptsImages(getActiveModelPreset(config), [dataUrl]);
       await ensureActivePresetReadyForModelRequest(ctx);
-      const caption = await ctx.engineService.completeVisionTurn({
-        preset,
+      const result = await ctx.engineService.executeRepoSearch({
+        presetId: selected.preset.id,
+        taskKind: 'chat',
         prompt: CAPTION_PROMPT,
-        images: [dataUrl],
-        mockResponses: request.value.mockResponses,
+        repoRoot: process.cwd(),
+        statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
+        config,
+        systemPrompt: 'Independently assess the supplied image. Return only the requested caption.',
+        history: [],
+        thinkingEnabled: false,
+        allowedTools: [],
+        initialUserImages: [dataUrl],
+        ...(request.value.mockResponses ? { mockResponses: request.value.mockResponses } : {}),
       });
+      const [task] = normalizeRepoSearchScorecard(result.scorecard).tasks;
+      if (!task) {
+        throw new Error('Image caption inference returned no task result.');
+      }
+      const caption = task.finalOutput.trim();
+      if (!caption) {
+        throw new Error('Image caption inference returned an empty caption.');
+      }
       updateChatMessageImageCaption(
         getRuntimeRoot(),
         request.sessionId,
@@ -3647,11 +3859,12 @@ export class ChatImageCaptionEndpoint extends ChatSessionOperationEndpoint<Capti
 }
 ```
 
-Three supporting pieces:
+Two supporting pieces:
 
 1. `updateChatMessageImageCaption(runtimeRoot, sessionId, messageId, imageIndex, caption)` in `src/state/chat-sessions.ts` — reads the row's `image_meta`, sets `caption` at `imageIndex`, writes it back with a single `UPDATE chat_messages SET image_meta = ? WHERE session_id = ? AND id = ?`.
-2. `ctx.getActiveSessionPreset(session)` — reuse whatever the message endpoints already use to resolve a session's preset (`git grep -n "assertPresetAcceptsImages" src/status-server/`) rather than adding a second resolver.
-3. `engineService.completeVisionTurn` — a single-turn, no-tools completion. If `StatusEngineService` already exposes a one-shot completion helper, reuse it and pass `initialUserImages`; add a new method only if none exists.
+2. Reuse `ChatOperationPresetSelector` and `StatusEngineService.executeRepoSearch` exactly as the
+   current chat message endpoint does. `allowedTools: []`, empty history, and `thinkingEnabled: false`
+   make this one independent vision turn; do not add a parallel completion method.
 
 Register the route in `src/status-server/route-table.ts` beside the other `/dashboard/chat/sessions/:id/...` entries, as `POST /dashboard/chat/sessions/([^/]+)/images/caption`.
 
@@ -3676,12 +3889,11 @@ If `dashboard/src/api.ts` has no ambient selected-session accessor, take `sessio
 Run: `npm test && npm run typecheck && npm run lint`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Review the task boundary**
 
-```bash
-git add -A
-git commit -m "feat: caption a chat image on demand with a single vision pass"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 23 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -3690,11 +3902,23 @@ git commit -m "feat: caption a chat image on demand with a single vision pass"
 Three controls, shown only once `VisionEnabled` is on, following the `speculativeEnabled` conditional-group pattern already in this file (`dashboard/src/tabs/settings/ModelPresetsSection.tsx:402-419`).
 
 **Files:**
+- Create: `dashboard/src/tabs/settings/VisionPresetControls.tsx`
 - Modify: `dashboard/src/tabs/settings/ModelPresetsSection.tsx:494-501`
-- Modify: whichever server payload feeds the settings panel, to carry `imageTokenBudget`
-- Test: the existing settings-section test file (`git grep -ln "VisionEnabled" dashboard/src`)
+- Modify: `packages/contracts/src/system.ts:38-50`
+- Modify: `src/status-server/routes/core.ts:1834-1848`
+- Modify: `dashboard/src/api.ts:153-155`
+- Test: `dashboard/tests/vision-preset-controls.test.tsx`, using Task 20's shared interactive test
+  environment after confirming the existing settings fixtures with
+  `siftkit repo-search 'Find dashboard settings tests for VisionEnabled and ModelPresetsSection. Return exact paths, helpers, and file:line anchors; facts only.'`
 
 - [ ] **Step 1: Write the failing test**
+
+In `dashboard/tests/vision-preset-controls.test.tsx`, import `render`, `screen`, `fireEvent`, and
+`cleanup` from `./react-test-environment.js`; use the existing `node:test` and
+`node:assert/strict` imports. Import `VisionPresetControls`, and use
+`const ModelPresetsSection = VisionPresetControls;` as the local name in the compact snippets below;
+`visionProps` builds `VisionPresetControls` props, including `imageTokenBudget` and
+`gpuFreeBytes`. Then add:
 
 ```tsx
 /** The installed model's real numbers: 16px patches merged 2x2, 2.1 MP ceiling. */
@@ -3848,11 +4072,37 @@ Expected: FAIL — none of the controls exist.
 
 - [ ] **Step 3: Surface the budget on the settings payload**
 
-`resolveImageTokenBudget(preset)` is server-side. Add its result to whichever config/status payload `ModelPresetsSection` already consumes, as `imageTokenBudget: ImageTokenBudget | null` (null on a non-exl3 preset). Use the same shape Task 21 puts on the chat payload — one type, exported from `packages/contracts`, not two near-identical ones.
+In `packages/contracts/src/system.ts`, import `ImageTokenBudgetSchema` from `./image.js` and add:
 
-- [ ] **Step 4: Write the controls**
+```ts
+export const InferenceRuntimeDashboardStatusSchema = InferenceRuntimeStatusSchema.extend({
+  imageTokenBudget: ImageTokenBudgetSchema.nullable(),
+  gpuFreeBytes: z.number().int().nonnegative().nullable(),
+});
+export type InferenceRuntimeDashboardStatus = z.infer<typeof InferenceRuntimeDashboardStatusSchema>;
+```
 
-Replace the `VisionEnabled` control at `dashboard/src/tabs/settings/ModelPresetsSection.tsx:494-501` with:
+Keep `PresetRuntimeCoordinator.getStatus()` unchanged: its other callers need only process/model
+state. In `InferenceRuntimeReadEndpoint.handle()`, get the applied preset from
+`ctx.appliedModelPresetState.getPreset()` and send
+`InferenceRuntimeDashboardStatusSchema.parse({ ...coordinator.getStatus(), imageTokenBudget:
+preset.Backend === 'exl3' ? resolveImageTokenBudget(preset) : null, gpuFreeBytes: null })`.
+
+Change `dashboard/src/api.ts:getInferenceRuntimeStatus()` to parse
+`InferenceRuntimeDashboardStatusSchema`; `ModelPresetsSection` stores the inferred dashboard-status
+type and reads `runtimeStatus.imageTokenBudget`. This is the one settings payload—do not add props
+through `SettingsTab` or a second near-identical budget type.
+
+- [ ] **Step 4: Write the focused vision controls component**
+
+Create `VisionPresetControls.tsx` with the shown controls, calculation helpers, and reference table.
+Its props are the selected preset, `ModelPresetActions`, `ImageTokenBudget | null`, and later
+`gpuFreeBytes`. Replace the `VisionEnabled` control at
+`dashboard/src/tabs/settings/ModelPresetsSection.tsx:494-501` with this component, passing
+`runtimeStatus?.imageTokenBudget ?? null`. This keeps the async status effect in the parent and makes
+the complete vision block SSR-testable without a second DOM harness.
+
+The component body is:
 
 ```tsx
           <ModelPresetControl preset={preset} field="VisionEnabled" label="Vision enabled">
@@ -3989,7 +4239,9 @@ function formatVramEstimate(bytes: number): string {
 
 **On the reference being a disclosure rather than a hover tooltip:** a `title` tooltip cannot hold a six-row table, is invisible on touch, and is unreachable by keyboard — and this plan already rejected hover-only affordances for the composer's remove button (Task 20). `<details>` is the same one-click gesture, holds real markup, and stays reachable. If a hover hint is still wanted on top, add `title` to the `MP` unit span; do not move the table into it.
 
-`resolveEffectiveImagePixelCeiling` and `estimateVisionPeakVramBytes` are pure and already exported from Task 8b; re-export them through `packages/contracts` (or a shared module the dashboard can import) rather than reimplementing either in the browser. The VRAM figure and the admission ceiling must come from one calculation, or the panel will promise a limit admission does not enforce.
+Import `resolveEffectiveImagePixelCeiling` and `estimateVisionPeakVramBytes` from
+`@siftkit/contracts`; Task 8b defines them in `packages/contracts/src/image.ts`. Do not reimplement
+either in the dashboard. The VRAM figure and admission ceiling must come from one calculation.
 
 Append to `dashboard/src/styles.css`:
 
@@ -4010,12 +4262,11 @@ Append to `dashboard/src/styles.css`:
 Run: `npm test && npm run typecheck && npm run lint`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Review the task boundary**
 
-```bash
-git add -A
-git commit -m "feat: add a tunable max image size in MP with a peak-VRAM readout"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 24 files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -4066,9 +4317,20 @@ Create `src/status-server/gpu-memory.ts`:
 
 ```ts
 import { spawnDirectCommand } from '../lib/command-spawn.js';
+import { z } from '../lib/zod.js';
 import { serverLogger } from './server-logger.js';
 
-export type GpuMemory = { totalBytes: number; usedBytes: number; freeBytes: number };
+const NvidiaSmiRowSchema = z.tuple([
+  z.coerce.number().int().nonnegative(),
+  z.coerce.number().int().nonnegative(),
+  z.coerce.number().int().nonnegative(),
+]);
+export const GpuMemorySchema = z.object({
+  totalBytes: z.number().int().nonnegative(),
+  usedBytes: z.number().int().nonnegative(),
+  freeBytes: z.number().int().nonnegative(),
+});
+export type GpuMemory = z.infer<typeof GpuMemorySchema>;
 
 const MIB = 1_048_576;
 /** Long enough that a re-render storm cannot spawn a process per frame, short enough to stay live. */
@@ -4079,10 +4341,14 @@ let cached: { at: number; value: GpuMemory | null } | null = null;
 export function parseNvidiaSmiMemory(stdout: string): GpuMemory | null {
   const [firstLine] = String(stdout || '').trim().split('\n');
   if (!firstLine) return null;
-  const fields = firstLine.split(',').map((field) => Number.parseInt(field.trim(), 10));
-  if (fields.length !== 3 || fields.some((field) => !Number.isFinite(field))) return null;
-  const [total, used, free] = fields;
-  return { totalBytes: total * MIB, usedBytes: used * MIB, freeBytes: free * MIB };
+  const parsed = NvidiaSmiRowSchema.safeParse(firstLine.split(',').map((field) => field.trim()));
+  if (!parsed.success) return null;
+  const [total, used, free] = parsed.data;
+  return GpuMemorySchema.parse({
+    totalBytes: total * MIB,
+    usedBytes: used * MIB,
+    freeBytes: free * MIB,
+  });
 }
 
 /**
@@ -4124,19 +4390,18 @@ Match `spawnDirectCommand`'s real signature — read `src/lib/command-spawn.ts` 
 Run: `npm test && npm run typecheck && npm run lint`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Review the task boundary**
 
-```bash
-git add src/status-server/gpu-memory.ts tests/gpu-memory.test.ts
-git commit -m "feat: read free GPU memory via nvidia-smi"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 24b files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
 ### Task 24c: Grade the headroom
 
 **Files:**
-- Create: `src/llm-protocol/image-vram-headroom.ts`
+- Modify: `packages/contracts/src/image.ts`
 - Create: `tests/image-vram-headroom.test.ts`
 
 - [ ] **Step 1: Write the failing test**
@@ -4145,7 +4410,7 @@ git commit -m "feat: read free GPU memory via nvidia-smi"
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { assessImageVramHeadroom } from '../src/llm-protocol/image-vram-headroom.js';
+import { assessImageVramHeadroom } from '@siftkit/contracts';
 
 const PEAK = 223_477_760; // the installed model at its 2.1 MP ceiling
 
@@ -4189,12 +4454,14 @@ Expected: FAIL — the module does not exist.
 
 - [ ] **Step 3: Write minimal implementation**
 
-Create `src/llm-protocol/image-vram-headroom.ts`:
+Append to `packages/contracts/src/image.ts`, beside the shared estimator:
 
 ```ts
-import type { ToastLevel } from '@siftkit/contracts';
-
-export type ImageVramFinding = { level: Exclude<ToastLevel, 'info'>; message: string };
+export const ImageVramFindingSchema = z.object({
+  level: z.enum(['warning', 'error']),
+  message: z.string().min(1),
+});
+export type ImageVramFinding = z.infer<typeof ImageVramFindingSchema>;
 
 /** Below this multiple of the encode peak, an image is close enough to the limit to say so. */
 const COMFORTABLE_HEADROOM_MULTIPLE = 2;
@@ -4244,21 +4511,19 @@ export function assessImageVramHeadroom(input: {
 Run: `npm test && npm run typecheck && npm run lint`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Review the task boundary**
 
-```bash
-git add src/llm-protocol/image-vram-headroom.ts tests/image-vram-headroom.test.ts
-git commit -m "feat: grade free VRAM against the image encode peak"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 24c files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
 ### Task 24d: Surface the headroom — preset panel and toast
 
 **Files:**
-- Modify: whichever status payload feeds the settings panel (add `gpuFreeBytes`)
-- Modify: `dashboard/src/tabs/settings/ModelPresetsSection.tsx`
-- Modify: `dashboard/src/hooks/useSettingsController.ts`
+- Modify: `src/status-server/routes/core.ts:1834-1848`
+- Modify: `dashboard/src/tabs/settings/VisionPresetControls.tsx`
 - Modify: `dashboard/src/hooks/useChatSessions.ts`
 - Test: the settings-section test file
 
@@ -4329,13 +4594,17 @@ test('sending images with comfortable headroom enqueues no toast', async () => {
 Run: `npm test`
 Expected: FAIL — nothing reads `gpuFreeBytes`.
 
-- [ ] **Step 3: Serve free VRAM to the dashboard**
+- [ ] **Step 3: Serve free VRAM on the existing inference-dashboard status**
 
-Add `gpuFreeBytes: number | null` to the same status payload that already carries `imageTokenBudget` (Task 24 step 3), populated by `await readGpuMemory()` and its `freeBytes`, or `null`.
+In `InferenceRuntimeReadEndpoint.handle()`, resolve `const gpuMemory = await readGpuMemory()` and
+replace Task 24's temporary `gpuFreeBytes: null` with
+`gpuFreeBytes: gpuMemory === null ? null : gpuMemory.freeBytes`. Parse the full response through
+`InferenceRuntimeDashboardStatusSchema` before `sendJson`.
 
 - [ ] **Step 4: Render it inline in the panel**
 
-In `ModelPresetsSection`, below the reference table:
+Pass `runtimeStatus?.gpuFreeBytes ?? null` from `ModelPresetsSection` into
+`VisionPresetControls`. In the child, derive the finding and render it below the reference table:
 
 ```tsx
 {headroomFinding ? (
@@ -4350,7 +4619,9 @@ with, beside the existing `effectivePixels` / `imageTokens` derivations:
 ```tsx
 const headroomFinding = assessImageVramHeadroom({
   freeBytes: gpuFreeBytes,
-  peakEncodeBytes: estimateVisionPeakVramBytes(imageTokens, imageTokenBudget.encoder),
+  peakEncodeBytes: imageTokenBudget
+    ? estimateVisionPeakVramBytes(imageTokens, imageTokenBudget.encoder)
+    : 0,
 });
 ```
 
@@ -4363,7 +4634,11 @@ Append to `dashboard/src/styles.css`:
 
 - [ ] **Step 5: Toast on send**
 
-In `useChatSessions.sendMessage`, before dispatching a turn that carries images, run the same assessment and `enqueueToast(finding.level, finding.message)` when it returns one. **It warns; it does not block.** The estimate has a hand-tuned factor in it (open item 1) and the user may have freed memory the 2-second cache has not seen — refusing to send on an estimate would be worse than a failed request.
+In `useChatSessions.sendMessage`, only when `inputs.pendingImages.length > 0`, call
+`getInferenceRuntimeStatus()` immediately before dispatch, calculate the same finding from its
+`gpuFreeBytes` and `imageTokenBudget`, and call `enqueueToast(finding.level, finding.message)` when
+non-null. **It warns; it does not block.** The server probe is cached for two seconds, so this adds no
+new polling path and keeps the send warning reasonably fresh.
 
 Use the one assessment function for both surfaces. A panel that says "fine" while the toast says "will fail" is worse than neither.
 
@@ -4372,12 +4647,11 @@ Use the one assessment function for both surfaces. A panel that says "fine" whil
 Run: `npm test && npm run typecheck && npm run lint`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Review the task boundary**
 
-```bash
-git add -A
-git commit -m "feat: warn when free VRAM is close to the image encode peak"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 24d files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -4391,7 +4665,8 @@ git commit -m "feat: warn when free VRAM is close to the image encode peak"
 - Modify: `src/status-server/managed-llama.ts:90-91,499-509`
 - Modify: `dashboard/src/managed-llama-restart.ts:8-17`
 - Modify: `src/status-server/chat-repo-operation-runner.ts` and the chat message endpoints (encode-time path)
-- Test: the existing managed-llama test file (`git grep -ln "parseManagedLlamaStartupFailureText" tests/`)
+- Test: the existing managed-llama test file. Locate it with
+  `siftkit repo-search 'Find tests for parseManagedLlamaStartupFailureText. Return exact paths, test names, and file:line anchors; facts only.'`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4529,12 +4804,11 @@ A turn that carried **no** images must not take this path — an OOM mid-generat
 Run: `npm test && npm run typecheck && npm run lint`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Review the task boundary**
 
-```bash
-git add -A
-git commit -m "feat: attribute a GPU OOM to the knob that can actually fix it"
-```
+Run: `git diff --check`
+Expected: exit 0. Review the Task 24e files and preserve unrelated changes. Do not commit unless the
+user requests it.
 
 ---
 
@@ -4568,25 +4842,71 @@ Expected: exit 0.
 - [ ] **Step 4: Confirm the deliberate asymmetries survived**
 
 ```bash
-git grep -n "prompt is required" src/cli/run-repo-search.ts
-git grep -n "A prompt or an image is required" src/repo-search/execute.ts
+rg -n "prompt is required" src/cli/run-repo-search.ts
+rg -n "A prompt or an image is required" src/repo-search/execute.ts
 ```
 Expected: the CLI keeps its flag-specific message; the engine has the generic one. This asymmetry is deliberate (spec §1) — if a reviewer flags it, point them at that section.
 
 - [ ] **Step 4b: Confirm no surface blames the image setting for load-time memory**
 
 ```bash
-git grep -n "Max image size" src/ dashboard/src
+rg -n "Max image size" src dashboard/src
 ```
 
 Every hit must be about per-image encode cost or context tokens. None may appear in startup-failure guidance: verified in exllamav3 1.3.0 that nothing at model load depends on image size, so that advice would be wrong. Task 24e's `buildGpuOomGuidance` has tests pinning both directions.
 
-- [ ] **Step 5: Commit any residue**
+- [ ] **Step 4c: Run the live EXL3 image-read smoke and calibrate the VRAM factor when available**
 
-```bash
+Create the one allowed scratch directory and a 1920×1080 PNG using the committed test fixture helper:
+
+```powershell
+New-Item -ItemType Directory -Force '.siftkit-scratch'
+node --experimental-strip-types -e "import { writeFileSync } from 'node:fs'; import { rasterBuffer } from './tests/helpers/image-fixtures.ts'; writeFileSync('.siftkit-scratch/vision-smoke.png', rasterBuffer('png', 1920, 1080));"
+```
+
+With the EXL3 provider resident and completions healthy, sample memory in one PowerShell terminal:
+
+```powershell
+nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -lms 100
+```
+
+Stop sampling with Ctrl+C immediately after the repo-search command finishes.
+
+Then run in a second terminal:
+
+```powershell
+siftkit repo-search --prompt 'Use the read tool exactly once on .siftkit-scratch/vision-smoke.png, report its dimensions and dominant colour, then stop.'
+```
+
+Expected: the run succeeds, its tool trace contains one image `read`, and the response reports
+1920×1080 plus the fixture colour. Record baseline and peak used MiB. Compute the observed working-set
+factor as `peak_delta_bytes / (2048 * 4 * (1152 + 4304) * 2)` and round upward to one decimal place.
+If it differs from `SIFT_VISION_PEAK_VRAM_WORKING_SET_FACTOR` by at least `0.2`, update that constant
+and Task 8b's exact estimate assertion, then rerun `npm test`, `npm run typecheck`, and
+`npm run lint` separately.
+
+If the provider is unavailable, capture the failing command and output and report this live smoke
+and calibration as the only unverified scope. Do not claim calibration passed and do not change the
+factor from a failed or text-only run.
+
+- [ ] **Step 5: Inspect final scope and remove scratch artifacts**
+
+```powershell
 git status --short
 ```
-Expected: clean. If not, the residue is scope drift — remove it or commit it deliberately.
+Expected: only intended feature and documentation files plus preserved unrelated user changes.
+Review every changed path; remove scope drift without touching unrelated work.
+
+If `.siftkit-scratch` exists, resolve and verify its absolute path before deleting it:
+
+```powershell
+$repoRoot = (Resolve-Path '.').Path
+$scratchPath = (Resolve-Path '.siftkit-scratch').Path
+if (-not $scratchPath.StartsWith($repoRoot + [IO.Path]::DirectorySeparatorChar) -or (Split-Path $scratchPath -Leaf) -ne '.siftkit-scratch') { throw 'Refusing to remove an unexpected scratch path.' }
+Remove-Item -LiteralPath $scratchPath -Recurse -Force
+```
+
+Do not commit unless the user requests it.
 
 ---
 
@@ -4595,14 +4915,17 @@ Expected: clean. If not, the residue is scope drift — remove it or commit it d
 - **Server-side GIF resize.** `@napi-rs/image` cannot decode GIF, so an oversized GIF on the `read` or CLI path is rejected with the resize message. The browser path handles GIF because browsers decode it natively. If server-side GIF resize later proves to matter, that is the trigger to switch that path to `sharp`, which handles it via libvips — not a reason to add a second image library now.
 - **`preflightPlannerPromptBudget`** is unchanged (spec §4.5). Admission now guarantees every image is at or under `SIFT_IMAGE_TOKEN_ESTIMATE`, so the existing flat per-image charge at `src/repo-search/prompt-budget.ts:139-142` is accurate by construction rather than a guess.
 - **Video, PDF, multi-frame GIF beyond frame one, automatic re-captioning on preset change** — out of scope per spec §Scope.
-- **End-to-end verification against a live vision model** is possible here — `3.6_27b_4.7bpw` is resident with `use_vision: true` — but was blocked during the design work by TabbyAPI returning 503 on every completion. Every task above is verifiable by unit and route tests without a live provider; once completions work again, one real image read through `read` is the acceptance test, and the same run calibrates open item 1.
 
-## Open items carried by this plan
+## Operational notes
 
-1. **The VRAM figure is derived, but one factor in it is still hand-tuned.** Everything except `SIFT_VISION_PEAK_VRAM_WORKING_SET_FACTOR` (2.5) comes from the model's own `vision_config`: 4 patches per token × (1152 + 4304) × 2 bytes, giving ~109 KB per image token and ~223 MB at the installed model's 2048-token ceiling. That fits comfortably in the 831 MiB currently free, which is the sanity check that matters. **Calibrate on the first live vision turn:** watch peak VRAM with `nvidia-smi --query-gpu=memory.used --format=csv -l 1` while reading one full-size image, then adjust that single factor. Do not attempt the calibration while free VRAM is under ~400 MiB — a failed allocation evicts the resident model.
-
-2. **The cap has no effect on startup VRAM** — verified in exllamav3 source, see pre-flight findings. It reduces the transient encode spike and per-image context tokens only. The panel says this in as many words, and a test pins the wording.
-
-3. **The displayed VRAM figure is the cost of a *full-size* image, not of every image.** It prices an image that exactly hits the cap; anything smaller costs proportionally less, because tokens and VRAM both scale with pixel count. That makes it the right number for "how much headroom must I keep free", which is the question the panel is answering.
-
-4. **A preset that changes `ModelPath` keeps its cached budget** until the process restarts (`resolveImageTokenBudget` caches per preset id). That matches how the rest of the preset system treats a model swap; if it becomes a problem, invalidate the cache where the preset is saved rather than dropping the cache entirely.
+1. **The VRAM estimate starts with one measured-later factor.** Everything except
+   `SIFT_VISION_PEAK_VRAM_WORKING_SET_FACTOR` (`2.5`) comes from the model's own `vision_config`.
+   Task 25 performs the required calibration on the first successful live image read and reports an
+   unavailable provider as unverified scope.
+2. **The cap has no effect on startup VRAM.** It reduces the transient encode spike and per-image
+   context tokens only. The panel states this and Task 24e pins the guidance in both directions.
+3. **The displayed VRAM figure is the cost of an image at the effective ceiling.** Smaller images
+   cost proportionally less because tokens and the estimate scale with pixel count.
+4. **The token-budget cache keys by preset id and normalized `ModelPath`.** Reusing a preset id with
+   a different model directory recomputes the budget; repeated reads of the same preset/path do not
+   reread configuration files.

@@ -1,7 +1,10 @@
 import { createInterface } from 'node:readline';
 import { JsonRecordReader } from '../lib/json-record-reader.js';
 import type { JsonObject } from '../lib/json-types.js';
-import type { ApprovalDecision } from '../repo-search/engine/approval-gate.js';
+import {
+  CLIENT_ABORT_MESSAGE,
+  type ApprovalDecision,
+} from '../repo-search/engine/approval-gate.js';
 
 /** Anything that can answer an approval request: TTY prompter or store-backed prompter. */
 export type ApprovalPrompter = {
@@ -46,14 +49,14 @@ export class CliApprovalPrompter implements ApprovalPrompter {
       for (;;) {
         const answer = await nextLine('  [a]pprove  [d]eny  a[b]ort > ');
         if (answer === null) {
-          return { kind: 'abort' };
+          return { kind: 'abort', reason: CLIENT_ABORT_MESSAGE };
         }
         const key = answer.trim().toLowerCase();
         if (key === 'a') {
           return { kind: 'approve' };
         }
         if (key === 'b') {
-          return { kind: 'abort' };
+          return { kind: 'abort', reason: CLIENT_ABORT_MESSAGE };
         }
         if (key === 'd') {
           const reason = await nextLine('  reason (enter to skip) > ');

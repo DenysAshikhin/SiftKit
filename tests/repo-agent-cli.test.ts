@@ -307,7 +307,7 @@ test('non-TTY start and decide resume one real detached worker', async () => {
   });
   try {
     const started = await runner.run(['repo-agent', 'edit the file']);
-    assert.equal(started.code, 0, started.stderr);
+    assert.equal(started.code, 3, started.stderr);
     assert.doesNotMatch(started.stdout, /\u001b\[/u);
     const approval = RepoAgentRunResultSchema.parse(
       parseJsonValueText(started.stdout),

@@ -13,15 +13,24 @@ import type { JsonObject } from '../src/lib/json-types.js';
 import {
   RepoAgentApprovalSchema,
   RepoAgentDecisionSchema,
+  RepoAgentRunStateSchema,
   RepoAgentWorkerRequestSchema,
+  isTerminalStatus,
   type RepoAgentApproval,
   type RepoAgentDecision,
   type RepoAgentWorkerRequest,
 } from '../src/repo-agent/run-schemas.js';
 import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
 import { RepoAgentRunApprovalPrompter } from '../src/repo-agent/run-approval-prompter.js';
-import { RepoAgentBoundaryWaiter } from '../src/repo-agent/boundary-waiter.js';
+import {
+  RepoAgentBoundaryWaiter,
+  repoAgentStateToResult,
+} from '../src/repo-agent/boundary-waiter.js';
 import type { ApprovalPrompter } from '../src/cli/approval-prompter.js';
+import {
+  CLIENT_ABORT_MESSAGE,
+  buildApprovalTimeoutMessage,
+} from '../src/repo-search/engine/approval-gate.js';
 
 const TEMP_ROOT = join(
   process.cwd(),
@@ -209,7 +218,7 @@ test('publishes complete approval_required state with full payload', async () =>
   });
   store.submitDecision(decision);
   const result = await pending;
-  assert.deepEqual(result, { kind: 'abort' });
+  assert.deepEqual(result, { kind: 'abort', reason: CLIENT_ABORT_MESSAGE });
 });
 
 test('preserves reviewPayload exactly without trimming content', async () => {
@@ -343,7 +352,7 @@ test('abort returns {kind:"abort"} and terminal aborted state', async () => {
   store.submitDecision(decision);
 
   const result = await pending;
-  assert.deepEqual(result, { kind: 'abort' });
+  assert.deepEqual(result, { kind: 'abort', reason: CLIENT_ABORT_MESSAGE });
 
   // State should be aborted
   const state = store.readState(request.runId);
@@ -451,7 +460,7 @@ test('stale revision decision is rejected by store', async () => {
 
 // ---- Decision timeout ----
 
-test('an undecided approval times out into a deny and resumes the run', async () => {
+test('an undecided approval times out into a terminal approval_timeout and aborts', async () => {
   const runsRoot = makeRunsRoot();
   const store = new RepoAgentRunStore(runsRoot);
   const request = makeRequest();
@@ -465,12 +474,19 @@ test('an undecided approval times out into a deny and resumes the run', async ()
     runId: request.runId,
     decisionTimeoutMs: 100,
   });
-  const decision = await prompter.promptDecision(makeApprovalEvent(makeApproval()));
+  const approval = makeApproval();
+  const decision = await prompter.promptDecision(makeApprovalEvent(approval));
   assert.deepEqual(decision, {
-    kind: 'deny',
-    reason: 'No approval decision was received within 100ms; the command was not executed.',
+    kind: 'abort',
+    reason: buildApprovalTimeoutMessage(100),
   });
-  assert.equal(store.readState(request.runId).status, 'running');
+  const state = store.readState(request.runId);
+  assert.equal(state.status, 'approval_timeout');
+  if (state.status !== 'approval_timeout') {
+    assert.fail('Expected approval_timeout state.');
+  }
+  assert.equal(state.approval.approvalId, approval.approvalId);
+  assert.equal(state.approval.reviewPayload, null);
 });
 
 // ---- Constructor dependency ----
@@ -503,4 +519,48 @@ test('implements ApprovalPrompter interface', () => {
     runId,
   });
   assert.ok(typeof prompter.promptDecision === 'function');
+});
+
+// ---- approval_timeout terminal status ----
+
+test('approval_timeout is a terminal state that maps to an approval_timeout result', () => {
+  const runId = randomUUID();
+  const approval = makeApproval();
+  const state = RepoAgentRunStateSchema.parse({
+    runId,
+    revision: 3,
+    updatedAtUtc: new Date().toISOString(),
+    status: 'approval_timeout',
+    pid: process.pid,
+    approval,
+  });
+  assert.equal(isTerminalStatus(state.status), true);
+  assert.deepEqual(repoAgentStateToResult(state), {
+    status: 'approval_timeout',
+    runId,
+    approval,
+  });
+});
+
+test('clearPendingApproval can settle into approval_timeout, dropping the review payload', () => {
+  const runsRoot = makeRunsRoot();
+  const store = new RepoAgentRunStore(runsRoot);
+  const request = makeRequest();
+  store.create(request);
+  moveToRunning(store, request);
+  const approval = makeApproval();
+  const published = store.publishApproval(request.runId, 1, approval);
+
+  const next = store.clearPendingApproval(request.runId, published.revision, 'approval_timeout');
+
+  assert.equal(next.status, 'approval_timeout');
+  if (next.status !== 'approval_timeout') {
+    assert.fail('Expected approval_timeout state.');
+  }
+  assert.equal(next.approval.approvalId, approval.approvalId);
+  assert.equal(next.approval.toolName, approval.toolName);
+  assert.equal(next.approval.command, approval.command);
+  assert.equal(next.approval.reviewPayload, null);
+  const raw = readFileSync(join(runsRoot, request.runId, 'state.json'), 'utf8');
+  assert.ok(!raw.includes('"oldText"'), 'terminal state must not retain review payload content');
 });

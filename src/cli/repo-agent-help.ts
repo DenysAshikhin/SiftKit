@@ -1,7 +1,41 @@
 import { z } from '../lib/zod.js';
+import type { RepoAgentRunResult } from '../repo-agent/run-schemas.js';
 
 export const REPO_AGENT_CANONICAL_INVOCATION =
   'siftkit repo-agent "task" [options]' as const;
+
+type RepoAgentResultStatus = RepoAgentRunResult['status'];
+
+/**
+ * The one place a repo-agent result status is mapped to a process exit code: the CLI returns these
+ * and `--help` publishes them, so an automated caller can never be told one thing and handed
+ * another. Adding a result status without an exit code fails to compile.
+ */
+export const REPO_AGENT_EXIT_CODES: Record<RepoAgentResultStatus, number> = {
+  completed: 0,
+  approval_required: 3,
+  approval_timeout: 1,
+  failed: 1,
+  aborted: 1,
+};
+
+const REPO_AGENT_RESULT_MEANINGS: Record<RepoAgentResultStatus, string> = {
+  completed: 'Task completed.',
+  approval_required:
+    'A decision is required; the decide field of the result carries the exact approve/deny/abort commands.',
+  approval_timeout: 'No decision arrived within the approval timeout; the run was stopped.',
+  failed: 'Task failed.',
+  aborted: 'Task was aborted.',
+};
+
+/** Documentation order for the statuses above; every status must appear exactly once. */
+const REPO_AGENT_RESULT_ORDER = [
+  'completed',
+  'approval_required',
+  'approval_timeout',
+  'failed',
+  'aborted',
+] as const satisfies readonly RepoAgentResultStatus[];
 
 export const RepoAgentHelpTopicSchema = z.enum(['root', 'decide', 'status']);
 
@@ -19,7 +53,13 @@ const RepoAgentHelpOptionSchema = z.object({
 });
 
 const RepoAgentHelpResultSchema = z.object({
-  status: z.enum(['completed', 'approval_required', 'failed', 'aborted']),
+  status: z.enum([
+    'completed',
+    'approval_required',
+    'approval_timeout',
+    'failed',
+    'aborted',
+  ]),
   exitCode: z.number().int(),
   meaning: z.string(),
 });
@@ -36,6 +76,7 @@ export const RepoAgentHelpSchema = z.object({
   resultStatuses: z.tuple([
     z.literal('completed'),
     z.literal('approval_required'),
+    z.literal('approval_timeout'),
     z.literal('failed'),
     z.literal('aborted'),
   ]),
@@ -88,17 +129,12 @@ const ROOT_HELP = RepoAgentHelpSchema.parse({
     { name: '--help', value: null, default: null, description: 'Show help.' },
     { name: '--json', value: null, default: null, description: 'Emit structured help.' },
   ],
-  resultStatuses: ['completed', 'approval_required', 'failed', 'aborted'],
-  results: [
-    { status: 'completed', exitCode: 0, meaning: 'Task completed.' },
-    {
-      status: 'approval_required',
-      exitCode: 0,
-      meaning: 'A decision is required; the decide field of the result carries the exact approve/deny/abort commands.',
-    },
-    { status: 'failed', exitCode: 1, meaning: 'Task failed.' },
-    { status: 'aborted', exitCode: 1, meaning: 'Task was aborted.' },
-  ],
+  resultStatuses: REPO_AGENT_RESULT_ORDER,
+  results: REPO_AGENT_RESULT_ORDER.map((status) => ({
+    status,
+    exitCode: REPO_AGENT_EXIT_CODES[status],
+    meaning: REPO_AGENT_RESULT_MEANINGS[status],
+  })),
   examples: [
     'siftkit repo-agent "fix the login bug"',
     'siftkit repo-agent status <run-id>',

@@ -73,6 +73,12 @@ export const RepoAgentRunStateSchema = z.discriminatedUnion('status', [
   }),
   z.strictObject({
     ...BaseStateFields,
+    status: z.literal('approval_timeout'),
+    pid: ProcessIdSchema,
+    approval: RepoAgentApprovalSchema,
+  }),
+  z.strictObject({
+    ...BaseStateFields,
     status: z.literal('completed'),
     pid: ProcessIdSchema,
     output: z.string(),
@@ -108,6 +114,11 @@ export const RepoAgentRunResultSchema = z.discriminatedUnion('status', [
     }),
   }),
   z.strictObject({
+    status: z.literal('approval_timeout'),
+    runId: RunIdSchema,
+    approval: RepoAgentApprovalSchema,
+  }),
+  z.strictObject({
     status: z.literal('failed'),
     runId: RunIdSchema,
     error: z.string().min(1),
@@ -120,7 +131,10 @@ export const RepoAgentRunResultSchema = z.discriminatedUnion('status', [
 export type RepoAgentRunResult = z.infer<typeof RepoAgentRunResultSchema>;
 
 export function isTerminalStatus(status: RepoAgentRunState['status']): boolean {
-  return status === 'completed' || status === 'failed' || status === 'aborted';
+  return status === 'completed'
+    || status === 'failed'
+    || status === 'aborted'
+    || status === 'approval_timeout';
 }
 
 export function isActiveStatus(status: RepoAgentRunState['status']): boolean {

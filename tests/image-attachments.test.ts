@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { ImageDataUrlSchema, parseImageDataUrls, ImageAttachmentReader, buildUserContent, assertPresetAcceptsImages } from '../src/llm-protocol/image-attachments.js';
-import { SIFT_MAX_IMAGE_BYTES } from '../src/config/constants.js';
+import { ImageDataUrlSchema, SIFT_MAX_IMAGE_BYTES } from '@siftkit/contracts';
+import { parseImageDataUrls, ImageAttachmentReader, buildUserContent, assertPresetAcceptsImages, isImagePath, imageMimeForPath, getSupportedImageExtensions } from '../src/llm-protocol/image-attachments.js';
 import type { ModelRuntimePreset } from '../src/config/types.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
@@ -256,6 +256,26 @@ test('ImageAttachmentReader.readAll preserves order', async () => {
   fs.rmSync(tmpDir, { recursive: true });
 });
 
+test('ImageDataUrlSchema rejects a data URL whose payload exceeds SIFT_MAX_IMAGE_BYTES', () => {
+  // 4 base64 chars encode 3 bytes, so this payload decodes to just over the limit.
+  const base64Length = Math.ceil((SIFT_MAX_IMAGE_BYTES + 1) / 3) * 4;
+  const oversized = `data:image/png;base64,${'A'.repeat(base64Length)}`;
+  const result = ImageDataUrlSchema.safeParse(oversized);
+  assert.equal(result.success, false);
+});
+
+test('ImageDataUrlSchema accepts a data URL at exactly SIFT_MAX_IMAGE_BYTES', () => {
+  const base64Length = Math.ceil(SIFT_MAX_IMAGE_BYTES / 3) * 4;
+  const atLimit = `data:image/png;base64,${'A'.repeat(base64Length - 1)}=`;
+  assert.equal(ImageDataUrlSchema.safeParse(atLimit).success, true);
+});
+
+test('parseImageDataUrls rejects an oversized entry rather than dropping it', () => {
+  const base64Length = Math.ceil((SIFT_MAX_IMAGE_BYTES + 1) / 3) * 4;
+  const oversized = `data:image/png;base64,${'A'.repeat(base64Length)}`;
+  assert.throws(() => parseImageDataUrls([VALID_PNG_URI, oversized]));
+});
+
 test('buildUserContent returns plain string for zero images', () => {
   const result = buildUserContent('hello world', []);
   assert.equal(result, 'hello world');
@@ -311,4 +331,25 @@ test('assertPresetAcceptsImages throws for llama backend', () => {
 test('assertPresetAcceptsImages throws for VisionEnabled=false', () => {
   const preset = makePreset({ Backend: 'exl3', VisionEnabled: false });
   assert.throws(() => assertPresetAcceptsImages(preset, [VALID_PNG_URI]), /vision/iu);
+});
+
+test('isImagePath recognises every extension in the MIME map, case-insensitively', () => {
+  for (const extension of getSupportedImageExtensions()) {
+    assert.equal(isImagePath(`docs/arch${extension}`), true, extension);
+    assert.equal(isImagePath(`docs/arch${extension.toUpperCase()}`), true, extension);
+  }
+});
+
+test('isImagePath rejects non-image paths', () => {
+  assert.equal(isImagePath('src/index.ts'), false);
+  assert.equal(isImagePath('README'), false);
+});
+
+test('getSupportedImageExtensions is sorted and matches the MIME map', () => {
+  assert.deepEqual(getSupportedImageExtensions(), ['.gif', '.jpeg', '.jpg', '.png', '.webp']);
+});
+
+test('imageMimeForPath returns the mapped MIME or undefined', () => {
+  assert.equal(imageMimeForPath('a/b.JPG'), 'image/jpeg');
+  assert.equal(imageMimeForPath('a/b.txt'), undefined);
 });

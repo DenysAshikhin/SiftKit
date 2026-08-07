@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { extname } from 'node:path';
 import { z } from '../lib/zod.js';
-import { SIFT_MAX_IMAGE_BYTES } from '../config/constants.js';
+import { ImageDataUrlSchema, SIFT_MAX_IMAGE_BYTES } from '@siftkit/contracts';
 import type { LlamaCppContentPart } from './types.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
 import type { ModelRuntimePreset } from '../config/types.js';
@@ -19,19 +19,20 @@ const IMAGE_MIME_MAP: ReadonlyMap<string, string> = new Map([
   ['.gif', 'image/gif'],
 ]);
 
+/** Sorted so the generated tool description is stable across runs. */
+export function getSupportedImageExtensions(): string[] {
+  return [...IMAGE_MIME_MAP.keys()].sort();
+}
+
+export function imageMimeForPath(filePath: string): string | undefined {
+  return IMAGE_MIME_MAP.get(extname(filePath).toLowerCase());
+}
+
+export function isImagePath(filePath: string): boolean {
+  return imageMimeForPath(filePath) !== undefined;
+}
+
 // ── Schema ──────────────────────────────────────────────────────────────
-
-const SUPPORTED_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
-
-export const ImageDataUrlSchema = z.string().refine(
-  (val) => {
-    if (!val.startsWith('data:image/')) return false;
-    const mimeMatch = val.match(/^data:(image\/\w+);base64,/);
-    if (!mimeMatch) return false;
-    return SUPPORTED_MIMES.has(mimeMatch[1]);
-  },
-  { message: 'supported-image' },
-);
 
 /**
  * Parses an `images` field off a request body or a persisted row. An absent field is an
@@ -46,10 +47,9 @@ export function parseImageDataUrls(input: OptionalJsonValue): string[] {
 
 export class ImageAttachmentReader {
   read(filePath: string): string {
-    const rawExt = extname(filePath).toLowerCase();
-    const mime = IMAGE_MIME_MAP.get(rawExt);
+    const mime = imageMimeForPath(filePath);
     if (mime === undefined) {
-      throw new Error(`Unsupported image extension: ${rawExt}`);
+      throw new Error(`Unsupported image extension: ${extname(filePath).toLowerCase()}`);
     }
     const buf = readFileSync(filePath);
     if (buf.byteLength > SIFT_MAX_IMAGE_BYTES) {

@@ -7,8 +7,10 @@ import { parseJsonValueText } from '../src/lib/json.js';
 import {
   detectRepoAgentHelpInvocation,
   RepoAgentHelpSchema,
+  REPO_AGENT_EXIT_CODES,
 } from '../src/cli/repo-agent-help.js';
 import { parseRepoAgentInvocation } from '../src/cli/repo-agent-args.js';
+import { RepoAgentRunResultSchema } from '../src/repo-agent/run-schemas.js';
 
 test('CLI accepts --h as help alias', async () => {
   const stdout = makeCaptureStream();
@@ -264,7 +266,7 @@ test('repo-agent --help --json parses as RepoAgentHelpSchema', async () => {
   assert.equal(help.nonTtyMode, 'resumable-json');
   assert.deepEqual(
     help.resultStatuses,
-    ['completed', 'approval_required', 'failed', 'aborted'],
+    ['completed', 'approval_required', 'approval_timeout', 'failed', 'aborted'],
   );
   assert.deepEqual(
     help.commands,
@@ -293,8 +295,13 @@ test('repo-agent --help --json parses as RepoAgentHelpSchema', async () => {
       { status: 'completed', exitCode: 0, meaning: 'Task completed.' },
       {
         status: 'approval_required',
-        exitCode: 0,
+        exitCode: 3,
         meaning: 'A decision is required; the decide field of the result carries the exact approve/deny/abort commands.',
+      },
+      {
+        status: 'approval_timeout',
+        exitCode: 1,
+        meaning: 'No decision arrived within the approval timeout; the run was stopped.',
       },
       { status: 'failed', exitCode: 1, meaning: 'Task failed.' },
       { status: 'aborted', exitCode: 1, meaning: 'Task was aborted.' },
@@ -302,6 +309,30 @@ test('repo-agent --help --json parses as RepoAgentHelpSchema', async () => {
   );
   assert.ok(help.options.some((option) => option.name === '--approval'));
   assert.ok(help.examples.some((example) => example.includes('deny --reason')));
+});
+
+test('published repo-agent results document every result status with the CLI exit code', async () => {
+  const stdout = makeCaptureStream();
+  const stderr = makeCaptureStream();
+  const code = await runCli({
+    argv: ['repo-agent', '--help', '--json'],
+    stdout: stdout.stream,
+    stderr: stderr.stream,
+  });
+  assert.equal(code, 0);
+  const help = RepoAgentHelpSchema.parse(parseJsonValueText(stdout.read()));
+  // A status the run result can carry but the help table omits would leave automated callers
+  // guessing at an exit code the CLI already returns.
+  const producibleStatuses = RepoAgentRunResultSchema.options.map(
+    (option) => option.shape.status.value,
+  );
+  assert.deepEqual(
+    help.results.map((result) => result.status).slice().sort(),
+    producibleStatuses.slice().sort(),
+  );
+  for (const result of help.results) {
+    assert.equal(result.exitCode, REPO_AGENT_EXIT_CODES[result.status]);
+  }
 });
 
 test('repo-agent help --json parses as RepoAgentHelpSchema', async () => {

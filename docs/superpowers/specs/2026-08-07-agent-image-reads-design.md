@@ -1,7 +1,7 @@
 # Agent image reads, image admission, and chat image rendering
 
 Date: 2026-08-07
-Status: draft for review
+Status: approved 2026-08-07
 
 ## Problem
 
@@ -11,7 +11,7 @@ Four defects and one feature, all on the image path.
    request with empty text and at least one image
    (`src/status-server/chat-route-request-normalizers.ts:63`), and the dashboard submits it
    (`dashboard/src/hooks/useChatSessions.ts:343`), but `executeRepoSearchRequest` rejects any empty
-   prompt without consulting `initialUserImages` (`src/repo-search/execute.ts:288-292`). The
+   prompt without consulting `initialUserImages` (`src/repo-search/execute.ts:292-296`). The
    relaxation was applied at the request boundary and never at the engine guard. The thrown message
    also names `--prompt` and `repo-search` on `chat` and `plan` turns, where neither applies.
 
@@ -39,19 +39,42 @@ Four defects and one feature, all on the image path.
    under-budgets large images and overflow surfaces late or not at all. Nothing anywhere reads
    image dimensions.
 
-Feature: **images should render as images in chat**, with a collapsed annotation exposing what the
-model perceives, and the composer should preview pending attachments with per-image removal.
+Feature: **images should render as images in chat**, with persisted metadata and an on-demand,
+explicitly independent model caption in a collapsed annotation. The composer should preview pending
+attachments with per-image removal.
 
 ## Scope
 
-In scope: the five sections below, across CLI, HTTP routes, engine, and dashboard.
+In scope: the requirements below, across CLI, HTTP routes, engine, persistence, and dashboard.
 
 Out of scope: video or PDF input; multi-frame GIF handling beyond frame one; server-side resizing of
 GIF (see §4.4); automatic re-captioning when a preset changes.
 
+## Architecture and delivery sequence
+
+Implementation proceeds through dependency-ordered phases. Each phase must be independently green
+before the next begins.
+
+1. **Phase A — shared admission core.** One runtime-schema-backed path owns byte limits,
+   dimensions, model and preset pixel ceilings, metadata, and format-preserving downscaling.
+2. **Phase B — engine.** Image-only chat turns execute, repository `read` can return images, and
+   vision, retention, and live-context re-read rules are enforced.
+3. **Phase C — retention and replay.** Synthetic image messages persist and replay in position;
+   images age independently and leaving context releases their re-read guards.
+4. **Phase D — routes.** Repo-search and plan routes carry images through the same preset checks
+   and shared admission contracts.
+5. **Phase E — dashboard and operational diagnostics.** The composer previews and removes images,
+   downscales before upload, renders admitted images and metadata, requests cached independent
+   captions on demand, and surfaces pixel-cap, GPU-headroom, and phase-aware OOM guidance.
+6. **Phase F — verification.** The full test suite, typecheck, lint, deliberate-asymmetry checks,
+   and a live-provider smoke test when available close the feature.
+
+No entry point owns a parallel image schema or admission policy. Admitted image metadata is derived
+once and carried through transcript persistence and rendering.
+
 ## 1. Images-only turns reach the engine
 
-`src/repo-search/execute.ts:288-292` becomes prompt-or-image:
+`src/repo-search/execute.ts:292-296` becomes prompt-or-image:
 
 ```ts
 const prompt = String(request.prompt || '').trim();
@@ -152,6 +175,10 @@ decoding. Every HTTP route inherits it through `parseImageDataUrls`, closing the
 `ImageAttachmentReader.read` keeps its pre-encode check — cheaper, and it catches the file before
 base64 inflates it by a third — but both read the same constant.
 
+`ImageDataUrlSchema`, its inferred type, the supported image MIME schema, and
+`SIFT_MAX_IMAGE_BYTES` live in `@siftkit/contracts`, which both server and dashboard can import.
+The old server-local schema and constant are removed rather than re-exported.
+
 The zod schema stays cheap: prefix, MIME, byte length. Dimension and token admission is a separate
 explicit step, because decoding inside a schema refinement is both slow and wrongly placed.
 
@@ -165,23 +192,40 @@ explicit step, because decoding inside a schema refinement is both slow and wron
 
 ### 4.3 Token ceiling derived from the model
 
-`resolveImageTokenBudget(preset)` reads `preprocessor_config.json` from the preset's `ModelPath`
-(`packages/contracts/src/config.ts:71`) and derives pixels-per-token from `max_pixels`, patch size
-and merge size. Result is cached per preset and logged with its source. When the file is absent or
-unparseable it falls back to a default ratio **and says so loudly** rather than silently.
+`resolveImageTokenBudget(preset)` reads `preprocessor_config.json` beside the model weights under
+the preset's `ModelPath` (`packages/contracts/src/config.ts:71`). The installed Qwen3-VL processor
+uses `size.longest_edge` and `size.shortest_edge`; despite their names, these values are total pixel
+counts. Older compatible processors may use top-level `max_pixels` and `min_pixels`, so the runtime
+schema accepts both shapes and normalizes them into one derived budget. Pixels per token come from
+`patch_size` and `merge_size`.
 
-The resolved ceiling surfaces in the preset panel, so the limit is visible before it is hit.
+Verified against the resident model on 2026-08-07: `patch_size = 16`, `merge_size = 2`, and
+`size.longest_edge = 16_777_216`, yielding 1,024 pixels per image token. The existing 2,048-token
+context estimate therefore binds at 2,097,152 pixels (about 2.1 MP), below the model's 16.8 MP
+ceiling. `VisionMaxImagePixels` may narrow this ceiling but never widen it.
 
-**Verification required during implementation:** the model directory layout on the target machine was
-not confirmed — TabbyAPI exposes only directory names through `/v1/models`. The first implementation
-task is to confirm `preprocessor_config.json` sits beside the weights. If it does not, the fallback
-ratio is the shipped behaviour and this section reduces to a constant.
+`VisionMaxImagePixels` is stored as an integer total-pixel count and displayed in megapixels. A
+value of `0` means no user cap, so the derived model-and-context ceiling applies. Positive values
+may reduce the effective ceiling; values above the derived ceiling have no effect. The preset panel
+provides the control and a compact megapixel-to-dimensions reference so non-square images are not
+misrepresented as an edge-length limit.
+
+The result is cached by preset id and normalized `ModelPath` and logged with its source, so changing
+the model path recomputes it. When the file is absent or unparseable,
+resolution uses one explicit model-family fallback and logs that fallback loudly rather than
+silently.
+
+The resolved ceiling, estimated per-image context cost, and estimated transient encode-memory cost
+surface in the preset panel, so the limits are visible before an image is sent. The panel states
+that `VisionMaxImagePixels` affects per-request encoding and context consumption, not startup VRAM.
 
 ### 4.4 Downscaling
 
 Images above the ceiling are downscaled to fit rather than rejected. Target dimensions come from one
 shared function, `computeTargetDimensions(width, height, maxPixels)`, used by both execution paths;
-only the resampling call differs. Format is preserved; animated GIF takes frame one.
+only the resampling call differs. PNG, JPEG, and WebP preserve format. A browser-downscaled GIF
+uses frame one and becomes PNG because browser canvas cannot encode GIF; its resize annotation says
+so explicitly.
 
 **Dashboard attachments resize in the browser** with `createImageBitmap` +
 `OffscreenCanvas.convertToBlob()`. No dependency, and it fixes the problem at its source: a 60 MB
@@ -286,10 +330,13 @@ Images render inline in the message bubble. Beneath each, a collapsed disclosure
 ```
 
 Metadata is computed once at admission and persisted with the message, so display costs nothing.
+The shared contract schema contains `width`, `height`, `originalWidth`, `originalHeight`, `mime`,
+`byteLength`, `tokenEstimate`, `resized`, and nullable `caption`; consumers derive its TypeScript
+type from that schema rather than duplicating it.
 
-Expanding requests a caption from a new endpoint, which runs a single-turn vision pass, persists the
-result and returns it. Cached — a second expand is free. It takes the model-request lock like every
-other inference route and passes through `assertPresetAcceptsImages`.
+Expanding requests a caption from a dedicated image-caption endpoint, which runs a single-turn
+vision pass, persists the result and returns it. Cached — a second expand is free. It takes the
+model-request lock like every other inference route and passes through `assertPresetAcceptsImages`.
 
 **The caption is labelled as an independent read of the image, not a transcript of the original
 turn.** It is a second, separate perception. It answers "is this image legible to this model at this
@@ -314,7 +361,27 @@ the run log renders.
 new class of dependency. `sharp` is the documented fallback if server-side GIF resize becomes
 necessary.
 
-## 8. Testing
+## 8. GPU cost visibility and OOM guidance
+
+The image-token budget also reads the vision encoder geometry from the model's adjacent
+`config.json`. `estimateVisionPeakVramBytes` estimates the transient peak for one image at the
+effective ceiling from patch grouping, hidden and intermediate sizes, numeric precision, and one
+named working-set factor. The initial factor is `2.5`; it is explicitly an estimate and must be
+calibrated against observed peak VRAM during the first successful live vision smoke test. It is not
+used as an admission or startup-memory calculation.
+
+`readGpuMemory()` probes `nvidia-smi`, caches the result briefly, and returns `null` when no supported
+GPU reading is available. The preset panel compares free VRAM with the estimated one-image encode
+peak and renders nothing when the reading is unavailable, a warning below twice the estimated peak,
+and an error at or below the estimated peak. Sending an image uses the same assessment to produce a
+toast. These findings inform but never block a request.
+
+OOM guidance is phase-aware. Startup OOM classification recognizes llama.cpp and PyTorch/exl3 forms
+and points only to model/KV-cache controls because image size does not affect model loading. An OOM
+from a turn carrying images may be classified as image-encode failure and point to the current
+`VisionMaxImagePixels` value. A text-only generation failure must never be labelled as image encode.
+
+## 9. Testing
 
 TDD throughout; each item is a failing test first.
 
@@ -352,20 +419,27 @@ TDD throughout; each item is a failing test first.
 - oversized attachment downscales in-browser before upload and shows the resize badge
 - annotation renders metadata collapsed; caption fetched on first expand and cached
 
+**GPU visibility and failures**
+- peak encode-memory estimate scales with image tokens and uses parsed encoder geometry; missing
+  geometry takes the explicit fallback path
+- unavailable GPU telemetry produces no warning; comfortable, tight, and insufficient headroom
+  produce the specified panel and toast behavior without blocking send
+- llama.cpp and PyTorch/exl3 OOM forms classify with or without numeric memory details
+- startup guidance never names image size; image-encode guidance names the current megapixel cap;
+  text-only failures never take the image-encode path
+
 Before completion: relevant tests, the broader suite, `npm run typecheck`, `npm run lint`.
 
-## 9. Risks and open items
+## 10. Risks and open items
 
-1. **`preprocessor_config.json` location unverified** (§4.3). First implementation task; documented
-   fallback if absent.
-2. **TabbyAPI tool-role image handling unverified.** Sidestepped by the user-message transport
+1. **TabbyAPI tool-role image handling unverified.** Sidestepped by the user-message transport
    (§3.4), so this is a design constraint rather than an open risk — but it is the reason for that
    choice and should not be "simplified" away later without testing.
-3. **The local provider is down.** TabbyAPI returned 503 on every completion during this design
-   work, including plain text with no images, on both `/v1/chat/completions` and `/v1/completions`,
-   with the model resident. End-to-end verification of any vision behaviour is blocked until that is
-   resolved; it is an environment fault, not a SiftKit defect.
-4. **Caption cost.** One extra vision pass per expanded image. Bounded by being on-demand and
-   cached, but it is real GPU time on a box with ~1.8 GB free VRAM.
-5. **`VisionImageRetention: -1`** defers entirely to compaction. Compaction dropping an image
+2. **The local provider was unavailable during the original design work.** TabbyAPI returned 503 on
+   every completion, including plain text with no images, on both `/v1/chat/completions` and
+   `/v1/completions`, with the model resident. Live vision verification remains an explicit final
+   acceptance step and is reported as unverified if the environment is still unavailable.
+3. **Caption cost.** One extra vision pass per expanded image. It is bounded by being on-demand and
+   cached, but it consumes real GPU time.
+4. **`VisionImageRetention: -1`** defers entirely to compaction. Compaction dropping an image
    message must release the §5.3 re-read guard, or the model is stranded exactly as in §5.1.

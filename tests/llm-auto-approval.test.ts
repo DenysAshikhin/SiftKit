@@ -8,7 +8,12 @@ import {
   APPROVAL_REVIEW_PAYLOAD_LABEL,
   APPROVAL_REVIEW_REQUEST_MARKER,
 } from '../src/repo-search/approval-review-policy.js';
-import type { ApprovalGate } from '../src/repo-search/engine/approval-gate.js';
+import {
+  CLIENT_ABORT_MESSAGE,
+  buildApprovalTimeoutMessage,
+  type ApprovalDecision,
+  type ApprovalGate,
+} from '../src/repo-search/engine/approval-gate.js';
 import { LlmApprovalGate } from '../src/repo-search/engine/llm-approval-gate.js';
 import { ProgressWriter, SilentProgressWriter } from '../src/lib/progress-writer.js';
 import { parseJsonValueText } from '../src/lib/json.js';
@@ -34,9 +39,9 @@ class UnansweringWriter extends ProgressWriter<RepoSearchProgressEvent> {
 /**
  * Regression for the deadlock behind a 17-minute freeze: when the auto-reviewer cannot produce a
  * verdict it escalates to the human gate, and a caller that never answers left that escalation
- * parked forever while holding the model lock. It must terminate as a denial instead.
+ * parked forever while holding the model lock. It must terminate the run instead.
  */
-test('an auto-review that reaches no verdict denies when nobody answers the escalation', async () => {
+test('an auto-review that reaches no verdict aborts when nobody answers the escalation', async () => {
   const writer = new UnansweringWriter();
   const harness = new ApprovalGateHarness(writer, false, ESCALATION_DECISION_TIMEOUT_MS);
   const gate = new LlmApprovalGate({
@@ -61,8 +66,8 @@ test('an auto-review that reaches no verdict denies when nobody answers the esca
   });
 
   assert.deepEqual(decision, {
-    kind: 'deny',
-    reason: `No approval decision was received within ${ESCALATION_DECISION_TIMEOUT_MS}ms; the command was not executed.`,
+    kind: 'abort',
+    reason: buildApprovalTimeoutMessage(ESCALATION_DECISION_TIMEOUT_MS),
   });
   assert.deepEqual(
     writer.events.map((event) => event.kind),
@@ -70,21 +75,19 @@ test('an auto-review that reaches no verdict denies when nobody answers the esca
   );
 });
 
-type ScriptedDecision = { kind: 'approve' } | { kind: 'deny'; reason: string } | { kind: 'abort' };
-
 /** Explicit decision-provider interface — no dynamic callbacks. */
 interface DecisionProvider {
-  decide(event: RepoSearchProgressEvent): ScriptedDecision;
+  decide(event: RepoSearchProgressEvent): ApprovalDecision;
 }
 
 class AlwaysAbortProvider implements DecisionProvider {
-  decide(_event: RepoSearchProgressEvent): ScriptedDecision {
-    return { kind: 'abort' };
+  decide(_event: RepoSearchProgressEvent): ApprovalDecision {
+    return { kind: 'abort', reason: CLIENT_ABORT_MESSAGE };
   }
 }
 
 class AlwaysApproveProvider implements DecisionProvider {
-  decide(_event: RepoSearchProgressEvent): ScriptedDecision {
+  decide(_event: RepoSearchProgressEvent): ApprovalDecision {
     return { kind: 'approve' };
   }
 }

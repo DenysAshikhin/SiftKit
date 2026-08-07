@@ -113,7 +113,10 @@ class ReplayVerdictRequester implements ApprovalVerdictRequester {
 
 class FailClosedHumanGate implements ApprovalRequester {
   request(_input: ApprovalRequestInput): Promise<ApprovalDecision> {
-    return Promise.resolve({ kind: 'abort' });
+    return Promise.resolve({
+      kind: 'abort',
+      reason: 'Approval verdict probe reached the human gate; failing closed.',
+    });
   }
 }
 

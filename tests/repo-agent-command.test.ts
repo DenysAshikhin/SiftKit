@@ -386,7 +386,7 @@ test('non-TTY start keeps activity summaries on stderr and stdout parseable', as
   assert.equal(capture.stdout.read().includes('activity summary'), false);
 });
 
-test('non-TTY start emits the complete approval boundary', async () => {
+test('non-TTY start emits the approval boundary, banners stderr, and exits 3', async () => {
   const harness = makeHarness('approval');
   const capture = makeStreams();
   const code = await harness.command.run(
@@ -394,15 +394,26 @@ test('non-TTY start emits the complete approval boundary', async () => {
     capture.streams,
   );
 
-  assert.equal(code, 0);
+  assert.equal(code, 3);
   const result = parseSingleResult(capture.stdout);
   assert.equal(result.status, 'approval_required');
+  if (result.status !== 'approval_required') {
+    assert.fail('Expected approval_required result.');
+  }
   assert.deepEqual(result.approval, {
     approvalId: result.approval.approvalId,
     toolName: 'edit',
     command: 'edit path=src/example.ts edits=1',
     reviewPayload: '{\n  "path": "src/example.ts"\n}',
   });
+  const stderr = capture.stderr.read();
+  assert.match(stderr, /Exiting: approval required/u);
+  assert.match(stderr, /Tool: edit/u);
+  assert.match(stderr, /Command: edit path=src\/example\.ts edits=1/u);
+  assert.match(stderr, /"path": "src\/example\.ts"/u);
+  assert.match(stderr, new RegExp(`siftkit repo-agent decide ${result.runId} approve`, 'u'));
+  assert.match(stderr, new RegExp(`siftkit repo-agent decide ${result.runId} deny --reason "<why>"`, 'u'));
+  assert.match(stderr, new RegExp(`siftkit repo-agent decide ${result.runId} abort`, 'u'));
 });
 
 test('launch failure emits one failed object and returns non-zero', async () => {

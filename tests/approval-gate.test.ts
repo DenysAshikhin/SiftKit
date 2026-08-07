@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ProgressWriter } from '../src/lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import { DEFAULT_DECISION_TIMEOUT_MS } from '../src/repo-search/engine/approval-gate.js';
+import {
+  DEFAULT_DECISION_TIMEOUT_MS,
+  buildApprovalTimeoutMessage,
+} from '../src/repo-search/engine/approval-gate.js';
 import { ApprovalGateHarness } from './helpers/approval-gate-harness.js';
 
 class CollectingWriter extends ProgressWriter<RepoSearchProgressEvent> {
@@ -85,7 +88,8 @@ test('the decision timeout matches the ten minutes the repo-agent prompter waits
 
 // Without this bound the gate parks forever: a run whose client never answers holds the model
 // lock indefinitely, which is how one operation held it for 943s with a queue behind it.
-test('an unanswered approval denies once the decision timeout elapses', async (t) => {
+// Timing out must end the run, not inject a denial the planner silently absorbs.
+test('an unanswered approval aborts the run once the decision timeout elapses', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const writer = new CollectingWriter();
   const gate = new ApprovalGateHarness(writer).gate;
@@ -99,10 +103,10 @@ test('an unanswered approval denies once the decision timeout elapses', async (t
   t.mock.timers.tick(DEFAULT_DECISION_TIMEOUT_MS);
 
   assert.deepEqual(await pending, {
-    kind: 'deny',
-    reason: `No approval decision was received within ${DEFAULT_DECISION_TIMEOUT_MS}ms; the command was not executed.`,
+    kind: 'abort',
+    reason: buildApprovalTimeoutMessage(DEFAULT_DECISION_TIMEOUT_MS),
   });
-  // The approval is gone, so a late decision cannot resurrect a command already reported as denied.
+  // The approval is gone, so a late decision cannot resurrect a command already reported as timed out.
   assert.equal(gate.submit(String(writer.events[0].approvalId), { kind: 'approve' }), false);
 });
 
@@ -252,4 +256,65 @@ test('manual approval event carries the transient review payload but the decisio
   assert.equal(writer.events[0].reviewPayload, reviewPayload);
   gate.submit(String(writer.events[0].approvalId), { kind: 'approve' });
   assert.deepEqual(await pending, { kind: 'approve' });
+});
+
+// ---- Console visibility: a parked approval must never be silent ----
+
+test('the gate logs a park line and a decision line around an approval wait', async () => {
+  const writer = new CollectingWriter();
+  const harness = new ApprovalGateHarness(writer);
+  const pending = harness.gate.request({
+    turn: 3,
+    toolName: 'write',
+    command: 'write path=src/x.ts bytes=12',
+    reviewPayload: null,
+  });
+  const approvalId = String(writer.events[0].approvalId);
+  assert.equal(harness.logLines.length, 1);
+  assert.match(harness.logLines[0], /approval_wait/u);
+  assert.match(harness.logLines[0], new RegExp(`approval=${approvalId.slice(0, 8)}`, 'u'));
+  assert.match(harness.logLines[0], /tool=write/u);
+  assert.match(harness.logLines[0], new RegExp(`timeout_ms=${DEFAULT_DECISION_TIMEOUT_MS}`, 'u'));
+  assert.match(harness.logLines[0], /command=write path=src\/x\.ts bytes=12/u);
+
+  harness.gate.submit(approvalId, { kind: 'approve' });
+  await pending;
+  assert.equal(harness.logLines.length, 2);
+  assert.match(harness.logLines[1], /approval_decision/u);
+  assert.match(harness.logLines[1], /decision=approve/u);
+  assert.match(harness.logLines[1], /waited_ms=\d+/u);
+});
+
+test('an expired approval logs approval_timeout', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const writer = new CollectingWriter();
+  const harness = new ApprovalGateHarness(writer);
+  const pending = harness.gate.request({
+    turn: 1, toolName: 'run', command: 'npm test', reviewPayload: null,
+  });
+  t.mock.timers.tick(DEFAULT_DECISION_TIMEOUT_MS);
+  await pending;
+  assert.equal(harness.logLines.length, 2);
+  assert.match(harness.logLines[1], /approval_timeout/u);
+  assert.match(harness.logLines[1], /tool=run/u);
+  assert.match(harness.logLines[1], new RegExp(`waited_ms=${DEFAULT_DECISION_TIMEOUT_MS}`, 'u'));
+});
+
+test('a client disconnect while parked logs approval_abandoned, an immediate abort logs nothing', async () => {
+  const writer = new CollectingWriter();
+  const parked = new ApprovalGateHarness(writer);
+  const pending = parked.gate.request({
+    turn: 1, toolName: 'write', command: 'write path=a.ts', reviewPayload: null,
+  });
+  parked.controller.abort(new Error('client disconnected'));
+  await assert.rejects(pending, /client disconnected/u);
+  assert.equal(parked.logLines.length, 2);
+  assert.match(parked.logLines[1], /approval_abandoned/u);
+
+  const preAborted = new ApprovalGateHarness(new CollectingWriter());
+  preAborted.controller.abort(new Error('stream already closed'));
+  await assert.rejects(preAborted.gate.request({
+    turn: 1, toolName: 'write', command: 'write path=a.ts', reviewPayload: null,
+  }), /stream already closed/u);
+  assert.equal(preAborted.logLines.length, 0);
 });

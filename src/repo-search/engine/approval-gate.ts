@@ -1,8 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { z } from '../../lib/zod.js';
 import { getAbortError } from '../../lib/abort.js';
+import { ServerLogger, serverLogger, shortenRequestId } from '../../status-server/server-logger.js';
 import type { ProgressWriter } from '../../lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../types.js';
+
+const LOGGED_COMMAND_MAX_CHARS = 100;
+
+function truncateForLog(command: string): string {
+  return command.length <= LOGGED_COMMAND_MAX_CHARS
+    ? command
+    : `${command.slice(0, LOGGED_COMMAND_MAX_CHARS)}…`;
+}
 
 export const ApprovalDecisionKindSchema = z.enum(['approve', 'deny', 'abort']);
 
@@ -46,38 +55,43 @@ export type ApprovalRequester = {
 export type ApprovalDecision =
   | { kind: 'approve' }
   | { kind: 'deny'; reason: string }
-  | { kind: 'abort' };
+  | { kind: 'abort'; reason: string };
+
+/** Wording for an abort a human entered, wherever they entered it. */
+export const CLIENT_ABORT_MESSAGE = 'Aborted by user.';
 
 export function toApprovalDecision(request: RepoSearchApprovalRequest): ApprovalDecision {
   if (request.decision === 'deny') {
     return { kind: 'deny', reason: (request.reason ?? '').trim() };
   }
-  return { kind: request.decision };
+  if (request.decision === 'abort') {
+    return { kind: 'abort', reason: CLIENT_ABORT_MESSAGE };
+  }
+  return { kind: 'approve' };
 }
 
 /**
- * How long a pending approval waits for a decision before denying the command.
+ * How long a pending approval waits for a decision before the run is stopped.
  *
  * Shared with the repo-agent `decide` flow so both ways of answering an approval expire together.
  * The wait must be bounded: a run parked here holds the model lock, so a caller that never answers
  * — a CLI run, or a client that ignores approval frames — would wedge the server for every later
  * request. It must also stay well under the server's model-lock hold ceiling, or the lock would be
- * force-released out from under a run that still believes it holds it.
+ * force-released out from under a run that still believes it holds it. Expiry aborts the run rather
+ * than denying the command, so an unanswered approval cannot be silently absorbed by the planner.
  */
 export const DEFAULT_DECISION_TIMEOUT_MS = 600_000;
 
-/** One wording for an expired approval, so the gate and the repo-agent prompter cannot drift. */
-export function buildApprovalTimeoutDenial(timeoutMs: number): ApprovalDecision {
-  return {
-    kind: 'deny',
-    reason: `No approval decision was received within ${timeoutMs}ms; the command was not executed.`,
-  };
+/** One wording for an expired approval, shared by the gate and the repo-agent prompter. */
+export function buildApprovalTimeoutMessage(timeoutMs: number): string {
+  return `No approval decision was received within ${timeoutMs}ms; the run was stopped (approval timeout).`;
 }
 
 type PendingApproval = {
   resolve: (decision: ApprovalDecision) => void;
   abortListener: () => void;
   timeoutHandle: NodeJS.Timeout | null;
+  startedAtMs: number;
 };
 
 /**
@@ -92,6 +106,7 @@ export class ApprovalGate {
   private readonly abortSignal: AbortSignal;
   private readonly bypassReadOnlyTools: boolean;
   private readonly decisionTimeoutMs: number;
+  private readonly logger: ServerLogger;
 
   constructor(options: {
     requestId: string;
@@ -99,7 +114,9 @@ export class ApprovalGate {
     abortSignal: AbortSignal;
     bypassReadOnlyTools: boolean;
     decisionTimeoutMs?: number;
+    logger?: ServerLogger;
   }) {
+    this.logger = options.logger ?? serverLogger;
     this.requestId = options.requestId;
     this.progressWriter = options.progressWriter;
     this.abortSignal = options.abortSignal;
@@ -121,10 +138,24 @@ export class ApprovalGate {
     const approvalId = randomUUID();
     return new Promise<ApprovalDecision>((resolve, reject) => {
       const abortListener = () => {
+        const parked = entry.timeoutHandle !== null;
         this.clearPending(approvalId);
+        if (parked) {
+          this.logger.dim({
+            scope: 'rs',
+            id: this.requestId,
+            event: 'approval_abandoned',
+            fields: `approval=${shortenRequestId(approvalId)} reason=client_disconnected`,
+          });
+        }
         reject(getAbortError(this.abortSignal));
       };
-      const entry: PendingApproval = { resolve, abortListener, timeoutHandle: null };
+      const entry: PendingApproval = {
+        resolve,
+        abortListener,
+        timeoutHandle: null,
+        startedAtMs: Date.now(),
+      };
       this.pending.set(approvalId, entry);
       this.abortSignal.addEventListener('abort', abortListener, { once: true });
       if (this.abortSignal.aborted) {
@@ -135,7 +166,14 @@ export class ApprovalGate {
       // on the paths that settle the approval, so it cannot outlive the request.
       entry.timeoutHandle = setTimeout(() => {
         this.clearPending(approvalId);
-        resolve(buildApprovalTimeoutDenial(this.decisionTimeoutMs));
+        this.logger.error({
+          scope: 'rs',
+          id: this.requestId,
+          event: 'approval_timeout',
+          fields: `approval=${shortenRequestId(approvalId)} tool=${input.toolName} `
+            + `waited_ms=${this.decisionTimeoutMs}`,
+        });
+        resolve({ kind: 'abort', reason: buildApprovalTimeoutMessage(this.decisionTimeoutMs) });
       }, this.decisionTimeoutMs);
       this.progressWriter.write({
         kind: 'approval_request',
@@ -148,6 +186,13 @@ export class ApprovalGate {
           ? {}
           : { reviewPayload: input.reviewPayload }),
       });
+      this.logger.warning({
+        scope: 'rs',
+        id: this.requestId,
+        event: 'approval_wait',
+        fields: `approval=${shortenRequestId(approvalId)} tool=${input.toolName} `
+          + `timeout_ms=${this.decisionTimeoutMs} command=${truncateForLog(input.command)}`,
+      });
     });
   }
 
@@ -157,6 +202,13 @@ export class ApprovalGate {
       return false;
     }
     this.clearPending(approvalId);
+    this.logger.event({
+      scope: 'rs',
+      id: this.requestId,
+      event: 'approval_decision',
+      fields: `approval=${shortenRequestId(approvalId)} decision=${decision.kind} `
+        + `waited_ms=${Date.now() - entry.startedAtMs}`,
+    });
     entry.resolve(decision);
     return true;
   }

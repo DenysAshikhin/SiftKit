@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { runTaskLoop } from '../src/repo-search/engine.js';
-import type { ApprovalGate } from '../src/repo-search/engine/approval-gate.js';
+import {
+  CLIENT_ABORT_MESSAGE,
+  type ApprovalDecision,
+  type ApprovalGate,
+} from '../src/repo-search/engine/approval-gate.js';
 import { ProgressWriter } from '../src/lib/progress-writer.js';
 import { INTERACTIVE_REPO_TOOL_NAMES, resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
@@ -13,12 +17,10 @@ import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { ApprovalGateHarness } from './helpers/approval-gate-harness.js';
 
-type ScriptedDecision = { kind: 'approve' } | { kind: 'deny'; reason: string } | { kind: 'abort' };
-
 class AutoRespondingWriter extends ProgressWriter<RepoSearchProgressEvent> {
   public readonly approvalEvents: RepoSearchProgressEvent[] = [];
   public gate: ApprovalGate | null = null;
-  constructor(private readonly decide: (event: RepoSearchProgressEvent) => ScriptedDecision) {
+  constructor(private readonly decide: (event: RepoSearchProgressEvent) => ApprovalDecision) {
     super();
   }
   get enabled(): boolean { return true; }
@@ -146,7 +148,10 @@ test('denied read never executes (no read output recorded)', async () => {
 test('abort throws out of the run', async () => {
   const tempRoot = createManagedTempDir('siftkit-approval-abort-');
   try {
-    const writer = new AutoRespondingWriter(() => ({ kind: 'abort' }));
+    const writer = new AutoRespondingWriter(() => ({
+      kind: 'abort',
+      reason: CLIENT_ABORT_MESSAGE,
+    }));
     const gate = new ApprovalGateHarness(writer).gate;
     writer.gate = gate;
     await assert.rejects(
