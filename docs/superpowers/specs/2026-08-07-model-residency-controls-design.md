@@ -42,7 +42,7 @@ SleepIdleSeconds: number                 // default 600, existing validator
 
 `PRESET_FIELD_SUPPORT` (`src/inference-presets/preset-compatibility.ts:135`) marks `IdleAction` as `'both'`, with the `'ram'` value rejected for llama presets. This follows the existing per-value gating precedent of `KvCacheQuantization: 'exl3-cache-modes'`.
 
-Persistence adds a `server_idle_action` column to `app_config`, following the additive migration pattern at `src/state/runtime-db.ts:1349`. It defaults to `'unload'`, which reproduces current behavior, so existing presets are unaffected.
+Persistence requires no schema migration. Presets are stored as a JSON array in `app_config.server_llama_presets_json` (`src/state/runtime-db.ts:685-700`); the per-field `server_*` columns, including `server_sleep_idle_seconds`, were dropped by migration v26 (`src/state/runtime-db.ts:656-671`). Preset JSON written before this change simply lacks `IdleAction`, and `normalizeModelPreset` supplies the `'unload'` default on read, which reproduces current behavior.
 
 ## Runtime state and status-server API
 
@@ -86,7 +86,7 @@ The idle timer remains armed only by request release, as today. A manual load th
 
 This produces a deliberate asymmetry that is documented rather than hidden: on llama presets, `IdleAction: 'unload'` puts `llama-server` to sleep with the process still running, while the manual unload button stops the process. Both free VRAM.
 
-`GET /props` reports `is_sleeping` (`tools/server/server-context.cpp:4543`). The llama healthcheck adopts it so `modelState` reflects real residency instead of being inferred from process state.
+`GET /props` reports `is_sleeping` (`tools/server/server-context.cpp:4543`), which would let `modelState` reflect real llama.cpp residency instead of being inferred from process state. This is deliberately **out of scope**. Consuming it needs either a background poller or a probe on the hot `/runtime/inference` route, and it buys only cosmetic accuracy: a sleeping `llama-server` still wakes on any request, so the Load button is unnecessary in that state and the Unload button works regardless. The consequence accepted here is that a llama preset whose `llama-server` has slept on its own timer still reports `modelState: 'ready'`.
 
 ## EXL3 RAM offload
 
@@ -131,6 +131,8 @@ Three constraints are load-bearing:
 Host RAM cost is approximately the model's VRAM footprint, held only while offloaded. Dropping the copy on restore means the next offload re-extracts through a device-to-host copy, which is cheap relative to a disk reload.
 
 TabbyAPI gains `POST /v1/model/offload` and `POST /v1/model/restore`, both admin-key, alongside the existing `/v1/model/unload` (`endpoints/core/router.py:211`). `PresetRuntimeCoordinator.ensureActivePresetReady()` (`src/status-server/preset-runtime-coordinator.ts:78-94`) routes to restore rather than a cold load when the model state is `'offloaded'`, so an incoming request auto-wakes from RAM.
+
+Offload must not reuse `ManagedTabbyRuntime.unloadPreset()`. That method stops the entire TabbyAPI process when `shouldManage(preset)` holds, which is `engine.Managed && !preset.ExternalServerEnabled` (`src/status-server/managed-tabby.ts:114-117, 293-295`); only external servers take the `/v1/model/unload` branch. A stopped process cannot hold weights in its own address space, so `offloadPreset()` is a new method that always talks to the running server over HTTP and never touches `stopProcess()`. Restore likewise calls `/v1/model/restore` rather than the managed load path, which uses `verifyResident` rather than `/v1/model/load` (`src/status-server/managed-tabby.ts:258-274`).
 
 This work is expected to land entirely in the TabbyAPI fork with no exllamav3 patch, on the strength of constraint 1. If implementation proves an assert still fires, the fallback is relaxing it in exllamav3, which means maintaining a fork of a pinned pip dependency (`turboderp-org/exllamav3@8e08af9`, installed to site-packages). The implementation plan must make this an explicit checkpoint before further EXL3 work proceeds.
 
