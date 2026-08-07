@@ -6,6 +6,7 @@ import {
   resolveRepoSearchPlannerToolDefinitions,
   type PlannerThinkingFlags,
 } from '../planner-protocol.js';
+import { IncrementalTokenCounter } from '../incremental-token-counter.js';
 import { compactPlannerMessagesOnce, preflightPlannerPromptBudget } from '../prompt-budget.js';
 import type { JsonLogger } from '../types.js';
 import { ProgressReporter } from './progress-reporter.js';
@@ -30,6 +31,9 @@ export class PromptPreparer {
       timingRecorder: TemporaryTimingRecorder | null;
     },
   ) {}
+
+  private readonly transcriptTokenCounter = new IncrementalTokenCounter();
+  private readonly reserveTokenCounter = new IncrementalTokenCounter();
 
   private buildProviderPromptReserveText(messageRoles: readonly string[], maxTokens: number, stream: boolean): string {
     return buildPlannerRequestPromptReserveText({
@@ -76,6 +80,8 @@ export class PromptPreparer {
       providerPromptReserveText,
       totalContextTokens: budget.totalContextTokens,
       responseReserveTokens: budget.responseReserveTokens,
+      transcriptTokenCounter: this.transcriptTokenCounter,
+      reserveTokenCounter: this.reserveTokenCounter,
     });
     preflightSpan?.end({
       promptTokenCount: preflight.promptTokenCount,
@@ -136,6 +142,8 @@ export class PromptPreparer {
         providerPromptReserveText,
         totalContextTokens: budget.totalContextTokens,
         responseReserveTokens: budget.responseReserveTokens,
+        transcriptTokenCounter: this.transcriptTokenCounter,
+        reserveTokenCounter: this.reserveTokenCounter,
       });
       if (afterCompaction.tokenizationAttempted) {
         progress.tokenizeDone(turn, prompt.length, afterCompaction);

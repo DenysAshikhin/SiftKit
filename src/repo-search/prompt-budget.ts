@@ -71,6 +71,28 @@ export async function countTokensWithFallback(config: SiftConfig | undefined, te
   return (await countTokensWithFallbackDetailed(config, text)).tokenCount;
 }
 
+/**
+ * A delta-derived transcript count within this many tokens of the prompt
+ * budget triggers one exact full recount before the overflow decision.
+ * Delta counting drifts ≤ ~2 tokens per seam; this margin bounds a whole
+ * run's drift with room to spare.
+ */
+export const EXACT_RECOUNT_MARGIN_TOKENS = 2048;
+
+export type PromptTokenCounter = {
+  count(
+    config: SiftConfig | undefined,
+    text: string,
+    options?: { forceExact?: boolean },
+  ): Promise<TokenCountWithFallbackResult & { approximate: boolean }>;
+};
+
+const oneShotTokenCounter: PromptTokenCounter = {
+  async count(config, text) {
+    return { ...(await countTokensWithFallbackDetailed(config, text)), approximate: false };
+  },
+};
+
 // ---------------------------------------------------------------------------
 // Prompt budget preflight
 // ---------------------------------------------------------------------------
@@ -99,6 +121,8 @@ export async function preflightPlannerPromptBudget(options: {
   providerPromptReserveText?: string;
   totalContextTokens: number;
   responseReserveTokens: number;
+  transcriptTokenCounter?: PromptTokenCounter;
+  reserveTokenCounter?: PromptTokenCounter;
 }): Promise<PreflightResult> {
   const totalContextTokens = Math.max(1, Number(options.totalContextTokens || 0));
   const responseReserveTokens = Math.max(0, Number(options.responseReserveTokens || 0));
@@ -117,15 +141,30 @@ export async function preflightPlannerPromptBudget(options: {
     : messages.reduce((total, message) => total + countContentImages(message.content), 0)
       * SIFT_IMAGE_TOKEN_ESTIMATE;
 
-  const tokenCount = await countTokensWithFallbackDetailed(options.config, promptText);
-  const transcriptPromptTokenCount = tokenCount.tokenCount + imageTokenCount;
+  const transcriptCounter = options.transcriptTokenCounter ?? oneShotTokenCounter;
+  const reserveCounter = options.reserveTokenCounter ?? oneShotTokenCounter;
+  const maxPromptBudget = Math.max(totalContextTokens - responseReserveTokens, 0);
+
+  let tokenCount = await transcriptCounter.count(options.config, promptText);
   const providerPromptReserveText = String(options.providerPromptReserveText || '').trim();
   const reserveTokenCount = providerPromptReserveText
-    ? await countTokensWithFallbackDetailed(options.config, providerPromptReserveText)
+    ? await reserveCounter.count(options.config, providerPromptReserveText)
     : null;
   const providerPromptReserveTokenCount = reserveTokenCount?.tokenCount ?? 0;
+
+  // A delta-derived count is approximate; when it lands near the budget the
+  // overflow/compaction decision needs an exact number.
+  const provisionalPromptTokenCount = tokenCount.tokenCount + imageTokenCount + providerPromptReserveTokenCount;
+  if (
+    tokenCount.approximate
+    && tokenCount.source !== 'estimate'
+    && provisionalPromptTokenCount >= maxPromptBudget - EXACT_RECOUNT_MARGIN_TOKENS
+  ) {
+    tokenCount = await transcriptCounter.count(options.config, promptText, { forceExact: true });
+  }
+
+  const transcriptPromptTokenCount = tokenCount.tokenCount + imageTokenCount;
   const promptTokenCount = transcriptPromptTokenCount + providerPromptReserveTokenCount;
-  const maxPromptBudget = Math.max(totalContextTokens - responseReserveTokens, 0);
   const overflowTokens = Math.max(promptTokenCount - maxPromptBudget, 0);
   const llamaTokenCount = tokenCount.llamaTokenCount;
   const reserveLlamaTokenCount = reserveTokenCount?.llamaTokenCount ?? null;
