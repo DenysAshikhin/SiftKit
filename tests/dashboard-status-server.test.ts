@@ -7,6 +7,10 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { createRequire } from 'node:module';
 
 import { z } from '../src/lib/zod.js';
+import {
+  ChatStreamTextDeltaSchema,
+  type ChatStreamTextDelta,
+} from '@siftkit/contracts';
 import { parseJsonValueText } from '../src/lib/json.js';
 import type { OptionalJsonValue } from '../src/lib/json-types.js';
 import { startStatusServer } from '../src/status-server/index.js';
@@ -14,6 +18,10 @@ import { writeConfig, getDefaultConfig } from '../src/status-server/config-store
 import { getConfigPath, SIFT_DEFAULT_LLAMA_BASE_URL } from '../src/config/index.js';
 import { readChatSessions, saveChatSession } from '../src/state/chat-sessions.js';
 import { writeRuntimeLaunchSnapshot } from '../src/status-server/runtime-launch-snapshot.js';
+import {
+  LIVE_TEXT_FLUSH_MAX_LATENCY_MS,
+  LIVE_TEXT_FLUSH_MAX_PENDING_CHARS,
+} from '../src/status-server/live-text-delta.js';
 import {
   asArray,
   asObject,
@@ -23,6 +31,7 @@ import {
   requestJson,
   requestSse,
   type Dict,
+  type SseEvent,
   type SseResponse,
 } from './helpers/dashboard-http.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
@@ -43,6 +52,29 @@ function toRunEvents(value: OptionalJsonValue): RunEvent[] {
     at: typeof event.at === 'string' ? event.at : null,
     payload: event.payload ?? null,
   }));
+}
+
+function parseTextDeltaEvent(event: SseEvent): ChatStreamTextDelta {
+  assert.deepEqual(Object.keys(event.payload ?? {}).sort(), ['offset', 'text', 'turn']);
+  const result = ChatStreamTextDeltaSchema.safeParse(event.payload);
+  if (!result.success) {
+    throw new Error(`Invalid ${event.event} delta: ${JSON.stringify(result.error.issues)}`);
+  }
+  assert.equal(result.data.text.length <= LIVE_TEXT_FLUSH_MAX_PENDING_CHARS, true);
+  return result.data;
+}
+
+function assembleTextDeltas(deltas: readonly ChatStreamTextDelta[]): string {
+  let text = '';
+  for (const delta of deltas) {
+    if (delta.offset === 0) {
+      text = delta.text;
+      continue;
+    }
+    assert.equal(delta.offset, text.length);
+    text += delta.text;
+  }
+  return text;
 }
 
 // F14 (test-pyramid rebalance): the pure normalizeWebSearchConfig decisions previously
@@ -1099,6 +1131,11 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
         .filter((event) => ['warning', 'thinking', 'tool_start', 'tool_result', 'done'].includes(event)),
       ['warning', 'thinking', 'tool_start', 'tool_result', 'thinking', 'done'],
     );
+    const planThinkingEvents = planSse.events.filter((event) => event.event === 'thinking');
+    assert.equal(planThinkingEvents.length, 2);
+    for (const event of planThinkingEvents) {
+      parseTextDeltaEvent(event);
+    }
     assert.match(
       String(planSse.events.find((event) => event.event === 'warning')?.payload?.warning || ''),
       /missing-plan-context\.md/u,
@@ -1175,6 +1212,11 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
         .filter((event) => ['warning', 'answer', 'tool_start', 'tool_result', 'done'].includes(event)),
       ['warning', 'answer', 'tool_start', 'tool_result', 'answer', 'done'],
     );
+    const repoAnswerEvents = repoSse.events.filter((event) => event.event === 'answer');
+    assert.equal(repoAnswerEvents.length, 2);
+    for (const event of repoAnswerEvents) {
+      parseTextDeltaEvent(event);
+    }
     assert.match(
       String(repoSse.events.find((event) => event.event === 'warning')?.payload?.warning || ''),
       /missing-repo-context\.md/u,
@@ -1268,6 +1310,132 @@ test('chat session web search defaults on and update persists webSearchEnabled',
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
+test('chat delta SSE bounds payloads, preserves ordering, and flushes its latency tail', async () => {
+  const tempRoot = createManagedTempDir('siftkit-dashboard-chat-delta-');
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const thinkingText = 't'.repeat(LIVE_TEXT_FLUSH_MAX_PENDING_CHARS * 2 + 17);
+  const answerText = 'bounded answer';
+  let thinkingSentAtMs = 0;
+  let answerReleasedAtMs = 0;
+  const llamaServer = http.createServer((request, response) => {
+    if (request.method === 'GET' && request.url === '/v1/models') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ data: [{ id: 'chat-delta-model.gguf' }] }));
+      return;
+    }
+    if (request.method !== 'POST' || request.url !== '/v1/chat/completions') {
+      response.statusCode = 404;
+      response.end();
+      return;
+    }
+    request.resume();
+    request.on('end', () => {
+      response.writeHead(200, { 'content-type': 'text/event-stream' });
+      thinkingSentAtMs = Date.now();
+      response.write(`data: ${JSON.stringify({
+        choices: [{ delta: { reasoning_content: thinkingText } }],
+      })}\n\n`);
+      setTimeout(() => {
+        answerReleasedAtMs = Date.now();
+        const action = JSON.stringify({ action: 'finish', output: answerText });
+        response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: action } }] })}\n\n`);
+        response.write(`data: ${JSON.stringify({
+          choices: [{ delta: {} }],
+          usage: {
+            prompt_tokens: 20,
+            completion_tokens: 10,
+            completion_tokens_details: { reasoning_tokens: 6 },
+          },
+        })}\n\n`);
+        response.end('data: [DONE]\n\n');
+      }, LIVE_TEXT_FLUSH_MAX_LATENCY_MS * 2);
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    llamaServer.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
+  });
+  const llamaAddress = getAddressInfo(llamaServer);
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const config = getDefaultConfig();
+  const modelPreset = config.Server.ModelPresets.Presets[0];
+  if (!modelPreset) {
+    throw new Error('Default model preset is required.');
+  }
+  modelPreset.Model = 'chat-delta-model.gguf';
+  modelPreset.BaseUrl = `http://127.0.0.1:${llamaAddress.port}`;
+  modelPreset.NumCtx = 85_000;
+  writeConfig(getConfigPath(), config);
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
+  await server.startupPromise;
+  const address = getAddressInfo(server);
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const created = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Delta contract', model: 'chat-delta-model.gguf' }),
+    });
+    const sessionId = String(d(created.body.session).id);
+    const sse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
+      method: 'POST',
+      timeoutMs: 5_000,
+      body: JSON.stringify({
+        content: 'Stream a bounded response.',
+        webSearchOverride: 'off',
+        availableModels: ['chat-delta-model.gguf'],
+        model: 'chat-delta-model.gguf',
+      }),
+    });
+
+    assert.equal(sse.statusCode, 200);
+    assert.equal(sse.events.some((event) => event.event === 'error'), false, JSON.stringify(sse.events));
+    const thinkingEvents = sse.events.filter((event) => event.event === 'thinking');
+    const answerEvents = sse.events.filter((event) => event.event === 'answer');
+    assert.equal(thinkingEvents.length, 3, JSON.stringify(sse.events));
+    assert.equal(answerEvents.length, 1, JSON.stringify(sse.events));
+    const thinkingDeltas = thinkingEvents.map(parseTextDeltaEvent);
+    const answerDeltas = answerEvents.map(parseTextDeltaEvent);
+    assert.deepEqual(thinkingDeltas.map((delta) => delta.text.length), [1024, 1024, 17]);
+    assert.deepEqual(thinkingDeltas.map((delta) => delta.offset), [0, 1024, 2048]);
+    assert.equal(assembleTextDeltas(thinkingDeltas), thinkingText);
+    assert.equal(assembleTextDeltas(answerDeltas), answerText);
+
+    const latencyTail = thinkingEvents[2];
+    if (!latencyTail) {
+      throw new Error('Latency tail event was not received.');
+    }
+    assert.equal(
+      latencyTail.receivedAtMs - thinkingSentAtMs >= LIVE_TEXT_FLUSH_MAX_LATENCY_MS - 25,
+      true,
+    );
+    assert.equal(latencyTail.receivedAtMs < answerReleasedAtMs, true);
+
+    const firstAnswerIndex = sse.events.findIndex((event) => event.event === 'answer');
+    const doneIndex = sse.events.findIndex((event) => event.event === 'done');
+    assert.equal(firstAnswerIndex > sse.events.lastIndexOf(latencyTail), true);
+    assert.equal(doneIndex > firstAnswerIndex, true);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    await new Promise<void>((resolve, reject) => {
+      llamaServer.close((error) => (error ? reject(error) : resolve()));
     });
     restoreDashboardTestRepo(previousCwd);
     for (const [key, value] of Object.entries(envBackup)) {

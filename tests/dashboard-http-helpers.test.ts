@@ -46,13 +46,16 @@ test('dashboard HTTP helpers read JSON and SSE payloads', async () => {
       statusCode: 200,
       body: { ok: true },
     });
-    assert.deepEqual(await requestSse(`${baseUrl}/events`), {
-      statusCode: 200,
-      events: [
+    const sse = await requestSse(`${baseUrl}/events`);
+    assert.equal(sse.statusCode, 200);
+    assert.deepEqual(
+      sse.events.map(({ event, payload }) => ({ event, payload })),
+      [
         { event: 'message', payload: { step: 'working' } },
         { event: 'done', payload: { ok: true } },
       ],
-    });
+    );
+    assert.equal(sse.events.every((event) => Number.isFinite(event.receivedAtMs)), true);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }

@@ -10,7 +10,7 @@ import { testHttpAgent } from './http-agent.js';
 
 export type Dict = JsonObject;
 export type JsonResponse = { statusCode: number; body: Dict };
-export type SseEvent = { event: string; payload: Dict | null };
+export type SseEvent = { event: string; payload: Dict | null; receivedAtMs: number };
 export type SseResponse = { statusCode: number; events: SseEvent[] };
 export type RequestOptions = { method?: string; body?: string; timeoutMs?: number };
 
@@ -121,7 +121,7 @@ export function requestSse(url: string, options: RequestOptions = {}): Promise<S
             } catch {
               payload = null;
             }
-            events.push({ event: eventName, payload });
+            events.push({ event: eventName, payload, receivedAtMs: Date.now() });
             if (eventName === 'done' || eventName === 'error') {
               request.destroy();
               resolve({
