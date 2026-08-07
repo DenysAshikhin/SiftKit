@@ -48,6 +48,26 @@ Concrete numbers for this model: `pixelsPerToken = 1024`; `maxPixels = min(16_77
 
 **Current GPU state:** RTX 4090, 24564 MiB total, **831 MiB free** with the model resident. Headroom is genuinely tight, which is why the VRAM readout in Task 24 is worth getting right rather than approximating.
 
+### `VisionMaxImagePixels` does not affect startup VRAM — verified in exllamav3 1.3.0
+
+Checked because the UI copy could easily imply otherwise. In `exllamav3/architecture/qwen3_vl.py`, `max_pixels` is read at config load (line 135) but **only ever consumed inside `preprocess()`** (line 303), which runs per image at request time:
+
+```python
+pp.min_pixels = pp.size["shortest_edge"]  # Mislabeled in preprocessor_config
+pp.max_pixels = pp.size["longest_edge"]
+...
+new_size = qwen2_smart_resize(old_size, pp.patch_size * v.spatial_merge_size, pp.min_pixels, pp.max_pixels)
+```
+
+Every other `max_pixels` site in the package (`glm4v.py:302`, `qwen2_5_vl.py:313`, `mm_processing/qwen2.py`) is the same `smart_resize` call. **There is no load-time allocation anywhere in exllamav3 keyed to image size.** What is allocated at startup is model weights — including the vision tower, whose size is fixed — plus the KV cache sized by `cache_size` (120064 tokens here). Both are independent of any image.
+
+Two consequences that shape this plan:
+
+1. **Task 24's copy must say so explicitly.** Lowering the cap reduces the transient encode spike and the context tokens each image consumes; it does not reduce the memory needed to load the model. A user tuning it down to fix an OOM at startup would be chasing the wrong knob (that one is `NumCtx`).
+2. **exl3 already clamps to the model ceiling, but at 16.78 MP — 16,384 image tokens.** SiftKit's 2048-token estimate is what actually binds, so `VisionMaxImagePixels` is load-bearing for *context*, not for VRAM: without it a single 16 MP image would eat 14% of the 120k context window. That, plus not shipping 20 MB of base64 over HTTP, is what the cap is really for.
+
+Incidentally, `qwen2_5_vl.py:139-146` reads **both** config shapes (`max_pixels` key and `size` dict), and exl3's own comment calls `longest_edge` "mislabeled" — independent confirmation of the Task 5 dual-shape reader.
+
 `@napi-rs/image` is **not** currently installed (`node_modules/@napi-rs/image` absent). Task 3 adds it.
 
 ---
@@ -63,6 +83,8 @@ Concrete numbers for this model: `pixelsPerToken = 1024`; `maxPixels = min(16_77
 | `src/repo-search/engine/image-read.ts` | The `read` image branch: `planImageRead` + `buildImageReadExecution`. Keeps `repo-tools.ts` from growing another 100 lines. |
 | `src/image-retention-policy.ts` | `ImageRetentionPolicy` — ages images out of a message array, mirroring `src/thinking-retention-policy.ts`. |
 | `src/status-server/routes/chat-image-caption.ts` | The on-demand caption endpoint. |
+| `src/status-server/gpu-memory.ts` | `readGpuMemory()` — free VRAM via `nvidia-smi`, briefly cached, `null` when unavailable. |
+| `src/llm-protocol/image-vram-headroom.ts` | `assessImageVramHeadroom()` — grades free VRAM against the encode peak into a toast level. One function, used by both the preset panel and the send path, so they cannot disagree. |
 | `dashboard/src/lib/downscale-image.ts` | Browser-side `createImageBitmap` + `OffscreenCanvas` downscale. |
 | `dashboard/src/components/PendingImageStrip.tsx` | Composer thumbnail strip with per-image removal. |
 | `dashboard/src/components/MessageImages.tsx` | Inline image rendering + collapsed annotation + caption fetch. |
@@ -74,7 +96,7 @@ Concrete numbers for this model: `pixelsPerToken = 1024`; `maxPixels = min(16_77
 
 **Modified files** (each named at its task)
 
-`src/config/constants.ts`, `src/config/defaults.ts`, `src/config/normalization.ts`, `src/inference-presets/preset-compatibility.ts`, `packages/contracts/src/config.ts`, `packages/contracts/src/chat.ts`, `src/llm-protocol/image-attachments.ts`, `src/repo-search/execute.ts`, `src/repo-search/planner-protocol.ts`, `src/repo-search/engine/repo-tools.ts`, `src/repo-search/engine/tool-action-processor.ts`, `src/repo-search/engine/transcript-manager.ts`, `src/repo-search/engine.ts`, `src/repo-search/prompts.ts`, `src/state/runtime-db.ts`, `src/state/chat-sessions.ts`, `src/status-server/chat.ts`, `src/status-server/chat-repo-operation-runner.ts`, `src/status-server/chat-route-request-normalizers.ts`, `src/status-server/routes/chat.ts`, `src/status-server/routes/chat-session-operation-endpoint.ts`, `src/status-server/route-table.ts`, `dashboard/src/api.ts`, `dashboard/src/hooks/useChatSessions.ts`, `dashboard/src/tabs/ChatTab.tsx`, `dashboard/src/tabs/settings/ModelPresetsSection.tsx`, `dashboard/src/styles.css`, `tests/repo-search.test.ts`, `tests/image-attachments.test.ts`.
+`src/config/constants.ts`, `src/config/defaults.ts`, `src/config/normalization.ts`, `src/inference-presets/preset-compatibility.ts`, `packages/contracts/src/config.ts`, `packages/contracts/src/chat.ts`, `src/llm-protocol/image-attachments.ts`, `src/repo-search/execute.ts`, `src/repo-search/planner-protocol.ts`, `src/repo-search/engine/repo-tools.ts`, `src/repo-search/engine/tool-action-processor.ts`, `src/repo-search/engine/transcript-manager.ts`, `src/repo-search/engine.ts`, `src/repo-search/prompts.ts`, `src/state/runtime-db.ts`, `src/state/chat-sessions.ts`, `src/status-server/chat.ts`, `src/status-server/chat-repo-operation-runner.ts`, `src/status-server/chat-route-request-normalizers.ts`, `src/status-server/routes/chat.ts`, `src/status-server/routes/chat-session-operation-endpoint.ts`, `src/status-server/route-table.ts`, `src/status-server/managed-llama.ts`, `dashboard/src/managed-llama-restart.ts`, `dashboard/src/hooks/useSettingsController.ts`, `dashboard/src/api.ts`, `dashboard/src/hooks/useChatSessions.ts`, `dashboard/src/tabs/ChatTab.tsx`, `dashboard/src/tabs/settings/ModelPresetsSection.tsx`, `dashboard/src/styles.css`, `tests/repo-search.test.ts`, `tests/image-attachments.test.ts`.
 
 ---
 
@@ -3761,6 +3783,14 @@ test('the VRAM figure switches to GB once it passes a gigabyte', () => {
 test('the VRAM figure is labelled as a transient estimate, not steady-state usage', () => {
   render(<ModelPresetsSection {...visionProps()} />);
   assert.ok(screen.getByText(/released once the image is encoded/iu));
+  assert.ok(screen.getByText(/not part of startup allocation/iu));
+});
+
+test('the copy states that lowering the cap does not reduce startup VRAM', () => {
+  // Verified in exllamav3 1.3.0: max_pixels is consumed only inside preprocess(), per request.
+  // Nothing at model load depends on image size, so copy implying otherwise is a real defect.
+  render(<ModelPresetsSection {...visionProps()} />);
+  assert.ok(screen.getByText(/does not reduce the VRAM needed to load the model/iu));
 });
 
 test('the hint explains that larger images are downscaled', () => {
@@ -3866,9 +3896,14 @@ Replace the `VisionEnabled` control at `dashboard/src/tabs/settings/ModelPresets
               </ModelPresetControl>
               <p className="field-hint">
                 Any image larger than this is downscaled to fit, at the highest quality the resize
-                can produce (Lanczos3), keeping its aspect ratio. Lower it to spend less VRAM and
-                fewer context tokens per image; raise it for finer detail. Only total area matters,
-                not shape — a wide panorama and a square of the same MP cost the same.
+                can produce (Lanczos3), keeping its aspect ratio. Only total area matters, not
+                shape — a wide panorama and a square of the same MP cost the same.
+              </p>
+              <p className="field-hint">
+                Lowering this spends fewer context tokens per image and shrinks the encode spike
+                below. It does <strong>not</strong> reduce the VRAM needed to load the model —
+                weights and the KV cache are allocated at startup and do not depend on image size.
+                Use context length for that.
               </p>
               <details className="field-reference">
                 <summary>What does MP mean here?</summary>
@@ -3891,9 +3926,9 @@ Replace the `VisionEnabled` control at `dashboard/src/tabs/settings/ModelPresets
                 {imageTokenBudget.source === 'fallback' ? ' — default ratio; no preprocessor_config.json found' : ''}
               </p>
               <p className="field-hint">
-                The VRAM figure is the estimated peak while one image is encoded. It spikes for the
-                duration of the encode and is released once the image is encoded, so it is the
-                headroom to keep free — not steady-state usage.
+                The VRAM figure is the estimated peak while one image is encoded — transient
+                headroom to keep free on top of the loaded model, released once the image is
+                encoded. It is not steady-state usage and not part of startup allocation.
               </p>
               <ModelPresetControl preset={preset} field="VisionImageRetention" label="Vision image retention">
                 <input
@@ -3984,6 +4019,525 @@ git commit -m "feat: add a tunable max image size in MP with a peak-VRAM readout
 
 ---
 
+### Task 24b: Read free VRAM
+
+Nothing in SiftKit queries GPU memory today — OOM is only ever discovered by parsing a crash after the fact. This adds the one probe every headroom check needs.
+
+**Files:**
+- Create: `src/status-server/gpu-memory.ts`
+- Create: `tests/gpu-memory.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { parseNvidiaSmiMemory } from '../src/status-server/gpu-memory.js';
+
+test('parseNvidiaSmiMemory reads the csv,noheader,nounits form', () => {
+  assert.deepEqual(parseNvidiaSmiMemory('24564, 23308, 831\n'), {
+    totalBytes: 24_564 * 1_048_576,
+    usedBytes: 23_308 * 1_048_576,
+    freeBytes: 831 * 1_048_576,
+  });
+});
+
+test('parseNvidiaSmiMemory takes the first GPU when several are present', () => {
+  const parsed = parseNvidiaSmiMemory('24564, 23308, 831\n16384, 1024, 15360\n');
+  assert.equal(parsed?.freeBytes, 831 * 1_048_576);
+});
+
+test('parseNvidiaSmiMemory returns null on anything unparseable', () => {
+  for (const input of ['', '\n', 'not a number', 'N/A, N/A, N/A', '24564, 23308']) {
+    assert.equal(parseNvidiaSmiMemory(input), null, JSON.stringify(input));
+  }
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npm test`
+Expected: FAIL — the module does not exist.
+
+- [ ] **Step 3: Write minimal implementation**
+
+Create `src/status-server/gpu-memory.ts`:
+
+```ts
+import { spawnDirectCommand } from '../lib/command-spawn.js';
+import { serverLogger } from './server-logger.js';
+
+export type GpuMemory = { totalBytes: number; usedBytes: number; freeBytes: number };
+
+const MIB = 1_048_576;
+/** Long enough that a re-render storm cannot spawn a process per frame, short enough to stay live. */
+const GPU_MEMORY_CACHE_MS = 2_000;
+
+let cached: { at: number; value: GpuMemory | null } | null = null;
+
+export function parseNvidiaSmiMemory(stdout: string): GpuMemory | null {
+  const [firstLine] = String(stdout || '').trim().split('\n');
+  if (!firstLine) return null;
+  const fields = firstLine.split(',').map((field) => Number.parseInt(field.trim(), 10));
+  if (fields.length !== 3 || fields.some((field) => !Number.isFinite(field))) return null;
+  const [total, used, free] = fields;
+  return { totalBytes: total * MIB, usedBytes: used * MIB, freeBytes: free * MIB };
+}
+
+/**
+ * Free VRAM, or null when it cannot be determined — no NVIDIA GPU, nvidia-smi not on PATH, or a
+ * non-CUDA backend. **Null means "skip every headroom check", never "warn".** Guessing wrong in
+ * the warning direction trains users to ignore the warnings that matter.
+ */
+export async function readGpuMemory(): Promise<GpuMemory | null> {
+  if (cached && Date.now() - cached.at < GPU_MEMORY_CACHE_MS) {
+    return cached.value;
+  }
+  let value: GpuMemory | null = null;
+  try {
+    const result = await spawnDirectCommand('nvidia-smi', [
+      '--query-gpu=memory.total,memory.used,memory.free',
+      '--format=csv,noheader,nounits',
+    ]);
+    value = result.exitCode === 0 ? parseNvidiaSmiMemory(result.stdout) : null;
+  } catch {
+    value = null;
+  }
+  if (value === null) {
+    serverLogger.debug({ scope: 'gpu', id: 'memory', event: 'unavailable', fields: 'nvidia-smi_absent_or_unparseable' });
+  }
+  cached = { at: Date.now(), value };
+  return value;
+}
+
+/** Test seam. */
+export function clearGpuMemoryCache(): void {
+  cached = null;
+}
+```
+
+Match `spawnDirectCommand`'s real signature — read `src/lib/command-spawn.ts` and adapt. Do not add a type assertion to force the shape.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `npm test && npm run typecheck && npm run lint`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/status-server/gpu-memory.ts tests/gpu-memory.test.ts
+git commit -m "feat: read free GPU memory via nvidia-smi"
+```
+
+---
+
+### Task 24c: Grade the headroom
+
+**Files:**
+- Create: `src/llm-protocol/image-vram-headroom.ts`
+- Create: `tests/image-vram-headroom.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { assessImageVramHeadroom } from '../src/llm-protocol/image-vram-headroom.js';
+
+const PEAK = 223_477_760; // the installed model at its 2.1 MP ceiling
+
+test('comfortable headroom produces no finding', () => {
+  assert.equal(assessImageVramHeadroom({ freeBytes: PEAK * 4, peakEncodeBytes: PEAK }), null);
+});
+
+test('headroom under 2x the peak warns', () => {
+  const finding = assessImageVramHeadroom({ freeBytes: Math.round(PEAK * 1.5), peakEncodeBytes: PEAK });
+
+  assert.equal(finding?.level, 'warning');
+  assert.match(finding.message, /213 MB free/u);
+  assert.match(finding.message, /Max image size/u);
+});
+
+test('headroom below the peak is an error', () => {
+  const finding = assessImageVramHeadroom({ freeBytes: Math.round(PEAK * 0.5), peakEncodeBytes: PEAK });
+
+  assert.equal(finding?.level, 'error');
+  assert.match(finding.message, /is likely to fail/u);
+});
+
+test('exactly at the peak is an error, not a warning — there is no slack left', () => {
+  assert.equal(assessImageVramHeadroom({ freeBytes: PEAK, peakEncodeBytes: PEAK })?.level, 'error');
+});
+
+test('unknown free VRAM produces no finding at all', () => {
+  assert.equal(assessImageVramHeadroom({ freeBytes: null, peakEncodeBytes: PEAK }), null);
+});
+
+test('the message never blames the MP setting for model-load memory', () => {
+  const finding = assessImageVramHeadroom({ freeBytes: 1, peakEncodeBytes: PEAK });
+  assert.doesNotMatch(finding?.message ?? '', /load the model|startup|weights/iu);
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npm test`
+Expected: FAIL — the module does not exist.
+
+- [ ] **Step 3: Write minimal implementation**
+
+Create `src/llm-protocol/image-vram-headroom.ts`:
+
+```ts
+import type { ToastLevel } from '@siftkit/contracts';
+
+export type ImageVramFinding = { level: Exclude<ToastLevel, 'info'>; message: string };
+
+/** Below this multiple of the encode peak, an image is close enough to the limit to say so. */
+const COMFORTABLE_HEADROOM_MULTIPLE = 2;
+
+function formatMegabytes(bytes: number): string {
+  return `${Math.round(bytes / 1_048_576)} MB`;
+}
+
+/**
+ * Grades free VRAM against the peak one image encode needs. Deliberately says nothing about
+ * model-load memory: the encode spike is transient and the MP setting is the only knob that
+ * moves it, so pointing at anything else here would send the user to the wrong control.
+ *
+ * `freeBytes: null` means the probe could not read the GPU — return null and stay silent rather
+ * than warn on a guess.
+ */
+export function assessImageVramHeadroom(input: {
+  freeBytes: number | null;
+  peakEncodeBytes: number;
+}): ImageVramFinding | null {
+  const { freeBytes, peakEncodeBytes } = input;
+  if (freeBytes === null || peakEncodeBytes <= 0) {
+    return null;
+  }
+  if (freeBytes <= peakEncodeBytes) {
+    return {
+      level: 'error',
+      message: `Only ${formatMegabytes(freeBytes)} of GPU memory is free, but encoding one image at `
+        + `this size needs about ${formatMegabytes(peakEncodeBytes)}. Sending an image is likely to `
+        + `fail — lower Max image size, or free GPU memory.`,
+    };
+  }
+  if (freeBytes < peakEncodeBytes * COMFORTABLE_HEADROOM_MULTIPLE) {
+    return {
+      level: 'warning',
+      message: `${formatMegabytes(freeBytes)} of GPU memory is free and encoding one image at this `
+        + `size needs about ${formatMegabytes(peakEncodeBytes)}. That should work, but there is `
+        + `little margin — consider lowering Max image size.`,
+    };
+  }
+  return null;
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `npm test && npm run typecheck && npm run lint`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/llm-protocol/image-vram-headroom.ts tests/image-vram-headroom.test.ts
+git commit -m "feat: grade free VRAM against the image encode peak"
+```
+
+---
+
+### Task 24d: Surface the headroom — preset panel and toast
+
+**Files:**
+- Modify: whichever status payload feeds the settings panel (add `gpuFreeBytes`)
+- Modify: `dashboard/src/tabs/settings/ModelPresetsSection.tsx`
+- Modify: `dashboard/src/hooks/useSettingsController.ts`
+- Modify: `dashboard/src/hooks/useChatSessions.ts`
+- Test: the settings-section test file
+
+- [ ] **Step 1: Write the failing test**
+
+```tsx
+test('comfortable headroom shows no warning in the panel', () => {
+  render(<ModelPresetsSection {...visionProps({ VisionMaxImagePixels: 409_600 })} gpuFreeBytes={8 * 1_073_741_824} />);
+  assert.equal(screen.queryByRole('status', { name: /gpu memory/iu }), null);
+});
+
+test('tight headroom shows a warning inline beside the field', () => {
+  render(<ModelPresetsSection {...visionProps({ VisionMaxImagePixels: 2_097_152 })} gpuFreeBytes={300 * 1_048_576} />);
+  const finding = screen.getByRole('status', { name: /gpu memory/iu });
+  assert.equal(finding.className.includes('warning'), true);
+  assert.match(finding.textContent ?? '', /little margin/u);
+});
+
+test('insufficient headroom shows an error inline', () => {
+  render(<ModelPresetsSection {...visionProps({ VisionMaxImagePixels: 2_097_152 })} gpuFreeBytes={100 * 1_048_576} />);
+  const finding = screen.getByRole('status', { name: /gpu memory/iu });
+  assert.equal(finding.className.includes('error'), true);
+  assert.match(finding.textContent ?? '', /likely to fail/u);
+});
+
+test('unknown free VRAM shows nothing rather than a false warning', () => {
+  render(<ModelPresetsSection {...visionProps({ VisionMaxImagePixels: 2_097_152 })} gpuFreeBytes={null} />);
+  assert.equal(screen.queryByRole('status', { name: /gpu memory/iu }), null);
+});
+
+test('raising the cap past the headroom escalates warning to error', () => {
+  render(<ModelPresetsSection {...visionProps({ VisionMaxImagePixels: 409_600 })} gpuFreeBytes={100 * 1_048_576} />);
+  assert.equal(screen.queryByRole('status', { name: /gpu memory/iu }), null);
+
+  cleanup();
+  render(<ModelPresetsSection {...visionProps({ VisionMaxImagePixels: 2_097_152 })} gpuFreeBytes={100 * 1_048_576} />);
+  assert.equal(screen.getByRole('status', { name: /gpu memory/iu }).className.includes('error'), true);
+});
+```
+
+And in the chat-send tests:
+
+```ts
+test('sending images with insufficient headroom enqueues an error toast and still sends', async () => {
+  const toasts: Array<[string, string]> = [];
+  const controller = makeChatController({ enqueueToast: (level, text) => toasts.push([level, text]), gpuFreeBytes: 100 * 1_048_576 });
+
+  await controller.sendMessage();
+
+  assert.equal(toasts[0][0], 'error');
+  assert.match(toasts[0][1], /likely to fail/u);
+  // The warning informs; it does not block. The user may know something we do not.
+  assert.equal(controller.lastRequest?.images.length, 1);
+});
+
+test('sending images with comfortable headroom enqueues no toast', async () => {
+  const toasts: Array<[string, string]> = [];
+  const controller = makeChatController({ enqueueToast: (level, text) => toasts.push([level, text]), gpuFreeBytes: 8 * 1_073_741_824 });
+
+  await controller.sendMessage();
+
+  assert.deepEqual(toasts, []);
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npm test`
+Expected: FAIL — nothing reads `gpuFreeBytes`.
+
+- [ ] **Step 3: Serve free VRAM to the dashboard**
+
+Add `gpuFreeBytes: number | null` to the same status payload that already carries `imageTokenBudget` (Task 24 step 3), populated by `await readGpuMemory()` and its `freeBytes`, or `null`.
+
+- [ ] **Step 4: Render it inline in the panel**
+
+In `ModelPresetsSection`, below the reference table:
+
+```tsx
+{headroomFinding ? (
+  <p className={`field-hint headroom ${headroomFinding.level}`} role="status" aria-label="GPU memory headroom">
+    {headroomFinding.message}
+  </p>
+) : null}
+```
+
+with, beside the existing `effectivePixels` / `imageTokens` derivations:
+
+```tsx
+const headroomFinding = assessImageVramHeadroom({
+  freeBytes: gpuFreeBytes,
+  peakEncodeBytes: estimateVisionPeakVramBytes(imageTokens, imageTokenBudget.encoder),
+});
+```
+
+Append to `dashboard/src/styles.css`:
+
+```css
+.field-hint.headroom.warning { color: var(--warn, #c93); opacity: 1; }
+.field-hint.headroom.error { color: var(--err, #d55); opacity: 1; }
+```
+
+- [ ] **Step 5: Toast on send**
+
+In `useChatSessions.sendMessage`, before dispatching a turn that carries images, run the same assessment and `enqueueToast(finding.level, finding.message)` when it returns one. **It warns; it does not block.** The estimate has a hand-tuned factor in it (open item 1) and the user may have freed memory the 2-second cache has not seen — refusing to send on an estimate would be worse than a failed request.
+
+Use the one assessment function for both surfaces. A panel that says "fine" while the toast says "will fail" is worse than neither.
+
+- [ ] **Step 6: Run test to verify it passes**
+
+Run: `npm test && npm run typecheck && npm run lint`
+Expected: PASS.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add -A
+git commit -m "feat: warn when free VRAM is close to the image encode peak"
+```
+
+---
+
+### Task 24e: Attribute an OOM to the right knob
+
+`parseManagedLlamaStartupFailureText` (`src/status-server/managed-llama.ts:499-509`) has two gaps: its patterns are llama.cpp-flavoured, so an exl3/PyTorch OOM is not recognised at all; and it returns null unless the "projected to use N MiB" line is *also* present, so a bare OOM is silently unclassified.
+
+**The correctness point this task exists for:** a **startup** OOM cannot be caused by `VisionMaxImagePixels`. Verified in exllamav3 source (see pre-flight findings) — nothing at model load depends on image size. Startup OOM is weights plus KV cache. Only an OOM raised **while encoding an image** may name the MP setting. Getting this backwards sends users to tune a control that cannot help.
+
+**Files:**
+- Modify: `src/status-server/managed-llama.ts:90-91,499-509`
+- Modify: `dashboard/src/managed-llama-restart.ts:8-17`
+- Modify: `src/status-server/chat-repo-operation-runner.ts` and the chat message endpoints (encode-time path)
+- Test: the existing managed-llama test file (`git grep -ln "parseManagedLlamaStartupFailureText" tests/`)
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+const TORCH_OOM = 'torch.cuda.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB. '
+  + 'GPU 0 has a total capacity of 23.99 GiB of which 812.00 MiB is free.';
+
+test('a PyTorch/exl3 OOM is recognised', () => {
+  const failure = parseManagedLlamaStartupFailureText(TORCH_OOM);
+  assert.equal(failure?.kind, 'gpu_memory_oom');
+});
+
+test('a bare OOM with no projected-memory line is still recognised, with unknown numbers', () => {
+  const failure = parseManagedLlamaStartupFailureText('cudaMalloc failed: out of memory');
+
+  assert.equal(failure?.kind, 'gpu_memory_oom');
+  assert.equal(failure.requiredMiB, null);
+  assert.equal(failure.availableMiB, null);
+});
+
+test('the llama.cpp form still reports both numbers', () => {
+  const failure = parseManagedLlamaStartupFailureText(
+    'projected to use 24000 MiB of device memory vs. 800 MiB of free device memory\ncannot meet free memory target',
+  );
+
+  assert.equal(failure?.requiredMiB, 24_000);
+  assert.equal(failure.availableMiB, 800);
+});
+
+test('unrelated error text is not an OOM', () => {
+  assert.equal(parseManagedLlamaStartupFailureText('error: model file not found'), null);
+});
+
+test('a STARTUP oom never names the image size setting', () => {
+  const message = buildGpuOomGuidance({ phase: 'startup', failure: { kind: 'gpu_memory_oom', requiredMiB: 24_000, availableMiB: 800 } });
+
+  assert.match(message, /context length|CacheRam/u);
+  // Verified: nothing at model load depends on image size.
+  assert.doesNotMatch(message, /Max image size|VisionMaxImagePixels/u);
+});
+
+test('an IMAGE-ENCODE oom names the image size setting and its current value', () => {
+  const message = buildGpuOomGuidance({
+    phase: 'image_encode',
+    failure: { kind: 'gpu_memory_oom', requiredMiB: null, availableMiB: null },
+    visionMaxImagePixels: 2_097_152,
+  });
+
+  assert.match(message, /Max image size/u);
+  assert.match(message, /2\.1 MP/u);
+  assert.doesNotMatch(message, /context length/u);
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npm test`
+Expected: FAIL — the torch form is unrecognised, the bare form returns null, and `buildGpuOomGuidance` does not exist.
+
+- [ ] **Step 3: Widen the patterns and decouple the numbers**
+
+Replace `src/status-server/managed-llama.ts:90-91`:
+
+```ts
+const MANAGED_LLAMA_GPU_MEMORY_PRESSURE_PATTERN = /projected to use\s+(\d+)\s+MiB of device memory vs\.\s+(\d+)\s+MiB of free device memory/iu;
+/**
+ * llama.cpp forms first, then the PyTorch/exllamav3 forms — the exl3 backend raises
+ * `torch.cuda.OutOfMemoryError`, which none of the llama.cpp phrasings match.
+ */
+const MANAGED_LLAMA_GPU_MEMORY_OOM_PATTERN =
+  /cannot meet free memory target|cudaMalloc failed: out of memory|failed to allocate buffer for kv cache|torch\.cuda\.OutOfMemoryError|CUDA out of memory/iu;
+```
+
+and `:499-509`, so the OOM classification no longer depends on the numbers being present:
+
+```ts
+export function parseManagedLlamaStartupFailureText(text: string): ManagedLlamaStartupFailure | null {
+  const body = String(text || '');
+  if (!MANAGED_LLAMA_GPU_MEMORY_OOM_PATTERN.test(body)) {
+    return null;
+  }
+  // The projected-memory line is llama.cpp-only. Its absence means unknown numbers, not "not an OOM".
+  const memoryMatch = MANAGED_LLAMA_GPU_MEMORY_PRESSURE_PATTERN.exec(body);
+  return {
+    kind: 'gpu_memory_oom',
+    requiredMiB: memoryMatch ? Number.parseInt(memoryMatch[1], 10) : null,
+    availableMiB: memoryMatch ? Number.parseInt(memoryMatch[2], 10) : null,
+  };
+}
+```
+
+Widen `ManagedLlamaStartupFailure`'s `requiredMiB` / `availableMiB` to `number | null`. The typecheck will name every reader — `dashboard/src/managed-llama-restart.ts:8-17` builds the OOM modal and must render "unknown" rather than `NaN MiB`.
+
+- [ ] **Step 4: Write the phase-aware guidance**
+
+Add to `src/status-server/managed-llama.ts`:
+
+```ts
+export type GpuOomPhase = 'startup' | 'image_encode';
+
+/**
+ * Which knob to point at depends entirely on when the OOM happened.
+ *
+ * Startup OOM is weights plus KV cache. Verified in exllamav3 1.3.0: `max_pixels` is consumed
+ * only inside `preprocess()`, per request, so no image setting can reduce load-time memory.
+ * Naming the image control here would send the user to a control that cannot help them.
+ */
+export function buildGpuOomGuidance(input: {
+  phase: GpuOomPhase;
+  failure: ManagedLlamaStartupFailure;
+  visionMaxImagePixels?: number;
+}): string {
+  const observed = input.failure.requiredMiB !== null && input.failure.availableMiB !== null
+    ? ` It needed about ${input.failure.requiredMiB} MiB with ${input.failure.availableMiB} MiB free.`
+    : '';
+  if (input.phase === 'startup') {
+    return `The model ran out of GPU memory while loading.${observed} `
+      + 'Reduce context length or CacheRam for this preset, or free GPU memory. '
+      + 'Image settings do not affect model loading.';
+  }
+  const currentMegapixels = ((input.visionMaxImagePixels ?? 0) / 1_000_000).toFixed(1);
+  return `The model ran out of GPU memory while encoding an image.${observed} `
+    + `Lower Max image size for this preset — it is currently ${currentMegapixels} MP — or free GPU memory.`;
+}
+```
+
+- [ ] **Step 5: Route encode-time failures through it**
+
+Where a chat/repo-search turn that carried images fails, classify the error text with `parseManagedLlamaStartupFailureText` and, on a hit, replace the raw error with `buildGpuOomGuidance({ phase: 'image_encode', ... })` before it reaches the SSE `error` event. The dashboard already surfaces that as a session error, so no new transport is needed.
+
+A turn that carried **no** images must not take this path — an OOM mid-generation on a text-only turn is a context-length problem, and the `image_encode` phase would mislabel it. Gate on `images.length > 0`.
+
+- [ ] **Step 6: Run test to verify it passes**
+
+Run: `npm test && npm run typecheck && npm run lint`
+Expected: PASS.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add -A
+git commit -m "feat: attribute a GPU OOM to the knob that can actually fix it"
+```
+
+---
+
 ## Phase F — Final verification (Task 25)
 
 ### Task 25: Full-suite verification
@@ -4019,6 +4573,14 @@ git grep -n "A prompt or an image is required" src/repo-search/execute.ts
 ```
 Expected: the CLI keeps its flag-specific message; the engine has the generic one. This asymmetry is deliberate (spec §1) — if a reviewer flags it, point them at that section.
 
+- [ ] **Step 4b: Confirm no surface blames the image setting for load-time memory**
+
+```bash
+git grep -n "Max image size" src/ dashboard/src
+```
+
+Every hit must be about per-image encode cost or context tokens. None may appear in startup-failure guidance: verified in exllamav3 1.3.0 that nothing at model load depends on image size, so that advice would be wrong. Task 24e's `buildGpuOomGuidance` has tests pinning both directions.
+
 - [ ] **Step 5: Commit any residue**
 
 ```bash
@@ -4039,6 +4601,8 @@ Expected: clean. If not, the residue is scope drift — remove it or commit it d
 
 1. **The VRAM figure is derived, but one factor in it is still hand-tuned.** Everything except `SIFT_VISION_PEAK_VRAM_WORKING_SET_FACTOR` (2.5) comes from the model's own `vision_config`: 4 patches per token × (1152 + 4304) × 2 bytes, giving ~109 KB per image token and ~223 MB at the installed model's 2048-token ceiling. That fits comfortably in the 831 MiB currently free, which is the sanity check that matters. **Calibrate on the first live vision turn:** watch peak VRAM with `nvidia-smi --query-gpu=memory.used --format=csv -l 1` while reading one full-size image, then adjust that single factor. Do not attempt the calibration while free VRAM is under ~400 MiB — a failed allocation evicts the resident model.
 
-2. **The displayed VRAM figure is the cost of a *full-size* image, not of every image.** It prices an image that exactly hits the cap; anything smaller costs proportionally less, because tokens and VRAM both scale with pixel count. That makes it the right number for "how much headroom must I keep free", which is the question the panel is answering.
+2. **The cap has no effect on startup VRAM** — verified in exllamav3 source, see pre-flight findings. It reduces the transient encode spike and per-image context tokens only. The panel says this in as many words, and a test pins the wording.
 
-3. **A preset that changes `ModelPath` keeps its cached budget** until the process restarts (`resolveImageTokenBudget` caches per preset id). That matches how the rest of the preset system treats a model swap; if it becomes a problem, invalidate the cache where the preset is saved rather than dropping the cache entirely.
+3. **The displayed VRAM figure is the cost of a *full-size* image, not of every image.** It prices an image that exactly hits the cap; anything smaller costs proportionally less, because tokens and VRAM both scale with pixel count. That makes it the right number for "how much headroom must I keep free", which is the question the panel is answering.
+
+4. **A preset that changes `ModelPath` keeps its cached budget** until the process restarts (`resolveImageTokenBudget` caches per preset id). That matches how the rest of the preset system treats a model swap; if it becomes a problem, invalidate the cache where the preset is saved rather than dropping the cache entirely.
