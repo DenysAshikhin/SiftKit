@@ -2,6 +2,8 @@ import { spawnPowerShellAsync } from '../../lib/powershell.js';
 import type { RepoSearchMockCommandResult } from '../types.js';
 import { getAbortError, throwIfAborted } from '../../lib/abort.js';
 import { AGENT_RUN_ID_ENV } from '../../lib/agent-run-marker.js';
+import { spawnDirectCommand } from '../../lib/command-spawn.js';
+import { toStringRecord } from '../../lib/captured-command.js';
 
 export function findMockResult(
   command: string,
@@ -19,6 +21,72 @@ export function findMockResult(
     }
   }
   return bestKey ? mockCommandResults[bestKey] : null;
+}
+
+/** Command families safe to spawn without a shell. */
+const DIRECT_SPAWN_EXECUTABLES = new Set(['git']);
+
+/**
+ * Anything that needs shell interpretation (pipes, chaining, redirects,
+ * expansion) stays on the PowerShell path. Checked on the raw string, so a
+ * quoted metacharacter also bails — conservative and correct either way.
+ */
+const SHELL_METACHARACTERS = /[|&;<>$`()\r\n]/u;
+
+function tokenizeCommand(text: string): string[] | null {
+  const tokens: string[] = [];
+  let current = '';
+  let inToken = false;
+  let quote: '"' | "'" | null = null;
+  for (const char of text) {
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      inToken = true;
+      continue;
+    }
+    if (char === ' ' || char === '\t') {
+      if (inToken) {
+        tokens.push(current);
+        current = '';
+        inToken = false;
+      }
+      continue;
+    }
+    current += char;
+    inToken = true;
+  }
+  if (quote) {
+    return null;
+  }
+  if (inToken) {
+    tokens.push(current);
+  }
+  return tokens;
+}
+
+export function parseDirectSpawnCommand(command: string): { executable: string; args: string[] } | null {
+  const trimmed = String(command || '').trim();
+  if (!trimmed || SHELL_METACHARACTERS.test(trimmed)) {
+    return null;
+  }
+  const tokens = tokenizeCommand(trimmed);
+  const firstToken = tokens?.[0];
+  if (!tokens || !firstToken) {
+    return null;
+  }
+  const executable = firstToken.toLowerCase();
+  if (!DIRECT_SPAWN_EXECUTABLES.has(executable)) {
+    return null;
+  }
+  return { executable, args: tokens.slice(1) };
 }
 
 export function executeRepoCommand(
@@ -63,6 +131,18 @@ export function executeRepoCommand(
         complete();
       }
     });
+  }
+
+  const direct = parseDirectSpawnCommand(command);
+  if (direct) {
+    return spawnDirectCommand(direct.executable, direct.args, {
+      cwd: repoRoot,
+      abortSignal,
+      env: { ...toStringRecord(process.env), [AGENT_RUN_ID_ENV]: agentRunId },
+    }).then((result) => ({
+      exitCode: result.exitCode,
+      output: result.output,
+    }));
   }
 
   return spawnPowerShellAsync(command, {

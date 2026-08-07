@@ -6,6 +6,7 @@ import {
   executeRepoCommand,
   findMockResult,
   normalizeToolTypeFromCommand,
+  parseDirectSpawnCommand,
 } from '../src/repo-search/engine/command-execution.js';
 
 test('getAbortError prefers the abort reason when it is an Error', () => {
@@ -73,6 +74,49 @@ test('executeRepoCommand rejects when the abort signal fires during a delayed mo
   );
   controller.abort(new Error('aborted-mid-mock'));
   await assert.rejects(pending, /aborted-mid-mock/u);
+});
+
+test('parseDirectSpawnCommand tokenizes simple git commands', () => {
+  assert.deepEqual(parseDirectSpawnCommand('git log --oneline -5'), {
+    executable: 'git',
+    args: ['log', '--oneline', '-5'],
+  });
+  assert.deepEqual(parseDirectSpawnCommand('git log --format="%H %s" -3'), {
+    executable: 'git',
+    args: ['log', '--format=%H %s', '-3'],
+  });
+  assert.deepEqual(parseDirectSpawnCommand("git grep 'two words'"), {
+    executable: 'git',
+    args: ['grep', 'two words'],
+  });
+});
+
+test('parseDirectSpawnCommand rejects non-git and shell-dependent commands', () => {
+  assert.equal(parseDirectSpawnCommand('rg -n foo'), null);
+  assert.equal(parseDirectSpawnCommand('git log | head -5'), null);
+  assert.equal(parseDirectSpawnCommand('git log; git status'), null);
+  assert.equal(parseDirectSpawnCommand('git log > out.txt'), null);
+  assert.equal(parseDirectSpawnCommand('git log $env:HOME'), null);
+  assert.equal(parseDirectSpawnCommand('git commit -m "a & b"'), null);
+  assert.equal(parseDirectSpawnCommand('git log "unbalanced'), null);
+  assert.equal(parseDirectSpawnCommand(''), null);
+});
+
+test('executeRepoCommand runs simple git commands without a shell', async () => {
+  const result = await executeRepoCommand('git --version', process.cwd(), null, 'test-run');
+  assert.equal(result.exitCode, 0);
+  assert.match(result.output, /git version/u);
+});
+
+test('executeRepoCommand surfaces git stderr and exit code on the direct path', async () => {
+  const result = await executeRepoCommand(
+    'git rev-parse --verify definitely-not-a-ref-xyz',
+    process.cwd(),
+    null,
+    'test-run',
+  );
+  assert.notEqual(result.exitCode, 0);
+  assert.match(result.output, /fatal|error/iu);
 });
 
 test('normalizeToolTypeFromCommand extracts the command family', () => {
