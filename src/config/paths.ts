@@ -92,6 +92,22 @@ export function getRuntimeLogsPath(): string {
   return join(getRuntimeRoot(), 'logs');
 }
 
+// ---------- live/ ---------- //
+
+/** Dots are dropped along with separators: nothing in a request id may shape the file name. */
+function sanitizeRunIdForPath(requestId: string): string {
+  return requestId.replace(/[^a-zA-Z0-9_-]+/gu, '-').replace(/^-+|-+$/gu, '') || 'unknown';
+}
+
+/** Directory holding one JSON snapshot per in-flight run, keyed off the run's own repo root. */
+export function getLiveRunsDirectory(startPath: string): string {
+  return join(getRepoRuntimeRoot(startPath), 'live');
+}
+
+export function getLiveRunSnapshotPath(requestId: string, startPath: string): string {
+  return join(getLiveRunsDirectory(startPath), `run-${sanitizeRunIdForPath(requestId)}.json`);
+}
+
 // ---------- chat/sessions/ ---------- //
 
 export function getChatSessionsRoot(): string {

@@ -157,6 +157,7 @@ export class AutoApprovalVerdictProbe {
       humanGate: new FailClosedHumanGate(),
       verdictRequester: requester,
       progressWriter,
+      logger: null,
     });
 
     await gate.request(payload.action);

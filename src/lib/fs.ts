@@ -6,6 +6,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { z } from './zod.js';
 import { JsonObjectSchema, type JsonObject, type JsonValue } from './json-types.js';
@@ -55,6 +56,43 @@ export function saveContentAtomically(filePath: string, content: string): void {
 
   if (isRetryableFsError(lastError)) {
     writeUtf8NoBom(filePath, content);
+    return;
+  }
+
+  throw lastError ?? new Error(`Failed to save ${filePath} atomically.`);
+}
+
+/**
+ * Async twin of `saveContentAtomically`. Writes to a temp file in the same
+ * directory and renames it into place, so a process killed mid-write can never
+ * leave a truncated target. Retries the Windows-only sharing-violation codes.
+ */
+export async function saveContentAtomicallyAsync(filePath: string, content: string): Promise<void> {
+  const directory = dirname(filePath);
+  await mkdir(directory, { recursive: true });
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const tempPath = join(
+      directory,
+      `${process.pid}-${Date.now()}-${attempt}-${Math.random().toString(16).slice(2)}.tmp`
+    );
+
+    try {
+      await writeFile(tempPath, content, { encoding: 'utf8' });
+      await rename(tempPath, filePath);
+      return;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      await rm(tempPath, { force: true }).catch(() => undefined);
+
+      if (!isRetryableFsError(lastError) || attempt === 4) {
+        break;
+      }
+    }
+  }
+
+  if (isRetryableFsError(lastError)) {
+    await writeFile(filePath, content, { encoding: 'utf8' });
     return;
   }
 

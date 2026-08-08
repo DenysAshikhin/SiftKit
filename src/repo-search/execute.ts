@@ -10,6 +10,8 @@ import {
   ensureRepoSearchLogFolders,
   traceRepoSearch,
 } from './logging.js';
+import { getLiveRunSnapshotPath } from '../config/paths.js';
+import { attachLiveRunSnapshot, isLiveRunSnapshotEnabled } from './live-snapshot/writer.js';
 import { runRepoSearch } from './engine.js';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/validation-command-output-policy.js';
 import { buildAgentSystemPrompt, buildTaskSystemPrompt } from './prompts.js';
@@ -338,6 +340,19 @@ export async function executeRepoSearchRequest(
     ? resolve(request.logFile)
     : join(folders.root, `request_${requestId}.jsonl`);
   const logger = createJsonLogger(tempTranscriptPath);
+  // Overwritten continuously and deleted on termination: a file that outlives the
+  // process is, by construction, a killed or hung run.
+  const liveSnapshot = isLiveRunSnapshotEnabled()
+    ? attachLiveRunSnapshot({
+      logger,
+      filePath: getLiveRunSnapshotPath(requestId, repoRoot),
+      requestId,
+      taskKind,
+      repoRoot,
+      startedAtMs: startedAt,
+    })
+    : null;
+  const runLogger = liveSnapshot?.logger ?? logger;
   // Engine the run actually executed on, for the run log. Stays null when the run fails
   // before the config loads, because no engine was selected at that point.
   let activeBackend: InferenceBackendId | null = null;
@@ -385,7 +400,7 @@ export async function executeRepoSearchRequest(
       historyMessages: taskKind === 'chat' ? (request.history || []) : undefined,
       thinkingEnabledOverride: taskKind === 'chat' ? (request.thinkingEnabled !== false) : undefined,
       taskPrompt: prompt,
-      logger,
+      logger: runLogger,
       availableModels: request.availableModels,
       mockResponses: request.mockResponses,
       mockCommandResults: request.mockCommandResults,
@@ -543,6 +558,7 @@ export async function executeRepoSearchRequest(
     const artifactPathHint = `${folders.failed}/request_${requestId}.json`;
     const transcriptText = logger.getText();
     const message = error instanceof Error ? error.message : String(error);
+    liveSnapshot?.collector.recordRunError(message);
     const persistStartedAt = Date.now();
     serverLogger.debug({
       scope: 'rs',
@@ -647,6 +663,10 @@ export async function executeRepoSearchRequest(
     enrichedError.transcriptPath = transcriptUri;
     throw enrichedError;
   } finally {
+    if (liveSnapshot) {
+      liveSnapshot.writer.stop();
+      await liveSnapshot.writer.remove();
+    }
     if (timingRecorder) {
       await timingRecorder.flush({
         status: timingStatus,

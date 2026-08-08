@@ -70,6 +70,7 @@ export class PromptPreparer {
       turn,
     });
     progress.preflightStart(turn, prompt.length);
+    this.options.logger?.write({ kind: 'turn_preflight_start', taskId, turn, promptChars: prompt.length });
     const preflightConfig = this.options.useEstimatedTokensOnly ? undefined : this.options.config;
     if (preflightConfig) {
       progress.tokenizeStart(turn, prompt.length);
@@ -103,6 +104,8 @@ export class PromptPreparer {
       taskId,
       turn,
       promptTokenCount: preflight.promptTokenCount,
+      tokenizeElapsedMs: preflight.tokenizeElapsedMs ?? null,
+      tokenCountSource: preflight.tokenCountSource,
       transcriptPromptTokenCount: preflight.transcriptPromptTokenCount,
       providerPromptReserveTokenCount: preflight.providerPromptReserveTokenCount,
       maxPromptBudget: preflight.maxPromptBudget,

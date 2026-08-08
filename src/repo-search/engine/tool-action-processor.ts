@@ -741,6 +741,15 @@ export class ToolActionProcessor {
     const progressToolCallId = `tc_${this.progressToolCallSeq}`;
     this.progressToolCallSeq += 1;
     this.deps.progress.toolStart(progressToolCallId, turn, requestedCommand, promptTokenCount);
+    this.deps.logger?.write({
+      kind: 'turn_command_start',
+      taskId: this.deps.task.id,
+      turn,
+      toolName: normalizedToolName,
+      requestedCommand,
+      commandToRun,
+      native: isNativeTool,
+    });
 
     const toolExecutionSpan = this.deps.timingRecorder?.start('repo.tool.execute', {
       taskId: this.deps.task.id,

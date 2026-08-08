@@ -290,6 +290,7 @@ export class TaskLoop {
       humanGate: options.approvalGate,
       verdictRequester: this,
       progressWriter: options.progressWriter ?? new SilentProgressWriter(),
+      logger: options.logger ?? null,
     });
   }
 

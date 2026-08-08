@@ -56,6 +56,7 @@ test('an auto-review that reaches no verdict aborts when nobody answers the esca
       }),
     },
     progressWriter: writer,
+    logger: null,
   });
 
   const decision = await gate.request({

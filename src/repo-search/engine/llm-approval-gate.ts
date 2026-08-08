@@ -5,6 +5,7 @@ import type { RepoSearchProgressEvent } from '../types.js';
 import type { PlannerActionResponse } from '../planner-protocol.js';
 import { buildApprovalReviewRequest } from '../approval-review-policy.js';
 import { isApprovalExemptReadOnlyTool, type ApprovalDecision, type ApprovalRequester, type ApprovalRequestInput } from './approval-gate.js';
+import type { JsonLogger } from '../types.js';
 
 const ApprovalVerdictSchema = z.object({
   verdict: z.enum(['approve', 'deny', 'unsure']),
@@ -35,6 +36,7 @@ export class LlmApprovalGate {
     humanGate: ApprovalRequester;
     verdictRequester: ApprovalVerdictRequester;
     progressWriter: ProgressWriter<RepoSearchProgressEvent>;
+    logger: JsonLogger | null;
   }) {}
 
   async request(input: ApprovalRequestInput): Promise<ApprovalDecision> {
@@ -70,6 +72,13 @@ export class LlmApprovalGate {
   }
 
   private emitVerdict(input: ApprovalRequestInput, verdict: string, reason: string): void {
+    this.deps.logger?.write({
+      kind: 'approval_verdict',
+      turn: input.turn,
+      toolName: input.toolName,
+      verdict,
+      reason,
+    });
     this.deps.progressWriter.write({
       kind: 'approval_auto',
       requestId: this.deps.requestId,
