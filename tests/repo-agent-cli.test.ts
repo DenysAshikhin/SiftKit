@@ -374,6 +374,80 @@ test('non-TTY start and decide resume one real detached worker', async () => {
   }
 });
 
+test('split diagnostic warns on multi-token task but stays silent on single token', async () => {
+  const server = new RepoAgentTestServer('complete');
+  await server.start();
+  const oldStatusUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
+  const oldConfigUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
+  const oldAgentRunId = process.env.SIFTKIT_AGENT_RUN_ID;
+  process.env.SIFTKIT_STATUS_BACKEND_URL = `${server.getBaseUrl()}/status`;
+  process.env.SIFTKIT_CONFIG_SERVICE_URL = `${server.getBaseUrl()}/config`;
+  delete process.env.SIFTKIT_AGENT_RUN_ID;
+  try {
+    // Multi-token invocation
+    const splitStdout = makeCaptureStream();
+    const splitStderr = makeCaptureStream();
+    const splitStdin = Object.assign(new PassThrough(), { isTTY: true });
+    const splitCode = await runCli({
+      argv: [
+        'repo-agent',
+        'Implement ONLY Task',
+        '1:',
+        'Add',
+        'widget from docs/plan.md',
+      ],
+      stdout: splitStdout.stream,
+      stderr: splitStderr.stream,
+      stdin: splitStdin,
+    });
+
+    assert.equal(splitCode, 0);
+    assert.equal(splitStdout.read(), 'foreground complete\n');
+    assert.equal(
+      splitStderr.read(),
+      'note: joined 4 command-line tokens into one task; embedded double quotes were lost to shell argument splitting.\n'
+      + '  task: Implement ONLY Task 1: Add widget from docs/plan.md\n',
+    );
+
+    // Single-token invocation
+    const singleStdout = makeCaptureStream();
+    const singleStderr = makeCaptureStream();
+    const singleStdin = Object.assign(new PassThrough(), { isTTY: true });
+    const singleCode = await runCli({
+      argv: ['repo-agent', 'single task'],
+      stdout: singleStdout.stream,
+      stderr: singleStderr.stream,
+      stdin: singleStdin,
+    });
+
+    assert.equal(singleCode, 0);
+    assert.equal(singleStdout.read(), 'foreground complete\n');
+    assert.equal(singleStderr.read(), '');
+
+    // Verify server received the correct prompts
+    assert.equal(server.requests.length, 2);
+    assert.equal(server.requests[0].prompt, 'Implement ONLY Task 1: Add widget from docs/plan.md');
+    assert.equal(server.requests[1].prompt, 'single task');
+  } finally {
+    if (oldStatusUrl === undefined) {
+      delete process.env.SIFTKIT_STATUS_BACKEND_URL;
+    } else {
+      process.env.SIFTKIT_STATUS_BACKEND_URL = oldStatusUrl;
+    }
+    if (oldConfigUrl === undefined) {
+      delete process.env.SIFTKIT_CONFIG_SERVICE_URL;
+    } else {
+      process.env.SIFTKIT_CONFIG_SERVICE_URL = oldConfigUrl;
+    }
+    if (oldAgentRunId === undefined) {
+      delete process.env.SIFTKIT_AGENT_RUN_ID;
+    } else {
+      process.env.SIFTKIT_AGENT_RUN_ID = oldAgentRunId;
+    }
+    await server.close();
+  }
+});
+
 test('invalid legacy syntax fails before contacting the server', async () => {
   const stdout = makeCaptureStream();
   const stderr = makeCaptureStream();

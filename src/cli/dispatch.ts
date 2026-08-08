@@ -73,6 +73,16 @@ export async function runCli(options: CliRunOptions): Promise<number> {
     const repoAgentInvocation = commandName === 'repo-agent'
       ? parseRepoAgentInvocation(commandArgs)
       : null;
+    if (
+      repoAgentInvocation?.kind === 'start'
+      && repoAgentInvocation.taskTokenCount > 1
+    ) {
+      stderr.write(
+        `note: joined ${repoAgentInvocation.taskTokenCount} command-line tokens into one task; `
+        + 'embedded double quotes were lost to shell argument splitting.\n'
+        + `  task: ${repoAgentInvocation.task}\n`,
+      );
+    }
     if (commandName === 'repo-search') {
       validateRepoSearchTokens(commandArgs);
       // Fail fast before the server preflight so a non-TTY interactive run never

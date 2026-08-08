@@ -19,6 +19,7 @@ test('parses one positional start task with options on either sides', () => {
     {
       kind: 'start',
       task: 'make x',
+      taskTokenCount: 1,
       model: 'm',
       approval: 'interactive',
       progress: true,
@@ -28,6 +29,7 @@ test('parses one positional start task with options on either sides', () => {
   assert.deepEqual(parseRepoAgentInvocation(['make x']), {
     kind: 'start',
     task: 'make x',
+    taskTokenCount: 1,
     approval: 'auto',
     progress: false,
     images: [],
@@ -40,6 +42,7 @@ test('parses start with log-file option', () => {
     {
       kind: 'start',
       task: 'do the thing',
+      taskTokenCount: 1,
       logFile: '/tmp/out.log',
       approval: 'auto',
       progress: false,
@@ -63,6 +66,7 @@ test('parses start with all options', () => {
     {
       kind: 'start',
       task: 'fix bug',
+      taskTokenCount: 1,
       model: 'gpt-4',
       logFile: '/tmp/a.log',
       approval: 'off',
@@ -163,11 +167,34 @@ test('rejects zero positional tasks', () => {
   );
 });
 
-test('rejects two positional tasks', () => {
-  assert.throws(
-    () => parseRepoAgentInvocation(['task one', 'task two']),
-    /Expected exactly one positional task/u,
-  );
+test('joins positional task tokens', () => {
+  assert.deepEqual(parseRepoAgentInvocation(['task one', 'task two']), {
+    kind: 'start',
+    task: 'task one task two',
+    taskTokenCount: 2,
+    approval: 'auto',
+    progress: false,
+    images: [],
+  });
+});
+
+test('joins the positional tokens produced by PowerShell argument splitting', () => {
+  const invocation = parseRepoAgentInvocation([
+    'Implement ONLY Task',
+    '1:',
+    'Add',
+    'widget from docs/plan.md',
+  ]);
+  assert.equal(invocation.kind, 'start');
+  assert.equal(invocation.task, 'Implement ONLY Task 1: Add widget from docs/plan.md');
+  assert.equal(invocation.taskTokenCount, 4);
+});
+
+test('drops empty positional tokens before joining', () => {
+  const invocation = parseRepoAgentInvocation(['a', '', 'b']);
+  assert.equal(invocation.kind, 'start');
+  assert.equal(invocation.task, 'a b');
+  assert.equal(invocation.taskTokenCount, 3);
 });
 
 test('rejects --prompt flag', () => {

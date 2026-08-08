@@ -105,6 +105,7 @@ test('runs a typed repo-agent invocation without reconstructing argv', async () 
   const invocation = RepoAgentStartInvocationSchema.parse({
     kind: 'start',
     task: 'typed foreground task',
+    taskTokenCount: 1,
     model: 'typed-model',
     logFile: 'typed.log',
     approval: 'auto',
@@ -140,6 +141,7 @@ test('typed foreground approval requires a TTY', async () => {
       invocation: RepoAgentStartInvocationSchema.parse({
         kind: 'start',
         task: 'typed foreground task',
+        taskTokenCount: 1,
         approval: 'auto',
         progress: false,
       }),

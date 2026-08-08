@@ -1,4 +1,4 @@
-import { rm } from 'node:fs/promises';
+import { rmSync } from 'node:fs';
 import { saveContentAtomicallyAsync } from '../../lib/fs.js';
 import type { BufferedJsonLogger } from '../logging.js';
 import { LiveRunSnapshotCollector } from './collector.js';
@@ -25,6 +25,7 @@ export class LiveRunSnapshotWriter {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private queue: Promise<void> = Promise.resolve();
+  private pendingWrites = 0;
   private stopped = false;
 
   constructor(options: {
@@ -69,22 +70,40 @@ export class LiveRunSnapshotWriter {
     }
   }
 
+  /**
+   * Synchronous unlink on the common path: an awaited fs call here would yield a
+   * macrotask and let deferred run-log persistence land before the request resolves,
+   * which the request path must not do. Only a write caught in flight costs a yield.
+   */
   async remove(): Promise<void> {
-    await this.queue;
-    await rm(this.filePath, { force: true }).catch(() => undefined);
+    if (this.pendingWrites > 0) {
+      await this.queue;
+    }
+    try {
+      rmSync(this.filePath, { force: true });
+    } catch {
+      // A snapshot we cannot delete is a stale file, never a failed run.
+    }
   }
 
   private enqueueWrite(): Promise<void> {
+    this.pendingWrites += 1;
     this.queue = this.queue.then(() => this.writeOnce());
     return this.queue;
   }
 
   private async writeOnce(): Promise<void> {
+    if (this.stopped) {
+      this.pendingWrites -= 1;
+      return;
+    }
     try {
       const text = `${JSON.stringify(this.collector.build(), null, 2)}\n`;
       await saveContentAtomicallyAsync(this.filePath, text);
     } catch (error) {
       this.collector.recordWriteError(error instanceof Error ? error.message : String(error));
+    } finally {
+      this.pendingWrites -= 1;
     }
   }
 }

@@ -7,6 +7,7 @@ import {
 export const RepoAgentStartInvocationSchema = z.object({
   kind: z.literal('start'),
   task: z.string().trim().min(1),
+  taskTokenCount: z.number().int().min(1),
   model: z.string().min(1).optional(),
   logFile: z.string().min(1).optional(),
   approval: ApprovalModeSchema,
@@ -71,7 +72,7 @@ export function parseRepoAgentInvocation(tokens: string[]): RepoAgentInvocation 
 }
 
 function parseStartInvocation(tokens: string[]): RepoAgentInvocation {
-  let task: string | undefined;
+  const taskTokens: string[] = [];
   let model: string | undefined;
   let logFile: string | undefined;
   let approval: ApprovalMode = 'auto';
@@ -112,19 +113,18 @@ function parseStartInvocation(tokens: string[]): RepoAgentInvocation {
     if (token.startsWith('-')) {
       throw new Error(`Unknown option: ${token}.`);
     }
-    if (task !== undefined) {
-      throw new Error('Expected exactly one positional task; found multiple.');
-    }
-    task = token;
+    taskTokens.push(token);
   }
 
-  if (task === undefined) {
+  const task = taskTokens.filter((token) => token.length > 0).join(' ');
+  if (task.length === 0) {
     throw new Error('No task provided. Usage: siftkit repo-agent "task"');
   }
 
   const invocation = {
     kind: 'start',
     task,
+    taskTokenCount: taskTokens.length,
     approval,
     progress,
     images,
