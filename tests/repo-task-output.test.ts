@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { formatRepoTaskOutput } from '../src/cli/repo-task-output.js';
+import { formatRepoTaskOutput } from '../src/repo-agent/run-output.js';
 import { buildMockScorecard } from './_test-helpers.js';
 import { ScorecardSchema } from '../src/repo-search/engine.js';
 import type { RepoSearchExecutionResult } from '../src/repo-search/types.js';

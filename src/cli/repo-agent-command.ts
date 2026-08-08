@@ -8,7 +8,7 @@ import {
 import {
   RepoAgentDecisionSchema,
   RepoAgentRunResultSchema,
-  RepoAgentWorkerRequestSchema,
+  RepoAgentRunRequestSchema,
   type RepoAgentRunResult,
 } from '../repo-agent/run-schemas.js';
 import type { RepoAgentRunStore } from '../repo-agent/run-store.js';
@@ -95,12 +95,11 @@ export class RepoAgentCommand {
     streams: RepoAgentCommandStreams,
   ): Promise<number> {
     const runId = randomUUID();
-    const request = RepoAgentWorkerRequestSchema.parse({
+    const request = RepoAgentRunRequestSchema.parse({
       runId,
       task: invocation.task,
       repoRoot: this.repoRoot,
       approval: invocation.approval,
-      progress: invocation.progress,
       images: invocation.images,
       ...(invocation.model === undefined ? {} : { model: invocation.model }),
       ...(invocation.logFile === undefined

@@ -9,17 +9,21 @@ import type { TaskCommand } from '../src/repo-search/prompts.js';
 import type { ToolAction } from '../src/repo-search/planner-protocol.js';
 import { z } from '../src/lib/zod.js';
 import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
+import type { RepoSearchMockCommandResult } from '../src/repo-search/types.js';
 import { DuplicateTracker } from '../src/repo-search/engine/duplicate-tracker.js';
 import { ForcedFinishController } from '../src/repo-search/engine/forced-finish.js';
 import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.js';
 import { ReadWindowGovernor } from '../src/repo-search/engine/read-window-governor.js';
 import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
 import { ToolActionProcessor } from '../src/repo-search/engine/tool-action-processor.js';
+import type { ApprovalRequester } from '../src/repo-search/engine/approval-gate.js';
+import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
 import { ToolResultBudgeter } from '../src/repo-search/engine/tool-result-budgeter.js';
 import { decayInvalidResponses, type LoopCounters } from '../src/repo-search/engine/task-loop-support.js';
 import { ToolStatsRecorder } from '../src/repo-search/engine/tool-stats.js';
 import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
 import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
+import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/validation-command-output-policy.js';
 import { SilentProgressWriter } from '../src/lib/progress-writer.js';
 import { makeMockWebTools } from './helpers/mock-web-tools.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
@@ -28,6 +32,9 @@ import { parseLoggedEvent } from './helpers/logged-events.js';
 function makeProcessor(
   root: string,
   allowedPlannerToolNames: string[] = ['ls'],
+  validationCommandOutputLineLimit: number | null = null,
+  approvalGate: ApprovalRequester | null = null,
+  mockCommandResults: Record<string, RepoSearchMockCommandResult> | undefined = undefined,
 ): {
   processor: ToolActionProcessor;
   commands: TaskCommand[];
@@ -45,6 +52,7 @@ function makeProcessor(
     task: { id: 'task-alignment', question: 'q', signals: ['done'] },
     repoRoot: root,
     config: undefined,
+    mockCommandResults,
     logger: {
       path: 'memory',
       write(event: Record<string, JsonSerializable>): void {
@@ -54,8 +62,8 @@ function makeProcessor(
     timingRecorder: null,
     maxInvalidResponses: 3,
     allowedPlannerToolNames,
-    approvalGate: null,
-    validationCommandOutputLineLimit: null,
+    approvalGate,
+    validationCommandOutputLineLimit,
     chatWebGroundingEnabled: false,
     chatWebGroundingPolicy: new ChatGroundingPolicy({ enabled: false }),
     ignorePolicy: buildIgnorePolicy(root),
@@ -86,6 +94,24 @@ function makeProcessor(
     counters,
   });
   return { processor, commands, counters, tokenUsage, budget, events };
+}
+
+const NOISY_VALIDATION_LINE_COUNT = REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT + 10;
+
+function writeNoisyValidationRepo(root: string): void {
+  fs.writeFileSync(
+    path.join(root, 'validation.cjs'),
+    [
+      `for (let index = 1; index <= ${NOISY_VALIDATION_LINE_COUNT}; index += 1) console.log(\`validation-line-\${index}\`);`,
+      'process.exitCode = 1;',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(root, 'package.json'),
+    JSON.stringify({ scripts: { test: 'node validation.cjs' } }),
+    'utf8',
+  );
 }
 
 const TurnCommandResultSchema = z.object({ perToolCapTokens: z.number() });
@@ -307,4 +333,140 @@ test('every member of a batch is capped at the same share regardless of position
   assert.deepEqual(caps, [caps[0], caps[0], caps[0]]);
   // The share is the one 3 completed commands earn, split 3 ways — not re-derived here.
   assert.equal(caps[0], budget.perToolCapTokens(3, 3));
+});
+
+// The gate's whole retry affordance depends on the duplicate screen letting the granted
+// back-to-back identical `run` through; only the third identical call is a duplicate again.
+test('a downgraded full run may be retried once despite duplicate screening', async () => {
+  const root = createManagedTempDir('siftkit-run-full-retry-');
+  writeNoisyValidationRepo(root);
+  const { processor, commands } = makeProcessor(root, ['run'], REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT);
+  const runAction: ToolAction = { action: 'tool', tool_name: 'run', args: { command: 'npm test', outputMode: 'full' } };
+
+  await processor.executeBatch(1, [{ ...runAction, args: { ...runAction.args } }], '', 0, false);
+  await processor.executeBatch(2, [{ ...runAction, args: { ...runAction.args } }], '', 0, false);
+  await processor.executeBatch(3, [{ ...runAction, args: { ...runAction.args } }], '', 0, false);
+
+  assert.equal(commands.length, 3);
+  assert.equal(commands[0]?.safe, true);
+  assert.match(commands[0]?.output ?? '', /Notice: outputMode "full"/u);
+  assert.doesNotMatch(commands[0]?.output ?? '', /validation-line-1\b/u);
+  assert.equal(commands[1]?.safe, true);
+  assert.equal(commands[1]?.reason, null);
+  assert.match(commands[1]?.output ?? '', /validation-line-1\b/u);
+  assert.equal(commands[2]?.reason, 'duplicate command');
+});
+
+test('a mocked full validation run uses the same downgrade and retry shaping', async () => {
+  const root = createManagedTempDir('siftkit-run-full-mock-');
+  const command = buildRepoToolRequestedCommand('run', { command: 'npm test', outputMode: 'full' });
+  const output = Array.from(
+    { length: NOISY_VALIDATION_LINE_COUNT },
+    (_, index) => `validation-line-${index + 1}`,
+  ).join('\n');
+  const { processor, commands } = makeProcessor(
+    root,
+    ['run'],
+    REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT,
+    null,
+    { [command]: { exitCode: 1, stdout: output, stderr: '' } },
+  );
+  const validation: ToolAction = {
+    action: 'tool',
+    tool_name: 'run',
+    args: { command: 'npm test', outputMode: 'full' },
+  };
+
+  await processor.executeBatch(1, [validation], '', 0, false);
+  await processor.executeBatch(2, [validation], '', 0, false);
+
+  assert.match(commands[0]?.output ?? '', /Notice: outputMode "full"/u);
+  assert.doesNotMatch(commands[0]?.output ?? '', /validation-line-1\b/u);
+  assert.match(commands[1]?.output ?? '', /validation-line-1\b/u);
+  assert.doesNotMatch(commands[1]?.output ?? '', /Notice: outputMode "full"/u);
+});
+
+test('a duplicate-rejected intervening run forfeits the pending full retry', async () => {
+  const root = createManagedTempDir('siftkit-run-full-forfeit-');
+  writeNoisyValidationRepo(root);
+  const { processor, commands } = makeProcessor(
+    root,
+    ['run'],
+    REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT,
+  );
+  const stable: ToolAction = {
+    action: 'tool',
+    tool_name: 'run',
+    args: { command: 'Write-Output stable' },
+  };
+  const validation: ToolAction = {
+    action: 'tool',
+    tool_name: 'run',
+    args: { command: 'npm test', outputMode: 'full' },
+  };
+
+  await processor.executeBatch(1, [stable], '', 0, false);
+  await processor.executeBatch(2, [validation], '', 0, false);
+  await processor.executeBatch(3, [stable, stable], '', 0, false);
+  await processor.executeBatch(4, [validation], '', 0, false);
+
+  assert.equal(commands[3]?.reason, 'duplicate command');
+  assert.match(commands[4]?.output ?? '', /Notice: outputMode "full"/u);
+  assert.doesNotMatch(commands[4]?.output ?? '', /validation-line-1\b/u);
+});
+
+test('an approval-denied granted retry is consumed', async () => {
+  let requestCount = 0;
+  const approvalGate: ApprovalRequester = {
+    request(): Promise<{ kind: 'approve' } | { kind: 'deny'; reason: string }> {
+      requestCount += 1;
+      return Promise.resolve(
+        requestCount === 2
+          ? { kind: 'deny', reason: 'test denial' }
+          : { kind: 'approve' },
+      );
+    },
+  };
+  const root = createManagedTempDir('siftkit-run-full-denied-');
+  writeNoisyValidationRepo(root);
+  const { processor, commands } = makeProcessor(
+    root,
+    ['run'],
+    REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT,
+    approvalGate,
+  );
+  const validation: ToolAction = {
+    action: 'tool',
+    tool_name: 'run',
+    args: { command: 'npm test', outputMode: 'full' },
+  };
+
+  await processor.executeBatch(1, [validation], '', 0, false);
+  await processor.executeBatch(2, [validation], '', 0, false);
+  await processor.executeBatch(3, [validation], '', 0, false);
+
+  assert.match(commands[1]?.reason ?? '', /test denial/u);
+  assert.equal(commands[2]?.reason, 'duplicate command');
+});
+
+test('a non-run tool between downgrade and retry preserves the full grant', async () => {
+  const root = createManagedTempDir('siftkit-run-full-non-run-');
+  writeNoisyValidationRepo(root);
+  const { processor, commands } = makeProcessor(
+    root,
+    ['run', 'ls'],
+    REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT,
+  );
+  const validation: ToolAction = {
+    action: 'tool',
+    tool_name: 'run',
+    args: { command: 'npm test', outputMode: 'full' },
+  };
+
+  await processor.executeBatch(1, [validation], '', 0, false);
+  await processor.executeBatch(2, [{ action: 'tool', tool_name: 'ls', args: {} }], '', 0, false);
+  await processor.executeBatch(3, [validation], '', 0, false);
+
+  assert.match(commands[2]?.output ?? '', /validation-line-1\b/u);
+  assert.doesNotMatch(commands[2]?.output ?? '', /Notice: outputMode "full"/u);
 });

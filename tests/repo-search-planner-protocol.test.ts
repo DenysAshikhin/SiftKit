@@ -116,6 +116,16 @@ test('resolveRepoSearchPlannerToolDefinitions only emits web tool schemas when e
   assert.deepEqual(webSearch?.function?.parameters?.required, ['query']);
 });
 
+test('run output-mode guidance is readable ASCII text', () => {
+  const run = resolveRepoSearchPlannerToolDefinitions(['run'])
+    .find((tool) => tool.function.name === 'run');
+  const description = run?.function.parameters?.properties?.outputMode?.description;
+
+  assert.equal(typeof description, 'string');
+  assert.match(description ?? '', /commands - use it for those/u);
+  assert.doesNotMatch(description ?? '', /[^\x00-\x7F]/u);
+});
+
 test('getRepoSearchToolNamesForParsing excludes web tools so forged web actions are rejected by default', () => {
   const names = getRepoSearchToolNamesForParsing();
   assert.equal(names.includes('web_search'), false);

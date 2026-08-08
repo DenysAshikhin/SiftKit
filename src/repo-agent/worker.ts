@@ -1,5 +1,5 @@
 import type { CliProgressRenderer } from '../cli/progress-renderer.js';
-import { formatRepoTaskOutput } from '../cli/repo-task-output.js';
+import { formatRepoTaskOutput } from '../repo-agent/run-output.js';
 import type { StatusServerApiClient } from '../cli/status-server-api-client.js';
 import { buildRepoAgentServerRequest } from '../cli/repo-agent-request.js';
 import { toError } from '../lib/errors.js';

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import {
   REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT,
+  RUN_FULL_DOWNGRADE_NOTICE,
+  RunFullOutputGate,
   ValidationCommandOutputPolicy,
 } from '../src/repo-search/engine/validation-command-output-policy.js';
 
@@ -171,4 +173,64 @@ test('marks interior gaps and emits retained lines in original order', () => {
   assert.equal(retained[2], '… 12 lines omitted …');
   assert.equal(retained[3], 'line-13');
   assert.equal(retained.length - 1, 50);
+});
+
+test('gate downgrades first full validation run, grants one retry, then rejects repeats', () => {
+  const gate = new RunFullOutputGate();
+  assert.deepEqual(
+    gate.beginRun({ command: 'npm test', requestedMode: 'full', isValidationCommand: true }),
+    { kind: 'downgrade', effectiveMode: 'auto', downgraded: true },
+  );
+  assert.deepEqual(
+    gate.beginRun({ command: 'npm test', requestedMode: 'full', isValidationCommand: true }),
+    { kind: 'retry', effectiveMode: 'full', downgraded: false },
+  );
+  assert.deepEqual(
+    gate.beginRun({ command: 'npm test', requestedMode: 'full', isValidationCommand: true }),
+    { kind: 'duplicate' },
+  );
+});
+
+test('every other run forfeits pending or consumed retry state', () => {
+  const gate = new RunFullOutputGate();
+  gate.beginRun({ command: 'npm test', requestedMode: 'full', isValidationCommand: true });
+  assert.deepEqual(
+    gate.beginRun({ command: 'Write-Output other', requestedMode: 'auto', isValidationCommand: false }),
+    { kind: 'pass', effectiveMode: 'auto', downgraded: false },
+  );
+  assert.deepEqual(
+    gate.beginRun({ command: 'npm test', requestedMode: 'full', isValidationCommand: true }),
+    { kind: 'downgrade', effectiveMode: 'auto', downgraded: true },
+  );
+});
+
+test('an intervening run forfeits a consumed retry before the next full request', () => {
+  const gate = new RunFullOutputGate();
+  gate.beginRun({ command: 'npm test', requestedMode: 'full', isValidationCommand: true });
+  gate.beginRun({ command: 'npm test', requestedMode: 'full', isValidationCommand: true });
+  assert.deepEqual(
+    gate.beginRun({ command: 'Write-Output other', requestedMode: 'auto', isValidationCommand: false }),
+    { kind: 'pass', effectiveMode: 'auto', downgraded: false },
+  );
+  assert.deepEqual(
+    gate.beginRun({ command: 'npm test', requestedMode: 'full', isValidationCommand: true }),
+    { kind: 'downgrade', effectiveMode: 'auto', downgraded: true },
+  );
+});
+
+test('pass-through requests do not create a retry or consume another command', () => {
+  const gate = new RunFullOutputGate();
+  assert.deepEqual(
+    gate.beginRun({ command: 'npm test', requestedMode: 'auto', isValidationCommand: true }),
+    { kind: 'pass', effectiveMode: 'auto', downgraded: false },
+  );
+  assert.deepEqual(
+    gate.beginRun({ command: 'Get-Content build.log', requestedMode: 'full', isValidationCommand: false }),
+    { kind: 'pass', effectiveMode: 'full', downgraded: false },
+  );
+});
+
+test('downgrade notice names the retry affordance', () => {
+  assert.match(RUN_FULL_DOWNGRADE_NOTICE, /outputMode "full"/u);
+  assert.match(RUN_FULL_DOWNGRADE_NOTICE, /repeat/iu);
 });

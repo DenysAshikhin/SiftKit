@@ -13,8 +13,8 @@ import type { JsonObject } from '../src/lib/json-types.js';
 import { RepoAgentBoundaryWaiter } from '../src/repo-agent/boundary-waiter.js';
 import {
   RepoAgentDecisionSchema,
-  RepoAgentWorkerRequestSchema,
-  type RepoAgentWorkerRequest,
+  RepoAgentRunRequestSchema,
+  type RepoAgentRunRequest,
 } from '../src/repo-agent/run-schemas.js';
 import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
 import { runRepoAgentWorkerMain } from '../src/repo-agent/worker-main.js';
@@ -236,7 +236,7 @@ class WorkerMockServer {
 }
 
 class WorkerTestHarness {
-  readonly request: RepoAgentWorkerRequest;
+  readonly request: RepoAgentRunRequest;
   readonly server: WorkerMockServer;
   readonly store: RepoAgentRunStore;
   readonly worker: RepoAgentWorker;
@@ -246,7 +246,7 @@ class WorkerTestHarness {
   private readonly oldStatusUrl: string | undefined;
 
   private constructor(options: {
-    request: RepoAgentWorkerRequest;
+    request: RepoAgentRunRequest;
     server: WorkerMockServer;
     store: RepoAgentRunStore;
     worker: RepoAgentWorker;
@@ -266,12 +266,11 @@ class WorkerTestHarness {
   static async create(options: WorkerHarnessOptions): Promise<WorkerTestHarness> {
     const runsRoot = join(TEMP_ROOT, randomUUID());
     mkdirSync(runsRoot);
-    const request = RepoAgentWorkerRequestSchema.parse({
+    const request = RepoAgentRunRequestSchema.parse({
       runId: randomUUID(),
       task: 'implement the task',
       repoRoot: process.cwd(),
       approval: 'auto',
-      progress: false,
       ...(options.includeOptionalRequestFields
         ? {
             model: 'test-model',

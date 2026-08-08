@@ -16,6 +16,8 @@ import { DEFAULT_RUN_TIMEOUT_MS, MAX_RUN_TIMEOUT_MS, spawnPowerShellAsync } from
 import {
   RunOutputModeSchema,
   ValidationCommandOutputPolicy,
+  shapeRunOutput,
+  type RunFullOutputDecision,
 } from './validation-command-output-policy.js';
 import { WebResearchTools } from '../../web-search/web-research-tools.js';
 import type { WebFetchToolArgs, WebSearchToolArgs } from '../../web-search/types.js';
@@ -69,7 +71,8 @@ export type RepoToolContext = {
   abortSignal?: AbortSignal;
   expandReads: boolean;
   agentRunId: string;
-  validationCommandOutputLineLimit: number | null;
+  validationCommandOutputPolicy: ValidationCommandOutputPolicy | null;
+  runFullOutputDecision: RunFullOutputDecision | null;
 };
 
 export type ReadPlan = {
@@ -958,22 +961,22 @@ async function executeRun(args: JsonObject, context: RepoToolContext): Promise<R
   if (typeof timeoutMs === 'string') {
     return failure('run', command, timeoutMs);
   }
+  const decision = context.runFullOutputDecision;
+  if (decision === null || decision.kind === 'duplicate') {
+    return failure('run', command, 'run requires a precomputed executable output decision');
+  }
   const result = await spawnPowerShellAsync(commandText, {
     cwd: context.repoRoot,
     abortSignal: context.abortSignal,
     timeoutMs,
     env: { [AGENT_RUN_ID_ENV]: context.agentRunId },
   });
-  const output =
-    context.validationCommandOutputLineLimit === null
-      ? result.output
-      : new ValidationCommandOutputPolicy(
-          context.validationCommandOutputLineLimit,
-        ).apply({
-          command: commandText,
-          output: result.output,
-          outputMode: outputMode.data,
-        });
+  const output = shapeRunOutput({
+    command: commandText,
+    output: result.output,
+    policy: context.validationCommandOutputPolicy,
+    decision,
+  });
   return {
     ok: true, requestedCommand: command, command,
     exitCode: result.exitCode, output, toolType: 'run', outputUnit: 'lines', outputKeep: 'tail',

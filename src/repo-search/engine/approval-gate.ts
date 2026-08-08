@@ -57,6 +57,12 @@ export type ApprovalDecision =
   | { kind: 'deny'; reason: string }
   | { kind: 'abort'; reason: string };
 
+/** Observes gate lifecycle so a run owner can mirror decisions into durable state. */
+export type ApprovalGateObserver = {
+  onDecision(decision: ApprovalDecision): void;
+  onTimeout(): void;
+};
+
 /** Wording for an abort a human entered, wherever they entered it. */
 export const CLIENT_ABORT_MESSAGE = 'Aborted by user.';
 
@@ -107,6 +113,7 @@ export class ApprovalGate {
   private readonly bypassReadOnlyTools: boolean;
   private readonly decisionTimeoutMs: number;
   private readonly logger: ServerLogger;
+  private readonly observer: ApprovalGateObserver | undefined;
 
   constructor(options: {
     requestId: string;
@@ -115,6 +122,7 @@ export class ApprovalGate {
     bypassReadOnlyTools: boolean;
     decisionTimeoutMs?: number;
     logger?: ServerLogger;
+    observer?: ApprovalGateObserver;
   }) {
     this.logger = options.logger ?? serverLogger;
     this.requestId = options.requestId;
@@ -122,6 +130,7 @@ export class ApprovalGate {
     this.abortSignal = options.abortSignal;
     this.bypassReadOnlyTools = options.bypassReadOnlyTools;
     this.decisionTimeoutMs = options.decisionTimeoutMs ?? DEFAULT_DECISION_TIMEOUT_MS;
+    this.observer = options.observer;
     if (!Number.isFinite(this.decisionTimeoutMs) || this.decisionTimeoutMs <= 0) {
       throw new Error('Approval decision timeout must be a positive number of milliseconds.');
     }
@@ -173,6 +182,7 @@ export class ApprovalGate {
           fields: `approval=${shortenRequestId(approvalId)} tool=${input.toolName} `
             + `waited_ms=${this.decisionTimeoutMs}`,
         });
+        this.observer?.onTimeout();
         resolve({ kind: 'abort', reason: buildApprovalTimeoutMessage(this.decisionTimeoutMs) });
       }, this.decisionTimeoutMs);
       this.progressWriter.write({
@@ -209,6 +219,7 @@ export class ApprovalGate {
       fields: `approval=${shortenRequestId(approvalId)} decision=${decision.kind} `
         + `waited_ms=${Date.now() - entry.startedAtMs}`,
     });
+    this.observer?.onDecision(decision);
     entry.resolve(decision);
     return true;
   }

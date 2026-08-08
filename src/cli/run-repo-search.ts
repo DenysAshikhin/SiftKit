@@ -5,7 +5,7 @@ import {
   type ResolvedCliArgs,
 } from './args.js';
 import { CliProgressRenderer } from './progress-renderer.js';
-import { formatRepoTaskOutput } from './repo-task-output.js';
+import { formatRepoTaskOutput } from '../repo-agent/run-output.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
 import { assertStdinIsTty } from './tty.js';
 import { ImageAttachmentReader } from '../llm-protocol/image-attachments.js';

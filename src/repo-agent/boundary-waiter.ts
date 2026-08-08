@@ -3,9 +3,9 @@ import {
   type ProcessInspector,
 } from '../lib/process-inspector.js';
 import {
-  RepoAgentRunResultSchema,
   isActiveStatus,
   isTerminalStatus,
+  repoAgentStateToResult,
   type RepoAgentRunResult,
   type RepoAgentRunState,
 } from './run-schemas.js';
@@ -13,48 +13,7 @@ import type { RepoAgentRunStore } from './run-store.js';
 
 const DEFAULT_POLL_INTERVAL_MS = 250;
 
-export function repoAgentStateToResult(
-  state: RepoAgentRunState,
-): RepoAgentRunResult {
-  switch (state.status) {
-    case 'completed':
-      return RepoAgentRunResultSchema.parse({
-        status: 'completed',
-        runId: state.runId,
-        output: state.output,
-      });
-    case 'approval_required':
-      return RepoAgentRunResultSchema.parse({
-        status: 'approval_required',
-        runId: state.runId,
-        approval: state.approval,
-        decide: {
-          approve: `siftkit repo-agent decide ${state.runId} approve`,
-          deny: `siftkit repo-agent decide ${state.runId} deny --reason "<why>"`,
-          abort: `siftkit repo-agent decide ${state.runId} abort`,
-        },
-      });
-    case 'approval_timeout':
-      return RepoAgentRunResultSchema.parse({
-        status: 'approval_timeout',
-        runId: state.runId,
-        approval: state.approval,
-      });
-    case 'failed':
-      return RepoAgentRunResultSchema.parse({
-        status: 'failed',
-        runId: state.runId,
-        error: state.error,
-      });
-    case 'aborted':
-      return RepoAgentRunResultSchema.parse({
-        status: 'aborted',
-        runId: state.runId,
-      });
-    default:
-      throw new Error(`Cannot convert ${state.status} to a public result.`);
-  }
-}
+export { repoAgentStateToResult };
 
 export class RepoAgentBoundaryWaiter {
   private readonly store: RepoAgentRunStore;

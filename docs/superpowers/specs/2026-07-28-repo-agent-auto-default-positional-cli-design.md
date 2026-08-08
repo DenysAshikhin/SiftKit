@@ -19,6 +19,11 @@ repo-agent worker or approval behavior.
 
 ### Starting a run
 
+> Superseded on 2026-08-07 by
+> `2026-08-07-repo-agent-positional-task-join-design.md`: repo-agent now joins
+> multiple positional tokens into one task instead of rejecting them. The rest
+> of this section still holds.
+
 Repo-agent accepts exactly one positional task:
 
 ```text
@@ -38,8 +43,9 @@ The positional task replaces `--prompt` and `-prompt` for repo-agent. Those
 flags remain part of the separate repo-search contract.
 
 Options may appear before or after the positional task. The CLI rejects a
-missing task, multiple tasks, legacy prompt flags, unknown options, missing
-option values, and unsupported approval modes before contacting the server.
+missing task, legacy prompt flags, unknown options, missing option values, and
+unsupported approval modes before contacting the server. (Multiple tasks were
+also rejected here until the 2026-08-07 supersession noted above.)
 
 ### Decisions and status
 

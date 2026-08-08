@@ -12,15 +12,20 @@ import { ensureDirectory, saveContentAtomically } from '../lib/fs.js';
 import { parseJsonText } from '../lib/json.js';
 import { z } from '../lib/zod.js';
 import {
+  NodeProcessInspector,
+  type ProcessInspector,
+} from '../lib/process-inspector.js';
+import {
   RepoAgentApprovalSchema,
   RepoAgentDecisionSchema,
   RepoAgentRunStateSchema,
-  RepoAgentWorkerRequestSchema,
+  RepoAgentRunRequestSchema,
+  isActiveStatus,
   isTerminalStatus,
   type RepoAgentApproval,
   type RepoAgentDecision,
+  type RepoAgentRunRequest,
   type RepoAgentRunState,
-  type RepoAgentWorkerRequest,
 } from './run-schemas.js';
 import { RepoAgentRunStateLease } from './run-state-lease.js';
 
@@ -49,8 +54,8 @@ export class RepoAgentRunStore {
     return this.runsRoot;
   }
 
-  create(input: RepoAgentWorkerRequest): RepoAgentRunState {
-    const request = RepoAgentWorkerRequestSchema.parse(input);
+  create(input: RepoAgentRunRequest): RepoAgentRunState {
+    const request = RepoAgentRunRequestSchema.parse(input);
     const runDir = this.runDir(request.runId);
     if (existsSync(runDir)) {
       throw new Error(`Run already exists: ${request.runId}`);
@@ -73,7 +78,7 @@ export class RepoAgentRunStore {
     }
   }
 
-  readRequest(runId: string): RepoAgentWorkerRequest {
+  readRequest(runId: string): RepoAgentRunRequest {
     return this.readRequestFile(this.validRunId(runId));
   }
 
@@ -262,6 +267,60 @@ export class RepoAgentRunStore {
     }
   }
 
+  /** Terminalizes a run the server can no longer resume (restart lost the in-memory conversation). */
+  markNotResumable(runId: string): RepoAgentRunState {
+    const validatedRunId = this.validRunId(runId);
+    const lease = this.stateLease(validatedRunId);
+    lease.acquire();
+    try {
+      const current = this.readStateFile(validatedRunId);
+      if (isTerminalStatus(current.status)) {
+        return current;
+      }
+      const pid = workerPid(current);
+      const next = RepoAgentRunStateSchema.parse({
+        runId: validatedRunId,
+        revision: current.revision + 1,
+        updatedAtUtc: new Date().toISOString(),
+        status: 'failed',
+        ...(pid === undefined ? {} : { pid }),
+        error: 'Run is not resumable: the status server restarted while the run was active and the in-memory conversation was lost. Start a new run.',
+      });
+      this.writeState(next);
+      return next;
+    } finally {
+      lease.release();
+    }
+  }
+
+  /** Reads state; if the recorded server pid is dead on an active state, records the failure first. */
+  reconcile(
+    runId: string,
+    inspector: ProcessInspector = new NodeProcessInspector(),
+  ): RepoAgentRunState {
+    const state = this.readState(runId);
+    if (!isActiveStatus(state.status)) {
+      return state;
+    }
+    const pid = workerPid(state);
+    if (pid === undefined || inspector.isAlive(pid)) {
+      return state;
+    }
+    try {
+      this.transition(runId, state.revision, {
+        runId,
+        revision: state.revision + 1,
+        updatedAtUtc: new Date().toISOString(),
+        status: 'failed',
+        pid,
+        error: `Owning server process ${pid} died while the run was active.`,
+      });
+    } catch {
+      // Another writer advanced the state first; the fresh read below wins.
+    }
+    return this.readState(runId);
+  }
+
   pruneTerminalRuns(retentionDays: number, now: Date): string[] {
     const validatedRetentionDays = z.number().nonnegative().finite().parse(retentionDays);
     const cutoffMs = now.getTime() - validatedRetentionDays * 24 * 60 * 60 * 1000;
@@ -330,7 +389,7 @@ export class RepoAgentRunStore {
     return new RepoAgentRunStateLease(join(this.runDir(runId), 'state.lock'));
   }
 
-  private readRequestFile(runId: string): RepoAgentWorkerRequest {
+  private readRequestFile(runId: string): RepoAgentRunRequest {
     const filePath = this.requestPath(runId);
     if (!existsSync(filePath)) {
       throw new Error(`Request file not found for run ${runId}.`);
@@ -338,7 +397,7 @@ export class RepoAgentRunStore {
     try {
       return parseJsonText(
         readFileSync(filePath, 'utf8'),
-        RepoAgentWorkerRequestSchema,
+        RepoAgentRunRequestSchema,
       );
     } catch {
       throw new Error(`Malformed request file for run ${runId}.`);

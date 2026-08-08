@@ -14,7 +14,6 @@ const WorkerArgumentsSchema = z.tuple([
 export async function runRepoAgentWorkerMain(argv: string[]): Promise<void> {
   const [runId, runsRoot] = WorkerArgumentsSchema.parse(argv);
   const store = new RepoAgentRunStore(runsRoot);
-  const request = store.readRequest(runId);
   const boundaryWaiter = new RepoAgentBoundaryWaiter({ store, runId });
   const worker = new RepoAgentWorker({
     store,
@@ -22,7 +21,7 @@ export async function runRepoAgentWorkerMain(argv: string[]): Promise<void> {
     progressRenderer: CliProgressRenderer.forCli(
       process.stderr,
       'repo-agent',
-      request.progress,
+      false,
     ),
     boundaryWaiter,
   });

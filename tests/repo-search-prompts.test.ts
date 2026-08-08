@@ -274,7 +274,8 @@ test('buildAgentSystemPrompt documents automatic validation trimming and full ou
   );
   assert.match(prompt, /test, build, lint, and typecheck/u);
   assert.match(prompt, /outputMode.*"full"/u);
-  assert.match(prompt, /complete output is required/u);
+  assert.match(prompt, /raw log streams.*untrimmed text.*required/u);
+  assert.match(prompt, /repeat the identical run.*immediately/u);
 });
 
 test('buildAgentSystemPrompt requires a completion review against the task and referenced plans', () => {

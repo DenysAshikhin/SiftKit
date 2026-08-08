@@ -53,6 +53,13 @@ import { TokenUsageTracker } from './token-usage.js';
 import { ToolStatsRecorder } from './tool-stats.js';
 import { TranscriptManager } from './transcript-manager.js';
 import { TurnBudget } from './turn-budget.js';
+import {
+  RunFullOutputGate,
+  RunOutputModeSchema,
+  ValidationCommandOutputPolicy,
+  shapeRunOutput,
+  type RunFullOutputDecision,
+} from './validation-command-output-policy.js';
 
 type ToolActionOutcome = 'next' | 'stop_batch';
 
@@ -82,6 +89,7 @@ type AcceptedToolContext = ValidatedToolAction & {
   toolAction: ToolAction;
   fingerprint: string;
   normalizedKey: string;
+  runFullOutputDecision: RunFullOutputDecision | null;
   nativeExecution: RepoToolExecution | null;
 };
 
@@ -155,10 +163,16 @@ export type ToolActionProcessorDeps = {
 
 export class ToolActionProcessor {
   private readonly collector = new ActivitySummaryCollector();
+  private readonly runFullOutputGate = new RunFullOutputGate();
+  private readonly validationCommandOutputPolicy: ValidationCommandOutputPolicy | null;
   private progressToolCallSeq = 0;
   private forcedFinishCountdownUserMessageIndex = -1;
 
-  constructor(private readonly deps: ToolActionProcessorDeps) {}
+  constructor(private readonly deps: ToolActionProcessorDeps) {
+    this.validationCommandOutputPolicy = deps.validationCommandOutputLineLimit === null
+      ? null
+      : new ValidationCommandOutputPolicy(deps.validationCommandOutputLineLimit);
+  }
 
   async executeBatch(
     turn: number,
@@ -233,6 +247,7 @@ export class ToolActionProcessor {
       return validated;
     }
     const { normalizedToolName, isNativeTool, command } = validated;
+    const runFullOutputDecision = this.beginRun(toolAction, normalizedToolName);
 
     if (inForcedFinishMode) {
       const attempt = forcedFinish.consumeAttempt();
@@ -262,6 +277,7 @@ export class ToolActionProcessor {
       toolAction,
       fingerprint,
       normalizedKey: command,
+      runFullOutputDecision,
       nativeExecution: null,
     }, prospectiveToolType, state);
     if (screened !== null) {
@@ -299,13 +315,14 @@ export class ToolActionProcessor {
     }
 
     const nativeExecution = isNativeTool
-      ? await this.runNativeExecution(normalizedToolName, toolAction, command)
+      ? await this.runNativeExecution(normalizedToolName, toolAction, command, runFullOutputDecision)
       : null;
     const context: AcceptedToolContext = {
       ...validated,
       toolAction,
       fingerprint,
       normalizedKey: command,
+      runFullOutputDecision,
       nativeExecution,
     };
     const rejection = this.screenRejection(turn, context, state);
@@ -348,6 +365,22 @@ export class ToolActionProcessor {
       );
     }
     return { normalizedToolName, isCommandTool, isNativeTool, command };
+  }
+
+  private beginRun(toolAction: ToolAction, normalizedToolName: string): RunFullOutputDecision | null {
+    if (normalizedToolName !== 'run') {
+      return null;
+    }
+    const command = typeof toolAction.args.command === 'string' ? toolAction.args.command : '';
+    const outputMode = RunOutputModeSchema.safeParse(toolAction.args.outputMode ?? 'auto');
+    if (command === '' || !outputMode.success) {
+      return null;
+    }
+    return this.runFullOutputGate.beginRun({
+      command,
+      requestedMode: outputMode.data,
+      isValidationCommand: this.validationCommandOutputPolicy?.isValidationCommand(command) ?? false,
+    });
   }
 
   /** Records a rejected tool call: a safe:false command entry plus its transcript outcome. */
@@ -440,7 +473,10 @@ export class ToolActionProcessor {
     prospectiveToolType: string,
     state: TurnBatchState,
   ): ToolActionOutcome | null {
-    const { toolAction, normalizedToolName, isNativeTool, command, fingerprint, normalizedKey } = context;
+    const {
+      toolAction, normalizedToolName, isNativeTool, command, fingerprint, normalizedKey,
+      runFullOutputDecision,
+    } = context;
     const { counters, duplicates } = this.deps;
     const { isExactDuplicate, isSemanticDuplicate, duplicateFingerprint } = duplicates.classify({
       toolName: normalizedToolName,
@@ -450,6 +486,10 @@ export class ToolActionProcessor {
     });
     // A repeated `read` is legitimate: planRead advances past already-returned lines each time.
     const canAdvanceRepeatedRead = normalizedToolName === 'read';
+    // A repeated `run` is legitimate exactly once: when it is the granted back-to-back "full"
+    // retry of a command whose first "full" request was served as "auto".
+    const canAdvanceRepeatedRun = runFullOutputDecision?.kind === 'retry';
+    const completedRepeatedRun = runFullOutputDecision?.kind === 'duplicate';
     if (this.deps.chatWebGroundingEnabled && (normalizedToolName === 'web_search' || normalizedToolName === 'web_fetch')) {
       const duplicateDecision = this.deps.chatWebGroundingPolicy.evaluateToolCall(normalizedToolName, toolAction.args);
       if (duplicateDecision.kind === 'reject') {
@@ -467,10 +507,14 @@ export class ToolActionProcessor {
         return 'next';
       }
     }
-    if (!canAdvanceRepeatedRead && (isExactDuplicate || isSemanticDuplicate)) {
+    if (
+      !canAdvanceRepeatedRead
+      && !canAdvanceRepeatedRun
+      && (completedRepeatedRun || isExactDuplicate || isSemanticDuplicate)
+    ) {
       this.rejectAsDuplicate(turn, context, state, {
         duplicateFingerprint,
-        kind: isExactDuplicate ? 'exact' : 'semantic',
+        kind: completedRepeatedRun || isExactDuplicate ? 'exact' : 'semantic',
         prospectiveToolType,
         bodyText: null,
       });
@@ -545,9 +589,41 @@ export class ToolActionProcessor {
     }
   }
 
-  private async runNativeExecution(normalizedToolName: string, toolAction: ToolAction, command: string): Promise<RepoToolExecution> {
+  private async runNativeExecution(
+    normalizedToolName: string,
+    toolAction: ToolAction,
+    command: string,
+    runFullOutputDecision: RunFullOutputDecision | null,
+  ): Promise<RepoToolExecution> {
     if (this.deps.mockCommandResults && this.deps.mockCommandResults[command]) {
       const mockResult = this.deps.mockCommandResults[command];
+      if (normalizedToolName === 'run') {
+        if (runFullOutputDecision === null || runFullOutputDecision.kind === 'duplicate') {
+          return {
+            ok: false,
+            command,
+            reason: 'run requires a precomputed executable output decision',
+            toolType: normalizedToolName,
+          };
+        }
+        const commandText = typeof toolAction.args.command === 'string' ? toolAction.args.command : '';
+        const rawOutput = [mockResult.stdout, mockResult.stderr]
+          .filter((part) => typeof part === 'string' && part.length > 0)
+          .join('\n');
+        return {
+          ok: true,
+          requestedCommand: command,
+          command,
+          exitCode: Number(mockResult.exitCode),
+          output: shapeRunOutput({
+            command: commandText,
+            output: rawOutput,
+            policy: this.validationCommandOutputPolicy,
+            decision: runFullOutputDecision,
+          }),
+          toolType: normalizedToolName,
+        };
+      }
       return {
         ok: true,
         requestedCommand: command,
@@ -567,8 +643,8 @@ export class ToolActionProcessor {
       abortSignal: this.deps.abortSignal,
       expandReads: isReadExpansionEnabled(this.deps.config),
       agentRunId: this.deps.task.id,
-      validationCommandOutputLineLimit:
-        this.deps.validationCommandOutputLineLimit,
+      validationCommandOutputPolicy: this.validationCommandOutputPolicy,
+      runFullOutputDecision,
     });
   }
 

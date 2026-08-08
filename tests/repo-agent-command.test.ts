@@ -18,7 +18,7 @@ import {
   RepoAgentRunResultSchema,
   RepoAgentRunStateSchema,
   type RepoAgentDecision,
-  type RepoAgentWorkerRequest,
+  type RepoAgentRunRequest,
 } from '../src/repo-agent/run-schemas.js';
 import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
 import type { RepoAgentProcessLauncher } from '../src/repo-agent/worker-launcher.js';
@@ -304,13 +304,12 @@ function parseSingleResult(stdout: CaptureStream) {
   return RepoAgentRunResultSchema.parse(parseJsonValueText(text));
 }
 
-function createApprovalState(store: RepoAgentRunStore): RepoAgentWorkerRequest {
-  const request: RepoAgentWorkerRequest = {
+function createApprovalState(store: RepoAgentRunStore): RepoAgentRunRequest {
+  const request: RepoAgentRunRequest = {
     runId: randomUUID(),
     task: 'existing task',
     repoRoot: process.cwd(),
     approval: 'auto',
-    progress: false,
     images: [],
   };
   store.create(request);
@@ -360,7 +359,6 @@ test('non-TTY start launches once and emits one completed JSON object', async ()
     model: 'test-model',
     logFile: 'agent.log',
     approval: 'auto',
-    progress: false,
     images: [],
   });
   assert.equal(capture.stderr.read(), '');
@@ -432,12 +430,11 @@ test('launch failure emits one failed object and returns non-zero', async () => 
 
 test('status returns current state without mutation', async () => {
   const harness = makeHarness('completed');
-  const request: RepoAgentWorkerRequest = {
+  const request: RepoAgentRunRequest = {
     runId: randomUUID(),
     task: 'status task',
     repoRoot: process.cwd(),
     approval: 'auto',
-    progress: false,
     images: [],
   };
   harness.store.create(request);
@@ -460,12 +457,11 @@ test('status returns current state without mutation', async () => {
 
 test('status reports a dead worker as failed instead of stale running state', async () => {
   const harness = makeHarness('completed');
-  const request: RepoAgentWorkerRequest = {
+  const request: RepoAgentRunRequest = {
     runId: randomUUID(),
     task: 'stale task',
     repoRoot: process.cwd(),
     approval: 'auto',
-    progress: false,
     images: [],
   };
   harness.store.create(request);

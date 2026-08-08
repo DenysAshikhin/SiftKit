@@ -19,6 +19,13 @@ import {
 } from '../src/repo-search/engine/repo-tools.js';
 import { DEFAULT_RUN_TIMEOUT_MS, MAX_RUN_TIMEOUT_MS } from '../src/lib/powershell.js';
 import { buildReadPathKeyForCaseSensitivity, type FileReadState } from '../src/repo-search/engine/read-overlap.js';
+import {
+  RUN_FULL_DOWNGRADE_NOTICE,
+  REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT,
+  RunFullOutputGate,
+  ValidationCommandOutputPolicy,
+  type RunFullOutputDecision,
+} from '../src/repo-search/engine/validation-command-output-policy.js';
 import { makeMockWebTools } from './helpers/mock-web-tools.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
@@ -36,14 +43,25 @@ function makeRepo(): string {
   return root;
 }
 
-function makeContext(root: string, validationCommandOutputLineLimit: number | null = null) {
+const NOISY_VALIDATION_LINE_COUNT = REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT + 10;
+
+function makeContext(
+  root: string,
+  validationCommandOutputLineLimit: number | null = null,
+  runFullOutputDecision: RunFullOutputDecision | null = {
+    kind: 'pass', effectiveMode: 'auto', downgraded: false,
+  },
+) {
   return {
     repoRoot: root,
     ignorePolicy: buildIgnorePolicy(root),
     webTools: makeMockWebTools(),
     expandReads: true,
     agentRunId: 'test-run',
-    validationCommandOutputLineLimit,
+    validationCommandOutputPolicy: validationCommandOutputLineLimit === null
+      ? null
+      : new ValidationCommandOutputPolicy(validationCommandOutputLineLimit),
+    runFullOutputDecision,
   };
 }
 
@@ -744,7 +762,7 @@ function writeNoisyFailingTest(root: string): void {
   fs.writeFileSync(
     path.join(root, 'validation.cjs'),
     [
-      'for (let index = 1; index <= 60; index += 1) console.log(`validation-line-${index}`);',
+      `for (let index = 1; index <= ${NOISY_VALIDATION_LINE_COUNT}; index += 1) console.log(\`validation-line-\${index}\`);`,
       'process.exitCode = 1;',
     ].join('\n'),
     'utf8',
@@ -756,48 +774,111 @@ function writeNoisyFailingTest(root: string): void {
   );
 }
 
-test('repo-agent run auto mode keeps 50 tail lines and preserves failing exit code', async () => {
+test(`repo-agent run auto mode keeps ${REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT} tail lines and preserves failing exit code`, async () => {
   const root = makeRepo();
   try {
     writeNoisyFailingTest(root);
     const result = await executeRepoTool(
       'run',
       { command: 'npm test' },
-      makeContext(root, 50),
+      makeContext(root, REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT),
     );
 
     assert.ok(result.ok);
     assert.equal(result.exitCode, 1);
     assert.match(result.output, /^\d+ lines omitted from validation command output\./u);
     assert.doesNotMatch(result.output, /validation-line-1\b/u);
-    assert.match(result.output, /validation-line-60\b/u);
-    assert.equal(result.output.split(/\r\n|\r|\n/u).length, 51);
+    assert.equal(
+      result.output.includes(`validation-line-${NOISY_VALIDATION_LINE_COUNT}`),
+      true,
+    );
+    assert.equal(
+      result.output.split(/\r\n|\r|\n/u).length,
+      REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT + 1,
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('run full mode and non-agent context preserve complete validation output', async () => {
+test('run serves the first full request as auto with a notice, honors the back-to-back retry, and leaves non-agent full untouched', async () => {
   const root = makeRepo();
   try {
     writeNoisyFailingTest(root);
-    const full = await executeRepoTool(
+    const gate = new RunFullOutputGate();
+    const firstDecision = gate.beginRun({ command: 'npm test', requestedMode: 'full', isValidationCommand: true });
+    const first = await executeRepoTool(
       'run',
       { command: 'npm test', outputMode: 'full' },
-      makeContext(root, 50),
+      makeContext(root, REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT, firstDecision),
     );
-    const nonAgent = await executeRepoTool(
+    const retryDecision = gate.beginRun({ command: 'npm test', requestedMode: 'full', isValidationCommand: true });
+    const retry = await executeRepoTool(
       'run',
-      { command: 'npm test' },
-      makeContext(root),
+      { command: 'npm test', outputMode: 'full' },
+      makeContext(root, REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT, retryDecision),
+    );
+    const nonAgent = await executeRepoTool('run', { command: 'npm test', outputMode: 'full' }, makeContext(root));
+
+    assert.ok(first.ok);
+    assert.equal(first.exitCode, 1);
+    assert.doesNotMatch(first.output, /validation-line-1\b/u);
+    assert.match(first.output, /^\d+ lines omitted from validation command output\./u);
+    assert.ok(first.output.endsWith(RUN_FULL_DOWNGRADE_NOTICE));
+
+    assert.ok(retry.ok);
+    assert.match(retry.output, /validation-line-1\b/u);
+    assert.doesNotMatch(retry.output, /Notice: outputMode "full"/u);
+
+    assert.ok(nonAgent.ok);
+    assert.match(nonAgent.output, /validation-line-1\b/u);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a different run call between downgrade and retry forfeits the full grant', async () => {
+  const root = makeRepo();
+  try {
+    writeNoisyFailingTest(root);
+    const gate = new RunFullOutputGate();
+    const firstDecision = gate.beginRun({ command: 'npm test', requestedMode: 'full', isValidationCommand: true });
+    await executeRepoTool(
+      'run',
+      { command: 'npm test', outputMode: 'full' },
+      makeContext(root, REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT, firstDecision),
+    );
+    const interloperDecision = gate.beginRun({ command: 'Write-Output interloper', requestedMode: 'auto', isValidationCommand: false });
+    await executeRepoTool(
+      'run',
+      { command: 'Write-Output interloper' },
+      makeContext(root, REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT, interloperDecision),
+    );
+    const attemptedDecision = gate.beginRun({ command: 'npm test', requestedMode: 'full', isValidationCommand: true });
+    const attempted = await executeRepoTool(
+      'run',
+      { command: 'npm test', outputMode: 'full' },
+      makeContext(root, REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT, attemptedDecision),
     );
 
-    assert.ok(full.ok);
-    assert.ok(nonAgent.ok);
-    assert.equal(full.exitCode, 1);
-    assert.equal(nonAgent.exitCode, 1);
-    assert.match(full.output, /validation-line-1\b/u);
-    assert.match(nonAgent.output, /validation-line-1\b/u);
+    assert.ok(attempted.ok);
+    assert.doesNotMatch(attempted.output, /validation-line-1\b/u);
+    assert.ok(attempted.output.endsWith(RUN_FULL_DOWNGRADE_NOTICE));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('run rejects a valid command without a precomputed output decision', async () => {
+  const root = makeRepo();
+  try {
+    const result = await executeRepoTool(
+      'run',
+      { command: 'Write-Output marker' },
+      makeContext(root, null, null),
+    );
+    assert.equal(result.ok, false);
+    assert.match(result.reason, /precomputed executable output decision/u);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -809,7 +890,7 @@ test('run rejects an invalid output mode at the execution boundary', async () =>
     const result = await executeRepoTool(
       'run',
       { command: 'Write-Output marker', outputMode: 'verbose' },
-      makeContext(root, 50),
+      makeContext(root, REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT),
     );
     assert.equal(result.ok, false);
     assert.match(result.reason, /outputMode must be "auto" or "full"/u);

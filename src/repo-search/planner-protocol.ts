@@ -208,7 +208,7 @@ const REPO_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
             type: 'string',
             enum: ['auto', 'full'],
             description:
-              'Validation output mode. auto keeps the final 50 lines; full requests complete output before normal context fitting.',
+              'Output shaping. auto (default) keeps a curated tail for test/build/lint/typecheck commands - use it for those. full returns raw output; on such commands a first full request is served as auto, and only an immediate identical retry with full returns raw output.',
           },
         },
         required: ['command'],

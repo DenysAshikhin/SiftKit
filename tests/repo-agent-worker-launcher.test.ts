@@ -13,8 +13,8 @@ import test, { after, before } from 'node:test';
 
 import { z } from '../src/lib/zod.js';
 import {
-  RepoAgentWorkerRequestSchema,
-  type RepoAgentWorkerRequest,
+  RepoAgentRunRequestSchema,
+  type RepoAgentRunRequest,
 } from '../src/repo-agent/run-schemas.js';
 import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
 import {
@@ -42,13 +42,12 @@ after(() => {
   rmSync(TEMP_ROOT, { recursive: true, force: true });
 });
 
-function makeRequest(runId = randomUUID()): RepoAgentWorkerRequest {
-  return RepoAgentWorkerRequestSchema.parse({
+function makeRequest(runId = randomUUID()): RepoAgentRunRequest {
+  return RepoAgentRunRequestSchema.parse({
     runId,
     task: 'sensitive task text that must not enter argv',
     repoRoot: process.cwd(),
     approval: 'auto',
-    progress: false,
   });
 }
 

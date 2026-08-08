@@ -4,8 +4,10 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { ProgressWriter } from '../src/lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import {
+  ApprovalGate,
   DEFAULT_DECISION_TIMEOUT_MS,
   buildApprovalTimeoutMessage,
+  type ApprovalDecision,
 } from '../src/repo-search/engine/approval-gate.js';
 import { ApprovalGateHarness } from './helpers/approval-gate-harness.js';
 
@@ -317,4 +319,51 @@ test('a client disconnect while parked logs approval_abandoned, an immediate abo
     turn: 1, toolName: 'write', command: 'write path=a.ts', reviewPayload: null,
   }), /stream already closed/u);
   assert.equal(preAborted.logLines.length, 0);
+});
+
+// ---- Observer hooks ----
+
+class RecordingObserver {
+  decisions: ApprovalDecision[] = [];
+  timeouts = 0;
+  onDecision(decision: ApprovalDecision): void { this.decisions.push(decision); }
+  onTimeout(): void { this.timeouts += 1; }
+}
+
+test('observer.onDecision fires with the submitted decision', async () => {
+  const writer = new CollectingWriter();
+  const observer = new RecordingObserver();
+  const controller = new AbortController();
+  const gate = new ApprovalGate({
+    requestId: 'req-observer-1',
+    progressWriter: writer,
+    abortSignal: controller.signal,
+    bypassReadOnlyTools: false,
+    observer,
+  });
+  const pending = gate.request({ turn: 1, toolName: 'run', command: 'echo hi', reviewPayload: null });
+  const approvalId = String(writer.events.find((e) => e.kind === 'approval_request')?.approvalId ?? '');
+  assert.ok(approvalId);
+  assert.equal(gate.submit(approvalId, { kind: 'deny', reason: 'nope' }), true);
+  assert.deepEqual(await pending, { kind: 'deny', reason: 'nope' });
+  assert.deepEqual(observer.decisions, [{ kind: 'deny', reason: 'nope' }]);
+  assert.equal(observer.timeouts, 0);
+});
+
+test('observer.onTimeout fires when the decision timer expires', async () => {
+  const writer = new CollectingWriter();
+  const observer = new RecordingObserver();
+  const controller = new AbortController();
+  const gate = new ApprovalGate({
+    requestId: 'req-observer-2',
+    progressWriter: writer,
+    abortSignal: controller.signal,
+    bypassReadOnlyTools: false,
+    decisionTimeoutMs: 25,
+    observer,
+  });
+  const decision = await gate.request({ turn: 1, toolName: 'run', command: 'echo hi', reviewPayload: null });
+  assert.equal(decision.kind, 'abort');
+  assert.equal(observer.timeouts, 1);
+  assert.deepEqual(observer.decisions, []);
 });

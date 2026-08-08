@@ -16,10 +16,10 @@ import {
   RepoAgentDecisionSchema,
   RepoAgentRunResultSchema,
   RepoAgentRunStateSchema,
-  RepoAgentWorkerRequestSchema,
+  RepoAgentRunRequestSchema,
   type RepoAgentApproval,
   type RepoAgentDecision,
-  type RepoAgentWorkerRequest,
+  type RepoAgentRunRequest,
 } from '../src/repo-agent/run-schemas.js';
 import { RepoAgentRunStateLease } from '../src/repo-agent/run-state-lease.js';
 import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
@@ -45,13 +45,16 @@ function makeRunsRoot(): string {
   return runsRoot;
 }
 
-function makeRequest(runId = randomUUID()): RepoAgentWorkerRequest {
-  return RepoAgentWorkerRequestSchema.parse({
+function makeStore(): RepoAgentRunStore {
+  return new RepoAgentRunStore(makeRunsRoot());
+}
+
+function makeRequest(runId = randomUUID()): RepoAgentRunRequest {
+  return RepoAgentRunRequestSchema.parse({
     runId,
     task: 'implement the task',
     repoRoot: process.cwd(),
     approval: 'auto',
-    progress: false,
   });
 }
 
@@ -66,7 +69,7 @@ function makeApproval(): RepoAgentApproval {
 
 function moveToRunning(
   store: RepoAgentRunStore,
-  request: RepoAgentWorkerRequest,
+  request: RepoAgentRunRequest,
 ): void {
   store.transition(request.runId, 0, {
     runId: request.runId,
@@ -79,7 +82,7 @@ function moveToRunning(
 
 function publishBoundary(
   store: RepoAgentRunStore,
-  request: RepoAgentWorkerRequest,
+  request: RepoAgentRunRequest,
 ): RepoAgentApproval {
   moveToRunning(store, request);
   const approval = makeApproval();
@@ -88,7 +91,7 @@ function publishBoundary(
 }
 
 function makeDecision(
-  request: RepoAgentWorkerRequest,
+  request: RepoAgentRunRequest,
   approval: RepoAgentApproval,
   decision: 'approve' | 'abort' = 'approve',
 ): RepoAgentDecision {
@@ -155,20 +158,19 @@ test('state schema rejects malformed shared and status-specific fields', () => {
   assert.equal(RepoAgentRunStateSchema.safeParse({ ...base, status: 'completed', pid: 123 }).success, false);
 });
 
-test('worker request schema validates every option and rejects invalid input', () => {
+test('run request schema validates every option and rejects invalid input', () => {
   assert.equal(
-    RepoAgentWorkerRequestSchema.safeParse({
+    RepoAgentRunRequestSchema.safeParse({
       ...makeRequest(),
       model: 'model',
       logFile: 'run.log',
       approval: 'interactive',
-      progress: true,
     }).success,
     true,
   );
-  assert.equal(RepoAgentWorkerRequestSchema.safeParse({ ...makeRequest(), task: '' }).success, false);
-  assert.equal(RepoAgentWorkerRequestSchema.safeParse({ ...makeRequest(), runId: 'bad' }).success, false);
-  assert.equal(RepoAgentWorkerRequestSchema.safeParse({ ...makeRequest(), approval: 'unsafe' }).success, false);
+  assert.equal(RepoAgentRunRequestSchema.safeParse({ ...makeRequest(), task: '' }).success, false);
+  assert.equal(RepoAgentRunRequestSchema.safeParse({ ...makeRequest(), runId: 'bad' }).success, false);
+  assert.equal(RepoAgentRunRequestSchema.safeParse({ ...makeRequest(), approval: 'unsafe' }).success, false);
 });
 
 test('approval schema requires complete visible review content', () => {
@@ -670,4 +672,38 @@ test('pruneTerminalRuns preserves malformed, active, recent, and non-run entries
   assert.equal(existsSync(join(runsRoot, 'not-a-run')), true);
   assert.equal(existsSync(join(runsRoot, 'ordinary-file')), true);
   assert.equal(existsSync(join(runsRoot, pending.runId)), true);
+});
+
+test('markNotResumable fails an active run with a restart message and is a no-op on terminal runs', () => {
+  const store = makeStore();
+  const request = makeRequest();
+  store.create(request);
+  store.transition(request.runId, 0, {
+    runId: request.runId, revision: 1, updatedAtUtc: new Date().toISOString(),
+    status: 'running', pid: process.pid,
+  });
+  const failed = store.markNotResumable(request.runId);
+  assert.equal(failed.status, 'failed');
+  if (failed.status === 'failed') {
+    assert.match(failed.error, /not resumable/u);
+    assert.match(failed.error, /restarted/u);
+  }
+  const again = store.markNotResumable(request.runId);
+  assert.deepEqual(again, failed);
+});
+
+test('reconcile marks an active run with a dead pid as failed and leaves live/terminal runs alone', () => {
+  const store = makeStore();
+  const request = makeRequest();
+  store.create(request);
+  store.transition(request.runId, 0, {
+    runId: request.runId, revision: 1, updatedAtUtc: new Date().toISOString(),
+    status: 'running', pid: process.pid,
+  });
+  const deadInspector = { isAlive: () => false };
+  const liveInspector = { isAlive: () => true };
+  assert.equal(store.reconcile(request.runId, liveInspector).status, 'running');
+  const reconciled = store.reconcile(request.runId, deadInspector);
+  assert.equal(reconciled.status, 'failed');
+  assert.equal(store.reconcile(request.runId, deadInspector).status, 'failed');
 });

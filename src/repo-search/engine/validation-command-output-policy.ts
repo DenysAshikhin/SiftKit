@@ -163,3 +163,69 @@ export class ValidationCommandOutputPolicy {
     return indices;
   }
 }
+
+export const RUN_FULL_DOWNGRADE_NOTICE =
+  'Notice: outputMode "full" was served as "auto" for this validation command. '
+  + 'If the raw output is genuinely required, repeat this identical run with outputMode "full" as your next run call.';
+
+type RunFullOutputGateState =
+  | { kind: 'idle' }
+  | { kind: 'pending'; command: string }
+  | { kind: 'consumed'; command: string };
+
+export type RunFullOutputDecision =
+  | { kind: 'pass'; effectiveMode: RunOutputMode; downgraded: false }
+  | { kind: 'downgrade'; effectiveMode: 'auto'; downgraded: true }
+  | { kind: 'retry'; effectiveMode: 'full'; downgraded: false }
+  | { kind: 'duplicate' };
+
+export type ExecutableRunFullOutputDecision = Exclude<RunFullOutputDecision, { kind: 'duplicate' }>;
+
+export function shapeRunOutput(options: {
+  command: string;
+  output: string;
+  policy: ValidationCommandOutputPolicy | null;
+  decision: ExecutableRunFullOutputDecision;
+}): string {
+  const shaped = options.policy === null
+    ? options.output
+    : options.policy.apply({
+        command: options.command,
+        output: options.output,
+        outputMode: options.decision.effectiveMode,
+      });
+  return options.decision.downgraded
+    ? `${shaped}\n\n${RUN_FULL_DOWNGRADE_NOTICE}`
+    : shaped;
+}
+
+/**
+ * First `full` request on a validation command is served as `auto`; only an immediate
+ * back-to-back retry of the identical command with `full` is honored. Any other `run`
+ * call in between forfeits the pending grant; non-run tools do not touch it.
+ */
+export class RunFullOutputGate {
+  private state: RunFullOutputGateState = { kind: 'idle' };
+
+  beginRun(options: {
+    command: string;
+    requestedMode: RunOutputMode;
+    isValidationCommand: boolean;
+  }): RunFullOutputDecision {
+    const previous = this.state;
+    this.state = { kind: 'idle' };
+    if (options.requestedMode !== 'full' || !options.isValidationCommand) {
+      return { kind: 'pass', effectiveMode: options.requestedMode, downgraded: false };
+    }
+    if (previous.kind === 'pending' && previous.command === options.command) {
+      this.state = { kind: 'consumed', command: options.command };
+      return { kind: 'retry', effectiveMode: 'full', downgraded: false };
+    }
+    if (previous.kind === 'consumed' && previous.command === options.command) {
+      this.state = previous;
+      return { kind: 'duplicate' };
+    }
+    this.state = { kind: 'pending', command: options.command };
+    return { kind: 'downgrade', effectiveMode: 'auto', downgraded: true };
+  }
+}

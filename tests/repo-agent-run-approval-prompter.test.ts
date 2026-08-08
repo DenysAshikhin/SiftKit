@@ -14,11 +14,11 @@ import {
   RepoAgentApprovalSchema,
   RepoAgentDecisionSchema,
   RepoAgentRunStateSchema,
-  RepoAgentWorkerRequestSchema,
+  RepoAgentRunRequestSchema,
   isTerminalStatus,
   type RepoAgentApproval,
   type RepoAgentDecision,
-  type RepoAgentWorkerRequest,
+  type RepoAgentRunRequest,
 } from '../src/repo-agent/run-schemas.js';
 import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
 import { RepoAgentRunApprovalPrompter } from '../src/repo-agent/run-approval-prompter.js';
@@ -53,13 +53,12 @@ function makeRunsRoot(): string {
   return runsRoot;
 }
 
-function makeRequest(runId = randomUUID()): RepoAgentWorkerRequest {
-  return RepoAgentWorkerRequestSchema.parse({
+function makeRequest(runId = randomUUID()): RepoAgentRunRequest {
+  return RepoAgentRunRequestSchema.parse({
     runId,
     task: 'implement the task',
     repoRoot: process.cwd(),
     approval: 'auto',
-    progress: false,
   });
 }
 
@@ -83,7 +82,7 @@ function makeApprovalEvent(approval: RepoAgentApproval): JsonObject {
   };
 }
 
-function moveToRunning(store: RepoAgentRunStore, request: RepoAgentWorkerRequest): void {
+function moveToRunning(store: RepoAgentRunStore, request: RepoAgentRunRequest): void {
   store.transition(request.runId, 0, {
     runId: request.runId,
     revision: 1,

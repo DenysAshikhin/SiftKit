@@ -12,17 +12,16 @@ const BaseStateFields = {
   updatedAtUtc: UpdatedAtUtcSchema,
 };
 
-export const RepoAgentWorkerRequestSchema = z.strictObject({
+export const RepoAgentRunRequestSchema = z.strictObject({
   runId: RunIdSchema,
   task: z.string().trim().min(1),
   repoRoot: z.string().min(1),
   model: z.string().min(1).optional(),
   logFile: z.string().min(1).optional(),
   approval: ApprovalModeSchema,
-  progress: z.boolean(),
   images: z.array(z.string()).default([]),
 });
-export type RepoAgentWorkerRequest = z.infer<typeof RepoAgentWorkerRequestSchema>;
+export type RepoAgentRunRequest = z.infer<typeof RepoAgentRunRequestSchema>;
 
 export const RepoAgentApprovalSchema = z.strictObject({
   approvalId: z.string().uuid(),
@@ -139,4 +138,34 @@ export function isTerminalStatus(status: RepoAgentRunState['status']): boolean {
 
 export function isActiveStatus(status: RepoAgentRunState['status']): boolean {
   return !isTerminalStatus(status);
+}
+
+export function buildRepoAgentDecideCommands(runId: string): {
+  approve: string; deny: string; abort: string;
+} {
+  return {
+    approve: `siftkit repo-agent decide ${runId} approve`,
+    deny: `siftkit repo-agent decide ${runId} deny --reason "<why>"`,
+    abort: `siftkit repo-agent decide ${runId} abort`,
+  };
+}
+
+export function repoAgentStateToResult(state: RepoAgentRunState): RepoAgentRunResult {
+  switch (state.status) {
+    case 'completed':
+      return RepoAgentRunResultSchema.parse({ status: 'completed', runId: state.runId, output: state.output });
+    case 'approval_required':
+      return RepoAgentRunResultSchema.parse({
+        status: 'approval_required', runId: state.runId, approval: state.approval,
+        decide: buildRepoAgentDecideCommands(state.runId),
+      });
+    case 'approval_timeout':
+      return RepoAgentRunResultSchema.parse({ status: 'approval_timeout', runId: state.runId, approval: state.approval });
+    case 'failed':
+      return RepoAgentRunResultSchema.parse({ status: 'failed', runId: state.runId, error: state.error });
+    case 'aborted':
+      return RepoAgentRunResultSchema.parse({ status: 'aborted', runId: state.runId });
+    default:
+      throw new Error(`Cannot convert ${state.status} to a public result.`);
+  }
 }
