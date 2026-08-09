@@ -25,6 +25,8 @@ import {
   withStubServer,
   createEmptyPresetSystemContext,
 } from './_runtime-helpers.js';
+
+const SIFTKIT_REPO_ROOT = process.cwd();
 import type { SiftConfig } from '../src/config/types.js';
 import { getActiveModelPreset } from '../src/config/getters.js';
 import { RESPONSE_RESERVE_TOKENS } from '../src/lib/response-reserve.js';
@@ -452,13 +454,13 @@ test('token-aware llama.cpp chunk planning leaves the shared response reserve wh
 // eval/fixtures/ai_core_60_tests is gitignored benchmark data, absent on a
 // fresh clone. Skip rather than fail when the manifest is not present locally.
 const aiCore60FixtureManifestPresent = fs.existsSync(
-  path.resolve(__dirname, '..', 'eval', 'fixtures', 'ai_core_60_tests', 'fixtures.json'),
+  path.resolve(SIFTKIT_REPO_ROOT, 'eval', 'fixtures', 'ai_core_60_tests', 'fixtures.json'),
 );
 test('live llama token-aware chunk planning preserves the 5m benchmark fixture without chat completion', {
   skip: aiCore60FixtureManifestPresent ? false : 'eval/fixtures/ai_core_60_tests is gitignored and not present locally',
 }, async () => {
   const runFixtureCheck = async (config: SiftConfig) => {
-  const fixtureRoot = path.resolve(__dirname, '..', 'eval', 'fixtures', 'ai_core_60_tests');
+  const fixtureRoot = path.resolve(SIFTKIT_REPO_ROOT, 'eval', 'fixtures', 'ai_core_60_tests');
   const manifest: FixtureManifestEntry[] = JSON.parse(fs.readFileSync(path.join(fixtureRoot, 'fixtures.json'), 'utf8'));
   const fixture = manifest.find((entry) => entry.File === 'raw/19_script_error_and_crash_marker_scan.txt');
   assert.ok(fixture, 'Fixture 19 must exist in eval/fixtures/ai_core_60_tests/fixtures.json.');
@@ -619,4 +621,3 @@ test('planner activation threshold at exactly 75% stays on non-planner path', as
     });
   });
 });
-

@@ -14,6 +14,19 @@ export type TerminateProcessTreeOptions = {
   spawnSyncImpl?: typeof spawnSync;
 };
 
+export function isProcessAlive(pid: number | string): boolean {
+  const numericPid = Number(pid);
+  if (!Number.isFinite(numericPid) || numericPid <= 0) {
+    return false;
+  }
+  try {
+    process.kill(Math.trunc(numericPid), 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function terminateProcessTree(pid: number | string, options: TerminateProcessTreeOptions = {}): boolean {
   const processObject = options.processObject || process;
   const spawnSyncImpl = options.spawnSyncImpl || spawnSync;

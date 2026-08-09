@@ -97,6 +97,16 @@ function makeProcessor(
 }
 
 const NOISY_VALIDATION_LINE_COUNT = REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT + 10;
+const NOISY_VALIDATION_OUTPUT = Array.from(
+  { length: NOISY_VALIDATION_LINE_COUNT },
+  (_, index) => `validation-line-${index + 1}`,
+).join('\n');
+const VALIDATION_COMMAND = buildRepoToolRequestedCommand('run', { command: 'npm test', outputMode: 'full' });
+const STABLE_COMMAND = buildRepoToolRequestedCommand('run', { command: 'Write-Output stable' });
+const VALIDATION_MOCK_COMMAND_RESULTS = {
+  [VALIDATION_COMMAND]: { exitCode: 1, stdout: NOISY_VALIDATION_OUTPUT, stderr: '' },
+  [STABLE_COMMAND]: { exitCode: 0, stdout: 'stable\n', stderr: '' },
+} satisfies Record<string, RepoSearchMockCommandResult>;
 
 function writeNoisyValidationRepo(root: string): void {
   fs.writeFileSync(
@@ -388,11 +398,12 @@ test('a mocked full validation run uses the same downgrade and retry shaping', a
 
 test('a duplicate-rejected intervening run forfeits the pending full retry', async () => {
   const root = createManagedTempDir('siftkit-run-full-forfeit-');
-  writeNoisyValidationRepo(root);
   const { processor, commands } = makeProcessor(
     root,
     ['run'],
     REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT,
+    null,
+    VALIDATION_MOCK_COMMAND_RESULTS,
   );
   const stable: ToolAction = {
     action: 'tool',
@@ -428,12 +439,12 @@ test('an approval-denied granted retry is consumed', async () => {
     },
   };
   const root = createManagedTempDir('siftkit-run-full-denied-');
-  writeNoisyValidationRepo(root);
   const { processor, commands } = makeProcessor(
     root,
     ['run'],
     REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT,
     approvalGate,
+    VALIDATION_MOCK_COMMAND_RESULTS,
   );
   const validation: ToolAction = {
     action: 'tool',
@@ -451,11 +462,12 @@ test('an approval-denied granted retry is consumed', async () => {
 
 test('a non-run tool between downgrade and retry preserves the full grant', async () => {
   const root = createManagedTempDir('siftkit-run-full-non-run-');
-  writeNoisyValidationRepo(root);
   const { processor, commands } = makeProcessor(
     root,
     ['run', 'ls'],
     REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT,
+    null,
+    VALIDATION_MOCK_COMMAND_RESULTS,
   );
   const validation: ToolAction = {
     action: 'tool',

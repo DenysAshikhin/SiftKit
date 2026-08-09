@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -15,7 +14,7 @@ const PackOutputSchema = z.array(z.object({
   files: z.array(z.object({ path: z.string() })),
 }));
 
-const repoRoot = path.resolve(__dirname, '..');
+const repoRoot = process.cwd();
 
 test('package metadata bundles the private contracts workspace', () => {
   const packageJson = parseJsonText(
@@ -26,16 +25,11 @@ test('package metadata bundles the private contracts workspace', () => {
   assert.deepEqual(packageJson.bundleDependencies, ['@siftkit/contracts']);
 });
 
-test('npm pack includes the compiled contracts entrypoint', () => {
-  const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const result = spawnSync(`${npmCommand} pack --dry-run --json --ignore-scripts`, {
-    cwd: repoRoot,
-    encoding: 'utf8',
-    shell: true,
-  });
-  assert.equal(result.status, 0, result.stderr);
-
-  const artifacts = parseJsonText(result.stdout, PackOutputSchema);
+test('prebuilt npm pack manifest includes the compiled contracts entrypoint', () => {
+  const artifacts = parseJsonText(
+    fs.readFileSync(path.join(repoRoot, '.test-build', 'npm-pack-dry-run.json'), 'utf8'),
+    PackOutputSchema,
+  );
   const artifact = artifacts[0];
   assert.ok(artifact);
 

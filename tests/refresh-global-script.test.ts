@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const scriptPath = path.resolve(__dirname, '..', 'scripts', 'refresh-global.ps1');
+const scriptPath = path.resolve(process.cwd(), 'scripts', 'refresh-global.ps1');
 
 test('global refresh uses only the npm tarball installation path', () => {
   const script = fs.readFileSync(scriptPath, 'utf8');

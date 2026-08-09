@@ -1,12 +1,21 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getManagedLlamaConfig, getDefaultConfig } from '../src/status-server/config-store';
+import { getManagedLlamaConfig, getDefaultConfig } from '../src/status-server/config-store.js';
 import {
   buildManagedLlamaArgs,
+  parseNetstatListeningProcessId,
   parseManagedLlamaSpeculativeMetricsText,
-} from '../src/status-server/managed-llama';
+} from '../src/status-server/managed-llama.js';
 import type { ModelRuntimePreset, SiftConfig } from '../src/config/index.js';
+
+test('successful netstat output distinguishes no listener from a failed query', () => {
+  assert.equal(parseNetstatListeningProcessId('Active Connections\r\n', 4765), null);
+  assert.equal(
+    parseNetstatListeningProcessId('  TCP    127.0.0.1:4765    0.0.0.0:0    LISTENING    3210\r\n', 4765),
+    3210,
+  );
+});
 
 function activePreset(config: SiftConfig): ModelRuntimePreset {
   const llama = config.Server.ModelPresets;

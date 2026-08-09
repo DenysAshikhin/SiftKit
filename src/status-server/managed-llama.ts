@@ -12,7 +12,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { toError, getErrorMessage } from '../lib/errors.js';
 import { POWERSHELL_BASE_ARGS } from '../lib/powershell.js';
-import { terminateProcessTree } from '../lib/process-tree.js';
+import { isProcessAlive, terminateProcessTree } from '../lib/process-tree.js';
 import { sleep } from '../lib/time.js';
 import { serverLogger } from './server-logger.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
@@ -414,6 +414,24 @@ export function getManagedLlamaSpeculativeMetricsDelta(
 // Process tree termination
 // ---------------------------------------------------------------------------
 
+export function parseNetstatListeningProcessId(output: string, port: number): number | null {
+  const lines = output.split(/\r?\n/u);
+  for (const line of lines) {
+    if (!new RegExp(`:${port}\\s+`, 'u').test(line) || !/\bLISTENING\b/u.test(line)) {
+      continue;
+    }
+    const match = line.trim().match(/\s+(\d+)\s*$/u);
+    if (!match) {
+      continue;
+    }
+    const pid = Number.parseInt(match[1], 10);
+    if (Number.isFinite(pid) && pid > 0) {
+      return pid;
+    }
+  }
+  return null;
+}
+
 function findListeningProcessIdByPort(port: number): number | null {
   if (!Number.isFinite(port) || port <= 0) {
     return null;
@@ -426,20 +444,7 @@ function findListeningProcessIdByPort(port: number): number | null {
     if ((result.status ?? 1) !== 0) {
       return null;
     }
-    const lines = String(result.stdout || '').split(/\r?\n/u);
-    for (const line of lines) {
-      if (!new RegExp(`:${port}\\s+`, 'u').test(line) || !/\bLISTENING\b/u.test(line)) {
-        continue;
-      }
-      const match = line.trim().match(/\s+(\d+)\s*$/u);
-      if (!match) {
-        continue;
-      }
-      const pid = Number.parseInt(match[1], 10);
-      if (Number.isFinite(pid) && pid > 0) {
-        return pid;
-      }
-    }
+    return parseNetstatListeningProcessId(String(result.stdout || ''), port);
   } catch {
     // Fall through to the PowerShell fallback below.
   }
@@ -1239,7 +1244,7 @@ async function shutdownManagedLlamaConfigIfNeeded(
       serverLogger.event({ scope: 'llama', id: '', event: 'stopping', fields: `pid=${hostPid}` });
       terminateProcessTree(hostPid);
       const remainingPid = fallbackPid || findListeningProcessIdByPort(listeningPort);
-      if (remainingPid) {
+      if (remainingPid && isProcessAlive(remainingPid)) {
         serverLogger.event({ scope: 'llama', id: '', event: 'stopping', fields: `fallback_pid=${remainingPid}` });
         terminateProcessTree(remainingPid);
       }

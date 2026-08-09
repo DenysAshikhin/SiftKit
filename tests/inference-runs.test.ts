@@ -276,7 +276,7 @@ test('releaseModelRequest queues buffered managed llama logs for the active host
     try {
       assert.equal(released, true);
       assert.equal(flushQueue.getSnapshot().pendingCount, 1);
-      await flushQueue.waitForIdle(1000);
+      await flushQueue.waitForIdle();
 
       const row = asRow(database.prepare(`
         SELECT COUNT(*) AS count
@@ -341,7 +341,7 @@ test('releaseModelRequest releases the active request when managed llama log flu
         blocker.exec('ROLLBACK');
         blocker.close();
       }
-      await flushQueue.waitForIdle(1000);
+      await flushQueue.waitForIdle();
     } finally {
       await flushQueue.close();
     }

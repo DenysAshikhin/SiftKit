@@ -9,7 +9,7 @@ import { listInferenceRuns, readInferenceRunLogTextByStream } from '../src/state
 import { getFreePort, withTempEnv } from './_runtime-helpers.js';
 import { writeFakeTabby } from './helpers/tabby-fake.js';
 
-test('a managed TabbyAPI launch is recorded as an inference run with log chunks', async () => {
+test('a managed TabbyAPI launch is recorded with logs and marked stopped on shutdown', async () => {
   await withTempEnv(async (root) => {
     const port = await getFreePort();
     const { scriptPath, pythonPath } = writeFakeTabby(root, port, null);
@@ -44,43 +44,14 @@ test('a managed TabbyAPI launch is recorded as an inference run with log chunks'
 
       const streams = readInferenceRunLogTextByStream(runs[0].id);
       assert.match(streams.engine_stdout, /Using main model MTP component for drafting/u);
-    } finally {
-      await runtime.stopProcess();
-      await flushQueue.close();
-    }
-  });
-});
-
-test('a managed TabbyAPI run is marked stopped when the runtime shuts it down', async () => {
-  await withTempEnv(async (root) => {
-    const port = await getFreePort();
-    const { scriptPath, pythonPath } = writeFakeTabby(root, port, null);
-    const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
-    if (!preset) throw new Error('Default model preset is missing');
-    const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
-    const runtime = new ManagedTabbyRuntime({
-      Managed: true,
-      WorkingDirectory: root,
-      PythonPath: pythonPath,
-      Entrypoint: path.basename(scriptPath),
-      ModelRoot: root,
-      AdminApiKey: '',
-      ShutdownTimeoutMs: 5_000,
-    }, flushQueue);
-    try {
-      await runtime.ensurePresetReady({
-        ...preset,
-        Backend: 'exl3' as const,
-        BaseUrl: `http://127.0.0.1:${port}`,
-        Model: 'model-a',
-        ModelPath: path.join(root, 'model-a'),
-      });
       await runtime.stopProcess();
 
-      const runs = listInferenceRuns({ backend: 'exl3' });
-      assert.equal(runs.length, 1);
-      assert.equal(runs[0].status, 'stopped');
+      const stoppedRuns = listInferenceRuns({ backend: 'exl3' });
+      assert.equal(stoppedRuns.length, 1);
+      assert.equal(stoppedRuns[0].id, runs[0].id);
+      assert.equal(stoppedRuns[0].status, 'stopped');
     } finally {
+      await runtime.stopProcess();
       await flushQueue.close();
     }
   });

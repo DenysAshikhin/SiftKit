@@ -1,11 +1,9 @@
 import { rmSync } from 'node:fs';
-import { saveContentAtomicallyAsync } from '../../lib/fs.js';
+import { saveContentAtomically } from '../../lib/fs.js';
 import type { BufferedJsonLogger } from '../logging.js';
 import { LiveRunSnapshotCollector } from './collector.js';
 
 const DEFAULT_MIN_INTERVAL_MS = 200;
-/** Rewrites the file even while nothing happens, so a wedged phase still proves the process is alive. */
-const DEFAULT_HEARTBEAT_MS = 5000;
 
 export function isLiveRunSnapshotEnabled(): boolean {
   const value = String(process.env.SIFTKIT_LIVE_SNAPSHOT ?? '').trim().toLowerCase();
@@ -21,26 +19,16 @@ export function isLiveRunSnapshotEnabled(): boolean {
 export class LiveRunSnapshotWriter {
   private readonly filePath: string;
   private readonly collector: LiveRunSnapshotCollector;
-  private readonly minIntervalMs: number;
   private timer: ReturnType<typeof setTimeout> | null = null;
-  private heartbeat: ReturnType<typeof setInterval> | null = null;
   private queue: Promise<void> = Promise.resolve();
-  private pendingWrites = 0;
   private stopped = false;
 
   constructor(options: {
     filePath: string;
     collector: LiveRunSnapshotCollector;
-    minIntervalMs?: number;
-    heartbeatMs?: number;
   }) {
     this.filePath = options.filePath;
     this.collector = options.collector;
-    this.minIntervalMs = options.minIntervalMs ?? DEFAULT_MIN_INTERVAL_MS;
-    this.heartbeat = setInterval(() => {
-      this.schedule();
-    }, options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS);
-    this.heartbeat.unref();
   }
 
   schedule(): void {
@@ -50,12 +38,12 @@ export class LiveRunSnapshotWriter {
     this.timer = setTimeout(() => {
       this.timer = null;
       void this.enqueueWrite();
-    }, this.minIntervalMs);
+    }, DEFAULT_MIN_INTERVAL_MS);
     this.timer.unref();
   }
 
-  async flushNow(): Promise<void> {
-    await this.enqueueWrite();
+  flushNow(): Promise<void> {
+    return this.enqueueWrite();
   }
 
   stop(): void {
@@ -64,21 +52,15 @@ export class LiveRunSnapshotWriter {
       clearTimeout(this.timer);
       this.timer = null;
     }
-    if (this.heartbeat !== null) {
-      clearInterval(this.heartbeat);
-      this.heartbeat = null;
-    }
   }
 
   /**
-   * Synchronous unlink on the common path: an awaited fs call here would yield a
-   * macrotask and let deferred run-log persistence land before the request resolves,
-   * which the request path must not do. Only a write caught in flight costs a yield.
+   * Waits for serialized writes, then unlinks synchronously. Awaiting an idle
+   * queue yields only a microtask; the sync unlink prevents deferred macrotask
+   * persistence from running before request resolution.
    */
   async remove(): Promise<void> {
-    if (this.pendingWrites > 0) {
-      await this.queue;
-    }
+    await this.queue;
     try {
       rmSync(this.filePath, { force: true });
     } catch {
@@ -87,23 +69,19 @@ export class LiveRunSnapshotWriter {
   }
 
   private enqueueWrite(): Promise<void> {
-    this.pendingWrites += 1;
     this.queue = this.queue.then(() => this.writeOnce());
     return this.queue;
   }
 
-  private async writeOnce(): Promise<void> {
+  private writeOnce(): void {
     if (this.stopped) {
-      this.pendingWrites -= 1;
       return;
     }
     try {
       const text = `${JSON.stringify(this.collector.build(), null, 2)}\n`;
-      await saveContentAtomicallyAsync(this.filePath, text);
+      saveContentAtomically(this.filePath, text);
     } catch (error) {
       this.collector.recordWriteError(error instanceof Error ? error.message : String(error));
-    } finally {
-      this.pendingWrites -= 1;
     }
   }
 }

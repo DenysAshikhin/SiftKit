@@ -4,13 +4,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire, Module } from 'node:module';
 import Database from 'better-sqlite3';
+import { z } from 'zod';
 
 import { startStatusServer, buildRepoSearchProgressLogBody } from '../src/status-server/index.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { getConfigPath } from '../src/config/index.js';
 import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
 import {
-  writeManagedLlamaScripts,
+  writeManagedLlamaLauncher,
   getFreePort,
   waitForAsyncExpectation,
 } from './_runtime-helpers.js';
@@ -20,13 +21,16 @@ import { captureStdoutLines } from './helpers/stdout-capture.js';
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+import { isProcessAlive } from './helpers/process-tree-fixture.js';
 
-const requireFromHere = createRequire(__filename);
+const SIFTKIT_REPO_ROOT = process.cwd();
+const requireFromHere = createRequire(path.join(SIFTKIT_REPO_ROOT, '.test-build', 'tests', 'repo-search-status-server.test.js'));
+const ProcessIdSchema = z.coerce.number().int().positive();
 
 function writeManagedLlamaReadinessTestConfig(managed: {
   baseUrl: string;
   modelPath: string;
-  startupScriptPath: string;
+  executablePath: string;
 }, startupTimeoutMs: number): void {
   const config = getDefaultConfig();
   const server = config.Server;
@@ -37,7 +41,7 @@ function writeManagedLlamaReadinessTestConfig(managed: {
     Model: 'managed-test-model',
     ExternalServerEnabled: false,
     BaseUrl: managed.baseUrl,
-    ExecutablePath: managed.startupScriptPath,
+    ExecutablePath: managed.executablePath,
     ModelPath: managed.modelPath,
     StartupTimeoutMs: startupTimeoutMs,
     HealthcheckTimeoutMs: 20,
@@ -48,27 +52,21 @@ function writeManagedLlamaReadinessTestConfig(managed: {
 }
 
 async function stopManagedTestProcess(pidFilePath: string): Promise<void> {
-  try {
-    const pid = Number(fs.readFileSync(pidFilePath, 'utf8').trim());
-    if (Number.isFinite(pid) && pid > 0) {
-      try {
-        process.kill(pid);
-      } catch {
-        // Already exited.
-      }
-    }
-  } catch {
+  if (!fs.existsSync(pidFilePath)) {
     return;
   }
+  const pid = ProcessIdSchema.parse(fs.readFileSync(pidFilePath, 'utf8').trim());
+  if (isProcessAlive(pid)) {
+    process.kill(pid);
+  }
   const deadline = Date.now() + 2000;
-  while (fs.existsSync(pidFilePath) && Date.now() < deadline) {
+  while (isProcessAlive(pid) && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  try {
-    fs.rmSync(pidFilePath, { force: true });
-  } catch {
-    // Best effort.
+  if (isProcessAlive(pid)) {
+    throw new Error(`Managed test process ${pid} did not exit.`);
   }
+  fs.rmSync(pidFilePath, { force: true });
 }
 
 
@@ -121,12 +119,16 @@ test('status server stays responsive while repo-search is running', async () => 
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
-          'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 2000 },
+          'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 100 },
         },
       },
     });
 
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    await waitForAsyncExpectation(async () => {
+      const activeStatus = await requestJson(`${baseUrl}/status`);
+      const modelRequests = asObject(activeStatus.body.modelRequests);
+      assert.equal(modelRequests.activeCount, 1);
+    });
     const healthStart = Date.now();
     const healthResponse = await requestJson(`${baseUrl}/health`);
     const healthLatencyMs = Date.now() - healthStart;
@@ -385,6 +387,7 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
 test('managed llama readiness wait is serialized by the model request queue', async () => {
   const tempRoot = createManagedTempDir('siftkit-readiness-outside-queue-');
   const previousCwd = process.cwd();
+  const previousStartupGraceDelayMs = process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS;
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
     JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
@@ -405,12 +408,13 @@ test('managed llama readiness wait is serialized by the model request queue', as
   process.env.SIFTKIT_CONFIG_PATH = configPath;
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
+  process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
 
   const llamaPort = await getFreePort();
-  const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
+  const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
     launchHangingProcess: true,
   });
-  writeManagedLlamaReadinessTestConfig(managed, 250);
+  writeManagedLlamaReadinessTestConfig(managed, 500);
 
   const server = startStatusServer();
   await server.startupPromise;
@@ -430,9 +434,12 @@ test('managed llama readiness wait is serialized by the model request queue', as
       },
     });
 
-    await new Promise<void>((resolve) => setTimeout(resolve, 50));
-    const secondStartedAt = Date.now();
-    const secondResponse = await requestSse(`${baseUrl}/summary`, {
+    await waitForAsyncExpectation(async () => {
+      const status = await requestJson(`${baseUrl}/status`);
+      const modelRequests = asObject(status.body.modelRequests);
+      assert.equal(modelRequests.activeCount, 1);
+    });
+    const secondRequest = requestSse(`${baseUrl}/summary`, {
       timeoutMs: 15000,
       body: {
         repoRoot: process.cwd(),
@@ -442,12 +449,17 @@ test('managed llama readiness wait is serialized by the model request queue', as
         model: 'managed-test-model',
       },
     });
-    const secondElapsedMs = Date.now() - secondStartedAt;
+    await waitForAsyncExpectation(async () => {
+      const status = await requestJson(`${baseUrl}/status`);
+      const modelRequests = asObject(status.body.modelRequests);
+      assert.equal(modelRequests.activeCount, 1);
+      assert.equal(modelRequests.queueLength, 1);
+    });
+    const secondResponse = await secondRequest;
     const firstResponse = await firstRequest;
 
     assert.match(firstResponse.errorMessage || '', /failed|unavailable|timed out/iu);
     assert.match(secondResponse.errorMessage || '', /failed|unavailable|timed out/iu);
-    assert.ok(secondElapsedMs >= 200, `second request bypassed model queue in ${secondElapsedMs}ms`);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
@@ -461,6 +473,11 @@ test('managed llama readiness wait is serialized by the model request queue', as
         process.env[key] = value;
       }
     }
+    if (previousStartupGraceDelayMs === undefined) {
+      delete process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS;
+    } else {
+      process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = previousStartupGraceDelayMs;
+    }
     await stopManagedTestProcess(managed.pidFilePath);
     // Windows releases a terminated launcher's working directory (this temp root) asynchronously,
     // so removal has to be retried rather than attempted once.
@@ -471,6 +488,7 @@ test('managed llama readiness wait is serialized by the model request queue', as
 test('health reports unavailable while managed llama bootstrap is still starting', async () => {
   const tempRoot = createManagedTempDir('siftkit-health-bootstrap-');
   const previousCwd = process.cwd();
+  const previousStartupGraceDelayMs = process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS;
   fs.writeFileSync(
     path.join(tempRoot, 'package.json'),
     JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
@@ -491,12 +509,13 @@ test('health reports unavailable while managed llama bootstrap is still starting
   process.env.SIFTKIT_CONFIG_PATH = configPath;
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
+  process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
 
   const llamaPort = await getFreePort();
-  const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
+  const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
     launchHangingProcess: true,
   });
-  writeManagedLlamaReadinessTestConfig(managed, 900);
+  writeManagedLlamaReadinessTestConfig(managed, 250);
 
   const server = startStatusServer();
   await waitForAsyncExpectation(async () => {
@@ -528,6 +547,11 @@ test('health reports unavailable while managed llama bootstrap is still starting
       } else {
         process.env[key] = value;
       }
+    }
+    if (previousStartupGraceDelayMs === undefined) {
+      delete process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS;
+    } else {
+      process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = previousStartupGraceDelayMs;
     }
     await stopManagedTestProcess(managed.pidFilePath);
     // Windows releases a terminated launcher's working directory (this temp root) asynchronously,
@@ -1003,14 +1027,14 @@ test('repo-search endpoint reloads executor module per request', async () => {
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
 
-  const server = startStatusServer({ disableManagedLlamaStartup: true });
-  await server.startupPromise;
-  const address = getAddressInfo(server);
-  const baseUrl = `http://127.0.0.1:${address.port}`;
-  const repoSearchModulePath = requireFromHere.resolve('../dist/repo-search/index.js');
+  const repoSearchModulePath = requireFromHere.resolve(path.join(SIFTKIT_REPO_ROOT, 'dist', 'repo-search', 'index.js'));
   const priorCacheEntry = requireFromHere.cache[repoSearchModulePath];
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
 
   try {
+    await server.startupPromise;
+    const address = getAddressInfo(server);
+    const baseUrl = `http://127.0.0.1:${address.port}`;
     const mockModule = new Module(repoSearchModulePath);
     mockModule.filename = repoSearchModulePath;
     mockModule.loaded = true;

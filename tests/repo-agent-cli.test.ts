@@ -196,6 +196,38 @@ class CliProcessRunner {
   }
 }
 
+async function runCliInTempDirectory(args: string[], baseUrl: string): Promise<CliProcessResult> {
+  const previousCwd = process.cwd();
+  const previousStatusUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
+  const previousConfigUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
+  const stdout = makeCaptureStream();
+  const stderr = makeCaptureStream();
+  process.chdir(TEMP_ROOT);
+  process.env.SIFTKIT_STATUS_BACKEND_URL = `${baseUrl}/status`;
+  process.env.SIFTKIT_CONFIG_SERVICE_URL = `${baseUrl}/config`;
+  try {
+    const code = await runCli({
+      argv: args,
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+      stdin: new PassThrough(),
+    });
+    return { code, stdout: stdout.read(), stderr: stderr.read() };
+  } finally {
+    process.chdir(previousCwd);
+    if (previousStatusUrl === undefined) {
+      delete process.env.SIFTKIT_STATUS_BACKEND_URL;
+    } else {
+      process.env.SIFTKIT_STATUS_BACKEND_URL = previousStatusUrl;
+    }
+    if (previousConfigUrl === undefined) {
+      delete process.env.SIFTKIT_CONFIG_SERVICE_URL;
+    } else {
+      process.env.SIFTKIT_CONFIG_SERVICE_URL = previousConfigUrl;
+    }
+  }
+}
+
 before(() => {
   rmSync(TEMP_ROOT, { recursive: true, force: true });
   mkdirSync(TEMP_ROOT, { recursive: true });
@@ -334,12 +366,12 @@ test('non-TTY start and decide resume one real detached worker', async () => {
     );
     assert.equal(pendingState.status, 'approval_required');
 
-    const decided = await runner.run([
+    const decided = await runCliInTempDirectory([
       'repo-agent',
       'decide',
       approval.runId,
       'approve',
-    ]);
+    ], baseUrl);
     assert.equal(decided.code, 0, decided.stderr);
     const completed = RepoAgentRunResultSchema.parse(
       parseJsonValueText(decided.stdout),
@@ -361,11 +393,11 @@ test('non-TTY start and decide resume one real detached worker', async () => {
     }]);
 
     const healthHits = server.healthHits;
-    const status = await runner.run([
+    const status = await runCliInTempDirectory([
       'repo-agent',
       'status',
       approval.runId,
-    ]);
+    ], baseUrl);
     assert.equal(status.code, 0, status.stderr);
     assert.deepEqual(parseJsonValueText(status.stdout), completedState);
     assert.equal(server.healthHits, healthHits);

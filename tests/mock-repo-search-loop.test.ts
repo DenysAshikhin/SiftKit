@@ -28,6 +28,7 @@ import { CollectingProgressWriter } from './helpers/collecting-progress-writer.j
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { parseLoggedEvent } from './helpers/logged-events.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
+import { getFreePort } from './helpers/free-port.js';
 import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
 
 const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-mock-loop-');
@@ -104,24 +105,6 @@ function createTempRepoRoot(gitignoreText = '') {
   const root = createManagedTempDir('siftkit-repo-search-ignore-');
   fs.writeFileSync(path.join(root, '.gitignore'), gitignoreText, 'utf8');
   return root;
-}
-
-async function getFreePort(): Promise<number> {
-  return await new Promise((resolve, reject) => {
-    const probe = http.createServer();
-    probe.once('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const address = probe.address();
-      const port = Number(address && typeof address === 'object' ? address.port : 0);
-      probe.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve(port);
-      });
-    });
-  });
 }
 
 test('runTaskLoop stops on invalid response limit', async () => {

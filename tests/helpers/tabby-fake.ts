@@ -111,10 +111,11 @@ export function writeFakeTabby(
   root: string,
   port: number,
   appliedMaxSeqLen: number | null,
-  options: { announceDrafting?: boolean; draftingStream?: 'stdout' | 'stderr' } = {},
+  options: { announceDrafting?: boolean; draftingStream?: 'stdout' | 'stderr'; draftingDelayMs?: number } = {},
 ): FakeTabbyFiles {
   const announceDrafting = options.announceDrafting ?? true;
   const draftingStream = options.draftingStream ?? 'stdout';
+  const draftingDelayMs = options.draftingDelayMs ?? 0;
   const files: FakeTabbyFiles = {
     scriptPath: path.join(root, 'fake-tabby.cjs'),
     pythonPath: writeFakeExl3Venv(root, true).pythonPath,
@@ -133,7 +134,9 @@ const environment = Object.fromEntries(Object.entries(process.env).filter(
 ));
 fs.writeFileSync(${JSON.stringify(files.environmentPath)}, JSON.stringify(environment));
 if (${JSON.stringify(announceDrafting)} && environment.TABBY_DRAFT_MODEL_DRAFT_MODE === 'mtp') {
-  process.${draftingStream}.write('INFO: Using main model MTP component for drafting\\n');
+  setTimeout(() => {
+    process.${draftingStream}.write('INFO: Using main model MTP component for drafting\\n');
+  }, ${draftingDelayMs});
 }
 const card = environment.TABBY_MODEL_MODEL_NAME ? {
   id: environment.TABBY_MODEL_MODEL_NAME,

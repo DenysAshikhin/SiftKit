@@ -18,6 +18,7 @@ import {
 import { countLlamaCppTokens, generateLlamaCppResponse } from '../../src/providers/llama-cpp.js';
 import { ModelJson } from '../../src/lib/model-json.js';
 import { getErrorMessage } from '../../src/lib/errors.js';
+import { isMainModule } from '../../src/lib/paths.js';
 import { parseJsonValueText } from '../../src/lib/json.js';
 import type { JsonSerializable } from '../../src/lib/json-types.js';
 import type { SiftConfig } from '../../src/config/index.js';
@@ -541,7 +542,7 @@ async function main(): Promise<void> {
   process.exit(result.exitCode);
 }
 
-if (require.main === module) {
+if (isMainModule(import.meta.url)) {
   void main().catch((error) => {
     process.stderr.write(`${getErrorMessage(error)}\n`);
     process.exit(1);

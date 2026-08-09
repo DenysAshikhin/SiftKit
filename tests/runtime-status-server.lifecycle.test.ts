@@ -22,7 +22,7 @@ import {
   withRealStatusServer,
   withStubServer,
   withTempEnv,
-  writeManagedLlamaScripts,
+  writeManagedLlamaLauncher,
   type RuntimeStatusResponse,
   type HealthCheckResponse,
   type LlamaModelsResponse,
@@ -119,7 +119,7 @@ test('real status server with disableManagedLlamaStartup skips managed llama boo
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
     const configPath = getConfigPath();
     const llamaPort = await getFreePort();
-    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     writeConfig(configPath, config);
@@ -144,7 +144,7 @@ test('real status server with disableManagedLlamaStartup does not trigger manage
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const llamaPort = await getFreePort();
-    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
@@ -291,28 +291,31 @@ test('failed preset switch returns 503 and keeps the status server alive', async
       Presets: [exl3Preset, llamaPreset],
     };
     writeConfig(configPath, config);
-    const statusServer = await startStatusServerProcess({ statusPath, configPath, workingDirectory: tempRoot });
 
     try {
-      await new Promise<void>((resolve) => tabby.close(() => resolve()));
-      config.Server.ModelPresets.ActivePresetId = llamaPreset.id;
-      const update = await fetch(statusServer.configUrl, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(config),
-      });
+      const statusServer = await startStatusServerProcess({ statusPath, configPath, workingDirectory: tempRoot });
+      try {
+        await new Promise<void>((resolve) => tabby.close(() => resolve()));
+        config.Server.ModelPresets.ActivePresetId = llamaPreset.id;
+        const update = await fetch(statusServer.configUrl, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(config),
+        });
 
-      // Saving only persists; the preset is applied lazily on the next readiness check.
-      assert.equal(update.status, 200);
-      assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, llamaPreset.id);
+        // Saving only persists; the preset is applied lazily on the next readiness check.
+        assert.equal(update.status, 200);
+        assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, llamaPreset.id);
 
-      const applied = await fetch(statusServer.configUrl);
-      assert.equal(applied.status, 503);
-      assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, exl3Preset.id);
-      assert.equal((await fetch(`http://127.0.0.1:${statusServer.port}/health`)).status, 200);
+        const applied = await fetch(statusServer.configUrl);
+        assert.equal(applied.status, 503);
+        assert.equal(readConfig(configPath).Server.ModelPresets.ActivePresetId, exl3Preset.id);
+        assert.equal((await fetch(`http://127.0.0.1:${statusServer.port}/health`)).status, 200);
+      } finally {
+        await statusServer.close();
+      }
     } finally {
       if (tabby.listening) await new Promise<void>((resolve) => tabby.close(() => resolve()));
-      await statusServer.close();
     }
   });
 });
@@ -322,7 +325,7 @@ test('real status server with disableManagedLlamaStartup leaves an externally st
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const llamaPort = await getFreePort();
-    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');

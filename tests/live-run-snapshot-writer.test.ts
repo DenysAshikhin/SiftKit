@@ -38,13 +38,13 @@ test('writer flushes the collector state to disk as parseable json', async () =>
   }
 });
 
-test('writer coalesces scheduled writes and keeps the latest state', async () => {
-  const tempRoot = createManagedTempDir('siftkit-live-writer-coalesce-');
+test('writer flushes the latest state after scheduled updates', async () => {
+  const tempRoot = createManagedTempDir('siftkit-live-writer-scheduled-');
   const filePath = path.join(tempRoot, 'run.json');
   const collector = new LiveRunSnapshotCollector({
     requestId: 'req-2', taskKind: 'repo-search', repoRoot: tempRoot, startedAtMs: Date.now(),
   });
-  const writer = new LiveRunSnapshotWriter({ filePath, collector, minIntervalMs: 5 });
+  const writer = new LiveRunSnapshotWriter({ filePath, collector });
 
   try {
     for (let turn = 1; turn <= 25; turn += 1) {
@@ -76,6 +76,45 @@ test('writer removes the snapshot file on remove', async () => {
   await writer.remove();
   assert.equal(fs.existsSync(filePath), false);
   await writer.remove();
+});
+
+test('writer removes the snapshot without yielding to a macrotask', async () => {
+  const tempRoot = createManagedTempDir('siftkit-live-writer-remove-order-');
+  const filePath = path.join(tempRoot, 'run.json');
+  const collector = new LiveRunSnapshotCollector({
+    requestId: 'req-remove-order',
+    taskKind: 'repo-search',
+    repoRoot: tempRoot,
+    startedAtMs: Date.now(),
+  });
+  const writer = new LiveRunSnapshotWriter({ filePath, collector });
+  let immediateFired = false;
+  const immediate = setImmediate(() => {
+    immediateFired = true;
+  });
+
+  try {
+    await writer.remove();
+    assert.equal(immediateFired, false);
+  } finally {
+    clearImmediate(immediate);
+    writer.stop();
+  }
+});
+
+test('writer does not recreate the snapshot after stop', async () => {
+  const tempRoot = createManagedTempDir('siftkit-live-writer-stop-');
+  const filePath = path.join(tempRoot, 'run.json');
+  const collector = new LiveRunSnapshotCollector({
+    requestId: 'req-stop', taskKind: 'repo-search', repoRoot: tempRoot, startedAtMs: Date.now(),
+  });
+  const writer = new LiveRunSnapshotWriter({ filePath, collector });
+
+  writer.schedule();
+  writer.stop();
+  await writer.flushNow();
+
+  assert.equal(fs.existsSync(filePath), false);
 });
 
 test('attachLiveRunSnapshot forwards events to the wrapped logger and the snapshot', async () => {

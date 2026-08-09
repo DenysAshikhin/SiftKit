@@ -111,10 +111,10 @@ test('Tabby runtime rejects a llama preset before lifecycle work', async () => {
   assert.equal(runtime.getModelState(), 'unloaded');
 });
 
-test('managed Tabby launches with preset environment and uses its startup-loaded model', async () => {
+test('managed Tabby launches with preset environment, reuses settings, and restarts on changes', async () => {
   await withTempEnv(async (root) => {
     const port = await getFreePort();
-    const { scriptPath, pythonPath, argsPath, environmentPath, loadRequestsPath } = writeFakeTabby(root, port, null);
+    const { scriptPath, pythonPath, argsPath, environmentPath, loadRequestsPath, startsPath } = writeFakeTabby(root, port, null);
     const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
     if (!preset) throw new Error('Default model preset is missing');
     const exl3Preset = {
@@ -166,6 +166,13 @@ test('managed Tabby launches with preset environment and uses its startup-loaded
         EXL3_QC_ATTN: '0',
       });
       assert.equal(fs.existsSync(loadRequestsPath), false);
+      await runtime.ensurePresetReady(exl3Preset);
+      assert.equal(fs.readFileSync(startsPath, 'utf8').trim().split(/\r?\n/u).length, 1);
+
+      await runtime.ensurePresetReady({ ...exl3Preset, UBatchSize: 2_048 });
+      assert.equal(runtime.getProcessState(), 'ready');
+      assert.equal(runtime.getModelState(), 'ready');
+      assert.equal(fs.readFileSync(startsPath, 'utf8').trim().split(/\r?\n/u).length, 2);
 
       await runtime.unloadPreset();
       assert.equal(runtime.getProcessState(), 'stopped');
@@ -173,6 +180,7 @@ test('managed Tabby launches with preset environment and uses its startup-loaded
       await runtime.ensurePresetReady(exl3Preset);
       assert.equal(runtime.getProcessState(), 'ready');
       assert.equal(runtime.getModelState(), 'ready');
+      assert.equal(fs.readFileSync(startsPath, 'utf8').trim().split(/\r?\n/u).length, 3);
       assert.equal(fs.existsSync(loadRequestsPath), false);
     } finally {
       await runtime.stopProcess();
@@ -214,46 +222,6 @@ test('managed Tabby rejects a startup-loaded model whose applied context diverge
   });
 });
 
-test('managed Tabby reuses identical launch settings and restarts when UBatch size changes', async () => {
-  await withTempEnv(async (root) => {
-    const port = await getFreePort();
-    const { scriptPath, pythonPath, startsPath } = writeFakeTabby(root, port, null);
-    const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
-    if (!preset) throw new Error('Default model preset is missing');
-    const exl3Preset = {
-      ...preset,
-      Backend: 'exl3' as const,
-      BaseUrl: `http://127.0.0.1:${port}`,
-      Model: 'model-a',
-      ModelPath: path.join(root, 'model-a'),
-      UBatchSize: 1_024,
-      SpeculativeEnabled: true,
-      SpeculativeType: 'draft-mtp' as const,
-    };
-    const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
-    const runtime = new ManagedTabbyRuntime({
-      Managed: true,
-      WorkingDirectory: root,
-      PythonPath: pythonPath,
-      Entrypoint: path.basename(scriptPath),
-      ModelRoot: root,
-      AdminApiKey: '',
-      ShutdownTimeoutMs: 5_000,
-    }, flushQueue);
-    try {
-      await runtime.ensurePresetReady(exl3Preset);
-      await runtime.ensurePresetReady(exl3Preset);
-      assert.equal(fs.readFileSync(startsPath, 'utf8').trim().split(/\r?\n/u).length, 1);
-
-      await runtime.ensurePresetReady({ ...exl3Preset, UBatchSize: 2_048 });
-      assert.equal(fs.readFileSync(startsPath, 'utf8').trim().split(/\r?\n/u).length, 2);
-    } finally {
-      await runtime.stopProcess();
-      await flushQueue.close();
-    }
-  });
-});
-
 test('unmanaged EXL3 preset with speculation fails loud instead of silently losing MTP', async () => {
   const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
   if (!preset) throw new Error('Default model preset is missing');
@@ -280,10 +248,13 @@ test('unmanaged EXL3 preset with speculation fails loud instead of silently losi
   }), /cannot enable MTP drafting/u);
 });
 
-test('managed Tabby accepts MTP drafting announced on stderr, where loguru writes by default', async () => {
+test('managed Tabby waits for delayed MTP drafting announced on stderr', async () => {
   await withTempEnv(async (root) => {
     const port = await getFreePort();
-    const { scriptPath, pythonPath } = writeFakeTabby(root, port, null, { draftingStream: 'stderr' });
+    const { scriptPath, pythonPath } = writeFakeTabby(root, port, null, {
+      draftingStream: 'stderr',
+      draftingDelayMs: 100,
+    });
     const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
     if (!preset) throw new Error('Default model preset is missing');
     const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
@@ -305,6 +276,8 @@ test('managed Tabby accepts MTP drafting announced on stderr, where loguru write
         ModelPath: path.join(root, 'model-a'),
         SpeculativeEnabled: true,
         SpeculativeType: 'draft-mtp' as const,
+        HealthcheckTimeoutMs: 1_000,
+        HealthcheckIntervalMs: 10,
       });
       assert.equal(runtime.getModelState(), 'ready');
     } finally {
@@ -339,6 +312,8 @@ test('managed Tabby rejects a speculative preset when the startup log never repo
         ModelPath: path.join(root, 'model-a'),
         SpeculativeEnabled: true,
         SpeculativeType: 'draft-mtp' as const,
+        HealthcheckTimeoutMs: 100,
+        HealthcheckIntervalMs: 10,
       }), /startup log never reported the MTP draft component/u);
       assert.equal(runtime.getModelState(), 'failed');
     } finally {

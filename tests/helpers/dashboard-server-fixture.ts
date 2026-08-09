@@ -1,13 +1,18 @@
-import fs from 'node:fs';
 import path from 'node:path';
 
 import { startStatusServer } from '../../src/status-server/index.js';
 import { getDefaultConfig, writeConfig } from '../../src/status-server/config-store.js';
 import { readMetrics, type Metrics } from '../../src/status-server/metrics.js';
 import { writeRuntimeLaunchSnapshot } from '../../src/status-server/runtime-launch-snapshot.js';
-import { closeRuntimeDatabase, getRuntimeDatabasePath } from '../../src/state/runtime-db.js';
-import { getAddressInfo } from './dashboard-http.js';
+import { getRuntimeDatabasePath } from '../../src/state/runtime-db.js';
+import { closeHttpServer, getAddressInfo } from './dashboard-http.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './temp-dirs.js';
+import {
+  configureDashboardTestEnv,
+  enterDashboardTestRepo,
+  restoreDashboardTestEnv,
+  restoreDashboardTestRepo,
+} from './dashboard-test-repo.js';
 
 /** Points the active preset at a stand-in inference backend for engine-backed E2Es. */
 export type DashboardTestBackend = {
@@ -24,17 +29,6 @@ export type DashboardTestServerOptions = {
   managedLlamaStartup?: boolean;
 };
 
-const DASHBOARD_TEST_ENV_KEYS = [
-  'sift_kit_status',
-  'SIFTKIT_STATUS_PATH',
-  'SIFTKIT_CONFIG_PATH',
-  'SIFTKIT_METRICS_PATH',
-  'SIFTKIT_IDLE_SUMMARY_DB_PATH',
-  'SIFTKIT_STATUS_HOST',
-  'SIFTKIT_STATUS_PORT',
-  'SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS',
-] as const;
-
 const METRICS_SETTLE_POLL_INTERVAL_MS = 25;
 const METRICS_SETTLE_QUIET_POLLS = 12;
 const METRICS_SETTLE_TIMEOUT_MS = 10_000;
@@ -49,6 +43,8 @@ function sleep(delayMs: number): Promise<void> {
  * env override and teardown dance; this owns it once.
  */
 export class DashboardTestServer {
+  private closePromise: Promise<void> | null = null;
+
   private constructor(
     readonly tempRoot: string,
     readonly baseUrl: string,
@@ -87,35 +83,22 @@ export class DashboardTestServer {
     options: DashboardTestServerOptions = {},
   ): Promise<DashboardTestServer> {
     const tempRoot = createManagedTempDir(namePrefix);
-    const previousCwd = process.cwd();
-    fs.writeFileSync(
-      path.join(tempRoot, 'package.json'),
-      JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
-      'utf8',
-    );
-    process.chdir(tempRoot);
-
-    const envBackup: Record<string, string | undefined> = {};
-    for (const key of DASHBOARD_TEST_ENV_KEYS) {
-      envBackup[key] = process.env[key];
-    }
+    const previousCwd = enterDashboardTestRepo(tempRoot);
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
     const configPath = path.join(tempRoot, '.siftkit', 'config.json');
-    process.env.sift_kit_status = statusPath;
-    process.env.SIFTKIT_STATUS_PATH = statusPath;
-    process.env.SIFTKIT_CONFIG_PATH = configPath;
-    process.env.SIFTKIT_METRICS_PATH = path.join(tempRoot, '.siftkit', 'status', 'compression-metrics.json');
-    process.env.SIFTKIT_IDLE_SUMMARY_DB_PATH = path.join(tempRoot, '.siftkit', 'status', 'idle-summary.sqlite');
-    process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
-    process.env.SIFTKIT_STATUS_PORT = '0';
-    process.env.SIFTKIT_TERMINAL_METADATA_IDLE_DELAY_MS = '0';
-
-    // The coordinator resolves its preset during startup, so config must land first.
-    if (backend) DashboardTestServer.seedExternalBackendConfig(backend);
-    const server = startStatusServer({ disableManagedLlamaStartup: options.managedLlamaStartup !== true });
-    await server.startupPromise;
-    const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
-    return new DashboardTestServer(tempRoot, baseUrl, server, previousCwd, envBackup);
+    const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+    let server: ReturnType<typeof startStatusServer> | null = null;
+    try {
+      // The coordinator resolves its preset during startup, so config must land first.
+      if (backend) DashboardTestServer.seedExternalBackendConfig(backend);
+      server = startStatusServer({ disableManagedLlamaStartup: options.managedLlamaStartup !== true });
+      await server.startupPromise;
+      const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
+      return new DashboardTestServer(tempRoot, baseUrl, server, previousCwd, envBackup);
+    } catch (error) {
+      await DashboardTestServer.releaseResources(tempRoot, previousCwd, envBackup, server);
+      throw error;
+    }
   }
 
   readMetrics(): Metrics {
@@ -149,19 +132,40 @@ export class DashboardTestServer {
     );
   }
 
-  async close(): Promise<void> {
-    await new Promise<void>((resolve, reject) => {
-      this.server.close((error) => (error ? reject(error) : resolve()));
-    });
-    process.chdir(this.previousCwd);
-    closeRuntimeDatabase();
-    for (const [key, value] of Object.entries(this.envBackup)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
+  close(): Promise<void> {
+    this.closePromise ??= this.closeOnce();
+    return this.closePromise;
+  }
+
+  private async closeOnce(): Promise<void> {
+    await DashboardTestServer.releaseResources(
+      this.tempRoot,
+      this.previousCwd,
+      this.envBackup,
+      this.server,
+    );
+  }
+
+  private static async releaseResources(
+    tempRoot: string,
+    previousCwd: string,
+    envBackup: Record<string, string | undefined>,
+    server: ReturnType<typeof startStatusServer> | null,
+  ): Promise<void> {
+    try {
+      if (server?.listening) {
+        await closeHttpServer(server);
+      }
+    } finally {
+      try {
+        restoreDashboardTestEnv(envBackup);
+      } finally {
+        try {
+          restoreDashboardTestRepo(previousCwd);
+        } finally {
+          await removeDirectoryWithRetries(tempRoot);
+        }
       }
     }
-    await removeDirectoryWithRetries(this.tempRoot);
   }
 }

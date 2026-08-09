@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
-import { captureStdout, getFreePort, writeManagedLlamaScripts } from './_runtime-helpers.js';
+import { z } from 'zod';
+import { captureStdout, getFreePort, writeManagedLlamaLauncher } from './_runtime-helpers.js';
 
 import { startStatusServer } from '../src/status-server/index.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
@@ -17,7 +18,7 @@ import { testHttpAgent } from './helpers/http-agent.js';
 
 function writeManagedConfig(
   model: string,
-  managed: { baseUrl: string; modelPath: string; startupScriptPath: string },
+  managed: { baseUrl: string; modelPath: string; executablePath: string },
   timeouts: { StartupTimeoutMs: number; HealthcheckTimeoutMs: number; HealthcheckIntervalMs: number },
   presetOverrides: Partial<ModelRuntimePreset> = {},
 ): void {
@@ -27,13 +28,15 @@ function writeManagedConfig(
   preset.BaseUrl = managed.baseUrl;
   preset.NumCtx = 32000;
   preset.ModelPath = managed.modelPath;
-  preset.ExecutablePath = managed.startupScriptPath;
+  preset.ExecutablePath = managed.executablePath;
   preset.StartupTimeoutMs = timeouts.StartupTimeoutMs;
   preset.HealthcheckTimeoutMs = timeouts.HealthcheckTimeoutMs;
   preset.HealthcheckIntervalMs = timeouts.HealthcheckIntervalMs;
   config.Server.ModelPresets.Presets[0] = { ...preset, ...presetOverrides };
   writeConfig(getConfigPath(), config);
 }
+
+const ModelProbeCountSchema = z.coerce.number().int().nonnegative();
 
 
 function requestJson(url: string, timeoutMs = 5000): Promise<JsonResponse> {
@@ -127,15 +130,17 @@ test('llama passthrough wakes managed llama when the managed process is offline'
     SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
     SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
     SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+    SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS,
   };
   process.env.sift_kit_status = statusPath;
   process.env.SIFTKIT_STATUS_PATH = statusPath;
   process.env.SIFTKIT_CONFIG_PATH = configPath;
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
+  process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
 
   const llamaPort = await getFreePort();
-  const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-passthrough-model');
+  const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-passthrough-model');
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   writeManagedConfig('managed-passthrough-model', managed, {
     StartupTimeoutMs: 10000,
@@ -148,13 +153,13 @@ test('llama passthrough wakes managed llama when the managed process is offline'
     HealthcheckIntervalMs: 100,
   });
 
-  const server = startStatusServer();
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
-    await server.shutdownManagedLlamaForServerExit?.();
+    assert.equal(fs.existsSync(managed.readyFilePath), false);
 
     const response = await requestJson(`${baseUrl}/v1/models`, 30_000);
 
@@ -204,21 +209,16 @@ test('llama passthrough waits through 503 Loading model responses without timing
   process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
 
   const llamaPort = await getFreePort();
-  // The fake llama responds with the canonical "Loading model" 503 body for
-  // the first 20 healthchecks, then 200. With StartupTimeoutMs=1500 and
-  // HealthcheckIntervalMs=50 + HealthcheckTimeoutMs=100, the 20 503 polls
-  // alone would take ~3000 ms — far longer than the unextended 1500 ms
-  // deadline. The test only passes if the deadline-extension on each
-  // 503-loading-model response keeps the spawn alive long enough for the
-  // model to finish loading.
-  const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-passthrough-503-model', {
-    initial503LoadingModelCount: 20,
+  // Two canonical "Loading model" responses prove that startup retries 503s
+  // before accepting the first successful model probe.
+  const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-passthrough-503-model', {
+    initial503LoadingModelCount: 2,
   });
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   writeManagedConfig('managed-passthrough-503-model', managed, {
-    StartupTimeoutMs: 1500,
+    StartupTimeoutMs: 5000,
     HealthcheckTimeoutMs: 100,
-    HealthcheckIntervalMs: 50,
+    HealthcheckIntervalMs: 10,
   });
 
   const server = startStatusServer();
@@ -231,6 +231,8 @@ test('llama passthrough waits through 503 Loading model responses without timing
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual(response.body, { data: [{ id: 'managed-passthrough-503-model', object: 'model' }] });
+    const modelProbeCount = ModelProbeCountSchema.parse(fs.readFileSync(managed.modelProbeCountPath, 'utf8').trim());
+    assert.ok(modelProbeCount >= 3, `expected two loading probes before success, got ${modelProbeCount}`);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
@@ -265,15 +267,17 @@ test('chat passthrough logs every forwarded /v1/chat/completions request', async
     SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
     SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
     SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+    SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS,
   };
   process.env.sift_kit_status = statusPath;
   process.env.SIFTKIT_STATUS_PATH = statusPath;
   process.env.SIFTKIT_CONFIG_PATH = configPath;
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
+  process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
 
   const llamaPort = await getFreePort();
-  const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-chat-log-model');
+  const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-chat-log-model');
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   writeManagedConfig('managed-chat-log-model', managed, {
     StartupTimeoutMs: 10000,
@@ -339,15 +343,17 @@ async function withPassthroughChatServer(
     SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
     SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
     SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+    SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS,
   };
   process.env.sift_kit_status = statusPath;
   process.env.SIFTKIT_STATUS_PATH = statusPath;
   process.env.SIFTKIT_CONFIG_PATH = configPath;
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
+  process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
 
   const llamaPort = await getFreePort();
-  const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-sampler-model');
+  const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-sampler-model');
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   writeManagedConfig('managed-sampler-model', managed, {
     StartupTimeoutMs: 10000,
@@ -466,16 +472,18 @@ test('llama passthrough proxies POST /tokenize to managed llama', async () => {
     SIFTKIT_CONFIG_PATH: process.env.SIFTKIT_CONFIG_PATH,
     SIFTKIT_STATUS_HOST: process.env.SIFTKIT_STATUS_HOST,
     SIFTKIT_STATUS_PORT: process.env.SIFTKIT_STATUS_PORT,
+    SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS,
   };
   process.env.sift_kit_status = statusPath;
   process.env.SIFTKIT_STATUS_PATH = statusPath;
   process.env.SIFTKIT_CONFIG_PATH = configPath;
   process.env.SIFTKIT_STATUS_HOST = '127.0.0.1';
   process.env.SIFTKIT_STATUS_PORT = '0';
+  process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
 
   const llamaPort = await getFreePort();
   // The fake llama tokenizes at 4 characters per token.
-  const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-tokenize-model', {
+  const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-tokenize-model', {
     tokenizeCharsPerToken: 4,
   });
   fs.mkdirSync(path.dirname(configPath), { recursive: true });

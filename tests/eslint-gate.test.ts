@@ -1,6 +1,7 @@
-import { test } from 'node:test';
+import { before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import path from 'node:path';
 import { z } from 'zod';
 
 const LintMessageSchema = z.object({
@@ -19,63 +20,88 @@ type LintFileResult = z.infer<typeof LintFileResultSchema>;
 const ExecErrorSchema = z.object({ stdout: z.string().optional() }).passthrough();
 
 const eslintExecutable = 'node_modules/eslint/bin/eslint.js';
+const fixtureNames = [
+  'cast.ts',
+  'namespace.ts',
+  'explicit-any.ts',
+  'explicit-unknown.ts',
+  'broad-json-union.ts',
+  'declaration.d.ts',
+  'clean.ts',
+  'unused-var.ts',
+] as const;
 
-function parseLintOutput(output: string): LintFileResult {
+function parseLintOutput(output: string): ReadonlyMap<string, LintFileResult> {
   const results = z.array(LintFileResultSchema).parse(JSON.parse(output));
-  assert.equal(results.length, 1);
-  return results[0];
+  assert.equal(results.length, fixtureNames.length);
+  return new Map(results.map((result) => [path.basename(result.filePath), result]));
 }
 
-function lintFixture(fixtureName: string): LintFileResult {
-  const output = execFileSync(
-    process.execPath,
-    [eslintExecutable, '--no-ignore', '--format', 'json', `tests/fixtures/eslint-gate/${fixtureName}`],
-    { encoding: 'utf8' },
-  );
-  return parseLintOutput(output);
-}
-
-function lintFixtureAllowingFailure(fixtureName: string): LintFileResult {
+function lintFixtures(): ReadonlyMap<string, LintFileResult> {
   try {
-    return lintFixture(fixtureName);
+    return parseLintOutput(execFileSync(
+      process.execPath,
+      [
+        eslintExecutable,
+        '--no-ignore',
+        '--format',
+        'json',
+        ...fixtureNames.map((fixtureName) => `tests/fixtures/eslint-gate/${fixtureName}`),
+      ],
+      { encoding: 'utf8' },
+    ));
   } catch (error) {
     const failed = ExecErrorSchema.parse(error);
     return parseLintOutput(failed.stdout ?? '[]');
   }
 }
 
+let lintResults: ReadonlyMap<string, LintFileResult> = new Map();
+
+before(() => {
+  lintResults = lintFixtures();
+});
+
+function lintFixture(fixtureName: string): LintFileResult {
+  const result = lintResults.get(fixtureName);
+  if (!result) {
+    throw new Error(`ESLint did not return a result for ${fixtureName}.`);
+  }
+  return result;
+}
+
 test('eslint gate flags value casts', () => {
-  const result = lintFixtureAllowingFailure('cast.ts');
+  const result = lintFixture('cast.ts');
   assert.equal(result.errorCount, 1);
   assert.equal(result.messages[0]?.ruleId, '@typescript-eslint/consistent-type-assertions');
 });
 
 test('eslint gate flags namespace imports', () => {
-  const result = lintFixtureAllowingFailure('namespace.ts');
+  const result = lintFixture('namespace.ts');
   assert.equal(result.errorCount, 1);
   assert.equal(result.messages[0]?.ruleId, 'no-restricted-syntax');
 });
 
 test('eslint gate flags explicit any', () => {
-  const result = lintFixtureAllowingFailure('explicit-any.ts');
+  const result = lintFixture('explicit-any.ts');
   assert.equal(result.errorCount, 1);
   assert.equal(result.messages[0]?.ruleId, '@typescript-eslint/no-explicit-any');
 });
 
 test('eslint gate flags explicit unknown', () => {
-  const result = lintFixtureAllowingFailure('explicit-unknown.ts');
+  const result = lintFixture('explicit-unknown.ts');
   assert.equal(result.errorCount, 1);
   assert.equal(result.messages[0]?.ruleId, 'no-restricted-syntax');
 });
 
 test('eslint gate flags broad JsonValue unions', () => {
-  const result = lintFixtureAllowingFailure('broad-json-union.ts');
+  const result = lintFixture('broad-json-union.ts');
   assert.equal(result.errorCount, 1);
   assert.equal(result.messages[0]?.ruleId, 'no-restricted-syntax');
 });
 
 test('eslint gate lints project declaration files', () => {
-  const result = lintFixtureAllowingFailure('declaration.d.ts');
+  const result = lintFixture('declaration.d.ts');
   assert.equal(result.errorCount, 1);
   assert.equal(result.messages[0]?.ruleId, 'no-restricted-syntax');
 });
@@ -89,7 +115,7 @@ test('eslint gate passes clean code', () => {
 // An underscore prefix must not silence the unused-vars gate: renaming a dead
 // binding to `_dead` would otherwise be a repo-wide, review-invisible opt-out.
 test('eslint gate flags unused underscore-prefixed variables', () => {
-  const result = lintFixtureAllowingFailure('unused-var.ts');
+  const result = lintFixture('unused-var.ts');
   assert.equal(result.errorCount, 1);
   assert.equal(result.messages[0]?.ruleId, '@typescript-eslint/no-unused-vars');
 });

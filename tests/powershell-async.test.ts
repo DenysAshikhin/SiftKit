@@ -1,10 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import { setTimeout as delay } from 'node:timers/promises';
 import { spawnPowerShellAsync } from '../src/lib/powershell.js';
 import {
-  MARKER_DELAY_MS,
   PROCESS_LIFETIME_MS,
   createProcessTreeFixture,
 } from './helpers/process-tree-fixture.js';
@@ -18,12 +15,15 @@ function powerShellCommandFor(parentScript: string): string {
 }
 
 test('spawnPowerShellAsync times out and resolves promptly instead of waiting on descendants', async () => {
-  const { parentScript } = createProcessTreeFixture('siftkit-powershell-tree-');
+  const { parentScript, waitForGrandchildPid, waitForProcessExit } = createProcessTreeFixture('siftkit-powershell-tree-');
   const startedAt = Date.now();
-  const result = await spawnPowerShellAsync(powerShellCommandFor(parentScript), { timeoutMs: 1_000 });
+  const resultPromise = spawnPowerShellAsync(powerShellCommandFor(parentScript), { timeoutMs: 250 });
+  const grandchildPid = await waitForGrandchildPid();
+  const result = await resultPromise;
+  await waitForProcessExit(grandchildPid);
   const elapsedMs = Date.now() - startedAt;
   assert.equal(result.exitCode, 124);
-  assert.match(result.output, /timeout=1000ms exceeded/u);
+  assert.match(result.output, /timeout=250ms exceeded/u);
   assert.ok(
     elapsedMs < PROCESS_LIFETIME_MS / 2,
     `expected the timeout to settle the promise, but it took ${elapsedMs}ms`,
@@ -31,12 +31,12 @@ test('spawnPowerShellAsync times out and resolves promptly instead of waiting on
 });
 
 test('spawnPowerShellAsync timeout terminates descendant processes', async () => {
-  const { parentScript, markerPath } = createProcessTreeFixture('siftkit-powershell-tree-');
-  const result = await spawnPowerShellAsync(powerShellCommandFor(parentScript), { timeoutMs: 1_000 });
+  const { parentScript, waitForGrandchildPid, waitForProcessExit } = createProcessTreeFixture('siftkit-powershell-tree-');
+  const resultPromise = spawnPowerShellAsync(powerShellCommandFor(parentScript), { timeoutMs: 250 });
+  const grandchildPid = await waitForGrandchildPid();
+  const result = await resultPromise;
   assert.equal(result.exitCode, 124);
-  // Outlive the grandchild's write delay: if the tree kill missed it, the marker appears.
-  await delay(MARKER_DELAY_MS + 2_000);
-  assert.equal(fs.existsSync(markerPath), false, 'descendant survived the timeout kill');
+  await waitForProcessExit(grandchildPid);
 });
 
 test('spawnPowerShellAsync returns complete output for a command that finishes normally', async () => {

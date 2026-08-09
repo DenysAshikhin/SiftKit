@@ -193,17 +193,22 @@ test('Park boundary: ParkingEngine parks at approval_required with populated dec
     });
 
     const boundary = await session.waitForBoundary(0);
-    assert.equal(boundary.status, 'approval_required');
-    if (boundary.status === 'approval_required') {
-      assert.equal(boundary.approval.toolName, 'run');
-      assert.ok(boundary.decide.approve.includes('approve'));
-      assert.ok(boundary.decide.deny.includes('deny'));
-      assert.ok(boundary.decide.abort.includes('abort'));
-    }
-    const state = store.readState(runId);
-    assert.equal(state.status, 'approval_required');
-    if (state.status === 'approval_required') {
-      assert.equal(state.pid, process.pid);
+    try {
+      assert.equal(boundary.status, 'approval_required');
+      if (boundary.status === 'approval_required') {
+        assert.equal(boundary.approval.toolName, 'run');
+        assert.ok(boundary.decide.approve.includes('approve'));
+        assert.ok(boundary.decide.deny.includes('deny'));
+        assert.ok(boundary.decide.abort.includes('abort'));
+      }
+      const state = store.readState(runId);
+      assert.equal(state.status, 'approval_required');
+      if (state.status === 'approval_required') {
+        assert.equal(state.pid, process.pid);
+      }
+    } finally {
+      session.submitDecision({ decision: 'abort' });
+      await session.settled;
     }
   } finally {
     process.chdir(previousCwd);

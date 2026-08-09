@@ -1,8 +1,46 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { asObject, asObjectArray, requestJson } from './helpers/dashboard-http.js';
 import { DashboardModelQueueHarness } from './helpers/dashboard-model-queue-harness.js';
+
+test('DashboardModelQueueHarness validates options before acquiring process resources', () => {
+  const previousCwd = process.cwd();
+  const previousStatusPort = process.env.SIFTKIT_STATUS_PORT;
+  const prefix = `siftkit-http-queue-constructor-failure-${process.pid}-`;
+  let cwdAfterFailure = '';
+  let statusPortAfterFailure: string | undefined;
+  let leftovers: string[] = [];
+  try {
+    assert.throws(() => new DashboardModelQueueHarness(prefix, {
+      get exl3ActivePreset(): boolean {
+        throw new Error('forced option failure');
+      },
+      parallelSlots: 1,
+    }), /forced option failure/u);
+    cwdAfterFailure = process.cwd();
+    statusPortAfterFailure = process.env.SIFTKIT_STATUS_PORT;
+    leftovers = fs.readdirSync(os.tmpdir()).filter((entry) => entry.startsWith(prefix));
+  } finally {
+    process.chdir(previousCwd);
+    if (previousStatusPort === undefined) {
+      delete process.env.SIFTKIT_STATUS_PORT;
+    } else {
+      process.env.SIFTKIT_STATUS_PORT = previousStatusPort;
+    }
+    for (const entry of leftovers) {
+      fs.rmSync(path.join(os.tmpdir(), entry), { recursive: true, force: true });
+    }
+  }
+
+  assert.equal(cwdAfterFailure, previousCwd);
+  assert.equal(statusPortAfterFailure, previousStatusPort);
+  assert.deepEqual(leftovers, []);
+});
 
 async function readModelRequestDiagnostics(baseUrl: string): Promise<{ activeCount: number; activeKinds: string[]; queueLength: number }> {
   const response = await requestJson(`${baseUrl}/status`);
@@ -104,6 +142,42 @@ test('coordinator-free config update refreshes ParallelSlots admission capacity'
       assert.equal(response.statusCode, 200);
     }
     await harness.waitForModelQueueIdle();
+  } finally {
+    await harness.close();
+  }
+});
+
+test('model queue harness closes an active request once without waiting for its work', async () => {
+  const harness = new DashboardModelQueueHarness('siftkit-http-queue-close-', { parallelSlots: 1 });
+  await harness.start();
+  try {
+    const heldRequest = harness.holdModelLock('request active during teardown', 5_000);
+    const heldOutcome = heldRequest.then(
+      () => 'resolved' as const,
+      () => 'rejected' as const,
+    );
+    await harness.waitForActiveRequests('repo_search');
+
+    const firstClose = harness.close();
+    const concurrentClose = harness.close();
+    const sharedConcurrentPromise = firstClose === concurrentClose;
+    const allSettled = Promise.allSettled([firstClose, concurrentClose, heldOutcome]);
+    const closedPromptly = await Promise.race([
+      allSettled.then(() => true),
+      delay(2_500, false, { ref: false }),
+    ]);
+    if (!closedPromptly) await allSettled;
+
+    const laterClose = harness.close();
+    const sharedLaterPromise = laterClose === firstClose;
+    await firstClose;
+    await concurrentClose;
+    await laterClose;
+
+    assert.equal(closedPromptly, true);
+    assert.equal(await heldOutcome, 'rejected');
+    assert.equal(sharedConcurrentPromise, true);
+    assert.equal(sharedLaterPromise, true);
   } finally {
     await harness.close();
   }

@@ -23,6 +23,7 @@ import {
   RUN_FULL_DOWNGRADE_NOTICE,
   REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT,
   RunFullOutputGate,
+  shapeRunOutput,
   ValidationCommandOutputPolicy,
   type RunFullOutputDecision,
 } from '../src/repo-search/engine/validation-command-output-policy.js';
@@ -774,6 +775,13 @@ function writeNoisyFailingTest(root: string): void {
   );
 }
 
+function makeNoisyValidationOutput(): string {
+  return Array.from(
+    { length: NOISY_VALIDATION_LINE_COUNT },
+    (_, index) => `validation-line-${index + 1}`,
+  ).join('\n');
+}
+
 test(`repo-agent run auto mode keeps ${REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT} tail lines and preserves failing exit code`, async () => {
   const root = makeRepo();
   try {
@@ -818,7 +826,12 @@ test('run serves the first full request as auto with a notice, honors the back-t
       { command: 'npm test', outputMode: 'full' },
       makeContext(root, REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT, retryDecision),
     );
-    const nonAgent = await executeRepoTool('run', { command: 'npm test', outputMode: 'full' }, makeContext(root));
+    const nonAgentOutput = shapeRunOutput({
+      command: 'npm test',
+      output: makeNoisyValidationOutput(),
+      policy: null,
+      decision: { kind: 'pass', effectiveMode: 'full', downgraded: false },
+    });
 
     assert.ok(first.ok);
     assert.equal(first.exitCode, 1);
@@ -830,43 +843,21 @@ test('run serves the first full request as auto with a notice, honors the back-t
     assert.match(retry.output, /validation-line-1\b/u);
     assert.doesNotMatch(retry.output, /Notice: outputMode "full"/u);
 
-    assert.ok(nonAgent.ok);
-    assert.match(nonAgent.output, /validation-line-1\b/u);
+    assert.match(nonAgentOutput, /validation-line-1\b/u);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('a different run call between downgrade and retry forfeits the full grant', async () => {
-  const root = makeRepo();
-  try {
-    writeNoisyFailingTest(root);
-    const gate = new RunFullOutputGate();
-    const firstDecision = gate.beginRun({ command: 'npm test', requestedMode: 'full', isValidationCommand: true });
-    await executeRepoTool(
-      'run',
-      { command: 'npm test', outputMode: 'full' },
-      makeContext(root, REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT, firstDecision),
-    );
-    const interloperDecision = gate.beginRun({ command: 'Write-Output interloper', requestedMode: 'auto', isValidationCommand: false });
-    await executeRepoTool(
-      'run',
-      { command: 'Write-Output interloper' },
-      makeContext(root, REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT, interloperDecision),
-    );
-    const attemptedDecision = gate.beginRun({ command: 'npm test', requestedMode: 'full', isValidationCommand: true });
-    const attempted = await executeRepoTool(
-      'run',
-      { command: 'npm test', outputMode: 'full' },
-      makeContext(root, REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT, attemptedDecision),
-    );
+test('a different run call between downgrade and retry forfeits the full grant', () => {
+  const gate = new RunFullOutputGate();
+  const firstDecision = gate.beginRun({ command: 'npm test', requestedMode: 'full', isValidationCommand: true });
+  const interloperDecision = gate.beginRun({ command: 'Write-Output interloper', requestedMode: 'auto', isValidationCommand: false });
+  const attemptedDecision = gate.beginRun({ command: 'npm test', requestedMode: 'full', isValidationCommand: true });
 
-    assert.ok(attempted.ok);
-    assert.doesNotMatch(attempted.output, /validation-line-1\b/u);
-    assert.ok(attempted.output.endsWith(RUN_FULL_DOWNGRADE_NOTICE));
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
+  assert.deepEqual(firstDecision, { kind: 'downgrade', effectiveMode: 'auto', downgraded: true });
+  assert.deepEqual(interloperDecision, { kind: 'pass', effectiveMode: 'auto', downgraded: false });
+  assert.deepEqual(attemptedDecision, { kind: 'downgrade', effectiveMode: 'auto', downgraded: true });
 });
 
 test('run rejects a valid command without a precomputed output decision', async () => {

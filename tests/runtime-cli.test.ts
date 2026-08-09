@@ -5,11 +5,12 @@ import { ActiveStatusRunSchema } from '@siftkit/contracts';
 import { z } from '../src/lib/zod.js';
 import { UNSUPPORTED_INPUT_MESSAGE } from '../src/summary/measure.js';
 import type { JsonValue } from '../src/lib/json-types.js';
+import { runCli } from '../src/cli/index.js';
+import { makeCaptureStream } from './_test-helpers.js';
 import {
   fs,
   http,
   path,
-  spawnSync,
   summarizeRequest,
   spawnProcess,
   requestJson,
@@ -20,7 +21,7 @@ import {
   withSummaryTestServer,
 } from './_runtime-helpers.js';
 
-const repoRoot = path.resolve(__dirname, '..');
+const repoRoot = process.cwd();
 const ConcurrentStatusResponseSchema = z.object({
   activeRuns: z.array(ActiveStatusRunSchema).optional(),
 }).loose();
@@ -159,25 +160,27 @@ test('concurrent oversized CLI summary requests are serialized until the first r
 test('CLI summary fails closed with the canonical message when the external server is unreachable', async () => {
   await withTempEnv(async () => {
     const port = '4778';
-      const result = spawnSync(
-      process.execPath,
-      [path.join(repoRoot, 'bin', 'siftkit.js'), 'summary', '--question', 'summarize this', '--text', 'hello world'],
-      {
-        cwd: process.cwd(),
-        encoding: 'utf8',
-        env: {
-          ...process.env,
-          SIFTKIT_STATUS_BACKEND_URL: `http://127.0.0.1:${port}/status`,
-          SIFTKIT_CONFIG_SERVICE_URL: `http://127.0.0.1:${port}/config`,
-          SIFTKIT_STATUS_PORT: port,
-        },
-      }
-    );
+    process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${port}/status`;
+    process.env.SIFTKIT_CONFIG_SERVICE_URL = `http://127.0.0.1:${port}/config`;
+    process.env.SIFTKIT_STATUS_PORT = port;
+    process.env.SIFTKIT_HEALTHCHECK_ATTEMPTS = '1';
+    try {
+      const stdout = makeCaptureStream();
+      const stderr = makeCaptureStream();
+      const code = await runCli({
+        argv: ['summary', '--question', 'summarize this', '--text', 'hello world'],
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+      });
 
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, new RegExp(`SiftKit status/config server is not reachable at http://127\\.0\\.0\\.1:${port}/health\\.`, 'u'));
-    assert.match(result.stderr, /Start the separate server process and stop issuing further siftkit commands until it is available\./u);
-    assert.match(result.stderr, /Operation: health:get/u);
+      assert.equal(code, 1);
+      assert.match(stderr.read(), new RegExp(`SiftKit status/config server is not reachable at http://127\\.0\\.0\\.1:${port}/health\\.`, 'u'));
+      assert.match(stderr.read(), /Start the separate server process and stop issuing further siftkit commands until it is available\./u);
+      assert.match(stderr.read(), /Operation: health:get/u);
+      assert.equal(stdout.read(), '');
+    } finally {
+      delete process.env.SIFTKIT_HEALTHCHECK_ATTEMPTS;
+    }
   });
 });
 
@@ -211,24 +214,22 @@ test('CLI summary preserves HTTP 500 diagnostic response bodies containing timeo
     const address = server.address();
     const port = address && typeof address === 'object' ? address.port : 0;
     try {
-      const result = await spawnProcess(
-        process.execPath,
-        [path.join(repoRoot, 'bin', 'siftkit.js'), 'summary', '--question', 'summarize this', '--text', 'hello world'],
-        {
-          cwd: process.cwd(),
-          env: {
-            ...process.env,
-            SIFTKIT_STATUS_BACKEND_URL: `http://127.0.0.1:${port}/status`,
-            SIFTKIT_CONFIG_SERVICE_URL: `http://127.0.0.1:${port}/config`,
-          },
-        },
-      );
+      process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${port}/status`;
+      process.env.SIFTKIT_CONFIG_SERVICE_URL = `http://127.0.0.1:${port}/config`;
+      const stdout = makeCaptureStream();
+      const stderr = makeCaptureStream();
+      const code = await runCli({
+        argv: ['summary', '--question', 'summarize this', '--text', 'hello world'],
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+      });
 
-      assert.equal(result.code, 1);
-      assert.match(result.stderr, /HTTP 500:/u);
-      assert.match(result.stderr, /"diagnosticId":"diag-1"/u);
-      assert.match(result.stderr, /Request timed out after 130000 ms/u);
-      assert.doesNotMatch(result.stderr, /^SiftKit status\/config server is not reachable at http:\/\/127\.0\.0\.1:\d+\/health/u);
+      assert.equal(code, 1);
+      assert.match(stderr.read(), /HTTP 500:/u);
+      assert.match(stderr.read(), /"diagnosticId":"diag-1"/u);
+      assert.match(stderr.read(), /Request timed out after 130000 ms/u);
+      assert.doesNotMatch(stderr.read(), /^SiftKit status\/config server is not reachable at http:\/\/127\.0\.0\.1:\d+\/health/u);
+      assert.equal(stdout.read(), '');
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     }
@@ -238,22 +239,19 @@ test('CLI summary preserves HTTP 500 diagnostic response bodies containing timeo
 test('CLI summary performs server preflight health checks before posting', async () => {
   await withTempEnv(async () => {
     await withSummaryTestServer(async (server) => {
-      const result = await spawnProcess(
-        process.execPath,
-        [path.join(repoRoot, 'bin', 'siftkit.js'), 'summary', '--question', 'summarize this', '--text', 'hello world'],
-        {
-          cwd: process.cwd(),
-          env: {
-            ...process.env,
-            SIFTKIT_HEALTHCHECK_ATTEMPTS: '5',
-            SIFTKIT_HEALTHCHECK_TIMEOUT_MS: '100',
-            SIFTKIT_HEALTHCHECK_BACKOFF_MS: '1',
-          },
-        },
-      );
-      assert.equal(result.code, 0);
-      assert.doesNotMatch(result.stderr, /status\/config server is not reachable/iu);
-      assert.match(result.stdout, /summary:/u);
+      process.env.SIFTKIT_HEALTHCHECK_ATTEMPTS = '5';
+      process.env.SIFTKIT_HEALTHCHECK_TIMEOUT_MS = '100';
+      process.env.SIFTKIT_HEALTHCHECK_BACKOFF_MS = '1';
+      const stdout = makeCaptureStream();
+      const stderr = makeCaptureStream();
+      const code = await runCli({
+        argv: ['summary', '--question', 'summarize this', '--text', 'hello world'],
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+      });
+      assert.equal(code, 0);
+      assert.doesNotMatch(stderr.read(), /status\/config server is not reachable/iu);
+      assert.match(stdout.read(), /summary:/u);
       assert.equal(Number(server?.state?.healthChecks || 0), 3);
     }, {
       healthFailuresBeforeOk: 2,
@@ -267,23 +265,20 @@ test('local-only find-files CLI works without the external server', async () => 
     const findRoot = path.join(tempRoot, 'find-fixtures');
     fs.mkdirSync(findRoot, { recursive: true });
     fs.writeFileSync(path.join(findRoot, 'package.json'), '{"name":"fixture"}', 'utf8');
-    const result = spawnSync(
-      process.execPath,
-      [path.join(repoRoot, 'bin', 'siftkit.js'), 'find-files', '--path', findRoot, 'package.json'],
-      {
-        cwd: process.cwd(),
-        encoding: 'utf8',
-        env: {
-          ...process.env,
-          SIFTKIT_STATUS_BACKEND_URL: `http://127.0.0.1:${port}/status`,
-          SIFTKIT_CONFIG_SERVICE_URL: `http://127.0.0.1:${port}/config`,
-          SIFTKIT_STATUS_PORT: port,
-        },
-      }
-    );
+    process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${port}/status`;
+    process.env.SIFTKIT_CONFIG_SERVICE_URL = `http://127.0.0.1:${port}/config`;
+    process.env.SIFTKIT_STATUS_PORT = port;
+    const stdout = makeCaptureStream();
+    const stderr = makeCaptureStream();
+    const code = await runCli({
+      argv: ['find-files', '--path', findRoot, 'package.json'],
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+    });
 
-    assert.equal(result.status, 0);
-    assert.match(result.stdout, /package\.json/u);
+    assert.equal(code, 0);
+    assert.match(stdout.read(), /package\.json/u);
+    assert.equal(stderr.read(), '');
   });
 });
 

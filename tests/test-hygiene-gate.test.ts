@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const TESTS_DIR = __dirname;
+const TESTS_DIR = path.resolve(process.cwd(), 'tests');
 
 function listTestSources(): string[] {
   const out: string[] = [];

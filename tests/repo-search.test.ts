@@ -129,12 +129,17 @@ async function startDelayedStatusServer(options: { runningDelayMs?: number; term
   statusUrl: string;
   runningPostCount: () => number;
   terminalPostCount: () => number;
+  releaseRunningPosts: () => void;
   close: () => Promise<void>;
 }> {
   const runningDelayMs = Math.max(0, Math.trunc(Number(options.runningDelayMs || 0)));
   const terminalDelayMs = Math.max(0, Math.trunc(Number(options.terminalDelayMs || 0)));
   let runningPosts = 0;
   let terminalPosts = 0;
+  let releaseRunningPosts = (): void => {};
+  const runningPostsReleased = new Promise<void>((resolve) => {
+    releaseRunningPosts = resolve;
+  });
   const server = http.createServer(async (req, res) => {
     if (req.method !== 'POST') {
       res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -163,7 +168,9 @@ async function startDelayedStatusServer(options: { runningDelayMs?: number; term
     const parsed = bodyText ? asObject(parseJsonValueText(bodyText)) : {};
     if (parsed.running === true) {
       runningPosts += 1;
-      await new Promise((resolve) => setTimeout(resolve, runningDelayMs));
+      if (runningDelayMs > 0) {
+        await runningPostsReleased;
+      }
     } else if (req.url === '/status/terminal-metadata' && parsed.running === false) {
       terminalPosts += 1;
       await new Promise((resolve) => setTimeout(resolve, terminalDelayMs));
@@ -181,6 +188,7 @@ async function startDelayedStatusServer(options: { runningDelayMs?: number; term
     terminalPostCount() {
       return terminalPosts;
     },
+    releaseRunningPosts,
     close() {
       return new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
@@ -291,20 +299,12 @@ test('executeRepoSearchRequest success path writes transcript and artifact', asy
 
 test('executeRepoSearchRequest does not wait for running status notification response before work starts', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
-    // The running notify is awaited only at the very end of the request, so the
-    // blocking-regression signal is bounded by the 2000ms status client post
-    // timeout: hold the running response past it (5000ms) so a regressed engine
-    // that awaited the notify before starting work would surface first progress
-    // at ~2000ms. Non-blocking first progress is work-start jitter (hundreds of
-    // ms even under full-suite load), so the 1500ms threshold separates the two
-    // cases with ~900ms / ~500ms margins. Threshold must stay below the 2000ms
-    // post timeout.
-    const statusServer = await startDelayedStatusServer({ runningDelayMs: 5000 });
+    const statusServer = await startDelayedStatusServer({ runningDelayMs: 1 });
     try {
       const startedAt = Date.now();
       const progressWriter = new FirstProgressTimingWriter(startedAt);
-      const result = await executeRepoSearchRequest({
-      presetId: 'repo-search',
+      const resultPromise = executeRepoSearchRequest({
+        presetId: 'repo-search',
         prompt: 'find async running status',
         repoRoot: tempRoot,
         statusBackendUrl: statusServer.statusUrl,
@@ -316,11 +316,15 @@ test('executeRepoSearchRequest does not wait for running status notification res
         progressWriter,
       });
 
-      assert.equal(typeof result.requestId, 'string');
       await waitForStatusCount(statusServer.runningPostCount, 1);
+      await waitForStatusCount(() => progressWriter.firstProgressMs === null ? 0 : 1, 1);
       assert.ok(progressWriter.firstProgressMs !== null, 'expected repo-search progress event');
       assert.ok(progressWriter.firstProgressMs < 1500, `expected work to start before running notify response, got ${progressWriter.firstProgressMs} ms`);
+      statusServer.releaseRunningPosts();
+      const result = await resultPromise;
+      assert.equal(typeof result.requestId, 'string');
     } finally {
+      statusServer.releaseRunningPosts();
       await statusServer.close();
     }
   });

@@ -4,6 +4,7 @@ import type { SpawnSyncReturns } from 'node:child_process';
 
 import { z } from '../src/lib/zod.js';
 import { terminateProcessTree, type TerminateProcessTreeOptions } from '../src/status-server/index.js';
+import { isProcessAlive } from '../src/lib/process-tree.js';
 
 type SpawnSyncImpl = TerminateProcessTreeOptions['spawnSyncImpl'];
 type ProcessObject = TerminateProcessTreeOptions['processObject'];
@@ -34,6 +35,12 @@ test('terminateProcessTree rejects invalid pid values', () => {
   assert.equal(terminateProcessTree(0), false);
   assert.equal(terminateProcessTree(-1), false);
   assert.equal(terminateProcessTree(InvalidPidSchema.parse('abc')), false);
+});
+
+test('isProcessAlive validates pids and observes the current process', () => {
+  assert.equal(isProcessAlive(0), false);
+  assert.equal(isProcessAlive(InvalidPidSchema.parse('abc')), false);
+  assert.equal(isProcessAlive(process.pid), true);
 });
 
 test('terminateProcessTree uses taskkill on Windows and returns true on success', () => {

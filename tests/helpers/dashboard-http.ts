@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import type { AddressInfo } from 'node:net';
+import type { AddressInfo, Socket } from 'node:net';
 
 import { getErrorMessage } from '../../src/lib/errors.js';
 import { parseJsonValueText } from '../../src/lib/json.js';
@@ -35,6 +35,28 @@ export function getAddressInfo(server: { address(): string | AddressInfo | null 
     throw new Error('server is not listening on a TCP port');
   }
   return address;
+}
+
+export async function closeHttpServer(server: http.Server): Promise<void> {
+  const destroyConnection = (socket: Socket): void => {
+    socket.destroy();
+  };
+  server.on('connection', destroyConnection);
+  try {
+    const closePromise = new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+    server.closeAllConnections();
+    await closePromise;
+  } finally {
+    server.removeListener('connection', destroyConnection);
+  }
 }
 
 export function requestJson(url: string, options: RequestOptions = {}): Promise<JsonResponse> {
@@ -82,6 +104,30 @@ export function requestSse(url: string, options: RequestOptions = {}): Promise<S
   return new Promise((resolve, reject) => {
     const target = new URL(url);
     const events: SseEvent[] = [];
+    let settled = false;
+    let deadline: NodeJS.Timeout | null = null;
+    const clearDeadline = (): void => {
+      if (deadline !== null) {
+        clearTimeout(deadline);
+        deadline = null;
+      }
+    };
+    const resolveOnce = (response: SseResponse): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearDeadline();
+      resolve(response);
+    };
+    const rejectOnce = (error: Error): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearDeadline();
+      reject(error);
+    };
     const request = http.request(
       {
         protocol: target.protocol,
@@ -124,7 +170,7 @@ export function requestSse(url: string, options: RequestOptions = {}): Promise<S
             events.push({ event: eventName, payload, receivedAtMs: Date.now() });
             if (eventName === 'done' || eventName === 'error') {
               request.destroy();
-              resolve({
+              resolveOnce({
                 statusCode: response.statusCode || 0,
                 events,
               });
@@ -133,19 +179,21 @@ export function requestSse(url: string, options: RequestOptions = {}): Promise<S
             boundary = buffer.indexOf('\n\n');
           }
         });
-        response.on('error', reject);
+        response.on('error', rejectOnce);
         response.on('end', () => {
-          resolve({
+          resolveOnce({
             statusCode: response.statusCode || 0,
             events,
           });
         });
       },
     );
-    request.on('error', reject);
-    request.setTimeout(Number(options.timeoutMs || 8000), () => {
-      request.destroy(new Error('request timeout'));
-    });
+    request.on('error', rejectOnce);
+    deadline = setTimeout(() => {
+      const error = new Error('request timeout');
+      rejectOnce(error);
+      request.destroy(error);
+    }, Number(options.timeoutMs || 8000));
     if (options.body) {
       request.write(options.body);
     }

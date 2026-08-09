@@ -9,6 +9,7 @@ import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { requestJson, getAddressInfo } from './helpers/dashboard-http.js';
 import { captureStdoutLines } from './helpers/stdout-capture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { waitForAsyncExpectation } from './_runtime-helpers.js';
 
 const REQUEST_ID = 'drain-storm-request';
 
@@ -40,10 +41,14 @@ test('a long drain wait logs once on entry and once on resume', async () => {
   // many times before it is allowed to run.
   const originalIsIdle = InferenceRunFlushQueue.prototype.isIdle;
   let llamaFlushIdle = false;
+  let busyChecks = 0;
   InferenceRunFlushQueue.prototype.isIdle = function isIdleForTest(): boolean {
+    if (!llamaFlushIdle) {
+      busyChecks += 1;
+    }
     return llamaFlushIdle && originalIsIdle.call(this);
   };
-  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
+  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 10 });
   await server.startupPromise;
   const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
 
@@ -72,10 +77,14 @@ test('a long drain wait logs once on entry and once on resume', async () => {
           deferredMetadata: { outputTokens: 11 },
         }),
       });
-      // The drain re-schedules every second; stay busy long enough for several cycles.
-      await new Promise<void>((resolve) => setTimeout(resolve, 2_500));
+      await waitForAsyncExpectation(() => {
+        assert.ok(busyChecks >= 2, `expected at least two blocked drain attempts, got ${busyChecks}`);
+      });
       llamaFlushIdle = true;
-      await new Promise<void>((resolve) => setTimeout(resolve, 1_500));
+      await waitForAsyncExpectation(async () => {
+        const status = await requestJson(`${baseUrl}/status`);
+        assert.equal(status.body.status, 'false');
+      });
     });
 
     const waits = lines.filter((line) => /st drain-st {2}drain_wait/u.test(line));

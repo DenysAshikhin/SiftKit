@@ -14,6 +14,7 @@ import {
   asObject,
   asObjectArray,
   getAddressInfo,
+  closeHttpServer,
   requestJson,
   requestSse,
   type SseResponse,
@@ -79,29 +80,35 @@ export class DashboardModelQueueHarness {
   private readonly releasedChatResponseBySessionId = new Map<string, string>();
   private readonly queuedChatResponses: string[] = [];
   private readonly abortedChatSessionIds = new Set<string>();
+  private closePromise: Promise<void> | null = null;
   private server: ReturnType<typeof startStatusServer> | null = null;
   private baseUrl: string | null = null;
 
   constructor(tempDirectoryPrefix: string, options: DashboardModelQueueHarnessOptions) {
+    this.exl3ActivePreset = options.exl3ActivePreset ?? false;
+    this.parallelSlots = options.parallelSlots;
     this.tempRoot = createManagedTempDir(tempDirectoryPrefix);
     this.previousCwd = enterDashboardTestRepo(this.tempRoot);
     const statusPath = path.join(this.tempRoot, '.siftkit', 'status', 'inference.txt');
     this.configPath = path.join(this.tempRoot, '.siftkit', 'config.json');
     this.envBackup = configureDashboardTestEnv(this.tempRoot, statusPath, this.configPath);
-    this.exl3ActivePreset = options.exl3ActivePreset ?? false;
-    this.parallelSlots = options.parallelSlots;
   }
 
   async start(): Promise<void> {
     if (this.server !== null) {
       throw new Error('DashboardModelQueueHarness.start() may only be called once.');
     }
-    await this.startFakeTabby();
-    const server = startStatusServer({ disableManagedLlamaStartup: !this.exl3ActivePreset });
-    this.server = server;
-    await server.startupPromise;
-    const address = getAddressInfo(server);
-    this.baseUrl = `http://127.0.0.1:${address.port}`;
+    try {
+      await this.startFakeTabby();
+      const server = startStatusServer({ disableManagedLlamaStartup: !this.exl3ActivePreset });
+      this.server = server;
+      await server.startupPromise;
+      const address = getAddressInfo(server);
+      this.baseUrl = `http://127.0.0.1:${address.port}`;
+    } catch (error) {
+      await this.close();
+      throw error;
+    }
   }
 
   /**
@@ -209,7 +216,14 @@ export class DashboardModelQueueHarness {
       response.setHeader('content-type', 'application/json');
       response.end('{"object":"list","data":[]}');
     });
-    await new Promise<void>((resolve) => fakeTabby.listen(0, '127.0.0.1', resolve));
+    await new Promise<void>((resolve, reject) => {
+      const onError = (error: Error): void => reject(error);
+      fakeTabby.once('error', onError);
+      fakeTabby.listen(0, '127.0.0.1', () => {
+        fakeTabby.off('error', onError);
+        resolve();
+      });
+    });
     this.fakeTabbyServer = fakeTabby;
 
     const config = getDefaultConfigObject();
@@ -417,7 +431,12 @@ export class DashboardModelQueueHarness {
     });
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
+    this.closePromise ??= this.closeOnce();
+    return this.closePromise;
+  }
+
+  private async closeOnce(): Promise<void> {
     try {
       for (const pending of this.pendingChatRequests.values()) {
         pending.response.destroy();
@@ -427,17 +446,16 @@ export class DashboardModelQueueHarness {
       this.releasedChatResponseBySessionId.clear();
       this.queuedChatResponses.length = 0;
       this.abortedChatSessionIds.clear();
-      const server = this.server;
-      if (server !== null && server.listening) {
-        await new Promise<void>((resolve, reject) => {
-          server.close((error) => (error ? reject(error) : resolve()));
-        });
-      }
-      const fakeTabby = this.fakeTabbyServer;
-      if (fakeTabby !== null) {
-        await new Promise<void>((resolve, reject) => {
-          fakeTabby.close((error) => (error ? reject(error) : resolve()));
-        });
+      try {
+        const server = this.server;
+        if (server !== null && server.listening) {
+          await closeHttpServer(server);
+        }
+      } finally {
+        const fakeTabby = this.fakeTabbyServer;
+        if (fakeTabby !== null) {
+          await closeHttpServer(fakeTabby);
+        }
       }
     } finally {
       try {

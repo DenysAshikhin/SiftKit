@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { commandMatchesDisplayText, getDisplayToolCommand } from '../src/status-server/tool-command-display';
+import { commandMatchesDisplayText, getDisplayToolCommand } from '../src/status-server/tool-command-display.js';
 
 test('getDisplayToolCommand prefers modelVisibleCommand and falls back to command', () => {
   assert.equal(getDisplayToolCommand({ modelVisibleCommand: ' rg foo ', command: 'rg bar' }), 'rg foo');

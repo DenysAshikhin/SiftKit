@@ -20,6 +20,7 @@ src/**/*.d.ts
 !src/types/better-sqlite3.d.ts
 
 # Test artifacts
+/.test-build
 /.coverage-attr
 /tests/.test-modules
 /tests/.test-home

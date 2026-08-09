@@ -24,6 +24,8 @@ import {
   getDefaultConfig,
   getPlannerPromptBudget,
 } from './_runtime-helpers.js';
+
+const SIFTKIT_REPO_ROOT = process.cwd();
 import type { JsonObject, JsonValue } from '../src/lib/json-types.js';
 import {
   buildPlannerDebugArtifact,
@@ -704,7 +706,7 @@ test('powershell shim preserves pipeline order for oversized planner input', asy
       const inputPath = path.join(tempRoot, 'pipeline-transitions.json');
       fs.writeFileSync(inputPath, buildOversizedTransitionsInput(threshold + 1000), 'utf8');
 
-      const shimPath = path.resolve(__dirname, '..', 'bin', 'siftkit.ps1').replace(/'/gu, "''");
+      const shimPath = path.resolve(SIFTKIT_REPO_ROOT, 'bin', 'siftkit.ps1').replace(/'/gu, "''");
       const escapedInputPath = inputPath.replace(/'/gu, "''");
       const commandText = [
         `Get-Content -LiteralPath '${escapedInputPath}'`,

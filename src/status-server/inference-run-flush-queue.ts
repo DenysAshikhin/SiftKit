@@ -181,15 +181,10 @@ export class InferenceRunFlushQueue {
     };
   }
 
-  async waitForIdle(timeoutMs: number): Promise<void> {
-    const startedAtMs = Date.now();
-    while (Date.now() - startedAtMs <= timeoutMs) {
-      if (!this.draining && !this.scheduled && this.pendingOrder.length === 0 && this.runningRunId === null) {
-        return;
-      }
+  async waitForIdle(): Promise<void> {
+    while (!this.isIdle()) {
       await sleep(POLL_INTERVAL_MS);
     }
-    throw new Error(`Timed out waiting for the inference run flush queue after ${timeoutMs} ms.`);
   }
 
   isIdle(): boolean {

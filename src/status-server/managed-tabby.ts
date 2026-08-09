@@ -13,6 +13,8 @@ import { terminateProcessTree } from '../lib/process-tree.js';
 import { readInferenceRunLogTextByStream } from '../state/inference-runs.js';
 import { TabbyModelClient } from './tabby-model-client.js';
 
+const STARTUP_LOG_POLL_INTERVAL_MS = 25;
+
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -261,7 +263,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
       const request = this.adapter.buildLoadRequest(preset);
       if (this.shouldManage(preset)) {
         await this.client.verifyResident(getBaseUrl(preset), request, preset.HealthcheckTimeoutMs);
-        if (preset.SpeculativeEnabled) this.assertDraftingActive(preset);
+        if (preset.SpeculativeEnabled) await this.assertDraftingActive(preset);
       } else {
         await this.client.load(getBaseUrl(preset), request, preset.StartupTimeoutMs);
       }
@@ -278,16 +280,21 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
    * startup log line from the exllamav3 backend is the only signal that drafting engaged. It can
    * land on either stream: TabbyAPI logs through loguru, which writes to stderr by default.
    */
-  private assertDraftingActive(preset: ModelRuntimePreset): void {
-    const runId = this.recorder?.runId;
-    const logByStream = runId ? readInferenceRunLogTextByStream(runId) : null;
-    const startupLog = logByStream ? `${logByStream.engine_stdout}\n${logByStream.engine_stderr}` : '';
-    if (!startupLog.includes('Using main model MTP component for drafting')) {
-      throw new Error(
-        `Preset '${preset.id}' requires MTP drafting, but the TabbyAPI startup log never reported the MTP draft `
-        + 'component loading. Decode speed would be silently halved.',
-      );
+  private async assertDraftingActive(preset: ModelRuntimePreset): Promise<void> {
+    const deadline = Date.now() + preset.HealthcheckTimeoutMs;
+    while (Date.now() <= deadline) {
+      const runId = this.recorder?.runId;
+      const logByStream = runId ? readInferenceRunLogTextByStream(runId) : null;
+      const startupLog = logByStream ? `${logByStream.engine_stdout}\n${logByStream.engine_stderr}` : '';
+      if (startupLog.includes('Using main model MTP component for drafting')) {
+        return;
+      }
+      await delay(Math.min(STARTUP_LOG_POLL_INTERVAL_MS, Math.max(1, deadline - Date.now())));
     }
+    throw new Error(
+      `Preset '${preset.id}' requires MTP drafting, but the TabbyAPI startup log never reported the MTP draft `
+      + 'component loading. Decode speed would be silently halved.',
+    );
   }
 
   private shouldManage(preset: ModelRuntimePreset): boolean {

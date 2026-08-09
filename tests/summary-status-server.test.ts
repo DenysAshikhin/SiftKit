@@ -14,6 +14,7 @@ import { requestJson, asObject, getAddressInfo } from './helpers/dashboard-http.
 import { requestSse } from './helpers/sse-http.js';
 import { captureStdoutLines } from './helpers/stdout-capture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { waitForAsyncExpectation } from './_runtime-helpers.js';
 
 
 test('summary endpoint defaults model request timeout to 240 seconds', () => {
@@ -306,10 +307,14 @@ test('terminal metadata waits for managed llama flush queue to drain first', asy
 
   const originalIsIdle = InferenceRunFlushQueue.prototype.isIdle;
   let llamaFlushIdle = false;
+  let llamaFlushChecks = 0;
   InferenceRunFlushQueue.prototype.isIdle = function isIdleForTest(): boolean {
+    if (!llamaFlushIdle) {
+      llamaFlushChecks += 1;
+    }
     return llamaFlushIdle && originalIsIdle.call(this);
   };
-  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
+  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 10 });
   await server.startupPromise;
   const address = getAddressInfo(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -341,11 +346,16 @@ test('terminal metadata waits for managed llama flush queue to drain first', asy
           },
         }),
       });
-      await new Promise<void>((resolve) => setTimeout(resolve, 40));
+      await waitForAsyncExpectation(() => {
+        assert.ok(llamaFlushChecks > 0, 'terminal metadata drain did not observe the busy flush queue');
+      });
       const waitingStatus = await requestJson(`${baseUrl}/status`);
       assert.equal(waitingStatus.body.status, 'true');
       llamaFlushIdle = true;
-      await new Promise<void>((resolve) => setTimeout(resolve, 1100));
+      await waitForAsyncExpectation(async () => {
+        const drainedStatus = await requestJson(`${baseUrl}/status`);
+        assert.equal(drainedStatus.body.status, 'false');
+      });
     });
 
     const waitIndex = lines.findIndex((line) => /st metadata {2}drain_wait/u.test(line));

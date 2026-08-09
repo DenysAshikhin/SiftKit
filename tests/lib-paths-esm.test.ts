@@ -1,14 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { moduleDirname, moduleFilename, isMainModule } from '../src/lib/paths.js';
 
-// The test suite compiles to CommonJS (tests/ has no type:module), so `import.meta`
-// is unavailable here. The helpers take a module-url string, so we build one
-// explicitly from this file's path and exercise them the same way ESM src does.
-const moduleUrl = pathToFileURL(__filename).href;
+// Use the stable source-tree location so this test has the same identity when it
+// runs from the generated ESM test tree.
+const moduleUrl = pathToFileURL(join(process.cwd(), 'tests', 'lib-paths-esm.test.js')).href;
 const modulePath = fileURLToPath(moduleUrl);
 
 test('moduleFilename resolves a module url to its filesystem path', () => {

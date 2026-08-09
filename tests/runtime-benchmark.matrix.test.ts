@@ -10,7 +10,6 @@ import {
   buildBenchmarkArgs,
   pruneOldLauncherLogs,
   runMatrixWithInterrupt,
-  sleep,
   withTempEnv,
   withStubServer,
   waitForAsyncExpectation,
@@ -215,7 +214,7 @@ test('benchmark matrix marks interrupted runs failed, preserves benchmark logs, 
         },
       ], null, 2), 'utf8');
       fs.writeFileSync(modelPath, '', 'utf8');
-      fs.writeFileSync(startScriptPath, 'Start-Sleep -Seconds 2\n', 'utf8');
+      fs.writeFileSync(startScriptPath, 'Start-Sleep -Seconds 1\n', 'utf8');
       fs.writeFileSync(stopScriptPath, 'exit 0\n', 'utf8');
       fs.writeFileSync(manifestPath, JSON.stringify({
         fixtureRoot,
@@ -284,7 +283,16 @@ test('benchmark matrix marks interrupted runs failed, preserves benchmark logs, 
       rejectInterrupted(new Error('Benchmark matrix interrupted by SIGINT.'));
 
       await assert.rejects(() => runPromise, /Benchmark matrix interrupted by SIGINT/u);
-      await sleep(300);
+
+      await waitForAsyncExpectation(() => {
+        const [session] = listBenchmarkMatrixSessions({ limit: 1 });
+        assert.ok(session);
+        const [run] = listBenchmarkMatrixRunsForSession(session.id);
+        assert.ok(run);
+        assert.equal(session.status, 'failed');
+        assert.equal(session.baselineRestoreStatus, 'completed');
+        assert.equal(run.status, 'failed');
+      }, 5_000);
 
       const [session] = listBenchmarkMatrixSessions({ limit: 1 });
       const [run] = listBenchmarkMatrixRunsForSession(session.id);

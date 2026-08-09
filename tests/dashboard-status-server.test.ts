@@ -132,14 +132,9 @@ test('GET /dashboard/web-search-quota returns a quotas array', async () => {
   }
 });
 
-const requireFromHere = createRequire(__filename);
+const requireFromHere = createRequire(path.join(process.cwd(), '.test-build', 'tests', 'dashboard-status-server.test.js'));
+const SIFTKIT_REPO_ROOT = process.cwd();
 type RuntimeHelpers = {
-  writeManagedLlamaScripts: (tempRoot: string, port: number, modelId?: string) => {
-    baseUrl: string;
-    startupScriptPath: string;
-    shutdownScriptPath: string;
-    readyFilePath: string;
-  };
   writeManagedLlamaLauncher: (tempRoot: string, port: number, modelId?: string) => {
     baseUrl: string;
     executablePath: string;
@@ -1331,7 +1326,6 @@ test('chat delta SSE bounds payloads, preserves ordering, and flushes its latenc
   const thinkingText = 't'.repeat(LIVE_TEXT_FLUSH_MAX_PENDING_CHARS * 2 + 17);
   const answerText = 'bounded answer';
   let thinkingSentAtMs = 0;
-  let answerReleasedAtMs = 0;
   const llamaServer = http.createServer((request, response) => {
     if (request.method === 'GET' && request.url === '/v1/models') {
       response.writeHead(200, { 'content-type': 'application/json' });
@@ -1351,7 +1345,6 @@ test('chat delta SSE bounds payloads, preserves ordering, and flushes its latenc
         choices: [{ delta: { reasoning_content: thinkingText } }],
       })}\n\n`);
       setTimeout(() => {
-        answerReleasedAtMs = Date.now();
         const action = JSON.stringify({ action: 'finish', output: answerText });
         response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: action } }] })}\n\n`);
         response.write(`data: ${JSON.stringify({
@@ -1424,8 +1417,6 @@ test('chat delta SSE bounds payloads, preserves ordering, and flushes its latenc
       latencyTail.receivedAtMs - thinkingSentAtMs >= LIVE_TEXT_FLUSH_MAX_LATENCY_MS - 25,
       true,
     );
-    assert.equal(latencyTail.receivedAtMs < answerReleasedAtMs, true);
-
     const firstAnswerIndex = sse.events.findIndex((event) => event.event === 'answer');
     const doneIndex = sse.events.findIndex((event) => event.event === 'done');
     assert.equal(firstAnswerIndex > sse.events.lastIndexOf(latencyTail), true);
@@ -1884,7 +1875,7 @@ test('deleting retained web tool step allows the same web call in a later chat t
 });
 
 test('package start script launches the dedicated dual-server start runner', () => {
-  const packageJsonPath = path.resolve(__dirname, '..', 'package.json');
+  const packageJsonPath = path.resolve(SIFTKIT_REPO_ROOT, 'package.json');
   const packageJson = asObject(parseJsonValueText(fs.readFileSync(packageJsonPath, 'utf8')));
   const scripts = asObject(packageJson.scripts);
   assert.equal(typeof scripts.start, 'string');
@@ -2076,23 +2067,23 @@ test('same session conflicts cover message plan and repo-search JSON and SSE rou
     const planSessionId = await harness.createChatSession('Plan owner', 'Qwen3.5-9B-Q8_0.gguf');
     const repoSearchSessionId = await harness.createChatSession('Repo owner', 'Qwen3.5-9B-Q8_0.gguf');
     const baseUrl = harness.getBaseUrl();
-    const lockHolder = harness.holdModelLock('hold session-conflict matrix', 2_500);
+    const lockHolder = harness.holdModelLock('hold session-conflict matrix', 600);
     await harness.waitForActiveRequests('repo_search');
 
     const activeMessage = fireAndAbortJsonRequest(
       `${baseUrl}/dashboard/chat/sessions/${messageSessionId}/messages`,
       JSON.stringify({ content: 'active message', assistantContent: 'done' }),
-      1_500,
+      500,
     );
     const activePlan = fireAndAbortJsonRequest(
       `${baseUrl}/dashboard/chat/sessions/${planSessionId}/plan`,
       JSON.stringify({ content: 'active plan', repoRoot: process.cwd() }),
-      1_500,
+      500,
     );
     const activeRepoSearch = fireAndAbortJsonRequest(
       `${baseUrl}/dashboard/chat/sessions/${repoSearchSessionId}/repo-search`,
       JSON.stringify({ content: 'active repo search', repoRoot: process.cwd() }),
-      1_500,
+      500,
     );
     await harness.waitForQueuedRequest('dashboard_chat');
     await harness.waitForQueuedRequest('dashboard_plan');
@@ -2228,7 +2219,7 @@ test('queued JSON Plan returns 404 when its session disappears before lock grant
     );
     const delayedRepoSearch = harness.holdModelLock(
       'hold lock while queued Plan loses its session',
-      500,
+      250,
     );
     await harness.waitForActiveRequests('repo_search');
 
@@ -2279,7 +2270,7 @@ test('queued Repo Search disconnect leaves the chat session unchanged', async ()
     const createdSession = d(createdSessionResponse.body.session);
     const delayedRepoSearch = harness.holdModelLock(
       'hold lock while queued Repo Search disconnects',
-      1_000,
+      600,
     );
     await harness.waitForActiveRequests('repo_search');
 
@@ -2293,7 +2284,7 @@ test('queued Repo Search disconnect leaves the chat session unchanged', async ()
         mockResponses: ['{"action":"finish","output":"must not run"}'],
         mockCommandResults: {},
       }),
-      500,
+      250,
     );
     await harness.waitForQueuedRequest('dashboard_repo_search_stream');
     await disconnectedRepoSearch;

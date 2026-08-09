@@ -19,7 +19,7 @@ import {
   getSpeculativeLogDeltaTotals,
   getRunTelemetryStats,
   sortBenchmarkResults,
-} from '../bench/spec-settings';
+} from '../bench/spec-settings.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 const DEFAULT_SPEC_BENCHMARK_PROMPTS = [
@@ -35,12 +35,12 @@ const DEFAULT_SPEC_BENCHMARK_PROMPTS = [
 ] as const;
 const DEFAULT_SPEC_BENCHMARK_PROMPT = DEFAULT_SPEC_BENCHMARK_PROMPTS[0];
 
-const require = createRequire(__filename);
+const requireScriptModule = createRequire(path.join(process.cwd(), 'tests', 'benchmark-spec-settings.test.js'));
 // The benchmark wrapper scripts are CommonJS .js without declarations, so the
 // require() result is untyped at this boundary. loadScriptModule names the
 // expected shape via a generic, keeping the call sites free of assertions.
 function loadScriptModule<T>(id: string): T {
-  return require(id);
+  return requireScriptModule(id);
 }
 const { normalizeForwardedArgs } = loadScriptModule<{
   normalizeForwardedArgs: (argv: string[]) => string[];
@@ -618,11 +618,12 @@ test('package build command syncs dist runtime output after compiling TypeScript
   assert.match(String(pkg.scripts?.build || ''), /node\s+\.\\scripts\\sync-dist-runtime\.js/u);
 });
 
-test('package test command runs the test TypeScript typecheck', () => {
+test('package test command runs prepared artifacts without building or typechecking', () => {
   const pkg = readPackageJson();
 
   assert.equal(String(pkg.scripts?.['typecheck:test']), 'tsc -p .\\tsconfig.test.json --noEmit');
-  assert.match(String(pkg.scripts?.test || ''), /npm run typecheck:test/u);
+  assert.equal(String(pkg.scripts?.test), 'node .\\dist\\scripts\\run-tests.js');
+  assert.doesNotMatch(String(pkg.scripts?.test || ''), /build|typecheck/u);
 });
 
 test('package typecheck command is available for repo, scripts, dashboard, bench, tests, and dashboard-test', () => {

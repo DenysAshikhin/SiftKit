@@ -67,10 +67,15 @@ function requestJsonAllowError<T>(
           responseText += chunk;
         });
         response.on('end', () => {
-          resolve({
-            statusCode: response.statusCode || 0,
-            body: schema.parse(responseText ? JSON.parse(responseText) : {}),
-          });
+          try {
+            resolve({
+              statusCode: response.statusCode || 0,
+              body: schema.parse(responseText ? JSON.parse(responseText) : {}),
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            reject(new Error(`Invalid JSON response (${response.statusCode || 0}): ${responseText}; ${message}`));
+          }
         });
       }
     );
@@ -225,7 +230,7 @@ test('real status server backend restart endpoint returns structured GPU OOM det
           Reasoning: 'on',
           ReasoningBudget: 10000,
           ReasoningBudgetMessage: 'Thinking budget exhausted. You have to provide the answer now.',
-          StartupTimeoutMs: 5000,
+          StartupTimeoutMs: 500,
           HealthcheckTimeoutMs: 100,
           HealthcheckIntervalMs: 10,
           VerboseLogging: false,
@@ -235,6 +240,7 @@ test('real status server backend restart endpoint returns structured GPU OOM det
     };
     writeConfig(runtimeDbPath, config);
 
+    process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
     await withRealStatusServer(async ({ statusUrl }) => {
       const restartResponse = await requestJsonAllowError(new URL('/status/restart', statusUrl).toString(), StartupFailureResponseSchema, {
         method: 'POST',

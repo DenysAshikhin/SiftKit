@@ -72,11 +72,21 @@ test('queued repo-search sees lock_wait progress while a slow run holds the lock
     ...REPO_SEARCH_BODY,
     repoRoot: process.cwd(),
     mockCommandResults: {
-      'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 3_000 },
+      'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 2_100 },
     },
   };
-  const holder = requestSse(`${harness.baseUrl}/repo-search`, { body: slowBody, timeoutMs: 20_000 });
-  await new Promise((resolve) => setTimeout(resolve, 150));
+  let resolveHolderStarted: (() => void) | null = null;
+  const holderStarted = new Promise<void>((resolve) => {
+    resolveHolderStarted = resolve;
+  });
+  const holder = requestSse(`${harness.baseUrl}/repo-search`, {
+    body: slowBody,
+    timeoutMs: 20_000,
+    onProgress(event) {
+      if (event.kind === 'tool_start') resolveHolderStarted?.();
+    },
+  });
+  await holderStarted;
   const queued = await requestSse(`${harness.baseUrl}/repo-search`, {
     body: {
       prompt: 'queued',

@@ -16,6 +16,7 @@ import { normalizeConfigObject } from '../src/config/normalization.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { DEAD_CONFIG_SERVICE_URL, DEAD_STATUS_BACKEND_URL } from './helpers/dead-endpoints.js';
 import { EnvBackup } from './helpers/env-backup.js';
+import { getFreePort } from './helpers/free-port.js';
 import {
   createManagedTempDir,
   removeDirectoryWithRetries,
@@ -50,8 +51,6 @@ import {
 } from './helpers/runtime-http.js';
 import { writeSseResult } from './helpers/sse-http.js';
 import {
-  toSingleQuotedPowerShellLiteral,
-  writeManagedLlamaScripts,
   writeManagedLlamaLauncher,
 } from './helpers/managed-llama-fixtures.js';
 
@@ -103,6 +102,8 @@ import { runFixture60MalformedJsonRepro } from '../bench/repro/repro-fixture60-m
 import type { SiftConfig, ModelRuntimePreset } from '../src/config/types.js';
 import type { TaskKind, ToolTypeStats, Metrics } from '../src/status-server/metrics.js';
 
+const TEST_REPO_ROOT = process.cwd();
+
 // Shared view types for the runtime status-server HTTP responses these tests read.
 interface RuntimeStatusResponse {
   running: boolean;
@@ -130,7 +131,7 @@ interface StatusPostAck {
 // applies the script paths and any per-test overrides.
 function applyManagedScriptConfig(
   config: SiftConfig,
-  managed: ReturnType<typeof writeManagedLlamaScripts>,
+  managed: ReturnType<typeof writeManagedLlamaLauncher>,
   overrides: Partial<ModelRuntimePreset> = {},
 ): void {
   const defaultPreset = config.Server.ModelPresets.Presets[0];
@@ -144,7 +145,7 @@ function applyManagedScriptConfig(
         label: 'Default',
         BaseUrl: managed.baseUrl,
         ModelPath: managed.modelPath,
-        ExecutablePath: managed.startupScriptPath,
+        ExecutablePath: managed.executablePath,
         StartupTimeoutMs: 5000,
         HealthcheckTimeoutMs: 100,
         HealthcheckIntervalMs: 10,
@@ -331,6 +332,13 @@ type IdleSummarySnapshotRow = z.infer<typeof IdleSummarySnapshotRowSchema>;
 
 function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function sleepUnref(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, milliseconds);
+    timer.unref();
+  });
 }
 
 /**
@@ -999,6 +1007,9 @@ function runWithTempEnv<R>(fn: (tempRoot: string) => R | Promise<R>): Promise<R>
     'SIFTKIT_IDLE_SUMMARY_DB_PATH',
     'SIFTKIT_IDLE_SUMMARY_DELAY_MS',
     'SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS',
+    'SIFTKIT_HEALTHCHECK_ATTEMPTS',
+    'SIFTKIT_HEALTHCHECK_TIMEOUT_MS',
+    'SIFTKIT_HEALTHCHECK_BACKOFF_MS',
   ]);
 
   process.env.USERPROFILE = tempRoot;
@@ -1244,7 +1255,7 @@ async function startStatusServerProcess(options: StatusServerProcessOptions) {
     SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: '0',
     SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE: '1',
   };
-  const statusServerEntrypoint = path.resolve(__dirname, '..', 'dist', 'status-server', 'index.js');
+  const statusServerEntrypoint = path.resolve(TEST_REPO_ROOT, 'dist', 'status-server', 'index.js');
   const args = [statusServerEntrypoint];
   if (options.disableManagedLlamaStartup) {
     args.push('--disable-managed-llama-startup');
@@ -1323,11 +1334,14 @@ async function startStatusServerProcess(options: StatusServerProcessOptions) {
   const startupTimeoutMs = options.startupTimeoutMs || 10_000;
   const startupInfo = await Promise.race([
     startup,
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error([
-      `Timed out waiting for status server startup after ${startupTimeoutMs} ms.`,
-      `stdout:\n${stdoutLines.join('\n')}`,
-      `stderr:\n${stderrLines.join('\n')}`,
-    ].join('\n'))), startupTimeoutMs)),
+    new Promise<never>((_, reject) => {
+      const timer = setTimeout(() => reject(new Error([
+        `Timed out waiting for status server startup after ${startupTimeoutMs} ms.`,
+        `stdout:\n${stdoutLines.join('\n')}`,
+        `stderr:\n${stderrLines.join('\n')}`,
+      ].join('\n'))), startupTimeoutMs);
+      timer.unref();
+    }),
   ]).catch(async (error) => {
     if (child.exitCode === null && !child.killed) {
       if (process.platform === 'win32' && child.pid) {
@@ -1335,7 +1349,7 @@ async function startStatusServerProcess(options: StatusServerProcessOptions) {
       } else {
         child.kill('SIGTERM');
       }
-      await Promise.race([closePromise, sleep(2000)]);
+      await Promise.race([closePromise, sleepUnref(2000)]);
     }
     throw error;
   });
@@ -1366,7 +1380,10 @@ async function startStatusServerProcess(options: StatusServerProcessOptions) {
     async waitForExit(timeoutMs = 5000): Promise<StatusServerProcessCloseInfo> {
       return await Promise.race([
         closePromise,
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`Timed out waiting for status server exit after ${timeoutMs} ms.`)), timeoutMs)),
+        new Promise<never>((_, reject) => {
+          const timer = setTimeout(() => reject(new Error(`Timed out waiting for status server exit after ${timeoutMs} ms.`)), timeoutMs);
+          timer.unref();
+        }),
       ]);
     },
     async close() {
@@ -1378,7 +1395,7 @@ async function startStatusServerProcess(options: StatusServerProcessOptions) {
         assert.equal(terminateProcessTree(child.pid), true);
         await Promise.race([
           closePromise,
-          sleep(5000).then(() => {
+          sleepUnref(5000).then(() => {
             throw new Error('Timed out waiting for Windows status-server process-tree termination.');
           }),
         ]);
@@ -1388,7 +1405,7 @@ async function startStatusServerProcess(options: StatusServerProcessOptions) {
       child.kill('SIGINT');
       const gracefulExit = await Promise.race([
         closePromise.then(() => true),
-        sleep(5000).then(() => false),
+        sleepUnref(5000).then(() => false),
       ]);
       if (gracefulExit) {
         return;
@@ -1398,7 +1415,7 @@ async function startStatusServerProcess(options: StatusServerProcessOptions) {
       } else if (child.exitCode === null && !child.killed) {
         child.kill('SIGTERM');
       }
-      await Promise.race([closePromise, sleep(5000)]);
+      await Promise.race([closePromise, sleepUnref(5000)]);
     },
   };
 }
@@ -1471,7 +1488,7 @@ function readIdleSummarySnapshots(dbPath: string): IdleSummarySnapshotRow[] {
   }
 }
 
-function getIdleSummaryBlock(stdoutLines: string[], requestsPattern: RegExp): string[] {
+function getIdleSummaryBlock(stdoutLines: readonly string[], requestsPattern: RegExp): string[] {
   const strippedLines = stdoutLines.map(stripAnsi);
   const startIndex = strippedLines.findIndex((line) => requestsPattern.test(line));
   assert.notEqual(startIndex, -1, `missing idle summary line matching ${String(requestsPattern)}\n${stdoutLines.join('\n')}`);
@@ -1483,15 +1500,6 @@ function getIdleSummaryBlock(stdoutLines: string[], requestsPattern: RegExp): st
     }
   }
   return strippedLines.slice(startIndex, endIndex);
-}
-
-async function getFreePort() {
-  const server = http.createServer(() => {});
-  await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', () => resolve()); });
-  const address = server.address();
-  const port = typeof address === 'object' && address ? address.port : 0;
-  await new Promise<void>((resolve) => { server.close(() => resolve()); });
-  return port;
 }
 
 async function waitForAsyncExpectation(expectation: () => void | Promise<void>, timeoutMs = 2000): Promise<void> {
@@ -1594,7 +1602,7 @@ export {
   getStatusRouteUrl, postStatusTerminalMetadata, postStatusComplete, postCompletedStatus,
   withRealStatusServer, startStatusServerProcess, stripAnsi, captureStdout,
   readIdleSummarySnapshots, getIdleSummaryBlock, getFreePort,
-  toSingleQuotedPowerShellLiteral, writeManagedLlamaScripts, writeManagedLlamaLauncher,
+  writeManagedLlamaLauncher,
   waitForAsyncExpectation, runPowerShellScript, applyManagedScriptConfig,
   listPlannerDebugDumpNames, withStubServerCapturingPlannerDebugDump,
 };

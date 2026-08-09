@@ -62,7 +62,7 @@ test('installCodexPolicy appends to existing AGENTS.md without existing policy',
 });
 
 test('PowerShell wrappers do not enable common-parameter parsing for forwarded args', () => {
-  const repoRoot = path.resolve(__dirname, '..');
+  const repoRoot = process.cwd();
   const wrapperContent = fs.readFileSync(path.join(repoRoot, 'bin', 'siftkit.ps1'), 'utf8');
   const postinstallContent = fs.readFileSync(path.join(repoRoot, 'scripts', 'postinstall.js'), 'utf8');
 

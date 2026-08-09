@@ -13,6 +13,8 @@ import {
   resolveArtifactLogPathFromStatusPost,
 } from './helpers/runtime-http.js';
 import { JsonObjectSchema } from '../src/lib/json-types.js';
+import { writeManagedLlamaLauncher } from './helpers/managed-llama-fixtures.js';
+import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 
 // mergeConfig is a heterogeneous deep-merge that returns JsonValue; for the config-merge
 // case the test exercises, the result carries the merged Runtime plus a Thresholds bag
@@ -87,4 +89,21 @@ test('runtime path helpers resolve planner request artifact paths from the statu
     }),
     path.join(path.parse(process.cwd()).root, 'tmp', 'runtime-root', 'logs', 'requests', 'request_abc123.json'),
   );
+});
+
+test('managed llama fixture uses the direct launcher and exposes lifecycle observation files', async () => {
+  const tempRoot = createManagedTempDir('siftkit-managed-launcher-fixture-');
+  try {
+    const managed = writeManagedLlamaLauncher(tempRoot, 12345, 'fixture-model', {
+      initial503LoadingModelCount: 2,
+      deferredLogLine: 'deferred fixture log',
+    });
+
+    assert.equal(path.extname(managed.executablePath), '.cmd');
+    assert.equal(path.dirname(managed.modelProbeCountPath), tempRoot);
+    assert.equal(path.dirname(managed.deferredLogMarkerPath), tempRoot);
+    assert.equal(path.dirname(managed.pidFilePath), tempRoot);
+  } finally {
+    await removeDirectoryWithRetries(tempRoot);
+  }
 });

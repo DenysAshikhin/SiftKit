@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
@@ -13,7 +14,7 @@ import { createManagedTempDir } from './helpers/temp-dirs.js';
 // indistinguishable from a clean one. These tests spawn a child that contacts a default
 // port and assert the guard turns that into a non-zero exit even when the caller swallowed
 // the throw, exactly as the fire-and-forget status notifications do.
-const repoRoot = path.resolve(__dirname, '..');
+const repoRoot = process.cwd();
 // The compiled guard, not the source: this is the artifact scripts/run-tests.ts preloads,
 // and preloading plain JS is what lets NODE_OPTIONS stay free of the tsx loader.
 const guardPath = path.resolve(repoRoot, 'dist', 'scripts', 'live-instance-guard.js');
@@ -31,6 +32,7 @@ interface ChildEnvOptions {
   preloadGuard?: boolean;
   /** Drops SIFTKIT_GUARD_STATUS_PORT so the guard's own missing-env failure can be asserted. */
   omitStatusPort?: boolean;
+  statusPort?: number;
 }
 
 function buildChildEnv(options: ChildEnvOptions): NodeJS.ProcessEnv {
@@ -40,13 +42,27 @@ function buildChildEnv(options: ChildEnvOptions): NodeJS.ProcessEnv {
   const childEnv: NodeJS.ProcessEnv = {
     ...process.env,
     NODE_OPTIONS: `--import ${guardUrl}`,
-    SIFTKIT_GUARD_STATUS_PORT: String(SIFT_DEFAULT_STATUS_PORT),
+    SIFTKIT_GUARD_STATUS_PORT: String(options.statusPort ?? SIFT_DEFAULT_STATUS_PORT),
     SIFTKIT_GUARD_LLAMA_PORT: String(SIFT_DEFAULT_LLAMA_PORT),
   };
   if (options.omitStatusPort) {
     delete childEnv.SIFTKIT_GUARD_STATUS_PORT;
   }
   return childEnv;
+}
+
+async function getAvailablePort(): Promise<number> {
+  const server = http.createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+  });
+  return port;
 }
 
 function runGuardedChild(childSource: string, options: ChildEnvOptions = {}): ChildResult {
@@ -135,6 +151,21 @@ test('guard leaves an unguarded port alone', () => {
 
   assertChildFinished(result);
   assert.equal(result.status, 0);
+  assert.doesNotMatch(result.stderr, /LIVE INSTANCE CONTACTED/u);
+});
+
+test('guard allows a guarded port owned by a server in the test process', async () => {
+  const port = await getAvailablePort();
+  const result = runGuardedChild([
+    "import http from 'node:http';",
+    "const server = http.createServer((_request, response) => response.end('ok'));",
+    `await new Promise((resolve, reject) => { server.once('error', reject); server.listen(${port}, '127.0.0.1', resolve); });`,
+    'try { await fetch(`http://127.0.0.1:${server.address().port}/health`); } catch {}',
+    'await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));',
+  ].join('\n'), { preloadGuard: true, statusPort: port });
+
+  assertChildFinished(result);
+  assert.equal(result.status, 0, result.stderr);
   assert.doesNotMatch(result.stderr, /LIVE INSTANCE CONTACTED/u);
 });
 

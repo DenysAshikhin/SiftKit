@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getDefaultConfig, normalizeConfig, normalizeWebSearchConfig } from '../src/status-server/config-store';
-import { isReadExpansionEnabled } from '../src/config/index';
-import { SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM, SIFT_DEFAULT_LLAMA_CACHE_RAM } from '../src/config/constants';
-import { JsonValueSchema, type JsonObject } from '../src/lib/json-types';
-import type { SiftConfig, ModelRuntimePreset } from '../src/config/types';
-import { asObject, asObjectArray } from './helpers/dashboard-http';
+import { getDefaultConfig, normalizeConfig, normalizeWebSearchConfig } from '../src/status-server/config-store.js';
+import { isReadExpansionEnabled } from '../src/config/index.js';
+import { SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM, SIFT_DEFAULT_LLAMA_CACHE_RAM } from '../src/config/constants.js';
+import { JsonValueSchema, type JsonObject } from '../src/lib/json-types.js';
+import type { SiftConfig, ModelRuntimePreset } from '../src/config/types.js';
+import { asObject, asObjectArray } from './helpers/dashboard-http.js';
 
 test('normalizeWebSearchConfig produces provider defaults and clamps ResultCount to 20', () => {
   const normalized = normalizeWebSearchConfig({ ResultCount: 999, Providers: { tavily: { Enabled: true, ApiKey: '  abc  ' } } });

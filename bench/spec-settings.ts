@@ -1,4 +1,4 @@
-import type { DashboardConfig, RunRecord } from '../dashboard/src/types';
+import type { DashboardConfig, RunRecord } from '../dashboard/src/types.js';
 import {
   getAcceptanceRate,
   getGenerationTokensPerSecond,

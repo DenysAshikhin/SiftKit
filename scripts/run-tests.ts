@@ -3,6 +3,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { buildNodeTestArgs } from './test-targets.js';
+import { assertCurrentTestBuild } from './test-build-state.js';
 import { terminateProcessTree } from '../src/lib/process-tree.js';
 import { TIMEOUT_EXIT_CODE } from '../src/lib/captured-command.js';
 import { SIFT_DEFAULT_LLAMA_PORT, SIFT_DEFAULT_STATUS_PORT } from '../src/config/constants.js';
@@ -30,23 +31,16 @@ function readRunBudgetMs(): number {
 const RUN_BUDGET_MS = readRunBudgetMs();
 
 const repoRoot = process.cwd();
-// tsx travels as an execArgv flag on the `node --test` process, never in NODE_OPTIONS.
-// Node's test runner hands its execArgv to the per-file children, which need tsx to load
-// .ts, and the flag stops there. In NODE_OPTIONS it would also reach the production CLIs
-// and servers those tests spawn, where tsx's CJS hook transpiles the ESM dist/** tree into
-// CommonJS: `import '@siftkit/contracts'` becomes a require() that the package's exports
-// map (types + import, no require condition) cannot resolve, and the child dies with
-// ERR_PACKAGE_PATH_NOT_EXPORTED. Those processes must run dist/** as the ESM they ship.
-const tsxLoaderUrl = pathToFileURL(path.resolve(repoRoot, 'node_modules', 'tsx', 'dist', 'loader.mjs')).href;
 // The guard does travel in NODE_OPTIONS, because catching a leak from a spawned CLI is
 // exactly its job. It is the compiled sibling of this file, so no loader is needed to read
 // it, and the URL is absolute so a child in a temp cwd resolves it like one in the repo.
 const liveInstanceGuardUrl = pathToFileURL(path.resolve(__dirname, 'live-instance-guard.js')).href;
+assertCurrentTestBuild(repoRoot);
 const testArgs = buildNodeTestArgs(repoRoot, process.argv.slice(2));
 // Node defaults to no per-test timeout, so one test awaiting a server or child process that never
 // answers freezes the whole run with no output. A bounded failure is always more useful than a hang.
 // buildNodeTestArgs owns that timeout; passing a second --test-timeout here would only shadow it.
-const child = spawn(process.execPath, ['--import', tsxLoaderUrl, '--test', ...testArgs], {
+const child = spawn(process.execPath, ['--test', ...testArgs], {
   cwd: repoRoot,
   env: {
     ...process.env,

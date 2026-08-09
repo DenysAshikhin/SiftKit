@@ -20,7 +20,7 @@ import {
   withStubServer,
   withRealStatusServer,
   getFreePort,
-  writeManagedLlamaScripts,
+  writeManagedLlamaLauncher,
   waitForAsyncExpectation,
 } from './_runtime-helpers.js';
 
@@ -315,50 +315,20 @@ test('saveConfig preserves explicit llama.cpp thread settings through the extern
   });
 });
 
-test('real status server passes managed startup env flag to startup scripts', async () => {
+test('real status server passes managed startup and verbose env settings to startup scripts', async () => {
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const llamaPort = await getFreePort();
-    const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
+    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
       emitManagedStartupFlag: true,
-    });
-    const config = getDefaultConfig();
-    setManagedLlamaBaseUrl(config, managed.baseUrl);
-    const preset = config.Server.ModelPresets.Presets[0];
-    if (!preset) throw new Error('Default model preset is missing');
-    preset.ExecutablePath = managed.startupScriptPath;
-    preset.StartupTimeoutMs = 5000;
-    preset.HealthcheckTimeoutMs = 100;
-    preset.HealthcheckIntervalMs = 10;
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
-
-    await withRealStatusServer(async () => {
-      const startupDumpPath = path.join(tempRoot, '.siftkit', 'logs', 'managed-llama', 'latest-startup.log');
-      await waitForAsyncExpectation(() => {
-        const dump = fs.readFileSync(startupDumpPath, 'utf8');
-        assert.match(dump, /managed_startup=/u);
-      });
-    }, {
-      statusPath,
-      configPath,
-    });
-  });
-});
-
-test('real status server passes managed verbose env settings to startup scripts', async () => {
-  await withTempEnv(async (tempRoot) => {
-    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
-    const configPath = path.join(tempRoot, 'config.json');
-    const llamaPort = await getFreePort();
-    const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
       emitVerboseEnvFlags: true,
     });
     const config = getDefaultConfig();
     setManagedLlamaBaseUrl(config, managed.baseUrl);
     const preset = config.Server.ModelPresets.Presets[0];
     if (!preset) throw new Error('Default model preset is missing');
-    preset.ExecutablePath = managed.startupScriptPath;
+    preset.ExecutablePath = managed.executablePath;
     preset.StartupTimeoutMs = 5000;
     preset.HealthcheckTimeoutMs = 100;
     preset.HealthcheckIntervalMs = 10;
@@ -369,6 +339,7 @@ test('real status server passes managed verbose env settings to startup scripts'
       const startupDumpPath = path.join(tempRoot, '.siftkit', 'logs', 'managed-llama', 'latest-startup.log');
       await waitForAsyncExpectation(() => {
         const dump = fs.readFileSync(startupDumpPath, 'utf8');
+        assert.match(dump, /managed_startup=/u);
         assert.match(dump, /verbose_logging_env=1/u);
         assert.match(dump, /verbose_args_env=/u);
       });
@@ -448,14 +419,14 @@ test('real status server allows startup scripts to call config before launch and
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const llamaPort = await getFreePort();
-    const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
+    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
       preflightConfigGet: true,
     });
     const config = getDefaultConfig();
     setManagedLlamaBaseUrl(config, managed.baseUrl);
     const preset = config.Server.ModelPresets.Presets[0];
     if (!preset) throw new Error('Default model preset is missing');
-    preset.ExecutablePath = managed.startupScriptPath;
+    preset.ExecutablePath = managed.executablePath;
     preset.StartupTimeoutMs = 5000;
     preset.HealthcheckTimeoutMs = 100;
     preset.HealthcheckIntervalMs = 10;
@@ -478,4 +449,3 @@ test('real status server allows startup scripts to call config before launch and
     });
   });
 });
-

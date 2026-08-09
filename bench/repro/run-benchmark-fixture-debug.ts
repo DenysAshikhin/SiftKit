@@ -4,6 +4,7 @@ import path from 'node:path';
 import { getErrorMessage } from '../../src/lib/errors.js';
 import { parseJsonValueText } from '../../src/lib/json.js';
 import type { JsonObject } from '../../src/lib/json-types.js';
+import { isMainModule } from '../../src/lib/paths.js';
 import { StatusServerApiClient } from '../../src/cli/status-server-api-client.js';
 import { getRepoRoot } from '../common/paths.js';
 
@@ -268,7 +269,7 @@ async function main(): Promise<void> {
   process.exit(result.exitCode);
 }
 
-if (require.main === module) {
+if (isMainModule(import.meta.url)) {
   void main().catch((error) => {
     process.stderr.write(`${getErrorMessage(error)}\n`);
     process.exit(1);

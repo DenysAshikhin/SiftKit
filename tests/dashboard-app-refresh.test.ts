@@ -7,7 +7,7 @@ import { z } from 'zod';
 import type ReactType from 'react';
 import type { renderToStaticMarkup as RenderToStaticMarkupType } from 'react-dom/server';
 
-import { App } from '../dashboard/src/App';
+import { App } from '../dashboard/src/App.js';
 
 const dashboardRequire = createRequire(path.resolve('dashboard/package.json'));
 // React/react-dom are resolved from the dashboard's own node_modules without

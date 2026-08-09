@@ -16,6 +16,8 @@ import {
   waitForAsyncExpectation,
 } from './_runtime-helpers.js';
 
+const SIFTKIT_REPO_ROOT = process.cwd();
+
 test('benchmark runner writes prompt, output, classification metadata, per-case duration, and total duration', async () => {
   await withTempEnv(async (tempRoot) => {
     await withStubServer(async (server) => {
@@ -355,7 +357,7 @@ test('benchmark runner records a custom prompt prefix from file', async () => {
 // eval/fixtures/ai_core_60_tests is gitignored benchmark data, absent on a
 // fresh clone. Skip rather than fail when it is not present locally.
 const aiCoreRawFixturesPresent = fs.existsSync(
-  path.resolve(__dirname, '..', 'eval', 'fixtures', 'ai_core_60_tests', 'raw'),
+  path.resolve(SIFTKIT_REPO_ROOT, 'eval', 'fixtures', 'ai_core_60_tests', 'raw'),
 );
 test('benchmark error-log fixtures now reach the model-first summary path', {
   skip: aiCoreRawFixturesPresent ? false : 'eval/fixtures/ai_core_60_tests is gitignored and not present locally',
@@ -364,7 +366,7 @@ test('benchmark error-log fixtures now reach the model-first summary path', {
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
       const maxChars = getChunkThresholdCharacters(config) * 4;
-      const fixtureRoot = path.resolve(__dirname, '..', 'eval', 'fixtures', 'ai_core_60_tests', 'raw');
+      const fixtureRoot = path.resolve(SIFTKIT_REPO_ROOT, 'eval', 'fixtures', 'ai_core_60_tests', 'raw');
       const cases = [
         {
           file: '17_autorun_error_log.txt',
@@ -440,4 +442,3 @@ test('benchmark error-log fixtures now reach the model-first summary path', {
     });
   });
 });
-

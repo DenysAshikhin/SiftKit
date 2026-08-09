@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "noEmitOnError": true,
+    "declaration": false,
+    "outDir": ".test-build",
+    "rootDir": ".",
+    "module": "ESNext",
+    "moduleResolution": "Bundler"
+  }
+}

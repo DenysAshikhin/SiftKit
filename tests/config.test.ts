@@ -70,7 +70,7 @@ function makePresetConfig(
 }
 
 test('SIFTKIT_VERSION matches package.json version', () => {
-  const packageJson = asObject(parseJsonValueText(fs.readFileSync(path.resolve(__dirname, '..', 'package.json'), 'utf8')));
+  const packageJson = asObject(parseJsonValueText(fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf8')));
   assert.equal(typeof SIFTKIT_VERSION, 'string');
   assert.match(SIFTKIT_VERSION, /^\d+\.\d+\.\d+$/u);
   assert.equal(SIFTKIT_VERSION, packageJson.version);
@@ -82,7 +82,7 @@ test('SIFTKIT_VERSION matches package.json version', () => {
 // than by assuming its own depth, or the import throws on dist/package.json,
 // which carries only { "type": "module" }.
 test('the emitted dist/src copy of the constants module loads and reports the package version', () => {
-  const emittedConstantsPath = path.resolve(__dirname, '..', 'dist', 'src', 'config', 'constants.js');
+  const emittedConstantsPath = path.resolve(process.cwd(), 'dist', 'src', 'config', 'constants.js');
   assert.ok(
     fs.existsSync(emittedConstantsPath),
     `${emittedConstantsPath} is missing; run "npm run build:test" before this test.`,
@@ -329,9 +329,11 @@ test('ensureStatusServerReachable throws when server is down', async () => {
   const prev = {
     SIFTKIT_STATUS_BACKEND_URL: process.env.SIFTKIT_STATUS_BACKEND_URL,
     SIFTKIT_CONFIG_SERVICE_URL: process.env.SIFTKIT_CONFIG_SERVICE_URL,
+    SIFTKIT_HEALTHCHECK_ATTEMPTS: process.env.SIFTKIT_HEALTHCHECK_ATTEMPTS,
   };
   process.env.SIFTKIT_STATUS_BACKEND_URL = 'http://127.0.0.1:1/status';
   process.env.SIFTKIT_CONFIG_SERVICE_URL = 'http://127.0.0.1:1/config';
+  process.env.SIFTKIT_HEALTHCHECK_ATTEMPTS = '1';
   try {
     await assert.rejects(
       () => ensureStatusServerReachable(),

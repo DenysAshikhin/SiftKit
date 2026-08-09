@@ -5,7 +5,7 @@ import { requestSse } from './helpers/sse-http.js';
 import { startHarness, waitForActiveModelRequestOwner } from './helpers/streamed-op-harness.js';
 import { AGENT_RUN_ID_HEADER } from '../src/lib/agent-run-marker.js';
 
-const AGENT_LOCK_HOLD_MS = 5_000;
+const AGENT_LOCK_HOLD_MS = 250;
 const SSE_REQUEST_TIMEOUT_MS = 30_000;
 
 const ANALYZE_BODY = {

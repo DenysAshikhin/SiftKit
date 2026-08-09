@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db';
-import { buildBenchmarkAttemptMetrics } from '../src/status-server/dashboard-benchmark-runner';
+import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { buildBenchmarkAttemptMetrics } from '../src/status-server/dashboard-benchmark-runner.js';
 import {
   appendBenchmarkLogChunk,
   createBenchmarkQuestionPreset,
@@ -14,7 +14,7 @@ import {
   seedBenchmarkQuestionPresets,
   updateBenchmarkAttemptGrade,
   updateBenchmarkQuestionPreset,
-} from '../src/state/dashboard-benchmark';
+} from '../src/state/dashboard-benchmark.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 function createTempDatabasePath(): string {

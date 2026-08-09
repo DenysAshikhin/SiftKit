@@ -7,7 +7,7 @@ import { requestSse } from './helpers/sse-http.js';
 import { getAddressInfo } from './helpers/dashboard-http.js';
 import { startHarness } from './helpers/streamed-op-harness.js';
 
-const CLIENT_DEADLINE_MS = 1_000;
+const CLIENT_DEADLINE_MS = 250;
 
 /**
  * Streams progress frames forever without ever sending a terminal frame.
@@ -22,7 +22,7 @@ function startChattySseServer(): Promise<http.Server> {
     response.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
     const heartbeat = setInterval(() => {
       response.write('event: progress\ndata: {"kind":"lock_wait"}\n\n');
-    }, 100);
+    }, 25);
     response.on('close', () => clearInterval(heartbeat));
   });
   return new Promise((resolve) => {

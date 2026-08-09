@@ -30,7 +30,7 @@ import {
   captureStdout,
   readIdleSummarySnapshots,
   getFreePort,
-  writeManagedLlamaScripts,
+  writeManagedLlamaLauncher,
   waitForAsyncExpectation,
   postStatusTerminalMetadata,
   postStatusComplete,
@@ -237,7 +237,7 @@ test('real status server starts managed llama.cpp during server startup before s
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const llamaPort = await getFreePort();
-    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
@@ -270,7 +270,7 @@ test('real status server starts managed llama.cpp during server startup before s
         assert.equal(loadedConfig.Runtime.LlamaCpp.BaseUrl, managed.baseUrl);
         assert.equal(
           loadedConfig.Server.ModelPresets.Presets[0].ExecutablePath,
-          managed.startupScriptPath,
+          managed.executablePath,
         );
       } finally {
         if (previousConfigUrl === undefined) {
@@ -306,7 +306,7 @@ test('managed llama live stream logs flush after idle without model request rele
     const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
     const llamaPort = await getFreePort();
     const deferredLogLine = 'deferred-live-stderr-log';
-    const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', { deferredLogLine });
+    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', { deferredLogLine });
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
@@ -482,9 +482,7 @@ test('managed llama scripts no longer receive status-path coordination args or e
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
     const configPath = getConfigPath();
     const llamaPort = await getFreePort();
-    const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
-      captureInvocation: true,
-    });
+    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model');
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     writeConfig(configPath, config);
@@ -517,7 +515,7 @@ test('real status server ignores legacy non-boolean status text when starting ma
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
     const configPath = getConfigPath();
     const llamaPort = await getFreePort();
-    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     fs.mkdirSync(path.dirname(statusPath), { recursive: true });
@@ -544,7 +542,7 @@ test('real status server reports idle false while managed llama stays ready', as
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const llamaPort = await getFreePort();
-    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
@@ -574,10 +572,11 @@ test('real status server reports idle false while managed llama stays ready', as
 
 test('real status server fails closed during startup when managed llama logs contain warnings', async () => {
   await withTempEnv(async (tempRoot) => {
+    process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const llamaPort = await getFreePort();
-    const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
+    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
       llamaLogLine: 'warning: fake llama startup warning',
     });
     const config = getDefaultConfig();
@@ -614,7 +613,7 @@ test('real status server ignores transient Loading model 503 startup log lines',
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const llamaPort = await getFreePort();
-    const managed = writeManagedLlamaScripts(tempRoot, llamaPort, 'managed-test-model', {
+    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
       llamaLogLine: 'srv  log_server_r: response: {"error":{"message":"Loading model","type":"unavailable_error","code":503}}',
     });
     const config = getDefaultConfig();
@@ -640,7 +639,7 @@ test('real status server keeps running in degraded mode when managed llama start
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const llamaPort = await getFreePort();
-    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed, {
       ExecutablePath: path.join(tempRoot, 'missing-start-llama.ps1'),
@@ -666,7 +665,7 @@ test('real status server clears a stale managed llama process during startup bef
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const llamaPort = await getFreePort();
-    const managed = writeManagedLlamaScripts(tempRoot, llamaPort);
+    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
