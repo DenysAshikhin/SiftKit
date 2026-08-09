@@ -90,6 +90,7 @@ test('parses decide and status subcommands', () => {
       runId: '550e8400-e29b-41d4-a716-446655440000',
       decision: 'deny',
       reason: 'unsafe path',
+      progress: false,
     },
   );
   assert.deepEqual(
@@ -115,8 +116,22 @@ test('parses decide approve without reason', () => {
       kind: 'decide',
       runId: '550e8400-e29b-41d4-a716-446655440000',
       decision: 'approve',
+      progress: false,
     },
   );
+});
+
+test('decide accepts --progress', () => {
+  const invocation = parseRepoAgentInvocation([
+    'decide',
+    '550e8400-e29b-41d4-a716-446655440000',
+    'approve',
+    '--progress',
+  ]);
+  assert.equal(invocation.kind, 'decide');
+  if (invocation.kind === 'decide') {
+    assert.equal(invocation.progress, true);
+  }
 });
 
 test('parses decide abort without reason', () => {
@@ -130,6 +145,7 @@ test('parses decide abort without reason', () => {
       kind: 'decide',
       runId: '550e8400-e29b-41d4-a716-446655440000',
       decision: 'abort',
+      progress: false,
     },
   );
 });
@@ -148,6 +164,7 @@ test('parses decide deny with reason', () => {
       runId: '550e8400-e29b-41d4-a716-446655440000',
       decision: 'deny',
       reason: 'out of scope',
+      progress: false,
     },
   );
 });

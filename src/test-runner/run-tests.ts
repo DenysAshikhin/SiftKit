@@ -1,11 +1,11 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { buildNodeTestArgs } from './test-targets.js';
-import { terminateProcessTree } from '../src/lib/process-tree.js';
-import { TIMEOUT_EXIT_CODE } from '../src/lib/captured-command.js';
-import { SIFT_DEFAULT_LLAMA_PORT, SIFT_DEFAULT_STATUS_PORT } from '../src/config/constants.js';
+import { terminateProcessTree } from '../lib/process-tree.js';
+import { TIMEOUT_EXIT_CODE } from '../lib/captured-command.js';
+import { SIFT_DEFAULT_LLAMA_PORT, SIFT_DEFAULT_STATUS_PORT } from '../config/constants.js';
 
 /**
  * Wall-clock ceiling for the whole run. Exceeding it exits with `TIMEOUT_EXIT_CODE`.
@@ -41,7 +41,8 @@ const tsxLoaderUrl = pathToFileURL(path.resolve(repoRoot, 'node_modules', 'tsx',
 // The guard does travel in NODE_OPTIONS, because catching a leak from a spawned CLI is
 // exactly its job. It is the compiled sibling of this file, so no loader is needed to read
 // it, and the URL is absolute so a child in a temp cwd resolves it like one in the repo.
-const liveInstanceGuardUrl = pathToFileURL(path.resolve(__dirname, 'live-instance-guard.js')).href;
+const scriptsDirectory = path.dirname(fileURLToPath(import.meta.url));
+const liveInstanceGuardUrl = pathToFileURL(path.resolve(scriptsDirectory, 'live-instance-guard.js')).href;
 const testArgs = buildNodeTestArgs(repoRoot, process.argv.slice(2));
 // Node defaults to no per-test timeout, so one test awaiting a server or child process that never
 // answers freezes the whole run with no output. A bounded failure is always more useful than a hang.

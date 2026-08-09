@@ -17,6 +17,13 @@ class CollectingWriter extends ProgressWriter<RepoSearchProgressEvent> {
   write(event: RepoSearchProgressEvent): void { this.events.push(event); }
 }
 
+class FailingWriter extends CollectingWriter {
+  override write(event: RepoSearchProgressEvent): void {
+    super.write(event);
+    throw new Error('approval publication failed');
+  }
+}
+
 test('request emits approval_request and resolves with the submitted decision', async () => {
   const writer = new CollectingWriter();
   const gate = new ApprovalGateHarness(writer).gate;
@@ -127,6 +134,23 @@ test('a submitted decision cancels the pending timeout', async (t) => {
   t.mock.timers.tick(DEFAULT_DECISION_TIMEOUT_MS * 2);
 
   assert.deepEqual(await pending, { kind: 'approve' });
+});
+
+test('approval publication failure clears the pending approval and timeout', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const writer = new FailingWriter();
+  const gate = new ApprovalGateHarness(writer).gate;
+  const pending = gate.request({
+    turn: 1,
+    toolName: 'write',
+    command: 'write path=a.ts',
+    reviewPayload: null,
+  });
+  const approvalId = String(writer.events[0].approvalId);
+
+  await assert.rejects(pending, /approval publication failed/u);
+  assert.equal(gate.submit(approvalId, { kind: 'approve' }), false);
+  t.mock.timers.tick(DEFAULT_DECISION_TIMEOUT_MS * 2);
 });
 
 test('abort clears the timeout so it cannot resolve an already-rejected approval', async (t) => {
@@ -330,6 +354,22 @@ class RecordingObserver {
   onTimeout(): void { this.timeouts += 1; }
 }
 
+class ThrowingObserver {
+  constructor(private readonly failingHook: 'decision' | 'timeout') {}
+
+  onDecision(): void {
+    if (this.failingHook === 'decision') {
+      throw new Error('decision observer failed');
+    }
+  }
+
+  onTimeout(): void {
+    if (this.failingHook === 'timeout') {
+      throw new Error('timeout observer failed');
+    }
+  }
+}
+
 test('observer.onDecision fires with the submitted decision', async () => {
   const writer = new CollectingWriter();
   const observer = new RecordingObserver();
@@ -366,4 +406,45 @@ test('observer.onTimeout fires when the decision timer expires', async () => {
   assert.equal(decision.kind, 'abort');
   assert.equal(observer.timeouts, 1);
   assert.deepEqual(observer.decisions, []);
+});
+
+test('an onDecision observer failure aborts instead of leaving the request unsettled', async () => {
+  const writer = new CollectingWriter();
+  const gate = new ApprovalGate({
+    requestId: 'req-observer-decision-failure',
+    progressWriter: writer,
+    abortSignal: new AbortController().signal,
+    bypassReadOnlyTools: false,
+    observer: new ThrowingObserver('decision'),
+  });
+  const pending = gate.request({ turn: 1, toolName: 'run', command: 'echo hi', reviewPayload: null });
+  const approvalId = String(writer.events.find((event) => event.kind === 'approval_request')?.approvalId ?? '');
+
+  assert.ok(approvalId);
+  assert.equal(gate.submit(approvalId, { kind: 'approve' }), true);
+  assert.deepEqual(await pending, {
+    kind: 'abort',
+    reason: 'Approval observer failed: decision observer failed',
+  });
+});
+
+test('an onTimeout observer failure aborts instead of throwing from the timer', async () => {
+  const gate = new ApprovalGate({
+    requestId: 'req-observer-timeout-failure',
+    progressWriter: new CollectingWriter(),
+    abortSignal: new AbortController().signal,
+    bypassReadOnlyTools: false,
+    decisionTimeoutMs: 25,
+    observer: new ThrowingObserver('timeout'),
+  });
+
+  assert.deepEqual(await gate.request({
+    turn: 1,
+    toolName: 'run',
+    command: 'echo hi',
+    reviewPayload: null,
+  }), {
+    kind: 'abort',
+    reason: 'Approval observer failed: timeout observer failed',
+  });
 });

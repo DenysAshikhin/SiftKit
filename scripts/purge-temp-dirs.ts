@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 /**
  * Removes leftover `siftkit-*` directories from the OS temp dir. The suite leaked ~113 per run
@@ -63,7 +64,10 @@ export function purgeTempDirectories(root: string, cutoffMs: number): PurgeResul
   return result;
 }
 
-if (require.main === module) {
+const isDirectExecution = process.argv[1] !== undefined
+  && import.meta.url === pathToFileURL(process.argv[1] ?? '').href;
+
+if (isDirectExecution) {
   const minAgeMinutes = parseMinAgeMinutes(process.argv.slice(2));
   const tempRoot = fs.realpathSync(os.tmpdir());
   const result = purgeTempDirectories(tempRoot, Date.now() - minAgeMinutes * 60_000);

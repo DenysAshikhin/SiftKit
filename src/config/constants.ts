@@ -6,10 +6,9 @@ import { z } from '../lib/zod.js';
 const PackageJsonSchema = z.object({ version: z.string() });
 
 // The compiled copies of this module sit at different depths under the output
-// root: dist/config/constants.js after scripts/sync-dist-runtime.js flattens the
-// tree, and dist/src/config/constants.js in the tree it flattens from, which
-// dist/scripts/** imports. A fixed '..','..' hop is only correct for one of
-// them, and the wrong one lands on dist/package.json, which has no version.
+// root: the flattened runtime copy and the transient source-staging copy used
+// while scripts are compiled. A fixed '..','..' hop is only correct for one of
+// them, and the wrong one lands on the runtime package marker, which has no version.
 // Walk up to the nearest package.json named "siftkit" instead.
 const moduleDirectory = moduleDirname(import.meta.url);
 const packageRoot = findNearestSiftKitRepoRoot(moduleDirectory);

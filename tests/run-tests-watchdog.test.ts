@@ -31,7 +31,7 @@ test('the test runner ends a run that exceeds its budget and reaps its descendan
   const startedAt = Date.now();
   const result = await spawnDirectCommand(
     process.execPath,
-    [path.join('dist', 'scripts', 'run-tests.js'), path.join('tests', 'fixtures', 'hangs-forever.test.ts')],
+    [path.join('dist', 'test-runner', 'run-tests.js'), path.join('tests', 'fixtures', 'hangs-forever.test.ts')],
     {
       cwd: repoRoot,
       timeoutMs: HARD_LIMIT_MS,
@@ -66,7 +66,7 @@ test('an unparseable budget override falls back to the default instead of firing
   delete childEnv.NODE_TEST_CONTEXT;
   const result = await spawnDirectCommand(
     process.execPath,
-    [path.join('dist', 'scripts', 'run-tests.js'), path.join('tests', 'fixtures', 'settles-immediately.test.ts')],
+    [path.join('dist', 'test-runner', 'run-tests.js'), path.join('tests', 'fixtures', 'settles-immediately.test.ts')],
     {
       cwd: repoRoot,
       timeoutMs: HARD_LIMIT_MS,

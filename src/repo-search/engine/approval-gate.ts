@@ -93,6 +93,12 @@ export function buildApprovalTimeoutMessage(timeoutMs: number): string {
   return `No approval decision was received within ${timeoutMs}ms; the run was stopped (approval timeout).`;
 }
 
+function buildObserverFailureMessage(error: Error | null): string {
+  return error
+    ? `Approval observer failed: ${error.message}`
+    : 'Approval observer failed.';
+}
+
 type PendingApproval = {
   resolve: (decision: ApprovalDecision) => void;
   abortListener: () => void;
@@ -182,27 +188,39 @@ export class ApprovalGate {
           fields: `approval=${shortenRequestId(approvalId)} tool=${input.toolName} `
             + `waited_ms=${this.decisionTimeoutMs}`,
         });
-        this.observer?.onTimeout();
-        resolve({ kind: 'abort', reason: buildApprovalTimeoutMessage(this.decisionTimeoutMs) });
+        try {
+          this.observer?.onTimeout();
+          resolve({ kind: 'abort', reason: buildApprovalTimeoutMessage(this.decisionTimeoutMs) });
+        } catch (error) {
+          resolve({
+            kind: 'abort',
+            reason: buildObserverFailureMessage(error instanceof Error ? error : null),
+          });
+        }
       }, this.decisionTimeoutMs);
-      this.progressWriter.write({
-        kind: 'approval_request',
-        requestId: this.requestId,
-        approvalId,
-        turn: input.turn,
-        toolName: input.toolName,
-        command: input.command,
-        ...(input.reviewPayload === null
-          ? {}
-          : { reviewPayload: input.reviewPayload }),
-      });
-      this.logger.warning({
-        scope: 'rs',
-        id: this.requestId,
-        event: 'approval_wait',
-        fields: `approval=${shortenRequestId(approvalId)} tool=${input.toolName} `
-          + `timeout_ms=${this.decisionTimeoutMs} command=${truncateForLog(input.command)}`,
-      });
+      try {
+        this.progressWriter.write({
+          kind: 'approval_request',
+          requestId: this.requestId,
+          approvalId,
+          turn: input.turn,
+          toolName: input.toolName,
+          command: input.command,
+          ...(input.reviewPayload === null
+            ? {}
+            : { reviewPayload: input.reviewPayload }),
+        });
+        this.logger.warning({
+          scope: 'rs',
+          id: this.requestId,
+          event: 'approval_wait',
+          fields: `approval=${shortenRequestId(approvalId)} tool=${input.toolName} `
+            + `timeout_ms=${this.decisionTimeoutMs} command=${truncateForLog(input.command)}`,
+        });
+      } catch (error) {
+        this.clearPending(approvalId);
+        throw error;
+      }
     });
   }
 
@@ -219,8 +237,15 @@ export class ApprovalGate {
       fields: `approval=${shortenRequestId(approvalId)} decision=${decision.kind} `
         + `waited_ms=${Date.now() - entry.startedAtMs}`,
     });
-    this.observer?.onDecision(decision);
-    entry.resolve(decision);
+    try {
+      this.observer?.onDecision(decision);
+      entry.resolve(decision);
+    } catch (error) {
+      entry.resolve({
+        kind: 'abort',
+        reason: buildObserverFailureMessage(error instanceof Error ? error : null),
+      });
+    }
     return true;
   }
 

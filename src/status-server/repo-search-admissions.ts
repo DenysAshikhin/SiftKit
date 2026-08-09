@@ -26,7 +26,7 @@ export function createRepoSearchAdmissionRecord(
     prompt: parsedBody.prompt,
     repoRoot: parsedBody.repoRoot,
     model: parsedBody.model,
-    maxTurns: parsedBody.maxTurns,
+    maxTurns: parsedBody.maxTurns ?? null,
     backend: getActiveInferenceBackend(config),
   };
 }

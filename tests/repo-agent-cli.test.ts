@@ -1,13 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-} from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,26 +9,16 @@ import { PassThrough } from 'node:stream';
 import test, { after, before } from 'node:test';
 
 import { runCli } from '../src/cli/index.js';
-import { getRuntimeRoot } from '../src/config/index.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import type { JsonObject } from '../src/lib/json-types.js';
 import {
+  buildRepoAgentDecideCommands,
   RepoAgentRunResultSchema,
-  RepoAgentRunStateSchema,
 } from '../src/repo-agent/run-schemas.js';
-import type { RepoSearchExecutionResult } from '../src/repo-search/types.js';
-import {
-  buildMockScorecard,
-  makeCaptureStream,
-  readBody,
-} from './_test-helpers.js';
+import { makeCaptureStream, readBody } from './_test-helpers.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
-import { writeSseResult } from './helpers/sse-http.js';
 
-const TEMP_ROOT = join(
-  tmpdir(),
-  `siftkit-repo-agent-cli-tests-${process.pid}`,
-);
+const TEMP_ROOT = join(tmpdir(), `siftkit-repo-agent-cli-tests-${process.pid}`);
 const BIN_PATH = join(process.cwd(), 'bin', 'siftkit.js');
 
 type ServerMode = 'approval' | 'complete';
@@ -45,36 +29,24 @@ type CliProcessResult = {
   stderr: string;
 };
 
-function makeResult(finalOutput: string): RepoSearchExecutionResult {
-  return {
-    requestId: 'request-1',
-    transcriptPath: join(TEMP_ROOT, 'transcript.jsonl'),
-    artifactPath: join(TEMP_ROOT, 'artifact.json'),
-    scorecard: buildMockScorecard(finalOutput),
-  };
-}
-
 class RepoAgentTestServer {
+  readonly runId = randomUUID();
   readonly approvalId = randomUUID();
-  readonly approvals: JsonObject[] = [];
-  readonly requests: JsonObject[] = [];
-  healthHits = 0;
+  readonly startRequests: JsonObject[] = [];
+  readonly decideRequests: JsonObject[] = [];
+  readonly approvalRequests: JsonObject[] = [];
 
-  private readonly mode: ServerMode;
   private readonly server: http.Server;
-  private operationResponse: http.ServerResponse | undefined;
+  private interactiveResponse: http.ServerResponse | null = null;
 
-  constructor(mode: ServerMode) {
-    this.mode = mode;
+  constructor(private readonly mode: ServerMode) {
     this.server = http.createServer((request, response) => {
       void this.handle(request, response);
     });
   }
 
   async start(): Promise<void> {
-    await new Promise<void>((resolve) => {
-      this.server.listen(0, '127.0.0.1', resolve);
-    });
+    await new Promise<void>((resolve) => this.server.listen(0, '127.0.0.1', resolve));
   }
 
   getBaseUrl(): string {
@@ -82,94 +54,114 @@ class RepoAgentTestServer {
   }
 
   async close(): Promise<void> {
+    this.server.closeAllConnections();
     await new Promise<void>((resolve, reject) => {
-      this.server.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
-      });
-      this.server.closeIdleConnections();
-      this.server.closeAllConnections();
+      this.server.close((error) => error ? reject(error) : resolve());
     });
   }
 
-  private async handle(
-    request: http.IncomingMessage,
-    response: http.ServerResponse,
-  ): Promise<void> {
+  private async handle(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
     if (request.method === 'GET' && request.url === '/health') {
-      this.healthHits += 1;
       this.writeJson(response, { ok: true });
       return;
     }
     if (request.method === 'POST' && request.url === '/repo-agent') {
-      this.requests.push(asObject(parseJsonValueText(await readBody(request))));
-      if (this.mode === 'complete') {
-        writeSseResult(response, makeResult('foreground complete'));
+      const startRequest = asObject(parseJsonValueText(await readBody(request)));
+      this.startRequests.push(startRequest);
+      this.openSse(response);
+      if (startRequest.approval === 'interactive') {
+        this.interactiveResponse = response;
+        this.writeEvent(response, 'progress', {
+          kind: 'approval_request',
+          requestId: 'request-interactive',
+          approvalId: this.approvalId,
+          turn: 1,
+          maxTurns: 4,
+          toolName: 'write',
+          command: 'write path="interactive.txt"',
+          reviewPayload: '{"path":"interactive.txt"}',
+        });
         return;
       }
-      this.operationResponse = response;
-      response.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-      });
-      response.write('\n');
-      response.write(`event: progress\ndata: ${JSON.stringify({
-        kind: 'approval_request',
-        requestId: 'request-1',
-        approvalId: this.approvalId,
-        toolName: 'edit',
-        command: 'edit path=src/example.ts edits=1',
-        reviewPayload: '{"path":"src/example.ts","content":"safe"}',
-      })}\n\n`);
+      if (this.mode === 'approval') {
+        this.writeEvent(response, 'progress', {
+          kind: 'llm_start', turn: 1, maxTurns: 4, promptTokenCount: 100,
+        });
+        this.writeEvent(response, 'progress', {
+          kind: 'tool_start', turn: 1, maxTurns: 4, command: 'npm install left-pad',
+        });
+        this.writeEvent(response, 'result', {
+          status: 'approval_required',
+          runId: this.runId,
+          approval: {
+            approvalId: this.approvalId,
+            toolName: 'run',
+            command: 'npm install left-pad',
+            reviewPayload: null,
+          },
+          decide: buildRepoAgentDecideCommands(this.runId),
+        });
+      } else {
+        this.writeEvent(response, 'result', {
+          status: 'completed', runId: this.runId, output: 'foreground complete',
+        });
+      }
+      response.end();
       return;
     }
-    if (
-      request.method === 'POST'
-      && request.url === '/repo-search/approval'
-    ) {
-      this.approvals.push(
-        asObject(parseJsonValueText(await readBody(request))),
-      );
+    if (request.method === 'POST' && request.url === '/repo-search/approval') {
+      this.approvalRequests.push(asObject(parseJsonValueText(await readBody(request))));
       this.writeJson(response, { accepted: true });
-      if (!this.operationResponse) {
-        throw new Error('Missing pending repo-agent response.');
+      const operationResponse = this.interactiveResponse;
+      if (!operationResponse) {
+        throw new Error('Missing interactive repo-agent response.');
       }
-      this.operationResponse.write(
-        `event: result\ndata: ${JSON.stringify(makeResult('resumed complete'))}\n\n`,
-      );
-      this.operationResponse.end();
+      this.writeEvent(operationResponse, 'result', {
+        status: 'completed', runId: this.runId, output: 'interactive complete',
+      });
+      operationResponse.end();
+      this.interactiveResponse = null;
+      return;
+    }
+    if (request.method === 'POST' && request.url === '/repo-agent/decide') {
+      this.decideRequests.push(asObject(parseJsonValueText(await readBody(request))));
+      this.openSse(response);
+      this.writeEvent(response, 'result', {
+        status: 'completed', runId: this.runId, output: 'resumed and finished',
+      });
+      response.end();
       return;
     }
     response.writeHead(404);
     response.end();
   }
 
-  private writeJson(
-    response: http.ServerResponse,
-    body: JsonObject,
-  ): void {
+  private openSse(response: http.ServerResponse): void {
+    response.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+    response.write('\n');
+  }
+
+  private writeEvent(response: http.ServerResponse, event: string, body: JsonObject): void {
+    response.write(`event: ${event}\ndata: ${JSON.stringify(body)}\n\n`);
+  }
+
+  private writeJson(response: http.ServerResponse, body: JsonObject): void {
     response.writeHead(200, { 'Content-Type': 'application/json' });
     response.end(JSON.stringify(body));
   }
 }
 
 class CliProcessRunner {
-  private readonly cwd: string;
-  private readonly environment: NodeJS.ProcessEnv;
-
-  constructor(cwd: string, environment: NodeJS.ProcessEnv) {
-    this.cwd = cwd;
-    this.environment = environment;
-  }
+  constructor(private readonly environment: NodeJS.ProcessEnv) {}
 
   run(args: string[]): Promise<CliProcessResult> {
     return new Promise((resolve, reject) => {
       const child = spawn(process.execPath, [BIN_PATH, ...args], {
-        cwd: this.cwd,
+        cwd: TEMP_ROOT,
         env: this.environment,
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
@@ -178,20 +170,10 @@ class CliProcessRunner {
       let stderr = '';
       child.stdout.setEncoding('utf8');
       child.stderr.setEncoding('utf8');
-      child.stdout.on('data', (chunk: string) => {
-        stdout += chunk;
-      });
-      child.stderr.on('data', (chunk: string) => {
-        stderr += chunk;
-      });
+      child.stdout.on('data', (chunk: string) => { stdout += chunk; });
+      child.stderr.on('data', (chunk: string) => { stderr += chunk; });
       child.on('error', reject);
-      child.on('close', (code) => {
-        resolve({
-          code: code ?? 1,
-          stdout,
-          stderr,
-        });
-      });
+      child.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }));
     });
   }
 }
@@ -205,259 +187,139 @@ after(() => {
   rmSync(TEMP_ROOT, { recursive: true, force: true });
 });
 
-function readRunEntries(): string[] {
-  const runsRoot = join(getRuntimeRoot(), 'repo-agent', 'runs');
-  return existsSync(runsRoot) ? readdirSync(runsRoot).sort() : [];
+function makeRunner(server: RepoAgentTestServer): CliProcessRunner {
+  const environment: NodeJS.ProcessEnv = {
+    ...process.env,
+    SIFTKIT_STATUS_BACKEND_URL: `${server.getBaseUrl()}/status`,
+    SIFTKIT_CONFIG_SERVICE_URL: `${server.getBaseUrl()}/config`,
+  };
+  delete environment.SIFTKIT_AGENT_RUN_ID;
+  return new CliProcessRunner(environment);
 }
 
-test('TTY explicit off stays foreground and creates no resumable run', async () => {
+test('non-TTY start with --progress prints progress to stderr and a complete approval boundary to stdout', async () => {
+  const server = new RepoAgentTestServer('approval');
+  await server.start();
+  try {
+    const result = await makeRunner(server).run(['repo-agent', 'edit the file', '--progress']);
+
+    assert.equal(result.code, 3, result.stderr);
+    const boundary = RepoAgentRunResultSchema.parse(parseJsonValueText(result.stdout));
+    assert.equal(boundary.status, 'approval_required');
+    assert.match(result.stderr, /Exiting: approval required/u);
+    assert.match(result.stderr, /llm_start prompt=100tok/u);
+    assert.match(result.stderr, /npm install left-pad/u);
+  } finally {
+    await server.close();
+  }
+});
+
+test('non-TTY start without --progress prints the approval banner but no per-turn progress', async () => {
+  const server = new RepoAgentTestServer('approval');
+  await server.start();
+  try {
+    const result = await makeRunner(server).run(['repo-agent', 'edit the file']);
+
+    assert.equal(result.code, 3, result.stderr);
+    assert.equal(RepoAgentRunResultSchema.parse(parseJsonValueText(result.stdout)).status, 'approval_required');
+    assert.match(result.stderr, /Exiting: approval required/u);
+    assert.equal(result.stderr.includes('llm_start'), false);
+    assert.doesNotMatch(result.stderr, /repo-agent t1\/4 npm install left-pad/u);
+  } finally {
+    await server.close();
+  }
+});
+
+test('non-TTY completed start exits zero with one parseable result object', async () => {
+  const server = new RepoAgentTestServer('complete');
+  await server.start();
+  try {
+    const result = await makeRunner(server).run(['repo-agent', 'finish the task']);
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.deepEqual(RepoAgentRunResultSchema.parse(parseJsonValueText(result.stdout)), {
+      status: 'completed', runId: server.runId, output: 'foreground complete',
+    });
+    assert.equal(result.stdout.trim().split('\n').length, 1);
+  } finally {
+    await server.close();
+  }
+});
+
+test('decide posts the decision and streams to the next completed boundary', async () => {
+  const server = new RepoAgentTestServer('complete');
+  await server.start();
+  try {
+    const result = await makeRunner(server).run([
+      'repo-agent', 'decide', server.runId, 'approve', '--progress',
+    ]);
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.deepEqual(RepoAgentRunResultSchema.parse(parseJsonValueText(result.stdout)), {
+      status: 'completed', runId: server.runId, output: 'resumed and finished',
+    });
+    assert.deepEqual(server.decideRequests, [{ runId: server.runId, decision: 'approve' }]);
+  } finally {
+    await server.close();
+  }
+});
+
+test('TTY interactive start prompts, submits approval, and receives the completed boundary', async () => {
   const server = new RepoAgentTestServer('complete');
   await server.start();
   const oldStatusUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
   const oldConfigUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
   process.env.SIFTKIT_STATUS_BACKEND_URL = `${server.getBaseUrl()}/status`;
   process.env.SIFTKIT_CONFIG_SERVICE_URL = `${server.getBaseUrl()}/config`;
-  const entriesBefore = readRunEntries();
-  try {
-    const stdout = makeCaptureStream();
-    const stderr = makeCaptureStream();
-    const stdin = Object.assign(new PassThrough(), { isTTY: true });
-    const code = await runCli({
-      argv: ['repo-agent', 'make x', '--approval', 'off'],
-      stdout: stdout.stream,
-      stderr: stderr.stream,
-      stdin,
-    });
-
-    assert.equal(code, 0);
-    assert.equal(stdout.read(), 'foreground complete\n');
-    assert.deepEqual(server.requests, [{
-      prompt: 'make x',
-      repoRoot: process.cwd(),
-      approval: 'off',
-    }]);
-    assert.deepEqual(readRunEntries(), entriesBefore);
-  } finally {
-    if (oldStatusUrl === undefined) {
-      delete process.env.SIFTKIT_STATUS_BACKEND_URL;
-    } else {
-      process.env.SIFTKIT_STATUS_BACKEND_URL = oldStatusUrl;
-    }
-    if (oldConfigUrl === undefined) {
-      delete process.env.SIFTKIT_CONFIG_SERVICE_URL;
-    } else {
-      process.env.SIFTKIT_CONFIG_SERVICE_URL = oldConfigUrl;
-    }
-    await server.close();
-  }
-});
-
-test('TTY escalation uses the human prompter without creating resumable state', async () => {
-  const server = new RepoAgentTestServer('approval');
-  await server.start();
-  const oldStatusUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
-  const oldConfigUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
-  process.env.SIFTKIT_STATUS_BACKEND_URL = `${server.getBaseUrl()}/status`;
-  process.env.SIFTKIT_CONFIG_SERVICE_URL = `${server.getBaseUrl()}/config`;
-  const entriesBefore = readRunEntries();
-  try {
-    const stdout = makeCaptureStream();
-    const stderr = makeCaptureStream();
-    const stdin = Object.assign(new PassThrough(), { isTTY: true });
-    setTimeout(() => stdin.write('a\n'), 100);
-    const code = await runCli({
-      argv: ['repo-agent', 'edit the file'],
-      stdout: stdout.stream,
-      stderr: stderr.stream,
-      stdin,
-    });
-
-    assert.equal(code, 0);
-    assert.equal(stdout.read(), 'resumed complete\n');
-    assert.match(stderr.read(), /wants to run.*edit path=src\/example\.ts/isu);
-    assert.deepEqual(server.approvals, [{
-      requestId: 'request-1',
-      approvalId: server.approvalId,
-      decision: 'approve',
-    }]);
-    assert.deepEqual(readRunEntries(), entriesBefore);
-  } finally {
-    if (oldStatusUrl === undefined) {
-      delete process.env.SIFTKIT_STATUS_BACKEND_URL;
-    } else {
-      process.env.SIFTKIT_STATUS_BACKEND_URL = oldStatusUrl;
-    }
-    if (oldConfigUrl === undefined) {
-      delete process.env.SIFTKIT_CONFIG_SERVICE_URL;
-    } else {
-      process.env.SIFTKIT_CONFIG_SERVICE_URL = oldConfigUrl;
-    }
-    await server.close();
-  }
-});
-
-test('non-TTY start and decide resume one real detached worker', async () => {
-  const server = new RepoAgentTestServer('approval');
-  await server.start();
-  const baseUrl = server.getBaseUrl();
-  const runner = new CliProcessRunner(TEMP_ROOT, {
-    ...process.env,
-    SIFTKIT_STATUS_BACKEND_URL: `${baseUrl}/status`,
-    SIFTKIT_CONFIG_SERVICE_URL: `${baseUrl}/config`,
-  });
-  try {
-    const started = await runner.run(['repo-agent', 'edit the file']);
-    assert.equal(started.code, 3, started.stderr);
-    assert.doesNotMatch(started.stdout, /\u001b\[/u);
-    const approval = RepoAgentRunResultSchema.parse(
-      parseJsonValueText(started.stdout),
-    );
-    assert.equal(approval.status, 'approval_required');
-    assert.ok(approval.status === 'approval_required');
-    assert.deepEqual(approval.decide, {
-      approve: `siftkit repo-agent decide ${approval.runId} approve`,
-      deny: `siftkit repo-agent decide ${approval.runId} deny --reason "<why>"`,
-      abort: `siftkit repo-agent decide ${approval.runId} abort`,
-    });
-    assert.equal(approval.approval.reviewPayload, '{"path":"src/example.ts","content":"safe"}');
-
-    const statePath = join(
-      TEMP_ROOT,
-      '.siftkit',
-      'repo-agent',
-      'runs',
-      approval.runId,
-      'state.json',
-    );
-    const pendingState = RepoAgentRunStateSchema.parse(
-      parseJsonValueText(readFileSync(statePath, 'utf8')),
-    );
-    assert.equal(pendingState.status, 'approval_required');
-
-    const decided = await runner.run([
-      'repo-agent',
-      'decide',
-      approval.runId,
-      'approve',
-    ]);
-    assert.equal(decided.code, 0, decided.stderr);
-    const completed = RepoAgentRunResultSchema.parse(
-      parseJsonValueText(decided.stdout),
-    );
-    assert.deepEqual(completed, {
-      status: 'completed',
-      runId: approval.runId,
-      output: 'resumed complete',
-    });
-    const completedState = RepoAgentRunStateSchema.parse(
-      parseJsonValueText(readFileSync(statePath, 'utf8')),
-    );
-    assert.equal(completedState.status, 'completed');
-    assert.equal(completedState.pid, pendingState.pid);
-    assert.deepEqual(server.approvals, [{
-      requestId: 'request-1',
-      approvalId: server.approvalId,
-      decision: 'approve',
-    }]);
-
-    const healthHits = server.healthHits;
-    const status = await runner.run([
-      'repo-agent',
-      'status',
-      approval.runId,
-    ]);
-    assert.equal(status.code, 0, status.stderr);
-    assert.deepEqual(parseJsonValueText(status.stdout), completedState);
-    assert.equal(server.healthHits, healthHits);
-  } finally {
-    await server.close();
-  }
-});
-
-test('split diagnostic warns on multi-token task but stays silent on single token', async () => {
-  const server = new RepoAgentTestServer('complete');
-  await server.start();
-  const oldStatusUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
-  const oldConfigUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
-  const oldAgentRunId = process.env.SIFTKIT_AGENT_RUN_ID;
-  process.env.SIFTKIT_STATUS_BACKEND_URL = `${server.getBaseUrl()}/status`;
-  process.env.SIFTKIT_CONFIG_SERVICE_URL = `${server.getBaseUrl()}/config`;
-  delete process.env.SIFTKIT_AGENT_RUN_ID;
-  try {
-    // Multi-token invocation
-    const splitStdout = makeCaptureStream();
-    const splitStderr = makeCaptureStream();
-    const splitStdin = Object.assign(new PassThrough(), { isTTY: true });
-    const splitCode = await runCli({
-      argv: [
-        'repo-agent',
-        'Implement ONLY Task',
-        '1:',
-        'Add',
-        'widget from docs/plan.md',
-      ],
-      stdout: splitStdout.stream,
-      stderr: splitStderr.stream,
-      stdin: splitStdin,
-    });
-
-    assert.equal(splitCode, 0);
-    assert.equal(splitStdout.read(), 'foreground complete\n');
-    assert.equal(
-      splitStderr.read(),
-      'note: joined 4 command-line tokens into one task; embedded double quotes were lost to shell argument splitting.\n'
-      + '  task: Implement ONLY Task 1: Add widget from docs/plan.md\n',
-    );
-
-    // Single-token invocation
-    const singleStdout = makeCaptureStream();
-    const singleStderr = makeCaptureStream();
-    const singleStdin = Object.assign(new PassThrough(), { isTTY: true });
-    const singleCode = await runCli({
-      argv: ['repo-agent', 'single task'],
-      stdout: singleStdout.stream,
-      stderr: singleStderr.stream,
-      stdin: singleStdin,
-    });
-
-    assert.equal(singleCode, 0);
-    assert.equal(singleStdout.read(), 'foreground complete\n');
-    assert.equal(singleStderr.read(), '');
-
-    // Verify server received the correct prompts
-    assert.equal(server.requests.length, 2);
-    assert.equal(server.requests[0].prompt, 'Implement ONLY Task 1: Add widget from docs/plan.md');
-    assert.equal(server.requests[1].prompt, 'single task');
-  } finally {
-    if (oldStatusUrl === undefined) {
-      delete process.env.SIFTKIT_STATUS_BACKEND_URL;
-    } else {
-      process.env.SIFTKIT_STATUS_BACKEND_URL = oldStatusUrl;
-    }
-    if (oldConfigUrl === undefined) {
-      delete process.env.SIFTKIT_CONFIG_SERVICE_URL;
-    } else {
-      process.env.SIFTKIT_CONFIG_SERVICE_URL = oldConfigUrl;
-    }
-    if (oldAgentRunId === undefined) {
-      delete process.env.SIFTKIT_AGENT_RUN_ID;
-    } else {
-      process.env.SIFTKIT_AGENT_RUN_ID = oldAgentRunId;
-    }
-    await server.close();
-  }
-});
-
-test('invalid legacy syntax fails before contacting the server', async () => {
   const stdout = makeCaptureStream();
   const stderr = makeCaptureStream();
-  const code = await runCli({
-    argv: ['repo-agent', '--prompt', 'make x'],
-    stdout: stdout.stream,
-    stderr: stderr.stream,
-    stdin: new PassThrough(),
-  });
-  assert.equal(code, 1);
-  assert.match(stderr.read(), /--prompt is not supported/iu);
-  assert.equal(stdout.read(), '');
+  const stdin = Object.assign(new PassThrough(), { isTTY: true });
+  const answerTimer = setTimeout(() => stdin.write('a\n'), 50);
+  try {
+    const code = await runCli({
+      argv: ['repo-agent', 'edit interactively', '--approval', 'interactive'],
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+      stdin,
+    });
+
+    assert.equal(code, 0);
+    assert.deepEqual(RepoAgentRunResultSchema.parse(parseJsonValueText(stdout.read())), {
+      status: 'completed', runId: server.runId, output: 'interactive complete',
+    });
+    assert.match(stderr.read(), /wants to run: write path="interactive\.txt"/u);
+    assert.deepEqual(server.approvalRequests, [{
+      requestId: 'request-interactive',
+      approvalId: server.approvalId,
+      decision: 'approve',
+    }]);
+  } finally {
+    clearTimeout(answerTimer);
+    stdin.end();
+    if (oldStatusUrl === undefined) delete process.env.SIFTKIT_STATUS_BACKEND_URL;
+    else process.env.SIFTKIT_STATUS_BACKEND_URL = oldStatusUrl;
+    if (oldConfigUrl === undefined) delete process.env.SIFTKIT_CONFIG_SERVICE_URL;
+    else process.env.SIFTKIT_CONFIG_SERVICE_URL = oldConfigUrl;
+    await server.close();
+  }
+});
+
+test('split task tokens warn with the joined prompt while one task token stays silent', async () => {
+  const server = new RepoAgentTestServer('complete');
+  await server.start();
+  try {
+    const runner = makeRunner(server);
+    const split = await runner.run(['repo-agent', 'Implement ONLY Task', '1:', 'add widget']);
+    const single = await runner.run(['repo-agent', 'single task']);
+
+    assert.equal(split.code, 0, split.stderr);
+    assert.match(split.stderr, /joined 3 command-line tokens into one task/u);
+    assert.match(split.stderr, /task: Implement ONLY Task 1: add widget/u);
+    assert.equal(single.code, 0, single.stderr);
+    assert.equal(single.stderr, '');
+    assert.equal(server.startRequests[0]?.prompt, 'Implement ONLY Task 1: add widget');
+    assert.equal(server.startRequests[1]?.prompt, 'single task');
+  } finally {
+    await server.close();
+  }
 });

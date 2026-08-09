@@ -22,9 +22,9 @@ export const REPO_AGENT_EXIT_CODES: Record<RepoAgentResultStatus, number> = {
 const REPO_AGENT_RESULT_MEANINGS: Record<RepoAgentResultStatus, string> = {
   completed: 'Task completed.',
   approval_required:
-    'A decision is required; the decide field of the result carries the exact approve/deny/abort commands.',
+    'The run is parked server-side; decide resumes it and streams to the next boundary.',
   approval_timeout: 'No decision arrived within the approval timeout; the run was stopped.',
-  failed: 'Task failed.',
+  failed: 'Task failed; a parked run also fails loudly if a status-server restart makes it non-resumable.',
   aborted: 'Task was aborted.',
 };
 
@@ -69,8 +69,8 @@ export const RepoAgentHelpSchema = z.object({
   topic: RepoAgentHelpTopicSchema,
   canonicalInvocation: z.literal(REPO_AGENT_CANONICAL_INVOCATION),
   defaultApproval: z.literal('auto'),
-  ttyMode: z.literal('foreground-interactive'),
-  nonTtyMode: z.literal('resumable-json'),
+  ttyMode: z.literal('server-streamed-interactive'),
+  nonTtyMode: z.literal('server-streamed-boundary-json'),
   commands: z.array(RepoAgentHelpCommandSchema),
   options: z.array(RepoAgentHelpOptionSchema),
   resultStatuses: z.tuple([
@@ -97,8 +97,8 @@ const ROOT_HELP = RepoAgentHelpSchema.parse({
   topic: 'root',
   canonicalInvocation: REPO_AGENT_CANONICAL_INVOCATION,
   defaultApproval: 'auto',
-  ttyMode: 'foreground-interactive',
-  nonTtyMode: 'resumable-json',
+  ttyMode: 'server-streamed-interactive',
+  nonTtyMode: 'server-streamed-boundary-json',
   commands: [
     {
       name: 'start',
@@ -107,7 +107,7 @@ const ROOT_HELP = RepoAgentHelpSchema.parse({
     },
     {
       name: 'decide',
-      synopsis: 'siftkit repo-agent decide <run-id> <approve|deny|abort> [--reason <text>]',
+      synopsis: 'siftkit repo-agent decide <run-id> <approve|deny|abort> [--reason <text>] [--progress]',
       arguments: ['run-id', 'decision'],
     },
     {
@@ -125,7 +125,7 @@ const ROOT_HELP = RepoAgentHelpSchema.parse({
       default: 'auto',
       description: 'Set approval handling.',
     },
-    { name: '--progress', value: null, default: 'false', description: 'Show progress output.' },
+    { name: '--progress', value: null, default: 'false', description: 'Stream progress lines to stderr.' },
     { name: '--help', value: null, default: null, description: 'Show help.' },
     { name: '--json', value: null, default: null, description: 'Emit structured help.' },
   ],
@@ -139,6 +139,7 @@ const ROOT_HELP = RepoAgentHelpSchema.parse({
     'siftkit repo-agent "fix the login bug"',
     'siftkit repo-agent status <run-id>',
     'siftkit repo-agent decide <run-id> approve',
+    'siftkit repo-agent decide <run-id> approve --progress',
     'siftkit repo-agent decide <run-id> deny --reason "out of scope"',
     'siftkit repo-agent decide <run-id> abort',
     'siftkit repo-agent --help --json',

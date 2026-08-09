@@ -11,6 +11,8 @@ import { StatusRunRegistry } from '../../src/status-server/status-run-registry.j
 import { ChatSessionOperationRegistry } from '../../src/status-server/chat-session-operation-registry.js';
 import { AppliedModelPresetState } from '../../src/status-server/applied-model-preset-state.js';
 import type { ServerContext } from '../../src/status-server/server-types.js';
+import { RepoAgentRunStore } from '../../src/repo-agent/run-store.js';
+import { RepoAgentSessionManager } from '../../src/status-server/repo-agent-sessions.js';
 
 /**
  * Inert ServerContext for tests that exercise a single collaborator (queue, runner,
@@ -18,6 +20,8 @@ import type { ServerContext } from '../../src/status-server/server-types.js';
  * override only the fields their test drives.
  */
 export function createTestServerContext(configPath: string, root = path.dirname(configPath)): ServerContext {
+  const engineService = new StatusEngineService();
+  const repoAgentRunStore = new RepoAgentRunStore(path.join(root, 'repo-agent', 'runs'));
   return {
     configPath,
     statusPath: path.join(root, 'status.txt'),
@@ -25,7 +29,9 @@ export function createTestServerContext(configPath: string, root = path.dirname(
     idleSummarySnapshotsPath: path.join(root, 'idle.sqlite'),
     idleSummaryDelayMs: DEFAULT_IDLE_SUMMARY_DELAY_MS,
     disableManagedLlamaStartup: false,
-    engineService: new StatusEngineService(),
+    engineService,
+    repoAgentRunStore,
+    repoAgentSessions: new RepoAgentSessionManager({ store: repoAgentRunStore, engine: engineService }),
     server: null,
     getServiceBaseUrl(): string {
       return 'http://127.0.0.1:0';

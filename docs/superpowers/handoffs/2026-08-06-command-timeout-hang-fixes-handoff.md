@@ -131,20 +131,20 @@ not keeping the loop alive. It flagged **91 files**; spot-check proved false pos
 
 ### Current in-progress implementation (already written, NOT yet verified)
 
-`scripts/run-tests.ts` now uses `spawn` (not `spawnSync`) + a wall-clock watchdog that
+`src/test-runner/run-tests.ts` now uses `spawn` (not `spawnSync`) + a wall-clock watchdog that
 `terminateProcessTree`s the runner, exit code 124:
 
 - `RUN_BUDGET_MS = Number(process.env.SIFTKIT_TEST_RUN_BUDGET_MS ?? 900_000)`
 - also removed the redundant second `--test-timeout=60000` (it shadowed `buildNodeTestArgs`'s
   30000 — both flags were visibly on the command line during the incident).
 
-`scripts/test-targets.ts` and `tests/test-targets.test.ts` are back to their pre-force-exit state.
+`src/test-runner/test-targets.ts` and `tests/test-targets.test.ts` are back to their pre-force-exit state.
 
 ### The exact next step
 
 The RED verification of the watchdog was interrupted. Test files exist:
 
-- `tests/run-tests-watchdog.test.ts` — spawns `dist/scripts/run-tests.js` against the fixture with
+- `tests/run-tests-watchdog.test.ts` — spawns `dist/test-runner/run-tests.js` against the fixture with
   `SIFTKIT_TEST_RUN_BUDGET_MS=8000`, asserts it self-bounds (exit ≠ 124 from the *caller's* kill,
   elapsed < 45s, output matches `/Test run exceeded/`). Must `delete childEnv.NODE_TEST_CONTEXT`
   or node:test refuses to nest ("run() is being called recursively").
@@ -209,7 +209,7 @@ eslint ignores is a worthwhile separate cleanup.
   alone it is 41/41 in 2s. Before trusting a suite result, check for stray `node --test` processes:
   `Get-CimInstance Win32_Process -Filter "Name='node.exe'"` and `taskkill /PID <root> /T /F`.
 - **Never run a RED test that hangs via `npx tsx --test` directly** — there is no outer bound and it
-  leaks a tree. Use `node ./dist/scripts/run-tests.js <target>`.
+  leaks a tree. Use `node ./dist/test-runner/run-tests.js <target>`.
 - Bash tool `cwd` persists between calls; several commands failed after an earlier `cd /c/tmp/rsx`.
   Prefer absolute paths or an explicit `cd` in the same command.
 
@@ -220,7 +220,7 @@ eslint ignores is a worthwhile separate cleanup.
 1. **The real deadlock.** Why the repo-agent operation never settled after taking the model lock.
    The fixes here *contain* it; they do not cure it. This is the actual bug behind the incident and
    is worth its own session. Reproduce with:
-   `node ./dist/scripts/run-tests.js streamed-repo-agent-endpoint`
+   `node ./dist/test-runner/run-tests.js streamed-repo-agent-endpoint`
 2. **Fix #5 from the original plan — cap model-lock hold time.** Never started. `heldMs` reached
    943552 with no ceiling; one wedged operation would wedge the real status server for every other
    request. Force-failing a holder past a ceiling would have turned this into a visible error.
@@ -235,7 +235,7 @@ New: `src/lib/process-tree.ts`, `src/lib/captured-command.ts`,
 `tests/sse-http-client.test.ts`, `tests/run-tests-watchdog.test.ts`,
 `tests/fixtures/hangs-forever.test.ts`.
 
-Modified: `scripts/run-tests.ts`, `src/lib/command-spawn.ts`, `src/lib/powershell.ts`,
+Modified: `src/test-runner/run-tests.ts`, `src/lib/command-spawn.ts`, `src/lib/powershell.ts`,
 `src/repo-search/engine/repo-tools.ts`, `src/repo-search/planner-protocol.ts`,
 `src/status-server/{index,managed-llama,managed-tabby}.ts`, `tests/repo-tools.test.ts`,
 `tests/command-spawn.test.ts`, `tests/helpers/{sse-http,streamed-op-harness}.ts`, and the 7

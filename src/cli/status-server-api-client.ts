@@ -51,6 +51,17 @@ import {
 } from '../repo-search/engine/approval-gate.js';
 import type { CliProgressRenderer } from './progress-renderer.js';
 import type { ApprovalPrompter } from './approval-prompter.js';
+import {
+  RepoAgentRunResultSchema,
+  RepoAgentRunStateSchema,
+  RepoAgentRunIdSchema,
+  type RepoAgentRunResult,
+  type RepoAgentRunState,
+} from '../repo-agent/run-schemas.js';
+import type {
+  RepoAgentDecideRequest,
+  RepoAgentStartRequest,
+} from '../repo-agent/api-schemas.js';
 
 const DEFAULT_SERVER_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
@@ -115,19 +126,41 @@ export class StatusServerApiClient {
   }
 
   requestRepoAgent(
-    request: Record<string, JsonSerializable>,
+    request: RepoAgentStartRequest,
     renderer: CliProgressRenderer,
     approvalPrompter?: ApprovalPrompter,
-  ): Promise<RepoSearchExecutionResult> {
+  ): Promise<RepoAgentRunResult> {
     return this.requestStreamedOperation(
       '/repo-agent',
       JSON.stringify(request),
-      RepoSearchExecutionResultSchema,
+      RepoAgentRunResultSchema,
       renderer,
       'repo-agent',
       approvalPrompter,
       this.repoAgentIdleTimeoutMs,
     );
+  }
+
+  requestRepoAgentDecide(
+    request: RepoAgentDecideRequest,
+    renderer: CliProgressRenderer,
+  ): Promise<RepoAgentRunResult> {
+    return this.requestStreamedOperation(
+      '/repo-agent/decide',
+      JSON.stringify(request),
+      RepoAgentRunResultSchema,
+      renderer,
+      'repo-agent',
+      undefined,
+      this.repoAgentIdleTimeoutMs,
+    );
+  }
+
+  requestRepoAgentStatus(runId: string): Promise<RepoAgentRunState> {
+    const validatedRunId = RepoAgentRunIdSchema.parse(runId);
+    const target = new URL(this.getServiceUrl('/repo-agent/status'));
+    target.searchParams.set('runId', validatedRunId);
+    return this.requestJsonState(target.toString());
   }
 
   analyzeCommandOutput(
@@ -195,6 +228,18 @@ export class StatusServerApiClient {
         method: 'GET',
         timeoutMs: DEFAULT_SERVER_REQUEST_TIMEOUT_MS,
       }, PresetListResultSchema);
+    } catch (error) {
+      throw this.normalizeError(toError(error));
+    }
+  }
+
+  private async requestJsonState(url: string): Promise<RepoAgentRunState> {
+    try {
+      return await this.client.requestJson({
+        url,
+        method: 'GET',
+        timeoutMs: DEFAULT_SERVER_REQUEST_TIMEOUT_MS,
+      }, RepoAgentRunStateSchema);
     } catch (error) {
       throw this.normalizeError(toError(error));
     }

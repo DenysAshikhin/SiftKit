@@ -1,67 +1,39 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
-import { mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import http from 'node:http';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import test, { after, before } from 'node:test';
 
-import { CliProgressRenderer } from '../src/cli/progress-renderer.js';
 import { parseRepoAgentInvocation } from '../src/cli/repo-agent-args.js';
 import {
   RepoAgentCommand,
+  type RepoAgentApi,
   type RepoAgentCommandStreams,
 } from '../src/cli/repo-agent-command.js';
+import type { RepoAgentDecideRequest } from '../src/repo-agent/api-schemas.js';
+import type { JsonSerializable } from '../src/lib/json-types.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import {
-  RepoAgentApprovalSchema,
   RepoAgentRunResultSchema,
   RepoAgentRunStateSchema,
-  type RepoAgentDecision,
-  type RepoAgentRunRequest,
+  type RepoAgentRunResult,
+  type RepoAgentRunState,
 } from '../src/repo-agent/run-schemas.js';
-import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
-import type { RepoAgentProcessLauncher } from '../src/repo-agent/worker-launcher.js';
-import {
-  makeCaptureStream,
-  type CaptureStream,
-} from './_test-helpers.js';
+import { makeCaptureStream, type CaptureStream } from './_test-helpers.js';
 import { getAddressInfo } from './helpers/dashboard-http.js';
 
-const TEMP_ROOT = join(
-  process.cwd(),
-  '.tmp',
-  `repo-agent-command-tests-${process.pid}`,
-);
-
-type FixtureLaunchMode = 'approval' | 'completed' | 'failed';
-
-type CommandHarness = {
-  command: RepoAgentCommand;
-  launcher: FixtureLauncher;
-  store: SettlingRunStore;
-};
-
-type CapturedStreams = {
-  streams: RepoAgentCommandStreams;
-  stdout: CaptureStream;
-  stderr: CaptureStream;
-};
+const RUN_ID = '550e8400-e29b-41d4-a716-446655440000';
+const TEMP_ROOT = join(process.cwd(), '.tmp', `repo-agent-command-tests-${process.pid}`);
 
 class HealthServer {
-  private readonly server: http.Server;
-
-  constructor() {
-    this.server = http.createServer((_request, response) => {
-      response.writeHead(200, { 'Content-Type': 'application/json' });
-      response.end(JSON.stringify({ ok: true }));
-    });
-  }
+  private readonly server = http.createServer((_request, response) => {
+    response.writeHead(200, { 'Content-Type': 'application/json' });
+    response.end(JSON.stringify({ ok: true }));
+  });
 
   async start(): Promise<void> {
-    await new Promise<void>((resolve) => {
-      this.server.listen(0, '127.0.0.1', resolve);
-    });
+    await new Promise<void>((resolve) => this.server.listen(0, '127.0.0.1', resolve));
   }
 
   getPort(): number {
@@ -70,156 +42,52 @@ class HealthServer {
 
   async close(): Promise<void> {
     await new Promise<void>((resolve, reject) => {
-      this.server.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
-      });
+      this.server.close((error) => error ? reject(error) : resolve());
     });
   }
 }
 
-class SettlingRunStore extends RepoAgentRunStore {
-  readonly submittedDecisions: RepoAgentDecision[] = [];
+class FakeApi implements RepoAgentApi {
+  readonly startCalls: Record<string, JsonSerializable>[] = [];
+  readonly decideCalls: RepoAgentDecideRequest[] = [];
+  readonly statusCalls: string[] = [];
 
-  override submitDecision(input: RepoAgentDecision): void {
-    super.submitDecision(input);
-    this.submittedDecisions.push(input);
-    if (input.decision === 'abort') {
-      this.clearPendingApproval(
-        input.runId,
-        input.observedRevision,
-        'aborted',
-      );
-      return;
+  constructor(
+    private readonly result: RepoAgentRunResult,
+    private readonly state: RepoAgentRunState = {
+      runId: RUN_ID,
+      revision: 0,
+      updatedAtUtc: '2026-08-08T12:00:00.000Z',
+      status: 'starting',
+      pid: process.pid,
+    },
+    private readonly statusFailure: Error | undefined = undefined,
+  ) {}
+
+  requestRepoAgent(request: Record<string, JsonSerializable>): Promise<RepoAgentRunResult> {
+    this.startCalls.push(request);
+    return Promise.resolve(this.result);
+  }
+
+  requestRepoAgentDecide(request: RepoAgentDecideRequest): Promise<RepoAgentRunResult> {
+    this.decideCalls.push(request);
+    return Promise.resolve(this.result);
+  }
+
+  requestRepoAgentStatus(runId: string): Promise<RepoAgentRunState> {
+    this.statusCalls.push(runId);
+    if (this.statusFailure) {
+      return Promise.reject(this.statusFailure);
     }
-    const running = this.clearPendingApproval(
-      input.runId,
-      input.observedRevision,
-      'running',
-    );
-    this.transition(input.runId, running.revision, {
-      runId: input.runId,
-      revision: running.revision + 1,
-      updatedAtUtc: new Date().toISOString(),
-      status: 'completed',
-      pid: process.pid,
-      output: input.decision === 'deny'
-        ? `denied: ${input.reason}`
-        : 'approved and completed',
-    });
+    return Promise.resolve(this.state);
   }
 }
 
-class FixtureLauncher implements RepoAgentProcessLauncher {
-  readonly launchedRunIds: string[] = [];
-
-  private readonly mode: FixtureLaunchMode;
-  private readonly store: RepoAgentRunStore;
-
-  constructor(mode: FixtureLaunchMode, store: RepoAgentRunStore) {
-    this.mode = mode;
-    this.store = store;
-  }
-
-  launch(runId: string): number {
-    this.launchedRunIds.push(runId);
-    const starting = this.store.readState(runId);
-    const running = this.store.transition(runId, starting.revision, {
-      runId,
-      revision: starting.revision + 1,
-      updatedAtUtc: new Date().toISOString(),
-      status: 'running',
-      pid: process.pid,
-    });
-    if (this.mode === 'completed') {
-      this.store.transition(runId, running.revision, {
-        runId,
-        revision: running.revision + 1,
-        updatedAtUtc: new Date().toISOString(),
-        status: 'completed',
-        pid: process.pid,
-        output: 'fixture completed',
-      });
-      return process.pid;
-    }
-    if (this.mode === 'approval') {
-      this.store.publishApproval(
-        runId,
-        running.revision,
-        RepoAgentApprovalSchema.parse({
-          approvalId: randomUUID(),
-          toolName: 'edit',
-          command: 'edit path=src/example.ts edits=1',
-          reviewPayload: '{\n  "path": "src/example.ts"\n}',
-        }),
-      );
-      return process.pid;
-    }
-    this.store.transition(runId, running.revision, {
-      runId,
-      revision: running.revision + 1,
-      updatedAtUtc: new Date().toISOString(),
-      status: 'failed',
-      pid: process.pid,
-      error: 'fixture launch failed',
-    });
-    throw new Error('fixture launch failed');
-  }
-}
-
-/** Mirrors `worker-main.ts`: a detached worker renders progress on its own stderr. */
-class SummaryRenderingLauncher implements RepoAgentProcessLauncher {
-  private readonly store: RepoAgentRunStore;
-  private readonly workerStderr: NodeJS.WritableStream;
-
-  constructor(store: RepoAgentRunStore, workerStderr: NodeJS.WritableStream) {
-    this.store = store;
-    this.workerStderr = workerStderr;
-  }
-
-  launch(runId: string): number {
-    const renderer = CliProgressRenderer.forCli(
-      this.workerStderr,
-      'repo-agent',
-      false,
-    );
-    const starting = this.store.readState(runId);
-    const running = this.store.transition(runId, starting.revision, {
-      runId,
-      revision: starting.revision + 1,
-      updatedAtUtc: new Date().toISOString(),
-      status: 'running',
-      pid: process.pid,
-    });
-    renderer.render({
-      kind: 'tool_start',
-      turn: 10,
-      maxTurns: 45,
-      command: 'read path=src/example.ts',
-    });
-    renderer.render({
-      kind: 'activity_summary',
-      turn: 10,
-      maxTurns: 45,
-      entries: [
-        { category: 'read_files', label: 'src/example.ts', failed: false },
-        { category: 'tests', label: 'npm test', failed: true },
-      ],
-    });
-    this.store.transition(runId, running.revision, {
-      runId,
-      revision: running.revision + 1,
-      updatedAtUtc: new Date().toISOString(),
-      status: 'completed',
-      pid: process.pid,
-      output: 'fixture completed',
-    });
-    return process.pid;
-  }
-}
+type CapturedStreams = {
+  streams: RepoAgentCommandStreams;
+  stdout: CaptureStream;
+  stderr: CaptureStream;
+};
 
 let healthServer: HealthServer;
 let oldStatusUrl: string | undefined;
@@ -232,353 +100,181 @@ before(async () => {
   await healthServer.start();
   oldStatusUrl = process.env.SIFTKIT_STATUS_BACKEND_URL;
   oldConfigUrl = process.env.SIFTKIT_CONFIG_SERVICE_URL;
-  process.env.SIFTKIT_STATUS_BACKEND_URL =
-    `http://127.0.0.1:${healthServer.getPort()}/status`;
-  process.env.SIFTKIT_CONFIG_SERVICE_URL =
-    `http://127.0.0.1:${healthServer.getPort()}/config`;
+  process.env.SIFTKIT_STATUS_BACKEND_URL = `http://127.0.0.1:${healthServer.getPort()}/status`;
+  process.env.SIFTKIT_CONFIG_SERVICE_URL = `http://127.0.0.1:${healthServer.getPort()}/config`;
 });
 
 after(async () => {
-  if (oldStatusUrl === undefined) {
-    delete process.env.SIFTKIT_STATUS_BACKEND_URL;
-  } else {
-    process.env.SIFTKIT_STATUS_BACKEND_URL = oldStatusUrl;
-  }
-  if (oldConfigUrl === undefined) {
-    delete process.env.SIFTKIT_CONFIG_SERVICE_URL;
-  } else {
-    process.env.SIFTKIT_CONFIG_SERVICE_URL = oldConfigUrl;
-  }
+  if (oldStatusUrl === undefined) delete process.env.SIFTKIT_STATUS_BACKEND_URL;
+  else process.env.SIFTKIT_STATUS_BACKEND_URL = oldStatusUrl;
+  if (oldConfigUrl === undefined) delete process.env.SIFTKIT_CONFIG_SERVICE_URL;
+  else process.env.SIFTKIT_CONFIG_SERVICE_URL = oldConfigUrl;
   await healthServer.close();
   rmSync(TEMP_ROOT, { recursive: true, force: true });
 });
-
-function makeHarness(mode: FixtureLaunchMode): CommandHarness {
-  const runsRoot = join(TEMP_ROOT, randomUUID());
-  mkdirSync(runsRoot);
-  const store = new SettlingRunStore(runsRoot);
-  const launcher = new FixtureLauncher(mode, store);
-  return {
-    command: new RepoAgentCommand({
-      store,
-      launcher,
-      repoRoot: process.cwd(),
-    }),
-    launcher,
-    store,
-  };
-}
-
-function makeSummaryRenderingCommand(
-  workerStderr: NodeJS.WritableStream,
-): RepoAgentCommand {
-  const runsRoot = join(TEMP_ROOT, randomUUID());
-  mkdirSync(runsRoot);
-  const store = new SettlingRunStore(runsRoot);
-  return new RepoAgentCommand({
-    store,
-    launcher: new SummaryRenderingLauncher(store, workerStderr),
-    repoRoot: process.cwd(),
-  });
-}
 
 function makeStreams(isTty = false): CapturedStreams {
   const stdout = makeCaptureStream();
   const stderr = makeCaptureStream();
   const stdin = Object.assign(new PassThrough(), { isTTY: isTty });
   return {
-    streams: {
-      stdin,
-      stdout: stdout.stream,
-      stderr: stderr.stream,
-    },
+    streams: { stdin, stdout: stdout.stream, stderr: stderr.stream },
     stdout,
     stderr,
   };
 }
 
-function parseSingleResult(stdout: CaptureStream) {
+function makeCommand(
+  result: RepoAgentRunResult,
+  state?: RepoAgentRunState,
+  statusFailure?: Error,
+): { command: RepoAgentCommand; api: FakeApi } {
+  const api = new FakeApi(result, state, statusFailure);
+  return { command: new RepoAgentCommand({ api }), api };
+}
+
+function parseSingleResult(stdout: CaptureStream): RepoAgentRunResult {
   const text = stdout.read();
   assert.equal(text.endsWith('\n'), true);
   assert.equal(text.trim().split('\n').length, 1);
   return RepoAgentRunResultSchema.parse(parseJsonValueText(text));
 }
 
-function createApprovalState(store: RepoAgentRunStore): RepoAgentRunRequest {
-  const request: RepoAgentRunRequest = {
-    runId: randomUUID(),
-    task: 'existing task',
-    repoRoot: process.cwd(),
-    approval: 'auto',
-    images: [],
-  };
-  store.create(request);
-  const running = store.transition(request.runId, 0, {
-    runId: request.runId,
-    revision: 1,
-    updatedAtUtc: new Date().toISOString(),
-    status: 'running',
-    pid: process.pid,
-  });
-  store.publishApproval(
-    request.runId,
-    running.revision,
-    RepoAgentApprovalSchema.parse({
-      approvalId: randomUUID(),
-      toolName: 'run',
-      command: 'npm test',
-      reviewPayload: '{"command":"npm test"}',
-    }),
-  );
-  return request;
-}
-
-test('non-TTY start launches once and emits one completed JSON object', async () => {
-  const harness = makeHarness('completed');
+test('start completed prints one result object and exits zero', async () => {
+  const harness = makeCommand({ status: 'completed', runId: RUN_ID, output: 'foreground complete' });
   const capture = makeStreams();
+
   const code = await harness.command.run(
-    parseRepoAgentInvocation([
-      'implement it',
-      '--model',
-      'test-model',
-      '--log-file',
-      'agent.log',
-    ]),
+    parseRepoAgentInvocation(['implement it', '--model', 'test-model']),
     capture.streams,
   );
 
   assert.equal(code, 0);
-  const result = parseSingleResult(capture.stdout);
-  assert.equal(result.status, 'completed');
-  assert.equal(result.output, 'fixture completed');
-  assert.deepEqual(harness.launcher.launchedRunIds, [result.runId]);
-  assert.deepEqual(harness.store.readRequest(result.runId), {
-    runId: result.runId,
-    task: 'implement it',
-    repoRoot: process.cwd(),
-    model: 'test-model',
-    logFile: 'agent.log',
-    approval: 'auto',
-    images: [],
+  assert.deepEqual(parseSingleResult(capture.stdout), {
+    status: 'completed', runId: RUN_ID, output: 'foreground complete',
   });
+  assert.deepEqual(harness.api.startCalls, [{
+    prompt: 'implement it', repoRoot: process.cwd(), approval: 'auto', model: 'test-model',
+  }]);
   assert.equal(capture.stderr.read(), '');
 });
 
-test('non-TTY start keeps activity summaries on stderr and stdout parseable', async () => {
+test('start approval_required prints the resume banner and exits three', async () => {
+  const result: RepoAgentRunResult = {
+    status: 'approval_required',
+    runId: RUN_ID,
+    approval: {
+      approvalId: '37d0379d-11af-4e15-bfaa-63ffea17b896',
+      toolName: 'run',
+      command: 'npm test',
+      reviewPayload: null,
+    },
+    decide: {
+      approve: `siftkit repo-agent decide ${RUN_ID} approve`,
+      deny: `siftkit repo-agent decide ${RUN_ID} deny --reason "<why>"`,
+      abort: `siftkit repo-agent decide ${RUN_ID} abort`,
+    },
+  };
+  const harness = makeCommand(result);
   const capture = makeStreams();
-  const command = makeSummaryRenderingCommand(capture.streams.stderr);
-  const code = await command.run(
-    parseRepoAgentInvocation(['implement it']),
+
+  const code = await harness.command.run(parseRepoAgentInvocation(['implement it']), capture.streams);
+
+  assert.equal(code, 3);
+  assert.deepEqual(parseSingleResult(capture.stdout), result);
+  const stderr = capture.stderr.read();
+  assert.match(stderr, /Exiting: approval required/u);
+  assert.equal(stderr.includes(result.decide.approve), true);
+  assert.equal(stderr.includes(result.decide.deny), true);
+  assert.equal(stderr.includes(result.decide.abort), true);
+});
+
+test('decide sends the server request and prints the next boundary', async () => {
+  const harness = makeCommand({ status: 'completed', runId: RUN_ID, output: 'resumed and finished' });
+  const capture = makeStreams();
+
+  const code = await harness.command.run(
+    parseRepoAgentInvocation(['decide', RUN_ID, 'approve', '--progress']),
     capture.streams,
   );
 
   assert.equal(code, 0);
-  const result = parseSingleResult(capture.stdout);
-  assert.equal(result.status, 'completed');
-
-  const stderr = capture.stderr.read();
-  assert.match(stderr, /--- activity summary t10\/45 ---/u);
-  assert.match(stderr, /\n {2}read_files \(1\): src\/example\.ts\n/u);
-  assert.match(stderr, /\n {2}tests \(1\): npm test \[failed\]\n/u);
-  assert.equal(stderr.includes('read path=src/example.ts'), false);
-  assert.equal(capture.stdout.read().includes('activity summary'), false);
+  assert.deepEqual(harness.api.decideCalls, [{ runId: RUN_ID, decision: 'approve' }]);
+  assert.equal(parseSingleResult(capture.stdout).status, 'completed');
 });
 
-test('non-TTY start emits the approval boundary, banners stderr, and exits 3', async () => {
-  const harness = makeHarness('approval');
+test('deny sends its required reason to the server', async () => {
+  const harness = makeCommand({ status: 'completed', runId: RUN_ID, output: 'denied and finished' });
   const capture = makeStreams();
+
   const code = await harness.command.run(
-    parseRepoAgentInvocation(['edit the file']),
+    parseRepoAgentInvocation(['decide', RUN_ID, 'deny', '--reason', 'unsafe path']),
     capture.streams,
   );
 
-  assert.equal(code, 3);
-  const result = parseSingleResult(capture.stdout);
-  assert.equal(result.status, 'approval_required');
-  if (result.status !== 'approval_required') {
-    assert.fail('Expected approval_required result.');
-  }
-  assert.deepEqual(result.approval, {
-    approvalId: result.approval.approvalId,
-    toolName: 'edit',
-    command: 'edit path=src/example.ts edits=1',
-    reviewPayload: '{\n  "path": "src/example.ts"\n}',
-  });
-  const stderr = capture.stderr.read();
-  assert.match(stderr, /Exiting: approval required/u);
-  assert.match(stderr, /Tool: edit/u);
-  assert.match(stderr, /Command: edit path=src\/example\.ts edits=1/u);
-  assert.match(stderr, /"path": "src\/example\.ts"/u);
-  assert.match(stderr, new RegExp(`siftkit repo-agent decide ${result.runId} approve`, 'u'));
-  assert.match(stderr, new RegExp(`siftkit repo-agent decide ${result.runId} deny --reason "<why>"`, 'u'));
-  assert.match(stderr, new RegExp(`siftkit repo-agent decide ${result.runId} abort`, 'u'));
+  assert.equal(code, 0);
+  assert.deepEqual(harness.api.decideCalls, [{
+    runId: RUN_ID, decision: 'deny', reason: 'unsafe path',
+  }]);
 });
 
-test('launch failure emits one failed object and returns non-zero', async () => {
-  const harness = makeHarness('failed');
+test('abort prints an aborted result and exits non-zero', async () => {
+  const harness = makeCommand({ status: 'aborted', runId: RUN_ID });
   const capture = makeStreams();
+
   const code = await harness.command.run(
-    parseRepoAgentInvocation(['fail safely']),
+    parseRepoAgentInvocation(['decide', RUN_ID, 'abort']),
     capture.streams,
   );
 
   assert.equal(code, 1);
-  const result = parseSingleResult(capture.stdout);
-  assert.equal(result.status, 'failed');
-  assert.equal(result.error, 'fixture launch failed');
+  assert.deepEqual(parseSingleResult(capture.stdout), { status: 'aborted', runId: RUN_ID });
 });
 
-test('status returns current state without mutation', async () => {
-  const harness = makeHarness('completed');
-  const request: RepoAgentRunRequest = {
-    runId: randomUUID(),
-    task: 'status task',
-    repoRoot: process.cwd(),
-    approval: 'auto',
-    images: [],
-  };
-  harness.store.create(request);
-  const before = harness.store.readState(request.runId);
-  const filesBefore = readdirSync(join(harness.store.getRunsRoot(), request.runId));
-  const capture = makeStreams();
-  const code = await harness.command.run(
-    parseRepoAgentInvocation(['status', request.runId]),
-    capture.streams,
-  );
-
-  assert.equal(code, 0);
-  assert.deepEqual(parseJsonValueText(capture.stdout.read()), before);
-  assert.deepEqual(harness.store.readState(request.runId), before);
-  assert.deepEqual(
-    readdirSync(join(harness.store.getRunsRoot(), request.runId)),
-    filesBefore,
-  );
-});
-
-test('status reports a dead worker as failed instead of stale running state', async () => {
-  const harness = makeHarness('completed');
-  const request: RepoAgentRunRequest = {
-    runId: randomUUID(),
-    task: 'stale task',
-    repoRoot: process.cwd(),
-    approval: 'auto',
-    images: [],
-  };
-  harness.store.create(request);
-  harness.store.transition(request.runId, 0, {
-    runId: request.runId,
+test('status requests the server state without constructing a local store', async () => {
+  const state = RepoAgentRunStateSchema.parse({
+    runId: RUN_ID,
     revision: 1,
-    updatedAtUtc: new Date().toISOString(),
-    status: 'running',
-    pid: 999999999,
+    updatedAtUtc: '2026-08-08T12:00:00.000Z',
+    status: 'failed',
+    error: 'server-owned failure',
   });
+  const harness = makeCommand({ status: 'completed', runId: RUN_ID, output: 'unused' }, state);
   const capture = makeStreams();
-  const code = await harness.command.run(
-    parseRepoAgentInvocation(['status', request.runId]),
-    capture.streams,
-  );
+
+  const code = await harness.command.run(parseRepoAgentInvocation(['status', RUN_ID]), capture.streams);
 
   assert.equal(code, 0);
-  const reported = RepoAgentRunStateSchema.parse(
-    parseJsonValueText(capture.stdout.read()),
-  );
-  assert.ok(reported.status === 'failed');
-  assert.match(reported.error, /worker process 999999999 died/iu);
-  assert.equal(harness.store.readState(request.runId).status, 'failed');
+  assert.deepEqual(RepoAgentRunStateSchema.parse(parseJsonValueText(capture.stdout.read())), state);
+  assert.deepEqual(harness.api.statusCalls, [RUN_ID]);
+  assert.equal(harness.api.startCalls.length, 0);
+  assert.equal(harness.api.decideCalls.length, 0);
 });
 
 test('unknown status fails without creating a run directory', async () => {
-  const harness = makeHarness('completed');
-  const unknownRunId = randomUUID();
+  const harness = makeCommand(
+    { status: 'completed', runId: RUN_ID, output: 'unused' },
+    undefined,
+    new Error('Unknown repo-agent run'),
+  );
   const capture = makeStreams();
+
+  await assert.rejects(
+    () => harness.command.run(parseRepoAgentInvocation(['status', RUN_ID]), capture.streams),
+    /not found|unknown/iu,
+  );
+});
+
+test('interactive approval rejects non-TTY stdin before starting', async () => {
+  const harness = makeCommand({ status: 'completed', runId: RUN_ID, output: 'unused' });
+  const capture = makeStreams(false);
+
   await assert.rejects(
     () => harness.command.run(
-      parseRepoAgentInvocation(['status', unknownRunId]),
+      parseRepoAgentInvocation(['implement it', '--approval', 'interactive']),
       capture.streams,
     ),
-    /not found/iu,
+    /requires a TTY/u,
   );
-  assert.deepEqual(readdirSync(harness.store.getRunsRoot()), []);
-});
-
-test('decide approve submits once and waits for completion', async () => {
-  const harness = makeHarness('completed');
-  const request = createApprovalState(harness.store);
-  const capture = makeStreams();
-  const code = await harness.command.run(
-    parseRepoAgentInvocation(['decide', request.runId, 'approve']),
-    capture.streams,
-  );
-
-  assert.equal(code, 0);
-  assert.equal(harness.store.submittedDecisions.length, 1);
-  assert.equal(harness.store.submittedDecisions[0]?.decision, 'approve');
-  const result = parseSingleResult(capture.stdout);
-  assert.equal(result.status, 'completed');
-  assert.equal(result.runId, request.runId);
-});
-
-test('decide deny preserves the reason and returns completion', async () => {
-  const harness = makeHarness('completed');
-  const request = createApprovalState(harness.store);
-  const capture = makeStreams();
-  const code = await harness.command.run(
-    parseRepoAgentInvocation([
-      'decide',
-      request.runId,
-      'deny',
-      '--reason',
-      'unsafe path',
-    ]),
-    capture.streams,
-  );
-
-  assert.equal(code, 0);
-  assert.deepEqual(harness.store.submittedDecisions[0], {
-    runId: request.runId,
-    approvalId: harness.store.submittedDecisions[0]?.approvalId,
-    observedRevision: 2,
-    decision: 'deny',
-    reason: 'unsafe path',
-  });
-  const result = parseSingleResult(capture.stdout);
-  assert.equal(result.status, 'completed');
-  assert.equal(result.output, 'denied: unsafe path');
-});
-
-test('decide abort returns aborted and non-zero', async () => {
-  const harness = makeHarness('completed');
-  const request = createApprovalState(harness.store);
-  const capture = makeStreams();
-  const code = await harness.command.run(
-    parseRepoAgentInvocation(['decide', request.runId, 'abort']),
-    capture.streams,
-  );
-
-  assert.equal(code, 1);
-  const result = parseSingleResult(capture.stdout);
-  assert.deepEqual(result, {
-    status: 'aborted',
-    runId: request.runId,
-  });
-});
-
-test('a repeated decision fails closed', async () => {
-  const harness = makeHarness('completed');
-  const request = createApprovalState(harness.store);
-  const first = makeStreams();
-  await harness.command.run(
-    parseRepoAgentInvocation(['decide', request.runId, 'approve']),
-    first.streams,
-  );
-
-  const repeated = makeStreams();
-  await assert.rejects(
-    () => harness.command.run(
-      parseRepoAgentInvocation(['decide', request.runId, 'approve']),
-      repeated.streams,
-    ),
-    /no pending approval/iu,
-  );
-  assert.equal(harness.store.submittedDecisions.length, 1);
+  assert.equal(harness.api.startCalls.length, 0);
 });

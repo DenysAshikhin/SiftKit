@@ -144,6 +144,8 @@ test('repo-agent --help returns 0 without server', async () => {
     /siftkit repo-agent decide <run-id> <approve\|deny\|abort> \[--reason <text>\]/u,
   );
   assert.match(text, /siftkit repo-agent status <run-id>/u);
+  assert.match(text, /--progress {2}Stream progress lines to stderr\./u);
+  assert.match(text, /siftkit repo-agent decide <run-id> approve --progress/u);
   assert.doesNotMatch(text, /repo-agent --prompt/u);
 });
 
@@ -262,8 +264,8 @@ test('repo-agent --help --json parses as RepoAgentHelpSchema', async () => {
     'siftkit repo-agent "task" [options]',
   );
   assert.equal(help.defaultApproval, 'auto');
-  assert.equal(help.ttyMode, 'foreground-interactive');
-  assert.equal(help.nonTtyMode, 'resumable-json');
+  assert.equal(help.ttyMode, 'server-streamed-interactive');
+  assert.equal(help.nonTtyMode, 'server-streamed-boundary-json');
   assert.deepEqual(
     help.resultStatuses,
     ['completed', 'approval_required', 'approval_timeout', 'failed', 'aborted'],
@@ -279,7 +281,7 @@ test('repo-agent --help --json parses as RepoAgentHelpSchema', async () => {
       {
         name: 'decide',
         synopsis:
-          'siftkit repo-agent decide <run-id> <approve|deny|abort> [--reason <text>]',
+          'siftkit repo-agent decide <run-id> <approve|deny|abort> [--reason <text>] [--progress]',
         arguments: ['run-id', 'decision'],
       },
       {
@@ -296,19 +298,28 @@ test('repo-agent --help --json parses as RepoAgentHelpSchema', async () => {
       {
         status: 'approval_required',
         exitCode: 3,
-        meaning: 'A decision is required; the decide field of the result carries the exact approve/deny/abort commands.',
+        meaning: 'The run is parked server-side; decide resumes it and streams to the next boundary.',
       },
       {
         status: 'approval_timeout',
         exitCode: 1,
         meaning: 'No decision arrived within the approval timeout; the run was stopped.',
       },
-      { status: 'failed', exitCode: 1, meaning: 'Task failed.' },
+      {
+        status: 'failed',
+        exitCode: 1,
+        meaning: 'Task failed; a parked run also fails loudly if a status-server restart makes it non-resumable.',
+      },
       { status: 'aborted', exitCode: 1, meaning: 'Task was aborted.' },
     ],
   );
   assert.ok(help.options.some((option) => option.name === '--approval'));
+  assert.ok(help.options.some((option) => (
+    option.name === '--progress'
+    && option.description === 'Stream progress lines to stderr.'
+  )));
   assert.ok(help.examples.some((example) => example.includes('deny --reason')));
+  assert.ok(help.examples.includes('siftkit repo-agent decide <run-id> approve --progress'));
 });
 
 test('published repo-agent results document every result status with the CLI exit code', async () => {

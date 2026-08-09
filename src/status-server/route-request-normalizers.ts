@@ -14,7 +14,7 @@ export type RepoSearchRouteRequest = {
   prompt: string;
   repoRoot: string;
   model: string | null;
-  maxTurns: number | null;
+  maxTurns?: number | null;
   images: string[];
 };
 

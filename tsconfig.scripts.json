@@ -1,15 +1,15 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "outDir": "dist",
     "rootDir": "."
   },
   "include": [
     "src/types/better-sqlite3.d.ts",
-    "scripts/**/*.ts"
-  ],
-  "exclude": [
-    "scripts/delete-logs.ts",
-    "scripts/analysis/**"
+    "scripts/build-test.ts",
+    "scripts/sync-dist-runtime.ts",
+    "scripts/purge-temp-dirs.ts"
   ]
 }

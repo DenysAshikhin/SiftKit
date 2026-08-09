@@ -1,8 +1,11 @@
 import { toError } from '../lib/errors.js';
+import { getAbortError } from '../lib/abort.js';
 import { ProgressWriter } from '../lib/progress-writer.js';
 import { formatRepoTaskOutput } from '../repo-agent/run-output.js';
+import type { RepoAgentDecideRequest } from '../repo-agent/api-schemas.js';
 import {
   isTerminalStatus,
+  RepoAgentRunStateSchema,
   repoAgentStateToResult,
   type RepoAgentRunResult,
   type RepoAgentRunState,
@@ -30,6 +33,11 @@ import { serverLogger } from './server-logger.js';
 
 const LOCK_WAIT_EMIT_INTERVAL_MS = 2_000;
 
+function normalizeFailureMessage(message: string): string {
+  const normalized = message.trim();
+  return normalized || 'Repo-agent execution failed without an error message.';
+}
+
 export type RepoAgentSessionSubscriber = {
   writeProgress(event: RepoSearchProgressEvent): void;
 };
@@ -52,6 +60,9 @@ export type RepoAgentEngineRequest = Omit<
 type BoundaryWaiter = {
   sinceRevision: number;
   resolve(result: RepoAgentRunResult): void;
+  reject(error: Error): void;
+  abortSignal?: AbortSignal;
+  abortListener?: () => void;
 };
 
 /** Routes engine progress into the session: approval parks become store state, the rest fans out. */
@@ -107,6 +118,7 @@ export class RepoAgentSession implements ApprovalGateObserver {
   private readonly waiters: BoundaryWaiter[] = [];
   private subscriber: RepoAgentSessionSubscriber | null = null;
   private state: RepoAgentRunState;
+  private unpersistedTerminalState = false;
   private settledPromise: Promise<void> | null = null;
 
   constructor(options: RepoAgentSessionOptions) {
@@ -152,6 +164,14 @@ export class RepoAgentSession implements ApprovalGateObserver {
     return this.state.revision;
   }
 
+  getState(): RepoAgentRunState {
+    return this.state;
+  }
+
+  hasUnpersistedTerminalState(): boolean {
+    return this.unpersistedTerminalState;
+  }
+
   attach(subscriber: RepoAgentSessionSubscriber): () => void {
     this.subscriber = subscriber;
     return () => {
@@ -162,25 +182,45 @@ export class RepoAgentSession implements ApprovalGateObserver {
   }
 
   /** Resolves the parked approval via the shared gate. False when nothing is parked. */
-  submitDecision(input: { decision: 'approve' | 'deny' | 'abort'; reason?: string }): boolean {
+  submitDecision(input: RepoAgentDecideRequest): boolean {
+    if (input.runId !== this.runId) {
+      throw new Error(`Decision run ID ${input.runId} does not match session run ID ${this.runId}.`);
+    }
     if (!this.gate || this.state.status !== 'approval_required') {
       return false;
     }
     const decision: ApprovalDecision = input.decision === 'approve'
       ? { kind: 'approve' }
       : input.decision === 'deny'
-        ? { kind: 'deny', reason: (input.reason ?? '').trim() }
+        ? { kind: 'deny', reason: input.reason }
         : { kind: 'abort', reason: CLIENT_ABORT_MESSAGE };
     return this.gate.submit(this.state.approval.approvalId, decision);
   }
 
-  waitForBoundary(sinceRevision: number): Promise<RepoAgentRunResult> {
+  waitForBoundary(
+    sinceRevision: number,
+    abortSignal?: AbortSignal,
+  ): Promise<RepoAgentRunResult> {
     const immediate = this.boundaryResultFor(sinceRevision);
     if (immediate) {
       return Promise.resolve(immediate);
     }
-    return new Promise((resolve) => {
-      this.waiters.push({ sinceRevision, resolve });
+    return new Promise((resolve, reject) => {
+      const waiter: BoundaryWaiter = { sinceRevision, resolve, reject };
+      if (abortSignal) {
+        const abortListener = () => {
+          this.removeWaiter(waiter);
+          reject(getAbortError(abortSignal));
+        };
+        waiter.abortSignal = abortSignal;
+        waiter.abortListener = abortListener;
+        if (abortSignal.aborted) {
+          abortListener();
+          return;
+        }
+        abortSignal.addEventListener('abort', abortListener, { once: true });
+      }
+      this.waiters.push(waiter);
     });
   }
 
@@ -290,19 +330,43 @@ export class RepoAgentSession implements ApprovalGateObserver {
   }
 
   private settleFailure(message: string): void {
-    markRepoSearchAdmissionFailed(this.admission, message);
+    const failureMessage = normalizeFailureMessage(message);
+    try {
+      markRepoSearchAdmissionFailed(this.admission, failureMessage);
+    } catch (error) {
+      serverLogger.error({
+        scope: 'rs',
+        id: this.requestId,
+        event: 'admission_failure_persistence_failed',
+        fields: toError(error).message,
+      });
+    }
     if (isTerminalStatus(this.state.status)) {
       return;
     }
-    const pid = this.state.status === 'starting' ? undefined : this.state.pid;
-    this.applyState(this.store.transition(this.runId, this.state.revision, {
+    const pid = this.state.pid;
+    const failedState = {
       runId: this.runId,
       revision: this.state.revision + 1,
       updatedAtUtc: new Date().toISOString(),
-      status: 'failed',
+      status: 'failed' as const,
       ...(pid === undefined ? {} : { pid }),
-      error: message,
-    }));
+      error: failureMessage,
+    };
+    try {
+      this.applyState(this.store.transition(this.runId, this.state.revision, failedState));
+    } catch (error) {
+      const persistenceError = toError(error);
+      const fallbackState = RepoAgentRunStateSchema.parse(failedState);
+      serverLogger.error({
+        scope: 'rs',
+        id: this.requestId,
+        event: 'session_failure_persistence_failed',
+        fields: `Failed to persist repo-agent failure: ${persistenceError.message}. Original failure: ${failureMessage}`,
+      });
+      this.unpersistedTerminalState = true;
+      this.applyState(fallbackState);
+    }
   }
 
   private publishApproval(event: RepoSearchProgressEvent): void {
@@ -338,16 +402,35 @@ export class RepoAgentSession implements ApprovalGateObserver {
 
   private applyState(next: RepoAgentRunState): void {
     this.state = next;
+    this.flushWaiters();
+  }
+
+  private flushWaiters(): void {
     const remaining: BoundaryWaiter[] = [];
     for (const waiter of this.waiters) {
       const result = this.boundaryResultFor(waiter.sinceRevision);
       if (result) {
+        this.removeWaiterAbortListener(waiter);
         waiter.resolve(result);
       } else {
         remaining.push(waiter);
       }
     }
     this.waiters.splice(0, this.waiters.length, ...remaining);
+  }
+
+  private removeWaiter(waiter: BoundaryWaiter): void {
+    const index = this.waiters.indexOf(waiter);
+    if (index >= 0) {
+      this.waiters.splice(index, 1);
+    }
+    this.removeWaiterAbortListener(waiter);
+  }
+
+  private removeWaiterAbortListener(waiter: BoundaryWaiter): void {
+    if (waiter.abortSignal && waiter.abortListener) {
+      waiter.abortSignal.removeEventListener('abort', waiter.abortListener);
+    }
   }
 }
 
@@ -369,9 +452,22 @@ export class RepoAgentSessionManager {
     });
     this.sessions.set(options.runId, session);
     session.start();
-    void session.settled.finally(() => {
-      this.sessions.delete(options.runId);
-    });
+    void session.settled.then(
+      () => {
+        if (!session.hasUnpersistedTerminalState()) {
+          this.sessions.delete(options.runId);
+        }
+      },
+      (error) => {
+        this.sessions.delete(options.runId);
+        serverLogger.error({
+          scope: 'rs',
+          id: options.requestId,
+          event: 'session_rejected',
+          fields: toError(error).message,
+        });
+      },
+    );
     return session;
   }
 

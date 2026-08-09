@@ -1,7 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { JsonObject, JsonSerializable } from '../../lib/json-types.js';
 import { OPERATION_STREAM_EVENTS } from '../../lib/operation-stream.js';
-import { AGENT_RUN_ID_HEADER } from '../../lib/agent-run-marker.js';
 import { recordServerError } from '../error-response.js';
 import { toError } from '../../lib/errors.js';
 import { parseJsonBody, readBody, sendBodyReadError, sendJson } from '../http-utils.js';
@@ -14,6 +13,7 @@ import {
 } from '../server-ops.js';
 import type { ServerContext } from '../server-types.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
+import { rejectNestedAgentSelfCall } from '../nested-agent-call-guard.js';
 
 const LOCK_WAIT_EMIT_INTERVAL_MS = 2_000;
 
@@ -66,14 +66,7 @@ export abstract class StreamedOperationEndpoint<TParsed> implements RouteEndpoin
       sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
       return;
     }
-    const nestedRunId = String(req.headers[AGENT_RUN_ID_HEADER] || '').trim();
-    const ownedActiveLock = nestedRunId
-      ? [...ctx.activeModelRequests.values()].find((lock) => lock.ownerRunId === nestedRunId)
-      : undefined;
-    if (ownedActiveLock) {
-      const message = `Rejected self-call from agent run ${nestedRunId}: it holds the model lock, so this request would deadlock behind its own run.`;
-      const payload = recordServerError(req, 409, new Error(message), { taskKind: this.taskKind });
-      sendJson(res, 409, { ...payload, modelRequests: getModelRequestQueueDiagnostics(ctx) });
+    if (rejectNestedAgentSelfCall(ctx, req, res, this.taskKind)) {
       return;
     }
     const parsed = this.parseRequest(parsedBody, ctx);

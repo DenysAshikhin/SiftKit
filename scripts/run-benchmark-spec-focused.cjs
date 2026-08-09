@@ -1,6 +1,6 @@
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
-const { normalizeForwardedArgs, runBuild } = require('./run-benchmark-spec-settings.js');
+const { normalizeForwardedArgs, runBuild } = require('./run-benchmark-spec-settings.cjs');
 
 function buildFocusedPowerShellArgs(repoRoot, forwardedArgv) {
   const scriptPath = path.resolve(repoRoot, 'scripts', 'benchmark-siftkit-spec-settings.ps1');

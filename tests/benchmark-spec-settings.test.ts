@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 
+import { cleanCompiledOutputs, syncDistRuntime } from '../scripts/sync-dist-runtime.js';
 import { mockConfig } from './_runtime-helpers.js';
 import { readPackageJson } from './helpers/package-json.js';
 import { mockRunRecord } from './helpers/mock-run-record.js';
@@ -44,16 +46,13 @@ function loadScriptModule<T>(id: string): T {
 }
 const { normalizeForwardedArgs } = loadScriptModule<{
   normalizeForwardedArgs: (argv: string[]) => string[];
-}>('../scripts/run-benchmark-spec-settings.js');
+}>('../scripts/run-benchmark-spec-settings.cjs');
 const { buildFocusedPowerShellArgs } = loadScriptModule<{
   buildFocusedPowerShellArgs: (repoRoot: string, forwardedArgv: string[]) => string[];
-}>('../scripts/run-benchmark-spec-focused.js');
+}>('../scripts/run-benchmark-spec-focused.cjs');
 const { buildFocused3PowerShellArgs } = loadScriptModule<{
   buildFocused3PowerShellArgs: (repoRoot: string, forwardedArgv: string[]) => string[];
-}>('../scripts/run-benchmark-spec-focused3.js');
-const { syncDistRuntime } = loadScriptModule<{
-  syncDistRuntime: (sourceRoot: string, targetRoot: string) => void;
-}>('../scripts/sync-dist-runtime.js');
+}>('../scripts/run-benchmark-spec-focused3.cjs');
 
 const INTENTIONAL_SRC_DECLARATION_FILES = new Set<string>(['src/types/better-sqlite3.d.ts']);
 
@@ -466,12 +465,12 @@ test('FOCUSED3_SPEC_BENCHMARK_CASES keeps trimmed-mean top two, baseline, and se
 
 test('spec benchmark script exists and targets the CLI run-log path', () => {
   const script = fs.readFileSync('scripts/benchmark-siftkit-spec-settings.ps1', 'utf8');
-  const invokeHelper = fs.readFileSync('scripts/invoke-repo-search-benchmark.js', 'utf8');
+  const invokeHelper = fs.readFileSync('scripts/invoke-repo-search-benchmark.cjs', 'utf8');
 
   for (const prompt of DEFAULT_SPEC_BENCHMARK_PROMPTS) {
     assert.match(script, new RegExp(prompt.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'));
   }
-  assert.match(script, /invoke-repo-search-benchmark\.js/u);
+  assert.match(script, /invoke-repo-search-benchmark\.cjs/u);
   assert.match(invokeHelper, /repo-search/u);
   assert.match(invokeHelper, /--prompt/u);
   assert.match(script, /\/status\/restart/u);
@@ -481,11 +480,11 @@ test('spec benchmark script exists and targets the CLI run-log path', () => {
 
 test('spec benchmark script invokes repo-search through the node helper without Start-Process argument flattening', () => {
   const script = fs.readFileSync('scripts/benchmark-siftkit-spec-settings.ps1', 'utf8');
-  const invokeHelper = fs.readFileSync('scripts/invoke-repo-search-benchmark.js', 'utf8');
+  const invokeHelper = fs.readFileSync('scripts/invoke-repo-search-benchmark.cjs', 'utf8');
 
   assert.doesNotMatch(script, /-ArgumentList\s+@\('\.\\bin\\siftkit\.js',\s*'repo-search',\s*'--prompt',\s*\$PromptText\)/u);
   assert.doesNotMatch(script, /--prompt\s+\$PromptText/u);
-  assert.match(script, /&\s+node(?:\.exe)?\s+\.\\scripts\\invoke-repo-search-benchmark\.js/u);
+  assert.match(script, /&\s+node(?:\.exe)?\s+\.\\scripts\\invoke-repo-search-benchmark\.cjs/u);
   assert.match(script, /\$promptPath\s*=\s*Join-Path\s+\$OutputDir\s+'prompt\.txt'/u);
   assert.match(script, /\[System\.IO\.File\]::WriteAllText\(\$promptPath,\s*\$PromptText,/u);
   assert.match(script, /--prompt-file\s+\$promptPath/u);
@@ -493,6 +492,25 @@ test('spec benchmark script invokes repo-search through the node helper without 
   assert.match(invokeHelper, /fs\.readFileSync\(promptFile,\s*'utf8'\)/u);
   assert.match(invokeHelper, /repo-search',\s*'--prompt',\s*prompt/u);
   assert.doesNotMatch(invokeHelper, /command:\s*`siftkit repo-search --prompt "\$\{prompt\}"`/u);
+});
+
+test('benchmark helper exercises the declared JavaScript bin wrapper', () => {
+  const packageJson = fs.readFileSync('package.json', 'utf8');
+  const invokeHelper = fs.readFileSync('scripts/invoke-repo-search-benchmark.cjs', 'utf8');
+  const binPath = path.join(process.cwd(), 'bin', 'siftkit.js');
+
+  assert.match(packageJson, /"siftkit"\s*:\s*"bin\/siftkit\.js"/u);
+  assert.equal(fs.existsSync(binPath), true);
+  assert.equal(fs.existsSync(path.join(process.cwd(), 'bin', 'siftkit.cjs')), false);
+  assert.match(invokeHelper, /path\.resolve\(repoRoot, 'bin', 'siftkit\.js'\)/u);
+  assert.doesNotMatch(invokeHelper, /siftkit\.cjs/u);
+
+  const wrapperResult = spawnSync(process.execPath, [binPath, '--help'], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+  });
+  assert.equal(wrapperResult.status, 0, wrapperResult.stderr);
+  assert.match(wrapperResult.stdout, /siftkit repo-search/u);
 });
 
 test('spec benchmark script supports short verification runs and incremental artifact writes', () => {
@@ -585,15 +603,15 @@ test('spec benchmark script updates the active model preset before restart', () 
 test('package benchmark command uses a node wrapper instead of forwarding prompt args directly to PowerShell', () => {
   const pkg = readPackageJson();
 
-  assert.match(String(pkg.scripts?.['benchmark:spec-settings'] || ''), /node\s+\.\\scripts\\run-benchmark-spec-settings\.js/u);
+  assert.match(String(pkg.scripts?.['benchmark:spec-settings'] || ''), /node\s+\.\\scripts\\run-benchmark-spec-settings\.cjs/u);
   assert.doesNotMatch(String(pkg.scripts?.['benchmark:spec-settings'] || ''), /&&/u);
 });
 
 test('package focused spec benchmark command preserves the old command and selects Focused10', () => {
   const pkg = readPackageJson();
 
-  assert.equal(String(pkg.scripts?.['benchmark:spec-settings']), 'node .\\scripts\\run-benchmark-spec-settings.js');
-  assert.equal(String(pkg.scripts?.['benchmark:spec-focused']), 'node .\\scripts\\run-benchmark-spec-focused.js');
+  assert.equal(String(pkg.scripts?.['benchmark:spec-settings']), 'node .\\scripts\\run-benchmark-spec-settings.cjs');
+  assert.equal(String(pkg.scripts?.['benchmark:spec-focused']), 'node .\\scripts\\run-benchmark-spec-focused.cjs');
   assert.deepEqual(
     buildFocusedPowerShellArgs('C:\\repo', ['-CaseLimit', '1']).slice(-4),
     ['-CaseSet', 'Focused10', '-CaseLimit', '1'],
@@ -603,9 +621,9 @@ test('package focused spec benchmark command preserves the old command and selec
 test('package focused3 spec benchmark command preserves existing commands and selects Focused3', () => {
   const pkg = readPackageJson();
 
-  assert.equal(String(pkg.scripts?.['benchmark:spec-settings']), 'node .\\scripts\\run-benchmark-spec-settings.js');
-  assert.equal(String(pkg.scripts?.['benchmark:spec-focused']), 'node .\\scripts\\run-benchmark-spec-focused.js');
-  assert.equal(String(pkg.scripts?.['benchmark:spec-focused3']), 'node .\\scripts\\run-benchmark-spec-focused3.js');
+  assert.equal(String(pkg.scripts?.['benchmark:spec-settings']), 'node .\\scripts\\run-benchmark-spec-settings.cjs');
+  assert.equal(String(pkg.scripts?.['benchmark:spec-focused']), 'node .\\scripts\\run-benchmark-spec-focused.cjs');
+  assert.equal(String(pkg.scripts?.['benchmark:spec-focused3']), 'node .\\scripts\\run-benchmark-spec-focused3.cjs');
   assert.deepEqual(
     buildFocused3PowerShellArgs('C:\\repo', ['-CaseLimit', '1']).slice(-4),
     ['-CaseSet', 'Focused3', '-CaseLimit', '1'],
@@ -615,7 +633,108 @@ test('package focused3 spec benchmark command preserves existing commands and se
 test('package build command syncs dist runtime output after compiling TypeScript', () => {
   const pkg = readPackageJson();
 
-  assert.match(String(pkg.scripts?.build || ''), /node\s+\.\\scripts\\sync-dist-runtime\.js/u);
+  assert.match(
+    String(pkg.scripts?.build || ''),
+    /node\s+--experimental-strip-types\s+\.\\scripts\\sync-dist-runtime\.ts/u,
+  );
+  assert.doesNotMatch(String(pkg.scripts?.build || ''), /experimental-default-type/u);
+});
+
+test('package build:test command runs the TypeScript build script with Node type stripping', () => {
+  const pkg = readPackageJson();
+
+  assert.match(
+    String(pkg.scripts?.['build:test'] || ''),
+    /node\s+--experimental-strip-types\s+\.\\scripts\\build-test\.ts/u,
+  );
+  assert.doesNotMatch(String(pkg.scripts?.['build:test'] || ''), /experimental-default-type/u);
+});
+
+test('scripts package boundary marks standalone TypeScript entrypoints as ESM', () => {
+  const packageJson = fs.readFileSync('package.json', 'utf8');
+
+  assert.doesNotMatch(packageJson, /"type":\s*"module"/u);
+  assert.match(fs.readFileSync(path.join('scripts', 'package.json'), 'utf8'), /"type":\s*"module"/u);
+});
+
+test('package has no broad runtime alias or root ESM compatibility path', () => {
+  const packageJson = fs.readFileSync('package.json', 'utf8');
+
+  assert.doesNotMatch(packageJson, /#siftkit-runtime/u);
+  assert.doesNotMatch(packageJson, /"type":\s*"module"/u);
+});
+
+test('compiled runtime uses one flattened ESM package marker without aliases', () => {
+  const distPackageJson = fs.readFileSync(path.join('dist', 'package.json'), 'utf8');
+
+  assert.match(distPackageJson, /"type":\s*"module"/u);
+  assert.doesNotMatch(distPackageJson, /#siftkit-runtime/u);
+  assert.equal(fs.existsSync(path.join('dist', 'scripts', 'package.json')), false);
+});
+
+test('native type-stripped source build scripts are warning-free under their ESM boundary', () => {
+  const result = spawnSync(
+    process.execPath,
+    [
+      '--experimental-strip-types',
+      '--input-type=module',
+      '-e',
+      "await import('./scripts/build-test.ts'); await import('./scripts/sync-dist-runtime.ts')",
+    ],
+    { cwd: process.cwd(), encoding: 'utf8' },
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.doesNotMatch(result.stderr, /MODULE_TYPELESS_PACKAGE_JSON/u);
+});
+
+test('compiled purge-temp-dirs module can be evaluated as ESM without purging OS temp', async () => {
+  const moduleUrl = pathToFileURL(path.resolve('dist', 'scripts', 'purge-temp-dirs.js')).href;
+
+  await import(moduleUrl);
+});
+
+test('compiled test runner executes after source staging is removed', () => {
+  const result = spawnSync(
+    process.execPath,
+    [path.join('dist', 'test-runner', 'run-tests.js'), path.join('tests', 'fixtures', 'settles-immediately.test.ts')],
+    { cwd: process.cwd(), encoding: 'utf8', env: { ...process.env, NODE_TEST_CONTEXT: undefined } },
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(fs.existsSync(path.join('dist', 'src')), false);
+});
+
+test('explicit ESM source execution emits no typeless-package warning', () => {
+  const result = spawnSync(
+    process.execPath,
+    [
+      '--experimental-strip-types',
+      '--input-type=module',
+      '-e',
+      "await import('./scripts/sync-dist-runtime.ts')",
+    ],
+    { cwd: process.cwd(), encoding: 'utf8' },
+  );
+
+  assert.equal(result.status, 0);
+  assert.doesNotMatch(result.stderr, /MODULE_TYPELESS_PACKAGE_JSON/u);
+});
+
+test('build:test has no stale output cache or up-to-date shortcut', () => {
+  const buildScript = fs.readFileSync('scripts/build-test.ts', 'utf8');
+
+  assert.doesNotMatch(buildScript, /build-test-stamp|shouldBuild|up to date/u);
+  assert.match(buildScript, /syncScriptPath/u);
+  assert.match(buildScript, /\['--clean'\]/u);
+});
+
+test('scripts TypeScript build includes both build entrypoints and purge', () => {
+  const scriptsConfig = fs.readFileSync('tsconfig.scripts.json', 'utf8');
+
+  assert.match(scriptsConfig, /"scripts\/build-test\.ts"/u);
+  assert.match(scriptsConfig, /"scripts\/sync-dist-runtime\.ts"/u);
+  assert.match(scriptsConfig, /"scripts\/purge-temp-dirs\.ts"/u);
 });
 
 test('package test command runs the test TypeScript typecheck', () => {
@@ -637,7 +756,7 @@ test('package typecheck command is available for repo, scripts, dashboard, bench
   assert.equal(String(pkg.scripts?.['typecheck:analysis']), 'tsc -p .\\tsconfig.analysis.json --noEmit');
 });
 
-test('syncDistRuntime copies fresh compiled files from dist/src into runtime dist paths', () => {
+test('syncDistRuntime copies current output and removes its source staging directory', () => {
   const tempRoot = createManagedTempDir('sync-dist-runtime-');
   const sourceRoot = path.join(tempRoot, 'dist', 'src');
   const targetRoot = path.join(tempRoot, 'dist');
@@ -646,10 +765,29 @@ test('syncDistRuntime copies fresh compiled files from dist/src into runtime dis
   fs.mkdirSync(path.join(targetRoot, 'status-server'), { recursive: true });
   fs.writeFileSync(path.join(sourceRoot, 'status-server', 'dashboard-runs.js'), 'fresh');
   fs.writeFileSync(path.join(targetRoot, 'status-server', 'dashboard-runs.js'), 'stale');
+  fs.writeFileSync(path.join(targetRoot, 'status-server', 'deleted-worker.js'), 'obsolete');
 
   syncDistRuntime(sourceRoot, targetRoot);
 
   assert.equal(fs.readFileSync(path.join(targetRoot, 'status-server', 'dashboard-runs.js'), 'utf8'), 'fresh');
+  assert.equal(fs.existsSync(path.join(targetRoot, 'status-server', 'deleted-worker.js')), false);
+  assert.equal(fs.existsSync(sourceRoot), false);
+  fs.rmSync(tempRoot, { recursive: true, force: true });
+});
+
+test('cleanCompiledOutputs removes the complete dist output tree', () => {
+  const tempRoot = createManagedTempDir('clean-compiled-runtime-');
+  const distRoot = path.join(tempRoot, 'dist');
+  fs.mkdirSync(path.join(distRoot, 'src'), { recursive: true });
+  fs.mkdirSync(path.join(distRoot, 'scripts'), { recursive: true });
+  fs.writeFileSync(path.join(distRoot, 'src', 'stale.js'), 'obsolete');
+  fs.writeFileSync(path.join(distRoot, 'scripts', 'stale.js'), 'obsolete');
+  fs.writeFileSync(path.join(distRoot, 'deleted-top-level.js'), 'obsolete');
+  fs.writeFileSync(path.join(distRoot, 'keep.txt'), 'obsolete');
+
+  cleanCompiledOutputs(distRoot);
+
+  assert.equal(fs.existsSync(distRoot), false);
   fs.rmSync(tempRoot, { recursive: true, force: true });
 });
 

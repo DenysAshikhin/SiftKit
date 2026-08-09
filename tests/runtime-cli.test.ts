@@ -269,7 +269,7 @@ test('local-only find-files CLI works without the external server', async () => 
     fs.writeFileSync(path.join(findRoot, 'package.json'), '{"name":"fixture"}', 'utf8');
     const result = spawnSync(
       process.execPath,
-      [path.join(repoRoot, 'bin', 'siftkit.js'), 'find-files', '--path', findRoot, 'package.json'],
+        [path.join(repoRoot, 'bin', 'siftkit.js'), 'find-files', '--path', findRoot, 'package.json'],
       {
         cwd: process.cwd(),
         encoding: 'utf8',

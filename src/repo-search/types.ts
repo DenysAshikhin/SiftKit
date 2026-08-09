@@ -52,12 +52,13 @@ export type RepoSearchProgressEvent = {
   entries?: ActivitySummaryEntry[];
 };
 
-export type RepoSearchMockCommandResult = {
-  exitCode?: number;
-  stdout?: string;
-  stderr?: string;
-  delayMs?: number;
-};
+export const RepoSearchMockCommandResultSchema = z.strictObject({
+  exitCode: z.number().int().finite().optional(),
+  stdout: z.string().optional(),
+  stderr: z.string().optional(),
+  delayMs: z.number().nonnegative().finite().optional(),
+});
+export type RepoSearchMockCommandResult = z.infer<typeof RepoSearchMockCommandResultSchema>;
 
 export type RepoSearchExecutionRequest = {
   presetId: string;

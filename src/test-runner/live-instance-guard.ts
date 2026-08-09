@@ -14,12 +14,13 @@ import type { ClientRequestArgs } from 'node:http';
  * so it runs inside every process the suite touches — including the production CLIs and
  * servers the tests spawn. Anything it imports is injected into those processes' module
  * graphs, which both slows them down and stops them from exercising the artifact they ship.
- * The ports therefore arrive as env from scripts/run-tests.ts, which reads them from
+ * The ports therefore arrive as env from src/test-runner/run-tests.ts, which reads them from
  * src/config/constants.ts, and tests/live-instance-guard.test.ts asserts the hand-off lands
  * on SIFT_DEFAULT_STATUS_PORT and SIFT_DEFAULT_LLAMA_PORT so the two cannot drift apart.
  *
- * It lives under scripts/ so tsconfig.scripts.json compiles it to dist/scripts alongside the
- * runner. Preloading the compiled .js is what keeps the tsx loader out of NODE_OPTIONS: tsx
+ * It lives under src/test-runner/ so the main TypeScript build first emits a transient staging
+ * copy, then sync flattens it to dist/test-runner alongside the runner. Preloading the compiled
+ * .js is what keeps the tsx loader out of NODE_OPTIONS: tsx
  * would otherwise reach every spawned CLI and transpile the ESM dist/** tree into CommonJS.
  */
 function readGuardedPort(envName: string): string {
@@ -27,7 +28,7 @@ function readGuardedPort(envName: string): string {
   if (!port) {
     throw new Error(
       `${envName} is not set, so the live-instance guard cannot tell which port to protect. `
-      + 'Run the suite through scripts/run-tests.ts, which supplies it.',
+      + 'Run the suite through src/test-runner/run-tests.ts, which supplies it.',
     );
   }
   return port;
