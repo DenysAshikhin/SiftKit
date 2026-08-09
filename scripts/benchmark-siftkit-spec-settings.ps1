@@ -843,7 +843,7 @@ function Invoke-RepoSearchCli {
 
     Push-Location $script:RepoRoot
     try {
-        $rawResult = & node .\scripts\invoke-repo-search-benchmark.js `
+        $rawResult = & node .\scripts\invoke-repo-search-benchmark.cjs `
             --prompt-file $promptPath `
             --stdout-path $stdoutPath `
             --stderr-path $stderrPath `

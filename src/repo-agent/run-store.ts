@@ -1,10 +1,9 @@
 import {
-  closeSync,
   existsSync,
-  openSync,
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
 } from 'node:fs';
 import { join } from 'node:path';
 
@@ -17,29 +16,24 @@ import {
 } from '../lib/process-inspector.js';
 import {
   RepoAgentApprovalSchema,
-  RepoAgentDecisionSchema,
+  RepoAgentRunIdSchema,
   RepoAgentRunStateSchema,
   RepoAgentRunRequestSchema,
   isActiveStatus,
   isTerminalStatus,
   type RepoAgentApproval,
-  type RepoAgentDecision,
   type RepoAgentRunRequest,
   type RepoAgentRunState,
 } from './run-schemas.js';
 import { RepoAgentRunStateLease } from './run-state-lease.js';
 
-const RunIdSchema = z.string().uuid();
 const RevisionSchema = z.number().int().nonnegative();
 
 function serialize(value: object): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-function workerPid(state: RepoAgentRunState): number | undefined {
-  if (state.status === 'starting') {
-    return undefined;
-  }
+function ownerPid(state: RepoAgentRunState): number | undefined {
   return state.pid;
 }
 
@@ -52,6 +46,27 @@ export class RepoAgentRunStore {
 
   getRunsRoot(): string {
     return this.runsRoot;
+  }
+
+  hasRun(runId: string): boolean {
+    try {
+      const runPath = this.runDir(runId);
+      if (!statSync(runPath).isDirectory()) {
+        throw new Error(`Run path is not a directory: ${runPath}.`);
+      }
+      return true;
+    } catch (error) {
+      if (
+        error !== null
+        && typeof error === 'object'
+        && 'code' in error
+        && typeof error.code === 'string'
+        && (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+      ) {
+        return false;
+      }
+      throw error;
+    }
   }
 
   create(input: RepoAgentRunRequest): RepoAgentRunState {
@@ -69,6 +84,7 @@ export class RepoAgentRunStore {
         revision: 0,
         updatedAtUtc: new Date().toISOString(),
         status: 'starting',
+        pid: process.pid,
       });
       saveContentAtomically(this.statePath(request.runId), serialize(state));
       return state;
@@ -132,13 +148,6 @@ export class RepoAgentRunStore {
       if (current.status !== 'running') {
         throw new Error('An approval can only be published from running state.');
       }
-      if (
-        existsSync(this.decisionPath(validatedRunId))
-        || existsSync(this.decisionClaimPath(validatedRunId))
-      ) {
-        throw new Error('A decision already exists for this run.');
-      }
-
       const approval = RepoAgentApprovalSchema.parse(input);
       const next = RepoAgentRunStateSchema.parse({
         runId: validatedRunId,
@@ -153,78 +162,6 @@ export class RepoAgentRunStore {
     } finally {
       lease.release();
     }
-  }
-
-  submitDecision(input: RepoAgentDecision): void {
-    const decision = RepoAgentDecisionSchema.parse(input);
-    const runId = this.validRunId(decision.runId);
-    const current = this.readStateFile(runId);
-    if (current.status !== 'approval_required') {
-      throw new Error(`Run ${runId} has no pending approval.`);
-    }
-    if (current.revision !== decision.observedRevision) {
-      throw new Error(
-        `Stale revision: expected ${current.revision}, received ${decision.observedRevision}.`,
-      );
-    }
-    if (current.approval.approvalId !== decision.approvalId) {
-      throw new Error('The decision approval ID does not match the pending approval.');
-    }
-
-    const decisionPath = this.decisionPath(runId);
-    const claimPath = this.decisionClaimPath(runId);
-    if (existsSync(decisionPath) || existsSync(claimPath)) {
-      throw new Error('A decision was already submitted for this approval.');
-    }
-
-    try {
-      const descriptor = openSync(claimPath, 'wx');
-      closeSync(descriptor);
-    } catch (error) {
-      if (existsSync(claimPath)) {
-        throw new Error('A decision was already submitted for this approval.');
-      }
-      throw error;
-    }
-
-    try {
-      saveContentAtomically(decisionPath, serialize(decision));
-    } catch (error) {
-      rmSync(claimPath, { force: true });
-      throw error;
-    }
-  }
-
-  consumeDecision(
-    runId: string,
-    approvalId: string,
-    expectedRevision: number,
-  ): RepoAgentDecision | null {
-    const validatedRunId = this.validRunId(runId);
-    const validatedApprovalId = z.string().uuid().parse(approvalId);
-    const validatedRevision = RevisionSchema.parse(expectedRevision);
-    const current = this.readStateFile(validatedRunId);
-    if (
-      current.status !== 'approval_required'
-      || current.revision !== validatedRevision
-      || current.approval.approvalId !== validatedApprovalId
-    ) {
-      return null;
-    }
-
-    const decisionPath = this.decisionPath(validatedRunId);
-    if (!existsSync(decisionPath)) {
-      return null;
-    }
-    const decision = this.readDecisionFile(validatedRunId);
-    if (
-      decision.approvalId !== validatedApprovalId
-      || decision.observedRevision !== validatedRevision
-    ) {
-      return null;
-    }
-    rmSync(decisionPath, { force: true });
-    return decision;
   }
 
   clearPendingApproval(
@@ -243,8 +180,6 @@ export class RepoAgentRunStore {
         throw new Error(`Run ${validatedRunId} has no pending approval_required state.`);
       }
 
-      rmSync(this.decisionPath(validatedRunId), { force: true });
-      rmSync(this.decisionClaimPath(validatedRunId), { force: true });
       const shared = {
         runId: validatedRunId,
         revision: validatedRevision + 1,
@@ -277,7 +212,7 @@ export class RepoAgentRunStore {
       if (isTerminalStatus(current.status)) {
         return current;
       }
-      const pid = workerPid(current);
+      const pid = ownerPid(current);
       const next = RepoAgentRunStateSchema.parse({
         runId: validatedRunId,
         revision: current.revision + 1,
@@ -302,12 +237,12 @@ export class RepoAgentRunStore {
     if (!isActiveStatus(state.status)) {
       return state;
     }
-    const pid = workerPid(state);
+    const pid = ownerPid(state);
     if (pid === undefined || inspector.isAlive(pid)) {
       return state;
     }
     try {
-      this.transition(runId, state.revision, {
+      return this.transition(runId, state.revision, {
         runId,
         revision: state.revision + 1,
         updatedAtUtc: new Date().toISOString(),
@@ -315,10 +250,18 @@ export class RepoAgentRunStore {
         pid,
         error: `Owning server process ${pid} died while the run was active.`,
       });
-    } catch {
-      // Another writer advanced the state first; the fresh read below wins.
+    } catch (error) {
+      let freshState: RepoAgentRunState;
+      try {
+        freshState = this.readState(runId);
+      } catch {
+        throw error;
+      }
+      if (freshState.revision === state.revision) {
+        throw error;
+      }
+      return freshState;
     }
-    return this.readState(runId);
   }
 
   pruneTerminalRuns(retentionDays: number, now: Date): string[] {
@@ -334,7 +277,7 @@ export class RepoAgentRunStore {
       if (!entry.isDirectory()) {
         continue;
       }
-      const runId = RunIdSchema.safeParse(entry.name);
+      const runId = RepoAgentRunIdSchema.safeParse(entry.name);
       if (!runId.success) {
         continue;
       }
@@ -358,7 +301,7 @@ export class RepoAgentRunStore {
   }
 
   private validRunId(runId: string): string {
-    const parsed = RunIdSchema.safeParse(runId);
+    const parsed = RepoAgentRunIdSchema.safeParse(runId);
     if (!parsed.success) {
       throw new Error(`Invalid runId: ${runId}`);
     }
@@ -375,14 +318,6 @@ export class RepoAgentRunStore {
 
   private statePath(runId: string): string {
     return join(this.runDir(runId), 'state.json');
-  }
-
-  private decisionPath(runId: string): string {
-    return join(this.runDir(runId), 'decision.json');
-  }
-
-  private decisionClaimPath(runId: string): string {
-    return join(this.runDir(runId), 'decision.claim');
   }
 
   private stateLease(runId: string): RepoAgentRunStateLease {
@@ -416,17 +351,6 @@ export class RepoAgentRunStore {
     }
   }
 
-  private readDecisionFile(runId: string): RepoAgentDecision {
-    try {
-      return parseJsonText(
-        readFileSync(this.decisionPath(runId), 'utf8'),
-        RepoAgentDecisionSchema,
-      );
-    } catch {
-      throw new Error(`Malformed decision file for run ${runId}.`);
-    }
-  }
-
   private assertCurrentRevision(
     current: RepoAgentRunState,
     expectedRevision: number,
@@ -442,9 +366,9 @@ export class RepoAgentRunStore {
     current: RepoAgentRunState,
     next: RepoAgentRunState,
   ): void {
-    const currentPid = workerPid(current);
-    if (currentPid !== undefined && workerPid(next) !== currentPid) {
-      throw new Error('A run must preserve its worker pid across transitions.');
+    const currentPid = ownerPid(current);
+    if (currentPid !== undefined && ownerPid(next) !== currentPid) {
+      throw new Error('A run must preserve its owning server pid across transitions.');
     }
   }
 

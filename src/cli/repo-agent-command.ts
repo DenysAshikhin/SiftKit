@@ -1,23 +1,20 @@
-import { randomUUID } from 'node:crypto';
-
 import { ensureStatusServerReachable } from '../config/index.js';
 import {
-  RepoAgentBoundaryWaiter,
-  repoAgentStateToResult,
-} from '../repo-agent/boundary-waiter.js';
-import {
-  RepoAgentDecisionSchema,
   RepoAgentRunResultSchema,
-  RepoAgentRunRequestSchema,
   type RepoAgentRunResult,
+  type RepoAgentRunState,
 } from '../repo-agent/run-schemas.js';
-import type { RepoAgentRunStore } from '../repo-agent/run-store.js';
-import type { RepoAgentProcessLauncher } from '../repo-agent/worker-launcher.js';
-import type {
-  RepoAgentInvocation,
-} from './repo-agent-args.js';
+import type { RepoAgentDecideRequest } from '../repo-agent/api-schemas.js';
+import { CliApprovalPrompter, type ApprovalPrompter } from './approval-prompter.js';
+import { CliProgressRenderer } from './progress-renderer.js';
+import type { RepoAgentInvocation } from './repo-agent-args.js';
 import { REPO_AGENT_EXIT_CODES } from './repo-agent-help.js';
-import { runRepoAgentForegroundCli } from './run-repo-agent-foreground.js';
+import { buildRepoAgentServerRequest } from './repo-agent-request.js';
+import type { StatusServerApiClient } from './status-server-api-client.js';
+import { assertStdinIsTty } from './tty.js';
+import { RepoAgentDecideRequestSchema } from '../repo-agent/api-schemas.js';
+
+export type RepoAgentApi = Pick<StatusServerApiClient, 'requestRepoAgent' | 'requestRepoAgentDecide' | 'requestRepoAgentStatus'>;
 
 export type RepoAgentCommandStreams = {
   stdin?: NodeJS.ReadableStream & { isTTY?: boolean };
@@ -46,136 +43,88 @@ function buildApprovalRequiredNotice(
   return `${lines.join('\n')}\n`;
 }
 
-export class RepoAgentCommand {
-  private readonly store: RepoAgentRunStore;
-  private readonly launcher: RepoAgentProcessLauncher;
-  private readonly repoRoot: string;
+/** Write and wait for the chunk to reach the OS pipe before returning an exit code. */
+function writeFlushed(stream: NodeJS.WritableStream, value: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    stream.write(value, (error) => error ? reject(error) : resolve());
+  });
+}
 
-  constructor(options: {
-    store: RepoAgentRunStore;
-    launcher: RepoAgentProcessLauncher;
-    repoRoot: string;
-  }) {
-    this.store = options.store;
-    this.launcher = options.launcher;
-    this.repoRoot = options.repoRoot;
+export class RepoAgentCommand {
+  private readonly api: RepoAgentApi;
+
+  constructor(options: { api: RepoAgentApi }) {
+    this.api = options.api;
   }
 
-  async run(
-    invocation: RepoAgentInvocation,
-    streams: RepoAgentCommandStreams,
-  ): Promise<number> {
+  async run(invocation: RepoAgentInvocation, streams: RepoAgentCommandStreams): Promise<number> {
     switch (invocation.kind) {
       case 'start':
-        await ensureStatusServerReachable();
-        return streams.stdin?.isTTY === true
-          ? this.runTtyStart(invocation, streams)
-          : this.runNonTtyStart(invocation, streams);
+        return this.runStart(invocation, streams);
       case 'decide':
-        return this.runDecision(invocation, streams);
+        return this.runDecide(invocation, streams);
       case 'status':
         return this.runStatus(invocation, streams);
     }
   }
 
-  private runTtyStart(
+  private async runStart(
     invocation: Extract<RepoAgentInvocation, { kind: 'start' }>,
     streams: RepoAgentCommandStreams,
   ): Promise<number> {
-    return runRepoAgentForegroundCli({
-      invocation,
-      stdout: streams.stdout,
-      stderr: streams.stderr,
-      stdin: streams.stdin,
-    });
-  }
-
-  private async runNonTtyStart(
-    invocation: Extract<RepoAgentInvocation, { kind: 'start' }>,
-    streams: RepoAgentCommandStreams,
-  ): Promise<number> {
-    const runId = randomUUID();
-    const request = RepoAgentRunRequestSchema.parse({
-      runId,
+    await ensureStatusServerReachable();
+    const interactive = invocation.approval === 'interactive';
+    assertStdinIsTty(interactive, streams.stdin, 'repo-agent interactive approval');
+    const prompter: ApprovalPrompter | undefined = interactive && streams.stdin
+      ? new CliApprovalPrompter({ input: streams.stdin, output: streams.stderr })
+      : undefined;
+    const renderer = CliProgressRenderer.forCli(streams.stderr, 'repo-agent', invocation.progress);
+    const request = buildRepoAgentServerRequest({
       task: invocation.task,
-      repoRoot: this.repoRoot,
+      repoRoot: process.cwd(),
       approval: invocation.approval,
       images: invocation.images,
       ...(invocation.model === undefined ? {} : { model: invocation.model }),
-      ...(invocation.logFile === undefined
-        ? {}
-        : { logFile: invocation.logFile }),
+      ...(invocation.logFile === undefined ? {} : { logFile: invocation.logFile }),
     });
-    this.store.create(request);
-    try {
-      this.launcher.launch(runId);
-    } catch (error) {
-      const state = this.store.readState(runId);
-      if (state.status !== 'failed') {
-        throw error;
-      }
-      return this.writeResult(repoAgentStateToResult(state), streams);
-    }
-    const result = await new RepoAgentBoundaryWaiter({
-      store: this.store,
-      runId,
-    }).waitForBoundary(0);
+    const result = await this.api.requestRepoAgent(request, renderer, prompter);
     return this.writeResult(result, streams);
   }
 
-  private async runDecision(
+  private async runDecide(
     invocation: Extract<RepoAgentInvocation, { kind: 'decide' }>,
     streams: RepoAgentCommandStreams,
   ): Promise<number> {
-    const current = this.store.readState(invocation.runId);
-    if (current.status !== 'approval_required') {
-      throw new Error(`Run ${invocation.runId} has no pending approval.`);
-    }
-    const decision = RepoAgentDecisionSchema.parse(
-      invocation.decision === 'deny'
-        ? {
-            runId: invocation.runId,
-            approvalId: current.approval.approvalId,
-            observedRevision: current.revision,
-            decision: 'deny',
-            reason: invocation.reason,
-          }
-        : {
-            runId: invocation.runId,
-            approvalId: current.approval.approvalId,
-            observedRevision: current.revision,
-            decision: invocation.decision,
-          },
-    );
-    this.store.submitDecision(decision);
-    const result = await new RepoAgentBoundaryWaiter({
-      store: this.store,
+    await ensureStatusServerReachable();
+    const renderer = CliProgressRenderer.forCli(streams.stderr, 'repo-agent', invocation.progress);
+    const request: RepoAgentDecideRequest = RepoAgentDecideRequestSchema.parse({
       runId: invocation.runId,
-    }).waitForBoundary(current.revision);
+      decision: invocation.decision,
+      ...(invocation.reason === undefined ? {} : { reason: invocation.reason }),
+    });
+    const result = await this.api.requestRepoAgentDecide(request, renderer);
     return this.writeResult(result, streams);
   }
 
-  private runStatus(
+  private async runStatus(
     invocation: Extract<RepoAgentInvocation, { kind: 'status' }>,
     streams: RepoAgentCommandStreams,
-  ): number {
-    const state = new RepoAgentBoundaryWaiter({
-      store: this.store,
-      runId: invocation.runId,
-    }).reconcileOnce();
-    streams.stdout.write(`${JSON.stringify(state)}\n`);
+  ): Promise<number> {
+    await ensureStatusServerReachable();
+    const state: RepoAgentRunState = await this.api.requestRepoAgentStatus(invocation.runId);
+    await writeFlushed(streams.stdout, `${JSON.stringify(state)}\n`);
     return 0;
   }
 
-  private writeResult(
+  private async writeResult(
     input: RepoAgentRunResult,
     streams: RepoAgentCommandStreams,
-  ): number {
+  ): Promise<number> {
     const result = RepoAgentRunResultSchema.parse(input);
     if (result.status === 'approval_required') {
-      streams.stderr.write(buildApprovalRequiredNotice(result));
+      await writeFlushed(streams.stderr, buildApprovalRequiredNotice(result));
     }
-    streams.stdout.write(`${JSON.stringify(result)}\n`);
+    await writeFlushed(streams.stdout, `${JSON.stringify(result)}\n`);
     return REPO_AGENT_EXIT_CODES[result.status];
   }
 }

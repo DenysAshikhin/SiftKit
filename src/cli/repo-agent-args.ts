@@ -25,6 +25,7 @@ export const RepoAgentDecideInvocationSchema = z.object({
   runId: z.string().uuid(),
   decision: RepoAgentDecisionKindSchema,
   reason: z.string().trim().min(1).optional(),
+  progress: z.boolean(),
 });
 
 export const RepoAgentStatusInvocationSchema = z.object({
@@ -159,6 +160,7 @@ function parseDecideInvocation(tokens: string[]): RepoAgentInvocation {
   const decision = parsedDecision.data;
 
   let reason: string | undefined;
+  let progress = false;
   for (let index = 3; index < tokens.length; index += 1) {
     const token = tokens[index];
     if (token === '--reason') {
@@ -167,6 +169,10 @@ function parseDecideInvocation(tokens: string[]): RepoAgentInvocation {
       }
       reason = readOptionValue(tokens, index, token);
       index += 1;
+      continue;
+    }
+    if (token === '--progress') {
+      progress = true;
       continue;
     }
     if (token.startsWith('-')) {
@@ -183,6 +189,7 @@ function parseDecideInvocation(tokens: string[]): RepoAgentInvocation {
     kind: 'decide',
     runId,
     decision,
+    progress,
   } as const;
   return RepoAgentDecideInvocationSchema.parse(
     reason === undefined ? invocation : { ...invocation, reason },

@@ -14,6 +14,8 @@ import type { ModelIdleController } from './model-idle-controller.js';
 import type { DeferredArtifact } from '../state/status-artifacts.js';
 import type { StatusRunRegistry } from './status-run-registry.js';
 import type { ChatSessionOperationRegistry } from './chat-session-operation-registry.js';
+import type { RepoAgentRunStore } from '../repo-agent/run-store.js';
+import type { RepoAgentSessionManager } from './repo-agent-sessions.js';
 export type { DeferredArtifact };
 export type { ModelRequestQueueDiagnostics } from '../lib/operation-stream.js';
 
@@ -78,6 +80,8 @@ export type ServerContext = {
   readonly idleSummarySnapshotsPath: string;
   readonly disableManagedLlamaStartup: boolean;
   readonly engineService: StatusEngineService;
+  readonly repoAgentRunStore: RepoAgentRunStore;
+  readonly repoAgentSessions: RepoAgentSessionManager;
   presetRuntimeCoordinator?: PresetRuntimeCoordinator;
   modelIdleController?: ModelIdleController;
   appliedModelPresetState: AppliedModelPresetState;

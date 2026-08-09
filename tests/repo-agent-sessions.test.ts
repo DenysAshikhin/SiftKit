@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import test from 'node:test';
+import test, { after, type TestContext } from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
@@ -9,17 +9,22 @@ import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import { buildMockScorecard } from './_test-helpers.js';
 import { parseRepoSearchRequest } from '../src/status-server/route-request-normalizers.js';
 import { createRepoSearchAdmissionRecord } from '../src/status-server/repo-search-admissions.js';
-import { RepoAgentRunRequestSchema } from '../src/repo-agent/run-schemas.js';
+import {
+  RepoAgentRunRequestSchema,
+  type RepoAgentRunState,
+} from '../src/repo-agent/run-schemas.js';
+import { RepoAgentDecideRequestSchema } from '../src/repo-agent/api-schemas.js';
 import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
 import {
   RepoAgentSessionManager,
   type RepoAgentEngine,
   type RepoAgentEngineRequest,
   type RepoAgentModelLockAdapter,
+  type RepoAgentSession,
   type RepoAgentSessionSubscriber,
 } from '../src/status-server/repo-agent-sessions.js';
 import type { RepoSearchExecutionRequest, RepoSearchExecutionResult, RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import type { ApprovalGate } from '../src/repo-search/engine/approval-gate.js';
+import type { ApprovalGate, ApprovalMode } from '../src/repo-search/engine/approval-gate.js';
 
 function makeEngineResult(finalOutput: string): RepoSearchExecutionResult {
   return {
@@ -50,6 +55,12 @@ class FailingEngine implements RepoAgentEngine {
   }
 }
 
+class EmptyErrorEngine implements RepoAgentEngine {
+  async executeRepoSearch(_request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
+    throw new Error('');
+  }
+}
+
 class ParkingEngine implements RepoAgentEngine {
   async executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
     const gate = request.approvalGate;
@@ -69,19 +80,32 @@ class ParkingEngine implements RepoAgentEngine {
   }
 }
 
+class FailingFailureStore extends RepoAgentRunStore {
+  override clearPendingApproval(
+    _runId: string,
+    _expectedRevision: number,
+    _status: RepoAgentRunState['status'],
+  ): RepoAgentRunState {
+    throw new Error('durable decision transition failed');
+  }
+
+  override transition(
+    runId: string,
+    expectedRevision: number,
+    next: RepoAgentRunState,
+  ): RepoAgentRunState {
+    if (next.status === 'failed') {
+      throw new Error('durable failure transition failed');
+    }
+    return super.transition(runId, expectedRevision, next);
+  }
+}
+
 class RecordingSubscriber implements RepoAgentSessionSubscriber {
   events: RepoSearchProgressEvent[] = [];
   writeProgress(event: RepoSearchProgressEvent): void {
     this.events.push(event);
   }
-}
-
-function setupTestEnv(): { tempRoot: string; previousCwd: string } {
-  const tempRoot = createManagedTempDir('siftkit-session-test-');
-  const previousCwd = process.cwd();
-  fs.writeFileSync(path.join(tempRoot, 'package.json'), JSON.stringify({ name: 'siftkit', version: '0.1.0' }), 'utf8');
-  process.chdir(tempRoot);
-  return { tempRoot, previousCwd };
 }
 
 function makeTestStore(tempRoot: string): RepoAgentRunStore {
@@ -114,37 +138,435 @@ function makeEngineRequest(tempRoot: string): RepoAgentEngineRequest {
   };
 }
 
+async function waitWithTimeout<T>(promise: Promise<T>, timeoutMs = 1_000): Promise<T> {
+  let timeoutHandle: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutHandle = setTimeout(() => reject(new Error('timed out waiting for session settlement')), timeoutMs);
+    timeoutHandle.unref();
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
+
+type SessionTestHarnessOptions = {
+  engine: RepoAgentEngine;
+  approvalMode: ApprovalMode;
+  locks?: RepoAgentModelLockAdapter;
+  decisionTimeoutMs?: number;
+};
+
+let cwdLeaseTail: Promise<void> = Promise.resolve();
+let activeHarnessCount = 0;
+let cwdLeaseOwnerCount = 0;
+const originalCwd = process.cwd();
+
+function errorFromThrown<T>(error: T): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+function throwCleanupErrors(errors: readonly Error[], context: string): void {
+  if (errors.length === 0) {
+    return;
+  }
+  if (errors.length === 1) {
+    throw errors[0];
+  }
+  throw new AggregateError(errors, context);
+}
+
+after(() => {
+  assert.equal(activeHarnessCount, 0, 'all session harnesses must be finalized');
+  assert.equal(cwdLeaseOwnerCount, 0, 'the CWD lease must have no owner');
+  assert.equal(process.cwd(), originalCwd, 'the original CWD must be restored');
+});
+
+function isCleanupReadyStatus(status: RepoAgentRunState['status']): boolean {
+  return status === 'approval_required'
+    || status === 'completed'
+    || status === 'failed'
+    || status === 'aborted'
+    || status === 'approval_timeout';
+}
+
+async function acquireCwdLease(): Promise<() => void> {
+  const previousLease = cwdLeaseTail;
+  let release: (() => void) | undefined;
+  cwdLeaseTail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previousLease;
+  if (!release) {
+    throw new Error('CWD lease release was not initialized.');
+  }
+  const releaseLease = release;
+  cwdLeaseOwnerCount += 1;
+  let released = false;
+  return () => {
+    if (released) {
+      return;
+    }
+    released = true;
+    cwdLeaseOwnerCount -= 1;
+    releaseLease();
+  };
+}
+
+class SessionTestHarness {
+  readonly tempRoot: string;
+  readonly runId: string;
+  readonly requestId: string;
+  readonly approvalMode: ApprovalMode;
+  readonly engine: RepoAgentEngine;
+  readonly locks: RepoAgentModelLockAdapter;
+  readonly approvalGates = new Map<string, ApprovalGate>();
+  readonly admission: ReturnType<typeof makeAdmission>;
+  readonly engineRequest: RepoAgentEngineRequest;
+
+  private readonly previousCwd: string;
+  private readonly releaseCwd: () => void;
+  private currentStore: RepoAgentRunStore;
+  private readonly decisionTimeoutMs: number | undefined;
+  private managerValue: RepoAgentSessionManager | undefined;
+  private sessionValue: RepoAgentSession | undefined;
+  private cleanupPromise: Promise<void> | undefined;
+  private cleanupCompleted = false;
+  private cleanupObserverAttached = false;
+  private cleanupWaiterCancelled = false;
+
+  private constructor(options: {
+    tempRoot: string;
+    previousCwd: string;
+    releaseCwd: () => void;
+    engine: RepoAgentEngine;
+    approvalMode: ApprovalMode;
+    locks: RepoAgentModelLockAdapter;
+    decisionTimeoutMs?: number;
+  }) {
+    this.tempRoot = options.tempRoot;
+    this.previousCwd = options.previousCwd;
+    this.releaseCwd = options.releaseCwd;
+    this.engine = options.engine;
+    this.approvalMode = options.approvalMode;
+    this.locks = options.locks;
+    this.decisionTimeoutMs = options.decisionTimeoutMs;
+    this.currentStore = makeTestStore(this.tempRoot);
+    this.runId = randomUUID();
+    this.requestId = randomUUID();
+    this.admission = makeAdmission(this.tempRoot);
+    this.engineRequest = makeEngineRequest(this.tempRoot);
+  }
+
+  static async create(
+    options: SessionTestHarnessOptions,
+    context: TestContext,
+  ): Promise<SessionTestHarness> {
+    const releaseCwd = await acquireCwdLease();
+    let previousCwd: string | undefined;
+    let tempRoot: string | undefined;
+    let harness: SessionTestHarness | undefined;
+    try {
+      const capturedPreviousCwd = process.cwd();
+      previousCwd = capturedPreviousCwd;
+      tempRoot = createManagedTempDir('siftkit-session-test-');
+      fs.writeFileSync(
+        path.join(tempRoot, 'package.json'),
+        JSON.stringify({ name: 'siftkit', version: '0.1.0' }),
+        'utf8',
+      );
+      process.chdir(tempRoot);
+      harness = new SessionTestHarness({
+        tempRoot,
+        previousCwd: capturedPreviousCwd,
+        releaseCwd,
+        engine: options.engine,
+        approvalMode: options.approvalMode,
+        locks: options.locks ?? new ImmediateLockAdapter(),
+        ...(options.decisionTimeoutMs === undefined
+          ? {}
+          : { decisionTimeoutMs: options.decisionTimeoutMs }),
+      });
+    } catch (error) {
+      const cleanupErrors: Error[] = [];
+      try {
+        closeRuntimeDatabase();
+      } catch (cleanupError) {
+        cleanupErrors.push(errorFromThrown(cleanupError));
+      }
+      if (previousCwd !== undefined) {
+        try {
+          process.chdir(previousCwd);
+        } catch (cleanupError) {
+          cleanupErrors.push(errorFromThrown(cleanupError));
+        }
+      }
+      try {
+        if (tempRoot) {
+          fs.rmSync(tempRoot, { recursive: true, force: true });
+        }
+      } catch (cleanupError) {
+        cleanupErrors.push(errorFromThrown(cleanupError));
+      }
+      try {
+        releaseCwd();
+      } catch (cleanupError) {
+        cleanupErrors.push(errorFromThrown(cleanupError));
+      }
+      if (cleanupErrors.length > 0) {
+        throw new AggregateError(
+          [errorFromThrown(error), ...cleanupErrors],
+          'Session harness creation and rollback failed.',
+        );
+      }
+      throw error;
+    }
+    if (!harness) {
+      throw new Error('Session harness creation did not produce a harness.');
+    }
+    const createdHarness = harness;
+    activeHarnessCount += 1;
+    try {
+      context.after(() => createdHarness.cleanup());
+    } catch (error) {
+      const cleanupErrors: Error[] = [];
+      try {
+        await createdHarness.cleanup();
+      } catch (cleanupError) {
+        cleanupErrors.push(errorFromThrown(cleanupError));
+      }
+      if (cleanupErrors.length > 0) {
+        throw new AggregateError(
+          [errorFromThrown(error), ...cleanupErrors],
+          'Session harness teardown registration failed.',
+        );
+      }
+      throw error;
+    }
+    return createdHarness;
+  }
+
+  get store(): RepoAgentRunStore {
+    return this.currentStore;
+  }
+
+  get manager(): RepoAgentSessionManager {
+    if (!this.managerValue) {
+      this.managerValue = new RepoAgentSessionManager({
+        store: this.currentStore,
+        engine: this.engine,
+      });
+    }
+    return this.managerValue;
+  }
+
+  get lockReleaseCount(): number {
+    return this.locks instanceof ImmediateLockAdapter ? this.locks.releases : 0;
+  }
+
+  get cleanupObserverWasDetached(): boolean {
+    return !this.cleanupObserverAttached;
+  }
+
+  get cleanupWaiterWasCancelled(): boolean {
+    return this.cleanupWaiterCancelled;
+  }
+
+  replaceStore(store: RepoAgentRunStore): void {
+    if (this.managerValue || this.sessionValue) {
+      throw new Error('The session test store must be replaced before starting the session.');
+    }
+    this.currentStore = store;
+  }
+
+  start(): RepoAgentSession {
+    if (this.sessionValue) {
+      throw new Error('The session test harness can start only one session.');
+    }
+    this.store.create(RepoAgentRunRequestSchema.parse({
+      runId: this.runId,
+      task: 'test task',
+      repoRoot: this.tempRoot,
+      approval: this.approvalMode,
+    }));
+    const session = this.manager.start({
+      runId: this.runId,
+      requestId: this.requestId,
+      admission: this.admission,
+      approvalMode: this.approvalMode,
+      locks: this.locks,
+      approvalGates: this.approvalGates,
+      engineRequest: this.engineRequest,
+      ...(this.decisionTimeoutMs === undefined
+        ? {}
+        : { decisionTimeoutMs: this.decisionTimeoutMs }),
+    });
+    this.sessionValue = session;
+    return session;
+  }
+
+  async cleanup(): Promise<void> {
+    if (this.cleanupCompleted && this.cleanupPromise) {
+      return this.cleanupPromise;
+    }
+    if (!this.cleanupPromise) {
+      this.cleanupPromise = this.finalizeCleanup();
+    }
+    return this.cleanupPromise;
+  }
+
+  private async finalizeCleanup(): Promise<void> {
+    const errors: Error[] = [];
+    try {
+      const session = this.sessionValue;
+      if (session) {
+        try {
+          await this.waitForCleanupSignals(session);
+        } catch (error) {
+          errors.push(errorFromThrown(error));
+        }
+        try {
+          if (session.getState().status === 'approval_required') {
+            session.submitDecision({ runId: this.runId, decision: 'abort' });
+          }
+        } catch (error) {
+          errors.push(errorFromThrown(error));
+        }
+        try {
+          await session.settled;
+        } catch (error) {
+          errors.push(errorFromThrown(error));
+        }
+      }
+    } finally {
+      try {
+        closeRuntimeDatabase();
+      } catch (error) {
+        errors.push(errorFromThrown(error));
+      }
+      try {
+        process.chdir(this.previousCwd);
+      } catch (error) {
+        errors.push(errorFromThrown(error));
+      }
+      try {
+        fs.rmSync(this.tempRoot, { recursive: true, force: true });
+      } catch (error) {
+        errors.push(errorFromThrown(error));
+      }
+      try {
+        this.releaseCwd();
+      } catch (error) {
+        errors.push(errorFromThrown(error));
+      }
+      try {
+        activeHarnessCount -= 1;
+      } catch (error) {
+        errors.push(errorFromThrown(error));
+      }
+      this.cleanupCompleted = true;
+    }
+    throwCleanupErrors(errors, 'Session harness cleanup failed.');
+  }
+
+  private async waitForCleanupSignals(session: RepoAgentSession): Promise<void> {
+    if (isCleanupReadyStatus(session.getState().status)) {
+      return;
+    }
+    const abortController = new AbortController();
+    const boundaryObservation = session.waitForBoundary(
+      session.currentRevision(),
+      abortController.signal,
+    ).then(
+      () => undefined,
+      () => undefined,
+    );
+    const settledObservation = session.settled.then(
+      () => undefined,
+      () => undefined,
+    );
+    let resolveApprovalRequest: () => void = () => undefined;
+    const approvalObservation = new Promise<void>((resolve) => {
+      resolveApprovalRequest = resolve;
+    });
+    let detach: (() => void) | undefined;
+    try {
+      detach = session.attach({
+        writeProgress: (event: RepoSearchProgressEvent): void => {
+          if (event.kind === 'approval_request') {
+            resolveApprovalRequest();
+          }
+        },
+      });
+      this.cleanupObserverAttached = true;
+      if (!isCleanupReadyStatus(session.getState().status)) {
+        await Promise.race([
+          boundaryObservation,
+          approvalObservation,
+          settledObservation,
+        ]);
+      }
+    } finally {
+      if (detach) {
+        detach();
+        this.cleanupObserverAttached = false;
+      }
+      abortController.abort();
+      this.cleanupWaiterCancelled = true;
+    }
+  }
+}
+
 // ---- Tests ----
 
-test('Completion: engine returns immediately, boundary resolves completed, lock released', async () => {
-  const { tempRoot, previousCwd } = setupTestEnv();
-  try {
-    const store = makeTestStore(tempRoot);
-    const admission = makeAdmission(tempRoot);
-    const locks = new ImmediateLockAdapter();
-    const engine = new CompletingEngine();
-    const approvalGates = new Map<string, ApprovalGate>();
-    const runId = randomUUID();
-    const requestId = randomUUID();
-    const engineRequest = makeEngineRequest(tempRoot);
+test('Decision contracts require a deny reason and preserve it after parsing', () => {
+  assert.equal(
+    RepoAgentDecideRequestSchema.safeParse({
+      runId: randomUUID(),
+      decision: 'deny',
+    }).success,
+    false,
+  );
+  const parsed = RepoAgentDecideRequestSchema.parse({
+    runId: randomUUID(),
+    decision: 'deny',
+    reason: 'not now',
+  });
+  assert.equal(parsed.decision, 'deny');
+  if (parsed.decision === 'deny') {
+    assert.equal(parsed.reason, 'not now');
+  }
+});
 
-    store.create(RepoAgentRunRequestSchema.parse({
-      runId,
-      task: 'test task',
-      repoRoot: tempRoot,
-      approval: 'off',
-    }));
+test('Session decisions require the owning run ID', async (t) => {
+  const harness = await SessionTestHarness.create({
+    engine: new ParkingEngine(),
+    approvalMode: 'auto',
+  }, t);
+  const session = harness.start();
+    const parked = await session.waitForBoundary(0);
+    assert.equal(parked.status, 'approval_required');
 
-    const manager = new RepoAgentSessionManager({ store, engine });
-    const session = manager.start({
-      runId,
-      requestId,
-      admission,
-      approvalMode: 'off',
-      locks,
-      approvalGates,
-      engineRequest,
+    const wrongRunDecision = RepoAgentDecideRequestSchema.parse({
+      runId: randomUUID(),
+      decision: 'deny',
+      reason: 'wrong run',
     });
+    assert.throws(
+      () => session.submitDecision(wrongRunDecision),
+      /run ID/u,
+    );
+});
+
+test('Completion: engine returns immediately, boundary resolves completed, lock released', async (t) => {
+  const harness = await SessionTestHarness.create({
+    engine: new CompletingEngine(),
+    approvalMode: 'off',
+  }, t);
+  const session = harness.start();
 
     const boundary = await session.waitForBoundary(0);
     assert.equal(boundary.status, 'completed');
@@ -152,107 +574,84 @@ test('Completion: engine returns immediately, boundary resolves completed, lock 
       assert.ok(boundary.output.includes('done'), `output should contain "done": ${boundary.output}`);
     }
     await session.settled;
-    assert.equal(locks.releases, 1);
-    const finalState = store.readState(runId);
+    assert.equal(harness.lockReleaseCount, 1);
+    const finalState = harness.store.readState(harness.runId);
     assert.equal(finalState.status, 'completed');
-  } finally {
-    process.chdir(previousCwd);
-    closeRuntimeDatabase();
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-  }
 });
 
-test('Park boundary: ParkingEngine parks at approval_required with populated decide commands', async () => {
-  const { tempRoot, previousCwd } = setupTestEnv();
-  try {
-    const store = makeTestStore(tempRoot);
-    const admission = makeAdmission(tempRoot);
-    const locks = new ImmediateLockAdapter();
-    const engine = new ParkingEngine();
-    const approvalGates = new Map<string, ApprovalGate>();
-    const runId = randomUUID();
-    const requestId = randomUUID();
-    const engineRequest = makeEngineRequest(tempRoot);
-
-    store.create(RepoAgentRunRequestSchema.parse({
-      runId,
-      task: 'test task',
-      repoRoot: tempRoot,
-      approval: 'auto',
-    }));
-
-    const manager = new RepoAgentSessionManager({ store, engine });
-    const session = manager.start({
-      runId,
-      requestId,
-      admission,
-      approvalMode: 'auto',
-      locks,
-      approvalGates,
-      engineRequest,
-    });
+test('Park boundary: ParkingEngine parks at approval_required with populated decide commands', async (t) => {
+  const harness = await SessionTestHarness.create({
+    engine: new ParkingEngine(),
+    approvalMode: 'auto',
+  }, t);
+  const session = harness.start();
 
     const boundary = await session.waitForBoundary(0);
-    try {
-      assert.equal(boundary.status, 'approval_required');
-      if (boundary.status === 'approval_required') {
-        assert.equal(boundary.approval.toolName, 'run');
-        assert.ok(boundary.decide.approve.includes('approve'));
-        assert.ok(boundary.decide.deny.includes('deny'));
-        assert.ok(boundary.decide.abort.includes('abort'));
-      }
-      const state = store.readState(runId);
-      assert.equal(state.status, 'approval_required');
-      if (state.status === 'approval_required') {
-        assert.equal(state.pid, process.pid);
-      }
-    } finally {
-      session.submitDecision({ decision: 'abort' });
-      await session.settled;
+
+    assert.equal(boundary.status, 'approval_required');
+    if (boundary.status === 'approval_required') {
+      assert.equal(boundary.approval.toolName, 'run');
+      assert.ok(boundary.decide.approve.includes('approve'));
+      assert.ok(boundary.decide.deny.includes('deny'));
+      assert.ok(boundary.decide.abort.includes('abort'));
     }
-  } finally {
-    process.chdir(previousCwd);
-    closeRuntimeDatabase();
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-  }
+    const state = harness.store.readState(harness.runId);
+    assert.equal(state.status, 'approval_required');
+    if (state.status === 'approval_required') {
+      assert.equal(state.pid, process.pid);
+    }
 });
 
-test('Approve resume: submitDecision approve resumes engine to completion', async () => {
-  const { tempRoot, previousCwd } = setupTestEnv();
-  try {
-    const store = makeTestStore(tempRoot);
-    const admission = makeAdmission(tempRoot);
-    const locks = new ImmediateLockAdapter();
-    const engine = new ParkingEngine();
-    const approvalGates = new Map<string, ApprovalGate>();
-    const runId = randomUUID();
-    const requestId = randomUUID();
-    const engineRequest = makeEngineRequest(tempRoot);
+test('Harness cleanup waits for an auto approval park and is idempotent', async (t) => {
+  const timeoutCountBefore = process.getActiveResourcesInfo()
+    .filter((resource) => resource === 'Timeout').length;
+  const harness = await SessionTestHarness.create({
+    engine: new ParkingEngine(),
+    approvalMode: 'auto',
+  }, t);
+  const session = harness.start();
 
-    store.create(RepoAgentRunRequestSchema.parse({
-      runId,
-      task: 'test task',
-      repoRoot: tempRoot,
-      approval: 'auto',
-    }));
+  await harness.cleanup();
+  assert.equal(session.getState().status, 'aborted');
+  assert.equal(harness.cleanupObserverWasDetached, true);
+  assert.equal(harness.cleanupWaiterWasCancelled, true);
+  assert.equal(harness.approvalGates.size, 0);
+  assert.equal(
+    process.getActiveResourcesInfo().filter((resource) => resource === 'Timeout').length,
+    timeoutCountBefore,
+  );
 
-    const manager = new RepoAgentSessionManager({ store, engine });
-    const session = manager.start({
-      runId,
-      requestId,
-      admission,
-      approvalMode: 'auto',
-      locks,
-      approvalGates,
-      engineRequest,
-    });
+  await harness.cleanup();
+});
+
+test('Harness cleanup observes interactive approval before aborting', async (t) => {
+  const harness = await SessionTestHarness.create({
+    engine: new ParkingEngine(),
+    approvalMode: 'interactive',
+  }, t);
+  const session = harness.start();
+
+  await harness.cleanup();
+  assert.equal(session.getState().status, 'aborted');
+  assert.equal(harness.cleanupObserverWasDetached, true);
+  assert.equal(harness.cleanupWaiterWasCancelled, true);
+  assert.equal(harness.approvalGates.size, 0);
+});
+
+test('Approve resume: submitDecision approve resumes engine to completion', async (t) => {
+  const harness = await SessionTestHarness.create({
+    engine: new ParkingEngine(),
+    approvalMode: 'auto',
+  }, t);
+  const session = harness.start();
 
     const parkBoundary = await session.waitForBoundary(0);
     assert.equal(parkBoundary.status, 'approval_required');
     const parkRevision = session.currentRevision();
 
-    const accepted = session.submitDecision({ decision: 'approve' });
+    const accepted = session.submitDecision({ runId: harness.runId, decision: 'approve' });
     assert.equal(accepted, true);
+    assert.equal(session.submitDecision({ runId: harness.runId, decision: 'approve' }), false);
 
     const finalBoundary = await session.waitForBoundary(parkRevision);
     assert.equal(finalBoundary.status, 'completed');
@@ -260,50 +659,26 @@ test('Approve resume: submitDecision approve resumes engine to completion', asyn
       assert.ok(finalBoundary.output.includes('installed'));
     }
     await session.settled;
-    const finalState = store.readState(runId);
+    const finalState = harness.store.readState(harness.runId);
     assert.equal(finalState.status, 'completed');
-  } finally {
-    process.chdir(previousCwd);
-    closeRuntimeDatabase();
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-  }
 });
 
-test('Deny resume: submitDecision deny resumes engine with denied output', async () => {
-  const { tempRoot, previousCwd } = setupTestEnv();
-  try {
-    const store = makeTestStore(tempRoot);
-    const admission = makeAdmission(tempRoot);
-    const locks = new ImmediateLockAdapter();
-    const engine = new ParkingEngine();
-    const approvalGates = new Map<string, ApprovalGate>();
-    const runId = randomUUID();
-    const requestId = randomUUID();
-    const engineRequest = makeEngineRequest(tempRoot);
-
-    store.create(RepoAgentRunRequestSchema.parse({
-      runId,
-      task: 'test task',
-      repoRoot: tempRoot,
-      approval: 'auto',
-    }));
-
-    const manager = new RepoAgentSessionManager({ store, engine });
-    const session = manager.start({
-      runId,
-      requestId,
-      admission,
-      approvalMode: 'auto',
-      locks,
-      approvalGates,
-      engineRequest,
-    });
+test('Deny resume: submitDecision deny resumes engine with denied output', async (t) => {
+  const harness = await SessionTestHarness.create({
+    engine: new ParkingEngine(),
+    approvalMode: 'auto',
+  }, t);
+  const session = harness.start();
 
     const parkBoundary = await session.waitForBoundary(0);
     assert.equal(parkBoundary.status, 'approval_required');
     const parkRevision = session.currentRevision();
 
-    const accepted = session.submitDecision({ decision: 'deny', reason: 'not now' });
+    const accepted = session.submitDecision({
+      runId: harness.runId,
+      decision: 'deny',
+      reason: 'not now',
+    });
     assert.equal(accepted, true);
 
     const finalBoundary = await session.waitForBoundary(parkRevision);
@@ -312,93 +687,37 @@ test('Deny resume: submitDecision deny resumes engine with denied output', async
       assert.ok(finalBoundary.output.includes('denied: not now'));
     }
     await session.settled;
-  } finally {
-    process.chdir(previousCwd);
-    closeRuntimeDatabase();
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-  }
 });
 
-test('Abort: submitDecision abort resolves to aborted boundary, settled resolves cleanly', async () => {
-  const { tempRoot, previousCwd } = setupTestEnv();
-  try {
-    const store = makeTestStore(tempRoot);
-    const admission = makeAdmission(tempRoot);
-    const locks = new ImmediateLockAdapter();
-    const engine = new ParkingEngine();
-    const approvalGates = new Map<string, ApprovalGate>();
-    const runId = randomUUID();
-    const requestId = randomUUID();
-    const engineRequest = makeEngineRequest(tempRoot);
-
-    store.create(RepoAgentRunRequestSchema.parse({
-      runId,
-      task: 'test task',
-      repoRoot: tempRoot,
-      approval: 'auto',
-    }));
-
-    const manager = new RepoAgentSessionManager({ store, engine });
-    const session = manager.start({
-      runId,
-      requestId,
-      admission,
-      approvalMode: 'auto',
-      locks,
-      approvalGates,
-      engineRequest,
-    });
+test('Abort: submitDecision abort resolves to aborted boundary, settled resolves cleanly', async (t) => {
+  const harness = await SessionTestHarness.create({
+    engine: new ParkingEngine(),
+    approvalMode: 'auto',
+  }, t);
+  const session = harness.start();
 
     const parkBoundary = await session.waitForBoundary(0);
     assert.equal(parkBoundary.status, 'approval_required');
     const parkRevision = session.currentRevision();
 
-    const accepted = session.submitDecision({ decision: 'abort' });
+    const accepted = session.submitDecision({ runId: harness.runId, decision: 'abort' });
     assert.equal(accepted, true);
 
     const finalBoundary = await session.waitForBoundary(parkRevision);
     assert.equal(finalBoundary.status, 'aborted');
 
     await session.settled;
-    const finalState = store.readState(runId);
+    const finalState = harness.store.readState(harness.runId);
     assert.equal(finalState.status, 'aborted');
-  } finally {
-    process.chdir(previousCwd);
-    closeRuntimeDatabase();
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-  }
 });
 
-test('Timeout: decisionTimeoutMs expires, boundary resolves approval_timeout, engine abort does not overwrite', async () => {
-  const { tempRoot, previousCwd } = setupTestEnv();
-  try {
-    const store = makeTestStore(tempRoot);
-    const admission = makeAdmission(tempRoot);
-    const locks = new ImmediateLockAdapter();
-    const engine = new ParkingEngine();
-    const approvalGates = new Map<string, ApprovalGate>();
-    const runId = randomUUID();
-    const requestId = randomUUID();
-    const engineRequest = makeEngineRequest(tempRoot);
-
-    store.create(RepoAgentRunRequestSchema.parse({
-      runId,
-      task: 'test task',
-      repoRoot: tempRoot,
-      approval: 'auto',
-    }));
-
-    const manager = new RepoAgentSessionManager({ store, engine });
-    const session = manager.start({
-      runId,
-      requestId,
-      admission,
-      approvalMode: 'auto',
-      locks,
-      approvalGates,
-      engineRequest,
-      decisionTimeoutMs: 25,
-    });
+test('Timeout: decisionTimeoutMs expires, boundary resolves approval_timeout, engine abort does not overwrite', async (t) => {
+  const harness = await SessionTestHarness.create({
+    engine: new ParkingEngine(),
+    approvalMode: 'auto',
+    decisionTimeoutMs: 25,
+  }, t);
+  const session = harness.start();
 
     const parkBoundary = await session.waitForBoundary(0);
     assert.equal(parkBoundary.status, 'approval_required');
@@ -408,44 +727,16 @@ test('Timeout: decisionTimeoutMs expires, boundary resolves approval_timeout, en
     assert.equal(timeoutBoundary.status, 'approval_timeout');
 
     await session.settled;
-    const finalState = store.readState(runId);
+    const finalState = harness.store.readState(harness.runId);
     assert.equal(finalState.status, 'approval_timeout');
-  } finally {
-    process.chdir(previousCwd);
-    closeRuntimeDatabase();
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-  }
 });
 
-test('Interactive park is not a boundary: subscriber receives approval_request, waitForBoundary stays pending', async () => {
-  const { tempRoot, previousCwd } = setupTestEnv();
-  try {
-    const store = makeTestStore(tempRoot);
-    const admission = makeAdmission(tempRoot);
-    const locks = new ImmediateLockAdapter();
-    const engine = new ParkingEngine();
-    const approvalGates = new Map<string, ApprovalGate>();
-    const runId = randomUUID();
-    const requestId = randomUUID();
-    const engineRequest = makeEngineRequest(tempRoot);
-
-    store.create(RepoAgentRunRequestSchema.parse({
-      runId,
-      task: 'test task',
-      repoRoot: tempRoot,
-      approval: 'interactive',
-    }));
-
-    const manager = new RepoAgentSessionManager({ store, engine });
-    const session = manager.start({
-      runId,
-      requestId,
-      admission,
-      approvalMode: 'interactive',
-      locks,
-      approvalGates,
-      engineRequest,
-    });
+test('Interactive park is not a boundary: subscriber receives approval_request, waitForBoundary stays pending', async (t) => {
+  const harness = await SessionTestHarness.create({
+    engine: new ParkingEngine(),
+    approvalMode: 'interactive',
+  }, t);
+  const session = harness.start();
 
     const subscriber = new RecordingSubscriber();
     session.attach(subscriber);
@@ -464,7 +755,7 @@ test('Interactive park is not a boundary: subscriber receives approval_request, 
     assert.ok(approvalEvent, 'subscriber should receive approval_request event');
 
     // Submit approve via the gate in the approvalGates map
-    const gate = approvalGates.get(requestId);
+    const gate = harness.approvalGates.get(harness.requestId);
     assert.ok(gate, 'gate should be registered in approvalGates map');
     if (gate && approvalEvent) {
       const approvalId = approvalEvent.approvalId;
@@ -478,42 +769,14 @@ test('Interactive park is not a boundary: subscriber receives approval_request, 
       assert.ok(finalBoundary.output.includes('installed'));
     }
     await session.settled;
-  } finally {
-    process.chdir(previousCwd);
-    closeRuntimeDatabase();
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-  }
 });
 
-test('Suppression: approvalMode auto, subscriber never sees approval_request', async () => {
-  const { tempRoot, previousCwd } = setupTestEnv();
-  try {
-    const store = makeTestStore(tempRoot);
-    const admission = makeAdmission(tempRoot);
-    const locks = new ImmediateLockAdapter();
-    const engine = new ParkingEngine();
-    const approvalGates = new Map<string, ApprovalGate>();
-    const runId = randomUUID();
-    const requestId = randomUUID();
-    const engineRequest = makeEngineRequest(tempRoot);
-
-    store.create(RepoAgentRunRequestSchema.parse({
-      runId,
-      task: 'test task',
-      repoRoot: tempRoot,
-      approval: 'auto',
-    }));
-
-    const manager = new RepoAgentSessionManager({ store, engine });
-    const session = manager.start({
-      runId,
-      requestId,
-      admission,
-      approvalMode: 'auto',
-      locks,
-      approvalGates,
-      engineRequest,
-    });
+test('Suppression: approvalMode auto, subscriber never sees approval_request', async (t) => {
+  const harness = await SessionTestHarness.create({
+    engine: new ParkingEngine(),
+    approvalMode: 'auto',
+  }, t);
+  const session = harness.start();
 
     const subscriber = new RecordingSubscriber();
     session.attach(subscriber);
@@ -526,44 +789,16 @@ test('Suppression: approvalMode auto, subscriber never sees approval_request', a
     assert.equal(approvalEvent, undefined, 'subscriber must not receive approval_request in auto mode');
 
     // Clean up: abort the parked run
-    session.submitDecision({ decision: 'abort' });
+    session.submitDecision({ runId: harness.runId, decision: 'abort' });
     await session.settled;
-  } finally {
-    process.chdir(previousCwd);
-    closeRuntimeDatabase();
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-  }
 });
 
-test('Engine failure: engine rejects, boundary resolves failed, lock released', async () => {
-  const { tempRoot, previousCwd } = setupTestEnv();
-  try {
-    const store = makeTestStore(tempRoot);
-    const admission = makeAdmission(tempRoot);
-    const locks = new ImmediateLockAdapter();
-    const engine = new FailingEngine();
-    const approvalGates = new Map<string, ApprovalGate>();
-    const runId = randomUUID();
-    const requestId = randomUUID();
-    const engineRequest = makeEngineRequest(tempRoot);
-
-    store.create(RepoAgentRunRequestSchema.parse({
-      runId,
-      task: 'test task',
-      repoRoot: tempRoot,
-      approval: 'off',
-    }));
-
-    const manager = new RepoAgentSessionManager({ store, engine });
-    const session = manager.start({
-      runId,
-      requestId,
-      admission,
-      approvalMode: 'off',
-      locks,
-      approvalGates,
-      engineRequest,
-    });
+test('Engine failure: engine rejects, boundary resolves failed, lock released', async (t) => {
+  const harness = await SessionTestHarness.create({
+    engine: new FailingEngine(),
+    approvalMode: 'off',
+  }, t);
+  const session = harness.start();
 
     const boundary = await session.waitForBoundary(0);
     assert.equal(boundary.status, 'failed');
@@ -571,48 +806,65 @@ test('Engine failure: engine rejects, boundary resolves failed, lock released', 
       assert.ok(boundary.error.includes('engine exploded'));
     }
     await session.settled;
-    assert.equal(locks.releases, 1);
-    const finalState = store.readState(runId);
+    assert.equal(harness.lockReleaseCount, 1);
+    const finalState = harness.store.readState(harness.runId);
     assert.equal(finalState.status, 'failed');
-  } finally {
-    process.chdir(previousCwd);
-    closeRuntimeDatabase();
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-  }
 });
 
-test('Lock timeout: adapter returns null, boundary resolves failed with queue message', async () => {
-  const { tempRoot, previousCwd } = setupTestEnv();
-  try {
-    const store = makeTestStore(tempRoot);
-    const admission = makeAdmission(tempRoot);
-    const locks: RepoAgentModelLockAdapter = {
-      acquire: async () => null,
-      queueLength: () => 0,
-    };
-    const engine = new CompletingEngine();
-    const approvalGates = new Map<string, ApprovalGate>();
-    const runId = randomUUID();
-    const requestId = randomUUID();
-    const engineRequest = makeEngineRequest(tempRoot);
+test('Empty engine failure still publishes a non-empty authoritative failed state', async (t) => {
+  const harness = await SessionTestHarness.create({
+    engine: new EmptyErrorEngine(),
+    approvalMode: 'off',
+  }, t);
+  const session = harness.start();
 
-    store.create(RepoAgentRunRequestSchema.parse({
-      runId,
-      task: 'test task',
-      repoRoot: tempRoot,
-      approval: 'off',
-    }));
+    const boundary = await waitWithTimeout(session.waitForBoundary(0));
+    assert.equal(boundary.status, 'failed');
+    if (boundary.status === 'failed') {
+      assert.ok(boundary.error.trim().length > 0);
+    }
+    await waitWithTimeout(session.settled);
+    const state = harness.store.readState(harness.runId);
+    assert.equal(state.status, 'failed');
+    if (state.status === 'failed') {
+      assert.ok(state.error.trim().length > 0);
+    }
+    assert.equal(session.hasUnpersistedTerminalState(), false);
+});
 
-    const manager = new RepoAgentSessionManager({ store, engine });
-    const session = manager.start({
-      runId,
-      requestId,
-      admission,
-      approvalMode: 'off',
-      locks,
-      approvalGates,
-      engineRequest,
-    });
+test('Admission persistence failure does not block the durable engine failure transition', async (t) => {
+  const harness = await SessionTestHarness.create({
+    engine: new FailingEngine(),
+    approvalMode: 'off',
+  }, t);
+  const runtimeDatabasePath = path.join(harness.tempRoot, '.siftkit', 'runtime.sqlite');
+    fs.mkdirSync(runtimeDatabasePath, { recursive: true });
+    const session = harness.start();
+
+    const failed = await session.waitForBoundary(0);
+    assert.equal(failed.status, 'failed');
+    if (failed.status === 'failed') {
+      assert.match(failed.error, /engine exploded/u);
+    }
+    await session.settled;
+    const state = harness.store.readState(harness.runId);
+    assert.equal(state.status, 'failed');
+    if (state.status === 'failed') {
+      assert.match(state.error, /engine exploded/u);
+    }
+});
+
+test('Lock timeout: adapter returns null, boundary resolves failed with queue message', async (t) => {
+  const locks: RepoAgentModelLockAdapter = {
+    acquire: async () => null,
+    queueLength: () => 0,
+  };
+  const harness = await SessionTestHarness.create({
+    engine: new CompletingEngine(),
+    approvalMode: 'off',
+    locks,
+  }, t);
+  const session = harness.start();
 
     const boundary = await session.waitForBoundary(0);
     assert.equal(boundary.status, 'failed');
@@ -623,11 +875,51 @@ test('Lock timeout: adapter returns null, boundary resolves failed with queue me
       );
     }
     await session.settled;
-    const finalState = store.readState(runId);
+    const finalState = harness.store.readState(harness.runId);
     assert.equal(finalState.status, 'failed');
-  } finally {
-    process.chdir(previousCwd);
-    closeRuntimeDatabase();
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-  }
+});
+
+test('Boundary cancellation removes only the disconnected waiter and leaves the session resumable', async (t) => {
+  const harness = await SessionTestHarness.create({
+    engine: new ParkingEngine(),
+    approvalMode: 'auto',
+  }, t);
+  const session = harness.start();
+    const parked = await session.waitForBoundary(0);
+    assert.equal(parked.status, 'approval_required');
+    const controller = new AbortController();
+    const disconnected = session.waitForBoundary(session.currentRevision(), controller.signal);
+
+    controller.abort(new Error('client disconnected'));
+
+    await assert.rejects(disconnected, /client disconnected/u);
+    assert.equal(session.submitDecision({ runId: harness.runId, decision: 'approve' }), true);
+    assert.equal((await session.waitForBoundary(session.currentRevision())).status, 'completed');
+    await session.settled;
+});
+
+test('Persistence failure while deciding retains the authoritative failed session state', async (t) => {
+  const harness = await SessionTestHarness.create({
+    engine: new ParkingEngine(),
+    approvalMode: 'auto',
+  }, t);
+  const runsRoot = path.join(harness.tempRoot, '.siftkit', 'repo-agent', 'runs');
+    fs.mkdirSync(runsRoot, { recursive: true });
+    harness.replaceStore(new FailingFailureStore(runsRoot));
+    const session = harness.start();
+    const parked = await session.waitForBoundary(0);
+    assert.equal(parked.status, 'approval_required');
+    const finalBoundary = session.waitForBoundary(session.currentRevision());
+
+    assert.equal(session.submitDecision({ runId: harness.runId, decision: 'approve' }), true);
+
+    const failed = await finalBoundary;
+    assert.equal(failed.status, 'failed');
+    if (failed.status === 'failed') {
+      assert.match(failed.error, /Approval observer failed/u);
+    }
+    assert.equal(session.getState().status, 'failed');
+    assert.equal(session.hasUnpersistedTerminalState(), true);
+    assert.equal(harness.manager.get(harness.runId), session);
+    await session.settled;
 });

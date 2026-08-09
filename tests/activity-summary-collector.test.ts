@@ -152,7 +152,7 @@ test('classifies test commands by recognized patterns', () => {
   const testCommands = [
     'npm test',
     'npm run test',
-    'node .\\dist\\scripts\\run-tests.js',
+    'node .\\dist\\test-runner\\run-tests.js',
     'npx vitest',
     'npx jest',
     'pytest',

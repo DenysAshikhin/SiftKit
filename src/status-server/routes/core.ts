@@ -2,6 +2,7 @@
  * Core API routes: health, status, execution lease, repo-search, and config.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { randomUUID } from 'node:crypto';
 
 import { z } from '../../lib/zod.js';
 import { toError } from '../../lib/errors.js';
@@ -23,6 +24,7 @@ import type {
 import { mergeToolTypeStats } from '../../line-read-guidance.js';
 import { getRuntimeRoot } from '../paths.js';
 import { sleep } from '../../lib/time.js';
+import { OPERATION_STREAM_EVENTS } from '../../lib/operation-stream.js';
 import { upsertRuntimeJsonArtifact } from '../../state/runtime-artifacts.js';
 import {
   readBody,
@@ -30,7 +32,7 @@ import {
   sendBodyReadError,
   sendJson,
 } from '../http-utils.js';
-import { sendServerErrorJson } from '../error-response.js';
+import { recordServerError, sendServerErrorJson } from '../error-response.js';
 import {
   STATUS_TRUE,
   parseRunning,
@@ -40,6 +42,7 @@ import {
 import { normalizeMetrics, writeMetrics, type TaskKind, type ToolTypeStats } from '../metrics.js';
 import { recordWebSearchUsage } from '../web-search-usage.js';
 import { ExternalServerRestartError } from '../preset-runtime-coordinator.js';
+import { rejectNestedAgentSelfCall } from '../nested-agent-call-guard.js';
 import {
   getActiveModelPreset,
   readConfig,
@@ -68,11 +71,9 @@ import {
 } from '../../repo-search/planner-protocol.js';
 import {
   ApprovalGate,
-  ApprovalModeSchema,
   RepoSearchApprovalRequestSchema,
   toApprovalDecision,
 } from '../../repo-search/engine/approval-gate.js';
-import type { ApprovalMode } from '../../repo-search/engine/approval-gate.js';
 import { StatusPresetRunner } from '../preset-runner.js';
 import {
   LoggedRepoSearchSseProgressWriter,
@@ -98,6 +99,19 @@ import {
   type RepoSearchAdmissionRecord,
 } from '../repo-search-admissions.js';
 import { RepeatSuppressor } from '../repeat-suppressor.js';
+import { SseResponseWriter } from '../sse-response-writer.js';
+import {
+  RepoAgentRunIdSchema,
+  RepoAgentRunRequestSchema,
+  isTerminalStatus,
+  repoAgentStateToResult,
+} from '../../repo-agent/run-schemas.js';
+import { ServerModelLockAdapter } from '../repo-agent-lock-adapter.js';
+import type { RepoAgentSession } from '../repo-agent-sessions.js';
+import {
+  RepoAgentDecideRequestSchema,
+  RepoAgentStartRequestSchema,
+} from '../../repo-agent/api-schemas.js';
 import { formatElapsed } from '../../lib/time.js';
 import {
   getPublishedStatusText,
@@ -858,10 +872,9 @@ type ParsedRepoSearchRoute = {
   admission: RepoSearchAdmissionRecord;
 };
 
-abstract class RepoTaskEndpoint extends StreamedOperationEndpoint<ParsedRepoSearchRoute> {
+class RepoSearchEndpoint extends StreamedOperationEndpoint<ParsedRepoSearchRoute> {
   protected readonly lockKind = 'repo_search';
   protected readonly taskKind = 'repo-search';
-  protected abstract readonly mode: 'search' | 'agent';
 
   protected parseRequest(parsedBody: JsonObject, ctx: ServerContext): ParsedStreamedRequest<ParsedRepoSearchRoute> {
     const repoSearchRequest = parseRepoSearchRequest(parsedBody);
@@ -896,11 +909,9 @@ abstract class RepoTaskEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
     const requestedAllowedTools = Array.isArray(parsedBody.allowedTools)
       ? parsedBody.allowedTools.map((value) => String(value))
       : undefined;
-    // Agent always gets the full surface; approval mode is interactive|auto|off (default auto).
-    // Search keeps its existing interactive/sanitize logic.
-    const approvalMode = this.resolveApprovalMode(parsedBody, interactive);
+    const approvalMode = interactive ? 'interactive' : 'off';
     const approvalOn = approvalMode !== 'off';
-    const allowedTools = (this.mode === 'agent' || interactive)
+    const allowedTools = interactive
       ? [...INTERACTIVE_REPO_TOOL_NAMES]
       : sanitizeNonInteractiveAllowedTools(requestedAllowedTools);
     const progressWriter = new LoggedRepoSearchSseProgressWriter(stream, admission.requestId);
@@ -909,7 +920,7 @@ abstract class RepoTaskEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
         requestId: admission.requestId,
         progressWriter,
         abortSignal: stream.abortSignal,
-        bypassReadOnlyTools: this.mode === 'agent',
+        bypassReadOnlyTools: false,
       })
       : undefined;
     if (approvalGate) {
@@ -917,8 +928,8 @@ abstract class RepoTaskEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
     }
     try {
       const result = await ctx.engineService.executeRepoSearch({
-        presetId: this.mode === 'agent' ? 'repo-agent' : 'repo-search',
-        taskKind: this.mode === 'agent' ? 'repo-agent' : 'repo-search',
+        presetId: 'repo-search',
+        taskKind: 'repo-search',
         prompt: repoSearchRequest.prompt,
         requestId: admission.requestId,
         startedAtUtc: admission.startedAtUtc,
@@ -947,25 +958,201 @@ abstract class RepoTaskEndpoint extends StreamedOperationEndpoint<ParsedRepoSear
       }
     }
   }
+}
 
-  private resolveApprovalMode(parsedBody: JsonObject, interactive: boolean): ApprovalMode {
-    if (this.mode !== 'agent') {
-      return interactive ? 'interactive' : 'off';
+async function streamSessionBoundary(
+  session: RepoAgentSession,
+  req: IncomingMessage,
+  res: ServerResponse,
+  sinceRevision: number,
+): Promise<void> {
+  const writer = new SseResponseWriter(req, res);
+  writer.open();
+  const detach = session.attach({
+    writeProgress: (event) => writer.writeEvent(OPERATION_STREAM_EVENTS.progress, event),
+  });
+  const boundaryController = new AbortController();
+  const handleClose = () => {
+    detach();
+    boundaryController.abort(new Error('Client disconnected.'));
+  };
+  res.on('close', handleClose);
+  try {
+    const result = await session.waitForBoundary(sinceRevision, boundaryController.signal);
+    writer.writeEvent(OPERATION_STREAM_EVENTS.result, result);
+  } catch (error) {
+    if (!boundaryController.signal.aborted) {
+      throw error;
     }
-    const parsed = ApprovalModeSchema.safeParse(parsedBody.approval ?? 'auto');
-    if (!parsed.success) {
-      throw new Error('approval must be one of: interactive, auto, off.');
-    }
-    return parsed.data;
+  } finally {
+    res.off('close', handleClose);
+    detach();
+    writer.end();
   }
 }
 
-class RepoSearchEndpoint extends RepoTaskEndpoint {
-  protected readonly mode = 'search';
+class RepoAgentStartEndpoint implements RouteEndpoint {
+  async handle(ctx: ServerContext, req: IncomingMessage, res: ServerResponse, _match: RouteMatch): Promise<void> {
+    let parsedBody: JsonObject;
+    try {
+      parsedBody = parseJsonBody(await readBody(req));
+    } catch (error) {
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
+      return;
+    }
+    if (rejectNestedAgentSelfCall(ctx, req, res, 'repo-search')) {
+      return;
+    }
+    const parsedRequest = RepoAgentStartRequestSchema.safeParse(parsedBody);
+    if (!parsedRequest.success) {
+      const approvalIssue = parsedRequest.error.issues.some((issue) => issue.path[0] === 'approval');
+      sendJson(res, 400, {
+        error: approvalIssue
+          ? 'approval must be one of: interactive, auto, off.'
+          : 'Invalid repo-agent request.',
+      });
+      return;
+    }
+    const input = parsedRequest.data;
+    const approvalMode = input.approval ?? 'auto';
+    const repoSearchRequest: RepoSearchRouteRequest = {
+      prompt: input.prompt,
+      repoRoot: input.repoRoot ?? process.cwd(),
+      model: input.model ?? null,
+      ...(input.maxTurns === undefined ? {} : { maxTurns: input.maxTurns }),
+      images: input.images ?? [],
+    };
+    const config = readConfig(ctx.configPath);
+    const admission = createRepoSearchAdmissionRecord(repoSearchRequest, config);
+    upsertRepoSearchAdmission(admission);
+    const runId = randomUUID();
+    ctx.repoAgentRunStore.create(RepoAgentRunRequestSchema.parse({
+      runId,
+      task: repoSearchRequest.prompt,
+      repoRoot: admission.repoRoot,
+      approval: approvalMode,
+      ...(repoSearchRequest.model === null ? {} : { model: repoSearchRequest.model }),
+      ...(input.logFile === undefined ? {} : { logFile: input.logFile }),
+      images: repoSearchRequest.images,
+    }));
+    const session = ctx.repoAgentSessions.start({
+      runId,
+      requestId: admission.requestId,
+      admission,
+      approvalMode,
+      locks: new ServerModelLockAdapter(ctx),
+      approvalGates: ctx.approvalGates,
+      engineRequest: {
+        presetId: 'repo-agent',
+        taskKind: 'repo-agent',
+        prompt: repoSearchRequest.prompt,
+        requestId: admission.requestId,
+        startedAtUtc: admission.startedAtUtc,
+        additionalPromptPrefix: input.promptPrefix,
+        repoRoot: admission.repoRoot,
+        statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
+        config,
+        allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
+        model: input.model ?? undefined,
+        maxTurns: input.maxTurns,
+        logFile: input.logFile,
+        availableModels: input.availableModels,
+        mockResponses: input.mockResponses,
+        mockCommandResults: input.mockCommandResults,
+        initialUserImages: repoSearchRequest.images.length > 0 ? repoSearchRequest.images : undefined,
+      },
+    });
+    await streamSessionBoundary(session, req, res, 0);
+  }
 }
 
-class RepoAgentEndpoint extends RepoTaskEndpoint {
-  protected readonly mode = 'agent';
+class RepoAgentDecideEndpoint implements RouteEndpoint {
+  async handle(ctx: ServerContext, req: IncomingMessage, res: ServerResponse, _match: RouteMatch): Promise<void> {
+    let parsedBody: JsonObject;
+    try {
+      parsedBody = parseJsonBody(await readBody(req));
+    } catch (error) {
+      sendBodyReadError(res, toError(error), { error: 'Expected valid JSON object.' });
+      return;
+    }
+    const parsed = RepoAgentDecideRequestSchema.safeParse(parsedBody);
+    if (!parsed.success) {
+      sendJson(res, 400, { error: 'Expected runId, decision (approve|deny|abort), and a reason for deny.' });
+      return;
+    }
+    const { runId } = parsed.data;
+    const session = ctx.repoAgentSessions.get(runId);
+    if (session) {
+      const state = session.getState();
+      if (isTerminalStatus(state.status)) {
+        const writer = new SseResponseWriter(req, res);
+        writer.open();
+        writer.writeEvent(OPERATION_STREAM_EVENTS.result, repoAgentStateToResult(state));
+        writer.end();
+        return;
+      }
+      const observedRevision = session.currentRevision();
+      if (!session.submitDecision(parsed.data)) {
+        const payload = recordServerError(
+          req,
+          409,
+          new Error(`Run ${runId} has no pending approval.`),
+          { taskKind: 'repo-search' },
+        );
+        sendJson(res, 409, payload);
+        return;
+      }
+      await streamSessionBoundary(session, req, res, observedRevision);
+      return;
+    }
+    try {
+      if (!ctx.repoAgentRunStore.hasRun(runId)) {
+        sendJson(res, 404, { error: `Unknown repo-agent run ${runId}.` });
+        return;
+      }
+      const state = ctx.repoAgentRunStore.reconcile(runId);
+      const finalState = isTerminalStatus(state.status)
+        ? state
+        : ctx.repoAgentRunStore.markNotResumable(runId);
+      const writer = new SseResponseWriter(req, res);
+      writer.open();
+      writer.writeEvent(OPERATION_STREAM_EVENTS.result, repoAgentStateToResult(finalState));
+      writer.end();
+    } catch (error) {
+      sendServerErrorJson(req, res, 500, error, { taskKind: 'repo-search', requestId: runId });
+    }
+  }
+}
+
+class RepoAgentStatusEndpoint implements RouteEndpoint {
+  async handle(
+    _ctx: ServerContext,
+    req: IncomingMessage,
+    res: ServerResponse,
+    _match: RouteMatch,
+  ): Promise<void> {
+    const parsedUrl = new URL(req.url || '/', 'http://localhost');
+    const parsedRunId = RepoAgentRunIdSchema.safeParse(parsedUrl.searchParams.get('runId'));
+    if (!parsedRunId.success) {
+      sendJson(res, 400, { error: 'Expected a valid repo-agent runId.' });
+      return;
+    }
+    const runId = parsedRunId.data;
+    const session = _ctx.repoAgentSessions.get(runId);
+    if (session) {
+      sendJson(res, 200, session.getState());
+      return;
+    }
+    try {
+      if (!_ctx.repoAgentRunStore.hasRun(runId)) {
+        sendJson(res, 404, { error: `Unknown repo-agent run ${runId}.` });
+        return;
+      }
+      sendJson(res, 200, _ctx.repoAgentRunStore.reconcile(runId));
+    } catch (error) {
+      sendServerErrorJson(req, res, 500, error, { taskKind: 'repo-agent', requestId: runId });
+    }
+  }
 }
 
 class RepoSearchApprovalEndpoint implements RouteEndpoint {
@@ -1782,7 +1969,9 @@ const CORE_ROUTES = new RouteTable([
   { method: 'POST', path: '/eval/run', endpoint: new EvalRunEndpoint() },
   { method: 'POST', path: '/repo-search/approval', endpoint: new RepoSearchApprovalEndpoint() },
   { method: 'POST', path: '/repo-search', endpoint: new RepoSearchEndpoint() },
-  { method: 'POST', path: '/repo-agent', endpoint: new RepoAgentEndpoint() },
+  { method: 'POST', path: '/repo-agent', endpoint: new RepoAgentStartEndpoint() },
+  { method: 'POST', path: '/repo-agent/decide', endpoint: new RepoAgentDecideEndpoint() },
+  { method: 'GET', path: /^\/repo-agent\/status(?:\?.*)?$/u, endpoint: new RepoAgentStatusEndpoint() },
   { method: 'POST', path: '/summary', endpoint: new SummaryEndpoint() },
   { method: 'POST', path: /^\/status\/complete(?:\?.*)?$/u, endpoint: new StatusCompleteEndpoint() },
   { method: 'POST', path: '/status', endpoint: STATUS_POST_ENDPOINT },

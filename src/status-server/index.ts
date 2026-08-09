@@ -43,6 +43,7 @@ import {
 import { closeRuntimeDatabase, pruneRuntimeHistory } from '../state/runtime-db.js';
 import { getRuntimeHistoryRetentionDays } from '../state/runtime-retention.js';
 import { RepoAgentRunStore } from '../repo-agent/run-store.js';
+import { RepoAgentSessionManager } from './repo-agent-sessions.js';
 import { deleteInferenceRunLogChunksOlderThan } from '../state/inference-runs.js';
 import { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
 import {
@@ -131,16 +132,13 @@ const MANAGED_LLAMA_LOG_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 const DEFAULT_TERMINAL_METADATA_IDLE_DELAY_MS = 10_000;
 const DEFAULT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS = 10_000;
 const RUNTIME_HISTORY_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
-const repoAgentRunStore = new RepoAgentRunStore(
-  join(getRuntimeRoot(), 'repo-agent', 'runs'),
-);
 
 function isRuntimeHistoryPruneDisabled(): boolean {
   const value = String(process.env.SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE || '').trim().toLowerCase();
   return value === '1' || value === 'true' || value === 'yes';
 }
 
-function runRuntimeHistoryPrune(): void {
+function runRuntimeHistoryPrune(repoAgentRunStore: RepoAgentRunStore): void {
   if (isRuntimeHistoryPruneDisabled()) {
     return;
   }
@@ -232,13 +230,17 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   });
 
   // Build the shared mutable context.
+  const engineService = new StatusEngineService();
+  const repoAgentRunStore = new RepoAgentRunStore(join(getRuntimeRoot(), 'repo-agent', 'runs'));
   const ctx: ServerContext = {
     configPath,
     statusPath,
     metricsPath,
     idleSummarySnapshotsPath,
     disableManagedLlamaStartup,
-    engineService: new StatusEngineService(),
+    engineService,
+    repoAgentRunStore,
+    repoAgentSessions: new RepoAgentSessionManager({ store: repoAgentRunStore, engine: engineService }),
     server: null,
     getServiceBaseUrl() {
       const address = ctx.server?.address?.();
@@ -336,7 +338,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     ctx.managedLlamaLogCleanupTimer.unref();
   }
   ctx.runtimeHistoryPruneTimer = setInterval(() => {
-    runRuntimeHistoryPrune();
+    runRuntimeHistoryPrune(repoAgentRunStore);
   }, RUNTIME_HISTORY_PRUNE_INTERVAL_MS);
   if (typeof ctx.runtimeHistoryPruneTimer.unref === 'function') {
     ctx.runtimeHistoryPruneTimer.unref();
@@ -392,7 +394,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       // Defer history prune until after the ready signal so a large initial cleanup
       // (DELETE + WAL checkpoint + optional VACUUM on a multi-GB DB) cannot stall
       // the listen callback or block early request handling.
-      setImmediate(() => runRuntimeHistoryPrune());
+      setImmediate(() => runRuntimeHistoryPrune(repoAgentRunStore));
     } catch (error) {
       rejectStartupPromise(toError(error));
       dumpManagedLlamaStartupReviewToConsole(ctx.managedLlamaLastStartupLogs);

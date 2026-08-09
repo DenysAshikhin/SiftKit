@@ -2,8 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-
-import { getRepoAgentWorkerEntrypoint } from '../src/repo-agent/worker-launcher.js';
+import { pathToFileURL } from 'node:url';
 
 test('test bundling does not rewrite source modules or lie about side effects', () => {
   const builderSource = fs.readFileSync(path.resolve('scripts', 'build-test.ts'), 'utf8');
@@ -21,9 +20,8 @@ test('compiled test entrypoints are isolated wrappers over bundled module graphs
   assert.equal(fs.existsSync(bundle), true, bundle);
 });
 
-test('compiled test modules preserve sibling worker resolution', () => {
-  const workerEntrypoint = getRepoAgentWorkerEntrypoint();
+test('compiled test runner loads only emitted runtime dependencies', async () => {
+  const targetUrl = pathToFileURL(path.resolve('dist', 'test-runner', 'test-targets.js')).href;
 
-  assert.equal(path.basename(workerEntrypoint), 'worker-main.js');
-  assert.equal(fs.existsSync(workerEntrypoint), true, workerEntrypoint);
+  await assert.doesNotReject(import(targetUrl));
 });

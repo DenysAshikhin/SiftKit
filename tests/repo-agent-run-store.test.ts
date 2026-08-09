@@ -13,13 +13,12 @@ import test, { after, before } from 'node:test';
 
 import {
   RepoAgentApprovalSchema,
-  RepoAgentDecisionSchema,
   RepoAgentRunResultSchema,
   RepoAgentRunStateSchema,
   RepoAgentRunRequestSchema,
   type RepoAgentApproval,
-  type RepoAgentDecision,
   type RepoAgentRunRequest,
+  type RepoAgentRunState,
 } from '../src/repo-agent/run-schemas.js';
 import { RepoAgentRunStateLease } from '../src/repo-agent/run-state-lease.js';
 import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
@@ -90,17 +89,24 @@ function publishBoundary(
   return approval;
 }
 
-function makeDecision(
-  request: RepoAgentRunRequest,
-  approval: RepoAgentApproval,
-  decision: 'approve' | 'abort' = 'approve',
-): RepoAgentDecision {
-  return RepoAgentDecisionSchema.parse({
-    runId: request.runId,
-    approvalId: approval.approvalId,
-    observedRevision: 2,
-    decision,
-  });
+class TransitionFailureStore extends RepoAgentRunStore {
+  constructor(
+    runsRoot: string,
+    private readonly advanceBeforeFailure: boolean,
+  ) {
+    super(runsRoot);
+  }
+
+  override transition(
+    runId: string,
+    expectedRevision: number,
+    next: RepoAgentRunState,
+  ): RepoAgentRunState {
+    if (this.advanceBeforeFailure) {
+      super.transition(runId, expectedRevision, next);
+    }
+    throw new Error('injected transition failure');
+  }
 }
 
 test('state schema accepts all six states with durable fields', () => {
@@ -108,7 +114,7 @@ test('state schema accepts all six states with durable fields', () => {
   const updatedAtUtc = new Date().toISOString();
   const approval = makeApproval();
   const states = [
-    { runId, revision: 0, updatedAtUtc, status: 'starting' },
+    { runId, revision: 0, updatedAtUtc, status: 'starting', pid: 123 },
     { runId, revision: 1, updatedAtUtc, status: 'running', pid: 123 },
     {
       runId,
@@ -146,6 +152,7 @@ test('state schema rejects malformed shared and status-specific fields', () => {
   assert.equal(RepoAgentRunStateSchema.safeParse({ ...base, revision: -1, status: 'starting' }).success, false);
   assert.equal(RepoAgentRunStateSchema.safeParse({ ...base, updatedAtUtc: 'today', status: 'starting' }).success, false);
   assert.equal(RepoAgentRunStateSchema.safeParse({ ...base, status: 'running' }).success, false);
+  assert.equal(RepoAgentRunStateSchema.safeParse({ ...base, status: 'starting' }).success, false);
   assert.equal(
     RepoAgentRunStateSchema.safeParse({
       ...base,
@@ -181,46 +188,6 @@ test('approval schema requires complete visible review content', () => {
   );
   assert.equal(
     RepoAgentApprovalSchema.safeParse({ ...makeApproval(), toolName: '' }).success,
-    false,
-  );
-});
-
-test('decision schema requires a reason only for deny', () => {
-  const base = {
-    runId: randomUUID(),
-    approvalId: randomUUID(),
-    observedRevision: 2,
-  };
-  assert.equal(
-    RepoAgentDecisionSchema.safeParse({ ...base, decision: 'approve' }).success,
-    true,
-  );
-  assert.equal(
-    RepoAgentDecisionSchema.safeParse({ ...base, decision: 'deny' }).success,
-    false,
-  );
-  assert.equal(
-    RepoAgentDecisionSchema.safeParse({
-      ...base,
-      decision: 'deny',
-      reason: 'unsafe path',
-    }).success,
-    true,
-  );
-  assert.equal(
-    RepoAgentDecisionSchema.safeParse({
-      ...base,
-      decision: 'approve',
-      reason: 'not applicable',
-    }).success,
-    false,
-  );
-  assert.equal(
-    RepoAgentDecisionSchema.safeParse({
-      ...base,
-      decision: 'abort',
-      reason: 'not applicable',
-    }).success,
     false,
   );
 });
@@ -282,6 +249,58 @@ test('create atomically stores a validated request and revision-zero state', () 
   assert.deepEqual(
     readdirSync(join(runsRoot, request.runId)).sort(),
     ['request.json', 'state.json'],
+  );
+});
+
+test('starting state owns the server PID and reconcile handles dead or live owners', () => {
+  const liveStore = makeStore();
+  const liveRequest = makeRequest();
+  const liveState = liveStore.create(liveRequest);
+  assert.equal(liveState.status, 'starting');
+  assert.match(
+    readFileSync(join(liveStore.getRunsRoot(), liveRequest.runId, 'state.json'), 'utf8'),
+    new RegExp(`"pid": ${process.pid}`, 'u'),
+  );
+  assert.equal(liveStore.reconcile(liveRequest.runId, { isAlive: () => true }).status, 'starting');
+
+  const deadStore = makeStore();
+  const deadRequest = makeRequest();
+  deadStore.create(deadRequest);
+  const reconciled = deadStore.reconcile(deadRequest.runId, { isAlive: () => false });
+  assert.equal(reconciled.status, 'failed');
+  if (reconciled.status === 'failed') {
+    assert.equal(reconciled.pid, process.pid);
+  }
+});
+
+test('hasRun distinguishes an existing run directory from an absent run', () => {
+  const store = makeStore();
+  const request = makeRequest();
+
+  assert.equal(store.hasRun(request.runId), false);
+  store.create(request);
+  assert.equal(store.hasRun(request.runId), true);
+  assert.equal(store.hasRun(randomUUID()), false);
+});
+
+test('hasRun propagates non-absence filesystem failures', () => {
+  const store = new RepoAgentRunStore(`${TEMP_ROOT}${String.fromCharCode(0)}invalid`);
+
+  assert.throws(
+    () => store.hasRun(randomUUID()),
+    (error) => error instanceof TypeError && /null bytes|path/u.test(error.message),
+  );
+});
+
+test('hasRun rejects a run path that exists as a non-directory', () => {
+  const runsRoot = makeRunsRoot();
+  const store = new RepoAgentRunStore(runsRoot);
+  const runId = randomUUID();
+  writeFileSync(join(runsRoot, runId), 'not a run directory', 'utf8');
+
+  assert.throws(
+    () => store.hasRun(runId),
+    /not a directory/iu,
   );
 });
 
@@ -369,7 +388,7 @@ test('transition enforces the current revision, next revision, and run identity'
   );
 });
 
-test('transition preserves a worker PID and rejects terminal rewrites', () => {
+test('transition preserves the owning server PID and rejects terminal rewrites', () => {
   const runsRoot = makeRunsRoot();
   const store = new RepoAgentRunStore(runsRoot);
   const request = makeRequest();
@@ -425,7 +444,7 @@ test('transition cannot overwrite state while another owner holds the state leas
   lease.release();
 });
 
-test('publishApproval preserves PID and does not create a decision', () => {
+test('publishApproval preserves PID and records the pending approval', () => {
   const runsRoot = makeRunsRoot();
   const store = new RepoAgentRunStore(runsRoot);
   const request = makeRequest();
@@ -440,7 +459,6 @@ test('publishApproval preserves PID and does not create a decision', () => {
   }
   assert.equal(state.pid, process.pid);
   assert.deepEqual(state.approval, approval);
-  assert.equal(existsSync(join(runsRoot, request.runId, 'decision.json')), false);
 });
 
 test('publishApproval cannot overwrite state while another owner holds the state lease', () => {
@@ -462,87 +480,12 @@ test('publishApproval cannot overwrite state while another owner holds the state
   lease.release();
 });
 
-test('submitDecision rejects unknown, stale, mismatched, and duplicate decisions', () => {
-  const runsRoot = makeRunsRoot();
-  const store = new RepoAgentRunStore(runsRoot);
-  const unknownRequest = makeRequest();
-  const unknownApproval = makeApproval();
-  assert.throws(
-    () => store.submitDecision(makeDecision(unknownRequest, unknownApproval)),
-    /not found|unknown/iu,
-  );
-  assert.equal(existsSync(join(runsRoot, unknownRequest.runId)), false);
-
-  const request = makeRequest();
-  store.create(request);
-  const approval = publishBoundary(store, request);
-  assert.throws(
-    () => store.submitDecision({
-      ...makeDecision(request, approval),
-      observedRevision: 1,
-    }),
-    /stale|revision/iu,
-  );
-  assert.throws(
-    () => store.submitDecision({
-      ...makeDecision(request, approval),
-      approvalId: randomUUID(),
-    }),
-    /approval/iu,
-  );
-
-  const decision = makeDecision(request, approval);
-  store.submitDecision(decision);
-  assert.throws(() => store.submitDecision(decision), /already|decision/iu);
-  assert.deepEqual(
-    RepoAgentDecisionSchema.parse(
-      JSON.parse(readFileSync(join(runsRoot, request.runId, 'decision.json'), 'utf8')),
-    ),
-    decision,
-  );
-});
-
-test('consumeDecision claims only an exact decision once', () => {
+test('clearPendingApproval removes the payload while preserving PID', () => {
   const runsRoot = makeRunsRoot();
   const store = new RepoAgentRunStore(runsRoot);
   const request = makeRequest();
   store.create(request);
-  const approval = publishBoundary(store, request);
-  const decision = makeDecision(request, approval);
-  store.submitDecision(decision);
-
-  assert.equal(store.consumeDecision(request.runId, randomUUID(), 2), null);
-  assert.equal(store.consumeDecision(request.runId, approval.approvalId, 1), null);
-  assert.deepEqual(
-    store.consumeDecision(request.runId, approval.approvalId, 2),
-    decision,
-  );
-  assert.equal(
-    store.consumeDecision(request.runId, approval.approvalId, 2),
-    null,
-  );
-});
-
-test('malformed decision files fail closed', () => {
-  const runsRoot = makeRunsRoot();
-  const store = new RepoAgentRunStore(runsRoot);
-  const request = makeRequest();
-  store.create(request);
-  const approval = publishBoundary(store, request);
-  writeFileSync(join(runsRoot, request.runId, 'decision.json'), '{bad', 'utf8');
-  assert.throws(
-    () => store.consumeDecision(request.runId, approval.approvalId, 2),
-    /malformed decision/iu,
-  );
-});
-
-test('clearPendingApproval removes payload and decision while preserving PID', () => {
-  const runsRoot = makeRunsRoot();
-  const store = new RepoAgentRunStore(runsRoot);
-  const request = makeRequest();
-  store.create(request);
-  const approval = publishBoundary(store, request);
-  store.submitDecision(makeDecision(request, approval));
+  publishBoundary(store, request);
 
   const cleared = store.clearPendingApproval(request.runId, 2, 'running');
   assert.equal(cleared.status, 'running');
@@ -552,7 +495,6 @@ test('clearPendingApproval removes payload and decision while preserving PID', (
   }
   assert.equal(cleared.pid, process.pid);
   assert.equal('approval' in cleared, false);
-  assert.equal(existsSync(join(runsRoot, request.runId, 'decision.json')), false);
 
   const nextApproval = store.publishApproval(request.runId, 3, makeApproval());
   assert.equal(nextApproval.revision, 4);
@@ -586,12 +528,11 @@ test('clearPendingApproval aborts and rejects stale or non-pending state', () =>
     () => store.clearPendingApproval(request.runId, 0, 'running'),
     /approval_required|pending/iu,
   );
-  const approval = publishBoundary(store, request);
+  publishBoundary(store, request);
   assert.throws(
     () => store.clearPendingApproval(request.runId, 1, 'aborted'),
     /stale revision/iu,
   );
-  store.submitDecision(makeDecision(request, approval, 'abort'));
   const aborted = store.clearPendingApproval(request.runId, 2, 'aborted');
   assert.equal(aborted.status, 'aborted');
   assert.equal(aborted.revision, 3);
@@ -624,6 +565,7 @@ test('pruneTerminalRuns deletes only old terminal runs', () => {
     revision: 1,
     updatedAtUtc: '2026-07-01T00:00:00.000Z',
     status: 'failed',
+    pid: process.pid,
     error: 'launch failed',
   });
 
@@ -706,4 +648,33 @@ test('reconcile marks an active run with a dead pid as failed and leaves live/te
   const reconciled = store.reconcile(request.runId, deadInspector);
   assert.equal(reconciled.status, 'failed');
   assert.equal(store.reconcile(request.runId, deadInspector).status, 'failed');
+});
+
+test('reconcile propagates a transition failure when the revision did not advance', () => {
+  const runsRoot = makeRunsRoot();
+  const request = makeRequest();
+  const baseStore = new RepoAgentRunStore(runsRoot);
+  baseStore.create(request);
+  moveToRunning(baseStore, request);
+  const store = new TransitionFailureStore(runsRoot, false);
+
+  assert.throws(
+    () => store.reconcile(request.runId, { isAlive: () => false }),
+    /injected transition failure/iu,
+  );
+  assert.equal(store.readState(request.runId).revision, 1);
+});
+
+test('reconcile returns a state advanced by a concurrent transition failure', () => {
+  const runsRoot = makeRunsRoot();
+  const request = makeRequest();
+  const baseStore = new RepoAgentRunStore(runsRoot);
+  baseStore.create(request);
+  moveToRunning(baseStore, request);
+  const store = new TransitionFailureStore(runsRoot, true);
+
+  const reconciled = store.reconcile(request.runId, { isAlive: () => false });
+
+  assert.equal(reconciled.revision, 2);
+  assert.equal(reconciled.status, 'failed');
 });

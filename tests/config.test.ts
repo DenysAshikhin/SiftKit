@@ -76,13 +76,9 @@ test('SIFTKIT_VERSION matches package.json version', () => {
   assert.equal(SIFTKIT_VERSION, packageJson.version);
 });
 
-// scripts/run-tests.ts runs from dist/scripts and imports this module as
-// dist/src/config/constants.js, one level deeper than dist/config/constants.js.
-// The module must therefore find the SiftKit package.json by walking up rather
-// than by assuming its own depth, or the import throws on dist/package.json,
-// which carries only { "type": "module" }.
-test('the emitted dist/src copy of the constants module loads and reports the package version', () => {
-  const emittedConstantsPath = path.resolve(process.cwd(), 'dist', 'src', 'config', 'constants.js');
+// The test runner and the flattened runtime both import this module from dist/config.
+test('the emitted flattened constants module loads and reports the package version', () => {
+  const emittedConstantsPath = path.resolve(process.cwd(), 'dist', 'config', 'constants.js');
   assert.ok(
     fs.existsSync(emittedConstantsPath),
     `${emittedConstantsPath} is missing; run "npm run build:test" before this test.`,

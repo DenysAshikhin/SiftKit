@@ -7,7 +7,7 @@ import {
   assertCurrentTestBuild,
   createTestBuildStampContent,
   getTestBuildState,
-} from '../scripts/test-build-state.js';
+} from '../src/test-runner/test-build-state.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 const INPUT_FILES = [
@@ -32,9 +32,9 @@ const INPUT_FILES = [
 
 const REQUIRED_OUTPUT_FILES = [
   'dist/config/index.js',
-  'dist/scripts/run-tests.js',
-  'dist/scripts/test-targets.js',
-  'dist/scripts/live-instance-guard.js',
+  'dist/test-runner/run-tests.js',
+  'dist/test-runner/test-targets.js',
+  'dist/test-runner/live-instance-guard.js',
   '.test-build/package.json',
   '.test-build/npm-pack-dry-run.json',
   '.test-build/src/input.js',

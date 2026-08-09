@@ -24,11 +24,20 @@ test('summary-family request whose marker matches the active agent run is reject
       repoRoot: process.cwd(),
       model: 'mock-model',
       maxTurns: 2,
-    approval: 'off',
+      approval: 'off',
       availableModels: ['mock-model'],
-      simulateWorkMs: AGENT_LOCK_HOLD_MS,
-      mockResponses: ['{\"action\":\"finish\",\"output\":\"done\"}'],
-      mockCommandResults: {},
+      mockResponses: [
+        '{\"action\":\"git\",\"command\":\"git grep -n \\\"x\\\" src\"}',
+        '{\"action\":\"finish\",\"output\":\"done\"}',
+      ],
+      mockCommandResults: {
+        'git grep -n "x" src': {
+          exitCode: 0,
+          stdout: 'src/example.ts:1:x',
+          stderr: '',
+          delayMs: AGENT_LOCK_HOLD_MS,
+        },
+      },
     },
     timeoutMs: SSE_REQUEST_TIMEOUT_MS,
   });

@@ -9,7 +9,7 @@ import {
   TEST_BUILD_STAMP_PATH,
   createTestBuildStampContent,
   getTestBuildState,
-} from './test-build-state.js';
+} from '../src/test-runner/test-build-state.ts';
 
 const repoRoot = process.cwd();
 const testBuildRoot = path.resolve(repoRoot, TEST_BUILD_ROOT);
@@ -45,6 +45,14 @@ function runCommandWithOutput(command: string, args: string[]): string {
 
 function runNodeScript(relativeScriptPath: string, args: string[]): void {
   runCommand(process.execPath, [path.resolve(repoRoot, relativeScriptPath), ...args]);
+}
+
+function runTypeScriptScript(relativeScriptPath: string, args: string[]): void {
+  runCommand(process.execPath, [
+    '--experimental-strip-types',
+    path.resolve(repoRoot, relativeScriptPath),
+    ...args,
+  ]);
 }
 
 function listTestEntries(directory: string): string[] {
@@ -115,6 +123,7 @@ async function buildTestArtifacts(): Promise<void> {
     return;
   }
 
+  runTypeScriptScript(path.join('scripts', 'sync-dist-runtime.ts'), ['--clean']);
   resetTestBuildRoot();
   const npmCliPath = process.env.npm_execpath;
   if (!npmCliPath) {
@@ -123,7 +132,7 @@ async function buildTestArtifacts(): Promise<void> {
   runCommand(process.execPath, [npmCliPath, '--prefix', path.join(repoRoot, 'packages', 'contracts'), 'run', 'build']);
   runNodeScript(path.join('node_modules', 'typescript', 'lib', 'tsc.js'), ['-p', path.join(repoRoot, 'tsconfig.json')]);
   runNodeScript(path.join('node_modules', 'typescript', 'lib', 'tsc.js'), ['-p', path.join(repoRoot, 'tsconfig.scripts.json')]);
-  runNodeScript(path.join('scripts', 'sync-dist-runtime.js'), []);
+  runTypeScriptScript(path.join('scripts', 'sync-dist-runtime.ts'), []);
   runNodeScript(path.join('node_modules', 'typescript', 'lib', 'tsc.js'), ['-p', path.join(repoRoot, 'tsconfig.test-build.json')]);
 
   fs.writeFileSync(

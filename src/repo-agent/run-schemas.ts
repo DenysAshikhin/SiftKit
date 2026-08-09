@@ -1,19 +1,19 @@
 import { z } from '../lib/zod.js';
 import { ApprovalModeSchema } from '../repo-search/engine/approval-gate.js';
 
-const RunIdSchema = z.string().uuid();
+export const RepoAgentRunIdSchema = z.string().uuid();
 const RevisionSchema = z.number().int().nonnegative();
 const UpdatedAtUtcSchema = z.string().datetime();
 const ProcessIdSchema = z.number().int().positive();
 
 const BaseStateFields = {
-  runId: RunIdSchema,
+  runId: RepoAgentRunIdSchema,
   revision: RevisionSchema,
   updatedAtUtc: UpdatedAtUtcSchema,
 };
 
 export const RepoAgentRunRequestSchema = z.strictObject({
-  runId: RunIdSchema,
+  runId: RepoAgentRunIdSchema,
   task: z.string().trim().min(1),
   repoRoot: z.string().min(1),
   model: z.string().min(1).optional(),
@@ -31,33 +31,11 @@ export const RepoAgentApprovalSchema = z.strictObject({
 });
 export type RepoAgentApproval = z.infer<typeof RepoAgentApprovalSchema>;
 
-const DecisionBaseFields = {
-  runId: RunIdSchema,
-  approvalId: z.string().uuid(),
-  observedRevision: RevisionSchema,
-};
-
-export const RepoAgentDecisionSchema = z.discriminatedUnion('decision', [
-  z.strictObject({
-    ...DecisionBaseFields,
-    decision: z.literal('approve'),
-  }),
-  z.strictObject({
-    ...DecisionBaseFields,
-    decision: z.literal('deny'),
-    reason: z.string().trim().min(1),
-  }),
-  z.strictObject({
-    ...DecisionBaseFields,
-    decision: z.literal('abort'),
-  }),
-]);
-export type RepoAgentDecision = z.infer<typeof RepoAgentDecisionSchema>;
-
 export const RepoAgentRunStateSchema = z.discriminatedUnion('status', [
   z.strictObject({
     ...BaseStateFields,
     status: z.literal('starting'),
+    pid: ProcessIdSchema,
   }),
   z.strictObject({
     ...BaseStateFields,
@@ -99,12 +77,12 @@ export type RepoAgentRunState = z.infer<typeof RepoAgentRunStateSchema>;
 export const RepoAgentRunResultSchema = z.discriminatedUnion('status', [
   z.strictObject({
     status: z.literal('completed'),
-    runId: RunIdSchema,
+    runId: RepoAgentRunIdSchema,
     output: z.string(),
   }),
   z.strictObject({
     status: z.literal('approval_required'),
-    runId: RunIdSchema,
+    runId: RepoAgentRunIdSchema,
     approval: RepoAgentApprovalSchema,
     decide: z.strictObject({
       approve: z.string().min(1),
@@ -114,17 +92,17 @@ export const RepoAgentRunResultSchema = z.discriminatedUnion('status', [
   }),
   z.strictObject({
     status: z.literal('approval_timeout'),
-    runId: RunIdSchema,
+    runId: RepoAgentRunIdSchema,
     approval: RepoAgentApprovalSchema,
   }),
   z.strictObject({
     status: z.literal('failed'),
-    runId: RunIdSchema,
+    runId: RepoAgentRunIdSchema,
     error: z.string().min(1),
   }),
   z.strictObject({
     status: z.literal('aborted'),
-    runId: RunIdSchema,
+    runId: RepoAgentRunIdSchema,
   }),
 ]);
 export type RepoAgentRunResult = z.infer<typeof RepoAgentRunResultSchema>;

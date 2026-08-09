@@ -10,14 +10,14 @@ import { SIFT_DEFAULT_LLAMA_PORT, SIFT_DEFAULT_STATUS_PORT } from '../src/config
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 // The guard's only job is to fail loudly, so its own failure mode is silence: if the
-// --import wiring or the port env in scripts/run-tests.ts regresses, an unguarded run is
+// --import wiring or the port env in src/test-runner/run-tests.ts regresses, an unguarded run is
 // indistinguishable from a clean one. These tests spawn a child that contacts a default
 // port and assert the guard turns that into a non-zero exit even when the caller swallowed
 // the throw, exactly as the fire-and-forget status notifications do.
 const repoRoot = process.cwd();
-// The compiled guard, not the source: this is the artifact scripts/run-tests.ts preloads,
+// The compiled guard, not the source: this is the artifact src/test-runner/run-tests.ts preloads,
 // and preloading plain JS is what lets NODE_OPTIONS stay free of the tsx loader.
-const guardPath = path.resolve(repoRoot, 'dist', 'scripts', 'live-instance-guard.js');
+const guardPath = path.resolve(repoRoot, 'dist', 'test-runner', 'live-instance-guard.js');
 const guardUrl = pathToFileURL(guardPath).href;
 const CHILD_TIMEOUT_MS = 20_000;
 
@@ -214,7 +214,7 @@ test('the suite does not force spawned production processes through the tsx load
   assert.doesNotMatch(process.env.NODE_OPTIONS ?? '', /tsx/u);
 });
 
-// scripts/run-tests.ts passes the guarded ports as env because the preload cannot import
+// src/test-runner/run-tests.ts passes the guarded ports as env because the preload cannot import
 // a repo module without injecting it into every spawned process. These two cases prove that
 // hand-off: they inherit the suite's own environment and assert it protects exactly the
 // constants src uses.
@@ -225,7 +225,7 @@ test('the suite guards the default status port for every child it spawns', () =>
   assert.equal(
     result.status,
     1,
-    `A child of the suite reached port ${SIFT_DEFAULT_STATUS_PORT}; check the --import and SIFTKIT_GUARD_STATUS_PORT wiring in scripts/run-tests.ts.`,
+    `A child of the suite reached port ${SIFT_DEFAULT_STATUS_PORT}; check the --import and SIFTKIT_GUARD_STATUS_PORT wiring in src/test-runner/run-tests.ts.`,
   );
   assert.match(result.stderr, /LIVE INSTANCE CONTACTED/u);
 });
@@ -237,7 +237,7 @@ test('the suite guards the default llama port for every child it spawns', () => 
   assert.equal(
     result.status,
     1,
-    `A child of the suite reached port ${SIFT_DEFAULT_LLAMA_PORT}; check the --import and SIFTKIT_GUARD_LLAMA_PORT wiring in scripts/run-tests.ts.`,
+    `A child of the suite reached port ${SIFT_DEFAULT_LLAMA_PORT}; check the --import and SIFTKIT_GUARD_LLAMA_PORT wiring in src/test-runner/run-tests.ts.`,
   );
   assert.match(result.stderr, /LIVE INSTANCE CONTACTED/u);
 });

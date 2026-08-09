@@ -2,14 +2,14 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "."
+    "rootDir": ".",
+    "rewriteRelativeImportExtensions": true
   },
   "include": [
     "src/types/better-sqlite3.d.ts",
-    "scripts/**/*.ts"
-  ],
-  "exclude": [
-    "scripts/delete-logs.ts",
-    "scripts/analysis/**"
+    "scripts/build-test.ts",
+    "scripts/sync-dist-runtime.ts",
+    "scripts/purge-temp-dirs.ts",
+    "scripts/purge-temp-dirs-main.ts"
   ]
 }

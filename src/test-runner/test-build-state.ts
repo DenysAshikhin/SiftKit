@@ -54,9 +54,9 @@ const INPUT_PATHS = [
 
 const STATIC_OUTPUT_PATHS = [
   path.join('dist', 'config', 'index.js'),
-  path.join('dist', 'scripts', 'run-tests.js'),
-  path.join('dist', 'scripts', 'test-targets.js'),
-  path.join('dist', 'scripts', 'live-instance-guard.js'),
+  path.join('dist', 'test-runner', 'run-tests.js'),
+  path.join('dist', 'test-runner', 'test-targets.js'),
+  path.join('dist', 'test-runner', 'live-instance-guard.js'),
   path.join(TEST_BUILD_ROOT, 'package.json'),
   path.join(TEST_BUILD_ROOT, 'npm-pack-dry-run.json'),
 ];
