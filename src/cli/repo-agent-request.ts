@@ -1,4 +1,4 @@
-import { ImageAttachmentReader } from '../llm-protocol/image-attachments.js';
+import { readImageFileDataUrl } from '../llm-protocol/image-attachments.js';
 import {
   RepoAgentStartRequestSchema,
   type RepoAgentStartRequest,
@@ -21,6 +21,6 @@ export function buildRepoAgentServerRequest(input: {
     ...(input.logFile === undefined ? {} : { logFile: input.logFile }),
     ...(input.images.length === 0
       ? {}
-      : { images: new ImageAttachmentReader().readAll(input.images) }),
+      : { images: input.images.map(readImageFileDataUrl) }),
   });
 }

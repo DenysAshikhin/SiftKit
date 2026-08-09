@@ -13,6 +13,8 @@ import {
   SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
   SIFT_DEFAULT_LLAMA_SLEEP_IDLE_SECONDS,
   SIFT_DEFAULT_LLAMA_UBATCH_SIZE,
+  SIFT_DEFAULT_VISION_IMAGE_RETENTION,
+  SIFT_DEFAULT_VISION_MAX_IMAGE_PIXELS,
 } from './constants.js';
 import { getDefaultConfigObject } from './defaults.js';
 import {
@@ -93,6 +95,8 @@ export type ManagedLlamaConfig = {
   SleepIdleSeconds: number;
   VerboseLogging: boolean;
   VisionEnabled: boolean;
+  VisionImageRetention: number;
+  VisionMaxImagePixels: number;
 };
 
 function getRecord(value: JsonValue): MutableJsonObject {
@@ -171,6 +175,14 @@ function getSpeculativeInteger(value: JsonValue, fallback: number, requirePositi
     return -1;
   }
   return !requirePositive || parsed > 0 ? parsed : fallback;
+}
+
+function getVisionImageRetention(value: JsonValue): number {
+  return typeof value === 'number'
+    && Number.isInteger(value)
+    && value >= -1
+    ? value
+    : SIFT_DEFAULT_VISION_IMAGE_RETENTION;
 }
 
 function getFiniteNumber(value: JsonValue, fallback: number): number {
@@ -444,6 +456,11 @@ function resolveManagedLlamaSettings(input: MutableJsonObject): ManagedLlamaConf
     VisionEnabled: input.VisionEnabled === null || input.VisionEnabled === undefined
       ? Boolean(defaults.VisionEnabled)
       : Boolean(input.VisionEnabled),
+    VisionImageRetention: getVisionImageRetention(input.VisionImageRetention),
+    VisionMaxImagePixels: getFiniteNonNegativeInteger(
+      input.VisionMaxImagePixels,
+      Number(defaults.VisionMaxImagePixels ?? SIFT_DEFAULT_VISION_MAX_IMAGE_PIXELS),
+    ),
   };
 }
 

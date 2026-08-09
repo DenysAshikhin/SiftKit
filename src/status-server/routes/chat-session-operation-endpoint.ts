@@ -25,6 +25,7 @@ import { type RouteEndpoint, type RouteMatch } from '../route-table.js';
 
 export type ResolvedChatRepoRequest = {
   content: string;
+  images: string[];
   repoRoot: string;
 };
 
@@ -102,7 +103,7 @@ export function parseChatRepoOperationRequest(
     sendJson(res, 400, { error: 'Expected existing repoRoot directory.' });
     return null;
   }
-  return { content: repoRequest.content, repoRoot };
+  return { content: repoRequest.content, images: repoRequest.images, repoRoot };
 }
 
 /**
@@ -111,6 +112,7 @@ export function parseChatRepoOperationRequest(
  */
 export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndpoint {
   protected abstract readonly operationKind: ChatSessionOperationKind;
+  protected readonly useSessionOperationLease: boolean = true;
 
   /** Returns null after sending its own 4xx response. */
   protected abstract parseRequest(
@@ -150,15 +152,19 @@ export abstract class ChatSessionOperationEndpoint<TParsed> implements RouteEndp
     if (value === null) {
       return;
     }
-    const acquisition = ctx.chatSessionOperations.acquire(sessionId, this.operationKind, Date.now());
-    if (acquisition.kind === 'conflict') {
+    const acquisition = this.useSessionOperationLease
+      ? ctx.chatSessionOperations.acquire(sessionId, this.operationKind, Date.now())
+      : null;
+    if (acquisition?.kind === 'conflict') {
       rejectBusyChatSession(ctx, res, sessionId, this.operationKind, acquisition.active);
       return;
     }
     try {
       await this.run(ctx, req, res, { sessionId, sessionPath, session, parsedBody, value });
     } finally {
-      ctx.chatSessionOperations.release(acquisition.lease);
+      if (acquisition?.kind === 'acquired') {
+        ctx.chatSessionOperations.release(acquisition.lease);
+      }
     }
   }
 }

@@ -135,6 +135,8 @@ const PRESET_FIELD_SUPPORT = {
   SleepIdleSeconds: 'both',
   VerboseLogging: 'llama-only',
   VisionEnabled: 'exl3-managed-only-unsupported-by-llama',
+  VisionImageRetention: 'exl3-managed-only-unsupported-by-llama',
+  VisionMaxImagePixels: 'exl3-managed-only-unsupported-by-llama',
 } as const satisfies Record<ModelPresetField, PresetFieldSupport>;
 
 const AVAILABLE = { visible: true, enabled: true, reason: null } as const;

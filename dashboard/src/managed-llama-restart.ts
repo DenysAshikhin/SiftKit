@@ -11,8 +11,10 @@ export function buildManagedLlamaRestartFailureModal(
   if (response.startupFailure?.kind !== 'gpu_memory_oom') {
     return null;
   }
+  const requiredMiB = response.startupFailure.requiredMiB ?? 'unknown';
+  const availableMiB = response.startupFailure.availableMiB ?? 'unknown';
   return {
     title: 'Managed llama.cpp ran out of GPU memory',
-    message: `Needed ${response.startupFailure.requiredMiB} MiB of GPU memory, but only ${response.startupFailure.availableMiB} MiB was available.`,
+    message: `Needed ${requiredMiB} MiB of GPU memory, but only ${availableMiB} MiB was available.`,
   };
 }

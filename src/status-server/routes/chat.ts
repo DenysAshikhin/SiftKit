@@ -33,7 +33,7 @@ import {
   SIFT_DEFAULT_LLAMA_BASE_URL,
   type SiftConfig,
 } from '../../config/index.js';
-import { assertPresetAcceptsImages } from '../../llm-protocol/image-attachments.js';
+import { admitImagesForPreset } from '../../llm-protocol/preset-image-admission.js';
 import {
   type RepoSearchProgressEvent,
   buildRepoSearchProgressLogBody,
@@ -86,6 +86,7 @@ import { ChatTurnPhaseTracker } from '../chat-turn-phase-tracker.js';
 import { ChatTurnTelemetry } from '../chat-turn-telemetry.js';
 import {
   captureManagedLlamaSpeculativeMetricsSnapshot,
+  diagnoseManagedLlamaOom,
   getManagedLlamaSpeculativeMetricsDelta,
 } from '../managed-llama.js';
 import { serverLogger } from '../server-logger.js';
@@ -105,6 +106,7 @@ import {
   type ChatSessionOperationRequest,
   type ResolvedChatRepoRequest,
 } from './chat-session-operation-endpoint.js';
+import { ChatImageCaptionEndpoint } from './chat-image-caption.js';
 import type { ChatMessageRequest } from '../chat-route-request-normalizers.js';
 import type { JsonObject } from '../../lib/json-types.js';
 
@@ -217,6 +219,30 @@ function getLocalTokenConfig(config: SiftConfig): SiftConfig | undefined {
   return baseUrl === SIFT_DEFAULT_LLAMA_BASE_URL ? undefined : config;
 }
 
+function admitSelectedChatImages(
+  config: SiftConfig,
+  session: ChatSession,
+  requestedImages: string[],
+): { effectiveConfig: SiftConfig; images: string[] } {
+  const effectiveConfig = resolveChatSessionConfig(config, session);
+  const activePreset = getActiveModelPreset(effectiveConfig);
+  const admittedImages = admitImagesForPreset(activePreset, requestedImages)
+    .map((image) => image.dataUrl);
+  return { effectiveConfig, images: admittedImages };
+}
+
+export function formatChatEngineError(
+  error: Error | string,
+  images: string[],
+  visionMaxImagePixels: number | undefined,
+): string {
+  const errorText = error instanceof Error ? error.message : error;
+  return diagnoseManagedLlamaOom(error, {
+    hasImages: images.length > 0,
+    visionMaxImagePixels,
+  })?.guidance ?? errorText;
+}
+
 function readRouteStringArray(reader: JsonRecordReader, key: string): string[] | undefined {
   const value = reader.value(key);
   return Array.isArray(value) ? value.map((entry) => String(entry)) : undefined;
@@ -232,6 +258,7 @@ function buildChatRepoOperationRequest(options: {
   session: ChatSession;
   config: SiftConfig;
   content: string;
+  images: string[];
   repoRoot: string;
   reader: JsonRecordReader;
   parsedBody: ReturnType<typeof parseJsonBody>;
@@ -243,6 +270,7 @@ function buildChatRepoOperationRequest(options: {
     session: options.session,
     config: options.config,
     content: options.content,
+    images: options.images,
     repoRoot: options.repoRoot,
     statusBackendUrl: `${options.ctx.getServiceBaseUrl()}/status`,
     engineService: options.ctx.engineService,
@@ -688,7 +716,12 @@ class ChatMessageTurn {
         sourceRunId: String(result.requestId || ''),
       });
     } catch (error) {
-      this.sendFailure(error instanceof Error ? error.message : String(error));
+      const activePreset = getActiveModelPreset(resolveChatSessionConfig(this.config, this.session));
+      this.sendFailure(formatChatEngineError(
+        error instanceof Error ? error : String(error),
+        this.userImages,
+        activePreset.VisionMaxImagePixels,
+      ));
     }
   }
 
@@ -822,16 +855,16 @@ class CreateChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
         return;
       }
-      assertPresetAcceptsImages(getActiveModelPreset(config), messageRequest.images);
+      const selectedImages = admitSelectedChatImages(config, selected.session, messageRequest.images);
       const turn = new ChatMessageTurn(
         ctx,
         res,
         runtimeRoot,
         selected.session,
-        config,
+        selectedImages.effectiveConfig,
         selected.preset,
         messageRequest.content,
-        messageRequest.images,
+        selectedImages.images,
         readRouteStringArray(new JsonRecordReader(request.parsedBody), 'mockResponses'),
       );
       if (providedAssistantContent) {
@@ -891,12 +924,17 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
     const managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
     const engineRequestId = randomUUID();
     const progressWriter = new ChatStreamProgressWriter(sseWriter, phaseTracker, 'plan', engineRequestId, 'thinking', true);
+    let selectedImagesForError: { images: string[]; visionMaxImagePixels: number } | null = null;
     // Status reporting for this turn belongs to executeRepoSearchRequest; there is no
     // non-engine branch here to report for.
     try {
       const config = readConfig(configPath);
       const selected = new ChatOperationPresetSelector(config.Presets).select(activeSession, 'chat');
-      assertPresetAcceptsImages(getActiveModelPreset(config), messageRequest.images);
+      const selectedImages = admitSelectedChatImages(config, selected.session, messageRequest.images);
+      selectedImagesForError = {
+        images: selectedImages.images,
+        visionMaxImagePixels: getActiveModelPreset(selectedImages.effectiveConfig).VisionMaxImagePixels,
+      };
       const selectedSession = selected.session;
       const reader = new JsonRecordReader(request.parsedBody);
       const webOverrideRaw = reader.optionalString('webSearchOverride');
@@ -906,8 +944,8 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
           ? false
           : selectedSession.webSearchEnabled === true;
       const mockResponses = readRouteStringArray(reader, 'mockResponses');
-      const mockTokenConfig = getMockTokenConfig(config, mockResponses);
-      const telemetry = new ChatTurnTelemetry(config, mockTokenConfig);
+      const mockTokenConfig = getMockTokenConfig(selectedImages.effectiveConfig, mockResponses);
+      const telemetry = new ChatTurnTelemetry(selectedImages.effectiveConfig, mockTokenConfig);
       const result = await ctx.engineService.executeRepoSearch({
         presetId: selected.preset.id,
         requestId: engineRequestId,
@@ -915,16 +953,16 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         prompt: userContent,
         repoRoot: process.cwd(),
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
-        config: resolveChatSessionConfig(config, selectedSession),
-        systemPrompt: buildChatSystemContent(config, selectedSession),
-        history: buildChatHistoryMessages(config, selectedSession),
+        config: selectedImages.effectiveConfig,
+        systemPrompt: buildChatSystemContent(selectedImages.effectiveConfig, selectedSession),
+        history: buildChatHistoryMessages(selectedImages.effectiveConfig, selectedSession),
         thinkingEnabled: selectedSession.thinkingEnabled !== false,
         allowedTools: webEnabled ? ['web_search', 'web_fetch'] : [],
         retainedWebToolCalls: webEnabled ? buildRetainedWebToolCalls(selectedSession) : [],
         maxTurns: readRouteNumber(reader, 'maxTurns'),
         availableModels: readRouteStringArray(reader, 'availableModels'),
         mockCommandResults: normalizeRepoSearchMockCommandResults(request.parsedBody.mockCommandResults),
-        initialUserImages: messageRequest.images,
+        initialUserImages: selectedImages.images,
         ...(mockResponses ? { mockResponses } : {}),
         progressWriter,
       });
@@ -966,13 +1004,19 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
         groundingStatus: getChatGroundingStatus(result.scorecard),
         sourceRunId: String(result.requestId || ''),
-        images: messageRequest.images,
+        images: selectedImages.images,
       });
       progressWriter.flushPending();
       sseWriter.writeEvent('done', buildChatSessionResponse(config, updatedSession));
     } catch (error) {
       progressWriter.flushPending();
-      sseWriter.writeEvent('error', { error: error instanceof Error ? error.message : String(error) });
+      sseWriter.writeEvent('error', {
+        error: formatChatEngineError(
+          error instanceof Error ? error : String(error),
+          selectedImagesForError?.images ?? [],
+          selectedImagesForError?.visionMaxImagePixels,
+        ),
+      });
     } finally {
       progressWriter.flushPending();
       releaseModelRequest(ctx, modelRequestLock.token);
@@ -1027,6 +1071,7 @@ class CreateChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
         session: activeSession,
         config,
         content,
+        images: request.value.images,
         repoRoot: request.value.repoRoot,
         reader,
         parsedBody: request.parsedBody,
@@ -1095,6 +1140,7 @@ class StreamChatPlanEndpoint extends ChatSessionOperationEndpoint<ResolvedChatRe
         session: activeSession,
         config,
         content,
+        images: request.value.images,
         repoRoot: request.value.repoRoot,
         reader,
         parsedBody: request.parsedBody,
@@ -1163,6 +1209,7 @@ class CreateRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
         session: activeSession,
         config,
         content,
+        images: request.value.images,
         repoRoot: request.value.repoRoot,
         reader,
         parsedBody: request.parsedBody,
@@ -1231,6 +1278,7 @@ class StreamRepoSearchEndpoint extends ChatSessionOperationEndpoint<ResolvedChat
         session: activeSession,
         config,
         content,
+        images: request.value.images,
         repoRoot: request.value.repoRoot,
         reader,
         parsedBody: request.parsedBody,
@@ -1278,6 +1326,7 @@ const CHAT_ROUTES = new RouteTable([
   { method: 'DELETE', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/messages\/([^/]+)$/u, endpoint: new DeleteChatMessageEndpoint() },
   { method: 'POST', path: '/dashboard/chat/sessions', endpoint: new CreateChatSessionEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/messages$/u, endpoint: new CreateChatMessageEndpoint() },
+  { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/images\/caption$/u, endpoint: new ChatImageCaptionEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/messages\/stream$/u, endpoint: new StreamChatMessageEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/plan$/u, endpoint: new CreateChatPlanEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/plan\/stream$/u, endpoint: new StreamChatPlanEndpoint() },

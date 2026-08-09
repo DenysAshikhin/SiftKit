@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import type { ContextUsage } from '@siftkit/contracts';
+import { ImageMetadataSchema, resolveEffectiveImagePixelCeiling } from '@siftkit/contracts';
+import type { ContextUsage, ImageMetadata } from '@siftkit/contracts';
 import { getActiveModelPreset, getConfiguredLlamaNumCtx } from '../config/getters.js';
 import { overlayActivePreset } from '../config/overrides.js';
 import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
@@ -7,15 +8,17 @@ import type { OptionalJsonValue } from '../lib/json-types.js';
 import type { ChatMessage as PlannerChatMessage } from '../repo-search/planner-protocol.js';
 import type { ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
 import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
+import { ImageRetentionPolicy } from '../image-retention-policy.js';
 import { ThinkingRetentionPolicy } from '../thinking-retention-policy.js';
 import { buildReplayToolCall } from '../llm-protocol/tool-call-parser.js';
+import { resolveImageTokenBudget } from '../llm-protocol/image-token-budget.js';
 import {
   type ChatSession,
   type ChatMessage as PersistedChatMessage,
   estimateTokenCount,
   saveChatSession,
 } from '../state/chat-sessions.js';
-import { buildUserContent } from '../llm-protocol/image-attachments.js';
+import { buildUserContent, parseImageDataUrls } from '../llm-protocol/image-attachments.js';
 import {
   parseWebToolCommand,
   type RetainedWebToolCall,
@@ -150,6 +153,8 @@ class ContextUsageBuilder {
   build(): ContextUsage {
     const totals = this.buildTokenTotals();
     const warnThresholdTokens = Math.max(5000, Math.ceil(totals.contextWindowTokens * 0.1));
+    const effectiveConfig = resolveChatSessionConfig(this.config, this.session);
+    const activePreset = getActiveModelPreset(effectiveConfig);
     return {
       contextWindowTokens: totals.contextWindowTokens,
       usedTokens: totals.totalUsedTokens,
@@ -162,6 +167,10 @@ class ContextUsageBuilder {
       shouldCondense: totals.remainingTokens <= warnThresholdTokens,
       estimatedTokenFallbackTokens: totals.estimatedTokenFallbackTokens,
       providerOverheadTokens: this.getProviderOverheadTokens(),
+      effectiveImagePixelCeiling: resolveEffectiveImagePixelCeiling(
+        resolveImageTokenBudget(activePreset),
+        activePreset.VisionMaxImagePixels,
+      ),
     };
   }
 
@@ -268,6 +277,13 @@ export function buildChatHistoryMessages(
       pendingThinking = '';
       continue;
     }
+    if (kind === 'tool_image') {
+      const toolImages = message.images ?? [];
+      if (toolImages.length > 0) {
+        history.push({ role: 'user', content: buildUserContent(trimText(message.content), toolImages) });
+      }
+      continue;
+    }
     const content = trimText(message.content);
     const messageImages = message.images ?? [];
     if (!content && messageImages.length === 0) {
@@ -285,6 +301,7 @@ export function buildChatHistoryMessages(
   if (pendingThinking) {
     history.push({ role: 'assistant', content: '', reasoning_content: pendingThinking });
   }
+  new ImageRetentionPolicy(getActiveModelPreset(config).VisionImageRetention).prune(history);
   return history;
 }
 
@@ -375,6 +392,8 @@ export type PersistToolMessage = {
   toolCallOutput: string;
   outputTokens: number | null;
   outputTokensEstimated?: boolean;
+  images?: string[];
+  imageMeta?: ImageMetadata[];
 };
 export type PersistTurn = {
   thinkingText: string;
@@ -517,6 +536,29 @@ export function appendChatMessagesWithUsage(
         createdAtUtc: now,
         sourceRunId,
       });
+      const toolImages = Array.isArray(toolMessage.images)
+        ? parseImageDataUrls(toolMessage.images)
+        : [];
+      if (toolImages.length > 0) {
+        messages.push({
+          id: randomUUID(),
+          role: 'user',
+          kind: 'tool_image',
+          content: '',
+          inputTokensEstimate: 0,
+          outputTokensEstimate: 0,
+          thinkingTokens: 0,
+          inputTokensEstimated: false,
+          outputTokensEstimated: false,
+          thinkingTokensEstimated: false,
+          createdAtUtc: now,
+          sourceRunId,
+          images: toolImages,
+          imageMeta: toolMessage.imageMeta
+            ? ImageMetadataSchema.array().parse(toolMessage.imageMeta)
+            : [],
+        });
+      }
       associatedToolTokens += toolOutputTokens;
     }
   }
@@ -731,6 +773,8 @@ function buildToolMessageFromCommand(command: RepoSearchCommandResult, turnsUsed
     toolCallOutput: output,
     outputTokens,
     outputTokensEstimated: outputTokens === null || command.outputTokensEstimated !== false,
+    images: command.imageDataUrls,
+    imageMeta: command.imageMeta,
   };
 }
 
@@ -804,4 +848,3 @@ export function buildRepoSearchMarkdown(userPrompt: string, repoRoot: string, re
   lines.push(`- Artifact: \`${normalized?.artifactPath || ''}\``);
   return lines.join('\n');
 }
-

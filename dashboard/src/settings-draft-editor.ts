@@ -62,7 +62,9 @@ export type ModelIntegerField =
   | 'StartupTimeoutMs'
   | 'HealthcheckTimeoutMs'
   | 'HealthcheckIntervalMs'
-  | 'SleepIdleSeconds';
+  | 'SleepIdleSeconds'
+  | 'VisionImageRetention'
+  | 'VisionMaxImagePixels';
 export type ModelFloatField =
   | 'Temperature'
   | 'TopP'

@@ -1,5 +1,8 @@
 import { JsonRecordReader } from '../lib/json-record-reader.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
+import { ImageDataUrlSchema, ImageMetadataSchema } from '@siftkit/contracts';
+import type { ImageDataUrl, ImageMetadata } from '@siftkit/contracts';
+import { z } from '../lib/zod.js';
 import type { ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
 
 export type RepoSearchCommandResult = {
@@ -11,6 +14,8 @@ export type RepoSearchCommandResult = {
   exitCode: number | null;
   outputTokens: number | null;
   outputTokensEstimated: boolean;
+  imageDataUrls: ImageDataUrl[];
+  imageMeta: ImageMetadata[];
 };
 
 export type RepoSearchTaskResult = {
@@ -58,6 +63,8 @@ function readNullableNumber(reader: JsonRecordReader, key: string): number | nul
 
 function normalizeCommand(value: OptionalJsonValue): RepoSearchCommandResult {
   const reader = JsonRecordReader.fromJsonValue(value);
+  const imageDataUrlsValue = reader.value('imageDataUrls');
+  const imageMetaValue = reader.value('imageMeta');
   return {
     turn: reader.nullableNonNegativeInteger('turn'),
     command: reader.string('command'),
@@ -67,6 +74,12 @@ function normalizeCommand(value: OptionalJsonValue): RepoSearchCommandResult {
     exitCode: reader.number('exitCode'),
     outputTokens: reader.nullableNonNegativeInteger('outputTokens'),
     outputTokensEstimated: reader.value('outputTokensEstimated') !== false,
+    imageDataUrls: imageDataUrlsValue === undefined
+      ? []
+      : z.array(ImageDataUrlSchema).parse(imageDataUrlsValue),
+    imageMeta: imageMetaValue === undefined
+      ? []
+      : z.array(ImageMetadataSchema).parse(imageMetaValue),
   };
 }
 

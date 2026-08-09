@@ -45,6 +45,10 @@ import {
 } from './helpers/dashboard-test-repo.js';
 import { buildRepoSearchChatSteps } from '../dashboard/src/lib/chat-steps.js';
 import type { RunEvent } from '../dashboard/src/types.js';
+import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
+import { readImageDimensions } from '../src/llm-protocol/image-admission.js';
+
+const PNG = toDataUrl('image/png', rasterBuffer('png', 1, 1));
 
 function toRunEvents(value: OptionalJsonValue): RunEvent[] {
   return asObjectArray(value).map((event) => ({
@@ -1253,6 +1257,548 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
     assert.equal(typeof latestRepoMessage.thinkingEndedAtUtc, 'string');
     assert.equal(typeof latestRepoMessage.answerStartedAtUtc, 'string');
     assert.equal(typeof latestRepoMessage.answerEndedAtUtc, 'string');
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
+test('plan and repo-search endpoints forward and persist attached images', async () => {
+  const tempRoot = createManagedTempDir('siftkit-dashboard-route-images-');
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const config = getDefaultConfig();
+  const modelPreset = config.Server.ModelPresets.Presets[0];
+  if (!modelPreset) {
+    throw new Error('Default model preset is required.');
+  }
+  modelPreset.Backend = 'exl3';
+  modelPreset.VisionEnabled = true;
+  writeConfig(getConfigPath(), config);
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = getAddressInfo(server);
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const imageRequestBody = {
+    content: 'Describe this image in the repository context',
+    repoRoot: tempRoot,
+    images: [PNG],
+    maxTurns: 1,
+    mockResponses: ['{"action":"finish","output":"done"}'],
+  };
+
+  try {
+    const planSessionResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Image Plan Session', model: 'Qwen3.5-9B-Q8_0.gguf' }),
+    });
+    const planSessionId = String(d(planSessionResponse.body.session).id);
+    const planResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${planSessionId}/plan`, {
+      method: 'POST',
+      timeoutMs: 3000,
+      body: JSON.stringify(imageRequestBody),
+    });
+    assert.equal(planResponse.statusCode, 200);
+    const planSession = d(planResponse.body.session);
+    assert.deepEqual(asObjectArray(planSession.messages).find((message) => message.kind === 'user_text')?.images, [PNG]);
+    const reloadedPlan = await requestJson(`${baseUrl}/dashboard/chat/sessions/${planSessionId}`);
+    assert.deepEqual(
+      asObjectArray(d(reloadedPlan.body.session).messages).find((message) => message.kind === 'user_text')?.images,
+      [PNG],
+    );
+
+    const repoSessionResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Image Repo Session', model: 'Qwen3.5-9B-Q8_0.gguf' }),
+    });
+    const repoSessionId = String(d(repoSessionResponse.body.session).id);
+    const repoResponse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${repoSessionId}/repo-search/stream`, {
+      method: 'POST',
+      timeoutMs: 3000,
+      body: JSON.stringify(imageRequestBody),
+    });
+    assert.equal(repoResponse.statusCode, 200);
+    const repoDoneSession = d(repoResponse.events.find((event) => event.event === 'done')?.payload).session;
+    assert.deepEqual(asObjectArray(d(repoDoneSession).messages).find((message) => message.kind === 'user_text')?.images, [PNG]);
+    const reloadedRepo = await requestJson(`${baseUrl}/dashboard/chat/sessions/${repoSessionId}`);
+    assert.deepEqual(
+      asObjectArray(d(reloadedRepo.body.session).messages).find((message) => message.kind === 'user_text')?.images,
+      [PNG],
+    );
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
+test('chat message JSON and SSE endpoints admit images using the selected session preset', async () => {
+  const tempRoot = createManagedTempDir('siftkit-dashboard-message-image-admission-');
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const capturedBodies: string[] = [];
+  const llamaServer = http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/v1/models') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ data: [{ id: 'image-chat-model' }] }));
+      return;
+    }
+    if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    let raw = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk: string) => { raw += chunk; });
+    req.on('end', () => {
+      capturedBodies.push(raw);
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"finish\\",\\"output\\":\\"ack\\"}"}}]}\n\n');
+      res.write('data: {"choices":[{"delta":{} }],"usage":{"prompt_tokens":20,"completion_tokens":4}}\n\n');
+      res.write('data: [DONE]\n\n');
+      res.end();
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    llamaServer.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
+  });
+  const llamaAddress = getAddressInfo(llamaServer);
+  const oversizedImage = toDataUrl('image/png', rasterBuffer('png', 2000, 1000));
+  const secondOversizedImage = toDataUrl('image/png', rasterBuffer('png', 1800, 1000));
+  const sessionCap = 500_000;
+  const baseConfig = getDefaultConfig();
+  const snapshotPreset = baseConfig.Server.ModelPresets.Presets[0];
+  if (!snapshotPreset) {
+    throw new Error('Default model preset is required.');
+  }
+  snapshotPreset.Backend = 'exl3';
+  snapshotPreset.ExternalServerEnabled = true;
+  snapshotPreset.BaseUrl = `http://127.0.0.1:${llamaAddress.port}`;
+  snapshotPreset.Model = 'image-chat-model';
+  snapshotPreset.VisionEnabled = true;
+  snapshotPreset.VisionImageRetention = -1;
+  snapshotPreset.VisionMaxImagePixels = sessionCap;
+  baseConfig.Server.Engines.Exl3.Managed = false;
+  writeConfig(getConfigPath(), baseConfig);
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
+  await server.startupPromise;
+  const address = getAddressInfo(server);
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  function extractLastUserImage(rawBody: string): string {
+    const body = d(parseJsonValueText(rawBody));
+    const messages = asObjectArray(body.messages);
+    const userMessage = [...messages].reverse().find((message) => (
+      message.role === 'user' && asObjectArray(message.content).some((part) => part.type === 'image_url')
+    ));
+    assert.ok(userMessage);
+    const parts = asObjectArray(userMessage.content);
+    const imagePart = parts.find((part) => part.type === 'image_url');
+    assert.ok(imagePart, rawBody);
+    const imageUrl = asObject(imagePart.image_url).url;
+    if (typeof imageUrl !== 'string') {
+      throw new Error('Expected a string image URL in the model request.');
+    }
+    return imageUrl;
+  }
+
+  function assertAdmittedImage(admittedUrl: string): void {
+    assert.notEqual(admittedUrl, oversizedImage);
+    const separator = admittedUrl.indexOf(';base64,');
+    const mime = admittedUrl.slice('data:'.length, separator);
+    const dimensions = readImageDimensions(
+      Buffer.from(admittedUrl.slice(separator + ';base64,'.length), 'base64'),
+      mime,
+    );
+    assert.ok(dimensions.width * dimensions.height <= sessionCap);
+    assert.ok(dimensions.width * dimensions.height > 100_000);
+  }
+
+  try {
+    const created = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Selected image preset', model: 'image-chat-model' }),
+    });
+    const sessionId = String(d(created.body.session).id);
+
+    // Move the active model slot to a stricter cap after creation. The session snapshot remains
+    // authoritative, proving these routes do not admit against the base active preset.
+    const currentConfigResponse = await requestJson(`${baseUrl}/config?skip_ready=1`);
+    const updatedConfig = d(structuredClone(currentConfigResponse.body));
+    const modelPresets = d(d(updatedConfig.Server).ModelPresets);
+    const basePreset = asObjectArray(modelPresets.Presets)[0];
+    assert.ok(basePreset);
+    modelPresets.Presets = [
+      basePreset,
+      {
+        ...basePreset,
+        id: 'live',
+        label: 'Live',
+        VisionMaxImagePixels: 100_000,
+        VisionImageRetention: 0,
+      },
+    ];
+    modelPresets.ActivePresetId = 'live';
+    const updateResponse = await requestJson(`${baseUrl}/config?skip_ready=1`, {
+      method: 'PUT',
+      body: JSON.stringify(updatedConfig),
+    });
+    assert.equal(updateResponse.statusCode, 200);
+
+    const jsonResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
+      method: 'POST',
+      timeoutMs: 5_000,
+      body: JSON.stringify({ content: 'Describe this screenshot.', images: [oversizedImage] }),
+    });
+    assert.equal(jsonResponse.statusCode, 200, JSON.stringify(jsonResponse.body));
+    const jsonAdmittedImage = extractLastUserImage(capturedBodies[capturedBodies.length - 1] ?? '');
+    assertAdmittedImage(jsonAdmittedImage);
+    const jsonSession = d(jsonResponse.body.session);
+    const jsonUserMessage = asObjectArray(jsonSession.messages).find((message) => message.kind === 'user_text');
+    assert.deepEqual(jsonUserMessage?.images, [jsonAdmittedImage]);
+    const reloadedJson = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
+    const reloadedJsonUserMessage = asObjectArray(d(reloadedJson.body.session).messages)
+      .find((message) => message.kind === 'user_text');
+    assert.deepEqual(reloadedJsonUserMessage?.images, [jsonAdmittedImage]);
+
+    const streamResponse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages/stream`, {
+      method: 'POST',
+      timeoutMs: 5_000,
+      body: JSON.stringify({ content: 'Describe it again.', images: [secondOversizedImage] }),
+    });
+    assert.equal(streamResponse.statusCode, 200, JSON.stringify(streamResponse.events));
+    assert.equal(streamResponse.events.some((event) => event.event === 'error'), false, JSON.stringify(streamResponse.events));
+    const streamProviderBody = capturedBodies[capturedBodies.length - 1] ?? '';
+    assert.ok(streamProviderBody.includes(jsonAdmittedImage), streamProviderBody);
+    const streamAdmittedImage = extractLastUserImage(streamProviderBody);
+    assert.notEqual(streamAdmittedImage, jsonAdmittedImage);
+    assertAdmittedImage(streamAdmittedImage);
+    const doneSession = d(d(streamResponse.events.find((event) => event.event === 'done')?.payload).session);
+    const streamUserMessages = asObjectArray(doneSession.messages).filter((message) => message.kind === 'user_text');
+    assert.deepEqual(streamUserMessages[streamUserMessages.length - 1]?.images, [streamAdmittedImage]);
+    const reloadedStream = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
+    const reloadedStreamMessages = asObjectArray(d(reloadedStream.body.session).messages)
+      .filter((message) => message.kind === 'user_text');
+    assert.deepEqual(reloadedStreamMessages[reloadedStreamMessages.length - 1]?.images, [streamAdmittedImage]);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    await new Promise<void>((resolve, reject) => {
+      llamaServer.close((error?: Error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
+test('plan JSON and repo-search SSE admit images using session-snapshotted caps', async () => {
+  const tempRoot = createManagedTempDir('siftkit-dashboard-operation-image-admission-');
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const capturedBodies: string[] = [];
+  const llamaServer = http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/v1/models') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ data: [{ id: 'operation-image-model' }] }));
+      return;
+    }
+    if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    let raw = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk: string) => { raw += chunk; });
+    req.on('end', () => {
+      capturedBodies.push(raw);
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"finish\\",\\"output\\":\\"ack\\"}"}}]}\n\n');
+      res.write('data: {"choices":[{"delta":{} }],"usage":{"prompt_tokens":20,"completion_tokens":4}}\n\n');
+      res.write('data: [DONE]\n\n');
+      res.end();
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    llamaServer.listen(0, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
+  });
+  const llamaAddress = getAddressInfo(llamaServer);
+  const oversizedImage = toDataUrl('image/png', rasterBuffer('png', 2000, 1000));
+  const sessionCap = 500_000;
+  const laterActiveCap = 100_000;
+  const baseConfig = getDefaultConfig();
+  const snapshotPreset = baseConfig.Server.ModelPresets.Presets[0];
+  if (!snapshotPreset) {
+    throw new Error('Default model preset is required.');
+  }
+  snapshotPreset.Backend = 'exl3';
+  snapshotPreset.ExternalServerEnabled = true;
+  snapshotPreset.BaseUrl = `http://127.0.0.1:${llamaAddress.port}`;
+  snapshotPreset.Model = 'operation-image-model';
+  snapshotPreset.VisionEnabled = true;
+  snapshotPreset.VisionImageRetention = -1;
+  snapshotPreset.VisionMaxImagePixels = sessionCap;
+  baseConfig.Server.Engines.Exl3.Managed = false;
+  writeConfig(getConfigPath(), baseConfig);
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true, terminalMetadataIdleDelayMs: 0 });
+  await server.startupPromise;
+  const address = getAddressInfo(server);
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  function extractLastUserImage(rawBody: string): string {
+    const body = d(parseJsonValueText(rawBody));
+    const messages = asObjectArray(body.messages);
+    const userMessage = [...messages].reverse().find((message) => (
+      message.role === 'user' && asObjectArray(message.content).some((part) => part.type === 'image_url')
+    ));
+    assert.ok(userMessage);
+    const imagePart = asObjectArray(userMessage.content).find((part) => part.type === 'image_url');
+    assert.ok(imagePart, rawBody);
+    const imageUrl = asObject(imagePart.image_url).url;
+    if (typeof imageUrl !== 'string') {
+      throw new Error('Expected a string image URL in the model request.');
+    }
+    return imageUrl;
+  }
+
+  function assertAdmittedImage(admittedUrl: string): void {
+    assert.notEqual(admittedUrl, oversizedImage);
+    const separator = admittedUrl.indexOf(';base64,');
+    const mime = admittedUrl.slice('data:'.length, separator);
+    const dimensions = readImageDimensions(
+      Buffer.from(admittedUrl.slice(separator + ';base64,'.length), 'base64'),
+      mime,
+    );
+    assert.ok(dimensions.width * dimensions.height <= sessionCap);
+    assert.ok(dimensions.width * dimensions.height > laterActiveCap);
+  }
+
+  function assertPersistedImage(session: Dict, expectedImage: string): void {
+    assert.deepEqual(
+      asObjectArray(session.messages).find((message) => message.kind === 'user_text')?.images,
+      [expectedImage],
+    );
+  }
+
+  try {
+    const planSessionResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Snapshot Plan Session', model: 'operation-image-model' }),
+    });
+    const planSessionId = String(d(planSessionResponse.body.session).id);
+    const repoSessionResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Snapshot Repo Session', model: 'operation-image-model' }),
+    });
+    const repoSessionId = String(d(repoSessionResponse.body.session).id);
+
+    const currentConfigResponse = await requestJson(`${baseUrl}/config?skip_ready=1`);
+    const updatedConfig = d(structuredClone(currentConfigResponse.body));
+    const modelPresets = d(d(updatedConfig.Server).ModelPresets);
+    const activeSnapshotPreset = asObjectArray(modelPresets.Presets)[0];
+    assert.ok(activeSnapshotPreset);
+    modelPresets.Presets = [
+      activeSnapshotPreset,
+      {
+        ...activeSnapshotPreset,
+        id: 'live-strict',
+        label: 'Live Strict',
+        VisionMaxImagePixels: laterActiveCap,
+      },
+    ];
+    modelPresets.ActivePresetId = 'live-strict';
+    const updateResponse = await requestJson(`${baseUrl}/config?skip_ready=1`, {
+      method: 'PUT',
+      body: JSON.stringify(updatedConfig),
+    });
+    assert.equal(updateResponse.statusCode, 200);
+
+    const requestBody = {
+      content: 'Describe this image in the repository context',
+      repoRoot: tempRoot,
+      images: [oversizedImage],
+      maxTurns: 1,
+    };
+    const planResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${planSessionId}/plan`, {
+      method: 'POST',
+      timeoutMs: 5_000,
+      body: JSON.stringify(requestBody),
+    });
+    assert.equal(planResponse.statusCode, 200, JSON.stringify(planResponse.body));
+    const planProviderBody = capturedBodies[capturedBodies.length - 1] ?? '';
+    assert.equal(planProviderBody.includes(oversizedImage), false);
+    const planAdmittedImage = extractLastUserImage(planProviderBody);
+    assertAdmittedImage(planAdmittedImage);
+    assertPersistedImage(d(planResponse.body.session), planAdmittedImage);
+    const reloadedPlan = await requestJson(`${baseUrl}/dashboard/chat/sessions/${planSessionId}`);
+    assertPersistedImage(d(reloadedPlan.body.session), planAdmittedImage);
+
+    const repoResponse = await requestSse(`${baseUrl}/dashboard/chat/sessions/${repoSessionId}/repo-search/stream`, {
+      method: 'POST',
+      timeoutMs: 5_000,
+      body: JSON.stringify(requestBody),
+    });
+    assert.equal(repoResponse.statusCode, 200, JSON.stringify(repoResponse.events));
+    assert.equal(repoResponse.events.some((event) => event.event === 'error'), false, JSON.stringify(repoResponse.events));
+    const repoProviderBody = capturedBodies[capturedBodies.length - 1] ?? '';
+    assert.equal(repoProviderBody.includes(oversizedImage), false);
+    const repoAdmittedImage = extractLastUserImage(repoProviderBody);
+    assertAdmittedImage(repoAdmittedImage);
+    const repoDoneSession = d(d(repoResponse.events.find((event) => event.event === 'done')?.payload).session);
+    assertPersistedImage(repoDoneSession, repoAdmittedImage);
+    const reloadedRepo = await requestJson(`${baseUrl}/dashboard/chat/sessions/${repoSessionId}`);
+    assertPersistedImage(d(reloadedRepo.body.session), repoAdmittedImage);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    await new Promise<void>((resolve, reject) => {
+      llamaServer.close((error?: Error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
+test('repo-search endpoint rejects images when the active preset lacks vision', async () => {
+  const tempRoot = createManagedTempDir('siftkit-dashboard-route-vision-off-');
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const config = getDefaultConfig();
+  const modelPreset = config.Server.ModelPresets.Presets[0];
+  if (!modelPreset) {
+    throw new Error('Default model preset is required.');
+  }
+  modelPreset.Backend = 'exl3';
+  modelPreset.VisionEnabled = false;
+  writeConfig(getConfigPath(), config);
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = getAddressInfo(server);
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const sessionResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Vision-disabled repo-search session' }),
+    });
+    const sessionId = String(d(sessionResponse.body.session).id);
+    const response = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/repo-search`, {
+      method: 'POST',
+      body: JSON.stringify({
+        content: 'where is the login screen',
+        repoRoot: tempRoot,
+        images: [PNG],
+        mockResponses: ['done'],
+      }),
+    });
+    assert.equal(response.statusCode, 500);
+    assert.match(String(response.body.error), /Vision is not enabled for this preset/u);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    restoreDashboardTestRepo(previousCwd);
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await removeDirectoryWithRetries(tempRoot);
+  }
+});
+
+test('plan stream endpoint rejects images when image retention is zero', async () => {
+  const tempRoot = createManagedTempDir('siftkit-dashboard-route-retention-zero-');
+  const previousCwd = enterDashboardTestRepo(tempRoot);
+  const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, '.siftkit', 'config.json');
+  const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
+  const config = getDefaultConfig();
+  const modelPreset = config.Server.ModelPresets.Presets[0];
+  if (!modelPreset) {
+    throw new Error('Default model preset is required.');
+  }
+  modelPreset.Backend = 'exl3';
+  modelPreset.VisionEnabled = true;
+  modelPreset.VisionImageRetention = 0;
+  writeConfig(getConfigPath(), config);
+
+  const server = startStatusServer({ disableManagedLlamaStartup: true });
+  await server.startupPromise;
+  const address = getAddressInfo(server);
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const sessionResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Retention-zero plan session' }),
+    });
+    const sessionId = String(d(sessionResponse.body.session).id);
+    const response = await requestSse(`${baseUrl}/dashboard/chat/sessions/${sessionId}/plan/stream`, {
+      method: 'POST',
+      body: JSON.stringify({
+        content: 'plan it',
+        repoRoot: tempRoot,
+        images: [PNG],
+        mockResponses: ['done'],
+      }),
+    });
+    const errorEvent = response.events.find((event) => event.event === 'error');
+    assert.ok(errorEvent);
+    assert.match(
+      String(errorEvent.payload?.error),
+      /Image input is disabled for this preset \(VisionImageRetention = 0\)/u,
+    );
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

@@ -52,7 +52,7 @@ import {
   type PresetSystemContext,
 } from '../preset-system-context.js';
 import { PresetCatalog } from '../preset-catalog.js';
-import { assertPresetAcceptsImages } from '../llm-protocol/image-attachments.js';
+import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js';
 
 type SummaryExecutionContext = {
   config: SiftConfig;
@@ -63,6 +63,7 @@ type SummaryExecutionContext = {
   presetPromptPrefix: string;
   additionalPromptPrefix: string;
   systemContext: PresetSystemContext;
+  images: readonly string[];
 };
 
 async function notifySummaryTerminalStatus(
@@ -144,7 +145,7 @@ export class SummaryRequestRunner {
   }
 
   private validateInput(): void {
-    if (!this.inputText || !this.inputText.trim()) {
+    if ((!this.inputText || !this.inputText.trim()) && (this.request.images ?? []).length === 0) {
       throw new Error('Provide --text, --file, or pipe input into siftkit.');
     }
   }
@@ -226,7 +227,10 @@ export class SummaryRequestRunner {
     this.config = applyMaxTokensOverrideToConfig(this.config, this.request.llamaCppMaxTokens);
     this.model = getConfiguredModel(this.config);
     this.progress.configDone(this.provider, this.model);
-    assertPresetAcceptsImages(getActiveModelPreset(this.config), this.request.images ?? []);
+    const activeVisionPreset = getActiveModelPreset(this.config);
+    const requestedImages = this.request.images ?? [];
+    const admittedImages = admitImagesForPreset(activeVisionPreset, requestedImages)
+      .map((image) => image.dataUrl);
     const presets = PresetCatalog.fromPresets(this.config.Presets);
     const preset = this.request.presetId
       ? presets.requireById(this.request.presetId)
@@ -257,6 +261,7 @@ export class SummaryRequestRunner {
       presetPromptPrefix: preset.promptPrefix,
       additionalPromptPrefix: this.request.promptPrefix ?? '',
       systemContext,
+      images: admittedImages,
     };
   }
 
@@ -331,7 +336,7 @@ export class SummaryRequestRunner {
         slotId,
         question: this.request.question,
         inputText: this.inputText,
-        images: this.request.images ?? [],
+        images: context.images,
         format: this.request.format,
         policyProfile: this.request.policyProfile,
         provider: context.provider,

@@ -9,6 +9,7 @@ import { applyTextDelta } from './stream-text-delta';
 import type { ChatStreamToolEvent } from './chat-stream-parser';
 import type { ChatMessage, ChatSessionResponse, ChatSessionOperationKind, ContextUsage } from '../types';
 import type { ChatStreamTextDelta } from '@siftkit/contracts';
+import type { PendingImage } from './downscale-image';
 
 export type ChatSessionActivity =
   | { kind: 'idle' }
@@ -23,7 +24,7 @@ export type ChatSessionRuntime = {
   contextUsage: ContextUsage | null;
   liveToolPromptTokenCount: number | null;
   draft: string;
-  pendingImages: string[];
+  pendingImages: PendingImage[];
   planRepoRootInput: string;
   planMaxTurnsInput: string;
 };
@@ -38,7 +39,8 @@ export type ChatSessionRuntimeTransition =
   | { kind: 'failure'; sessionId: string; message: string }
   | { kind: 'context-usage'; sessionId: string; contextUsage: ContextUsage }
   | { kind: 'draft'; sessionId: string; draft: string }
-  | { kind: 'images'; sessionId: string; images: string[] }
+  | { kind: 'images'; sessionId: string; images: PendingImage[] }
+  | { kind: 'append-images'; sessionId: string; images: PendingImage[] }
   | { kind: 'plan-inputs'; sessionId: string; planRepoRootInput: string; planMaxTurnsInput: string };
 
 function createChatSessionRuntime(sessionId: string): ChatSessionRuntime {
@@ -114,6 +116,8 @@ function applyTransition(
       return { ...runtime, draft: transition.draft };
     case 'images':
       return { ...runtime, pendingImages: transition.images };
+    case 'append-images':
+      return { ...runtime, pendingImages: [...runtime.pendingImages, ...transition.images] };
     case 'plan-inputs':
       return {
         ...runtime,

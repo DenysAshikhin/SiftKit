@@ -1,14 +1,60 @@
 import assert from 'node:assert/strict';
 import test, { after, before } from 'node:test';
 
+import { ModelRuntimePresetSchema } from '@siftkit/contracts';
+import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { SummaryRequestRunner } from '../src/summary/request-runner.js';
 import { DEFAULT_SUMMARY_PROVIDER } from '../src/summary/types.js';
+import { mockSiftConfig } from './helpers/mock-config.js';
 import { DeadEndpointEnv } from './helpers/dead-endpoints.js';
+import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 
 // The deterministic path still posts terminal status; nothing here asserts on it.
 const deadEndpoints = new DeadEndpointEnv();
 before(() => { deadEndpoints.apply(); });
 after(() => { deadEndpoints.restore(); });
+
+test('SummaryRequestRunner accepts an image-only request', async () => {
+  const defaultPreset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+  if (!defaultPreset) throw new Error('Default model preset is missing');
+  const visionPreset = ModelRuntimePresetSchema.parse({
+    ...defaultPreset,
+    Backend: 'exl3',
+    VisionEnabled: true,
+    VisionImageRetention: -1,
+  });
+
+  const result = await new SummaryRequestRunner({
+    repoRoot: process.cwd(),
+    question: 'what is in the image?',
+    inputText: '',
+    images: [toDataUrl('image/png', rasterBuffer('png', 1, 1))],
+    format: 'text',
+    policyProfile: 'general',
+    provider: 'mock',
+    config: mockSiftConfig({
+      Server: {
+        ModelPresets: { Presets: [visionPreset], ActivePresetId: visionPreset.id },
+      },
+    }),
+  }).run();
+
+  assert.equal(result.Provider, 'mock');
+});
+
+test('SummaryRequestRunner still rejects an empty request without images', async () => {
+  await assert.rejects(
+    () => new SummaryRequestRunner({
+      repoRoot: process.cwd(),
+      question: 'what is this?',
+      inputText: '',
+      format: 'text',
+      policyProfile: 'general',
+      provider: 'mock',
+    }).run(),
+    /Provide --text, --file, or pipe input into siftkit\./u,
+  );
+});
 
 test('SummaryRequestRunner handles deterministic command-output summaries without model config', async () => {
   const result = await new SummaryRequestRunner({

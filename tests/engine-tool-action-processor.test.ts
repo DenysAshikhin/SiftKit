@@ -3,98 +3,16 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { buildIgnorePolicy } from '../src/repo-search/command-safety.js';
-import { ChatGroundingPolicy } from '../src/repo-search/chat-grounding-policy.js';
-import type { TaskCommand } from '../src/repo-search/prompts.js';
 import type { ToolAction } from '../src/repo-search/planner-protocol.js';
 import { z } from '../src/lib/zod.js';
-import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
-import type { RepoSearchMockCommandResult } from '../src/repo-search/types.js';
-import { DuplicateTracker } from '../src/repo-search/engine/duplicate-tracker.js';
-import { ForcedFinishController } from '../src/repo-search/engine/forced-finish.js';
-import { ProgressReporter } from '../src/repo-search/engine/progress-reporter.js';
-import { ReadWindowGovernor } from '../src/repo-search/engine/read-window-governor.js';
-import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
-import { ToolActionProcessor } from '../src/repo-search/engine/tool-action-processor.js';
 import type { ApprovalRequester } from '../src/repo-search/engine/approval-gate.js';
 import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
-import { ToolResultBudgeter } from '../src/repo-search/engine/tool-result-budgeter.js';
-import { decayInvalidResponses, type LoopCounters } from '../src/repo-search/engine/task-loop-support.js';
-import { ToolStatsRecorder } from '../src/repo-search/engine/tool-stats.js';
-import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
-import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
+import { decayInvalidResponses } from '../src/repo-search/engine/task-loop-support.js';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/validation-command-output-policy.js';
-import { SilentProgressWriter } from '../src/lib/progress-writer.js';
-import { makeMockWebTools } from './helpers/mock-web-tools.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { parseLoggedEvent } from './helpers/logged-events.js';
-
-function makeProcessor(
-  root: string,
-  allowedPlannerToolNames: string[] = ['ls'],
-  validationCommandOutputLineLimit: number | null = null,
-  approvalGate: ApprovalRequester | null = null,
-  mockCommandResults: Record<string, RepoSearchMockCommandResult> | undefined = undefined,
-): {
-  processor: ToolActionProcessor;
-  commands: TaskCommand[];
-  counters: LoopCounters;
-  tokenUsage: TokenUsageTracker;
-  budget: TurnBudget;
-  events: JsonObject[];
-} {
-  const commands: TaskCommand[] = [];
-  const counters: LoopCounters = { invalidResponses: 0, commandFailures: 0, safetyRejects: 0, reason: '' };
-  const tokenUsage = new TokenUsageTracker(undefined, true);
-  const budget = new TurnBudget({ totalContextTokens: 20000, maxTurns: 5, config: null });
-  const events: JsonObject[] = [];
-  const processor = new ToolActionProcessor({
-    task: { id: 'task-alignment', question: 'q', signals: ['done'] },
-    repoRoot: root,
-    config: undefined,
-    mockCommandResults,
-    logger: {
-      path: 'memory',
-      write(event: Record<string, JsonSerializable>): void {
-        events.push(parseLoggedEvent(event));
-      },
-    },
-    timingRecorder: null,
-    maxInvalidResponses: 3,
-    allowedPlannerToolNames,
-    approvalGate,
-    validationCommandOutputLineLimit,
-    chatWebGroundingEnabled: false,
-    chatWebGroundingPolicy: new ChatGroundingPolicy({ enabled: false }),
-    ignorePolicy: buildIgnorePolicy(root),
-    webTools: makeMockWebTools(),
-    budget,
-    tokenUsage,
-    toolStats: new ToolStatsRecorder(),
-    duplicates: new DuplicateTracker(),
-    forcedFinish: new ForcedFinishController(),
-    resultBudgeter: new ToolResultBudgeter({ config: undefined, useEstimatedTokensOnly: true, timingRecorder: null }),
-    readWindows: new ReadWindowGovernor(),
-    maintainPerStepThinking: true,
-    progress: new ProgressReporter({
-      progressWriter: new SilentProgressWriter(),
-      taskId: 'task-alignment',
-      maxTurns: 5,
-      taskStartedAt: Date.now(),
-    }),
-    transcript: new TranscriptManager({
-      systemPromptContent: 'system',
-      historyMessages: [],
-      initialUserContent: 'q',
-      initialUserImages: [],
-    }),
-    recentEvidenceKeys: new Set<string>(),
-    successfulToolCalls: [],
-    commands,
-    counters,
-  });
-  return { processor, commands, counters, tokenUsage, budget, events };
-}
+import type { JsonObject } from '../src/lib/json-types.js';
+import { makeProcessor } from './helpers/tool-action-processor.js';
+import type { RepoSearchMockCommandResult } from '../src/repo-search/types.js';
 
 const NOISY_VALIDATION_LINE_COUNT = REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT + 10;
 const NOISY_VALIDATION_OUTPUT = Array.from(
@@ -152,6 +70,25 @@ test('executeBatch records one command entry per tool action so results stay ali
   assert.equal(commands[0].safe, false);
   assert.equal(commands[0].reason, 'invalid action');
   assert.equal(commands[1].safe, true);
+});
+
+test('non-image command records omit optional image fields from their JSON shape', async () => {
+  const root = createManagedTempDir('siftkit-tool-command-image-fields-');
+  fs.writeFileSync(path.join(root, 'a.ts'), 'alpha\n', 'utf8');
+  const { processor, commands } = makeProcessor(root);
+
+  await processor.executeBatch(
+    1,
+    [{ action: 'tool', tool_name: 'ls', args: { path: '.' } }],
+    '',
+    0,
+    false,
+  );
+
+  const [command] = commands;
+  assert.ok(command);
+  assert.equal(Object.prototype.hasOwnProperty.call(command, 'imageDataUrls'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(command, 'imageMeta'), false);
 });
 
 test('a git action whose command omits the git token is normalized instead of rejected', async () => {

@@ -1,17 +1,23 @@
 import { readFileSync } from 'node:fs';
 import { extname } from 'node:path';
 import { z } from '../lib/zod.js';
-import { ImageDataUrlSchema, SIFT_MAX_IMAGE_BYTES } from '@siftkit/contracts';
+import {
+  ImageDataUrlSchema,
+  SIFT_MAX_IMAGE_BYTES,
+  type ImageMime,
+} from '@siftkit/contracts';
 import type { LlamaCppContentPart } from './types.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
 import type { ModelRuntimePreset } from '../config/types.js';
+import { admitImageBuffer, type AdmittedImage } from './image-admission.js';
+import type { ImageTokenBudget } from '@siftkit/contracts';
 
 // ── MIME mapping ────────────────────────────────────────────────────────
 // shared image attachment core
 
 // A Map keyed by plain string, so an arbitrary file extension is looked up without
 // asserting it into the key union.
-const IMAGE_MIME_MAP: ReadonlyMap<string, string> = new Map([
+const IMAGE_MIME_MAP: ReadonlyMap<string, ImageMime> = new Map([
   ['.png', 'image/png'],
   ['.jpg', 'image/jpeg'],
   ['.jpeg', 'image/jpeg'],
@@ -24,7 +30,7 @@ export function getSupportedImageExtensions(): string[] {
   return [...IMAGE_MIME_MAP.keys()].sort();
 }
 
-export function imageMimeForPath(filePath: string): string | undefined {
+export function imageMimeForPath(filePath: string): ImageMime | undefined {
   return IMAGE_MIME_MAP.get(extname(filePath).toLowerCase());
 }
 
@@ -43,20 +49,39 @@ export function parseImageDataUrls(input: OptionalJsonValue): string[] {
   return z.array(ImageDataUrlSchema).parse(input);
 }
 
+function readImageFile(filePath: string): { buffer: Buffer; mime: ImageMime } {
+  const mime = imageMimeForPath(filePath);
+  if (mime === undefined) {
+    throw new Error(`Unsupported image extension: ${extname(filePath).toLowerCase()}`);
+  }
+  const buffer = readFileSync(filePath);
+  if (buffer.byteLength > SIFT_MAX_IMAGE_BYTES) {
+    throw new Error(`Image exceeds maximum size of ${SIFT_MAX_IMAGE_BYTES} bytes`);
+  }
+  return { buffer, mime };
+}
+
+/** Encodes a local image for transport. Preset-specific admission remains server-owned. */
+export function readImageFileDataUrl(filePath: string): string {
+  const { buffer, mime } = readImageFile(filePath);
+  return ImageDataUrlSchema.parse(`data:${mime};base64,${buffer.toString('base64')}`);
+}
+
 // ── Reader ──────────────────────────────────────────────────────────────
 
 export class ImageAttachmentReader {
+  constructor(
+    private readonly budget: ImageTokenBudget,
+    private readonly visionMaxImagePixels = 0,
+  ) {}
+
   read(filePath: string): string {
-    const mime = imageMimeForPath(filePath);
-    if (mime === undefined) {
-      throw new Error(`Unsupported image extension: ${extname(filePath).toLowerCase()}`);
-    }
-    const buf = readFileSync(filePath);
-    if (buf.byteLength > SIFT_MAX_IMAGE_BYTES) {
-      throw new Error(`Image exceeds maximum size of ${SIFT_MAX_IMAGE_BYTES} bytes`);
-    }
-    const b64 = buf.toString('base64');
-    return `data:${mime};base64,${b64}`;
+    return this.readAdmitted(filePath).dataUrl;
+  }
+
+  readAdmitted(filePath: string): AdmittedImage {
+    const { buffer, mime } = readImageFile(filePath);
+    return admitImageBuffer(buffer, mime, this.budget, this.visionMaxImagePixels);
   }
 
   readAll(filePaths: string[]): string[] {
@@ -115,6 +140,9 @@ export function countContentImages(content: string | LlamaCppContentPart[] | und
 
 // ── Preset guard ────────────────────────────────────────────────────────
 
+export const IMAGE_RETENTION_DISABLED_REASON =
+  'Image input is disabled for this preset (VisionImageRetention = 0)';
+
 export function assertPresetAcceptsImages(
   preset: ModelRuntimePreset,
   imageUris: readonly string[],
@@ -125,5 +153,8 @@ export function assertPresetAcceptsImages(
   }
   if (!preset.VisionEnabled) {
     throw new Error('Vision is not enabled for this preset; enable VisionEnabled to use images');
+  }
+  if (preset.VisionImageRetention === 0) {
+    throw new Error(IMAGE_RETENTION_DISABLED_REASON);
   }
 }

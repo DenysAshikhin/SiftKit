@@ -16,6 +16,7 @@ import {
   type OptionalJsonValue,
 } from '../../lib/json-types.js';
 import { LlamaCppClient } from '../../llm-protocol/llama-cpp-client.js';
+import { resolveImageTokenBudget } from '../../llm-protocol/image-token-budget.js';
 import { parseOptionalSummaryProvider } from '../../summary/types.js';
 import type {
   SummaryPolicyProfile,
@@ -129,8 +130,10 @@ import type {
   ServerContext,
   TerminalMetadataQueueItem,
 } from '../server-types.js';
+import { InferenceRuntimeDashboardStatusSchema } from '@siftkit/contracts';
 import type { ActiveRunState } from '../status-run-registry.js';
 import { buildStatusRunStartInput } from '../status-run-registry.js';
+import { readGpuMemory } from '../gpu-memory.js';
 import {
   StreamedOperationEndpoint,
   type ParsedStreamedRequest,
@@ -1953,7 +1956,13 @@ class InferenceRuntimeReadEndpoint implements RouteEndpoint {
       sendJson(res, 503, { error: 'Inference runtime coordinator is unavailable.' });
       return;
     }
-    sendJson(res, 200, coordinator.getStatus());
+    const preset = ctx.appliedModelPresetState.getPreset();
+    const gpuMemory = await readGpuMemory();
+    sendJson(res, 200, InferenceRuntimeDashboardStatusSchema.parse({
+      ...coordinator.getStatus(),
+      imageTokenBudget: preset.Backend === 'exl3' ? resolveImageTokenBudget(preset) : null,
+      gpuFreeBytes: gpuMemory === null ? null : gpuMemory.freeBytes,
+    }));
   }
 }
 

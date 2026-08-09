@@ -18,6 +18,9 @@ import { getContextBarFillTone } from '../lib/context-bar-tone';
 import { deriveSessionIndicator, isSessionBusy, type SessionIndicator } from '../lib/chat-session-state';
 import type { ChatSessionRuntime } from '../lib/chat-session-runtime-store';
 import { ToolCallCard } from '../components/ToolCallCard';
+import { PendingImageStrip } from '../components/PendingImageStrip';
+import { MessageImages } from '../components/MessageImages';
+import { downscaleDataUrl, type PendingImage } from '../lib/downscale-image';
 import { useChatScroll } from '../hooks/useChatScroll';
 import { useSmoothedText } from '../hooks/useSmoothedText';
 import { groupMessagesIntoTurns, normalizeMessageKind, type ChatTurn } from '../lib/chatTurns';
@@ -114,7 +117,9 @@ export type ChatTabProps = {
   onSendPlan(): Promise<void>;
   onSendRepoSearch(): Promise<void>;
   onSendMessage(): Promise<void>;
-  onPendingImagesChange(images: string[]): void;
+  onPendingImagesChange(images: PendingImage[]): void;
+  onPendingImagesAppend(sessionId: string, images: PendingImage[]): void;
+  onPendingImageError(sessionId: string, message: string): void;
 };
 
 const SESSION_INDICATOR_LABELS: Record<SessionIndicator, string> = {
@@ -141,16 +146,21 @@ function getSendLabel(chatMode: DashboardPresetExecutionFamily | null): string {
   return 'Send';
 }
 
-async function readImageFiles(files: FileList | null): Promise<string[]> {
+export async function readImageFile(file: File, maxPixels: number): Promise<PendingImage> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error(`cannot read ${file.name}`));
+    reader.onload = () => resolve(String(reader.result));
+    reader.readAsDataURL(file);
+  });
+  return downscaleDataUrl(dataUrl, maxPixels);
+}
+
+export async function readImageFiles(files: FileList | null, maxPixels: number): Promise<PendingImage[]> {
   if (!files) return [];
-  const results: string[] = [];
+  const results: PendingImage[] = [];
   for (const file of Array.from(files)) {
-    results.push(await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onerror = () => reject(new Error(`cannot read ${file.name}`));
-      reader.onload = () => resolve(String(reader.result));
-      reader.readAsDataURL(file);
-    }));
+    results.push(await readImageFile(file, maxPixels));
   }
   return results;
 }
@@ -199,7 +209,10 @@ export function ChatTab({
   onSendRepoSearch,
   onSendMessage,
   onPendingImagesChange,
+  onPendingImagesAppend,
+  onPendingImageError,
 }: ChatTabProps) {
+  const pendingImageReadState = React.useRef({ generation: 0, tail: Promise.resolve() });
   const planRepoRootInput = selectedRuntime?.planRepoRootInput ?? '';
   const contextUsage = selectedRuntime?.contextUsage ?? null;
   const liveToolPromptTokenCount = selectedRuntime?.liveToolPromptTokenCount ?? null;
@@ -208,6 +221,7 @@ export function ChatTab({
   const warnings = selectedRuntime?.warnings ?? [];
   const draft = selectedRuntime?.draft ?? '';
   const pendingImages = selectedRuntime?.pendingImages ?? [];
+  const effectiveImagePixelCeiling = contextUsage?.effectiveImagePixelCeiling ?? null;
   const persistedMessages = selectedSession ? selectedSession.messages : [];
   const visibleMessages = [...persistedMessages, ...liveMessages];
   const promptContext = selectedSession?.promptContext ?? null;
@@ -216,6 +230,29 @@ export function ChatTab({
   const { chatLogRef } = useChatScroll(visibleMessageIds, liveMessageScrollSignature);
   const sessionIndicators = buildSessionIndicators(sessions, sessionRuntimes);
   const selectedSessionBusy = isSessionBusy(selectedRuntime);
+
+  React.useEffect(() => {
+    pendingImageReadState.current.generation += 1;
+    pendingImageReadState.current.tail = Promise.resolve();
+  }, [selectedSessionId]);
+
+  function enqueuePendingImageRead(files: FileList | null, maxPixels: number): void {
+    const generation = pendingImageReadState.current.generation;
+    const sessionId = selectedSessionId;
+    const batch = readImageFiles(files, maxPixels);
+    pendingImageReadState.current.tail = pendingImageReadState.current.tail.then(async () => {
+      try {
+        const images = await batch;
+        if (generation === pendingImageReadState.current.generation) {
+          onPendingImagesAppend(sessionId, images);
+        }
+      } catch (error) {
+        if (generation === pendingImageReadState.current.generation) {
+          onPendingImageError(sessionId, error instanceof Error ? error.message : String(error));
+        }
+      }
+    });
+  }
 
   function dispatchSend(): void {
     if (chatMode === 'plan') { void onSendPlan(); return; }
@@ -318,6 +355,7 @@ export function ChatTab({
                     <MessageBubble
                       key={message.id}
                       message={message}
+                      sessionId={selectedSessionId}
                       isLive={turn.isLive}
                       isDirectChatMode={isDirectChatMode}
                       chatBusy={selectedSessionBusy}
@@ -329,6 +367,7 @@ export function ChatTab({
                   <ChatTurnBubble
                     key={turn.key}
                     turn={turn}
+                    sessionId={selectedSessionId}
                     isDirectChatMode={isDirectChatMode}
                     chatBusy={selectedSessionBusy}
                     onDeleteMessage={onDeleteMessage}
@@ -383,6 +422,10 @@ export function ChatTab({
                   <i style={{ width: `${usedRatio * 100}%` }} />
                 </div>
               ) : null}
+              <PendingImageStrip
+                images={pendingImages}
+                onChange={onPendingImagesChange}
+              />
               <div className="row">
                 <button
                   type="button"
@@ -409,10 +452,15 @@ export function ChatTab({
                     type="file"
                     accept="image/png,image/jpeg,image/webp,image/gif"
                     multiple
-                    onChange={(event) => { void readImageFiles(event.currentTarget.files).then((urls) => onPendingImagesChange([...pendingImages, ...urls])); }}
+                    disabled={selectedSessionBusy || effectiveImagePixelCeiling === null}
+                    onChange={(event) => {
+                      if (effectiveImagePixelCeiling === null) {
+                        return;
+                      }
+                      enqueuePendingImageRead(event.currentTarget.files, effectiveImagePixelCeiling);
+                    }}
                   />
                 </label>
-                {pendingImages.length > 0 ? <span className="image-count">{pendingImages.length} image(s) attached</span> : null}
                 <button
                   type="button"
                   className="send"
@@ -548,8 +596,11 @@ function AssistantAnswerBody({ message, isLive, isDirectChatMode }: {
   );
 }
 
-function renderMessageBody(message: ChatMessage, isDirectChatMode: boolean, isLive: boolean) {
+function renderMessageBody(message: ChatMessage, sessionId: string, isDirectChatMode: boolean, isLive: boolean) {
   const messageKind = normalizeMessageKind(message);
+  if (messageKind === 'tool_image') {
+    return <MessageImages key={`${sessionId}:${message.id}`} sessionId={sessionId} messageId={message.id} images={message.images ?? []} imageMeta={message.imageMeta ?? []} />;
+  }
   if (messageKind === 'assistant_tool_call') {
     return <ToolCallCard message={message} />;
   }
@@ -559,11 +610,17 @@ function renderMessageBody(message: ChatMessage, isDirectChatMode: boolean, isLi
   if (message.role === 'assistant') {
     return <AssistantAnswerBody message={message} isLive={isLive} isDirectChatMode={isDirectChatMode} />;
   }
-  return <p className="user-message">{message.content}</p>;
+  return (
+    <>
+      <p className="user-message">{message.content}</p>
+      <MessageImages key={`${sessionId}:${message.id}`} sessionId={sessionId} messageId={message.id} images={message.images ?? []} imageMeta={message.imageMeta ?? []} />
+    </>
+  );
 }
 
-function MessageBubble({ message, isLive, isDirectChatMode, chatBusy, onDeleteMessage, extraClass }: {
+function MessageBubble({ message, sessionId, isLive, isDirectChatMode, chatBusy, onDeleteMessage, extraClass }: {
   message: ChatMessage;
+  sessionId: string;
   isLive: boolean;
   isDirectChatMode: boolean;
   chatBusy: boolean;
@@ -575,13 +632,14 @@ function MessageBubble({ message, isLive, isDirectChatMode, chatBusy, onDeleteMe
   return (
     <article className={`msg ${tone} ${messageKind}${extraClass ? ` ${extraClass}` : ''}${isLive ? ' live' : ''}`}>
       <MessageHeader message={message} isLive={isLive} chatBusy={chatBusy} onDeleteMessage={onDeleteMessage} />
-      {renderMessageBody(message, isDirectChatMode, isLive)}
+      {renderMessageBody(message, sessionId, isDirectChatMode, isLive)}
     </article>
   );
 }
 
-function ChatTurnBubble({ turn, isDirectChatMode, chatBusy, onDeleteMessage, onDeleteTurn }: {
+function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteMessage, onDeleteTurn }: {
   turn: ChatTurn;
+  sessionId: string;
   isDirectChatMode: boolean;
   chatBusy: boolean;
   onDeleteMessage(messageId: string): Promise<void>;
@@ -626,6 +684,7 @@ function ChatTurnBubble({ turn, isDirectChatMode, chatBusy, onDeleteMessage, onD
             <MessageBubble
               key={step.id}
               message={step}
+              sessionId={sessionId}
               isLive={turn.isLive}
               isDirectChatMode={isDirectChatMode}
               chatBusy={chatBusy}
@@ -637,6 +696,7 @@ function ChatTurnBubble({ turn, isDirectChatMode, chatBusy, onDeleteMessage, onD
       {turn.main ? (
         <MessageBubble
           message={turn.main}
+          sessionId={sessionId}
           isLive={turn.isLive}
           isDirectChatMode={isDirectChatMode}
           chatBusy={chatBusy}

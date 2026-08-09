@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
 import type { ChatSessionResponse } from '../src/types';
 
+const IMAGE_A = { dataUrl: 'data:image/png;base64,AA', note: null };
+const IMAGE_B = { dataUrl: 'data:image/png;base64,BB', note: 'resized second image' };
+
 const SAMPLE_RESPONSE: ChatSessionResponse = {
   session: {
     id: 's1',
@@ -66,9 +69,9 @@ test('get still throws for a session that was never touched', () => {
 
 test('plan input and image transitions replace only their own fields', () => {
   const next = new ChatSessionRuntimeStore()
-    .apply({ kind: 'images', sessionId: 's', images: ['data:image/png;base64,AA'] })
+    .apply({ kind: 'images', sessionId: 's', images: [IMAGE_A] })
     .apply({ kind: 'plan-inputs', sessionId: 's', planRepoRootInput: 'C:/repo', planMaxTurnsInput: '12' });
-  assert.deepEqual(next.get('s').pendingImages, ['data:image/png;base64,AA']);
+  assert.deepEqual(next.get('s').pendingImages, [IMAGE_A]);
   assert.equal(next.get('s').planRepoRootInput, 'C:/repo');
   assert.equal(next.get('s').planMaxTurnsInput, '12');
   assert.equal(next.get('s').draft, '');
@@ -233,8 +236,17 @@ test('setDraft replaces the draft text', () => {
 test('setImages replaces pending images', () => {
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
-    .apply({ kind: 'images', sessionId: 's1', images: ['img1', 'img2'] });
-  assert.deepEqual(store.get('s1').pendingImages, ['img1', 'img2']);
+    .apply({ kind: 'images', sessionId: 's1', images: [IMAGE_A, IMAGE_B] });
+  assert.deepEqual(store.get('s1').pendingImages, [IMAGE_A, IMAGE_B]);
+});
+
+test('appendImages preserves complete attachment records in dispatch order', () => {
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession('s1')
+    .apply({ kind: 'append-images', sessionId: 's1', images: [IMAGE_A] })
+    .apply({ kind: 'append-images', sessionId: 's1', images: [IMAGE_B] });
+
+  assert.deepEqual(store.get('s1').pendingImages, [IMAGE_A, IMAGE_B]);
 });
 
 test('setPlanInputs replaces plan input fields', () => {
@@ -338,13 +350,13 @@ test('applyFailure clears live messages but preserves draft and images for retry
   const store = new ChatSessionRuntimeStore()
     .ensureSession('s1')
     .apply({ kind: 'draft', sessionId: 's1', draft: 'draft' })
-    .apply({ kind: 'images', sessionId: 's1', images: ['image'] })
+    .apply({ kind: 'images', sessionId: 's1', images: [IMAGE_A] })
     .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'answer' } })
     .apply({ kind: 'failure', sessionId: 's1', message: 'boom' });
   const runtime = store.get('s1');
   assert.deepEqual(runtime.liveMessages, []);
   assert.equal(runtime.draft, 'draft');
-  assert.deepEqual(runtime.pendingImages, ['image']);
+  assert.deepEqual(runtime.pendingImages, [IMAGE_A]);
 });
 
 test('setContextUsage updates only the targeted session', () => {

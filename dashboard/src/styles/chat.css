@@ -52,7 +52,6 @@
 .composer .input { flex: 1; min-width: 140px; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px; color: var(--ink); font: inherit; font-size: 0.8rem; resize: vertical; }
 .attach { display: inline-flex; align-items: center; }
 .attach input[type="file"] { display: none; }
-.image-count { font-size: 0.64rem; color: var(--dim); white-space: nowrap; }
 .settings-toggle { flex: none; }
 .settings-toggle.active { border-color: var(--acc); color: var(--acc); }
 .send { font: inherit; font-size: 0.78rem; background: var(--acc); color: #06251e; font-weight: 700; border: none; border-radius: 7px; padding: 7px 14px; cursor: pointer; flex: none; }

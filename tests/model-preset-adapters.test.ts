@@ -320,6 +320,8 @@ const PRESET_FIELD_EXPECTATIONS = {
   SleepIdleSeconds: ON_BOTH_BACKENDS,
   VerboseLogging: LLAMA_ONLY,
   VisionEnabled: EXL3_ONLY,
+  VisionImageRetention: EXL3_ONLY,
+  VisionMaxImagePixels: EXL3_ONLY,
 } satisfies Record<ModelPresetField, PresetFieldExpectation>;
 
 test('every preset field states its visibility and availability for each backend state', () => {
@@ -425,4 +427,3 @@ test('adapters reject presets assigned to the other backend', () => {
     /backend=llama/u,
   );
 });
-

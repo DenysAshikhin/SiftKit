@@ -21,3 +21,22 @@ test('buildManagedLlamaRestartFailureModal formats GPU OOM memory details', () =
     },
   );
 });
+
+test('buildManagedLlamaRestartFailureModal renders unknown GPU OOM memory details', () => {
+  assert.deepEqual(
+    buildManagedLlamaRestartFailureModal({
+      ok: false,
+      restarted: false,
+      error: 'cudaMalloc failed: out of memory',
+      startupFailure: {
+        kind: 'gpu_memory_oom',
+        requiredMiB: null,
+        availableMiB: null,
+      },
+    }),
+    {
+      title: 'Managed llama.cpp ran out of GPU memory',
+      message: 'Needed unknown MiB of GPU memory, but only unknown MiB was available.',
+    },
+  );
+});

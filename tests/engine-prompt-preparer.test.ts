@@ -50,11 +50,12 @@ function makeCompactableTranscript(): TranscriptManager {
     historyMessages: [{ role: 'assistant', content: 'H'.repeat(24_000) }],
     initialUserContent: 'question',
     initialUserImages: [],
+    liveImagePathKeys: new Set<string>(),
   });
 }
 
 test('prepareTurn returns a token count and output budget for a small prompt', async () => {
-  const transcript = new TranscriptManager({ systemPromptContent: 'SYSTEM', historyMessages: [], initialUserContent: 'short question', initialUserImages: [] });
+  const transcript = new TranscriptManager({ systemPromptContent: 'SYSTEM', historyMessages: [], initialUserContent: 'short question', initialUserImages: [], liveImagePathKeys: new Set<string>() });
   const preparer = makePreparer(new TurnBudget({ totalContextTokens: 32_000, maxTurns: 45, config: null }), transcript);
   const prepared = await preparer.prepareTurn(1);
   assert.ok(prepared.promptTokenCount > 0);
@@ -67,6 +68,7 @@ test('prepareTurn throws planner_preflight_overflow when even compaction cannot 
     historyMessages: [],
     initialUserContent: 'question',
     initialUserImages: [],
+    liveImagePathKeys: new Set<string>(),
   });
   const preparer = makePreparer(new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45, config: null }), transcript);
   await assert.rejects(preparer.prepareTurn(1), /planner_preflight_overflow/u);

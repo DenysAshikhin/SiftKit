@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ManagedLlamaStartupFailureSchema } from './managed-llama-failure.js';
 
 export const ManagedLlamaKvCacheQuantizationSchema = z.enum([
   'f32', 'f16', 'bf16', 'q8_0', 'q4_0', 'q4_1', 'iq4_nl', 'q5_0', 'q5_1', 'q8_0/q4_0', 'q8_0/q5_0',
@@ -65,6 +66,7 @@ const ManagedLlamaSettingsShape = {
   ReasoningBudget: z.number(),
   ReasoningBudgetMessage: z.string().nullable(), StartupTimeoutMs: z.number(), HealthcheckTimeoutMs: z.number(),
   HealthcheckIntervalMs: z.number(), SleepIdleSeconds: z.number(), VerboseLogging: z.boolean(), VisionEnabled: z.boolean(),
+  VisionImageRetention: z.number().int().min(-1), VisionMaxImagePixels: z.number().int().min(0),
 };
 
 export const ModelPresetFieldSchema = z.enum([
@@ -76,7 +78,7 @@ export const ModelPresetFieldSchema = z.enum([
   'SpeculativeNgramSizeM', 'SpeculativeNgramMinHits', 'SpeculativeNgramModNMatch', 'SpeculativeNgramModNMin',
   'SpeculativeNgramModNMax', 'SpeculativeDraftMax', 'SpeculativeDraftMin', 'SpeculativeDynamic', 'ReasoningBudget',
   'ReasoningBudgetMessage', 'StartupTimeoutMs', 'HealthcheckTimeoutMs', 'HealthcheckIntervalMs',
-  'SleepIdleSeconds', 'VerboseLogging', 'VisionEnabled',
+  'SleepIdleSeconds', 'VerboseLogging', 'VisionEnabled', 'VisionImageRetention', 'VisionMaxImagePixels',
 ]);
 export type ModelPresetField = z.infer<typeof ModelPresetFieldSchema>;
 
@@ -230,6 +232,6 @@ export type DashboardConfig = SiftConfig;
 export const RestartBackendResponseSchema = z.object({
   ok: z.boolean(), restarted: z.boolean(), error: z.string().optional(),
   config: SiftConfigSchema.optional(),
-  startupFailure: z.object({ kind: z.literal('gpu_memory_oom'), requiredMiB: z.number(), availableMiB: z.number() }).nullable().optional(),
+  startupFailure: ManagedLlamaStartupFailureSchema.nullable().optional(),
 });
 export type RestartBackendResponse = z.infer<typeof RestartBackendResponseSchema>;
