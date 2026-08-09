@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
@@ -5,10 +6,31 @@ import { z } from 'zod';
 export const TEST_BUILD_ROOT = '.test-build';
 export const TEST_BUILD_STAMP_PATH = path.join(TEST_BUILD_ROOT, '.complete');
 
-const TestBuildManifestSchema = z.object({
-  version: z.literal(1),
-  inputs: z.array(z.string().min(1).refine((value) => !path.isAbsolute(value) && !value.split('/').includes('..'))),
+const ManifestPathSchema = z.string().min(1).refine(
+  (value) => !path.isAbsolute(value) && !value.split('/').includes('..'),
+  'manifest paths must stay inside the repository',
+);
+
+const TestBuildInputSchema = z.object({
+  path: ManifestPathSchema,
+  sha256: z.string().regex(/^[a-f0-9]{64}$/u),
 }).strict();
+
+const TestBuildTestSchema = z.object({
+  source: ManifestPathSchema,
+  entrypoint: ManifestPathSchema,
+  bundle: ManifestPathSchema,
+  suite: z.enum(['node', 'dashboard']),
+}).strict();
+
+const TestBuildManifestSchema = z.object({
+  version: z.literal(2),
+  inputs: z.array(TestBuildInputSchema),
+  outputs: z.array(ManifestPathSchema),
+  tests: z.array(TestBuildTestSchema),
+}).strict();
+
+export type TestBuildManifest = z.infer<typeof TestBuildManifestSchema>;
 
 const INPUT_PATHS = [
   'src',
@@ -30,16 +52,13 @@ const INPUT_PATHS = [
   path.join('packages', 'contracts', 'tsconfig.json'),
 ];
 
-const REQUIRED_OUTPUT_PATHS = [
+const STATIC_OUTPUT_PATHS = [
   path.join('dist', 'config', 'index.js'),
   path.join('dist', 'scripts', 'run-tests.js'),
   path.join('dist', 'scripts', 'test-targets.js'),
   path.join('dist', 'scripts', 'live-instance-guard.js'),
   path.join(TEST_BUILD_ROOT, 'package.json'),
   path.join(TEST_BUILD_ROOT, 'npm-pack-dry-run.json'),
-  path.join(TEST_BUILD_ROOT, 'tests', 'dashboard-api.test.js'),
-  path.join(TEST_BUILD_ROOT, 'tests', 'test-targets.test.js'),
-  path.join(TEST_BUILD_ROOT, 'tests', 'test-targets.test.bundle.js'),
 ];
 
 const IGNORED_INPUT_DIRECTORIES = new Set([
@@ -55,7 +74,9 @@ const IGNORED_INPUT_DIRECTORIES = new Set([
 
 export type TestBuildState =
   | { kind: 'missing' }
+  | { kind: 'malformed'; stampPath: string }
   | { kind: 'stale'; newestInputPath: string }
+  | { kind: 'incomplete'; missingOutputPath: string }
   | { kind: 'current' };
 
 function toManifestPath(repoRoot: string, targetPath: string): string {
@@ -93,12 +114,82 @@ function listInputFiles(repoRoot: string): string[] | null {
   return [...new Set(files)].sort((left, right) => left.localeCompare(right));
 }
 
-export function createTestBuildStampContent(repoRoot: string): string {
-  const inputs = listInputFiles(repoRoot);
-  if (!inputs) {
-    throw new Error('Cannot create a test build stamp while required inputs are missing.');
+function hashFile(filePath: string): string {
+  return createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function createInputs(repoRoot: string, inputPaths: string[]): TestBuildManifest['inputs'] {
+  return inputPaths.map((inputPath) => ({
+    path: inputPath,
+    sha256: hashFile(path.resolve(repoRoot, inputPath)),
+  }));
+}
+
+function isTestSourcePath(sourcePath: string): boolean {
+  return /(?:^|\/)tests\/.*\.test\.tsx?$/u.test(sourcePath);
+}
+
+function createTestEntries(inputPaths: string[]): TestBuildManifest['tests'] {
+  return inputPaths
+    .filter(isTestSourcePath)
+    .map((source) => {
+      const entrypoint = `${TEST_BUILD_ROOT}/${source.replace(/\.tsx?$/u, '.js')}`;
+      return {
+        source,
+        entrypoint,
+        bundle: entrypoint.replace(/\.js$/u, '.bundle.js'),
+        suite: source.startsWith('dashboard/tests/') ? 'dashboard' as const : 'node' as const,
+      };
+    });
+}
+
+function createMirroredOutputs(inputPaths: string[]): string[] {
+  return inputPaths
+    .filter((inputPath) => /^(?:src|bench)\/.*\.ts$/u.test(inputPath) && !inputPath.endsWith('.d.ts'))
+    .map((inputPath) => `${TEST_BUILD_ROOT}/${inputPath.replace(/\.ts$/u, '.js')}`);
+}
+
+function createManifest(repoRoot: string): TestBuildManifest {
+  const inputPaths = listInputFiles(repoRoot);
+  if (!inputPaths) {
+    throw new Error('Cannot create a test build manifest while required inputs are missing.');
   }
-  return `${JSON.stringify({ version: 1, inputs })}\n`;
+  const tests = createTestEntries(inputPaths);
+  const outputs = [
+    ...STATIC_OUTPUT_PATHS.map((outputPath) => outputPath.replace(/\\/gu, '/')),
+    ...createMirroredOutputs(inputPaths),
+    ...tests.flatMap((entry) => [entry.entrypoint, entry.bundle]),
+  ];
+  return TestBuildManifestSchema.parse({
+    version: 2,
+    inputs: createInputs(repoRoot, inputPaths),
+    outputs: [...new Set(outputs)].sort((left, right) => left.localeCompare(right)),
+    tests,
+  });
+}
+
+export function createTestBuildStampContent(repoRoot: string): string {
+  return `${JSON.stringify(createManifest(repoRoot))}\n`;
+}
+
+function readManifest(stampPath: string): TestBuildManifest | null {
+  try {
+    return TestBuildManifestSchema.parse(JSON.parse(fs.readFileSync(stampPath, 'utf8')));
+  } catch {
+    return null;
+  }
+}
+
+function findChangedInput(
+  repoRoot: string,
+  manifestInputs: TestBuildManifest['inputs'],
+  currentInputs: TestBuildManifest['inputs'],
+): string | null {
+  const manifestByPath = new Map(manifestInputs.map((input) => [input.path, input.sha256]));
+  const currentByPath = new Map(currentInputs.map((input) => [input.path, input.sha256]));
+  const changedPath = currentInputs.find((input) => manifestByPath.get(input.path) !== input.sha256)?.path
+    ?? manifestInputs.find((input) => currentByPath.get(input.path) !== input.sha256)?.path;
+  return changedPath ? path.resolve(repoRoot, changedPath) : null;
 }
 
 export function getTestBuildState(repoRoot: string): TestBuildState {
@@ -106,43 +197,44 @@ export function getTestBuildState(repoRoot: string): TestBuildState {
   if (!fs.existsSync(stampPath)) {
     return { kind: 'missing' };
   }
-  let manifest: z.infer<typeof TestBuildManifestSchema>;
-  try {
-    manifest = TestBuildManifestSchema.parse(JSON.parse(fs.readFileSync(stampPath, 'utf8')));
-  } catch {
-    return { kind: 'missing' };
-  }
-  if (REQUIRED_OUTPUT_PATHS.some((relativePath) => !fs.existsSync(path.resolve(repoRoot, relativePath)))) {
-    return { kind: 'missing' };
+  const manifest = readManifest(stampPath);
+  if (!manifest) {
+    return { kind: 'malformed', stampPath };
   }
 
-  const currentInputs = listInputFiles(repoRoot);
-  if (!currentInputs) {
+  const currentInputPaths = listInputFiles(repoRoot);
+  if (!currentInputPaths) {
     return { kind: 'missing' };
   }
-  const currentInputSet = new Set(currentInputs);
-  const manifestInputSet = new Set(manifest.inputs);
-  const changedInput = currentInputs.find((inputPath) => !manifestInputSet.has(inputPath))
-    ?? manifest.inputs.find((inputPath) => !currentInputSet.has(inputPath));
-  if (changedInput || currentInputs.length !== manifest.inputs.length) {
-    return { kind: 'stale', newestInputPath: path.resolve(repoRoot, changedInput ?? 'unknown-input') };
+  const changedInputPath = findChangedInput(
+    repoRoot,
+    manifest.inputs,
+    createInputs(repoRoot, currentInputPaths),
+  );
+  if (changedInputPath) {
+    return { kind: 'stale', newestInputPath: changedInputPath };
   }
 
-  const stampMtimeMs = fs.statSync(stampPath).mtimeMs;
-  let newestInputPath = '';
-  let newestInputMtimeMs = 0;
-  for (const inputPath of currentInputs) {
-    const absolutePath = path.resolve(repoRoot, inputPath);
-    const mtimeMs = fs.statSync(absolutePath).mtimeMs;
-    if (mtimeMs > newestInputMtimeMs) {
-      newestInputPath = absolutePath;
-      newestInputMtimeMs = mtimeMs;
-    }
+  const expectedManifest = createManifest(repoRoot);
+  if (JSON.stringify(manifest.outputs) !== JSON.stringify(expectedManifest.outputs)
+    || JSON.stringify(manifest.tests) !== JSON.stringify(expectedManifest.tests)) {
+    return { kind: 'stale', newestInputPath: stampPath };
   }
-  if (newestInputMtimeMs > stampMtimeMs) {
-    return { kind: 'stale', newestInputPath };
+  const missingOutput = manifest.outputs.find((outputPath) => !fs.existsSync(path.resolve(repoRoot, outputPath)));
+  if (missingOutput) {
+    return { kind: 'incomplete', missingOutputPath: path.resolve(repoRoot, missingOutput) };
   }
   return { kind: 'current' };
+}
+
+export function readCurrentTestBuildManifest(repoRoot: string): TestBuildManifest {
+  assertCurrentTestBuild(repoRoot);
+  const stampPath = path.resolve(repoRoot, TEST_BUILD_STAMP_PATH);
+  const manifest = readManifest(stampPath);
+  if (!manifest) {
+    throw new Error(`Test build manifest became unreadable: ${stampPath}`);
+  }
+  return manifest;
 }
 
 export function assertCurrentTestBuild(repoRoot: string): void {
@@ -150,6 +242,13 @@ export function assertCurrentTestBuild(repoRoot: string): void {
   if (state.kind === 'current') {
     return;
   }
-  const detail = state.kind === 'stale' ? ` Newest input: ${state.newestInputPath}.` : '';
+  let detail = '';
+  if (state.kind === 'stale') {
+    detail = ` Changed input: ${state.newestInputPath}.`;
+  } else if (state.kind === 'incomplete') {
+    detail = ` Missing output: ${state.missingOutputPath}.`;
+  } else if (state.kind === 'malformed') {
+    detail = ` Malformed manifest: ${state.stampPath}.`;
+  }
   throw new Error(`Test artifacts are ${state.kind}.${detail} Run npm run build:test before npm test.`);
 }

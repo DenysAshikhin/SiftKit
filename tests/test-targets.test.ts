@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 
 import { buildNodeTestArgs, resolveTestTargets } from '../scripts/test-targets.js';
@@ -69,6 +70,19 @@ test('buildNodeTestArgs defaults to tests/*.test.ts when no explicit targets are
   assert.equal(args.some((value) => value.startsWith('--test-reporter')), false);
 });
 
+test('buildNodeTestArgs ignores a compiled wrapper that is absent from the validated manifest', () => {
+  const unlistedTarget = path.join('.test-build', 'tests', 'unlisted-generated.test.js');
+  fs.writeFileSync(unlistedTarget, "throw new Error('must not run');\n", 'utf8');
+  let args: string[] = [];
+  try {
+    args = buildNodeTestArgs(process.cwd(), []);
+  } finally {
+    fs.rmSync(unlistedTarget, { force: true });
+  }
+
+  assert.equal(args.includes(unlistedTarget), false);
+});
+
 test('buildNodeTestArgs adds default top-level targets when only runner options are provided', () => {
   const args = buildNodeTestArgs(process.cwd(), ['--test-concurrency=6']);
 
@@ -90,7 +104,10 @@ test('buildNodeTestArgs preserves explicit test runner overrides without duplica
     '--test-timeout=60000',
   ]);
 
-  assert.equal(args.includes('--test-concurrency=6'), false);
+  assert.deepEqual(
+    args.filter((arg) => arg.startsWith('--test-concurrency=')),
+    ['--test-concurrency=32'],
+  );
   assert.equal(args.includes('--test-timeout=30000'), false);
   assert.equal(args.includes('--test-concurrency=32'), true);
   assert.equal(args.includes('--test-reporter=spec'), true);

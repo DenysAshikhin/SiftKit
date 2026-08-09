@@ -27,9 +27,8 @@ import {
   withTempEnv,
   withRealStatusServer,
   startStatusServerProcess,
-  captureStdout,
   readIdleSummarySnapshots,
-  getFreePort,
+  acquireChildPortLease,
   writeManagedLlamaLauncher,
   waitForAsyncExpectation,
   postStatusTerminalMetadata,
@@ -39,6 +38,7 @@ import {
   type LlamaModelsResponse,
   type HealthCheckResponse,
 } from './_runtime-helpers.js';
+import { OutputCapture } from './helpers/stdout-capture.js';
 
 interface StatusPostResponse {
   ok?: boolean;
@@ -236,7 +236,8 @@ test('real status server starts managed llama.cpp during server startup before s
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
-    const llamaPort = await getFreePort();
+    await using llamaPortLease = await acquireChildPortLease('runtime-status-server');
+    const llamaPort = llamaPortLease.port;
     const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
@@ -304,7 +305,8 @@ test('managed llama live stream logs flush after idle without model request rele
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
-    const llamaPort = await getFreePort();
+    await using llamaPortLease = await acquireChildPortLease('runtime-status-server');
+    const llamaPort = llamaPortLease.port;
     const deferredLogLine = 'deferred-live-stderr-log';
     const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', { deferredLogLine });
     const config = getDefaultConfig();
@@ -481,7 +483,8 @@ test('managed llama scripts no longer receive status-path coordination args or e
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
     const configPath = getConfigPath();
-    const llamaPort = await getFreePort();
+    await using llamaPortLease = await acquireChildPortLease('runtime-status-server');
+    const llamaPort = llamaPortLease.port;
     const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model');
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
@@ -514,7 +517,8 @@ test('real status server ignores legacy non-boolean status text when starting ma
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
     const configPath = getConfigPath();
-    const llamaPort = await getFreePort();
+    await using llamaPortLease = await acquireChildPortLease('runtime-status-server');
+    const llamaPort = llamaPortLease.port;
     const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
@@ -541,7 +545,8 @@ test('real status server reports idle false while managed llama stays ready', as
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
-    const llamaPort = await getFreePort();
+    await using llamaPortLease = await acquireChildPortLease('runtime-status-server');
+    const llamaPort = llamaPortLease.port;
     const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
@@ -575,7 +580,8 @@ test('real status server fails closed during startup when managed llama logs con
     process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
-    const llamaPort = await getFreePort();
+    await using llamaPortLease = await acquireChildPortLease('runtime-status-server');
+    const llamaPort = llamaPortLease.port;
     const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
       llamaLogLine: 'warning: fake llama startup warning',
     });
@@ -612,7 +618,8 @@ test('real status server ignores transient Loading model 503 startup log lines',
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
-    const llamaPort = await getFreePort();
+    await using llamaPortLease = await acquireChildPortLease('runtime-status-server');
+    const llamaPort = llamaPortLease.port;
     const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
       llamaLogLine: 'srv  log_server_r: response: {"error":{"message":"Loading model","type":"unavailable_error","code":503}}',
     });
@@ -638,7 +645,8 @@ test('real status server keeps running in degraded mode when managed llama start
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
-    const llamaPort = await getFreePort();
+    await using llamaPortLease = await acquireChildPortLease('runtime-status-server');
+    const llamaPort = llamaPortLease.port;
     const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed, {
@@ -664,7 +672,8 @@ test('real status server clears a stale managed llama process during startup bef
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
-    const llamaPort = await getFreePort();
+    await using llamaPortLease = await acquireChildPortLease('runtime-status-server');
+    const llamaPort = llamaPortLease.port;
     const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
@@ -1041,7 +1050,8 @@ test('real status server suppresses intermediate false log for single-step compl
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     await withRealStatusServer(async ({ statusUrl }) => {
-      const lines = await captureStdout(async () => {
+      const capture = OutputCapture.start(process.stdout);
+      try {
         await requestJson(statusUrl, {
           method: 'POST',
           body: JSON.stringify({
@@ -1072,8 +1082,10 @@ test('real status server suppresses intermediate false log for single-step compl
           const status = await requestJson<RuntimeStatusResponse>(statusUrl);
           assert.equal(status.metrics.completedRequestCount, 1);
         }, 1000);
-      });
-
+      } finally {
+        capture.restore();
+      }
+      const lines = capture.lines;
       const falseLines = lines.filter((line) => /st [\w-]{8}  done  .*output_tokens=130/u.test(line));
       assert.equal(falseLines.length, 1, lines.join('\n'));
       assert.match(falseLines[0], /st [\w-]{8}  done  (?:task=summary )?total_elapsed=0s output_tokens=130/u);
@@ -1092,7 +1104,8 @@ test('real status server logs intermediate false line for first chunked leaf ste
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     await withRealStatusServer(async ({ statusUrl }) => {
-      const lines = await captureStdout(async () => {
+      const capture = OutputCapture.start(process.stdout);
+      try {
         await requestJson(statusUrl, {
           method: 'POST',
           body: JSON.stringify({
@@ -1113,8 +1126,10 @@ test('real status server logs intermediate false line for first chunked leaf ste
             requestDurationMs: 4_000,
           }),
         });
-      });
-
+      } finally {
+        capture.restore();
+      }
+      const lines = capture.lines;
       const falseLines = lines.filter((line) => /st [\w-]{8}  done  elapsed=0s output_tokens=82/u.test(line));
       assert.equal(falseLines.length, 1, lines.join('\n'));
       assert.match(falseLines[0], /st [\w-]{8}  done  elapsed=0s output_tokens=82/u);
@@ -1132,7 +1147,8 @@ test('real status server logs explicit chunk failures and clears them before the
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     await withRealStatusServer(async ({ statusUrl }) => {
-      const lines = await captureStdout(async () => {
+      const capture = OutputCapture.start(process.stdout);
+      try {
         await requestJson(statusUrl, {
           method: 'POST',
           body: JSON.stringify({
@@ -1197,8 +1213,10 @@ test('real status server logs explicit chunk failures and clears them before the
           const status = await requestJson<RuntimeStatusResponse>(statusUrl);
           assert.equal(status.metrics.completedRequestCount, 1);
         }, 1000);
-      });
-
+      } finally {
+        capture.restore();
+      }
+      const lines = capture.lines;
       assert.ok(lines.some((line) => /st [\w-]{8}  failed  (?:task=summary )?raw_chars=3,322,607 prompt=342,395 \(147,694\) chunk 1\/10 elapsed=0s error=leaf chunk failed/u.test(line)), lines.join('\n'));
       assert.ok(lines.some((line) => /st [\w-]{8}  start  (?:task=summary )?raw_chars=281,469 prompt=283,752 \(99,240\)/u.test(line)), lines.join('\n'));
       assert.ok(lines.some((line) => /st [\w-]{8}  done  (?:task=summary )?total_elapsed=0s output_tokens=154/u.test(line)), lines.join('\n'));
@@ -1219,7 +1237,8 @@ test('real status server keeps separate request ids active when a new request st
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     await withRealStatusServer(async ({ statusUrl }) => {
-      const lines = await captureStdout(async () => {
+      const capture = OutputCapture.start(process.stdout);
+      try {
         await requestJson(statusUrl, {
           method: 'POST',
           body: JSON.stringify({
@@ -1252,8 +1271,10 @@ test('real status server keeps separate request ids active when a new request st
             promptTokenCount: 99_240,
           }),
         });
-      });
-
+      } finally {
+        capture.restore();
+      }
+      const lines = capture.lines;
       assert.equal(lines.some((line) => /Abandoned because a new request started/u.test(line)), false, lines.join('\n'));
       assert.ok(lines.some((line) => /st [\w-]{8}  start  (?:task=summary )?raw_chars=281,469 prompt=283,752 \(99,240\)/u.test(line)), lines.join('\n'));
       const status = await requestJson<RuntimeStatusWithActiveRuns>(statusUrl);

@@ -13,7 +13,7 @@ $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $scriptRoot
 $nodeExe = (Get-Command node.exe -CommandType Application).Source
 $tsxCli = Join-Path $repoRoot 'node_modules\tsx\dist\cli.mjs'
-$entrypoint = Join-Path $repoRoot 'bench\benchmark-matrix\index.ts'
+$entrypoint = Join-Path $repoRoot 'bench\benchmark-matrix\main.ts'
 
 if (-not (Test-Path -LiteralPath $entrypoint)) {
     throw "Benchmark matrix entrypoint not found: $entrypoint."

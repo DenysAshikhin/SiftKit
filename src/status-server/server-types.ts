@@ -57,6 +57,7 @@ export type ExtendedServer = Server & {
   shutdownManagedLlamaForServerExit?: () => Promise<void>;
   shutdownManagedLlamaForProcessExitSync?: () => void;
   startupPromise?: Promise<void>;
+  waitForTerminalMetadataIdle(timeoutMs?: number, minimumCompletedRequestCount?: number): Promise<void>;
 };
 
 export type StartStatusServerOptions = {

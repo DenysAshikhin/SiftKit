@@ -1,5 +1,7 @@
 # Six-Worker Test Suite Performance Design
 
+> **Superseded outcome (2026-08-08):** Commit `8f684f86` replaced this six-worker design with isolated prebuilt test bundles and a default concurrency of 12. Repeated warm runs completed in 51.9-55.2 seconds, so the original under-40-second target was not achieved. The design below is retained unchanged as historical context and is not the current architecture or acceptance contract.
+
 ## Goal
 
 Run the unchanged `npm test` command in less than 40 seconds on one already-built Windows machine, with six test-file workers, while preserving the existing test set, assertions, process cleanup, and per-file isolation.

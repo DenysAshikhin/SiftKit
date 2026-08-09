@@ -8,7 +8,7 @@ import { commandReadsStdin, readStdinToEnd } from '../src/cli/stdin-input.js';
 
 test('bin entrypoint passes the real stdin stream to TTY-aware commands', () => {
   const source = readFileSync(
-    join(process.cwd(), 'bin', 'siftkit.js'),
+    join(process.cwd(), 'dist', 'cli', 'main.js'),
     'utf8',
   );
   assert.match(source, /stdin:\s*process\.stdin/u);

@@ -4,4 +4,4 @@ if exist "%~dp0siftkit.ps1" (
   exit /b %errorlevel%
 )
 
-node "%~dp0siftkit.js" %*
+node "%~dp0..\dist\cli\main.js" %*

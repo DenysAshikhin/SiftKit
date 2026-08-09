@@ -28,7 +28,7 @@ import { CollectingProgressWriter } from './helpers/collecting-progress-writer.j
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { parseLoggedEvent } from './helpers/logged-events.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
-import { getFreePort } from './helpers/free-port.js';
+import { acquireChildPortLease } from './helpers/test-endpoints.js';
 import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
 
 const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-mock-loop-');
@@ -1499,7 +1499,8 @@ test('runTaskLoop retries transient provider network failures via shared retry h
 
 test('runTaskLoop waits for planner endpoint warm-up when initial connections are refused', async () => {
   const events: JsonObject[] = [];
-  const port = await getFreePort();
+  await using portLease = await acquireChildPortLease('mock-repo-search-loop');
+  const port = portLease.port;
   let delayedServer: http.Server | null = null;
   let plannerRequestCount = 0;
   const delayedStart = setTimeout(() => {
@@ -1561,7 +1562,8 @@ test('runTaskLoop waits for planner endpoint warm-up when initial connections ar
 
 test('runTaskLoop retries planner calls when endpoint returns HTTP 503 Loading model', async () => {
   const events: JsonObject[] = [];
-  const port = await getFreePort();
+  await using portLease = await acquireChildPortLease('mock-repo-search-loop');
+  const port = portLease.port;
   let plannerRequestCount = 0;
   const server = http.createServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {

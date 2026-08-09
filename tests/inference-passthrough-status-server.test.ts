@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import { z } from 'zod';
-import { captureStdout, getFreePort, writeManagedLlamaLauncher } from './_runtime-helpers.js';
+import { acquireChildPortLease, writeManagedLlamaLauncher } from './_runtime-helpers.js';
+import { OutputCapture } from './helpers/stdout-capture.js';
 
 import { startStatusServer } from '../src/status-server/index.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
@@ -139,7 +140,8 @@ test('llama passthrough wakes managed llama when the managed process is offline'
   process.env.SIFTKIT_STATUS_PORT = '0';
   process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
 
-  const llamaPort = await getFreePort();
+  await using llamaPortLease = await acquireChildPortLease('inference-passthrough-status-server');
+  const llamaPort = llamaPortLease.port;
   const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-passthrough-model');
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   writeManagedConfig('managed-passthrough-model', managed, {
@@ -208,7 +210,8 @@ test('llama passthrough waits through 503 Loading model responses without timing
   process.env.SIFTKIT_STATUS_PORT = '0';
   process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
 
-  const llamaPort = await getFreePort();
+  await using llamaPortLease = await acquireChildPortLease('inference-passthrough-status-server');
+  const llamaPort = llamaPortLease.port;
   // Two canonical "Loading model" responses prove that startup retries 503s
   // before accepting the first successful model probe.
   const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-passthrough-503-model', {
@@ -276,7 +279,8 @@ test('chat passthrough logs every forwarded /v1/chat/completions request', async
   process.env.SIFTKIT_STATUS_PORT = '0';
   process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
 
-  const llamaPort = await getFreePort();
+  await using llamaPortLease = await acquireChildPortLease('inference-passthrough-status-server');
+  const llamaPort = llamaPortLease.port;
   const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-chat-log-model');
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   writeManagedConfig('managed-chat-log-model', managed, {
@@ -291,7 +295,8 @@ test('chat passthrough logs every forwarded /v1/chat/completions request', async
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
-    const lines = await captureStdout(async () => {
+    const capture = OutputCapture.start(process.stdout);
+    try {
       const response = await requestJsonPost(`${baseUrl}/v1/chat/completions`, {
         messages: [
           { role: 'system', content: 'You are terse.' },
@@ -299,7 +304,10 @@ test('chat passthrough logs every forwarded /v1/chat/completions request', async
         ],
       }, 30_000);
       assert.equal(response.statusCode, 200);
-    });
+    } finally {
+      capture.restore();
+    }
+    const lines = capture.lines;
 
     const forwardLine = lines.find((line) => /proxy -{8} {2}forward/u.test(line));
     assert.ok(forwardLine, `expected a forward log line, got:\n${lines.join('\n')}`);
@@ -352,7 +360,8 @@ async function withPassthroughChatServer(
   process.env.SIFTKIT_STATUS_PORT = '0';
   process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
 
-  const llamaPort = await getFreePort();
+  await using llamaPortLease = await acquireChildPortLease('inference-passthrough-status-server');
+  const llamaPort = llamaPortLease.port;
   const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-sampler-model');
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   writeManagedConfig('managed-sampler-model', managed, {
@@ -481,7 +490,8 @@ test('llama passthrough proxies POST /tokenize to managed llama', async () => {
   process.env.SIFTKIT_STATUS_PORT = '0';
   process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
 
-  const llamaPort = await getFreePort();
+  await using llamaPortLease = await acquireChildPortLease('inference-passthrough-status-server');
+  const llamaPort = llamaPortLease.port;
   // The fake llama tokenizes at 4 characters per token.
   const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-tokenize-model', {
     tokenizeCharsPerToken: 4,

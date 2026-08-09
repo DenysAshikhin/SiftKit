@@ -1,64 +1,46 @@
-/**
- * Captures whole lines written to stdout while `fn` runs, then restores the
- * original writer. Lines are still forwarded to the real stdout so a failing
- * test keeps its diagnostic output.
- */
-export async function captureStdoutLines(fn: (lines: readonly string[]) => Promise<void>): Promise<string[]> {
-  const originalWrite = process.stdout.write.bind(process.stdout);
-  const lines: string[] = [];
-  let buffer = '';
-  process.stdout.write = (
-    chunk: string | Uint8Array,
-    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
-    callback?: (error?: Error | null) => void,
-  ): boolean => {
-    const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
-    buffer += text;
-    const parts = buffer.split(/\r?\n/u);
-    buffer = parts.pop() || '';
-    for (const line of parts) {
-      if (line.trim()) lines.push(line);
-    }
-    if (typeof encodingOrCallback === 'function') {
-      return originalWrite(chunk, encodingOrCallback);
-    }
-    return originalWrite(chunk, encodingOrCallback, callback);
-  };
-  try {
-    await fn(lines);
-  } finally {
-    process.stdout.write = originalWrite;
-  }
-  if (buffer.trim()) lines.push(buffer.trim());
-  return lines;
-}
+export class OutputCapture {
+  readonly lines: readonly string[];
+  private readonly collectedLines: string[] = [];
+  private readonly originalWrite: NodeJS.WriteStream['write'];
+  private buffer = '';
+  private restored = false;
 
-export async function captureStderrLines(fn: (lines: readonly string[]) => Promise<void>): Promise<string[]> {
-  const originalWrite = process.stderr.write.bind(process.stderr);
-  const lines: string[] = [];
-  let buffer = '';
-  process.stderr.write = (
-    chunk: string | Uint8Array,
-    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
-    callback?: (error?: Error | null) => void,
-  ): boolean => {
-    const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
-    buffer += text;
-    const parts = buffer.split(/\r?\n/u);
-    buffer = parts.pop() || '';
-    for (const line of parts) {
-      if (line.trim()) lines.push(line);
-    }
-    if (typeof encodingOrCallback === 'function') {
-      return originalWrite(chunk, encodingOrCallback);
-    }
-    return originalWrite(chunk, encodingOrCallback, callback);
-  };
-  try {
-    await fn(lines);
-  } finally {
-    process.stderr.write = originalWrite;
+  private constructor(private readonly stream: NodeJS.WriteStream) {
+    this.lines = this.collectedLines;
+    this.originalWrite = stream.write.bind(stream);
+    stream.write = (
+      chunk: string | Uint8Array,
+      encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+      callback?: (error?: Error | null) => void,
+    ): boolean => {
+      this.collect(chunk);
+      if (typeof encodingOrCallback === 'function') {
+        return this.originalWrite(chunk, encodingOrCallback);
+      }
+      return this.originalWrite(chunk, encodingOrCallback, callback);
+    };
   }
-  if (buffer.trim()) lines.push(buffer.trim());
-  return lines;
+
+  static start(stream: NodeJS.WriteStream): OutputCapture {
+    return new OutputCapture(stream);
+  }
+
+  restore(): void {
+    if (this.restored) return;
+    this.restored = true;
+    if (this.buffer.trim()) {
+      this.collectedLines.push(this.buffer.trim());
+    }
+    this.buffer = '';
+    this.stream.write = this.originalWrite;
+  }
+
+  private collect(chunk: string | Uint8Array): void {
+    this.buffer += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+    const parts = this.buffer.split(/\r?\n/u);
+    this.buffer = parts.pop() ?? '';
+    for (const line of parts) {
+      if (line.trim()) this.collectedLines.push(line);
+    }
+  }
 }

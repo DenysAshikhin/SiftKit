@@ -3,13 +3,13 @@
   "version": "0.1.0",
   "description": "Windows-first shell-output compression toolkit for Codex workflows.",
   "bin": {
-    "siftkit": "bin/siftkit.js"
+    "siftkit": "dist/cli/main.js"
   },
   "scripts": {
     "start": "tsx .\\scripts\\start-dev.ts",
-    "start:status": "nodemon --signal SIGINT --watch .\\dist\\status-server --ext js,json .\\dist\\status-server\\index.js",
+    "start:status": "nodemon --signal SIGINT --watch .\\dist\\status-server --ext js,json .\\dist\\status-server\\main.js",
     "start:status:stable": "tsx .\\scripts\\start-dev.ts --stable",
-    "start:status:stable:server": "node .\\dist\\status-server\\index.js",
+    "start:status:stable:server": "node .\\dist\\status-server\\main.js",
     "start:dashboard": "npm --prefix .\\dashboard run dev",
     "build": "npm --prefix .\\packages\\contracts run build && tsc -p .\\tsconfig.json && tsc -p .\\tsconfig.scripts.json && npm --prefix .\\dashboard run build && node .\\scripts\\sync-dist-runtime.js",
     "build:test": "tsx .\\scripts\\build-test.ts",
@@ -19,8 +19,8 @@
     "typecheck:test": "tsc -p .\\tsconfig.test.json --noEmit",
     "typecheck:dashboard-test": "tsc -p .\\dashboard\\tsconfig.test.json --noEmit",
     "typecheck:bench": "tsc -p .\\tsconfig.bench.json --noEmit",
-    "benchmark": "tsx .\\bench\\benchmark\\index.ts",
-    "benchmark:matrix": "tsx .\\bench\\benchmark-matrix\\index.ts",
+    "benchmark": "tsx .\\bench\\benchmark\\main.ts",
+    "benchmark:matrix": "tsx .\\bench\\benchmark-matrix\\main.ts",
     "benchmark:repetition-guard": "tsx .\\scripts\\benchmark-repetition-guard.ts",
     "benchmark:spec-settings": "node .\\scripts\\run-benchmark-spec-settings.js",
     "benchmark:spec-focused": "node .\\scripts\\run-benchmark-spec-focused.js",

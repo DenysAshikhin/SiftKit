@@ -12,12 +12,12 @@ import { getConfigPath } from '../src/config/index.js';
 import { getDefaultConfig, writeConfig } from '../src/status-server/config-store.js';
 import {
   writeManagedLlamaLauncher,
-  getFreePort,
+  acquireChildPortLease,
   waitForAsyncExpectation,
 } from './_runtime-helpers.js';
 import { requestJson, asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
 import { requestSse } from './helpers/sse-http.js';
-import { captureStdoutLines } from './helpers/stdout-capture.js';
+import { OutputCapture } from './helpers/stdout-capture.js';
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
@@ -287,7 +287,8 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
   const dbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
 
   try {
-    const lines = await captureStdoutLines(async () => {
+    const capture = OutputCapture.start(process.stdout);
+    try {
       const activeRequest = requestSse(`${baseUrl}/repo-search`, {
         timeoutMs: 5000,
         body: {
@@ -351,7 +352,10 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
 
       const activeResponse = await activeRequest;
       assert.ok(activeResponse.result);
-    });
+    } finally {
+      capture.restore();
+    }
+    const lines = capture.lines;
 
     assert.ok(lines.some((line) => /st [\w-]{8} {2}dropped {2}reason=model_queue_timeout task=repo_search/u.test(line)), lines.join('\n'));
 
@@ -410,7 +414,8 @@ test('managed llama readiness wait is serialized by the model request queue', as
   process.env.SIFTKIT_STATUS_PORT = '0';
   process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
 
-  const llamaPort = await getFreePort();
+  await using llamaPortLease = await acquireChildPortLease('repo-search-status-server');
+  const llamaPort = llamaPortLease.port;
   const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
     launchHangingProcess: true,
   });
@@ -511,7 +516,8 @@ test('health reports unavailable while managed llama bootstrap is still starting
   process.env.SIFTKIT_STATUS_PORT = '0';
   process.env.SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS = '0';
 
-  const llamaPort = await getFreePort();
+  await using llamaPortLease = await acquireChildPortLease('repo-search-status-server');
+  const llamaPort = llamaPortLease.port;
   const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
     launchHangingProcess: true,
   });
@@ -701,7 +707,8 @@ test('repo-search endpoint logs one model-requested command line per tool call',
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
-    const lines = await captureStdoutLines(async () => {
+    const capture = OutputCapture.start(process.stdout);
+    try {
       const response = await requestSse(`${baseUrl}/repo-search`, {
         timeoutMs: 15000,
         body: {
@@ -720,7 +727,10 @@ test('repo-search endpoint logs one model-requested command line per tool call',
         },
       });
       assert.ok(response.result);
-    });
+    } finally {
+      capture.restore();
+    }
+    const lines = capture.lines;
 
     const commandLines = lines.filter((line) => /rs [\w-]{8} {2}command {2}t\d+\//u.test(line));
     assert.equal(commandLines.length, 1, lines.join('\n'));

@@ -19,10 +19,42 @@ import {
   withTempEnv,
   withStubServer,
   withRealStatusServer,
-  getFreePort,
+  acquireChildPortLease,
   writeManagedLlamaLauncher,
   waitForAsyncExpectation,
 } from './_runtime-helpers.js';
+
+async function createManagedStartupFixture(
+  tempRoot: string,
+  mode: 'managed-startup' | 'verbose-env',
+) {
+  const statusPath = path.join(tempRoot, 'status', 'inference.txt');
+  const configPath = path.join(tempRoot, 'config.json');
+  const portLease = await acquireChildPortLease(`runtime-loadconfig-${mode}`);
+  const managed = writeManagedLlamaLauncher(tempRoot, portLease.port, 'managed-test-model', {
+    emitManagedStartupFlag: mode === 'managed-startup',
+    emitVerboseEnvFlags: mode === 'verbose-env',
+  });
+  const config = getDefaultConfig();
+  setManagedLlamaBaseUrl(config, managed.baseUrl);
+  const preset = config.Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('Default model preset is missing');
+  preset.ExecutablePath = managed.executablePath;
+  preset.StartupTimeoutMs = 5000;
+  preset.HealthcheckTimeoutMs = 100;
+  preset.HealthcheckIntervalMs = 10;
+  preset.VerboseLogging = mode === 'verbose-env';
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+  return {
+    statusPath,
+    configPath,
+    startupDumpPath: path.join(tempRoot, '.siftkit', 'logs', 'managed-llama', 'latest-startup.log'),
+    async [Symbol.asyncDispose]() {
+      await portLease[Symbol.asyncDispose]();
+    },
+  };
+}
 
 test('getConfigPath prefers a repo-local .siftkit runtime when running inside the siftkit repo', async () => {
   await withTempEnv(async (tempRoot) => {
@@ -315,37 +347,35 @@ test('saveConfig preserves explicit llama.cpp thread settings through the extern
   });
 });
 
-test('real status server passes managed startup and verbose env settings to startup scripts', async () => {
+test('real status server passes managed startup state to startup scripts', async () => {
   await withTempEnv(async (tempRoot) => {
-    const statusPath = path.join(tempRoot, 'status', 'inference.txt');
-    const configPath = path.join(tempRoot, 'config.json');
-    const llamaPort = await getFreePort();
-    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
-      emitManagedStartupFlag: true,
-      emitVerboseEnvFlags: true,
-    });
-    const config = getDefaultConfig();
-    setManagedLlamaBaseUrl(config, managed.baseUrl);
-    const preset = config.Server.ModelPresets.Presets[0];
-    if (!preset) throw new Error('Default model preset is missing');
-    preset.ExecutablePath = managed.executablePath;
-    preset.StartupTimeoutMs = 5000;
-    preset.HealthcheckTimeoutMs = 100;
-    preset.HealthcheckIntervalMs = 10;
-    preset.VerboseLogging = true;
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+    await using fixture = await createManagedStartupFixture(tempRoot, 'managed-startup');
 
     await withRealStatusServer(async () => {
-      const startupDumpPath = path.join(tempRoot, '.siftkit', 'logs', 'managed-llama', 'latest-startup.log');
       await waitForAsyncExpectation(() => {
-        const dump = fs.readFileSync(startupDumpPath, 'utf8');
+        const dump = fs.readFileSync(fixture.startupDumpPath, 'utf8');
         assert.match(dump, /managed_startup=/u);
+      });
+    }, {
+      statusPath: fixture.statusPath,
+      configPath: fixture.configPath,
+    });
+  });
+});
+
+test('real status server passes verbose environment settings to startup scripts', async () => {
+  await withTempEnv(async (tempRoot) => {
+    await using fixture = await createManagedStartupFixture(tempRoot, 'verbose-env');
+
+    await withRealStatusServer(async () => {
+      await waitForAsyncExpectation(() => {
+        const dump = fs.readFileSync(fixture.startupDumpPath, 'utf8');
         assert.match(dump, /verbose_logging_env=1/u);
         assert.match(dump, /verbose_args_env=/u);
       });
     }, {
-      statusPath,
-      configPath,
+      statusPath: fixture.statusPath,
+      configPath: fixture.configPath,
     });
   });
 });
@@ -418,7 +448,8 @@ test('real status server allows startup scripts to call config before launch and
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
-    const llamaPort = await getFreePort();
+    await using llamaPortLease = await acquireChildPortLease('runtime-loadconfig');
+    const llamaPort = llamaPortLease.port;
     const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
       preflightConfigGet: true,
     });

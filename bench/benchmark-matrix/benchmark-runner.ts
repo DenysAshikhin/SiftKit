@@ -32,7 +32,7 @@ export async function invokeBenchmarkProcess(
   matrixRunRecordId: string,
   interrupted?: Promise<never>,
 ): Promise<BenchmarkProcessResult> {
-  const benchmarkEntrypoint = path.join(repoRoot, 'bench', 'benchmark', 'index.ts');
+  const benchmarkEntrypoint = path.join(repoRoot, 'bench', 'benchmark', 'main.ts');
   if (!fs.existsSync(benchmarkEntrypoint)) {
     throw new Error(`Benchmark entrypoint not found: ${benchmarkEntrypoint}.`);
   }

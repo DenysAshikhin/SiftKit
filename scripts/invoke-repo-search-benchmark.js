@@ -15,7 +15,7 @@ function main() {
   const stdoutPath = readArgValue(process.argv, '--stdout-path');
   const stderrPath = readArgValue(process.argv, '--stderr-path');
   const repoRoot = readArgValue(process.argv, '--repo-root') || process.cwd();
-  const cliPath = path.resolve(repoRoot, 'bin', 'siftkit.js');
+  const cliPath = path.resolve(repoRoot, 'dist', 'cli', 'main.js');
   const prompt = fs.readFileSync(promptFile, 'utf8');
   const startedAt = new Date();
 

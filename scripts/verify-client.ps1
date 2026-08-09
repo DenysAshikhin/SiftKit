@@ -58,7 +58,7 @@ try {
     if (-not $SkipSummarySmoke) {
         Invoke-Step -Label 'Run summary smoke through the client CLI' -Action {
             $summaryInput = 'A' * [Math]::Max($SummaryCharacters, 1000)
-            & node .\bin\siftkit.js summary --question $SummaryQuestion --text $summaryInput --provider mock --model mock-model
+            & node .\dist\cli\main.js summary --question $SummaryQuestion --text $summaryInput --provider mock --model mock-model
             if ($LASTEXITCODE -ne 0) {
                 throw "Summary smoke test failed with exit code $LASTEXITCODE."
             }

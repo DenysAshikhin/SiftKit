@@ -15,7 +15,7 @@ import {
 } from '../src/state/inference-runs.js';
 import { getRuntimeDatabase, getRuntimeDatabasePath } from '../src/state/runtime-db.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
-import { captureStdoutLines } from './helpers/stdout-capture.js';
+import { OutputCapture } from './helpers/stdout-capture.js';
 
 type FlushQueueInternals = {
   runningRunId: string | null;
@@ -68,14 +68,18 @@ test('inference run flush queue logs each run under its own backend scope', asyn
     bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'engine_stdout', chunkText: 'exl3-scoped\n' });
     const queue = new InferenceRunFlushQueue();
 
-    const lines = await captureStdoutLines(async () => {
+    const capture = OutputCapture.start(process.stdout);
+    try {
       try {
         assert.equal(queue.enqueue(run.id, 'exl3'), true);
         await queue.waitForIdle();
       } finally {
         await queue.close();
       }
-    });
+    } finally {
+      capture.restore();
+    }
+    const lines = capture.lines;
 
     assert.equal(
       lines.some((line) => line.includes(`exl3 ${run.id.slice(0, 8)}  flush_done`)),
@@ -106,6 +110,19 @@ test('inference run flush queue records another flush requested while the same r
       await queue.close();
     }
   });
+});
+
+test('inference run flush queue idle wait fails with state diagnostics at its ceiling', async () => {
+  const queue = new InferenceRunFlushQueue();
+  const internals = flushQueueInternals(queue);
+  internals.runningRunId = 'run-stuck';
+  internals.draining = true;
+
+  await assert.rejects(
+    queue.waitForIdle(25),
+    /pendingCount=0 runningRunId=run-stuck scheduled=false completedCount=0 failedCount=0/u,
+  );
+  await queue.close();
 });
 
 test('inference run flush queue waits for model-request idle delay before draining', async () => {
@@ -155,7 +172,8 @@ test('inference run flush queue does not log repeated active-request drain waits
     bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'launcher_stdout', chunkText: 'active-gated\n' });
     const queue = new InferenceRunFlushQueue({ idleDelayMs: 20 });
 
-    const lines = await captureStdoutLines(async () => {
+    const capture = OutputCapture.start(process.stdout);
+    try {
       try {
         queue.setModelRequestState({ active: true, queueLength: 0 });
         assert.equal(queue.enqueue(run.id, 'llama'), true);
@@ -163,7 +181,10 @@ test('inference run flush queue does not log repeated active-request drain waits
       } finally {
         await queue.close();
       }
-    });
+    } finally {
+      capture.restore();
+    }
+    const lines = capture.lines;
 
     assert.equal(
       lines.some((line) => line.includes(`llama ${run.id.slice(0, 8)}  flush_done`)),
@@ -226,9 +247,13 @@ test('closing the queue reports an in-flight flush that outlives the wait budget
     const internals = flushQueueInternals(queue);
     internals.runningRunId = 'run-stuck';
 
-    const lines = await captureStdoutLines(async () => {
+    const capture = OutputCapture.start(process.stdout);
+    try {
       await queue.close();
-    });
+    } finally {
+      capture.restore();
+    }
+    const lines = capture.lines;
 
     assert.equal(
       lines.some((line) => line.includes('flush_close_timeout') && line.includes('run-stuc')),

@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { moduleDirname } from '../lib/paths.js';
+import { findNearestSiftKitRepoRoot, moduleDirname } from '../lib/paths.js';
 import { toError } from '../lib/errors.js';
 import { z } from '../lib/zod.js';
 import { isTerminalStatus } from './run-schemas.js';
@@ -15,7 +15,11 @@ export interface RepoAgentProcessLauncher {
 }
 
 export function getRepoAgentWorkerEntrypoint(): string {
-  return join(moduleDirname(import.meta.url), 'worker-main.js');
+  const packageRoot = findNearestSiftKitRepoRoot(moduleDirname(import.meta.url));
+  if (packageRoot === null) {
+    throw new Error('Unable to locate the SiftKit package root for the repo-agent worker.');
+  }
+  return join(packageRoot, 'dist', 'repo-agent', 'worker-main.js');
 }
 
 export class RepoAgentWorkerLauncher implements RepoAgentProcessLauncher {

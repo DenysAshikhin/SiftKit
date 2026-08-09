@@ -37,6 +37,12 @@ const REQUIRED_OUTPUT_FILES = [
   'dist/scripts/live-instance-guard.js',
   '.test-build/package.json',
   '.test-build/npm-pack-dry-run.json',
+  '.test-build/src/input.js',
+  '.test-build/bench/input.js',
+  '.test-build/tests/input.test.js',
+  '.test-build/tests/input.test.bundle.js',
+  '.test-build/dashboard/tests/input.test.js',
+  '.test-build/dashboard/tests/input.test.bundle.js',
   '.test-build/tests/dashboard-api.test.js',
   '.test-build/tests/test-targets.test.js',
   '.test-build/tests/test-targets.test.bundle.js',
@@ -86,27 +92,47 @@ test('test build state reports missing when the completion stamp is absent', () 
   assert.throws(() => assertCurrentTestBuild(root), /npm run build:test/u);
 });
 
-test('test build state rejects a malformed completion stamp', () => {
+test('test build state reports a malformed completion stamp', () => {
   const { root } = createCurrentBuildLayout();
   fs.writeFileSync(path.join(root, '.test-build', '.complete'), 'not-a-test-build\n', 'utf8');
 
-  assert.deepEqual(getTestBuildState(root), { kind: 'missing' });
+  assert.deepEqual(getTestBuildState(root), {
+    kind: 'malformed',
+    stampPath: path.join(root, '.test-build', '.complete'),
+  });
 });
 
-test('test build state reports missing when a required output is absent', () => {
+test('test build state reports incomplete when a required output is absent', () => {
   const { root } = createCurrentBuildLayout();
-  fs.rmSync(path.join(root, '.test-build', 'tests', 'test-targets.test.js'));
+  const missingOutputPath = path.join(root, 'dist', 'config', 'index.js');
+  fs.rmSync(missingOutputPath);
 
-  assert.deepEqual(getTestBuildState(root), { kind: 'missing' });
+  assert.deepEqual(getTestBuildState(root), { kind: 'incomplete', missingOutputPath });
 });
 
-test('test build state names the newest input when artifacts are stale', () => {
+test('test build state reports an arbitrary missing test bundle as incomplete', () => {
+  const { root } = createCurrentBuildLayout();
+  const missingOutputPath = path.join(root, '.test-build', 'tests', 'input.test.bundle.js');
+  fs.rmSync(missingOutputPath);
+
+  assert.deepEqual(getTestBuildState(root), { kind: 'incomplete', missingOutputPath });
+});
+
+test('test build state names a changed input when artifacts are stale', () => {
   const { root, newestInputPath } = createCurrentBuildLayout();
-  const newerTime = new Date('2026-01-03T00:00:00.000Z');
-  fs.utimesSync(newestInputPath, newerTime, newerTime);
+  fs.writeFileSync(newestInputPath, 'changed', 'utf8');
 
   assert.deepEqual(getTestBuildState(root), { kind: 'stale', newestInputPath });
   assert.throws(() => assertCurrentTestBuild(root), /npm run build:test/u);
+});
+
+test('test build state detects changed input content when its mtime is restored', () => {
+  const { root, newestInputPath } = createCurrentBuildLayout();
+  const originalTimes = fs.statSync(newestInputPath);
+  fs.writeFileSync(newestInputPath, 'changed-with-restored-mtime', 'utf8');
+  fs.utimesSync(newestInputPath, originalTimes.atime, originalTimes.mtime);
+
+  assert.deepEqual(getTestBuildState(root), { kind: 'stale', newestInputPath });
 });
 
 test('test build state accepts a complete artifact tree newer than every input', () => {

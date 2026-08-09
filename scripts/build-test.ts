@@ -1,9 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
-import { build, type Plugin } from 'esbuild';
+import { build } from 'esbuild';
 
 import {
   TEST_BUILD_ROOT,
@@ -14,25 +13,6 @@ import {
 
 const repoRoot = process.cwd();
 const testBuildRoot = path.resolve(repoRoot, TEST_BUILD_ROOT);
-const runtimeHelpersPath = path.resolve(repoRoot, 'tests', '_runtime-helpers.ts');
-const runtimeHelperResolutionMarker = { resolvedForRuntimeHelperTreeShaking: true };
-const locationSensitiveModulePaths = new Set([
-  path.resolve(repoRoot, 'src', 'config', 'constants.ts'),
-  path.resolve(repoRoot, 'src', 'install.ts'),
-  path.resolve(repoRoot, 'src', 'repo-agent', 'worker-launcher.ts'),
-  path.resolve(repoRoot, 'src', 'status-server', 'eval.ts'),
-  path.resolve(repoRoot, 'src', 'status-server', 'inference-run-flush-queue.ts'),
-  path.resolve(repoRoot, 'bench', 'common', 'paths.ts'),
-]);
-const entrypointModulePaths = new Set([
-  path.resolve(repoRoot, 'src', 'cli', 'index.ts'),
-  path.resolve(repoRoot, 'src', 'repo-agent', 'worker-main.ts'),
-  path.resolve(repoRoot, 'src', 'status-server', 'index.ts'),
-  path.resolve(repoRoot, 'bench', 'benchmark', 'index.ts'),
-  path.resolve(repoRoot, 'bench', 'benchmark-matrix', 'index.ts'),
-  path.resolve(repoRoot, 'bench', 'repro', 'repro-fixture60-malformed-json.ts'),
-  path.resolve(repoRoot, 'bench', 'repro', 'run-benchmark-fixture-debug.ts'),
-]);
 
 function runCommand(command: string, args: string[]): void {
   const result = spawnSync(command, args, {
@@ -88,11 +68,18 @@ function toCompiledTestPath(sourcePath: string): string {
   return path.resolve(testBuildRoot, relativePath.replace(/\.tsx?$/u, '.js'));
 }
 
-async function emitBundledTest(sourcePath: string, outputPath: string): Promise<void> {
-  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+async function emitBundledTests(sourcePaths: string[]): Promise<void> {
+  const entryPoints: Record<string, string> = {};
+  for (const sourcePath of sourcePaths) {
+    const entrypointPath = toCompiledTestPath(sourcePath);
+    const bundlePath = entrypointPath.replace(/\.js$/u, '.bundle.js');
+    const entryName = path.relative(testBuildRoot, bundlePath).replace(/\.js$/u, '');
+    entryPoints[entryName] = sourcePath;
+  }
+
   await build({
-    entryPoints: [sourcePath],
-    outfile: outputPath,
+    entryPoints,
+    outdir: testBuildRoot,
     bundle: true,
     format: 'esm',
     platform: 'node',
@@ -100,65 +87,13 @@ async function emitBundledTest(sourcePath: string, outputPath: string): Promise<
     packages: 'external',
     sourcemap: false,
     logLevel: 'warning',
-    plugins: [prepareTestBundleModules()],
   });
 }
 
-function prepareTestBundleModules(): Plugin {
-  return {
-    name: 'prepare-test-bundle-modules',
-    setup(buildContext) {
-      buildContext.onResolve({ filter: /^\./ }, async (args) => {
-        if (path.resolve(args.importer) !== runtimeHelpersPath
-          || args.pluginData === runtimeHelperResolutionMarker) {
-          return null;
-        }
-        const resolved = await buildContext.resolve(args.path, {
-          importer: args.importer,
-          kind: args.kind,
-          namespace: args.namespace,
-          resolveDir: args.resolveDir,
-          pluginData: runtimeHelperResolutionMarker,
-        });
-        return {
-          ...resolved,
-          sideEffects: false,
-          pluginData: runtimeHelperResolutionMarker,
-        };
-      });
-      buildContext.onLoad({ filter: /./ }, (args) => {
-        const isLocationSensitive = locationSensitiveModulePaths.has(args.path);
-        const isEntrypoint = entrypointModulePaths.has(args.path);
-        if (!isLocationSensitive && !isEntrypoint) {
-          return null;
-        }
-        let contents = fs.readFileSync(args.path, 'utf8');
-        if (isLocationSensitive) {
-          const compiledPath = path.resolve(
-            testBuildRoot,
-            path.relative(repoRoot, args.path).replace(/\.ts$/u, '.js'),
-          );
-          contents = contents.replace(
-            /import\.meta\.url/gu,
-            JSON.stringify(pathToFileURL(compiledPath).href),
-          );
-        }
-        if (isEntrypoint) {
-          contents = contents.replace(
-            'if (isMainModule(import.meta.url)) {',
-            'if (false) {',
-          );
-        }
-        return { contents, loader: 'ts' };
-      });
-    },
-  };
-}
-
-async function emitIsolatedTestEntry(sourcePath: string): Promise<void> {
+function emitIsolatedTestEntry(sourcePath: string): void {
   const entrypointPath = toCompiledTestPath(sourcePath);
   const bundlePath = entrypointPath.replace(/\.js$/u, '.bundle.js');
-  await emitBundledTest(sourcePath, bundlePath);
+  fs.mkdirSync(path.dirname(entrypointPath), { recursive: true });
   fs.writeFileSync(
     entrypointPath,
     `import './${path.basename(bundlePath)}';\n`,
@@ -199,11 +134,13 @@ async function buildTestArtifacts(): Promise<void> {
 
   fs.writeFileSync(path.join(testBuildRoot, 'package.json'), '{\n  "type": "module"\n}\n', 'utf8');
 
-  for (const sourcePath of listTestEntries(path.join(repoRoot, 'tests'))) {
-    await emitIsolatedTestEntry(sourcePath);
-  }
-  for (const sourcePath of listTestEntries(path.join(repoRoot, 'dashboard', 'tests'))) {
-    await emitIsolatedTestEntry(sourcePath);
+  const testSourcePaths = [
+    ...listTestEntries(path.join(repoRoot, 'tests')),
+    ...listTestEntries(path.join(repoRoot, 'dashboard', 'tests')),
+  ];
+  await emitBundledTests(testSourcePaths);
+  for (const sourcePath of testSourcePaths) {
+    emitIsolatedTestEntry(sourcePath);
   }
   fs.writeFileSync(
     path.resolve(repoRoot, TEST_BUILD_STAMP_PATH),

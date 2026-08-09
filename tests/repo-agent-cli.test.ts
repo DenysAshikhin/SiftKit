@@ -35,7 +35,7 @@ const TEMP_ROOT = join(
   tmpdir(),
   `siftkit-repo-agent-cli-tests-${process.pid}`,
 );
-const BIN_PATH = join(process.cwd(), 'bin', 'siftkit.js');
+const BIN_PATH = join(process.cwd(), 'dist', 'cli', 'main.js');
 
 type ServerMode = 'approval' | 'complete';
 

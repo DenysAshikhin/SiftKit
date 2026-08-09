@@ -7,8 +7,53 @@ import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { DashboardTestServer } from './helpers/dashboard-server-fixture.js';
+import { waitForTerminalMetadataIdle } from '../src/status-server/routes/core.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { testHttpAgent } from './helpers/http-agent.js';
+import { createTestServerContext } from './helpers/server-context-fixture.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
+
+test('terminal metadata idle wait observes scheduled work completing', async () => {
+  const tempRoot = createManagedTempDir('siftkit-terminal-metadata-idle-');
+  const context = createTestServerContext(path.join(tempRoot, 'config.json'));
+  context.terminalMetadataQueue.push({
+    requestId: 'request-delayed',
+    terminalState: 'completed',
+    bodyText: '{}',
+    capturedAtMs: Date.now(),
+  });
+  context.terminalMetadataDrainScheduled = true;
+  const completion = setTimeout(() => {
+    context.terminalMetadataQueue.length = 0;
+    context.terminalMetadataDrainScheduled = false;
+  }, 20);
+  try {
+    await waitForTerminalMetadataIdle(context, 100);
+  } finally {
+    clearTimeout(completion);
+    await context.inferenceRunFlushQueue.close();
+  }
+});
+
+test('terminal metadata idle wait reports stuck queue state at its ceiling', async () => {
+  const tempRoot = createManagedTempDir('siftkit-terminal-metadata-stuck-');
+  const context = createTestServerContext(path.join(tempRoot, 'config.json'));
+  context.terminalMetadataQueue.push({
+    requestId: 'request-stuck',
+    terminalState: 'failed',
+    bodyText: '{}',
+    capturedAtMs: Date.now(),
+  });
+  context.terminalMetadataDrainRunning = true;
+  try {
+    await assert.rejects(
+      waitForTerminalMetadataIdle(context, 25),
+      /queue=1 scheduled=false running=true request=request-stuck/u,
+    );
+  } finally {
+    await context.inferenceRunFlushQueue.close();
+  }
+});
 
 function openBenchmarkEventStream(baseUrl: string): {
   started: Promise<void>;

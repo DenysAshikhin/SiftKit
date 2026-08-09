@@ -272,7 +272,7 @@ test('metrics are counted once per request despite multiple posts', async () => 
     await postMetadata(server.baseUrl, 'request-a', 20, 5);
     await postCompleted(server.baseUrl, 'request-a');
     await postTerminalMetadata(server.baseUrl, 'request-a');
-    const metrics = await server.readSettledMetrics(1);
+    const metrics = await server.readMetricsAfterTerminalMetadata(1);
     assert.equal(metrics.completedRequestCount, 1);
   } finally {
     await server.close();
@@ -345,7 +345,7 @@ test('matrix: complete(A), metadata(A), complete(B), metadata(B)', async () => {
     await postTerminalMetadata(server.baseUrl, 'matrix-b');
     await assertStatus(server.baseUrl, [], false);
 
-    const metrics = await server.readSettledMetrics(2);
+    const metrics = await server.readMetricsAfterTerminalMetadata(2);
     assert.equal(metrics.completedRequestCount, 2);
     assert.equal(metrics.taskTotals.chat.outputTokensTotal, 20);
     assertPersistedRuns({
@@ -373,7 +373,7 @@ test('matrix: complete(B), complete(A), metadata(A), metadata(B)', async () => {
     await postTerminalMetadata(server.baseUrl, 'reverse-b');
     await assertStatus(server.baseUrl, [], false);
 
-    const metrics = await server.readSettledMetrics(2);
+    const metrics = await server.readMetricsAfterTerminalMetadata(2);
     assert.equal(metrics.completedRequestCount, 2);
     assert.equal(metrics.taskTotals.chat.outputTokensTotal, 20);
     assertPersistedRuns({
@@ -399,7 +399,7 @@ test('matrix: metadata(A), complete(A), duplicate metadata(A)', async () => {
     await postTerminalMetadata(server.baseUrl, 'duplicate-a');
     await assertStatus(server.baseUrl, [], false);
 
-    const metrics = await server.readSettledMetrics(1);
+    const metrics = await server.readMetricsAfterTerminalMetadata(1);
     assert.equal(metrics.completedRequestCount, 1);
     assert.equal(metrics.taskTotals.chat.outputTokensTotal, 18);
     assertPersistedRuns({ 'duplicate-a': { status: 'completed', outputTokens: 18 } });
@@ -424,7 +424,7 @@ test('matrix: failure(A), success(B)', async () => {
     await postTerminalMetadata(server.baseUrl, 'success-b');
     await assertStatus(server.baseUrl, [], false);
 
-    const metrics = await server.readSettledMetrics(1);
+    const metrics = await server.readMetricsAfterTerminalMetadata(1);
     assert.equal(metrics.completedRequestCount, 1);
     assert.equal(metrics.taskTotals.chat.outputTokensTotal, 10);
     assertPersistedRuns({
@@ -455,7 +455,7 @@ test('matrix: disconnect(A), retry(A), concurrent success(B)', async () => {
     await postTerminalMetadata(server.baseUrl, 'concurrent-b');
     await assertStatus(server.baseUrl, [], false);
 
-    const metrics = await server.readSettledMetrics(2);
+    const metrics = await server.readMetricsAfterTerminalMetadata(2);
     assert.equal(metrics.completedRequestCount, 2);
     assert.equal(metrics.taskTotals.chat.outputTokensTotal, 20);
     assertPersistedRuns({
@@ -478,7 +478,7 @@ test('completed status run logs record the active preset model, backend, and tit
     await postRunning(server.baseUrl, 'identity-a');
     await postCompleted(server.baseUrl, 'identity-a');
     await postTerminalMetadata(server.baseUrl, 'identity-a');
-    await server.readSettledMetrics(1);
+    await server.readMetricsAfterTerminalMetadata(1);
 
     const expected = readActivePresetIdentity();
     const logs = queryDashboardRunsFromDb(getRuntimeDatabase());
@@ -504,7 +504,7 @@ test('a status run with no task kind is titled from the status fallback', async 
       method: 'POST',
       body: JSON.stringify({ running: false, requestId: 'identity-b', terminalState: 'completed', outputTokens: 1 }),
     });
-    await server.readSettledMetrics(1);
+    await server.readMetricsAfterTerminalMetadata(1);
 
     const logs = queryDashboardRunsFromDb(getRuntimeDatabase());
     const matching = logs.filter((log) => log.id === 'identity-b');

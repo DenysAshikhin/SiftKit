@@ -7,7 +7,7 @@ import { startStatusServer } from '../src/status-server/index.js';
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { requestJson, getAddressInfo } from './helpers/dashboard-http.js';
-import { captureStdoutLines } from './helpers/stdout-capture.js';
+import { OutputCapture } from './helpers/stdout-capture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { waitForAsyncExpectation } from './_runtime-helpers.js';
 
@@ -53,7 +53,8 @@ test('a long drain wait logs once on entry and once on resume', async () => {
   const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
 
   try {
-    const lines = await captureStdoutLines(async () => {
+    const capture = OutputCapture.start(process.stdout);
+    try {
       await requestJson(`${baseUrl}/status`, {
         method: 'POST',
         body: JSON.stringify({
@@ -85,7 +86,10 @@ test('a long drain wait logs once on entry and once on resume', async () => {
         const status = await requestJson(`${baseUrl}/status`);
         assert.equal(status.body.status, 'false');
       });
-    });
+    } finally {
+      capture.restore();
+    }
+    const lines = capture.lines;
 
     const waits = lines.filter((line) => /st drain-st {2}drain_wait/u.test(line));
     const resumes = lines.filter((line) => /st drain-st {2}drain_resume/u.test(line));

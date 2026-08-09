@@ -8,22 +8,35 @@
  */
 import { spawnSync } from 'node:child_process';
 import type { SpawnSyncReturns } from 'node:child_process';
+import { z } from './zod.js';
+
+const ProcessErrorSchema = z.object({ code: z.string() });
 
 export type TerminateProcessTreeOptions = {
   processObject?: { platform: string; kill: (pid: number, signal?: string) => boolean };
   spawnSyncImpl?: typeof spawnSync;
 };
 
-export function isProcessAlive(pid: number | string): boolean {
+export function isProcessAlive(
+  pid: number | string,
+  processObject: Pick<NodeJS.Process, 'kill'> = process,
+): boolean {
   const numericPid = Number(pid);
   if (!Number.isFinite(numericPid) || numericPid <= 0) {
     return false;
   }
   try {
-    process.kill(Math.trunc(numericPid), 0);
+    processObject.kill(Math.trunc(numericPid), 0);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    const parsedError = ProcessErrorSchema.safeParse(error);
+    if (parsedError.success && parsedError.data.code === 'ESRCH') {
+      return false;
+    }
+    if (parsedError.success && parsedError.data.code === 'EPERM') {
+      return true;
+    }
+    throw error;
   }
 }
 

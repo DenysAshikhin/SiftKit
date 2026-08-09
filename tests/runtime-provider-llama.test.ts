@@ -16,7 +16,7 @@ import {
   generateLlamaCppResponse,
   withTempEnv,
   withStubServer,
-  getFreePort,
+  acquireChildPortLease,
   mockConfig,
 } from './_runtime-helpers.js';
 
@@ -573,7 +573,8 @@ test('llama.cpp provider surfaces HTTP 400 errors when json-schema constrained r
 
 test('llama.cpp provider prints model-list HTTP errors to console', async () => {
   await withTempEnv(async () => {
-    const port = await getFreePort();
+    await using portLease = await acquireChildPortLease('runtime-provider-llama');
+    const port = portLease.port;
     const capture = new ConsoleErrorCapture();
     const server = http.createServer((req, res) => {
       if (req.method === 'GET' && req.url === '/v1/models') {
@@ -608,7 +609,8 @@ test('llama.cpp provider prints model-list HTTP errors to console', async () => 
 
 test('llama.cpp provider prints status probe errors to console', async () => {
   await withTempEnv(async () => {
-    const port = await getFreePort();
+    await using portLease = await acquireChildPortLease('runtime-provider-llama');
+    const port = portLease.port;
     const capture = new ConsoleErrorCapture();
     const server = http.createServer((req, res) => {
       if (req.method === 'GET' && req.url === '/v1/models') {
@@ -641,7 +643,8 @@ test('llama.cpp provider prints status probe errors to console', async () => {
 
 test('llama.cpp provider prints tokenize HTTP errors to console', async () => {
   await withTempEnv(async () => {
-    const port = await getFreePort();
+    await using portLease = await acquireChildPortLease('runtime-provider-llama');
+    const port = portLease.port;
     const capture = new ConsoleErrorCapture();
     const server = http.createServer((req, res) => {
       if (req.method === 'POST' && req.url === '/tokenize') {
@@ -673,7 +676,8 @@ test('llama.cpp provider prints tokenize HTTP errors to console', async () => {
 
 test('llama.cpp provider prints chat completion HTTP errors to console', async () => {
   await withTempEnv(async () => {
-    const port = await getFreePort();
+    await using portLease = await acquireChildPortLease('runtime-provider-llama');
+    const port = portLease.port;
     const capture = new ConsoleErrorCapture();
     const server = http.createServer((req, res) => {
       if (req.method === 'POST' && req.url === '/v1/chat/completions') {
@@ -713,7 +717,8 @@ test('llama.cpp provider prints chat completion HTTP errors to console', async (
 
 test('llama.cpp provider waits for warm-up and retries model-list requests after ECONNREFUSED', async () => {
   await withTempEnv(async () => {
-    const port = await getFreePort();
+    await using portLease = await acquireChildPortLease('runtime-provider-llama');
+    const port = portLease.port;
     let modelsRequestCount = 0;
     let delayedServer: http.Server | null = null;
     const startTimer = setTimeout(() => {
@@ -747,7 +752,8 @@ test('llama.cpp provider waits for warm-up and retries model-list requests after
 
 test('llama.cpp provider waits for warm-up and retries chat-completions after ECONNREFUSED', async () => {
   await withTempEnv(async () => {
-    const port = await getFreePort();
+    await using portLease = await acquireChildPortLease('runtime-provider-llama');
+    const port = portLease.port;
     let chatRequestCount = 0;
     let delayedServer: http.Server | null = null;
     const startTimer = setTimeout(() => {
@@ -794,7 +800,8 @@ test('llama.cpp provider waits for warm-up and retries chat-completions after EC
 
 test('llama.cpp provider retries HTTP 503 Loading model responses for chat-completions', async () => {
   await withTempEnv(async () => {
-    const port = await getFreePort();
+    await using portLease = await acquireChildPortLease('runtime-provider-llama');
+    const port = portLease.port;
     let chatRequestCount = 0;
     const loadingServer = http.createServer((req, res) => {
       if (req.method === 'POST' && req.url === '/v1/chat/completions') {

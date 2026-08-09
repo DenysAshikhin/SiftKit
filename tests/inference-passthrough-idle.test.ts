@@ -15,7 +15,7 @@ import { writeConfig } from '../src/status-server/config-store.js';
 import { readBody } from '../src/status-server/http-utils.js';
 import { getAddressInfo } from './helpers/dashboard-http.js';
 import { FakeTabbyModelState } from './helpers/tabby-fake.js';
-import { getFreePort, withTempEnv } from './_runtime-helpers.js';
+import { acquireChildPortLease, withTempEnv } from './_runtime-helpers.js';
 
 async function readInferenceRuntimeStatus(baseUrl: string): Promise<InferenceRuntimeStatus> {
   return InferenceRuntimeStatusSchema.parse(await (await fetch(`${baseUrl}/runtime/inference`)).json());
@@ -94,7 +94,8 @@ test('remote chat wakes idle-unloaded EXL3 while model catalog remains no-wake',
     const tabbyBaseUrl = `http://127.0.0.1:${getAddressInfo(tabby).port}`;
     let statusServer: ReturnType<typeof startStatusServer> | null = null;
     try {
-      const statusPort = await getFreePort();
+      await using statusPortLease = await acquireChildPortLease('inference-passthrough-idle-status');
+      const statusPort = statusPortLease.port;
       process.env.SIFTKIT_STATUS_PORT = String(statusPort);
       const config = getDefaultConfigObject();
       const preset = config.Server.ModelPresets.Presets[0];
@@ -274,7 +275,8 @@ test('chat queued during a preset switch is translated for the target backend', 
     ]);
     let statusServer: ReturnType<typeof startStatusServer> | null = null;
     try {
-      process.env.SIFTKIT_STATUS_PORT = String(await getFreePort());
+      await using statusPortLease = await acquireChildPortLease('inference-passthrough-idle-status');
+      process.env.SIFTKIT_STATUS_PORT = String(statusPortLease.port);
       const config = getDefaultConfigObject();
       const basePreset = config.Server.ModelPresets.Presets[0];
       if (!basePreset) throw new Error('Default model preset is missing');

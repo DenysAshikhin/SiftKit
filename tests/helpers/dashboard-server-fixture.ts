@@ -29,13 +29,7 @@ export type DashboardTestServerOptions = {
   managedLlamaStartup?: boolean;
 };
 
-const METRICS_SETTLE_POLL_INTERVAL_MS = 25;
-const METRICS_SETTLE_QUIET_POLLS = 12;
 const METRICS_SETTLE_TIMEOUT_MS = 10_000;
-
-function sleep(delayMs: number): Promise<void> {
-  return new Promise<void>((resolve) => { setTimeout(resolve, delayMs); });
-}
 
 /**
  * Boots a real status server inside a throwaway repo so route -> store -> metrics
@@ -105,31 +99,20 @@ export class DashboardTestServer {
     return readMetrics(getRuntimeDatabasePath());
   }
 
-  /**
-   * Terminal metadata drains off the request path, so a settled read needs both a
-   * lower bound and proof that nothing else is still landing — a duplicate post that
-   * arrives after the assert is exactly the bug these E2Es look for. Any change to the
-   * snapshot restarts the quiet window, so the wait tracks real writes instead of a
-   * fixed sleep.
-   */
-  async readSettledMetrics(minimumCompletedRequestCount: number): Promise<Metrics> {
-    const deadline = Date.now() + METRICS_SETTLE_TIMEOUT_MS;
-    let previousSnapshot = '';
-    let unchangedPolls = 0;
-    while (Date.now() < deadline) {
-      const metrics = this.readMetrics();
-      const snapshot = JSON.stringify(metrics);
-      unchangedPolls = snapshot === previousSnapshot ? unchangedPolls + 1 : 0;
-      previousSnapshot = snapshot;
-      if (metrics.completedRequestCount >= minimumCompletedRequestCount && unchangedPolls >= METRICS_SETTLE_QUIET_POLLS) {
-        return metrics;
-      }
-      await sleep(METRICS_SETTLE_POLL_INTERVAL_MS);
-    }
-    throw new Error(
-      `Runtime metrics never settled at >= ${minimumCompletedRequestCount} completed requests `
-      + `within ${METRICS_SETTLE_TIMEOUT_MS} ms.`,
+  /** Reads once after the server's terminal-metadata queue reaches observable idle state. */
+  async readMetricsAfterTerminalMetadata(minimumCompletedRequestCount: number): Promise<Metrics> {
+    await this.server.waitForTerminalMetadataIdle(
+      METRICS_SETTLE_TIMEOUT_MS,
+      minimumCompletedRequestCount,
     );
+    const metrics = this.readMetrics();
+    if (metrics.completedRequestCount < minimumCompletedRequestCount) {
+      throw new Error(
+        `Runtime metrics completedRequestCount=${metrics.completedRequestCount}; `
+        + `expected at least ${minimumCompletedRequestCount} after terminal metadata became idle.`,
+      );
+    }
+    return metrics;
   }
 
   close(): Promise<void> {

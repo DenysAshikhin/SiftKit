@@ -141,7 +141,10 @@ type RuntimeHelpers = {
     modelPath: string;
     readyFilePath: string;
   };
-  getFreePort: () => Promise<number>;
+  acquireChildPortLease: (name: string) => Promise<{
+    port: number;
+    [Symbol.asyncDispose](): Promise<void>;
+  }>;
   getDefaultConfig: () => Dict;
   setManagedLlamaBaseUrl: (config: Dict, baseUrl: string) => void;
   waitForAsyncExpectation: (expectation: () => Promise<void>, timeoutMs?: number) => Promise<void>;
@@ -200,7 +203,8 @@ test('config llama cpp test endpoint reports reachable external server', async (
   fs.mkdirSync(path.dirname(statusPath), { recursive: true });
   fs.writeFileSync(statusPath, 'false', 'utf8');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const remotePort = await runtimeHelpers.getFreePort();
+  await using remotePortLease = await runtimeHelpers.acquireChildPortLease('dashboard-status-server-remote');
+  const remotePort = remotePortLease.port;
   const remoteServer = http.createServer((request, response) => {
     if (request.url === '/v1/models') {
       response.writeHead(200, { 'content-type': 'application/json' });
@@ -256,7 +260,8 @@ test('config llama cpp test endpoint reports unreachable external server', async
   fs.mkdirSync(path.dirname(statusPath), { recursive: true });
   fs.writeFileSync(statusPath, 'false', 'utf8');
   const envBackup = configureDashboardTestEnv(tempRoot, statusPath, configPath);
-  const unusedPort = await runtimeHelpers.getFreePort();
+  await using unusedPortLease = await runtimeHelpers.acquireChildPortLease('dashboard-status-server-unreachable');
+  const unusedPort = unusedPortLease.port;
   const server = startStatusServer({ disableManagedLlamaStartup: true });
   await server.startupPromise;
   const address = getAddressInfo(server);

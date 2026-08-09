@@ -13,6 +13,44 @@ import {
   writeJson,
 } from './helpers/dashboard-http.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+import {
+  createDeadHttpEndpoint,
+  listenOnEphemeralPort,
+} from './helpers/test-endpoints.js';
+
+test('test endpoints assign distinct ports to concurrent listeners', async () => {
+  const first = http.createServer();
+  const second = http.createServer();
+  try {
+    const [firstPort, secondPort] = await Promise.all([
+      listenOnEphemeralPort(first),
+      listenOnEphemeralPort(second),
+    ]);
+    assert.notEqual(firstPort, secondPort);
+  } finally {
+    await Promise.all([closeHttpServer(first), closeHttpServer(second)]);
+  }
+});
+
+test('dead HTTP endpoint owns its port until explicitly closed', async () => {
+  const endpoint = await createDeadHttpEndpoint();
+  const competingServer = http.createServer();
+  const port = Number(new URL(endpoint.baseUrl).port);
+  try {
+    await assert.rejects(new Promise<void>((resolve, reject) => {
+      competingServer.once('error', reject);
+      competingServer.listen(port, '127.0.0.1', resolve);
+    }), /EADDRINUSE/u);
+    await assert.rejects(fetch(endpoint.baseUrl), /fetch failed/u);
+  } finally {
+    await endpoint.close();
+  }
+  await new Promise<void>((resolve, reject) => {
+    competingServer.once('error', reject);
+    competingServer.listen(port, '127.0.0.1', resolve);
+  });
+  await closeHttpServer(competingServer);
+});
 
 test('dashboard HTTP helpers read JSON and SSE payloads', async () => {
   const server = http.createServer((req, res) => {

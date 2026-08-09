@@ -2,7 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 
+import { isProcessAlive } from '../../src/lib/process-tree.js';
 import { createManagedTempDir } from './temp-dirs.js';
+
+export { isProcessAlive };
 
 /** How long both processes would live if nothing terminated them. */
 export const PROCESS_LIFETIME_MS = 20_000;
@@ -10,7 +13,6 @@ export const PROCESS_LIFETIME_MS = 20_000;
 const PROCESS_WAIT_TIMEOUT_MS = 2_000;
 const PROCESS_POLL_INTERVAL_MS = 20;
 const ProcessIdSchema = z.coerce.number().int().positive();
-const ErrorCodeSchema = z.object({ code: z.string() });
 
 export type ProcessTreeFixture = {
   /** Node script that spawns a grandchild inheriting stdio, then idles. */
@@ -23,23 +25,6 @@ export type ProcessTreeFixture = {
 
 function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-export function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    const parsedError = ErrorCodeSchema.safeParse(error);
-    const code = parsedError.success ? parsedError.data.code : null;
-    if (code === 'ESRCH') {
-      return false;
-    }
-    if (code === 'EPERM') {
-      return true;
-    }
-    throw error;
-  }
 }
 
 export async function waitForGrandchildPidFile(pidPath: string): Promise<number> {

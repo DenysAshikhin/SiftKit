@@ -18,14 +18,14 @@ import {
   withRealStatusServer,
   readIdleSummarySnapshots,
   getIdleSummaryBlock,
-  getFreePort,
+  acquireChildPortLease,
   writeManagedLlamaLauncher,
   waitForAsyncExpectation,
   postCompletedStatus,
   type RuntimeStatusResponse,
   type LlamaModelsResponse,
 } from './_runtime-helpers.js';
-import { captureStdoutLines } from './helpers/stdout-capture.js';
+import { OutputCapture } from './helpers/stdout-capture.js';
 
 test('real status server prints one idle metrics line only after the full idle delay', async () => {
   await withTempEnv(async (tempRoot) => {
@@ -33,7 +33,9 @@ test('real status server prints one idle metrics line only after the full idle d
     const configPath = path.join(tempRoot, 'config.json');
     const idleSummaryDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
     const requestId = 'idle-summary-metrics';
-    await captureStdoutLines(async (stdoutLines) => withRealStatusServer(async (server) => {
+    const capture = OutputCapture.start(process.stdout);
+    try {
+      await withRealStatusServer(async (server) => {
       await requestJson(server.statusUrl, {
         method: 'POST',
         body: JSON.stringify({
@@ -47,7 +49,7 @@ test('real status server prints one idle metrics line only after the full idle d
         }),
       });
       await waitForAsyncExpectation(() => {
-        assert.equal(stdoutLines.some((line) => /st [\w-]{8} {2}start {2}(?:task=\S+ )?raw_chars=200 prompt=200 \(100\)/u.test(line)), true);
+        assert.equal(capture.lines.some((line) => /st [\w-]{8} {2}start {2}(?:task=\S+ )?raw_chars=200 prompt=200 \(100\)/u.test(line)), true);
       }, 1000);
       await postCompletedStatus(server.statusUrl, {
         requestId,
@@ -66,12 +68,12 @@ test('real status server prints one idle metrics line only after the full idle d
       assert.equal(pendingStatus.status, 'false');
 
       await sleep(30);
-      assert.equal(stdoutLines.some((line) => /idle_metrics/u.test(line)), false);
+      assert.equal(capture.lines.some((line) => /idle_metrics/u.test(line)), false);
 
       await waitForAsyncExpectation(() => {
-        assert.equal(stdoutLines.some((line) => /requests=1/u.test(line)), true);
+        assert.equal(capture.lines.some((line) => /requests=1/u.test(line)), true);
       }, 1000);
-      const block = getIdleSummaryBlock(stdoutLines, /requests=1/u);
+      const block = getIdleSummaryBlock(capture.lines, /requests=1/u);
       assert.match(block[0], /^\d{2}:\d{2}:\d{2} {2}requests=1$/u);
       assert.equal(block[1], '  input:  chars=200 tokens=100');
       assert.equal(block[2], '  output: chars=80 tokens=25 avg_tokens_per_request=25.00');
@@ -108,7 +110,10 @@ test('real status server prints one idle metrics line only after the full idle d
       idleSummaryDelayMs: 80,
       terminalMetadataIdleDelayMs: 0,
       disableManagedLlamaStartup: true,
-    }));
+      });
+    } finally {
+      capture.restore();
+    }
   });
 });
 
@@ -117,14 +122,17 @@ test('real status server leaves managed llama.cpp running after the idle summary
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
     const idleSummaryDbPath = path.join(tempRoot, 'status', 'idle-summary.sqlite');
-    const llamaPort = await getFreePort();
+    await using llamaPortLease = await acquireChildPortLease('runtime-status-server-idle-summary');
+    const llamaPort = llamaPortLease.port;
     const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
     writeConfig(getConfigPath(), config);
     const requestId = 'idle-summary-llama-shutdown';
 
-    const stdoutLines = await captureStdoutLines(() => withRealStatusServer(async (server) => {
+    const capture = OutputCapture.start(process.stdout);
+    try {
+      await withRealStatusServer(async (server) => {
       await requestJson(server.configUrl);
       await waitForAsyncExpectation(async () => {
         const models = await requestJson<LlamaModelsResponse>(`${managed.baseUrl}/v1/models`);
@@ -158,7 +166,11 @@ test('real status server leaves managed llama.cpp running after the idle summary
       idleSummaryDbPath,
       idleSummaryDelayMs: 80,
       terminalMetadataIdleDelayMs: 0,
-    }));
+      });
+    } finally {
+      capture.restore();
+    }
+    const stdoutLines = capture.lines;
     assert.equal(stdoutLines.some((line) => /requests=1/u.test(line)), true);
 
     await waitForAsyncExpectation(
@@ -181,7 +193,8 @@ test('real status server close() stops managed llama.cpp', async () => {
     };
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
-    const llamaPort = await getFreePort();
+    await using llamaPortLease = await acquireChildPortLease('runtime-status-server-idle-summary');
+    const llamaPort = llamaPortLease.port;
     const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
@@ -272,7 +285,9 @@ test('real status server restarts the idle countdown when a new request begins b
     const idleSummaryDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
     const firstRequestId = 'idle-summary-restart-first';
     const secondRequestId = 'idle-summary-restart-second';
-    await captureStdoutLines(async (stdoutLines) => withRealStatusServer(async (server) => {
+    const capture = OutputCapture.start(process.stdout);
+    try {
+      await withRealStatusServer(async (server) => {
       await requestJson(server.statusUrl, {
         method: 'POST',
         body: JSON.stringify({
@@ -306,7 +321,7 @@ test('real status server restarts the idle countdown when a new request begins b
         }),
       });
       await sleep(40);
-      assert.equal(stdoutLines.some((line) => /idle_metrics/u.test(line)), false);
+      assert.equal(capture.lines.some((line) => /idle_metrics/u.test(line)), false);
 
       await postCompletedStatus(server.statusUrl, {
         requestId: secondRequestId,
@@ -320,9 +335,9 @@ test('real status server restarts the idle countdown when a new request begins b
       });
 
       await waitForAsyncExpectation(() => {
-        assert.equal(stdoutLines.some((line) => /requests=2/u.test(line)), true);
+        assert.equal(capture.lines.some((line) => /requests=2/u.test(line)), true);
       }, 1000);
-      const block = getIdleSummaryBlock(stdoutLines, /requests=2/u);
+      const block = getIdleSummaryBlock(capture.lines, /requests=2/u);
       assert.equal(block[1], '  input:  chars=150 tokens=10');
       assert.equal(block[2], '  output: chars=40 tokens=5 avg_tokens_per_request=2.50');
       assert.equal(block[3], '  ratio:  input/output=2.00x');
@@ -336,6 +351,9 @@ test('real status server restarts the idle countdown when a new request begins b
       idleSummaryDelayMs: 80,
       terminalMetadataIdleDelayMs: 0,
       disableManagedLlamaStartup: true,
-    }));
+      });
+    } finally {
+      capture.restore();
+    }
   });
 });

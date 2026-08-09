@@ -14,32 +14,12 @@ function Get-SiftRepoPath {
     Join-Path -Path (Split-Path -Path (Get-SiftKitRoot) -Parent) -ChildPath $RelativePath
 }
 
-function Get-SiftTsRuntimePath {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$RelativePath
-    )
-
-    $relativeCandidates = @($RelativePath)
-    if ($RelativePath -like 'src\*' -or $RelativePath -like 'src/*') {
-        $relativeCandidates += $RelativePath.Substring(4)
+function Get-SiftCliPath {
+    $cliPath = Get-SiftRepoPath -RelativePath 'dist\cli\main.js'
+    if (-not (Test-Path -LiteralPath $cliPath)) {
+        throw ('TS CLI entrypoint not found: {0}. Run npm run build.' -f $cliPath)
     }
-    if ($RelativePath -eq 'src\cli.js' -or $RelativePath -eq 'src/cli.js' -or $RelativePath -eq 'cli.js') {
-        $relativeCandidates += @('cli\index.js', 'cli\dispatch.js')
-    }
-
-    $candidatePaths = foreach ($candidateRelativePath in ($relativeCandidates | Select-Object -Unique)) {
-        (Get-SiftRepoPath -RelativePath (Join-Path -Path 'dist' -ChildPath $candidateRelativePath))
-        (Join-Path -Path (Get-SiftKitRoot) -ChildPath (Join-Path -Path 'dist' -ChildPath $candidateRelativePath))
-    }
-
-    foreach ($runtimePath in $candidatePaths) {
-        if (Test-Path -LiteralPath $runtimePath) {
-            return $runtimePath
-        }
-    }
-
-    throw ('TS runtime entrypoint not found. Checked: {0}. Run npm run build.' -f ($candidatePaths -join '; '))
+    $cliPath
 }
 
 function New-SiftDirectory {
@@ -141,7 +121,7 @@ function Invoke-SiftTsInternal {
         [string]$ResponseFormat = 'json'
     )
 
-    $cliPath = Get-SiftTsRuntimePath -RelativePath 'src\cli.js'
+    $cliPath = Get-SiftCliPath
     $requestPath = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ('siftkit_request_{0}_{1}.json' -f $PID, [System.Guid]::NewGuid().ToString('N'))
     try {
         Save-SiftUtf8NoBomFile -Path $requestPath -Content ($RequestObject | ConvertTo-Json -Depth 12 -Compress)

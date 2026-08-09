@@ -17,7 +17,7 @@ import {
   type RepoAgentRunRequest,
 } from '../src/repo-agent/run-schemas.js';
 import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
-import { runRepoAgentWorkerMain } from '../src/repo-agent/worker-main.js';
+import { runRepoAgentWorkerMain } from '../src/repo-agent/worker-runner.js';
 import { RepoAgentWorker } from '../src/repo-agent/worker.js';
 import type { RepoSearchExecutionResult } from '../src/repo-search/types.js';
 import { buildMockScorecard } from './_test-helpers.js';

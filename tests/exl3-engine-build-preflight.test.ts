@@ -8,7 +8,7 @@ import { Exl3ModelCapabilities } from '../src/inference-presets/exl3-model-capab
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
 import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.js';
 
-import { getFreePort, withTempEnv } from './_runtime-helpers.js';
+import { acquireChildPortLease, withTempEnv } from './_runtime-helpers.js';
 import { writeFakeExl3Venv, writeFakeTabby } from './helpers/tabby-fake.js';
 
 test('Exl3ModelCapabilities accepts an exllamav3 carrying the 8e08af9 watermark', async () => {
@@ -39,7 +39,8 @@ test('Exl3ModelCapabilities rejects an interpreter outside a venv layout', () =>
 
 test('managed Tabby refuses to launch against an exllamav3 predating 8e08af9', async () => {
   await withTempEnv(async (root) => {
-    const port = await getFreePort();
+    await using portLease = await acquireChildPortLease('exl3-engine-build-preflight');
+    const port = portLease.port;
     const { scriptPath, pythonPath, startsPath } = writeFakeTabby(root, port, null);
     writeFakeExl3Venv(root, false);
     const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];

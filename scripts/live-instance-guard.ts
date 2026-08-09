@@ -1,6 +1,5 @@
 import http from 'node:http';
 import https from 'node:https';
-import net from 'node:net';
 import type { ClientRequestArgs } from 'node:http';
 
 /**
@@ -40,33 +39,6 @@ const GUARDED_PORTS = new Map<string, string>([
 ]);
 
 const violations: string[] = [];
-const ownedServerByPort = new Map<string, net.Server>();
-
-function isHttpServer(value: object): value is http.Server | https.Server {
-  return value instanceof http.Server || value instanceof https.Server;
-}
-
-const serverEmitGuard: ProxyHandler<typeof net.Server.prototype.emit> = {
-  apply(target, thisArg, argArray) {
-    const eventName = argArray[0];
-    if (thisArg instanceof net.Server && isHttpServer(thisArg) && eventName === 'listening') {
-      const address = thisArg.address();
-      if (typeof address === 'object' && address) {
-        const port = String(address.port);
-        ownedServerByPort.set(port, thisArg);
-      }
-    } else if (thisArg instanceof net.Server && isHttpServer(thisArg) && eventName === 'close') {
-      for (const [port, server] of ownedServerByPort) {
-        if (server === thisArg) {
-          ownedServerByPort.delete(port);
-        }
-      }
-    }
-    return Reflect.apply(target, thisArg, argArray);
-  },
-};
-
-net.Server.prototype.emit = new Proxy(net.Server.prototype.emit, serverEmitGuard);
 
 /**
  * Throwing alone is not enough: the callers that leak to a default port do so from
@@ -78,9 +50,6 @@ function failOnGuardedPort(port: string, target: string): void {
   if (!owner) {
     return;
   }
-  const ownedServer = ownedServerByPort.get(port);
-  if (ownedServer?.listening) return;
-  ownedServerByPort.delete(port);
   const violation = `live SiftKit ${owner} on port ${port} (${target})`;
   if (!violations.includes(violation)) {
     violations.push(violation);

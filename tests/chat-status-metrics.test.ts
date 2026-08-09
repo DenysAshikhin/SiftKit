@@ -47,7 +47,7 @@ test('a model-backed chat turn contributes to runtime metrics exactly once', asy
     });
     assert.equal(response.statusCode, 200, JSON.stringify(response.body));
 
-    const metrics = await server.readSettledMetrics(1);
+    const metrics = await server.readMetricsAfterTerminalMetadata(1);
     assert.equal(metrics.taskTotals.chat.inputCharactersTotal, CHAT_PROMPT.length, 'prompt characters counted twice');
     assert.equal(metrics.taskTotals.chat.outputCharactersTotal, CHAT_ANSWER.length, 'answer characters counted twice');
     assert.equal(metrics.inputCharactersTotal, CHAT_PROMPT.length);
@@ -79,7 +79,7 @@ test('a client-supplied assistant message still reaches runtime metrics', async 
     });
     assert.equal(response.statusCode, 200, JSON.stringify(response.body));
 
-    const metrics = await server.readSettledMetrics(1);
+    const metrics = await server.readMetricsAfterTerminalMetadata(1);
     assert.equal(metrics.taskTotals.chat.inputCharactersTotal, CHAT_PROMPT.length, 'the no-engine path must report itself');
     assert.equal(metrics.taskTotals.chat.outputCharactersTotal, CHAT_ANSWER.length);
     assert.equal(metrics.taskTotals.chat.completedRequestCount, 1);
@@ -121,7 +121,7 @@ test('chat speculative tokens reach runtime metrics totals', async () => {
     });
     assert.equal(response.statusCode, 200, JSON.stringify(response.body));
 
-    const metrics = await server.readSettledMetrics(1);
+    const metrics = await server.readMetricsAfterTerminalMetadata(1);
     assert.equal(metrics.taskTotals.chat.speculativeAcceptedTokensTotal, EXPECTED_SPECULATIVE_ACCEPTED_TOKENS);
     assert.equal(metrics.taskTotals.chat.speculativeGeneratedTokensTotal, EXPECTED_SPECULATIVE_GENERATED_TOKENS);
   } finally {
@@ -154,7 +154,7 @@ test('a streamed chat turn contributes to runtime metrics exactly once', async (
     assert.equal(sse.statusCode, 200, JSON.stringify(sse.events));
     assert.equal(sse.events.some((event) => event.event === 'error'), false, JSON.stringify(sse.events));
 
-    const metrics = await server.readSettledMetrics(1);
+    const metrics = await server.readMetricsAfterTerminalMetadata(1);
     assert.equal(metrics.taskTotals.chat.inputCharactersTotal, CHAT_PROMPT.length, 'prompt characters counted twice');
     assert.equal(metrics.taskTotals.chat.outputCharactersTotal, CHAT_ANSWER.length, 'answer characters counted twice');
     assert.equal(metrics.inputCharactersTotal, CHAT_PROMPT.length);

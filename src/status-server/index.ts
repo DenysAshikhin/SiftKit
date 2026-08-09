@@ -26,7 +26,6 @@ import {
 } from '../lib/text-format.js';
 import { ensureStatusFile } from './status-file.js';
 import { getStatusServerBindHost, getStatusServerConnectHost } from '../lib/status-host.js';
-import { isMainModule } from '../lib/paths.js';
 import { readMetricsWithResetDecision, writeMetrics } from './metrics.js';
 import {
   buildIdleSummarySnapshot,
@@ -64,6 +63,7 @@ import {
   dumpManagedLlamaStartupReviewToConsole,
 } from './managed-llama.js';
 import { createRequestHandler } from './routes.js';
+import { waitForTerminalMetadataIdle } from './routes/core.js';
 import { PresetRuntimeCoordinator } from './preset-runtime-coordinator.js';
 import { AppliedModelPresetState } from './applied-model-preset-state.js';
 import { ManagedLlamaRuntime } from './managed-llama-runtime.js';
@@ -307,9 +307,22 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
 
   const handleRequest = createRequestHandler(ctx);
 
-  const server: ExtendedServer = createServer(async (req, res) => {
-    await handleRequest(req, res);
-  });
+  const server = Object.assign(
+    createServer(async (req, res) => {
+      await handleRequest(req, res);
+    }),
+    {
+      waitForTerminalMetadataIdle: (timeoutMs = 10_000, minimumCompletedRequestCount?: number) => (
+        waitForTerminalMetadataIdle(ctx, timeoutMs, minimumCompletedRequestCount)
+      ),
+      shutdownManagedLlamaForServerExit: () => shutdownManagedLlamaForServerExit(ctx),
+      shutdownManagedLlamaForProcessExitSync: (): void => {
+        managedTabbyRuntime.stopForProcessExitSync();
+        shutdownManagedLlamaForProcessExitSync(ctx);
+      },
+      startupPromise,
+    },
+  ) satisfies ExtendedServer;
 
   ctx.server = server;
   ctx.managedLlamaLogCleanupTimer = setInterval(() => {
@@ -332,7 +345,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   // Override close to ensure managed llama shuts down first.
   const originalClose = server.close.bind(server);
   let closeRequested = false;
-  server.close = (callback?: (err?: Error) => void): ExtendedServer => {
+  server.close = (callback?: (err?: Error) => void) => {
     const finalCallback = typeof callback === 'function' ? callback : undefined;
     if (closeRequested) {
       originalClose(finalCallback);
@@ -404,70 +417,5 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     void ctx.inferenceRunFlushQueue.close();
     closeRuntimeDatabase();
   });
-  server.shutdownManagedLlamaForServerExit = () => shutdownManagedLlamaForServerExit(ctx);
-  server.shutdownManagedLlamaForProcessExitSync = () => {
-    managedTabbyRuntime.stopForProcessExitSync();
-    shutdownManagedLlamaForProcessExitSync(ctx);
-  };
-  server.startupPromise = startupPromise;
-
   return server;
-}
-
-// ---------------------------------------------------------------------------
-// Direct-run entry point
-// ---------------------------------------------------------------------------
-
-if (isMainModule(import.meta.url)) {
-  const server = startStatusServer({
-    disableManagedLlamaStartup: process.argv.includes('--disable-managed-llama-startup'),
-  });
-  let shuttingDown = false;
-  let forcedExitTimer: NodeJS.Timeout | null = null;
-  const shutdown = async (signal: string = 'SIGTERM'): Promise<void> => {
-    if (shuttingDown) {
-      process.stderr.write('[siftKitStatus] Shutdown already in progress; forcing immediate exit.\n');
-      if (typeof server.shutdownManagedLlamaForProcessExitSync === 'function') {
-        server.shutdownManagedLlamaForProcessExitSync();
-      }
-      process.exit(signal === 'SIGINT' ? 130 : 1);
-    }
-    shuttingDown = true;
-    forcedExitTimer = setTimeout(() => {
-      process.stderr.write('[siftKitStatus] Graceful shutdown timed out; forcing process exit.\n');
-      if (typeof server.shutdownManagedLlamaForProcessExitSync === 'function') {
-        server.shutdownManagedLlamaForProcessExitSync();
-      }
-      process.exit(signal === 'SIGINT' ? 130 : 1);
-    }, 15000);
-    if (typeof forcedExitTimer.unref === 'function') {
-      forcedExitTimer.unref();
-    }
-    try {
-      if (typeof server.shutdownManagedLlamaForServerExit === 'function') {
-        await server.shutdownManagedLlamaForServerExit();
-      }
-    } finally {
-      if (forcedExitTimer) {
-        clearTimeout(forcedExitTimer);
-        forcedExitTimer = null;
-      }
-      server.close(() => {
-        if (signal === 'SIGUSR2') {
-          process.kill(process.pid, 'SIGUSR2');
-          return;
-        }
-        process.exit(0);
-      });
-    }
-  };
-
-  process.on('exit', () => {
-    if (typeof server.shutdownManagedLlamaForProcessExitSync === 'function') {
-      server.shutdownManagedLlamaForProcessExitSync();
-    }
-  });
-  process.on('SIGINT', () => { void shutdown('SIGINT'); });
-  process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
-  process.on('SIGUSR2', () => { void shutdown('SIGUSR2'); });
 }

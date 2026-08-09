@@ -11,7 +11,7 @@ import {
   postCompletedStatus,
   waitForAsyncExpectation,
 } from './_runtime-helpers.js';
-import { captureStderrLines, captureStdoutLines } from './helpers/stdout-capture.js';
+import { OutputCapture } from './helpers/stdout-capture.js';
 
 
 test('real status server appends one sqlite snapshot for each emitted idle summary', async () => {
@@ -21,7 +21,9 @@ test('real status server appends one sqlite snapshot for each emitted idle summa
     const idleSummaryDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
     const firstRequestId = 'idle-persistence-first';
     const secondRequestId = 'idle-persistence-second';
-    await captureStdoutLines(async (stdoutLines) => withRealStatusServer(async (server) => {
+    const capture = OutputCapture.start(process.stdout);
+    try {
+      await withRealStatusServer(async (server) => {
       await requestJson(server.statusUrl, {
         method: 'POST',
         body: JSON.stringify({ running: true, requestId: firstRequestId, rawInputCharacterCount: 200 }),
@@ -37,7 +39,7 @@ test('real status server appends one sqlite snapshot for each emitted idle summa
         requestDurationMs: 800,
       });
       await waitForAsyncExpectation(() => {
-        assert.equal(stdoutLines.some((line) => /requests=1/u.test(line)), true);
+        assert.equal(capture.lines.some((line) => /requests=1/u.test(line)), true);
       }, 1000);
 
       await requestJson(server.statusUrl, {
@@ -56,7 +58,7 @@ test('real status server appends one sqlite snapshot for each emitted idle summa
         requestDurationMs: 200,
       });
       await waitForAsyncExpectation(() => {
-        assert.equal(stdoutLines.some((line) => /requests=2/u.test(line)), true);
+        assert.equal(capture.lines.some((line) => /requests=2/u.test(line)), true);
       }, 1000);
 
       const rows = readIdleSummarySnapshots(idleSummaryDbPath);
@@ -78,7 +80,10 @@ test('real status server appends one sqlite snapshot for each emitted idle summa
       idleSummaryDelayMs: 60,
       terminalMetadataIdleDelayMs: 0,
       disableManagedLlamaStartup: true,
-    }));
+      });
+    } finally {
+      capture.restore();
+    }
   });
 });
 
@@ -88,8 +93,10 @@ test('real status server keeps emitting idle summaries when sqlite persistence f
     const configPath = path.join(tempRoot, 'config.json');
     const idleSummaryDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
     const requestId = 'idle-persistence-failure';
-    const stderrLines = await captureStderrLines(async () => {
-      await captureStdoutLines(async (stdoutLines) => withRealStatusServer(async (server) => {
+    const stdoutCapture = OutputCapture.start(process.stdout);
+    const stderrCapture = OutputCapture.start(process.stderr);
+    try {
+      await withRealStatusServer(async (server) => {
       const database = new Database(idleSummaryDbPath);
       try {
         database.exec('DROP TABLE IF EXISTS idle_summary_snapshots;');
@@ -119,7 +126,7 @@ test('real status server keeps emitting idle summaries when sqlite persistence f
       });
 
       await waitForAsyncExpectation(() => {
-        assert.equal(stdoutLines.some((line) => /requests=1/u.test(line)), true);
+        assert.equal(stdoutCapture.lines.some((line) => /requests=1/u.test(line)), true);
       }, 1000);
     }, {
       statusPath,
@@ -128,8 +135,12 @@ test('real status server keeps emitting idle summaries when sqlite persistence f
       idleSummaryDelayMs: 80,
       terminalMetadataIdleDelayMs: 0,
       disableManagedLlamaStartup: true,
-      }));
-    });
+      });
+    } finally {
+      stderrCapture.restore();
+      stdoutCapture.restore();
+    }
+    const stderrLines = stderrCapture.lines;
     assert.equal(stderrLines.some((line) => /Failed to persist idle summary snapshot/u.test(line)), true);
   });
 });

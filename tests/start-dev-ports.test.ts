@@ -90,5 +90,5 @@ test('stable status script starts the full stable dev stack', () => {
   const packageJson = readPackageJson();
 
   assert.equal(packageJson.scripts?.['start:status:stable'], 'tsx .\\scripts\\start-dev.ts --stable');
-  assert.equal(packageJson.scripts?.['start:status:stable:server'], 'node .\\dist\\status-server\\index.js');
+  assert.equal(packageJson.scripts?.['start:status:stable:server'], 'node .\\dist\\status-server\\main.js');
 });

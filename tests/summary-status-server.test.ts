@@ -12,7 +12,7 @@ import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-d
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import { requestJson, asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { requestSse } from './helpers/sse-http.js';
-import { captureStdoutLines } from './helpers/stdout-capture.js';
+import { OutputCapture } from './helpers/stdout-capture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { waitForAsyncExpectation } from './_runtime-helpers.js';
 
@@ -142,7 +142,8 @@ test('summary endpoint processes terminal status before granting next queued sum
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
-    const lines = await captureStdoutLines(async () => {
+    const capture = OutputCapture.start(process.stdout);
+    try {
       const first = requestSse(`${baseUrl}/summary`, {
         timeoutMs: 15000,
         body: {
@@ -173,7 +174,10 @@ test('summary endpoint processes terminal status before granting next queued sum
       assert.ok(secondResponse.result);
       await new Promise<void>((resolve) => setTimeout(resolve, 20));
       await new Promise<void>((resolve) => setTimeout(resolve, 150));
-    });
+    } finally {
+      capture.restore();
+    }
+    const lines = capture.lines;
 
     assert.equal(lines.some((line) => /stale_status_abandoned/u.test(line)), false, lines.join('\n'));
   } finally {
@@ -223,7 +227,8 @@ test('terminal metadata route enqueues immediately and drains after idle delay',
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
-    const lines = await captureStdoutLines(async () => {
+    const capture = OutputCapture.start(process.stdout);
+    try {
       await requestJson(`${baseUrl}/status`, {
         method: 'POST',
         body: JSON.stringify({
@@ -256,7 +261,10 @@ test('terminal metadata route enqueues immediately and drains after idle delay',
       assert.ok(responseElapsedMs < 50, `terminal metadata post waited ${responseElapsedMs}ms`);
       await new Promise<void>((resolve) => setTimeout(resolve, 30));
       await new Promise<void>((resolve) => setTimeout(resolve, 100));
-    });
+    } finally {
+      capture.restore();
+    }
+    const lines = capture.lines;
 
     assert.equal(lines.some((line) => /st queued-m {2}drain_wait {2}state=completed wait_ms=\d+ active=false q=1 model_q=0/u.test(line)), true, lines.join('\n'));
     const waitIndex = lines.findIndex((line) => /st queued-m {2}drain_wait/u.test(line));
@@ -320,7 +328,8 @@ test('terminal metadata waits for managed llama flush queue to drain first', asy
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
-    const lines = await captureStdoutLines(async () => {
+    const capture = OutputCapture.start(process.stdout);
+    try {
       await requestJson(`${baseUrl}/status`, {
         method: 'POST',
         body: JSON.stringify({
@@ -356,7 +365,10 @@ test('terminal metadata waits for managed llama flush queue to drain first', asy
         const drainedStatus = await requestJson(`${baseUrl}/status`);
         assert.equal(drainedStatus.body.status, 'false');
       });
-    });
+    } finally {
+      capture.restore();
+    }
+    const lines = capture.lines;
 
     const waitIndex = lines.findIndex((line) => /st metadata {2}drain_wait/u.test(line));
     const processIndex = lines.findIndex((line) => /st metadata {2}terminal_metadata_process_done/u.test(line));
@@ -410,7 +422,8 @@ test('split terminal routes clear active request before next running post', asyn
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
-    const lines = await captureStdoutLines(async () => {
+    const capture = OutputCapture.start(process.stdout);
+    try {
       const firstRunning = await requestJson(`${baseUrl}/status`, {
         method: 'POST',
         body: JSON.stringify({
@@ -492,7 +505,10 @@ test('split terminal routes clear active request before next running post', asyn
       assert.equal(repeatedLateFirstRunning.statusCode, 200);
       assert.equal(secondRunning.statusCode, 200);
       await new Promise<void>((resolve) => setTimeout(resolve, 150));
-    });
+    } finally {
+      capture.restore();
+    }
+    const lines = capture.lines;
 
     assert.equal(lines.some((line) => /stale_status_abandoned/u.test(line)), false, lines.join('\n'));
     assert.equal(lines.some((line) => /st first-su {2}complete_done {2}state=completed duration_ms=\d+/u.test(line)), true, lines.join('\n'));

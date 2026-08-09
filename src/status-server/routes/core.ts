@@ -641,6 +641,37 @@ function drainTerminalMetadataQueue(ctx: ServerContext): void {
   }
 }
 
+function isTerminalMetadataIdle(ctx: ServerContext, minimumCompletedRequestCount: number): boolean {
+  return ctx.terminalMetadataQueue.length === 0
+    && !ctx.terminalMetadataDrainScheduled
+    && !ctx.terminalMetadataDrainRunning
+    && ctx.metrics.completedRequestCount >= minimumCompletedRequestCount;
+}
+
+export async function waitForTerminalMetadataIdle(
+  ctx: ServerContext,
+  timeoutMs: number,
+  minimumCompletedRequestCount: number = ctx.metrics.completedRequestCount,
+): Promise<void> {
+  const normalizedTimeoutMs = Number.isFinite(timeoutMs) ? Math.max(0, Math.trunc(timeoutMs)) : 0;
+  const normalizedMinimumCount = Number.isFinite(minimumCompletedRequestCount)
+    ? Math.max(0, Math.trunc(minimumCompletedRequestCount))
+    : 0;
+  const deadline = Date.now() + normalizedTimeoutMs;
+  while (!isTerminalMetadataIdle(ctx, normalizedMinimumCount)) {
+    if (Date.now() >= deadline) {
+      const nextRequestId = ctx.terminalMetadataQueue[0]?.requestId ?? 'none';
+      throw new Error(
+        `Timed out waiting for terminal metadata after ${normalizedTimeoutMs}ms: `
+        + `queue=${ctx.terminalMetadataQueue.length} scheduled=${ctx.terminalMetadataDrainScheduled} `
+        + `running=${ctx.terminalMetadataDrainRunning} request=${nextRequestId} `
+        + `completed=${ctx.metrics.completedRequestCount} expected=${normalizedMinimumCount}`,
+      );
+    }
+    await sleep(Math.min(10, Math.max(1, deadline - Date.now())));
+  }
+}
+
 class HealthEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,

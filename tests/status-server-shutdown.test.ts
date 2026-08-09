@@ -43,6 +43,20 @@ test('isProcessAlive validates pids and observes the current process', () => {
   assert.equal(isProcessAlive(process.pid), true);
 });
 
+function processThatThrows(code: string): Pick<NodeJS.Process, 'kill'> {
+  return {
+    kill(): true {
+      throw Object.assign(new Error(`kill failed: ${code}`), { code });
+    },
+  };
+}
+
+test('isProcessAlive distinguishes gone, inaccessible, and unexpected process errors', () => {
+  assert.equal(isProcessAlive(1234, processThatThrows('ESRCH')), false);
+  assert.equal(isProcessAlive(1234, processThatThrows('EPERM')), true);
+  assert.throws(() => isProcessAlive(1234, processThatThrows('EIO')), /kill failed: EIO/u);
+});
+
 test('terminateProcessTree uses taskkill on Windows and returns true on success', () => {
   const calls: { file: string; args: readonly string[] }[] = [];
   const result = terminateProcessTree(1234, {

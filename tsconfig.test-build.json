@@ -8,5 +8,10 @@
     "rootDir": ".",
     "module": "ESNext",
     "moduleResolution": "Bundler"
-  }
+  },
+  "include": [
+    "src/**/*.ts",
+    "bench/**/*.ts",
+    "tests/**/*.ts"
+  ]
 }

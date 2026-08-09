@@ -660,8 +660,8 @@ Invoke-SiftSummary -Question 'summarize this' -Text (('A' * 25000)) -Backend 'mo
 
     It 'resolves the built TS runtime entrypoint path' {
         $module = Get-Module SiftKit
-        $runtimePath = & ($module.NewBoundScriptBlock({ Get-SiftTsRuntimePath -RelativePath 'src\cli.js' }))
+        $runtimePath = & ($module.NewBoundScriptBlock({ Get-SiftCliPath }))
 
-        $runtimePath | Should Be (Resolve-Path (Join-Path $PSScriptRoot '..\dist\cli\index.js')).Path
+        $runtimePath | Should Be (Resolve-Path (Join-Path $PSScriptRoot '..\dist\cli\main.js')).Path
     }
 }

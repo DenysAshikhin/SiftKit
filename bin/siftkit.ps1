@@ -18,26 +18,17 @@ function Import-SiftKitCliModule {
     throw 'SiftKit module could not be located. Import the module or run Install-SiftKitShellIntegration first.'
 }
 
-function Get-SiftTsCliPath {
+function Get-SiftCliPath {
     $module = Get-Module SiftKit
     if (-not $module) {
         throw 'SiftKit module is not loaded.'
     }
 
-    $candidatePaths = @(
-        (Join-Path -Path (Split-Path -Path $module.ModuleBase -Parent) -ChildPath 'dist\cli\index.js'),
-        (Join-Path -Path $module.ModuleBase -ChildPath 'dist\cli\index.js'),
-        (Join-Path -Path (Split-Path -Path $module.ModuleBase -Parent) -ChildPath 'dist\cli\dispatch.js'),
-        (Join-Path -Path $module.ModuleBase -ChildPath 'dist\cli\dispatch.js')
-    )
-
-    foreach ($candidate in $candidatePaths) {
-        if (Test-Path -LiteralPath $candidate) {
-            return $candidate
-        }
+    $cliPath = Join-Path -Path (Split-Path -Path $module.ModuleBase -Parent) -ChildPath 'dist\cli\main.js'
+    if (-not (Test-Path -LiteralPath $cliPath)) {
+        throw ('TS CLI entrypoint not found: {0}. Run npm run build.' -f $cliPath)
     }
-
-    throw ('TS CLI entrypoint not found. Checked: {0}. Run npm run build.' -f ($candidatePaths -join '; '))
+    $cliPath
 }
 
 function Get-SiftCommandName {
@@ -113,7 +104,7 @@ if ($script:PipelineBuffer.Count -gt 0 -and $commandName -eq 'summary' -and -not
 }
 
 try {
-    $cliPath = Get-SiftTsCliPath
+    $cliPath = Get-SiftCliPath
     $previousSourceKind = $env:SIFTKIT_SUMMARY_SOURCE_KIND
     $previousCommandExitCode = $env:SIFTKIT_SUMMARY_COMMAND_EXIT_CODE
     if ($tempInputPath) {

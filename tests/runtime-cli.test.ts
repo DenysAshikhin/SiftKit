@@ -39,7 +39,7 @@ test('concurrent oversized CLI summary requests are serialized until the first r
       fs.writeFileSync(firstInputPath, 'A'.repeat(300_001), 'utf8');
       fs.writeFileSync(secondInputPath, 'B'.repeat(300_001), 'utf8');
 
-      const cliPath = path.join(repoRoot, 'bin', 'siftkit.js');
+      const cliPath = path.join(repoRoot, 'dist', 'cli', 'main.js');
       const childEnv = {
         ...process.env,
         SIFTKIT_TEST_PROVIDER: 'mock',

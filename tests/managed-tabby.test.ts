@@ -8,10 +8,56 @@ import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
 import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.js';
 
-import { getFreePort, withTempEnv } from './_runtime-helpers.js';
+import { acquireChildPortLease, withTempEnv } from './_runtime-helpers.js';
 import { getAddressInfo } from './helpers/dashboard-http.js';
 import { FakeTabbyModelState, writeFakeTabby } from './helpers/tabby-fake.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
+
+async function createManagedTabbyFixture(root: string, leaseName: string) {
+  const portLease = await acquireChildPortLease(leaseName);
+  const fakeTabby = writeFakeTabby(root, portLease.port, null);
+  const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('Default model preset is missing');
+  const exl3Preset = {
+    ...preset,
+    Backend: 'exl3' as const,
+    BaseUrl: `http://127.0.0.1:${portLease.port}`,
+    Model: 'model-a',
+    ModelPath: path.join(root, 'model-a'),
+    NumCtx: 30_000,
+    ParallelSlots: 4,
+    UBatchSize: 1_024,
+    KvCacheQuantization: 'q8_0/q4_0' as const,
+    SpeculativeEnabled: true,
+    SpeculativeType: 'draft-mtp' as const,
+    SpeculativeDraftMax: 5,
+  };
+  const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
+  const runtime = new ManagedTabbyRuntime({
+    Managed: true,
+    WorkingDirectory: root,
+    PythonPath: fakeTabby.pythonPath,
+    Entrypoint: path.basename(fakeTabby.scriptPath),
+    ModelRoot: root,
+    AdminApiKey: '',
+    ShutdownTimeoutMs: 5_000,
+  }, flushQueue);
+
+  return {
+    ...fakeTabby,
+    exl3Preset,
+    runtime,
+    async [Symbol.asyncDispose]() {
+      await runtime.stopProcess();
+      await flushQueue.close();
+      await portLease[Symbol.asyncDispose]();
+    },
+  };
+}
+
+function countStarts(startsPath: string): number {
+  return fs.readFileSync(startsPath, 'utf8').trim().split(/\r?\n/u).length;
+}
 
 test('ManagedTabbyRuntime construction requires engine configuration and a flush queue', () => {
   assert.equal(ManagedTabbyRuntime.length, 2);
@@ -111,44 +157,18 @@ test('Tabby runtime rejects a llama preset before lifecycle work', async () => {
   assert.equal(runtime.getModelState(), 'unloaded');
 });
 
-test('managed Tabby launches with preset environment, reuses settings, and restarts on changes', async () => {
+test('managed Tabby launches with the complete preset environment', async () => {
   await withTempEnv(async (root) => {
-    const port = await getFreePort();
-    const { scriptPath, pythonPath, argsPath, environmentPath, loadRequestsPath, startsPath } = writeFakeTabby(root, port, null);
-    const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
-    if (!preset) throw new Error('Default model preset is missing');
-    const exl3Preset = {
-      ...preset,
-      Backend: 'exl3' as const,
-      BaseUrl: `http://127.0.0.1:${port}`,
-      Model: 'model-a',
-      ModelPath: path.join(root, 'model-a'),
-      NumCtx: 30_000,
-      ParallelSlots: 4,
-      UBatchSize: 1_024,
-      KvCacheQuantization: 'q8_0/q4_0' as const,
-      SpeculativeEnabled: true,
-      SpeculativeType: 'draft-mtp' as const,
-      SpeculativeDraftMax: 5,
-    };
-    const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
-    const runtime = new ManagedTabbyRuntime({
-      Managed: true,
-      WorkingDirectory: root,
-      PythonPath: pythonPath,
-      Entrypoint: path.basename(scriptPath),
-      ModelRoot: root,
-      AdminApiKey: '',
-      ShutdownTimeoutMs: 5_000,
-    }, flushQueue);
-    try {
-      await runtime.ensurePresetReady(exl3Preset);
-      assert.equal(runtime.getProcessState(), 'ready');
-      assert.equal(runtime.getModelState(), 'ready');
-      assert.deepEqual(JSON.parse(fs.readFileSync(argsPath, 'utf8')), []);
-      // Every TABBY_*/EXL3_* variable the child actually received, so a preset knob that never
-      // reaches the process is a failure here rather than something only a live run would catch.
-      assert.deepEqual(JSON.parse(fs.readFileSync(environmentPath, 'utf8')), {
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-launch');
+
+    await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
+
+    assert.equal(fixture.runtime.getProcessState(), 'ready');
+    assert.equal(fixture.runtime.getModelState(), 'ready');
+    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.argsPath, 'utf8')), []);
+    // Every TABBY_*/EXL3_* variable the child actually received, so a preset knob that never
+    // reaches the process is a failure here rather than something only a live run would catch.
+    assert.deepEqual(JSON.parse(fs.readFileSync(fixture.environmentPath, 'utf8')), {
         TABBY_MODEL_MODEL_DIR: root,
         TABBY_MODEL_MODEL_NAME: 'model-a',
         TABBY_MODEL_MAX_SEQ_LEN: '30000',
@@ -156,42 +176,57 @@ test('managed Tabby launches with preset environment, reuses settings, and resta
         TABBY_MODEL_CACHE_MODE: '8,4',
         TABBY_MODEL_MAX_BATCH_SIZE: '4',
         TABBY_MODEL_CHUNK_SIZE: '1024',
-        TABBY_MEMORY_SYSMEM_PAGE_CACHE: String(exl3Preset.CacheRam),
-        TABBY_MEMORY_SYSMEM_RECURRENT_CACHE: String(exl3Preset.CacheRecurrentRam),
+        TABBY_MEMORY_SYSMEM_PAGE_CACHE: String(fixture.exl3Preset.CacheRam),
+        TABBY_MEMORY_SYSMEM_RECURRENT_CACHE: String(fixture.exl3Preset.CacheRecurrentRam),
         TABBY_DRAFT_MODEL_DRAFT_MODE: 'mtp',
         TABBY_DRAFT_MODEL_DRAFT_NUM_TOKENS: '5',
         TABBY_DRAFT_MODEL_DRAFT_CACHE_MODE: 'Q8',
         TABBY_DRAFT_MODEL_DRAFT_DYNAMIC: 'true',
         TABBY_MODEL_VISION: 'false',
         EXL3_QC_ATTN: '0',
-      });
-      assert.equal(fs.existsSync(loadRequestsPath), false);
-      await runtime.ensurePresetReady(exl3Preset);
-      assert.equal(fs.readFileSync(startsPath, 'utf8').trim().split(/\r?\n/u).length, 1);
+    });
+    assert.equal(fs.existsSync(fixture.loadRequestsPath), false);
+  });
+});
 
-      await runtime.ensurePresetReady({ ...exl3Preset, UBatchSize: 2_048 });
-      assert.equal(runtime.getProcessState(), 'ready');
-      assert.equal(runtime.getModelState(), 'ready');
-      assert.equal(fs.readFileSync(startsPath, 'utf8').trim().split(/\r?\n/u).length, 2);
+test('managed Tabby reuses a process when preset settings are unchanged', async () => {
+  await withTempEnv(async (root) => {
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-reuse');
+    await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
 
-      await runtime.unloadPreset();
-      assert.equal(runtime.getProcessState(), 'stopped');
-      assert.equal(runtime.getModelState(), 'unloaded');
-      await runtime.ensurePresetReady(exl3Preset);
-      assert.equal(runtime.getProcessState(), 'ready');
-      assert.equal(runtime.getModelState(), 'ready');
-      assert.equal(fs.readFileSync(startsPath, 'utf8').trim().split(/\r?\n/u).length, 3);
-      assert.equal(fs.existsSync(loadRequestsPath), false);
-    } finally {
-      await runtime.stopProcess();
-      await flushQueue.close();
-    }
+    await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
+
+    assert.equal(fixture.runtime.getProcessState(), 'ready');
+    assert.equal(fixture.runtime.getModelState(), 'ready');
+    assert.equal(countStarts(fixture.startsPath), 1);
+  });
+});
+
+test('managed Tabby restarts for changed settings and after an explicit unload', async () => {
+  await withTempEnv(async (root) => {
+    await using fixture = await createManagedTabbyFixture(root, 'managed-tabby-restart');
+    await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
+
+    await fixture.runtime.ensurePresetReady({ ...fixture.exl3Preset, UBatchSize: 2_048 });
+    assert.equal(fixture.runtime.getProcessState(), 'ready');
+    assert.equal(fixture.runtime.getModelState(), 'ready');
+    assert.equal(countStarts(fixture.startsPath), 2);
+
+    await fixture.runtime.unloadPreset();
+    assert.equal(fixture.runtime.getProcessState(), 'stopped');
+    assert.equal(fixture.runtime.getModelState(), 'unloaded');
+    await fixture.runtime.ensurePresetReady(fixture.exl3Preset);
+    assert.equal(fixture.runtime.getProcessState(), 'ready');
+    assert.equal(fixture.runtime.getModelState(), 'ready');
+    assert.equal(countStarts(fixture.startsPath), 3);
+    assert.equal(fs.existsSync(fixture.loadRequestsPath), false);
   });
 });
 
 test('managed Tabby rejects a startup-loaded model whose applied context diverges from the preset', async () => {
   await withTempEnv(async (root) => {
-    const port = await getFreePort();
+    await using portLease = await acquireChildPortLease('managed-tabby');
+    const port = portLease.port;
     const { scriptPath, pythonPath } = writeFakeTabby(root, port, 84_992);
     const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
     if (!preset) throw new Error('Default model preset is missing');
@@ -250,7 +285,8 @@ test('unmanaged EXL3 preset with speculation fails loud instead of silently losi
 
 test('managed Tabby waits for delayed MTP drafting announced on stderr', async () => {
   await withTempEnv(async (root) => {
-    const port = await getFreePort();
+    await using portLease = await acquireChildPortLease('managed-tabby');
+    const port = portLease.port;
     const { scriptPath, pythonPath } = writeFakeTabby(root, port, null, {
       draftingStream: 'stderr',
       draftingDelayMs: 100,
@@ -289,7 +325,8 @@ test('managed Tabby waits for delayed MTP drafting announced on stderr', async (
 
 test('managed Tabby rejects a speculative preset when the startup log never reports MTP drafting', async () => {
   await withTempEnv(async (root) => {
-    const port = await getFreePort();
+    await using portLease = await acquireChildPortLease('managed-tabby');
+    const port = portLease.port;
     const { scriptPath, pythonPath } = writeFakeTabby(root, port, null, { announceDrafting: false });
     const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
     if (!preset) throw new Error('Default model preset is missing');

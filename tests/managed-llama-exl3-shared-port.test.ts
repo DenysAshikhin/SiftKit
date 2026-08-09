@@ -8,7 +8,7 @@ import { writeConfig } from '../src/status-server/config-store.js';
 import {
   getConfigPath,
   getDefaultConfig,
-  getFreePort,
+  acquireChildPortLease,
   sleep,
   startStatusServerProcess,
   withTempEnv,
@@ -86,7 +86,8 @@ test('managed llama startup cleanup does not reap the TabbyAPI process on the sh
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
     const configPath = getConfigPath();
-    const port = await getFreePort();
+    await using portLease = await acquireChildPortLease('managed-llama-exl3-shared-port');
+    const port = portLease.port;
     const scriptPath = writeVictimScript(tempRoot, port);
 
     // Long-lived external "TabbyAPI" process on the shared port. Before the fix, the

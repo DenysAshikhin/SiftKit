@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 
@@ -15,6 +16,38 @@ import {
 import { JsonObjectSchema } from '../src/lib/json-types.js';
 import { writeManagedLlamaLauncher } from './helpers/managed-llama-fixtures.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
+import { OutputCapture } from './helpers/stdout-capture.js';
+
+test('OutputCapture collects complete and partial lines and restores idempotently', () => {
+  const stdout = OutputCapture.start(process.stdout);
+  process.stdout.write('stdout-complete\nstdout-partial');
+  stdout.restore();
+  stdout.restore();
+  process.stdout.write('-after-restore\n');
+  assert.deepEqual(stdout.lines, ['stdout-complete', 'stdout-partial']);
+
+  const stderr = OutputCapture.start(process.stderr);
+  process.stderr.write('stderr-complete\nstderr-partial');
+  stderr.restore();
+  stderr.restore();
+  process.stderr.write('-after-restore\n');
+  assert.deepEqual(stderr.lines, ['stderr-complete', 'stderr-partial']);
+});
+
+test('output capture has no callback helpers or local duplicate declarations', () => {
+  const testRoot = path.resolve('tests');
+  const sourcePaths = fs.readdirSync(testRoot, { recursive: true })
+    .filter((entry): entry is string => typeof entry === 'string' && entry.endsWith('.ts'))
+    .map((entry) => path.join(testRoot, entry));
+  for (const sourcePath of sourcePaths) {
+    const source = fs.readFileSync(sourcePath, 'utf8');
+    assert.doesNotMatch(
+      source,
+      /(?:async\s+)?function\s+capture(?:Stdout|Stderr)(?:Lines)?\s*\(/u,
+      sourcePath,
+    );
+  }
+});
 
 // mergeConfig is a heterogeneous deep-merge that returns JsonValue; for the config-merge
 // case the test exercises, the result carries the merged Runtime plus a Thresholds bag

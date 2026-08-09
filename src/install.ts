@@ -1,15 +1,19 @@
 import { existsSync, readFileSync, rmSync, copyFileSync, readdirSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { join } from 'node:path';
 import { getActiveInferenceBackend, getConfigPath, getConfiguredLlamaBaseUrl, getConfiguredModel, initializeRuntime, loadConfig } from './config/index.js';
 import { ensureDirectory, saveContentAtomically } from './lib/fs.js';
-import { moduleDirname } from './lib/paths.js';
+import { findNearestSiftKitRepoRoot, moduleDirname } from './lib/paths.js';
 import { getLlamaCppProviderStatus, listLlamaCppModels } from './providers/llama-cpp.js';
 
 const CODEX_POLICY_START = '<!-- SiftKit Policy:Start -->';
 const CODEX_POLICY_END = '<!-- SiftKit Policy:End -->';
 
 function getRepoRoot(): string {
-  return resolve(moduleDirname(import.meta.url), '..', '..');
+  const packageRoot = findNearestSiftKitRepoRoot(moduleDirname(import.meta.url));
+  if (packageRoot === null) {
+    throw new Error('Unable to locate the SiftKit package root for installation.');
+  }
+  return packageRoot;
 }
 
 function getModuleRoot(): string {

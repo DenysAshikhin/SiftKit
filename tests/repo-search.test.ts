@@ -21,6 +21,7 @@ import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { z } from 'zod';
 import { ProgressWriter, SilentProgressWriter } from '../src/lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
+import { OutputCapture } from './helpers/stdout-capture.js';
 
 // Thrown repo-search errors carry artifact/transcript URIs as own properties
 // alongside non-JSON Error internals; validate just those string fields with a
@@ -54,47 +55,6 @@ function readErrorArtifactPaths<T>(error: T): { artifactPath: string; transcript
     artifactPath: typeof data.artifactPath === 'string' ? data.artifactPath : '',
     transcriptPath: typeof data.transcriptPath === 'string' ? data.transcriptPath : '',
   };
-}
-
-async function captureStdoutLines(fn: () => Promise<void>): Promise<string[]> {
-  const originalWrite = process.stdout.write.bind(process.stdout);
-  const lines: string[] = [];
-  let buffer = '';
-  process.stdout.write = (
-    chunk: string | Uint8Array,
-    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
-    callback?: (error?: Error | null) => void,
-  ): boolean => {
-    const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
-    buffer += text;
-    const parts = buffer.split(/\r?\n/u);
-    buffer = parts.pop() || '';
-    for (const line of parts) {
-      if (line.trim()) {
-        lines.push(line);
-      }
-    }
-    if (typeof encodingOrCallback === 'function') {
-      return originalWrite(chunk, encodingOrCallback);
-    }
-    return originalWrite(chunk, encodingOrCallback, callback);
-  };
-  const previousLogLevel = process.env.SIFTKIT_LOG_LEVEL;
-  process.env.SIFTKIT_LOG_LEVEL = 'debug';
-  try {
-    await fn();
-  } finally {
-    process.stdout.write = originalWrite;
-    if (previousLogLevel === undefined) {
-      delete process.env.SIFTKIT_LOG_LEVEL;
-    } else {
-      process.env.SIFTKIT_LOG_LEVEL = previousLogLevel;
-    }
-  }
-  if (buffer.trim()) {
-    lines.push(buffer.trim());
-  }
-  return lines;
 }
 
 async function waitForRepoSearchRunLogRow(
@@ -416,7 +376,10 @@ test('executeRepoSearchRequest with mock command executes and returns scorecard'
 
 test('executeRepoSearchRequest logs lifecycle before provider work starts', async () => {
   await withTestEnvAndServer(async ({ tempRoot }) => {
-    const lines = await captureStdoutLines(async () => {
+    const previousLogLevel = process.env.SIFTKIT_LOG_LEVEL;
+    process.env.SIFTKIT_LOG_LEVEL = 'debug';
+    const capture = OutputCapture.start(process.stdout);
+    try {
       await executeRepoSearchRequest({
       presetId: 'repo-search',
         prompt: 'find lifecycle logs',
@@ -427,7 +390,12 @@ test('executeRepoSearchRequest logs lifecycle before provider work starts', asyn
         ],
         mockCommandResults: {},
       });
-    });
+    } finally {
+      capture.restore();
+      if (previousLogLevel === undefined) delete process.env.SIFTKIT_LOG_LEVEL;
+      else process.env.SIFTKIT_LOG_LEVEL = previousLogLevel;
+    }
+    const lines = capture.lines;
 
     assert.ok(lines.some((line) => /rs [\da-f]{8} {2}start {2}task=\S+ {2}prompt_chars=\d+/u.test(line)), lines.join('\n'));
     assert.ok(lines.some((line) => /rs [\da-f]{8} {2}notify_running_start$/u.test(line)), lines.join('\n'));
@@ -446,7 +414,10 @@ test('executeRepoSearchRequest logs lifecycle before provider work starts', asyn
 
 test('executeRepoSearchRequest logs repo-search preflight tokenization timing', async () => {
   await withTestEnvAndServer(async ({ tempRoot, stub }) => {
-    const lines = await captureStdoutLines(async () => {
+    const previousLogLevel = process.env.SIFTKIT_LOG_LEVEL;
+    process.env.SIFTKIT_LOG_LEVEL = 'debug';
+    const capture = OutputCapture.start(process.stdout);
+    try {
       await executeRepoSearchRequest({
       presetId: 'repo-search',
         prompt: 'find tokenize timing logs',
@@ -455,7 +426,12 @@ test('executeRepoSearchRequest logs repo-search preflight tokenization timing', 
         maxTurns: 1,
         mockCommandResults: {},
       });
-    });
+    } finally {
+      capture.restore();
+      if (previousLogLevel === undefined) delete process.env.SIFTKIT_LOG_LEVEL;
+      else process.env.SIFTKIT_LOG_LEVEL = previousLogLevel;
+    }
+    const lines = capture.lines;
 
     assert.ok(
       lines.some((line) => /rs [\da-f]{8} {2}preflight_tokenize_start {2}t1 {2}prompt_chars=\d+ {2}timeout_ms=10000 {2}retry_max_wait_ms=30000/u.test(line)),

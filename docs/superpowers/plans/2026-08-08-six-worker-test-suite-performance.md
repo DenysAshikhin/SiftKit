@@ -1,5 +1,7 @@
 # Six-Worker Test Suite Performance Implementation Plan
 
+> **Superseded outcome (2026-08-08):** Commit `8f684f86` replaced this six-worker target with isolated prebuilt test bundles and a default concurrency of 12. Repeated warm runs completed in 51.9-55.2 seconds, so the original under-40-second target was not achieved. The plan below is retained unchanged as historical context and is not the current architecture or acceptance contract.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the already-built `npm test` command run the complete suite in under 40 seconds on one Windows machine with default concurrency six.

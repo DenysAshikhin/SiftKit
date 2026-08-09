@@ -154,7 +154,7 @@ test('guard leaves an unguarded port alone', () => {
   assert.doesNotMatch(result.stderr, /LIVE INSTANCE CONTACTED/u);
 });
 
-test('guard allows a guarded port owned by a server in the test process', async () => {
+test('guard rejects a guarded port even when the process owns the server', async () => {
   const port = await getAvailablePort();
   const result = runGuardedChild([
     "import http from 'node:http';",
@@ -165,8 +165,8 @@ test('guard allows a guarded port owned by a server in the test process', async 
   ].join('\n'), { preloadGuard: true, statusPort: port });
 
   assertChildFinished(result);
-  assert.equal(result.status, 0, result.stderr);
-  assert.doesNotMatch(result.stderr, /LIVE INSTANCE CONTACTED/u);
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stderr, /LIVE INSTANCE CONTACTED/u);
 });
 
 test('guard covers https.request, not just http.request', () => {

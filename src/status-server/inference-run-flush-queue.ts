@@ -1,7 +1,7 @@
-import { extname, join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { sleep } from '../lib/time.js';
-import { moduleDirname, moduleFilename } from '../lib/paths.js';
+import { findNearestSiftKitRepoRoot, moduleDirname } from '../lib/paths.js';
 import type { InferenceBackendId } from '../config/types.js';
 import {
   consumeInferenceRunPendingLogChunks,
@@ -25,6 +25,7 @@ export const PENDING_FLUSH_HIGH_WATER_CHARACTERS = 8 * 1024 * 1024;
 
 /** How often the queue re-checks drain state while waiting on the worker. */
 const POLL_INTERVAL_MS = 10;
+const DEFAULT_IDLE_WAIT_TIMEOUT_MS = 2000;
 
 /**
  * How long `close` gives an in-flight flush to finish. Terminating the worker mid-flush kills
@@ -181,9 +182,20 @@ export class InferenceRunFlushQueue {
     };
   }
 
-  async waitForIdle(): Promise<void> {
+  async waitForIdle(timeoutMs: number = DEFAULT_IDLE_WAIT_TIMEOUT_MS): Promise<void> {
+    const normalizedTimeoutMs = Number.isFinite(timeoutMs) ? Math.max(0, Math.trunc(timeoutMs)) : 0;
+    const deadline = Date.now() + normalizedTimeoutMs;
     while (!this.isIdle()) {
-      await sleep(POLL_INTERVAL_MS);
+      if (Date.now() >= deadline) {
+        const snapshot = this.getSnapshot();
+        throw new Error(
+          `Timed out waiting for inference run flush queue idle after ${normalizedTimeoutMs}ms: `
+          + `pendingCount=${snapshot.pendingCount} runningRunId=${snapshot.runningRunId} `
+          + `scheduled=${snapshot.scheduled} completedCount=${snapshot.completedCount} `
+          + `failedCount=${snapshot.failedCount}`,
+        );
+      }
+      await sleep(Math.min(POLL_INTERVAL_MS, Math.max(1, deadline - Date.now())));
     }
   }
 
@@ -323,18 +335,11 @@ export class InferenceRunFlushQueue {
     if (this.worker) {
       return this.worker;
     }
-    // A Worker thread needs a loadable module. Compiled production runs from
-    // dist where the sibling .js exists. When the status server runs from source
-    // via tsx (the typed test harness), the module dir is src/ where only the .ts
-    // exists; loading it would require a per-worker tsx subprocess, which does
-    // not scale across many short-lived servers. The worker is internal
-    // log-flush plumbing (not code under test), so load the compiled artifact
-    // from dist in that case — a lightweight Worker thread, no tsx subprocess.
-    const currentFile = moduleFilename(import.meta.url);
-    const currentDir = moduleDirname(import.meta.url);
-    const workerPath = extname(currentFile) === '.ts'
-      ? resolve(currentDir, '..', '..', 'dist', 'status-server', 'inference-run-flush-worker.js')
-      : join(currentDir, 'inference-run-flush-worker.js');
+    const packageRoot = findNearestSiftKitRepoRoot(moduleDirname(import.meta.url));
+    if (packageRoot === null) {
+      throw new Error('Unable to locate the SiftKit package root for the inference-run flush worker.');
+    }
+    const workerPath = join(packageRoot, 'dist', 'status-server', 'inference-run-flush-worker.js');
     this.worker = new Worker(workerPath);
     this.worker.unref();
     this.worker.on('exit', () => {

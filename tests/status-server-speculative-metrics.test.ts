@@ -38,7 +38,7 @@ import {
   withTempEnv,
   withRealStatusServer,
   writeManagedLlamaLauncher,
-  getFreePort,
+  acquireChildPortLease,
   waitForAsyncExpectation,
   postCompletedStatus,
 } from './_runtime-helpers.js';
@@ -108,7 +108,8 @@ test('real status server uses managed llama cumulative speculative delta for rep
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
     const requestId = 'repo-run-speculative-cumulative';
-    const llamaPort = await getFreePort();
+    await using llamaPortLease = await acquireChildPortLease('status-server-speculative-metrics');
+    const llamaPort = llamaPortLease.port;
     const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
       startupLogLine: 'statistics ngram_mod: #calls(b,g,a) = 20 2985 131, #gen drafts = 131, #acc drafts = 131, #gen tokens = 6168, #acc tokens = 5837',
     });

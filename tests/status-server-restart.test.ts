@@ -8,7 +8,7 @@ import { writeConfig } from '../src/status-server/config-store.js';
 
 import {
   getDefaultConfig,
-  getFreePort,
+  acquireChildPortLease,
   requestJson,
   setManagedLlamaBaseUrl,
   waitForAsyncExpectation,
@@ -91,7 +91,8 @@ function requestJsonAllowError<T>(
 test('real status server backend restart endpoint restarts managed llama.cpp and returns the live config', async () => {
   await withTempEnv(async (tempRoot) => {
     const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
-    const llamaPort = await getFreePort();
+    await using llamaPortLease = await acquireChildPortLease('status-server-restart');
+    const llamaPort = llamaPortLease.port;
     const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
     const defaultPreset = config.Server.ModelPresets.Presets[0];
@@ -188,7 +189,8 @@ test('real status server backend restart endpoint restarts managed llama.cpp and
 test('real status server backend restart endpoint returns structured GPU OOM details when managed llama.cpp exits during startup', async () => {
   await withTempEnv(async (tempRoot) => {
     const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
-    const llamaPort = await getFreePort();
+    await using llamaPortLease = await acquireChildPortLease('status-server-restart');
+    const llamaPort = llamaPortLease.port;
     const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
       startupLogLine: 'llama_params_fit_impl: projected to use 25293 MiB of device memory vs. 22842 MiB of free device memory',
       llamaLogLine: 'ggml_backend_cuda_buffer_type_alloc_buffer: allocating 9376.00 MiB on device 0: cudaMalloc failed: out of memory',
@@ -262,7 +264,8 @@ test('real status server backend restart endpoint returns structured GPU OOM det
 test('real status server omits -t when the active managed preset sets Threads to 0', async () => {
   await withTempEnv(async (tempRoot) => {
     const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
-    const llamaPort = await getFreePort();
+    await using llamaPortLease = await acquireChildPortLease('status-server-restart');
+    const llamaPort = llamaPortLease.port;
     const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
     const defaultPreset = config.Server.ModelPresets.Presets[0];

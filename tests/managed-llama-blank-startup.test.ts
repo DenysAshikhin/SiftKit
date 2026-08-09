@@ -11,7 +11,7 @@ import { readStatusText } from '../src/status-server/status-file.js';
 import type { SiftConfig, ModelRuntimePreset } from '../src/config/types.js';
 import { createTestServerContext } from './helpers/server-context-fixture.js';
 import {
-  getFreePort,
+  acquireChildPortLease,
   requestJson,
   withRealStatusServer,
   withTempEnv,
@@ -39,7 +39,8 @@ test('real status server boots with blank managed llama configuration and waits 
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
     const configPath = getConfigPath();
-    const unusedPort = await getFreePort();
+    await using unusedPortLease = await acquireChildPortLease('managed-llama-blank-startup');
+    const unusedPort = unusedPortLease.port;
     const config = getDefaultConfig();
     const unreachableBaseUrl = `http://127.0.0.1:${unusedPort}`;
     const preset = activePreset(config);
@@ -69,7 +70,8 @@ test('real status server boots with blank managed llama configuration and waits 
 
 test('external llama server mode uses reachable base url without executable or model path', async () => {
   await withTempEnv(async (tempRoot) => {
-    const remotePort = await getFreePort();
+    await using remotePortLease = await acquireChildPortLease('managed-llama-blank-startup-remote');
+    const remotePort = remotePortLease.port;
     const remoteServer = http.createServer((request, response) => {
       if (request.url === '/v1/models') {
         response.writeHead(200, { 'content-type': 'application/json' });
@@ -115,7 +117,8 @@ test('external llama server mode fails loud when remote base url is unreachable'
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
     const configPath = getConfigPath();
-    const unusedPort = await getFreePort();
+    await using unusedPortLease = await acquireChildPortLease('managed-llama-blank-startup');
+    const unusedPort = unusedPortLease.port;
     const config = getDefaultConfig();
     const preset = activePreset(config);
     preset.ExternalServerEnabled = true;
@@ -138,7 +141,8 @@ test('missing local llama files log degraded startup instead of crashing', async
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
     const configPath = getConfigPath();
-    const unusedPort = await getFreePort();
+    await using unusedPortLease = await acquireChildPortLease('managed-llama-blank-startup');
+    const unusedPort = unusedPortLease.port;
     const config = getDefaultConfig();
     const preset = activePreset(config);
     preset.ExternalServerEnabled = false;
@@ -182,7 +186,8 @@ test('missing local llama files log degraded startup instead of crashing', async
 test('an unconfigured preset readiness check reports the requested preset, not the persisted active one', async () => {
   await withTempEnv(async (tempRoot) => {
     const configPath = getConfigPath();
-    const unusedPort = await getFreePort();
+    await using unusedPortLease = await acquireChildPortLease('managed-llama-blank-startup');
+    const unusedPort = unusedPortLease.port;
     const config = getDefaultConfig();
     const base = activePreset(config);
     const unconfigured = {

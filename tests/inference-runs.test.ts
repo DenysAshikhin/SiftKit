@@ -34,6 +34,7 @@ import { withTestEnvAndServer } from './_test-helpers.js';
 import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.js';
 import { getActiveModelPreset } from '../src/config/getters.js';
 import { getDefaultConfig } from '../src/status-server/config-store.js';
+import { OutputCapture } from './helpers/stdout-capture.js';
 
 // SQLite .get()/.all() return `unknown`; narrow to JsonObject at the boundary.
 function asRow<T>(value: T): JsonObject {
@@ -50,40 +51,6 @@ const ReleaseModelRequestCtxSchema = z.custom<Parameters<typeof releaseModelRequ
 );
 function mockReleaseCtx(ctx: object): Parameters<typeof releaseModelRequest>[0] {
   return ReleaseModelRequestCtxSchema.parse(ctx);
-}
-
-async function captureStdoutLines(fn: () => Promise<void> | void): Promise<string[]> {
-  const originalWrite = process.stdout.write.bind(process.stdout);
-  const lines: string[] = [];
-  let buffer = '';
-  process.stdout.write = (
-    chunk: string | Uint8Array,
-    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
-    callback?: (error?: Error | null) => void,
-  ): boolean => {
-    const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
-    buffer += text;
-    const parts = buffer.split(/\r?\n/u);
-    buffer = parts.pop() || '';
-    for (const line of parts) {
-      if (line.trim()) {
-        lines.push(line);
-      }
-    }
-    if (typeof encodingOrCallback === 'function') {
-      return originalWrite(chunk, encodingOrCallback);
-    }
-    return originalWrite(chunk, encodingOrCallback, callback);
-  };
-  try {
-    await fn();
-  } finally {
-    process.stdout.write = originalWrite;
-  }
-  if (buffer.trim()) {
-    lines.push(buffer.trim());
-  }
-  return lines;
 }
 
 test('inference runs are recorded per backend', async () => {
@@ -135,12 +102,16 @@ test('managed llama pending log chunks emit peak size logs only after one-kiloby
   await withTestEnvAndServer(async () => {
     const run = createInferenceRun({ backend: 'llama', purpose: 'startup' });
 
-    const lines = await captureStdoutLines(() => {
+    const capture = OutputCapture.start(process.stdout);
+    try {
       bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'engine_stdout', chunkText: 'a'.repeat(262_143) });
       bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'engine_stdout', chunkText: 'b' });
       bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'engine_stdout', chunkText: 'c'.repeat(262_143) });
       bufferInferenceRunLogChunk({ runId: run.id, streamKind: 'engine_stdout', chunkText: 'd' });
-    });
+    } finally {
+      capture.restore();
+    }
+    const lines = capture.lines;
 
     const peakLines = lines.filter((line) => line.includes(`inference_run pending_log_peak run_id=${run.id}`));
     assert.deepEqual(

@@ -162,7 +162,7 @@ function Stop-ExistingGlobalSiftKitStatusServer {
     }
 
     $globalPackageRoot = Join-Path $globalPrefix 'node_modules\siftkit'
-    $statusServerPath = Join-Path $globalPackageRoot 'dist\status-server\index.js'
+    $statusServerPath = Join-Path $globalPackageRoot 'dist\status-server\main.js'
     $normalizedStatusServerPath = [System.IO.Path]::GetFullPath($statusServerPath).ToLowerInvariant()
     $processes = @(Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue | Where-Object {
         $commandLine = [string]$_.CommandLine

@@ -18,7 +18,6 @@ import {
 import { countLlamaCppTokens, generateLlamaCppResponse } from '../../src/providers/llama-cpp.js';
 import { ModelJson } from '../../src/lib/model-json.js';
 import { getErrorMessage } from '../../src/lib/errors.js';
-import { isMainModule } from '../../src/lib/paths.js';
 import { parseJsonValueText } from '../../src/lib/json.js';
 import type { JsonSerializable } from '../../src/lib/json-types.js';
 import type { SiftConfig } from '../../src/config/index.js';
@@ -535,16 +534,4 @@ export async function runFixture60MalformedJsonRepro(
       process.env.SIFTKIT_TRACE_SUMMARY = previousTraceSummary;
     }
   }
-}
-
-async function main(): Promise<void> {
-  const result = await runFixture60MalformedJsonRepro(process.argv.slice(2));
-  process.exit(result.exitCode);
-}
-
-if (isMainModule(import.meta.url)) {
-  void main().catch((error) => {
-    process.stderr.write(`${getErrorMessage(error)}\n`);
-    process.exit(1);
-  });
 }

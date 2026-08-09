@@ -22,8 +22,7 @@ import { RecordingInferenceRuntime as QueueRuntime } from './helpers/recording-i
 import { createTestServerContext } from './helpers/server-context-fixture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.js';
-
-type StdoutLine = string;
+import { OutputCapture } from './helpers/stdout-capture.js';
 
 const queueContextRoot = createManagedTempDir('siftkit-model-queue-contexts-');
 let queueContextIndex = 0;
@@ -327,48 +326,18 @@ test('preset switch arms idle only for the runtime that becomes active', async (
   }
 });
 
-async function captureStdoutLines(fn: (lines: StdoutLine[]) => Promise<void>): Promise<StdoutLine[]> {
-  const originalWrite = process.stdout.write.bind(process.stdout);
-  const lines: StdoutLine[] = [];
-  let buffer = '';
-  process.stdout.write = (
-    chunk: string | Uint8Array,
-    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
-    callback?: (error?: Error | null) => void,
-  ): boolean => {
-    const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
-    buffer += text;
-    const parts = buffer.split(/\r?\n/u);
-    buffer = parts.pop() || '';
-    for (const line of parts) {
-      if (line.trim()) {
-        lines.push(line);
-      }
-    }
-    if (typeof encodingOrCallback === 'function') {
-      return originalWrite(chunk, encodingOrCallback);
-    }
-    return originalWrite(chunk, encodingOrCallback, callback);
-  };
-  try {
-    await fn(lines);
-  } finally {
-    process.stdout.write = originalWrite;
-  }
-  if (buffer.trim()) {
-    lines.push(buffer.trim());
-  }
-  return lines;
-}
-
 test('model request admission logs queue position without probing llama', async () => {
   const ctx = createQueueContext();
   try {
-    const lines = await captureStdoutLines(async () => {
+    const capture = OutputCapture.start(process.stdout);
+    try {
       const lock = await acquireModelRequestWithWait(ctx, 'summary');
       assert.ok(lock);
       assert.equal(releaseModelRequest(ctx, lock.token), true);
-    });
+    } finally {
+      capture.restore();
+    }
+    const lines = capture.lines;
 
     assert.equal(ctx.wakeCount, 0);
     assert.ok(lines.some((line) => /st -{8}  incoming  task=summary queue_position=1/u.test(line)), lines.join('\n'));
@@ -386,20 +355,24 @@ test('queued model request logs its FIFO position without probing llama while wa
     assert.ok(activeLock);
     let queuedLockPromise: Promise<Awaited<ReturnType<typeof acquireModelRequestWithWait>>> | null = null;
 
-    const lines = await captureStdoutLines(async (currentLines) => {
+    const capture = OutputCapture.start(process.stdout);
+    try {
       // Enqueueing is synchronous: the FIFO position is logged the moment the queued
       // acquire is called, before it awaits — no wall-clock wait is needed to observe it.
       queuedLockPromise = acquireModelRequestWithWait(ctx, 'dashboard_chat');
       try {
         assert.equal(ctx.wakeCount, 0);
-        assert.ok(currentLines.some((line) => /st -{8}  incoming  task=dashboard_chat queue_position=2/u.test(line)), currentLines.join('\n'));
+        assert.ok(capture.lines.some((line) => /st -{8}  incoming  task=dashboard_chat queue_position=2/u.test(line)), capture.lines.join('\n'));
       } finally {
         assert.equal(releaseModelRequest(ctx, activeLock.token), true);
         const queuedLock = await queuedLockPromise;
         assert.ok(queuedLock);
         assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
       }
-    });
+    } finally {
+      capture.restore();
+    }
+    const lines = capture.lines;
 
     assert.ok(lines.some((line) => /st -{8}  incoming  task=dashboard_chat queue_position=2/u.test(line)), lines.join('\n'));
     assert.ok(lines.some((line) => /st [\w-]{8}  lock_acquired  task=dashboard_chat wait_ms=/u.test(line)), lines.join('\n'));
@@ -418,12 +391,16 @@ test('queued model request times out, cancels, and logs the dropped request', as
     const activeLock = await acquireModelRequestWithWait(ctx, 'repo_search');
     assert.ok(activeLock);
 
-    const lines = await captureStdoutLines(async () => {
+    const capture = OutputCapture.start(process.stdout);
+    try {
       const queuedPromise = acquireModelRequestWithWait(ctx, 'summary', undefined, undefined, { timeoutMs: 25 });
       assert.equal(ctx.modelRequestQueue.length, 1);
       t.mock.timers.tick(25);
       assert.equal(await queuedPromise, null);
-    });
+    } finally {
+      capture.restore();
+    }
+    const lines = capture.lines;
 
     assert.equal(ctx.modelRequestQueue.length, 0);
     assert.deepEqual([...ctx.activeModelRequests.keys()], [activeLock.token]);
@@ -522,13 +499,17 @@ test('a model request held past the ceiling is force-released and the queue drai
     const queuedLockPromise = acquireModelRequestWithWait(ctx, 'summary');
     assert.equal(ctx.modelRequestQueue.length, 1);
 
-    const lines = await captureStdoutLines(async () => {
+    const capture = OutputCapture.start(process.stdout);
+    try {
       t.mock.timers.tick(25);
       const queuedLock = await queuedLockPromise;
       assert.ok(queuedLock);
       assert.deepEqual([...ctx.activeModelRequests.keys()], [queuedLock.token]);
       assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
-    });
+    } finally {
+      capture.restore();
+    }
+    const lines = capture.lines;
 
     assert.ok(
       lines.some((line) => /st [\w-]{8}  expired  reason=model_hold_ceiling task=repo_search/u.test(line)),
@@ -551,9 +532,13 @@ test('releasing a model request cancels its hold ceiling', async (t) => {
     assert.ok(lock);
     assert.equal(releaseModelRequest(ctx, lock.token), true);
 
-    const lines = await captureStdoutLines(async () => {
+    const capture = OutputCapture.start(process.stdout);
+    try {
       t.mock.timers.tick(100);
-    });
+    } finally {
+      capture.restore();
+    }
+    const lines = capture.lines;
 
     assert.equal(lines.some((line) => line.includes('model_hold_ceiling')), false, lines.join('\n'));
   } finally {

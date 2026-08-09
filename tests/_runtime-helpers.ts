@@ -16,7 +16,7 @@ import { normalizeConfigObject } from '../src/config/normalization.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { DEAD_CONFIG_SERVICE_URL, DEAD_STATUS_BACKEND_URL } from './helpers/dead-endpoints.js';
 import { EnvBackup } from './helpers/env-backup.js';
-import { getFreePort } from './helpers/free-port.js';
+import { acquireChildPortLease } from './helpers/test-endpoints.js';
 import {
   createManagedTempDir,
   removeDirectoryWithRetries,
@@ -1255,7 +1255,7 @@ async function startStatusServerProcess(options: StatusServerProcessOptions) {
     SIFTKIT_LLAMA_STARTUP_GRACE_DELAY_MS: '0',
     SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE: '1',
   };
-  const statusServerEntrypoint = path.resolve(TEST_REPO_ROOT, 'dist', 'status-server', 'index.js');
+  const statusServerEntrypoint = path.resolve(TEST_REPO_ROOT, 'dist', 'status-server', 'main.js');
   const args = [statusServerEntrypoint];
   if (options.disableManagedLlamaStartup) {
     args.push('--disable-managed-llama-startup');
@@ -1424,43 +1424,6 @@ function stripAnsi(text: string): string {
   return String(text).replace(/\u001b\[[0-9;]*m/gu, '');
 }
 
-async function captureStdout(fn: (lines: string[]) => void | Promise<void>): Promise<string[]> {
-  const originalWrite = process.stdout.write.bind(process.stdout);
-  const lines: string[] = [];
-  let buffer = '';
-  const patchedWrite = (
-    chunk: string | Uint8Array,
-    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
-    callback?: (error?: Error | null) => void,
-  ): boolean => {
-    const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
-    buffer += text;
-    const parts = buffer.split(/\r?\n/u);
-    buffer = parts.pop() || '';
-    for (const line of parts) {
-      if (line.trim()) {
-        lines.push(line);
-      }
-    }
-    if (typeof encodingOrCallback === 'function') {
-      return originalWrite(chunk, encodingOrCallback);
-    }
-    return originalWrite(chunk, encodingOrCallback, callback);
-  };
-  process.stdout.write = patchedWrite;
-
-  try {
-    await fn(lines);
-  } finally {
-    process.stdout.write = originalWrite;
-  }
-
-  if (buffer.trim()) {
-    lines.push(buffer.trim());
-  }
-  return lines;
-}
-
 function readIdleSummarySnapshots(dbPath: string): IdleSummarySnapshotRow[] {
   const database = new Database(dbPath, { readonly: true });
   try {
@@ -1600,8 +1563,8 @@ export {
   spawnProcess, waitForTextMatch,
   startStubStatusServer, withTempEnv, withStubServer, withSummaryTestServer, mockSiftConfig as mockConfig,
   getStatusRouteUrl, postStatusTerminalMetadata, postStatusComplete, postCompletedStatus,
-  withRealStatusServer, startStatusServerProcess, stripAnsi, captureStdout,
-  readIdleSummarySnapshots, getIdleSummaryBlock, getFreePort,
+  withRealStatusServer, startStatusServerProcess, stripAnsi,
+  readIdleSummarySnapshots, getIdleSummaryBlock, acquireChildPortLease,
   writeManagedLlamaLauncher,
   waitForAsyncExpectation, runPowerShellScript, applyManagedScriptConfig,
   listPlannerDebugDumpNames, withStubServerCapturingPlannerDebugDump,

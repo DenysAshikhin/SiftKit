@@ -14,7 +14,7 @@ import {
   applyManagedScriptConfig,
   getConfigPath,
   getDefaultConfig,
-  getFreePort,
+  acquireChildPortLease,
   requestJson,
   sleep,
   startStatusServerProcess,
@@ -118,7 +118,8 @@ test('real status server with disableManagedLlamaStartup skips managed llama boo
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
     const configPath = getConfigPath();
-    const llamaPort = await getFreePort();
+    await using llamaPortLease = await acquireChildPortLease('runtime-status-server-lifecycle');
+    const llamaPort = llamaPortLease.port;
     const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
@@ -143,7 +144,8 @@ test('real status server with disableManagedLlamaStartup does not trigger manage
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
-    const llamaPort = await getFreePort();
+    await using llamaPortLease = await acquireChildPortLease('runtime-status-server-lifecycle');
+    const llamaPort = llamaPortLease.port;
     const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
@@ -256,7 +258,8 @@ test('failed preset switch returns 503 and keeps the status server alive', async
 
     const configPath = getConfigPath();
     const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
-    const unreachableLlamaPort = await getFreePort();
+    await using unreachableLlamaPortLease = await acquireChildPortLease('runtime-status-server-unreachable-llama');
+    const unreachableLlamaPort = unreachableLlamaPortLease.port;
     const config = getDefaultConfig();
     const basePreset = config.Server.ModelPresets.Presets[0];
     if (!basePreset) throw new Error('Default model preset is missing');
@@ -324,7 +327,8 @@ test('real status server with disableManagedLlamaStartup leaves an externally st
   await withTempEnv(async (tempRoot) => {
     const statusPath = path.join(tempRoot, 'status', 'inference.txt');
     const configPath = path.join(tempRoot, 'config.json');
-    const llamaPort = await getFreePort();
+    await using llamaPortLease = await acquireChildPortLease('runtime-status-server-lifecycle');
+    const llamaPort = llamaPortLease.port;
     const managed = writeManagedLlamaLauncher(tempRoot, llamaPort);
     const config = getDefaultConfig();
     applyManagedScriptConfig(config, managed);
