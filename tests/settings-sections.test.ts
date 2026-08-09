@@ -98,6 +98,8 @@ test('settings tooltip labels include the documented fields', () => {
       'SleepIdleSeconds',
       'Verbose logging',
       'Vision enabled',
+      'Max image size (MP)',
+      'Vision image retention',
     ],
   );
 });

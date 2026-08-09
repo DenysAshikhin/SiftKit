@@ -65,6 +65,7 @@ const argv = process.argv.slice(2);
 const port = ${JSON.stringify(port)};
 const host = '127.0.0.1';
 const pidFilePath = process.env.SIFTKIT_FAKE_PID_FILE || ${JSON.stringify(pidFilePath)};
+const pidHistoryPath = process.env.SIFTKIT_FAKE_MANAGED_PID_HISTORY_PATH || '';
 const readyFilePath = process.env.SIFTKIT_FAKE_READY_FILE || '';
 const modelProbeCountPath = process.env.SIFTKIT_FAKE_MODEL_PROBE_COUNT_FILE || '';
 const deferredLogMarkerPath = process.env.SIFTKIT_FAKE_DEFERRED_LOG_MARKER || '';
@@ -121,7 +122,15 @@ if (exitAfterLog) {
 }
 if (launchHangingProcess) {
   fs.writeFileSync(pidFilePath, String(process.pid), 'utf8');
-  setInterval(() => {}, 1000);
+  if (pidHistoryPath) fs.appendFileSync(pidHistoryPath, String(process.pid) + '\\n', 'utf8');
+  const launcherPid = process.ppid;
+  setInterval(() => {
+    try {
+      process.kill(launcherPid, 0);
+    } catch {
+      process.exit(0);
+    }
+  }, 50);
   return;
 }
 
