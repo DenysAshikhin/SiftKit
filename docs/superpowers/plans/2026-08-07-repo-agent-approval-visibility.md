@@ -776,7 +776,7 @@ Expected: exit 0.
 
 - [x] **Step 3: Confirm no scope drift**
 
-Run: `git status --short` and review the diff â€” only the files in the file map (plus this plan) may be modified. The pre-existing dirty files from the agent-image-reads work (`docs/superpowers/plans/2026-08-07-agent-image-reads.md`, `packages/contracts/*`, `src/config/constants.ts`, `src/llm-protocol/image-attachments.ts`, `tests/image-attachments.test.ts`, `.superpowers/`) must be left exactly as they are.
+Run: `git status --short` and review the diff â€” only the files in the file map (plus this plan) may be modified.
 
 ---
 
