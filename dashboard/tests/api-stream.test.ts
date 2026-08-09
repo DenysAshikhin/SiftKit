@@ -101,6 +101,32 @@ test('streamRepoSearchMessage yields warning and done events', async () => {
   }
 });
 
+test('plan and repo-search stream requests include attached images', async () => {
+  const { streamPlanMessage, streamRepoSearchMessage } = await import('../src/api');
+  const bodies: string[] = [];
+  const originalFetch = globalThis.fetch;
+  const image = 'data:image/png;base64,AAAA';
+  globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+    if (typeof init?.body === 'string') {
+      bodies.push(init.body);
+    }
+    const body = `event: done\ndata: ${JSON.stringify(SAMPLE_DONE)}\n\n`;
+    return new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+  };
+  try {
+    for await (const _event of streamPlanMessage('sess', { content: 'go', images: [image] })) {
+      void _event;
+    }
+    for await (const _event of streamRepoSearchMessage('sess', { content: 'go', images: [image] })) {
+      void _event;
+    }
+    assert.equal(bodies.length, 2);
+    assert.equal(bodies.every((body) => body.includes('"images":["data:image/png;base64,AAAA"]')), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('streamPlanMessage throws on server error event', async () => {
   const { streamPlanMessage } = await import('../src/api');
   const restoreFetch = mockFetchOnce([

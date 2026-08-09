@@ -60,7 +60,7 @@ export type LlamaCppGenerateResult = {
 
 export type LlamaCppChatMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content?: string | Array<{ type?: string; text?: string }>;
+  content?: string | Array<{ type?: string; text?: string; image_url?: { url: string } }>;
   reasoning_content?: string | Array<{ type?: string; text?: string }>;
   tool_calls?: Array<{
     id?: string;
@@ -118,7 +118,7 @@ function getStructuredOutputResponseFormat(
   return null;
 }
 
-function getTextContent(content: string | Array<{ type?: string; text?: string }> | undefined): string {
+function getTextContent(content: string | Array<{ type?: string; text?: string; image_url?: { url: string } }> | undefined): string {
   if (typeof content === 'string') {
     return content;
   }
@@ -141,6 +141,7 @@ function toProtocolContent(
   return content.map((part) => ({
     type: typeof part.type === 'string' ? part.type : 'text',
     ...(typeof part.text === 'string' ? { text: part.text } : {}),
+    ...(part.image_url ? { image_url: { url: part.image_url.url } } : {}),
   }));
 }
 

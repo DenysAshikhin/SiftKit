@@ -69,6 +69,8 @@ function createPreset(overrides: Partial<DashboardModelRuntimePreset> = {}): Das
     VerboseLogging: false,
     ...overrides,
     VisionEnabled: overrides.VisionEnabled ?? false,
+    VisionImageRetention: overrides.VisionImageRetention ?? 8,
+    VisionMaxImagePixels: overrides.VisionMaxImagePixels ?? 0,
   };
 }
 

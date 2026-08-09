@@ -21,6 +21,9 @@ import {
 } from './validation-command-output-policy.js';
 import { WebResearchTools } from '../../web-search/web-research-tools.js';
 import type { WebFetchToolArgs, WebSearchToolArgs } from '../../web-search/types.js';
+import type { ImageDataUrl, ImageMetadata, ImageTokenBudget } from '@siftkit/contracts';
+import { isImagePath } from '../../llm-protocol/image-attachments.js';
+import { executeImageRead } from './image-read.js';
 
 export const GREP_DEFAULT_LIMIT = 100;
 export const FIND_DEFAULT_LIMIT = 1000;
@@ -55,6 +58,11 @@ export type RepoToolExecution =
       lineReadLinesTotal: number;
       lineReadTokensTotal: number;
     };
+    /** Set by an image `read`; the engine appends this as a user-role message after the tool result. */
+    imageDataUrl?: ImageDataUrl;
+    imageMetadata?: ImageMetadata;
+    /** Path key of the image, so the caller can track what is live in context. */
+    imagePathKey?: string;
   }
   | {
     ok: false;
@@ -73,6 +81,14 @@ export type RepoToolContext = {
   agentRunId: string;
   validationCommandOutputPolicy: ValidationCommandOutputPolicy | null;
   runFullOutputDecision: RunFullOutputDecision | null;
+  visionEnabled: boolean;
+  /** 0 refuses images on every path, including this one. -1 is unbounded. */
+  visionImageRetention: number;
+  /** User pixel cap from Task 8b; 0 means the model ceiling is the only limit. */
+  visionMaxImagePixels: number;
+  imageTokenBudget: ImageTokenBudget;
+  /** Path keys of images currently live in the transcript. */
+  liveImagePathKeys: Set<string>;
 };
 
 export type ReadPlan = {
@@ -1011,6 +1027,23 @@ async function executeRepoToolUnguarded(
   context: RepoToolContext,
 ): Promise<RepoToolExecution> {
   if (toolName === 'read') {
+    const requestedCommand = buildRepoToolRequestedCommand('read', args);
+    const resolvedPath = resolveRepoScopedPath(context.repoRoot, args.path);
+    if (!resolvedPath) {
+      return failure('read', requestedCommand, 'path must stay within the repository root');
+    }
+    if (isRepoRelativePathIgnored(resolvedPath.relativePath, context.ignorePolicy)) {
+      return failure('read', requestedCommand, 'path is ignored by runtime policy');
+    }
+    if (isImagePath(resolvedPath.relativePath)) {
+      return executeImageRead({
+        args,
+        requestedCommand,
+        absolutePath: resolvedPath.absolutePath,
+        displayPath: resolvedPath.relativePath,
+        context,
+      });
+    }
     const plan = planRead(args, context.repoRoot, context.ignorePolicy, context.fileReadStateByPath, context.expandReads);
     return isFailedReadPlan(plan)
       ? failure('read', plan.command, plan.reason)

@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ChatSessionResponseSchema, ChatMessageSchema, ChatSessionSchema, ChatSessionBusyResponseSchema, ChatSessionOperationKindSchema } from '@siftkit/contracts';
+import {
+  ChatSessionResponseSchema,
+  ChatMessageSchema,
+  ChatSessionSchema,
+  ChatSessionBusyResponseSchema,
+  ChatSessionOperationKindSchema,
+  ImageMetadataSchema,
+} from '@siftkit/contracts';
 
 const message = {
   id: 'm1', role: 'user', content: 'hi',
@@ -47,4 +54,20 @@ test('chat session operation kinds cover every leased chat endpoint', () => {
     ChatSessionOperationKindSchema.options,
     ['message', 'plan', 'repo-search', 'condense'],
   );
+});
+
+test('persisted image metadata rejects unsupported MIME values', () => {
+  const result = ImageMetadataSchema.safeParse({
+    width: 1,
+    height: 1,
+    originalWidth: 1,
+    originalHeight: 1,
+    mime: 'image/bmp',
+    byteLength: 1,
+    tokenEstimate: 1,
+    resized: false,
+    caption: null,
+  });
+
+  assert.equal(result.success, false);
 });

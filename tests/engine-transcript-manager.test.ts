@@ -11,6 +11,7 @@ function makeTranscript(): TranscriptManager {
     historyMessages: [{ role: 'user', content: 'earlier' }, { role: 'assistant', content: 'reply' }],
     initialUserContent: 'QUESTION',
     initialUserImages: [],
+    liveImagePathKeys: new Set<string>(),
   });
 }
 
@@ -104,6 +105,7 @@ test('TranscriptManager attaches images to the initial user turn', () => {
     historyMessages: [],
     initialUserContent: 'describe this',
     initialUserImages: ['data:image/png;base64,AAAA'],
+    liveImagePathKeys: new Set<string>(),
   });
   assert.deepEqual(manager.getMessages()[1], {
     role: 'user',
@@ -120,6 +122,7 @@ test('TranscriptManager keeps a plain string when there are no images', () => {
     historyMessages: [],
     initialUserContent: 'plain',
     initialUserImages: [],
+    liveImagePathKeys: new Set<string>(),
   });
   assert.deepEqual(manager.getMessages()[1], { role: 'user', content: 'plain' });
 });
@@ -153,6 +156,7 @@ test('replaceWith bumps the transcript generation', () => {
     historyMessages: [],
     initialUserContent: 'question',
     initialUserImages: [],
+    liveImagePathKeys: new Set<string>(),
   });
   assert.equal(transcript.generation, 0);
   transcript.replaceWith([{ role: 'user', content: 'compacted' }]);

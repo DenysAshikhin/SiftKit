@@ -3,6 +3,8 @@ import { getDefaultWebPresetId, getPresetById, getPresetFamily, getSurfacePreset
 import { getSessionTelemetryStats, readSearchParams } from '../lib/format';
 import { getErrorMessage } from '../../../src/lib/errors.js';
 import { useChatSessions } from './useChatSessions';
+import type { PendingImage } from '../lib/downscale-image';
+import type { ToastLevel } from './useToasts';
 import type { DashboardConfig } from '../types';
 import type { ChatTabProps } from '../tabs/ChatTab';
 
@@ -12,6 +14,7 @@ export type ChatController = {
 };
 
 export function useChatController(deps: {
+  enqueueToast: (level: ToastLevel, text: string) => void;
   refreshToken: number;
   dashboardConfig: DashboardConfig | null;
   requestDashboardDataRefresh: () => void;
@@ -30,6 +33,7 @@ export function useChatController(deps: {
         : null;
     },
     confirmDeleteSession: () => window.confirm('Delete this chat session permanently?'),
+    enqueueToast: deps.enqueueToast,
   });
 
   const selectedSession = chatSessionsHook.selectedSession;
@@ -112,10 +116,16 @@ export function useChatController(deps: {
     onSendPlan: chatSessionsHook.sendPlan,
     onSendRepoSearch: chatSessionsHook.sendRepoSearch,
     onSendMessage: chatSessionsHook.sendMessage,
-    onPendingImagesChange: (images: string[]) => {
+    onPendingImagesChange: (images: PendingImage[]) => {
       if (chatSessionsHook.selectedSessionId) {
         chatSessionsHook.setSessionImages(chatSessionsHook.selectedSessionId, images);
       }
+    },
+    onPendingImagesAppend: (sessionId: string, images: PendingImage[]) => {
+      chatSessionsHook.appendSessionImages(sessionId, images);
+    },
+    onPendingImageError: (sessionId: string, message: string) => {
+      chatSessionsHook.failSessionOperation(sessionId, message);
     },
     onChangeDraft: (value: string) => {
       if (chatSessionsHook.selectedSessionId) {

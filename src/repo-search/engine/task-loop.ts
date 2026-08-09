@@ -1,4 +1,4 @@
-import { getConfiguredLlamaNumCtx } from '../../config/index.js';
+import { getActiveModelPreset, getConfiguredLlamaNumCtx } from '../../config/index.js';
 import { AgentLoop } from '../../agent-loop/agent-loop.js';
 import type {
   AgentLoopFinishAction,
@@ -81,6 +81,8 @@ import { ToolStatsRecorder } from './tool-stats.js';
 import { TranscriptManager } from './transcript-manager.js';
 import { DEFAULT_MAX_TURNS, TurnBudget } from './turn-budget.js';
 import { ThinkingRetentionPolicy } from '../../thinking-retention-policy.js';
+import { resolveImageTokenBudget } from '../../llm-protocol/image-token-budget.js';
+import type { ImageTokenBudget } from '@siftkit/contracts';
 import type { ApprovalRequester } from './approval-gate.js';
 import { LlmApprovalGate } from './llm-approval-gate.js';
 
@@ -142,6 +144,11 @@ export class TaskLoop {
   private readonly duplicates = new DuplicateTracker();
   private readonly forcedFinish = new ForcedFinishController();
   private readonly readWindows = new ReadWindowGovernor();
+  private readonly visionEnabled: boolean;
+  private readonly visionImageRetention: number;
+  private readonly visionMaxImagePixels: number;
+  private readonly imageTokenBudget: ImageTokenBudget;
+  private readonly liveImagePathKeys = new Set<string>();
   private readonly progress: ProgressReporter;
   private readonly transcript: TranscriptManager;
   private readonly promptPreparer: PromptPreparer;
@@ -163,6 +170,11 @@ export class TaskLoop {
   constructor(task: TaskDefinition, options: RunTaskLoopOptions) {
     this.task = task;
     this.options = options;
+    const visionPreset = getActiveModelPreset(options.config);
+    this.visionEnabled = visionPreset.VisionEnabled === true;
+    this.visionImageRetention = visionPreset.VisionImageRetention;
+    this.visionMaxImagePixels = visionPreset.VisionMaxImagePixels;
+    this.imageTokenBudget = resolveImageTokenBudget(visionPreset);
     this.taskStartedAt = Date.now();
     this.maxTurns = Math.max(1, Number(options.maxTurns || DEFAULT_MAX_TURNS));
     this.maxInvalidResponses = Math.max(1, Number(options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES));
@@ -221,6 +233,7 @@ export class TaskLoop {
         ? task.question
         : buildTaskInitialUserPrompt(task.question),
       initialUserImages: options.initialUserImages || [],
+      liveImagePathKeys: this.liveImagePathKeys,
     });
     this.promptPreparer = new PromptPreparer({
       taskId: task.id,
@@ -275,6 +288,11 @@ export class TaskLoop {
       successfulToolCalls: this.successfulToolCalls,
       commands: this.commands,
       counters: this.counters,
+      visionEnabled: this.visionEnabled,
+      visionImageRetention: this.visionImageRetention,
+      visionMaxImagePixels: this.visionMaxImagePixels,
+      imageTokenBudget: this.imageTokenBudget,
+      liveImagePathKeys: this.liveImagePathKeys,
     });
   }
 

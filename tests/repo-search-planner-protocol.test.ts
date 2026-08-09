@@ -7,6 +7,7 @@ import type { JsonObject } from '../src/lib/json-types.js';
 import type { ModelRuntimePreset, SiftConfig } from '../src/config/types.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
+import { getSupportedImageExtensions } from '../src/llm-protocol/image-attachments.js';
 import {
   captureExecutingPlannerRequest,
   getRepoSearchToolNames,
@@ -14,8 +15,19 @@ import {
   requestApprovalVerdict,
   requestRepoSearchPlannerProtocolAction,
   resolveRepoSearchPlannerToolDefinitions,
+  TOOL_DEFINITIONS,
   type PlannerActionResponse,
 } from '../src/repo-search/planner-protocol.js';
+
+const TEXT_ONLY_READ_DESCRIPTION = 'Read the contents of a repository file. Lines are returned numbered. Use offset/limit for large files; when you need the full file, continue with offset until complete. Lines already returned in this task are skipped automatically, and a read whose whole range was already returned is rejected. Editing or writing a file clears that history, so you can read it again to see your change.';
+
+function readDescription(
+  definitions: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>,
+): string {
+  const read = definitions.find((definition) => definition.function.name === 'read');
+  assert.ok(read, 'read tool definition is present');
+  return read.function.description ?? '';
+}
 
 type PresetOverrides = Partial<ModelRuntimePreset>;
 
@@ -114,6 +126,26 @@ test('resolveRepoSearchPlannerToolDefinitions only emits web tool schemas when e
   );
   const webSearch = withWeb.find((tool) => tool.function.name === 'web_search');
   assert.deepEqual(webSearch?.function?.parameters?.required, ['query']);
+});
+
+test('the text-only read description is byte-identical to the historical string', () => {
+  assert.equal(
+    readDescription(resolveRepoSearchPlannerToolDefinitions(undefined, false)),
+    TEXT_ONLY_READ_DESCRIPTION,
+  );
+});
+
+test('TOOL_DEFINITIONS keeps the text-only read description', () => {
+  assert.equal(readDescription(TOOL_DEFINITIONS), TEXT_ONLY_READ_DESCRIPTION);
+});
+
+test('the vision read description names every supported extension from the MIME map', () => {
+  const description = readDescription(resolveRepoSearchPlannerToolDefinitions(undefined, true));
+  assert.ok(description.startsWith(TEXT_ONLY_READ_DESCRIPTION));
+  for (const extension of getSupportedImageExtensions()) {
+    assert.ok(description.includes(extension), `names ${extension}`);
+  }
+  assert.ok(description.includes('offset` and `limit` do not apply to images'));
 });
 
 test('run output-mode guidance is readable ASCII text', () => {

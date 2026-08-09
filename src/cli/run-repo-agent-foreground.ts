@@ -5,6 +5,7 @@ import { buildRepoAgentServerRequest } from './repo-agent-request.js';
 import { formatRepoTaskOutput } from '../repo-agent/run-output.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
 import { assertStdinIsTty } from './tty.js';
+import { getActiveModelPreset, loadConfig } from '../config/index.js';
 
 export async function runRepoAgentForegroundCli(options: {
   invocation: RepoAgentStartInvocation;
@@ -29,6 +30,8 @@ export async function runRepoAgentForegroundCli(options: {
     'repo-agent',
     options.invocation.progress,
   );
+  const config = await loadConfig({ ensure: true });
+  const preset = getActiveModelPreset(config);
   const request = buildRepoAgentServerRequest({
     task: options.invocation.task,
     repoRoot: process.cwd(),
@@ -36,6 +39,7 @@ export async function runRepoAgentForegroundCli(options: {
     images: options.invocation.images,
     model: options.invocation.model,
     logFile: options.invocation.logFile,
+    preset,
   });
   const response = await new StatusServerApiClient().requestRepoAgent(
     request,

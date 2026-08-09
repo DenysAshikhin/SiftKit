@@ -23,6 +23,7 @@ export type ChatMessageRequest = {
 
 export type ChatRepoRequest = {
   content: string;
+  images: string[];
   repoRoot: string | undefined;
 };
 
@@ -78,6 +79,7 @@ export function parseChatRepoRequest(body: JsonObject): ChatRepoRequest | null {
   }
   return {
     content,
+    images: parseImageDataUrls(reader.value('images')),
     repoRoot: reader.optionalString('repoRoot'),
   };
 }

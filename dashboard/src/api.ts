@@ -31,8 +31,10 @@ import {
   type DashboardBenchmarkSessionsResponse,
   type DashboardBenchmarkStartRequest,
   type WebSearchQuotaResponse,
-  InferenceRuntimeStatusSchema,
-  type InferenceRuntimeStatus,
+  InferenceRuntimeDashboardStatusSchema,
+  ImageCaptionResponseSchema,
+  type InferenceRuntimeDashboardStatus,
+  type ImageCaptionResponse,
   type ChatSessionBusyResponse,
 } from '@siftkit/contracts';
 import { ChatStreamReader } from './lib/chat-stream-parser.js';
@@ -150,8 +152,8 @@ export function getDashboardHealth(): Promise<DashboardHealth> {
   return fetchJson('/health', DashboardHealthSchema);
 }
 
-export function getInferenceRuntimeStatus(): Promise<InferenceRuntimeStatus> {
-  return fetchJson('/runtime/inference', InferenceRuntimeStatusSchema);
+export function getInferenceRuntimeStatus(): Promise<InferenceRuntimeDashboardStatus> {
+  return fetchJson('/runtime/inference', InferenceRuntimeDashboardStatusSchema);
 }
 
 export function getBenchmarkQuestionPresets(): Promise<DashboardBenchmarkQuestionPresetsResponse> {
@@ -289,6 +291,22 @@ export function deleteChatMessage(sessionId: string, messageId: string): Promise
   });
 }
 
+export function requestImageCaption(
+  sessionId: string,
+  messageId: string,
+  imageIndex: number,
+): Promise<ImageCaptionResponse> {
+  return fetchJson(
+    `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/images/caption`,
+    ImageCaptionResponseSchema,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageId, imageIndex }),
+    },
+  );
+}
+
 export function createChatSession(payload: {
   title: string;
   presetId?: string;
@@ -404,6 +422,7 @@ export function streamPlanMessage(
   sessionId: string,
   payload: {
     content: string;
+    images?: string[];
     repoRoot?: string;
     model?: string;
     maxTurns?: number;
@@ -419,6 +438,7 @@ export function streamRepoSearchMessage(
   sessionId: string,
   payload: {
     content: string;
+    images?: string[];
     repoRoot?: string;
     model?: string;
     maxTurns?: number;

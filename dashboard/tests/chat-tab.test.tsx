@@ -1,10 +1,26 @@
+import './react-test-environment.js';
+
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import React from 'react';
+import React, { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { fireEvent, render as renderComponent, screen } from './react-test-environment.js';
 import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
 import { ChatTab } from '../src/tabs/ChatTab';
 import type { ChatMessage, ChatSession, ContextUsage, DashboardPreset } from '../src/types';
+
+const IMAGE = 'data:image/png;base64,AA==';
+const IMAGE_META = {
+  width: 320,
+  height: 200,
+  originalWidth: 320,
+  originalHeight: 200,
+  mime: 'image/png',
+  byteLength: 1024,
+  tokenEstimate: 64,
+  resized: false,
+  caption: null,
+};
 
 const PRESET = {
   id: 'chat-default', label: 'Chat', description: '', presetKind: 'chat', operationMode: 'full',
@@ -40,6 +56,7 @@ const CONTEXT_USAGE = {
   shouldCondense: false, chatUsedTokens: 90, thinkingUsedTokens: 0, toolUsedTokens: 0,
   totalUsedTokens: 90, remainingTokens: 10, warnThresholdTokens: 50, contextWindowTokens: 100,
   usedTokens: 90, estimatedTokenFallbackTokens: 0, providerOverheadTokens: 5,
+  effectiveImagePixelCeiling: 1_000_000,
 } satisfies ContextUsage;
 
 type ChatTabProps = React.ComponentProps<typeof ChatTab>;
@@ -51,7 +68,7 @@ function buildDefaultStore(sessionId: string): ChatSessionRuntimeStore {
     .apply({ kind: 'draft', sessionId, draft: 'hi' });
 }
 
-function render(overrides: Partial<ChatTabProps> = {}): string {
+function buildProps(overrides: Partial<ChatTabProps> = {}): ChatTabProps {
   const selectedSessionId = overrides.selectedSessionId ?? SESSION_A.id;
   const defaultStore = buildDefaultStore(selectedSessionId);
   const props: ChatTabProps = {
@@ -75,10 +92,184 @@ function render(overrides: Partial<ChatTabProps> = {}): string {
     onSavePlanRepoRoot: async () => {}, onDeleteMessage: async () => {}, onDeleteTurn: async () => {}, onCondense: async () => {},
     onSendPlan: async () => {}, onSendRepoSearch: async () => {}, onSendMessage: async () => {},
     onPendingImagesChange: () => {},
+    onPendingImagesAppend: () => {},
+    onPendingImageError: () => {},
     ...overrides,
   };
-  return renderToStaticMarkup(React.createElement(ChatTab, props));
+  return props;
 }
+
+function render(overrides: Partial<ChatTabProps> = {}): string {
+  return renderToStaticMarkup(React.createElement(ChatTab, buildProps(overrides)));
+}
+
+function installImageReadControls(): {
+  complete(index: number, dataUrl: string): void;
+  restore(): void;
+} {
+  const originalFetch = globalThis.fetch;
+  const originalFileReader = globalThis.FileReader;
+  const originalCreateImageBitmap = globalThis.createImageBitmap;
+  const completions: Array<(dataUrl: string) => void> = [];
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true,
+    value: async () => new Response(new Uint8Array([1]), { headers: { 'content-type': 'image/png' } }),
+  });
+  Object.defineProperty(globalThis, 'createImageBitmap', {
+    configurable: true,
+    value: async () => ({ width: 1, height: 1, close: () => undefined }),
+  });
+  Object.defineProperty(globalThis, 'FileReader', {
+    configurable: true,
+    value: class {
+      result: string | null = null;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+
+      readAsDataURL(): void {
+        completions.push((dataUrl) => {
+          this.result = dataUrl;
+          this.onload?.();
+        });
+      }
+    },
+  });
+  return {
+    complete(index, dataUrl) {
+      const complete = completions[index];
+      if (!complete) throw new Error(`missing image-read completion ${index}`);
+      complete(dataUrl);
+    },
+    restore() {
+      Object.defineProperty(globalThis, 'fetch', { configurable: true, value: originalFetch });
+      Object.defineProperty(globalThis, 'FileReader', { configurable: true, value: originalFileReader });
+      Object.defineProperty(globalThis, 'createImageBitmap', { configurable: true, value: originalCreateImageBitmap });
+    },
+  };
+}
+
+test('attachment read failures are reported to the owning session', async () => {
+  const originalFileReader = globalThis.FileReader;
+  const errors: Array<{ sessionId: string; message: string }> = [];
+  Object.defineProperty(globalThis, 'FileReader', {
+    configurable: true,
+    value: class {
+      result: string | null = null;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+
+      readAsDataURL(): void {
+        this.onerror?.();
+      }
+    },
+  });
+  const store = buildDefaultStore(SESSION_A.id).apply({
+    kind: 'context-usage',
+    sessionId: SESSION_A.id,
+    contextUsage: CONTEXT_USAGE,
+  });
+
+  try {
+    renderComponent(<ChatTab {...buildProps({
+      selectedRuntime: store.get(SESSION_A.id),
+      sessionRuntimes: store.getAll(),
+      onPendingImageError: (sessionId, message) => errors.push({ sessionId, message }),
+    })} />);
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText('Attach'), {
+        target: { files: [new File([new Uint8Array([1])], 'broken.png', { type: 'image/png' })] },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    assert.deepEqual(errors, [{ sessionId: SESSION_A.id, message: 'cannot read broken.png' }]);
+  } finally {
+    Object.defineProperty(globalThis, 'FileReader', { configurable: true, value: originalFileReader });
+  }
+});
+
+test('overlapping attachment reads append in selection order', async () => {
+  const controls = installImageReadControls();
+  const appended: Array<{ sessionId: string; images: string[] }> = [];
+  const store = buildDefaultStore(SESSION_A.id).apply({
+    kind: 'context-usage',
+    sessionId: SESSION_A.id,
+    contextUsage: CONTEXT_USAGE,
+  });
+  try {
+    renderComponent(<ChatTab {...buildProps({
+      selectedRuntime: store.get(SESSION_A.id),
+      sessionRuntimes: store.getAll(),
+      onPendingImagesAppend: (sessionId, images) => appended.push({
+        sessionId,
+        images: images.map((image) => image.dataUrl),
+      }),
+    })} />);
+    const input = screen.getByLabelText('Attach');
+    fireEvent.change(input, { target: { files: [new File([new Uint8Array([1])], 'first.png')] } });
+    fireEvent.change(input, { target: { files: [new File([new Uint8Array([2])], 'second.png')] } });
+
+    await act(async () => {
+      controls.complete(1, 'data:image/png;base64,AQ==');
+      await Promise.resolve();
+    });
+    assert.deepEqual(appended, []);
+
+    await act(async () => {
+      controls.complete(0, 'data:image/png;base64,AA==');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    assert.deepEqual(appended, [
+      { sessionId: SESSION_A.id, images: ['data:image/png;base64,AA=='] },
+      { sessionId: SESSION_A.id, images: ['data:image/png;base64,AQ=='] },
+    ]);
+  } finally {
+    controls.restore();
+  }
+});
+
+test('switching sessions discards an unresolved attachment batch', async () => {
+  const controls = installImageReadControls();
+  const appended: string[] = [];
+  const store = buildDefaultStore(SESSION_A.id).apply({
+    kind: 'context-usage',
+    sessionId: SESSION_A.id,
+    contextUsage: CONTEXT_USAGE,
+  });
+  try {
+    const rendered = renderComponent(<ChatTab {...buildProps({
+      selectedRuntime: store.get(SESSION_A.id),
+      sessionRuntimes: store.getAll(),
+      onPendingImagesAppend: (sessionId) => appended.push(sessionId),
+    })} />);
+    fireEvent.change(screen.getByLabelText('Attach'), {
+      target: { files: [new File([new Uint8Array([1])], 'first.png')] },
+    });
+    const sessionBStore = buildDefaultStore(SESSION_B.id).apply({
+      kind: 'context-usage',
+      sessionId: SESSION_B.id,
+      contextUsage: CONTEXT_USAGE,
+    });
+    await act(async () => {
+      rendered.rerender(<ChatTab {...buildProps({
+        selectedSessionId: SESSION_B.id,
+        selectedSession: SESSION_B,
+        selectedRuntime: sessionBStore.get(SESSION_B.id),
+        sessionRuntimes: sessionBStore.getAll(),
+        onPendingImagesAppend: (sessionId) => appended.push(sessionId),
+      })} />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      controls.complete(0, 'data:image/png;base64,AA==');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    assert.deepEqual(appended, []);
+  } finally {
+    controls.restore();
+  }
+});
 
 test('chat tab renders session lane, controls, messages, and composer', () => {
   const markup = render();
@@ -159,4 +350,18 @@ test('chat does not render first-message context toggles', () => {
 test('composer attaches images through a styled label wrapping the file input', () => {
   const markup = render();
   assert.match(markup, /<label class="mini-btn attach"[^>]*>Attach<input type="file"/u);
+});
+
+test('renders user and tool-image attachments inline', () => {
+  const session = {
+    ...SESSION_A,
+    messages: [
+      msg({ id: 'user-image', role: 'user', kind: 'user_text', content: 'Look at this', images: [IMAGE], imageMeta: [IMAGE_META] }),
+      msg({ id: 'tool-image', role: 'assistant', kind: 'tool_image', content: 'read output', images: [IMAGE], imageMeta: [IMAGE_META] }),
+    ],
+  } satisfies ChatSession;
+  const markup = render({ selectedSession: session, selectedSessionId: session.id });
+
+  assert.equal((markup.match(/class="message-images"/gu) ?? []).length, 2);
+  assert.equal((markup.match(/<img\b/gu) ?? []).length, 2);
 });

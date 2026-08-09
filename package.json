@@ -42,6 +42,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@testing-library/react": "^16.3.2",
     "@types/jsdom": "^28.0.3",
     "@types/node": "^24.5.2",
     "@types/turndown": "^5.0.6",
@@ -77,8 +78,9 @@
     "@siftkit/contracts"
   ],
   "dependencies": {
-    "@siftkit/contracts": "*",
     "@mozilla/readability": "^0.6.0",
+    "@napi-rs/image": "1.14.0",
+    "@siftkit/contracts": "*",
     "better-sqlite3": "^12.8.0",
     "jsdom": "^29.1.1",
     "jsonrepair": "^3.14.0",

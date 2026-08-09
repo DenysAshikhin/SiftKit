@@ -5,6 +5,8 @@ import { normalizeCliFormat, normalizeCliPolicyProfileOrDefault } from './reques
 import { CliProgressRenderer } from './progress-renderer.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
 import { ImageAttachmentReader } from '../llm-protocol/image-attachments.js';
+import { getActiveModelPreset, loadConfig } from '../config/index.js';
+import { resolveImageTokenBudget } from '../llm-protocol/image-token-budget.js';
 
 export async function runSummary(options: ResolvedCliArgs & {
   stdinText?: string | Buffer;
@@ -24,7 +26,16 @@ export async function runSummary(options: ResolvedCliArgs & {
     file: parsed.file,
     stdinText: options.stdinText,
   });
-  const images = new ImageAttachmentReader().readAll(parsed.images ?? []);
+  const imagePaths = parsed.images ?? [];
+  let images: string[] = [];
+  if (imagePaths.length > 0) {
+    const config = await loadConfig({ ensure: true });
+    const preset = getActiveModelPreset(config);
+    images = new ImageAttachmentReader(
+      resolveImageTokenBudget(preset),
+      preset.VisionMaxImagePixels,
+    ).readAll(imagePaths);
+  }
   if ((!parsed.file || parsed.file.length === 0) && !inputText?.trim() && images.length === 0) {
     throw new Error('stdin, --text, --file or --image required');
   }

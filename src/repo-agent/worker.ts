@@ -7,6 +7,7 @@ import { RepoAgentBoundaryWaiter } from './boundary-waiter.js';
 import { RepoAgentRunApprovalPrompter } from './run-approval-prompter.js';
 import { isTerminalStatus } from './run-schemas.js';
 import type { RepoAgentRunStore } from './run-store.js';
+import { getActiveModelPreset, loadConfig } from '../config/index.js';
 
 export class RepoAgentWorker {
   private readonly store: RepoAgentRunStore;
@@ -35,7 +36,6 @@ export class RepoAgentWorker {
     if (initial.status !== 'starting') {
       throw new Error(`Worker requires starting state, received ${initial.status}.`);
     }
-
     this.store.transition(runId, initial.revision, {
       runId,
       revision: initial.revision + 1,
@@ -50,8 +50,10 @@ export class RepoAgentWorker {
     });
 
     try {
+      const config = await loadConfig({ ensure: true });
+      const preset = getActiveModelPreset(config);
       const result = await this.apiClient.requestRepoAgent(
-        buildRepoAgentServerRequest(request),
+        buildRepoAgentServerRequest({ ...request, preset }),
         this.progressRenderer,
         approvalPrompter,
       );

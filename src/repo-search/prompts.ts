@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync, type Dirent } from 'node:fs';
 import { join } from 'node:path';
+import { ImageDataUrlSchema, ImageMetadataSchema } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import { RUN_SHELL_LABEL } from '../lib/powershell.js';
 import type { IgnorePolicy } from './command-safety.js';
@@ -382,6 +383,8 @@ export const TaskCommandSchema = z.object({
   exitCode: z.number().nullable(),
   output: z.string(),
   promptOutput: z.string().optional(),
+  imageDataUrls: z.array(ImageDataUrlSchema).optional(),
+  imageMeta: z.array(ImageMetadataSchema).optional(),
   outputTokens: z.number().optional(),
   outputTokensEstimated: z.boolean().optional(),
 });

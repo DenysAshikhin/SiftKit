@@ -36,6 +36,7 @@ function buildRepoToolPromptContextContent(
   config: SiftConfig,
   preset: SiftPreset,
   systemContext: PresetSystemContext,
+  visionEnabled: boolean,
 ): string {
   const allowedTools = resolvePresetAllowedTools(
     preset,
@@ -45,7 +46,7 @@ function buildRepoToolPromptContextContent(
     preset.promptPrefix,
     systemContext,
   ).compose(buildTaskSystemPrompt(systemContext));
-  const toolDefinitions = resolveRepoSearchPlannerToolDefinitions(allowedTools);
+  const toolDefinitions = resolveRepoSearchPlannerToolDefinitions(allowedTools, visionEnabled);
   return [
     formatSection('System prompt', systemPrompt),
     formatSection('Tool schema', JSON.stringify(toolDefinitions, null, 2)),
@@ -75,7 +76,7 @@ export function buildChatPromptContext(config: SiftConfig, session: ChatSession)
   const repoToolPreset = preset.presetKind === 'plan' || preset.presetKind === 'repo-search';
   const systemContext = new PresetSystemContextBuilder(readRepoRoot(session)).build(preset);
   const content = repoToolPreset
-    ? buildRepoToolPromptContextContent(config, preset, systemContext)
+    ? buildRepoToolPromptContextContent(config, preset, systemContext, session.modelPreset.VisionEnabled === true)
     : buildDirectPromptContextContent(config, session, preset, systemContext);
   return {
     id: `${String(session.id || 'session')}:system-context`,

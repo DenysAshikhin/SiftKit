@@ -1,6 +1,8 @@
 import { ImageAttachmentReader } from '../llm-protocol/image-attachments.js';
+import { resolveImageTokenBudget } from '../llm-protocol/image-token-budget.js';
 import type { JsonSerializable } from '../lib/json-types.js';
 import type { ApprovalMode } from '../repo-search/engine/approval-gate.js';
+import type { ModelRuntimePreset } from '../config/types.js';
 
 export function buildRepoAgentServerRequest(input: {
   task: string;
@@ -9,6 +11,7 @@ export function buildRepoAgentServerRequest(input: {
   model?: string;
   logFile?: string;
   images: string[];
+  preset: ModelRuntimePreset;
 }): Record<string, JsonSerializable> {
   const request: Record<string, JsonSerializable> = {
     prompt: input.task,
@@ -22,7 +25,10 @@ export function buildRepoAgentServerRequest(input: {
     request.logFile = input.logFile;
   }
   if (input.images.length > 0) {
-    request.images = new ImageAttachmentReader().readAll(input.images);
+    request.images = new ImageAttachmentReader(
+      resolveImageTokenBudget(input.preset),
+      input.preset.VisionMaxImagePixels,
+    ).readAll(input.images);
   }
   return request;
 }

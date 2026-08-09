@@ -1,9 +1,10 @@
 import { z } from 'zod';
-import { ImageDataUrlSchema } from './image.js';
+import { ModelRuntimePresetSchema } from './config.js';
+import { ImageDataUrlSchema, ImageMetadataSchema } from './image.js';
 
 export const ChatMessageSchema = z.object({
   id: z.string(), role: z.enum(['user', 'assistant']),
-  kind: z.enum(['user_text', 'assistant_answer', 'assistant_thinking', 'assistant_tool_call']).optional(),
+  kind: z.enum(['user_text', 'assistant_answer', 'assistant_thinking', 'assistant_tool_call', 'tool_image']).optional(),
   content: z.string(), inputTokensEstimate: z.number(), outputTokensEstimate: z.number(), thinkingTokens: z.number(),
   inputTokensEstimated: z.boolean().optional(), outputTokensEstimated: z.boolean().optional(), thinkingTokensEstimated: z.boolean().optional(),
   promptCacheTokens: z.number().nullable().optional(), promptEvalTokens: z.number().nullable().optional(),
@@ -21,6 +22,7 @@ export const ChatMessageSchema = z.object({
   groundingStatus: z.enum(['ungrounded', 'snippet_only', 'fetched']).nullable().optional(),
   createdAtUtc: z.string(), sourceRunId: z.string().nullable(), compressedIntoSummary: z.boolean().optional(),
   images: z.array(ImageDataUrlSchema).optional(),
+  imageMeta: z.array(ImageMetadataSchema).optional(),
 });
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
@@ -32,6 +34,7 @@ export type ChatPromptContext = z.infer<typeof ChatPromptContextSchema>;
 
 export const ChatSessionSchema = z.object({
   id: z.string(), title: z.string(), modelPresetId: z.string().trim().min(1),
+  modelPreset: ModelRuntimePresetSchema.optional(),
   model: z.string().nullable(), contextWindowTokens: z.number(),
   thinkingEnabled: z.boolean().optional(), webSearchEnabled: z.boolean().optional(), presetId: z.string().optional(),
   mode: z.enum(['chat', 'plan', 'repo-search']).optional(), planRepoRoot: z.string().optional(),
@@ -44,6 +47,7 @@ export const ContextUsageSchema = z.object({
   contextWindowTokens: z.number(), usedTokens: z.number(), chatUsedTokens: z.number(), thinkingUsedTokens: z.number(),
   toolUsedTokens: z.number(), totalUsedTokens: z.number(), remainingTokens: z.number(), warnThresholdTokens: z.number(),
   shouldCondense: z.boolean(), estimatedTokenFallbackTokens: z.number(), providerOverheadTokens: z.number(),
+  effectiveImagePixelCeiling: z.number().int().positive().optional(),
 });
 export type ContextUsage = z.infer<typeof ContextUsageSchema>;
 

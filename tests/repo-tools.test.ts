@@ -28,6 +28,8 @@ import {
 } from '../src/repo-search/engine/validation-command-output-policy.js';
 import { makeMockWebTools } from './helpers/mock-web-tools.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { resolveImageTokenBudget } from '../src/llm-protocol/image-token-budget.js';
+import { makeTestPreset } from './helpers/model-presets.js';
 
 function makeRepo(): string {
   const root = createManagedTempDir('siftkit-repo-tools-');
@@ -62,6 +64,11 @@ function makeContext(
       ? null
       : new ValidationCommandOutputPolicy(validationCommandOutputLineLimit),
     runFullOutputDecision,
+    visionEnabled: false,
+    visionImageRetention: 8,
+    visionMaxImagePixels: 0,
+    imageTokenBudget: resolveImageTokenBudget(makeTestPreset()),
+    liveImagePathKeys: new Set<string>(),
   };
 }
 

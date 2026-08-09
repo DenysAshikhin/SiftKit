@@ -123,6 +123,7 @@ test('repo-search streams per-turn progress to stderr only with --progress', asy
       res.end(JSON.stringify({ ok: true }));
       return;
     }
+
     if (req.method === 'POST' && req.url === '/repo-search') {
       req.resume();
       req.on('end', () => writeMockRepoSearchResponse(res));
@@ -220,7 +221,6 @@ test('repo-search CLI collapses exact repeated final output blocks', async () =>
       res.end(JSON.stringify({ ok: true }));
       return;
     }
-
     if (req.method === 'POST' && req.url === '/repo-search') {
       req.resume();
       req.on('end', () => writeMockRepoSearchResponse(res, duplicatedOutput));

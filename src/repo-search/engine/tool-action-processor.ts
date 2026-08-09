@@ -1,4 +1,5 @@
 import { isReadExpansionEnabled, type SiftConfig } from '../../config/index.js';
+import type { ImageMetadata, ImageTokenBudget } from '@siftkit/contracts';
 import { getRepoSearchLineReadStats } from '../../line-read-guidance.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
 import {
@@ -39,6 +40,7 @@ import type { ApprovalRequester } from './approval-gate.js';
 import { buildDuplicateFingerprint, DuplicateTracker } from './duplicate-tracker.js';
 import { FORCED_FINISH_MAX_ATTEMPTS, FORCED_FINISH_MODE_MESSAGE, ForcedFinishController } from './forced-finish.js';
 import { ActivitySummaryCollector } from './activity-summary-collector.js';
+import { ImageRetentionPolicy } from '../../image-retention-policy.js';
 import { ProgressReporter } from './progress-reporter.js';
 import { ReadWindowGovernor } from './read-window-governor.js';
 import {
@@ -65,6 +67,8 @@ type ToolActionOutcome = 'next' | 'stop_batch';
 
 type TurnBatchState = {
   batchOutcomes: ToolBatchOutcome[];
+  /** One entry per tool result that produced an image, in batch order. */
+  pendingToolImages: Array<{ outcomeIndex: number; dataUrl: string; pathKey: string; metadata: ImageMetadata }>;
   pendingModeChangeUserMessages: string[];
   pendingForcedFinishCountdownText: string | null;
   batchDuplicateAnchorIndex: number | null;
@@ -159,6 +163,11 @@ export type ToolActionProcessorDeps = {
   successfulToolCalls: Array<{ toolName: string; promptResultText: string }>;
   commands: TaskCommand[];
   counters: LoopCounters;
+  visionEnabled: boolean;
+  visionImageRetention: number;
+  visionMaxImagePixels: number;
+  imageTokenBudget: ImageTokenBudget;
+  liveImagePathKeys: Set<string>;
 };
 
 export class ToolActionProcessor {
@@ -184,6 +193,7 @@ export class ToolActionProcessor {
     const { transcript, duplicates, counters } = this.deps;
     const state: TurnBatchState = {
       batchOutcomes: [],
+      pendingToolImages: [],
       pendingModeChangeUserMessages: [],
       pendingForcedFinishCountdownText: null,
       batchDuplicateAnchorIndex: null,
@@ -217,6 +227,18 @@ export class ToolActionProcessor {
     appendSpan?.end({ afterMessageCount: transcript.length });
     if (state.batchDuplicateAnchorIndex !== null && state.batchOutcomes.length > 0) {
       duplicates.setReplayToolMessageIndex(preAppendMessagesLength + 1 + state.batchDuplicateAnchorIndex, transcript.generation);
+    }
+    for (const pending of [...state.pendingToolImages].reverse()) {
+      transcript.insertUserAfter(
+        preAppendMessagesLength + 1 + pending.outcomeIndex,
+        `image ${pending.pathKey} — ${pending.metadata.width}×${pending.metadata.height}`,
+        [pending.dataUrl],
+        pending.pathKey,
+      );
+      this.deps.liveImagePathKeys.add(pending.pathKey);
+    }
+    for (const droppedPathKey of new ImageRetentionPolicy(this.deps.visionImageRetention).prune(transcript.getMessages())) {
+      this.deps.liveImagePathKeys.delete(droppedPathKey);
     }
     for (const userMessage of state.pendingModeChangeUserMessages) {
       transcript.pushUser(userMessage);
@@ -645,6 +667,11 @@ export class ToolActionProcessor {
       agentRunId: this.deps.task.id,
       validationCommandOutputPolicy: this.validationCommandOutputPolicy,
       runFullOutputDecision,
+      visionEnabled: this.deps.visionEnabled,
+      visionImageRetention: this.deps.visionImageRetention,
+      visionMaxImagePixels: this.deps.visionMaxImagePixels,
+      imageTokenBudget: this.deps.imageTokenBudget,
+      liveImagePathKeys: this.deps.liveImagePathKeys,
     });
   }
 
@@ -896,7 +923,7 @@ export class ToolActionProcessor {
   ): Promise<ToolActionOutcome> {
     const {
       toolAction, normalizedToolName, isNativeTool, fingerprint, normalizedKey,
-      requestedCommand, executed, baseOutput, progressToolCallId,
+      requestedCommand, executed, baseOutput, progressToolCallId, nativeExecution,
     } = context;
     const { commands, duplicates, progress, recentEvidenceKeys, successfulToolCalls, tokenUsage, toolStats } = this.deps;
 
@@ -955,6 +982,12 @@ export class ToolActionProcessor {
     });
     tokenUsage.addToolTokens(resultTokenCount);
 
+    const imageDataUrls = nativeExecution && nativeExecution.ok && nativeExecution.imageDataUrl
+      ? [nativeExecution.imageDataUrl]
+      : undefined;
+    const imageMeta = nativeExecution && nativeExecution.ok && nativeExecution.imageMetadata
+      ? [nativeExecution.imageMetadata]
+      : undefined;
     commands.push({
       command: commandToRun,
       turn,
@@ -964,6 +997,8 @@ export class ToolActionProcessor {
       exitCode: executed.exitCode,
       output: commandOutputText,
       promptOutput: resultText,
+      ...(imageDataUrls ? { imageDataUrls } : {}),
+      ...(imageMeta ? { imageMeta } : {}),
       outputTokens: resultTokenCount,
       outputTokensEstimated: resultTokenCountEstimated,
     });
@@ -983,6 +1018,15 @@ export class ToolActionProcessor {
       toolCallId,
       toolContent: resultText,
     });
+    if (commandSucceeded && nativeExecution && nativeExecution.ok
+      && nativeExecution.imageDataUrl && nativeExecution.imagePathKey && nativeExecution.imageMetadata) {
+      state.pendingToolImages.push({
+        outcomeIndex: state.batchOutcomes.length - 1,
+        dataUrl: nativeExecution.imageDataUrl,
+        pathKey: nativeExecution.imagePathKey,
+        metadata: nativeExecution.imageMetadata,
+      });
+    }
     state.acceptedToolPromptTokensThisTurn += Math.max(0, Math.ceil(resultTokenCount));
     return 'next';
   }

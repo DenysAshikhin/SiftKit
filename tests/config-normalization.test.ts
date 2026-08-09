@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { ModelPresetFieldSchema, ModelRuntimePresetSchema } from '@siftkit/contracts';
 import { getDefaultConfig, normalizeConfig, normalizeWebSearchConfig } from '../src/status-server/config-store';
 import { isReadExpansionEnabled } from '../src/config/index';
 import { SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM, SIFT_DEFAULT_LLAMA_CACHE_RAM } from '../src/config/constants';
 import { JsonValueSchema, type JsonObject } from '../src/lib/json-types';
 import type { SiftConfig, ModelRuntimePreset } from '../src/config/types';
 import { asObject, asObjectArray } from './helpers/dashboard-http';
+import { makeTestPreset } from './helpers/model-presets';
 
 test('normalizeWebSearchConfig produces provider defaults and clamps ResultCount to 20', () => {
   const normalized = normalizeWebSearchConfig({ ResultCount: 999, Providers: { tavily: { Enabled: true, ApiKey: '  abc  ' } } });
@@ -343,4 +345,61 @@ test('VisionEnabled defaults to false and schema accepts true', () => {
   activePresetObject(config).VisionEnabled = 1;
   const truthy = activePreset(normalizeConfig(JsonValueSchema.parse(config)));
   assert.equal(truthy.VisionEnabled, true);
+});
+
+test('VisionImageRetention defaults to 8 when omitted from a persisted preset', () => {
+  const config = defaultConfigObject();
+  delete activePresetObject(config).VisionImageRetention;
+
+  const normalized = activePreset(normalizeConfig(JsonValueSchema.parse(config)));
+  assert.equal(normalized.VisionImageRetention, 8);
+});
+
+test('VisionImageRetention is a recognised model preset field', () => {
+  assert.equal(ModelPresetFieldSchema.safeParse('VisionImageRetention').success, true);
+});
+
+test('VisionImageRetention accepts -1 for unbounded and 0 for disabled', () => {
+  for (const value of [-1, 0, 8, 32]) {
+    assert.equal(
+      ModelRuntimePresetSchema.safeParse({ ...makeTestPreset(), VisionImageRetention: value }).success,
+      true,
+      String(value),
+    );
+  }
+});
+
+test('normalizeConfig defaults invalid VisionImageRetention values and preserves valid values', () => {
+  const cases = [
+    { value: -2, expected: 8 },
+    { value: 1.5, expected: 8 },
+    { value: 'invalid', expected: 8 },
+    { value: -1, expected: -1 },
+    { value: 0, expected: 0 },
+    { value: 1, expected: 1 },
+    { value: 32, expected: 32 },
+  ] as const;
+
+  for (const { value, expected } of cases) {
+    const config = defaultConfigObject();
+    activePresetObject(config).VisionImageRetention = value;
+    const normalized = activePreset(normalizeConfig(JsonValueSchema.parse(config)));
+    assert.equal(normalized.VisionImageRetention, expected, `VisionImageRetention=${JSON.stringify(value)}`);
+  }
+});
+
+test('VisionMaxImagePixels defaults to 0, meaning no user cap', () => {
+  const [preset] = getDefaultConfig().Server.ModelPresets.Presets;
+  assert.equal(preset.VisionMaxImagePixels, 0);
+});
+
+test('VisionMaxImagePixels is a recognised model preset field', () => {
+  assert.equal(ModelPresetFieldSchema.safeParse('VisionMaxImagePixels').success, true);
+});
+
+test('VisionMaxImagePixels rejects a negative value', () => {
+  assert.equal(
+    ModelRuntimePresetSchema.safeParse({ ...makeTestPreset(), VisionMaxImagePixels: -1 }).success,
+    false,
+  );
 });

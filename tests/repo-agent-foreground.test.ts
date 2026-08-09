@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import { writeFileSync } from 'node:fs';
 import http from 'node:http';
+import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import test, { after, before } from 'node:test';
+import { ImageDataUrlSchema } from '@siftkit/contracts';
 
 import { RepoAgentStartInvocationSchema } from '../src/cli/repo-agent-args.js';
 import { runRepoAgentForegroundCli } from '../src/cli/run-repo-agent-foreground.js';
@@ -13,6 +16,9 @@ import {
 } from './_test-helpers.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { writeSseResult } from './helpers/sse-http.js';
+import { getDefaultConfigObject } from '../src/config/defaults.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { rasterBuffer } from './helpers/image-fixtures.js';
 
 class ForegroundServer {
   readonly requests: JsonObject[] = [];
@@ -51,6 +57,11 @@ class ForegroundServer {
     request: http.IncomingMessage,
     response: http.ServerResponse,
   ): Promise<void> {
+    if (request.method === 'GET' && request.url === '/config') {
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify(getDefaultConfigObject()));
+      return;
+    }
     if (request.method !== 'POST' || request.url !== '/repo-agent') {
       response.writeHead(404);
       response.end();
@@ -152,4 +163,37 @@ test('typed foreground approval requires a TTY', async () => {
     /requires a TTY/iu,
   );
   assert.equal(server.requests.length, 1);
+});
+
+test('foreground repo-agent admits a real image before sending', async () => {
+  const stdout = makeCaptureStream();
+  const stderr = makeCaptureStream();
+  const stdin = Object.assign(new PassThrough(), { isTTY: true });
+  const imageRoot = createManagedTempDir('siftkit-foreground-image-');
+  const imagePath = join(imageRoot, 'shot.png');
+  writeFileSync(imagePath, rasterBuffer('png', 1, 1));
+  const invocation = RepoAgentStartInvocationSchema.parse({
+    kind: 'start',
+    task: 'describe the image',
+    taskTokenCount: 3,
+    approval: 'auto',
+    progress: false,
+    images: [imagePath],
+  });
+
+  await runRepoAgentForegroundCli({
+    invocation,
+    stdin,
+    stdout: stdout.stream,
+    stderr: stderr.stream,
+  });
+
+  const body = server.requests[server.requests.length - 1];
+  const images = body?.images;
+  assert.ok(Array.isArray(images));
+  const image = images[0];
+  assert.equal(typeof image, 'string');
+  if (typeof image === 'string') {
+    assert.equal(ImageDataUrlSchema.safeParse(image).success, true);
+  }
 });

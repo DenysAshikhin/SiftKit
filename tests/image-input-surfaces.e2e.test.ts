@@ -22,14 +22,79 @@ import { SummaryRequestRunner } from '../src/summary/request-runner.js';
 import { executeRepoSearchRequest } from '../src/repo-search/execute.js';
 import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/repo-search/planner-protocol.js';
 import { DeadEndpointEnv } from './helpers/dead-endpoints.js';
+import { gifBufferWithSize, rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
+import { readImageDimensions } from '../src/llm-protocol/image-admission.js';
 
 const basePreset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
 if (!basePreset) throw new Error('Default model preset is missing');
 const visionOff = ModelRuntimePresetSchema.parse({ ...basePreset, Backend: 'exl3', VisionEnabled: false });
+const zeroRetention = ModelRuntimePresetSchema.parse({
+  ...basePreset,
+  Backend: 'exl3',
+  VisionEnabled: true,
+  VisionImageRetention: 0,
+});
 
 const deadEndpoints = new DeadEndpointEnv();
 before(() => { deadEndpoints.apply(); });
 after(() => { deadEndpoints.restore(); });
+
+async function withModelServer(
+  responseContent: string,
+  callback: (baseUrl: string, capturedBodies: string[]) => Promise<void>,
+): Promise<void> {
+  const capturedBodies: string[] = [];
+  const server = http.createServer((req, res) => {
+    if (req.url !== '/v1/chat/completions') {
+      req.resume();
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end('{}');
+      return;
+    }
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      capturedBodies.push(body);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{ message: { role: 'assistant', content: responseContent } }],
+        usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+      }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const port = Number(address && typeof address === 'object' ? address.port : 0);
+  try {
+    await callback(`http://127.0.0.1:${port}`, capturedBodies);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+}
+
+function imageUrlDimensions(body: string): { width: number; height: number } {
+  const imageUrl = body.match(/data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+/u)?.[0];
+  assert.ok(imageUrl);
+  const separator = imageUrl.indexOf(';base64,');
+  const mime = imageUrl.slice('data:'.length, separator);
+  const bytes = Buffer.from(imageUrl.slice(separator + ';base64,'.length), 'base64');
+  return readImageDimensions(bytes, mime);
+}
+
+function imageRuntimePreset(baseUrl: string, visionMaxImagePixels: number): typeof basePreset {
+  return ModelRuntimePresetSchema.parse({
+    ...basePreset,
+    id: 'repo-search',
+    Backend: 'exl3',
+    BaseUrl: baseUrl,
+    Model: 'test-model',
+    NumCtx: 30_000,
+    VisionEnabled: true,
+    VisionImageRetention: -1,
+    VisionMaxImagePixels: visionMaxImagePixels,
+  });
+}
 
 test('parseSummaryRequest accepts images and allows an images-only request', () => {
   const parsed = parseSummaryRequest({
@@ -125,6 +190,43 @@ test('repo-search puts the image part on the first user message it sends', async
   assert.equal(JSON.stringify(first).includes('data:image/png;base64,AAAA'), true);
 });
 
+test('executeRepoSearchRequest admits an oversized data URL before repo-search model content', async () => {
+  const oversizedUrl = `data:image/png;base64,${rasterBuffer('png', 2000, 1000).toString('base64')}`;
+  await withModelServer(
+    JSON.stringify({ action: 'finish', output: 'done' }),
+    async (baseUrl, capturedBodies) => {
+      const preset = imageRuntimePreset(baseUrl, 500_000);
+      const dir = createManagedTempDir('siftkit-admit-repo-search-');
+      try {
+        await executeRepoSearchRequest({
+          presetId: preset.id,
+          taskKind: 'repo-search',
+          prompt: 'describe the image',
+          repoRoot: dir,
+          config: mockSiftConfig({
+            Server: {
+              ModelPresets: { Presets: [preset], ActivePresetId: preset.id },
+            },
+          }),
+          model: 'test-model',
+          allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
+          availableModels: ['test-model'],
+          initialUserImages: [oversizedUrl],
+        });
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+
+      const imageBody = capturedBodies.find((body) => body.includes('"image_url"'));
+      assert.ok(imageBody);
+      assert.equal(imageBody.includes(oversizedUrl), false);
+      const dimensions = imageUrlDimensions(imageBody);
+      assert.ok(dimensions.width * dimensions.height <= 500_000);
+    },
+  );
+});
+
+
 test('repo-agent collects repeatable --image values', () => {
   const invocation = parseRepoAgentInvocation(['fix the layout', '--image', 'a.png', '--image', 'b.png']);
   assert.equal(invocation.kind, 'start');
@@ -141,7 +243,7 @@ test('repo-agent defaults images to an empty array', () => {
 test('repo-agent encodes its image paths as data URIs on the request body', () => {
   const root = createManagedTempDir('siftkit-agent-img-');
   const imagePath = join(root, 'shot.png');
-  const bytes = Buffer.from('89504e470d0a1a0a', 'hex');
+  const bytes = rasterBuffer('png', 1, 1);
   writeFileSync(imagePath, bytes);
   try {
     const request = buildRepoAgentServerRequest({
@@ -149,6 +251,7 @@ test('repo-agent encodes its image paths as data URIs on the request body', () =
       repoRoot: root,
       approval: 'auto',
       images: [imagePath],
+      preset: basePreset,
     });
     assert.deepEqual(request.images, [`data:image/png;base64,${bytes.toString('base64')}`]);
   } finally {
@@ -162,6 +265,7 @@ test('repo-agent omits images from the request body when none were given', () =>
     repoRoot: process.cwd(),
     approval: 'auto',
     images: [],
+    preset: basePreset,
   });
   assert.equal('images' in request, false);
 });
@@ -217,6 +321,71 @@ test('the summary runner refuses an image when the preset has no vision', async 
   );
 });
 
+test('the summary runner refuses an image when retention is zero', async () => {
+  const config = mockSiftConfig({
+    Server: {
+      ModelPresets: {
+        Presets: [zeroRetention],
+        ActivePresetId: zeroRetention.id,
+      },
+    },
+  });
+  await assert.rejects(
+    () => new SummaryRequestRunner({
+      repoRoot: 'C:\\repo',
+      question: 'what is this?',
+      inputText: 'sample input',
+      images: ['data:image/png;base64,AAAA'],
+      format: 'text',
+      policyProfile: 'general',
+      config,
+    }).run(),
+    /Image input is disabled for this preset \(VisionImageRetention = 0\)/u,
+  );
+});
+
+test('the summary runner keeps malformed and oversized GIF admission errors explicit', async () => {
+  const visionOn = ModelRuntimePresetSchema.parse({
+    ...basePreset,
+    Backend: 'exl3',
+    VisionEnabled: true,
+    VisionImageRetention: -1,
+    VisionMaxImagePixels: 1_000_000,
+  });
+  const config = mockSiftConfig({
+    Server: {
+      ModelPresets: {
+        Presets: [visionOn],
+        ActivePresetId: visionOn.id,
+      },
+    },
+  });
+  await assert.rejects(
+    () => new SummaryRequestRunner({
+      repoRoot: 'C:\\repo',
+      question: 'what is this?',
+      inputText: 'sample input',
+      images: ['https://example.com/image.png'],
+      format: 'text',
+      policyProfile: 'general',
+      config,
+    }).run(),
+    /supported-image/u,
+  );
+  await assert.rejects(
+    () => new SummaryRequestRunner({
+      repoRoot: 'C:\\repo',
+      question: 'what is this?',
+      inputText: 'sample input',
+      images: [toDataUrl('image/gif', gifBufferWithSize(8000, 8000))],
+      format: 'text',
+      policyProfile: 'general',
+      config,
+    }).run(),
+    /this preset accepts up to 1\.0 MP/u,
+  );
+});
+
 test('the repo-search runner refuses an image when the preset has no vision', async () => {
   const dir = createManagedTempDir('siftkit-guard-');
   try {
@@ -242,6 +411,37 @@ test('the repo-search runner refuses an image when the preset has no vision', as
         initialUserImages: ['data:image/png;base64,AAAA'],
       }),
       /Vision is not enabled/u,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the repo-search runner refuses an image when retention is zero', async () => {
+  const dir = createManagedTempDir('siftkit-guard-retention-');
+  try {
+    await assert.rejects(
+      () => executeRepoSearchRequest({
+        presetId: 'repo-search',
+        taskKind: 'repo-search',
+        prompt: 'find it',
+        repoRoot: dir,
+        config: mockSiftConfig({
+          Server: {
+            ModelPresets: {
+              Presets: [zeroRetention],
+              ActivePresetId: zeroRetention.id,
+            },
+          },
+        }),
+        model: 'mock',
+        allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
+        availableModels: ['mock'],
+        mockResponses: ['{"action":"finish","output":"done"}'],
+        mockCommandResults: {},
+        initialUserImages: ['data:image/png;base64,AAAA'],
+      }),
+      /Image input is disabled for this preset \(VisionImageRetention = 0\)/u,
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

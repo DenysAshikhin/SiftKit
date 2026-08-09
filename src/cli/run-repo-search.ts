@@ -9,6 +9,8 @@ import { formatRepoTaskOutput } from '../repo-agent/run-output.js';
 import { StatusServerApiClient } from './status-server-api-client.js';
 import { assertStdinIsTty } from './tty.js';
 import { ImageAttachmentReader } from '../llm-protocol/image-attachments.js';
+import { getActiveModelPreset, loadConfig } from '../config/index.js';
+import { resolveImageTokenBudget } from '../llm-protocol/image-token-budget.js';
 
 export async function runRepoSearchCli(options: ResolvedCliArgs & {
   stdout: NodeJS.WritableStream;
@@ -31,7 +33,16 @@ export async function runRepoSearchCli(options: ResolvedCliArgs & {
     throw new Error('A --prompt is required for repo-search.');
   }
 
-  const images = new ImageAttachmentReader().readAll(parsed.images ?? []);
+  const imagePaths = parsed.images ?? [];
+  let images: string[] = [];
+  if (imagePaths.length > 0) {
+    const config = await loadConfig({ ensure: true });
+    const preset = getActiveModelPreset(config);
+    images = new ImageAttachmentReader(
+      resolveImageTokenBudget(preset),
+      preset.VisionMaxImagePixels,
+    ).readAll(imagePaths);
+  }
   const stdin = options.stdin;
   const interactive = parsed.interactive === true;
   assertStdinIsTty(interactive, stdin, '--interactive');

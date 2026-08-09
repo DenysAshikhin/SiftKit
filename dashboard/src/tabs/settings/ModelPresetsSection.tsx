@@ -4,17 +4,16 @@ import type { ReactNode } from 'react';
 import { parseFloatInput, parseIntegerInput } from '../../lib/format';
 import {
   getExl3CacheModes,
-  getPresetFieldAvailability,
 } from '../../../../src/inference-presets/preset-compatibility.js';
 import { getInferenceRuntimeStatus } from '../../api';
 import { summarizeModelPresetGroup, type ModelPresetGroupId } from './model-preset-groups';
 import { SettingsSectionField } from '../../settings/SettingsFields';
-import type { InferenceRuntimeStatus } from '@siftkit/contracts';
+import { VisionPresetControls, ModelPresetControl } from './VisionPresetControls.js';
+import type { InferenceRuntimeDashboardStatus } from '@siftkit/contracts';
 import type {
   DashboardConfig,
   DashboardModelRuntimePreset,
   DashboardManagedLlamaSpeculativeType,
-  ModelPresetField,
 } from '../../types';
 import type { ModelPresetSettingsActions } from '../../settings-action-groups';
 import {
@@ -67,33 +66,6 @@ function isNgramSpeculativeType(type: DashboardManagedLlamaSpeculativeType): boo
   return type.startsWith('ngram-');
 }
 
-/**
- * Renders one preset field with its backend compatibility already applied: fields the active
- * backend cannot use at all are omitted, and fields it can use only through a SiftKit-managed
- * engine stay visible but disabled with the reason. Both come from `getPresetFieldAvailability`,
- * so the form never carries its own copy of which field belongs to which backend.
- */
-function ModelPresetControl({ preset, field, label, className, children }: {
-  preset: DashboardModelRuntimePreset;
-  field: ModelPresetField;
-  label: string;
-  className?: string;
-  children: ReactNode;
-}) {
-  const availability = getPresetFieldAvailability(preset, field);
-  if (!availability.visible) {
-    return null;
-  }
-  return (
-    <SettingsSectionField sectionId="model-presets" label={label} className={className}>
-      <div className="settings-live-stack">
-        <fieldset className="settings-compatibility-control" disabled={!availability.enabled}>{children}</fieldset>
-        {availability.reason ? <span className="hint">{availability.reason}</span> : null}
-      </div>
-    </SettingsSectionField>
-  );
-}
-
 function ModelPresetGroup({ id, open, summary, onToggle, children }: {
   id: ModelPresetGroupId;
   open: boolean;
@@ -120,7 +92,7 @@ export function ModelPresetsSection({
   settingsPathPickerBusyTarget,
   modelPresetActions,
 }: ModelPresetsSectionProps) {
-  const [runtimeStatus, setRuntimeStatus] = React.useState<InferenceRuntimeStatus | null>(null);
+  const [runtimeStatus, setRuntimeStatus] = React.useState<InferenceRuntimeDashboardStatus | null>(null);
   const [openGroups, setOpenGroups] = React.useState<Record<ModelPresetGroupId, boolean>>({
     'identity-launch': true,
     'memory-compute': false,
@@ -491,12 +463,12 @@ export function ModelPresetsSection({
               <span>{preset.VerboseLogging ? 'Enabled' : 'Disabled'}</span>
             </label>
           </ModelPresetControl>
-          <ModelPresetControl preset={preset} field="VisionEnabled" label="Vision enabled">
-            <label className="settings-live-toggle-control">
-              <input type="checkbox" checked={preset.VisionEnabled} onChange={(event) => modelPresetActions.setBoolean('VisionEnabled', event.target.checked)} />
-              <span>{preset.VisionEnabled ? 'Enabled' : 'Disabled'}</span>
-            </label>
-          </ModelPresetControl>
+          <VisionPresetControls
+            preset={preset}
+            modelPresetActions={modelPresetActions}
+            imageTokenBudget={runtimeStatus?.imageTokenBudget ?? null}
+            gpuFreeBytes={runtimeStatus?.gpuFreeBytes ?? null}
+          />
         </>
       ))}
       <div className="cond-note">Runtime changes take effect on Save settings → backend restart.</div>

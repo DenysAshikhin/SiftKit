@@ -247,13 +247,16 @@ test('buildContextUsage uses the resolved active-model context', () => {
   preset.Backend = 'exl3';
   preset.Model = 'active-model';
   preset.NumCtx = 150_000;
+  preset.VisionMaxImagePixels = 500_000;
 
-  assert.equal(buildContextUsage(config, mockChatSession({
+  const usage = buildContextUsage(config, mockChatSession({
     id: 'usage',
     modelPresetId: 'default',
     modelPreset: mockModelPreset({ id: 'default', Model: 'stale-model', NumCtx: 30_000 }),
     messages: [],
-  })).contextWindowTokens, 150_000);
+  }));
+  assert.equal(usage.contextWindowTokens, 150_000);
+  assert.equal(usage.effectiveImagePixelCeiling, 500_000);
 });
 
 

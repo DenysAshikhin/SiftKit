@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { getLlamaCppProviderStatus } from '../src/providers/llama-cpp.js';
+import { getLlamaCppProviderStatus, generateLlamaCppChatResponse } from '../src/providers/llama-cpp.js';
 import { z } from '../src/lib/zod.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { asObject } from './helpers/dashboard-http.js';
@@ -107,6 +107,26 @@ test('llama.cpp provider lists models and parses chat completions from the stub 
         speculativeAcceptedTokens: null,
         speculativeGeneratedTokens: null,
       });
+    });
+  });
+});
+
+test('llama.cpp provider preserves image_url parts in the protocol payload', async () => {
+  await withTempEnv(async () => {
+    await withStubServer(async (server) => {
+      const config = await loadConfig({ ensure: true });
+      await generateLlamaCppChatResponse({
+        config,
+        model: config.Server.ModelPresets.Presets[0].Model ?? '',
+        messages: [{
+          role: 'user',
+          content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,admitted' } }],
+        }],
+        timeoutSeconds: 5,
+      });
+
+      const payload = JSON.stringify(server.state.chatRequests[0] ?? {});
+      assert.match(payload, /"image_url":\{"url":"data:image\/png;base64,admitted"\}/u);
     });
   });
 });

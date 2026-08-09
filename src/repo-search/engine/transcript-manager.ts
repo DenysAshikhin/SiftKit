@@ -7,10 +7,11 @@ import {
   type ToolTranscriptAction,
 } from '../../tool-call-messages.js';
 import { ThinkingRetentionPolicy } from '../../thinking-retention-policy.js';
-import { buildUserContent } from '../../llm-protocol/image-attachments.js';
+import { buildUserContent, countContentImages } from '../../llm-protocol/image-attachments.js';
 
 export class TranscriptManager {
   private readonly messages: ChatMessage[];
+  private readonly liveImagePathKeys: Set<string>;
   private lastLoggedMessageCount = 0;
   private generationCounter = 0;
 
@@ -24,7 +25,9 @@ export class TranscriptManager {
     historyMessages: ChatMessage[];
     initialUserContent: string;
     initialUserImages: readonly string[];
+    liveImagePathKeys: Set<string>;
   }) {
+    this.liveImagePathKeys = options.liveImagePathKeys;
     this.messages = [
       { role: 'system', content: options.systemPromptContent },
       ...options.historyMessages,
@@ -56,6 +59,23 @@ export class TranscriptManager {
     this.messages.splice(0, this.messages.length, ...compactedMessages);
     this.lastLoggedMessageCount = 0;
     this.generationCounter += 1;
+    this.releaseDroppedImageGuards();
+  }
+
+  /**
+   * Compaction that drops an image message must release its re-read guard, or the model is
+   * stranded referring to an image it can no longer see and cannot re-read.
+   */
+  private releaseDroppedImageGuards(): void {
+    const survivingPathKeys = new Set<string>();
+    for (const message of this.messages) {
+      if (!Array.isArray(message.content)) continue;
+      if (countContentImages(message.content) === 0) continue;
+      if (message.imagePathKey !== undefined) survivingPathKeys.add(message.imagePathKey);
+    }
+    for (const pathKey of [...this.liveImagePathKeys]) {
+      if (!survivingPathKeys.has(pathKey)) this.liveImagePathKeys.delete(pathKey);
+    }
   }
 
   takeNewMessagesForLogging(): ChatMessage[] {
@@ -82,8 +102,20 @@ export class TranscriptManager {
     new ThinkingRetentionPolicy(maintainPerStepThinking).prunePlannerMessages(this.messages);
   }
 
-  pushUser(content: string): void {
-    this.messages.push({ role: 'user', content });
+  pushUser(content: string, images: readonly string[] = [], imagePathKey?: string): void {
+    this.messages.push({
+      role: 'user',
+      content: buildUserContent(content, images),
+      ...(imagePathKey === undefined ? {} : { imagePathKey }),
+    });
+  }
+
+  insertUserAfter(index: number, content: string, images: readonly string[], imagePathKey?: string): void {
+    this.messages.splice(index + 1, 0, {
+      role: 'user',
+      content: buildUserContent(content, images),
+      ...(imagePathKey === undefined ? {} : { imagePathKey }),
+    });
   }
 
   replaceToolMessage(index: number, content: string): void {

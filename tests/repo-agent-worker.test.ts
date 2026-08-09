@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import test, { after, before } from 'node:test';
+import { ImageDataUrlSchema } from '@siftkit/contracts';
 
 import { CliProgressRenderer } from '../src/cli/progress-renderer.js';
 import { StatusServerApiClient } from '../src/cli/status-server-api-client.js';
@@ -20,9 +21,13 @@ import { RepoAgentRunStore } from '../src/repo-agent/run-store.js';
 import { runRepoAgentWorkerMain } from '../src/repo-agent/worker-main.js';
 import { RepoAgentWorker } from '../src/repo-agent/worker.js';
 import type { RepoSearchExecutionResult } from '../src/repo-search/types.js';
+import { getDefaultConfigObject } from '../src/config/defaults.js';
+import { parseJsonValueText } from '../src/lib/json.js';
 import { buildMockScorecard } from './_test-helpers.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { writeSseResult } from './helpers/sse-http.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { rasterBuffer } from './helpers/image-fixtures.js';
 
 const TEMP_ROOT = join(
   process.cwd(),
@@ -42,6 +47,7 @@ type WorkerHarnessOptions = {
   finalOutput?: string;
   includeOptionalRequestFields?: boolean;
   idleTimeoutMs?: number;
+  images?: string[];
 };
 
 before(() => {
@@ -145,7 +151,7 @@ class WorkerMockServer {
       return;
     }
     if (request.method === 'GET' && request.url === '/config') {
-      this.writeJson(response, { Version: '0.1.0' });
+      this.writeJson(response, asObject(parseJsonValueText(JSON.stringify(getDefaultConfigObject()))));
       return;
     }
     if (request.method === 'POST' && request.url === '/repo-agent') {
@@ -277,6 +283,7 @@ class WorkerTestHarness {
             logFile: join(runsRoot, 'worker.log'),
           }
         : {}),
+      images: options.images ?? [],
     });
     const server = new WorkerMockServer(
       options.scenario,
@@ -372,6 +379,29 @@ test('forwards exact stored request to /repo-agent endpoint', async () => {
       model: harness.request.model,
       logFile: harness.request.logFile,
     });
+  } finally {
+    await harness.close();
+  }
+});
+
+test('worker admits a real image before sending', async () => {
+  const imageRoot = createManagedTempDir('siftkit-worker-image-');
+  const imagePath = join(imageRoot, 'shot.png');
+  writeFileSync(imagePath, rasterBuffer('png', 1, 1));
+  const harness = await WorkerTestHarness.create({
+    scenario: 'complete',
+    images: [imagePath],
+  });
+  try {
+    await harness.worker.run(harness.request.runId);
+    const body = harness.server.receivedBodies[0];
+    const images = body?.images;
+    assert.ok(Array.isArray(images));
+    const image = images[0];
+    assert.equal(typeof image, 'string');
+    if (typeof image === 'string') {
+      assert.equal(ImageDataUrlSchema.safeParse(image).success, true);
+    }
   } finally {
     await harness.close();
   }

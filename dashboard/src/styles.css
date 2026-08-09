@@ -4,3 +4,39 @@
 @import "./styles/metrics.css";
 @import "./styles/chat.css";
 @import "./styles/runs.css";
+
+.pending-images { display: flex; gap: 6px; overflow-x: auto; padding: 6px 0; }
+.pending-image { position: relative; flex: 0 0 auto; }
+.pending-image img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; display: block; }
+.pending-image-remove {
+  position: absolute; top: -6px; right: -6px; width: 18px; height: 18px;
+  border-radius: 50%; border: none; line-height: 1; cursor: pointer;
+  opacity: 0; transition: opacity 120ms ease;
+}
+/* Shown on hover AND on keyboard focus, never hover-only, so it stays reachable. */
+.pending-image:hover .pending-image-remove,
+.pending-image-remove:focus-visible { opacity: 1; }
+.pending-image-badge {
+  position: absolute; bottom: 2px; left: 2px; font-size: 9px;
+  padding: 0 3px; border-radius: 3px; background: rgba(0, 0, 0, 0.6); color: #fff;
+}
+
+.message-images { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.message-image { margin: 0; }
+.message-image img { max-width: 100%; max-height: 420px; border-radius: 8px; display: block; }
+.message-image summary { cursor: pointer; font-size: 11px; opacity: 0.7; }
+.image-caption-note { font-size: 11px; opacity: 0.6; font-style: italic; }
+.image-caption { font-size: 12px; white-space: pre-wrap; }
+.image-caption-error { font-size: 12px; color: var(--err, #d55); }
+
+.settings-inline-readout { display: flex; align-items: center; gap: 8px; }
+.settings-inline-readout input { width: 6em; }
+.settings-inline-readout .unit { font-size: 11px; opacity: 0.6; }
+.settings-inline-readout .vram-estimate { font-size: 11px; opacity: 0.85; white-space: nowrap; }
+.field-reference summary { cursor: pointer; font-size: 11px; opacity: 0.7; }
+.field-reference table { font-size: 11px; border-collapse: collapse; margin-top: 4px; }
+.field-reference td { padding: 1px 10px 1px 0; white-space: nowrap; }
+.field-reference tr.downscaled { opacity: 0.55; }
+.field-reference tr.fits td:last-child { color: var(--ok, #4a8); }
+.field-hint.headroom.warning { color: var(--warn, #c93); opacity: 1; }
+.field-hint.headroom.error { color: var(--err, #d55); opacity: 1; }

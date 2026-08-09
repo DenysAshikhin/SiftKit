@@ -33,7 +33,8 @@ interface RestartResponse {
 const StartupFailureResponseSchema = z.object({
   ok: z.boolean(),
   restarted: z.boolean(),
-  startupFailure: z.object({ kind: z.string(), requiredMiB: z.number(), availableMiB: z.number() }),
+  error: z.string().optional(),
+  startupFailure: z.object({ kind: z.string(), requiredMiB: z.number().nullable(), availableMiB: z.number().nullable() }),
 }).passthrough();
 
 interface ManagedInvocationLog {
@@ -246,6 +247,80 @@ test('real status server backend restart endpoint returns structured GPU OOM det
       assert.equal(restartResponse.body.startupFailure.kind, 'gpu_memory_oom');
       assert.equal(restartResponse.body.startupFailure.requiredMiB, 25293);
       assert.equal(restartResponse.body.startupFailure.availableMiB, 22842);
+    }, {
+      statusPath: runtimeDbPath,
+      configPath: runtimeDbPath,
+    });
+  });
+});
+
+test('real status server startup OOM guidance uses unknown instead of literal null when memory metrics are absent', async () => {
+  await withTempEnv(async (tempRoot) => {
+    const runtimeDbPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
+    const llamaPort = await getFreePort();
+    const managed = writeManagedLlamaLauncher(tempRoot, llamaPort, 'managed-test-model', {
+      llamaLogLine: 'torch.cuda.OutOfMemoryError: CUDA out of memory.',
+      exitAfterLog: true,
+      exitCode: 7,
+    });
+    const config = getDefaultConfig();
+    const defaultPreset = config.Server.ModelPresets.Presets[0];
+
+    setManagedLlamaBaseUrl(config, managed.baseUrl);
+    config.Server = {
+      ModelPresets: {
+        ActivePresetId: 'default',
+        Presets: [{
+          ...defaultPreset,
+          id: 'default',
+          label: 'Default',
+          ExecutablePath: managed.executablePath,
+          BaseUrl: managed.baseUrl,
+          BindHost: '127.0.0.1',
+          Port: llamaPort,
+          ModelPath: managed.modelPath,
+          NumCtx: 150000,
+          GpuLayers: 999,
+          Threads: 2,
+          FlashAttention: true,
+          ParallelSlots: 1,
+          BatchSize: 512,
+          UBatchSize: 512,
+          CacheRam: 8192,
+          KvCacheQuantization: 'f16',
+          MaxTokens: 15000,
+          Temperature: 0.6,
+          TopP: 0.95,
+          TopK: 20,
+          MinP: 0,
+          PresencePenalty: 0,
+          RepetitionPenalty: 1,
+          Reasoning: 'on',
+          ReasoningBudget: 10000,
+          ReasoningBudgetMessage: 'Thinking budget exhausted. You have to provide the answer now.',
+          StartupTimeoutMs: 5000,
+          HealthcheckTimeoutMs: 100,
+          HealthcheckIntervalMs: 10,
+          VerboseLogging: false,
+        }],
+      },
+      Engines: config.Server.Engines,
+    };
+    writeConfig(runtimeDbPath, config);
+
+    await withRealStatusServer(async ({ statusUrl }) => {
+      const restartResponse = await requestJsonAllowError(new URL('/status/restart', statusUrl).toString(), StartupFailureResponseSchema, {
+        method: 'POST',
+      });
+
+      assert.equal(restartResponse.statusCode, 503);
+      assert.equal(restartResponse.body.ok, false);
+      assert.equal(restartResponse.body.restarted, false);
+      assert.equal(restartResponse.body.startupFailure.kind, 'gpu_memory_oom');
+      assert.equal(restartResponse.body.startupFailure.requiredMiB, null);
+      assert.equal(restartResponse.body.startupFailure.availableMiB, null);
+      assert.match(restartResponse.body.error ?? '', /unknown MiB/u);
+      assert.doesNotMatch(restartResponse.body.error ?? '', /null MiB/u);
     }, {
       statusPath: runtimeDbPath,
       configPath: runtimeDbPath,

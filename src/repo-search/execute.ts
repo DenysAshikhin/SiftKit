@@ -1,7 +1,7 @@
 import { resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { REPO_AGENT_DEFAULT_MAX_TURNS } from '@siftkit/contracts';
-import { getActiveInferenceBackend, loadConfig, notifyStatusBackend } from '../config/index.js';
+import { getActiveModelPreset, loadConfig, notifyStatusBackend } from '../config/index.js';
 import type { InferenceBackendId } from '../config/types.js';
 import type { TokenCountSource } from './prompt-budget.js';
 import type { NotifyStatusBackendOptions } from '../config/status-backend.js';
@@ -38,8 +38,7 @@ import type {
 import { PresetSystemContextBuilder } from '../preset-system-context.js';
 import { PresetSystemPromptComposer } from '../preset-system-prompt.js';
 import { PresetCatalog } from '../preset-catalog.js';
-import { assertPresetAcceptsImages } from '../llm-protocol/image-attachments.js';
-import { getActiveModelPreset } from '../config/index.js';
+import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js';
 
 export type RepoSearchPreflightSummary = {
   turn: number;
@@ -291,10 +290,9 @@ export async function executeRepoSearchRequest(
     : request.taskKind === 'chat'
       ? 'chat'
       : 'repo-search';
-  const basePrompt = String(request.prompt || '').trim();
-  const prompt = basePrompt;
-  if (!prompt) {
-    throw new Error('A --prompt is required for repo-search.');
+  const prompt = String(request.prompt || '').trim();
+  if (!prompt && (request.initialUserImages ?? []).length === 0) {
+    throw new Error('A prompt or an image is required.');
   }
 
   const requestedStartedAtMs = Date.parse(String(request.startedAtUtc || ''));
@@ -359,8 +357,11 @@ export async function executeRepoSearchRequest(
 
   try {
     const config = request.config ?? await loadConfig({ ensure: true });
-    activeBackend = getActiveInferenceBackend(config);
-    assertPresetAcceptsImages(getActiveModelPreset(config), request.initialUserImages ?? []);
+    const activeVisionPreset = getActiveModelPreset(config);
+    activeBackend = activeVisionPreset.Backend;
+    const requestedImages = request.initialUserImages ?? [];
+    const admittedImages = admitImagesForPreset(activeVisionPreset, requestedImages)
+      .map((image) => image.dataUrl);
     const preset = PresetCatalog.fromPresets(config.Presets).requireById(request.presetId);
     const systemContext = new PresetSystemContextBuilder(repoRoot).build(preset);
     const progressWriter = new RepoSearchLifecycleWriter(
@@ -405,7 +406,7 @@ export async function executeRepoSearchRequest(
       mockResponses: request.mockResponses,
       mockCommandResults: request.mockCommandResults,
       retainedWebToolCalls: request.retainedWebToolCalls,
-      initialUserImages: request.initialUserImages,
+      initialUserImages: admittedImages,
       abortSignal: request.abortSignal,
       timingRecorder,
       progressWriter,

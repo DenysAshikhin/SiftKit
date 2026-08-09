@@ -22,6 +22,7 @@ import {
 } from '../providers/structured-output-schema.js';
 import { lowerResponseFormatForBackend } from '../providers/formatron-schema-lowering.js';
 import { getFirstCommandToken } from './command-safety.js';
+import { getSupportedImageExtensions } from '../llm-protocol/image-attachments.js';
 import type { JsonLogger } from './types.js';
 
 export type PlannerActionResponse = {
@@ -69,6 +70,8 @@ export type FinishValidationResult = {
 export type ChatMessage = {
   role: LlamaCppChatRole;
   content?: string | LlamaCppContentPart[];
+  /** Internal repository-image identity; omitted by toProtocolChatMessages. */
+  imagePathKey?: string;
   reasoning_content?: string;
   tool_calls?: Array<{
     id: string;
@@ -77,6 +80,19 @@ export type ChatMessage = {
   }>;
   tool_call_id?: string;
 };
+
+const TEXT_ONLY_READ_DESCRIPTION = 'Read the contents of a repository file. Lines are returned numbered. Use offset/limit for large files; when you need the full file, continue with offset until complete. Lines already returned in this task are skipped automatically, and a read whose whole range was already returned is rejected. Editing or writing a file clears that history, so you can read it again to see your change.';
+
+/**
+ * Generated from IMAGE_MIME_MAP rather than hardcoded, so adding a format cannot leave the
+ * prompt stale.
+ */
+function buildVisionReadDescription(textOnlyDescription: string): string {
+  const extensions = getSupportedImageExtensions().map((extension) => `\`${extension}\``);
+  const formatList = `${extensions.slice(0, -1).join(', ')} or ${extensions[extensions.length - 1]}`;
+  return `${textOnlyDescription} Images are supported: reading a ${formatList} file returns the `
+    + 'picture itself for you to look at, not its bytes. `offset` and `limit` do not apply to images.';
+}
 
 // The tool surface mirrors pi.dev: read, write, edit, run, grep, find, ls — plus `git` (the only
 // command-string tool) and the two web tools. `write`, `edit` and `run` are implemented and tested
@@ -87,7 +103,7 @@ const REPO_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
     type: 'function',
     function: {
       name: 'read',
-      description: 'Read the contents of a repository file. Lines are returned numbered. Use offset/limit for large files; when you need the full file, continue with offset until complete. Lines already returned in this task are skipped automatically, and a read whose whole range was already returned is rejected. Editing or writing a file clears that history, so you can read it again to see your change.',
+      description: TEXT_ONLY_READ_DESCRIPTION,
       parameters: {
         type: 'object',
         properties: {
@@ -351,6 +367,7 @@ export function getRepoSearchToolNameForCommand(command: string): string | null 
 
 export function resolveRepoSearchPlannerToolDefinitions(
   allowedToolNames?: readonly string[],
+  visionEnabled = false,
 ): StructuredOutputToolDefinition[] {
   const requested = Array.isArray(allowedToolNames)
     ? allowedToolNames.map(normalizeToolName)
@@ -362,7 +379,16 @@ export function resolveRepoSearchPlannerToolDefinitions(
       continue;
     }
     seen.add(toolName);
-    definitions.push(REPO_TOOL_REGISTRY[toolName]);
+    const definition = REPO_TOOL_REGISTRY[toolName];
+    definitions.push(visionEnabled && toolName === 'read'
+      ? {
+        ...definition,
+        function: {
+          ...definition.function,
+          description: buildVisionReadDescription(definition.function.description ?? TEXT_ONLY_READ_DESCRIPTION),
+        },
+      }
+      : definition);
   }
   return definitions;
 }

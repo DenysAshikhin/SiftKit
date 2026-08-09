@@ -4,10 +4,52 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { runCli } from '../src/cli/index.js';
+import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { parseJsonValueText } from '../src/lib/json.js';
+import { writeConfig } from '../src/status-server/config-store.js';
 import { makeCaptureStream, withTestEnvAndServer } from './_test-helpers.js';
+import { withRealStatusServer, withTempEnv } from './_runtime-helpers.js';
 import { asObject, asObjectArray } from './helpers/dashboard-http.js';
+import { rasterBuffer } from './helpers/image-fixtures.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+
+const IMAGE_RETENTION_ZERO_ERROR = 'Image input is disabled for this preset (VisionImageRetention = 0)';
+
+async function runImageCliWithZeroRetention(
+  command: 'summary' | 'repo-search',
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  return withTempEnv(async (tempRoot) => {
+    const configPath = path.join(tempRoot, '.siftkit', 'runtime.sqlite');
+    const statusPath = path.join(tempRoot, '.siftkit', 'status', 'inference.txt');
+    const imagePath = path.join(tempRoot, 'screenshot.png');
+    fs.writeFileSync(imagePath, rasterBuffer('png', 1, 1));
+
+    const config = getDefaultConfigObject();
+    const activePreset = config.Server.ModelPresets.Presets[0];
+    if (!activePreset) throw new Error('Default model preset is missing');
+    activePreset.Backend = 'exl3';
+    activePreset.VisionEnabled = true;
+    activePreset.VisionImageRetention = 0;
+    config.Server.ModelPresets.ActivePresetId = activePreset.id;
+    writeConfig(configPath, config);
+
+    return await withRealStatusServer(async ({ statusUrl, configUrl }) => {
+      process.env.SIFTKIT_STATUS_BACKEND_URL = statusUrl;
+      process.env.SIFTKIT_CONFIG_SERVICE_URL = configUrl;
+      const stdout = makeCaptureStream();
+      const stderr = makeCaptureStream();
+      const argv = command === 'summary'
+        ? ['summary', '--question', 'What is shown?', '--text', 'Sample input', '--image', imagePath]
+        : ['repo-search', '--prompt', 'Find it', '--image', imagePath];
+      const exitCode = await runCli({ argv, stdout: stdout.stream, stderr: stderr.stream });
+      return { exitCode, stdout: stdout.read(), stderr: stderr.read() };
+    }, {
+      statusPath,
+      configPath,
+      disableManagedLlamaStartup: true,
+    });
+  });
+}
 
 function toUtf16BeBuffer(text: string, withBom = true): Buffer {
   const le = Buffer.from(text, 'utf16le');
@@ -225,6 +267,12 @@ test('summary command with just a positional question uses stdin text', async ()
   });
 });
 
+test('summary command rejects --image when active preset retention is zero', async () => {
+  const result = await runImageCliWithZeroRetention('summary');
+  assert.notEqual(result.exitCode, 0);
+  assert.equal(result.stderr.trim(), IMAGE_RETENTION_ZERO_ERROR);
+});
+
 test('--prompt shortcut triggers repo-search', async () => {
   await withTestEnvAndServer(async () => {
     const stdout = makeCaptureStream();
@@ -236,6 +284,12 @@ test('--prompt shortcut triggers repo-search', async () => {
     });
     assert.equal(typeof code, 'number');
   });
+});
+
+test('repo-search command rejects --image when active preset retention is zero', async () => {
+  const result = await runImageCliWithZeroRetention('repo-search');
+  assert.notEqual(result.exitCode, 0);
+  assert.equal(result.stderr.trim(), IMAGE_RETENTION_ZERO_ERROR);
 });
 
 test('empty argv shows help', async () => {

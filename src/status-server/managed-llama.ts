@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
+import type { ManagedLlamaStartupFailure } from '@siftkit/contracts';
 import { toError, getErrorMessage } from '../lib/errors.js';
 import { POWERSHELL_BASE_ARGS } from '../lib/powershell.js';
 import { terminateProcessTree } from '../lib/process-tree.js';
@@ -88,7 +89,12 @@ export const MANAGED_LLAMA_LOG_ALERT_PATTERN = /\b(?:warn(?:ing)?|error|exceptio
 const MANAGED_LLAMA_LOADING_MODEL_503_PATTERN = /"message"\s*:\s*"Loading model"[\s\S]*"type"\s*:\s*"unavailable_error"[\s\S]*"code"\s*:\s*503/iu;
 const llamaCppClient = new LlamaCppClient();
 const MANAGED_LLAMA_GPU_MEMORY_PRESSURE_PATTERN = /projected to use\s+(\d+)\s+MiB of device memory vs\.\s+(\d+)\s+MiB of free device memory/iu;
-const MANAGED_LLAMA_GPU_MEMORY_OOM_PATTERN = /cannot meet free memory target|cudaMalloc failed: out of memory|failed to allocate buffer for kv cache/iu;
+/**
+ * llama.cpp forms first, then the PyTorch/exllamav3 forms — the exl3 backend raises
+ * `torch.cuda.OutOfMemoryError`, which none of the llama.cpp phrasings match.
+ */
+const MANAGED_LLAMA_GPU_MEMORY_OOM_PATTERN =
+  /cannot meet free memory target|cudaMalloc failed: out of memory|failed to allocate buffer for kv cache|torch\.cuda\.OutOfMemoryError|CUDA out of memory/iu;
 const MANAGED_LLAMA_SPECULATIVE_STATS_PATTERN = /^\s*(?:llama_decode:\s+)?statistics\s+\S+:\s+.*?#gen tokens\s*=\s*(\d+),\s+#acc tokens\s*=\s*(\d+)/iu;
 
 export type ManagedLlamaSpeculativeMetrics = {
@@ -104,12 +110,6 @@ export type ManagedLlamaLogCursor = {
 export type ManagedLlamaSpeculativeMetricsSnapshot = ManagedLlamaLogCursor & {
   latestSpeculativeAcceptedTokens: number | null;
   latestSpeculativeGeneratedTokens: number | null;
-};
-
-export type ManagedLlamaStartupFailure = {
-  kind: 'gpu_memory_oom';
-  requiredMiB: number;
-  availableMiB: number;
 };
 
 export class ManagedLlamaStartupError extends Error {
@@ -497,15 +497,44 @@ export function resolveManagedExecutablePath(executablePath: string | null, conf
 
 
 export function parseManagedLlamaStartupFailureText(text: string): ManagedLlamaStartupFailure | null {
-  const memoryMatch = MANAGED_LLAMA_GPU_MEMORY_PRESSURE_PATTERN.exec(String(text || ''));
-  if (!memoryMatch || !MANAGED_LLAMA_GPU_MEMORY_OOM_PATTERN.test(String(text || ''))) {
+  const body = String(text || '');
+  if (!MANAGED_LLAMA_GPU_MEMORY_OOM_PATTERN.test(body)) {
     return null;
   }
+  // The projected-memory line is llama.cpp-only. Its absence means unknown numbers, not "not an OOM".
+  const memoryMatch = MANAGED_LLAMA_GPU_MEMORY_PRESSURE_PATTERN.exec(body);
   return {
     kind: 'gpu_memory_oom',
-    requiredMiB: Number.parseInt(memoryMatch[1], 10),
-    availableMiB: Number.parseInt(memoryMatch[2], 10),
+    requiredMiB: memoryMatch ? Number.parseInt(memoryMatch[1], 10) : null,
+    availableMiB: memoryMatch ? Number.parseInt(memoryMatch[2], 10) : null,
   };
+}
+
+export type GpuOomPhase = 'startup' | 'image_encode';
+
+/**
+ * Which knob to point at depends entirely on when the OOM happened.
+ *
+ * Startup OOM is weights plus KV cache. Verified in exllamav3 1.3.0: `max_pixels` is consumed
+ * only inside `preprocess()`, per request, so no image setting can reduce load-time memory.
+ * Naming the image control here would send the user to a control that cannot help them.
+ */
+export function buildGpuOomGuidance(input: {
+  phase: GpuOomPhase;
+  failure: ManagedLlamaStartupFailure;
+  visionMaxImagePixels?: number;
+}): string {
+  const observed = input.failure.requiredMiB !== null && input.failure.availableMiB !== null
+    ? ` It needed about ${input.failure.requiredMiB} MiB with ${input.failure.availableMiB} MiB free.`
+    : '';
+  if (input.phase === 'startup') {
+    return `The model ran out of GPU memory while loading.${observed} `
+      + 'Reduce context length or CacheRam for this preset, or free GPU memory. '
+      + 'Image settings do not affect model loading.';
+  }
+  const currentMegapixels = ((input.visionMaxImagePixels ?? 0) / 1_000_000).toFixed(1);
+  return `The model ran out of GPU memory while encoding an image.${observed} `
+    + `Lower Max image size for this preset — it is currently ${currentMegapixels} MP — or free GPU memory.`;
 }
 
 function getManagedLlamaStartupFailureFromLogRef(recorder: LlamaRunRecorder): ManagedLlamaStartupFailure | null {
@@ -515,6 +544,35 @@ function getManagedLlamaStartupFailureFromLogRef(recorder: LlamaRunRecorder): Ma
 
 export function getManagedLlamaStartupFailure(error: Error): ManagedLlamaStartupFailure | null {
   return error instanceof ManagedLlamaStartupError ? error.startupFailure : null;
+}
+
+export type ManagedLlamaOomDiagnosis = {
+  phase: GpuOomPhase;
+  failure: ManagedLlamaStartupFailure;
+  guidance: string;
+};
+
+export function diagnoseManagedLlamaOom(
+  error: Error | string,
+  options: { hasImages: boolean; visionMaxImagePixels?: number },
+): ManagedLlamaOomDiagnosis | null {
+  const startupFailure = error instanceof Error ? getManagedLlamaStartupFailure(error) : null;
+  const phase: GpuOomPhase = startupFailure ? 'startup' : 'image_encode';
+  const failure = startupFailure ?? (options.hasImages
+    ? parseManagedLlamaStartupFailureText(error instanceof Error ? error.message : error)
+    : null);
+  if (!failure) {
+    return null;
+  }
+  return {
+    phase,
+    failure,
+    guidance: buildGpuOomGuidance({
+      phase,
+      failure,
+      visionMaxImagePixels: options.visionMaxImagePixels,
+    }),
+  };
 }
 
 function splitKvCacheQuantization(value: string): { k: string; v: string } {
@@ -630,8 +688,10 @@ function buildManagedLlamaStartupExitError(
 ): Error {
   const startupFailure = getManagedLlamaStartupFailureFromLogRef(recorder);
   if (startupFailure) {
+    const requiredMiB = startupFailure.requiredMiB ?? 'unknown';
+    const availableMiB = startupFailure.availableMiB ?? 'unknown';
     return new ManagedLlamaStartupError(
-      `Managed llama.cpp ran out of GPU memory during startup. Needed ${startupFailure.requiredMiB} MiB; only ${startupFailure.availableMiB} MiB was available.`,
+      `Managed llama.cpp ran out of GPU memory during startup. Needed ${requiredMiB} MiB; only ${availableMiB} MiB was available.`,
       startupFailure,
     );
   }

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, join, parse, resolve } from 'node:path';
-import { ModelRuntimePresetSchema } from '@siftkit/contracts';
+import { ImageMetadataSchema, ModelRuntimePresetSchema } from '@siftkit/contracts';
+import type { ImageMetadata } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import type { ModelRuntimePreset } from '../config/types.js';
 import { normalizeModelRuntimePresetRecord } from '../config/normalization.js';
@@ -15,8 +16,15 @@ import type { ChatPromptContext } from '../status-server/chat-prompt-context.js'
 
 export type ChatSessionMode = 'chat' | 'plan' | 'repo-search';
 export type ChatMessageRole = 'user' | 'assistant';
-export type ChatMessageKind = 'user_text' | 'assistant_answer' | 'assistant_thinking' | 'assistant_tool_call';
+export type ChatMessageKind = 'user_text' | 'assistant_answer' | 'assistant_thinking' | 'assistant_tool_call' | 'tool_image';
 export type ChatGroundingStatus = 'ungrounded' | 'snippet_only' | 'fetched';
+
+export class ChatMessageImageNotFoundError extends Error {
+  constructor() {
+    super('Image not found.');
+    this.name = 'ChatMessageImageNotFoundError';
+  }
+}
 
 export type ChatMessage = {
   id: string;
@@ -57,6 +65,7 @@ export type ChatMessage = {
   compressedIntoSummary?: boolean;
   groundingStatus?: ChatGroundingStatus | null;
   images?: string[];
+  imageMeta?: ImageMetadata[];
 };
 
 export type ChatSession = {
@@ -133,9 +142,17 @@ const MessageRowSchema = z.object({
   compressed_into_summary: z.number(),
   grounding_status: z.string().nullable(),
   images: z.string().nullable(),
+  image_meta: z.string().nullable(),
   position: z.number(),
 });
 type MessageRow = z.infer<typeof MessageRowSchema>;
+
+const MessageImageRowSchema = z.object({
+  id: z.string(),
+  images: z.string().nullable(),
+  image_meta: z.string().nullable(),
+});
+type MessageImageRow = z.infer<typeof MessageImageRowSchema>;
 
 function getSessionDatabase(runtimeRoot: string): ReturnType<typeof getRuntimeDatabase> {
   return getRuntimeDatabase(join(runtimeRoot, 'runtime.sqlite'));
@@ -199,6 +216,7 @@ function normalizeMessageKind(value: string | null | undefined, roleValue: strin
     || value === 'assistant_answer'
     || value === 'assistant_thinking'
     || value === 'assistant_tool_call'
+    || value === 'tool_image'
   ) {
     return value;
   }
@@ -252,6 +270,9 @@ function mapMessageRow(row: MessageRow): ChatMessage {
     compressedIntoSummary: row.compressed_into_summary === 1,
     groundingStatus: normalizeGroundingStatus(row.grounding_status),
     images: row.images === null ? [] : parseImageDataUrls(parseJsonValueText(row.images)),
+    imageMeta: row.image_meta === null
+      ? []
+      : z.array(ImageMetadataSchema).parse(parseJsonValueText(row.image_meta)),
   };
 }
 
@@ -349,6 +370,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       compressed_into_summary,
       grounding_status,
       images,
+      image_meta,
       position
     FROM chat_messages
     WHERE session_id = ?
@@ -431,6 +453,62 @@ export function deleteChatMessage(runtimeRoot: string, sessionId: string, messag
   };
   saveChatSession(runtimeRoot, updatedSession);
   return { session: updatedSession, deletedMessage };
+}
+
+export function updateChatMessageImageCaption(
+  runtimeRoot: string,
+  sessionId: string,
+  messageId: string,
+  imageIndex: number,
+  caption: string,
+): void {
+  const normalizedSessionId = sessionId.trim();
+  const normalizedMessageId = messageId.trim();
+  const normalizedCaption = caption.trim();
+  if (!normalizedSessionId || !normalizedMessageId) {
+    throw new Error('Session id and message id are required.');
+  }
+  if (!Number.isInteger(imageIndex) || imageIndex < 0) {
+    throw new Error('Image index must be a non-negative integer.');
+  }
+  if (!normalizedCaption) {
+    throw new Error('Image caption is required.');
+  }
+
+  const database = getSessionDatabase(runtimeRoot);
+  const rowValue = database.prepare(`
+    SELECT id, images, image_meta
+    FROM chat_messages
+    WHERE session_id = ? AND id = ?
+  `).get(normalizedSessionId, normalizedMessageId);
+  if (rowValue === undefined || rowValue === null) {
+    throw new ChatMessageImageNotFoundError();
+  }
+  const row: MessageImageRow = MessageImageRowSchema.parse(rowValue);
+  const images = row.images === null ? [] : parseImageDataUrls(parseJsonValueText(row.images));
+  if (!images[imageIndex]) {
+    throw new ChatMessageImageNotFoundError();
+  }
+  if (row.image_meta === null) {
+    throw new ChatMessageImageNotFoundError();
+  }
+  const imageMeta = z.array(ImageMetadataSchema).parse(parseJsonValueText(row.image_meta));
+  const metadata = imageMeta[imageIndex];
+  if (!metadata) {
+    throw new ChatMessageImageNotFoundError();
+  }
+  const updatedImageMeta: ImageMetadata[] = imageMeta.map((entry, index) => (
+    index === imageIndex ? { ...entry, caption: normalizedCaption } : entry
+  ));
+  const parsedUpdatedImageMeta = z.array(ImageMetadataSchema).parse(updatedImageMeta);
+  const result = database.prepare(`
+    UPDATE chat_messages
+    SET image_meta = ?
+    WHERE session_id = ? AND id = ?
+  `).run(JSON.stringify(parsedUpdatedImageMeta), normalizedSessionId, normalizedMessageId);
+  if (Number(result.changes || 0) !== 1) {
+    throw new ChatMessageImageNotFoundError();
+  }
 }
 
 export function saveChatSession(runtimeRoot: string, session: ChatSession): void {
@@ -533,8 +611,9 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         compressed_into_summary,
         grounding_status,
         images,
+        image_meta,
         position
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     for (let index = 0; index < messages.length; index += 1) {
@@ -579,6 +658,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         message.compressedIntoSummary === true ? 1 : 0,
         normalizeGroundingStatus(message.groundingStatus),
         JSON.stringify(message.images ?? []),
+        message.imageMeta && message.imageMeta.length > 0 ? JSON.stringify(message.imageMeta) : null,
         index,
       );
     }

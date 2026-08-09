@@ -11,6 +11,9 @@ import {
   parseChatSessionCreateRequest,
   parseChatSessionUpdateRequest,
 } from '../src/status-server/chat-route-request-normalizers.js';
+import { rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
+
+const PNG = toDataUrl('image/png', rasterBuffer('png', 1, 1));
 
 test('core route request normalizers return typed values', () => {
   assert.deepEqual(parseRepoSearchRequest({ prompt: ' p ', repoRoot: ' C:/repo ', model: ' m ', maxTurns: '3' }), {
@@ -92,6 +95,12 @@ test('chat route request normalizers return typed values', () => {
   });
   assert.deepEqual(parseChatRepoRequest({ content: ' plan ', repoRoot: ' C:/repo ' }), {
     content: 'plan',
+    images: [],
+    repoRoot: 'C:/repo',
+  });
+  assert.deepEqual(parseChatRepoRequest({ content: ' plan ', images: [PNG], repoRoot: ' C:/repo ' }), {
+    content: 'plan',
+    images: [PNG],
     repoRoot: 'C:/repo',
   });
 });

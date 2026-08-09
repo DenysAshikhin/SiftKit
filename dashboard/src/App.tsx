@@ -65,6 +65,7 @@ export function App() {
   });
 
   const chat = useChatController({
+    enqueueToast,
     refreshToken: refresh.refreshToken,
     dashboardConfig,
     requestDashboardDataRefresh: refresh.requestDashboardDataRefresh,

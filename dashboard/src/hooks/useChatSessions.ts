@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react';
 
+import {
+  assessImageVramHeadroom,
+  estimateVisionPeakVramBytesForImagePixels,
+} from '@siftkit/contracts';
 import { toError } from '../../../src/lib/errors.js';
 import {
   condenseChatSession,
@@ -8,6 +12,7 @@ import {
   deleteChatSession,
   getChatSession,
   getChatSessions,
+  getInferenceRuntimeStatus,
   streamChatMessage,
   streamPlanMessage,
   streamRepoSearchMessage,
@@ -22,6 +27,8 @@ import { ChatSessionRuntimeStore } from '../lib/chat-session-runtime-store';
 import { toRuntimeTransitions } from '../lib/chat-stream-transitions';
 import type { ChatStreamEvent } from '../lib/chat-stream-parser';
 import type { ChatSession, ChatSessionResponse, ChatSessionOperationKind } from '../types';
+import type { ToastLevel } from './useToasts';
+import type { PendingImage } from '../lib/downscale-image';
 
 export type CreateChatSessionRequest = {
   title: string;
@@ -55,6 +62,7 @@ export function useChatSessions(deps: {
   refreshToken: number;
   buildCreateSessionRequest(): CreateChatSessionRequest | null;
   confirmDeleteSession(): boolean;
+  enqueueToast(level: ToastLevel, text: string): void;
 }) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string>(deps.initialSelectedSessionId);
@@ -144,8 +152,12 @@ export function useChatSessions(deps: {
     setRuntimeStore((prev) => prev.apply({ kind: 'draft', sessionId, draft }));
   }
 
-  function setSessionImages(sessionId: string, images: string[]): void {
+  function setSessionImages(sessionId: string, images: PendingImage[]): void {
     setRuntimeStore((prev) => prev.apply({ kind: 'images', sessionId, images }));
+  }
+
+  function appendSessionImages(sessionId: string, images: PendingImage[]): void {
+    setRuntimeStore((prev) => prev.apply({ kind: 'append-images', sessionId, images }));
   }
 
   function setSessionPlanInputs(sessionId: string, planRepoRootInput: string, planMaxTurnsInput: string): void {
@@ -322,7 +334,7 @@ export function useChatSessions(deps: {
 
   function readRuntimeInputs(sessionId: string): {
     draft: string;
-    pendingImages: string[];
+    pendingImages: PendingImage[];
     planRepoRootInput: string;
     planMaxTurnsInput: string;
   } {
@@ -343,10 +355,34 @@ export function useChatSessions(deps: {
     if (!inputs.draft && inputs.pendingImages.length === 0) {
       return;
     }
+    if (inputs.pendingImages.length > 0) {
+      try {
+        const runtimeStatus = await getInferenceRuntimeStatus();
+        const budget = runtimeStatus.imageTokenBudget;
+        const sessionPreset = selectedSession.modelPreset;
+        const finding = budget && sessionPreset
+          ? assessImageVramHeadroom({
+              freeBytes: runtimeStatus.gpuFreeBytes,
+              peakEncodeBytes: estimateVisionPeakVramBytesForImagePixels(
+                budget,
+                sessionPreset.VisionMaxImagePixels,
+              ),
+            })
+          : null;
+        if (finding) {
+          deps.enqueueToast(finding.level, finding.message);
+        }
+      } catch {
+        // The warning is advisory; a failed probe must not block a user who knows the image is safe.
+      }
+    }
     await runChatStream(
       selectedSession.id,
       'message',
-      streamChatMessage(selectedSession.id, { content: inputs.draft, images: inputs.pendingImages }),
+      streamChatMessage(selectedSession.id, {
+        content: inputs.draft,
+        images: inputs.pendingImages.map((image) => image.dataUrl),
+      }),
     );
   }
 
@@ -358,6 +394,7 @@ export function useChatSessions(deps: {
     }
     await runChatStream(session.id, 'plan', streamPlanMessage(session.id, {
       content: inputs.draft,
+      images: inputs.pendingImages.map((image) => image.dataUrl),
       repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot || ''),
       ...parsePlanMaxTurnsOverride(inputs.planMaxTurnsInput),
     }));
@@ -371,6 +408,7 @@ export function useChatSessions(deps: {
     }
     await runChatStream(session.id, 'repo-search', streamRepoSearchMessage(session.id, {
       content: inputs.draft,
+      images: inputs.pendingImages.map((image) => image.dataUrl),
       repoRoot: resolveRepoRoot(inputs.planRepoRootInput, session.planRepoRoot || ''),
       ...parsePlanMaxTurnsOverride(inputs.planMaxTurnsInput),
     }));
@@ -396,6 +434,7 @@ export function useChatSessions(deps: {
     failSessionOperation,
     setSessionDraft,
     setSessionImages,
+    appendSessionImages,
     setSessionPlanInputs,
     sendMessage,
     sendPlan,

@@ -22,6 +22,8 @@ import { z } from 'zod';
 import { ProgressWriter, SilentProgressWriter } from '../src/lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 
+const IMAGES_ONLY_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
 // Thrown repo-search errors carry artifact/transcript URIs as own properties
 // alongside non-JSON Error internals; validate just those string fields with a
 // passthrough schema so unrelated enumerable props don't fail the parse.
@@ -219,7 +221,7 @@ test('executeRepoSearchRequest throws on empty prompt', async () => {
     await assert.rejects(
       () => executeRepoSearchRequest({
       presetId: 'repo-search', prompt: '', repoRoot: process.cwd() }),
-      /--prompt is required/u,
+      /A prompt or an image is required\./u,
     );
   });
 });
@@ -229,7 +231,28 @@ test('executeRepoSearchRequest throws on whitespace-only prompt', async () => {
     await assert.rejects(
       () => executeRepoSearchRequest({
       presetId: 'repo-search', prompt: '   ', repoRoot: process.cwd() }),
-      /--prompt is required/u,
+      /A prompt or an image is required\./u,
+    );
+  });
+});
+
+test('executeRepoSearchRequest does not reject an images-only request at the prompt guard', async () => {
+  await withTestEnvAndServer(async () => {
+    await assert.doesNotReject(
+      async () => {
+        try {
+          await executeRepoSearchRequest({
+            presetId: 'chat',
+            taskKind: 'chat',
+            prompt: '',
+            repoRoot: process.cwd(),
+            initialUserImages: [IMAGES_ONLY_PNG],
+          });
+        } catch (error) {
+          // Anything past the guard is acceptable here; only the guard is under test.
+          assert.doesNotMatch(getErrorMessage(error), /prompt or an image is required/u);
+        }
+      },
     );
   });
 });

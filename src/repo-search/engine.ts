@@ -5,6 +5,7 @@ import {
   getConfiguredLlamaBaseUrl,
   getConfiguredLlamaNumCtx,
   getConfiguredModel,
+  getActiveModelPreset,
   loadConfig,
   type SiftConfig,
 } from '../config/index.js';
@@ -196,10 +197,6 @@ export async function runRepoSearch(options: {
 }): Promise<Scorecard> {
   throwIfAborted(options.abortSignal);
   const progressWriter = options.progressWriter ?? new SilentProgressWriter<RepoSearchProgressEvent>();
-  const plannerToolDefinitions = resolveRepoSearchPlannerToolDefinitions(options.allowedTools);
-  if (plannerToolDefinitions.length === 0 && !options.allowEmptyTools) {
-    throw new Error('No repo-search planner tools are enabled for the active preset.');
-  }
   const path = await import('node:path');
   const repoRoot = path.resolve(options.repoRoot || process.cwd());
   const configSpan = options.timingRecorder?.start('repo.config.load', {
@@ -212,6 +209,13 @@ export async function runRepoSearch(options: {
     options.model,
   );
   configSpan?.end();
+  const plannerToolDefinitions = resolveRepoSearchPlannerToolDefinitions(
+    options.allowedTools,
+    getActiveModelPreset(config).VisionEnabled === true,
+  );
+  if (plannerToolDefinitions.length === 0 && !options.allowEmptyTools) {
+    throw new Error('No repo-search planner tools are enabled for the active preset.');
+  }
   const model = getConfiguredModel(config);
   const baseUrl = options.baseUrl || getConfiguredLlamaBaseUrl(config);
 

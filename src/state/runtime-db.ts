@@ -383,6 +383,7 @@ function ensureChatMessageTimelineSchema(database: RuntimeDatabase): void {
     { name: 'tool_call_output', sql: 'ALTER TABLE chat_messages ADD COLUMN tool_call_output TEXT;' },
     { name: 'grounding_status', sql: 'ALTER TABLE chat_messages ADD COLUMN grounding_status TEXT;' },
     { name: 'images', sql: 'ALTER TABLE chat_messages ADD COLUMN images TEXT;' },
+    { name: 'image_meta', sql: 'ALTER TABLE chat_messages ADD COLUMN image_meta TEXT;' },
   ];
   for (const column of columns) {
     if (!tableHasColumn(database, 'chat_messages', column.name)) {

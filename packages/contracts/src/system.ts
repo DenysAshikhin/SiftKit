@@ -5,6 +5,7 @@ import {
   InferenceProcessStateSchema,
   WebSearchProviderIdSchema,
 } from './config.js';
+import { ImageTokenBudgetSchema } from './image.js';
 import { TaskMetricKindSchema } from './metrics.js';
 
 export const DashboardHealthSchema = z.object({
@@ -21,9 +22,6 @@ export const ManagedFilePickerTargetSchema = z.enum([
 export type ManagedFilePickerTarget = z.infer<typeof ManagedFilePickerTargetSchema>;
 export const ManagedFilePickerResponseSchema = z.object({ ok: z.boolean(), cancelled: z.boolean(), path: z.string().nullable() });
 export type ManagedFilePickerResponse = z.infer<typeof ManagedFilePickerResponseSchema>;
-
-export const ManagedLlamaStartupFailureSchema = z.object({ kind: z.literal('gpu_memory_oom'), requiredMiB: z.number(), availableMiB: z.number() });
-export type ManagedLlamaStartupFailure = z.infer<typeof ManagedLlamaStartupFailureSchema>;
 
 export const LlamaCppConnectionTestResponseSchema = z.object({
   ok: z.boolean(), statusCode: z.number(), baseUrl: z.string().optional(), error: z.string().optional(),
@@ -48,6 +46,12 @@ export const InferenceRuntimeStatusSchema = z.object({
   rollback: z.string().nullable(),
 });
 export type InferenceRuntimeStatus = z.infer<typeof InferenceRuntimeStatusSchema>;
+
+export const InferenceRuntimeDashboardStatusSchema = InferenceRuntimeStatusSchema.extend({
+  imageTokenBudget: ImageTokenBudgetSchema.nullable(),
+  gpuFreeBytes: z.number().int().nonnegative().nullable(),
+});
+export type InferenceRuntimeDashboardStatus = z.infer<typeof InferenceRuntimeDashboardStatusSchema>;
 
 // Provider id comes from the config contract (single source of truth); src/web-search/types.ts
 // derives WebSearchProviderId from the same schema so the contract and producer cannot drift.

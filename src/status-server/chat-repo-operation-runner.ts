@@ -1,6 +1,7 @@
 import { WEB_RESEARCH_PRESET_TOOLS } from '@siftkit/contracts';
 
 import {
+  getActiveModelPreset,
   type SiftConfig,
 } from '../config/index.js';
 import type {
@@ -34,6 +35,7 @@ import {
   type PersistTurn,
 } from './chat.js';
 import { ChatOperationPresetSelector } from './chat-operation-preset.js';
+import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js';
 import {
   ChatTurnPhaseTracker,
   type ChatTurnPhaseTimestamps,
@@ -42,7 +44,9 @@ import { ChatTurnTelemetry } from './chat-turn-telemetry.js';
 import type { StatusEngineService } from './engine-service.js';
 import {
   captureManagedLlamaSpeculativeMetricsSnapshot,
+  diagnoseManagedLlamaOom,
   getManagedLlamaSpeculativeMetricsDelta,
+  ManagedLlamaStartupError,
 } from './managed-llama.js';
 import {
   normalizeRepoSearchScorecard,
@@ -57,6 +61,7 @@ export type ChatRepoOperationRequest = {
   session: ChatSession;
   config: SiftConfig;
   content: string;
+  images: string[];
   repoRoot: string;
   statusBackendUrl: string;
   engineService: StatusEngineService;
@@ -127,6 +132,10 @@ export class ChatRepoOperationRunner {
     const progress = new ChatRepoOperationProgressTracker(request.progressWriter);
     const selected = new ChatOperationPresetSelector(request.config.Presets)
       .select(request.session, operation);
+    const effectiveConfig = resolveChatSessionConfig(request.config, selected.session);
+    const activePreset = getActiveModelPreset(effectiveConfig);
+    const admittedImages = admitImagesForPreset(activePreset, request.images)
+      .map((image) => image.dataUrl);
     const session = {
       ...selected.session,
       planRepoRoot: request.repoRoot,
@@ -134,22 +143,41 @@ export class ChatRepoOperationRunner {
     const speculativeSnapshot = captureManagedLlamaSpeculativeMetricsSnapshot(
       request.managedLlamaRunId,
     );
-    const engineResult = await request.engineService.executeRepoSearch({
-      presetId: selected.preset.id,
-      taskKind: operation,
-      prompt: this.buildPrompt(operation, request.content),
-      repoRoot: request.repoRoot,
-      statusBackendUrl: request.statusBackendUrl,
-      config: resolveChatSessionConfig(request.config, session),
-      allowedTools: this.getAllowedTools(request.config, selected.preset, session),
-      maxTurns: request.maxTurns ?? selected.preset.maxTurns ?? undefined,
-      logFile: request.logFile,
-      availableModels: request.availableModels,
-      mockResponses: request.mockResponses,
-      mockCommandResults: request.mockCommandResults,
-      requestId: request.requestId,
-      progressWriter: progress,
-    });
+    let engineResult: RepoSearchExecutionResult;
+    try {
+      engineResult = await request.engineService.executeRepoSearch({
+        presetId: selected.preset.id,
+        taskKind: operation,
+        prompt: this.buildPrompt(operation, request.content),
+        initialUserImages: admittedImages,
+        repoRoot: request.repoRoot,
+        statusBackendUrl: request.statusBackendUrl,
+        config: effectiveConfig,
+        allowedTools: this.getAllowedTools(request.config, selected.preset, session),
+        maxTurns: request.maxTurns ?? selected.preset.maxTurns ?? undefined,
+        logFile: request.logFile,
+        availableModels: request.availableModels,
+        mockResponses: request.mockResponses,
+        mockCommandResults: request.mockCommandResults,
+        requestId: request.requestId,
+        progressWriter: progress,
+      });
+    } catch (error) {
+      const diagnosis = diagnoseManagedLlamaOom(
+        error instanceof Error ? error : String(error),
+        {
+          hasImages: request.images.length > 0,
+          visionMaxImagePixels: activePreset.VisionMaxImagePixels,
+        },
+      );
+      if (diagnosis) {
+        if (diagnosis.phase === 'startup') {
+          throw new ManagedLlamaStartupError(diagnosis.guidance, diagnosis.failure);
+        }
+        throw new Error(diagnosis.guidance);
+      }
+      throw error;
+    }
     const assistantContent = this.buildAssistantContent(
       operation,
       request.content,
@@ -163,6 +191,7 @@ export class ChatRepoOperationRunner {
       session,
       engineResult,
       assistantContent,
+      admittedImages,
       startedAt,
       progress,
       speculativeSnapshot,
@@ -218,6 +247,7 @@ export class ChatRepoOperationRunner {
     session: ChatSession;
     engineResult: RepoSearchExecutionResult;
     assistantContent: string;
+    admittedImages: string[];
     startedAt: number;
     progress: ChatRepoOperationProgressTracker;
     speculativeSnapshot: ReturnType<typeof captureManagedLlamaSpeculativeMetricsSnapshot>;
@@ -249,6 +279,7 @@ export class ChatRepoOperationRunner {
       },
       {
         turns,
+        images: options.admittedImages,
         maintainPerStepThinking: telemetry.shouldMaintainPerStepThinking(options.session),
         inputTokens: inputTokenCount.tokenCount,
         inputTokensEstimated: inputTokenCount.estimated,
