@@ -5,8 +5,11 @@ import {
   AssistantMutationRequestSchema,
   ActivityEventDtoSchema,
   AssistantValidationNotesRequestSchema,
+  CaptureSubmissionDtoSchema,
   EnvironmentStateDtoSchema,
   KeyMaterialDtoSchema,
+  SIFT_MAX_IMAGE_BYTES,
+  SuppressionAuditDtoSchema,
 } from '@siftkit/contracts';
 import { z } from '../../lib/zod.js';
 import { ObjectValueTypeSchema } from '../../assistant/domain/enums.js';
@@ -24,6 +27,9 @@ const MUTATION_BODY_LIMIT = 256 * 1024;
 const QUESTION_ANSWER_BODY_LIMIT = 64 * 1024;
 const KEY_MATERIAL_BODY_LIMIT = 64 * 1024;
 const OBSERVATION_BODY_LIMIT = 16 * 1024;
+/** A capture carries one max-size image as base64 (4 characters per 3 bytes), plus a descriptor. */
+const CAPTURE_BODY_LIMIT =
+  Math.ceil((SIFT_MAX_IMAGE_BYTES * 4) / 3) + OBSERVATION_BODY_LIMIT;
 
 const CorrectionSchema = z.object({
   reason: z.string().trim().min(1),
@@ -164,6 +170,20 @@ class AssistantEndpoint implements RouteEndpoint {
     if (pathname === '/assistant/ingest/activity') {
       service.ingestActivity(await desktopBody(
         service, req, ActivityEventDtoSchema, 'activity_event', OBSERVATION_BODY_LIMIT,
+      ));
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+    if (pathname === '/assistant/ingest/capture') {
+      const outcome = service.ingestCapture(await desktopBody(
+        service, req, CaptureSubmissionDtoSchema, 'capture_submission', CAPTURE_BODY_LIMIT,
+      ));
+      sendJson(res, 200, { ok: true, outcome: outcome.kind });
+      return;
+    }
+    if (pathname === '/assistant/ingest/suppression') {
+      service.ingestSuppression(await desktopBody(
+        service, req, SuppressionAuditDtoSchema, 'suppression_audit', OBSERVATION_BODY_LIMIT,
       ));
       sendJson(res, 200, { ok: true });
       return;
@@ -380,6 +400,8 @@ const routes = new RouteTable([
   { method: 'POST', path: '/assistant/keys/import', endpoint },
   { method: 'POST', path: '/assistant/ingest/environment', endpoint },
   { method: 'POST', path: '/assistant/ingest/activity', endpoint },
+  { method: 'POST', path: '/assistant/ingest/capture', endpoint },
+  { method: 'POST', path: '/assistant/ingest/suppression', endpoint },
   { method: 'GET', path: '/assistant/search', endpoint },
   { method: 'GET', path: '/assistant/graph/nodes', endpoint },
   { method: 'GET', path: /^\/assistant\/graph\/nodes\/([^/]+)$/u, endpoint },

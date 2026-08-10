@@ -528,11 +528,14 @@ export class AssertionService {
       0,
       (Date.parse(this.clock.nowUtc()) - Date.parse(assertion.last_observed_at_utc)) / 86_400_000,
     );
+    const support = this.assertions.listSupportingEvidence(assertionId);
     const confidence = resolveConfidence({
       basis: assertion.basis,
-      supportWeights: this.assertions.supportWeights(assertionId),
+      supportWeights: support.map((row) => row.weight),
       contradictionCount: this.assertions.contradictionCount(assertionId),
-      singleScreenshotTextObservation: false,
+      // One frame of a screen is the weakest evidence the assistant records (§8.3).
+      singleScreenshotTextObservation:
+        support.length === 1 && support[0]?.source_type === 'screenshot',
       userCorrected,
       stalenessClass: definition.stalenessClass,
       observationAgeDays,

@@ -14,6 +14,7 @@ import type {
   SummarizeProjectionResult,
 } from '../src/assistant/projections/projection-summarizer.js';
 import type { AssistantGraph } from '../src/assistant/assistant-graph.js';
+import type { ImageExtractionOutcome } from '../src/assistant/images/image-extractor.js';
 import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.js';
 import type { AssistantInferenceRequest } from '../src/assistant/inference/client.js';
 import { SecretScanner } from '../src/assistant/domain/secrets.js';
@@ -70,6 +71,11 @@ const UNUSED_GATE_C_JOBS = {
   questionAnswers: {
     async ingest() {
       return { observationIds: [], candidateIds: [], promotions: [] };
+    },
+  },
+  images: {
+    async run(): Promise<ImageExtractionOutcome> {
+      return { kind: 'awaiting_capability' };
     },
   },
 };
@@ -344,6 +350,10 @@ test('runner executes every Gate C job branch with configured priority order', a
       ownerId, jobType: 'projection_summarization', payload: { projectionId: 'projection_1' },
       idempotencyKey: 'projection-summarization-job',
     }, JOB_PRIORITIES.ProjectionMaintenance);
+    graph.jobs.enqueue({
+      ownerId, jobType: 'image_extraction', payload: { evidenceId: evidence.id },
+      idempotencyKey: 'image-extraction-job',
+    }, JOB_PRIORITIES.ImageExtraction);
 
     const inference = new FakeAssistantInference([]);
     const runner = new AssistantJobRunner({
@@ -360,6 +370,12 @@ test('runner executes every Gate C job branch with configured priority order', a
           return { observationIds: [], candidateIds: [], promotions: [] };
         },
       },
+      images: {
+        async run(): Promise<ImageExtractionOutcome> {
+          calls.push('image_extraction');
+          return { kind: 'awaiting_capability' };
+        },
+      },
       extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
       promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
       consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
@@ -372,8 +388,10 @@ test('runner executes every Gate C job branch with configured priority order', a
     });
     const summary = await runner.drain(ownerId, 10);
     assert.equal(summary.failed, 0);
-    assert.ok(summary.completed >= 3);
-    assert.deepEqual(calls, ['question_answer_ingestion', 'question_planning']);
+    assert.ok(summary.completed >= 4);
+    assert.deepEqual(
+      calls, ['question_answer_ingestion', 'question_planning', 'image_extraction'],
+    );
     assert.equal(graph.jobs.countByStatus(ownerId, 'queued'), 0);
   });
 });

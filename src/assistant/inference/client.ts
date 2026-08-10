@@ -1,19 +1,42 @@
-import { getActiveInferenceBackend, getConfiguredModel, type SiftConfig } from '../../config/index.js';
+import type { ImageDataUrl } from '@siftkit/contracts';
+
+import {
+  getActiveInferenceBackend, getConfiguredModel,
+  type ModelRuntimePreset, type SiftConfig,
+} from '../../config/index.js';
 import type { JsonObject } from '../../lib/json-types.js';
+import { buildUserContent } from '../../llm-protocol/image-attachments.js';
 import { LlamaCppClient, type LlamaCppChatOptions } from '../../llm-protocol/llama-cpp-client.js';
+import { admitImagesForPreset } from '../../llm-protocol/preset-image-admission.js';
 import { buildLlamaJsonSchemaResponseFormat } from '../../providers/structured-output-schema.js';
-import type { NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
+import type { LlamaCppContentPart, NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
 import type { AssistantInferenceRole } from './roles.js';
 
-export interface AssistantInferenceRequest {
+interface AssistantInferenceRequestBase {
   readonly role: AssistantInferenceRole;
   readonly systemPrompt: string;
-  /** Untrusted evidence text. A string, always — this is the no-image invariant (§12.6). */
+  /** Untrusted evidence text. */
   readonly userText: string;
   readonly responseSchemaName: string;
   readonly responseJsonSchema: JsonObject;
   readonly abortSignal: AbortSignal | null;
 }
+
+/**
+ * The text variant carries no image field at all, so a caller cannot smuggle pixels into a text
+ * role by accident — the shape itself refuses it.
+ */
+export interface AssistantTextInferenceRequest extends AssistantInferenceRequestBase {
+  readonly kind: 'text';
+}
+
+export interface AssistantImageInferenceRequest extends AssistantInferenceRequestBase {
+  readonly kind: 'image';
+  readonly images: readonly ImageDataUrl[];
+}
+
+export type AssistantInferenceRequest =
+  AssistantTextInferenceRequest | AssistantImageInferenceRequest;
 
 export interface AssistantInferenceResult {
   readonly text: string;
@@ -30,6 +53,15 @@ export interface AssistantChatBackend {
   chat(options: LlamaCppChatOptions): Promise<NormalizedLlamaCppChatResponse>;
 }
 
+/**
+ * The preset the runtime is currently *running* — `AppliedModelPresetState` in the status server.
+ * Image admission reads it rather than the config so it cannot disagree with the capability gate
+ * that decided to enqueue the extraction in the first place (spec §5).
+ */
+export interface ActiveModelPresetSource {
+  getPreset(): ModelRuntimePreset;
+}
+
 /** Assistant extraction never needs a long answer; JSON candidates are small. */
 const ASSISTANT_MAX_OUTPUT_TOKENS = 2_048;
 
@@ -37,11 +69,13 @@ const ASSISTANT_REQUEST_TIMEOUT_SECONDS = 120;
 
 /**
  * The assistant's only path to a model. It shares SiftKit's GPU-locked runtime, sends no tools,
- * and has no branch that can emit an image part (§12.6, §20.1).
+ * and always pins a JSON schema on the answer — for text and image roles alike (§20.1). Images
+ * pass through the same admission the chat surface uses; nothing here re-implements those limits.
  */
 export class LlamaCppAssistantInference implements AssistantInferenceClient {
   constructor(
     private readonly config: SiftConfig,
+    private readonly presets: ActiveModelPresetSource,
     private readonly backend: AssistantChatBackend = new LlamaCppClient(),
   ) {}
 
@@ -54,7 +88,7 @@ export class LlamaCppAssistantInference implements AssistantInferenceClient {
       model: getConfiguredModel(this.config),
       messages: [
         { role: 'system', content: request.systemPrompt },
-        { role: 'user', content: request.userText },
+        { role: 'user', content: this.buildUserMessage(request) },
       ],
       tools: [],
       allowedToolNames: [],
@@ -73,5 +107,16 @@ export class LlamaCppAssistantInference implements AssistantInferenceClient {
       backendId: getActiveInferenceBackend(this.config),
       modelId: getConfiguredModel(this.config),
     };
+  }
+
+  private buildUserMessage(
+    request: AssistantInferenceRequest,
+  ): string | LlamaCppContentPart[] {
+    if (request.kind === 'text') return request.userText;
+    if (request.images.length === 0) {
+      throw new Error('An image inference request must carry at least one image.');
+    }
+    const admitted = admitImagesForPreset(this.presets.getPreset(), request.images);
+    return buildUserContent(request.userText, admitted.map((image) => image.dataUrl));
   }
 }

@@ -8,7 +8,9 @@ import { AuditStore } from '../src/assistant/storage/audit-store.js';
 import { NodeStore } from '../src/assistant/storage/node-store.js';
 import { PolicyStore } from '../src/assistant/storage/policy-store.js';
 import { AssistantTransactionManager } from '../src/assistant/transactions/assistant-transaction-manager.js';
-import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.js';
+import {
+  supportWeights, withAssistantContext, type AssistantTestContext,
+} from './helpers/assistant-fixture.js';
 
 interface ServiceHarness {
   readonly service: AssertionService;
@@ -114,7 +116,7 @@ test('asserting a new fact creates it, links evidence, logs, and bumps the graph
     assert.equal(stored.status, 'active');
     assert.equal(stored.basis, 'explicit_user_statement');
     assert.equal(stored.confidence, 0.9);
-    assert.deepEqual(h.assertions.supportWeights(outcome.assertionId), [0.9]);
+    assert.deepEqual(supportWeights(h.assertions, outcome.assertionId), [0.9]);
 
     assert.equal(h.audit.getGraphVersion(), 1);
     const log = h.audit.listMutations(context.ownerId, 'graph_assertions', outcome.assertionId);
@@ -155,7 +157,7 @@ test('re-asserting the same fact reinforces it instead of creating a duplicate',
     const stored = h.assertions.requireAssertion(second.assertionId);
     assert.equal(stored.first_observed_at_utc, '2026-08-05T09:00:00.000Z');
     assert.equal(stored.last_observed_at_utc, '2026-08-08T09:00:00.000Z');
-    assert.deepEqual(h.assertions.supportWeights(second.assertionId).sort(), [0.8, 0.9]);
+    assert.deepEqual(supportWeights(h.assertions, second.assertionId).sort(), [0.8, 0.9]);
     // 1 - (1-0.9)(1-0.8) = 0.98, clamped to the explicit_user_statement ceiling 0.99
     assert.ok(Math.abs(stored.confidence - 0.98) < 1e-9);
     assert.equal(h.assertions.listBySubject(context.ownerId, h.personId, ['active']).length, 1);

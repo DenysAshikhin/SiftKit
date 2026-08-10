@@ -81,6 +81,7 @@ export const DEFAULT_ASSISTANT_CONFIG: AssistantConfig = {
       QuestionAnswerIngestion: 850,
       QuestionPlanning: 600,
       CandidateConsolidation: 400,
+      ImageExtraction: 350,
       ProjectionMaintenance: 300,
     },
   },

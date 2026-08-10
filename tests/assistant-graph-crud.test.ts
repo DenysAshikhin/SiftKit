@@ -5,7 +5,9 @@ import { AuditStore } from '../src/assistant/storage/audit-store.js';
 import { IdentityStore } from '../src/assistant/storage/identity-store.js';
 import { LOCAL_OWNER_ID } from '../src/assistant/storage/schema.js';
 import { NodeStore } from '../src/assistant/storage/node-store.js';
-import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.js';
+import {
+  supportWeights, withAssistantContext, type AssistantTestContext,
+} from './helpers/assistant-fixture.js';
 
 function newNodeStore(context: AssistantTestContext): NodeStore {
   return new NodeStore(context.database, context.clock, context.ids);
@@ -427,7 +429,7 @@ test('evidence links carry stance and weight and drive the support and contradic
 
     const links = assertions.listEvidence(assertionId);
     assert.equal(links.length, 3);
-    assert.deepEqual(assertions.supportWeights(assertionId), [0.9, 0.6]);
+    assert.deepEqual(supportWeights(assertions, assertionId), [0.9, 0.6]);
     assert.equal(assertions.contradictionCount(assertionId), 1);
   });
 });
@@ -440,7 +442,7 @@ test('the same evidence may support and contextualize one assertion but not dupl
     assertions.linkEvidence(assertionId, evidenceIds[0], 'supports', 0.7);
     const links = assertions.listEvidence(assertionId);
     assert.equal(links.length, 2);
-    assert.deepEqual(assertions.supportWeights(assertionId), [0.7]);
+    assert.deepEqual(supportWeights(assertions, assertionId), [0.7]);
   });
 });
 

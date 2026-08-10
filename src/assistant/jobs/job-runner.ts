@@ -3,6 +3,7 @@ import type { AssistantConfig } from '../../config/types.js';
 import type { CandidateConsolidator } from '../ingestion/consolidator.js';
 import type { CandidatePromoter } from '../ingestion/candidate-promoter.js';
 import type { ConversationExtractor } from '../ingestion/conversation-extractor.js';
+import type { ImageExtractor } from '../images/image-extractor.js';
 import type { ProjectionCompiler } from '../projections/projection-compiler.js';
 import type { QuestionAnswerIngestor } from '../questions/answer-ingestor.js';
 import type { QuestionScheduler } from '../questions/scheduler.js';
@@ -23,6 +24,7 @@ export interface AssistantJobRunnerOptions {
   readonly projections: ProjectionCompiler;
   readonly questions: Pick<QuestionScheduler, 'planPending'>;
   readonly questionAnswers: Pick<QuestionAnswerIngestor, 'ingest'>;
+  readonly images: Pick<ImageExtractor, 'run'>;
   readonly idleGate: InteractivityGate;
   readonly resourcePolicy: ResourcePolicy;
   readonly jobPriorities: AssistantConfig['Background']['JobPriorities'];
@@ -145,6 +147,8 @@ export class AssistantJobRunner {
         this.options.graph.jobs.readProjectionSummarizationPayload(job);
         await this.options.projections.compileAll(ownerId, signal);
         return this.throwIfPreempted();
+      case 'image_extraction':
+        return this.runImageExtraction(ownerId, job, signal);
     }
   }
 
@@ -191,6 +195,23 @@ export class AssistantJobRunner {
     this.enqueueProjectionMaintenance(ownerId);
   }
 
+  /**
+   * An item the runtime can no longer analyse is not a failure: the extractor puts it back into
+   * `awaiting_image_capability` and the job completes, so nothing burns its retry budget.
+   */
+  private async runImageExtraction(
+    ownerId: string,
+    job: JobRow,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const payload = this.options.graph.jobs.readImageExtractionPayload(job);
+    const outcome = await this.options.images.run(ownerId, payload.evidenceId, signal);
+    this.throwIfPreempted();
+    if (outcome.kind !== 'processed') return;
+    this.promoteAll(ownerId, outcome.candidateIds);
+    this.enqueueProjectionMaintenance(ownerId);
+  }
+
   private async runProjectionMaintenance(ownerId: string, signal: AbortSignal): Promise<void> {
     await this.options.projections.compileAll(ownerId, signal);
   }
@@ -224,6 +245,8 @@ export class AssistantJobRunner {
         return this.jobPriorities.QuestionPlanning;
       case 'projection_summarization':
         return this.jobPriorities.ProjectionMaintenance;
+      case 'image_extraction':
+        return this.jobPriorities.ImageExtraction;
     }
   }
 

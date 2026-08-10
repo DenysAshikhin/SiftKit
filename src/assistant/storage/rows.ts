@@ -1,3 +1,5 @@
+import { PerceptualHashSchema } from '@siftkit/contracts';
+
 import { z } from '../../lib/zod.js';
 
 import {
@@ -348,7 +350,7 @@ export const CaptureQueueRowSchema = z.object({
   state: CaptureQueueStateSchema,
   foreground_context_key: z.string(),
   pixel_sha256: z.string(),
-  perceptual_hash: z.string(),
+  perceptual_hash: PerceptualHashSchema,
   byte_length: z.number().int().positive(),
   enqueued_at_utc: z.string(),
   processed_at_utc: z.string().nullable(),

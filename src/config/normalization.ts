@@ -223,6 +223,7 @@ export function normalizeAssistantConfig(value: JsonValue): AssistantConfig {
         QuestionAnswerIngestion: integerOrDefault(priorities.QuestionAnswerIngestion, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.QuestionAnswerIngestion, -maximum, maximum),
         QuestionPlanning: integerOrDefault(priorities.QuestionPlanning, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.QuestionPlanning, -maximum, maximum),
         CandidateConsolidation: integerOrDefault(priorities.CandidateConsolidation, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.CandidateConsolidation, -maximum, maximum),
+        ImageExtraction: integerOrDefault(priorities.ImageExtraction, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.ImageExtraction, -maximum, maximum),
         ProjectionMaintenance: integerOrDefault(priorities.ProjectionMaintenance, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.ProjectionMaintenance, -maximum, maximum),
       },
     },

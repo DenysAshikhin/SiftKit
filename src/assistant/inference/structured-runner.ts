@@ -1,8 +1,10 @@
+import type { ImageDataUrl } from '@siftkit/contracts';
+
 import { z } from '../../lib/zod.js';
 import { parseJsonObjectText } from '../../lib/json.js';
 import type { JsonObject } from '../../lib/json-types.js';
 import { JsonObjectSchema } from '../../lib/json-types.js';
-import type { AssistantInferenceClient } from './client.js';
+import type { AssistantInferenceClient, AssistantInferenceRequest } from './client.js';
 import { ROLE_PROMPT_VERSION, buildRoleSystemPrompt, type AssistantInferenceRole } from './roles.js';
 
 export interface StructuredRunRequest<T> {
@@ -12,6 +14,10 @@ export interface StructuredRunRequest<T> {
   readonly schemaName: string;
   readonly schema: z.ZodType<T>;
   readonly abortSignal: AbortSignal | null;
+}
+
+export interface StructuredImageRunRequest<T> extends StructuredRunRequest<T> {
+  readonly images: readonly ImageDataUrl[];
 }
 
 export type StructuredRunFailureCode = 'invalid_json' | 'schema_invalid';
@@ -48,17 +54,24 @@ export class StructuredOutputRunner {
   constructor(private readonly client: AssistantInferenceClient) {}
 
   async run<T>(request: StructuredRunRequest<T>): Promise<StructuredRunOutcome<T>> {
+    return this.execute(request, null);
+  }
+
+  /** Same contract, same repair retry — the images ride along on both attempts. */
+  async runWithImages<T>(request: StructuredImageRunRequest<T>): Promise<StructuredRunOutcome<T>> {
+    return this.execute(request, request.images);
+  }
+
+  private async execute<T>(
+    request: StructuredRunRequest<T>,
+    images: readonly ImageDataUrl[] | null,
+  ): Promise<StructuredRunOutcome<T>> {
     const systemPrompt = buildRoleSystemPrompt(request.role, request.instructions);
     const responseJsonSchema = this.toJsonSchema(request.schema);
 
-    const first = await this.client.complete({
-      role: request.role,
-      systemPrompt,
-      userText: request.userText,
-      responseSchemaName: request.schemaName,
-      responseJsonSchema,
-      abortSignal: request.abortSignal,
-    });
+    const first = await this.client.complete(this.buildRequest({
+      request, systemPrompt, responseJsonSchema, images, userText: request.userText,
+    }));
     const firstParse = this.parse(first.text, request.schema);
     if (firstParse.ok) {
       return {
@@ -67,14 +80,13 @@ export class StructuredOutputRunner {
       };
     }
 
-    const second = await this.client.complete({
-      role: request.role,
+    const second = await this.client.complete(this.buildRequest({
+      request,
       systemPrompt,
-      userText: this.buildRepairText(request.userText, first.text, firstParse.message),
-      responseSchemaName: request.schemaName,
       responseJsonSchema,
-      abortSignal: request.abortSignal,
-    });
+      images,
+      userText: this.buildRepairText(request.userText, first.text, firstParse.message),
+    }));
     const secondParse = this.parse(second.text, request.schema);
     if (secondParse.ok) {
       return {
@@ -83,6 +95,26 @@ export class StructuredOutputRunner {
       };
     }
     return { ok: false, code: secondParse.code, message: secondParse.message, attempts: 2 };
+  }
+
+  private buildRequest<T>(input: {
+    request: StructuredRunRequest<T>;
+    systemPrompt: string;
+    responseJsonSchema: JsonObject;
+    images: readonly ImageDataUrl[] | null;
+    userText: string;
+  }): AssistantInferenceRequest {
+    const base = {
+      role: input.request.role,
+      systemPrompt: input.systemPrompt,
+      userText: input.userText,
+      responseSchemaName: input.request.schemaName,
+      responseJsonSchema: input.responseJsonSchema,
+      abortSignal: input.request.abortSignal,
+    };
+    return input.images === null
+      ? { kind: 'text', ...base }
+      : { kind: 'image', images: input.images, ...base };
   }
 
   private parse<T>(text: string, schema: z.ZodType<T>): ParseAttempt<T> {

@@ -143,18 +143,32 @@ export function countContentImages(content: string | LlamaCppContentPart[] | und
 export const IMAGE_RETENTION_DISABLED_REASON =
   'Image input is disabled for this preset (VisionImageRetention = 0)';
 
+/** Why this preset refuses image input, or `null` when it accepts it. */
+function presetImageRejection(preset: ModelRuntimePreset): string | null {
+  if (preset.Backend === 'llama') {
+    return 'Images require exl3 backend; llama backend does not support images';
+  }
+  if (!preset.VisionEnabled) {
+    return 'Vision is not enabled for this preset; enable VisionEnabled to use images';
+  }
+  if (preset.VisionImageRetention === 0) {
+    return IMAGE_RETENTION_DISABLED_REASON;
+  }
+  return null;
+}
+
+/** The silent form of the guard below, for callers deciding whether to produce images at all. */
+export function presetAcceptsImages(preset: ModelRuntimePreset): boolean {
+  return presetImageRejection(preset) === null;
+}
+
 export function assertPresetAcceptsImages(
   preset: ModelRuntimePreset,
   imageUris: readonly string[],
 ): void {
   if (imageUris.length === 0) return;
-  if (preset.Backend === 'llama') {
-    throw new Error('Images require exl3 backend; llama backend does not support images');
-  }
-  if (!preset.VisionEnabled) {
-    throw new Error('Vision is not enabled for this preset; enable VisionEnabled to use images');
-  }
-  if (preset.VisionImageRetention === 0) {
-    throw new Error(IMAGE_RETENTION_DISABLED_REASON);
+  const rejection = presetImageRejection(preset);
+  if (rejection !== null) {
+    throw new Error(rejection);
   }
 }

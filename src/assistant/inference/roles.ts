@@ -4,6 +4,7 @@ export const ASSISTANT_INFERENCE_ROLES = [
   'query_intent_parser',
   'projection_summarizer',
   'question_planner',
+  'image_extraction',
 ] as const;
 export type AssistantInferenceRole = (typeof ASSISTANT_INFERENCE_ROLES)[number];
 
@@ -25,6 +26,7 @@ export const ROLE_PROMPT_VERSION = {
   query_intent_parser: '1',
   projection_summarizer: '1',
   question_planner: '1',
+  image_extraction: '1',
 } as const satisfies Record<AssistantInferenceRole, string>;
 
 export function buildRoleSystemPrompt(role: AssistantInferenceRole, instructions: string): string {

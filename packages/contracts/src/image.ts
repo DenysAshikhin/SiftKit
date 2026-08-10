@@ -31,13 +31,25 @@ export function computeImageTargetDimensions(
   };
 }
 
+const IMAGE_DATA_URL_PREFIX_PATTERN = /^data:(image\/\w+);base64,/;
+
+/**
+ * Splits an image data URL into its mime type and base64 payload, or `null` when the string is
+ * not one. The sole parser: `ImageDataUrlSchema` validates through it, so nothing that accepts a
+ * data URL can disagree with something that later takes it apart.
+ */
+export function splitImageDataUrl(dataUrl: string): { mime: ImageMime; base64: string } | null {
+  const match = IMAGE_DATA_URL_PREFIX_PATTERN.exec(dataUrl);
+  if (match === null) return null;
+  const mime = ImageMimeSchema.safeParse(match[1]);
+  if (!mime.success) return null;
+  return { mime: mime.data, base64: dataUrl.slice(match[0].length) };
+}
+
 export const ImageDataUrlSchema = z.string().refine(
   (val) => {
-    if (!val.startsWith('data:image/')) return false;
-    const mimeMatch = val.match(/^data:(image\/\w+);base64,/);
-    if (!mimeMatch) return false;
-    if (!ImageMimeSchema.safeParse(mimeMatch[1]).success) return false;
-    return base64PayloadByteLength(val.slice(mimeMatch[0].length)) <= SIFT_MAX_IMAGE_BYTES;
+    const split = splitImageDataUrl(val);
+    return split !== null && base64PayloadByteLength(split.base64) <= SIFT_MAX_IMAGE_BYTES;
   },
   { message: 'supported-image' },
 );

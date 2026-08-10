@@ -67,6 +67,7 @@ import { createRequestHandler } from './routes.js';
 import { waitForTerminalMetadataIdle } from './routes/core.js';
 import { PresetRuntimeCoordinator } from './preset-runtime-coordinator.js';
 import { AppliedModelPresetState } from './applied-model-preset-state.js';
+import { ManagedRuntimeImageCapabilityProvider } from './runtime-image-capability.js';
 import { ManagedLlamaRuntime } from './managed-llama-runtime.js';
 import { ManagedTabbyRuntime } from './managed-tabby.js';
 import { ModelIdleController } from './model-idle-controller.js';
@@ -331,11 +332,14 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
         runtimeRoot: getRuntimeRoot(),
         clock: new SystemClock(),
         ids: new RandomIdGenerator(),
-        inference: new LlamaCppAssistantInference(initialConfig),
+        inference: new LlamaCppAssistantInference(initialConfig, ctx.appliedModelPresetState),
         tokens: new BackendTokenCounter(initialConfig),
         idleGate: new StatusServerIdleGate(ctx),
         config: initialConfig.Assistant,
         configWriter: new StatusServerAssistantConfigWriter(configPath),
+        imageCapability: new ManagedRuntimeImageCapabilityProvider(
+          presetRuntimeCoordinator, ctx.appliedModelPresetState,
+        ),
       });
       ctx.assistant = assistant;
       ctx.assistantControl = assistant;

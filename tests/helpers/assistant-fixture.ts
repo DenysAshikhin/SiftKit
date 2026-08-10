@@ -7,6 +7,7 @@ import { FixedClock } from '../../src/assistant/clock.js';
 import { FileKeyProvider } from '../../src/assistant/crypto/key-provider.js';
 import { SequentialIdGenerator } from '../../src/assistant/ids.js';
 import { assistantKeyFile } from '../../src/assistant/layout.js';
+import type { AssertionStore } from '../../src/assistant/storage/assertion-store.js';
 import { LOCAL_OWNER_ID } from '../../src/assistant/storage/schema.js';
 import {
   closeRuntimeDatabase, getRuntimeDatabase, type RuntimeDatabase,
@@ -71,4 +72,9 @@ export async function withAssistantContextAsync<T>(
   } finally {
     closeRuntimeDatabase();
   }
+}
+
+/** The live support weights of an assertion, the shape confidence resolution consumes. */
+export function supportWeights(assertions: AssertionStore, assertionId: string): number[] {
+  return assertions.listSupportingEvidence(assertionId).map((row) => row.weight);
 }

@@ -3,7 +3,7 @@ import { z } from '../../lib/zod.js';
 export const ASSISTANT_JOB_TYPES = [
   'conversation_ingestion', 'candidate_consolidation', 'projection_maintenance',
   'question_answer_ingestion',
-  'question_planning', 'projection_summarization',
+  'question_planning', 'projection_summarization', 'image_extraction',
 ] as const;
 export const AssistantJobTypeSchema = z.enum(ASSISTANT_JOB_TYPES);
 export type AssistantJobType = z.infer<typeof AssistantJobTypeSchema>;
@@ -14,7 +14,8 @@ export function isModelBackedJobType(jobType: AssistantJobType): boolean {
     || jobType === 'candidate_consolidation'
     || jobType === 'question_answer_ingestion'
     || jobType === 'question_planning'
-    || jobType === 'projection_summarization';
+    || jobType === 'projection_summarization'
+    || jobType === 'image_extraction';
 }
 
 export const ConversationIngestionPayloadSchema = z.object({
@@ -43,6 +44,11 @@ export const QuestionPlanningPayloadSchema = z.object({
   reason: z.enum(['startup', 'graph_changed', 'schedule']),
 }).strict();
 export type QuestionPlanningPayload = z.infer<typeof QuestionPlanningPayloadSchema>;
+
+export const ImageExtractionPayloadSchema = z.object({
+  evidenceId: z.string(),
+}).strict();
+export type ImageExtractionPayload = z.infer<typeof ImageExtractionPayloadSchema>;
 
 export const ProjectionSummarizationPayloadSchema = z.object({
   projectionId: z.string(),

@@ -125,6 +125,7 @@ export const AssistantJobPrioritiesSchema = z.object({
   QuestionAnswerIngestion: z.number().int(),
   QuestionPlanning: z.number().int(),
   CandidateConsolidation: z.number().int(),
+  ImageExtraction: z.number().int(),
   ProjectionMaintenance: z.number().int(),
 }).strict();
 

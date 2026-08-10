@@ -3,7 +3,7 @@ import type { JsonObject } from '../../lib/json-types.js';
 import type { RuntimeDatabase } from '../../state/runtime-db.js';
 import type { Clock } from '../clock.js';
 import {
-  isIndexableInPlaintext,
+  EvidenceSourceTypeSchema, isIndexableInPlaintext,
   type AssertionBasis, type AssertionStatus, type EvidenceStance, type Sensitivity,
 } from '../domain/enums.js';
 import {
@@ -15,6 +15,12 @@ import {
   AssertionEvidenceRowSchema, AssertionRowSchema, CountRowSchema,
   type AssertionEvidenceRow, type AssertionRow,
 } from './rows.js';
+
+const SupportingEvidenceSchema = z.object({
+  weight: z.number(),
+  source_type: EvidenceSourceTypeSchema,
+});
+export type SupportingEvidence = z.infer<typeof SupportingEvidenceSchema>;
 
 /** Plaintext strings indexed for lexical retrieval. Rendered by the caller, never derived here. */
 export interface AssertionSearchText {
@@ -280,13 +286,17 @@ export class AssertionStore {
   }
 
   /** Supporting weights from non-deleted evidence only, for confidence aggregation. */
-  supportWeights(assertionId: string): number[] {
-    return z.array(z.object({ weight: z.number() })).parse(this.database.prepare(`
-      SELECT ae.weight FROM assertion_evidence ae
+  /**
+   * The assertion's live support, oldest first. Every evidence-derived confidence signal — the
+   * support weights and the single-screenshot clamp of §8.3 — is read off this one result.
+   */
+  listSupportingEvidence(assertionId: string): SupportingEvidence[] {
+    return z.array(SupportingEvidenceSchema).parse(this.database.prepare(`
+      SELECT ae.weight, e.source_type FROM assertion_evidence ae
       JOIN evidence_records e ON e.id = ae.evidence_id
       WHERE ae.assertion_id = ? AND ae.stance = 'supports' AND e.status <> 'deleted'
       ORDER BY ae.created_at_utc ASC, ae.evidence_id ASC
-    `).all(assertionId)).map((row) => row.weight);
+    `).all(assertionId));
   }
 
   contradictionCount(assertionId: string): number {

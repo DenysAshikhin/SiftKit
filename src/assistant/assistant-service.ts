@@ -5,8 +5,10 @@ import type {
   AssistantQuestionDto,
   AssistantStatusResponse,
   AssistantValidationCandidateDto,
+  CaptureSubmissionDto,
   EnvironmentStateDto,
   KeyCustody,
+  SuppressionAuditDto,
 } from '@siftkit/contracts';
 import type { AssistantConfig } from '../config/types.js';
 import { AssistantGraph } from './assistant-graph.js';
@@ -30,7 +32,14 @@ import { ConversationIngestor, type ChatTurnInput } from './ingestion/conversati
 import { IngestionPipeline } from './ingestion/pipeline.js';
 import { AssistantJobRunner, type InteractivityGate } from './jobs/job-runner.js';
 import { AssistantResourcePolicy } from './jobs/resource-policy.js';
+import { CaptureQueueStore } from './images/capture-queue-store.js';
+import {
+  UnavailableImageCapabilityProvider, isUsableCapability,
+  type AssistantImageCapabilityProvider,
+} from './images/image-capability.js';
+import { ImageExtractor } from './images/image-extractor.js';
 import { ActivityLog } from './observation/activity-log.js';
+import { CaptureIntake, type CaptureOutcome } from './observation/capture-intake.js';
 import { DesktopEnvironmentCache } from './observation/environment-cache.js';
 import { ProjectionCompiler } from './projections/projection-compiler.js';
 import { ProjectionSummarizer } from './projections/projection-summarizer.js';
@@ -49,7 +58,9 @@ import { normalizeLiteralValue } from './domain/keys.js';
 import { OWNER_PERSON_CANONICAL_KEY } from './storage/schema.js';
 
 /** The closed set of desktop-shell payloads whose contract rejections are audited. */
-export type DesktopPayloadKind = 'key_material' | 'environment_state' | 'activity_event';
+export type DesktopPayloadKind =
+  'key_material' | 'environment_state' | 'activity_event' | 'capture_submission'
+  | 'suppression_audit';
 
 class RouteOnlyQuestionConfigWriter implements AssistantQuestionConfigWriter {
   setQuestionSchedule(): never {
@@ -89,6 +100,8 @@ export interface AssistantServiceOptions {
   readonly idleGate: InteractivityGate;
   readonly config: AssistantConfig;
   readonly configWriter: AssistantConfigWriter;
+  /** Absent in headless composition (CLI, tests): no runtime means no image analysis. */
+  readonly imageCapability?: AssistantImageCapabilityProvider;
 }
 
 export interface AssistantRuntime {
@@ -104,6 +117,9 @@ export interface AssistantRuntime {
 
 /** How much of the chat prompt memory may consume (Â§11). */
 const JOB_LEASE_SECONDS = 300;
+
+/** Capture states that still owe an extraction; a drain enqueues both (spec §5). */
+const PENDING_CAPTURE_STATES = ['queued', 'awaiting_image_capability'] as const;
 
 /**
  * Â§3. Everything assistant-shaped hangs off this object, and the status server holds exactly one
@@ -123,6 +139,9 @@ export class AssistantService implements AssistantRuntime {
   private readonly resourcePolicy: AssistantResourcePolicy;
   private readonly environment: DesktopEnvironmentCache;
   private readonly activityLog: ActivityLog;
+  private readonly captureIntake: CaptureIntake;
+  private readonly captureQueue: CaptureQueueStore;
+  private readonly imageCapability: AssistantImageCapabilityProvider;
   private readonly configWriter: AssistantConfigWriter;
   private currentConfig: AssistantConfig;
   private ownerPersonId: string | null;
@@ -155,6 +174,15 @@ export class AssistantService implements AssistantRuntime {
       ids: options.ids,
       evidence: this.graph.evidence,
       observations: this.graph.observations,
+    });
+    this.captureQueue = new CaptureQueueStore(options.database, options.clock);
+    this.imageCapability = options.imageCapability ?? new UnavailableImageCapabilityProvider();
+    this.captureIntake = new CaptureIntake({
+      clock: options.clock,
+      evidence: this.graph.evidence,
+      queue: this.captureQueue,
+      audit: this.graph.audit,
+      capability: this.imageCapability,
     });
     this.ownerPersonId = options.config.Enabled ? this.ensureOwnerPersonNode() : null;
 
@@ -223,6 +251,12 @@ export class AssistantService implements AssistantRuntime {
       projections,
       questions: this.questionScheduler,
       questionAnswers: new QuestionAnswerIngestor(extractor, promoter),
+      images: new ImageExtractor({
+        graph: this.graph,
+        queue: this.captureQueue,
+        runner: structuredOutput,
+        capability: this.imageCapability,
+      }),
       idleGate: options.idleGate,
       resourcePolicy: this.resourcePolicy,
       jobPriorities: options.config.Background.JobPriorities,
@@ -374,6 +408,16 @@ export class AssistantService implements AssistantRuntime {
     this.activityLog.ingest(this.ownerId, event, this.currentConfig);
   }
 
+  /** A screenshot the shell's privacy preflight allowed; the daemon decides whether to keep it. */
+  ingestCapture(capture: CaptureSubmissionDto): CaptureOutcome {
+    return this.captureIntake.submit(this.ownerId, capture, this.currentConfig);
+  }
+
+  /** A capture the shell suppressed. Non-content: the rule id and nothing else. */
+  ingestSuppression(suppression: SuppressionAuditDto): void {
+    this.captureIntake.recordSuppression(this.ownerId, suppression);
+  }
+
   /** Persists a key-custody flip durably, then refreshes the in-memory config. */
   applyKeyCustody(custody: KeyCustody): void {
     const updated = { ...this.currentConfig, KeyCustody: custody };
@@ -456,7 +500,31 @@ export class AssistantService implements AssistantRuntime {
   /** Called by the host's idle tick. */
   async drainJobs(): Promise<void> {
     if (!this.enabled) return;
+    this.enqueueWaitingCaptures();
     await this.runner.drain(this.ownerId, this.maxJobsPerDrain);
+  }
+
+  /**
+   * A capable runtime is the only thing unprocessed captures were waiting for, so a drain that
+   * finds one enqueues them oldest-first. Enqueue is idempotent per evidence row, so re-checking
+   * every drain costs nothing. The two states share one drain budget: intake picks between them
+   * from the capability at capture time (spec §5), but a drain owes them the same work.
+   */
+  private enqueueWaitingCaptures(): void {
+    if (!isUsableCapability(this.imageCapability.read())) return;
+    let remaining = this.maxJobsPerDrain;
+    for (const state of PENDING_CAPTURE_STATES) {
+      if (remaining <= 0) return;
+      for (const row of this.captureQueue.listByState(this.ownerId, state, remaining)) {
+        this.graph.jobs.enqueue({
+          ownerId: this.ownerId,
+          jobType: 'image_extraction',
+          payload: { evidenceId: row.evidence_id },
+          idempotencyKey: `image_extraction:${row.evidence_id}`,
+        }, this.currentConfig.Background.JobPriorities.ImageExtraction);
+        remaining -= 1;
+      }
+    }
   }
 
   private ensureOwnerPersonNode(): string {

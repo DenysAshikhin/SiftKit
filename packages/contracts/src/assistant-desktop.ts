@@ -9,6 +9,12 @@ import { ImageDataUrlSchema } from './image.js';
  * different contract generation fails closed at the boundary instead of half-parsing.
  */
 
+/**
+ * The shell's 64-bit dHash as 16 lowercase hex characters. The charset is part of the contract:
+ * the daemon reads these as hex `BigInt`s to score perceptual similarity.
+ */
+export const PerceptualHashSchema = z.string().regex(/^[0-9a-f]{16}$/);
+
 export const ForegroundContextDtoSchema = z.object({
   processName: z.string().nullable(),
   executablePath: z.string().nullable(),
@@ -77,8 +83,7 @@ export const CaptureSubmissionDtoSchema = z.object({
   foregroundContextKey: z.string().min(1),
   foreground: ForegroundContextDtoSchema,
   pixelSha256: z.string().length(64),
-  /** 64-bit dHash, lowercase hex. */
-  perceptualHash: z.string().length(16),
+  perceptualHash: PerceptualHashSchema,
   imageDataUrl: ImageDataUrlSchema,
 }).strict();
 export type CaptureSubmissionDto = z.infer<typeof CaptureSubmissionDtoSchema>;

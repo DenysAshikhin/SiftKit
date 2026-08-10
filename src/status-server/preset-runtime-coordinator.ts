@@ -32,6 +32,11 @@ export class PresetRuntimeCoordinator {
     this.appliedModelPresetState.applyPreset(this.getConfiguredPreset());
   }
 
+  /** The runtime that owns the applied preset right now. Read-only: asking never starts one. */
+  getActiveRuntime(): ManagedInferenceRuntime {
+    return this.getRuntime(this.appliedModelPresetState.getPreset());
+  }
+
   async initialize(): Promise<void> {
     const preset = this.appliedModelPresetState.getPreset();
     const runtime = this.getRuntime(preset);
