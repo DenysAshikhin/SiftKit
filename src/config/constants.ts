@@ -41,6 +41,8 @@ export const SIFT_DEFAULT_LLAMA_REASONING_BUDGET = 10_000;
 export const SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE = 'Thinking budget exhausted. You have to provide the answer now.';
 export const SIFT_DEFAULT_LLAMA_SLEEP_IDLE_SECONDS = 600;
 export const SIFT_DEFAULT_VISION_ENABLED = false;
+/** New presets do not feed the assistant until the user opts them in (Â§6.3). */
+export const SIFT_DEFAULT_ASSISTANT_MEMORY = false;
 /** Images kept live in context. -1 is unbounded; 0 refuses images on every path. */
 export const SIFT_DEFAULT_VISION_IMAGE_RETENTION = 8;
 /** 0 = no user-set cap; the model's own pixel ceiling is the only limit. */

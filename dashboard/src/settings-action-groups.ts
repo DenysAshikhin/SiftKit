@@ -45,6 +45,7 @@ export type PresetSettingsActions = {
   setSurfaceEnabled(presetId: string, surface: DashboardPresetSurface, enabled: boolean): void;
   setAgentsMdEnabled(presetId: string, enabled: boolean): void;
   setRepoFileListingEnabled(presetId: string, enabled: boolean): void;
+  setAssistantMemoryEnabled(presetId: string, enabled: boolean): void;
   setAutoloadFile(presetId: string, index: number, value: string): void;
   pickAutoloadFile(presetId: string, index: number): Promise<void>;
   addAutoloadFile(presetId: string): void;

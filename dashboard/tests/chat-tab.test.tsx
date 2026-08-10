@@ -26,7 +26,8 @@ const PRESET = {
   id: 'chat-default', label: 'Chat', description: '', presetKind: 'chat', operationMode: 'full',
   promptPrefix: '', allowedTools: [], surfaces: ['cli', 'web'],
   useForSummary: false, builtin: true, deletable: false, includeAgentsMd: false,
-  includeRepoFileListing: false, autoloadFiles: [], repoRootRequired: false, maxTurns: null,
+  includeRepoFileListing: false, assistantMemory: false,
+  autoloadFiles: [], repoRootRequired: false, maxTurns: null,
 } satisfies DashboardPreset;
 
 function msg(overrides: Partial<ChatMessage>): ChatMessage {

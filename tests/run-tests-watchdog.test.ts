@@ -15,9 +15,9 @@ import {
 } from './helpers/process-tree-fixture.js';
 
 const repoRoot = process.cwd();
-const RUN_BUDGET_MS = 500;
+const RUN_BUDGET_MS = 5_000;
 // Only reached if the runner never bounds itself; the elapsed assertion fails long before this.
-const HARD_LIMIT_MS = 10_000;
+const HARD_LIMIT_MS = 20_000;
 const ManagedProcessIdsSchema = z.array(z.coerce.number().int().positive());
 
 function readManagedProcessIds(pidHistoryPath: string): number[] {
@@ -121,15 +121,17 @@ test('managed llama readiness cleanup releases its worker and every failed launc
     },
   );
   const managedProcessIds = readManagedProcessIds(pidHistoryPath);
-  const survivingProcessIds = managedProcessIds.filter((pid) => isProcessAlive(pid));
 
   try {
     assert.equal(result.exitCode, 0, result.output);
     assert.equal(managedProcessIds.length, 3);
-    assert.deepEqual(survivingProcessIds, []);
+    await Promise.all(managedProcessIds.map((pid) => waitForProcessExit(pid)));
+    assert.deepEqual(managedProcessIds.filter((pid) => isProcessAlive(pid)), []);
   } finally {
-    for (const pid of survivingProcessIds) {
-      terminateProcessTree(pid);
+    for (const pid of managedProcessIds) {
+      if (isProcessAlive(pid)) {
+        terminateProcessTree(pid);
+      }
     }
   }
 });

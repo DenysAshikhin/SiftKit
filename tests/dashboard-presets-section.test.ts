@@ -17,6 +17,7 @@ const PRESET_ACTIONS: PresetSettingsActions = {
   setSurfaceEnabled() {},
   setAgentsMdEnabled() {},
   setRepoFileListingEnabled() {},
+  setAssistantMemoryEnabled() {},
   setAutoloadFile() {},
   async pickAutoloadFile() {},
   addAutoloadFile() {},

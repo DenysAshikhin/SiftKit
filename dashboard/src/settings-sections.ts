@@ -64,6 +64,13 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
     summary: 'Configurable runtime presets for CLI and web execution families, prompts, tool access, and surface visibility.',
     fields: [
       { label: 'Preset library', layout: 'full', helpText: 'Built-in presets can be edited but not deleted. User-defined presets can be added, edited, and deleted.' },
+      {
+        label: 'Assistant memory',
+        layout: 'quarter',
+        helpText:
+          'Feed this presetâ€™s chats into assistant memory, and inject relevant remembered '
+          + 'context into its prompts. Off by default.',
+      },
     ],
   },
   interactive: {

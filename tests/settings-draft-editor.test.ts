@@ -68,6 +68,7 @@ test('settings draft editor applies every preset action', () => {
   editor.apply({ type: 'set-preset-surface-enabled', presetId: CUSTOM_PRESET.id, surface: 'web', enabled: true });
   editor.apply({ type: 'set-preset-boolean', presetId: CUSTOM_PRESET.id, field: 'includeAgentsMd', value: true });
   editor.apply({ type: 'set-preset-boolean', presetId: CUSTOM_PRESET.id, field: 'includeRepoFileListing', value: true });
+  editor.apply({ type: 'set-preset-boolean', presetId: CUSTOM_PRESET.id, field: 'assistantMemory', value: true });
   editor.apply({ type: 'set-preset-boolean', presetId: CUSTOM_PRESET.id, field: 'repoRootRequired', value: true });
   editor.apply({ type: 'set-preset-max-turns', presetId: CUSTOM_PRESET.id, value: 12 });
   editor.apply({ type: 'add-preset-autoload-file', presetId: CUSTOM_PRESET.id });
@@ -88,6 +89,7 @@ test('settings draft editor applies every preset action', () => {
     surfaces: ['web'],
     includeAgentsMd: true,
     includeRepoFileListing: true,
+    assistantMemory: true,
     autoloadFiles: ['AGENTS.md'],
     repoRootRequired: true,
     maxTurns: 12,

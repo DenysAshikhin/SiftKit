@@ -220,6 +220,9 @@ export function useSettingsController(deps: {
     setRepoFileListingEnabled(presetId, enabled) {
       applySettingsAction({ type: 'set-preset-boolean', presetId, field: 'includeRepoFileListing', value: enabled });
     },
+    setAssistantMemoryEnabled(presetId, enabled) {
+      applySettingsAction({ type: 'set-preset-boolean', presetId, field: 'assistantMemory', value: enabled });
+    },
     setAutoloadFile(presetId, index, value) {
       applySettingsAction({ type: 'set-preset-autoload-file', presetId, index, value });
     },

@@ -26,6 +26,7 @@ export const PRESET_ACTIONS: PresetSettingsActions = {
   setSurfaceEnabled() {},
   setAgentsMdEnabled() {},
   setRepoFileListingEnabled() {},
+  setAssistantMemoryEnabled() {},
   setAutoloadFile() {},
   async pickAutoloadFile() {},
   addAutoloadFile() {},
@@ -74,7 +75,8 @@ export const PRESET = {
   presetKind: 'summary', operationMode: 'summary',
   promptPrefix: '', allowedTools: ['read_lines'], surfaces: ['cli', 'web'],
   useForSummary: true, builtin: true, deletable: false, includeAgentsMd: false,
-  includeRepoFileListing: false, autoloadFiles: [], repoRootRequired: false, maxTurns: null,
+  includeRepoFileListing: false, assistantMemory: false,
+  autoloadFiles: [], repoRootRequired: false, maxTurns: null,
 } satisfies DashboardPreset;
 
 export const CUSTOM_PRESET = {
@@ -82,7 +84,8 @@ export const CUSTOM_PRESET = {
   presetKind: 'repo-search', operationMode: 'read-only',
   promptPrefix: '', allowedTools: ['read_lines', 'grep'], surfaces: ['cli', 'web'],
   useForSummary: false, builtin: false, deletable: true, includeAgentsMd: false,
-  includeRepoFileListing: false, autoloadFiles: [], repoRootRequired: false, maxTurns: null,
+  includeRepoFileListing: false, assistantMemory: false,
+  autoloadFiles: [], repoRootRequired: false, maxTurns: null,
 } satisfies DashboardPreset;
 
 export const MANAGED_PRESET = {

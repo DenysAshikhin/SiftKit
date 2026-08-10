@@ -55,6 +55,7 @@ import {
   buildRetainedWebToolCalls,
 } from '../chat.js';
 import { buildChatPromptContext } from '../chat-prompt-context.js';
+import { ChatMemorySeam } from '../chat-memory-seam.js';
 import { normalizeRepoSearchMockCommandResults } from '../repo-search-request-normalizers.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
 import {
@@ -649,6 +650,31 @@ type ChatTurnContent = {
   sourceRunId: string | null;
 };
 
+function ingestAssistantMemoryTurn(
+  memory: ChatMemorySeam,
+  preset: SiftPreset,
+  sessionId: string,
+  capturedAtUtc: string,
+  messages: readonly PersistedChatMessage[],
+): void {
+  const lastUser = [...messages].reverse().find((message) => message.role === 'user');
+  const lastAssistant = [...messages].reverse().find(
+    (message) => message.role === 'assistant'
+      && (message.kind ?? 'assistant_answer') === 'assistant_answer',
+  );
+  if (lastUser === undefined || lastAssistant === undefined) {
+    return;
+  }
+  memory.ingestTurn(preset, {
+    sessionId,
+    capturedAtUtc,
+    userMessageId: lastUser.id,
+    userText: lastUser.content,
+    assistantMessageId: lastAssistant.id,
+    assistantText: lastAssistant.content,
+  });
+}
+
 /**
  * One turn on the non-streaming chat message route. The two modes are separate flows:
  * an engine turn is reported to /status by executeRepoSearch and correlates with the
@@ -660,6 +686,7 @@ class ChatMessageTurn {
   private readonly startedAt = Date.now();
   private readonly requestStartedAtUtc = new Date(this.startedAt).toISOString();
   private readonly managedLlamaCursor: ReturnType<typeof captureManagedLlamaSessionCursor>;
+  private readonly memory: ChatMemorySeam;
 
   constructor(
     private readonly ctx: ServerContext,
@@ -673,6 +700,7 @@ class ChatMessageTurn {
     private readonly mockResponses: string[] | undefined,
   ) {
     this.managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
+    this.memory = new ChatMemorySeam(ctx.assistant);
   }
 
   async runEngineTurn(): Promise<void> {
@@ -681,6 +709,7 @@ class ChatMessageTurn {
       getMockTokenConfig(this.config, this.mockResponses),
     );
     try {
+      const memoryContext = await this.memory.buildMemoryContext(this.preset, this.userContent);
       const result = await this.ctx.engineService.executeRepoSearch({
         presetId: this.preset.id,
         taskKind: 'chat',
@@ -688,7 +717,11 @@ class ChatMessageTurn {
         repoRoot: process.cwd(),
         statusBackendUrl: `${this.ctx.getServiceBaseUrl()}/status`,
         config: resolveChatSessionConfig(this.config, this.session),
-        systemPrompt: buildChatSystemContent(this.config, this.session),
+        systemPrompt: buildChatSystemContent(
+          this.config,
+          this.session,
+          memoryContext.length === 0 ? {} : { memoryContext },
+        ),
         history: buildChatHistoryMessages(this.config, this.session),
         thinkingEnabled: this.session.thinkingEnabled !== false,
         allowedTools: [],
@@ -773,6 +806,13 @@ class ChatMessageTurn {
         sourceRunId: turn.sourceRunId,
         images: this.userImages,
       },
+    );
+    ingestAssistantMemoryTurn(
+      this.memory,
+      this.preset,
+      this.session.id,
+      this.requestStartedAtUtc,
+      sessionWithTelemetry.messages ?? [],
     );
     sendJson(this.res, 200, buildChatSessionResponse(this.config, sessionWithTelemetry));
   }
@@ -936,6 +976,8 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         visionMaxImagePixels: getActiveModelPreset(selectedImages.effectiveConfig).VisionMaxImagePixels,
       };
       const selectedSession = selected.session;
+      const memory = new ChatMemorySeam(ctx.assistant);
+      const memoryContext = await memory.buildMemoryContext(selected.preset, userContent);
       const reader = new JsonRecordReader(request.parsedBody);
       const webOverrideRaw = reader.optionalString('webSearchOverride');
       const webEnabled = webOverrideRaw === 'on'
@@ -954,7 +996,11 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         repoRoot: process.cwd(),
         statusBackendUrl: `${ctx.getServiceBaseUrl()}/status`,
         config: selectedImages.effectiveConfig,
-        systemPrompt: buildChatSystemContent(selectedImages.effectiveConfig, selectedSession),
+        systemPrompt: buildChatSystemContent(
+          selectedImages.effectiveConfig,
+          selectedSession,
+          memoryContext.length === 0 ? {} : { memoryContext },
+        ),
         history: buildChatHistoryMessages(selectedImages.effectiveConfig, selectedSession),
         thinkingEnabled: selectedSession.thinkingEnabled !== false,
         allowedTools: webEnabled ? ['web_search', 'web_fetch'] : [],
@@ -1006,6 +1052,13 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         sourceRunId: String(result.requestId || ''),
         images: selectedImages.images,
       });
+      ingestAssistantMemoryTurn(
+        memory,
+        selected.preset,
+        selectedSession.id,
+        requestStartedAtUtc,
+        updatedSession.messages ?? [],
+      );
       progressWriter.flushPending();
       sseWriter.writeEvent('done', buildChatSessionResponse(config, updatedSession));
     } catch (error) {

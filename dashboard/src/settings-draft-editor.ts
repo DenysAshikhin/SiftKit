@@ -34,7 +34,8 @@ export type InteractiveBooleanField = 'Enabled' | 'TranscriptRetention';
 export type InteractiveIntegerField = 'IdleTimeoutMs' | 'MaxTranscriptCharacters';
 export type WebSearchIntegerField = 'ResultCount' | 'TimeoutMs' | 'FetchMaxPages' | 'FetchMaxCharacters';
 export type PresetStringField = 'label' | 'description' | 'promptPrefix';
-export type PresetBooleanField = 'includeAgentsMd' | 'includeRepoFileListing' | 'repoRootRequired';
+export type PresetBooleanField =
+  | 'includeAgentsMd' | 'includeRepoFileListing' | 'repoRootRequired' | 'assistantMemory';
 export type ModelStringField = 'label' | 'BindHost';
 export type ModelNullableStringField = 'Model' | 'ExecutablePath' | 'BaseUrl' | 'ModelPath' | 'ReasoningBudgetMessage';
 export type ModelIntegerField =
@@ -325,6 +326,7 @@ export class DashboardSettingsDraftEditor {
       deletable: true,
       includeAgentsMd: true,
       includeRepoFileListing: true,
+      assistantMemory: false,
       autoloadFiles: [],
       repoRootRequired: false,
       maxTurns: null,

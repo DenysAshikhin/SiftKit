@@ -227,6 +227,8 @@ function getChatUsageValue(value: number | null | undefined): number | null {
 
 type BuildChatOptions = {
   webActionInstruction?: string;
+  /** Rendered assistant-memory block (Â§11.6). Absent when memory is off or found nothing. */
+  memoryContext?: string;
 };
 
 function getActiveServerLlamaPreset(config: SiftConfig): ModelRuntimePreset | null {
@@ -358,9 +360,15 @@ export function buildRetainedWebToolCalls(session: ChatSession): RetainedWebTool
 
 export function buildChatSystemContent(_config: SiftConfig, _session: ChatSession, options: BuildChatOptions = {}): string {
   const systemPrompt = DEFAULT_CHAT_SYSTEM_PROMPT;
-  return typeof options.webActionInstruction === 'string' && options.webActionInstruction.trim()
-    ? `${systemPrompt}\n\n${options.webActionInstruction.trim()}`
-    : systemPrompt;
+  const webInstruction = typeof options.webActionInstruction === 'string'
+    ? options.webActionInstruction.trim()
+    : '';
+  const memoryContext = typeof options.memoryContext === 'string'
+    ? options.memoryContext.trim()
+    : '';
+  return [systemPrompt, webInstruction, memoryContext]
+    .filter((section) => section.length > 0)
+    .join('\n\n');
 }
 
 export type ChatUsage = {

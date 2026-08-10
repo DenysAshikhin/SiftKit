@@ -11,6 +11,7 @@ import type { SiftConfig } from '../config/types.js';
 import type { PresetRuntimeCoordinator } from './preset-runtime-coordinator.js';
 import type { AppliedModelPresetState } from './applied-model-preset-state.js';
 import type { ModelIdleController } from './model-idle-controller.js';
+import type { AssistantRuntime } from '../assistant/assistant-service.js';
 import type { DeferredArtifact } from '../state/status-artifacts.js';
 import type { StatusRunRegistry } from './status-run-registry.js';
 import type { ChatSessionOperationRegistry } from './chat-session-operation-registry.js';
@@ -67,6 +68,7 @@ export type StartStatusServerOptions = {
   idleSummaryDelayMs?: number;
   terminalMetadataIdleDelayMs?: number;
   inferenceRunFlushIdleDelayMs?: number;
+  assistant?: AssistantRuntime | null;
 };
 
 /**
@@ -85,6 +87,8 @@ export type ServerContext = {
   presetRuntimeCoordinator?: PresetRuntimeCoordinator;
   modelIdleController?: ModelIdleController;
   appliedModelPresetState: AppliedModelPresetState;
+  assistant: AssistantRuntime | null;
+  assistantDrainTimer: NodeJS.Timeout | null;
 
   server: ExtendedServer | null;
   getServiceBaseUrl(): string;

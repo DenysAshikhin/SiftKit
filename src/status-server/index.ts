@@ -89,6 +89,14 @@ import type { StatusMetadata } from './status-file.js';
 import type { Metrics } from './metrics.js';
 import type { IdleSummarySnapshot } from './idle-summary.js';
 import { terminateProcessTree, type TerminateProcessTreeOptions } from '../lib/process-tree.js';
+import { AssistantService } from '../assistant/assistant-service.js';
+import { SystemClock } from '../assistant/clock.js';
+import { FileKeyProvider } from '../assistant/crypto/key-provider.js';
+import { RandomIdGenerator } from '../assistant/ids.js';
+import { LlamaCppAssistantInference } from '../assistant/inference/client.js';
+import { BackendTokenCounter } from '../assistant/inference/token-counter.js';
+import { assistantKeyFile } from '../assistant/layout.js';
+import { StatusServerIdleGate } from './assistant-idle-gate.js';
 
 // ---------------------------------------------------------------------------
 // Re-exports (preserves the public API expected by consumers & tests)
@@ -132,6 +140,7 @@ const MANAGED_LLAMA_LOG_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 const DEFAULT_TERMINAL_METADATA_IDLE_DELAY_MS = 10_000;
 const DEFAULT_INFERENCE_RUN_FLUSH_IDLE_DELAY_MS = 10_000;
 const RUNTIME_HISTORY_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const ASSISTANT_DRAIN_INTERVAL_MS = 20_000;
 
 function isRuntimeHistoryPruneDisabled(): boolean {
   const value = String(process.env.SIFTKIT_DISABLE_RUNTIME_HISTORY_PRUNE || '').trim().toLowerCase();
@@ -255,6 +264,8 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     approvalGates: new Map(),
     activeModelRequests: new Map(),
     appliedModelPresetState: new AppliedModelPresetState(getActiveModelPreset(initialConfig)),
+    assistant: null,
+    assistantDrainTimer: null,
     modelRequestQueue: [],
     deferredArtifactQueue: [],
     deferredArtifactDrainScheduled: false,
@@ -305,7 +316,30 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
 
   // Create the run-history tables up front so the first dashboard read and the
   // first artifact persist never race on schema creation.
-  getIdleSummaryDatabase(ctx);
+  const runtimeDatabase = getIdleSummaryDatabase(ctx);
+  if (options.assistant !== undefined) {
+    ctx.assistant = options.assistant;
+  } else {
+    try {
+      ctx.assistant = AssistantService.create({
+        database: runtimeDatabase,
+        runtimeRoot: getRuntimeRoot(),
+        clock: new SystemClock(),
+        ids: new RandomIdGenerator(),
+        keys: new FileKeyProvider(assistantKeyFile(getRuntimeRoot())),
+        inference: new LlamaCppAssistantInference(initialConfig),
+        tokens: new BackendTokenCounter(initialConfig),
+        idleGate: new StatusServerIdleGate(ctx),
+      });
+    } catch (error) {
+      ctx.assistant = null;
+      process.stderr.write(
+        `Assistant failed to start; continuing without memory: ${
+          error instanceof Error ? error.message : String(error)
+        }\n`,
+      );
+    }
+  }
 
   const handleRequest = createRequestHandler(ctx);
 
@@ -327,6 +361,16 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   ) satisfies ExtendedServer;
 
   ctx.server = server;
+  ctx.assistantDrainTimer = setInterval(() => {
+    const assistant = ctx.assistant;
+    if (assistant === null) return;
+    void assistant.drainJobs().catch((error) => {
+      process.stderr.write(
+        `Assistant job drain failed: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
+    });
+  }, ASSISTANT_DRAIN_INTERVAL_MS);
+  ctx.assistantDrainTimer.unref();
   ctx.managedLlamaLogCleanupTimer = setInterval(() => {
     try {
       pruneManagedLlamaLogChunks();
@@ -404,6 +448,10 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   });
   server.on('close', () => {
     clearIdleSummaryTimer(ctx);
+    if (ctx.assistantDrainTimer !== null) {
+      clearInterval(ctx.assistantDrainTimer);
+      ctx.assistantDrainTimer = null;
+    }
     if (ctx.managedLlamaLogCleanupTimer) {
       clearInterval(ctx.managedLlamaLogCleanupTimer);
       ctx.managedLlamaLogCleanupTimer = null;

@@ -1,11 +1,15 @@
 import type { AssistantGraph } from '../assistant-graph.js';
 import type { AssertionObjectRef, CandidateObjectRef, UnresolvedNodeRef } from '../domain/keys.js';
-import { normalizeLiteralValue } from '../domain/keys.js';
+import { normalizeAliasText, normalizeLiteralValue } from '../domain/keys.js';
 import type { RelationType } from '../domain/relation-types.js';
 import type { AssertionWriteOutcome } from '../graph/assertion-service.js';
 import { LIVE_ASSERTION_STATUSES } from '../storage/assertion-store.js';
 import type { CandidateRow } from '../storage/rows.js';
+import { OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.js';
 import type { CandidateGate } from './candidate-gate.js';
+
+/** Ways the extractor may name the owner. Normalized before comparison. */
+const OWNER_ALIASES = ['the user', 'user', 'me', 'i', 'myself'];
 
 export type PromotionOutcome =
   | { readonly kind: 'promoted'; readonly assertionId: string }
@@ -133,11 +137,13 @@ export class CandidatePromoter {
   }
 
   private resolveNode(ownerId: string, ref: UnresolvedNodeRef): string {
+    const isOwner = ref.nodeType === 'person'
+      && OWNER_ALIASES.includes(normalizeAliasText(ref.displayName));
     const outcome = this.graph.resolver.resolve({
       ownerId,
       nodeType: ref.nodeType,
       displayName: ref.displayName,
-      canonicalKey: null,
+      canonicalKey: isOwner ? OWNER_PERSON_CANONICAL_KEY : null,
       contextNodeIds: [],
       createIfMissing: true,
     });

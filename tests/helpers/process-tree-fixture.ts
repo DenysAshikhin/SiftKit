@@ -10,7 +10,8 @@ export { isProcessAlive };
 /** How long both processes would live if nothing terminated them. */
 export const PROCESS_LIFETIME_MS = 20_000;
 
-const PROCESS_WAIT_TIMEOUT_MS = 2_000;
+const PROCESS_START_WAIT_TIMEOUT_MS = 10_000;
+const PROCESS_EXIT_WAIT_TIMEOUT_MS = 5_000;
 const PROCESS_POLL_INTERVAL_MS = 20;
 const ProcessIdSchema = z.coerce.number().int().positive();
 
@@ -28,10 +29,12 @@ function sleep(milliseconds: number): Promise<void> {
 }
 
 export async function waitForGrandchildPidFile(pidPath: string): Promise<number> {
-  const deadline = Date.now() + PROCESS_WAIT_TIMEOUT_MS;
+  const deadline = Date.now() + PROCESS_START_WAIT_TIMEOUT_MS;
   while (!fs.existsSync(pidPath)) {
     if (Date.now() >= deadline) {
-      throw new Error(`Timed out waiting for grandchild PID file: ${pidPath}`);
+      throw new Error(
+        `Timed out after ${PROCESS_START_WAIT_TIMEOUT_MS}ms waiting for grandchild PID file: ${pidPath}`,
+      );
     }
     await sleep(PROCESS_POLL_INTERVAL_MS);
   }
@@ -43,10 +46,10 @@ export async function waitForGrandchildPidFile(pidPath: string): Promise<number>
 }
 
 export async function waitForProcessExit(pid: number): Promise<void> {
-  const deadline = Date.now() + PROCESS_WAIT_TIMEOUT_MS;
+  const deadline = Date.now() + PROCESS_EXIT_WAIT_TIMEOUT_MS;
   while (isProcessAlive(pid)) {
     if (Date.now() >= deadline) {
-      throw new Error(`Process ${pid} remained alive after ${PROCESS_WAIT_TIMEOUT_MS}ms.`);
+      throw new Error(`Process ${pid} remained alive after ${PROCESS_EXIT_WAIT_TIMEOUT_MS}ms.`);
     }
     await sleep(PROCESS_POLL_INTERVAL_MS);
   }

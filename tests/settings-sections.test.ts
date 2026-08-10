@@ -27,6 +27,7 @@ test('settings tooltip labels include the documented fields', () => {
       'Prompt prefix',
       'Operation mode tool policy',
       'Preset library',
+      'Assistant memory',
       'MinCharsForSummary',
       'MinLinesForSummary',
       'Interactive IdleTimeoutMs',

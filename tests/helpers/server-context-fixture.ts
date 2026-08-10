@@ -42,6 +42,8 @@ export function createTestServerContext(configPath: string, root = path.dirname(
     approvalGates: new Map(),
     activeModelRequests: new Map(),
     appliedModelPresetState: new AppliedModelPresetState(getActiveModelPreset(getDefaultConfig())),
+    assistant: null,
+    assistantDrainTimer: null,
     modelRequestQueue: [],
     deferredArtifactQueue: [],
     deferredArtifactDrainScheduled: false,

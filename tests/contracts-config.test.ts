@@ -32,6 +32,7 @@ function completePreset(options: {
     deletable: options.id !== undefined && options.id !== 'summary',
     includeAgentsMd: true,
     includeRepoFileListing: true,
+    assistantMemory: false,
     autoloadFiles: [],
     repoRootRequired: false,
     maxTurns: null,

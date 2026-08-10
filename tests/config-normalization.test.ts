@@ -266,6 +266,7 @@ test('normalizeConfig returns the typed live config fields used by server and da
         deletable: true,
         includeAgentsMd: false,
         includeRepoFileListing: false,
+        assistantMemory: false,
         autoloadFiles: ['docs/policy.md'],
         repoRootRequired: false,
         maxTurns: 4,

@@ -24,6 +24,7 @@ function createPreset(id: string, overrides: Partial<DashboardPreset> = {}): Das
     deletable: true,
     includeAgentsMd: true,
     includeRepoFileListing: true,
+    assistantMemory: false,
     autoloadFiles: [],
     repoRootRequired: false,
     maxTurns: null,

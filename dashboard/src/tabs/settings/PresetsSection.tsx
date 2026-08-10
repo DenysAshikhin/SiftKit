@@ -168,6 +168,13 @@ export function PresetsSection({
                 onChange={(event) => presetActions.setRepoFileListingEnabled(preset.id, event.target.checked)}
               />
             </SettingsField>
+            <SettingsField label="Assistant memory" layout="quarter">
+              <input
+                type="checkbox"
+                checked={preset.assistantMemory}
+                onChange={(event) => presetActions.setAssistantMemoryEnabled(preset.id, event.target.checked)}
+              />
+            </SettingsField>
             <SettingsField label="Autoload files" layout="full">
               <div className="preset-autoload-files">
                 {preset.autoloadFiles.map((file, index) => (
