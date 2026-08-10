@@ -170,10 +170,11 @@ export const AssistantConfigSchema = z.object({
   Observation: z.object({
     ActivityMetadataEnabled: z.boolean(),
     ScreenshotsEnabled: z.boolean(),
-    FixedCadenceMinutes: z.number().int().positive(),
+    FixedCadenceSeconds: z.number().int().positive(),
     WindowChangeCapture: z.boolean(),
     MinimumForegroundDwellSeconds: z.number().int().min(0),
-    MinimumPerceptualDistance: z.number().int().min(0),
+    DuplicateSimilarityPercent: z.number().int().min(0).max(100),
+    CaptureScope: z.enum(['foreground_window', 'all_monitors']),
     CaptureOnlyWhileActive: z.boolean(),
     SkipFullscreen: z.boolean(),
     SkipWhileLocked: z.boolean(),
@@ -196,6 +197,7 @@ export const AssistantConfigSchema = z.object({
     JobPriorities: AssistantJobPrioritiesSchema,
   }).strict(),
   PrivateMode: z.object({ Active: z.boolean(), ExpiresAtUtc: z.string().nullable() }).strict(),
+  KeyCustody: z.enum(['file', 'desktop']),
 }).strict();
 export type AssistantConfig = z.infer<typeof AssistantConfigSchema>;
 

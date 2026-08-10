@@ -4,13 +4,12 @@ import test from 'node:test';
 
 import { AssistantService } from '../src/assistant/assistant-service.js';
 import { FixedClock } from '../src/assistant/clock.js';
-import { FileKeyProvider } from '../src/assistant/crypto/key-provider.js';
 import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
 import { SequentialIdGenerator } from '../src/assistant/ids.js';
-import { assistantKeyFile } from '../src/assistant/layout.js';
 import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
+import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.js';
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 
 class AlwaysIdle {
@@ -46,7 +45,7 @@ test('Gate C: an explicit question answer becomes controllable memory and signed
     runtimeRoot,
     clock,
     ids: new SequentialIdGenerator(),
-    keys: new FileKeyProvider(assistantKeyFile(runtimeRoot)),
+    configWriter: new MemoryAssistantConfigWriter(),
     inference,
     tokens: new EstimateTokenCounter(4),
     idleGate: new AlwaysIdle(),
@@ -128,7 +127,7 @@ test('Gate C: disabled service remains inert and unavailable desktop state never
     runtimeRoot,
     clock: new FixedClock('2026-08-05T09:00:00.000Z'),
     ids: new SequentialIdGenerator(),
-    keys: new FileKeyProvider(assistantKeyFile(runtimeRoot)),
+    configWriter: new MemoryAssistantConfigWriter(),
     inference: new FakeAssistantInference([]),
     tokens: new EstimateTokenCounter(4),
     idleGate: new AlwaysIdle(),

@@ -41,10 +41,11 @@ test('AssistantConfigSchema is strict and the documented defaults are complete',
     Observation: {
       ActivityMetadataEnabled: true,
       ScreenshotsEnabled: false,
-      FixedCadenceMinutes: 10,
+      FixedCadenceSeconds: 30,
       WindowChangeCapture: false,
-      MinimumForegroundDwellSeconds: 30,
-      MinimumPerceptualDistance: 8,
+      MinimumForegroundDwellSeconds: 5,
+      DuplicateSimilarityPercent: 92,
+      CaptureScope: 'foreground_window',
       CaptureOnlyWhileActive: true,
       SkipFullscreen: true,
       SkipWhileLocked: true,
@@ -69,6 +70,7 @@ test('AssistantConfigSchema is strict and the documented defaults are complete',
       },
     },
     PrivateMode: { Active: false, ExpiresAtUtc: null },
+    KeyCustody: 'file',
   });
   assert.deepEqual(AssistantConfigSchema.parse(DEFAULT_ASSISTANT_CONFIG), DEFAULT_ASSISTANT_CONFIG);
   assert.equal(AssistantConfigSchema.safeParse({ ...DEFAULT_ASSISTANT_CONFIG, Extra: true }).success, false);
@@ -76,6 +78,44 @@ test('AssistantConfigSchema is strict and the documented defaults are complete',
     ...DEFAULT_ASSISTANT_CONFIG,
     Owner: { ...DEFAULT_ASSISTANT_CONFIG.Owner, Extra: true },
   }).success, false);
+});
+
+test('observation config uses gate D fields and rejects the removed provisional ones', () => {
+  const parsed = AssistantConfigSchema.parse(DEFAULT_ASSISTANT_CONFIG);
+  assert.equal(parsed.Observation.FixedCadenceSeconds, 30);
+  assert.equal(parsed.Observation.DuplicateSimilarityPercent, 92);
+  assert.equal(parsed.Observation.CaptureScope, 'foreground_window');
+  assert.equal(parsed.KeyCustody, 'file');
+
+  assert.equal(AssistantConfigSchema.safeParse({
+    ...DEFAULT_ASSISTANT_CONFIG,
+    Observation: { ...DEFAULT_ASSISTANT_CONFIG.Observation, FixedCadenceMinutes: 1 },
+  }).success, false);
+  assert.equal(AssistantConfigSchema.safeParse({
+    ...DEFAULT_ASSISTANT_CONFIG,
+    Observation: { ...DEFAULT_ASSISTANT_CONFIG.Observation, MinimumPerceptualDistance: 8 },
+  }).success, false);
+  assert.equal(AssistantConfigSchema.safeParse({
+    ...DEFAULT_ASSISTANT_CONFIG,
+    Observation: { ...DEFAULT_ASSISTANT_CONFIG.Observation, CaptureScope: 'single_monitor' },
+  }).success, false);
+  assert.equal(AssistantConfigSchema.safeParse({ ...DEFAULT_ASSISTANT_CONFIG, KeyCustody: 'tpm' }).success, false);
+});
+
+test('normalizeAssistantConfig repairs gate D observation scalars and key custody', () => {
+  assert.deepEqual(normalizeAssistantConfig({
+    Observation: { FixedCadenceSeconds: 0, DuplicateSimilarityPercent: 500, CaptureScope: 'nonsense' },
+    KeyCustody: 'nonsense',
+  }).Observation, DEFAULT_ASSISTANT_CONFIG.Observation);
+  assert.equal(normalizeAssistantConfig({ KeyCustody: 'nonsense' }).KeyCustody, 'file');
+  const normalized = normalizeAssistantConfig({
+    Observation: { FixedCadenceSeconds: 5, DuplicateSimilarityPercent: 80, CaptureScope: 'all_monitors' },
+    KeyCustody: 'desktop',
+  });
+  assert.equal(normalized.Observation.FixedCadenceSeconds, 5);
+  assert.equal(normalized.Observation.DuplicateSimilarityPercent, 80);
+  assert.equal(normalized.Observation.CaptureScope, 'all_monitors');
+  assert.equal(normalized.KeyCustody, 'desktop');
 });
 
 test('normalizeAssistantConfig repairs each malformed scalar without accepting a mutable owner id', () => {

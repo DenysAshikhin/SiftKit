@@ -126,6 +126,10 @@ function stringOrDefault(value: JsonValue, fallback: string): string {
   return typeof value === 'string' ? value.trim() : fallback;
 }
 
+function memberOrDefault<T extends string>(value: JsonValue, allowed: readonly T[], fallback: T): T {
+  return allowed.find((candidate) => candidate === value) ?? fallback;
+}
+
 export function normalizeAssistantConfig(value: JsonValue): AssistantConfig {
   const input = getRecord(value);
   const owner = getRecord(input.Owner);
@@ -188,10 +192,11 @@ export function normalizeAssistantConfig(value: JsonValue): AssistantConfig {
     Observation: {
       ActivityMetadataEnabled: booleanOrDefault(observation.ActivityMetadataEnabled, DEFAULT_ASSISTANT_CONFIG.Observation.ActivityMetadataEnabled),
       ScreenshotsEnabled: booleanOrDefault(observation.ScreenshotsEnabled, DEFAULT_ASSISTANT_CONFIG.Observation.ScreenshotsEnabled),
-      FixedCadenceMinutes: integerOrDefault(observation.FixedCadenceMinutes, DEFAULT_ASSISTANT_CONFIG.Observation.FixedCadenceMinutes, 1, maximum),
+      FixedCadenceSeconds: integerOrDefault(observation.FixedCadenceSeconds, DEFAULT_ASSISTANT_CONFIG.Observation.FixedCadenceSeconds, 1, maximum),
       WindowChangeCapture: booleanOrDefault(observation.WindowChangeCapture, DEFAULT_ASSISTANT_CONFIG.Observation.WindowChangeCapture),
       MinimumForegroundDwellSeconds: integerOrDefault(observation.MinimumForegroundDwellSeconds, DEFAULT_ASSISTANT_CONFIG.Observation.MinimumForegroundDwellSeconds, 0, maximum),
-      MinimumPerceptualDistance: integerOrDefault(observation.MinimumPerceptualDistance, DEFAULT_ASSISTANT_CONFIG.Observation.MinimumPerceptualDistance, 0, maximum),
+      DuplicateSimilarityPercent: integerOrDefault(observation.DuplicateSimilarityPercent, DEFAULT_ASSISTANT_CONFIG.Observation.DuplicateSimilarityPercent, 0, 100),
+      CaptureScope: memberOrDefault(observation.CaptureScope, ['foreground_window', 'all_monitors'], DEFAULT_ASSISTANT_CONFIG.Observation.CaptureScope),
       CaptureOnlyWhileActive: booleanOrDefault(observation.CaptureOnlyWhileActive, DEFAULT_ASSISTANT_CONFIG.Observation.CaptureOnlyWhileActive),
       SkipFullscreen: booleanOrDefault(observation.SkipFullscreen, DEFAULT_ASSISTANT_CONFIG.Observation.SkipFullscreen),
       SkipWhileLocked: booleanOrDefault(observation.SkipWhileLocked, DEFAULT_ASSISTANT_CONFIG.Observation.SkipWhileLocked),
@@ -225,6 +230,7 @@ export function normalizeAssistantConfig(value: JsonValue): AssistantConfig {
         ? privateMode.ExpiresAtUtc
         : DEFAULT_ASSISTANT_CONFIG.PrivateMode.ExpiresAtUtc,
     },
+    KeyCustody: memberOrDefault(input.KeyCustody, ['file', 'desktop'], DEFAULT_ASSISTANT_CONFIG.KeyCustody),
   };
 }
 

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "capturedAtUtc": "2026-08-10T14:03:11.000Z",
+  "foreground": {
+    "processName": "Code.exe",
+    "executablePath": "C:Program FilesMicrosoft VS CodeCode.exe",
+    "applicationId": "app:code",
+    "normalizedTitle": "SiftKit - Visual Studio Code",
+    "fullscreen": false
+  },
+  "idleSeconds": 4,
+  "sessionLocked": false
+}

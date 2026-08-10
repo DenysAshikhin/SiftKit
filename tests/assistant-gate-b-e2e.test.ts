@@ -6,13 +6,12 @@ import { AssistantService } from '../src/assistant/assistant-service.js';
 import { FixedClock } from '../src/assistant/clock.js';
 import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
 import { SequentialIdGenerator } from '../src/assistant/ids.js';
-import { FileKeyProvider } from '../src/assistant/crypto/key-provider.js';
-import { assistantKeyFile } from '../src/assistant/layout.js';
 import { ChatMemorySeam } from '../src/status-server/chat-memory-seam.js';
 import { buildChatSystemContent } from '../src/status-server/chat.js';
 import { LIVE_ASSERTION_STATUSES } from '../src/assistant/storage/assertion-store.js';
 import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
 import { PresetCatalog } from '../src/preset-catalog.js';
@@ -47,7 +46,7 @@ function buildService(responses: readonly string[], clock: FixedClock): Assistan
     runtimeRoot,
     clock,
     ids: new SequentialIdGenerator(),
-    keys: new FileKeyProvider(assistantKeyFile(runtimeRoot)),
+    configWriter: new MemoryAssistantConfigWriter(),
     inference: new FakeAssistantInference(responses),
     tokens: new EstimateTokenCounter(4),
     idleGate: new AlwaysIdle(),

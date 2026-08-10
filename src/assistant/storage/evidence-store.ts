@@ -161,6 +161,24 @@ export class EvidenceStore {
     return this.requireEvidence(evidenceId);
   }
 
+  /** Newest live blob for this owner, or `null` when nothing has been recorded yet. */
+  findLatestBlob(ownerId: string): BlobRow | null {
+    const row = this.database.prepare(`
+      SELECT * FROM evidence_blobs
+      WHERE owner_id = ? AND deleted_at_utc IS NULL
+      ORDER BY created_at_utc DESC, id DESC LIMIT 1
+    `).get(ownerId);
+    return row === undefined || row === null ? null : BlobRowSchema.parse(row);
+  }
+
+  /**
+   * The still-encrypted envelope on disk. Key custody migration needs to try a candidate key
+   * against real stored bytes, which it cannot do through this store's own cipher.
+   */
+  readBlobEnvelope(blob: BlobRow): Buffer {
+    return fs.readFileSync(this.resolveBlobPath(blob.storage_uri));
+  }
+
   readBlobBytes(blobId: string): Buffer {
     const blob = this.requireBlob(blobId);
     if (blob.deleted_at_utc !== null) {

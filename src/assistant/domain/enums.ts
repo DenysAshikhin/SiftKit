@@ -115,6 +115,13 @@ export const POLICY_SOURCES = ['default', 'user', 'migration'] as const;
 export const PolicySourceSchema = z.enum(POLICY_SOURCES);
 export type PolicySource = z.infer<typeof PolicySourceSchema>;
 
+export const CAPTURE_QUEUE_STATES = [
+  'queued', 'awaiting_image_capability', 'processing', 'processed',
+  'expired', 'evicted', 'discarded',
+] as const;
+export const CaptureQueueStateSchema = z.enum(CAPTURE_QUEUE_STATES);
+export type CaptureQueueState = z.infer<typeof CaptureQueueStateSchema>;
+
 export const DEVICE_STATUSES = ['active', 'revoked'] as const;
 export const DeviceStatusSchema = z.enum(DEVICE_STATUSES);
 export type DeviceStatus = z.infer<typeof DeviceStatusSchema>;
@@ -141,6 +148,7 @@ export type ProjectionStatus = z.infer<typeof ProjectionStatusSchema>;
 export const OBSERVATION_TYPES = [
   'conversation_statement', 'conversation_correction', 'conversation_request',
   'conversation_third_party', 'conversation_hypothetical', 'conversation_quotation',
+  'desktop_activity_session', 'screenshot_extraction',
 ] as const;
 export const ObservationTypeSchema = z.enum(OBSERVATION_TYPES);
 export type ObservationType = z.infer<typeof ObservationTypeSchema>;

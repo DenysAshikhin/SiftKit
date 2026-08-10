@@ -91,11 +91,10 @@ import type { IdleSummarySnapshot } from './idle-summary.js';
 import { terminateProcessTree, type TerminateProcessTreeOptions } from '../lib/process-tree.js';
 import { AssistantService } from '../assistant/assistant-service.js';
 import { SystemClock } from '../assistant/clock.js';
-import { FileKeyProvider } from '../assistant/crypto/key-provider.js';
 import { RandomIdGenerator } from '../assistant/ids.js';
 import { LlamaCppAssistantInference } from '../assistant/inference/client.js';
 import { BackendTokenCounter } from '../assistant/inference/token-counter.js';
-import { assistantKeyFile } from '../assistant/layout.js';
+import { StatusServerAssistantConfigWriter } from './assistant-config-writer.js';
 import { AssistantRouteGuard, AssistantTokenStore } from './assistant-auth.js';
 import { AssistantRateLimiter } from './assistant-rate-limiter.js';
 import { StatusServerIdleGate } from './assistant-idle-gate.js';
@@ -332,11 +331,11 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
         runtimeRoot: getRuntimeRoot(),
         clock: new SystemClock(),
         ids: new RandomIdGenerator(),
-        keys: new FileKeyProvider(assistantKeyFile(getRuntimeRoot())),
         inference: new LlamaCppAssistantInference(initialConfig),
         tokens: new BackendTokenCounter(initialConfig),
         idleGate: new StatusServerIdleGate(ctx),
         config: initialConfig.Assistant,
+        configWriter: new StatusServerAssistantConfigWriter(configPath),
       });
       ctx.assistant = assistant;
       ctx.assistantControl = assistant;

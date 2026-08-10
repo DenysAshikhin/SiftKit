@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "capturedAtUtc": "2026-08-10T14:03:11.000Z",
+  "fullscreen": false,
+  "locked": false,
+  "doNotDisturb": false,
+  "presenting": false,
+  "excludedApplication": false,
+  "secondsSinceInput": 4,
+  "power": {
+    "kind": "available",
+    "onBattery": false,
+    "batteryPercent": 87
+  }
+}

@@ -3,7 +3,10 @@ import {
   AssistantConfigPatchRequestSchema,
   AssistantDestructiveRequestSchema,
   AssistantMutationRequestSchema,
+  ActivityEventDtoSchema,
   AssistantValidationNotesRequestSchema,
+  EnvironmentStateDtoSchema,
+  KeyMaterialDtoSchema,
 } from '@siftkit/contracts';
 import { z } from '../../lib/zod.js';
 import { ObjectValueTypeSchema } from '../../assistant/domain/enums.js';
@@ -18,6 +21,8 @@ import type { ServerContext } from '../server-types.js';
 
 const MUTATION_BODY_LIMIT = 256 * 1024;
 const QUESTION_ANSWER_BODY_LIMIT = 64 * 1024;
+const KEY_MATERIAL_BODY_LIMIT = 64 * 1024;
+const OBSERVATION_BODY_LIMIT = 16 * 1024;
 
 const CorrectionSchema = z.object({
   reason: z.string().trim().min(1),
@@ -73,6 +78,25 @@ function success(service: AssistantService): { ok: true; graphVersion: number } 
   return { ok: true, graphVersion: service.graph.graphVersion };
 }
 
+/**
+ * Parses a desktop-shell payload. A contract mismatch is audited by kind alone and then rejected —
+ * the body itself may hold key material or window titles and must never reach the audit row.
+ */
+async function desktopBody<T>(
+  service: AssistantService,
+  req: IncomingMessage,
+  schema: z.ZodType<T>,
+  kind: string,
+  maxBytes: number,
+): Promise<T> {
+  const result = schema.safeParse(parseJsonBody(await readBody(req, { maxBytes })));
+  if (!result.success) {
+    service.recordDesktopContractRejection(kind);
+    throw new Error(`Desktop ${kind} payload does not match the supported contract version.`);
+  }
+  return result.data;
+}
+
 class AssistantEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
@@ -104,8 +128,38 @@ class AssistantEndpoint implements RouteEndpoint {
       sendJson(res, 200, { assistant: service.config });
       return;
     }
+    if (pathname === '/assistant/keys/custody') {
+      sendJson(res, 200, { schemaVersion: 1, ...service.keyCustody.status() });
+      return;
+    }
+    if (pathname === '/assistant/keys/export') {
+      sendJson(res, 200, service.keyCustody.exportForShell());
+      return;
+    }
+    if (pathname === '/assistant/keys/import') {
+      const material = await desktopBody(
+        service, req, KeyMaterialDtoSchema, 'key_material', KEY_MATERIAL_BODY_LIMIT,
+      );
+      sendJson(res, 200, { schemaVersion: 1, ...service.keyCustody.importFromShell(material) });
+      return;
+    }
     if (!service.enabled) {
       sendError(res, 409, 'assistant_disabled', 'Assistant is disabled.');
+      return;
+    }
+
+    if (pathname === '/assistant/ingest/environment') {
+      service.ingestEnvironment(await desktopBody(
+        service, req, EnvironmentStateDtoSchema, 'environment_state', OBSERVATION_BODY_LIMIT,
+      ));
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+    if (pathname === '/assistant/ingest/activity') {
+      service.ingestActivity(await desktopBody(
+        service, req, ActivityEventDtoSchema, 'activity_event', OBSERVATION_BODY_LIMIT,
+      ));
+      sendJson(res, 200, { ok: true });
       return;
     }
 
@@ -315,6 +369,11 @@ const routes = new RouteTable([
   { method: 'GET', path: '/assistant/status', endpoint },
   { method: 'GET', path: '/assistant/config', endpoint },
   { method: 'PATCH', path: '/assistant/config', endpoint },
+  { method: 'GET', path: '/assistant/keys/custody', endpoint },
+  { method: 'POST', path: '/assistant/keys/export', endpoint },
+  { method: 'POST', path: '/assistant/keys/import', endpoint },
+  { method: 'POST', path: '/assistant/ingest/environment', endpoint },
+  { method: 'POST', path: '/assistant/ingest/activity', endpoint },
   { method: 'GET', path: '/assistant/search', endpoint },
   { method: 'GET', path: '/assistant/graph/nodes', endpoint },
   { method: 'GET', path: /^\/assistant\/graph\/nodes\/([^/]+)$/u, endpoint },
@@ -398,7 +457,7 @@ export async function handleAssistantRoute(
       const message = error instanceof Error ? error.message : String(error);
       const status = /Unknown .*owner|Unknown assertion|Unknown assistant question/u.test(message)
         ? 404
-        : /stale|preview token|cannot transition|not awaiting/u.test(message) ? 409 : 400;
+        : /stale|preview token|cannot transition|not awaiting|custody/u.test(message) ? 409 : 400;
       const code = status === 404 ? 'not_found' : status === 409 ? 'conflict' : 'invalid_request';
       sendError(res, status, code, message);
     }

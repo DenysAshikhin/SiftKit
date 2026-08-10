@@ -417,6 +417,57 @@ CREATE INDEX IF NOT EXISTS retrieval_usage_owner_time_idx
 `;
 
 /**
+ * Gate D (v43). Desktop observation: activity metadata and its sessionization, plus the capture
+ * queue that holds screenshot evidence until a vision-capable runtime is actually loaded. Pixels
+ * live in encrypted evidence blobs; only hashes and non-content facts are stored here.
+ */
+export const ASSISTANT_DESKTOP_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS assistant_activity_events (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL REFERENCES assistant_owners(id) ON DELETE CASCADE,
+    captured_at_utc TEXT NOT NULL,
+    application_id TEXT,
+    process_name TEXT,
+    normalized_title TEXT,
+    fullscreen INTEGER NOT NULL CHECK (fullscreen IN (0, 1)),
+    idle_seconds INTEGER NOT NULL CHECK (idle_seconds >= 0),
+    session_locked INTEGER NOT NULL CHECK (session_locked IN (0, 1)),
+    session_id TEXT
+);
+CREATE INDEX IF NOT EXISTS assistant_activity_events_time_idx
+  ON assistant_activity_events(owner_id, captured_at_utc DESC);
+
+CREATE TABLE IF NOT EXISTS assistant_activity_sessions (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL REFERENCES assistant_owners(id) ON DELETE CASCADE,
+    application_id TEXT,
+    process_name TEXT,
+    started_at_utc TEXT NOT NULL,
+    ended_at_utc TEXT,
+    event_count INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS assistant_capture_queue (
+    evidence_id TEXT PRIMARY KEY REFERENCES evidence_records(id) ON DELETE CASCADE,
+    owner_id TEXT NOT NULL REFERENCES assistant_owners(id) ON DELETE CASCADE,
+    state TEXT NOT NULL CHECK (state IN (
+        'queued', 'awaiting_image_capability', 'processing', 'processed',
+        'expired', 'evicted', 'discarded')),
+    foreground_context_key TEXT NOT NULL,
+    pixel_sha256 TEXT NOT NULL,
+    perceptual_hash TEXT NOT NULL,
+    byte_length INTEGER NOT NULL CHECK (byte_length > 0),
+    enqueued_at_utc TEXT NOT NULL,
+    processed_at_utc TEXT,
+    updated_at_utc TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS assistant_capture_queue_state_idx
+  ON assistant_capture_queue(owner_id, state, enqueued_at_utc);
+CREATE INDEX IF NOT EXISTS assistant_capture_queue_dedupe_idx
+  ON assistant_capture_queue(owner_id, foreground_context_key, enqueued_at_utc DESC);
+`;
+
+/**
  * Seeds the registry tables, the single owner row, and this machine's device row from the
  * TypeScript registries. The registry constants are the source of truth; these rows are their
  * projection, so seeding is a full upsert and is safe to re-run.

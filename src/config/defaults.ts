@@ -56,10 +56,11 @@ export const DEFAULT_ASSISTANT_CONFIG: AssistantConfig = {
   Observation: {
     ActivityMetadataEnabled: true,
     ScreenshotsEnabled: false,
-    FixedCadenceMinutes: 10,
+    FixedCadenceSeconds: 30,
     WindowChangeCapture: false,
-    MinimumForegroundDwellSeconds: 30,
-    MinimumPerceptualDistance: 8,
+    MinimumForegroundDwellSeconds: 5,
+    DuplicateSimilarityPercent: 92,
+    CaptureScope: 'foreground_window',
     CaptureOnlyWhileActive: true,
     SkipFullscreen: true,
     SkipWhileLocked: true,
@@ -84,6 +85,7 @@ export const DEFAULT_ASSISTANT_CONFIG: AssistantConfig = {
     },
   },
   PrivateMode: { Active: false, ExpiresAtUtc: null },
+  KeyCustody: 'file',
 };
 
 export function getDefaultConfigObject(): SiftConfig {

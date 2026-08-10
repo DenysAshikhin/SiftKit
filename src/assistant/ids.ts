@@ -6,7 +6,8 @@ import { randomUUID } from 'node:crypto';
  */
 export type IdPrefix =
   | 'node' | 'alias' | 'merge' | 'ast' | 'ev' | 'blob' | 'mut' | 'audit' | 'pol'
-  | 'obs' | 'cand' | 'memproj' | 'job' | 'question' | 'question_feedback' | 'retrieval_usage';
+  | 'obs' | 'cand' | 'memproj' | 'job' | 'question' | 'question_feedback' | 'retrieval_usage'
+  | 'aevt' | 'asess';
 
 /**
  * Opaque identifier source. `prefix` names the row family so an id is self-describing in a log

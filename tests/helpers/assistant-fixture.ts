@@ -1,5 +1,7 @@
 import path from 'node:path';
 
+import type { AssistantConfigWriter } from '../../src/assistant/assistant-service.js';
+import type { AssistantConfig } from '../../src/config/types.js';
 import { AssistantGraph } from '../../src/assistant/assistant-graph.js';
 import { FixedClock } from '../../src/assistant/clock.js';
 import { FileKeyProvider } from '../../src/assistant/crypto/key-provider.js';
@@ -10,6 +12,15 @@ import {
   closeRuntimeDatabase, getRuntimeDatabase, type RuntimeDatabase,
 } from '../../src/state/runtime-db.js';
 import { createManagedTempDir } from './temp-dirs.js';
+
+/** Durable-enough config sink for unit tests: the service only needs its own write to stick. */
+export class MemoryAssistantConfigWriter implements AssistantConfigWriter {
+  written: AssistantConfig | null = null;
+
+  write(config: AssistantConfig): void {
+    this.written = config;
+  }
+}
 
 export interface AssistantTestContext {
   readonly database: RuntimeDatabase;

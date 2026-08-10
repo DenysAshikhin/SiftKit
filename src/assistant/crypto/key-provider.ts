@@ -28,7 +28,7 @@ const KeyFileSchema = z.object({
   keys: z.record(z.string(), z.string().min(1)),
 });
 
-type KeyFile = z.infer<typeof KeyFileSchema>;
+export type KeyFile = z.infer<typeof KeyFileSchema>;
 
 /**
  * Holds the evidence key in a `0600` JSON file under the runtime root — deliberately NOT inside
@@ -58,6 +58,27 @@ export class FileKeyProvider implements AssistantKeyProvider {
   getKeyById(keyId: string): AssistantEncryptionKey {
     const file = this.readKeyFile();
     return this.materializeKey(keyId, file === null ? undefined : file.keys[keyId]);
+  }
+
+  /** The active key id without creating one — `null` when no key file exists yet. */
+  peekActiveKeyId(): string | null {
+    const file = this.readKeyFile();
+    return file === null ? null : file.activeKeyId;
+  }
+
+  /** Every key on disk, creating the first one if the file does not exist yet. */
+  exportKeyFile(): KeyFile {
+    this.getActiveKey();
+    const file = this.readKeyFile();
+    if (file === null) throw new Error('Evidence key file could not be created.');
+    return file;
+  }
+
+  /** Removes the key file. Only the custody migration may call this, and only after import. */
+  deleteKeyFile(): void {
+    if (fs.existsSync(this.keyFilePath)) {
+      fs.rmSync(this.keyFilePath);
+    }
   }
 
   private materializeKey(keyId: string, encoded: string | undefined): AssistantEncryptionKey {

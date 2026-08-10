@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "assistantEnabled": true,
+  "captureEnabled": false,
+  "paused": false,
+  "custody": {
+    "custody": "file",
+    "imported": false,
+    "activeKeyId": "akey_001"
+  },
+  "imageCapability": {
+    "capable": false,
+    "instanceId": null,
+    "queueDepth": 3
+  },
+  "pendingQuestion": {
+    "id": "aq_0001",
+    "questionText": "Do you prefer dark themes in the dashboard?"
+  }
+}

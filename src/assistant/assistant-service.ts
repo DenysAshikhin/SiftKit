@@ -1,14 +1,22 @@
 import type { RuntimeDatabase } from '../state/runtime-db.js';
 import type {
+  ActivityEventDto,
   AssistantPolicyDto,
   AssistantQuestionDto,
   AssistantStatusResponse,
   AssistantValidationCandidateDto,
+  EnvironmentStateDto,
+  KeyCustody,
 } from '@siftkit/contracts';
 import type { AssistantConfig } from '../config/types.js';
 import { AssistantGraph } from './assistant-graph.js';
 import type { Clock } from './clock.js';
-import type { AssistantKeyProvider } from './crypto/key-provider.js';
+import { ImportedKeyProvider } from './crypto/imported-key-provider.js';
+import {
+  CustodyDelegatingKeyProvider, KeyCustodyService, type AssistantCustodyConfigPort,
+} from './crypto/key-custody.js';
+import { FileKeyProvider } from './crypto/key-provider.js';
+import { assistantKeyFile } from './layout.js';
 import { SecretScanner } from './domain/secrets.js';
 import type { TokenCounter } from './domain/tokens.js';
 import type { IdGenerator } from './ids.js';
@@ -21,12 +29,14 @@ import { ConversationExtractor } from './ingestion/conversation-extractor.js';
 import { ConversationIngestor, type ChatTurnInput } from './ingestion/conversation-ingestor.js';
 import { IngestionPipeline } from './ingestion/pipeline.js';
 import { AssistantJobRunner, type InteractivityGate } from './jobs/job-runner.js';
-import { AssistantResourcePolicy, UnavailablePowerStateProvider } from './jobs/resource-policy.js';
+import { AssistantResourcePolicy } from './jobs/resource-policy.js';
+import { ActivityLog } from './observation/activity-log.js';
+import type { AssistantConfigReader } from './observation/config-reader.js';
+import { DesktopEnvironmentCache } from './observation/environment-cache.js';
 import { ProjectionCompiler } from './projections/projection-compiler.js';
 import { ProjectionSummarizer } from './projections/projection-summarizer.js';
 import { MemoryRetriever, type RetrieveResult } from './retrieval/memory-retriever.js';
 import { GraphQuestionCandidateSource } from './questions/candidates.js';
-import { UnavailableQuestionEnvironmentStateProvider } from './questions/environment-state.js';
 import { QuestionPlanner } from './questions/planner.js';
 import {
   GraphQuestionPolicyContext, QuestionPolicyEngine,
@@ -47,18 +57,45 @@ class RouteOnlyQuestionConfigWriter implements AssistantQuestionConfigWriter {
     throw new Error('Question rate changes must use the durable assistant config route.');
   }
 }
+
+/** Live config view for the observation gates, so a config refresh takes effect immediately. */
+class ServiceConfigReader implements AssistantConfigReader {
+  constructor(private readonly service: AssistantService) {}
+
+  read(): AssistantConfig {
+    return this.service.config;
+  }
+}
+
+/** Reads the live custody mode off the service and persists a flip through the durable writer. */
+class ServiceCustodyConfigPort implements AssistantCustodyConfigPort {
+  constructor(private readonly service: AssistantService) {}
+
+  readCustody(): KeyCustody {
+    return this.service.config.KeyCustody;
+  }
+
+  writeCustody(custody: KeyCustody): void {
+    this.service.applyKeyCustody(custody);
+  }
+}
 import { OWNER_PERSON_CANONICAL_KEY } from './storage/schema.js';
+
+/** Durable home of the assistant config block, so the service can persist its own flips. */
+export interface AssistantConfigWriter {
+  write(config: AssistantConfig): void;
+}
 
 export interface AssistantServiceOptions {
   readonly database: RuntimeDatabase;
   readonly runtimeRoot: string;
   readonly clock: Clock;
   readonly ids: IdGenerator;
-  readonly keys: AssistantKeyProvider;
   readonly inference: AssistantInferenceClient;
   readonly tokens: TokenCounter;
   readonly idleGate: InteractivityGate;
   readonly config: AssistantConfig;
+  readonly configWriter: AssistantConfigWriter;
 }
 
 export interface AssistantRuntime {
@@ -84,25 +121,49 @@ export class AssistantService implements AssistantRuntime {
   readonly memoryQueries: MemoryQueryService;
   readonly memoryMutations: MemoryMutationService;
   readonly questionFeedback: QuestionFeedbackService;
+  readonly keyCustody: KeyCustodyService;
 
   private readonly ingestor: ConversationIngestor;
   private readonly retriever: MemoryRetriever;
   private readonly runner: AssistantJobRunner;
   private readonly questionScheduler: QuestionScheduler;
   private readonly resourcePolicy: AssistantResourcePolicy;
+  private readonly environment: DesktopEnvironmentCache;
+  private readonly activityLog: ActivityLog;
+  private readonly configWriter: AssistantConfigWriter;
   private currentConfig: AssistantConfig;
   private ownerPersonId: string | null;
   private maxJobsPerDrain: number;
 
   private constructor(options: AssistantServiceOptions) {
+    this.currentConfig = options.config;
+    this.configWriter = options.configWriter;
+    this.environment = new DesktopEnvironmentCache(options.clock);
+    const fileKeys = new FileKeyProvider(assistantKeyFile(options.runtimeRoot));
+    const importedKeys = new ImportedKeyProvider();
+    const custodyConfig = new ServiceCustodyConfigPort(this);
     this.graph = new AssistantGraph({
       database: options.database,
       clock: options.clock,
       ids: options.ids,
-      keys: options.keys,
+      keys: new CustodyDelegatingKeyProvider(custodyConfig, fileKeys, importedKeys),
       runtimeRoot: options.runtimeRoot,
     });
-    this.currentConfig = options.config;
+    this.keyCustody = new KeyCustodyService({
+      config: custodyConfig,
+      fileKeys,
+      imported: importedKeys,
+      evidence: this.graph.evidence,
+      ownerId: this.graph.ownerId,
+    });
+    this.activityLog = new ActivityLog({
+      database: options.database,
+      clock: options.clock,
+      ids: options.ids,
+      evidence: this.graph.evidence,
+      observations: this.graph.observations,
+      config: new ServiceConfigReader(this),
+    });
     this.ownerPersonId = options.config.Enabled ? this.ensureOwnerPersonNode() : null;
 
     const structuredOutput = new StructuredOutputRunner(options.inference);
@@ -150,7 +211,7 @@ export class AssistantService implements AssistantRuntime {
       graph: this.graph,
       candidates: new GraphQuestionCandidateSource(this.graph),
       policy: new QuestionPolicyEngine(
-        new UnavailableQuestionEnvironmentStateProvider(),
+        this.environment,
         new GraphQuestionPolicyContext(this.graph),
       ),
       planner: new QuestionPlanner(structuredOutput),
@@ -160,7 +221,7 @@ export class AssistantService implements AssistantRuntime {
       database: options.database,
       clock: options.clock,
       background: options.config.Background,
-      power: new UnavailablePowerStateProvider(),
+      power: this.environment.power,
     });
     this.runner = new AssistantJobRunner({
       graph: this.graph,
@@ -304,6 +365,38 @@ export class AssistantService implements AssistantRuntime {
     if (candidate === null || candidate.owner_id !== this.ownerId) return false;
     this.graph.candidates.removeFromValidationQueue(candidateId);
     return true;
+  }
+
+  /** Heartbeat from the desktop shell; feeds question policy and the background power gate. */
+  ingestEnvironment(state: EnvironmentStateDto): void {
+    this.environment.ingest(state);
+  }
+
+  /** Foreground activity metadata from the desktop shell. */
+  ingestActivity(event: ActivityEventDto): void {
+    this.activityLog.ingest(this.ownerId, event);
+  }
+
+  /** Persists a key-custody flip durably, then refreshes the in-memory config. */
+  applyKeyCustody(custody: KeyCustody): void {
+    const updated = { ...this.currentConfig, KeyCustody: custody };
+    this.configWriter.write(updated);
+    this.refreshConfig(updated);
+  }
+
+  /**
+   * Records that a desktop payload failed contract validation. Deliberately carries the payload
+   * kind and nothing else — a rejected body may contain key material or window titles.
+   */
+  recordDesktopContractRejection(kind: string): void {
+    this.graph.audit.recordAuditEvent({
+      ownerId: this.ownerId,
+      eventType: 'desktop_contract_rejected',
+      targetType: 'desktop_shell',
+      targetId: kind,
+      summary: 'Desktop payload rejected: unsupported contract version.',
+      details: { kind },
+    });
   }
 
   refreshConfig(config: AssistantConfig): void {

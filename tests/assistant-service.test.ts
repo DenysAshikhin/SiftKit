@@ -5,11 +5,10 @@ import path from 'node:path';
 import { AssistantService } from '../src/assistant/assistant-service.js';
 import { FixedClock } from '../src/assistant/clock.js';
 import { SequentialIdGenerator } from '../src/assistant/ids.js';
-import { FileKeyProvider } from '../src/assistant/crypto/key-provider.js';
-import { assistantKeyFile } from '../src/assistant/layout.js';
 import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
 import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { MemoryAssistantConfigWriter } from './helpers/assistant-fixture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
 
@@ -29,7 +28,7 @@ function buildService(
     runtimeRoot,
     clock: new FixedClock('2026-08-05T09:00:00.000Z'),
     ids: new SequentialIdGenerator(),
-    keys: new FileKeyProvider(assistantKeyFile(runtimeRoot)),
+    configWriter: new MemoryAssistantConfigWriter(),
     inference: new FakeAssistantInference(responses),
     tokens: new EstimateTokenCounter(4),
     idleGate: new AlwaysIdle(),

@@ -53,6 +53,7 @@ const EXPECTED_ASSISTANT_TABLES = [
   'graph_mutation_log', 'assistant_policies', 'assistant_audit_events',
   'graph_nodes_fts', 'graph_assertions_fts',
   'assistant_questions', 'assistant_question_feedback', 'retrieval_usage',
+  'assistant_activity_events', 'assistant_activity_sessions', 'assistant_capture_queue',
 ];
 
 test('a fresh database lands on the current schema version with every assistant table', () => {
@@ -60,10 +61,10 @@ test('a fresh database lands on the current schema version with every assistant 
   getRuntimeDatabase(dbPath);
   closeRuntimeDatabase();
 
-  assert.equal(CURRENT_SCHEMA_VERSION, 42);
+  assert.equal(CURRENT_SCHEMA_VERSION, 43);
   const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
     .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
-  assert.equal(version, 42);
+  assert.equal(version, 43);
 
   const tables = new Set(tableNames(dbPath));
   for (const expected of EXPECTED_ASSISTANT_TABLES) {
@@ -86,7 +87,7 @@ test('v42 adds proactive assistant tables and durable Gate C columns', () => {
     assert.ok(appConfigColumns.includes('assistant_json'));
     assert.ok(assertionColumns.includes('user_demoted'));
     assert.ok(candidateColumns.includes('user_notes'));
-    assert.equal(getSchemaVersion(database), 42);
+    assert.equal(getSchemaVersion(database), 43);
 
     assert.throws(() => database.prepare(`
       INSERT INTO assistant_questions (
@@ -199,7 +200,7 @@ test('the v41 projection and job tables remain present after the v42 migration',
     assert.ok(tables.includes('memory_projections'), 'memory_projections missing');
     assert.ok(tables.includes('assistant_jobs'), 'assistant_jobs missing');
     assert.ok(tables.includes('memory_projections_fts'), 'memory_projections_fts missing');
-    assert.equal(getSchemaVersion(database), 42);
+    assert.equal(getSchemaVersion(database), 43);
   });
 });
 
@@ -276,4 +277,63 @@ test('projection and job row schemas parse the shapes SQLite returns', () => {
     assert.equal(job.status, 'queued');
     assert.equal(job.lease_owner, null);
   });
+});
+
+test('v43 adds the desktop observation tables with their guards and indexes', () => {
+  withAssistantContext(({ database, ownerId }) => {
+    assert.equal(getSchemaVersion(database), 43);
+
+    const indexes = NameRowSchema.parse(database.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'index'",
+    ).all()).map((row) => row.name);
+    for (const expected of [
+      'assistant_activity_events_time_idx',
+      'assistant_capture_queue_state_idx',
+      'assistant_capture_queue_dedupe_idx',
+    ]) {
+      assert.ok(indexes.includes(expected), `missing index ${expected}`);
+    }
+
+    database.prepare(`
+      INSERT INTO assistant_activity_sessions (
+        id, owner_id, application_id, process_name, started_at_utc, ended_at_utc, event_count
+      ) VALUES ('asess_1', ?, 'app:code', 'Code.exe', '2026-08-10T09:00:00.000Z', NULL, 0)
+    `).run(ownerId);
+    database.prepare(`
+      INSERT INTO assistant_activity_events (
+        id, owner_id, captured_at_utc, application_id, process_name, normalized_title,
+        fullscreen, idle_seconds, session_locked, session_id
+      ) VALUES ('aevt_1', ?, '2026-08-10T09:00:00.000Z', 'app:code', 'Code.exe', 'SiftKit',
+        0, 4, 0, 'asess_1')
+    `).run(ownerId);
+    assert.throws(() => database.prepare(`
+      INSERT INTO assistant_activity_events (
+        id, owner_id, captured_at_utc, application_id, process_name, normalized_title,
+        fullscreen, idle_seconds, session_locked, session_id
+      ) VALUES ('aevt_bad', ?, '2026-08-10T09:00:00.000Z', NULL, NULL, NULL, 0, -1, 0, NULL)
+    `).run(ownerId), /CHECK constraint failed/);
+
+    assert.throws(() => database.prepare(`
+      INSERT INTO assistant_capture_queue (
+        evidence_id, owner_id, state, foreground_context_key, pixel_sha256, perceptual_hash,
+        byte_length, enqueued_at_utc, processed_at_utc, updated_at_utc
+      ) VALUES ('ev_missing', ?, 'invented_state', 'app:code', 'a', 'b', 1,
+        '2026-08-10T09:00:00.000Z', NULL, '2026-08-10T09:00:00.000Z')
+    `).run(ownerId), /CHECK constraint failed|FOREIGN KEY constraint failed/);
+  });
+});
+
+test('re-running the v43 migration is a no-op', () => {
+  const dbPath = tempDbPath('siftkit-assistant-migration-v43-');
+  getRuntimeDatabase(dbPath);
+  closeRuntimeDatabase();
+  getRuntimeDatabase(dbPath);
+  closeRuntimeDatabase();
+
+  assert.equal(countRows(dbPath, 'assistant_activity_events'), 0);
+  assert.equal(countRows(dbPath, 'assistant_activity_sessions'), 0);
+  assert.equal(countRows(dbPath, 'assistant_capture_queue'), 0);
+  const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
+    .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
+  assert.equal(version, 43);
 });

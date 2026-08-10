@@ -2,7 +2,8 @@ import { z } from '../../lib/zod.js';
 
 import {
   ActorTypeSchema, AliasTypeSchema, AssertionBasisSchema, AssertionStatusSchema,
-  CandidateStatusSchema, DeviceStatusSchema, EvidenceSourceTypeSchema, EvidenceStanceSchema,
+  CandidateStatusSchema, CaptureQueueStateSchema,
+  DeviceStatusSchema, EvidenceSourceTypeSchema, EvidenceStanceSchema,
   EvidenceStatusSchema, JobStatusSchema, MutationOperationSchema, NodeStatusSchema,
   ObjectKindSchema, ObservationTypeSchema, ObjectValueTypeSchema, PolicySourceSchema,
   PolicyTypeSchema, ProjectionStatusSchema, QuestionFeedbackTypeSchema, QuestionStatusSchema,
@@ -315,5 +316,44 @@ export const RetrievalUsageRowSchema = z.object({
   created_at_utc: z.string(),
 });
 export type RetrievalUsageRow = z.infer<typeof RetrievalUsageRowSchema>;
+
+export const ActivityEventRowSchema = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  captured_at_utc: z.string(),
+  application_id: z.string().nullable(),
+  process_name: z.string().nullable(),
+  normalized_title: z.string().nullable(),
+  fullscreen: SqliteBooleanSchema,
+  idle_seconds: z.number().int().min(0),
+  session_locked: SqliteBooleanSchema,
+  session_id: z.string().nullable(),
+});
+export type ActivityEventRow = z.infer<typeof ActivityEventRowSchema>;
+
+export const ActivitySessionRowSchema = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  application_id: z.string().nullable(),
+  process_name: z.string().nullable(),
+  started_at_utc: z.string(),
+  ended_at_utc: z.string().nullable(),
+  event_count: z.number().int().min(0),
+});
+export type ActivitySessionRow = z.infer<typeof ActivitySessionRowSchema>;
+
+export const CaptureQueueRowSchema = z.object({
+  evidence_id: z.string(),
+  owner_id: z.string(),
+  state: CaptureQueueStateSchema,
+  foreground_context_key: z.string(),
+  pixel_sha256: z.string(),
+  perceptual_hash: z.string(),
+  byte_length: z.number().int().positive(),
+  enqueued_at_utc: z.string(),
+  processed_at_utc: z.string().nullable(),
+  updated_at_utc: z.string(),
+});
+export type CaptureQueueRow = z.infer<typeof CaptureQueueRowSchema>;
 
 export const IdRowSchema = z.object({ id: z.string() });

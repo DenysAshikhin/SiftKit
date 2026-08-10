@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "capturedAtUtc": "2026-08-10T14:03:11.000Z",
+  "reason": "fixed_cadence",
+  "display": {
+    "id": "\\.DISPLAY1",
+    "name": "Generic PnP Monitor",
+    "primary": true,
+    "pixelWidth": 3840,
+    "pixelHeight": 2160,
+    "logicalWidth": 2560,
+    "logicalHeight": 1440,
+    "scaleFactor": 1.5
+  },
+  "foregroundContextKey": "app:code|siftkit-visual-studio-code",
+  "foreground": {
+    "processName": "Code.exe",
+    "executablePath": "C:Program FilesMicrosoft VS CodeCode.exe",
+    "applicationId": "app:code",
+    "normalizedTitle": "SiftKit - Visual Studio Code",
+    "fullscreen": false
+  },
+  "pixelSha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+  "perceptualHash": "f0e1d2c3b4a59687",
+  "imageDataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+}
