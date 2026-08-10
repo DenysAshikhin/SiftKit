@@ -119,6 +119,86 @@ export const WebSearchConfigSchema = z.object({
 });
 export type WebSearchConfig = z.infer<typeof WebSearchConfigSchema>;
 
+export const AssistantJobPrioritiesSchema = z.object({
+  ConversationIngestion: z.number().int(),
+  QuestionAnswerIngestion: z.number().int(),
+  QuestionPlanning: z.number().int(),
+  CandidateConsolidation: z.number().int(),
+  ProjectionMaintenance: z.number().int(),
+}).strict();
+
+export const AssistantConfigSchema = z.object({
+  Enabled: z.boolean(),
+  Owner: z.object({ Id: z.string().min(1), DisplayName: z.string() }).strict(),
+  Memory: z.object({
+    Tier1: z.object({
+      MaxTokens: z.number().int().positive(),
+      TargetTokens: z.number().int().positive(),
+    }).strict(),
+    Tier2: z.object({
+      MaxDocuments: z.number().int().positive(),
+      MaxTokensPerDocument: z.number().int().positive(),
+      TargetTokensPerDocument: z.number().int().positive(),
+    }).strict(),
+    Tier3: z.object({
+      MaxDocuments: z.number().int().positive(),
+      MaxTokensPerDocument: z.number().int().positive(),
+      TargetTokensPerDocument: z.number().int().positive(),
+    }).strict(),
+  }).strict(),
+  Retrieval: z.object({
+    MaxContextTokens: z.number().int().positive(),
+    MaxHops: z.number().int().min(1).max(3),
+    MaxSeedNodes: z.number().int().positive(),
+    MaxNodes: z.number().int().positive(),
+    MaxAssertions: z.number().int().positive(),
+    MaxFanoutPerNodePredicate: z.number().int().positive(),
+  }).strict(),
+  Questions: z.object({
+    Enabled: z.boolean(),
+    MaxPerDay: z.number().int().min(0),
+    MaxPerWeek: z.number().int().min(0),
+    MinimumHoursBetweenQuestions: z.number().int().min(0),
+    AllowedLocalTimeStart: z.string(),
+    AllowedLocalTimeEnd: z.string(),
+    DismissedCooldownDays: z.number().int().min(0),
+    UnansweredExpiryDays: z.number().int().min(1),
+    SuppressDuringFullscreen: z.boolean(),
+    SuppressDuringDoNotDisturb: z.boolean(),
+    ActiveInputSuppressionSeconds: z.number().int().min(0),
+  }).strict(),
+  Observation: z.object({
+    ActivityMetadataEnabled: z.boolean(),
+    ScreenshotsEnabled: z.boolean(),
+    FixedCadenceMinutes: z.number().int().positive(),
+    WindowChangeCapture: z.boolean(),
+    MinimumForegroundDwellSeconds: z.number().int().min(0),
+    MinimumPerceptualDistance: z.number().int().min(0),
+    CaptureOnlyWhileActive: z.boolean(),
+    SkipFullscreen: z.boolean(),
+    SkipWhileLocked: z.boolean(),
+    RawRetentionHours: z.number().int().positive(),
+    RawStorageLimitGb: z.number().positive(),
+    AccessibilityExtractionEnabled: z.boolean(),
+    OcrFallbackEnabled: z.boolean(),
+  }).strict(),
+  Retention: z.object({
+    OcrTextDays: z.number().int().positive(),
+    UnpromotedObservationDays: z.number().int().positive(),
+    RejectedCandidateDays: z.number().int().positive(),
+  }).strict(),
+  Background: z.object({
+    IdleSecondsBeforeProcessing: z.number().int().min(0),
+    MaxJobsPerIdleSession: z.number().int().positive(),
+    MaxGpuMinutesPerDay: z.number().int().min(0),
+    MinimumBatteryPercent: z.number().int().min(0).max(100),
+    AllowOnBattery: z.boolean(),
+    JobPriorities: AssistantJobPrioritiesSchema,
+  }).strict(),
+  PrivateMode: z.object({ Active: z.boolean(), ExpiresAtUtc: z.string().nullable() }).strict(),
+}).strict();
+export type AssistantConfig = z.infer<typeof AssistantConfigSchema>;
+
 export const PresetKindSchema = z.enum(['summary', 'chat', 'plan', 'repo-search', 'repo-agent']);
 export type PresetKind = z.infer<typeof PresetKindSchema>;
 export const PresetOperationModeSchema = z.enum(['summary', 'read-only', 'full']);
@@ -217,6 +297,7 @@ export const SiftConfigSchema = z.object({
   OperationModeAllowedTools: OperationModeAllowedToolsSchema,
   Presets: SiftPresetCollectionSchema,
   WebSearch: WebSearchConfigSchema,
+  Assistant: AssistantConfigSchema,
   Paths: z.object({
     RuntimeRoot: z.string(), Logs: z.string(), EvalFixtures: z.string(), EvalResults: z.string(),
   }).optional(),

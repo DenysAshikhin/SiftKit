@@ -14,6 +14,7 @@ import {
   syncDerivedSettingsFields,
 } from './settings-runtime.js';
 import type {
+  AssistantConfig,
   DashboardConfig,
   DashboardManagedLlamaSpeculativeType,
   DashboardModelRuntimePreset,
@@ -84,6 +85,7 @@ export type ModelBooleanField =
   | 'VisionEnabled';
 
 export type DashboardSettingsDraftAction =
+  | { type: 'set-assistant'; value: AssistantConfig }
   | { type: 'set-general-string'; field: GeneralStringField; value: string }
   | { type: 'set-general-boolean'; field: GeneralBooleanField; value: boolean }
   | { type: 'set-threshold-integer'; field: ThresholdIntegerField; value: number }
@@ -138,6 +140,9 @@ export class DashboardSettingsDraftEditor {
 
   apply(action: DashboardSettingsDraftAction): void {
     switch (action.type) {
+      case 'set-assistant':
+        this.config.Assistant = structuredClone(action.value);
+        return;
       case 'set-general-string':
         this.config[action.field] = action.value;
         return;

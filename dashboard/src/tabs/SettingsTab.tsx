@@ -19,6 +19,7 @@ import type {
 } from '../types';
 import type {
   GeneralSettingsActions,
+  AssistantSettingsActions,
   InteractiveSettingsActions,
   ModelPresetSettingsActions,
   PresetSettingsActions,
@@ -28,6 +29,7 @@ import type {
 import { PresetsSection } from './settings/PresetsSection';
 import { ModelPresetsSection } from './settings/ModelPresetsSection';
 import { ToolPolicyMatrix } from './settings/ToolPolicyMatrix';
+import { AssistantSettings } from './settings/AssistantSettings';
 
 export type SettingsTabProps = {
   activeSettingsSection: SettingsSectionId;
@@ -53,6 +55,7 @@ export type SettingsTabProps = {
   interactiveActions: InteractiveSettingsActions;
   webSearchActions: WebSearchSettingsActions;
   modelPresetActions: ModelPresetSettingsActions;
+  assistantActions: AssistantSettingsActions;
   onReloadDashboardSettings(): Promise<void>;
   restartDashboardBackendCore(): Promise<boolean>;
   onSaveDashboardSettings(): Promise<void>;
@@ -83,6 +86,7 @@ export function SettingsTab(props: SettingsTabProps) {
     interactiveActions,
     webSearchActions,
     modelPresetActions,
+    assistantActions,
     onReloadDashboardSettings,
     restartDashboardBackendCore,
     onSaveDashboardSettings,
@@ -374,6 +378,7 @@ export function SettingsTab(props: SettingsTabProps) {
   };
 
   const renderSettingsSection = (): ReactNode => {
+    if (!dashboardConfig) return null;
     if (activeSettingsSection === 'general') return renderGeneralSection();
     if (activeSettingsSection === 'tool-policy') return renderToolPolicySection();
     if (activeSettingsSection === 'presets') {
@@ -390,6 +395,14 @@ export function SettingsTab(props: SettingsTabProps) {
     }
     if (activeSettingsSection === 'interactive') return renderInteractiveSection();
     if (activeSettingsSection === 'web-search') return renderWebSearchSection();
+    if (activeSettingsSection === 'assistant') {
+      return (
+        <AssistantSettings
+          assistant={dashboardConfig.Assistant}
+          onChange={assistantActions.replace}
+        />
+      );
+    }
     return (
       <ModelPresetsSection
         dashboardConfig={dashboardConfig}

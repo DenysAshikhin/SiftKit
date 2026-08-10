@@ -5,7 +5,8 @@ import {
   CandidateStatusSchema, DeviceStatusSchema, EvidenceSourceTypeSchema, EvidenceStanceSchema,
   EvidenceStatusSchema, JobStatusSchema, MutationOperationSchema, NodeStatusSchema,
   ObjectKindSchema, ObservationTypeSchema, ObjectValueTypeSchema, PolicySourceSchema,
-  PolicyTypeSchema, ProjectionStatusSchema, SensitivitySchema,
+  PolicyTypeSchema, ProjectionStatusSchema, QuestionFeedbackTypeSchema, QuestionStatusSchema,
+  QuestionTypeSchema, SensitivitySchema,
 } from '../domain/enums.js';
 import { NodeTypeSchema } from '../domain/node-types.js';
 import { RelationTypeSchema } from '../domain/relation-types.js';
@@ -86,6 +87,7 @@ export const AssertionRowSchema = z.object({
   retired_at_utc: z.string().nullable(),
   supersedes_assertion_id: z.string().nullable(),
   pinned: SqliteBooleanSchema,
+  user_demoted: SqliteBooleanSchema,
   attributes_json: z.string(),
   created_at_utc: z.string(),
   updated_at_utc: z.string(),
@@ -224,6 +226,7 @@ export const CandidateRowSchema = z.object({
   rationale: z.string(),
   status: CandidateStatusSchema,
   rejection_reason: z.string().nullable(),
+  user_notes: z.string(),
   created_at_utc: z.string(),
   updated_at_utc: z.string(),
 });
@@ -269,5 +272,48 @@ export const JobRowSchema = z.object({
   updated_at_utc: z.string(),
 });
 export type JobRow = z.infer<typeof JobRowSchema>;
+
+export const QuestionRowSchema = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  topic_key: z.string(),
+  question_text: z.string(),
+  question_type: QuestionTypeSchema,
+  candidate_ids_json: z.string(),
+  expected_value: z.number(),
+  interruption_cost: z.number(),
+  status: QuestionStatusSchema,
+  eligible_after_utc: z.string().nullable(),
+  expires_at_utc: z.string().nullable(),
+  shown_at_utc: z.string().nullable(),
+  answered_at_utc: z.string().nullable(),
+  answer_evidence_id: z.string().nullable(),
+  created_at_utc: z.string(),
+  updated_at_utc: z.string(),
+});
+export type QuestionRow = z.infer<typeof QuestionRowSchema>;
+
+export const QuestionFeedbackRowSchema = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  question_id: z.string().nullable(),
+  feedback_type: QuestionFeedbackTypeSchema,
+  value_json: z.string(),
+  created_at_utc: z.string(),
+});
+export type QuestionFeedbackRow = z.infer<typeof QuestionFeedbackRowSchema>;
+
+export const RetrievalUsageRowSchema = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  conversation_id: z.string().nullable(),
+  query_hash: z.string(),
+  assertion_ids_json: z.string(),
+  projection_ids_json: z.string(),
+  rendered_token_count: z.number().int().min(0),
+  usefulness_feedback: z.number().min(-1).max(1).nullable(),
+  created_at_utc: z.string(),
+});
+export type RetrievalUsageRow = z.infer<typeof RetrievalUsageRowSchema>;
 
 export const IdRowSchema = z.object({ id: z.string() });

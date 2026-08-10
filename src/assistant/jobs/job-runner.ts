@@ -1,9 +1,14 @@
 import type { AssistantGraph } from '../assistant-graph.js';
+import type { AssistantConfig } from '../../config/types.js';
 import type { CandidateConsolidator } from '../ingestion/consolidator.js';
 import type { CandidatePromoter } from '../ingestion/candidate-promoter.js';
 import type { ConversationExtractor } from '../ingestion/conversation-extractor.js';
 import type { ProjectionCompiler } from '../projections/projection-compiler.js';
+import type { QuestionAnswerIngestor } from '../questions/answer-ingestor.js';
+import type { QuestionScheduler } from '../questions/scheduler.js';
 import type { JobRow } from '../storage/rows.js';
+import { isModelBackedJobType, type AssistantJobType } from './job-types.js';
+import type { ResourcePolicy } from './resource-policy.js';
 
 /** The host tells the runner when background model work is allowed (Â§12.4). */
 export interface InteractivityGate {
@@ -16,7 +21,11 @@ export interface AssistantJobRunnerOptions {
   readonly promoter: CandidatePromoter;
   readonly consolidator: CandidateConsolidator;
   readonly projections: ProjectionCompiler;
+  readonly questions: Pick<QuestionScheduler, 'planPending'>;
+  readonly questionAnswers: Pick<QuestionAnswerIngestor, 'ingest'>;
   readonly idleGate: InteractivityGate;
+  readonly resourcePolicy: ResourcePolicy;
+  readonly jobPriorities: AssistantConfig['Background']['JobPriorities'];
   readonly leaseOwner: string;
   readonly leaseSeconds: number;
 }
@@ -38,8 +47,15 @@ class JobPreemptedError extends Error {
 export class AssistantJobRunner {
   private preemptionRequested = false;
   private inFlight: AbortController | null = null;
+  private jobPriorities: AssistantConfig['Background']['JobPriorities'];
 
-  constructor(private readonly options: AssistantJobRunnerOptions) {}
+  constructor(private readonly options: AssistantJobRunnerOptions) {
+    this.jobPriorities = options.jobPriorities;
+  }
+
+  refreshJobPriorities(priorities: AssistantConfig['Background']['JobPriorities']): void {
+    this.jobPriorities = priorities;
+  }
 
   /**
    * Stop claiming and abandon the in-flight model call. Called by the host the moment an
@@ -60,17 +76,28 @@ export class AssistantJobRunner {
 
     while (claimed < maxJobs) {
       if (this.preemptionRequested || !this.options.idleGate.isIdle()) break;
+      if (this.options.resourcePolicy.canStartBackgroundWork().kind === 'blocked') break;
+      const modelWorkAllowed = this.options.resourcePolicy.canStartModelWork().kind === 'allowed';
       const job = this.options.graph.jobs.claimNext({
         ownerId,
         leaseOwner: this.options.leaseOwner,
         leaseSeconds: this.options.leaseSeconds,
+        modelWorkAllowed,
       });
       if (job === null) break;
       claimed += 1;
 
       const controller = new AbortController();
       this.inFlight = controller;
+      const modelBacked = isModelBackedJobType(job.job_type);
+      const gpuStartedAtMs = Date.now();
+      let modelStarted = false;
       try {
+        if (modelBacked && this.options.resourcePolicy.canStartModelWork().kind === 'blocked') {
+          this.options.graph.jobs.requeuePreempted(job.id);
+          break;
+        }
+        modelStarted = modelBacked;
         await this.execute(ownerId, job, controller.signal);
         this.options.graph.jobs.complete(job.id);
         completed += 1;
@@ -85,6 +112,9 @@ export class AssistantJobRunner {
         );
         failed += 1;
       } finally {
+        if (modelStarted) {
+          this.options.resourcePolicy.recordGpuUse(gpuStartedAtMs, Date.now());
+        }
         this.inFlight = null;
       }
     }
@@ -99,7 +129,22 @@ export class AssistantJobRunner {
       case 'candidate_consolidation':
         return this.runConsolidation(ownerId, job, signal);
       case 'projection_maintenance':
-        return this.runProjectionMaintenance(ownerId);
+        return this.runProjectionMaintenance(ownerId, signal);
+      case 'question_planning':
+        this.options.graph.jobs.readQuestionPlanningPayload(job);
+        await this.options.questions.planPending(ownerId, signal);
+        return this.throwIfPreempted();
+      case 'question_answer_ingestion': {
+        const payload = this.options.graph.jobs.readQuestionAnswerPayload(job);
+        await this.options.questionAnswers.ingest(ownerId, payload.evidenceId, signal);
+        this.throwIfPreempted();
+        this.enqueueProjectionMaintenance(ownerId);
+        return;
+      }
+      case 'projection_summarization':
+        this.options.graph.jobs.readProjectionSummarizationPayload(job);
+        await this.options.projections.compileAll(ownerId, signal);
+        return this.throwIfPreempted();
     }
   }
 
@@ -120,7 +165,7 @@ export class AssistantJobRunner {
         jobType: 'candidate_consolidation',
         payload: { candidateIds: [...extracted.candidateIds] },
         idempotencyKey: `candidate_consolidation:${payload.evidenceId}`,
-      });
+      }, this.priorityFor('candidate_consolidation'));
       return;
     }
     this.promoteAll(ownerId, extracted.candidateIds);
@@ -146,8 +191,8 @@ export class AssistantJobRunner {
     this.enqueueProjectionMaintenance(ownerId);
   }
 
-  private async runProjectionMaintenance(ownerId: string): Promise<void> {
-    await this.options.projections.compileAll(ownerId);
+  private async runProjectionMaintenance(ownerId: string, signal: AbortSignal): Promise<void> {
+    await this.options.projections.compileAll(ownerId, signal);
   }
 
   private promoteAll(ownerId: string, candidateIds: readonly string[]): void {
@@ -162,7 +207,24 @@ export class AssistantJobRunner {
       jobType: 'projection_maintenance',
       payload: { reason: 'graph_changed' },
       idempotencyKey: `projection_maintenance:${this.options.graph.graphVersion}`,
-    });
+    }, this.priorityFor('projection_maintenance'));
+  }
+
+  private priorityFor(jobType: AssistantJobType): number {
+    switch (jobType) {
+      case 'conversation_ingestion':
+        return this.jobPriorities.ConversationIngestion;
+      case 'candidate_consolidation':
+        return this.jobPriorities.CandidateConsolidation;
+      case 'projection_maintenance':
+        return this.jobPriorities.ProjectionMaintenance;
+      case 'question_answer_ingestion':
+        return this.jobPriorities.QuestionAnswerIngestion;
+      case 'question_planning':
+        return this.jobPriorities.QuestionPlanning;
+      case 'projection_summarization':
+        return this.jobPriorities.ProjectionMaintenance;
+    }
   }
 
   private throwIfPreempted(): void {

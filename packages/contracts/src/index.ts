@@ -8,3 +8,4 @@ export * from './system.js';
 export * from './config.js';
 export * from './image.js';
 export * from './managed-llama-failure.js';
+export * from './assistant.js';

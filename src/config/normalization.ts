@@ -16,7 +16,7 @@ import {
   SIFT_DEFAULT_VISION_IMAGE_RETENTION,
   SIFT_DEFAULT_VISION_MAX_IMAGE_PIXELS,
 } from './constants.js';
-import { getDefaultConfigObject } from './defaults.js';
+import { DEFAULT_ASSISTANT_CONFIG, getDefaultConfigObject } from './defaults.js';
 import {
   getDefaultOperationModeAllowedTools,
   normalizeOperationModeAllowedTools,
@@ -26,6 +26,7 @@ import { PresetCatalog } from '../preset-catalog.js';
 import { InferenceBackendIdSchema } from './types.js';
 import type {
   Exl3EngineConfig,
+  AssistantConfig,
   ManagedLlamaKvCacheQuantization,
   ManagedLlamaSpeculativeType,
   ModelRuntimePreset,
@@ -102,6 +103,129 @@ export type ManagedLlamaConfig = {
 function getRecord(value: JsonValue): MutableJsonObject {
   const record = JsonRecordReader.asObject(value);
   return record ? { ...record } : {};
+}
+
+function booleanOrDefault(value: JsonValue, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+function integerOrDefault(value: JsonValue, fallback: number, minimum: number, maximum: number): number {
+  return typeof value === 'number'
+    && Number.isInteger(value)
+    && value >= minimum
+    && value <= maximum
+    ? value
+    : fallback;
+}
+
+function positiveNumberOrDefault(value: JsonValue, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function stringOrDefault(value: JsonValue, fallback: string): string {
+  return typeof value === 'string' ? value.trim() : fallback;
+}
+
+export function normalizeAssistantConfig(value: JsonValue): AssistantConfig {
+  const input = getRecord(value);
+  const owner = getRecord(input.Owner);
+  const memory = getRecord(input.Memory);
+  const tier1 = getRecord(memory.Tier1);
+  const tier2 = getRecord(memory.Tier2);
+  const tier3 = getRecord(memory.Tier3);
+  const retrieval = getRecord(input.Retrieval);
+  const questions = getRecord(input.Questions);
+  const observation = getRecord(input.Observation);
+  const retention = getRecord(input.Retention);
+  const background = getRecord(input.Background);
+  const priorities = getRecord(background.JobPriorities);
+  const privateMode = getRecord(input.PrivateMode);
+  const maximum = Number.MAX_SAFE_INTEGER;
+
+  return {
+    Enabled: booleanOrDefault(input.Enabled, DEFAULT_ASSISTANT_CONFIG.Enabled),
+    Owner: {
+      Id: DEFAULT_ASSISTANT_CONFIG.Owner.Id,
+      DisplayName: stringOrDefault(owner.DisplayName, DEFAULT_ASSISTANT_CONFIG.Owner.DisplayName),
+    },
+    Memory: {
+      Tier1: {
+        MaxTokens: integerOrDefault(tier1.MaxTokens, DEFAULT_ASSISTANT_CONFIG.Memory.Tier1.MaxTokens, 1, maximum),
+        TargetTokens: integerOrDefault(tier1.TargetTokens, DEFAULT_ASSISTANT_CONFIG.Memory.Tier1.TargetTokens, 1, maximum),
+      },
+      Tier2: {
+        MaxDocuments: integerOrDefault(tier2.MaxDocuments, DEFAULT_ASSISTANT_CONFIG.Memory.Tier2.MaxDocuments, 1, maximum),
+        MaxTokensPerDocument: integerOrDefault(tier2.MaxTokensPerDocument, DEFAULT_ASSISTANT_CONFIG.Memory.Tier2.MaxTokensPerDocument, 1, maximum),
+        TargetTokensPerDocument: integerOrDefault(tier2.TargetTokensPerDocument, DEFAULT_ASSISTANT_CONFIG.Memory.Tier2.TargetTokensPerDocument, 1, maximum),
+      },
+      Tier3: {
+        MaxDocuments: integerOrDefault(tier3.MaxDocuments, DEFAULT_ASSISTANT_CONFIG.Memory.Tier3.MaxDocuments, 1, maximum),
+        MaxTokensPerDocument: integerOrDefault(tier3.MaxTokensPerDocument, DEFAULT_ASSISTANT_CONFIG.Memory.Tier3.MaxTokensPerDocument, 1, maximum),
+        TargetTokensPerDocument: integerOrDefault(tier3.TargetTokensPerDocument, DEFAULT_ASSISTANT_CONFIG.Memory.Tier3.TargetTokensPerDocument, 1, maximum),
+      },
+    },
+    Retrieval: {
+      MaxContextTokens: integerOrDefault(retrieval.MaxContextTokens, DEFAULT_ASSISTANT_CONFIG.Retrieval.MaxContextTokens, 1, maximum),
+      MaxHops: integerOrDefault(retrieval.MaxHops, DEFAULT_ASSISTANT_CONFIG.Retrieval.MaxHops, 1, 3),
+      MaxSeedNodes: integerOrDefault(retrieval.MaxSeedNodes, DEFAULT_ASSISTANT_CONFIG.Retrieval.MaxSeedNodes, 1, maximum),
+      MaxNodes: integerOrDefault(retrieval.MaxNodes, DEFAULT_ASSISTANT_CONFIG.Retrieval.MaxNodes, 1, maximum),
+      MaxAssertions: integerOrDefault(retrieval.MaxAssertions, DEFAULT_ASSISTANT_CONFIG.Retrieval.MaxAssertions, 1, maximum),
+      MaxFanoutPerNodePredicate: integerOrDefault(retrieval.MaxFanoutPerNodePredicate, DEFAULT_ASSISTANT_CONFIG.Retrieval.MaxFanoutPerNodePredicate, 1, maximum),
+    },
+    Questions: {
+      Enabled: booleanOrDefault(questions.Enabled, DEFAULT_ASSISTANT_CONFIG.Questions.Enabled),
+      MaxPerDay: integerOrDefault(questions.MaxPerDay, DEFAULT_ASSISTANT_CONFIG.Questions.MaxPerDay, 0, maximum),
+      MaxPerWeek: integerOrDefault(questions.MaxPerWeek, DEFAULT_ASSISTANT_CONFIG.Questions.MaxPerWeek, 0, maximum),
+      MinimumHoursBetweenQuestions: integerOrDefault(questions.MinimumHoursBetweenQuestions, DEFAULT_ASSISTANT_CONFIG.Questions.MinimumHoursBetweenQuestions, 0, maximum),
+      AllowedLocalTimeStart: stringOrDefault(questions.AllowedLocalTimeStart, DEFAULT_ASSISTANT_CONFIG.Questions.AllowedLocalTimeStart),
+      AllowedLocalTimeEnd: stringOrDefault(questions.AllowedLocalTimeEnd, DEFAULT_ASSISTANT_CONFIG.Questions.AllowedLocalTimeEnd),
+      DismissedCooldownDays: integerOrDefault(questions.DismissedCooldownDays, DEFAULT_ASSISTANT_CONFIG.Questions.DismissedCooldownDays, 0, maximum),
+      UnansweredExpiryDays: integerOrDefault(questions.UnansweredExpiryDays, DEFAULT_ASSISTANT_CONFIG.Questions.UnansweredExpiryDays, 1, maximum),
+      SuppressDuringFullscreen: booleanOrDefault(questions.SuppressDuringFullscreen, DEFAULT_ASSISTANT_CONFIG.Questions.SuppressDuringFullscreen),
+      SuppressDuringDoNotDisturb: booleanOrDefault(questions.SuppressDuringDoNotDisturb, DEFAULT_ASSISTANT_CONFIG.Questions.SuppressDuringDoNotDisturb),
+      ActiveInputSuppressionSeconds: integerOrDefault(questions.ActiveInputSuppressionSeconds, DEFAULT_ASSISTANT_CONFIG.Questions.ActiveInputSuppressionSeconds, 0, maximum),
+    },
+    Observation: {
+      ActivityMetadataEnabled: booleanOrDefault(observation.ActivityMetadataEnabled, DEFAULT_ASSISTANT_CONFIG.Observation.ActivityMetadataEnabled),
+      ScreenshotsEnabled: booleanOrDefault(observation.ScreenshotsEnabled, DEFAULT_ASSISTANT_CONFIG.Observation.ScreenshotsEnabled),
+      FixedCadenceMinutes: integerOrDefault(observation.FixedCadenceMinutes, DEFAULT_ASSISTANT_CONFIG.Observation.FixedCadenceMinutes, 1, maximum),
+      WindowChangeCapture: booleanOrDefault(observation.WindowChangeCapture, DEFAULT_ASSISTANT_CONFIG.Observation.WindowChangeCapture),
+      MinimumForegroundDwellSeconds: integerOrDefault(observation.MinimumForegroundDwellSeconds, DEFAULT_ASSISTANT_CONFIG.Observation.MinimumForegroundDwellSeconds, 0, maximum),
+      MinimumPerceptualDistance: integerOrDefault(observation.MinimumPerceptualDistance, DEFAULT_ASSISTANT_CONFIG.Observation.MinimumPerceptualDistance, 0, maximum),
+      CaptureOnlyWhileActive: booleanOrDefault(observation.CaptureOnlyWhileActive, DEFAULT_ASSISTANT_CONFIG.Observation.CaptureOnlyWhileActive),
+      SkipFullscreen: booleanOrDefault(observation.SkipFullscreen, DEFAULT_ASSISTANT_CONFIG.Observation.SkipFullscreen),
+      SkipWhileLocked: booleanOrDefault(observation.SkipWhileLocked, DEFAULT_ASSISTANT_CONFIG.Observation.SkipWhileLocked),
+      RawRetentionHours: integerOrDefault(observation.RawRetentionHours, DEFAULT_ASSISTANT_CONFIG.Observation.RawRetentionHours, 1, maximum),
+      RawStorageLimitGb: positiveNumberOrDefault(observation.RawStorageLimitGb, DEFAULT_ASSISTANT_CONFIG.Observation.RawStorageLimitGb),
+      AccessibilityExtractionEnabled: booleanOrDefault(observation.AccessibilityExtractionEnabled, DEFAULT_ASSISTANT_CONFIG.Observation.AccessibilityExtractionEnabled),
+      OcrFallbackEnabled: booleanOrDefault(observation.OcrFallbackEnabled, DEFAULT_ASSISTANT_CONFIG.Observation.OcrFallbackEnabled),
+    },
+    Retention: {
+      OcrTextDays: integerOrDefault(retention.OcrTextDays, DEFAULT_ASSISTANT_CONFIG.Retention.OcrTextDays, 1, maximum),
+      UnpromotedObservationDays: integerOrDefault(retention.UnpromotedObservationDays, DEFAULT_ASSISTANT_CONFIG.Retention.UnpromotedObservationDays, 1, maximum),
+      RejectedCandidateDays: integerOrDefault(retention.RejectedCandidateDays, DEFAULT_ASSISTANT_CONFIG.Retention.RejectedCandidateDays, 1, maximum),
+    },
+    Background: {
+      IdleSecondsBeforeProcessing: integerOrDefault(background.IdleSecondsBeforeProcessing, DEFAULT_ASSISTANT_CONFIG.Background.IdleSecondsBeforeProcessing, 0, maximum),
+      MaxJobsPerIdleSession: integerOrDefault(background.MaxJobsPerIdleSession, DEFAULT_ASSISTANT_CONFIG.Background.MaxJobsPerIdleSession, 1, maximum),
+      MaxGpuMinutesPerDay: integerOrDefault(background.MaxGpuMinutesPerDay, DEFAULT_ASSISTANT_CONFIG.Background.MaxGpuMinutesPerDay, 0, maximum),
+      MinimumBatteryPercent: integerOrDefault(background.MinimumBatteryPercent, DEFAULT_ASSISTANT_CONFIG.Background.MinimumBatteryPercent, 0, 100),
+      AllowOnBattery: booleanOrDefault(background.AllowOnBattery, DEFAULT_ASSISTANT_CONFIG.Background.AllowOnBattery),
+      JobPriorities: {
+        ConversationIngestion: integerOrDefault(priorities.ConversationIngestion, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.ConversationIngestion, -maximum, maximum),
+        QuestionAnswerIngestion: integerOrDefault(priorities.QuestionAnswerIngestion, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.QuestionAnswerIngestion, -maximum, maximum),
+        QuestionPlanning: integerOrDefault(priorities.QuestionPlanning, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.QuestionPlanning, -maximum, maximum),
+        CandidateConsolidation: integerOrDefault(priorities.CandidateConsolidation, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.CandidateConsolidation, -maximum, maximum),
+        ProjectionMaintenance: integerOrDefault(priorities.ProjectionMaintenance, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.ProjectionMaintenance, -maximum, maximum),
+      },
+    },
+    PrivateMode: {
+      Active: booleanOrDefault(privateMode.Active, DEFAULT_ASSISTANT_CONFIG.PrivateMode.Active),
+      ExpiresAtUtc: privateMode.ExpiresAtUtc === null || typeof privateMode.ExpiresAtUtc === 'string'
+        ? privateMode.ExpiresAtUtc
+        : DEFAULT_ASSISTANT_CONFIG.PrivateMode.ExpiresAtUtc,
+    },
+  };
 }
 
 function getDefaultWebSearchConfig(): WebSearchConfig {
@@ -536,6 +660,7 @@ export function normalizeConfigObject(input: JsonValue): SiftConfig {
   merged.OperationModeAllowedTools = resolveOperationModeAllowedTools(merged.OperationModeAllowedTools);
   merged.Presets = presetCatalog.list();
   merged.WebSearch = normalizeWebSearchConfig(merged.WebSearch);
+  merged.Assistant = normalizeAssistantConfig(merged.Assistant);
   return SiftConfigSchema.parse(merged);
 }
 

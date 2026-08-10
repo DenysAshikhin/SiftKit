@@ -8,6 +8,7 @@ import {
 } from '../dashboard/src/dashboard-presets.js';
 import type { ChatSession, DashboardConfig, DashboardPreset } from '../dashboard/src/types.js';
 import { getTestExl3Engine, getTestInferenceConfig } from './helpers/runtime-config.js';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
 
 function createPreset(id: string, overrides: Partial<DashboardPreset> = {}): DashboardPreset {
   return {
@@ -87,6 +88,7 @@ function createConfig(presets: DashboardPreset[]): DashboardConfig {
       TimeoutMs: 15000,
       FetchMaxCharacters: 12000,
     },
+    Assistant: DEFAULT_ASSISTANT_CONFIG,
     Server: {
       ModelPresets: {
         Presets: [],

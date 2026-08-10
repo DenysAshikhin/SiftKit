@@ -4,7 +4,8 @@ export type SettingsSectionId =
   | 'presets'
   | 'interactive'
   | 'web-search'
-  | 'model-presets';
+  | 'model-presets'
+  | 'assistant';
 
 export type SettingsFieldLayout = 'full' | 'half' | 'quarter';
 
@@ -31,6 +32,7 @@ export const SETTINGS_SECTION_ORDER: SettingsSectionId[] = [
   'interactive',
   'web-search',
   'model-presets',
+  'assistant',
 ];
 
 export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescriptor> = {
@@ -169,6 +171,13 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
       { label: 'Max image size (MP)', layout: 'quarter', helpText: 'Maximum image area before downscaling, in megapixels. Set `0` to use the model ceiling.' },
       { label: 'Vision image retention', layout: 'quarter', helpText: 'Number of recent images kept in context. Use `-1` for all images or `0` to refuse images.' },
     ],
+  },
+  assistant: {
+    id: 'assistant',
+    icon: 'A',
+    title: 'Assistant',
+    summary: 'Proactive memory, question policy, pending proof validation, and memory history.',
+    fields: [],
   },
 };
 

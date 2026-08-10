@@ -54,8 +54,20 @@ test('a candidate is stored pending and is unique per fingerprint and observatio
     } as const;
     const candidate = graph.candidates.propose(input);
     assert.equal(candidate?.status, 'pending');
+    assert.equal(candidate?.user_notes, '');
     assert.equal(graph.candidates.propose(input), null, 'a duplicate proposal is dropped');
     assert.equal(graph.candidates.listPending(ownerId).length, 1);
+    const noted = graph.candidates.setUserNotes(candidate?.id ?? '', 'Verify the Windows version.');
+    assert.equal(noted.user_notes, 'Verify the Windows version.');
+    graph.candidates.needsConfirmation(noted.id, 'ambiguous_scope');
+    assert.deepEqual(
+      graph.candidates.listValidationQueue(ownerId).map((row) => row.id),
+      [noted.id],
+    );
+    const removed = graph.candidates.removeFromValidationQueue(noted.id);
+    assert.equal(removed.status, 'rejected');
+    assert.equal(removed.rejection_reason, 'removed_by_user');
+    assert.deepEqual(graph.candidates.listValidationQueue(ownerId), []);
   });
 });
 

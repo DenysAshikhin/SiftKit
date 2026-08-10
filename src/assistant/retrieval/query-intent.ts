@@ -1,18 +1,24 @@
-export type MemoryTaskType =
-  | 'conversation' | 'coding' | 'planning' | 'troubleshooting'
-  | 'recommendation' | 'recall' | 'action';
+import { z } from '../../lib/zod.js';
 
-export type MemoryTemporalIntent =
-  | { readonly kind: 'current' }
-  | { readonly kind: 'historical' }
-  | { readonly kind: 'any' };
+export const MemoryTaskTypeSchema = z.enum([
+  'conversation', 'coding', 'planning', 'troubleshooting',
+  'recommendation', 'recall', 'action',
+]);
+export type MemoryTaskType = z.infer<typeof MemoryTaskTypeSchema>;
 
-export interface MemoryQueryIntent {
-  /** Normalized content words, used as FTS seeds. */
-  readonly terms: readonly string[];
-  readonly temporal: MemoryTemporalIntent;
-  readonly taskType: MemoryTaskType;
-}
+export const MemoryTemporalIntentSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('current') }).strict(),
+  z.object({ kind: z.literal('historical') }).strict(),
+  z.object({ kind: z.literal('any') }).strict(),
+]);
+export type MemoryTemporalIntent = z.infer<typeof MemoryTemporalIntentSchema>;
+
+export const MemoryQueryIntentSchema = z.object({
+  terms: z.array(z.string().trim().min(1)).min(1),
+  temporal: MemoryTemporalIntentSchema,
+  taskType: MemoryTaskTypeSchema,
+}).strict();
+export type MemoryQueryIntent = z.infer<typeof MemoryQueryIntentSchema>;
 
 const STOP_WORDS = new Set([
   'a', 'an', 'and', 'are', 'about', 'do', 'does', 'did', 'for', 'from', 'how', 'i', 'in', 'is',

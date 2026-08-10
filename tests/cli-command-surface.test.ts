@@ -21,7 +21,7 @@ test('blocked public commands are not accessible', async () => {
     assert.match(errorText, /not exposed in this CLI build/u);
     assert.match(
       errorText,
-      /Available commands: summary, repo-search, repo-agent, preset, run, find-files, internal, help\./u,
+      /Available commands: summary, repo-search, repo-agent, preset, assistant, run, find-files, internal, help\./u,
     );
   }
 });

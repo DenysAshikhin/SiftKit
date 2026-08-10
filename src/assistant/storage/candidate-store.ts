@@ -99,6 +99,14 @@ export class CandidateStore {
     `).all(ownerId));
   }
 
+  listValidationQueue(ownerId: string): CandidateRow[] {
+    return z.array(CandidateRowSchema).parse(this.database.prepare(`
+      SELECT * FROM candidate_assertions
+      WHERE owner_id = ? AND status IN ('pending', 'needs_confirmation')
+      ORDER BY created_at_utc ASC, id ASC
+    `).all(ownerId));
+  }
+
   listByObservation(observationId: string): CandidateRow[] {
     return z.array(CandidateRowSchema).parse(this.database.prepare(`
       SELECT * FROM candidate_assertions
@@ -116,6 +124,25 @@ export class CandidateStore {
 
   needsConfirmation(candidateId: string, reason: string): CandidateRow {
     return this.setStatus(candidateId, 'needs_confirmation', reason);
+  }
+
+  setUserNotes(candidateId: string, notes: string): CandidateRow {
+    const candidate = this.requireCandidate(candidateId);
+    if (candidate.status !== 'pending' && candidate.status !== 'needs_confirmation') {
+      throw new Error(`Candidate ${candidateId} is not awaiting validation.`);
+    }
+    this.database.prepare(`
+      UPDATE candidate_assertions SET user_notes = ?, updated_at_utc = ? WHERE id = ?
+    `).run(notes, this.clock.nowUtc(), candidateId);
+    return this.requireCandidate(candidateId);
+  }
+
+  removeFromValidationQueue(candidateId: string): CandidateRow {
+    const candidate = this.requireCandidate(candidateId);
+    if (candidate.status !== 'pending' && candidate.status !== 'needs_confirmation') {
+      throw new Error(`Candidate ${candidateId} is not awaiting validation.`);
+    }
+    return this.reject(candidateId, 'removed_by_user');
   }
 
   setConfidence(candidateId: string, confidence: number): CandidateRow {

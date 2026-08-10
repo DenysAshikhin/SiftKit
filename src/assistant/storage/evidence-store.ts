@@ -11,6 +11,7 @@ import type { IdGenerator } from '../ids.js';
 import {
   BlobRowSchema, CountRowSchema, EvidenceRowSchema, type BlobRow, type EvidenceRow,
 } from './rows.js';
+import { z } from '../../lib/zod.js';
 
 interface EvidenceCommonInput {
   readonly ownerId: string;
@@ -102,6 +103,14 @@ export class EvidenceStore {
     return CountRowSchema.parse(this.database
       .prepare("SELECT COUNT(*) AS count FROM evidence_records WHERE owner_id = ? AND status <> 'deleted'")
       .get(ownerId)).count;
+  }
+
+  list(ownerId: string, limit: number, offset: number): EvidenceRow[] {
+    return z.array(EvidenceRowSchema).parse(this.database.prepare(`
+      SELECT * FROM evidence_records
+      WHERE owner_id = ? AND status <> 'deleted'
+      ORDER BY captured_at_utc DESC, id ASC LIMIT ? OFFSET ?
+    `).all(ownerId, limit, offset));
   }
 
   countBlobs(ownerId: string): number {

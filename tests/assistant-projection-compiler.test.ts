@@ -10,7 +10,29 @@ import { renderFrontmatter, parseFrontmatter } from '../src/assistant/projection
 import { renderAssertionSentence } from '../src/assistant/projections/assertion-sentence.js';
 import { RELATION_TYPES } from '../src/assistant/domain/relation-types.js';
 import { ProjectionCompiler } from '../src/assistant/projections/projection-compiler.js';
+import type {
+  ProjectionSummaryService,
+  SummarizeProjectionResult,
+} from '../src/assistant/projections/projection-summarizer.js';
+import type { AssistantGraph } from '../src/assistant/assistant-graph.js';
 import { withAssistantContextAsync } from './helpers/assistant-fixture.js';
+
+class UnusedProjectionSummarizer implements ProjectionSummaryService {
+  async summarize(): Promise<SummarizeProjectionResult> {
+    return { kind: 'unchanged', reason: 'below_test_target' };
+  }
+}
+
+function projectionCompiler(graph: AssistantGraph): ProjectionCompiler {
+  return new ProjectionCompiler(
+    graph,
+    new EstimateTokenCounter(4),
+    new UnusedProjectionSummarizer(),
+    { 1: 10_000, 2: 50_000, 3: 10_000 },
+  );
+}
+
+const PROJECTION_SIGNAL = new AbortController().signal;
 
 test('frontmatter round-trips every stable field', () => {
   const rendered = renderFrontmatter({
@@ -142,6 +164,7 @@ function view(overrides: Partial<AssertionView> & { assertionId: string }): Asse
     confidence: 0.9,
     sensitivity: 'personal',
     pinned: false,
+    userDemoted: false,
     lastObservedAtUtc: '2026-08-05T09:00:00.000Z',
     validFromUtc: null,
     validToUtc: null,
@@ -252,8 +275,8 @@ test('a document over its tier token limit drops the lowest-value lines and says
 
 test('compiling an empty graph writes no projections', async () => {
   await withAssistantContextAsync(async ({ graph, ownerId }) => {
-    const compiler = new ProjectionCompiler(graph, new EstimateTokenCounter(4));
-    const summary = await compiler.compileAll(ownerId);
+    const compiler = projectionCompiler(graph);
+    const summary = await compiler.compileAll(ownerId, PROJECTION_SIGNAL);
     assert.equal(summary.written, 0);
     assert.equal(graph.projections.listAll(ownerId).length, 0);
   });
@@ -293,8 +316,8 @@ test('a core-behaviour fact lands in the tier 1 profile and a dossier fact in ti
       });
     }
 
-    const compiler = new ProjectionCompiler(graph, new EstimateTokenCounter(4));
-    const summary = await compiler.compileAll(ownerId);
+    const compiler = projectionCompiler(graph);
+    const summary = await compiler.compileAll(ownerId, PROJECTION_SIGNAL);
     assert.ok(summary.written >= 2);
     const profile = graph.projections.findByTopic(ownerId, 1, 'profile');
     assert.notEqual(profile, null);
@@ -303,15 +326,24 @@ test('a core-behaviour fact lands in the tier 1 profile and a dossier fact in ti
     const dossier = graph.projections.findByTopic(ownerId, 2, 'siftkit');
     assert.notEqual(dossier, null);
     assert.ok(dossier?.content.startsWith('---\n'), 'frontmatter must be written');
+
+    const preference = graph.assertions.listBySubject(ownerId, person.id, ['active'])
+      .find((assertion) => assertion.predicate === 'PREFERS');
+    if (preference === undefined) throw new Error('Expected the preference assertion.');
+    graph.assertions.setUserPriority(preference.id, false, true);
+    graph.audit.incrementGraphVersion();
+    await compiler.compileAll(ownerId, PROJECTION_SIGNAL);
+    const demotedProfile = graph.projections.findByTopic(ownerId, 1, 'profile');
+    assert.ok(!demotedProfile?.content.includes('Prefers PowerShell'));
   });
 });
 
 test('recompiling an unchanged graph rewrites nothing', async () => {
   await withAssistantContextAsync(async ({ graph, ownerId }) => {
-    const compiler = new ProjectionCompiler(graph, new EstimateTokenCounter(4));
-    await compiler.compileAll(ownerId);
+    const compiler = projectionCompiler(graph);
+    await compiler.compileAll(ownerId, PROJECTION_SIGNAL);
     const before = graph.projections.listAll(ownerId).map((row) => row.content_hash);
-    const summary = await compiler.compileAll(ownerId);
+    const summary = await compiler.compileAll(ownerId, PROJECTION_SIGNAL);
     const after = graph.projections.listAll(ownerId).map((row) => row.content_hash);
     assert.deepEqual(after, before);
     assert.equal(summary.written, 0);
@@ -344,8 +376,8 @@ test('a sensitive assertion never reaches a plaintext projection', async () => {
       searchText: { subject: 'the user', predicate: 'INTERESTED_IN', object: 'x', scope: '' },
       evidence: [{ evidenceId: evidence.id, stance: 'supports', weight: 0.9 }],
     });
-    const compiler = new ProjectionCompiler(graph, new EstimateTokenCounter(4));
-    await compiler.compileAll(ownerId);
+    const compiler = projectionCompiler(graph);
+    await compiler.compileAll(ownerId, PROJECTION_SIGNAL);
     for (const projection of graph.projections.listAll(ownerId)) {
       assert.ok(!projection.content.includes('a private matter'));
     }
@@ -379,8 +411,8 @@ test('tier 2 keeps at most 25 dossiers and demotes the overflow to tier 3', asyn
         evidence: [{ evidenceId: evidence.id, stance: 'supports', weight: 0.9 }],
       });
     }
-    const compiler = new ProjectionCompiler(graph, new EstimateTokenCounter(4));
-    const summary = await compiler.compileAll(ownerId);
+    const compiler = projectionCompiler(graph);
+    const summary = await compiler.compileAll(ownerId, PROJECTION_SIGNAL);
     assert.ok(graph.projections.listByTier(ownerId, 2).length <= 25);
     assert.ok(graph.projections.listByTier(ownerId, 3).length >= 5);
     assert.ok(summary.demotedTopicKeys.length >= 5);

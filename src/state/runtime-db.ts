@@ -13,6 +13,7 @@ import {
   ASSISTANT_CORE_SCHEMA_SQL,
   ASSISTANT_FTS_SCHEMA_SQL,
   ASSISTANT_MEMORY_SCHEMA_SQL,
+  ASSISTANT_PROACTIVE_SCHEMA_SQL,
   seedAssistantRegistries,
 } from '../assistant/storage/schema.js';
 
@@ -43,7 +44,7 @@ const ChatPresetSnapshotSessionRowSchema = z.object({
   context_window_tokens: z.number(),
 });
 
-export const CURRENT_SCHEMA_VERSION = 41;
+export const CURRENT_SCHEMA_VERSION = 42;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["read","grep","find","ls","git"],"full":[]}';
 const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
 
@@ -906,6 +907,24 @@ function applyAssistantCoreSchema(database: RuntimeDatabase): void {
   seedAssistantRegistries(database, new SystemClock(), randomUUID());
 }
 
+function applyAssistantProactiveSchema(database: RuntimeDatabase): void {
+  database.exec(ASSISTANT_PROACTIVE_SCHEMA_SQL);
+  if (!tableHasColumn(database, 'app_config', 'assistant_json')) {
+    database.exec("ALTER TABLE app_config ADD COLUMN assistant_json TEXT NOT NULL DEFAULT '{}';");
+  }
+  if (!tableHasColumn(database, 'graph_assertions', 'user_demoted')) {
+    database.exec(`
+      ALTER TABLE graph_assertions
+      ADD COLUMN user_demoted INTEGER NOT NULL DEFAULT 0 CHECK (user_demoted IN (0, 1));
+    `);
+  }
+  if (!tableHasColumn(database, 'candidate_assertions', 'user_notes')) {
+    database.exec(
+      "ALTER TABLE candidate_assertions ADD COLUMN user_notes TEXT NOT NULL DEFAULT '';",
+    );
+  }
+}
+
 function migrateAppConfigRemoveGlobalStartupContext(database: RuntimeDatabase): void {
   database.exec(`
     BEGIN IMMEDIATE;
@@ -1006,6 +1025,7 @@ function ensureSchema(database: RuntimeDatabase): void {
     applyAssistantCoreSchema(database);
     database.exec(ASSISTANT_FTS_SCHEMA_SQL);
     database.exec(ASSISTANT_MEMORY_SCHEMA_SQL);
+    applyAssistantProactiveSchema(database);
     setSchemaVersion(database, CURRENT_SCHEMA_VERSION);
     return;
   }
@@ -1453,6 +1473,11 @@ function ensureSchema(database: RuntimeDatabase): void {
     database.exec(ASSISTANT_MEMORY_SCHEMA_SQL);
     setSchemaVersion(database, 41);
     currentVersion = 41;
+  }
+  if (currentVersion < 42) {
+    applyAssistantProactiveSchema(database);
+    setSchemaVersion(database, 42);
+    currentVersion = 42;
   }
   ensureChatMessageTimelineSchema(database);
   ensureRuntimeArtifactsSchema(database);

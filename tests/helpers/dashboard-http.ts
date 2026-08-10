@@ -12,7 +12,12 @@ export type Dict = JsonObject;
 export type JsonResponse = { statusCode: number; body: Dict };
 export type SseEvent = { event: string; payload: Dict | null; receivedAtMs: number };
 export type SseResponse = { statusCode: number; events: SseEvent[] };
-export type RequestOptions = { method?: string; body?: string; timeoutMs?: number };
+export type RequestOptions = {
+  method?: string;
+  body?: string;
+  timeoutMs?: number;
+  headers?: Readonly<Record<string, string>>;
+};
 
 // Narrowing helpers shared by the HTTP-driven E2E tests: every endpoint returns
 // JSON, so response bodies and SSE payloads are JsonValue at the boundary and are
@@ -70,10 +75,13 @@ export function requestJson(url: string, options: RequestOptions = {}): Promise<
         path: `${target.pathname}${target.search}`,
         method: options.method || 'GET',
         agent: testHttpAgent,
-        headers: options.body ? {
+        headers: {
+          ...options.headers,
+          ...(options.body ? {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(options.body, 'utf8'),
-        } : undefined,
+          } : {}),
+        },
       },
       (response) => {
         let responseText = '';

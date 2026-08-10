@@ -43,6 +43,7 @@ export class AssertionViewBuilder {
       confidence: row.confidence,
       sensitivity: row.sensitivity,
       pinned: row.pinned,
+      userDemoted: row.user_demoted,
       lastObservedAtUtc: row.last_observed_at_utc,
       validFromUtc: row.valid_from_utc,
       validToUtc: row.valid_to_utc,

@@ -20,6 +20,7 @@ import {
   getNullableTrimmedString,
   getRuntimeLlamaCpp,
   mergeConfig,
+  normalizeAssistantConfig,
   normalizeConfigObject,
   normalizeModelRuntimePresetArray,
   normalizeWebSearchConfig,
@@ -32,6 +33,7 @@ import type {
   WebSearchConfig,
 } from '../config/types.js';
 import { getRuntimeDatabase } from '../state/runtime-db.js';
+import { LOCAL_OWNER_ID } from '../assistant/storage/schema.js';
 import { readRuntimeLaunchSnapshot, type RuntimeLaunchSnapshot } from './runtime-launch-snapshot.js';
 
 export const DEFAULT_LLAMA_MODEL = SIFT_DEFAULT_LLAMA_MODEL;
@@ -71,6 +73,7 @@ const AppConfigRowSchema = z.object({
   operation_mode_allowed_tools_json: z.string(),
   presets_json: z.string(),
   web_search_json: z.string(),
+  assistant_json: z.string(),
 });
 
 type AppConfigRow = z.infer<typeof AppConfigRowSchema>;
@@ -149,6 +152,7 @@ function normalizeConfigToRow(config: SiftConfig): AppConfigRow {
     ),
     presets_json: JSON.stringify(PresetCatalog.fromPresets(normalized.Presets).list()),
     web_search_json: JSON.stringify(normalizeWebSearchConfig(normalized.WebSearch)),
+    assistant_json: JSON.stringify(normalizeAssistantConfig(normalized.Assistant)),
   };
 }
 
@@ -184,7 +188,19 @@ function rowToConfig(row: AppConfigRow): SiftConfig {
     OperationModeAllowedTools: parseOperationModeAllowedTools(row.operation_mode_allowed_tools_json),
     Presets: PresetCatalog.parse(parseJsonValueText(row.presets_json)).list(),
     WebSearch: parseWebSearchConfig(row.web_search_json),
+    Assistant: parseAssistantConfig(row.assistant_json),
   });
+}
+
+function parseAssistantConfig(text: OptionalJsonValue): SiftConfig['Assistant'] {
+  if (typeof text !== 'string' || !text.trim()) {
+    return normalizeAssistantConfig({});
+  }
+  try {
+    return normalizeAssistantConfig(parseJsonValueText(text));
+  } catch {
+    return normalizeAssistantConfig({});
+  }
 }
 
 function parseWebSearchConfig(text: OptionalJsonValue): WebSearchConfig {
@@ -223,6 +239,7 @@ function readConfigRow(databasePath: string): AppConfigRow | null {
       operation_mode_allowed_tools_json,
       presets_json,
       web_search_json
+      , assistant_json
     FROM app_config
     WHERE id = 1
   `).get();
@@ -254,13 +271,15 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
     'operation_mode_allowed_tools_json',
     'presets_json',
     'web_search_json',
+    'assistant_json',
     'updated_at_utc',
   ];
   const values = columns.map((column) => (column === 'id' ? '1' : `@${column}`));
   const assignments = columns
     .filter((column) => column !== 'id')
     .map((column) => `${column} = excluded.${column}`);
-  database.prepare(`
+  const write = database.transaction(() => {
+    database.prepare(`
     INSERT INTO app_config (
       ${columns.join(',\n      ')}
     ) VALUES (
@@ -268,10 +287,18 @@ function writeConfigRow(databasePath: string, row: AppConfigRow): void {
     )
     ON CONFLICT(id) DO UPDATE SET
       ${assignments.join(',\n      ')}
-  `).run({
-    ...row,
-    updated_at_utc: new Date().toISOString(),
+    `).run({
+      ...row,
+      updated_at_utc: new Date().toISOString(),
+    });
+    const assistant = parseAssistantConfig(row.assistant_json);
+    database.prepare(`
+      UPDATE assistant_owners
+      SET display_name = ?, updated_at_utc = ?
+      WHERE id = ?
+    `).run(assistant.Owner.DisplayName, new Date().toISOString(), LOCAL_OWNER_ID);
   });
+  write();
 }
 
 function readPersistedConfig(configPath: string): SiftConfig | null {
@@ -339,6 +366,9 @@ export function buildRuntimeLaunchSnapshot(config: SiftConfig): RuntimeLaunchSna
 }
 
 export function writeConfig(configPath: string, config: SiftConfig): void {
+  if (config.Assistant.Owner.Id !== LOCAL_OWNER_ID) {
+    throw new Error(`Assistant.Owner.Id must remain ${LOCAL_OWNER_ID}.`);
+  }
   writeConfigRow(configPath, normalizeConfigToRow(config));
 }
 

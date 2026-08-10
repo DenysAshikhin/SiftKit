@@ -12,7 +12,7 @@ export interface ChatTurnRecord {
 
 type AssistantMemoryService = Pick<
   AssistantRuntime,
-  'ownerId' | 'retrieveMemoryContext' | 'ingestChatTurn'
+  'enabled' | 'ownerId' | 'retrieveMemoryContext' | 'ingestChatTurn'
 >;
 
 /**
@@ -25,7 +25,7 @@ export class ChatMemorySeam {
 
   async buildMemoryContext(preset: SiftPreset, userMessage: string): Promise<string> {
     const assistant = this.assistant;
-    if (assistant === null || preset.assistantMemory !== true) {
+    if (assistant === null || !assistant.enabled || preset.assistantMemory !== true) {
       return '';
     }
     try {
@@ -37,7 +37,7 @@ export class ChatMemorySeam {
 
   ingestTurn(preset: SiftPreset, turn: ChatTurnRecord): void {
     const assistant = this.assistant;
-    if (assistant === null || preset.assistantMemory !== true) {
+    if (assistant === null || !assistant.enabled || preset.assistantMemory !== true) {
       return;
     }
     assistant.ingestChatTurn({

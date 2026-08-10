@@ -144,3 +144,23 @@ export const OBSERVATION_TYPES = [
 ] as const;
 export const ObservationTypeSchema = z.enum(OBSERVATION_TYPES);
 export type ObservationType = z.infer<typeof ObservationTypeSchema>;
+
+export const QUESTION_TYPES = [
+  'confirm_inference', 'resolve_conflict', 'clarify_scope',
+  'follow_active_goal', 'fill_relevant_gap',
+] as const;
+export const QuestionTypeSchema = z.enum(QUESTION_TYPES);
+export type QuestionType = z.infer<typeof QuestionTypeSchema>;
+
+export const QUESTION_STATUSES = [
+  'planned', 'eligible', 'shown', 'answered', 'dismissed', 'snoozed', 'expired', 'blocked',
+] as const;
+export const QuestionStatusSchema = z.enum(QUESTION_STATUSES);
+export type QuestionStatus = z.infer<typeof QuestionStatusSchema>;
+
+export const QUESTION_FEEDBACK_TYPES = [
+  'answer', 'skip', 'snooze', 'do_not_repeat', 'block_topic',
+  'change_schedule', 'change_rate_limit',
+] as const;
+export const QuestionFeedbackTypeSchema = z.enum(QUESTION_FEEDBACK_TYPES);
+export type QuestionFeedbackType = z.infer<typeof QuestionFeedbackTypeSchema>;

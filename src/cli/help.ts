@@ -11,6 +11,7 @@ export function showHelp(stdout: NodeJS.WritableStream): void {
     `  ${REPO_SEARCH_SYNOPSIS}`,
     `  ${REPO_AGENT_CANONICAL_INVOCATION}`,
     '  siftkit preset list',
+    '  siftkit assistant <status|pause|resume|memory|policy|projections> ...',
     '  siftkit run --preset <id> ...',
     '  siftkit run --command <cmd> [--arg <a> ...] --question "..."',
     '  siftkit run --shell <auto|pwsh|powershell|bash|sh|cmd> --command "<script>" --question "..."',

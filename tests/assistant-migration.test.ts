@@ -20,6 +20,7 @@ import { createManagedTempDir } from './helpers/temp-dirs.js';
 const NameRowSchema = z.array(z.object({ name: z.string() }));
 const CountRowSchema = z.object({ count: z.number() });
 const VersionRowSchema = z.object({ version: z.number() });
+const ColumnRowSchema = z.array(z.object({ name: z.string() }));
 
 function tempDbPath(prefix: string): string {
   return path.join(createManagedTempDir(prefix), 'runtime.sqlite');
@@ -51,6 +52,7 @@ const EXPECTED_ASSISTANT_TABLES = [
   'candidate_assertions', 'graph_assertions', 'assertion_evidence', 'graph_entity_merges',
   'graph_mutation_log', 'assistant_policies', 'assistant_audit_events',
   'graph_nodes_fts', 'graph_assertions_fts',
+  'assistant_questions', 'assistant_question_feedback', 'retrieval_usage',
 ];
 
 test('a fresh database lands on the current schema version with every assistant table', () => {
@@ -58,15 +60,42 @@ test('a fresh database lands on the current schema version with every assistant 
   getRuntimeDatabase(dbPath);
   closeRuntimeDatabase();
 
-  assert.equal(CURRENT_SCHEMA_VERSION, 41);
+  assert.equal(CURRENT_SCHEMA_VERSION, 42);
   const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
     .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
-  assert.equal(version, 41);
+  assert.equal(version, 42);
 
   const tables = new Set(tableNames(dbPath));
   for (const expected of EXPECTED_ASSISTANT_TABLES) {
     assert.ok(tables.has(expected), `missing table ${expected}`);
   }
+});
+
+test('v42 adds proactive assistant tables and durable Gate C columns', () => {
+  withAssistantContext(({ database, ownerId }) => {
+    const appConfigColumns = ColumnRowSchema.parse(
+      database.prepare("SELECT name FROM pragma_table_info('app_config')").all(),
+    ).map((row) => row.name);
+    const assertionColumns = ColumnRowSchema.parse(
+      database.prepare("SELECT name FROM pragma_table_info('graph_assertions')").all(),
+    ).map((row) => row.name);
+    const candidateColumns = ColumnRowSchema.parse(
+      database.prepare("SELECT name FROM pragma_table_info('candidate_assertions')").all(),
+    ).map((row) => row.name);
+
+    assert.ok(appConfigColumns.includes('assistant_json'));
+    assert.ok(assertionColumns.includes('user_demoted'));
+    assert.ok(candidateColumns.includes('user_notes'));
+    assert.equal(getSchemaVersion(database), 42);
+
+    assert.throws(() => database.prepare(`
+      INSERT INTO assistant_questions (
+        id, owner_id, topic_key, question_text, question_type, candidate_ids_json,
+        expected_value, interruption_cost, status, created_at_utc, updated_at_utc
+      ) VALUES ('question_bad', ?, 'topic', 'Question?', 'unknown', '[]', 1, 0,
+        'planned', '2026-08-10T00:00:00.000Z', '2026-08-10T00:00:00.000Z')
+    `).run(ownerId), /CHECK constraint failed/);
+  });
 });
 
 test('registries, the owner row, and the local device row are seeded from TypeScript', () => {
@@ -162,7 +191,7 @@ test('FTS5 virtual tables accept a match query', () => {
   assert.deepEqual(hits, [{ node_id: 'node_1' }]);
 });
 
-test('v41 creates the projection and job tables on a fresh database', () => {
+test('the v41 projection and job tables remain present after the v42 migration', () => {
   withAssistantContext(({ database }) => {
     const tables = z.array(z.object({ name: z.string() })).parse(
       database.prepare("SELECT name FROM sqlite_master WHERE type IN ('table') ORDER BY name").all(),
@@ -170,7 +199,7 @@ test('v41 creates the projection and job tables on a fresh database', () => {
     assert.ok(tables.includes('memory_projections'), 'memory_projections missing');
     assert.ok(tables.includes('assistant_jobs'), 'assistant_jobs missing');
     assert.ok(tables.includes('memory_projections_fts'), 'memory_projections_fts missing');
-    assert.equal(getSchemaVersion(database), 41);
+    assert.equal(getSchemaVersion(database), 42);
   });
 });
 

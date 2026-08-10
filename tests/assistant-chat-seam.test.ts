@@ -19,6 +19,7 @@ const SESSION: ChatSession = {
 };
 
 class StubAssistant {
+  enabled = true;
   readonly ownerId = 'own_local';
   readonly ingested: string[] = [];
   retrieveCount = 0;
@@ -89,6 +90,19 @@ test('an opted-out preset is never ingested', () => {
     sessionId: 'chat_1', capturedAtUtc: '2026-08-05T09:00:00.000Z',
     userMessageId: 'm1', userText: 'hi', assistantMessageId: 'm2', assistantText: 'hello',
   });
+  assert.deepEqual(assistant.ingested, []);
+});
+
+test('a disabled assistant is never called even when the preset opted in', async () => {
+  const assistant = new StubAssistant();
+  assistant.enabled = false;
+  const seam = new ChatMemorySeam(assistant);
+  assert.equal(await seam.buildMemoryContext(optedIn, 'PowerShell'), '');
+  seam.ingestTurn(optedIn, {
+    sessionId: 'chat_1', capturedAtUtc: '2026-08-05T09:00:00.000Z',
+    userMessageId: 'm1', userText: 'hi', assistantMessageId: 'm2', assistantText: 'hello',
+  });
+  assert.equal(assistant.retrieveCount, 0);
   assert.deepEqual(assistant.ingested, []);
 });
 

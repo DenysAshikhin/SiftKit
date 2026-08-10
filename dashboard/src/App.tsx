@@ -9,14 +9,16 @@ import { useMetricsController } from './hooks/useMetricsController';
 import { useBenchmarkController } from './hooks/useBenchmarkController';
 import { useSettingsController } from './hooks/useSettingsController';
 import { useChatController } from './hooks/useChatController';
+import { useAssistantController } from './hooks/useAssistantController';
 import { readSearchParams, writeSearchParams } from './lib/format';
 import { RunsTab } from './tabs/RunsTab';
 import { MetricsTab } from './tabs/MetricsTab';
 import { ChatTab } from './tabs/ChatTab';
 import { SettingsTab } from './tabs/SettingsTab';
 import { BenchmarkTab } from './tabs/BenchmarkTab';
+import { AssistantTab } from './tabs/AssistantTab';
 
-export const TAB_KEYS = ['runs', 'metrics', 'benchmark', 'chat', 'settings'] as const;
+export const TAB_KEYS = ['runs', 'metrics', 'benchmark', 'chat', 'assistant', 'settings'] as const;
 export type TabKey = (typeof TAB_KEYS)[number];
 function isTabKey(value: string | null): value is TabKey {
   return value !== null && TAB_KEYS.some((key) => key === value);
@@ -27,6 +29,7 @@ const SECTION_TITLES: Record<TabKey, string> = {
   metrics: 'Metrics',
   benchmark: 'Benchmark',
   chat: 'Chat',
+  assistant: 'Assistant',
   settings: 'Settings',
 };
 
@@ -71,6 +74,7 @@ export function App() {
     requestDashboardDataRefresh: refresh.requestDashboardDataRefresh,
     refreshSelectedRunDetail: runs.refreshSelectedRunDetail,
   });
+  const assistant = useAssistantController();
 
   useEffect(() => {
     writeSearchParams({
@@ -171,6 +175,7 @@ export function App() {
           {tab === 'benchmark' && <BenchmarkTab {...benchmark.tabProps} />}
           {tab === 'settings' && <SettingsTab {...settings.tabProps} />}
           {tab === 'chat' && <ChatTab {...chat.tabProps} />}
+          {tab === 'assistant' && <AssistantTab {...assistant.tabProps} />}
         </div>
       </div>
     </div>

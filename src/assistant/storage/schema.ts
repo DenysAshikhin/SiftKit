@@ -163,6 +163,7 @@ CREATE TABLE IF NOT EXISTS candidate_assertions (
     status TEXT NOT NULL CHECK (
         status IN ('pending', 'accepted', 'rejected', 'needs_confirmation', 'superseded')),
     rejection_reason TEXT,
+    user_notes TEXT NOT NULL DEFAULT '',
     created_at_utc TEXT NOT NULL,
     updated_at_utc TEXT NOT NULL
 );
@@ -356,6 +357,63 @@ CREATE INDEX IF NOT EXISTS assistant_jobs_claim_idx
 CREATE VIRTUAL TABLE IF NOT EXISTS memory_projections_fts USING fts5(
     projection_id UNINDEXED, owner_id UNINDEXED, tier UNINDEXED,
     topic_key, content, tokenize = 'unicode61');
+`;
+
+/** Gate C (migration v42): proactive questions and retrieval feedback. */
+export const ASSISTANT_PROACTIVE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS assistant_questions (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL REFERENCES assistant_owners(id) ON DELETE CASCADE,
+    topic_key TEXT NOT NULL,
+    question_text TEXT NOT NULL,
+    question_type TEXT NOT NULL CHECK (question_type IN (
+        'confirm_inference', 'resolve_conflict', 'clarify_scope',
+        'follow_active_goal', 'fill_relevant_gap')),
+    candidate_ids_json TEXT NOT NULL DEFAULT '[]',
+    expected_value REAL NOT NULL,
+    interruption_cost REAL NOT NULL,
+    status TEXT NOT NULL CHECK (status IN (
+        'planned', 'eligible', 'shown', 'answered', 'dismissed', 'snoozed', 'expired', 'blocked')),
+    eligible_after_utc TEXT,
+    expires_at_utc TEXT,
+    shown_at_utc TEXT,
+    answered_at_utc TEXT,
+    answer_evidence_id TEXT REFERENCES evidence_records(id),
+    created_at_utc TEXT NOT NULL,
+    updated_at_utc TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS assistant_questions_schedule_idx
+  ON assistant_questions(owner_id, status, eligible_after_utc, expires_at_utc);
+CREATE UNIQUE INDEX IF NOT EXISTS assistant_questions_live_topic_uq
+  ON assistant_questions(owner_id, topic_key)
+  WHERE status IN ('planned', 'eligible', 'shown', 'snoozed');
+
+CREATE TABLE IF NOT EXISTS assistant_question_feedback (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL REFERENCES assistant_owners(id) ON DELETE CASCADE,
+    question_id TEXT REFERENCES assistant_questions(id) ON DELETE SET NULL,
+    feedback_type TEXT NOT NULL CHECK (feedback_type IN (
+        'answer', 'skip', 'snooze', 'do_not_repeat', 'block_topic',
+        'change_schedule', 'change_rate_limit')),
+    value_json TEXT NOT NULL,
+    created_at_utc TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS retrieval_usage (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL REFERENCES assistant_owners(id) ON DELETE CASCADE,
+    conversation_id TEXT,
+    query_hash TEXT NOT NULL,
+    assertion_ids_json TEXT NOT NULL,
+    projection_ids_json TEXT NOT NULL,
+    rendered_token_count INTEGER NOT NULL CHECK (rendered_token_count >= 0),
+    usefulness_feedback REAL CHECK (
+        usefulness_feedback IS NULL
+        OR (usefulness_feedback >= -1.0 AND usefulness_feedback <= 1.0)),
+    created_at_utc TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS retrieval_usage_owner_time_idx
+  ON retrieval_usage(owner_id, created_at_utc DESC);
 `;
 
 /**

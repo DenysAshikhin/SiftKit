@@ -12,6 +12,9 @@ import type { PresetRuntimeCoordinator } from './preset-runtime-coordinator.js';
 import type { AppliedModelPresetState } from './applied-model-preset-state.js';
 import type { ModelIdleController } from './model-idle-controller.js';
 import type { AssistantRuntime } from '../assistant/assistant-service.js';
+import type { AssistantService } from '../assistant/assistant-service.js';
+import type { AssistantRouteGuard } from './assistant-auth.js';
+import type { AssistantRateLimiter } from './assistant-rate-limiter.js';
 import type { DeferredArtifact } from '../state/status-artifacts.js';
 import type { StatusRunRegistry } from './status-run-registry.js';
 import type { ChatSessionOperationRegistry } from './chat-session-operation-registry.js';
@@ -88,6 +91,9 @@ export type ServerContext = {
   modelIdleController?: ModelIdleController;
   appliedModelPresetState: AppliedModelPresetState;
   assistant: AssistantRuntime | null;
+  assistantControl: AssistantService | null;
+  assistantRouteGuard: AssistantRouteGuard | null;
+  assistantRateLimiter: AssistantRateLimiter;
   assistantDrainTimer: NodeJS.Timeout | null;
 
   server: ExtendedServer | null;

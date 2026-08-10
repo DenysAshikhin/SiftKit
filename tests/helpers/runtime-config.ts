@@ -14,6 +14,7 @@ import {
   type MutableJsonObject,
 } from '../../src/lib/json-types.js';
 import type { Exl3EngineConfig, InferenceConfig, SiftConfig } from '../../src/config/types.js';
+import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.js';
 
 // Chat-request view types are derived from runtime schemas so the JSON catchall
 // (tests read arbitrary keys like cache_prompt/id_slot/max_tokens off captured
@@ -141,6 +142,7 @@ export function getDefaultConfig(): SiftConfig {
       TimeoutMs: 15000,
       FetchMaxCharacters: 12000,
     },
+    Assistant: DEFAULT_ASSISTANT_CONFIG,
   };
 }
 

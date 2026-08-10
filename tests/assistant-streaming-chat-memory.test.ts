@@ -16,6 +16,7 @@ import {
 import { createManagedTempDir, removeDirectoryWithRetries } from './helpers/temp-dirs.js';
 
 class RecordingAssistant {
+  readonly enabled = true;
   readonly ownerId = 'own_test';
   readonly retrievedMessages: string[] = [];
   readonly ingestedTurns: ChatTurnInput[] = [];
@@ -40,6 +41,15 @@ class RecordingAssistant {
   }
 
   async drainJobs(): Promise<void> {}
+
+  status() {
+    return {
+      available: true, enabled: true, ownerId: this.ownerId,
+      pendingQuestionCount: 0, pendingValidationCount: 0,
+    };
+  }
+
+  refreshConfig(): void {}
 }
 
 test('streaming dashboard chat retrieves and ingests opted-in assistant memory', async () => {

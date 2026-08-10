@@ -4,6 +4,7 @@
 @import "./styles/metrics.css";
 @import "./styles/chat.css";
 @import "./styles/runs.css";
+@import "./styles/assistant.css";
 
 .pending-images { display: flex; gap: 6px; overflow-x: auto; padding: 6px 0; }
 .pending-image { position: relative; flex: 0 0 auto; }

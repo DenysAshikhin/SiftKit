@@ -13,6 +13,7 @@ import type {
 } from './settings-draft-editor.js';
 import type { ModelPresetPathField } from './settings-flow.js';
 import type {
+  AssistantConfig,
   DashboardManagedLlamaSpeculativeType,
   DashboardPresetKind,
   DashboardPresetOperationMode,
@@ -22,6 +23,10 @@ import type {
   ManagedLlamaKvCacheQuantization,
   WebSearchProviderId,
 } from './types.js';
+
+export type AssistantSettingsActions = {
+  replace(value: AssistantConfig): void;
+};
 
 export type GeneralSettingsActions = {
   setString(field: GeneralStringField, value: string): void;

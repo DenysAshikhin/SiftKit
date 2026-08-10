@@ -11,7 +11,7 @@ import {
 test('settings section order matches the integrated layout', () => {
   assert.deepEqual(
     SETTINGS_SECTION_ORDER,
-    ['general', 'tool-policy', 'presets', 'interactive', 'web-search', 'model-presets'],
+    ['general', 'tool-policy', 'presets', 'interactive', 'web-search', 'model-presets', 'assistant'],
   );
 });
 

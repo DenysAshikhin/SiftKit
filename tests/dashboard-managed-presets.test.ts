@@ -145,6 +145,7 @@ function createConfig(): DashboardConfig {
       TimeoutMs: 15000,
       FetchMaxCharacters: 12000,
     },
+    Assistant: getDefaultConfigObject().Assistant,
     Server: {
       ModelPresets: {
         Presets: [defaultPreset, qwenPreset],

@@ -1,5 +1,6 @@
 import type {
   DashboardConfig as ContractDashboardConfig,
+  AssistantConfig as ContractAssistantConfig,
   Exl3EngineConfig as ContractExl3EngineConfig,
   InferenceBackendId as ContractInferenceBackendId,
   InferenceConfig as ContractInferenceConfig,
@@ -37,6 +38,7 @@ export type ModelRuntimePreset = ContractModelRuntimePreset;
 export type ServerModelPresetsConfig = ContractServerModelPresetsConfig;
 export type SiftConfig = ContractSiftConfig;
 export type DashboardConfig = ContractDashboardConfig;
+export type AssistantConfig = ContractAssistantConfig;
 
 export type {
   WebSearchProviderId,

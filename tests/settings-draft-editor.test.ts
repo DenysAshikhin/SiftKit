@@ -4,6 +4,16 @@ import test from 'node:test';
 import { DashboardSettingsDraftEditor } from '../dashboard/src/settings-draft-editor.js';
 import { CUSTOM_PRESET, DASHBOARD_CONFIG, MANAGED_PRESET, PRESET } from '../dashboard/tests/fixtures.js';
 
+test('settings draft editor replaces the assistant config as one validated value', () => {
+  const editor = new DashboardSettingsDraftEditor(DASHBOARD_CONFIG);
+  editor.apply({
+    type: 'set-assistant',
+    value: { ...DASHBOARD_CONFIG.Assistant, Enabled: true },
+  });
+  assert.equal(editor.getConfig().Assistant.Enabled, true);
+  assert.equal(DASHBOARD_CONFIG.Assistant.Enabled, false);
+});
+
 test('settings draft editor applies general, policy, interactive, and web-search actions', () => {
   const editor = new DashboardSettingsDraftEditor(DASHBOARD_CONFIG);
 

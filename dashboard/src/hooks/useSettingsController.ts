@@ -17,6 +17,7 @@ import {
   type DashboardSettingsDraftAction,
 } from '../settings-draft-editor';
 import type {
+  AssistantSettingsActions,
   GeneralSettingsActions,
   InteractiveSettingsActions,
   ModelPresetSettingsActions,
@@ -44,7 +45,7 @@ import type {
 import type { SettingsTabProps } from '../tabs/SettingsTab';
 import type { ToastLevel } from './useToasts';
 
-type DashboardTabKey = 'runs' | 'metrics' | 'benchmark' | 'chat' | 'settings';
+type DashboardTabKey = 'runs' | 'metrics' | 'benchmark' | 'chat' | 'assistant' | 'settings';
 
 export function createUniquePresetId(existingPresets: ReadonlyArray<{ id: string }>, label: string): string {
   const baseId = createPresetIdFromLabel(label);
@@ -358,6 +359,12 @@ export function useSettingsController(deps: {
     },
   };
 
+  const assistantActions: AssistantSettingsActions = {
+    replace(value) {
+      applySettingsAction({ type: 'set-assistant', value });
+    },
+  };
+
   async function saveDashboardSettingsCore(): Promise<boolean> {
     if (!dashboardConfig) {
       return false;
@@ -601,6 +608,7 @@ export function useSettingsController(deps: {
     interactiveActions,
     webSearchActions,
     modelPresetActions,
+    assistantActions,
     onReloadDashboardSettings,
     restartDashboardBackendCore,
     onSaveDashboardSettings,

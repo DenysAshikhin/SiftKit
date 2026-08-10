@@ -84,6 +84,13 @@ export class AuditStore {
     );
   }
 
+  listAllMutations(ownerId: string): MutationLogRow[] {
+    return z.array(MutationLogRowSchema).parse(this.database.prepare(`
+      SELECT * FROM graph_mutation_log
+      WHERE owner_id = ? ORDER BY created_at_utc DESC, id DESC
+    `).all(ownerId));
+  }
+
   listAuditEvents(ownerId: string, limit: number): AuditEventRow[] {
     return z.array(AuditEventRowSchema).parse(
       this.database.prepare(`

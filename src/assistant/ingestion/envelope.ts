@@ -18,6 +18,11 @@ export const IngestionEnvelopeSchema = z.object({
   payload: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('text'), text: z.string() }),
     z.object({ kind: z.literal('json'), value: JsonValueSchema }),
+    z.object({
+      kind: z.literal('question_answer'),
+      questionId: z.string().min(1),
+      text: z.string(),
+    }).strict(),
   ]),
   metadata: JsonObjectSchema,
 }).strict();

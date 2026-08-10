@@ -4,6 +4,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { SettingsTab } from '../src/tabs/SettingsTab';
 import {
+  ASSISTANT_ACTIONS,
   DASHBOARD_CONFIG,
   GENERAL_ACTIONS,
   INTERACTIVE_ACTIONS,
@@ -42,6 +43,7 @@ function render(overrides: Partial<SettingsTabProps> = {}): string {
     interactiveActions: INTERACTIVE_ACTIONS,
     webSearchActions: WEB_SEARCH_ACTIONS,
     modelPresetActions: MODEL_PRESET_ACTIONS,
+    assistantActions: ASSISTANT_ACTIONS,
     onReloadDashboardSettings: async () => {},
     restartDashboardBackendCore: async () => true,
     onSaveDashboardSettings: async () => {},
@@ -53,7 +55,7 @@ function render(overrides: Partial<SettingsTabProps> = {}): string {
 test('settings shell renders a section nav, head actions, and a field grid', () => {
   const markup = render();
   assert.match(markup, /class="set-nav"/);
-  for (const label of ['General', 'Tool Policy', 'Presets', 'Interactive', 'Web Search', 'Model Presets']) {
+  for (const label of ['General', 'Tool Policy', 'Presets', 'Interactive', 'Web Search', 'Model Presets', 'Assistant']) {
     assert.match(markup, new RegExp(label));
   }
   assert.match(markup, /class="set-head"/);
@@ -61,6 +63,15 @@ test('settings shell renders a section nav, head actions, and a field grid', () 
   assert.match(markup, /Restart backend/);
   assert.match(markup, /Save settings/);
   assert.match(markup, /class="fgrid"/);
+});
+
+test('assistant section exposes configuration, proof review, and memory history views', () => {
+  const markup = render({ activeSettingsSection: 'assistant' });
+  assert.match(markup, /Configuration/);
+  assert.match(markup, /Pending validation/);
+  assert.match(markup, /Memory history/);
+  assert.match(markup, /Evidence is encrypted with a local file key/);
+  assert.match(markup, /Assistant enabled/);
 });
 
 test('dirty state shows an unsaved pill', () => {

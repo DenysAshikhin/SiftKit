@@ -1,18 +1,23 @@
+import type { AssistantConfig } from '../../config/types.js';
 import type { AssistantGraph } from '../assistant-graph.js';
 import { isExplicitBasis } from '../domain/enums.js';
 import { rankAssertion } from '../domain/ranking.js';
 import { RELATION_DEFINITIONS, type RelationType } from '../domain/relation-types.js';
 import { stalenessFactor } from '../domain/staleness.js';
 import type { TokenCounter } from '../domain/tokens.js';
+import { hashTextContent } from '../domain/keys.js';
 import { renderAssertionSentence } from '../projections/assertion-sentence.js';
 import { AssertionViewBuilder } from '../projections/assertion-view-builder.js';
 import { isProjectableInPlaintext, type AssertionView } from '../projections/assertion-view.js';
 import type { AssertionRow } from '../storage/rows.js';
+import type { RetrievalUsageStore } from '../storage/retrieval-usage-store.js';
 import { QueryIntentExtractor } from './query-intent.js';
 
 export interface RetrieveRequest {
   readonly ownerId: string;
   readonly userMessage: string;
+  readonly conversationId: string | null;
+  readonly recordUsage: boolean;
 }
 
 export interface RetrieveResult {
@@ -24,12 +29,6 @@ export interface RetrieveResult {
 }
 
 /** Â§11.4 default traversal bounds. */
-const MAX_SEED_NODES = 12;
-const MAX_HOPS = 2;
-const MAX_NODES = 80;
-const MAX_ASSERTIONS = 160;
-const MAX_FANOUT = 20;
-
 const RENDER_HEADING = '## Relevant personal context';
 
 /**
@@ -44,13 +43,20 @@ const RETRIEVAL_PREDICATES = [
 export class MemoryRetriever {
   private readonly intents = new QueryIntentExtractor();
   private readonly views: AssertionViewBuilder;
+  private limits: AssistantConfig['Retrieval'];
 
   constructor(
     private readonly graph: AssistantGraph,
     private readonly tokens: TokenCounter,
-    private readonly tokenBudget: number,
+    limits: AssistantConfig['Retrieval'],
+    private readonly usage: RetrievalUsageStore,
   ) {
     this.views = new AssertionViewBuilder(graph);
+    this.limits = limits;
+  }
+
+  refreshLimits(limits: AssistantConfig['Retrieval']): void {
+    this.limits = limits;
   }
 
   async retrieve(request: RetrieveRequest): Promise<RetrieveResult> {
@@ -60,19 +66,21 @@ export class MemoryRetriever {
     }
     const query = intent.terms.map((term) => `"${term}"`).join(' OR ');
 
-    const seedNodeIds = this.graph.nodes.searchNodes(request.ownerId, query, MAX_SEED_NODES);
+    const seedNodeIds = this.graph.nodes.searchNodes(
+      request.ownerId, query, this.limits.MaxSeedNodes,
+    );
     const assertionIds = new Set(
-      this.graph.assertions.searchAssertions(request.ownerId, query, MAX_ASSERTIONS),
+      this.graph.assertions.searchAssertions(request.ownerId, query, this.limits.MaxAssertions),
     );
     for (const nodeId of seedNodeIds) {
       const neighborhood = this.graph.neighborhoods.read({
         ownerId: request.ownerId,
         rootNodeId: nodeId,
         predicates: RETRIEVAL_PREDICATES,
-        maxHops: MAX_HOPS,
-        maxNodes: MAX_NODES,
-        maxAssertions: MAX_ASSERTIONS,
-        maxFanoutPerNodePredicate: MAX_FANOUT,
+        maxHops: this.limits.MaxHops,
+        maxNodes: this.limits.MaxNodes,
+        maxAssertions: this.limits.MaxAssertions,
+        maxFanoutPerNodePredicate: this.limits.MaxFanoutPerNodePredicate,
       });
       for (const assertionId of neighborhood.assertionIds) {
         assertionIds.add(assertionId);
@@ -107,7 +115,7 @@ export class MemoryRetriever {
     for (const entry of ranked) {
       const line = renderAssertionSentence(entry.view);
       const nextCount = (await this.tokens.count([...lines, line].join('\n'))).tokenCount;
-      if (nextCount > this.tokenBudget) break;
+      if (nextCount > this.limits.MaxContextTokens) break;
       lines.push(line);
       includedAssertionIds.push(entry.view.assertionId);
       tokenCount = nextCount;
@@ -116,12 +124,23 @@ export class MemoryRetriever {
     if (includedAssertionIds.length === 0) {
       return { renderedBlock: '', assertionIds: [], projectionIds, tokenCount: 0 };
     }
-    return {
+    const result = {
       renderedBlock: lines.join('\n'),
       assertionIds: includedAssertionIds,
       projectionIds,
       tokenCount,
     };
+    if (request.recordUsage) {
+      this.usage.record({
+        ownerId: request.ownerId,
+        conversationId: request.conversationId,
+        queryHash: hashTextContent(request.userMessage),
+        assertionIds: result.assertionIds,
+        projectionIds: result.projectionIds,
+        renderedTokenCount: result.tokenCount,
+      });
+    }
+    return result;
   }
 
   private score(view: AssertionView, terms: readonly string[]): number {
@@ -138,6 +157,7 @@ export class MemoryRetriever {
       explicitness: isExplicitBasis(view.basis) ? 1 : 0,
       currentValidity: view.validToUtc === null ? 1 : 0,
       userPin: view.pinned ? 1 : 0,
+      userDemotion: view.userDemoted ? 1 : 0,
       projectionUtility: 0,
       staleness: 1 - stalenessFactor(
         RELATION_DEFINITIONS[view.predicate].stalenessClass, ageDays,

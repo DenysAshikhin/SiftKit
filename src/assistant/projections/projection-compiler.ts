@@ -15,12 +15,19 @@ import { DossierCompiler } from './dossier-compiler.js';
 import { renderFrontmatter } from './frontmatter.js';
 import { ProfileCompiler } from './profile-compiler.js';
 import { TokenLimitEnforcer } from './token-limit-enforcer.js';
+import type { ProjectionSummaryService } from './projection-summarizer.js';
 
 export interface CompileSummary {
   readonly written: number;
   readonly unchanged: number;
   readonly demotedTopicKeys: readonly string[];
   readonly omittedAssertionCount: number;
+}
+
+export interface ProjectionTargetTokens {
+  readonly 1: number;
+  readonly 2: number;
+  readonly 3: number;
 }
 
 interface TopicBundle {
@@ -41,7 +48,9 @@ export class ProjectionCompiler {
 
   constructor(
     private readonly graph: AssistantGraph,
-    tokens: TokenCounter,
+    private readonly tokens: TokenCounter,
+    private readonly summarizer: ProjectionSummaryService,
+    private readonly targetTokens: ProjectionTargetTokens,
   ) {
     this.views = new AssertionViewBuilder(graph);
     const enforcer = new TokenLimitEnforcer(tokens);
@@ -49,11 +58,12 @@ export class ProjectionCompiler {
     this.dossiers = new DossierCompiler(tokens, enforcer);
   }
 
-  async compileAll(ownerId: string): Promise<CompileSummary> {
+  async compileAll(ownerId: string, abortSignal: AbortSignal): Promise<CompileSummary> {
     const graphVersion = this.graph.graphVersion;
     const all = this.collectViews(ownerId);
     const profileViews = all.filter(
-      (view) => RELATION_DEFINITIONS[view.predicate].projectionBehavior === 'core',
+      (view) => RELATION_DEFINITIONS[view.predicate].projectionBehavior === 'core'
+        && !view.userDemoted,
     );
     const bundles = this.buildBundles(all);
 
@@ -79,7 +89,9 @@ export class ProjectionCompiler {
         views: profileViews,
         tier2TopicKeys: keptTier2.map((bundle) => bundle.topicKey),
       });
-      const profileResult = this.persist(ownerId, profile, graphVersion);
+      const profileResult = await this.persistWithSummary(
+        ownerId, profile, graphVersion, abortSignal,
+      );
       written += profileResult.written;
       unchanged += profileResult.unchanged;
       omittedAssertionCount += profile.omittedAssertionCount;
@@ -96,7 +108,9 @@ export class ProjectionCompiler {
           .slice(0, 5)
           .map((other) => other.topicKey),
       });
-      const result = this.persist(ownerId, document, graphVersion);
+      const result = await this.persistWithSummary(
+        ownerId, document, graphVersion, abortSignal,
+      );
       written += result.written;
       unchanged += result.unchanged;
       omittedAssertionCount += document.omittedAssertionCount;
@@ -122,7 +136,10 @@ export class ProjectionCompiler {
   private buildBundles(views: readonly AssertionView[]): TopicBundle[] {
     const byTopic = new Map<string, AssertionView[]>();
     for (const view of views) {
-      if (RELATION_DEFINITIONS[view.predicate].projectionBehavior === 'core') continue;
+      if (
+        RELATION_DEFINITIONS[view.predicate].projectionBehavior === 'core'
+        && !view.userDemoted
+      ) continue;
       const bucket = byTopic.get(view.topicKey) ?? [];
       bucket.push(view);
       byTopic.set(view.topicKey, bucket);
@@ -173,6 +190,7 @@ export class ProjectionCompiler {
       activeGoalRelevance: views.some((view) => view.predicate === 'HAS_GOAL' || view.predicate === 'WORKS_ON') ? 1 : 0,
       uniqueness: 1 / Math.max(1, views.length),
       userPin: views.some((view) => view.pinned) ? 1 : 0,
+      userDemotion: views.some((view) => view.userDemoted) ? 1 : 0,
       redundancy: 0,
       staleness: worstStaleness,
       sensitivityCost: views.some((view) => view.sensitivity !== 'low' && view.sensitivity !== 'personal') ? 1 : 0,
@@ -180,15 +198,52 @@ export class ProjectionCompiler {
   }
 
   /** Writes only when the rendered bytes changed — §10.5's single-row update. */
-  private persist(
+  private async persistWithSummary(
     ownerId: string,
     document: CompiledDocument,
     graphVersion: number,
-  ): { written: number; unchanged: number } {
+    abortSignal: AbortSignal,
+  ): Promise<{ written: number; unchanged: number }> {
     const existing = this.graph.projections.findByTopic(
       ownerId, document.tier, document.topicKey,
     );
+    if (existing !== null && existing.graph_version === graphVersion) {
+      return { written: 0, unchanged: 1 };
+    }
     const provisionalId = existing?.id ?? 'memproj_pending';
+    this.writeDocument(ownerId, document, graphVersion, provisionalId);
+    if (document.tokenCount <= this.targetTokens[document.tier]) {
+      return { written: 1, unchanged: 0 };
+    }
+
+    const summarized = await this.summarizer.summarize({
+      body: document.body,
+      assertions: document.includedAssertionIds.map((assertionId) => ({
+        assertionId,
+        sensitivity: document.sensitivity,
+      })),
+      targetTokens: this.targetTokens[document.tier],
+    }, abortSignal);
+    if (summarized.kind === 'unchanged') {
+      return { written: 1, unchanged: 0 };
+    }
+    const count = await this.tokens.count(summarized.body);
+    this.writeDocument(ownerId, {
+      ...document,
+      body: summarized.body,
+      includedAssertionIds: summarized.assertionIds,
+      tokenCount: count.tokenCount,
+      tokenizerId: count.tokenizerId,
+    }, graphVersion, provisionalId);
+    return { written: 1, unchanged: 0 };
+  }
+
+  private writeDocument(
+    ownerId: string,
+    document: CompiledDocument,
+    graphVersion: number,
+    provisionalId: string,
+  ): void {
     const content = `${renderFrontmatter({
       projectionId: provisionalId,
       tier: document.tier,
@@ -201,23 +256,18 @@ export class ProjectionCompiler {
       includedAssertionIds: document.includedAssertionIds,
     })}\n\n${document.body}`;
 
-    const bodyHash = hashTextContent(document.body);
-    if (existing !== null && existing.content_hash === bodyHash) {
-      return { written: 0, unchanged: 1 };
-    }
     this.graph.projections.upsert({
       ownerId,
       tier: document.tier,
       topicKey: document.topicKey,
       title: document.title,
       content,
-      contentHash: bodyHash,
+      contentHash: hashTextContent(document.body),
       tokenCount: document.tokenCount,
       tokenizerId: document.tokenizerId,
       graphVersion,
       includedAssertionIds: document.includedAssertionIds,
       sensitivity: document.sensitivity,
     });
-    return { written: 1, unchanged: 0 };
   }
 }

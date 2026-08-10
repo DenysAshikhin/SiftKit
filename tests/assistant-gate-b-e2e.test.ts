@@ -17,6 +17,7 @@ import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
 import { PresetCatalog } from '../src/preset-catalog.js';
 import type { ChatSession } from '../src/state/chat-sessions.js';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
 
 class AlwaysIdle {
   isIdle(): boolean {
@@ -50,6 +51,7 @@ function buildService(responses: readonly string[], clock: FixedClock): Assistan
     inference: new FakeAssistantInference(responses),
     tokens: new EstimateTokenCounter(4),
     idleGate: new AlwaysIdle(),
+    config: { ...DEFAULT_ASSISTANT_CONFIG, Enabled: true },
   });
 }
 
@@ -88,6 +90,7 @@ test('Gate B: conversation, correction, projection, retrieval, and opt-out work 
     });
     await drainAllJobs(service);
     const owner = service.ownerPersonNodeId;
+    if (owner === null) throw new Error('Enabled assistant has no owner node.');
     const afterFirst = service.graph.assertions
       .listBySubject(service.ownerId, owner, LIVE_ASSERTION_STATUSES)
       .filter((row) => row.predicate === 'PREFERS');
@@ -164,10 +167,12 @@ test('Gate B: replaying a turn adds no second assertion', async () => {
     seam.ingestTurn(optedIn, turn);
     seam.ingestTurn(optedIn, turn);
     await drainAllJobs(service);
+    const owner = service.ownerPersonNodeId;
+    if (owner === null) throw new Error('Enabled assistant has no owner node.');
     assert.equal(service.graph.evidence.countEvidence(service.ownerId), 2);
     assert.equal(
       service.graph.assertions
-        .listBySubject(service.ownerId, service.ownerPersonNodeId, LIVE_ASSERTION_STATUSES)
+        .listBySubject(service.ownerId, owner, LIVE_ASSERTION_STATUSES)
         .filter((row) => row.predicate === 'PREFERS').length,
       1,
     );

@@ -3,7 +3,7 @@ import type { DashboardModelRuntimePreset } from './types.js';
 
 export type DirtyContinuation =
   | { kind: 'switch-section'; nextSection: SettingsSectionId }
-  | { kind: 'switch-tab'; nextTab: 'runs' | 'metrics' | 'benchmark' | 'chat' | 'settings' }
+  | { kind: 'switch-tab'; nextTab: 'runs' | 'metrics' | 'benchmark' | 'chat' | 'assistant' | 'settings' }
   | { kind: 'reload-settings' }
   | { kind: 'restart-backend' };
 

@@ -62,6 +62,26 @@ import type {
   RepoAgentDecideRequest,
   RepoAgentStartRequest,
 } from '../repo-agent/api-schemas.js';
+import {
+  AssistantAssertionExplanationSchema,
+  AssistantConfigPatchRequestSchema,
+  AssistantDeletionPreviewSchema,
+  AssistantMutationResponseSchema,
+  AssistantNodeSummarySchema,
+  AssistantAssertionDtoSchema,
+  AssistantProjectionDtoSchema,
+  AssistantPolicyDtoSchema,
+  AssistantStatusResponseSchema,
+  type AssistantConfig,
+} from '@siftkit/contracts';
+
+const AssistantBootstrapSchema = z.object({ token: z.string().min(1) }).strict();
+const AssistantSearchSchema = z.object({
+  nodes: z.array(AssistantNodeSummarySchema),
+  assertions: z.array(AssistantAssertionDtoSchema),
+  projections: z.array(AssistantProjectionDtoSchema),
+}).strict();
+const AssistantPolicyListSchema = z.object({ items: z.array(AssistantPolicyDtoSchema) }).strict();
 
 const DEFAULT_SERVER_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
@@ -104,6 +124,83 @@ export class StatusServerApiClient {
 
   getConfig(): Promise<SiftConfig> {
     return this.requestConfig();
+  }
+
+  async bootstrapAssistantToken(): Promise<string> {
+    const response = await this.client.requestJson({
+      url: this.getServiceUrl('/assistant/auth/bootstrap'), method: 'GET',
+      timeoutMs: DEFAULT_SERVER_REQUEST_TIMEOUT_MS,
+    }, AssistantBootstrapSchema);
+    return response.token;
+  }
+
+  requestAssistantStatus(token: string) {
+    return this.requestAssistant('/assistant/status', 'GET', token, undefined, AssistantStatusResponseSchema);
+  }
+
+  requestAssistantConfig(token: string) {
+    return this.requestAssistant(
+      '/assistant/config', 'GET', token, undefined, AssistantConfigPatchRequestSchema,
+    );
+  }
+
+  patchAssistantConfig(token: string, assistant: AssistantConfig) {
+    return this.requestAssistant(
+      '/assistant/config', 'PATCH', token, { assistant }, AssistantConfigPatchRequestSchema,
+    );
+  }
+
+  searchAssistantMemory(token: string, query: string, modelIntent: boolean) {
+    const target = new URL(this.getServiceUrl('/assistant/search'));
+    target.searchParams.set('q', query);
+    if (modelIntent) target.searchParams.set('modelIntent', 'true');
+    return this.requestAssistant(target.toString(), 'GET', token, undefined, AssistantSearchSchema);
+  }
+
+  explainAssistantAssertion(token: string, assertionId: string) {
+    return this.requestAssistant(
+      `/assistant/graph/assertions/${encodeURIComponent(assertionId)}/explanation`,
+      'GET', token, undefined, AssistantAssertionExplanationSchema,
+    );
+  }
+
+  mutateAssistantAssertion(token: string, assertionId: string, action: string, payload: JsonObject) {
+    return this.requestAssistant(
+      `/assistant/graph/assertions/${encodeURIComponent(assertionId)}/${action}`,
+      'POST', token, payload, AssistantMutationResponseSchema,
+    );
+  }
+
+  previewAssistantForget(token: string, assertionId: string) {
+    return this.requestAssistant(
+      `/assistant/graph/assertions/${encodeURIComponent(assertionId)}`,
+      'DELETE', token, { mode: 'preview' }, AssistantDeletionPreviewSchema,
+    );
+  }
+
+  confirmAssistantForget(token: string, assertionId: string, previewToken: string) {
+    return this.requestAssistant(
+      `/assistant/graph/assertions/${encodeURIComponent(assertionId)}`,
+      'DELETE', token, { mode: 'confirm', previewToken }, AssistantMutationResponseSchema,
+    );
+  }
+
+  listAssistantPolicies(token: string) {
+    return this.requestAssistant(
+      '/assistant/policies', 'GET', token, undefined, AssistantPolicyListSchema,
+    );
+  }
+
+  blockAssistantPolicyTopic(token: string, topic: string) {
+    return this.requestAssistant(
+      '/assistant/policies/block-topic', 'POST', token, { topic }, AssistantMutationResponseSchema,
+    );
+  }
+
+  rebuildAssistantProjections(token: string) {
+    return this.requestAssistant(
+      '/assistant/projections/rebuild', 'POST', token, {}, AssistantMutationResponseSchema,
+    );
   }
 
   requestSummary(request: SummaryRequest, renderer: CliProgressRenderer): Promise<SummaryResult> {
@@ -201,11 +298,32 @@ export class StatusServerApiClient {
   }
 
   private getServiceUrl(pathname: string): string {
+    if (/^https?:\/\//u.test(pathname)) return pathname;
     const target = new URL(getStatusBackendUrl());
     target.pathname = pathname;
     target.search = '';
     target.hash = '';
     return target.toString();
+  }
+
+  private async requestAssistant<T>(
+    pathname: string,
+    method: 'DELETE' | 'GET' | 'PATCH' | 'POST',
+    token: string,
+    payload: JsonObject | undefined,
+    schema: z.ZodType<T>,
+  ): Promise<T> {
+    try {
+      return await this.client.requestJson({
+        url: this.getServiceUrl(pathname),
+        method,
+        timeoutMs: DEFAULT_SERVER_REQUEST_TIMEOUT_MS,
+        headers: { Authorization: `Bearer ${token}` },
+        ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
+      }, schema);
+    } catch (error) {
+      throw this.normalizeError(toError(error));
+    }
   }
 
   private async requestConfig(): Promise<SiftConfig> {

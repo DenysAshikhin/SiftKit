@@ -10,7 +10,7 @@ export const CONNECT_TIMEOUT_MS = 20_000;
 export const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 const DEFAULT_TIMEOUT_MS = 30_000;
 
-export type HttpMethod = 'GET' | 'PUT' | 'POST' | 'DELETE';
+export type HttpMethod = 'GET' | 'PATCH' | 'PUT' | 'POST' | 'DELETE';
 export type HttpClientFetchInit = {
   method?: string;
   headers?: HeadersInit;
@@ -27,6 +27,7 @@ export type RequestJsonOptions = {
   body?: string;
   abortSignal?: AbortSignal;
   agent?: HttpAgent | HttpsAgent;
+  headers?: Record<string, string>;
 };
 
 export type FullJsonResponse<T> = {
@@ -315,10 +316,13 @@ function requestJson<T>(options: RequestJsonOptions, schema: z.ZodType<T>): Prom
         path: `${target.pathname}${target.search}`,
         method: options.method,
         agent: options.agent,
-        headers: options.body ? {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(options.body, 'utf8'),
-        } : undefined,
+        headers: {
+          ...options.headers,
+          ...(options.body ? {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(options.body, 'utf8'),
+          } : {}),
+        },
       },
       (response) => {
         logHttpClientLifecycle(

@@ -127,6 +127,7 @@ type AssertionSnapshot = {
   readonly validFromUtc: string | null;
   readonly validToUtc: string | null;
   readonly pinned: boolean;
+  readonly userDemoted: boolean;
 };
 
 function snapshot(assertion: AssertionRow): AssertionSnapshot {
@@ -139,6 +140,7 @@ function snapshot(assertion: AssertionRow): AssertionSnapshot {
     validFromUtc: assertion.valid_from_utc,
     validToUtc: assertion.valid_to_utc,
     pinned: assertion.pinned,
+    userDemoted: assertion.user_demoted,
   };
 }
 

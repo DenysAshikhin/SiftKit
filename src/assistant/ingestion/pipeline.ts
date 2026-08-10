@@ -26,6 +26,7 @@ export class IngestionPipeline {
   constructor(
     private readonly graph: AssistantGraph,
     private readonly secrets: SecretScanner,
+    private readonly conversationIngestionPriority: number,
   ) {}
 
   accept(input: IngestionEnvelope): IngestionOutcome {
@@ -90,7 +91,7 @@ export class IngestionPipeline {
           sessionId: envelope.sourceRef ?? evidence.id,
         },
         idempotencyKey: `conversation_ingestion:${evidence.id}`,
-      });
+      }, this.conversationIngestionPriority);
       if (job === null) {
         // The key is derived from an evidence id minted moments ago, so no live job can hold
         // it. Reaching here means id generation is not unique — never silently continue.
@@ -104,9 +105,8 @@ export class IngestionPipeline {
   }
 
   private renderText(envelope: IngestionEnvelope): string {
-    return envelope.payload.kind === 'text'
-      ? envelope.payload.text
-      : stableStringify(envelope.payload.value);
+    if (envelope.payload.kind === 'json') return stableStringify(envelope.payload.value);
+    return envelope.payload.text;
   }
 
   private resolveSensitivity(floor: Sensitivity): Sensitivity {

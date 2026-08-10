@@ -9,11 +9,13 @@ import { handleChatRoute } from './routes/chat.js';
 import { handleCoreRoute } from './routes/core.js';
 import type { ServerContext } from './server-types.js';
 import { handleInferencePassthroughRoute } from './routes/inference-passthrough.js';
+import { handleAssistantRoute } from './routes/assistant.js';
 
 async function dispatch(ctx: ServerContext, req: IncomingMessage, res: ServerResponse): Promise<void> {
   const requestUrl = new URL(req.url || '/', 'http://127.0.0.1');
   const pathname = requestUrl.pathname;
 
+  if (await handleAssistantRoute(ctx, req, res, pathname)) return;
   if (await handleDashboardRoute(ctx, req, res, pathname, requestUrl)) return;
   if (await handleChatRoute(ctx, req, res, pathname)) return;
   if (await handleInferencePassthroughRoute(ctx, req, res, pathname)) return;

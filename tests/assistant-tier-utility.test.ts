@@ -7,7 +7,7 @@ import {
 
 const neutral = {
   explicitness: 0, crossDomainUsefulness: 0, retrievalFrequency: 0, recency: 0,
-  activeGoalRelevance: 0, uniqueness: 0, userPin: 0,
+  activeGoalRelevance: 0, uniqueness: 0, userPin: 0, userDemotion: 0,
   redundancy: 0, staleness: 0, sensitivityCost: 0,
 } as const;
 
@@ -19,6 +19,7 @@ test('every weight matches the design formula', () => {
   assert.equal(tierUtility({ ...neutral, activeGoalRelevance: 1 }), 1.5);
   assert.equal(tierUtility({ ...neutral, uniqueness: 1 }), 1);
   assert.equal(tierUtility({ ...neutral, userPin: 1 }), 1);
+  assert.equal(tierUtility({ ...neutral, userDemotion: 1 }), -1);
   assert.equal(tierUtility({ ...neutral, redundancy: 1 }), -2);
   assert.equal(tierUtility({ ...neutral, staleness: 1 }), -1.5);
   assert.equal(tierUtility({ ...neutral, sensitivityCost: 1 }), -1);

@@ -7,9 +7,13 @@ import type { JobStatus } from '../domain/enums.js';
 import type { IdGenerator } from '../ids.js';
 import {
   AssistantJobTypeSchema, CandidateConsolidationPayloadSchema,
-  ConversationIngestionPayloadSchema, JOB_PRIORITY, ProjectionMaintenancePayloadSchema,
+  ConversationIngestionPayloadSchema, ProjectionMaintenancePayloadSchema,
+  QuestionAnswerIngestionPayloadSchema,
+  QuestionPlanningPayloadSchema, ProjectionSummarizationPayloadSchema,
   type AssistantJobType, type CandidateConsolidationPayload,
   type ConversationIngestionPayload, type ProjectionMaintenancePayload,
+  type QuestionAnswerIngestionPayload,
+  type QuestionPlanningPayload, type ProjectionSummarizationPayload,
 } from '../jobs/job-types.js';
 import { IdRowSchema, JobRowSchema, type JobRow } from './rows.js';
 
@@ -24,6 +28,7 @@ export interface ClaimJobInput {
   readonly ownerId: string;
   readonly leaseOwner: string;
   readonly leaseSeconds: number;
+  readonly modelWorkAllowed: boolean;
 }
 
 /** Each retry waits this many seconds times the attempts already consumed. */
@@ -43,7 +48,10 @@ export class JobStore {
   ) {}
 
   /** Returns `null` when an equivalent job is already live — a replayed enqueue is a no-op. */
-  enqueue(input: EnqueueJobInput): JobRow | null {
+  enqueue(input: EnqueueJobInput, priority: number): JobRow | null {
+    if (!Number.isInteger(priority)) {
+      throw new Error(`Assistant job priority must be an integer; received ${priority}.`);
+    }
     if (this.findLiveByIdempotencyKey(input.ownerId, input.idempotencyKey) !== null) {
       return null;
     }
@@ -56,7 +64,7 @@ export class JobStore {
         last_error, created_at_utc, updated_at_utc
       ) VALUES (?, ?, ?, ?, ?, ?, 'queued', 0, ?, ?, NULL, NULL, NULL, ?, ?)
     `).run(
-      id, input.ownerId, input.jobType, JOB_PRIORITY[input.jobType],
+      id, input.ownerId, AssistantJobTypeSchema.parse(input.jobType), priority,
       JSON.stringify(input.payload), input.idempotencyKey, DEFAULT_MAX_ATTEMPTS,
       nowUtc, nowUtc, nowUtc,
     );
@@ -68,9 +76,13 @@ export class JobStore {
     const candidate = this.database.prepare(`
       SELECT id FROM assistant_jobs
       WHERE owner_id = ? AND status = 'queued' AND available_at_utc <= ?
+        AND (? = 1 OR job_type NOT IN (
+          'conversation_ingestion', 'candidate_consolidation', 'question_planning',
+          'question_answer_ingestion', 'projection_summarization'
+        ))
       ORDER BY priority DESC, available_at_utc ASC, created_at_utc ASC, id ASC
       LIMIT 1
-    `).get(input.ownerId, nowUtc);
+    `).get(input.ownerId, nowUtc, input.modelWorkAllowed ? 1 : 0);
     if (candidate === undefined || candidate === null) {
       return null;
     }
@@ -178,6 +190,21 @@ export class JobStore {
   readProjectionPayload(job: JobRow): ProjectionMaintenancePayload {
     this.requireJobType(job, 'projection_maintenance');
     return parseJsonText(job.payload_json, ProjectionMaintenancePayloadSchema);
+  }
+
+  readQuestionAnswerPayload(job: JobRow): QuestionAnswerIngestionPayload {
+    this.requireJobType(job, 'question_answer_ingestion');
+    return parseJsonText(job.payload_json, QuestionAnswerIngestionPayloadSchema);
+  }
+
+  readQuestionPlanningPayload(job: JobRow): QuestionPlanningPayload {
+    this.requireJobType(job, 'question_planning');
+    return parseJsonText(job.payload_json, QuestionPlanningPayloadSchema);
+  }
+
+  readProjectionSummarizationPayload(job: JobRow): ProjectionSummarizationPayload {
+    this.requireJobType(job, 'projection_summarization');
+    return parseJsonText(job.payload_json, ProjectionSummarizationPayloadSchema);
   }
 
   private requireJobType(job: JobRow, expected: AssistantJobType): void {

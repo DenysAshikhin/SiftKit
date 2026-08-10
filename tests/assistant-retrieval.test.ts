@@ -8,6 +8,7 @@ import {
 } from '../src/assistant/domain/tokens.js';
 import { OWNER_PERSON_CANONICAL_KEY } from '../src/assistant/storage/schema.js';
 import { withAssistantContextAsync } from './helpers/assistant-fixture.js';
+import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
 
 test('intent extraction finds entities, temporal intent, and task type', () => {
   const extractor = new QueryIntentExtractor();
@@ -33,10 +34,16 @@ test('an empty match returns without invoking token counting', async () => {
   }
 
   await withAssistantContextAsync(async ({ graph, ownerId }) => {
-    const retriever = new MemoryRetriever(graph, new RejectingTokenCounter(), 400);
-    const result = await retriever.retrieve({ ownerId, userMessage: 'unmatched topic' });
+    const retriever = new MemoryRetriever(
+      graph, new RejectingTokenCounter(),
+      { ...DEFAULT_ASSISTANT_CONFIG.Retrieval, MaxContextTokens: 400 }, graph.retrievalUsage,
+    );
+    const result = await retriever.retrieve({
+      ownerId, userMessage: 'unmatched topic', conversationId: null, recordUsage: true,
+    });
     assert.equal(result.renderedBlock, '');
     assert.equal(result.tokenCount, 0);
+    assert.deepEqual(graph.retrievalUsage.listRecent(ownerId, 10), []);
   });
 });
 
@@ -66,16 +73,32 @@ test('retrieval returns cited lines for a matching query and nothing for a miss'
       evidence: [{ evidenceId: evidence.id, stance: 'supports', weight: 0.9 }],
     });
 
-    const retriever = new MemoryRetriever(graph, new EstimateTokenCounter(4), 400);
-    const hit = await retriever.retrieve({ ownerId, userMessage: 'which shell for PowerShell work?' });
+    const retriever = new MemoryRetriever(
+      graph, new EstimateTokenCounter(4),
+      { ...DEFAULT_ASSISTANT_CONFIG.Retrieval, MaxContextTokens: 400 }, graph.retrievalUsage,
+    );
+    const query = 'which shell for PowerShell work?';
+    const hit = await retriever.retrieve({
+      ownerId, userMessage: query, conversationId: 'chat_1', recordUsage: true,
+    });
     assert.ok(hit.renderedBlock.includes('## Relevant personal context'));
     assert.ok(hit.renderedBlock.includes('Prefers PowerShell'));
     assert.ok(hit.renderedBlock.includes('[M:'));
     assert.equal(hit.assertionIds.length, 1);
+    const usage = graph.retrievalUsage.listRecent(ownerId, 10)[0];
+    assert.equal(usage?.conversation_id, 'chat_1');
+    assert.equal(usage?.query_hash.length, 64);
+    assert.ok(!JSON.stringify(usage).includes(query));
+    assert.deepEqual(graph.retrievalUsage.readAssertionIds(graph.retrievalUsage.requireUsage(usage?.id ?? '')), hit.assertionIds);
+    assert.deepEqual(graph.retrievalUsage.readProjectionIds(graph.retrievalUsage.requireUsage(usage?.id ?? '')), hit.projectionIds);
+    assert.equal(usage?.rendered_token_count, hit.tokenCount);
 
-    const miss = await retriever.retrieve({ ownerId, userMessage: 'unrelated kayaking question' });
+    const miss = await retriever.retrieve({
+      ownerId, userMessage: 'unrelated kayaking question', conversationId: 'chat_1', recordUsage: true,
+    });
     assert.equal(miss.renderedBlock, '');
     assert.deepEqual(miss.assertionIds, []);
+    assert.equal(graph.retrievalUsage.listRecent(ownerId, 10).length, 1);
   });
 });
 
@@ -106,8 +129,13 @@ test('a sensitive assertion is never retrieved into a prompt', async () => {
       },
       evidence: [{ evidenceId: evidence.id, stance: 'supports', weight: 0.9 }],
     });
-    const retriever = new MemoryRetriever(graph, new EstimateTokenCounter(4), 400);
-    const result = await retriever.retrieve({ ownerId, userMessage: 'tell me about kayaking' });
+    const retriever = new MemoryRetriever(
+      graph, new EstimateTokenCounter(4),
+      { ...DEFAULT_ASSISTANT_CONFIG.Retrieval, MaxContextTokens: 400 }, graph.retrievalUsage,
+    );
+    const result = await retriever.retrieve({
+      ownerId, userMessage: 'tell me about kayaking', conversationId: null, recordUsage: false,
+    });
     assert.ok(!result.renderedBlock.includes('kayaking injury'));
   });
 });
@@ -141,8 +169,13 @@ test('the rendered block never exceeds the token budget', async () => {
         evidence: [{ evidenceId: evidence.id, stance: 'supports', weight: 0.9 }],
       });
     }
-    const retriever = new MemoryRetriever(graph, new EstimateTokenCounter(4), 200);
-    const result = await retriever.retrieve({ ownerId, userMessage: 'PowerShell modules' });
+    const retriever = new MemoryRetriever(
+      graph, new EstimateTokenCounter(4),
+      { ...DEFAULT_ASSISTANT_CONFIG.Retrieval, MaxContextTokens: 200 }, graph.retrievalUsage,
+    );
+    const result = await retriever.retrieve({
+      ownerId, userMessage: 'PowerShell modules', conversationId: null, recordUsage: false,
+    });
     assert.ok(result.tokenCount <= 200);
     assert.ok(result.assertionIds.length > 0);
     assert.ok(result.assertionIds.length < 200, 'the budget must actually bite');
@@ -157,8 +190,13 @@ test('retrieval records usage on the projections it drew from', async () => {
       tokenCount: 12, tokenizerId: 'estimate', graphVersion: graph.graphVersion,
       includedAssertionIds: ['ast_1'], sensitivity: 'personal',
     });
-    const retriever = new MemoryRetriever(graph, new EstimateTokenCounter(4), 400);
-    const result = await retriever.retrieve({ ownerId, userMessage: 'PowerShell' });
+    const retriever = new MemoryRetriever(
+      graph, new EstimateTokenCounter(4),
+      { ...DEFAULT_ASSISTANT_CONFIG.Retrieval, MaxContextTokens: 400 }, graph.retrievalUsage,
+    );
+    const result = await retriever.retrieve({
+      ownerId, userMessage: 'PowerShell', conversationId: null, recordUsage: false,
+    });
     assert.equal(result.projectionIds.length > 0, true);
     assert.equal(
       graph.projections.findByTopic(ownerId, 2, 'powershell')?.retrieval_count,

@@ -18,6 +18,7 @@ export interface AssertionView {
   readonly confidence: number;
   readonly sensitivity: Sensitivity;
   readonly pinned: boolean;
+  readonly userDemoted: boolean;
   readonly lastObservedAtUtc: string;
   readonly validFromUtc: string | null;
   readonly validToUtc: string | null;
@@ -54,6 +55,7 @@ export function isProjectableInPlaintext(view: AssertionView): boolean {
  * Ties break on the id so two runs over one graph version produce identical bytes.
  */
 export function compareViewsByValue(left: AssertionView, right: AssertionView): number {
+  if (left.userDemoted !== right.userDemoted) return left.userDemoted ? 1 : -1;
   if (left.pinned !== right.pinned) return left.pinned ? -1 : 1;
   const leftExplicit = isExplicitBasis(left.basis);
   const rightExplicit = isExplicitBasis(right.basis);

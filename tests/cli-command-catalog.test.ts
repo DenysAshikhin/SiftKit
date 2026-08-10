@@ -52,6 +52,7 @@ test('catalog lists every exposed command in definition order', () => {
     'repo-search',
     'repo-agent',
     'preset',
+    'assistant',
     'run',
     'find-files',
     'internal',

@@ -13,6 +13,10 @@ export const RAIL_ITEMS: readonly RailItem[] = [
   },
   { tab: 'chat', label: 'Chat', title: 'Chat', icon: <path d="M3 4h14v9H8l-4 4v-4H3z" /> },
   {
+    tab: 'assistant', label: 'Memory', title: 'Assistant Memory',
+    icon: <><circle cx="10" cy="10" r="7" /><path d="M7 10h6M10 7v6" /></>,
+  },
+  {
     tab: 'settings', label: 'Settings', title: 'Settings',
     icon: <><path d="M4 6h12M4 10h12M4 14h12" /><circle cx="8" cy="6" r="1.6" /><circle cx="13" cy="10" r="1.6" /><circle cx="6" cy="14" r="1.6" /></>,
   },

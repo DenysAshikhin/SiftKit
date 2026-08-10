@@ -96,6 +96,8 @@ import { RandomIdGenerator } from '../assistant/ids.js';
 import { LlamaCppAssistantInference } from '../assistant/inference/client.js';
 import { BackendTokenCounter } from '../assistant/inference/token-counter.js';
 import { assistantKeyFile } from '../assistant/layout.js';
+import { AssistantRouteGuard, AssistantTokenStore } from './assistant-auth.js';
+import { AssistantRateLimiter } from './assistant-rate-limiter.js';
 import { StatusServerIdleGate } from './assistant-idle-gate.js';
 
 // ---------------------------------------------------------------------------
@@ -265,6 +267,9 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     activeModelRequests: new Map(),
     appliedModelPresetState: new AppliedModelPresetState(getActiveModelPreset(initialConfig)),
     assistant: null,
+    assistantControl: null,
+    assistantRouteGuard: null,
+    assistantRateLimiter: new AssistantRateLimiter(),
     assistantDrainTimer: null,
     modelRequestQueue: [],
     deferredArtifactQueue: [],
@@ -319,9 +324,10 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
   const runtimeDatabase = getIdleSummaryDatabase(ctx);
   if (options.assistant !== undefined) {
     ctx.assistant = options.assistant;
+    ctx.assistantControl = options.assistant instanceof AssistantService ? options.assistant : null;
   } else {
     try {
-      ctx.assistant = AssistantService.create({
+      const assistant = AssistantService.create({
         database: runtimeDatabase,
         runtimeRoot: getRuntimeRoot(),
         clock: new SystemClock(),
@@ -330,7 +336,10 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
         inference: new LlamaCppAssistantInference(initialConfig),
         tokens: new BackendTokenCounter(initialConfig),
         idleGate: new StatusServerIdleGate(ctx),
+        config: initialConfig.Assistant,
       });
+      ctx.assistant = assistant;
+      ctx.assistantControl = assistant;
     } catch (error) {
       ctx.assistant = null;
       process.stderr.write(
@@ -340,6 +349,9 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       );
     }
   }
+  ctx.assistantRouteGuard = new AssistantRouteGuard(
+    new AssistantTokenStore(runtimeDatabase, new SystemClock()),
+  );
 
   const handleRequest = createRequestHandler(ctx);
 

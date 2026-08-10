@@ -21,7 +21,7 @@ function textEnvelope(ownerId: string, sourceEventId: string, text: string) {
 
 test('an accepted envelope writes evidence and enqueues exactly one job', () => {
   withAssistantContext(({ graph, ownerId }) => {
-    const pipeline = new IngestionPipeline(graph, new SecretScanner());
+    const pipeline = new IngestionPipeline(graph, new SecretScanner(), 800);
     const outcome = pipeline.accept(textEnvelope(ownerId, 'chat_1:msg_1', 'I use PowerShell.'));
     assert.equal(outcome.kind, 'accepted');
     assert.equal(graph.evidence.countEvidence(ownerId), 1);
@@ -37,7 +37,7 @@ test('an accepted envelope writes evidence and enqueues exactly one job', () => 
 
 test('re-ingesting the same source event is a no-op', () => {
   withAssistantContext(({ graph, ownerId }) => {
-    const pipeline = new IngestionPipeline(graph, new SecretScanner());
+    const pipeline = new IngestionPipeline(graph, new SecretScanner(), 800);
     const first = pipeline.accept(textEnvelope(ownerId, 'chat_1:msg_1', 'I use PowerShell.'));
     const second = pipeline.accept(textEnvelope(ownerId, 'chat_1:msg_1', 'I use PowerShell.'));
     assert.equal(first.kind, 'accepted');
@@ -49,7 +49,7 @@ test('re-ingesting the same source event is a no-op', () => {
 
 test('secret-bearing content is discarded with an audit event and no evidence', () => {
   withAssistantContext(({ graph, ownerId }) => {
-    const pipeline = new IngestionPipeline(graph, new SecretScanner());
+    const pipeline = new IngestionPipeline(graph, new SecretScanner(), 800);
     const outcome = pipeline.accept(
       textEnvelope(ownerId, 'chat_1:msg_2', 'my token = ghp_0123456789abcdefghijklmnopqrstuvwxyzAB'),
     );
@@ -67,7 +67,7 @@ test('secret-bearing content is discarded with an audit event and no evidence', 
 
 test('a sensitive topic raises the stored evidence sensitivity', () => {
   withAssistantContext(({ graph, ownerId }) => {
-    const pipeline = new IngestionPipeline(graph, new SecretScanner());
+    const pipeline = new IngestionPipeline(graph, new SecretScanner(), 800);
     const outcome = pipeline.accept(
       textEnvelope(ownerId, 'chat_1:msg_3', 'my doctor prescribed a new medication'),
     );
@@ -85,7 +85,7 @@ test('a blocked topic suppresses ingestion', () => {
       ownerId, policyType: 'never_infer_topic', key: 'health',
       value: { topic: 'health' }, enabled: true, source: 'user',
     });
-    const pipeline = new IngestionPipeline(graph, new SecretScanner());
+    const pipeline = new IngestionPipeline(graph, new SecretScanner(), 800);
     const outcome = pipeline.accept(
       textEnvelope(ownerId, 'chat_1:msg_4', 'my doctor prescribed a new medication'),
     );
@@ -110,7 +110,7 @@ function chatTurn(ownerId: string) {
 
 test('a turn ingests both messages with traceable source refs', () => {
   withAssistantContext(({ graph, ownerId }) => {
-    const ingestor = new ConversationIngestor(new IngestionPipeline(graph, new SecretScanner()));
+    const ingestor = new ConversationIngestor(new IngestionPipeline(graph, new SecretScanner(), 800));
     const result = ingestor.ingestTurn(chatTurn(ownerId));
     assert.equal(result.acceptedEvidenceIds.length, 2);
     assert.equal(graph.evidence.countEvidence(ownerId), 2);
@@ -122,7 +122,7 @@ test('a turn ingests both messages with traceable source refs', () => {
 
 test('re-ingesting the same turn adds nothing', () => {
   withAssistantContext(({ graph, ownerId }) => {
-    const ingestor = new ConversationIngestor(new IngestionPipeline(graph, new SecretScanner()));
+    const ingestor = new ConversationIngestor(new IngestionPipeline(graph, new SecretScanner(), 800));
     ingestor.ingestTurn(chatTurn(ownerId));
     const second = ingestor.ingestTurn(chatTurn(ownerId));
     assert.deepEqual(second.acceptedEvidenceIds, []);
@@ -133,7 +133,7 @@ test('re-ingesting the same turn adds nothing', () => {
 
 test('"do not remember this" suppresses the turn and deletes its evidence', () => {
   withAssistantContext(({ graph, ownerId }) => {
-    const ingestor = new ConversationIngestor(new IngestionPipeline(graph, new SecretScanner()));
+    const ingestor = new ConversationIngestor(new IngestionPipeline(graph, new SecretScanner(), 800));
     const result = ingestor.ingestTurn({
       ...chatTurn(ownerId),
       userText: 'My salary is not something you should keep. Do not remember this.',
@@ -148,7 +148,7 @@ test('"do not remember this" suppresses the turn and deletes its evidence', () =
 
 test('an empty message is not ingested', () => {
   withAssistantContext(({ graph, ownerId }) => {
-    const ingestor = new ConversationIngestor(new IngestionPipeline(graph, new SecretScanner()));
+    const ingestor = new ConversationIngestor(new IngestionPipeline(graph, new SecretScanner(), 800));
     const result = ingestor.ingestTurn({ ...chatTurn(ownerId), assistantText: '   ' });
     assert.equal(result.acceptedEvidenceIds.length, 1);
     assert.equal(graph.evidence.countEvidence(ownerId), 1);
@@ -157,7 +157,7 @@ test('an empty message is not ingested', () => {
 
 test('a json payload is serialized deterministically into evidence text', () => {
   withAssistantContext(({ graph, ownerId }) => {
-    const pipeline = new IngestionPipeline(graph, new SecretScanner());
+    const pipeline = new IngestionPipeline(graph, new SecretScanner(), 800);
     const outcome = pipeline.accept({
       ownerId, deviceId: null, sourceType: 'conversation_message', sourceEventId: 'chat_1:msg_5',
       sourceRef: 'chat_1', capturedAtUtc: '2026-08-05T09:00:00.000Z', sourceTimezone: null,

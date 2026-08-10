@@ -19,6 +19,8 @@ import { NodeStore } from './storage/node-store.js';
 import { ObservationStore } from './storage/observation-store.js';
 import { PolicyStore } from './storage/policy-store.js';
 import { ProjectionStore } from './storage/projection-store.js';
+import { QuestionStore } from './storage/question-store.js';
+import { RetrievalUsageStore } from './storage/retrieval-usage-store.js';
 import { AssistantTransactionManager } from './transactions/assistant-transaction-manager.js';
 
 export interface AssistantGraphOptions {
@@ -52,6 +54,8 @@ export class AssistantGraph {
   readonly jobs: JobStore;
   readonly observations: ObservationStore;
   readonly candidates: CandidateStore;
+  readonly questions: QuestionStore;
+  readonly retrievalUsage: RetrievalUsageStore;
   readonly transactions: AssistantTransactionManager;
 
   constructor(options: AssistantGraphOptions) {
@@ -82,6 +86,8 @@ export class AssistantGraph {
     this.jobs = new JobStore(database, clock, ids);
     this.observations = new ObservationStore(database, clock, ids);
     this.candidates = new CandidateStore(database, clock, ids);
+    this.questions = new QuestionStore(database, clock, ids);
+    this.retrievalUsage = new RetrievalUsageStore(database, clock, ids);
   }
 
   get ownerId(): string {

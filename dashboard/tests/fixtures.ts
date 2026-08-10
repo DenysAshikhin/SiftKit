@@ -1,5 +1,7 @@
 import type { DashboardConfig, DashboardModelRuntimePreset, DashboardPreset } from '../src/types.js';
+import { DEFAULT_ASSISTANT_CONFIG } from '../../src/config/defaults.js';
 import type {
+  AssistantSettingsActions,
   GeneralSettingsActions,
   InteractiveSettingsActions,
   ModelPresetSettingsActions,
@@ -7,6 +9,10 @@ import type {
   ToolPolicySettingsActions,
   WebSearchSettingsActions,
 } from '../src/settings-action-groups.js';
+
+export const ASSISTANT_ACTIONS: AssistantSettingsActions = {
+  replace() {},
+};
 
 export const GENERAL_ACTIONS: GeneralSettingsActions = {
   setString() {},
@@ -126,4 +132,5 @@ export const DASHBOARD_CONFIG = {
     Providers: { tavily: { Enabled: true, ApiKey: 'secret-key' }, firecrawl: { Enabled: false, ApiKey: '' } },
     ProviderOrder: ['tavily', 'firecrawl'], ResultCount: 5, FetchMaxPages: 3, TimeoutMs: 15000, FetchMaxCharacters: 12000,
   },
+  Assistant: DEFAULT_ASSISTANT_CONFIG,
 } satisfies DashboardConfig;

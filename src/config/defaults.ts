@@ -22,7 +22,69 @@ import {
 import { initializeRuntime } from './paths.js';
 import { PresetCatalog } from '../preset-catalog.js';
 import { getDefaultOperationModeAllowedTools } from '../presets.js';
-import type { ModelRuntimePreset, SiftConfig } from './types.js';
+import type { AssistantConfig, ModelRuntimePreset, SiftConfig } from './types.js';
+
+export const DEFAULT_ASSISTANT_CONFIG: AssistantConfig = {
+  Enabled: false,
+  Owner: { Id: 'own_local', DisplayName: 'Local user' },
+  Memory: {
+    Tier1: { MaxTokens: 10_000, TargetTokens: 3_500 },
+    Tier2: { MaxDocuments: 25, MaxTokensPerDocument: 50_000, TargetTokensPerDocument: 8_000 },
+    Tier3: { MaxDocuments: 500, MaxTokensPerDocument: 10_000, TargetTokensPerDocument: 2_500 },
+  },
+  Retrieval: {
+    MaxContextTokens: 1_200,
+    MaxHops: 2,
+    MaxSeedNodes: 12,
+    MaxNodes: 80,
+    MaxAssertions: 160,
+    MaxFanoutPerNodePredicate: 20,
+  },
+  Questions: {
+    Enabled: true,
+    MaxPerDay: 1,
+    MaxPerWeek: 3,
+    MinimumHoursBetweenQuestions: 20,
+    AllowedLocalTimeStart: '18:00',
+    AllowedLocalTimeEnd: '21:30',
+    DismissedCooldownDays: 7,
+    UnansweredExpiryDays: 7,
+    SuppressDuringFullscreen: true,
+    SuppressDuringDoNotDisturb: true,
+    ActiveInputSuppressionSeconds: 120,
+  },
+  Observation: {
+    ActivityMetadataEnabled: true,
+    ScreenshotsEnabled: false,
+    FixedCadenceMinutes: 10,
+    WindowChangeCapture: false,
+    MinimumForegroundDwellSeconds: 30,
+    MinimumPerceptualDistance: 8,
+    CaptureOnlyWhileActive: true,
+    SkipFullscreen: true,
+    SkipWhileLocked: true,
+    RawRetentionHours: 72,
+    RawStorageLimitGb: 5,
+    AccessibilityExtractionEnabled: true,
+    OcrFallbackEnabled: true,
+  },
+  Retention: { OcrTextDays: 7, UnpromotedObservationDays: 90, RejectedCandidateDays: 30 },
+  Background: {
+    IdleSecondsBeforeProcessing: 180,
+    MaxJobsPerIdleSession: 20,
+    MaxGpuMinutesPerDay: 60,
+    MinimumBatteryPercent: 50,
+    AllowOnBattery: false,
+    JobPriorities: {
+      ConversationIngestion: 800,
+      QuestionAnswerIngestion: 850,
+      QuestionPlanning: 600,
+      CandidateConsolidation: 400,
+      ProjectionMaintenance: 300,
+    },
+  },
+  PrivateMode: { Active: false, ExpiresAtUtc: null },
+};
 
 export function getDefaultConfigObject(): SiftConfig {
   const runtimePaths = initializeRuntime();
@@ -136,6 +198,7 @@ export function getDefaultConfigObject(): SiftConfig {
       TimeoutMs: 15000,
       FetchMaxCharacters: 12000,
     },
+    Assistant: DEFAULT_ASSISTANT_CONFIG,
     Paths: runtimePaths,
   };
 }

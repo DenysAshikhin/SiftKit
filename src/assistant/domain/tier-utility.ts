@@ -9,6 +9,7 @@ export interface TierUtilityInput {
   readonly activeGoalRelevance: number;
   readonly uniqueness: number;
   readonly userPin: number;
+  readonly userDemotion: number;
   readonly redundancy: number;
   readonly staleness: number;
   readonly sensitivityCost: number;
@@ -22,6 +23,7 @@ const WEIGHTS = {
   activeGoalRelevance: 1.5,
   uniqueness: 1,
   userPin: 1,
+  userDemotion: -1,
   redundancy: -2,
   staleness: -1.5,
   sensitivityCost: -1,
@@ -29,7 +31,8 @@ const WEIGHTS = {
 
 const UTILITY_KEYS = [
   'explicitness', 'crossDomainUsefulness', 'retrievalFrequency', 'recency',
-  'activeGoalRelevance', 'uniqueness', 'userPin', 'redundancy', 'staleness', 'sensitivityCost',
+  'activeGoalRelevance', 'uniqueness', 'userPin', 'userDemotion', 'redundancy', 'staleness',
+  'sensitivityCost',
 ] as const satisfies readonly (keyof TierUtilityInput)[];
 
 export const MAX_TIER_UTILITY = 12.5;

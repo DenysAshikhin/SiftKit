@@ -6,6 +6,7 @@ export interface RankInput {
   readonly explicitness: number;
   readonly currentValidity: number;
   readonly userPin: number;
+  readonly userDemotion: number;
   readonly projectionUtility: number;
   readonly staleness: number;
   readonly redundancy: number;
@@ -20,6 +21,7 @@ const WEIGHTS = {
   explicitness: 1.5,
   currentValidity: 1.5,
   userPin: 1,
+  userDemotion: -1,
   projectionUtility: 0.5,
   staleness: -1.5,
   redundancy: -1,
@@ -29,7 +31,7 @@ const WEIGHTS = {
 
 const RANK_KEYS = [
   'relationRelevance', 'entityMatch', 'confidence', 'explicitness', 'currentValidity',
-  'userPin', 'projectionUtility', 'staleness', 'redundancy', 'sensitivityCost',
+  'userPin', 'userDemotion', 'projectionUtility', 'staleness', 'redundancy', 'sensitivityCost',
   'contradictionPenalty',
 ] as const satisfies readonly (keyof RankInput)[];
 

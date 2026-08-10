@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type { ServerContext } from './server-types.js';
 
-export type RouteMethod = 'DELETE' | 'GET' | 'POST' | 'PUT';
+export type RouteMethod = 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
 
 export type RouteMatch = {
   pathname: string;

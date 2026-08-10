@@ -13,6 +13,7 @@ import { AppliedModelPresetState } from '../../src/status-server/applied-model-p
 import type { ServerContext } from '../../src/status-server/server-types.js';
 import { RepoAgentRunStore } from '../../src/repo-agent/run-store.js';
 import { RepoAgentSessionManager } from '../../src/status-server/repo-agent-sessions.js';
+import { AssistantRateLimiter } from '../../src/status-server/assistant-rate-limiter.js';
 
 /**
  * Inert ServerContext for tests that exercise a single collaborator (queue, runner,
@@ -43,6 +44,9 @@ export function createTestServerContext(configPath: string, root = path.dirname(
     activeModelRequests: new Map(),
     appliedModelPresetState: new AppliedModelPresetState(getActiveModelPreset(getDefaultConfig())),
     assistant: null,
+    assistantControl: null,
+    assistantRouteGuard: null,
+    assistantRateLimiter: new AssistantRateLimiter(),
     assistantDrainTimer: null,
     modelRequestQueue: [],
     deferredArtifactQueue: [],

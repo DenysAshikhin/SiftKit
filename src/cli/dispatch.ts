@@ -22,6 +22,7 @@ import { runSummary } from './run-summary.js';
 import { runTest } from './run-test.js';
 import { assertStdinIsTty } from './tty.js';
 import { readNestedAgentRunId } from '../lib/agent-run-marker.js';
+import { runAssistantCli } from './run-assistant.js';
 
 function failUnknownCommand(commandName: never): never {
   throw new Error(`Unhandled CLI command: ${commandName}`);
@@ -124,6 +125,8 @@ export async function runCli(options: CliRunOptions): Promise<number> {
           return await runPresetList({ stdout });
         }
         throw new Error('Supported preset command: siftkit preset list');
+      case 'assistant':
+        return await runAssistantCli({ args: commandArgs, stdout });
       case 'install':
         return await runInstall(stdout);
       case 'config-get':

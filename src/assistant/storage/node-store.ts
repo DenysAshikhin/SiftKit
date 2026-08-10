@@ -103,6 +103,14 @@ export class NodeStore {
     `).all(ownerId, type));
   }
 
+  list(ownerId: string, limit: number, offset: number): NodeRow[] {
+    return z.array(NodeRowSchema).parse(this.database.prepare(`
+      SELECT * FROM graph_nodes
+      WHERE owner_id = ? AND status <> 'deleted'
+      ORDER BY display_name ASC, id ASC LIMIT ? OFFSET ?
+    `).all(ownerId, limit, offset));
+  }
+
   updateNode(nodeId: string, input: UpdateNodeInput): NodeRow {
     const existing = this.requireNode(nodeId);
     const nowUtc = this.clock.nowUtc();

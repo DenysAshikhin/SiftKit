@@ -4,14 +4,14 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Rail, RAIL_ITEMS } from '../src/components/Rail';
 
-test('rail lists all five sections with labels', () => {
+test('rail lists all six sections with labels', () => {
   const markup = renderToStaticMarkup(
     <Rail activeTab="runs" serverHealthy onSelectTab={() => {}} />,
   );
-  for (const label of ['Logs', 'Metrics', 'Bench', 'Chat', 'Settings']) {
+  for (const label of ['Logs', 'Metrics', 'Bench', 'Chat', 'Memory', 'Settings']) {
     assert.match(markup, new RegExp(label));
   }
-  assert.equal(RAIL_ITEMS.length, 5);
+  assert.equal(RAIL_ITEMS.length, 6);
 });
 
 test('rail marks the active tab and calls back on click', () => {

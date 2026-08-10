@@ -1,6 +1,9 @@
 export const ASSISTANT_INFERENCE_ROLES = [
   'conversation_memory_extractor',
   'candidate_consolidator',
+  'query_intent_parser',
+  'projection_summarizer',
+  'question_planner',
 ] as const;
 export type AssistantInferenceRole = (typeof ASSISTANT_INFERENCE_ROLES)[number];
 
@@ -19,6 +22,9 @@ export const UNTRUSTED_CONTENT_PREAMBLE = [
 export const ROLE_PROMPT_VERSION = {
   conversation_memory_extractor: '1',
   candidate_consolidator: '1',
+  query_intent_parser: '1',
+  projection_summarizer: '1',
+  question_planner: '1',
 } as const satisfies Record<AssistantInferenceRole, string>;
 
 export function buildRoleSystemPrompt(role: AssistantInferenceRole, instructions: string): string {

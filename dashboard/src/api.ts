@@ -8,6 +8,11 @@ import {
   ManagedFilePickerResponseSchema, LlamaCppConnectionTestResponseSchema, ChatSessionResponseSchema,
   ChatSessionsResponseSchema,
   ChatSessionBusyResponseSchema,
+  AssistantMemoryHistoryEntryDtoSchema,
+  AssistantValidationCandidateDtoSchema,
+  AssistantMutationResponseSchema,
+  type AssistantMemoryHistoryEntryDto,
+  type AssistantValidationCandidateDto,
   type DashboardConfig,
   type DashboardHealth,
   type ChatSessionResponse,
@@ -51,6 +56,64 @@ export async function parseJsonResponse<S extends z.ZodTypeAny>(response: Respon
 
 async function fetchJson<S extends z.ZodTypeAny>(input: string, schema: S, init?: RequestInit): Promise<z.infer<S>> {
   return parseJsonResponse(await fetch(input, init), schema);
+}
+
+const AssistantBootstrapResponseSchema = z.object({ token: z.string().min(1) }).strict();
+const AssistantValidationResponseSchema = z.object({
+  items: z.array(AssistantValidationCandidateDtoSchema),
+}).strict();
+const AssistantHistoryResponseSchema = z.object({
+  items: z.array(AssistantMemoryHistoryEntryDtoSchema),
+}).strict();
+
+function assistantHeaders(token: string): Record<string, string> {
+  return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+}
+
+export async function bootstrapAssistantToken(): Promise<string> {
+  const result = await fetchJson('/assistant/auth/bootstrap', AssistantBootstrapResponseSchema);
+  return result.token;
+}
+
+export async function getAssistantValidation(
+  token: string,
+): Promise<AssistantValidationCandidateDto[]> {
+  const result = await fetchJson('/assistant/validation', AssistantValidationResponseSchema, {
+    headers: assistantHeaders(token),
+  });
+  return result.items;
+}
+
+export async function getAssistantMemoryHistory(
+  token: string,
+): Promise<AssistantMemoryHistoryEntryDto[]> {
+  const result = await fetchJson('/assistant/history', AssistantHistoryResponseSchema, {
+    headers: assistantHeaders(token),
+  });
+  return result.items;
+}
+
+export async function saveAssistantValidationNotes(
+  token: string,
+  candidateId: string,
+  notes: string,
+): Promise<void> {
+  await fetchJson(
+    `/assistant/validation/${encodeURIComponent(candidateId)}/notes`,
+    AssistantMutationResponseSchema,
+    { method: 'PATCH', headers: assistantHeaders(token), body: JSON.stringify({ notes }) },
+  );
+}
+
+export async function removeAssistantValidationCandidate(
+  token: string,
+  candidateId: string,
+): Promise<void> {
+  await fetchJson(
+    `/assistant/validation/${encodeURIComponent(candidateId)}`,
+    AssistantMutationResponseSchema,
+    { method: 'DELETE', headers: assistantHeaders(token) },
+  );
 }
 
 export function getRuns(

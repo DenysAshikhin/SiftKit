@@ -1,6 +1,6 @@
 import { z } from '../../lib/zod.js';
 import type { AssistantGraph } from '../assistant-graph.js';
-import type { ObservationType } from '../domain/enums.js';
+import type { AssertionBasis, ObservationType } from '../domain/enums.js';
 import { CandidateObjectRefSchema, UnresolvedNodeRefSchema } from '../domain/keys.js';
 import { RelationTypeSchema } from '../domain/relation-types.js';
 import type { StructuredOutputRunner } from '../inference/structured-runner.js';
@@ -75,6 +75,17 @@ export class ConversationExtractor {
   ) {}
 
   async extract(request: ExtractRequest): Promise<ExtractResult> {
+    return this.extractWithBasis(request, 'explicit_user_statement');
+  }
+
+  async extractQuestionAnswer(request: ExtractRequest): Promise<ExtractResult> {
+    return this.extractWithBasis(request, 'explicit_question_answer');
+  }
+
+  private async extractWithBasis(
+    request: ExtractRequest,
+    basis: AssertionBasis,
+  ): Promise<ExtractResult> {
     const evidence = this.graph.evidence.requireEvidence(request.evidenceId);
     const visibleText = this.stripUntrustedSpans(this.graph.evidence.readTextContent(evidence));
     if (visibleText.trim().length === 0) {
@@ -130,7 +141,7 @@ export class ConversationExtractor {
           predicate: statement.predicate,
           object: statement.object,
           scope: statement.scope,
-          basis: 'explicit_user_statement',
+          basis,
           confidence: statement.suggestedConfidence,
           sensitivity: evidence.sensitivity,
           validFromUtc: statement.validFromUtc,

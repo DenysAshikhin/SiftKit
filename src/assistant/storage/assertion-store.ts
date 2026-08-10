@@ -142,6 +142,14 @@ export class AssertionStore {
     `).all(ownerId, subjectNodeId, atUtc, atUtc));
   }
 
+  list(ownerId: string, limit: number, offset: number): AssertionRow[] {
+    return z.array(AssertionRowSchema).parse(this.database.prepare(`
+      SELECT * FROM graph_assertions
+      WHERE owner_id = ? AND status <> 'deleted'
+      ORDER BY updated_at_utc DESC, id ASC LIMIT ? OFFSET ?
+    `).all(ownerId, limit, offset));
+  }
+
   /** Moves an assertion out of the live set, freeing its assertion key. */
   retireAssertion(assertionId: string, status: AssertionStatus): AssertionRow {
     const nowUtc = this.clock.nowUtc();
@@ -172,6 +180,22 @@ export class AssertionStore {
       .prepare('UPDATE graph_assertions SET pinned = ?, updated_at_utc = ? WHERE id = ?')
       .run(pinned ? 1 : 0, this.clock.nowUtc(), assertionId);
     return this.requireAssertion(assertionId);
+  }
+
+  setUserPriority(assertionId: string, pinned: boolean, userDemoted: boolean): AssertionRow {
+    this.database.prepare(`
+      UPDATE graph_assertions
+      SET pinned = ?, user_demoted = ?, updated_at_utc = ? WHERE id = ?
+    `).run(pinned ? 1 : 0, userDemoted ? 1 : 0, this.clock.nowUtc(), assertionId);
+    return this.requireAssertion(assertionId);
+  }
+
+  listDependents(assertionId: string): AssertionRow[] {
+    return z.array(AssertionRowSchema).parse(this.database.prepare(`
+      SELECT * FROM graph_assertions
+      WHERE supersedes_assertion_id = ? AND status <> 'deleted'
+      ORDER BY created_at_utc ASC, id ASC
+    `).all(assertionId));
   }
 
   /** Closes the real-world validity window without retiring the row (§9.3 temporal change). */

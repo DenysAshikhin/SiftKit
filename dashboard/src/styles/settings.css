@@ -107,3 +107,24 @@
 .fgrid.flat .field { border: none; background: none; border-radius: 0; padding: 5px 4px; }
 @media (prefers-reduced-motion: reduce) { .mpg > summary .chev { transition: none; } }
 .cond-note { font-size: 0.7rem; color: #5f7288; border: 1px dashed var(--line); border-radius: 7px; padding: 6px 10px; margin-top: 8px; }
+
+/* ---- assistant ---- */
+.assistant-view-nav { display: inline-flex; margin-bottom: 8px; }
+.assistant-security-note { color: var(--dim); font-size: 0.7rem; margin: 0 0 14px; }
+.assistant-config-groups { display: grid; gap: 10px; }
+.assistant-settings-group { border: 1px solid var(--line); border-radius: 9px; background: var(--panel); padding: 12px 14px; }
+.assistant-settings-group h3 { margin: 0 0 10px; font-size: 0.8rem; }
+.assistant-settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px 14px; }
+.assistant-setting { display: grid; gap: 4px; color: var(--dim); font-size: 0.68rem; }
+.assistant-setting input { color: var(--ink); }
+.assistant-feed { display: grid; gap: 10px; }
+.assistant-feed-card { border: 1px solid var(--line); border-radius: 9px; background: var(--panel); padding: 12px 14px; }
+.assistant-feed-card h3, .assistant-feed-card p { margin: 0; }
+.assistant-feed-card > p { margin-top: 7px; }
+.assistant-card-heading { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.assistant-card-heading h3 { margin-right: auto; font-size: 0.84rem; }
+.assistant-notes-label { display: block; margin: 10px 0 4px; color: var(--dim); font-size: 0.7rem; }
+.assistant-feed-card textarea { width: 100%; resize: vertical; }
+.assistant-card-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.assistant-proof { border-left: 2px solid var(--acc); padding-left: 8px; color: var(--dim); font: 0.68rem ui-monospace, Consolas, monospace; }
+@media (max-width: 900px) { .assistant-settings-grid { grid-template-columns: 1fr; } }
