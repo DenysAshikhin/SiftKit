@@ -5,16 +5,7 @@ import type { ActivityEventDto } from '@siftkit/contracts';
 import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
 import type { AssistantConfig } from '../src/config/types.js';
 import { ActivityLog } from '../src/assistant/observation/activity-log.js';
-import type { AssistantConfigReader } from '../src/assistant/observation/config-reader.js';
 import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.js';
-
-class StaticConfigReader implements AssistantConfigReader {
-  constructor(public config: AssistantConfig) {}
-
-  read(): AssistantConfig {
-    return this.config;
-  }
-}
 
 function activityDto(overrides: {
   capturedAtUtc: string;
@@ -37,14 +28,13 @@ function activityDto(overrides: {
   };
 }
 
-function buildLog(context: AssistantTestContext, config: AssistantConfig): ActivityLog {
+function buildLog(context: AssistantTestContext): ActivityLog {
   return new ActivityLog({
     database: context.database,
     clock: context.clock,
     ids: context.ids,
     evidence: context.graph.evidence,
     observations: context.graph.observations,
-    config: new StaticConfigReader(config),
   });
 }
 
@@ -52,9 +42,9 @@ const ENABLED: AssistantConfig = { ...DEFAULT_ASSISTANT_CONFIG, Enabled: true };
 
 test('activity ingestion writes a row and keeps same-application events in one session', () => {
   withAssistantContext((context) => {
-    const log = buildLog(context, ENABLED);
-    const first = log.ingest(context.ownerId, activityDto({ capturedAtUtc: '2026-08-10T09:00:00.000Z' }));
-    const second = log.ingest(context.ownerId, activityDto({ capturedAtUtc: '2026-08-10T09:02:00.000Z' }));
+    const log = buildLog(context);
+    const first = log.ingest(context.ownerId, activityDto({ capturedAtUtc: '2026-08-10T09:00:00.000Z' }), ENABLED);
+    const second = log.ingest(context.ownerId, activityDto({ capturedAtUtc: '2026-08-10T09:02:00.000Z' }), ENABLED);
 
     assert.equal(first.application_id, 'app:code');
     assert.equal(first.normalized_title, 'SiftKit - Visual Studio Code');
@@ -72,9 +62,9 @@ test('activity ingestion writes a row and keeps same-application events in one s
 
 test('a gap past the bound closes the session and opens a new one', () => {
   withAssistantContext((context) => {
-    const log = buildLog(context, ENABLED);
-    const first = log.ingest(context.ownerId, activityDto({ capturedAtUtc: '2026-08-10T09:00:00.000Z' }));
-    const later = log.ingest(context.ownerId, activityDto({ capturedAtUtc: '2026-08-10T09:06:00.000Z' }));
+    const log = buildLog(context);
+    const first = log.ingest(context.ownerId, activityDto({ capturedAtUtc: '2026-08-10T09:00:00.000Z' }), ENABLED);
+    const later = log.ingest(context.ownerId, activityDto({ capturedAtUtc: '2026-08-10T09:06:00.000Z' }), ENABLED);
 
     assert.notEqual(later.session_id, first.session_id);
     const all = log.listSessions(context.ownerId);
@@ -87,11 +77,11 @@ test('a gap past the bound closes the session and opens a new one', () => {
 
 test('a different application closes the session and opens a new one', () => {
   withAssistantContext((context) => {
-    const log = buildLog(context, ENABLED);
-    const code = log.ingest(context.ownerId, activityDto({ capturedAtUtc: '2026-08-10T09:00:00.000Z' }));
+    const log = buildLog(context);
+    const code = log.ingest(context.ownerId, activityDto({ capturedAtUtc: '2026-08-10T09:00:00.000Z' }), ENABLED);
     const browser = log.ingest(context.ownerId, activityDto({
       capturedAtUtc: '2026-08-10T09:00:30.000Z', applicationId: 'app:firefox', processName: 'firefox.exe',
-    }));
+    }), ENABLED);
 
     assert.notEqual(browser.session_id, code.session_id);
     const all = log.listSessions(context.ownerId);
@@ -103,12 +93,12 @@ test('a different application closes the session and opens a new one', () => {
 
 test('each closed session records exactly one observation and never a candidate assertion', () => {
   withAssistantContext((context) => {
-    const log = buildLog(context, ENABLED);
-    log.ingest(context.ownerId, activityDto({ capturedAtUtc: '2026-08-10T09:00:00.000Z' }));
-    log.ingest(context.ownerId, activityDto({ capturedAtUtc: '2026-08-10T09:00:30.000Z' }));
+    const log = buildLog(context);
+    log.ingest(context.ownerId, activityDto({ capturedAtUtc: '2026-08-10T09:00:00.000Z' }), ENABLED);
+    log.ingest(context.ownerId, activityDto({ capturedAtUtc: '2026-08-10T09:00:30.000Z' }), ENABLED);
     log.ingest(context.ownerId, activityDto({
       capturedAtUtc: '2026-08-10T09:01:00.000Z', applicationId: 'app:firefox', processName: 'firefox.exe',
-    }));
+    }), ENABLED);
 
     const evidence = context.graph.evidence.list(context.ownerId, 50, 0)
       .filter((row) => row.source_type === 'desktop_activity');
@@ -131,8 +121,8 @@ test('each closed session records exactly one observation and never a candidate 
 
 test('closeIdleSessions ends a session that stopped reporting', () => {
   withAssistantContext((context) => {
-    const log = buildLog(context, ENABLED);
-    const event = log.ingest(context.ownerId, activityDto({ capturedAtUtc: '2026-08-10T09:00:00.000Z' }));
+    const log = buildLog(context);
+    const event = log.ingest(context.ownerId, activityDto({ capturedAtUtc: '2026-08-10T09:00:00.000Z' }), ENABLED);
     log.closeIdleSessions(context.ownerId, '2026-08-10T09:04:00.000Z');
     assert.equal(log.listSessions(context.ownerId)[0]?.ended_at_utc, null);
 
@@ -144,26 +134,22 @@ test('closeIdleSessions ends a session that stopped reporting', () => {
 
 test('ingestion is rejected while the assistant is disabled or private mode is active', () => {
   withAssistantContext((context) => {
-    const log = buildLog(context, ENABLED);
-    const disabled = buildLog(context, { ...DEFAULT_ASSISTANT_CONFIG, Enabled: false });
+    const log = buildLog(context);
+    const event = activityDto({ capturedAtUtc: '2026-08-10T09:00:00.000Z' });
     assert.throws(
-      () => disabled.ingest(context.ownerId, activityDto({ capturedAtUtc: '2026-08-10T09:00:00.000Z' })),
+      () => log.ingest(context.ownerId, event, { ...DEFAULT_ASSISTANT_CONFIG, Enabled: false }),
       /assistant is disabled/i,
     );
-
-    const priv = buildLog(context, {
-      ...ENABLED, PrivateMode: { Active: true, ExpiresAtUtc: null },
-    });
     assert.throws(
-      () => priv.ingest(context.ownerId, activityDto({ capturedAtUtc: '2026-08-10T09:00:00.000Z' })),
+      () => log.ingest(context.ownerId, event, {
+        ...ENABLED, PrivateMode: { Active: true, ExpiresAtUtc: null },
+      }),
       /private mode/i,
     );
-
-    const off = buildLog(context, {
-      ...ENABLED, Observation: { ...ENABLED.Observation, ActivityMetadataEnabled: false },
-    });
     assert.throws(
-      () => off.ingest(context.ownerId, activityDto({ capturedAtUtc: '2026-08-10T09:00:00.000Z' })),
+      () => log.ingest(context.ownerId, event, {
+        ...ENABLED, Observation: { ...ENABLED.Observation, ActivityMetadataEnabled: false },
+      }),
       /activity metadata/i,
     );
 

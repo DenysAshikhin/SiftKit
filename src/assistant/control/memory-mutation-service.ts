@@ -2,6 +2,7 @@ import type { AssistantDeletionPreview } from '@siftkit/contracts';
 import type { JsonObject } from '../../lib/json-types.js';
 import type { RuntimeDatabase } from '../../state/runtime-db.js';
 import type { AssistantGraph } from '../assistant-graph.js';
+import { AssistantNotFoundError } from '../errors.js';
 import type {
   AssertionWriteOutcome,
 } from '../graph/assertion-service.js';
@@ -167,7 +168,7 @@ export class MemoryMutationService {
   private requireOwnedAssertion(ownerId: string, assertionId: string): AssertionRow {
     const assertion = this.graph.assertions.getAssertion(assertionId);
     if (assertion === null || assertion.owner_id !== ownerId) {
-      throw new Error(`Unknown assertion for owner: ${assertionId}`);
+      throw new AssistantNotFoundError(`Unknown assertion for owner: ${assertionId}`);
     }
     return assertion;
   }

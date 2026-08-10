@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
+import type { EnvironmentStateDto } from '@siftkit/contracts';
 import { AssistantService } from '../src/assistant/assistant-service.js';
 import { FixedClock } from '../src/assistant/clock.js';
 import { SequentialIdGenerator } from '../src/assistant/ids.js';
@@ -115,6 +116,49 @@ test('an ingestion failure never throws at the caller', () => {
         assistantMessageId: 'm2', assistantText: 'Noted.',
       });
     });
+  } finally {
+    closeRuntimeDatabase();
+  }
+});
+
+test('the environment heartbeat closes a foreground session that simply stopped reporting', () => {
+  try {
+    const service = buildService([]);
+    const foreground = {
+      processName: 'Code.exe',
+      executablePath: 'C:/Program Files/Microsoft VS Code/Code.exe',
+      applicationId: 'app:code',
+      normalizedTitle: 'SiftKit - Visual Studio Code',
+      fullscreen: false,
+    };
+    service.ingestActivity({
+      schemaVersion: 1,
+      capturedAtUtc: '2026-08-05T09:00:00.000Z',
+      foreground,
+      idleSeconds: 2,
+      sessionLocked: false,
+    });
+
+    const heartbeat = (capturedAtUtc: string): EnvironmentStateDto => ({
+      schemaVersion: 1,
+      capturedAtUtc,
+      fullscreen: false,
+      locked: false,
+      doNotDisturb: false,
+      presenting: false,
+      excludedApplication: false,
+      secondsSinceInput: 30,
+      power: { kind: 'available', onBattery: false, batteryPercent: 90 },
+    });
+
+    const sessionEvidence = (): number => service.graph.evidence.list(service.ownerId, 50, 0)
+      .filter((row) => row.source_type === 'desktop_activity').length;
+
+    service.ingestEnvironment(heartbeat('2026-08-05T09:04:00.000Z'));
+    assert.equal(sessionEvidence(), 0, 'still inside the session gap');
+
+    service.ingestEnvironment(heartbeat('2026-08-05T09:06:00.000Z'));
+    assert.equal(sessionEvidence(), 1, 'the stalled session closed and emitted its observation');
   } finally {
     closeRuntimeDatabase();
   }

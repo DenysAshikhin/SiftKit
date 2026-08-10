@@ -1,6 +1,7 @@
 import type { AssistantGraph } from '../assistant-graph.js';
 import type { SecretScanner } from '../domain/secrets.js';
 import { hashTextContent } from '../domain/keys.js';
+import { AssistantNotFoundError } from '../errors.js';
 
 export interface AssistantQuestionConfigWriter {
   setQuestionSchedule(startLocalTime: string, endLocalTime: string): void;
@@ -197,7 +198,7 @@ export class QuestionFeedbackService {
 
   private requireOwnedQuestion(ownerId: string, questionId: string) {
     const question = this.graph.questions.requireQuestion(questionId);
-    if (question.owner_id !== ownerId) throw new Error(`Unknown question for owner: ${questionId}`);
+    if (question.owner_id !== ownerId) throw new AssistantNotFoundError(`Unknown question for owner: ${questionId}`);
     return question;
   }
 }

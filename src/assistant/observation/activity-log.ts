@@ -1,5 +1,6 @@
 import type { ActivityEventDto } from '@siftkit/contracts';
 
+import type { AssistantConfig } from '../../config/types.js';
 import { z } from '../../lib/zod.js';
 import type { RuntimeDatabase } from '../../state/runtime-db.js';
 import type { Clock } from '../clock.js';
@@ -10,7 +11,7 @@ import {
 } from '../storage/rows.js';
 import type { EvidenceStore } from '../storage/evidence-store.js';
 import type { ObservationStore } from '../storage/observation-store.js';
-import { requireObservationAllowed, type AssistantConfigReader } from './config-reader.js';
+import { requireObservationAllowed } from './observation-gate.js';
 
 /** A pause longer than this ends the session, per spec §4 sessionization. */
 const SESSION_GAP_SECONDS = 300;
@@ -24,7 +25,6 @@ export interface ActivityLogOptions {
   readonly ids: IdGenerator;
   readonly evidence: EvidenceStore;
   readonly observations: ObservationStore;
-  readonly config: AssistantConfigReader;
   readonly sessionGapSeconds?: number;
 }
 
@@ -39,7 +39,6 @@ export class ActivityLog {
   private readonly ids: IdGenerator;
   private readonly evidence: EvidenceStore;
   private readonly observations: ObservationStore;
-  private readonly config: AssistantConfigReader;
   private readonly sessionGapSeconds: number;
 
   constructor(options: ActivityLogOptions) {
@@ -48,12 +47,10 @@ export class ActivityLog {
     this.ids = options.ids;
     this.evidence = options.evidence;
     this.observations = options.observations;
-    this.config = options.config;
     this.sessionGapSeconds = options.sessionGapSeconds ?? SESSION_GAP_SECONDS;
   }
 
-  ingest(ownerId: string, event: ActivityEventDto): ActivityEventRow {
-    const config = this.config.read();
+  ingest(ownerId: string, event: ActivityEventDto, config: AssistantConfig): ActivityEventRow {
     requireObservationAllowed(config);
     if (!config.Observation.ActivityMetadataEnabled) {
       throw new Error('Activity metadata capture is disabled.');

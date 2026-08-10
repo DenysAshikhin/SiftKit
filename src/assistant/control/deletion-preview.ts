@@ -4,6 +4,7 @@ import { parseJsonText } from '../../lib/json.js';
 import type { AssistantDeletionPreview } from '@siftkit/contracts';
 import type { AssistantGraph } from '../assistant-graph.js';
 import type { RuntimeDatabase } from '../../state/runtime-db.js';
+import { AssistantConflictError, AssistantNotFoundError } from '../errors.js';
 
 const PREVIEW_SECRET_KEY = 'assistant.deletion_preview.secret.v1';
 
@@ -37,21 +38,21 @@ export class DeletionPreviewService {
   validateForgetAssertion(ownerId: string, assertionId: string, previewToken: string): void {
     const payload = this.verify(previewToken);
     if (payload.ownerId !== ownerId || payload.targetAssertionId !== assertionId) {
-      throw new Error('Deletion preview token does not match this assertion.');
+      throw new AssistantConflictError('Deletion preview token does not match this assertion.');
     }
     if (payload.graphVersion !== this.graph.graphVersion) {
-      throw new Error('Deletion preview is stale because the graph version changed.');
+      throw new AssistantConflictError('Deletion preview is stale because the graph version changed.');
     }
     const current = this.buildPayload(ownerId, assertionId);
     if (JSON.stringify(current) !== JSON.stringify(payload)) {
-      throw new Error('Deletion preview is stale because its affected rows changed.');
+      throw new AssistantConflictError('Deletion preview is stale because its affected rows changed.');
     }
   }
 
   private buildPayload(ownerId: string, assertionId: string): PreviewPayload {
     const assertion = this.graph.assertions.getAssertion(assertionId);
     if (assertion === null || assertion.owner_id !== ownerId) {
-      throw new Error(`Unknown assertion for owner: ${assertionId}`);
+      throw new AssistantNotFoundError(`Unknown assertion for owner: ${assertionId}`);
     }
     const affectedProjectionIds = this.graph.projections.listAll(ownerId)
       .filter((projection) => this.graph.projections.readIncludedAssertionIds(projection).includes(assertionId))

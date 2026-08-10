@@ -31,7 +31,6 @@ import { IngestionPipeline } from './ingestion/pipeline.js';
 import { AssistantJobRunner, type InteractivityGate } from './jobs/job-runner.js';
 import { AssistantResourcePolicy } from './jobs/resource-policy.js';
 import { ActivityLog } from './observation/activity-log.js';
-import type { AssistantConfigReader } from './observation/config-reader.js';
 import { DesktopEnvironmentCache } from './observation/environment-cache.js';
 import { ProjectionCompiler } from './projections/projection-compiler.js';
 import { ProjectionSummarizer } from './projections/projection-summarizer.js';
@@ -47,6 +46,10 @@ import { QuestionFeedbackService, type AssistantQuestionConfigWriter } from './q
 import { MemoryQueryService } from './control/memory-query-service.js';
 import { MemoryMutationService } from './control/memory-mutation-service.js';
 import { normalizeLiteralValue } from './domain/keys.js';
+import { OWNER_PERSON_CANONICAL_KEY } from './storage/schema.js';
+
+/** The closed set of desktop-shell payloads whose contract rejections are audited. */
+export type DesktopPayloadKind = 'key_material' | 'environment_state' | 'activity_event';
 
 class RouteOnlyQuestionConfigWriter implements AssistantQuestionConfigWriter {
   setQuestionSchedule(): never {
@@ -55,15 +58,6 @@ class RouteOnlyQuestionConfigWriter implements AssistantQuestionConfigWriter {
 
   setQuestionRateLimits(): never {
     throw new Error('Question rate changes must use the durable assistant config route.');
-  }
-}
-
-/** Live config view for the observation gates, so a config refresh takes effect immediately. */
-class ServiceConfigReader implements AssistantConfigReader {
-  constructor(private readonly service: AssistantService) {}
-
-  read(): AssistantConfig {
-    return this.service.config;
   }
 }
 
@@ -79,7 +73,6 @@ class ServiceCustodyConfigPort implements AssistantCustodyConfigPort {
     this.service.applyKeyCustody(custody);
   }
 }
-import { OWNER_PERSON_CANONICAL_KEY } from './storage/schema.js';
 
 /** Durable home of the assistant config block, so the service can persist its own flips. */
 export interface AssistantConfigWriter {
@@ -162,7 +155,6 @@ export class AssistantService implements AssistantRuntime {
       ids: options.ids,
       evidence: this.graph.evidence,
       observations: this.graph.observations,
-      config: new ServiceConfigReader(this),
     });
     this.ownerPersonId = options.config.Enabled ? this.ensureOwnerPersonNode() : null;
 
@@ -367,14 +359,19 @@ export class AssistantService implements AssistantRuntime {
     return true;
   }
 
-  /** Heartbeat from the desktop shell; feeds question policy and the background power gate. */
+  /**
+   * Heartbeat from the desktop shell; feeds question policy and the background power gate. It is
+   * also the only signal that a foreground session simply stopped rather than being replaced, so
+   * the last session of the day is closed — and its observation emitted — from here.
+   */
   ingestEnvironment(state: EnvironmentStateDto): void {
     this.environment.ingest(state);
+    this.activityLog.closeIdleSessions(this.ownerId, state.capturedAtUtc);
   }
 
   /** Foreground activity metadata from the desktop shell. */
   ingestActivity(event: ActivityEventDto): void {
-    this.activityLog.ingest(this.ownerId, event);
+    this.activityLog.ingest(this.ownerId, event, this.currentConfig);
   }
 
   /** Persists a key-custody flip durably, then refreshes the in-memory config. */
@@ -388,7 +385,7 @@ export class AssistantService implements AssistantRuntime {
    * Records that a desktop payload failed contract validation. Deliberately carries the payload
    * kind and nothing else — a rejected body may contain key material or window titles.
    */
-  recordDesktopContractRejection(kind: string): void {
+  recordDesktopContractRejection(kind: DesktopPayloadKind): void {
     this.graph.audit.recordAuditEvent({
       ownerId: this.ownerId,
       eventType: 'desktop_contract_rejected',

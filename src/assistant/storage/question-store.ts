@@ -4,6 +4,7 @@ import { JsonObjectSchema, type JsonObject } from '../../lib/json-types.js';
 import type { RuntimeDatabase } from '../../state/runtime-db.js';
 import type { Clock } from '../clock.js';
 import type { QuestionFeedbackType, QuestionStatus, QuestionType } from '../domain/enums.js';
+import { AssistantConflictError, AssistantNotFoundError } from '../errors.js';
 import type { IdGenerator } from '../ids.js';
 import {
   QuestionFeedbackRowSchema,
@@ -68,7 +69,7 @@ export class QuestionStore {
 
   requireQuestion(questionId: string): QuestionRow {
     const row = this.getQuestion(questionId);
-    if (row === null) throw new Error(`Unknown assistant question: ${questionId}`);
+    if (row === null) throw new AssistantNotFoundError(`Unknown assistant question: ${questionId}`);
     return row;
   }
 
@@ -188,7 +189,7 @@ export class QuestionStore {
   ): QuestionRow {
     const current = this.requireQuestion(questionId);
     if (!allowed.some((status) => status === current.status)) {
-      throw new Error(`Cannot transition assistant question from ${current.status} to ${next}.`);
+      throw new AssistantConflictError(`Cannot transition assistant question from ${current.status} to ${next}.`);
     }
     this.database.prepare(`
       UPDATE assistant_questions

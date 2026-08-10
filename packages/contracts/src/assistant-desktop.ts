@@ -27,6 +27,13 @@ export const ActivityEventDtoSchema = z.object({
 }).strict();
 export type ActivityEventDto = z.infer<typeof ActivityEventDtoSchema>;
 
+/**
+ * The cadence the shell pushes `EnvironmentStateDto` on (spec §2). The daemon treats three missed
+ * beats as "the shell is gone", so both sides derive their timing from this one value.
+ */
+export const DESKTOP_HEARTBEAT_INTERVAL_SECONDS = 20;
+export const DESKTOP_HEARTBEAT_STALENESS_SECONDS = DESKTOP_HEARTBEAT_INTERVAL_SECONDS * 3;
+
 export const EnvironmentStateDtoSchema = z.object({
   schemaVersion: z.literal(1),
   capturedAtUtc: z.string(),

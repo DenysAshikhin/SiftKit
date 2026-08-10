@@ -11,7 +11,8 @@ import {
 import { z } from '../../lib/zod.js';
 import { ObjectValueTypeSchema } from '../../assistant/domain/enums.js';
 import { JsonValueSchema } from '../../lib/json-types.js';
-import type { AssistantService } from '../../assistant/assistant-service.js';
+import type { AssistantService, DesktopPayloadKind } from '../../assistant/assistant-service.js';
+import { AssistantConflictError, AssistantNotFoundError } from '../../assistant/errors.js';
 import {
   RequestBodyTooLargeError, parseJsonBody, readBody, sendJson,
 } from '../http-utils.js';
@@ -86,7 +87,7 @@ async function desktopBody<T>(
   service: AssistantService,
   req: IncomingMessage,
   schema: z.ZodType<T>,
-  kind: string,
+  kind: DesktopPayloadKind,
   maxBytes: number,
 ): Promise<T> {
   const result = schema.safeParse(parseJsonBody(await readBody(req, { maxBytes })));
@@ -128,8 +129,12 @@ class AssistantEndpoint implements RouteEndpoint {
       sendJson(res, 200, { assistant: service.config });
       return;
     }
+    // Key custody deliberately sits ahead of the `enabled` gate (design §3): the shell migrates on
+    // first connect and re-imports after every daemon restart, and both must work while the
+    // assistant is off — otherwise custody is `'desktop'` with no key and evidence is unreadable.
+    // Private mode gates observation, not key management, so it does not apply here either.
     if (pathname === '/assistant/keys/custody') {
-      sendJson(res, 200, { schemaVersion: 1, ...service.keyCustody.status() });
+      sendJson(res, 200, service.keyCustody.statusDto());
       return;
     }
     if (pathname === '/assistant/keys/export') {
@@ -140,7 +145,8 @@ class AssistantEndpoint implements RouteEndpoint {
       const material = await desktopBody(
         service, req, KeyMaterialDtoSchema, 'key_material', KEY_MATERIAL_BODY_LIMIT,
       );
-      sendJson(res, 200, { schemaVersion: 1, ...service.keyCustody.importFromShell(material) });
+      service.keyCustody.importFromShell(material);
+      sendJson(res, 200, service.keyCustody.statusDto());
       return;
     }
     if (!service.enabled) {
@@ -455,9 +461,9 @@ export async function handleAssistantRoute(
       sendError(res, 413, 'body_too_large', error.message);
     } else {
       const message = error instanceof Error ? error.message : String(error);
-      const status = /Unknown .*owner|Unknown assertion|Unknown assistant question/u.test(message)
+      const status = error instanceof AssistantNotFoundError
         ? 404
-        : /stale|preview token|cannot transition|not awaiting|custody/u.test(message) ? 409 : 400;
+        : error instanceof AssistantConflictError ? 409 : 400;
       const code = status === 404 ? 'not_found' : status === 409 ? 'conflict' : 'invalid_request';
       sendError(res, status, code, message);
     }

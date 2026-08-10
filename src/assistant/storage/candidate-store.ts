@@ -8,6 +8,7 @@ import {
   type CandidateObjectRef, type UnresolvedNodeRef,
 } from '../domain/keys.js';
 import type { RelationType } from '../domain/relation-types.js';
+import { AssistantConflictError } from '../errors.js';
 import type { IdGenerator } from '../ids.js';
 import { CandidateRowSchema, type CandidateRow } from './rows.js';
 
@@ -129,7 +130,7 @@ export class CandidateStore {
   setUserNotes(candidateId: string, notes: string): CandidateRow {
     const candidate = this.requireCandidate(candidateId);
     if (candidate.status !== 'pending' && candidate.status !== 'needs_confirmation') {
-      throw new Error(`Candidate ${candidateId} is not awaiting validation.`);
+      throw new AssistantConflictError(`Candidate ${candidateId} is not awaiting validation.`);
     }
     this.database.prepare(`
       UPDATE candidate_assertions SET user_notes = ?, updated_at_utc = ? WHERE id = ?
@@ -140,7 +141,7 @@ export class CandidateStore {
   removeFromValidationQueue(candidateId: string): CandidateRow {
     const candidate = this.requireCandidate(candidateId);
     if (candidate.status !== 'pending' && candidate.status !== 'needs_confirmation') {
-      throw new Error(`Candidate ${candidateId} is not awaiting validation.`);
+      throw new AssistantConflictError(`Candidate ${candidateId} is not awaiting validation.`);
     }
     return this.reject(candidateId, 'removed_by_user');
   }

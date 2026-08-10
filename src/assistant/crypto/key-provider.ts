@@ -41,18 +41,8 @@ export class FileKeyProvider implements AssistantKeyProvider {
   constructor(private readonly keyFilePath: string) {}
 
   getActiveKey(): AssistantEncryptionKey {
-    const existing = this.readKeyFile();
-    if (existing !== null) {
-      return this.materializeKey(existing.activeKeyId, existing.keys[existing.activeKeyId]);
-    }
-    const keyId = randomUUID();
-    const material = randomBytes(KEY_BYTE_LENGTH);
-    this.writeKeyFile({
-      version: 1,
-      activeKeyId: keyId,
-      keys: { [keyId]: material.toString('base64') },
-    });
-    return { keyId, material };
+    const file = this.ensureKeyFile();
+    return this.materializeKey(file.activeKeyId, file.keys[file.activeKeyId]);
   }
 
   getKeyById(keyId: string): AssistantEncryptionKey {
@@ -68,10 +58,7 @@ export class FileKeyProvider implements AssistantKeyProvider {
 
   /** Every key on disk, creating the first one if the file does not exist yet. */
   exportKeyFile(): KeyFile {
-    this.getActiveKey();
-    const file = this.readKeyFile();
-    if (file === null) throw new Error('Evidence key file could not be created.');
-    return file;
+    return this.ensureKeyFile();
   }
 
   /** Removes the key file. Only the custody migration may call this, and only after import. */
@@ -79,6 +66,20 @@ export class FileKeyProvider implements AssistantKeyProvider {
     if (fs.existsSync(this.keyFilePath)) {
       fs.rmSync(this.keyFilePath);
     }
+  }
+
+  /** The key file on disk, generating the first key set on first use. */
+  private ensureKeyFile(): KeyFile {
+    const existing = this.readKeyFile();
+    if (existing !== null) return existing;
+    const keyId = randomUUID();
+    const created: KeyFile = {
+      version: 1,
+      activeKeyId: keyId,
+      keys: { [keyId]: randomBytes(KEY_BYTE_LENGTH).toString('base64') },
+    };
+    this.writeKeyFile(created);
+    return created;
   }
 
   private materializeKey(keyId: string, encoded: string | undefined): AssistantEncryptionKey {

@@ -1,13 +1,10 @@
-import type { EnvironmentStateDto } from '@siftkit/contracts';
+import { DESKTOP_HEARTBEAT_STALENESS_SECONDS, type EnvironmentStateDto } from '@siftkit/contracts';
 
 import type { Clock } from '../clock.js';
 import type { PowerState, PowerStateProvider } from '../jobs/resource-policy.js';
 import type {
   QuestionEnvironmentState, QuestionEnvironmentStateProvider,
 } from '../questions/environment-state.js';
-
-/** Heartbeats arrive every 20 s; three missed beats means the shell is gone (spec §4). */
-const DEFAULT_STALENESS_SECONDS = 60;
 
 function localTimeOf(epochMs: number): string {
   const now = new Date(epochMs);
@@ -40,7 +37,7 @@ export class DesktopEnvironmentCache implements QuestionEnvironmentStateProvider
 
   constructor(
     private readonly clock: Clock,
-    private readonly stalenessSeconds: number = DEFAULT_STALENESS_SECONDS,
+    private readonly stalenessSeconds: number = DESKTOP_HEARTBEAT_STALENESS_SECONDS,
   ) {
     this.power = new DesktopPowerStateProvider(this);
   }

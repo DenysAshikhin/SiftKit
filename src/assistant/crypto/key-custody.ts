@@ -1,8 +1,12 @@
 import { randomBytes } from 'node:crypto';
 
-import type { KeyCustody, KeyCustodyState, KeyMaterialDto } from '@siftkit/contracts';
+import {
+  KeyCustodyStatusDtoSchema, KeyMaterialDtoSchema,
+  type KeyCustody, type KeyCustodyState, type KeyCustodyStatusDto, type KeyMaterialDto,
+} from '@siftkit/contracts';
 
 import { hashBytes } from '../domain/keys.js';
+import { AssistantConflictError } from '../errors.js';
 import type { EvidenceStore } from '../storage/evidence-store.js';
 import { BlobCipher } from './blob-cipher.js';
 import { ImportedKeyProvider } from './imported-key-provider.js';
@@ -79,13 +83,20 @@ export class KeyCustodyService {
     };
   }
 
+  /** The wire shape of `status()`, stamped and validated by the contract itself. */
+  statusDto(): KeyCustodyStatusDto {
+    return KeyCustodyStatusDtoSchema.parse({ schemaVersion: 1, ...this.status() });
+  }
+
   /** Hands the shell the key material to seal under DPAPI. Illegal once the shell owns custody. */
   exportForShell(): KeyMaterialDto {
     if (this.config.readCustody() === 'desktop') {
-      throw new Error('Evidence keys cannot be exported under desktop custody.');
+      throw new AssistantConflictError('Evidence keys cannot be exported under desktop custody.');
     }
     const file = this.fileKeys.exportKeyFile();
-    return { schemaVersion: 1, activeKeyId: file.activeKeyId, keys: { ...file.keys } };
+    return KeyMaterialDtoSchema.parse({
+      schemaVersion: 1, activeKeyId: file.activeKeyId, keys: { ...file.keys },
+    });
   }
 
   /**
@@ -108,7 +119,7 @@ export class KeyCustodyService {
    */
   finalizeMigration(material: KeyMaterialDto): KeyCustodyState {
     if (this.config.readCustody() !== 'file') {
-      throw new Error('Key custody migration is only available under file custody.');
+      throw new AssistantConflictError('Key custody migration is only available under file custody.');
     }
     const file = this.fileKeys.exportKeyFile();
     const onDisk = Object.keys(file.keys).sort();

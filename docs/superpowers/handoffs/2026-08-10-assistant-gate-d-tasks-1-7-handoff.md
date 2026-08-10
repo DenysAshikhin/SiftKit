@@ -151,13 +151,14 @@ route `POST /assistant/ingest/environment`.
 
 ### Task 7 — Activity ingestion and sessionization
 
-`src/assistant/observation/activity-log.ts`, `src/assistant/observation/config-reader.ts`,
+`src/assistant/observation/activity-log.ts`, `src/assistant/observation/observation-gate.ts`,
 `tests/assistant-activity-log.test.ts`, route `POST /assistant/ingest/activity`.
 
-- `AssistantConfigReader { read(): AssistantConfig }` + `requireObservationAllowed(config)` — the
-  shared gate (disabled → throw, private mode → throw). `AssistantService` implements it via a
-  private `ServiceConfigReader`. **Task 8's `CaptureIntake` must reuse both.**
-- `ActivityLog`: `ingest(ownerId, dto)`, `closeIdleSessions(ownerId, nowUtc)`,
+- `requireObservationAllowed(config)` — the shared gate (disabled → throw, private mode → throw).
+  The live config is passed in per call by `AssistantService`, never held as a seam.
+  **Task 8's `CaptureIntake` must reuse it the same way.**
+- `ActivityLog`: `ingest(ownerId, dto, config)`, `closeIdleSessions(ownerId, nowUtc)` (driven by
+  the environment heartbeat in `AssistantService.ingestEnvironment`),
   `listSessions(ownerId)`. Session gap default 300 s. A closed session writes one text evidence
   record (`source_type = 'desktop_activity'`, sensitivity `personal`, `sourceEventId =
   activity_session:<id>`) and exactly one observation — never a candidate/assertion.
@@ -236,5 +237,5 @@ Modified: `dashboard/src/tabs/settings/AssistantSettings.tsx`, `packages/contrac
 
 Added: `desktop/contract-fixtures/` (8 fixtures), `packages/contracts/src/assistant-desktop.ts`,
 `src/assistant/crypto/imported-key-provider.ts`, `src/assistant/crypto/key-custody.ts`,
-`src/assistant/observation/{activity-log,config-reader,environment-cache}.ts`,
+`src/assistant/observation/{activity-log,observation-gate,environment-cache}.ts`,
 `src/status-server/assistant-config-writer.ts`, and the five new test files listed above.

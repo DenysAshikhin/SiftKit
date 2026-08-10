@@ -1,5 +1,7 @@
 import { initializeRuntime } from './paths.js';
-import { ModelPresetFieldSchema, SiftPresetCollectionSchema } from '@siftkit/contracts';
+import {
+  CaptureScopeSchema, KeyCustodySchema, ModelPresetFieldSchema, SiftPresetCollectionSchema,
+} from '@siftkit/contracts';
 import {
   SIFT_DEFAULT_LLAMA_BATCH_SIZE,
   SIFT_DEFAULT_LLAMA_BIND_HOST,
@@ -196,7 +198,7 @@ export function normalizeAssistantConfig(value: JsonValue): AssistantConfig {
       WindowChangeCapture: booleanOrDefault(observation.WindowChangeCapture, DEFAULT_ASSISTANT_CONFIG.Observation.WindowChangeCapture),
       MinimumForegroundDwellSeconds: integerOrDefault(observation.MinimumForegroundDwellSeconds, DEFAULT_ASSISTANT_CONFIG.Observation.MinimumForegroundDwellSeconds, 0, maximum),
       DuplicateSimilarityPercent: integerOrDefault(observation.DuplicateSimilarityPercent, DEFAULT_ASSISTANT_CONFIG.Observation.DuplicateSimilarityPercent, 0, 100),
-      CaptureScope: memberOrDefault(observation.CaptureScope, ['foreground_window', 'all_monitors'], DEFAULT_ASSISTANT_CONFIG.Observation.CaptureScope),
+      CaptureScope: memberOrDefault(observation.CaptureScope, CaptureScopeSchema.options, DEFAULT_ASSISTANT_CONFIG.Observation.CaptureScope),
       CaptureOnlyWhileActive: booleanOrDefault(observation.CaptureOnlyWhileActive, DEFAULT_ASSISTANT_CONFIG.Observation.CaptureOnlyWhileActive),
       SkipFullscreen: booleanOrDefault(observation.SkipFullscreen, DEFAULT_ASSISTANT_CONFIG.Observation.SkipFullscreen),
       SkipWhileLocked: booleanOrDefault(observation.SkipWhileLocked, DEFAULT_ASSISTANT_CONFIG.Observation.SkipWhileLocked),
@@ -230,7 +232,7 @@ export function normalizeAssistantConfig(value: JsonValue): AssistantConfig {
         ? privateMode.ExpiresAtUtc
         : DEFAULT_ASSISTANT_CONFIG.PrivateMode.ExpiresAtUtc,
     },
-    KeyCustody: memberOrDefault(input.KeyCustody, ['file', 'desktop'], DEFAULT_ASSISTANT_CONFIG.KeyCustody),
+    KeyCustody: memberOrDefault(input.KeyCustody, KeyCustodySchema.options, DEFAULT_ASSISTANT_CONFIG.KeyCustody),
   };
 }
 

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { KeyCustodySchema } from './assistant-desktop.js';
 import { ManagedLlamaStartupFailureSchema } from './managed-llama-failure.js';
 
 export const ManagedLlamaKvCacheQuantizationSchema = z.enum([
@@ -127,6 +128,9 @@ export const AssistantJobPrioritiesSchema = z.object({
   ProjectionMaintenance: z.number().int(),
 }).strict();
 
+export const CaptureScopeSchema = z.enum(['foreground_window', 'all_monitors']);
+export type CaptureScope = z.infer<typeof CaptureScopeSchema>;
+
 export const AssistantConfigSchema = z.object({
   Enabled: z.boolean(),
   Owner: z.object({ Id: z.string().min(1), DisplayName: z.string() }).strict(),
@@ -174,7 +178,7 @@ export const AssistantConfigSchema = z.object({
     WindowChangeCapture: z.boolean(),
     MinimumForegroundDwellSeconds: z.number().int().min(0),
     DuplicateSimilarityPercent: z.number().int().min(0).max(100),
-    CaptureScope: z.enum(['foreground_window', 'all_monitors']),
+    CaptureScope: CaptureScopeSchema,
     CaptureOnlyWhileActive: z.boolean(),
     SkipFullscreen: z.boolean(),
     SkipWhileLocked: z.boolean(),
@@ -197,7 +201,7 @@ export const AssistantConfigSchema = z.object({
     JobPriorities: AssistantJobPrioritiesSchema,
   }).strict(),
   PrivateMode: z.object({ Active: z.boolean(), ExpiresAtUtc: z.string().nullable() }).strict(),
-  KeyCustody: z.enum(['file', 'desktop']),
+  KeyCustody: KeyCustodySchema,
 }).strict();
 export type AssistantConfig = z.infer<typeof AssistantConfigSchema>;
 
