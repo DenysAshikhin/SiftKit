@@ -140,13 +140,27 @@ export class EvidenceStore {
    * references that blob.
    */
   deleteEvidence(evidenceId: string): EvidenceRow {
+    return this.retire(evidenceId, 'deleted');
+  }
+
+  /**
+   * Retention's half of deletion (§7): the record survives as an `expired` tombstone — so audit
+   * trails and evidence links stay resolvable — but the stored bytes are purged exactly as a
+   * user deletion would purge them.
+   */
+  expireEvidence(evidenceId: string): EvidenceRow {
+    return this.retire(evidenceId, 'expired');
+  }
+
+  private retire(evidenceId: string, status: 'deleted' | 'expired'): EvidenceRow {
     const evidence = this.requireEvidence(evidenceId);
-    this.setStatus(evidenceId, 'deleted');
+    this.setStatus(evidenceId, status);
     if (evidence.blob_id === null) return this.requireEvidence(evidenceId);
 
+    // Deleted and expired records have both given up their bytes, so neither holds the blob.
     const remaining = CountRowSchema.parse(this.database.prepare(`
       SELECT COUNT(*) AS count FROM evidence_records
-      WHERE blob_id = ? AND status <> 'deleted'
+      WHERE blob_id = ? AND status NOT IN ('deleted', 'expired')
     `).get(evidence.blob_id)).count;
     if (remaining > 0) return this.requireEvidence(evidenceId);
 

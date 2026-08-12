@@ -11,8 +11,10 @@ import {
   isUsableCapability, type AssistantImageCapabilityProvider,
 } from '../images/image-capability.js';
 import type { CaptureQueueStore } from '../images/capture-queue-store.js';
+import { rawStorageLimitBytes } from '../images/capture-retention.js';
 import type { AuditStore } from '../storage/audit-store.js';
 import type { EvidenceStore } from '../storage/evidence-store.js';
+import type { JobStore } from '../storage/job-store.js';
 import { requireObservationAllowed } from './observation-gate.js';
 
 /** The shell ships a 64-bit dHash; `PerceptualHashSchema` guarantees the 16 hex characters. */
@@ -29,6 +31,7 @@ export interface CaptureIntakeOptions {
   readonly queue: CaptureQueueStore;
   readonly audit: AuditStore;
   readonly capability: AssistantImageCapabilityProvider;
+  readonly jobs: JobStore;
 }
 
 function hammingDistance(left: string, right: string): number {
@@ -64,6 +67,7 @@ export class CaptureIntake {
   private readonly queue: CaptureQueueStore;
   private readonly audit: AuditStore;
   private readonly capability: AssistantImageCapabilityProvider;
+  private readonly jobs: JobStore;
 
   constructor(options: CaptureIntakeOptions) {
     this.clock = options.clock;
@@ -71,6 +75,7 @@ export class CaptureIntake {
     this.queue = options.queue;
     this.audit = options.audit;
     this.capability = options.capability;
+    this.jobs = options.jobs;
   }
 
   submit(ownerId: string, capture: CaptureSubmissionDto, config: AssistantConfig): CaptureOutcome {
@@ -137,6 +142,16 @@ export class CaptureIntake {
       perceptualHash,
       byteLength: image.bytes.byteLength,
     });
+    // Capacity pressure cannot wait for the next scheduled run: the capture that crossed the
+    // cap enqueues the eviction pass itself (spec §7). Idempotent while one is already live.
+    if (this.queue.totalLiveBytes(ownerId) > rawStorageLimitBytes(config.Observation)) {
+      this.jobs.enqueue({
+        ownerId,
+        jobType: 'capture_retention',
+        payload: { reason: 'capacity' },
+        idempotencyKey: 'capture_retention:capacity',
+      }, config.Background.JobPriorities.CaptureRetention);
+    }
     return { kind: 'accepted', evidenceId: evidence.id, state };
   }
 

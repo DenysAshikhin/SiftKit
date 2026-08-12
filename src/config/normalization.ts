@@ -132,6 +132,12 @@ function memberOrDefault<T extends string>(value: JsonValue, allowed: readonly T
   return allowed.find((candidate) => candidate === value) ?? fallback;
 }
 
+/** A malformed list falls back whole; a valid list keeps only its string entries. */
+function stringListOrDefault(value: JsonValue, fallback: readonly string[]): string[] {
+  if (!Array.isArray(value)) return [...fallback];
+  return value.filter((entry): entry is string => typeof entry === 'string');
+}
+
 export function normalizeAssistantConfig(value: JsonValue): AssistantConfig {
   const input = getRecord(value);
   const owner = getRecord(input.Owner);
@@ -206,6 +212,9 @@ export function normalizeAssistantConfig(value: JsonValue): AssistantConfig {
       RawStorageLimitGb: positiveNumberOrDefault(observation.RawStorageLimitGb, DEFAULT_ASSISTANT_CONFIG.Observation.RawStorageLimitGb),
       AccessibilityExtractionEnabled: booleanOrDefault(observation.AccessibilityExtractionEnabled, DEFAULT_ASSISTANT_CONFIG.Observation.AccessibilityExtractionEnabled),
       OcrFallbackEnabled: booleanOrDefault(observation.OcrFallbackEnabled, DEFAULT_ASSISTANT_CONFIG.Observation.OcrFallbackEnabled),
+      ProcessDenyList: stringListOrDefault(observation.ProcessDenyList, DEFAULT_ASSISTANT_CONFIG.Observation.ProcessDenyList),
+      TitleDenyPatterns: stringListOrDefault(observation.TitleDenyPatterns, DEFAULT_ASSISTANT_CONFIG.Observation.TitleDenyPatterns),
+      StartOnSignIn: booleanOrDefault(observation.StartOnSignIn, DEFAULT_ASSISTANT_CONFIG.Observation.StartOnSignIn),
     },
     Retention: {
       OcrTextDays: integerOrDefault(retention.OcrTextDays, DEFAULT_ASSISTANT_CONFIG.Retention.OcrTextDays, 1, maximum),
@@ -224,6 +233,7 @@ export function normalizeAssistantConfig(value: JsonValue): AssistantConfig {
         QuestionPlanning: integerOrDefault(priorities.QuestionPlanning, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.QuestionPlanning, -maximum, maximum),
         CandidateConsolidation: integerOrDefault(priorities.CandidateConsolidation, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.CandidateConsolidation, -maximum, maximum),
         ImageExtraction: integerOrDefault(priorities.ImageExtraction, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.ImageExtraction, -maximum, maximum),
+        CaptureRetention: integerOrDefault(priorities.CaptureRetention, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.CaptureRetention, -maximum, maximum),
         ProjectionMaintenance: integerOrDefault(priorities.ProjectionMaintenance, DEFAULT_ASSISTANT_CONFIG.Background.JobPriorities.ProjectionMaintenance, -maximum, maximum),
       },
     },

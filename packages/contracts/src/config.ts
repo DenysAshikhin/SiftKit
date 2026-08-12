@@ -126,6 +126,7 @@ export const AssistantJobPrioritiesSchema = z.object({
   QuestionPlanning: z.number().int(),
   CandidateConsolidation: z.number().int(),
   ImageExtraction: z.number().int(),
+  CaptureRetention: z.number().int(),
   ProjectionMaintenance: z.number().int(),
 }).strict();
 
@@ -187,6 +188,12 @@ export const AssistantConfigSchema = z.object({
     RawStorageLimitGb: z.number().positive(),
     AccessibilityExtractionEnabled: z.boolean(),
     OcrFallbackEnabled: z.boolean(),
+    /** Executable names the capture preflight suppresses (§4 rule 5). */
+    ProcessDenyList: z.array(z.string()),
+    /** Window-title regex patterns the capture preflight suppresses (§4 rule 6). */
+    TitleDenyPatterns: z.array(z.string()),
+    /** The shell reconciles its HKCU Run registration to this on every poll (§6). */
+    StartOnSignIn: z.boolean(),
   }).strict(),
   Retention: z.object({
     OcrTextDays: z.number().int().positive(),

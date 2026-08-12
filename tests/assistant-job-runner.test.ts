@@ -14,6 +14,7 @@ import type {
   SummarizeProjectionResult,
 } from '../src/assistant/projections/projection-summarizer.js';
 import type { AssistantGraph } from '../src/assistant/assistant-graph.js';
+import type { CaptureRetentionSummary } from '../src/assistant/images/capture-retention.js';
 import type { ImageExtractionOutcome } from '../src/assistant/images/image-extractor.js';
 import { StructuredOutputRunner } from '../src/assistant/inference/structured-runner.js';
 import type { AssistantInferenceRequest } from '../src/assistant/inference/client.js';
@@ -76,6 +77,11 @@ const UNUSED_GATE_C_JOBS = {
   images: {
     async run(): Promise<ImageExtractionOutcome> {
       return { kind: 'awaiting_capability' };
+    },
+  },
+  retention: {
+    run(): CaptureRetentionSummary {
+      return { expired: 0, evicted: 0 };
     },
   },
 };
@@ -374,6 +380,12 @@ test('runner executes every Gate C job branch with configured priority order', a
         async run(): Promise<ImageExtractionOutcome> {
           calls.push('image_extraction');
           return { kind: 'awaiting_capability' };
+        },
+      },
+      retention: {
+        run(): CaptureRetentionSummary {
+          calls.push('capture_retention');
+          return { expired: 0, evicted: 0 };
         },
       },
       extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),

@@ -285,16 +285,18 @@ export class AssertionStore {
     `).all(assertionId));
   }
 
-  /** Supporting weights from non-deleted evidence only, for confidence aggregation. */
   /**
    * The assertion's live support, oldest first. Every evidence-derived confidence signal — the
    * support weights and the single-screenshot clamp of §8.3 — is read off this one result.
+   * Deleted and expired evidence no longer carries weight: a belief cannot keep citing bytes
+   * the user can no longer inspect.
    */
   listSupportingEvidence(assertionId: string): SupportingEvidence[] {
     return z.array(SupportingEvidenceSchema).parse(this.database.prepare(`
       SELECT ae.weight, e.source_type FROM assertion_evidence ae
       JOIN evidence_records e ON e.id = ae.evidence_id
-      WHERE ae.assertion_id = ? AND ae.stance = 'supports' AND e.status <> 'deleted'
+      WHERE ae.assertion_id = ? AND ae.stance = 'supports'
+        AND e.status NOT IN ('deleted', 'expired')
       ORDER BY ae.created_at_utc ASC, ae.evidence_id ASC
     `).all(assertionId));
   }
@@ -303,7 +305,8 @@ export class AssertionStore {
     return CountRowSchema.parse(this.database.prepare(`
       SELECT COUNT(*) AS count FROM assertion_evidence ae
       JOIN evidence_records e ON e.id = ae.evidence_id
-      WHERE ae.assertion_id = ? AND ae.stance = 'contradicts' AND e.status <> 'deleted'
+      WHERE ae.assertion_id = ? AND ae.stance = 'contradicts'
+        AND e.status NOT IN ('deleted', 'expired')
     `).get(assertionId)).count;
   }
 

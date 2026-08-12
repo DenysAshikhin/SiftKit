@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Popup and dashboard windows may call shell commands over IPC.","local":true,"windows":["*"],"permissions":["core:default"]}}

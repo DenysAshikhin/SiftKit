@@ -6,6 +6,7 @@ import type {
   AssistantStatusResponse,
   AssistantValidationCandidateDto,
   CaptureSubmissionDto,
+  DesktopStateDto,
   EnvironmentStateDto,
   KeyCustody,
   SuppressionAuditDto,
@@ -13,6 +14,7 @@ import type {
 import type { AssistantConfig } from '../config/types.js';
 import { AssistantGraph } from './assistant-graph.js';
 import type { Clock } from './clock.js';
+import { AssistantNotFoundError } from './errors.js';
 import { ImportedKeyProvider } from './crypto/imported-key-provider.js';
 import {
   CustodyDelegatingKeyProvider, KeyCustodyService, type AssistantCustodyConfigPort,
@@ -33,6 +35,7 @@ import { IngestionPipeline } from './ingestion/pipeline.js';
 import { AssistantJobRunner, type InteractivityGate } from './jobs/job-runner.js';
 import { AssistantResourcePolicy } from './jobs/resource-policy.js';
 import { CaptureQueueStore } from './images/capture-queue-store.js';
+import { CaptureRetentionService } from './images/capture-retention.js';
 import {
   UnavailableImageCapabilityProvider, isUsableCapability,
   type AssistantImageCapabilityProvider,
@@ -141,6 +144,7 @@ export class AssistantService implements AssistantRuntime {
   private readonly activityLog: ActivityLog;
   private readonly captureIntake: CaptureIntake;
   private readonly captureQueue: CaptureQueueStore;
+  private readonly captureRetention: CaptureRetentionService;
   private readonly imageCapability: AssistantImageCapabilityProvider;
   private readonly configWriter: AssistantConfigWriter;
   private currentConfig: AssistantConfig;
@@ -183,6 +187,13 @@ export class AssistantService implements AssistantRuntime {
       queue: this.captureQueue,
       audit: this.graph.audit,
       capability: this.imageCapability,
+      jobs: this.graph.jobs,
+    });
+    this.captureRetention = new CaptureRetentionService({
+      clock: options.clock,
+      graph: this.graph,
+      queue: this.captureQueue,
+      observation: options.config.Observation,
     });
     this.ownerPersonId = options.config.Enabled ? this.ensureOwnerPersonNode() : null;
 
@@ -257,6 +268,7 @@ export class AssistantService implements AssistantRuntime {
         runner: structuredOutput,
         capability: this.imageCapability,
       }),
+      retention: this.captureRetention,
       idleGate: options.idleGate,
       resourcePolicy: this.resourcePolicy,
       jobPriorities: options.config.Background.JobPriorities,
@@ -296,6 +308,65 @@ export class AssistantService implements AssistantRuntime {
 
   get config(): AssistantConfig {
     return this.currentConfig;
+  }
+
+  /**
+   * The shell's poll target (spec §6). Available while the assistant is off — the tray must be
+   * able to say so — and deliberately read-only: a poll never transitions a question.
+   */
+  desktopState(): DesktopStateDto {
+    const capability = this.imageCapability.read();
+    const custody = this.keyCustody.statusDto();
+    const question = this.enabled ? this.questionScheduler.current(this.ownerId) : null;
+    return {
+      schemaVersion: 1,
+      assistantEnabled: this.enabled,
+      captureEnabled: this.enabled && this.currentConfig.Observation.ScreenshotsEnabled,
+      paused: this.currentConfig.PrivateMode.Active,
+      custody: {
+        custody: custody.custody,
+        imported: custody.imported,
+        activeKeyId: custody.activeKeyId,
+      },
+      imageCapability: {
+        capable: isUsableCapability(capability),
+        instanceId: capability.instanceId,
+        queueDepth: this.captureQueue.countInStates(this.ownerId, PENDING_CAPTURE_STATES),
+      },
+      pendingQuestion: question === null
+        ? null
+        : { id: question.id, questionText: question.question_text },
+    };
+  }
+
+  /**
+   * Per-item pixel reveal (spec §6): decrypts the stored bytes for an owned, still-active
+   * evidence record. Everything else — other owners, expired or deleted records, records with
+   * no stored content — is indistinguishable from absent.
+   */
+  readEvidencePixels(evidenceId: string): { readonly mimeType: string; readonly bytes: Buffer } {
+    const evidence = this.graph.evidence.getEvidence(evidenceId);
+    if (evidence === null || evidence.owner_id !== this.ownerId
+      || evidence.blob_id === null || evidence.mime_type === null
+      || evidence.status !== 'active') {
+      throw new AssistantNotFoundError(`Evidence pixels are not available: ${evidenceId}`);
+    }
+    return {
+      mimeType: evidence.mime_type,
+      bytes: this.graph.evidence.readBlobBytes(evidence.blob_id),
+    };
+  }
+
+  /** Popup paint confirmation (spec §6): the only writer of `shown_at_utc`. */
+  markQuestionShown(questionId: string): void {
+    this.requireOwnedQuestion(questionId);
+    this.graph.questions.markShown(questionId);
+  }
+
+  /** The popup was closed without an answer. */
+  dismissQuestion(questionId: string): void {
+    this.requireOwnedQuestion(questionId);
+    this.graph.questions.dismiss(questionId);
   }
 
   currentQuestion(): AssistantQuestionDto | null {
@@ -453,6 +524,7 @@ export class AssistantService implements AssistantRuntime {
     this.questionFeedback.refreshAnswerIngestionPriority(
       config.Background.JobPriorities.QuestionAnswerIngestion,
     );
+    this.captureRetention.refreshObservation(config.Observation);
     if (config.Enabled && this.ownerPersonId === null) {
       this.ownerPersonId = this.ensureOwnerPersonNode();
     }
@@ -500,6 +572,13 @@ export class AssistantService implements AssistantRuntime {
   /** Called by the host's idle tick. */
   async drainJobs(): Promise<void> {
     if (!this.enabled) return;
+    // Retention runs even when observation is paused: it only ever removes data (spec §7).
+    this.graph.jobs.enqueue({
+      ownerId: this.ownerId,
+      jobType: 'capture_retention',
+      payload: { reason: 'schedule' },
+      idempotencyKey: 'capture_retention:schedule',
+    }, this.currentConfig.Background.JobPriorities.CaptureRetention);
     this.enqueueWaitingCaptures();
     await this.runner.drain(this.ownerId, this.maxJobsPerDrain);
   }
@@ -524,6 +603,13 @@ export class AssistantService implements AssistantRuntime {
         }, this.currentConfig.Background.JobPriorities.ImageExtraction);
         remaining -= 1;
       }
+    }
+  }
+
+  private requireOwnedQuestion(questionId: string): void {
+    const question = this.graph.questions.getQuestion(questionId);
+    if (question === null || question.owner_id !== this.ownerId) {
+      throw new AssistantNotFoundError(`Unknown question for owner: ${questionId}`);
     }
   }
 

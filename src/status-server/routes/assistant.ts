@@ -46,6 +46,7 @@ const PinSchema = z.object({
   pinned: z.boolean(),
 }).strict();
 const AnswerSchema = z.object({ answer: z.string() }).strict();
+const QuestionIdSchema = z.object({ questionId: z.string().trim().min(1) }).strict();
 const SnoozeSchema = z.object({ eligibleAfterUtc: z.string() }).strict();
 const PolicyPatchSchema = z.object({ enabled: z.boolean() }).strict();
 const BlockPolicyTopicSchema = z.object({ topic: z.string().trim().min(1) }).strict();
@@ -155,8 +156,27 @@ class AssistantEndpoint implements RouteEndpoint {
       sendJson(res, 200, service.keyCustody.statusDto());
       return;
     }
+    // The tray drives its off/paused/attention states from this poll, so it must answer while
+    // the assistant is disabled (spec §6). Read-only: a poll never transitions a question.
+    if (pathname === '/assistant/desktop/state') {
+      sendJson(res, 200, service.desktopState());
+      return;
+    }
     if (!service.enabled) {
       sendError(res, 409, 'assistant_disabled', 'Assistant is disabled.');
+      return;
+    }
+
+    if (pathname === '/assistant/questions/mark-shown') {
+      const request = await body(req, QuestionIdSchema, QUESTION_ANSWER_BODY_LIMIT);
+      service.markQuestionShown(request.questionId);
+      sendJson(res, 200, success(service));
+      return;
+    }
+    if (pathname === '/assistant/questions/dismiss') {
+      const request = await body(req, QuestionIdSchema, QUESTION_ANSWER_BODY_LIMIT);
+      service.dismissQuestion(request.questionId);
+      sendJson(res, 200, success(service));
       return;
     }
 
@@ -278,6 +298,28 @@ class AssistantEndpoint implements RouteEndpoint {
           service.ownerId, assertionId, request.previewToken,
         );
         sendJson(res, 200, success(service));
+      }
+      return;
+    }
+    if (pathname === '/assistant/evidence/blob') {
+      try {
+        const pixels = service.readEvidencePixels(url.searchParams.get('id') ?? '');
+        // Decrypt-and-serve only: nothing on disk, nothing cacheable (spec §6).
+        res.writeHead(200, {
+          'Content-Type': pixels.mimeType,
+          'Content-Length': pixels.bytes.byteLength,
+          'Cache-Control': 'no-store',
+        });
+        res.end(pixels.bytes);
+      } catch (error) {
+        if (error instanceof AssistantNotFoundError) {
+          sendError(res, 404, 'not_found', 'Evidence pixels are not available.');
+        } else {
+          sendError(
+            res, 500, 'evidence_unreadable',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
       }
       return;
     }
@@ -415,10 +457,14 @@ const routes = new RouteTable([
   { method: 'POST', path: /^\/assistant\/graph\/assertions\/([^/]+)\/demote$/u, endpoint },
   { method: 'DELETE', path: /^\/assistant\/graph\/assertions\/([^/]+)$/u, endpoint },
   { method: 'GET', path: '/assistant/evidence', endpoint },
+  { method: 'GET', path: '/assistant/evidence/blob', endpoint },
   { method: 'GET', path: /^\/assistant\/evidence\/([^/]+)$/u, endpoint },
   { method: 'GET', path: '/assistant/projections', endpoint },
   { method: 'POST', path: '/assistant/projections/rebuild', endpoint },
+  { method: 'GET', path: '/assistant/desktop/state', endpoint },
   { method: 'GET', path: '/assistant/questions/current', endpoint },
+  { method: 'POST', path: '/assistant/questions/mark-shown', endpoint },
+  { method: 'POST', path: '/assistant/questions/dismiss', endpoint },
   { method: 'POST', path: /^\/assistant\/questions\/([^/]+)\/answer$/u, endpoint },
   { method: 'POST', path: /^\/assistant\/questions\/([^/]+)\/skip$/u, endpoint },
   { method: 'POST', path: /^\/assistant\/questions\/([^/]+)\/snooze$/u, endpoint },

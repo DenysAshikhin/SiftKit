@@ -10,12 +10,12 @@ import {
   ConversationIngestionPayloadSchema, ProjectionMaintenancePayloadSchema,
   QuestionAnswerIngestionPayloadSchema,
   QuestionPlanningPayloadSchema, ProjectionSummarizationPayloadSchema,
-  ImageExtractionPayloadSchema,
+  ImageExtractionPayloadSchema, CaptureRetentionPayloadSchema,
   type AssistantJobType, type CandidateConsolidationPayload,
   type ConversationIngestionPayload, type ProjectionMaintenancePayload,
   type QuestionAnswerIngestionPayload,
   type QuestionPlanningPayload, type ProjectionSummarizationPayload,
-  type ImageExtractionPayload,
+  type ImageExtractionPayload, type CaptureRetentionPayload,
 } from '../jobs/job-types.js';
 import { IdRowSchema, JobRowSchema, type JobRow } from './rows.js';
 
@@ -212,6 +212,11 @@ export class JobStore {
   readImageExtractionPayload(job: JobRow): ImageExtractionPayload {
     this.requireJobType(job, 'image_extraction');
     return parseJsonText(job.payload_json, ImageExtractionPayloadSchema);
+  }
+
+  readCaptureRetentionPayload(job: JobRow): CaptureRetentionPayload {
+    this.requireJobType(job, 'capture_retention');
+    return parseJsonText(job.payload_json, CaptureRetentionPayloadSchema);
   }
 
   private requireJobType(job: JobRow, expected: AssistantJobType): void {

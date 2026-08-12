@@ -2,7 +2,14 @@ import { z } from '../../lib/zod.js';
 import type { RuntimeDatabase } from '../../state/runtime-db.js';
 import type { Clock } from '../clock.js';
 import type { CaptureQueueState } from '../domain/enums.js';
-import { CaptureQueueRowSchema, type CaptureQueueRow } from '../storage/rows.js';
+import { CaptureQueueRowSchema, CountRowSchema, type CaptureQueueRow } from '../storage/rows.js';
+
+/** States whose pixels are still on disk; retention and byte accounting see exactly these. */
+const LIVE_CAPTURE_STATES = [
+  'queued', 'awaiting_image_capability', 'processing', 'processed',
+] as const satisfies readonly CaptureQueueState[];
+
+const LIVE_STATE_PLACEHOLDERS = LIVE_CAPTURE_STATES.map(() => '?').join(', ');
 
 export interface EnqueueCaptureInput {
   readonly ownerId: string;
@@ -62,6 +69,36 @@ export class CaptureQueueStore {
       WHERE owner_id = ? AND state = ?
       ORDER BY enqueued_at_utc ASC, evidence_id ASC LIMIT ?
     `).all(ownerId, state, limit));
+  }
+
+  countByState(ownerId: string, state: CaptureQueueState): number {
+    return this.countInStates(ownerId, [state]);
+  }
+
+  /** One query regardless of how many states the caller aggregates over. */
+  countInStates(ownerId: string, states: readonly CaptureQueueState[]): number {
+    const placeholders = states.map(() => '?').join(', ');
+    return CountRowSchema.parse(this.database.prepare(`
+      SELECT COUNT(*) AS count FROM assistant_capture_queue
+      WHERE owner_id = ? AND state IN (${placeholders})
+    `).get(ownerId, ...states)).count;
+  }
+
+  /** Every capture whose pixels are still stored, in the order they arrived. */
+  listLiveOldestFirst(ownerId: string): CaptureQueueRow[] {
+    return z.array(CaptureQueueRowSchema).parse(this.database.prepare(`
+      SELECT * FROM assistant_capture_queue
+      WHERE owner_id = ? AND state IN (${LIVE_STATE_PLACEHOLDERS})
+      ORDER BY enqueued_at_utc ASC, evidence_id ASC
+    `).all(ownerId, ...LIVE_CAPTURE_STATES));
+  }
+
+  /** Bytes currently held by live captures, the number the storage cap is enforced against. */
+  totalLiveBytes(ownerId: string): number {
+    return CountRowSchema.parse(this.database.prepare(`
+      SELECT COALESCE(SUM(byte_length), 0) AS count FROM assistant_capture_queue
+      WHERE owner_id = ? AND state IN (${LIVE_STATE_PLACEHOLDERS})
+    `).get(ownerId, ...LIVE_CAPTURE_STATES)).count;
   }
 
   get(evidenceId: string): CaptureQueueRow | null {

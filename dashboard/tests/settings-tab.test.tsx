@@ -70,7 +70,7 @@ test('assistant section exposes configuration, proof review, and memory history 
   assert.match(markup, /Configuration/);
   assert.match(markup, /Pending validation/);
   assert.match(markup, /Memory history/);
-  assert.match(markup, /Evidence is encrypted with a local file key/);
+  assert.match(markup, /Evidence is encrypted at rest/);
   assert.match(markup, /Assistant enabled/);
 });
 

@@ -13,6 +13,54 @@ export type AssistantMemorySelection =
   | { kind: 'assertion'; value: AssistantAssertionExplanation; evidence: AssistantEvidenceDto[] }
   | { kind: 'projection'; value: AssistantProjectionDto };
 
+/**
+ * Per-item pixel reveal (spec §6): pixels appear only after an explicit confirmation, live only
+ * in an object URL, and the URL is revoked the moment the preview closes or unmounts.
+ */
+function EvidencePixelReveal(props: {
+  evidence: AssistantEvidenceDto;
+  onFetchEvidencePixels(id: string): Promise<Blob>;
+}) {
+  const [objectUrl, setObjectUrl] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  React.useEffect(() => () => {
+    if (objectUrl !== null) window.URL.revokeObjectURL(objectUrl);
+  }, [objectUrl]);
+
+  async function reveal(): Promise<void> {
+    if (!window.confirm('Reveal the stored pixels for this evidence item?')) return;
+    try {
+      const blob = await props.onFetchEvidencePixels(props.evidence.id);
+      setError(null);
+      setObjectUrl(window.URL.createObjectURL(blob));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  // The unmount/replace cleanup above is the only revoker, so a URL is revoked exactly once.
+  function hide(): void {
+    setObjectUrl(null);
+  }
+
+  if (objectUrl !== null) {
+    return (
+      <span className="assistant-evidence-reveal">
+        <img src={objectUrl} alt={`Evidence ${props.evidence.id} pixels`} />
+        <button type="button" className="ghost-btn" onClick={hide}>Hide pixels</button>
+      </span>
+    );
+  }
+  return (
+    <span className="assistant-evidence-reveal">
+      {error !== null ? <span className="error" role="alert">{error}</span> : null}
+      <button type="button" className="ghost-btn" onClick={() => { void reveal(); }}>
+        Reveal pixels
+      </button>
+    </span>
+  );
+}
+
 export function AssistantMemoryDetail(props: {
   selected: AssistantMemorySelection | null;
   deletionPreview: AssistantDeletionPreview | null;
@@ -22,6 +70,7 @@ export function AssistantMemoryDetail(props: {
   onDemote(id: string, reason: string): Promise<void>;
   onPreviewForget(id: string): Promise<void>;
   onConfirmForget(id: string, previewToken: string): Promise<void>;
+  onFetchEvidencePixels(id: string): Promise<Blob>;
 }) {
   const [reason, setReason] = React.useState('User review in Memory Inspector');
   const [correction, setCorrection] = React.useState('');
@@ -85,6 +134,12 @@ export function AssistantMemoryDetail(props: {
         <div className="assistant-evidence" key={evidence.id}>
           <strong>{evidence.sourceType}</strong> · {evidence.sourceRef ?? evidence.id}
           <span>{evidence.sensitivity} · content not loaded</span>
+          {evidence.contentAvailable ? (
+            <EvidencePixelReveal
+              evidence={evidence}
+              onFetchEvidencePixels={props.onFetchEvidencePixels}
+            />
+          ) : null}
         </div>
       ))}
       <p className="hint">Mutation IDs: {selected.value.mutationIds.join(', ') || 'none'}</p>

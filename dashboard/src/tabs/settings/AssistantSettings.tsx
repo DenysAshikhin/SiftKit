@@ -1,12 +1,15 @@
 import React from 'react';
 import type { ReactNode } from 'react';
+import { CaptureScopeSchema } from '@siftkit/contracts';
 import type {
   AssistantConfig,
   AssistantMemoryHistoryEntryDto,
   AssistantValidationCandidateDto,
+  DesktopStateDto,
 } from '../../types.js';
 import {
   bootstrapAssistantToken,
+  getAssistantDesktopState,
   getAssistantMemoryHistory,
   getAssistantValidation,
   removeAssistantValidationCandidate,
@@ -80,6 +83,54 @@ function TextField(props: {
   );
 }
 
+function SelectField(props: {
+  label: string;
+  value: string;
+  options: readonly { value: string; label: string }[];
+  onChange(value: string): void;
+}) {
+  return (
+    <label className="assistant-setting">
+      <span>{props.label}</span>
+      <select value={props.value} onChange={(event) => props.onChange(event.target.value)}>
+        {props.options.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/**
+ * One entry per line; the config stores the trimmed, non-empty lines. The display derives from
+ * `values` so outside writers stay visible; only an in-progress edit holds a raw draft, and
+ * blur reconciles it back to the stored form.
+ */
+function ListField(props: {
+  label: string;
+  values: readonly string[];
+  onChange(values: string[]): void;
+}) {
+  const [draft, setDraft] = React.useState<string | null>(null);
+  return (
+    <label className="assistant-setting">
+      <span>{props.label}</span>
+      <textarea
+        rows={3}
+        value={draft ?? props.values.join('\n')}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          props.onChange(event.target.value
+            .split('\n')
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0));
+        }}
+        onBlur={() => setDraft(null)}
+      />
+    </label>
+  );
+}
+
 function Group(props: { title: string; children: ReactNode }) {
   return (
     <section className="assistant-settings-group">
@@ -89,7 +140,68 @@ function Group(props: { title: string; children: ReactNode }) {
   );
 }
 
-function AssistantConfiguration(props: AssistantSettingsProps) {
+const CAPTURE_SCOPE_OPTIONS = [
+  { value: 'foreground_window', label: 'Foreground window' },
+  { value: 'all_monitors', label: 'All monitors' },
+] as const;
+
+function custodyLabel(state: DesktopStateDto): string {
+  return state.custody.custody === 'file'
+    ? 'local file key'
+    : 'Windows account (DPAPI)';
+}
+
+type ObservationSettingsProps = AssistantSettingsProps & {
+  desktopState: DesktopStateDto | null;
+};
+
+/** The Gate D observation surface (spec §6): consent-first capture controls plus live status. */
+function ObservationSettings(props: ObservationSettingsProps) {
+  const { assistant, onChange, desktopState } = props;
+  const observation = assistant.Observation;
+  function patch(next: Partial<AssistantConfig['Observation']>): void {
+    onChange({ ...assistant, Observation: { ...observation, ...next } });
+  }
+  return (
+    <Group title="Observation">
+      {desktopState !== null ? (
+        <p className="hint assistant-custody-status">
+          Key custody: {custodyLabel(desktopState)}
+          {desktopState.custody.imported ? ' (imported this session)' : ''}
+        </p>
+      ) : null}
+      {desktopState !== null && !desktopState.imageCapability.capable ? (
+        <p className="assistant-capability-warning" role="alert">
+          No vision-capable model is active — {desktopState.imageCapability.queueDepth} captures
+          are waiting for image analysis.
+        </p>
+      ) : null}
+      <Toggle label="Screenshots" value={observation.ScreenshotsEnabled} onChange={(ScreenshotsEnabled) => patch({ ScreenshotsEnabled })} />
+      <p className="hint assistant-consent-text">
+        Screenshots are captured silently, stored encrypted on this device, and never leave it.
+        Turning screenshots on enables automatic image analysis of what is on your screen.
+      </p>
+      <Toggle label="Activity metadata" value={observation.ActivityMetadataEnabled} onChange={(ActivityMetadataEnabled) => patch({ ActivityMetadataEnabled })} />
+      <NumberField label="Fixed cadence seconds" value={observation.FixedCadenceSeconds} min={1} onChange={(FixedCadenceSeconds) => patch({ FixedCadenceSeconds })} />
+      <SelectField label="Capture scope" value={observation.CaptureScope} options={CAPTURE_SCOPE_OPTIONS} onChange={(value) => patch({ CaptureScope: CaptureScopeSchema.parse(value) })} />
+      <Toggle label="Window-change capture" value={observation.WindowChangeCapture} onChange={(WindowChangeCapture) => patch({ WindowChangeCapture })} />
+      <NumberField label="Minimum foreground dwell seconds" value={observation.MinimumForegroundDwellSeconds} min={0} onChange={(MinimumForegroundDwellSeconds) => patch({ MinimumForegroundDwellSeconds })} />
+      <NumberField label="Duplicate similarity percent" value={observation.DuplicateSimilarityPercent} min={0} max={100} onChange={(DuplicateSimilarityPercent) => patch({ DuplicateSimilarityPercent })} />
+      <Toggle label="Capture only while active" value={observation.CaptureOnlyWhileActive} onChange={(CaptureOnlyWhileActive) => patch({ CaptureOnlyWhileActive })} />
+      <Toggle label="Skip fullscreen" value={observation.SkipFullscreen} onChange={(SkipFullscreen) => patch({ SkipFullscreen })} />
+      <Toggle label="Skip while locked" value={observation.SkipWhileLocked} onChange={(SkipWhileLocked) => patch({ SkipWhileLocked })} />
+      <ListField label="Process deny list (one per line)" values={observation.ProcessDenyList} onChange={(ProcessDenyList) => patch({ ProcessDenyList })} />
+      <ListField label="Title deny patterns (one per line)" values={observation.TitleDenyPatterns} onChange={(TitleDenyPatterns) => patch({ TitleDenyPatterns })} />
+      <NumberField label="Raw retention hours" value={observation.RawRetentionHours} min={1} onChange={(RawRetentionHours) => patch({ RawRetentionHours })} />
+      <NumberField label="Raw storage limit GB" value={observation.RawStorageLimitGb} min={0.1} step={0.1} onChange={(RawStorageLimitGb) => patch({ RawStorageLimitGb })} />
+      <Toggle label="Accessibility extraction" value={observation.AccessibilityExtractionEnabled} onChange={(AccessibilityExtractionEnabled) => patch({ AccessibilityExtractionEnabled })} />
+      <Toggle label="OCR fallback" value={observation.OcrFallbackEnabled} onChange={(OcrFallbackEnabled) => patch({ OcrFallbackEnabled })} />
+      <Toggle label="Start SiftKit Assistant when I sign in" value={observation.StartOnSignIn} onChange={(StartOnSignIn) => patch({ StartOnSignIn })} />
+    </Group>
+  );
+}
+
+function AssistantConfiguration(props: ObservationSettingsProps) {
   const { assistant, onChange } = props;
   return (
     <div className="assistant-config-groups">
@@ -129,21 +241,11 @@ function AssistantConfiguration(props: AssistantSettingsProps) {
         <Toggle label="Suppress during do-not-disturb" value={assistant.Questions.SuppressDuringDoNotDisturb} onChange={(SuppressDuringDoNotDisturb) => onChange({ ...assistant, Questions: { ...assistant.Questions, SuppressDuringDoNotDisturb } })} />
         <NumberField label="Active input suppression seconds" value={assistant.Questions.ActiveInputSuppressionSeconds} min={0} onChange={(ActiveInputSuppressionSeconds) => onChange({ ...assistant, Questions: { ...assistant.Questions, ActiveInputSuppressionSeconds } })} />
       </Group>
-      <Group title="Observation">
-        <Toggle label="Activity metadata" value={assistant.Observation.ActivityMetadataEnabled} onChange={(ActivityMetadataEnabled) => onChange({ ...assistant, Observation: { ...assistant.Observation, ActivityMetadataEnabled } })} />
-        <Toggle label="Screenshots" value={assistant.Observation.ScreenshotsEnabled} onChange={(ScreenshotsEnabled) => onChange({ ...assistant, Observation: { ...assistant.Observation, ScreenshotsEnabled } })} />
-        <NumberField label="Fixed cadence seconds" value={assistant.Observation.FixedCadenceSeconds} min={1} onChange={(FixedCadenceSeconds) => onChange({ ...assistant, Observation: { ...assistant.Observation, FixedCadenceSeconds } })} />
-        <Toggle label="Window-change capture" value={assistant.Observation.WindowChangeCapture} onChange={(WindowChangeCapture) => onChange({ ...assistant, Observation: { ...assistant.Observation, WindowChangeCapture } })} />
-        <NumberField label="Minimum foreground dwell seconds" value={assistant.Observation.MinimumForegroundDwellSeconds} min={0} onChange={(MinimumForegroundDwellSeconds) => onChange({ ...assistant, Observation: { ...assistant.Observation, MinimumForegroundDwellSeconds } })} />
-        <NumberField label="Duplicate similarity percent" value={assistant.Observation.DuplicateSimilarityPercent} min={0} max={100} onChange={(DuplicateSimilarityPercent) => onChange({ ...assistant, Observation: { ...assistant.Observation, DuplicateSimilarityPercent } })} />
-        <Toggle label="Capture only while active" value={assistant.Observation.CaptureOnlyWhileActive} onChange={(CaptureOnlyWhileActive) => onChange({ ...assistant, Observation: { ...assistant.Observation, CaptureOnlyWhileActive } })} />
-        <Toggle label="Skip fullscreen" value={assistant.Observation.SkipFullscreen} onChange={(SkipFullscreen) => onChange({ ...assistant, Observation: { ...assistant.Observation, SkipFullscreen } })} />
-        <Toggle label="Skip while locked" value={assistant.Observation.SkipWhileLocked} onChange={(SkipWhileLocked) => onChange({ ...assistant, Observation: { ...assistant.Observation, SkipWhileLocked } })} />
-        <NumberField label="Raw retention hours" value={assistant.Observation.RawRetentionHours} min={1} onChange={(RawRetentionHours) => onChange({ ...assistant, Observation: { ...assistant.Observation, RawRetentionHours } })} />
-        <NumberField label="Raw storage limit GB" value={assistant.Observation.RawStorageLimitGb} min={0.1} step={0.1} onChange={(RawStorageLimitGb) => onChange({ ...assistant, Observation: { ...assistant.Observation, RawStorageLimitGb } })} />
-        <Toggle label="Accessibility extraction" value={assistant.Observation.AccessibilityExtractionEnabled} onChange={(AccessibilityExtractionEnabled) => onChange({ ...assistant, Observation: { ...assistant.Observation, AccessibilityExtractionEnabled } })} />
-        <Toggle label="OCR fallback" value={assistant.Observation.OcrFallbackEnabled} onChange={(OcrFallbackEnabled) => onChange({ ...assistant, Observation: { ...assistant.Observation, OcrFallbackEnabled } })} />
-      </Group>
+      <ObservationSettings
+        assistant={assistant}
+        onChange={onChange}
+        desktopState={props.desktopState}
+      />
       <Group title="Retention">
         <NumberField label="OCR text days" value={assistant.Retention.OcrTextDays} min={1} onChange={(OcrTextDays) => onChange({ ...assistant, Retention: { ...assistant.Retention, OcrTextDays } })} />
         <NumberField label="Unpromoted observation days" value={assistant.Retention.UnpromotedObservationDays} min={1} onChange={(UnpromotedObservationDays) => onChange({ ...assistant, Retention: { ...assistant.Retention, UnpromotedObservationDays } })} />
@@ -174,6 +276,7 @@ export function AssistantSettings(props: AssistantSettingsProps) {
   const [token, setToken] = React.useState<string | null>(null);
   const [validation, setValidation] = React.useState<AssistantValidationCandidateDto[]>([]);
   const [history, setHistory] = React.useState<AssistantMemoryHistoryEntryDto[]>([]);
+  const [desktopState, setDesktopState] = React.useState<DesktopStateDto | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -182,14 +285,16 @@ export function AssistantSettings(props: AssistantSettingsProps) {
     void (async () => {
       try {
         const nextToken = await bootstrapAssistantToken();
-        const [nextValidation, nextHistory] = await Promise.all([
+        const [nextValidation, nextHistory, nextDesktopState] = await Promise.all([
           getAssistantValidation(nextToken),
           getAssistantMemoryHistory(nextToken),
+          getAssistantDesktopState(nextToken),
         ]);
         if (!active) return;
         setToken(nextToken);
         setValidation(nextValidation);
         setHistory(nextHistory);
+        setDesktopState(nextDesktopState);
       } catch (caught) {
         if (active) setError(caught instanceof Error ? caught.message : String(caught));
       } finally {
@@ -225,9 +330,11 @@ export function AssistantSettings(props: AssistantSettingsProps) {
         <button type="button" className={view === 'validation' ? 'on' : ''} onClick={() => setView('validation')}>Pending validation</button>
         <button type="button" className={view === 'history' ? 'on' : ''} onClick={() => setView('history')}>Memory history</button>
       </div>
-      <p className="assistant-security-note">Evidence is encrypted with a local file key; OS keychain integration arrives in Gate D.</p>
+      <p className="assistant-security-note">Evidence is encrypted at rest; the active key custody is shown under Observation.</p>
       {error ? <p className="error" role="alert">{error}</p> : null}
-      {view === 'configuration' ? <AssistantConfiguration {...props} /> : null}
+      {view === 'configuration'
+        ? <AssistantConfiguration {...props} desktopState={desktopState} />
+        : null}
       {view === 'validation' ? (
         <div className="assistant-feed">
           {loading ? <p className="hint">Loading pending proof…</p> : null}

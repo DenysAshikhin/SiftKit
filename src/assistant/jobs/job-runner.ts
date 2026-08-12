@@ -3,6 +3,7 @@ import type { AssistantConfig } from '../../config/types.js';
 import type { CandidateConsolidator } from '../ingestion/consolidator.js';
 import type { CandidatePromoter } from '../ingestion/candidate-promoter.js';
 import type { ConversationExtractor } from '../ingestion/conversation-extractor.js';
+import type { CaptureRetentionService } from '../images/capture-retention.js';
 import type { ImageExtractor } from '../images/image-extractor.js';
 import type { ProjectionCompiler } from '../projections/projection-compiler.js';
 import type { QuestionAnswerIngestor } from '../questions/answer-ingestor.js';
@@ -25,6 +26,7 @@ export interface AssistantJobRunnerOptions {
   readonly questions: Pick<QuestionScheduler, 'planPending'>;
   readonly questionAnswers: Pick<QuestionAnswerIngestor, 'ingest'>;
   readonly images: Pick<ImageExtractor, 'run'>;
+  readonly retention: Pick<CaptureRetentionService, 'run'>;
   readonly idleGate: InteractivityGate;
   readonly resourcePolicy: ResourcePolicy;
   readonly jobPriorities: AssistantConfig['Background']['JobPriorities'];
@@ -149,6 +151,11 @@ export class AssistantJobRunner {
         return this.throwIfPreempted();
       case 'image_extraction':
         return this.runImageExtraction(ownerId, job, signal);
+      case 'capture_retention':
+        this.options.retention.run(
+          ownerId, this.options.graph.jobs.readCaptureRetentionPayload(job).reason,
+        );
+        return;
     }
   }
 
@@ -247,6 +254,8 @@ export class AssistantJobRunner {
         return this.jobPriorities.ProjectionMaintenance;
       case 'image_extraction':
         return this.jobPriorities.ImageExtraction;
+      case 'capture_retention':
+        return this.jobPriorities.CaptureRetention;
     }
   }
 

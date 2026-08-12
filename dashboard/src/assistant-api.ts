@@ -11,6 +11,7 @@ import {
   AssistantProjectionDtoSchema,
   AssistantQuestionDtoSchema,
   AssistantStatusResponseSchema,
+  DesktopStateDtoSchema,
   type AssistantAssertionExplanation,
   type AssistantDeletionPreview,
   type AssistantEvidenceDto,
@@ -19,6 +20,7 @@ import {
   type AssistantPolicyDto,
   type AssistantQuestionDto,
   type AssistantStatusResponse,
+  type DesktopStateDto,
 } from '@siftkit/contracts';
 import {
   bootstrapAssistantToken,
@@ -86,6 +88,21 @@ async function request<S extends z.ZodTypeAny>(
 
 export function getAssistantStatus(token: string): Promise<AssistantStatusResponse> {
   return request('/assistant/status', token, AssistantStatusResponseSchema);
+}
+
+export function getAssistantDesktopState(token: string): Promise<DesktopStateDto> {
+  return request('/assistant/desktop/state', token, DesktopStateDtoSchema);
+}
+
+/** Decrypted evidence bytes for a per-item reveal. Held in memory only; never cached. */
+export async function fetchAssistantEvidencePixels(token: string, id: string): Promise<Blob> {
+  const response = await fetch(`/assistant/evidence/blob?id=${encodeURIComponent(id)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    throw new Error(`Evidence pixels are unavailable (${response.status}).`);
+  }
+  return response.blob();
 }
 
 export function searchAssistantMemory(token: string, query: string): Promise<AssistantSearchResult> {

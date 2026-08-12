@@ -53,6 +53,9 @@ test('AssistantConfigSchema is strict and the documented defaults are complete',
       RawStorageLimitGb: 5,
       AccessibilityExtractionEnabled: true,
       OcrFallbackEnabled: true,
+      ProcessDenyList: [],
+      TitleDenyPatterns: [],
+      StartOnSignIn: false,
     },
     Retention: { OcrTextDays: 7, UnpromotedObservationDays: 90, RejectedCandidateDays: 30 },
     Background: {
@@ -67,6 +70,7 @@ test('AssistantConfigSchema is strict and the documented defaults are complete',
         QuestionPlanning: 600,
         CandidateConsolidation: 400,
         ImageExtraction: 350,
+        CaptureRetention: 900,
         ProjectionMaintenance: 300,
       },
     },
@@ -117,6 +121,30 @@ test('normalizeAssistantConfig repairs gate D observation scalars and key custod
   assert.equal(normalized.Observation.DuplicateSimilarityPercent, 80);
   assert.equal(normalized.Observation.CaptureScope, 'all_monitors');
   assert.equal(normalized.KeyCustody, 'desktop');
+});
+
+test('normalizeAssistantConfig repairs the deny lists and the sign-in startup flag', () => {
+  const repaired = normalizeAssistantConfig({
+    Observation: {
+      ProcessDenyList: ['obs64.exe', 3, 'keepass.exe'],
+      TitleDenyPatterns: 'bank',
+      StartOnSignIn: 'yes',
+    },
+  }).Observation;
+  assert.deepEqual(repaired.ProcessDenyList, ['obs64.exe', 'keepass.exe']);
+  assert.deepEqual(repaired.TitleDenyPatterns, []);
+  assert.equal(repaired.StartOnSignIn, false);
+
+  const kept = normalizeAssistantConfig({
+    Observation: {
+      ProcessDenyList: ['obs64.exe'],
+      TitleDenyPatterns: ['.*bank.*'],
+      StartOnSignIn: true,
+    },
+  }).Observation;
+  assert.deepEqual(kept.ProcessDenyList, ['obs64.exe']);
+  assert.deepEqual(kept.TitleDenyPatterns, ['.*bank.*']);
+  assert.equal(kept.StartOnSignIn, true);
 });
 
 test('normalizeAssistantConfig repairs each malformed scalar without accepting a mutable owner id', () => {

@@ -3,7 +3,7 @@ import { z } from '../../lib/zod.js';
 export const ASSISTANT_JOB_TYPES = [
   'conversation_ingestion', 'candidate_consolidation', 'projection_maintenance',
   'question_answer_ingestion',
-  'question_planning', 'projection_summarization', 'image_extraction',
+  'question_planning', 'projection_summarization', 'image_extraction', 'capture_retention',
 ] as const;
 export const AssistantJobTypeSchema = z.enum(ASSISTANT_JOB_TYPES);
 export type AssistantJobType = z.infer<typeof AssistantJobTypeSchema>;
@@ -49,6 +49,11 @@ export const ImageExtractionPayloadSchema = z.object({
   evidenceId: z.string(),
 }).strict();
 export type ImageExtractionPayload = z.infer<typeof ImageExtractionPayloadSchema>;
+
+export const CaptureRetentionPayloadSchema = z.object({
+  reason: z.enum(['schedule', 'capacity']),
+}).strict();
+export type CaptureRetentionPayload = z.infer<typeof CaptureRetentionPayloadSchema>;
 
 export const ProjectionSummarizationPayloadSchema = z.object({
   projectionId: z.string(),

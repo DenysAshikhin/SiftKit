@@ -68,6 +68,9 @@ export const DEFAULT_ASSISTANT_CONFIG: AssistantConfig = {
     RawStorageLimitGb: 5,
     AccessibilityExtractionEnabled: true,
     OcrFallbackEnabled: true,
+    ProcessDenyList: [],
+    TitleDenyPatterns: [],
+    StartOnSignIn: false,
   },
   Retention: { OcrTextDays: 7, UnpromotedObservationDays: 90, RejectedCandidateDays: 30 },
   Background: {
@@ -82,6 +85,7 @@ export const DEFAULT_ASSISTANT_CONFIG: AssistantConfig = {
       QuestionPlanning: 600,
       CandidateConsolidation: 400,
       ImageExtraction: 350,
+      CaptureRetention: 900,
       ProjectionMaintenance: 300,
     },
   },

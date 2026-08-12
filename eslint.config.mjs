@@ -47,6 +47,7 @@ export default tseslint.config(
     ignores: [
       'dist/**',
       'dashboard/dist/**',
+      'desktop/src-tauri/target/**',
       '**/node_modules/**',
       'coverage/**',
       '.siftkit/**',

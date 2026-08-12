@@ -110,6 +110,7 @@ function buildIntake(context: AssistantTestContext, capable = false): IntakeFixt
       audit: context.graph.audit,
       queue,
       capability: new StubImageCapability(capable),
+      jobs: context.graph.jobs,
     }),
   };
 }

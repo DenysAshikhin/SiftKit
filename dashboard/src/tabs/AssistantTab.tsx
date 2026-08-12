@@ -34,6 +34,7 @@ export type AssistantTabProps = {
   onDemote(id: string, reason: string): Promise<void>;
   onPreviewForget(id: string): Promise<void>;
   onConfirmForget(id: string, previewToken: string): Promise<void>;
+  onFetchEvidencePixels(id: string): Promise<Blob>;
   onAnswerQuestion(answer: string): Promise<void>;
   onSkipQuestion(): Promise<void>;
   onSnoozeQuestion(eligibleAfterUtc: string): Promise<void>;
@@ -97,6 +98,7 @@ export function AssistantTab(props: AssistantTabProps) {
           onDemote={props.onDemote}
           onPreviewForget={props.onPreviewForget}
           onConfirmForget={props.onConfirmForget}
+          onFetchEvidencePixels={props.onFetchEvidencePixels}
         />
       </section>
       <aside className="assistant-pane assistant-context-pane">

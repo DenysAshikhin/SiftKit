@@ -12,6 +12,7 @@ import {
   deleteAssistantPolicy,
   demoteAssistantAssertion,
   explainAssistantAssertion,
+  fetchAssistantEvidencePixels,
   getAssistantEvidence,
   getAssistantNeighborhood,
   getAssistantNode,
@@ -137,6 +138,10 @@ export function useAssistantController(): { tabProps: AssistantTabProps } {
       setSelected(null);
       if (query.trim()) setResults(await searchAssistantMemory(value, query));
     }),
+    onFetchEvidencePixels: async (id) => {
+      if (token === null) throw new Error('Assistant authorization is unavailable.');
+      return fetchAssistantEvidencePixels(token, id);
+    },
     onAnswerQuestion: (answer) => withToken(async (value) => {
       if (question === null) return;
       await answerAssistantQuestion(value, question.id, answer);
