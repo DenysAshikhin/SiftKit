@@ -1,13 +1,18 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   AssistantConfigPatchRequestSchema,
+  AssistantConfirmTokenRequestSchema,
   AssistantDestructiveRequestSchema,
+  AssistantExportRequestSchema,
   AssistantMutationRequestSchema,
+  AssistantRestoreConfirmRequestSchema,
+  AssistantTopicForgetRequestSchema,
   ActivityEventDtoSchema,
   AssistantValidationNotesRequestSchema,
   CaptureSubmissionDtoSchema,
   EnvironmentStateDtoSchema,
   KeyMaterialDtoSchema,
+  MobileEnvelopeSchema,
   SIFT_MAX_IMAGE_BYTES,
   SuppressionAuditDtoSchema,
 } from '@siftkit/contracts';
@@ -17,7 +22,7 @@ import { JsonValueSchema } from '../../lib/json-types.js';
 import type { AssistantService, DesktopPayloadKind } from '../../assistant/assistant-service.js';
 import { AssistantConflictError, AssistantNotFoundError } from '../../assistant/errors.js';
 import {
-  RequestBodyTooLargeError, parseJsonBody, readBody, sendJson,
+  RequestBodyTooLargeError, parseJsonBody, readBody, readBodyBytes, sendJson,
 } from '../http-utils.js';
 import { readConfig, writeConfig } from '../config-store.js';
 import { RouteTable, type RouteEndpoint, type RouteMatch } from '../route-table.js';
@@ -27,6 +32,8 @@ const MUTATION_BODY_LIMIT = 256 * 1024;
 const QUESTION_ANSWER_BODY_LIMIT = 64 * 1024;
 const KEY_MATERIAL_BODY_LIMIT = 64 * 1024;
 const OBSERVATION_BODY_LIMIT = 16 * 1024;
+/** A restore upload is a whole backup: database snapshot plus the entire encrypted blob tree. */
+const RESTORE_BODY_LIMIT = 512 * 1024 * 1024;
 /** A capture carries one max-size image as base64 (4 characters per 3 bytes), plus a descriptor. */
 const CAPTURE_BODY_LIMIT =
   Math.ceil((SIFT_MAX_IMAGE_BYTES * 4) / 3) + OBSERVATION_BODY_LIMIT;
@@ -84,6 +91,16 @@ async function body<T>(
 
 function success(service: AssistantService): { ok: true; graphVersion: number } {
   return { ok: true, graphVersion: service.graph.graphVersion };
+}
+
+/** Archive responses are streamed straight from memory and never cached to disk (§16.3). */
+function sendZip(res: ServerResponse, bytes: Buffer): void {
+  res.writeHead(200, {
+    'Content-Type': 'application/zip',
+    'Content-Length': bytes.byteLength,
+    'Cache-Control': 'no-store',
+  });
+  res.end(bytes);
 }
 
 /**
@@ -162,8 +179,59 @@ class AssistantEndpoint implements RouteEndpoint {
       sendJson(res, 200, service.desktopState());
       return;
     }
+    // §16 maintenance sits ahead of the `enabled` gate for the same reason key custody does:
+    // turning the assistant off must never strand a user who wants their data erased, taken
+    // with them, or put back.
+    if (pathname === '/assistant/factory-reset/preview') {
+      sendJson(res, 200, service.previewFactoryReset());
+      return;
+    }
+    if (pathname === '/assistant/factory-reset') {
+      const request = await body(req, AssistantConfirmTokenRequestSchema);
+      // `factoryReset` serializes itself against drains; do not wrap it again here.
+      await service.factoryReset(request.previewToken);
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+    if (pathname === '/assistant/export') {
+      const request = await body(req, AssistantExportRequestSchema);
+      sendZip(res, await service.exports.export(request));
+      return;
+    }
+    if (pathname === '/assistant/backup') {
+      sendZip(res, await service.backups.createBackup());
+      return;
+    }
+    if (pathname === '/assistant/restore-preview') {
+      sendJson(res, 200, service.previewRestore(
+        await readBodyBytes(req, { maxBytes: RESTORE_BODY_LIMIT }),
+      ));
+      return;
+    }
+    if (pathname === '/assistant/restore') {
+      const request = await body(req, AssistantRestoreConfirmRequestSchema);
+      sendJson(res, 200, await service.restore(request.uploadId, request.confirmToken));
+      return;
+    }
+    // §7.6: while the flag is off the mobile route is indistinguishable from absent, which is
+    // why this is decided before the enabled gate can answer with a reason.
+    if (pathname === '/assistant/ingest/mobile' && !service.config.Mobile.Enabled) {
+      sendError(res, 404, 'not_found', 'Not found.');
+      return;
+    }
     if (!service.enabled) {
       sendError(res, 409, 'assistant_disabled', 'Assistant is disabled.');
+      return;
+    }
+
+    if (pathname === '/assistant/ingest/mobile') {
+      const envelope = await body(req, MobileEnvelopeSchema);
+      const verdict = service.ingestMobileEnvelope(envelope);
+      if (verdict.kind === 'rejected') {
+        sendError(res, 403, 'envelope_rejected', `Envelope rejected: ${verdict.reason}.`);
+      } else {
+        sendJson(res, 202, { ok: true });
+      }
       return;
     }
 
@@ -329,10 +397,35 @@ class AssistantEndpoint implements RouteEndpoint {
       }) });
       return;
     }
+    if (/^\/assistant\/evidence\/[^/]+\/deletion-preview$/u.test(pathname)) {
+      sendJson(res, 200, service.memoryMutations.previewDeleteEvidence(service.ownerId, id(match)));
+      return;
+    }
+    if (/^\/assistant\/evidence\/[^/]+$/u.test(pathname) && method === 'DELETE') {
+      const request = await body(req, AssistantConfirmTokenRequestSchema);
+      service.memoryMutations.confirmDeleteEvidence(
+        service.ownerId, id(match), request.previewToken,
+      );
+      sendJson(res, 200, success(service));
+      return;
+    }
     if (/^\/assistant\/evidence\/[^/]+$/u.test(pathname)) {
       this.sendQueryResult(
         res, service.memoryQueries.getEvidenceMetadata(service.ownerId, id(match)),
       );
+      return;
+    }
+    if (pathname === '/assistant/topics/forget-preview') {
+      const request = await body(req, z.object({ topicKey: z.string().trim().min(1) }).strict());
+      sendJson(
+        res, 200, service.memoryMutations.previewForgetTopic(service.ownerId, request.topicKey),
+      );
+      return;
+    }
+    if (pathname === '/assistant/topics/forget') {
+      const request = await body(req, AssistantTopicForgetRequestSchema);
+      service.memoryMutations.confirmForgetTopic(service.ownerId, request);
+      sendJson(res, 200, success(service));
       return;
     }
     if (pathname === '/assistant/projections' && method === 'GET') {
@@ -458,7 +551,19 @@ const routes = new RouteTable([
   { method: 'DELETE', path: /^\/assistant\/graph\/assertions\/([^/]+)$/u, endpoint },
   { method: 'GET', path: '/assistant/evidence', endpoint },
   { method: 'GET', path: '/assistant/evidence/blob', endpoint },
+  // Ahead of the bare evidence-id route, matching the blob-route ordering above.
+  { method: 'GET', path: /^\/assistant\/evidence\/([^/]+)\/deletion-preview$/u, endpoint },
+  { method: 'DELETE', path: /^\/assistant\/evidence\/([^/]+)$/u, endpoint },
   { method: 'GET', path: /^\/assistant\/evidence\/([^/]+)$/u, endpoint },
+  { method: 'POST', path: '/assistant/topics/forget-preview', endpoint },
+  { method: 'POST', path: '/assistant/topics/forget', endpoint },
+  { method: 'GET', path: '/assistant/factory-reset/preview', endpoint },
+  { method: 'POST', path: '/assistant/factory-reset', endpoint },
+  { method: 'POST', path: '/assistant/export', endpoint },
+  { method: 'POST', path: '/assistant/backup', endpoint },
+  { method: 'POST', path: '/assistant/restore-preview', endpoint },
+  { method: 'POST', path: '/assistant/restore', endpoint },
+  { method: 'POST', path: '/assistant/ingest/mobile', endpoint },
   { method: 'GET', path: '/assistant/projections', endpoint },
   { method: 'POST', path: '/assistant/projections/rebuild', endpoint },
   { method: 'GET', path: '/assistant/desktop/state', endpoint },

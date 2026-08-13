@@ -108,6 +108,63 @@ export function requestJson(url: string, options: RequestOptions = {}): Promise<
   });
 }
 
+export type BinaryResponse = { statusCode: number; contentType: string; body: Buffer };
+export type BinaryRequestOptions = {
+  method?: string;
+  body?: Buffer;
+  contentType?: string;
+  timeoutMs?: number;
+  headers?: Readonly<Record<string, string>>;
+};
+
+/** The zip-carrying routes (export, backup, restore) need bytes, not a utf8 round trip. */
+export function requestBinary(
+  url: string,
+  options: BinaryRequestOptions = {},
+): Promise<BinaryResponse> {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const request = http.request(
+      {
+        protocol: target.protocol,
+        hostname: target.hostname,
+        port: target.port,
+        path: `${target.pathname}${target.search}`,
+        method: options.method || 'GET',
+        agent: testHttpAgent,
+        headers: {
+          ...options.headers,
+          ...(options.body ? {
+            'Content-Type': options.contentType ?? 'application/zip',
+            'Content-Length': options.body.byteLength,
+          } : {}),
+        },
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on('data', (chunk: Buffer) => {
+          chunks.push(chunk);
+        });
+        response.on('end', () => {
+          resolve({
+            statusCode: response.statusCode || 0,
+            contentType: response.headers['content-type'] ?? '',
+            body: Buffer.concat(chunks),
+          });
+        });
+      },
+    );
+    request.on('error', reject);
+    request.setTimeout(Number(options.timeoutMs || 30000), () => {
+      request.destroy(new Error('request timeout'));
+    });
+    if (options.body) {
+      request.write(options.body);
+    }
+    request.end();
+  });
+}
+
 export function requestSse(url: string, options: RequestOptions = {}): Promise<SseResponse> {
   return new Promise((resolve, reject) => {
     const target = new URL(url);

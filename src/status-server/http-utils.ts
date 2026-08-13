@@ -26,10 +26,14 @@ export class RequestBodyTooLargeError extends Error {
   }
 }
 
-export function readBody(
+/**
+ * The raw body. Binary routes (§16.4 restore uploads a zip) need the bytes; `readBody` is the
+ * utf8 view of exactly this.
+ */
+export function readBodyBytes(
   req: IncomingMessage,
   options: { maxBytes?: number } = {},
-): Promise<string> {
+): Promise<Buffer> {
   const maxBytes = Number.isFinite(options.maxBytes) && Number(options.maxBytes) > 0
     ? Math.trunc(Number(options.maxBytes))
     : DEFAULT_MAX_REQUEST_BODY_BYTES;
@@ -45,11 +49,11 @@ export function readBody(
       req.off('error', onError);
       req.off('close', onClose);
     };
-    const settleResolve = (text: string): void => {
+    const settleResolve = (bytes: Buffer): void => {
       if (settled) return;
       settled = true;
       cleanup();
-      resolve(text);
+      resolve(bytes);
     };
     const settleReject = (error: Error): void => {
       if (settled) return;
@@ -68,7 +72,7 @@ export function readBody(
       }
       chunks.push(chunk);
     };
-    const onEnd = (): void => settleResolve(Buffer.concat(chunks).toString('utf8'));
+    const onEnd = (): void => settleResolve(Buffer.concat(chunks));
     const onAborted = (): void => settleReject(new Error('Request aborted before the body was received.'));
     const onError = (error: Error): void => settleReject(error);
     const onClose = (): void => {
@@ -87,6 +91,13 @@ export function readBody(
     req.on('error', onError);
     req.on('close', onClose);
   });
+}
+
+export async function readBody(
+  req: IncomingMessage,
+  options: { maxBytes?: number } = {},
+): Promise<string> {
+  return (await readBodyBytes(req, options)).toString('utf8');
 }
 
 export function parseJsonBody(bodyText: string): JsonObject {
