@@ -75,6 +75,7 @@ test('AssistantConfigSchema is strict and the documented defaults are complete',
       },
     },
     PrivateMode: { Active: false, ExpiresAtUtc: null },
+    Mobile: { Enabled: false },
     KeyCustody: 'file',
   });
   assert.deepEqual(AssistantConfigSchema.parse(DEFAULT_ASSISTANT_CONFIG), DEFAULT_ASSISTANT_CONFIG);
@@ -145,6 +146,21 @@ test('normalizeAssistantConfig repairs the deny lists and the sign-in startup fl
   assert.deepEqual(kept.ProcessDenyList, ['obs64.exe']);
   assert.deepEqual(kept.TitleDenyPatterns, ['.*bank.*']);
   assert.equal(kept.StartOnSignIn, true);
+});
+
+test('the mobile envelope gate defaults off and rejects unknown keys', () => {
+  assert.deepEqual(normalizeAssistantConfig({}).Mobile, { Enabled: false });
+  assert.deepEqual(normalizeAssistantConfig({ Mobile: { Enabled: 'yes' } }).Mobile, { Enabled: false });
+  assert.deepEqual(normalizeAssistantConfig({ Mobile: { Enabled: true } }).Mobile, { Enabled: true });
+
+  assert.equal(AssistantConfigSchema.safeParse({
+    ...DEFAULT_ASSISTANT_CONFIG,
+    Mobile: { Enabled: true },
+  }).success, true);
+  assert.equal(AssistantConfigSchema.safeParse({
+    ...DEFAULT_ASSISTANT_CONFIG,
+    Mobile: { Enabled: true, Port: 8080 },
+  }).success, false);
 });
 
 test('normalizeAssistantConfig repairs each malformed scalar without accepting a mutable owner id', () => {

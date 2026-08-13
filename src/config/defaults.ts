@@ -90,6 +90,7 @@ export const DEFAULT_ASSISTANT_CONFIG: AssistantConfig = {
     },
   },
   PrivateMode: { Active: false, ExpiresAtUtc: null },
+  Mobile: { Enabled: false },
   KeyCustody: 'file',
 };
 

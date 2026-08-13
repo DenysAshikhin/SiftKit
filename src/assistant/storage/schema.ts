@@ -468,6 +468,23 @@ CREATE INDEX IF NOT EXISTS assistant_capture_queue_dedupe_idx
 `;
 
 /**
+ * Gate E (v44). Mobile envelope replay protection: a device may never reuse a nonce, and its
+ * monotonic timestamp must strictly increase. Contract only — no mobile client exists yet, and
+ * the route stays 404 until `Assistant.Mobile.Enabled` (§7.6).
+ */
+export const ASSISTANT_MOBILE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS assistant_device_nonces (
+    device_id TEXT NOT NULL REFERENCES assistant_devices(id) ON DELETE CASCADE,
+    nonce TEXT NOT NULL,
+    monotonic_ts INTEGER NOT NULL,
+    seen_at_utc TEXT NOT NULL,
+    PRIMARY KEY (device_id, nonce)
+);
+CREATE INDEX IF NOT EXISTS assistant_device_nonces_ts_idx
+  ON assistant_device_nonces(device_id, monotonic_ts DESC);
+`;
+
+/**
  * Seeds the registry tables, the single owner row, and this machine's device row from the
  * TypeScript registries. The registry constants are the source of truth; these rows are their
  * projection, so seeding is a full upsert and is safe to re-run.

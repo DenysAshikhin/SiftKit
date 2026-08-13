@@ -209,6 +209,8 @@ export const AssistantConfigSchema = z.object({
     JobPriorities: AssistantJobPrioritiesSchema,
   }).strict(),
   PrivateMode: z.object({ Active: z.boolean(), ExpiresAtUtc: z.string().nullable() }).strict(),
+  /** Gate E: mobile envelope route gate. The route returns 404 while this is false (§7.6). */
+  Mobile: z.object({ Enabled: z.boolean() }).strict(),
   KeyCustody: KeyCustodySchema,
 }).strict();
 export type AssistantConfig = z.infer<typeof AssistantConfigSchema>;

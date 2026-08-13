@@ -152,6 +152,7 @@ export function normalizeAssistantConfig(value: JsonValue): AssistantConfig {
   const background = getRecord(input.Background);
   const priorities = getRecord(background.JobPriorities);
   const privateMode = getRecord(input.PrivateMode);
+  const mobile = getRecord(input.Mobile);
   const maximum = Number.MAX_SAFE_INTEGER;
 
   return {
@@ -243,6 +244,7 @@ export function normalizeAssistantConfig(value: JsonValue): AssistantConfig {
         ? privateMode.ExpiresAtUtc
         : DEFAULT_ASSISTANT_CONFIG.PrivateMode.ExpiresAtUtc,
     },
+    Mobile: { Enabled: booleanOrDefault(mobile.Enabled, DEFAULT_ASSISTANT_CONFIG.Mobile.Enabled) },
     KeyCustody: memberOrDefault(input.KeyCustody, KeyCustodySchema.options, DEFAULT_ASSISTANT_CONFIG.KeyCustody),
   };
 }

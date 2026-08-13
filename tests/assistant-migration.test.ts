@@ -54,6 +54,7 @@ const EXPECTED_ASSISTANT_TABLES = [
   'graph_nodes_fts', 'graph_assertions_fts',
   'assistant_questions', 'assistant_question_feedback', 'retrieval_usage',
   'assistant_activity_events', 'assistant_activity_sessions', 'assistant_capture_queue',
+  'assistant_device_nonces',
 ];
 
 test('a fresh database lands on the current schema version with every assistant table', () => {
@@ -61,10 +62,10 @@ test('a fresh database lands on the current schema version with every assistant 
   getRuntimeDatabase(dbPath);
   closeRuntimeDatabase();
 
-  assert.equal(CURRENT_SCHEMA_VERSION, 43);
+  assert.equal(CURRENT_SCHEMA_VERSION, 44);
   const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
     .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
-  assert.equal(version, 43);
+  assert.equal(version, 44);
 
   const tables = new Set(tableNames(dbPath));
   for (const expected of EXPECTED_ASSISTANT_TABLES) {
@@ -87,7 +88,7 @@ test('v42 adds proactive assistant tables and durable Gate C columns', () => {
     assert.ok(appConfigColumns.includes('assistant_json'));
     assert.ok(assertionColumns.includes('user_demoted'));
     assert.ok(candidateColumns.includes('user_notes'));
-    assert.equal(getSchemaVersion(database), 43);
+    assert.equal(getSchemaVersion(database), 44);
 
     assert.throws(() => database.prepare(`
       INSERT INTO assistant_questions (
@@ -200,7 +201,7 @@ test('the v41 projection and job tables remain present after the v42 migration',
     assert.ok(tables.includes('memory_projections'), 'memory_projections missing');
     assert.ok(tables.includes('assistant_jobs'), 'assistant_jobs missing');
     assert.ok(tables.includes('memory_projections_fts'), 'memory_projections_fts missing');
-    assert.equal(getSchemaVersion(database), 43);
+    assert.equal(getSchemaVersion(database), 44);
   });
 });
 
@@ -281,7 +282,7 @@ test('projection and job row schemas parse the shapes SQLite returns', () => {
 
 test('v43 adds the desktop observation tables with their guards and indexes', () => {
   withAssistantContext(({ database, ownerId }) => {
-    assert.equal(getSchemaVersion(database), 43);
+    assert.equal(getSchemaVersion(database), 44);
 
     const indexes = NameRowSchema.parse(database.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'index'",
@@ -335,5 +336,68 @@ test('re-running the v43 migration is a no-op', () => {
   assert.equal(countRows(dbPath, 'assistant_capture_queue'), 0);
   const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
     .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
-  assert.equal(version, 43);
+  assert.equal(version, 44);
+});
+
+test('v44 adds the device nonce table with its replay-protection key and index', () => {
+  withAssistantContext(({ database, ownerId }) => {
+    assert.equal(getSchemaVersion(database), 44);
+
+    const columns = ColumnRowSchema.parse(
+      database.prepare("SELECT name FROM pragma_table_info('assistant_device_nonces')").all(),
+    ).map((row) => row.name);
+    assert.deepEqual(columns, ['device_id', 'nonce', 'monotonic_ts', 'seen_at_utc']);
+
+    const indexes = NameRowSchema.parse(database.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'index'",
+    ).all()).map((row) => row.name);
+    assert.ok(indexes.includes('assistant_device_nonces_ts_idx'));
+
+    const deviceId = z.object({ id: z.string() }).parse(
+      database.prepare('SELECT id FROM assistant_devices WHERE owner_id = ? LIMIT 1').get(ownerId),
+    ).id;
+    const insert = database.prepare(`
+      INSERT INTO assistant_device_nonces (device_id, nonce, monotonic_ts, seen_at_utc)
+      VALUES (?, 'nonce-1', 1000, '2026-08-13T00:00:00.000Z')
+    `);
+    insert.run(deviceId);
+    assert.throws(() => insert.run(deviceId), /UNIQUE/);
+    assert.throws(() => database.prepare(`
+      INSERT INTO assistant_device_nonces (device_id, nonce, monotonic_ts, seen_at_utc)
+      VALUES ('dev_missing', 'nonce-2', 1001, '2026-08-13T00:00:00.000Z')
+    `).run(), /FOREIGN KEY constraint failed/);
+  });
+});
+
+test('a v43 database gains the device nonce table when it migrates forward', () => {
+  const dbPath = tempDbPath('siftkit-assistant-migration-v44-');
+  getRuntimeDatabase(dbPath);
+  closeRuntimeDatabase();
+
+  const downgrade = new Database(dbPath);
+  downgrade.exec('DROP TABLE assistant_device_nonces;');
+  downgrade.prepare('UPDATE runtime_schema SET version = 43 WHERE id = 1').run();
+  downgrade.close();
+  assert.equal(tableNames(dbPath).includes('assistant_device_nonces'), false);
+
+  getRuntimeDatabase(dbPath);
+  closeRuntimeDatabase();
+
+  assert.ok(tableNames(dbPath).includes('assistant_device_nonces'));
+  const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
+    .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
+  assert.equal(version, 44);
+});
+
+test('re-running the v44 migration is a no-op', () => {
+  const dbPath = tempDbPath('siftkit-assistant-migration-v44-reapply-');
+  getRuntimeDatabase(dbPath);
+  closeRuntimeDatabase();
+  getRuntimeDatabase(dbPath);
+  closeRuntimeDatabase();
+
+  assert.equal(countRows(dbPath, 'assistant_device_nonces'), 0);
+  const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
+    .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
+  assert.equal(version, 44);
 });

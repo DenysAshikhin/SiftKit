@@ -14,6 +14,7 @@ import {
   ASSISTANT_FTS_SCHEMA_SQL,
   ASSISTANT_MEMORY_SCHEMA_SQL,
   ASSISTANT_DESKTOP_SCHEMA_SQL,
+  ASSISTANT_MOBILE_SCHEMA_SQL,
   ASSISTANT_PROACTIVE_SCHEMA_SQL,
   seedAssistantRegistries,
 } from '../assistant/storage/schema.js';
@@ -45,7 +46,7 @@ const ChatPresetSnapshotSessionRowSchema = z.object({
   context_window_tokens: z.number(),
 });
 
-export const CURRENT_SCHEMA_VERSION = 43;
+export const CURRENT_SCHEMA_VERSION = 44;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["read","grep","find","ls","git"],"full":[]}';
 const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
 
@@ -1032,6 +1033,7 @@ function ensureSchema(database: RuntimeDatabase): void {
     database.exec(ASSISTANT_MEMORY_SCHEMA_SQL);
     applyAssistantProactiveSchema(database);
     applyAssistantDesktopSchema(database);
+    database.exec(ASSISTANT_MOBILE_SCHEMA_SQL);
     setSchemaVersion(database, CURRENT_SCHEMA_VERSION);
     return;
   }
@@ -1489,6 +1491,11 @@ function ensureSchema(database: RuntimeDatabase): void {
     applyAssistantDesktopSchema(database);
     setSchemaVersion(database, 43);
     currentVersion = 43;
+  }
+  if (currentVersion < 44) {
+    database.exec(ASSISTANT_MOBILE_SCHEMA_SQL);
+    setSchemaVersion(database, 44);
+    currentVersion = 44;
   }
   ensureChatMessageTimelineSchema(database);
   ensureRuntimeArtifactsSchema(database);
