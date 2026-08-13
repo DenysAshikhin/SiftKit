@@ -169,6 +169,94 @@ export const AssistantDeletionPreviewSchema = z.object({
 }).strict();
 export type AssistantDeletionPreview = z.infer<typeof AssistantDeletionPreviewSchema>;
 
+export const AssistantEvidenceDeletionPreviewSchema = z.object({
+  previewToken: z.string(),
+  graphVersion: z.number().int().min(0),
+  targetEvidenceId: z.string(),
+  dependentAssertionIds: z.array(z.string()),
+  affectedProjectionIds: z.array(z.string()),
+}).strict();
+export type AssistantEvidenceDeletionPreview = z.infer<
+  typeof AssistantEvidenceDeletionPreviewSchema
+>;
+
+export const AssistantTopicForgetPreviewSchema = z.object({
+  previewToken: z.string(),
+  graphVersion: z.number().int().min(0),
+  topicKey: z.string(),
+  assertionIds: z.array(z.string()),
+  affectedProjectionIds: z.array(z.string()),
+}).strict();
+export type AssistantTopicForgetPreview = z.infer<typeof AssistantTopicForgetPreviewSchema>;
+
+export const AssistantTopicForgetRequestSchema = z.object({
+  topicKey: z.string().trim().min(1),
+  /** Also writes a `never_infer_topic` policy so the topic cannot come back by inference. */
+  addPolicy: z.boolean(),
+  previewToken: z.string().min(1),
+}).strict();
+export type AssistantTopicForgetRequest = z.infer<typeof AssistantTopicForgetRequestSchema>;
+
+export const AssistantFactoryResetPreviewSchema = z.object({
+  previewToken: z.string(),
+  graphVersion: z.number().int().min(0),
+  tableCounts: z.record(z.string(), z.number().int().min(0)),
+  blobCount: z.number().int().min(0),
+  blobBytes: z.number().int().min(0),
+}).strict();
+export type AssistantFactoryResetPreview = z.infer<typeof AssistantFactoryResetPreviewSchema>;
+
+export const AssistantConfirmTokenRequestSchema = z.object({
+  previewToken: z.string().min(1),
+}).strict();
+export type AssistantConfirmTokenRequest = z.infer<typeof AssistantConfirmTokenRequestSchema>;
+
+export const AssistantExportRequestSchema = z.object({
+  includeDecryptedBlobs: z.boolean(),
+}).strict();
+export type AssistantExportRequest = z.infer<typeof AssistantExportRequestSchema>;
+
+export const AssistantRestorePreviewResponseSchema = z.object({
+  uploadId: z.string(),
+  confirmToken: z.string(),
+  schemaVersion: z.number().int().positive(),
+  custody: z.enum(['file', 'desktop']),
+  fileCount: z.number().int().min(0),
+  totalBytes: z.number().int().min(0),
+}).strict();
+export type AssistantRestorePreviewResponse = z.infer<
+  typeof AssistantRestorePreviewResponseSchema
+>;
+
+export const AssistantRestoreConfirmRequestSchema = z.object({
+  uploadId: z.string().min(1),
+  confirmToken: z.string().min(1),
+}).strict();
+export type AssistantRestoreConfirmRequest = z.infer<
+  typeof AssistantRestoreConfirmRequestSchema
+>;
+
+export const AssistantRestoreResultSchema = z.object({
+  ok: z.literal(true),
+  /** False when DPAPI could not unseal the backup key on this machine — never silent. */
+  blobsReadable: z.boolean(),
+  warning: z.string().nullable(),
+}).strict();
+export type AssistantRestoreResult = z.infer<typeof AssistantRestoreResultSchema>;
+
+export const MobileEnvelopeSchema = z.object({
+  schemaVersion: z.literal(1),
+  deviceId: z.string().min(1),
+  monotonicTimestamp: z.number().int().positive(),
+  nonce: z.string().min(8),
+  consent: z.object({ memory: z.boolean(), sensitive: z.boolean() }).strict(),
+  sensitivity: z.enum(['low', 'personal', 'sensitive', 'highly_sensitive']),
+  payload: z.object({ kind: z.literal('text'), text: z.string().min(1) }).strict(),
+  /** base64 Ed25519 signature over the canonical signing payload (see EnvelopeVerifier). */
+  signature: z.string().min(1),
+}).strict();
+export type MobileEnvelope = z.infer<typeof MobileEnvelopeSchema>;
+
 export const AssistantErrorResponseSchema = z.object({
   error: z.object({ code: z.string(), message: z.string() }).strict(),
 }).strict();
