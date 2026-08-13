@@ -36,6 +36,16 @@ export type FullJsonResponse<T> = {
   rawText: string;
 };
 
+/** Binary sibling of `RequestJsonOptions`: the caller owns `Content-Type`, we add the length. */
+export type RequestBytesOptions = {
+  url: string;
+  method: HttpMethod;
+  timeoutMs?: number;
+  body?: Buffer;
+  agent?: HttpAgent | HttpsAgent;
+  headers?: Record<string, string>;
+};
+
 export type TextResponse = { statusCode: number; body: string };
 
 export type RequestTextOptions = {
@@ -201,6 +211,10 @@ export class HttpClient {
 
   requestText(options: RequestTextOptions): Promise<TextResponse> {
     return requestText({ ...options, agent: options.agent ?? this.localAgent(options.url) });
+  }
+
+  requestBytes(options: RequestBytesOptions): Promise<Buffer> {
+    return requestBytes({ ...options, agent: options.agent ?? this.localAgent(options.url) });
   }
 
   async *streamSse(options: SseStreamOptions): AsyncGenerator<SseFrame> {
@@ -408,6 +422,52 @@ function requestText(options: RequestTextOptions): Promise<TextResponse> {
       request.destroy(new Error(`Request timed out after ${options.timeoutMs} ms.`));
     });
     request.on('error', reject);
+    request.end();
+  });
+}
+
+/**
+ * Never sets a response encoding: a zip decoded as utf8 is silently destroyed, and the only
+ * callers of this are archive download and archive upload.
+ */
+function requestBytes(options: RequestBytesOptions): Promise<Buffer> {
+  const target = new URL(options.url);
+  const requestTransport = target.protocol === 'https:' ? httpsRequest : httpRequest;
+  return new Promise((resolve, reject) => {
+    const request = requestTransport({
+      protocol: target.protocol,
+      hostname: target.hostname,
+      port: target.port || (target.protocol === 'https:' ? 443 : 80),
+      path: `${target.pathname}${target.search}`,
+      method: options.method,
+      agent: options.agent,
+      headers: {
+        ...options.headers,
+        ...(options.body ? { 'Content-Length': options.body.byteLength } : {}),
+      },
+    }, (response) => {
+      const chunks: Buffer[] = [];
+      response.on('data', (chunk: Buffer) => { chunks.push(chunk); });
+      response.on('end', () => {
+        const body = Buffer.concat(chunks);
+        if ((response.statusCode || 0) >= 400) {
+          reject(new Error(`HTTP ${response.statusCode}: ${body.toString('utf8')}`));
+          return;
+        }
+        resolve(body);
+      });
+    });
+
+    if (Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0) {
+      const timeoutMs = Math.trunc(Number(options.timeoutMs));
+      request.setTimeout(timeoutMs, () => {
+        request.destroy(new Error(`Request timed out after ${timeoutMs} ms.`));
+      });
+    }
+    request.on('error', reject);
+    if (options.body) {
+      request.write(options.body);
+    }
     request.end();
   });
 }

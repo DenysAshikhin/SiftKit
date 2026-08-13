@@ -66,13 +66,19 @@ import {
   AssistantAssertionExplanationSchema,
   AssistantConfigPatchRequestSchema,
   AssistantDeletionPreviewSchema,
+  AssistantEvidenceDeletionPreviewSchema,
+  AssistantFactoryResetPreviewSchema,
   AssistantMutationResponseSchema,
   AssistantNodeSummarySchema,
   AssistantAssertionDtoSchema,
   AssistantProjectionDtoSchema,
   AssistantPolicyDtoSchema,
+  AssistantRestorePreviewResponseSchema,
+  AssistantRestoreResultSchema,
   AssistantStatusResponseSchema,
+  AssistantTopicForgetPreviewSchema,
   type AssistantConfig,
+  type AssistantTopicForgetRequest,
 } from '@siftkit/contracts';
 
 const AssistantBootstrapSchema = z.object({ token: z.string().min(1) }).strict();
@@ -82,6 +88,8 @@ const AssistantSearchSchema = z.object({
   projections: z.array(AssistantProjectionDtoSchema),
 }).strict();
 const AssistantPolicyListSchema = z.object({ items: z.array(AssistantPolicyDtoSchema) }).strict();
+const AssistantOkSchema = z.object({ ok: z.literal(true) }).strict();
+const ZIP_CONTENT_TYPE = 'application/zip';
 
 const DEFAULT_SERVER_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
@@ -182,6 +190,69 @@ export class StatusServerApiClient {
     return this.requestAssistant(
       `/assistant/graph/assertions/${encodeURIComponent(assertionId)}`,
       'DELETE', token, { mode: 'confirm', previewToken }, AssistantMutationResponseSchema,
+    );
+  }
+
+  previewAssistantEvidenceDeletion(token: string, evidenceId: string) {
+    return this.requestAssistant(
+      `/assistant/evidence/${encodeURIComponent(evidenceId)}/deletion-preview`,
+      'GET', token, undefined, AssistantEvidenceDeletionPreviewSchema,
+    );
+  }
+
+  confirmAssistantEvidenceDeletion(token: string, evidenceId: string, previewToken: string) {
+    return this.requestAssistant(
+      `/assistant/evidence/${encodeURIComponent(evidenceId)}`,
+      'DELETE', token, { previewToken }, AssistantMutationResponseSchema,
+    );
+  }
+
+  previewAssistantTopicForget(token: string, topicKey: string) {
+    return this.requestAssistant(
+      '/assistant/topics/forget-preview', 'POST', token, { topicKey },
+      AssistantTopicForgetPreviewSchema,
+    );
+  }
+
+  confirmAssistantTopicForget(token: string, request: AssistantTopicForgetRequest) {
+    return this.requestAssistant(
+      '/assistant/topics/forget', 'POST', token, request, AssistantMutationResponseSchema,
+    );
+  }
+
+  previewAssistantFactoryReset(token: string) {
+    return this.requestAssistant(
+      '/assistant/factory-reset/preview', 'GET', token, undefined,
+      AssistantFactoryResetPreviewSchema,
+    );
+  }
+
+  confirmAssistantFactoryReset(token: string, previewToken: string) {
+    return this.requestAssistant(
+      '/assistant/factory-reset', 'POST', token, { previewToken }, AssistantOkSchema,
+    );
+  }
+
+  /** The archive routes answer `application/zip`; a utf8 round trip would corrupt every one. */
+  requestAssistantZip(pathname: string, token: string, payload?: JsonObject): Promise<Buffer> {
+    return this.requestAssistantBytes(pathname, token, {
+      ...(payload === undefined
+        ? {}
+        : { body: Buffer.from(JSON.stringify(payload), 'utf8'), contentType: 'application/json' }),
+    });
+  }
+
+  async postAssistantRestorePreview(token: string, bytes: Buffer) {
+    const response = await this.requestAssistantBytes('/assistant/restore-preview', token, {
+      body: bytes, contentType: ZIP_CONTENT_TYPE,
+    });
+    return parseJsonText(response.toString('utf8'), AssistantRestorePreviewResponseSchema);
+  }
+
+  confirmAssistantRestore(token: string, uploadId: string, confirmToken: string) {
+    return this.requestAssistant(
+      '/assistant/restore', 'POST', token, { uploadId, confirmToken },
+      AssistantRestoreResultSchema,
     );
   }
 
@@ -321,6 +392,29 @@ export class StatusServerApiClient {
         headers: { Authorization: `Bearer ${token}` },
         ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
       }, schema);
+    } catch (error) {
+      throw this.normalizeError(toError(error));
+    }
+  }
+
+  private async requestAssistantBytes(
+    pathname: string,
+    token: string,
+    payload: { body?: Buffer; contentType?: string },
+  ): Promise<Buffer> {
+    try {
+      return await this.client.requestBytes({
+        url: this.getServiceUrl(pathname),
+        method: 'POST',
+        timeoutMs: DEFAULT_SERVER_REQUEST_TIMEOUT_MS,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(payload.contentType === undefined
+            ? {}
+            : { 'Content-Type': payload.contentType }),
+        },
+        ...(payload.body === undefined ? {} : { body: payload.body }),
+      });
     } catch (error) {
       throw this.normalizeError(toError(error));
     }
