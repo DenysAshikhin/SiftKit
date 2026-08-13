@@ -10,7 +10,9 @@ import type {
   ProjectionSummaryService,
   SummarizeProjectionResult,
 } from '../src/assistant/projections/projection-summarizer.js';
-import { withAssistantContext, type AssistantTestContext } from './helpers/assistant-fixture.js';
+import {
+  withAssistantContext, withAssistantContextAsync, type AssistantTestContext,
+} from './helpers/assistant-fixture.js';
 import { seedOwnerAssertion } from './helpers/gate-e-seed.js';
 
 class PassthroughSummarizer implements ProjectionSummaryService {
@@ -193,6 +195,83 @@ test('a blob shared by another live record survives the deletion of one of them'
 
     assert.equal(context.graph.evidence.requireEvidence(evidence.id).status, 'deleted');
     assert.ok(context.graph.evidence.readBlobBytes(blobId).length > 0);
+  });
+});
+
+test('forgetting a topic retires its assertions, deletes its projections, and can add a policy', async () => {
+  await withAssistantContextAsync(async (context) => {
+    seedOwnerAssertion(context, { objectName: 'Theta Tool' });
+    seedOwnerAssertion(context, { objectName: 'Iota Tool' }); // untouched
+    const mutations = mutationServiceFor(context);
+    await mutations.rebuildProjections(context.ownerId, new AbortController().signal);
+
+    const preview = mutations.previewForgetTopic(context.ownerId, 'theta-tool');
+    assert.equal(preview.assertionIds.length, 1);
+    mutations.confirmForgetTopic(context.ownerId, {
+      topicKey: 'theta-tool', addPolicy: true, previewToken: preview.previewToken,
+    });
+    await mutations.rebuildProjections(context.ownerId, new AbortController().signal);
+
+    const target = context.graph.assertions.requireAssertion(preview.assertionIds[0] ?? '');
+    assert.equal(target.status, 'deleted');
+    assert.equal(
+      context.graph.projections.listAllRows(context.ownerId)
+        .some((row) => row.topic_key === 'theta-tool'),
+      false,
+    );
+    assert.equal(
+      context.graph.policies.isTopicBlockedFromInference(context.ownerId, 'theta-tool'),
+      true,
+    );
+    assert.ok(context.graph.projections.listAllRows(context.ownerId)
+      .some((row) => row.topic_key === 'iota-tool'));
+    assert.ok(
+      context.graph.audit.listAuditEvents(context.ownerId, 50)
+        .some((event) => event.event_type === 'topic_forgotten'),
+    );
+  });
+});
+
+test('forgetting a topic without a policy leaves the topic open to future inference', () => {
+  withAssistantContext((context) => {
+    seedOwnerAssertion(context, { objectName: 'Kappa Tool' });
+    const mutations = mutationServiceFor(context);
+
+    const preview = mutations.previewForgetTopic(context.ownerId, 'kappa-tool');
+    mutations.confirmForgetTopic(context.ownerId, {
+      topicKey: 'kappa-tool', addPolicy: false, previewToken: preview.previewToken,
+    });
+
+    assert.equal(
+      context.graph.policies.isTopicBlockedFromInference(context.ownerId, 'kappa-tool'),
+      false,
+    );
+    assert.deepEqual(mutations.previewForgetTopic(context.ownerId, 'kappa-tool').assertionIds, []);
+  });
+});
+
+test('a stale forget-topic token retires nothing', () => {
+  withAssistantContext((context) => {
+    const seeded = seedOwnerAssertion(context, { objectName: 'Lambda Tool' });
+    const mutations = mutationServiceFor(context);
+    const preview = mutations.previewForgetTopic(context.ownerId, 'lambda-tool');
+
+    seedOwnerAssertion(context, { objectName: 'Mu Tool' }); // the graph version moves
+
+    assert.throws(
+      () => mutations.confirmForgetTopic(context.ownerId, {
+        topicKey: 'lambda-tool', addPolicy: true, previewToken: preview.previewToken,
+      }),
+      AssistantConflictError,
+    );
+    assert.equal(
+      context.graph.assertions.requireAssertion(seeded.assertion.id).status,
+      seeded.assertion.status,
+    );
+    assert.equal(
+      context.graph.policies.isTopicBlockedFromInference(context.ownerId, 'lambda-tool'),
+      false,
+    );
   });
 });
 

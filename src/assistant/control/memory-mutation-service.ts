@@ -1,6 +1,7 @@
 import type {
   AssistantDeletionPreview,
   AssistantEvidenceDeletionPreview,
+  AssistantTopicForgetPreview,
 } from '@siftkit/contracts';
 import type { JsonObject } from '../../lib/json-types.js';
 import type { RuntimeDatabase } from '../../state/runtime-db.js';
@@ -12,7 +13,7 @@ import type {
 import type { AssertionObjectRef } from '../domain/keys.js';
 import type { ProjectionCompiler } from '../projections/projection-compiler.js';
 import type { AssertionRow } from '../storage/rows.js';
-import { DeletionPreviewService } from './deletion-preview.js';
+import { DeletionPreviewService, topicAssertionIds } from './deletion-preview.js';
 
 interface MemoryMutationServiceOptions {
   readonly graph: AssistantGraph;
@@ -193,6 +194,57 @@ export class MemoryMutationService {
         details: { dependentAssertionIds: dependents },
       });
       this.graph.audit.incrementGraphVersion();
+      transaction.commit();
+      this.enqueueProjectionMaintenance(ownerId);
+    } catch (error) {
+      transaction.rollbackAfter(error);
+    }
+  }
+
+  previewForgetTopic(ownerId: string, topicKey: string): AssistantTopicForgetPreview {
+    return this.deletionPreviews.previewForgetTopic(ownerId, topicKey);
+  }
+
+  /**
+   * §16.1 forget a topic: every live assertion routed to it is retired, its projections are
+   * dropped, and — when the user asks — a `never_infer_topic` policy keeps it from coming back.
+   */
+  confirmForgetTopic(
+    ownerId: string,
+    request: { topicKey: string; addPolicy: boolean; previewToken: string },
+  ): void {
+    this.deletionPreviews.validateForgetTopic(ownerId, request.topicKey, request.previewToken);
+    const transaction = this.graph.transactions.begin();
+    try {
+      const assertionIds = topicAssertionIds(this.graph, ownerId, request.topicKey);
+      for (const assertionId of assertionIds) {
+        this.graph.assertionService.forget({
+          ownerId, assertionId, reason: `User forgot topic ${request.topicKey}.`,
+        });
+      }
+      for (const row of this.graph.projections.listAllRows(ownerId)) {
+        if (row.topic_key === request.topicKey) {
+          this.graph.projections.deleteProjection(row.id);
+        }
+      }
+      if (request.addPolicy) {
+        this.graph.policies.upsertPolicy({
+          ownerId,
+          policyType: 'never_infer_topic',
+          key: request.topicKey,
+          value: { reason: 'forget-topic workflow' },
+          enabled: true,
+          source: 'user',
+        });
+      }
+      this.graph.audit.recordAuditEvent({
+        ownerId,
+        eventType: 'topic_forgotten',
+        targetType: 'topic',
+        targetId: request.topicKey,
+        summary: `Topic ${request.topicKey} forgotten (${assertionIds.length} assertions retired).`,
+        details: { assertionIds, policyAdded: request.addPolicy },
+      });
       transaction.commit();
       this.enqueueProjectionMaintenance(ownerId);
     } catch (error) {
