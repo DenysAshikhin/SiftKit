@@ -2,9 +2,11 @@ import React from 'react';
 import type {
   AssistantAssertionExplanation,
   AssistantDeletionPreview,
+  AssistantEvidenceDeletionPreview,
   AssistantEvidenceDto,
   AssistantNodeDetail,
   AssistantProjectionDto,
+  AssistantTopicForgetPreview,
 } from '../types.js';
 import type { AssistantNeighborhood } from '../assistant-api.js';
 
@@ -64,25 +66,71 @@ function EvidencePixelReveal(props: {
 export function AssistantMemoryDetail(props: {
   selected: AssistantMemorySelection | null;
   deletionPreview: AssistantDeletionPreview | null;
+  evidenceDeletionPreview: AssistantEvidenceDeletionPreview | null;
+  topicForgetPreview: AssistantTopicForgetPreview | null;
   onConfirm(id: string, reason: string): Promise<void>;
   onCorrect(id: string, objectText: string, reason: string): Promise<void>;
   onPin(id: string, pinned: boolean, reason: string): Promise<void>;
   onDemote(id: string, reason: string): Promise<void>;
   onPreviewForget(id: string): Promise<void>;
   onConfirmForget(id: string, previewToken: string): Promise<void>;
+  onPreviewDeleteEvidence(id: string): Promise<void>;
+  onConfirmDeleteEvidence(id: string, previewToken: string): Promise<void>;
+  onPreviewForgetTopic(topicKey: string): Promise<void>;
+  onConfirmForgetTopic(topicKey: string, previewToken: string, addPolicy: boolean): Promise<void>;
   onFetchEvidencePixels(id: string): Promise<Blob>;
 }) {
   const [reason, setReason] = React.useState('User review in Memory Inspector');
   const [correction, setCorrection] = React.useState('');
+  const [blockTopic, setBlockTopic] = React.useState(false);
   const selected = props.selected;
   if (selected === null) return <p className="hint">Select a memory result to inspect it.</p>;
   if (selected.kind === 'projection') {
+    const projection = selected.value;
+    const topicPreview = props.topicForgetPreview?.topicKey === projection.topicKey
+      ? props.topicForgetPreview
+      : null;
     return (
       <article className="assistant-detail-card">
-        <span className="bdg">Tier {selected.value.tier}</span>
-        <h3>{selected.value.title}</h3>
-        <p className="assistant-projection-content">{selected.value.content}</p>
-        <p className="hint">Topic {selected.value.topicKey} · graph v{selected.value.graphVersion}</p>
+        <span className="bdg">Tier {projection.tier}</span>
+        <h3>{projection.title}</h3>
+        <p className="assistant-projection-content">{projection.content}</p>
+        <p className="hint">Topic {projection.topicKey} · graph v{projection.graphVersion}</p>
+        <div className="assistant-card-actions wrap">
+          <button
+            type="button"
+            className="ghost-btn danger"
+            onClick={() => { void props.onPreviewForgetTopic(projection.topicKey); }}
+          >
+            Forget topic
+          </button>
+        </div>
+        {topicPreview ? (
+          <div className="assistant-delete-preview" role="alert">
+            <strong>Forget topic preview</strong>
+            <p>{topicPreview.assertionIds.length} assertions and {topicPreview.affectedProjectionIds.length} projections are affected.</p>
+            <label className="settings-live-toggle-control">
+              <input
+                type="checkbox"
+                aria-label="Also block this topic from being inferred again"
+                checked={blockTopic}
+                onChange={(event) => setBlockTopic(event.target.checked)}
+              />
+              Also block this topic from being inferred again
+            </label>
+            <button
+              type="button"
+              className="ghost-btn danger"
+              onClick={() => {
+                void props.onConfirmForgetTopic(
+                  projection.topicKey, topicPreview.previewToken, blockTopic,
+                );
+              }}
+            >
+              Confirm forget topic
+            </button>
+          </div>
+        ) : null}
       </article>
     );
   }
@@ -105,6 +153,9 @@ export function AssistantMemoryDetail(props: {
   const deletionPreview = props.deletionPreview?.targetAssertionId === assertion.id
     ? props.deletionPreview
     : null;
+  const evidencePreview = selected.evidence.some(
+    (item) => item.id === props.evidenceDeletionPreview?.targetEvidenceId,
+  ) ? props.evidenceDeletionPreview : null;
   return (
     <article className="assistant-detail-card">
       <div className="assistant-card-heading">
@@ -140,8 +191,32 @@ export function AssistantMemoryDetail(props: {
               onFetchEvidencePixels={props.onFetchEvidencePixels}
             />
           ) : null}
+          <button
+            type="button"
+            className="ghost-btn danger"
+            onClick={() => { void props.onPreviewDeleteEvidence(evidence.id); }}
+          >
+            Delete evidence
+          </button>
         </div>
       ))}
+      {evidencePreview ? (
+        <div className="assistant-delete-preview" role="alert">
+          <strong>Evidence deletion preview</strong>
+          <p>{evidencePreview.dependentAssertionIds.length} dependent assertions and {evidencePreview.affectedProjectionIds.length} projections are affected.</p>
+          <button
+            type="button"
+            className="ghost-btn danger"
+            onClick={() => {
+              void props.onConfirmDeleteEvidence(
+                evidencePreview.targetEvidenceId, evidencePreview.previewToken,
+              );
+            }}
+          >
+            Confirm evidence deletion
+          </button>
+        </div>
+      ) : null}
       <p className="hint">Mutation IDs: {selected.value.mutationIds.join(', ') || 'none'}</p>
       {deletionPreview ? (
         <div className="assistant-delete-preview" role="alert">

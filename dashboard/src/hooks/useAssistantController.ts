@@ -1,5 +1,10 @@
 import React from 'react';
-import type { AssistantDeletionPreview, AssistantProjectionDto } from '../types.js';
+import type {
+  AssistantDeletionPreview,
+  AssistantEvidenceDeletionPreview,
+  AssistantProjectionDto,
+  AssistantTopicForgetPreview,
+} from '../types.js';
 import type { AssistantMemorySelection } from '../components/AssistantMemoryDetail.js';
 import type { AssistantTabProps } from '../tabs/AssistantTab.js';
 import {
@@ -7,7 +12,9 @@ import {
   blockAssistantQuestionTopic,
   bootstrapAssistantToken,
   confirmAssistantAssertion,
+  confirmDeleteAssistantEvidence,
   confirmForgetAssistantAssertion,
+  confirmForgetAssistantTopic,
   correctAssistantAssertion,
   deleteAssistantPolicy,
   demoteAssistantAssertion,
@@ -20,7 +27,9 @@ import {
   getAssistantStatus,
   getCurrentAssistantQuestion,
   pinAssistantAssertion,
+  previewDeleteAssistantEvidence,
   previewForgetAssistantAssertion,
+  previewForgetAssistantTopic,
   searchAssistantMemory,
   setAssistantPolicyEnabled,
   skipAssistantQuestion,
@@ -39,6 +48,17 @@ export function useAssistantController(): { tabProps: AssistantTabProps } {
   const [question, setQuestion] = React.useState<AssistantTabProps['question']>(null);
   const [policies, setPolicies] = React.useState<AssistantTabProps['policies']>([]);
   const [deletionPreview, setDeletionPreview] = React.useState<AssistantDeletionPreview | null>(null);
+  const [evidenceDeletionPreview, setEvidenceDeletionPreview] =
+    React.useState<AssistantEvidenceDeletionPreview | null>(null);
+  const [topicForgetPreview, setTopicForgetPreview] =
+    React.useState<AssistantTopicForgetPreview | null>(null);
+
+  /** A preview is bound to one graph version and one target; changing either must void all. */
+  function clearPreviews(): void {
+    setDeletionPreview(null);
+    setEvidenceDeletionPreview(null);
+    setTopicForgetPreview(null);
+  }
 
   React.useEffect(() => {
     let active = true;
@@ -96,6 +116,8 @@ export function useAssistantController(): { tabProps: AssistantTabProps } {
     question,
     policies,
     deletionPreview,
+    evidenceDeletionPreview,
+    topicForgetPreview,
     onQueryChange: setQuery,
     onSearch: () => withToken(async (value) => { setResults(await searchAssistantMemory(value, query)); }),
     onSelectNode: (id) => withToken(async (value) => {
@@ -103,15 +125,15 @@ export function useAssistantController(): { tabProps: AssistantTabProps } {
         getAssistantNode(value, id), getAssistantNeighborhood(value, id),
       ]);
       setSelected({ kind: 'node', value: node, neighborhood });
-      setDeletionPreview(null);
+      clearPreviews();
     }),
     onSelectAssertion: (id) => withToken(async (value) => {
       await refreshAssertion(value, id);
-      setDeletionPreview(null);
+      clearPreviews();
     }),
     onSelectProjection(projection: AssistantProjectionDto) {
       setSelected({ kind: 'projection', value: projection });
-      setDeletionPreview(null);
+      clearPreviews();
     },
     onConfirm: (id, reason) => withToken(async (value) => {
       await confirmAssistantAssertion(value, id, reason);
@@ -134,7 +156,25 @@ export function useAssistantController(): { tabProps: AssistantTabProps } {
     }),
     onConfirmForget: (id, previewToken) => withToken(async (value) => {
       await confirmForgetAssistantAssertion(value, id, previewToken);
-      setDeletionPreview(null);
+      clearPreviews();
+      setSelected(null);
+      if (query.trim()) setResults(await searchAssistantMemory(value, query));
+    }),
+    onPreviewDeleteEvidence: (id) => withToken(async (value) => {
+      setEvidenceDeletionPreview(await previewDeleteAssistantEvidence(value, id));
+    }),
+    onConfirmDeleteEvidence: (id, previewToken) => withToken(async (value) => {
+      await confirmDeleteAssistantEvidence(value, id, previewToken);
+      clearPreviews();
+      setSelected(null);
+      if (query.trim()) setResults(await searchAssistantMemory(value, query));
+    }),
+    onPreviewForgetTopic: (topicKey) => withToken(async (value) => {
+      setTopicForgetPreview(await previewForgetAssistantTopic(value, topicKey));
+    }),
+    onConfirmForgetTopic: (topicKey, previewToken, addPolicy) => withToken(async (value) => {
+      await confirmForgetAssistantTopic(value, { topicKey, addPolicy, previewToken });
+      clearPreviews();
       setSelected(null);
       if (query.trim()) setResults(await searchAssistantMemory(value, query));
     }),

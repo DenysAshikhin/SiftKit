@@ -1,9 +1,11 @@
 import React from 'react';
 import type {
   AssistantDeletionPreview,
+  AssistantEvidenceDeletionPreview,
   AssistantPolicyDto,
   AssistantProjectionDto,
   AssistantQuestionDto,
+  AssistantTopicForgetPreview,
 } from '../types.js';
 import type { AssistantSearchResult } from '../assistant-api.js';
 import {
@@ -23,6 +25,8 @@ export type AssistantTabProps = {
   question: AssistantQuestionDto | null;
   policies: AssistantPolicyDto[];
   deletionPreview: AssistantDeletionPreview | null;
+  evidenceDeletionPreview: AssistantEvidenceDeletionPreview | null;
+  topicForgetPreview: AssistantTopicForgetPreview | null;
   onQueryChange(value: string): void;
   onSearch(): Promise<void>;
   onSelectNode(id: string): Promise<void>;
@@ -34,6 +38,10 @@ export type AssistantTabProps = {
   onDemote(id: string, reason: string): Promise<void>;
   onPreviewForget(id: string): Promise<void>;
   onConfirmForget(id: string, previewToken: string): Promise<void>;
+  onPreviewDeleteEvidence(id: string): Promise<void>;
+  onConfirmDeleteEvidence(id: string, previewToken: string): Promise<void>;
+  onPreviewForgetTopic(topicKey: string): Promise<void>;
+  onConfirmForgetTopic(topicKey: string, previewToken: string, addPolicy: boolean): Promise<void>;
   onFetchEvidencePixels(id: string): Promise<Blob>;
   onAnswerQuestion(answer: string): Promise<void>;
   onSkipQuestion(): Promise<void>;
@@ -92,12 +100,18 @@ export function AssistantTab(props: AssistantTabProps) {
         <AssistantMemoryDetail
           selected={props.selected}
           deletionPreview={props.deletionPreview}
+          evidenceDeletionPreview={props.evidenceDeletionPreview}
+          topicForgetPreview={props.topicForgetPreview}
           onConfirm={props.onConfirm}
           onCorrect={props.onCorrect}
           onPin={props.onPin}
           onDemote={props.onDemote}
           onPreviewForget={props.onPreviewForget}
           onConfirmForget={props.onConfirmForget}
+          onPreviewDeleteEvidence={props.onPreviewDeleteEvidence}
+          onConfirmDeleteEvidence={props.onConfirmDeleteEvidence}
+          onPreviewForgetTopic={props.onPreviewForgetTopic}
+          onConfirmForgetTopic={props.onConfirmForgetTopic}
           onFetchEvidencePixels={props.onFetchEvidencePixels}
         />
       </section>

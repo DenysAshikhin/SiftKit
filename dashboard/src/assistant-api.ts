@@ -3,6 +3,7 @@ import {
   AssistantAssertionDtoSchema,
   AssistantAssertionExplanationSchema,
   AssistantDeletionPreviewSchema,
+  AssistantEvidenceDeletionPreviewSchema,
   AssistantEvidenceDtoSchema,
   AssistantMutationResponseSchema,
   AssistantNodeDetailSchema,
@@ -11,15 +12,19 @@ import {
   AssistantProjectionDtoSchema,
   AssistantQuestionDtoSchema,
   AssistantStatusResponseSchema,
+  AssistantTopicForgetPreviewSchema,
   DesktopStateDtoSchema,
   type AssistantAssertionExplanation,
   type AssistantDeletionPreview,
+  type AssistantEvidenceDeletionPreview,
   type AssistantEvidenceDto,
   type AssistantMutationResponse,
   type AssistantNodeDetail,
   type AssistantPolicyDto,
   type AssistantQuestionDto,
   type AssistantStatusResponse,
+  type AssistantTopicForgetPreview,
+  type AssistantTopicForgetRequest,
   type DesktopStateDto,
 } from '@siftkit/contracts';
 import {
@@ -199,6 +204,37 @@ export function confirmForgetAssistantAssertion(
   return mutate(token, `/assistant/graph/assertions/${encodeURIComponent(id)}`, 'DELETE', {
     mode: 'confirm', previewToken,
   });
+}
+
+export function previewDeleteAssistantEvidence(
+  token: string,
+  id: string,
+): Promise<AssistantEvidenceDeletionPreview> {
+  return request(
+    `/assistant/evidence/${encodeURIComponent(id)}/deletion-preview`,
+    token,
+    AssistantEvidenceDeletionPreviewSchema,
+  );
+}
+
+export function confirmDeleteAssistantEvidence(token: string, id: string, previewToken: string) {
+  return mutate(token, `/assistant/evidence/${encodeURIComponent(id)}`, 'DELETE', { previewToken });
+}
+
+export function previewForgetAssistantTopic(
+  token: string,
+  topicKey: string,
+): Promise<AssistantTopicForgetPreview> {
+  return request('/assistant/topics/forget-preview', token, AssistantTopicForgetPreviewSchema, {
+    method: 'POST', body: JSON.stringify({ topicKey }),
+  });
+}
+
+export function confirmForgetAssistantTopic(
+  token: string,
+  forgetRequest: AssistantTopicForgetRequest,
+) {
+  return mutate(token, '/assistant/topics/forget', 'POST', forgetRequest);
 }
 
 export function answerAssistantQuestion(token: string, id: string, answer: string) {
