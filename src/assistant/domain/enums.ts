@@ -18,6 +18,11 @@ export function isSensitivityAtLeast(value: Sensitivity, floor: Sensitivity): bo
   return SENSITIVITY_RANK[value] >= SENSITIVITY_RANK[floor];
 }
 
+/** Combines independent classifications. Sensitivity only ever ratchets up. */
+export function maxSensitivity(a: Sensitivity, b: Sensitivity): Sensitivity {
+  return isSensitivityAtLeast(a, b) ? a : b;
+}
+
 /** Content at or above this sensitivity never reaches a plaintext index (§5.3). */
 const FTS_EXCLUSION_FLOOR: Sensitivity = 'sensitive';
 

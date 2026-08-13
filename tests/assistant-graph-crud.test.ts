@@ -20,11 +20,11 @@ test('identity store reads the seeded owner and local device', () => {
     assert.equal(owner.id, LOCAL_OWNER_ID);
 
     const deviceId = identity.getLocalDeviceId();
-    const device = identity.getDevice(deviceId);
+    const device = context.graph.devices.getDevice(deviceId);
     assert.notEqual(device, null);
     assert.equal(device?.status, 'active');
     assert.equal(device?.owner_id, LOCAL_OWNER_ID);
-    assert.equal(identity.listDevices(LOCAL_OWNER_ID).length, 1);
+    assert.equal(context.graph.devices.listDevices(LOCAL_OWNER_ID).length, 1);
   });
 });
 

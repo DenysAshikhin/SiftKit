@@ -1,6 +1,6 @@
 import { z } from '../../lib/zod.js';
 import { JsonObjectSchema, JsonValueSchema } from '../../lib/json-types.js';
-import { EvidenceSourceTypeSchema } from '../domain/enums.js';
+import { EvidenceSourceTypeSchema, SensitivitySchema } from '../domain/enums.js';
 
 /**
  * §7.1. Gate B carries text and json payloads; the blob payload arrives with Gate D capture,
@@ -15,6 +15,12 @@ export const IngestionEnvelopeSchema = z.object({
   sourceRef: z.string().nullable(),
   capturedAtUtc: z.string(),
   sourceTimezone: z.string().nullable(),
+  /**
+   * The source's own classification, used as a floor the secret scan can only raise. Null when
+   * the source cannot classify itself, which is every local source: only the mobile envelope
+   * carries a signed sensitivity.
+   */
+  declaredSensitivity: SensitivitySchema.nullable(),
   payload: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('text'), text: z.string() }),
     z.object({ kind: z.literal('json'), value: JsonValueSchema }),

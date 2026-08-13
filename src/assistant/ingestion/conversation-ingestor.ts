@@ -51,6 +51,7 @@ export class ConversationIngestor {
         sourceRef: input.sessionId,
         capturedAtUtc: input.capturedAtUtc,
         sourceTimezone: null,
+        declaredSensitivity: null,
         payload: { kind: 'text', text: message.text },
         metadata: { sessionId: input.sessionId, messageId: message.messageId, role: message.role },
       });

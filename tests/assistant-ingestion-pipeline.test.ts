@@ -14,6 +14,7 @@ function textEnvelope(ownerId: string, sourceEventId: string, text: string) {
     sourceRef: 'chat_1',
     capturedAtUtc: '2026-08-05T09:00:00.000Z',
     sourceTimezone: null,
+    declaredSensitivity: null,
     payload: { kind: 'text', text },
     metadata: { sessionId: 'chat_1' },
   } as const;
@@ -161,6 +162,7 @@ test('a json payload is serialized deterministically into evidence text', () => 
     const outcome = pipeline.accept({
       ownerId, deviceId: null, sourceType: 'conversation_message', sourceEventId: 'chat_1:msg_5',
       sourceRef: 'chat_1', capturedAtUtc: '2026-08-05T09:00:00.000Z', sourceTimezone: null,
+      declaredSensitivity: null,
       payload: { kind: 'json', value: { b: 1, a: 2 } }, metadata: { sessionId: 'chat_1' },
     });
     assert.equal(outcome.kind, 'accepted');

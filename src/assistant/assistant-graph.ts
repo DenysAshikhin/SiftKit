@@ -13,6 +13,7 @@ import { AssertionStore } from './storage/assertion-store.js';
 import { AuditStore } from './storage/audit-store.js';
 import { CandidateStore } from './storage/candidate-store.js';
 import { EvidenceStore } from './storage/evidence-store.js';
+import { DeviceStore } from './storage/device-store.js';
 import { IdentityStore } from './storage/identity-store.js';
 import { JobStore } from './storage/job-store.js';
 import { NodeStore } from './storage/node-store.js';
@@ -43,6 +44,7 @@ export class AssistantGraph {
   readonly runtimeRoot: string;
 
   readonly identity: IdentityStore;
+  readonly devices: DeviceStore;
   readonly audit: AuditStore;
   readonly nodes: NodeStore;
   readonly assertions: AssertionStore;
@@ -67,6 +69,7 @@ export class AssistantGraph {
     this.runtimeRoot = options.runtimeRoot;
 
     this.identity = new IdentityStore(database);
+    this.devices = new DeviceStore(database, clock);
     this.audit = new AuditStore(database, clock, ids);
     this.nodes = new NodeStore(database, clock, ids);
     this.assertions = new AssertionStore(database, clock, ids);

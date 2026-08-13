@@ -130,7 +130,7 @@ test('factory reset re-seeds the registries, owner, and device so the assistant 
     service.confirm(context.ownerId, service.preview(context.ownerId).previewToken);
 
     assert.equal(context.graph.identity.getOwner().id, context.ownerId);
-    assert.ok(context.graph.identity.getDevice(deviceId) !== null);
+    assert.ok(context.graph.devices.getDevice(deviceId) !== null);
     assert.ok(countRows(context, 'graph_node_types') > 0);
     assert.ok(countRows(context, 'graph_relation_types') > 0);
     assert.equal(context.graph.graphVersion, 0);

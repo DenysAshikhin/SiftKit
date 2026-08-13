@@ -1,6 +1,6 @@
 import { stableStringify } from '../../lib/json.js';
 import type { AssistantGraph } from '../assistant-graph.js';
-import { isSensitivityAtLeast, type Sensitivity } from '../domain/enums.js';
+import { maxSensitivity, type Sensitivity } from '../domain/enums.js';
 import type { SecretScanner } from '../domain/secrets.js';
 import { IngestionEnvelopeSchema, type IngestionEnvelope } from './envelope.js';
 
@@ -78,7 +78,7 @@ export class IngestionPipeline {
         sourceRef: envelope.sourceRef,
         capturedAtUtc: envelope.capturedAtUtc,
         sourceTimezone: envelope.sourceTimezone,
-        sensitivity: this.resolveSensitivity(scan.sensitivityFloor),
+        sensitivity: this.resolveSensitivity(scan.sensitivityFloor, envelope.declaredSensitivity),
         retentionUntilUtc: null,
         metadata: envelope.metadata,
         text,
@@ -109,8 +109,9 @@ export class IngestionPipeline {
     return envelope.payload.text;
   }
 
-  private resolveSensitivity(floor: Sensitivity): Sensitivity {
-    return isSensitivityAtLeast(floor, 'personal') ? floor : 'personal';
+  /** Everything ingested is at least `personal`; the scan and the source can only raise that. */
+  private resolveSensitivity(scanned: Sensitivity, declared: Sensitivity | null): Sensitivity {
+    return maxSensitivity(maxSensitivity(scanned, declared ?? 'low'), 'personal');
   }
 
   /**

@@ -12,6 +12,7 @@ import type {
   DesktopStateDto,
   EnvironmentStateDto,
   KeyCustody,
+  MobileEnvelope,
   SuppressionAuditDto,
 } from '@siftkit/contracts';
 import type { AssistantConfig } from '../config/types.js';
@@ -37,6 +38,7 @@ import { ConversationIngestor, type ChatTurnInput } from './ingestion/conversati
 import { IngestionPipeline } from './ingestion/pipeline.js';
 import { AssistantJobRunner, type InteractivityGate } from './jobs/job-runner.js';
 import { AssistantResourcePolicy } from './jobs/resource-policy.js';
+import { EnvelopeVerifier, type EnvelopeVerdict } from './mobile/envelope-verifier.js';
 import { CaptureQueueStore } from './images/capture-queue-store.js';
 import { CaptureRetentionService } from './images/capture-retention.js';
 import {
@@ -145,7 +147,10 @@ export class AssistantService implements AssistantRuntime {
   readonly exports: ExportService;
   readonly backups: BackupService;
 
+  private readonly clock: Clock;
+  private readonly pipeline: IngestionPipeline;
   private readonly ingestor: ConversationIngestor;
+  private readonly envelopes: EnvelopeVerifier;
   private readonly retriever: MemoryRetriever;
   private readonly runner: AssistantJobRunner;
   private readonly questionScheduler: QuestionScheduler;
@@ -172,6 +177,7 @@ export class AssistantService implements AssistantRuntime {
   private constructor(options: AssistantServiceOptions) {
     this.currentConfig = options.config;
     this.configWriter = options.configWriter;
+    this.clock = options.clock;
     this.environment = new DesktopEnvironmentCache(options.clock);
     const fileKeys = new FileKeyProvider(assistantKeyFile(options.runtimeRoot));
     const importedKeys = new ImportedKeyProvider();
@@ -216,13 +222,13 @@ export class AssistantService implements AssistantRuntime {
     this.ownerPersonId = options.config.Enabled ? this.ensureOwnerPersonNode() : null;
 
     const structuredOutput = new StructuredOutputRunner(options.inference);
-    this.ingestor = new ConversationIngestor(
-      new IngestionPipeline(
-        this.graph,
-        new SecretScanner(),
-        options.config.Background.JobPriorities.ConversationIngestion,
-      ),
+    this.pipeline = new IngestionPipeline(
+      this.graph,
+      new SecretScanner(),
+      options.config.Background.JobPriorities.ConversationIngestion,
     );
+    this.ingestor = new ConversationIngestor(this.pipeline);
+    this.envelopes = new EnvelopeVerifier(this.graph.devices);
     this.retriever = new MemoryRetriever(
       this.graph,
       options.tokens,
@@ -585,6 +591,48 @@ export class AssistantService implements AssistantRuntime {
         details: { message: error instanceof Error ? error.message : String(error) },
       });
     }
+  }
+
+  /**
+   * §7.6 mobile ingestion. Verification is the only mobile-specific step: an accepted envelope
+   * becomes an ordinary text ingestion, so mobile evidence takes exactly the same secret scan,
+   * blocked-topic check, and dedupe path as a chat turn.
+   */
+  ingestMobileEnvelope(envelope: MobileEnvelope): EnvelopeVerdict {
+    const verdict = this.envelopes.verify(envelope);
+    if (verdict.kind === 'rejected') {
+      this.graph.audit.recordAuditEvent({
+        ownerId: this.ownerId,
+        eventType: 'mobile_envelope_rejected',
+        targetType: 'device',
+        targetId: envelope.deviceId,
+        // Reason and device only: a rejected envelope's payload is unauthenticated, so it is
+        // never written anywhere.
+        summary: `Rejected a mobile envelope: ${verdict.reason}.`,
+        details: { reason: verdict.reason, deviceId: envelope.deviceId },
+      });
+      return verdict;
+    }
+    this.pipeline.accept({
+      ownerId: this.ownerId,
+      deviceId: envelope.deviceId,
+      sourceType: 'mobile_event',
+      sourceEventId: `mobile:${envelope.deviceId}:${envelope.nonce}`,
+      sourceRef: null,
+      // The envelope's timestamp is a device-local counter, not a wall clock.
+      capturedAtUtc: this.clock.nowUtc(),
+      sourceTimezone: null,
+      declaredSensitivity: envelope.sensitivity,
+      payload: { kind: 'text', text: envelope.payload.text },
+      metadata: {
+        deviceId: envelope.deviceId,
+        nonce: envelope.nonce,
+        monotonicTimestamp: envelope.monotonicTimestamp,
+        consentMemory: envelope.consent.memory,
+        consentSensitive: envelope.consent.sensitive,
+      },
+    });
+    return verdict;
   }
 
   /** Request-path retrieval. Deterministic, no model call. */
