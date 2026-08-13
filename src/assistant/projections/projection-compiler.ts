@@ -6,6 +6,7 @@ import { routeTier, tierUtility } from '../domain/tier-utility.js';
 import type { TokenCounter } from '../domain/tokens.js';
 import { LIVE_ASSERTION_STATUSES } from '../storage/assertion-store.js';
 import { OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.js';
+import { planTier3Archives } from './archive-planner.js';
 import { AssertionViewBuilder } from './assertion-view-builder.js';
 import {
   TIER_DOCUMENT_LIMIT, isProjectableInPlaintext,
@@ -24,6 +25,15 @@ export interface CompileSummary {
   readonly omittedAssertionCount: number;
   /** Rows the sweep removed because this compile did not produce them (§10.3). */
   readonly deletedProjectionCount: number;
+  /** Tier 3 topics merged into an `archive/<segment>` document, sorted (§10.3). */
+  readonly archivedTopicKeys: readonly string[];
+}
+
+/** §10.3 per-tier document counts. Overridable so tests can exercise overflow cheaply. */
+export interface TierDocumentLimits {
+  readonly 1: number;
+  readonly 2: number;
+  readonly 3: number;
 }
 
 /** What `persistWithSummary` did, plus the desired-set key it claimed. */
@@ -60,6 +70,7 @@ export class ProjectionCompiler {
     private readonly tokens: TokenCounter,
     private readonly summarizer: ProjectionSummaryService,
     private readonly targetTokens: ProjectionTargetTokens,
+    private readonly tierLimits: TierDocumentLimits = TIER_DOCUMENT_LIMIT,
   ) {
     this.views = new AssertionViewBuilder(graph);
     const enforcer = new TokenLimitEnforcer(tokens);
@@ -84,14 +95,17 @@ export class ProjectionCompiler {
 
     const tier2 = bundles.filter((bundle) => bundle.tier === 2)
       .sort((left, right) => right.utility - left.utility);
-    const keptTier2 = tier2.slice(0, TIER_DOCUMENT_LIMIT[2]);
-    for (const demoted of tier2.slice(TIER_DOCUMENT_LIMIT[2])) {
+    const keptTier2 = tier2.slice(0, this.tierLimits[2]);
+    for (const demoted of tier2.slice(this.tierLimits[2])) {
       demotedTopicKeys.push(demoted.topicKey);
     }
-    const tier3 = [
+    const tier3Sorted = [
       ...bundles.filter((bundle) => bundle.tier === 3),
-      ...tier2.slice(TIER_DOCUMENT_LIMIT[2]).map((bundle) => ({ ...bundle, tier: 3 as const })),
-    ].sort((left, right) => right.utility - left.utility).slice(0, TIER_DOCUMENT_LIMIT[3]);
+      ...tier2.slice(this.tierLimits[2]).map((bundle) => ({ ...bundle, tier: 3 as const })),
+    ].sort((left, right) => right.utility - left.utility);
+    const plan = planTier3Archives(tier3Sorted, this.tierLimits[3]);
+    const archivedTopicKeys = [...plan.archives.values()].flat()
+      .map((bundle) => bundle.topicKey).sort();
 
     // An owner with nothing to say gets no profile row at all, rather than an empty document.
     if (profileViews.length > 0 || keptTier2.length > 0) {
@@ -108,7 +122,7 @@ export class ProjectionCompiler {
       omittedAssertionCount += profile.omittedAssertionCount;
     }
 
-    for (const bundle of [...keptTier2, ...tier3]) {
+    for (const bundle of [...keptTier2, ...plan.kept]) {
       const document = await this.dossiers.compile({
         tier: bundle.tier,
         topicKey: bundle.topicKey,
@@ -128,9 +142,39 @@ export class ProjectionCompiler {
       omittedAssertionCount += document.omittedAssertionCount;
     }
 
+    // Archive groups compile last, in key order, so the written bytes are order-independent.
+    for (const [archiveKey, group] of [...plan.archives.entries()]
+      .sort((left, right) => left[0].localeCompare(right[0]))) {
+      const document = await this.dossiers.compile({
+        tier: 3,
+        topicKey: archiveKey,
+        title: `Archive — ${archiveKey.slice('archive/'.length)}`,
+        views: group.flatMap((bundle) => bundle.views),
+        relatedTopicKeys: [],
+      });
+      const result = await this.persistWithSummary(ownerId, document, graphVersion, abortSignal);
+      written += result.written;
+      unchanged += result.unchanged;
+      desired.add(result.desiredKey);
+      omittedAssertionCount += document.omittedAssertionCount;
+      this.graph.audit.recordAuditEvent({
+        ownerId,
+        eventType: 'projection_archived',
+        targetType: 'memory_projections',
+        targetId: archiveKey,
+        summary: `Tier 3 overflow merged into ${archiveKey}.`,
+        details: { mergedTopicKeys: group.map((bundle) => bundle.topicKey).sort() },
+      });
+    }
+
     const deletedProjectionCount = this.sweepOrphans(ownerId, desired);
     return {
-      written, unchanged, demotedTopicKeys, omittedAssertionCount, deletedProjectionCount,
+      written,
+      unchanged,
+      demotedTopicKeys,
+      omittedAssertionCount,
+      deletedProjectionCount,
+      archivedTopicKeys,
     };
   }
 
