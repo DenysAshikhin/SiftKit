@@ -226,6 +226,11 @@ CREATE INDEX IF NOT EXISTS graph_assertions_scope_idx
   ON graph_assertions(owner_id, scope_node_id, status) WHERE scope_node_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS graph_assertions_current_idx
   ON graph_assertions(owner_id, status, valid_to_utc, last_observed_at_utc);
+CREATE INDEX IF NOT EXISTS graph_assertions_subject_recency_idx
+  ON graph_assertions(owner_id, subject_node_id, predicate, last_observed_at_utc DESC, id);
+CREATE INDEX IF NOT EXISTS graph_assertions_object_recency_idx
+  ON graph_assertions(owner_id, object_node_id, predicate, last_observed_at_utc DESC, id)
+  WHERE object_node_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS assertion_evidence (
     assertion_id TEXT NOT NULL REFERENCES graph_assertions(id) ON DELETE CASCADE,

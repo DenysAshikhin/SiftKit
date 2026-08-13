@@ -62,10 +62,10 @@ test('a fresh database lands on the current schema version with every assistant 
   getRuntimeDatabase(dbPath);
   closeRuntimeDatabase();
 
-  assert.equal(CURRENT_SCHEMA_VERSION, 44);
+  assert.equal(CURRENT_SCHEMA_VERSION, 45);
   const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
     .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
-  assert.equal(version, 44);
+  assert.equal(version, 45);
 
   const tables = new Set(tableNames(dbPath));
   for (const expected of EXPECTED_ASSISTANT_TABLES) {
@@ -88,7 +88,7 @@ test('v42 adds proactive assistant tables and durable Gate C columns', () => {
     assert.ok(appConfigColumns.includes('assistant_json'));
     assert.ok(assertionColumns.includes('user_demoted'));
     assert.ok(candidateColumns.includes('user_notes'));
-    assert.equal(getSchemaVersion(database), 44);
+    assert.equal(getSchemaVersion(database), 45);
 
     assert.throws(() => database.prepare(`
       INSERT INTO assistant_questions (
@@ -201,7 +201,7 @@ test('the v41 projection and job tables remain present after the v42 migration',
     assert.ok(tables.includes('memory_projections'), 'memory_projections missing');
     assert.ok(tables.includes('assistant_jobs'), 'assistant_jobs missing');
     assert.ok(tables.includes('memory_projections_fts'), 'memory_projections_fts missing');
-    assert.equal(getSchemaVersion(database), 44);
+    assert.equal(getSchemaVersion(database), 45);
   });
 });
 
@@ -282,7 +282,7 @@ test('projection and job row schemas parse the shapes SQLite returns', () => {
 
 test('v43 adds the desktop observation tables with their guards and indexes', () => {
   withAssistantContext(({ database, ownerId }) => {
-    assert.equal(getSchemaVersion(database), 44);
+    assert.equal(getSchemaVersion(database), 45);
 
     const indexes = NameRowSchema.parse(database.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'index'",
@@ -336,12 +336,12 @@ test('re-running the v43 migration is a no-op', () => {
   assert.equal(countRows(dbPath, 'assistant_capture_queue'), 0);
   const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
     .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
-  assert.equal(version, 44);
+  assert.equal(version, 45);
 });
 
 test('v44 adds the device nonce table with its replay-protection key and index', () => {
   withAssistantContext(({ database, ownerId }) => {
-    assert.equal(getSchemaVersion(database), 44);
+    assert.equal(getSchemaVersion(database), 45);
 
     const columns = ColumnRowSchema.parse(
       database.prepare("SELECT name FROM pragma_table_info('assistant_device_nonces')").all(),
@@ -386,7 +386,7 @@ test('a v43 database gains the device nonce table when it migrates forward', () 
   assert.ok(tableNames(dbPath).includes('assistant_device_nonces'));
   const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
     .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
-  assert.equal(version, 44);
+  assert.equal(version, 45);
 });
 
 test('re-running the v44 migration is a no-op', () => {
@@ -399,5 +399,45 @@ test('re-running the v44 migration is a no-op', () => {
   assert.equal(countRows(dbPath, 'assistant_device_nonces'), 0);
   const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
     .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
-  assert.equal(version, 44);
+  assert.equal(version, 45);
+});
+
+test('a v44 database gains the assertion recency indexes when it migrates forward', () => {
+  const dbPath = tempDbPath('siftkit-assistant-migration-v45-');
+  getRuntimeDatabase(dbPath);
+  closeRuntimeDatabase();
+
+  const downgrade = new Database(dbPath);
+  downgrade.exec(`
+    DROP INDEX graph_assertions_subject_recency_idx;
+    DROP INDEX graph_assertions_object_recency_idx;
+  `);
+  downgrade.prepare('UPDATE runtime_schema SET version = 44 WHERE id = 1').run();
+  downgrade.close();
+
+  getRuntimeDatabase(dbPath);
+  closeRuntimeDatabase();
+
+  const indexes = withReadonlyDb(dbPath, (database) => NameRowSchema.parse(
+    database.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all(),
+  ).map((row) => row.name));
+  assert.ok(indexes.includes('graph_assertions_subject_recency_idx'));
+  assert.ok(indexes.includes('graph_assertions_object_recency_idx'));
+  const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
+    .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
+  assert.equal(version, 45);
+});
+
+test('re-running the v45 migration is a no-op', () => {
+  const dbPath = tempDbPath('siftkit-assistant-migration-v45-reapply-');
+  getRuntimeDatabase(dbPath);
+  closeRuntimeDatabase();
+  getRuntimeDatabase(dbPath);
+  closeRuntimeDatabase();
+
+  assert.equal(countRows(dbPath, 'graph_assertions'), 0);
+  assert.equal(countRows(dbPath, 'assistant_owners'), 1);
+  const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
+    .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
+  assert.equal(version, 45);
 });

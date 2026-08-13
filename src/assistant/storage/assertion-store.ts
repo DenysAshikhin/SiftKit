@@ -135,6 +135,52 @@ export class AssertionStore {
   }
 
   /**
+   * The `limit` most recent live node-object edges touching `nodeId` on one side, for one
+   * predicate. §11.4 traversal reads edges through this instead of the unbounded lists, so a
+   * supernode (the owner) costs O(limit), not O(degree).
+   */
+  listTopLiveNodeEdges(
+    ownerId: string,
+    nodeId: string,
+    direction: 'subject' | 'object',
+    predicate: RelationType,
+    limit: number,
+  ): AssertionRow[] {
+    const column = direction === 'subject' ? 'subject_node_id' : 'object_node_id';
+    return z.array(AssertionRowSchema).parse(this.database.prepare(`
+      SELECT * FROM graph_assertions
+      WHERE owner_id = ? AND ${column} = ? AND predicate = ?
+        AND status IN ('active', 'disputed') AND object_kind = 'node'
+      ORDER BY last_observed_at_utc DESC, id ASC
+      LIMIT ?
+    `).all(ownerId, nodeId, predicate, limit));
+  }
+
+  /**
+   * Up to `limit` ids of live node-object edges touching `nodeId` on one side, any allowlisted
+   * predicate, unordered. The §11.4 hop-truncation check reads ids through this: fetching one
+   * more id than the traversal collected proves an uncollected edge by pigeonhole without
+   * materializing rows.
+   */
+  listLiveNodeEdgeIds(
+    ownerId: string,
+    nodeId: string,
+    direction: 'subject' | 'object',
+    predicates: readonly RelationType[],
+    limit: number,
+  ): string[] {
+    if (predicates.length === 0) return [];
+    const column = direction === 'subject' ? 'subject_node_id' : 'object_node_id';
+    const placeholders = predicates.map(() => '?').join(', ');
+    return z.array(z.object({ id: z.string() })).parse(this.database.prepare(`
+      SELECT id FROM graph_assertions
+      WHERE owner_id = ? AND ${column} = ? AND predicate IN (${placeholders})
+        AND status IN ('active', 'disputed') AND object_kind = 'node'
+      LIMIT ?
+    `).all(ownerId, nodeId, ...predicates, limit)).map((row) => row.id);
+  }
+
+  /**
    * Live assertions for a subject whose real-world validity window contains `atUtc`.
    * An open `valid_from` or `valid_to` is treated as unbounded on that side.
    */

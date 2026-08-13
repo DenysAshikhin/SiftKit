@@ -46,7 +46,7 @@ const ChatPresetSnapshotSessionRowSchema = z.object({
   context_window_tokens: z.number(),
 });
 
-export const CURRENT_SCHEMA_VERSION = 44;
+export const CURRENT_SCHEMA_VERSION = 45;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["read","grep","find","ls","git"],"full":[]}';
 const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
 
@@ -1496,6 +1496,11 @@ function ensureSchema(database: RuntimeDatabase): void {
     database.exec(ASSISTANT_MOBILE_SCHEMA_SQL);
     setSchemaVersion(database, 44);
     currentVersion = 44;
+  }
+  if (currentVersion < 45) {
+    database.exec(ASSISTANT_CORE_SCHEMA_SQL);
+    setSchemaVersion(database, 45);
+    currentVersion = 45;
   }
   ensureChatMessageTimelineSchema(database);
   ensureRuntimeArtifactsSchema(database);

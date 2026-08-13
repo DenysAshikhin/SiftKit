@@ -1,5 +1,5 @@
 import type { RelationType } from '../domain/relation-types.js';
-import { LIVE_ASSERTION_STATUSES, type AssertionStore } from '../storage/assertion-store.js';
+import type { AssertionStore } from '../storage/assertion-store.js';
 import type { NodeStore } from '../storage/node-store.js';
 import type { AssertionRow } from '../storage/rows.js';
 
@@ -36,6 +36,7 @@ export class NeighborhoodReader {
   read(request: NeighborhoodRequest): Neighborhood {
     this.nodes.requireNode(request.rootNodeId);
     const allowed = new Set<RelationType>(request.predicates);
+    const fetchLimit = request.maxFanoutPerNodePredicate + 1;
     const visitedNodes = new Set<string>([request.rootNodeId]);
     const collectedAssertions = new Set<string>();
     const truncatedBy = new Set<TruncationReason>();
@@ -47,7 +48,7 @@ export class NeighborhoodReader {
       const nextFrontier: string[] = [];
 
       for (const nodeId of frontier) {
-        const byPredicate = this.groupByPredicate(request.ownerId, nodeId, allowed);
+        const byPredicate = this.groupByPredicate(request.ownerId, nodeId, allowed, fetchLimit);
 
         for (const edges of byPredicate.values()) {
           const taken = edges.slice(0, request.maxFanoutPerNodePredicate);
@@ -78,7 +79,8 @@ export class NeighborhoodReader {
       frontier = nextFrontier;
     }
 
-    if (frontier.length > 0 && this.hasRemainingEdges(request.ownerId, frontier, allowed, collectedAssertions)) {
+    if (frontier.length > 0
+      && this.hasRemainingEdges(request.ownerId, frontier, allowed, collectedAssertions)) {
       truncatedBy.add('max_hops');
     }
 
@@ -90,50 +92,46 @@ export class NeighborhoodReader {
     };
   }
 
-  /** Returns true when any frontier node has at least one live edge not yet collected. */
+  /**
+   * Whether any frontier node still has a live edge the traversal did not collect. Fetching
+   * `collected + 1` edge ids per node and direction is exact by pigeonhole: a node with more
+   * live edges than the whole traversal collected must yield an uncollected id, and a node
+   * that yields only collected ids was fetched completely.
+   */
   private hasRemainingEdges(
     ownerId: string, frontier: readonly string[], allowed: ReadonlySet<RelationType>,
     collectedAssertions: ReadonlySet<string>,
   ): boolean {
-    return frontier.some((nodeId) => this.liveEdges(ownerId, nodeId, allowed).some(
-      (row) => !collectedAssertions.has(row.id),
+    const predicates = [...allowed];
+    const limit = collectedAssertions.size + 1;
+    return frontier.some((nodeId) => (
+      [
+        ...this.assertions.listLiveNodeEdgeIds(ownerId, nodeId, 'subject', predicates, limit),
+        ...this.assertions.listLiveNodeEdgeIds(ownerId, nodeId, 'object', predicates, limit),
+      ].some((id) => !collectedAssertions.has(id))
     ));
   }
 
   /**
-   * The traversable edges of `nodeId`: live node-to-node assertions in either direction whose
-   * predicate is allowlisted, deduplicated because a self-edge is returned by both lookups. Both
-   * the traversal and the truncation detector read this, so they can never disagree about which
-   * edges exist.
+   * The most recent traversable edges of `nodeId`, grouped by predicate: subject-side edges
+   * first, then object-side, each side already recency-ordered by the store, self-edges
+   * deduplicated onto their subject position. Fetching `fetchLimit` (fanout + 1) rows per side
+   * bounds supernode expansion at O(fanout) while keeping the `max_fanout` length check exact.
+   * Buckets iterate in allowlist order.
    */
-  private liveEdges(
-    ownerId: string, nodeId: string, allowed: ReadonlySet<RelationType>,
-  ): AssertionRow[] {
-    const byId = new Map<string, AssertionRow>();
-    const edges = [
-      ...this.assertions.listBySubject(ownerId, nodeId, LIVE_ASSERTION_STATUSES),
-      ...this.assertions.listByObjectNode(ownerId, nodeId, LIVE_ASSERTION_STATUSES),
-    ];
-    for (const edge of edges) {
-      if (edge.object_kind === 'node' && allowed.has(edge.predicate)) {
-        byId.set(edge.id, edge);
-      }
-    }
-    return [...byId.values()];
-  }
-
-  /** Traversable edges grouped by predicate, so the fanout cap applies per node and predicate. */
   private groupByPredicate(
-    ownerId: string, nodeId: string, allowed: ReadonlySet<RelationType>,
+    ownerId: string, nodeId: string, allowed: ReadonlySet<RelationType>, fetchLimit: number,
   ): Map<RelationType, AssertionRow[]> {
     const grouped = new Map<RelationType, AssertionRow[]>();
-    for (const edge of this.liveEdges(ownerId, nodeId, allowed)) {
-      const bucket = grouped.get(edge.predicate);
-      if (bucket === undefined) {
-        grouped.set(edge.predicate, [edge]);
-      } else {
-        bucket.push(edge);
+    for (const predicate of allowed) {
+      const byId = new Map<string, AssertionRow>();
+      for (const edge of [
+        ...this.assertions.listTopLiveNodeEdges(ownerId, nodeId, 'subject', predicate, fetchLimit),
+        ...this.assertions.listTopLiveNodeEdges(ownerId, nodeId, 'object', predicate, fetchLimit),
+      ]) {
+        if (!byId.has(edge.id)) byId.set(edge.id, edge);
       }
+      if (byId.size > 0) grouped.set(predicate, [...byId.values()]);
     }
     return grouped;
   }
