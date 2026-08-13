@@ -4,7 +4,6 @@ import type {
   AssistantTopicForgetPreview,
 } from '@siftkit/contracts';
 import type { JsonObject } from '../../lib/json-types.js';
-import type { RuntimeDatabase } from '../../state/runtime-db.js';
 import type { AssistantGraph } from '../assistant-graph.js';
 import { AssistantNotFoundError } from '../errors.js';
 import type {
@@ -13,13 +12,14 @@ import type {
 import type { AssertionObjectRef } from '../domain/keys.js';
 import type { ProjectionCompiler } from '../projections/projection-compiler.js';
 import type { AssertionRow } from '../storage/rows.js';
-import { DeletionPreviewService, topicAssertionIds } from './deletion-preview.js';
+import { topicAssertionIds, type DeletionPreviewService } from './deletion-preview.js';
 
 interface MemoryMutationServiceOptions {
   readonly graph: AssistantGraph;
-  readonly database: RuntimeDatabase;
   readonly projectionPriority: number;
   readonly projections: ProjectionCompiler;
+  /** Shared with the factory reset so one signing secret governs every deletion token. */
+  readonly deletionPreviews: DeletionPreviewService;
 }
 
 interface AssertionMutationRequest {
@@ -57,7 +57,7 @@ export class MemoryMutationService {
     this.graph = options.graph;
     this.projectionPriority = options.projectionPriority;
     this.projections = options.projections;
-    this.deletionPreviews = new DeletionPreviewService(options.graph, options.database);
+    this.deletionPreviews = options.deletionPreviews;
   }
 
   refreshProjectionPriority(priority: number): void {

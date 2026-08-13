@@ -24,7 +24,7 @@ class PassthroughSummarizer implements ProjectionSummaryService {
 function mutationServiceFor(context: AssistantTestContext): MemoryMutationService {
   return new MemoryMutationService({
     graph: context.graph,
-    database: context.database,
+    deletionPreviews: new DeletionPreviewService(context.graph, context.database),
     projectionPriority: 5,
     projections: new ProjectionCompiler(
       context.graph, new EstimateTokenCounter(4), new PassthroughSummarizer(),

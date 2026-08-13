@@ -61,11 +61,12 @@ export class FileKeyProvider implements AssistantKeyProvider {
     return this.ensureKeyFile();
   }
 
-  /** Removes the key file. Only the custody migration may call this, and only after import. */
+  /**
+   * Removes the key file. Only the custody migration (after import) and the factory reset may
+   * call this. Tolerates a missing file so both callers stay idempotent.
+   */
   deleteKeyFile(): void {
-    if (fs.existsSync(this.keyFilePath)) {
-      fs.rmSync(this.keyFilePath);
-    }
+    fs.rmSync(this.keyFilePath, { force: true });
   }
 
   /** The key file on disk, generating the first key set on first use. */

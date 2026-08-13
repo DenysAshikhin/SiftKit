@@ -138,6 +138,16 @@ export class KeyCustodyService {
   }
 
   /**
+   * §16.1 factory reset: no key survives, in either custody. Custody returns to file mode so the
+   * next enable generates a fresh key rather than waiting on a shell push. Idempotent.
+   */
+  resetForFactoryReset(): void {
+    this.fileKeys.deleteKeyFile();
+    this.imported.clear();
+    this.config.writeCustody('file');
+  }
+
+  /**
    * Proves the offered material can read what is already stored. With no evidence yet there is
    * nothing to read, so a cipher round trip stands in — enough to catch corrupt key bytes.
    */

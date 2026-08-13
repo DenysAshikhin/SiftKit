@@ -485,6 +485,42 @@ CREATE INDEX IF NOT EXISTS assistant_device_nonces_ts_idx
 `;
 
 /**
+ * Every assistant-owned table, children before parents so bulk DELETEs satisfy foreign keys
+ * (§16.1 factory reset). The registry tables and `runtime_metadata` are excluded deliberately:
+ * they are re-seeded projections of TypeScript constants, not user data.
+ */
+export const ASSISTANT_TABLE_NAMES = [
+  'assistant_device_nonces',
+  'assistant_question_feedback',
+  'assistant_questions',
+  'retrieval_usage',
+  'assistant_capture_queue',
+  'assistant_activity_events',
+  'assistant_activity_sessions',
+  'candidate_assertions',
+  'observations',
+  'assertion_evidence',
+  'graph_assertions',
+  'graph_node_aliases',
+  'graph_entity_merges',
+  'graph_mutation_log',
+  'assistant_audit_events',
+  'assistant_jobs',
+  'memory_projections',
+  'evidence_records',
+  'evidence_blobs',
+  'graph_nodes',
+  'assistant_devices',
+  'assistant_policies',
+  'assistant_owners',
+] as const;
+
+/** The fts5 shadow tables. They hold no foreign keys, so they are emptied first. */
+export const ASSISTANT_FTS_TABLE_NAMES = [
+  'graph_nodes_fts', 'graph_assertions_fts', 'memory_projections_fts',
+] as const;
+
+/**
  * Seeds the registry tables, the single owner row, and this machine's device row from the
  * TypeScript registries. The registry constants are the source of truth; these rows are their
  * projection, so seeding is a full upsert and is safe to re-run.

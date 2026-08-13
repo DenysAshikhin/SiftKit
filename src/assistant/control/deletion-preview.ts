@@ -4,6 +4,7 @@ import { parseJsonText } from '../../lib/json.js';
 import type {
   AssistantDeletionPreview,
   AssistantEvidenceDeletionPreview,
+  AssistantFactoryResetPreview,
   AssistantTopicForgetPreview,
 } from '@siftkit/contracts';
 import type { AssistantGraph } from '../assistant-graph.js';
@@ -152,6 +153,41 @@ export class DeletionPreviewService {
       throw new AssistantConflictError('Deletion preview token does not match this topic.');
     }
     this.assertCurrent(payload, this.buildForgetTopicPayload(ownerId, topicKey));
+  }
+
+  /**
+   * Counts come from the caller — `FactoryResetService` owns the table inventory. The signed
+   * payload records what the user was shown; staleness is decided by the graph version alone,
+   * because background rows (jobs, retrieval usage) churn without any graph mutation.
+   */
+  previewFactoryReset(
+    ownerId: string,
+    tableCounts: Readonly<Record<string, number>>,
+    blobs: { readonly blobCount: number; readonly blobBytes: number },
+  ): AssistantFactoryResetPreview {
+    const totalRows = Object.values(tableCounts).reduce((sum, count) => sum + count, 0);
+    return {
+      previewToken: this.sign({
+        ownerId,
+        operation: 'factory_reset',
+        graphVersion: this.graph.graphVersion,
+        totalRows,
+      }),
+      graphVersion: this.graph.graphVersion,
+      tableCounts: { ...tableCounts },
+      blobCount: blobs.blobCount,
+      blobBytes: blobs.blobBytes,
+    };
+  }
+
+  validateFactoryReset(ownerId: string, previewToken: string): void {
+    const payload = this.verify(previewToken);
+    if (payload.operation !== 'factory_reset' || payload.ownerId !== ownerId) {
+      throw new AssistantConflictError('Deletion preview token does not authorize a factory reset.');
+    }
+    if (payload.graphVersion !== this.graph.graphVersion) {
+      throw new AssistantConflictError('Deletion preview is stale because the graph version changed.');
+    }
   }
 
   /** The token is only as good as the state it described: rebuild and compare, never trust. */

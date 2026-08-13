@@ -1,6 +1,7 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { DeletionPreviewService } from '../src/assistant/control/deletion-preview.js';
 import { MemoryMutationService } from '../src/assistant/control/memory-mutation-service.js';
 import { ProjectionCompiler } from '../src/assistant/projections/projection-compiler.js';
 import type {
@@ -39,7 +40,8 @@ test('memory mutations confirm, correct, pin, and demote with explicit history',
     assert.equal(created.kind, 'created');
     if (created.kind !== 'created') return;
     const service = new MemoryMutationService({
-      graph, database, projectionPriority: 300,
+      graph, projectionPriority: 300,
+      deletionPreviews: new DeletionPreviewService(graph, database),
       projections: new ProjectionCompiler(
         graph, new EstimateTokenCounter(4), new UnusedSummarizer(),
         { 1: 10_000, 2: 50_000, 3: 10_000 },
@@ -106,7 +108,8 @@ test('signed deletion previews reject tampering and staleness before forgetting'
       includedAssertionIds: [created.assertionId], sensitivity: 'personal',
     });
     const service = new MemoryMutationService({
-      graph, database, projectionPriority: 300,
+      graph, projectionPriority: 300,
+      deletionPreviews: new DeletionPreviewService(graph, database),
       projections: new ProjectionCompiler(
         graph, new EstimateTokenCounter(4), new UnusedSummarizer(),
         { 1: 10_000, 2: 50_000, 3: 10_000 },

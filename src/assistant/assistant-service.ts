@@ -2,6 +2,7 @@ import type { RuntimeDatabase } from '../state/runtime-db.js';
 import type {
   ActivityEventDto,
   AssistantPolicyDto,
+  AssistantFactoryResetPreview,
   AssistantQuestionDto,
   AssistantStatusResponse,
   AssistantValidationCandidateDto,
@@ -55,6 +56,8 @@ import {
 import { QuestionScheduler } from './questions/scheduler.js';
 import { QuestionAnswerIngestor } from './questions/answer-ingestor.js';
 import { QuestionFeedbackService, type AssistantQuestionConfigWriter } from './questions/feedback-service.js';
+import { DeletionPreviewService } from './control/deletion-preview.js';
+import { FactoryResetService } from './control/factory-reset-service.js';
 import { MemoryQueryService } from './control/memory-query-service.js';
 import { MemoryMutationService } from './control/memory-mutation-service.js';
 import { normalizeLiteralValue } from './domain/keys.js';
@@ -147,9 +150,11 @@ export class AssistantService implements AssistantRuntime {
   private readonly captureRetention: CaptureRetentionService;
   private readonly imageCapability: AssistantImageCapabilityProvider;
   private readonly configWriter: AssistantConfigWriter;
+  private readonly factoryResets: FactoryResetService;
   private currentConfig: AssistantConfig;
   private ownerPersonId: string | null;
   private maxJobsPerDrain: number;
+  private maintenanceActive = false;
 
   private constructor(options: AssistantServiceOptions) {
     this.currentConfig = options.config;
@@ -226,11 +231,20 @@ export class AssistantService implements AssistantRuntime {
       },
     );
     this.memoryQueries = new MemoryQueryService(this.graph);
+    const deletionPreviews = new DeletionPreviewService(this.graph, options.database);
     this.memoryMutations = new MemoryMutationService({
       graph: this.graph,
-      database: options.database,
       projectionPriority: options.config.Background.JobPriorities.ProjectionMaintenance,
       projections,
+      deletionPreviews,
+    });
+    this.factoryResets = new FactoryResetService({
+      graph: this.graph,
+      database: options.database,
+      clock: options.clock,
+      keyCustody: this.keyCustody,
+      previews: deletionPreviews,
+      runtimeRoot: options.runtimeRoot,
     });
     this.questionFeedback = new QuestionFeedbackService(
       this.graph,
@@ -569,8 +583,37 @@ export class AssistantService implements AssistantRuntime {
     this.runner.requestPreemption();
   }
 
+  /**
+   * Serializes whole-database maintenance — factory reset, restore — against the drain loop.
+   * Background work is preempted first, and no new drain starts while `work` runs.
+   */
+  async runMaintenance<T>(work: () => Promise<T>): Promise<T> {
+    this.runner.requestPreemption();
+    this.maintenanceActive = true;
+    try {
+      return await work();
+    } finally {
+      this.maintenanceActive = false;
+    }
+  }
+
+  previewFactoryReset(): AssistantFactoryResetPreview {
+    return this.factoryResets.preview(this.ownerId);
+  }
+
+  /** §16.1: destroys every assistant row, blob, and key, then leaves a clean install behind. */
+  async factoryReset(previewToken: string): Promise<void> {
+    const ownerId = this.ownerId;
+    await this.runMaintenance(async () => {
+      this.factoryResets.confirm(ownerId, previewToken);
+    });
+    // The owner person node went with everything else; the next enable re-creates it.
+    this.ownerPersonId = null;
+  }
+
   /** Called by the host's idle tick. */
   async drainJobs(): Promise<void> {
+    if (this.maintenanceActive) return;
     if (!this.enabled) return;
     // Retention runs even when observation is paused: it only ever removes data (spec §7).
     this.graph.jobs.enqueue({
