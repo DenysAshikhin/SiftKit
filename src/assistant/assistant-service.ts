@@ -56,6 +56,7 @@ import {
 import { QuestionScheduler } from './questions/scheduler.js';
 import { QuestionAnswerIngestor } from './questions/answer-ingestor.js';
 import { QuestionFeedbackService, type AssistantQuestionConfigWriter } from './questions/feedback-service.js';
+import { BackupService } from './control/backup-service.js';
 import { DeletionPreviewService } from './control/deletion-preview.js';
 import { ExportService } from './control/export-service.js';
 import { FactoryResetService } from './control/factory-reset-service.js';
@@ -139,6 +140,7 @@ export class AssistantService implements AssistantRuntime {
   readonly questionFeedback: QuestionFeedbackService;
   readonly keyCustody: KeyCustodyService;
   readonly exports: ExportService;
+  readonly backups: BackupService;
 
   private readonly ingestor: ConversationIngestor;
   private readonly retriever: MemoryRetriever;
@@ -234,6 +236,12 @@ export class AssistantService implements AssistantRuntime {
     );
     this.memoryQueries = new MemoryQueryService(this.graph);
     this.exports = new ExportService(this.graph, options.database, this.graph.ownerId);
+    this.backups = new BackupService({
+      graph: this.graph,
+      database: options.database,
+      keyCustody: this.keyCustody,
+      runtimeRoot: options.runtimeRoot,
+    });
     const deletionPreviews = new DeletionPreviewService(this.graph, options.database);
     this.memoryMutations = new MemoryMutationService({
       graph: this.graph,

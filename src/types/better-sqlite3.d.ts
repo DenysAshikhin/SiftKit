@@ -12,6 +12,8 @@ declare module 'better-sqlite3' {
     pragma(source: string, options?: { simple?: boolean }): unknown;
     close(): void;
     transaction<T extends (...args: unknown[]) => unknown>(fn: T): T;
+    /** Native online backup: a consistent copy without blocking writers. */
+    backup(destinationFile: string): Promise<{ totalPages: number; remainingPages: number }>;
   }
 
   export interface DatabaseConstructor {
