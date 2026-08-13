@@ -15,6 +15,7 @@ import {
   removeAssistantValidationCandidate,
   saveAssistantValidationNotes,
 } from '../../assistant-api.js';
+import { AssistantMaintenance } from './AssistantMaintenance.js';
 
 type AssistantView = 'configuration' | 'validation' | 'history';
 
@@ -332,9 +333,12 @@ export function AssistantSettings(props: AssistantSettingsProps) {
       </div>
       <p className="assistant-security-note">Evidence is encrypted at rest; the active key custody is shown under Observation.</p>
       {error ? <p className="error" role="alert">{error}</p> : null}
-      {view === 'configuration'
-        ? <AssistantConfiguration {...props} desktopState={desktopState} />
-        : null}
+      {view === 'configuration' ? (
+        <>
+          <AssistantConfiguration {...props} desktopState={desktopState} />
+          <AssistantMaintenance token={token} />
+        </>
+      ) : null}
       {view === 'validation' ? (
         <div className="assistant-feed">
           {loading ? <p className="hint">Loading pending proof…</p> : null}

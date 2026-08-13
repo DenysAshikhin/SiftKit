@@ -101,6 +101,10 @@ test('settings tooltip labels include the documented fields', () => {
       'Vision enabled',
       'Max image size (MP)',
       'Vision image retention',
+      'Export memory',
+      'Backup',
+      'Restore',
+      'Factory reset',
     ],
   );
 });

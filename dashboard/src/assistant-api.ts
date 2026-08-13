@@ -5,18 +5,24 @@ import {
   AssistantDeletionPreviewSchema,
   AssistantEvidenceDeletionPreviewSchema,
   AssistantEvidenceDtoSchema,
+  AssistantFactoryResetPreviewSchema,
   AssistantMutationResponseSchema,
   AssistantNodeDetailSchema,
   AssistantNodeSummarySchema,
   AssistantPolicyDtoSchema,
   AssistantProjectionDtoSchema,
   AssistantQuestionDtoSchema,
+  AssistantRestorePreviewResponseSchema,
+  AssistantRestoreResultSchema,
   AssistantStatusResponseSchema,
   AssistantTopicForgetPreviewSchema,
   DesktopStateDtoSchema,
   type AssistantAssertionExplanation,
   type AssistantDeletionPreview,
   type AssistantEvidenceDeletionPreview,
+  type AssistantFactoryResetPreview,
+  type AssistantRestorePreviewResponse,
+  type AssistantRestoreResult,
   type AssistantEvidenceDto,
   type AssistantMutationResponse,
   type AssistantNodeDetail,
@@ -256,6 +262,74 @@ export function snoozeAssistantQuestion(token: string, id: string, eligibleAfter
 
 export function blockAssistantQuestionTopic(token: string, id: string) {
   return mutate(token, `/assistant/questions/${encodeURIComponent(id)}/block-topic`, 'POST', {});
+}
+
+const AssistantOkSchema = z.object({ ok: z.literal(true) }).strict();
+
+/**
+ * §16 archive transport. Kept out of `request` because these bodies and responses are `zip`
+ * bytes: a JSON content type or a JSON parse would corrupt the archive either way.
+ */
+async function archiveRequest(
+  path: string,
+  token: string,
+  body: Blob | string | undefined,
+  contentType: string,
+): Promise<Response> {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(body === undefined ? {} : { 'Content-Type': contentType }),
+    },
+    ...(body === undefined ? {} : { body }),
+  });
+  if (!response.ok) {
+    throw new Error(`Assistant archive request failed (${response.status}).`);
+  }
+  return response;
+}
+
+export async function exportAssistant(
+  token: string,
+  includeDecryptedBlobs: boolean,
+): Promise<Blob> {
+  const response = await archiveRequest(
+    '/assistant/export', token, JSON.stringify({ includeDecryptedBlobs }), 'application/json',
+  );
+  return response.blob();
+}
+
+export async function backupAssistant(token: string): Promise<Blob> {
+  return (await archiveRequest('/assistant/backup', token, undefined, 'application/json')).blob();
+}
+
+export async function previewAssistantRestore(
+  token: string,
+  file: Blob,
+): Promise<AssistantRestorePreviewResponse> {
+  const response = await archiveRequest('/assistant/restore-preview', token, file, 'application/zip');
+  return AssistantRestorePreviewResponseSchema.parse(await response.json());
+}
+
+export function confirmAssistantRestore(
+  token: string,
+  uploadId: string,
+  confirmToken: string,
+): Promise<AssistantRestoreResult> {
+  return request('/assistant/restore', token, AssistantRestoreResultSchema, {
+    method: 'POST', body: JSON.stringify({ uploadId, confirmToken }),
+  });
+}
+
+export function previewAssistantFactoryReset(token: string): Promise<AssistantFactoryResetPreview> {
+  return request('/assistant/factory-reset/preview', token, AssistantFactoryResetPreviewSchema);
+}
+
+export function confirmAssistantFactoryReset(token: string, previewToken: string) {
+  return request('/assistant/factory-reset', token, AssistantOkSchema, {
+    method: 'POST', body: JSON.stringify({ previewToken }),
+  });
 }
 
 export function setAssistantPolicyEnabled(token: string, id: string, enabled: boolean) {

@@ -177,7 +177,12 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionDescrip
     icon: 'A',
     title: 'Assistant',
     summary: 'Proactive memory, question policy, pending proof validation, and memory history.',
-    fields: [],
+    fields: [
+      { label: 'Export memory', layout: 'full', helpText: 'Writes a portable zip of the memory graph. Including decrypted evidence blobs produces a readable copy of every screenshot and transcript in the archive.' },
+      { label: 'Backup', layout: 'full', helpText: 'Writes a restorable zip whose evidence key is sealed to this Windows account, so blobs are readable only on this machine.' },
+      { label: 'Restore', layout: 'full', helpText: 'Replaces the current assistant memory with the uploaded archive. The preview reports the archive contents before anything is overwritten.' },
+      { label: 'Factory reset', layout: 'full', helpText: 'Erases every assertion, projection, question, and evidence blob for this owner. The preview counts what is destroyed; the reset itself cannot be undone.' },
+    ],
   },
 };
 
