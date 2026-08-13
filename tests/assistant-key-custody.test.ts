@@ -190,6 +190,29 @@ test('importFromShell in file custody performs the migration', () => {
   });
 });
 
+test('backup export yields the same key material in either custody', () => {
+  withAssistantContext((context) => {
+    const harness = buildHarness(context);
+    recordEvidence(context, 'evidence encrypted under the file key');
+
+    const fromFile = harness.service.exportForBackup();
+    harness.service.finalizeMigration(harness.service.exportForShell());
+    const fromDesktop = harness.service.exportForBackup();
+
+    assert.deepEqual(fromDesktop, fromFile);
+  });
+});
+
+test('backup export under desktop custody fails loudly before the shell re-imports', () => {
+  withAssistantContext((context) => {
+    const harness = buildHarness(context);
+    harness.service.finalizeMigration(harness.service.exportForShell());
+    harness.imported.clear();
+
+    assert.throws(() => harness.service.exportForBackup(), /re-imports/i);
+  });
+});
+
 test('the delegating provider follows the configured custody and fails loudly before import', () => {
   withAssistantContext((context) => {
     const harness = buildHarness(context);

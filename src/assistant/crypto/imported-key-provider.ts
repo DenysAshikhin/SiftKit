@@ -34,6 +34,16 @@ export class ImportedKeyProvider implements AssistantKeyProvider {
     this.keys = { activeKeyId: material.activeKeyId, byId };
   }
 
+  /** The material back out, for a backup artifact. Throws rather than inventing an empty set. */
+  exportMaterial(): KeyMaterialDto {
+    if (this.keys === null) throw new Error(NOT_IMPORTED);
+    const keys: Record<string, string> = {};
+    for (const [keyId, material] of this.keys.byId) {
+      keys[keyId] = material.toString('base64');
+    }
+    return { schemaVersion: 1, activeKeyId: this.keys.activeKeyId, keys };
+  }
+
   clear(): void {
     if (this.keys !== null) {
       for (const material of this.keys.byId.values()) material.fill(0);

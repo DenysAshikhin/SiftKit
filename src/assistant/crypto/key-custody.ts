@@ -100,6 +100,25 @@ export class KeyCustodyService {
   }
 
   /**
+   * Key material for the backup artifact, whatever the custody mode. The caller seals it before
+   * it reaches disk — an unsealed backup would hand over every evidence blob with it.
+   */
+  exportForBackup(): KeyMaterialDto {
+    if (this.config.readCustody() === 'desktop') {
+      if (!this.imported.imported) {
+        throw new AssistantConflictError(
+          'Key material is unavailable until the desktop shell re-imports it.',
+        );
+      }
+      return this.imported.exportMaterial();
+    }
+    const file = this.fileKeys.exportKeyFile();
+    return KeyMaterialDtoSchema.parse({
+      schemaVersion: 1, activeKeyId: file.activeKeyId, keys: { ...file.keys },
+    });
+  }
+
+  /**
    * The shell's connect-time push. Under `'file'` custody this is the final step of the migration;
    * under `'desktop'` custody it is the idempotent re-import that follows every daemon restart.
    */
