@@ -1,4 +1,7 @@
-import type { AssistantDeletionPreview } from '@siftkit/contracts';
+import type {
+  AssistantDeletionPreview,
+  AssistantEvidenceDeletionPreview,
+} from '@siftkit/contracts';
 import type { JsonObject } from '../../lib/json-types.js';
 import type { RuntimeDatabase } from '../../state/runtime-db.js';
 import type { AssistantGraph } from '../assistant-graph.js';
@@ -158,6 +161,42 @@ export class MemoryMutationService {
       return result;
     } catch (error) {
       return transaction.rollbackAfter(error);
+    }
+  }
+
+  previewDeleteEvidence(ownerId: string, evidenceId: string): AssistantEvidenceDeletionPreview {
+    return this.deletionPreviews.previewDeleteEvidence(ownerId, evidenceId);
+  }
+
+  /**
+   * §16.1 delete source evidence: the record is tombstoned, its bytes purged, every link
+   * dropped, and each assertion that leaned on it re-derives its confidence from what is left.
+   */
+  confirmDeleteEvidence(ownerId: string, evidenceId: string, previewToken: string): void {
+    this.deletionPreviews.validateDeleteEvidence(ownerId, evidenceId, previewToken);
+    const transaction = this.graph.transactions.begin();
+    try {
+      this.deletionPreviews.validateDeleteEvidence(ownerId, evidenceId, previewToken);
+      const dependents = this.graph.assertions.unlinkAllForEvidence(evidenceId);
+      this.graph.evidence.deleteEvidence(evidenceId);
+      for (const assertionId of dependents) {
+        this.graph.assertionService.recalculateConfidence({
+          ownerId, assertionId, reason: 'source evidence deleted by the user',
+        });
+      }
+      this.graph.audit.recordAuditEvent({
+        ownerId,
+        eventType: 'evidence_deleted',
+        targetType: 'evidence',
+        targetId: evidenceId,
+        summary: 'Source evidence deleted by the user; dependent confidence recalculated.',
+        details: { dependentAssertionIds: dependents },
+      });
+      this.graph.audit.incrementGraphVersion();
+      transaction.commit();
+      this.enqueueProjectionMaintenance(ownerId);
+    } catch (error) {
+      transaction.rollbackAfter(error);
     }
   }
 

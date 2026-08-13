@@ -278,6 +278,16 @@ export class AssertionStore {
       .run(assertionId, evidenceId);
   }
 
+  /**
+   * Removes every link to this evidence and returns the assertion ids that held one, so the
+   * caller can re-derive their confidence from what is left (§16.1 evidence deletion).
+   */
+  unlinkAllForEvidence(evidenceId: string): string[] {
+    const assertionIds = this.listAssertionIdsForEvidence(evidenceId);
+    this.database.prepare('DELETE FROM assertion_evidence WHERE evidence_id = ?').run(evidenceId);
+    return assertionIds;
+  }
+
   listEvidence(assertionId: string): AssertionEvidenceRow[] {
     return z.array(AssertionEvidenceRowSchema).parse(this.database.prepare(`
       SELECT * FROM assertion_evidence WHERE assertion_id = ?

@@ -108,6 +108,11 @@ test('the evidence blob route decrypts pixels for the owner and never caches the
     database.prepare("UPDATE evidence_records SET status = 'expired' WHERE id = ?").run(evidenceId);
     const expired = await fetch(`${baseUrl}/assistant/evidence/blob?id=${evidenceId}`, { headers });
     assert.equal(expired.status, 404, 'expired evidence never serves bytes');
+
+    // The §16.1 deletion barrier is the same check: only 'active' evidence ever serves bytes.
+    database.prepare("UPDATE evidence_records SET status = 'deleted' WHERE id = ?").run(evidenceId);
+    const deleted = await fetch(`${baseUrl}/assistant/evidence/blob?id=${evidenceId}`, { headers });
+    assert.equal(deleted.status, 404, 'deleted evidence never serves bytes');
     database.prepare("UPDATE evidence_records SET status = 'active' WHERE id = ?").run(evidenceId);
 
     const blobFiles = listEvidenceBlobFiles(
