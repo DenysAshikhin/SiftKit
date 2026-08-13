@@ -19,6 +19,8 @@
     "typecheck:test": "tsc -p .\\tsconfig.test.json --noEmit",
     "typecheck:dashboard-test": "tsc -p .\\dashboard\\tsconfig.test.json --noEmit",
     "typecheck:bench": "tsc -p .\\tsconfig.bench.json --noEmit",
+    "bench:assistant:seed": "tsx .\\scripts\\assistant-bench\\seed.ts",
+    "bench:assistant": "tsx .\\scripts\\assistant-bench\\measure.ts",
     "benchmark": "tsx .\\bench\\benchmark\\main.ts",
     "benchmark:matrix": "tsx .\\bench\\benchmark-matrix\\main.ts",
     "benchmark:repetition-guard": "tsx .\\scripts\\benchmark-repetition-guard.ts",

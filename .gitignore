@@ -62,3 +62,4 @@ test-out.log
 /.shim-test
 /.codex
 /.worktrees
+/.bench-assistant

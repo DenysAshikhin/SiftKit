@@ -6,6 +6,7 @@
   },
   "include": [
     "bench/**/*.ts",
+    "scripts/assistant-bench/**/*.ts",
     "src/types/**/*.d.ts"
   ]
 }
