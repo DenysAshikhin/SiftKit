@@ -22,6 +22,15 @@ export interface CompileSummary {
   readonly unchanged: number;
   readonly demotedTopicKeys: readonly string[];
   readonly omittedAssertionCount: number;
+  /** Rows the sweep removed because this compile did not produce them (§10.3). */
+  readonly deletedProjectionCount: number;
+}
+
+/** What `persistWithSummary` did, plus the desired-set key it claimed. */
+interface PersistOutcome {
+  readonly written: number;
+  readonly unchanged: number;
+  readonly desiredKey: string;
 }
 
 export interface ProjectionTargetTokens {
@@ -71,6 +80,7 @@ export class ProjectionCompiler {
     let unchanged = 0;
     let omittedAssertionCount = 0;
     const demotedTopicKeys: string[] = [];
+    const desired = new Set<string>();
 
     const tier2 = bundles.filter((bundle) => bundle.tier === 2)
       .sort((left, right) => right.utility - left.utility);
@@ -94,6 +104,7 @@ export class ProjectionCompiler {
       );
       written += profileResult.written;
       unchanged += profileResult.unchanged;
+      desired.add(profileResult.desiredKey);
       omittedAssertionCount += profile.omittedAssertionCount;
     }
 
@@ -113,10 +124,33 @@ export class ProjectionCompiler {
       );
       written += result.written;
       unchanged += result.unchanged;
+      desired.add(result.desiredKey);
       omittedAssertionCount += document.omittedAssertionCount;
     }
 
-    return { written, unchanged, demotedTopicKeys, omittedAssertionCount };
+    const deletedProjectionCount = this.sweepOrphans(ownerId, desired);
+    return {
+      written, unchanged, demotedTopicKeys, omittedAssertionCount, deletedProjectionCount,
+    };
+  }
+
+  /** Deletes every row this compile did not produce. Runs unconditionally (§10.3). */
+  private sweepOrphans(ownerId: string, desired: ReadonlySet<string>): number {
+    let deleted = 0;
+    for (const row of this.graph.projections.listAllRows(ownerId)) {
+      if (desired.has(`${row.tier}:${row.topic_key}`)) continue;
+      this.graph.projections.deleteProjection(row.id);
+      this.graph.audit.recordAuditEvent({
+        ownerId,
+        eventType: 'projection_deleted',
+        targetType: 'memory_projections',
+        targetId: row.id,
+        summary: 'Projection removed: no longer in the compiled desired set.',
+        details: { tier: row.tier, topicKey: row.topic_key },
+      });
+      deleted += 1;
+    }
+    return deleted;
   }
 
   private collectViews(ownerId: string): AssertionView[] {
@@ -203,17 +237,18 @@ export class ProjectionCompiler {
     document: CompiledDocument,
     graphVersion: number,
     abortSignal: AbortSignal,
-  ): Promise<{ written: number; unchanged: number }> {
+  ): Promise<PersistOutcome> {
+    const desiredKey = `${document.tier}:${document.topicKey}`;
     const existing = this.graph.projections.findByTopic(
       ownerId, document.tier, document.topicKey,
     );
     if (existing !== null && existing.graph_version === graphVersion) {
-      return { written: 0, unchanged: 1 };
+      return { written: 0, unchanged: 1, desiredKey };
     }
     const provisionalId = existing?.id ?? 'memproj_pending';
     this.writeDocument(ownerId, document, graphVersion, provisionalId);
     if (document.tokenCount <= this.targetTokens[document.tier]) {
-      return { written: 1, unchanged: 0 };
+      return { written: 1, unchanged: 0, desiredKey };
     }
 
     const summarized = await this.summarizer.summarize({
@@ -225,7 +260,7 @@ export class ProjectionCompiler {
       targetTokens: this.targetTokens[document.tier],
     }, abortSignal);
     if (summarized.kind === 'unchanged') {
-      return { written: 1, unchanged: 0 };
+      return { written: 1, unchanged: 0, desiredKey };
     }
     const count = await this.tokens.count(summarized.body);
     this.writeDocument(ownerId, {
@@ -235,7 +270,7 @@ export class ProjectionCompiler {
       tokenCount: count.tokenCount,
       tokenizerId: count.tokenizerId,
     }, graphVersion, provisionalId);
-    return { written: 1, unchanged: 0 };
+    return { written: 1, unchanged: 0, desiredKey };
   }
 
   private writeDocument(

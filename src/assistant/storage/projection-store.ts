@@ -107,6 +107,14 @@ export class ProjectionStore {
     `).all(ownerId));
   }
 
+  /** Every row for the owner regardless of status — the reconciler's sweep input (§10.3). */
+  listAllRows(ownerId: string): ProjectionRow[] {
+    return z.array(ProjectionRowSchema).parse(this.database.prepare(`
+      SELECT * FROM memory_projections
+      WHERE owner_id = ? ORDER BY tier ASC, topic_key ASC
+    `).all(ownerId));
+  }
+
   /** Projections compiled before `graphVersion` may no longer match the graph (§10.5). */
   listStale(ownerId: string, graphVersion: number): ProjectionRow[] {
     return z.array(ProjectionRowSchema).parse(this.database.prepare(`
