@@ -33,23 +33,31 @@ function visionProps(overrides: Partial<DashboardModelRuntimePreset> = {}): Visi
   };
 }
 
+/**
+ * Exact accessible names, not substrings: each field's help popover renders a trigger
+ * labelled `Explain <label>`, so a substring match would find two elements.
+ */
+const MAX_IMAGE_SIZE_LABEL = 'Max image size (MP)';
+const RETENTION_LABEL = 'Vision image retention';
+const VISION_ENABLED_LABEL = 'Vision enabled';
+
 test('the vision controls are hidden while VisionEnabled is off', () => {
   render(<ModelPresetsSection {...visionProps({ VisionEnabled: false })} />);
-  assert.equal(screen.queryByLabelText(/Max image size \(MP\)/iu), null);
-  assert.equal(screen.queryByLabelText(/Vision image retention/iu), null);
+  assert.equal(screen.queryByLabelText(MAX_IMAGE_SIZE_LABEL), null);
+  assert.equal(screen.queryByLabelText(RETENTION_LABEL), null);
 });
 
 test('enabling vision reveals the max image size field, labelled in MP', () => {
   render(<ModelPresetsSection {...visionProps()} />);
-  assert.ok(screen.getByLabelText(/Max image size \(MP\)/iu));
-  assert.ok(screen.getByLabelText(/Vision image retention/iu));
+  assert.ok(screen.getByLabelText(MAX_IMAGE_SIZE_LABEL));
+  assert.ok(screen.getByLabelText(RETENTION_LABEL));
 });
 
 test('toggling VisionEnabled on preserves zero as the model-ceiling sentinel', () => {
   const calls: Array<[string, number]> = [];
   render(<ModelPresetsSection {...visionProps({ VisionEnabled: false, VisionMaxImagePixels: 0 })} modelPresetActions={{ ...MODEL_PRESET_ACTIONS, setInteger: (field, value) => calls.push([field, value]) }} />);
 
-  fireEvent.click(screen.getByLabelText(/Vision enabled/iu));
+  fireEvent.click(screen.getByLabelText(VISION_ENABLED_LABEL));
 
   assert.deepEqual(calls, []);
 });
@@ -58,28 +66,28 @@ test('toggling vision on does not overwrite a size the user already tuned', () =
   const calls: Array<[string, number]> = [];
   render(<ModelPresetsSection {...visionProps({ VisionEnabled: false, VisionMaxImagePixels: 500_000 })} modelPresetActions={{ ...MODEL_PRESET_ACTIONS, setInteger: (field, value) => calls.push([field, value]) }} />);
 
-  fireEvent.click(screen.getByLabelText(/Vision enabled/iu));
+  fireEvent.click(screen.getByLabelText(VISION_ENABLED_LABEL));
 
   assert.deepEqual(calls, []);
 });
 
 test('the field displays megapixels while storing pixels', () => {
   render(<ModelPresetsSection {...visionProps({ VisionMaxImagePixels: 2_097_152 })} />);
-  assert.equal(screen.getByLabelText(/Max image size \(MP\)/iu).getAttribute('value'), '2.1');
+  assert.equal(screen.getByLabelText(MAX_IMAGE_SIZE_LABEL).getAttribute('value'), '2.1');
 });
 
 test('editing the field in MP stores the value back in pixels', () => {
   const calls: Array<[string, number]> = [];
   render(<ModelPresetsSection {...visionProps()} modelPresetActions={{ ...MODEL_PRESET_ACTIONS, setInteger: (field, value) => calls.push([field, value]) }} />);
 
-  fireEvent.change(screen.getByLabelText(/Max image size \(MP\)/iu), { target: { value: '1.5' } });
+  fireEvent.change(screen.getByLabelText(MAX_IMAGE_SIZE_LABEL), { target: { value: '1.5' } });
 
   assert.deepEqual(calls, [['VisionMaxImagePixels', 1_500_000]]);
 });
 
 test('the max image size field displays zero as the model ceiling', () => {
   render(<ModelPresetsSection {...visionProps({ VisionMaxImagePixels: 0 })} />);
-  const input = screen.getByLabelText(/Max image size \(MP\)/iu);
+  const input = screen.getByLabelText(MAX_IMAGE_SIZE_LABEL);
 
   assert.equal(input.getAttribute('value'), '0');
   assert.equal(input.getAttribute('min'), '0');
@@ -91,7 +99,7 @@ test('editing the max image size to zero persists the model-ceiling sentinel', (
     ...MODEL_PRESET_ACTIONS,
     setInteger: (field, value) => calls.push([field, value]),
   }} />);
-  const input = screen.getByLabelText(/Max image size \(MP\)/iu);
+  const input = screen.getByLabelText(MAX_IMAGE_SIZE_LABEL);
 
   fireEvent.change(input, { target: { value: '0' } });
   assert.deepEqual(calls, [['VisionMaxImagePixels', 0]]);
@@ -99,13 +107,13 @@ test('editing the max image size to zero persists the model-ceiling sentinel', (
 
 test('the field caps at the model ceiling in MP', () => {
   render(<ModelPresetsSection {...visionProps()} />);
-  assert.equal(screen.getByLabelText(/Max image size \(MP\)/iu).getAttribute('max'), '2.1');
+  assert.equal(screen.getByLabelText(MAX_IMAGE_SIZE_LABEL).getAttribute('max'), '2.1');
 });
 
 test('retention accepts the documented keep-all, disabled, and positive values', () => {
   const calls: Array<[string, number]> = [];
   render(<ModelPresetsSection {...visionProps({ VisionImageRetention: -1 })} modelPresetActions={{ ...MODEL_PRESET_ACTIONS, setInteger: (field, value) => calls.push([field, value]) }} />);
-  const input = screen.getByLabelText(/Vision image retention/iu);
+  const input = screen.getByLabelText(RETENTION_LABEL);
   assert.equal(input.getAttribute('min'), '-1');
   assert.equal(input.getAttribute('step'), '1');
   assert.equal(input.getAttribute('value'), '-1');
