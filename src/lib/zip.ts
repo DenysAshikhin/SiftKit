@@ -1,0 +1,162 @@
+import { deflateRawSync, inflateRawSync } from 'node:zlib';
+
+/**
+ * Minimal zip container (PKWARE APPNOTE): methods 0 (store) and 8 (deflate), no zip64.
+ * Dependency-free on purpose — the assistant export and backup archives must be readable by
+ * Windows Explorer and `Expand-Archive` without SiftKit shipping a compression library.
+ */
+
+const LOCAL_HEADER = 0x04034b50;
+const CENTRAL_HEADER = 0x02014b50;
+const EOCD = 0x06054b50;
+const LOCAL_HEADER_SIZE = 30;
+const CENTRAL_HEADER_SIZE = 46;
+const EOCD_SIZE = 22;
+/** The zip comment field is 16-bit, so the EOCD cannot start further back than this. */
+const MAX_COMMENT_LENGTH = 65_535;
+
+const CRC_TABLE = new Uint32Array(256).map((_, index) => {
+  let crc = index;
+  for (let bit = 0; bit < 8; bit += 1) {
+    crc = (crc & 1) === 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+  }
+  return crc >>> 0;
+});
+
+export function crc32(data: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of data) {
+    crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+interface Entry {
+  readonly name: Buffer;
+  readonly crc: number;
+  readonly method: 0 | 8;
+  readonly compressed: Buffer;
+  readonly uncompressedSize: number;
+  offset: number;
+}
+
+/**
+ * Builds an archive in memory. Timestamps are written as zero so the same inputs always produce
+ * the same bytes — a backup that differs only by clock would defeat content comparison.
+ */
+export class ZipWriter {
+  private readonly entries: Entry[] = [];
+
+  add(name: string, data: Buffer): void {
+    const deflated = deflateRawSync(data);
+    const useDeflate = deflated.byteLength < data.byteLength;
+    this.entries.push({
+      name: Buffer.from(name, 'utf8'),
+      crc: crc32(data),
+      method: useDeflate ? 8 : 0,
+      compressed: useDeflate ? deflated : data,
+      uncompressedSize: data.byteLength,
+      offset: 0,
+    });
+  }
+
+  build(): Buffer {
+    const parts: Buffer[] = [];
+    let offset = 0;
+    for (const entry of this.entries) {
+      entry.offset = offset;
+      const header = Buffer.alloc(LOCAL_HEADER_SIZE);
+      header.writeUInt32LE(LOCAL_HEADER, 0);
+      header.writeUInt16LE(20, 4); // version needed
+      header.writeUInt16LE(0x0800, 6); // UTF-8 names
+      header.writeUInt16LE(entry.method, 8);
+      header.writeUInt32LE(0, 10); // dos time/date: zero, deterministic
+      header.writeUInt32LE(entry.crc, 14);
+      header.writeUInt32LE(entry.compressed.byteLength, 18);
+      header.writeUInt32LE(entry.uncompressedSize, 22);
+      header.writeUInt16LE(entry.name.byteLength, 26);
+      header.writeUInt16LE(0, 28); // extra length
+      parts.push(header, entry.name, entry.compressed);
+      offset += LOCAL_HEADER_SIZE + entry.name.byteLength + entry.compressed.byteLength;
+    }
+
+    const centralStart = offset;
+    for (const entry of this.entries) {
+      const header = Buffer.alloc(CENTRAL_HEADER_SIZE);
+      header.writeUInt32LE(CENTRAL_HEADER, 0);
+      header.writeUInt16LE(20, 4); // version made by
+      header.writeUInt16LE(20, 6); // version needed
+      header.writeUInt16LE(0x0800, 8);
+      header.writeUInt16LE(entry.method, 10);
+      header.writeUInt32LE(0, 12);
+      header.writeUInt32LE(entry.crc, 16);
+      header.writeUInt32LE(entry.compressed.byteLength, 20);
+      header.writeUInt32LE(entry.uncompressedSize, 24);
+      header.writeUInt16LE(entry.name.byteLength, 28);
+      // 30..41: extra, comment, disk number, and attributes are all zero.
+      header.writeUInt32LE(entry.offset, 42);
+      parts.push(header, entry.name);
+      offset += CENTRAL_HEADER_SIZE + entry.name.byteLength;
+    }
+
+    const eocd = Buffer.alloc(EOCD_SIZE);
+    eocd.writeUInt32LE(EOCD, 0);
+    eocd.writeUInt16LE(this.entries.length, 8);
+    eocd.writeUInt16LE(this.entries.length, 10);
+    eocd.writeUInt32LE(offset - centralStart, 12);
+    eocd.writeUInt32LE(centralStart, 16);
+    parts.push(eocd);
+    return Buffer.concat(parts);
+  }
+}
+
+/** Every entry, verified against its stored CRC. A corrupt archive throws rather than truncates. */
+export function readZip(archive: Buffer): Map<string, Buffer> {
+  const eocdOffset = findEocd(archive);
+  const entryCount = archive.readUInt16LE(eocdOffset + 10);
+  let cursor = archive.readUInt32LE(eocdOffset + 16);
+  const entries = new Map<string, Buffer>();
+
+  for (let index = 0; index < entryCount; index += 1) {
+    if (archive.readUInt32LE(cursor) !== CENTRAL_HEADER) {
+      throw new Error('Zip central directory entry is corrupt.');
+    }
+    const method = archive.readUInt16LE(cursor + 10);
+    const crc = archive.readUInt32LE(cursor + 16);
+    const compressedSize = archive.readUInt32LE(cursor + 20);
+    const nameLength = archive.readUInt16LE(cursor + 28);
+    const extraLength = archive.readUInt16LE(cursor + 30);
+    const commentLength = archive.readUInt16LE(cursor + 32);
+    const localOffset = archive.readUInt32LE(cursor + 42);
+    const name = archive
+      .subarray(cursor + CENTRAL_HEADER_SIZE, cursor + CENTRAL_HEADER_SIZE + nameLength)
+      .toString('utf8');
+
+    if (method !== 0 && method !== 8) {
+      throw new Error(`Zip entry ${name} uses unsupported compression method ${method}.`);
+    }
+    const localNameLength = archive.readUInt16LE(localOffset + 26);
+    const localExtraLength = archive.readUInt16LE(localOffset + 28);
+    const dataStart = localOffset + LOCAL_HEADER_SIZE + localNameLength + localExtraLength;
+    if (dataStart + compressedSize > archive.byteLength) {
+      throw new Error(`Zip entry ${name} runs past the end of the archive.`);
+    }
+    const compressed = archive.subarray(dataStart, dataStart + compressedSize);
+    const data = method === 8 ? inflateRawSync(compressed) : Buffer.from(compressed);
+    if (crc32(data) !== crc) {
+      throw new Error(`Zip entry ${name} failed its CRC check.`);
+    }
+
+    entries.set(name, data);
+    cursor += CENTRAL_HEADER_SIZE + nameLength + extraLength + commentLength;
+  }
+  return entries;
+}
+
+function findEocd(archive: Buffer): number {
+  const scanFloor = Math.max(0, archive.byteLength - EOCD_SIZE - MAX_COMMENT_LENGTH);
+  for (let index = archive.byteLength - EOCD_SIZE; index >= scanFloor; index -= 1) {
+    if (archive.readUInt32LE(index) === EOCD) return index;
+  }
+  throw new Error('Zip end of central directory not found.');
+}
