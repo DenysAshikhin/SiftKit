@@ -43,11 +43,13 @@ export function seedOwnerAssertion(
       ownerId, type: 'software', canonicalKey: objectKey,
       displayName: input.objectName, description: null, sensitivity: 'personal', properties: {},
     });
+  // A scope must be a `preference_context` node; the assertion service rejects every other type.
+  const scopeKey = `preference_context:${variant}`;
   const scope = variant === ''
     ? null
-    : graph.nodes.findByCanonicalKey(ownerId, 'topic', `topic:${variant}`)
+    : graph.nodes.findByCanonicalKey(ownerId, 'preference_context', scopeKey)
       ?? graph.nodes.createNode({
-        ownerId, type: 'topic', canonicalKey: `topic:${variant}`,
+        ownerId, type: 'preference_context', canonicalKey: scopeKey,
         displayName: variant, description: null, sensitivity: 'personal', properties: {},
       });
   const evidence = graph.evidence.recordTextEvidence({
