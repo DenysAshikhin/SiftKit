@@ -1504,6 +1504,20 @@ function ensureSchema(database: RuntimeDatabase): void {
   ensureRuntimeErrorEventsSchema(database);
 }
 
+/**
+ * Opens an arbitrary database file, migrates it to `CURRENT_SCHEMA_VERSION`, and closes it.
+ * A restore uses this so a backup taken on an older build lands on today's schema.
+ */
+export function migrateDatabaseFile(filePath: string): void {
+  const database: RuntimeDatabase = new Database(resolve(filePath));
+  try {
+    configureRuntimeDatabase(database);
+    ensureSchema(database);
+  } finally {
+    database.close();
+  }
+}
+
 export function getRepoRuntimeRoot(startPath: string = process.cwd()): string {
   const repoRoot = findNearestSiftKitRepoRoot(startPath);
   const resolvedBaseRoot = repoRoot ? resolve(repoRoot) : resolve(startPath);

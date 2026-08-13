@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 
 import {
-  KeyCustodyStatusDtoSchema, KeyMaterialDtoSchema,
+  KEY_MATERIAL_SCHEMA_VERSION, KeyCustodyStatusDtoSchema, KeyMaterialDtoSchema,
   type KeyCustody, type KeyCustodyState, type KeyCustodyStatusDto, type KeyMaterialDto,
 } from '@siftkit/contracts';
 
@@ -95,7 +95,7 @@ export class KeyCustodyService {
     }
     const file = this.fileKeys.exportKeyFile();
     return KeyMaterialDtoSchema.parse({
-      schemaVersion: 1, activeKeyId: file.activeKeyId, keys: { ...file.keys },
+      schemaVersion: KEY_MATERIAL_SCHEMA_VERSION, activeKeyId: file.activeKeyId, keys: { ...file.keys },
     });
   }
 
@@ -114,7 +114,7 @@ export class KeyCustodyService {
     }
     const file = this.fileKeys.exportKeyFile();
     return KeyMaterialDtoSchema.parse({
-      schemaVersion: 1, activeKeyId: file.activeKeyId, keys: { ...file.keys },
+      schemaVersion: KEY_MATERIAL_SCHEMA_VERSION, activeKeyId: file.activeKeyId, keys: { ...file.keys },
     });
   }
 
@@ -154,6 +154,18 @@ export class KeyCustodyService {
     this.fileKeys.deleteKeyFile();
     this.config.writeCustody('desktop');
     return this.status();
+  }
+
+  /**
+   * Restore's key landing. The material has to prove it decrypts the evidence that was just
+   * restored before it replaces the key file, and custody returns to file mode: the shell will
+   * re-take custody on its next connect if it wants to.
+   */
+  adoptRestoredKeyMaterial(material: KeyMaterialDto): void {
+    this.verifyDecrypts(material);
+    this.fileKeys.importKeyFile(material.activeKeyId, material.keys);
+    this.imported.clear();
+    this.config.writeCustody('file');
   }
 
   /**

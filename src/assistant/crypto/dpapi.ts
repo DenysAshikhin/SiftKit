@@ -2,8 +2,9 @@ import { spawnPowerShellAsync } from '../../lib/powershell.js';
 
 /**
  * Windows DPAPI (`CurrentUser` scope) via PowerShell — the same protection the desktop shell uses
- * for the evidence key at rest. Payloads travel as base64 on the command line, so this is for key
- * material and other small secrets, never for evidence bytes.
+ * for the evidence key at rest. Payloads travel as base64 over stdin, never on the command line:
+ * argv is visible to every process on the machine and to command-line audit logs, and it tops out
+ * around 32K characters.
  */
 
 /** Raised when DPAPI cannot unprotect — wrong machine or user, or corrupt bytes. */
@@ -17,12 +18,16 @@ async function runProtectedData(
 ): Promise<Buffer> {
   const command = [
     'Add-Type -AssemblyName System.Security;',
+    '$payload = [Convert]::FromBase64String([Console]::In.ReadToEnd());',
     `[Convert]::ToBase64String([Security.Cryptography.ProtectedData]::${operation}(`,
-    `[Convert]::FromBase64String('${data.toString('base64')}'), $null,`,
+    '$payload, $null,',
     "[Security.Cryptography.DataProtectionScope]::CurrentUser))",
   ].join(' ');
 
-  const result = await spawnPowerShellAsync(command, { timeoutMs: DPAPI_TIMEOUT_MS });
+  const result = await spawnPowerShellAsync(command, {
+    timeoutMs: DPAPI_TIMEOUT_MS,
+    stdinData: data.toString('base64'),
+  });
   if (result.exitCode !== 0) {
     throw new DpapiUnavailableError(`DPAPI ${operation} failed: ${result.output.trim()}`);
   }

@@ -39,6 +39,9 @@ export interface AssistantGraphOptions {
 export class AssistantGraph {
   private readonly clock: Clock;
 
+  /** Where the assistant's on-disk tree lives; `layout.ts` derives every path from this. */
+  readonly runtimeRoot: string;
+
   readonly identity: IdentityStore;
   readonly audit: AuditStore;
   readonly nodes: NodeStore;
@@ -61,6 +64,7 @@ export class AssistantGraph {
   constructor(options: AssistantGraphOptions) {
     const { database, clock, ids } = options;
     this.clock = clock;
+    this.runtimeRoot = options.runtimeRoot;
 
     this.identity = new IdentityStore(database);
     this.audit = new AuditStore(database, clock, ids);

@@ -4,6 +4,9 @@ import path from 'node:path';
 
 import type { EnvironmentStateDto } from '@siftkit/contracts';
 import { AssistantService } from '../src/assistant/assistant-service.js';
+import type {
+  AssistantInferenceClient, AssistantInferenceResult,
+} from '../src/assistant/inference/client.js';
 import { FixedClock } from '../src/assistant/clock.js';
 import { SequentialIdGenerator } from '../src/assistant/ids.js';
 import { EstimateTokenCounter } from '../src/assistant/domain/tokens.js';
@@ -22,6 +25,7 @@ class AlwaysIdle {
 function buildService(
   responses: readonly string[],
   enabled = true,
+  inference: AssistantInferenceClient = new FakeAssistantInference(responses),
 ): AssistantService {
   const runtimeRoot = createManagedTempDir('siftkit-assistant-service-');
   return AssistantService.create({
@@ -30,12 +34,67 @@ function buildService(
     clock: new FixedClock('2026-08-05T09:00:00.000Z'),
     ids: new SequentialIdGenerator(),
     configWriter: new MemoryAssistantConfigWriter(),
-    inference: new FakeAssistantInference(responses),
+    inference,
     tokens: new EstimateTokenCounter(4),
     idleGate: new AlwaysIdle(),
     config: { ...DEFAULT_ASSISTANT_CONFIG, Enabled: enabled },
   });
 }
+
+/** Blocks every model call until the test releases it, so a drain can be caught in flight. */
+class GateInference implements AssistantInferenceClient {
+  release: () => void = () => undefined;
+  private readonly gate = new Promise<void>((resolve) => { this.release = resolve; });
+
+  async complete(): Promise<AssistantInferenceResult> {
+    await this.gate;
+    return { text: '{}', backendId: 'fake', modelId: 'fake-model' };
+  }
+}
+
+test('maintenance waits for the drain already in flight before it mutates anything', async () => {
+  try {
+    const inference = new GateInference();
+    const service = buildService([], true, inference);
+    service.ingestChatTurn({
+      ownerId: service.ownerId, sessionId: 'chat_maintenance',
+      capturedAtUtc: '2026-08-05T09:00:00.000Z',
+      userMessageId: 'm1', userText: 'I use PowerShell.',
+      assistantMessageId: 'm2', assistantText: 'Noted.',
+    });
+
+    const order: string[] = [];
+    const drain = service.drainJobs();
+    void drain.then(() => order.push('drain'));
+    // Let the drain claim its job and block on the model call.
+    await new Promise((resolve) => setImmediate(resolve));
+    const maintenance = service.runMaintenance(async () => { order.push('maintenance'); });
+    // An unserialized implementation would run the work in this window, before the drain ends.
+    await new Promise((resolve) => setImmediate(resolve));
+    inference.release();
+    await Promise.all([drain, maintenance]);
+    assert.deepEqual(order, ['drain', 'maintenance']);
+  } finally {
+    closeRuntimeDatabase();
+  }
+});
+
+test('concurrent maintenance operations run one at a time', async () => {
+  try {
+    const service = buildService([]);
+    const order: string[] = [];
+    const first = service.runMaintenance(async () => {
+      order.push('first-start');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      order.push('first-end');
+    });
+    const second = service.runMaintenance(async () => { order.push('second'); });
+    await Promise.all([first, second]);
+    assert.deepEqual(order, ['first-start', 'first-end', 'second']);
+  } finally {
+    closeRuntimeDatabase();
+  }
+});
 
 test('the service creates the owner person node exactly once', () => {
   try {

@@ -18,3 +18,8 @@ export function assistantEvidenceDir(runtimeRoot: string): string {
 export function assistantKeyFile(runtimeRoot: string): string {
   return path.join(assistantRoot(runtimeRoot), 'keys.json');
 }
+
+/** Where restore parks verified uploads between preview and confirm (§16.4). Swept on start. */
+export function assistantRestoreUploadsDir(runtimeRoot: string): string {
+  return path.join(assistantRoot(runtimeRoot), 'restore-uploads');
+}

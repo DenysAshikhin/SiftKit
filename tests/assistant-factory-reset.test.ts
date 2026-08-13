@@ -37,7 +37,6 @@ function factoryResetServiceFor(
     graph: context.graph,
     database: context.database,
     clock: context.clock,
-    runtimeRoot: context.runtimeRoot,
     previews: new DeletionPreviewService(context.graph, context.database),
     keyCustody: new KeyCustodyService({
       config,

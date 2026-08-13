@@ -2,8 +2,9 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { z } from '../lib/zod.js';
 import type { Clock } from '../assistant/clock.js';
 import type { RuntimeDatabase } from '../state/runtime-db.js';
+import { ASSISTANT_METADATA_PREFIX } from '../assistant/storage/schema.js';
 
-const TOKEN_METADATA_KEY = 'assistant.api.token.v1';
+const TOKEN_METADATA_KEY = `${ASSISTANT_METADATA_PREFIX}api.token.v1`;
 
 export const AssistantAuthRequestSchema = z.object({
   remoteAddress: z.string().nullable(),

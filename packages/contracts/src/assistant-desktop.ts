@@ -125,8 +125,10 @@ export const KeyCustodyStatusDtoSchema = z.object({
 }).strict();
 export type KeyCustodyStatusDto = z.infer<typeof KeyCustodyStatusDtoSchema>;
 
+export const KEY_MATERIAL_SCHEMA_VERSION = 1;
+
 export const KeyMaterialDtoSchema = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.literal(KEY_MATERIAL_SCHEMA_VERSION),
   activeKeyId: z.string().min(1),
   /** keyId -> base64 key material, 32 bytes once decoded. */
   keys: z.record(z.string().min(1), z.string().min(1)),

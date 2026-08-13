@@ -3,6 +3,7 @@ import { parseJsonText } from '../../lib/json.js';
 import type { AssistantConfig } from '../../config/types.js';
 import type { RuntimeDatabase } from '../../state/runtime-db.js';
 import type { Clock } from '../clock.js';
+import { ASSISTANT_METADATA_PREFIX } from '../storage/schema.js';
 
 export const PowerStateSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -38,7 +39,7 @@ const GpuUsageSchema = z.object({
   milliseconds: z.number().int().min(0),
 }).strict();
 
-const GPU_USAGE_METADATA_KEY = 'assistant.gpu_usage.v1';
+const GPU_USAGE_METADATA_KEY = `${ASSISTANT_METADATA_PREFIX}gpu_usage.v1`;
 
 interface ResourcePolicyOptions {
   readonly database: RuntimeDatabase;

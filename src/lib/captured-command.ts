@@ -29,6 +29,12 @@ export type CapturedCommandOptions = {
   timeoutMs?: number;
   /** The child's entire environment when provided; callers decide whether to merge or replace. */
   env?: Record<string, string>;
+  /**
+   * Written to the child's stdin, which is then closed. The channel for payloads that must not
+   * appear on the command line — secrets are visible in process listings, and argv tops out
+   * around 32K characters on Windows.
+   */
+  stdinData?: string;
 };
 
 /** Exit code reported for a command the timeout terminated, matching `timeout(1)`. */
@@ -71,9 +77,14 @@ export function runCapturedCommand(
     const child = spawn(file, args, {
       cwd: options.cwd,
       windowsHide: options.windowsHide ?? true,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [options.stdinData === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
       env: options.env,
     });
+    if (options.stdinData !== undefined && child.stdin !== null) {
+      // A child that exits without reading breaks the pipe; that must not crash this process.
+      child.stdin.on('error', () => undefined);
+      child.stdin.end(options.stdinData);
+    }
 
     let stdout = '';
     let stderr = '';
@@ -139,10 +150,10 @@ export function runCapturedCommand(
       }, options.timeoutMs);
     }
 
-    child.stdout.setEncoding('utf8');
-    child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => { stdout += chunk; });
-    child.stderr.on('data', (chunk: string) => { stderr += chunk; });
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => { stdout += chunk; });
+    child.stderr?.on('data', (chunk: string) => { stderr += chunk; });
     child.on('error', (error: Error & { code?: string }) => { spawnError = error; });
     child.on('exit', (code) => {
       if (drainHandle === null) {

@@ -65,6 +65,8 @@ export type PowerShellAsyncOptions = {
   timeoutMs?: number;
   /** Merged over the inherited environment, unlike `spawnDirectCommand`'s full replacement. */
   env?: Record<string, string>;
+  /** Written to the child's stdin and closed; keeps payloads off the command line. */
+  stdinData?: string;
 };
 
 export function spawnPowerShellAsync(

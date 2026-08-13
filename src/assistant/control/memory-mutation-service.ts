@@ -177,7 +177,6 @@ export class MemoryMutationService {
     this.deletionPreviews.validateDeleteEvidence(ownerId, evidenceId, previewToken);
     const transaction = this.graph.transactions.begin();
     try {
-      this.deletionPreviews.validateDeleteEvidence(ownerId, evidenceId, previewToken);
       const dependents = this.graph.assertions.unlinkAllForEvidence(evidenceId);
       this.graph.evidence.deleteEvidence(evidenceId);
       for (const assertionId of dependents) {

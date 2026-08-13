@@ -22,8 +22,6 @@ export interface FactoryResetServiceOptions {
   readonly clock: Clock;
   readonly keyCustody: KeyCustodyService;
   readonly previews: DeletionPreviewService;
-  /** Passed explicitly — `AssistantGraph` does not expose its runtime root. */
-  readonly runtimeRoot: string;
 }
 
 /**
@@ -38,7 +36,6 @@ export class FactoryResetService {
   private readonly clock: Clock;
   private readonly keyCustody: KeyCustodyService;
   private readonly previews: DeletionPreviewService;
-  private readonly runtimeRoot: string;
 
   constructor(options: FactoryResetServiceOptions) {
     this.graph = options.graph;
@@ -46,7 +43,6 @@ export class FactoryResetService {
     this.clock = options.clock;
     this.keyCustody = options.keyCustody;
     this.previews = options.previews;
-    this.runtimeRoot = options.runtimeRoot;
   }
 
   preview(ownerId: string): AssistantFactoryResetPreview {
@@ -76,7 +72,7 @@ export class FactoryResetService {
     }
     // Only once the database is committed: files cannot be rolled back, and orphaned rows
     // pointing at deleted blobs would be worse than blobs with no rows.
-    fs.rmSync(assistantEvidenceDir(this.runtimeRoot), { recursive: true, force: true });
+    fs.rmSync(assistantEvidenceDir(this.graph.runtimeRoot), { recursive: true, force: true });
     this.keyCustody.resetForFactoryReset();
   }
 

@@ -4,6 +4,8 @@ import type {
   AssistantPolicyDto,
   AssistantFactoryResetPreview,
   AssistantQuestionDto,
+  AssistantRestorePreviewResponse,
+  AssistantRestoreResult,
   AssistantStatusResponse,
   AssistantValidationCandidateDto,
   CaptureSubmissionDto,
@@ -62,6 +64,7 @@ import { ExportService } from './control/export-service.js';
 import { FactoryResetService } from './control/factory-reset-service.js';
 import { MemoryQueryService } from './control/memory-query-service.js';
 import { MemoryMutationService } from './control/memory-mutation-service.js';
+import { RestoreService } from './control/restore-service.js';
 import { normalizeLiteralValue } from './domain/keys.js';
 import { OWNER_PERSON_CANONICAL_KEY } from './storage/schema.js';
 
@@ -155,10 +158,16 @@ export class AssistantService implements AssistantRuntime {
   private readonly imageCapability: AssistantImageCapabilityProvider;
   private readonly configWriter: AssistantConfigWriter;
   private readonly factoryResets: FactoryResetService;
+  private readonly restoreService: RestoreService;
   private currentConfig: AssistantConfig;
   private ownerPersonId: string | null;
   private maxJobsPerDrain: number;
-  private maintenanceActive = false;
+  /** How many maintenance operations are queued or running; drains stay out while nonzero. */
+  private maintenancePending = 0;
+  /** Serializes maintenance operations against each other. */
+  private maintenanceChain: Promise<void> = Promise.resolve();
+  /** The drain currently executing, so maintenance can wait for it to unwind. */
+  private activeDrain: Promise<void> | null = null;
 
   private constructor(options: AssistantServiceOptions) {
     this.currentConfig = options.config;
@@ -240,7 +249,6 @@ export class AssistantService implements AssistantRuntime {
       graph: this.graph,
       database: options.database,
       keyCustody: this.keyCustody,
-      runtimeRoot: options.runtimeRoot,
     });
     const deletionPreviews = new DeletionPreviewService(this.graph, options.database);
     this.memoryMutations = new MemoryMutationService({
@@ -255,7 +263,11 @@ export class AssistantService implements AssistantRuntime {
       clock: options.clock,
       keyCustody: this.keyCustody,
       previews: deletionPreviews,
-      runtimeRoot: options.runtimeRoot,
+    });
+    this.restoreService = new RestoreService({
+      graph: this.graph,
+      database: options.database,
+      keyCustody: this.keyCustody,
     });
     this.questionFeedback = new QuestionFeedbackService(
       this.graph,
@@ -595,16 +607,24 @@ export class AssistantService implements AssistantRuntime {
   }
 
   /**
-   * Serializes whole-database maintenance — factory reset, restore — against the drain loop.
-   * Background work is preempted first, and no new drain starts while `work` runs.
+   * Serializes whole-database maintenance — factory reset, restore — against the drain loop and
+   * against other maintenance. No new drain starts while any maintenance is pending, the drain
+   * already in flight is preempted and awaited before `work` runs, and concurrent maintenance
+   * operations execute one at a time in call order.
    */
   async runMaintenance<T>(work: () => Promise<T>): Promise<T> {
-    this.runner.requestPreemption();
-    this.maintenanceActive = true;
+    this.maintenancePending += 1;
+    const run = this.maintenanceChain.then(async () => {
+      this.runner.requestPreemption();
+      // A drain failure is the drain's problem; maintenance only needs it to be finished.
+      await this.activeDrain?.catch(() => undefined);
+      return work();
+    });
+    this.maintenanceChain = run.then(() => undefined, () => undefined);
     try {
-      return await work();
+      return await run;
     } finally {
-      this.maintenanceActive = false;
+      this.maintenancePending -= 1;
     }
   }
 
@@ -622,10 +642,34 @@ export class AssistantService implements AssistantRuntime {
     this.ownerPersonId = null;
   }
 
+  previewRestore(archiveBytes: Buffer): AssistantRestorePreviewResponse {
+    return this.restoreService.preview(archiveBytes);
+  }
+
+  /** §16.4: replaces the assistant's rows, blobs, and key from a verified backup artifact. */
+  async restore(uploadId: string, confirmToken: string): Promise<AssistantRestoreResult> {
+    const result = await this.runMaintenance(
+      () => this.restoreService.confirm(uploadId, confirmToken),
+    );
+    // The restored graph carries its own owner person node; the pre-restore cache is stale.
+    this.ownerPersonId = this.enabled ? this.ensureOwnerPersonNode() : null;
+    return result;
+  }
+
   /** Called by the host's idle tick. */
   async drainJobs(): Promise<void> {
-    if (this.maintenanceActive) return;
+    if (this.maintenancePending > 0) return;
     if (!this.enabled) return;
+    const drain = this.performDrain();
+    this.activeDrain = drain;
+    try {
+      await drain;
+    } finally {
+      if (this.activeDrain === drain) this.activeDrain = null;
+    }
+  }
+
+  private async performDrain(): Promise<void> {
     // Retention runs even when observation is paused: it only ever removes data (spec §7).
     this.graph.jobs.enqueue({
       ownerId: this.ownerId,

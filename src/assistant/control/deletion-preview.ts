@@ -12,9 +12,9 @@ import type { RuntimeDatabase } from '../../state/runtime-db.js';
 import { AssistantConflictError, AssistantNotFoundError } from '../errors.js';
 import { AssertionViewBuilder } from '../projections/assertion-view-builder.js';
 import { LIVE_ASSERTION_STATUSES } from '../storage/assertion-store.js';
-import { OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.js';
+import { ASSISTANT_METADATA_PREFIX, OWNER_PERSON_CANONICAL_KEY } from '../storage/schema.js';
 
-const PREVIEW_SECRET_KEY = 'assistant.deletion_preview.secret.v1';
+const PREVIEW_SECRET_KEY = `${ASSISTANT_METADATA_PREFIX}deletion_preview.secret.v1`;
 
 const ForgetAssertionPayloadSchema = z.object({
   ownerId: z.string(),

@@ -61,6 +61,11 @@ export class FileKeyProvider implements AssistantKeyProvider {
     return this.ensureKeyFile();
   }
 
+  /** Restore's landing spot for recovered key material. Replaces whatever is on disk. */
+  importKeyFile(activeKeyId: string, keys: Readonly<Record<string, string>>): void {
+    this.writeKeyFile(KeyFileSchema.parse({ version: 1, activeKeyId, keys: { ...keys } }));
+  }
+
   /**
    * Removes the key file. Only the custody migration (after import) and the factory reset may
    * call this. Tolerates a missing file so both callers stay idempotent.

@@ -1,4 +1,4 @@
-import type { KeyMaterialDto } from '@siftkit/contracts';
+import { KEY_MATERIAL_SCHEMA_VERSION, type KeyMaterialDto } from '@siftkit/contracts';
 
 import type { AssistantEncryptionKey, AssistantKeyProvider } from './key-provider.js';
 
@@ -41,7 +41,7 @@ export class ImportedKeyProvider implements AssistantKeyProvider {
     for (const [keyId, material] of this.keys.byId) {
       keys[keyId] = material.toString('base64');
     }
-    return { schemaVersion: 1, activeKeyId: this.keys.activeKeyId, keys };
+    return { schemaVersion: KEY_MATERIAL_SCHEMA_VERSION, activeKeyId: this.keys.activeKeyId, keys };
   }
 
   clear(): void {

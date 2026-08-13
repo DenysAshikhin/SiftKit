@@ -9,10 +9,15 @@ export const LOCAL_OWNER_ID = 'own_local';
 const LOCAL_OWNER_DISPLAY_NAME = 'Local user';
 /** Placeholder for this machine's device row, named on the same terms as the owner row. */
 const LOCAL_DEVICE_DISPLAY_NAME = 'This device';
+/**
+ * Every assistant-owned `runtime_metadata` key starts with this prefix. Restore and factory
+ * reset select by it, so a key minted without it silently escapes both.
+ */
+export const ASSISTANT_METADATA_PREFIX = 'assistant.';
 /** Runtime metadata key holding the monotonic graph version. */
-export const GRAPH_VERSION_METADATA_KEY = 'assistant.graph_version';
+export const GRAPH_VERSION_METADATA_KEY = `${ASSISTANT_METADATA_PREFIX}graph_version`;
 /** Runtime metadata key holding the id of this machine's device row. */
-export const LOCAL_DEVICE_METADATA_KEY = 'assistant.local_device_id';
+export const LOCAL_DEVICE_METADATA_KEY = `${ASSISTANT_METADATA_PREFIX}local_device_id`;
 /** Canonical key identifying the owner's own person node. */
 export const OWNER_PERSON_CANONICAL_KEY = 'person:owner';
 
