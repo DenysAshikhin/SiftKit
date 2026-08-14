@@ -73,8 +73,8 @@ export function topicAssertionIds(
   const owner = graph.nodes.findByCanonicalKey(ownerId, 'person', OWNER_PERSON_CANONICAL_KEY);
   if (owner === null) return [];
   const views = new AssertionViewBuilder(graph);
-  return graph.assertions.listBySubject(ownerId, owner.id, LIVE_ASSERTION_STATUSES)
-    .map((row) => views.build(row))
+  const rows = graph.assertions.listBySubject(ownerId, owner.id, LIVE_ASSERTION_STATUSES);
+  return views.buildMany(rows)
     .filter((view) => view.topicKey === topicKey)
     .map((view) => view.assertionId)
     .sort();

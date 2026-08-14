@@ -84,11 +84,12 @@ export class AuditStore {
     );
   }
 
-  listAllMutations(ownerId: string): MutationLogRow[] {
+  /** Newest-first page of the mutation log; served by `graph_mutation_owner_time_idx`. */
+  listMutationsRecent(ownerId: string, limit: number, offset: number): MutationLogRow[] {
     return z.array(MutationLogRowSchema).parse(this.database.prepare(`
-      SELECT * FROM graph_mutation_log
-      WHERE owner_id = ? ORDER BY created_at_utc DESC, id DESC
-    `).all(ownerId));
+        SELECT * FROM graph_mutation_log
+        WHERE owner_id = ? ORDER BY created_at_utc DESC, id DESC LIMIT ? OFFSET ?
+      `).all(ownerId, limit, offset));
   }
 
   listAuditEvents(ownerId: string, limit: number): AuditEventRow[] {

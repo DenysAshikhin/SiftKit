@@ -16,6 +16,7 @@ import {
   ASSISTANT_DESKTOP_SCHEMA_SQL,
   ASSISTANT_MOBILE_SCHEMA_SQL,
   ASSISTANT_PROACTIVE_SCHEMA_SQL,
+  backfillAssistantFtsRowids,
   seedAssistantRegistries,
 } from '../assistant/storage/schema.js';
 
@@ -46,7 +47,7 @@ const ChatPresetSnapshotSessionRowSchema = z.object({
   context_window_tokens: z.number(),
 });
 
-export const CURRENT_SCHEMA_VERSION = 45;
+export const CURRENT_SCHEMA_VERSION = 46;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["read","grep","find","ls","git"],"full":[]}';
 const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
 
@@ -1501,6 +1502,19 @@ function ensureSchema(database: RuntimeDatabase): void {
     database.exec(ASSISTANT_CORE_SCHEMA_SQL);
     setSchemaVersion(database, 45);
     currentVersion = 45;
+  }
+  if (currentVersion < 46) {
+    for (const table of ['graph_nodes', 'graph_assertions', 'memory_projections'] as const) {
+      if (!tableHasColumn(database, table, 'fts_rowid')) {
+        database.exec(`ALTER TABLE ${table} ADD COLUMN fts_rowid INTEGER;`);
+      }
+    }
+    database.exec(ASSISTANT_CORE_SCHEMA_SQL);
+    database.exec(ASSISTANT_MEMORY_SCHEMA_SQL);
+    database.exec(ASSISTANT_DESKTOP_SCHEMA_SQL);
+    backfillAssistantFtsRowids(database);
+    setSchemaVersion(database, 46);
+    currentVersion = 46;
   }
   ensureChatMessageTimelineSchema(database);
   ensureRuntimeArtifactsSchema(database);

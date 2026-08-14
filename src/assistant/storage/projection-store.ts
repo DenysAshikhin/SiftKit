@@ -5,6 +5,7 @@ import type { Clock } from '../clock.js';
 import { isIndexableInPlaintext, type ProjectionStatus, type Sensitivity } from '../domain/enums.js';
 import type { IdGenerator } from '../ids.js';
 import { ProjectionRowSchema, type ProjectionRow } from './rows.js';
+import { dropFtsRow, recordFtsRowid } from './sql-helpers.js';
 
 export interface UpsertProjectionInput {
   readonly ownerId: string;
@@ -153,8 +154,10 @@ export class ProjectionStore {
   }
 
   deleteProjection(projectionId: string): void {
-    this.database.prepare('DELETE FROM memory_projections_fts WHERE projection_id = ?')
-      .run(projectionId);
+    const row = this.getProjection(projectionId);
+    if (row !== null) {
+      dropFtsRow(this.database, 'memory_projections', projectionId, row.fts_rowid);
+    }
     this.database.prepare('DELETE FROM memory_projections WHERE id = ?').run(projectionId);
   }
 
@@ -170,14 +173,15 @@ export class ProjectionStore {
 
   /** Rewrites the FTS row from canonical state. Sensitive projections are never indexed (§5.3). */
   private refreshFts(projectionId: string): void {
-    this.database.prepare('DELETE FROM memory_projections_fts WHERE projection_id = ?')
-      .run(projectionId);
     const row = this.getProjection(projectionId);
-    if (row === null || row.status !== 'active') return;
+    if (row === null) return;
+    dropFtsRow(this.database, 'memory_projections', projectionId, row.fts_rowid);
+    if (row.status !== 'active') return;
     if (!isIndexableInPlaintext(row.sensitivity)) return;
-    this.database.prepare(`
+    const inserted = this.database.prepare(`
       INSERT INTO memory_projections_fts (projection_id, owner_id, tier, topic_key, content)
       VALUES (?, ?, ?, ?, ?)
     `).run(row.id, row.owner_id, row.tier, row.topic_key, row.content);
+    recordFtsRowid(this.database, 'memory_projections', projectionId, inserted.lastInsertRowid);
   }
 }

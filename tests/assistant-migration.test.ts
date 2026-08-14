@@ -7,7 +7,10 @@ import { z } from 'zod';
 import { RELATION_TYPES } from '../src/assistant/domain/relation-types.js';
 import { NODE_TYPES } from '../src/assistant/domain/node-types.js';
 import { JobRowSchema, ProjectionRowSchema } from '../src/assistant/storage/rows.js';
-import { LOCAL_OWNER_ID } from '../src/assistant/storage/schema.js';
+import {
+  backfillAssistantFtsRowids,
+  LOCAL_OWNER_ID,
+} from '../src/assistant/storage/schema.js';
 import {
   CURRENT_SCHEMA_VERSION,
   closeRuntimeDatabase,
@@ -62,10 +65,10 @@ test('a fresh database lands on the current schema version with every assistant 
   getRuntimeDatabase(dbPath);
   closeRuntimeDatabase();
 
-  assert.equal(CURRENT_SCHEMA_VERSION, 45);
+  assert.equal(CURRENT_SCHEMA_VERSION, 46);
   const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
     .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
-  assert.equal(version, 45);
+  assert.equal(version, CURRENT_SCHEMA_VERSION);
 
   const tables = new Set(tableNames(dbPath));
   for (const expected of EXPECTED_ASSISTANT_TABLES) {
@@ -88,7 +91,7 @@ test('v42 adds proactive assistant tables and durable Gate C columns', () => {
     assert.ok(appConfigColumns.includes('assistant_json'));
     assert.ok(assertionColumns.includes('user_demoted'));
     assert.ok(candidateColumns.includes('user_notes'));
-    assert.equal(getSchemaVersion(database), 45);
+    assert.equal(getSchemaVersion(database), CURRENT_SCHEMA_VERSION);
 
     assert.throws(() => database.prepare(`
       INSERT INTO assistant_questions (
@@ -201,7 +204,7 @@ test('the v41 projection and job tables remain present after the v42 migration',
     assert.ok(tables.includes('memory_projections'), 'memory_projections missing');
     assert.ok(tables.includes('assistant_jobs'), 'assistant_jobs missing');
     assert.ok(tables.includes('memory_projections_fts'), 'memory_projections_fts missing');
-    assert.equal(getSchemaVersion(database), 45);
+    assert.equal(getSchemaVersion(database), CURRENT_SCHEMA_VERSION);
   });
 });
 
@@ -282,7 +285,7 @@ test('projection and job row schemas parse the shapes SQLite returns', () => {
 
 test('v43 adds the desktop observation tables with their guards and indexes', () => {
   withAssistantContext(({ database, ownerId }) => {
-    assert.equal(getSchemaVersion(database), 45);
+    assert.equal(getSchemaVersion(database), CURRENT_SCHEMA_VERSION);
 
     const indexes = NameRowSchema.parse(database.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'index'",
@@ -336,12 +339,12 @@ test('re-running the v43 migration is a no-op', () => {
   assert.equal(countRows(dbPath, 'assistant_capture_queue'), 0);
   const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
     .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
-  assert.equal(version, 45);
+  assert.equal(version, CURRENT_SCHEMA_VERSION);
 });
 
 test('v44 adds the device nonce table with its replay-protection key and index', () => {
   withAssistantContext(({ database, ownerId }) => {
-    assert.equal(getSchemaVersion(database), 45);
+    assert.equal(getSchemaVersion(database), CURRENT_SCHEMA_VERSION);
 
     const columns = ColumnRowSchema.parse(
       database.prepare("SELECT name FROM pragma_table_info('assistant_device_nonces')").all(),
@@ -386,7 +389,7 @@ test('a v43 database gains the device nonce table when it migrates forward', () 
   assert.ok(tableNames(dbPath).includes('assistant_device_nonces'));
   const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
     .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
-  assert.equal(version, 45);
+  assert.equal(version, CURRENT_SCHEMA_VERSION);
 });
 
 test('re-running the v44 migration is a no-op', () => {
@@ -399,7 +402,7 @@ test('re-running the v44 migration is a no-op', () => {
   assert.equal(countRows(dbPath, 'assistant_device_nonces'), 0);
   const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
     .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
-  assert.equal(version, 45);
+  assert.equal(version, CURRENT_SCHEMA_VERSION);
 });
 
 test('a v44 database gains the assertion recency indexes when it migrates forward', () => {
@@ -425,7 +428,7 @@ test('a v44 database gains the assertion recency indexes when it migrates forwar
   assert.ok(indexes.includes('graph_assertions_object_recency_idx'));
   const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
     .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
-  assert.equal(version, 45);
+  assert.equal(version, CURRENT_SCHEMA_VERSION);
 });
 
 test('re-running the v45 migration is a no-op', () => {
@@ -439,5 +442,89 @@ test('re-running the v45 migration is a no-op', () => {
   assert.equal(countRows(dbPath, 'assistant_owners'), 1);
   const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
     .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
-  assert.equal(version, 45);
+  assert.equal(version, CURRENT_SCHEMA_VERSION);
+});
+
+test('v46 adds the hot-path indexes and fts_rowid columns', () => {
+  withAssistantContext(({ database }) => {
+    const indexes = NameRowSchema.parse(database.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'index'",
+    ).all()).map((row) => row.name);
+    for (const expected of [
+      'assertion_evidence_evidence_idx',
+      'evidence_blob_ref_idx',
+      'assistant_audit_events_owner_time_idx',
+      'graph_mutation_owner_time_idx',
+      'assistant_activity_events_session_idx',
+      'assistant_activity_sessions_open_idx',
+      'assistant_capture_queue_pixel_idx',
+    ]) {
+      assert.ok(indexes.includes(expected), `missing index ${expected}`);
+    }
+    for (const table of ['graph_nodes', 'graph_assertions', 'memory_projections']) {
+      const columns = ColumnRowSchema.parse(
+        database.prepare(`SELECT name FROM pragma_table_info('${table}')`).all(),
+      ).map((row) => row.name);
+      assert.ok(columns.includes('fts_rowid'), `${table} missing fts_rowid`);
+    }
+  });
+});
+
+test('hot-path lookups use the v46 indexes', () => {
+  withAssistantContext(({ database }) => {
+    const plans: Array<{ sql: string; index: string }> = [
+      {
+        sql: "SELECT DISTINCT assertion_id FROM assertion_evidence WHERE evidence_id = 'x'",
+        index: 'assertion_evidence_evidence_idx',
+      },
+      {
+        sql: "SELECT COUNT(*) FROM evidence_records WHERE blob_id = 'x' AND status NOT IN ('deleted','expired')",
+        index: 'evidence_blob_ref_idx',
+      },
+      {
+        sql: "SELECT * FROM assistant_audit_events WHERE owner_id = 'x' ORDER BY created_at_utc DESC, id DESC LIMIT 50",
+        index: 'assistant_audit_events_owner_time_idx',
+      },
+      {
+        sql: "SELECT * FROM graph_mutation_log WHERE owner_id = 'x' ORDER BY created_at_utc DESC, id DESC LIMIT 50",
+        index: 'graph_mutation_owner_time_idx',
+      },
+      {
+        sql: "SELECT captured_at_utc FROM assistant_activity_events WHERE session_id = 'x' ORDER BY captured_at_utc DESC, id DESC LIMIT 1",
+        index: 'assistant_activity_events_session_idx',
+      },
+      {
+        sql: "SELECT * FROM assistant_activity_sessions WHERE owner_id = 'x' AND ended_at_utc IS NULL ORDER BY started_at_utc DESC, id DESC LIMIT 1",
+        index: 'assistant_activity_sessions_open_idx',
+      },
+      {
+        sql: "SELECT * FROM assistant_capture_queue WHERE owner_id = 'x' AND pixel_sha256 = 'y' AND enqueued_at_utc >= 'z' ORDER BY enqueued_at_utc DESC LIMIT 1",
+        index: 'assistant_capture_queue_pixel_idx',
+      },
+    ];
+    for (const { sql, index } of plans) {
+      const detail = z.array(z.object({ detail: z.string() })).parse(
+        database.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(),
+      ).map((row) => row.detail).join(' | ');
+      assert.ok(detail.includes(index), `expected ${index} in plan: ${detail}`);
+    }
+  });
+});
+
+test('backfillAssistantFtsRowids repopulates fts_rowid from existing FTS rows', () => {
+  withAssistantContext(({ database, graph, ownerId }) => {
+    const node = graph.nodes.createNode({
+      ownerId, type: 'software', canonicalKey: null, displayName: 'Backfill Target',
+      description: null, sensitivity: 'personal', properties: {},
+    });
+    database.prepare('UPDATE graph_nodes SET fts_rowid = NULL WHERE id = ?').run(node.id);
+    backfillAssistantFtsRowids(database);
+    const stored = z.object({ fts_rowid: z.number().int() }).parse(
+      database.prepare('SELECT fts_rowid FROM graph_nodes WHERE id = ?').get(node.id),
+    );
+    const ftsRow = z.object({ rowid: z.number().int() }).parse(
+      database.prepare('SELECT rowid FROM graph_nodes_fts WHERE node_id = ?').get(node.id),
+    );
+    assert.equal(stored.fts_rowid, ftsRow.rowid);
+  });
 });

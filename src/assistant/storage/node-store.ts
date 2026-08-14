@@ -12,6 +12,7 @@ import {
   AliasRowSchema, MergeRowSchema, NodeRowSchema,
   type AliasRow, type MergeRow, type NodeRow,
 } from './rows.js';
+import { dropFtsRow, fetchRowsByIds, recordFtsRowid } from './sql-helpers.js';
 
 export interface CreateNodeInput {
   readonly ownerId: string;
@@ -85,6 +86,11 @@ export class NodeStore {
       throw new Error(`Unknown graph node: ${nodeId}`);
     }
     return node;
+  }
+
+  /** Batch fetch by id, deduplicated. Missing ids are simply absent from the result. */
+  getNodes(nodeIds: readonly string[]): Map<string, NodeRow> {
+    return fetchRowsByIds(this.database, 'graph_nodes', NodeRowSchema, nodeIds);
   }
 
   findByCanonicalKey(ownerId: string, type: NodeType, canonicalKey: string): NodeRow | null {
@@ -249,14 +255,16 @@ export class NodeStore {
    * changes indexed text, status, or sensitivity, inside the caller's transaction.
    */
   private refreshFts(nodeId: string): void {
-    this.database.prepare('DELETE FROM graph_nodes_fts WHERE node_id = ?').run(nodeId);
     const node = this.getNode(nodeId);
-    if (node === null || node.status !== 'active') return;
+    if (node === null) return;
+    dropFtsRow(this.database, 'graph_nodes', nodeId, node.fts_rowid);
+    if (node.status !== 'active') return;
     if (!isIndexableInPlaintext(node.sensitivity)) return;
     const aliases = this.listAliases(nodeId).map((alias) => alias.alias).join(' ');
-    this.database.prepare(`
+    const inserted = this.database.prepare(`
       INSERT INTO graph_nodes_fts (node_id, owner_id, display_name, aliases, description)
       VALUES (?, ?, ?, ?, ?)
     `).run(nodeId, node.owner_id, node.display_name, aliases, node.description ?? '');
+    recordFtsRowid(this.database, 'graph_nodes', nodeId, inserted.lastInsertRowid);
   }
 }

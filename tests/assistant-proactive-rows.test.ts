@@ -68,6 +68,7 @@ test('assertion rows parse the durable user-demoted flag', () => {
     recorded_at_utc: '2026-08-10T00:00:00.000Z', retired_at_utc: null,
     supersedes_assertion_id: null, pinned: 0, user_demoted: 1, attributes_json: '{}',
     created_at_utc: '2026-08-10T00:00:00.000Z', updated_at_utc: '2026-08-10T00:00:00.000Z',
+    fts_rowid: null,
   });
   assert.equal(assertion.user_demoted, true);
 });

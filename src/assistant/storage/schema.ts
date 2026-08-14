@@ -67,7 +67,8 @@ CREATE TABLE IF NOT EXISTS graph_nodes (
     merged_into_node_id TEXT REFERENCES graph_nodes(id),
     created_at_utc TEXT NOT NULL,
     updated_at_utc TEXT NOT NULL,
-    deleted_at_utc TEXT
+    deleted_at_utc TEXT,
+    fts_rowid INTEGER
 );
 CREATE UNIQUE INDEX IF NOT EXISTS graph_nodes_owner_type_key_uq
   ON graph_nodes(owner_id, type, canonical_key)
@@ -131,6 +132,8 @@ CREATE INDEX IF NOT EXISTS evidence_owner_hash_idx
   ON evidence_records(owner_id, content_hash, source_type, captured_at_utc);
 CREATE INDEX IF NOT EXISTS evidence_retention_idx
   ON evidence_records(status, retention_until_utc);
+CREATE INDEX IF NOT EXISTS evidence_blob_ref_idx
+  ON evidence_records(blob_id) WHERE blob_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS observations (
     id TEXT PRIMARY KEY,
@@ -210,6 +213,7 @@ CREATE TABLE IF NOT EXISTS graph_assertions (
     attributes_json TEXT NOT NULL DEFAULT '{}',
     created_at_utc TEXT NOT NULL,
     updated_at_utc TEXT NOT NULL,
+    fts_rowid INTEGER,
     CHECK (
         (object_kind = 'node' AND object_node_id IS NOT NULL AND object_value_json IS NULL)
         OR
@@ -240,6 +244,8 @@ CREATE TABLE IF NOT EXISTS assertion_evidence (
     created_at_utc TEXT NOT NULL,
     PRIMARY KEY (assertion_id, evidence_id, stance)
 );
+CREATE INDEX IF NOT EXISTS assertion_evidence_evidence_idx
+  ON assertion_evidence(evidence_id);
 
 CREATE TABLE IF NOT EXISTS graph_entity_merges (
     id TEXT PRIMARY KEY,
@@ -272,6 +278,8 @@ CREATE TABLE IF NOT EXISTS graph_mutation_log (
 );
 CREATE INDEX IF NOT EXISTS graph_mutation_target_idx
   ON graph_mutation_log(owner_id, target_type, target_id, created_at_utc);
+CREATE INDEX IF NOT EXISTS graph_mutation_owner_time_idx
+  ON graph_mutation_log(owner_id, created_at_utc DESC, id DESC);
 
 CREATE TABLE IF NOT EXISTS assistant_policies (
     id TEXT PRIMARY KEY,
@@ -298,6 +306,8 @@ CREATE TABLE IF NOT EXISTS assistant_audit_events (
     details_json TEXT NOT NULL DEFAULT '{}',
     created_at_utc TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS assistant_audit_events_owner_time_idx
+  ON assistant_audit_events(owner_id, created_at_utc DESC, id DESC);
 `;
 
 export const ASSISTANT_FTS_SCHEMA_SQL = `
@@ -335,6 +345,7 @@ CREATE TABLE IF NOT EXISTS memory_projections (
     retrieval_count INTEGER NOT NULL DEFAULT 0,
     utility_score REAL NOT NULL DEFAULT 0.0,
     status TEXT NOT NULL CHECK (status IN ('active', 'demoted', 'archived', 'deleted')),
+    fts_rowid INTEGER,
     UNIQUE(owner_id, tier, topic_key)
 );
 CREATE INDEX IF NOT EXISTS memory_projections_tier_idx
@@ -446,6 +457,8 @@ CREATE TABLE IF NOT EXISTS assistant_activity_events (
 );
 CREATE INDEX IF NOT EXISTS assistant_activity_events_time_idx
   ON assistant_activity_events(owner_id, captured_at_utc DESC);
+CREATE INDEX IF NOT EXISTS assistant_activity_events_session_idx
+  ON assistant_activity_events(session_id, captured_at_utc DESC, id DESC);
 
 CREATE TABLE IF NOT EXISTS assistant_activity_sessions (
     id TEXT PRIMARY KEY,
@@ -456,6 +469,9 @@ CREATE TABLE IF NOT EXISTS assistant_activity_sessions (
     ended_at_utc TEXT,
     event_count INTEGER NOT NULL DEFAULT 0
 );
+CREATE INDEX IF NOT EXISTS assistant_activity_sessions_open_idx
+  ON assistant_activity_sessions(owner_id, started_at_utc DESC, id DESC)
+  WHERE ended_at_utc IS NULL;
 
 CREATE TABLE IF NOT EXISTS assistant_capture_queue (
     evidence_id TEXT PRIMARY KEY REFERENCES evidence_records(id) ON DELETE CASCADE,
@@ -475,6 +491,8 @@ CREATE INDEX IF NOT EXISTS assistant_capture_queue_state_idx
   ON assistant_capture_queue(owner_id, state, enqueued_at_utc);
 CREATE INDEX IF NOT EXISTS assistant_capture_queue_dedupe_idx
   ON assistant_capture_queue(owner_id, foreground_context_key, enqueued_at_utc DESC);
+CREATE INDEX IF NOT EXISTS assistant_capture_queue_pixel_idx
+  ON assistant_capture_queue(owner_id, pixel_sha256, enqueued_at_utc DESC);
 `;
 
 /**
@@ -593,4 +611,27 @@ export function seedAssistantRegistries(
     VALUES (?, ?, ?)
     ON CONFLICT(key) DO NOTHING
   `).run(LOCAL_DEVICE_METADATA_KEY, localDeviceId, nowUtc);
+}
+
+/**
+ * v46 backfill: records each FTS row's rowid on its canonical row so deletes can address the
+ * FTS index by rowid instead of scanning an UNINDEXED column. Content-preserving — FTS text is
+ * caller-rendered at write time and is not rebuilt here.
+ */
+export function backfillAssistantFtsRowids(database: RuntimeDatabase): void {
+  const targets = [
+    { table: 'graph_nodes', fts: 'graph_nodes_fts', idColumn: 'node_id' },
+    { table: 'graph_assertions', fts: 'graph_assertions_fts', idColumn: 'assertion_id' },
+    { table: 'memory_projections', fts: 'memory_projections_fts', idColumn: 'projection_id' },
+  ] as const;
+  for (const target of targets) {
+    database.exec(`
+      CREATE TEMP TABLE fts_backfill AS
+        SELECT rowid AS fts_rowid, ${target.idColumn} AS row_id FROM ${target.fts};
+      CREATE INDEX fts_backfill_idx ON fts_backfill(row_id);
+      UPDATE ${target.table} SET fts_rowid =
+        (SELECT fts_rowid FROM fts_backfill WHERE row_id = ${target.table}.id);
+      DROP TABLE fts_backfill;
+    `);
+  }
 }

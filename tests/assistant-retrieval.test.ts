@@ -204,3 +204,49 @@ test('retrieval records usage on the projections it drew from', async () => {
     );
   });
 });
+
+class CallCountingTokenCounter implements TokenCounter {
+  calls = 0;
+
+  async count(text: string): Promise<TokenCount> {
+    this.calls += 1;
+    return { tokenCount: Math.ceil(text.length / 4), tokenizerId: 'length' };
+  }
+}
+
+test('retrieval token budgeting makes O(log n) tokenizer calls', async () => {
+  await withAssistantContextAsync(async ({ graph, ownerId }) => {
+    const subject = graph.nodes.createNode({
+      ownerId, type: 'person', canonicalKey: OWNER_PERSON_CANONICAL_KEY,
+      displayName: 'the user', description: null, sensitivity: 'personal', properties: {},
+    });
+    for (let index = 0; index < 40; index += 1) {
+      const object = graph.nodes.createNode({
+        ownerId, type: 'software', canonicalKey: null, displayName: `Budget Tool ${index}`,
+        description: null, sensitivity: 'personal', properties: {},
+      });
+      graph.assertions.createAssertion({
+        ownerId, subjectNodeId: subject.id, predicate: 'USES',
+        object: { kind: 'node', nodeId: object.id }, scopeNodeId: null,
+        status: 'active', basis: 'explicit_user_statement', confidence: 0.9,
+        sensitivity: 'personal', validFromUtc: null, validToUtc: null,
+        observedAtUtc: '2026-08-05T09:00:00.000Z', supersedesAssertionId: null,
+        pinned: false, attributes: {},
+        searchText: { subject: 'the user', predicate: 'uses', object: `Budget Tool ${index}`, scope: '' },
+      });
+    }
+    const counter = new CallCountingTokenCounter();
+    const retriever = new MemoryRetriever(
+      graph, counter, DEFAULT_ASSISTANT_CONFIG.Retrieval, graph.retrievalUsage,
+    );
+    const result = await retriever.retrieve({
+      ownerId, userMessage: 'which Budget Tool setups do I use?',
+      conversationId: null, recordUsage: false,
+    });
+    assert.ok(result.assertionIds.length > 0, 'expected some assertions to be retrieved');
+    assert.ok(
+      counter.calls <= 10,
+      `expected at most 10 tokenizer calls for 40 candidates, saw ${counter.calls}`,
+    );
+  });
+});

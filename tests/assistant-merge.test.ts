@@ -143,6 +143,36 @@ test('a merge that would collide two live assertions retires the weaker one', ()
   });
 });
 
+test('unmerging a colliding merge reindexes a reactivated assertion', () => {
+  withAssistantContext((context) => {
+    const h = harness(context);
+    const target = makeSoftware(h, context, 'software:vscode', 'Visual Studio Code');
+    const source = makeSoftware(h, context, null, 'VSCode');
+    const keptId = makeUses(h, context, target, 'Visual Studio Code');
+    const retiredId = makeUses(h, context, source, 'VSCode');
+    assert.deepEqual(h.assertions.searchAssertions(context.ownerId, 'VSCode', 10), [retiredId]);
+
+    const outcome = h.merges.merge({
+      ownerId: context.ownerId, sourceNodeId: source, targetNodeId: target,
+      basis: 'user confirmed', reason: 'merge',
+    });
+    assert.equal(outcome.kind, 'merged');
+    if (outcome.kind !== 'merged') return;
+    assert.equal(h.assertions.requireAssertion(keptId).status, 'active');
+    assert.equal(h.assertions.requireAssertion(retiredId).status, 'superseded');
+    assert.deepEqual(h.assertions.searchAssertions(context.ownerId, 'VSCode', 10), []);
+
+    h.merges.unmerge({
+      ownerId: context.ownerId, mergeId: outcome.mergeId, reason: 'reversed',
+    });
+
+    const restored = h.assertions.requireAssertion(retiredId);
+    assert.equal(restored.status, 'active');
+    assert.notEqual(restored.fts_rowid, null);
+    assert.deepEqual(h.assertions.searchAssertions(context.ownerId, 'VSCode', 10), [retiredId]);
+  });
+});
+
 test('merging different node types is blocked', () => {
   withAssistantContext((context) => {
     const h = harness(context);

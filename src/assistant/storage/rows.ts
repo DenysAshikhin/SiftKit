@@ -51,6 +51,7 @@ export const NodeRowSchema = z.object({
   created_at_utc: z.string(),
   updated_at_utc: z.string(),
   deleted_at_utc: z.string().nullable(),
+  fts_rowid: z.number().int().nullable(),
 });
 export type NodeRow = z.infer<typeof NodeRowSchema>;
 
@@ -94,6 +95,7 @@ export const AssertionRowSchema = z.object({
   attributes_json: z.string(),
   created_at_utc: z.string(),
   updated_at_utc: z.string(),
+  fts_rowid: z.number().int().nullable(),
 });
 export type AssertionRow = z.infer<typeof AssertionRowSchema>;
 
@@ -254,6 +256,7 @@ export const ProjectionRowSchema = z.object({
   retrieval_count: z.number().int(),
   utility_score: z.number(),
   status: ProjectionStatusSchema,
+  fts_rowid: z.number().int().nullable(),
 });
 export type ProjectionRow = z.infer<typeof ProjectionRowSchema>;
 

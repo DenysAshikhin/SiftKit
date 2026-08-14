@@ -15,6 +15,7 @@ import {
   AssertionEvidenceRowSchema, AssertionRowSchema, CountRowSchema,
   type AssertionEvidenceRow, type AssertionRow,
 } from './rows.js';
+import { dropFtsRow, fetchRowsByIds, recordFtsRowid } from './sql-helpers.js';
 
 const SupportingEvidenceSchema = z.object({
   weight: z.number(),
@@ -105,6 +106,11 @@ export class AssertionStore {
       throw new Error(`Unknown graph assertion: ${assertionId}`);
     }
     return assertion;
+  }
+
+  /** Batch fetch by id, deduplicated. Missing ids are simply absent from the result. */
+  getAssertions(assertionIds: readonly string[]): Map<string, AssertionRow> {
+    return fetchRowsByIds(this.database, 'graph_assertions', AssertionRowSchema, assertionIds);
   }
 
   /** The live assertion holding this key, if any. Backs conflict detection in Task 14. */
@@ -204,12 +210,13 @@ export class AssertionStore {
 
   /** Moves an assertion out of the live set, freeing its assertion key. */
   retireAssertion(assertionId: string, status: AssertionStatus): AssertionRow {
+    const existing = this.requireAssertion(assertionId);
     const nowUtc = this.clock.nowUtc();
     this.database.prepare(`
       UPDATE graph_assertions
       SET status = ?, retired_at_utc = ?, updated_at_utc = ? WHERE id = ?
     `).run(status, nowUtc, nowUtc, assertionId);
-    this.database.prepare('DELETE FROM graph_assertions_fts WHERE assertion_id = ?').run(assertionId);
+    dropFtsRow(this.database, 'graph_assertions', assertionId, existing.fts_rowid);
     return this.requireAssertion(assertionId);
   }
 
@@ -217,6 +224,22 @@ export class AssertionStore {
     this.database
       .prepare('UPDATE graph_assertions SET status = ?, updated_at_utc = ? WHERE id = ?')
       .run(status, this.clock.nowUtc(), assertionId);
+    return this.requireAssertion(assertionId);
+  }
+
+  /** Reactivates a merge-retired assertion and rebuilds its lexical index row. */
+  reactivateAssertion(assertionId: string, searchText: AssertionSearchText): AssertionRow {
+    const existing = this.requireAssertion(assertionId);
+    if (existing.status !== 'superseded') {
+      throw new Error(
+        `Assertion ${assertionId} cannot be reactivated from status ${existing.status}.`,
+      );
+    }
+    this.database.prepare(`
+      UPDATE graph_assertions
+      SET status = 'active', retired_at_utc = NULL, updated_at_utc = ? WHERE id = ?
+    `).run(this.clock.nowUtc(), assertionId);
+    this.refreshFts(assertionId, searchText);
     return this.requireAssertion(assertionId);
   }
 
@@ -398,11 +421,11 @@ export class AssertionStore {
   }
 
   private refreshFts(assertionId: string, searchText: AssertionSearchText): void {
-    this.database.prepare('DELETE FROM graph_assertions_fts WHERE assertion_id = ?').run(assertionId);
     const assertion = this.requireAssertion(assertionId);
+    dropFtsRow(this.database, 'graph_assertions', assertionId, assertion.fts_rowid);
     if (!LIVE_ASSERTION_STATUSES.includes(assertion.status)) return;
     if (!isIndexableInPlaintext(assertion.sensitivity)) return;
-    this.database.prepare(`
+    const inserted = this.database.prepare(`
       INSERT INTO graph_assertions_fts (
         assertion_id, owner_id, subject_text, predicate_text, object_text, scope_text
       ) VALUES (?, ?, ?, ?, ?, ?)
@@ -410,5 +433,6 @@ export class AssertionStore {
       assertionId, assertion.owner_id, searchText.subject, searchText.predicate,
       searchText.object, searchText.scope,
     );
+    recordFtsRowid(this.database, 'graph_assertions', assertionId, inserted.lastInsertRowid);
   }
 }

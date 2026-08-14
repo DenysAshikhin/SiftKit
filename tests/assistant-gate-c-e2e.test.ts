@@ -113,7 +113,10 @@ test('Gate C: an explicit question answer becomes controllable memory and signed
     );
     await drainAll(service);
     assert.equal(service.memoryQueries.search(service.ownerId, 'concise', 20).assertions.length, 0);
-    assert.ok(service.memoryQueries.listMemoryHistory(service.ownerId).length >= 5);
+    assert.ok(
+      service.memoryQueries.listMemoryHistory(service.ownerId, { limit: 100, offset: 0 })
+        .length >= 5,
+    );
   } finally {
     closeRuntimeDatabase();
     await removeDirectoryWithRetries(runtimeRoot);

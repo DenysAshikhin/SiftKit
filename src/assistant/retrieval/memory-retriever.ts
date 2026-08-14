@@ -9,7 +9,6 @@ import { hashTextContent } from '../domain/keys.js';
 import { renderAssertionSentence } from '../projections/assertion-sentence.js';
 import { AssertionViewBuilder } from '../projections/assertion-view-builder.js';
 import { isProjectableInPlaintext, type AssertionView } from '../projections/assertion-view.js';
-import type { AssertionRow } from '../storage/rows.js';
 import type { RetrievalUsageStore } from '../storage/retrieval-usage-store.js';
 import { QueryIntentExtractor } from './query-intent.js';
 
@@ -87,12 +86,9 @@ export class MemoryRetriever {
       }
     }
 
-    const ranked = [...assertionIds]
-      .map((assertionId) => this.graph.assertions.getAssertion(assertionId))
-      .filter((row): row is AssertionRow => (
-        row !== null && (row.status === 'active' || row.status === 'disputed')
-      ))
-      .map((row) => this.views.build(row))
+    const rankedRows = [...this.graph.assertions.getAssertions([...assertionIds]).values()]
+      .filter((row) => row.status === 'active' || row.status === 'disputed');
+    const ranked = this.views.buildMany(rankedRows)
       .filter(isProjectableInPlaintext)
       .map((view) => ({ view, score: this.score(view, intent.terms) }))
       .sort(
@@ -108,21 +104,38 @@ export class MemoryRetriever {
       return { renderedBlock: '', assertionIds: [], projectionIds, tokenCount: 0 };
     }
 
-    const lines: string[] = [RENDER_HEADING, ''];
-    const includedAssertionIds: string[] = [];
-    let tokenCount = (await this.tokens.count(lines.join('\n'))).tokenCount;
+    // Token count is monotone in the number of included sentences, so the largest prefix that
+    // fits is found by binary search: O(log n) tokenizer calls instead of one per line, and
+    // each call in production is an HTTP round trip to the backend tokenizer.
+    const sentences = ranked.map((entry) => renderAssertionSentence(entry.view));
+    const measured = new Map<number, number>();
+    const countPrefix = async (included: number): Promise<number> => {
+      const cached = measured.get(included);
+      if (cached !== undefined) return cached;
+      const text = [RENDER_HEADING, '', ...sentences.slice(0, included)].join('\n');
+      const value = (await this.tokens.count(text)).tokenCount;
+      measured.set(included, value);
+      return value;
+    };
 
-    for (const entry of ranked) {
-      const line = renderAssertionSentence(entry.view);
-      const nextCount = (await this.tokens.count([...lines, line].join('\n'))).tokenCount;
-      if (nextCount > this.limits.MaxContextTokens) break;
-      lines.push(line);
-      includedAssertionIds.push(entry.view.assertionId);
-      tokenCount = nextCount;
+    let low = 0;
+    let high = sentences.length;
+    if (await countPrefix(0) > this.limits.MaxContextTokens) high = 0;
+    while (low < high) {
+      const mid = Math.ceil((low + high) / 2);
+      if (await countPrefix(mid) <= this.limits.MaxContextTokens) low = mid;
+      else high = mid - 1;
     }
+
+    const includedAssertionIds = ranked.slice(0, low).map((entry) => entry.view.assertionId);
 
     if (includedAssertionIds.length === 0) {
       return { renderedBlock: '', assertionIds: [], projectionIds, tokenCount: 0 };
+    }
+    const lines = [RENDER_HEADING, '', ...sentences.slice(0, low)];
+    const tokenCount = measured.get(low);
+    if (tokenCount === undefined) {
+      throw new Error(`Retrieval prefix of ${low} sentences was selected but never measured.`);
     }
     const result = {
       renderedBlock: lines.join('\n'),

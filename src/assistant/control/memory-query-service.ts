@@ -12,6 +12,7 @@ import { parseJsonText } from '../../lib/json.js';
 import type { AssistantGraph } from '../assistant-graph.js';
 import { RELATION_TYPES } from '../domain/relation-types.js';
 import { AssertionViewBuilder } from '../projections/assertion-view-builder.js';
+import type { AssertionView } from '../projections/assertion-view.js';
 import type { AssertionRow, EvidenceRow, NodeRow, ProjectionRow } from '../storage/rows.js';
 
 export interface PageRequest {
@@ -142,14 +143,25 @@ export class MemoryQueryService {
     return this.graph.projections.listAll(ownerId).map((row) => this.toProjection(row));
   }
 
-  listMemoryHistory(ownerId: string): AssistantMemoryHistoryEntryDto[] {
-    return this.graph.audit.listAllMutations(ownerId).map((mutation) => {
+  listMemoryHistory(ownerId: string, page: PageRequest): AssistantMemoryHistoryEntryDto[] {
+    this.validatePage(page);
+    const mutations = this.graph.audit.listMutationsRecent(ownerId, page.limit, page.offset);
+    const assertionsById = this.graph.assertions.getAssertions(
+      mutations
+        .filter((mutation) => mutation.target_type === 'graph_assertions')
+        .map((mutation) => mutation.target_id),
+    );
+    const viewsById = new Map(
+      this.views.buildMany([...assertionsById.values()])
+        .map((view) => [view.assertionId, view] as const),
+    );
+    return mutations.map((mutation) => {
       const assertion = mutation.target_type === 'graph_assertions'
-        ? this.graph.assertions.getAssertion(mutation.target_id)
+        ? assertionsById.get(mutation.target_id) ?? null
         : null;
       const assertionText = assertion === null
         ? mutation.target_id
-        : this.views.build(assertion).objectText;
+        : this.requireHistoryView(viewsById, assertion.id).objectText;
       const action = mutation.operation.startsWith('create')
         ? 'Added'
         : mutation.operation.startsWith('delete') ? 'Deleted' : 'Changed';
@@ -174,6 +186,18 @@ export class MemoryQueryService {
         createdAtUtc: mutation.created_at_utc,
       };
     });
+  }
+
+  /** Every assertion handed to buildMany gets a view or buildMany throws; a miss here is a bug. */
+  private requireHistoryView(
+    views: ReadonlyMap<string, AssertionView>,
+    assertionId: string,
+  ): AssertionView {
+    const view = views.get(assertionId);
+    if (view === undefined) {
+      throw new Error(`Assertion ${assertionId} has no built view for the history page.`);
+    }
+    return view;
   }
 
   private toNodeSummary(row: NodeRow): AssistantNodeSummary {

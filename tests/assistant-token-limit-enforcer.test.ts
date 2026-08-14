@@ -16,6 +16,15 @@ class FailingTokenCounter implements TokenCounter {
   }
 }
 
+class CountingLengthTokenCounter implements TokenCounter {
+  calls = 0;
+
+  async count(text: string): Promise<TokenCount> {
+    this.calls += 1;
+    return { tokenCount: text.length, tokenizerId: 'length' };
+  }
+}
+
 test('returns an unchanged body when it fits', async () => {
   const enforcer = new TokenLimitEnforcer(new LengthTokenCounter());
   const lines = ['# Profile', '', '- Uses PowerShell. [M:ast_1]', ''];
@@ -61,4 +70,20 @@ test('propagates token-counter failures', async () => {
   const enforcer = new TokenLimitEnforcer(new FailingTokenCounter());
   const lines = ['# Profile', '', '- Uses PowerShell. [M:ast_1]', ''];
   await assert.rejects(enforcer.enforce(lines, 200), /count failed/);
+});
+
+test('enforcement makes O(log n) tokenizer calls on a large over-budget body', async () => {
+  const counter = new CountingLengthTokenCounter();
+  const enforcer = new TokenLimitEnforcer(counter);
+  const lines = [
+    '# Profile',
+    '',
+    ...Array.from({ length: 256 }, (_, index) => `- fact ${index} about the user. [M:ast_${index}]`),
+  ];
+  const result = await enforcer.enforce(lines, 400);
+  assert.ok(result.droppedLines > 200, 'most cited lines must be dropped');
+  assert.ok(
+    counter.calls <= 12,
+    `expected at most 12 tokenizer calls for 256 cited lines, saw ${counter.calls}`,
+  );
 });

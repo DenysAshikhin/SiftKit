@@ -65,3 +65,27 @@ test('MemoryQueryService provides bounded, owner-isolated graph and explanation 
     assert.deepEqual(service.getNeighborhood(ownerId, owner.id, 1).kind, 'found');
   });
 });
+
+test('listMemoryHistory pages newest-first and validates the page', () => {
+  withAssistantContext(({ graph, ownerId }) => {
+    const subject = graph.nodes.createNode({
+      ownerId, type: 'person', canonicalKey: null, displayName: 'Pager',
+      description: null, sensitivity: 'personal', properties: {},
+    });
+    for (let index = 0; index < 5; index += 1) {
+      graph.audit.recordMutation({
+        ownerId, actorType: 'system', actorRef: null, operation: 'update_node',
+        targetType: 'graph_nodes', targetId: subject.id, before: null, after: null,
+        reason: `mutation ${index}`,
+      });
+    }
+    const service = new MemoryQueryService(graph);
+    const firstPage = service.listMemoryHistory(ownerId, { limit: 3, offset: 0 });
+    const secondPage = service.listMemoryHistory(ownerId, { limit: 3, offset: 3 });
+    assert.equal(firstPage.length, 3);
+    assert.ok(secondPage.length >= 2);
+    assert.notDeepEqual(firstPage.map((entry) => entry.id), secondPage.map((entry) => entry.id));
+    assert.throws(() => service.listMemoryHistory(ownerId, { limit: 0, offset: 0 }));
+    assert.throws(() => service.listMemoryHistory(ownerId, { limit: 10, offset: -1 }));
+  });
+});

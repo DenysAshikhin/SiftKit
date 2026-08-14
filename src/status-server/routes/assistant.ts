@@ -508,7 +508,9 @@ class AssistantEndpoint implements RouteEndpoint {
       return;
     }
     if (pathname === '/assistant/history') {
-      sendJson(res, 200, { items: service.memoryQueries.listMemoryHistory(service.ownerId) });
+      sendJson(res, 200, { items: service.memoryQueries.listMemoryHistory(service.ownerId, {
+        limit: integerParam(url, 'limit', 100), offset: integerParam(url, 'offset', 0),
+      }) });
     }
   }
 

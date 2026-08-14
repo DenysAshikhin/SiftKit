@@ -2,6 +2,7 @@ import { parseJsonText, parseJsonValueText } from '../../lib/json.js';
 import { z } from '../../lib/zod.js';
 import { isExplicitBasis } from '../domain/enums.js';
 import { buildAssertionKey, type AssertionObjectRef } from '../domain/keys.js';
+import { searchTextForAssertion } from '../storage/assertion-search-text.js';
 import type { AssertionStore } from '../storage/assertion-store.js';
 import type { AuditStore } from '../storage/audit-store.js';
 import type { NodeStore } from '../storage/node-store.js';
@@ -186,7 +187,8 @@ export class NodeMergeService {
       const payload = parseJsonText(entry.before_json, MergePayloadSchema);
 
       for (const retiredId of payload.retiredAssertionIds) {
-        this.assertions.setStatus(retiredId, 'active');
+        const assertion = this.assertions.requireAssertion(retiredId);
+        this.assertions.reactivateAssertion(retiredId, searchTextForAssertion(this.nodes, assertion));
       }
       for (const moved of payload.movedAssertions) {
         this.assertions.repointNodeReference(moved.assertionId, moved.column, moved.previousNodeId);

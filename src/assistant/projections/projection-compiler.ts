@@ -204,11 +204,10 @@ export class ProjectionCompiler {
     if (owner === null) {
       return [];
     }
-    return this.graph.assertions
+    const rows = this.graph.assertions
       .listBySubject(ownerId, owner.id, LIVE_ASSERTION_STATUSES)
-      .filter((row) => RELATION_DEFINITIONS[row.predicate].projectionBehavior !== 'never_project')
-      .map((row) => this.views.build(row))
-      .filter(isProjectableInPlaintext);
+      .filter((row) => RELATION_DEFINITIONS[row.predicate].projectionBehavior !== 'never_project');
+    return this.views.buildMany(rows).filter(isProjectableInPlaintext);
   }
 
   private buildBundles(views: readonly AssertionView[]): TopicBundle[] {
