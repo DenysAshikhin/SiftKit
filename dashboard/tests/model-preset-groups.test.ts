@@ -22,7 +22,8 @@ function llama(overrides: Partial<DashboardModelRuntimePreset>): DashboardModelR
     Reasoning: 'off', MaintainPerStepThinking: true, ReasoningBudget: 10000,
     SpeculativeEnabled: true, SpeculativeType: 'ngram-map-k', SpeculativeNgramSizeN: 12, SpeculativeNgramSizeM: 4,
     SpeculativeDraftMin: 2, SpeculativeDraftMax: 8,
-    StartupTimeoutMs: 120000, HealthcheckTimeoutMs: 5000, HealthcheckIntervalMs: 1000, SleepIdleSeconds: 600,
+    StartupTimeoutMs: 120000, HealthcheckTimeoutMs: 5000, HealthcheckIntervalMs: 1000,
+    SleepIdleSeconds: 600, IdleAction: 'unload',
     ...overrides,
   };
 }
@@ -44,6 +45,13 @@ test('sampling / reasoning / lifecycle summaries', () => {
   assert.equal(summarizeSampling(llama({})), 'temp 0.7 · top-p 0.8 · top-k 20 · max 15k');
   assert.equal(summarizeReasoning(llama({})), 'off · per-step thinking on · budget 10k');
   assert.equal(summarizeLifecycle(llama({})), 'startup 120s · probe 5s/1s · idle unload 600s');
+});
+
+test('preset summary reports the idle action alongside the timer', () => {
+  const base = llama({ Backend: 'exl3' });
+  assert.match(summarizeLifecycle({ ...base, IdleAction: 'none' }), /stays resident/u);
+  assert.match(summarizeLifecycle({ ...base, IdleAction: 'freeze' }), /idle freeze 600s/u);
+  assert.match(summarizeLifecycle({ ...base, IdleAction: 'unload' }), /idle unload 600s/u);
 });
 
 test('speculative summary covers ngram, draft and off', () => {

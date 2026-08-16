@@ -616,7 +616,7 @@ export function buildManagedLlamaArgs(managed: ReturnType<typeof getManagedLlama
     '--repeat-penalty', String(managed.RepetitionPenalty),
     '--reasoning', managed.Reasoning,
     '--reasoning-budget', String(managed.ReasoningBudget),
-    '--sleep-idle-seconds', String(managed.SleepIdleSeconds),
+    '--sleep-idle-seconds', '-1',
     '--host', managed.BindHost,
     '--port', String(managed.Port),
   );
@@ -980,7 +980,7 @@ async function waitForManagedLlamaStartup(
         deadline = extendedDeadline;
       }
     } else if (progress.stderrChars > lastSeenStderrChars) {
-      // Llama hasn't bound the listener yet (mmap → GPU offload → warmup all
+      // Llama hasn't bound the listener yet (mmap → GPU placement → warmup all
       // happen before `server is listening`), but the child is actively
       // emitting stderr. Treat that as progress and reset the deadline so
       // StartupTimeoutMs becomes "max silent stall" rather than "max total
@@ -1049,25 +1049,30 @@ function dumpManagedLlamaStartupReviewToConsole(recorder: LlamaRunRecorder | nul
 // High-level lifecycle: ensure ready / shutdown
 // ---------------------------------------------------------------------------
 
-function selectManagedLlamaPreset(config: SiftConfig, preset: ModelRuntimePreset): SiftConfig {
+function applyManagedLlamaPresetSnapshot(config: SiftConfig, preset: ModelRuntimePreset): SiftConfig {
   if (preset.Backend !== 'llama') {
     throw new Error(`Preset '${preset.id}' cannot configure the llama.cpp lifecycle.`);
   }
-  if (!config.Server.ModelPresets.Presets.some((candidate) => candidate.id === preset.id)) {
-    throw new Error(`Model preset '${preset.id}' does not exist.`);
-  }
+  const presetExists = config.Server.ModelPresets.Presets.some((candidate) => candidate.id === preset.id);
   return {
     ...config,
     Server: {
       ...config.Server,
       ModelPresets: {
         ActivePresetId: preset.id,
-        Presets: config.Server.ModelPresets.Presets.map(
-          (candidate) => candidate.id === preset.id ? preset : candidate,
-        ),
+        Presets: presetExists
+          ? config.Server.ModelPresets.Presets.map((candidate) => candidate.id === preset.id ? preset : candidate)
+          : [...config.Server.ModelPresets.Presets, preset],
       },
     },
   };
+}
+
+function selectManagedLlamaPreset(config: SiftConfig, preset: ModelRuntimePreset): SiftConfig {
+  if (!config.Server.ModelPresets.Presets.some((candidate) => candidate.id === preset.id)) {
+    throw new Error(`Model preset '${preset.id}' does not exist.`);
+  }
+  return applyManagedLlamaPresetSnapshot(config, preset);
 }
 
 async function ensureManagedLlamaConfigReady(
@@ -1303,7 +1308,7 @@ async function shutdownManagedLlamaConfigIfNeeded(
       const hostPid = ctx.managedLlamaHostProcess?.pid ?? 0;
       serverLogger.event({ scope: 'llama', id: '', event: 'stopping', fields: `pid=${hostPid}` });
       terminateProcessTree(hostPid);
-      const remainingPid = fallbackPid || findListeningProcessIdByPort(listeningPort);
+      const remainingPid = fallbackPid || (hasLaunchConfig ? findListeningProcessIdByPort(listeningPort) : null);
       if (remainingPid && isProcessAlive(remainingPid)) {
         serverLogger.event({ scope: 'llama', id: '', event: 'stopping', fields: `fallback_pid=${remainingPid}` });
         terminateProcessTree(remainingPid);
@@ -1316,7 +1321,7 @@ async function shutdownManagedLlamaConfigIfNeeded(
       await waitForLlamaServerReachability(config, false, shutdownDeadline);
     } catch (error) {
       if (force) {
-        const forcePid = findListeningProcessIdByPort(listeningPort);
+        const forcePid = hasLaunchConfig ? findListeningProcessIdByPort(listeningPort) : null;
         if (forcePid) {
           terminateProcessTree(forcePid);
         }
@@ -1333,6 +1338,7 @@ async function shutdownManagedLlamaConfigIfNeeded(
     publishStatus(ctx);
   })().catch((error) => {
     process.stderr.write(`[siftKitStatus] Failed to stop llama.cpp server: ${getErrorMessage(error)}\n`);
+    throw error;
   }).finally(() => {
     ctx.managedLlamaShutdownPromise = null;
   });
@@ -1353,7 +1359,7 @@ export async function shutdownManagedLlamaPresetIfNeeded(
 ): Promise<void> {
   return shutdownManagedLlamaConfigIfNeeded(
     ctx,
-    selectManagedLlamaPreset(readConfig(ctx.configPath), preset),
+    applyManagedLlamaPresetSnapshot(readConfig(ctx.configPath), preset),
     shutdownOptions,
   );
 }

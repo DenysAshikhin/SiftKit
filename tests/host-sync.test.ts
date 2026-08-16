@@ -41,6 +41,7 @@ function makeClientConfig(options: {
             Model: 'mock-model',
             ExternalServerEnabled: options.externalServer,
             BaseUrl: options.baseUrl,
+            IdleAction: 'unload',
             ...options.presetFields,
           },
         ],

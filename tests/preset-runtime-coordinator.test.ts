@@ -152,7 +152,7 @@ test('idle unload refuses a preset id that is not applied', async () => {
     await applyExl3Preset(fixture);
     events.length = 0;
 
-    assert.equal(await coordinator.unloadActivePresetForIdle('llama-main'), false);
+    assert.equal(await coordinator.applyIdleResidencyAction('llama-main', 'unload'), false);
     assert.deepEqual(events, []);
   } finally {
     await disposeCoordinator(fixture);
@@ -168,7 +168,7 @@ test('idle unload refuses while a model request is active', async () => {
     setActiveModelRequests(activeModelRequests, 1);
     events.length = 0;
 
-    assert.equal(await coordinator.unloadActivePresetForIdle('exl3-main'), false);
+    assert.equal(await coordinator.applyIdleResidencyAction('exl3-main', 'unload'), false);
     assert.deepEqual(events, []);
   } finally {
     setActiveModelRequests(activeModelRequests, 0);
@@ -186,7 +186,7 @@ test('idle unload refuses while a preset switch is pending', async () => {
     setActiveModelRequests(activeModelRequests, 0);
     events.length = 0;
 
-    assert.equal(await coordinator.unloadActivePresetForIdle('llama-main'), false);
+    assert.equal(await coordinator.applyIdleResidencyAction('llama-main', 'unload'), false);
     assert.deepEqual(events, []);
   } finally {
     setActiveModelRequests(activeModelRequests, 0);
@@ -195,15 +195,15 @@ test('idle unload refuses while a preset switch is pending', async () => {
   }
 });
 
-test('idle unload refuses a non-exl3 applied preset', async () => {
+test('idle unload applies to a ready llama preset', async () => {
   const fixture = createCoordinator();
   const { coordinator, events } = fixture;
   try {
     await coordinator.initialize();
     events.length = 0;
 
-    assert.equal(await coordinator.unloadActivePresetForIdle('llama-main'), false);
-    assert.deepEqual(events, []);
+    assert.equal(await coordinator.applyIdleResidencyAction('llama-main', 'unload'), true);
+    assert.deepEqual(events, ['unload:llama']);
   } finally {
     await disposeCoordinator(fixture);
   }
@@ -218,7 +218,7 @@ test('idle unload refuses an exl3 runtime whose model is not ready', async () =>
     await exl3Runtime.unloadPreset();
     events.length = 0;
 
-    assert.equal(await coordinator.unloadActivePresetForIdle('exl3-main'), false);
+    assert.equal(await coordinator.applyIdleResidencyAction('exl3-main', 'unload'), false);
     assert.deepEqual(events, []);
   } finally {
     await disposeCoordinator(fixture);

@@ -15,6 +15,8 @@ export abstract class ManagedInferenceRuntime {
   abstract stopProcess(): Promise<void>;
   abstract ensurePresetReady(preset: ModelRuntimePreset): Promise<void>;
   abstract unloadPreset(): Promise<void>;
+  abstract freezePreset(): Promise<void>;
+  abstract restorePreset(): Promise<void>;
 
   getProcessState(): InferenceProcessState {
     return this.processState;

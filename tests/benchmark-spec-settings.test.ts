@@ -293,6 +293,7 @@ test('applySpeculativeCaseToConfig updates only the approved speculative setting
         Presets: [
           {
             id: 'active',
+            IdleAction: 'unload',
             SpeculativeEnabled: false,
             SpeculativeType: 'ngram-mod',
             SpeculativeNgramSizeN: 12,
@@ -334,6 +335,7 @@ test('applySpeculativeCaseToConfig updates the active managed llama preset used 
         Presets: [
           {
             id: 'active',
+            IdleAction: 'unload',
             SpeculativeEnabled: true,
             SpeculativeType: 'ngram-mod',
             SpeculativeNgramSizeN: 24,
@@ -370,6 +372,7 @@ test('applySpeculativeCaseToConfig can disable speculative decoding for the base
         Presets: [
           {
             id: 'active',
+            IdleAction: 'unload',
             SpeculativeEnabled: true,
             SpeculativeNgramSizeN: 24,
             SpeculativeNgramSizeM: 64,

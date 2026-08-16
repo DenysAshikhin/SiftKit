@@ -12,7 +12,7 @@ import { asRuntimeSiftConfig, mockSiftConfig } from './helpers/mock-config.js';
 
 function configWithMaxTokens(maxTokens: number): SiftConfig {
   return mockSiftConfig({
-    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', MaxTokens: maxTokens }] } },
+    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', MaxTokens: maxTokens, IdleAction: 'unload' }] } },
   });
 }
 

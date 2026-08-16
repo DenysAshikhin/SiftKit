@@ -9,6 +9,7 @@ import type { ServerContext } from './server-types.js';
 export class ManagedLlamaRuntime extends ManagedInferenceRuntime {
   private residentPresetId: string | null = null;
   private currentPreset: ModelRuntimePreset | null = null;
+  private readinessPromise: Promise<void> | null = null;
 
   constructor(private readonly ctx: ServerContext) {
     super('llama');
@@ -33,6 +34,20 @@ export class ManagedLlamaRuntime extends ManagedInferenceRuntime {
     if (preset.Backend !== 'llama') {
       throw new Error(`Preset '${preset.id}' cannot be loaded by the llama.cpp runtime.`);
     }
+    if (this.readinessPromise) {
+      await this.readinessPromise;
+      if (this.residentPresetId === preset.id) return;
+    }
+    const readinessPromise = this.ensurePresetReadyOnce(preset);
+    this.readinessPromise = readinessPromise;
+    try {
+      await readinessPromise;
+    } finally {
+      if (this.readinessPromise === readinessPromise) this.readinessPromise = null;
+    }
+  }
+
+  private async ensurePresetReadyOnce(preset: ModelRuntimePreset): Promise<void> {
     if (this.residentPresetId !== null && this.residentPresetId !== preset.id) {
       await this.stopProcess();
     }
@@ -43,7 +58,20 @@ export class ManagedLlamaRuntime extends ManagedInferenceRuntime {
   }
 
   async unloadPreset(): Promise<void> {
-    // llama.cpp owns sleep-idle residency and transparently reloads its configured model.
+    if (this.currentPreset?.ExternalServerEnabled) {
+      throw new Error(
+        `Cannot unload llama.cpp preset '${this.currentPreset.id}' because it uses an external server owned outside SiftKit.`,
+      );
+    }
+    await this.stopProcess();
+  }
+
+  async freezePreset(): Promise<void> {
+    throw new Error('llama.cpp cannot freeze model weights; use a full unload instead.');
+  }
+
+  async restorePreset(): Promise<void> {
+    throw new Error('llama.cpp cannot restore a frozen model; use a full load instead.');
   }
 
   async stopProcess(): Promise<void> {

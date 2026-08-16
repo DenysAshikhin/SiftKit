@@ -103,6 +103,28 @@ export class TabbyModelClient {
     }
   }
 
+  async freeze(baseUrl: string, timeoutMs: number): Promise<void> {
+    const response = await fetch(buildEndpoint(baseUrl, '/v1/model/freeze'), {
+      method: 'POST',
+      headers: buildHeaders(this.adminApiKey, false),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) {
+      throw new Error(`Tabby model freeze failed with HTTP ${response.status}${await readError(response)}`);
+    }
+  }
+
+  async restore(baseUrl: string, timeoutMs: number): Promise<void> {
+    const response = await fetch(buildEndpoint(baseUrl, '/v1/model/restore'), {
+      method: 'POST',
+      headers: buildHeaders(this.adminApiKey, false),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) {
+      throw new Error(`Tabby model restore failed with HTTP ${response.status}${await readError(response)}`);
+    }
+  }
+
   async getResidentModel(baseUrl: string, timeoutMs: number): Promise<TabbyModelCard | null> {
     const response = await fetch(buildEndpoint(baseUrl, '/v1/model'), {
       headers: buildHeaders(this.adminApiKey, false),

@@ -113,6 +113,7 @@ export function getDefaultConfig(): SiftConfig {
           Model: 'qwen3.5-9b-instruct-q4_k_m',
           BaseUrl: 'http://127.0.0.1:8080',
           NumCtx: 128000,
+          IdleAction: 'unload',
         }], {}),
       },
       Engines: { Exl3: getTestExl3Engine() },

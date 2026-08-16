@@ -13,7 +13,7 @@ test('buildRuntimeLaunchSnapshot copies runtime-relevant fields from the active 
           NumCtx: 85000, Temperature: 0.7, TopP: 0.8, TopK: 20, MinP: 0,
           PresencePenalty: 1.5, RepetitionPenalty: 1, MaxTokens: 15000,
           GpuLayers: 999, Threads: -1, NcpuMoe: 10, FlashAttention: true,
-          ParallelSlots: 1, Reasoning: 'off',
+          ParallelSlots: 1, Reasoning: 'off', IdleAction: 'unload',
         }],
       },
     },

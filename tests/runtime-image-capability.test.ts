@@ -30,6 +30,14 @@ class FakeRuntime extends ManagedInferenceRuntime {
   async unloadPreset(): Promise<void> {
     this.transitionModelTo('unloaded');
   }
+
+  async freezePreset(): Promise<void> {
+    this.transitionModelTo('frozen');
+  }
+
+  async restorePreset(): Promise<void> {
+    this.transitionModelTo('ready');
+  }
 }
 
 class FixedRuntimeSource {

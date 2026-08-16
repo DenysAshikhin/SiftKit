@@ -147,6 +147,7 @@ export function getDefaultConfigObject(): SiftConfig {
     HealthcheckTimeoutMs: 2_000,
     HealthcheckIntervalMs: 1_000,
     SleepIdleSeconds: SIFT_DEFAULT_LLAMA_SLEEP_IDLE_SECONDS,
+    IdleAction: 'unload',
     VerboseLogging: false,
     VisionEnabled: SIFT_DEFAULT_VISION_ENABLED,
     VisionImageRetention: SIFT_DEFAULT_VISION_IMAGE_RETENTION,

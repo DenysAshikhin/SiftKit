@@ -128,6 +128,36 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     }
   }
 
+  async freezePreset(): Promise<void> {
+    if (this.loadPromise) await this.loadPromise;
+    if (this.getModelState() === 'frozen') return;
+    const preset = this.currentPreset;
+    if (!preset) throw new Error('Cannot freeze EXL3 without a validated current preset.');
+    this.transitionModelTo('freezing');
+    try {
+      await this.client.freeze(getBaseUrl(preset), preset.StartupTimeoutMs);
+      this.transitionModelTo('frozen');
+    } catch (error) {
+      this.transitionModelTo('failed');
+      throw error;
+    }
+  }
+
+  async restorePreset(): Promise<void> {
+    if (this.getModelState() === 'ready') return;
+    const preset = this.currentPreset;
+    if (!preset) throw new Error('Cannot restore EXL3 without a validated current preset.');
+    this.transitionModelTo('loading');
+    try {
+      await this.client.restore(getBaseUrl(preset), preset.StartupTimeoutMs);
+      this.residentPresetId = preset.id;
+      this.transitionModelTo('ready');
+    } catch (error) {
+      this.transitionModelTo('failed');
+      throw error;
+    }
+  }
+
   async stopProcess(): Promise<void> {
     const child = this.child;
     if (!child || child.exitCode !== null) {

@@ -473,7 +473,7 @@ test('thinkingEnabledOverride=false forces enable_thinking:false in the planner 
       // Force config reasoning ON so the override is what matters:
       config: mockSiftConfig({
         Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL, NumCtx: 32000 } },
-        Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', Reasoning: 'on' }] } },
+        Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', Reasoning: 'on', IdleAction: 'unload' }] } },
       }),
       mockResponses: ['{"action":"finish","output":"hi"}'],
       mockCommandResults: {},

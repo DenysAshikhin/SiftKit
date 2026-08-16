@@ -5,16 +5,16 @@ import { parseFloatInput, parseIntegerInput } from '../../lib/format';
 import {
   getExl3CacheModes,
 } from '../../../../src/inference-presets/preset-compatibility.js';
-import { getInferenceRuntimeStatus } from '../../api';
 import { summarizeModelPresetGroup, type ModelPresetGroupId } from './model-preset-groups';
 import { SettingsSectionField } from '../../settings/SettingsFields';
 import { VisionPresetControls, ModelPresetControl } from './VisionPresetControls.js';
-import type { InferenceRuntimeDashboardStatus } from '@siftkit/contracts';
+import { ModelIdleActionSchema } from '@siftkit/contracts';
 import type {
   DashboardConfig,
   DashboardModelRuntimePreset,
   DashboardManagedLlamaSpeculativeType,
 } from '../../types';
+import type { InferenceRuntimeDashboardStatus } from '@siftkit/contracts';
 import type { ModelPresetSettingsActions } from '../../settings-action-groups';
 import {
   isModelPresetPickerBusy,
@@ -32,6 +32,7 @@ type ModelPresetsSectionProps = {
   settingsActionBusy: boolean;
   settingsPathPickerBusyTarget: SettingsPathPickerBusyTarget | null;
   modelPresetActions: ModelPresetSettingsActions;
+  runtimeStatus: InferenceRuntimeDashboardStatus | null;
 };
 
 const GROUP_TITLES: Record<ModelPresetGroupId, string> = {
@@ -91,8 +92,8 @@ export function ModelPresetsSection({
   settingsActionBusy,
   settingsPathPickerBusyTarget,
   modelPresetActions,
+  runtimeStatus,
 }: ModelPresetsSectionProps) {
-  const [runtimeStatus, setRuntimeStatus] = React.useState<InferenceRuntimeDashboardStatus | null>(null);
   const [openGroups, setOpenGroups] = React.useState<Record<ModelPresetGroupId, boolean>>({
     'identity-launch': true,
     'memory-compute': false,
@@ -101,17 +102,16 @@ export function ModelPresetsSection({
     speculative: false,
     lifecycle: false,
   });
-  React.useEffect(() => {
-    let mounted = true;
-    void getInferenceRuntimeStatus()
-      .then((status) => { if (mounted) setRuntimeStatus(status); })
-      .catch(() => { if (mounted) setRuntimeStatus(null); });
-    return () => { mounted = false; };
-  }, [dashboardConfig?.Server.ModelPresets.ActivePresetId]);
   if (!dashboardConfig || !selectedModelPreset) {
     return null;
   }
   const preset = selectedModelPreset;
+  const runtimeStatusMatchesPreset = runtimeStatus !== null
+    && dashboardConfig.Server.ModelPresets.ActivePresetId === preset.id
+    && runtimeStatus.activePresetId === preset.id
+    && runtimeStatus.backend === 'exl3'
+    && preset.Backend === 'exl3'
+    && runtimeStatus.model === preset.Model;
   const reasoningEnabled = preset.Reasoning === 'on';
   const reasoningContentEnabled = reasoningEnabled && preset.ReasoningContent;
   const baseUrl = preset.BaseUrl || '';
@@ -172,12 +172,6 @@ export function ModelPresetsSection({
           <button type="button" className={preset.Backend === 'exl3' ? 'on' : ''} onClick={() => modelPresetActions.setBackend('exl3')}>EXL3</button>
         </div>
       </div>
-
-      {runtimeStatus ? (
-        <p className="hint" role="status">
-          Runtime: {runtimeStatus.activePresetLabel} · {runtimeStatus.backend} · {runtimeStatus.processState}/{runtimeStatus.modelState}
-        </p>
-      ) : null}
 
       {group('identity-launch', (
         <>
@@ -454,8 +448,23 @@ export function ModelPresetsSection({
           <SettingsSectionField sectionId="model-presets" label="HealthcheckIntervalMs">
             <input type="number" value={preset.HealthcheckIntervalMs} onChange={(event) => modelPresetActions.setInteger('HealthcheckIntervalMs', parseIntegerInput(event.target.value, preset.HealthcheckIntervalMs))} />
           </SettingsSectionField>
+          <ModelPresetControl preset={preset} field="IdleAction" label="IdleAction">
+            <select value={preset.IdleAction} onChange={(event) => {
+              const value = ModelIdleActionSchema.safeParse(event.target.value);
+              if (value.success) modelPresetActions.setIdleAction(value.data);
+            }}>
+              <option value="none">Stay resident</option>
+              <option value="freeze" disabled={preset.Backend !== 'exl3'}>Freeze model</option>
+              <option value="unload">Full unload</option>
+            </select>
+          </ModelPresetControl>
           <SettingsSectionField sectionId="model-presets" label="SleepIdleSeconds">
-            <input type="number" value={preset.SleepIdleSeconds} onChange={(event) => modelPresetActions.setInteger('SleepIdleSeconds', parseIntegerInput(event.target.value, preset.SleepIdleSeconds))} />
+            <input
+              type="number"
+              value={preset.SleepIdleSeconds}
+              disabled={preset.IdleAction === 'none'}
+              onChange={(event) => modelPresetActions.setInteger('SleepIdleSeconds', parseIntegerInput(event.target.value, preset.SleepIdleSeconds))}
+            />
           </SettingsSectionField>
           <ModelPresetControl preset={preset} field="VerboseLogging" label="Verbose logging">
             <label className="settings-live-toggle-control">
@@ -466,8 +475,8 @@ export function ModelPresetsSection({
           <VisionPresetControls
             preset={preset}
             modelPresetActions={modelPresetActions}
-            imageTokenBudget={runtimeStatus?.imageTokenBudget ?? null}
-            gpuFreeBytes={runtimeStatus?.gpuFreeBytes ?? null}
+            imageTokenBudget={runtimeStatusMatchesPreset ? runtimeStatus.imageTokenBudget : null}
+            gpuFreeBytes={runtimeStatusMatchesPreset ? runtimeStatus.gpuFreeBytes : null}
           />
         </>
       ))}

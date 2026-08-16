@@ -133,6 +133,7 @@ const PRESET_FIELD_SUPPORT = {
   HealthcheckTimeoutMs: 'both',
   HealthcheckIntervalMs: 'both',
   SleepIdleSeconds: 'both',
+  IdleAction: 'both',
   VerboseLogging: 'llama-only',
   VisionEnabled: 'exl3-managed-only-unsupported-by-llama',
   VisionImageRetention: 'exl3-managed-only-unsupported-by-llama',

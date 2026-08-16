@@ -3,6 +3,8 @@ import {
   InferenceBackendIdSchema,
   InferenceModelStateSchema,
   InferenceProcessStateSchema,
+  ModelLifecycleActionSchema,
+  ModelIdleActionSchema,
   WebSearchProviderIdSchema,
 } from './config.js';
 import { ImageTokenBudgetSchema } from './image.js';
@@ -29,14 +31,34 @@ export const LlamaCppConnectionTestResponseSchema = z.object({
 export type LlamaCppConnectionTestResponse = z.infer<typeof LlamaCppConnectionTestResponseSchema>;
 
 export const InferenceRuntimeErrorPhaseSchema = z.enum([
-  'process-start', 'process-stop', 'model-load', 'model-unload', 'preset-switch',
+  'process-start', 'process-stop', 'model-load', 'model-unload', 'model-freeze', 'preset-switch',
 ]);
 export type InferenceRuntimeErrorPhase = z.infer<typeof InferenceRuntimeErrorPhaseSchema>;
+
+export const ModelLifecycleRequestSchema = z.object({
+  action: ModelLifecycleActionSchema,
+}).strict();
+export type ModelLifecycleRequest = z.infer<typeof ModelLifecycleRequestSchema>;
+
+export const ModelLifecycleActionResultSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('done') }).strict(),
+  z.object({ status: z.literal('noop') }).strict(),
+  z.object({ status: z.literal('busy'), reason: z.string().min(1) }).strict(),
+  z.object({ status: z.literal('unsupported'), reason: z.string().min(1) }).strict(),
+]);
+export type ModelLifecycleActionResult = z.infer<typeof ModelLifecycleActionResultSchema>;
+
+export const ModelLifecycleResponseSchema = z.union([
+  z.object({ ok: z.literal(true), status: z.enum(['done', 'noop']) }).strict(),
+  z.object({ ok: z.literal(false), error: z.string().min(1) }).strict(),
+]);
+export type ModelLifecycleResponse = z.infer<typeof ModelLifecycleResponseSchema>;
 
 export const InferenceRuntimeStatusSchema = z.object({
   activePresetId: z.string(),
   activePresetLabel: z.string(),
   backend: InferenceBackendIdSchema,
+  idleAction: ModelIdleActionSchema,
   processState: InferenceProcessStateSchema,
   modelState: InferenceModelStateSchema,
   model: z.string().nullable(),

@@ -38,9 +38,12 @@ import {
   type WebSearchQuotaResponse,
   InferenceRuntimeDashboardStatusSchema,
   ImageCaptionResponseSchema,
+  ModelLifecycleResponseSchema,
   type InferenceRuntimeDashboardStatus,
   type ImageCaptionResponse,
   type ChatSessionBusyResponse,
+  type ModelLifecycleAction,
+  type ModelLifecycleResponse,
 } from '@siftkit/contracts';
 import { ChatStreamReader } from './lib/chat-stream-parser.js';
 import type { ChatStreamEvent } from './lib/chat-stream-parser.js';
@@ -211,12 +214,28 @@ export async function restartBackend(): Promise<RestartBackendResponse> {
   return RestartBackendResponseSchema.parse(raw);
 }
 
+export async function postModelResidencyAction(action: ModelLifecycleAction): Promise<ModelLifecycleResponse> {
+  const response = await fetch(`/runtime/model/${action}`, { method: 'POST' });
+  const text = await response.text();
+  let raw: JsonValue;
+  try {
+    raw = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(`Request failed (${response.status}): ${text}`);
+  }
+  const parsed = ModelLifecycleResponseSchema.parse(raw);
+  if (!response.ok && parsed.ok) {
+    throw new Error(`Request failed (${response.status})`);
+  }
+  return parsed;
+}
+
 export function getDashboardHealth(): Promise<DashboardHealth> {
   return fetchJson('/health', DashboardHealthSchema);
 }
 
-export function getInferenceRuntimeStatus(): Promise<InferenceRuntimeDashboardStatus> {
-  return fetchJson('/runtime/inference', InferenceRuntimeDashboardStatusSchema);
+export function getInferenceRuntimeStatus(options?: Pick<RequestInit, 'signal'>): Promise<InferenceRuntimeDashboardStatus> {
+  return fetchJson('/runtime/inference', InferenceRuntimeDashboardStatusSchema, options);
 }
 
 export function getBenchmarkQuestionPresets(): Promise<DashboardBenchmarkQuestionPresetsResponse> {

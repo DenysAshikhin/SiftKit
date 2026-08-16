@@ -357,7 +357,7 @@ test('auto mode over HTTP: the verdict request byte-extends the executing planne
         Server: {
           ModelPresets: {
             ActivePresetId: 'default',
-            Presets: [{ id: 'default', Reasoning: 'on', ReasoningContent: true, PreserveThinking: true }],
+            Presets: [{ id: 'default', Reasoning: 'on', ReasoningContent: true, PreserveThinking: true, IdleAction: 'unload' }],
           },
         },
       }),

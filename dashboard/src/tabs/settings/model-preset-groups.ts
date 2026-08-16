@@ -51,7 +51,10 @@ export function summarizeSpeculative(preset: DashboardModelRuntimePreset): strin
 }
 
 export function summarizeLifecycle(preset: DashboardModelRuntimePreset): string {
-  return `startup ${seconds(preset.StartupTimeoutMs)} · probe ${seconds(preset.HealthcheckTimeoutMs)}/${seconds(preset.HealthcheckIntervalMs)} · idle unload ${preset.SleepIdleSeconds}s`;
+  const idle = preset.IdleAction === 'none'
+    ? 'stays resident'
+    : `idle ${preset.IdleAction === 'freeze' ? 'freeze' : 'unload'} ${preset.SleepIdleSeconds}s`;
+  return `startup ${seconds(preset.StartupTimeoutMs)} · probe ${seconds(preset.HealthcheckTimeoutMs)}/${seconds(preset.HealthcheckIntervalMs)} · ${idle}`;
 }
 
 export function summarizeModelPresetGroup(id: ModelPresetGroupId, preset: DashboardModelRuntimePreset): string {

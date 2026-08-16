@@ -65,7 +65,7 @@ test('a fresh database lands on the current schema version with every assistant 
   getRuntimeDatabase(dbPath);
   closeRuntimeDatabase();
 
-  assert.equal(CURRENT_SCHEMA_VERSION, 46);
+  assert.equal(CURRENT_SCHEMA_VERSION, 47);
   const version = withReadonlyDb(dbPath, (database) => VersionRowSchema
     .parse(database.prepare('SELECT version FROM runtime_schema WHERE id = 1').get()).version);
   assert.equal(version, CURRENT_SCHEMA_VERSION);

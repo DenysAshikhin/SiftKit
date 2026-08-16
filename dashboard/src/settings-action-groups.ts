@@ -21,6 +21,7 @@ import type {
   DashboardPresetToolName,
   InferenceBackendId,
   ManagedLlamaKvCacheQuantization,
+  ModelIdleAction,
   WebSearchProviderId,
 } from './types.js';
 
@@ -84,6 +85,7 @@ export type ModelPresetSettingsActions = {
   setFloat(field: ModelFloatField, value: number): void;
   setBoolean(field: ModelBooleanField, value: boolean): void;
   setBackend(value: InferenceBackendId): void;
+  setIdleAction(value: ModelIdleAction): void;
   setKvCacheQuantization(value: ManagedLlamaKvCacheQuantization): void;
   setReasoning(value: 'on' | 'off'): void;
   setReasoningContent(value: boolean): void;

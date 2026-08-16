@@ -329,6 +329,10 @@ export function useSettingsController(deps: {
       const presetId = getSelectedModelPresetId();
       if (presetId) applySettingsAction({ type: 'set-model-backend', presetId, value });
     },
+    setIdleAction(value) {
+      const presetId = getSelectedModelPresetId();
+      if (presetId) applySettingsAction({ type: 'set-model-idle-action', presetId, value });
+    },
     setKvCacheQuantization(value) {
       const presetId = getSelectedModelPresetId();
       if (presetId) applySettingsAction({ type: 'set-model-kv-cache-quantization', presetId, value });

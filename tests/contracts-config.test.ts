@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   Exl3EngineConfigSchema,
+  InferenceModelStateSchema,
+  ModelLifecycleActionSchema,
+  ModelLifecycleRequestSchema,
+  ModelLifecycleResponseSchema,
   InferenceRuntimeStatusSchema,
   ModelRuntimePresetSchema,
   REPO_AGENT_DEFAULT_MAX_TURNS,
@@ -120,6 +124,7 @@ test('InferenceRuntimeStatusSchema represents process and model residency indepe
     activePresetId: 'coding',
     activePresetLabel: 'Coding',
     backend: 'exl3',
+    idleAction: 'unload',
     processState: 'ready',
     modelState: 'unloaded',
     model: null,
@@ -128,6 +133,18 @@ test('InferenceRuntimeStatusSchema represents process and model residency indepe
     error: null,
     rollback: null,
   }));
+});
+
+test('model lifecycle contracts accept only freeze terminology and valid responses', () => {
+  assert.deepEqual(ModelLifecycleActionSchema.parse('freeze'), 'freeze');
+  assert.equal(ModelLifecycleActionSchema.safeParse('offload').success, false);
+  assert.equal(ModelLifecycleActionSchema.safeParse('ram').success, false);
+  assert.deepEqual(ModelLifecycleRequestSchema.parse({ action: 'load' }), { action: 'load' });
+  assert.deepEqual(ModelLifecycleResponseSchema.parse({ ok: true, status: 'done' }), { ok: true, status: 'done' });
+  assert.equal(ModelLifecycleResponseSchema.safeParse({ ok: true, status: 'malformed' }).success, false);
+  assert.equal(InferenceModelStateSchema.safeParse('freezing').success, true);
+  assert.equal(InferenceModelStateSchema.safeParse('frozen').success, true);
+  assert.equal(InferenceModelStateSchema.safeParse('offloaded').success, false);
 });
 
 test('SiftPresetSchema rejects removed and unknown fields', () => {

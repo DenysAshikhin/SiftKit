@@ -486,6 +486,19 @@ function grantQueuedModelRequests(ctx: ServerContext): void {
   refreshQueuedModelRequestTimeouts(ctx);
 }
 
+function waitForModelRequestAdmission(ctx: ServerContext): void {
+  const coordinator = ctx.presetRuntimeCoordinator;
+  if (!coordinator) {
+    grantQueuedModelRequests(ctx);
+    return;
+  }
+  void coordinator.waitForCurrentAdmissionBlocker().then(() => {
+    grantQueuedModelRequests(ctx);
+  }).catch((error) => {
+    process.stderr.write(`[siftKitStatus] Model request admission wake failed: ${getErrorMessage(error)}\n`);
+  });
+}
+
 export async function acquireModelRequestWithWait(
   ctx: ServerContext,
   kind: string,
@@ -550,6 +563,7 @@ export async function acquireModelRequestWithWait(
   if (response?.destroyed && !response.writableEnded) {
     cancelModelRequestWaiter(ctx, waiter, 'client_cancelled');
   }
+  waitForModelRequestAdmission(ctx);
   try {
     return await waiterLockPromise;
   } finally {
@@ -584,7 +598,7 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
       restartModelRequestWaiterTimeout(ctx, waiter);
     }
     void coordinator.onModelRequestReleased().then(() => {
-      grantQueuedModelRequests(ctx);
+      waitForModelRequestAdmission(ctx);
       if (ctx.activeModelRequests.size === 0) armActivePresetIdle(ctx, Date.now());
       syncInferenceRunFlushQueueModelState(ctx, finishedAtMs);
       scheduleIdleSummaryIfNeeded(ctx);
@@ -612,7 +626,7 @@ function armActivePresetIdle(ctx: ServerContext, finishedAtMs: number): void {
 }
 
 export function resumeModelRequestAdmission(ctx: ServerContext): void {
-  grantQueuedModelRequests(ctx);
+  waitForModelRequestAdmission(ctx);
 }
 
 export async function ensureActivePresetReadyForModelRequest(ctx: ServerContext): Promise<void> {

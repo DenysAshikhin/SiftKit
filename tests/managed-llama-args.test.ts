@@ -89,22 +89,22 @@ test('getDefaultConfig disables NcpuMoe by default', () => {
   assert.equal(preset.SleepIdleSeconds, 600);
 });
 
-test('buildManagedLlamaArgs enables llama-server sleep idle by default', () => {
+test('buildManagedLlamaArgs disables native llama-server idle sleep by default', () => {
   const args = buildManagedLlamaArgs(getManagedLlamaConfig(createConfig(0)));
 
   assert.deepEqual(args.slice(args.indexOf('--sleep-idle-seconds'), args.indexOf('--sleep-idle-seconds') + 2), [
-    '--sleep-idle-seconds', '600',
+    '--sleep-idle-seconds', '-1',
   ]);
 });
 
-test('buildManagedLlamaArgs uses the configured sleep idle seconds', () => {
+test('buildManagedLlamaArgs disables native llama-server idle sleep regardless of configured seconds', () => {
   const config = createConfig(0);
   activePreset(config).SleepIdleSeconds = 120;
 
   const args = buildManagedLlamaArgs(getManagedLlamaConfig(config));
 
   assert.deepEqual(args.slice(args.indexOf('--sleep-idle-seconds'), args.indexOf('--sleep-idle-seconds') + 2), [
-    '--sleep-idle-seconds', '120',
+    '--sleep-idle-seconds', '-1',
   ]);
 });
 

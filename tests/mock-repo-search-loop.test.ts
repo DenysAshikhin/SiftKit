@@ -69,7 +69,7 @@ function modelPresetReasoning(reasoning: 'on' | 'off'): DeepPartial<SiftConfig> 
     Server: {
       ModelPresets: {
         ActivePresetId: 'default',
-        Presets: [{ id: 'default', Reasoning: reasoning }],
+        Presets: [{ id: 'default', Reasoning: reasoning, IdleAction: 'unload' }],
       },
     },
   };
@@ -2080,6 +2080,7 @@ test('runTaskLoop keeps only latest planner thinking when per-step thinking is d
               ReasoningContent: true,
               PreserveThinking: true,
               MaintainPerStepThinking: false,
+              IdleAction: 'unload',
             }],
           },
         },

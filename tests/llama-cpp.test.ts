@@ -50,7 +50,7 @@ test('getLlamaCppProviderStatus returns unreachable when server is down', async 
     Server: {
       ModelPresets: {
         ActivePresetId: 'default',
-        Presets: [{ id: 'default', Model: 'test-model', Backend: 'llama' as const }],
+        Presets: [{ id: 'default', Model: 'test-model', Backend: 'llama' as const, IdleAction: 'unload' as const }],
       },
     },
     Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },
@@ -109,7 +109,7 @@ test('countLlamaCppTokens respects a bounded transient retry timeout', { timeout
     Server: {
       ModelPresets: {
         ActivePresetId: 'default',
-        Presets: [{ id: 'default', Model: 'test-model', Backend: 'llama' as const }],
+        Presets: [{ id: 'default', Model: 'test-model', Backend: 'llama' as const, IdleAction: 'unload' as const }],
       },
     },
     Thresholds: { MinCharactersForSummary: 500, MinLinesForSummary: 16 },

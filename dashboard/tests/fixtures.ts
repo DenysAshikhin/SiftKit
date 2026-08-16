@@ -66,6 +66,7 @@ export const MODEL_PRESET_ACTIONS: ModelPresetSettingsActions = {
   setFloat() {},
   setBoolean() {},
   setBackend() {},
+  setIdleAction() {},
   setKvCacheQuantization() {},
   setReasoning() {},
   setReasoningContent() {},
@@ -104,7 +105,8 @@ export const MANAGED_PRESET = {
   SpeculativeNgramSizeN: 8, SpeculativeNgramSizeM: 16, SpeculativeNgramMinHits: 2,
   SpeculativeNgramModNMatch: 24, SpeculativeNgramModNMin: 4, SpeculativeNgramModNMax: 16,
   SpeculativeDraftMax: 16, SpeculativeDraftMin: 4, SpeculativeDynamic: true, ReasoningBudget: 128, ReasoningBudgetMessage: '',
-  StartupTimeoutMs: 1000, HealthcheckTimeoutMs: 1000, HealthcheckIntervalMs: 500, SleepIdleSeconds: 600, VerboseLogging: false,
+  StartupTimeoutMs: 1000, HealthcheckTimeoutMs: 1000, HealthcheckIntervalMs: 500,
+  SleepIdleSeconds: 600, IdleAction: 'unload', VerboseLogging: false,
 } satisfies DashboardModelRuntimePreset;
 
 export const DASHBOARD_CONFIG = {

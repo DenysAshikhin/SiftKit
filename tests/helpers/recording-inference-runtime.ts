@@ -41,4 +41,14 @@ export class RecordingInferenceRuntime extends ManagedInferenceRuntime {
     if (this.getModelState() === 'failed') throw new Error(`nothing loaded: ${this.id}`);
     this.transitionModelTo('unloaded');
   }
+
+  async freezePreset(): Promise<void> {
+    this.events.push(`freeze:${this.id}`);
+    this.transitionModelTo('frozen');
+  }
+
+  async restorePreset(): Promise<void> {
+    this.events.push(`restore:${this.id}`);
+    this.transitionModelTo('ready');
+  }
 }

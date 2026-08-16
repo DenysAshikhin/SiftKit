@@ -23,6 +23,7 @@ const MODEL_PRESET_ACTIONS: ModelPresetSettingsActions = {
   setFloat() {},
   setBoolean() {},
   setBackend() {},
+  setIdleAction() {},
   setKvCacheQuantization() {},
   setReasoning() {},
   setReasoningContent() {},
@@ -50,6 +51,7 @@ function renderPreset(options: PresetRenderOptions = {}): string {
     settingsActionBusy: false,
     settingsPathPickerBusyTarget: null,
     modelPresetActions: MODEL_PRESET_ACTIONS,
+    runtimeStatus: null,
   }));
 }
 

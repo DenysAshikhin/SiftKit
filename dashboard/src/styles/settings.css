@@ -36,7 +36,8 @@
 @media (max-width: 900px) { .fgrid { grid-template-columns: repeat(2, 1fr); } .field.w2, .field.w4 { grid-column: span 2; } }
 .field { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 8px 10px; }
 .field.w2 { grid-column: span 2; } .field.w4 { grid-column: span 4; }
-.field > label:first-child { display: block; font-size: 0.66rem; letter-spacing: 0.04em; color: var(--dim); margin-bottom: 4px; }
+.field > label:first-child, .field > dt:first-child { display: block; font-size: 0.66rem; letter-spacing: 0.04em; color: var(--dim); margin-bottom: 4px; }
+.field > dd { margin: 0; }
 .field .val { font-size: 0.8rem; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
 .field .fhint { display: block; font-size: 0.64rem; color: #5f7288; margin-top: 3px; }
 

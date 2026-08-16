@@ -158,6 +158,36 @@ test('settings draft editor applies all model value categories and coupled trans
   assert.equal(editor.getConfig().Runtime.LlamaCpp.NumCtx, 8192);
 });
 
+test('switching a frozen EXL3 draft to llama resets idle action and remains saveable', () => {
+  const config = {
+    ...DASHBOARD_CONFIG,
+    Server: {
+      ...DASHBOARD_CONFIG.Server,
+      ModelPresets: {
+        ActivePresetId: MANAGED_PRESET.id,
+        Presets: [{ ...MANAGED_PRESET, Backend: 'exl3' as const, IdleAction: 'freeze' as const }],
+      },
+    },
+  };
+  const editor = new DashboardSettingsDraftEditor(config);
+
+  editor.apply({ type: 'set-model-backend', presetId: MANAGED_PRESET.id, value: 'llama' });
+
+  const preset = editor.getConfig().Server.ModelPresets.Presets[0];
+  assert.equal(preset?.Backend, 'llama');
+  assert.equal(preset?.IdleAction, 'unload');
+});
+
+test('switching to EXL3 preserves a non-freeze idle action', () => {
+  const editor = new DashboardSettingsDraftEditor(DASHBOARD_CONFIG);
+
+  editor.apply({ type: 'set-model-backend', presetId: MANAGED_PRESET.id, value: 'exl3' });
+
+  const preset = editor.getConfig().Server.ModelPresets.Presets[0];
+  assert.equal(preset?.Backend, 'exl3');
+  assert.equal(preset?.IdleAction, 'unload');
+});
+
 test('settings draft editor adds, selects, and deletes regular and model presets', () => {
   const editor = new DashboardSettingsDraftEditor(DASHBOARD_CONFIG);
 

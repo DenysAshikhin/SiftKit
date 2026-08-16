@@ -96,6 +96,7 @@ test('settings tooltip labels include the documented fields', () => {
       'StartupTimeoutMs',
       'HealthcheckTimeoutMs',
       'HealthcheckIntervalMs',
+      'IdleAction',
       'SleepIdleSeconds',
       'Verbose logging',
       'Vision enabled',

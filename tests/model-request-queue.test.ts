@@ -4,18 +4,21 @@ import path from 'node:path';
 import test, { type TestContext } from 'node:test';
 
 import { getActiveModelPreset } from '../src/config/getters.js';
+import type { ModelRuntimePreset } from '../src/config/types.js';
 import { getDefaultConfig, readConfig } from '../src/status-server/config-store.js';
 import {
   DEFAULT_MODEL_REQUEST_HOLD_CEILING_MS,
   DEFAULT_MODEL_REQUEST_QUEUE_TIMEOUT_MS,
   acquireModelRequestWithWait,
+  ensureActivePresetReadyForModelRequest,
   getModelRequestQueueDiagnostics,
   isIdle,
   releaseModelRequest,
 } from '../src/status-server/server-ops.js';
-import type { ServerContext } from '../src/status-server/server-types.js';
+import type { ModelRequestLock, ServerContext } from '../src/status-server/server-types.js';
 import { PresetRuntimeCoordinator } from '../src/status-server/preset-runtime-coordinator.js';
 import { ModelIdleController } from '../src/status-server/model-idle-controller.js';
+import type { ModelLifecycleActionResult } from '@siftkit/contracts';
 import { writeConfig } from '../src/status-server/config-store.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { RecordingInferenceRuntime as QueueRuntime } from './helpers/recording-inference-runtime.js';
@@ -36,6 +39,75 @@ type PresetParallelSlots = {
   llama: number;
   exl3: number;
 };
+
+type Deferred = {
+  promise: Promise<void>;
+  resolve: () => void;
+};
+
+function createDeferred(): Deferred {
+  let resolveDeferred: (() => void) | undefined;
+  const promise = new Promise<void>((resolve) => {
+    resolveDeferred = resolve;
+  });
+  return {
+    promise,
+    resolve: () => {
+      if (!resolveDeferred) throw new Error('Deferred promise was not initialized.');
+      resolveDeferred();
+    },
+  };
+}
+
+class BlockingQueueRuntime extends QueueRuntime {
+  readonly transitionStarted = createDeferred();
+  private readonly releaseTransitionDeferred = createDeferred();
+  private blockEnsure = false;
+  private blockUnload = false;
+
+  constructor(
+    id: 'llama' | 'exl3',
+    events: string[],
+    private readonly stopProcessOnUnload = false,
+  ) {
+    super(id, events);
+  }
+
+  blockNextEnsure(): void {
+    this.blockEnsure = true;
+  }
+
+  releaseEnsure(): void {
+    this.releaseTransitionDeferred.resolve();
+  }
+
+  blockNextUnload(): void {
+    this.blockUnload = true;
+  }
+
+  releaseTransition(): void {
+    this.releaseTransitionDeferred.resolve();
+  }
+
+  override async ensurePresetReady(preset: ModelRuntimePreset): Promise<void> {
+    if (this.blockEnsure) {
+      this.blockEnsure = false;
+      this.transitionStarted.resolve();
+      await this.releaseTransitionDeferred.promise;
+    }
+    await super.ensurePresetReady(preset);
+  }
+
+  override async unloadPreset(): Promise<void> {
+    if (this.blockUnload) {
+      this.blockUnload = false;
+      this.transitionStarted.resolve();
+      await this.releaseTransitionDeferred.promise;
+    }
+    await super.unloadPreset();
+    if (this.stopProcessOnUnload) await this.stopProcess();
+  }
+}
 
 const DEFAULT_PRESET_PARALLEL_SLOTS = {
   llama: 1,
@@ -70,6 +142,8 @@ test('model request queue timeout default is fifteen minutes', () => {
 type PresetQueueHarness = {
   ctx: ServerContext & { readonly wakeCount: number };
   coordinator: PresetRuntimeCoordinator;
+  llamaRuntime: BlockingQueueRuntime;
+  exl3Runtime: BlockingQueueRuntime;
   events: string[];
   root: string;
 };
@@ -87,24 +161,32 @@ async function createPresetQueueHarness(
   config.Server.ModelPresets = {
     ActivePresetId: activePresetId,
     Presets: [
-      { ...basePreset, id: 'llama-main', Backend: 'llama', ParallelSlots: parallelSlots.llama },
+      {
+        ...basePreset,
+        id: 'llama-main',
+        Backend: 'llama',
+        SleepIdleSeconds: 1,
+        ParallelSlots: parallelSlots.llama,
+      },
       { ...basePreset, id: 'exl3-main', Backend: 'exl3', SleepIdleSeconds: 1, ParallelSlots: parallelSlots.exl3 },
     ],
   };
   writeConfig(configPath, config);
   const ctx = createQueueContext(configPath);
   const events: string[] = [];
+  const llamaRuntime = new BlockingQueueRuntime('llama', events, true);
+  const exl3Runtime = new BlockingQueueRuntime('exl3', events);
   const coordinator = new PresetRuntimeCoordinator(
     configPath,
-    new QueueRuntime('llama', events),
-    new QueueRuntime('exl3', events),
+    llamaRuntime,
+    exl3Runtime,
     ctx.activeModelRequests,
     ctx.appliedModelPresetState,
   );
   ctx.presetRuntimeCoordinator = coordinator;
   ctx.modelIdleController = new ModelIdleController(ctx);
   await coordinator.initialize();
-  return { ctx, coordinator, events, root };
+  return { ctx, coordinator, llamaRuntime, exl3Runtime, events, root };
 }
 
 async function closePresetQueueHarness(harness: PresetQueueHarness): Promise<void> {
@@ -133,8 +215,81 @@ async function waitForEvent(
   }
 }
 
+async function waitForQueuedLock(
+  queuedLockPromise: Promise<ModelRequestLock | null>,
+): Promise<ModelRequestLock | null> {
+  let timeoutHandle: NodeJS.Timeout | null = null;
+  try {
+    return await Promise.race([
+      queuedLockPromise,
+      new Promise<ModelRequestLock | null>((resolve) => {
+        const handle = setTimeout(() => resolve(null), 500);
+        timeoutHandle = handle;
+        handle.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+}
+
+test('a queued request wakes when a blocking manual model load completes', async () => {
+  const harness = await createPresetQueueHarness('siftkit-model-queue-residency-wake-', 'exl3-main');
+  let loadPromise: Promise<ModelLifecycleActionResult> | null = null;
+  try {
+    assert.equal((await harness.coordinator.unloadActivePresetNow()).status, 'done');
+    harness.exl3Runtime.blockNextEnsure();
+    loadPromise = harness.coordinator.loadActivePresetNow();
+    await harness.exl3Runtime.transitionStarted.promise;
+
+    assert.equal(harness.ctx.activeModelRequests.size, 0);
+    const queuedLockPromise = acquireModelRequestWithWait(harness.ctx, 'repo_search');
+    assert.equal(harness.ctx.modelRequestQueue.length, 1);
+
+    harness.exl3Runtime.releaseEnsure();
+    await loadPromise;
+    const queuedLock = await waitForQueuedLock(queuedLockPromise);
+    assert.ok(queuedLock);
+    assert.equal(harness.ctx.modelRequestQueue.length, 0);
+    assert.equal(releaseModelRequest(harness.ctx, queuedLock.token), true);
+  } finally {
+    harness.exl3Runtime.releaseEnsure();
+    if (loadPromise) await loadPromise;
+    await closePresetQueueHarness(harness);
+  }
+});
+
+test('llama idle unload blocks queued admission once and cold-restores the applied preset', async () => {
+  const harness = await createPresetQueueHarness('siftkit-model-queue-llama-idle-', 'llama-main');
+  try {
+    const activeLock = await acquireModelRequestWithWait(harness.ctx, 'repo_search');
+    assert.ok(activeLock);
+    harness.llamaRuntime.blockNextUnload();
+    assert.equal(releaseModelRequest(harness.ctx, activeLock.token), true);
+    await harness.llamaRuntime.transitionStarted.promise;
+
+    const queuedLockPromise = acquireModelRequestWithWait(harness.ctx, 'summary');
+    assert.equal(harness.ctx.modelRequestQueue.length, 1);
+    assert.equal(harness.coordinator.canGrantModelRequest(), false);
+
+    harness.llamaRuntime.releaseTransition();
+    const queuedLock = await waitForQueuedLock(queuedLockPromise);
+    assert.ok(queuedLock);
+    assert.equal(harness.ctx.modelRequestQueue.length, 0);
+    assert.deepEqual(harness.events.slice(-2), ['unload:llama', 'stop:llama']);
+
+    await ensureActivePresetReadyForModelRequest(harness.ctx);
+    assert.deepEqual(harness.events.slice(-2), ['start:llama', 'load:llama-main']);
+    assert.equal(releaseModelRequest(harness.ctx, queuedLock.token), true);
+  } finally {
+    harness.llamaRuntime.releaseTransition();
+    await closePresetQueueHarness(harness);
+  }
+});
+
 test('backend transition pauses queued admission until the new runtime is ready', async () => {
-  const { ctx, coordinator, events, root } = await createPresetQueueHarness('siftkit-model-queue-preset-', 'llama-main');
+  const harness = await createPresetQueueHarness('siftkit-model-queue-preset-', 'llama-main');
+  const { ctx, coordinator, events } = harness;
   try {
     const activeLock = await acquireModelRequestWithWait(ctx, 'summary');
     assert.ok(activeLock);
@@ -149,7 +304,7 @@ test('backend transition pauses queued admission until the new runtime is ready'
     assert.deepEqual(events, ['start:llama', 'load:llama-main', 'stop:llama', 'start:exl3', 'load:exl3-main']);
     assert.equal(releaseModelRequest(ctx, queuedLock.token), true);
   } finally {
-    await closePresetQueueHarness({ ctx, coordinator, events, root });
+    await closePresetQueueHarness(harness);
   }
 });
 
@@ -304,7 +459,7 @@ test('switching exl3 to llama drains all concurrent requests first', async () =>
   }
 });
 
-test('preset switch arms idle only for the runtime that becomes active', async () => {
+test('preset switch arms idle for the runtime that becomes active', async () => {
   const harness = await createPresetQueueHarness('siftkit-model-idle-switch-', 'llama-main');
   const { ctx, coordinator } = harness;
   try {
@@ -320,7 +475,7 @@ test('preset switch arms idle only for the runtime that becomes active', async (
     assert.equal(await coordinator.applyPreset('llama-main'), 'queued');
     assert.equal(releaseModelRequest(ctx, exl3Lock.token), true);
     await waitForActivePreset(coordinator, 'llama-main');
-    assert.equal(ctx.modelIdleController?.getIdleDeadlineUtc(), null);
+    assert.notEqual(ctx.modelIdleController?.getIdleDeadlineUtc(), null);
   } finally {
     await closePresetQueueHarness(harness);
   }

@@ -33,7 +33,7 @@ type PresetOverrides = Partial<ModelRuntimePreset>;
 
 function buildTestConfig(preset: PresetOverrides = {}): SiftConfig {
   return mockSiftConfig({
-    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', ...preset }] } },
+    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', ...preset, IdleAction: 'unload' }] } },
   });
 }
 

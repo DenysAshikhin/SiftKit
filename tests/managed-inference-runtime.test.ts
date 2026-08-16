@@ -29,6 +29,16 @@ class TestRuntime extends ManagedInferenceRuntime {
     this.transitionModelTo('unloading');
     this.transitionModelTo('unloaded');
   }
+
+  async freezePreset(): Promise<void> {
+    this.transitionModelTo('freezing');
+    this.transitionModelTo('frozen');
+  }
+
+  async restorePreset(): Promise<void> {
+    this.transitionModelTo('loading');
+    this.transitionModelTo('ready');
+  }
 }
 
 test('managed inference runtime exposes separate process and model state', async () => {

@@ -536,6 +536,7 @@ export async function withTestEnvAndServer(
     BaseUrl: stub.baseUrl,
     Port: stubPort,
     NumCtx: 128000,
+    IdleAction: 'unload',
   }], {}).map((preset) => JsonObjectSchema.parse(JSON.parse(JSON.stringify(preset))));
 
   try {

@@ -13,8 +13,8 @@ function configWithPresets(): SiftConfig {
       ModelPresets: {
         ActivePresetId: 'b',
         Presets: [
-          { id: 'a', label: 'A', Model: 'a.gguf', NumCtx: 1000 },
-          { id: 'b', label: 'B', Model: 'b.gguf', NumCtx: 85000 },
+          { id: 'a', label: 'A', Model: 'a.gguf', NumCtx: 1000, IdleAction: 'unload' },
+          { id: 'b', label: 'B', Model: 'b.gguf', NumCtx: 85000, IdleAction: 'unload' },
         ],
       },
     },

@@ -13,6 +13,9 @@ export class LlamaPresetAdapter {
     if (preset.Backend !== 'llama') {
       throw new Error(`preset=${preset.id} backend=${preset.Backend} cannot use the llama adapter`);
     }
+    if (preset.IdleAction === 'freeze') {
+      throw new Error(`preset=${preset.id} backend=llama cannot use IdleAction=freeze`);
+    }
   }
 
   buildLaunchSettings(preset: ModelRuntimePreset): ManagedLlamaSettings {

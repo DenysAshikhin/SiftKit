@@ -68,6 +68,7 @@ function createPreset(overrides: Partial<DashboardModelRuntimePreset> = {}): Das
     SleepIdleSeconds: 600,
     VerboseLogging: false,
     ...overrides,
+    IdleAction: overrides.IdleAction ?? 'unload',
     VisionEnabled: overrides.VisionEnabled ?? false,
     VisionImageRetention: overrides.VisionImageRetention ?? 8,
     VisionMaxImagePixels: overrides.VisionMaxImagePixels ?? 0,
@@ -220,6 +221,7 @@ test('managed llama preset defaults MaintainPerStepThinking on when reasoning is
     Reasoning: 'on',
     ReasoningContent: true,
     PreserveThinking: true,
+    IdleAction: 'unload',
   });
 
   const preset = config.Server.ModelPresets.Presets[0];
@@ -235,6 +237,7 @@ test('managed llama preset honors explicit MaintainPerStepThinking false when re
     ReasoningContent: true,
     PreserveThinking: true,
     MaintainPerStepThinking: false,
+    IdleAction: 'unload',
   });
 
   assert.equal(config.Server.ModelPresets.Presets[0].MaintainPerStepThinking, false);
@@ -246,6 +249,7 @@ test('managed llama preset disables MaintainPerStepThinking when reasoning is di
     label: 'Thinking Off',
     Reasoning: 'off',
     MaintainPerStepThinking: true,
+    IdleAction: 'unload',
   });
 
   assert.equal(config.Server.ModelPresets.Presets[0].MaintainPerStepThinking, false);

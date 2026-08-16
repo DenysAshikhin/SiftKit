@@ -46,6 +46,7 @@ function buildStubLlamaConfig(port: number): SiftConfig {
           Backend: 'llama',
           Model: 'warmup-model',
           BaseUrl: `http://127.0.0.1:${port}`,
+          IdleAction: 'unload',
         }],
       },
     },

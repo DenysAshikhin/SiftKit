@@ -5,10 +5,11 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { ModelPresetsSection } from '../src/tabs/settings/ModelPresetsSection';
 import { DASHBOARD_CONFIG, MANAGED_PRESET, MODEL_PRESET_ACTIONS } from './fixtures';
 import type { DashboardModelRuntimePreset } from '../src/types';
+import type { InferenceRuntimeDashboardStatus } from '@siftkit/contracts';
 
 type ModelPresetsSectionProps = React.ComponentProps<typeof ModelPresetsSection>;
 
-function render(preset: DashboardModelRuntimePreset): string {
+function render(preset: DashboardModelRuntimePreset, runtimeStatus: InferenceRuntimeDashboardStatus | null = null): string {
   const config = JSON.parse(JSON.stringify(DASHBOARD_CONFIG));
   config.Server.ModelPresets.Presets = [preset];
   config.Server.ModelPresets.ActivePresetId = preset.id;
@@ -18,6 +19,7 @@ function render(preset: DashboardModelRuntimePreset): string {
     settingsActionBusy: false,
     settingsPathPickerBusyTarget: null,
     modelPresetActions: MODEL_PRESET_ACTIONS,
+    runtimeStatus,
   };
   return renderToStaticMarkup(React.createElement(ModelPresetsSection, props));
 }
@@ -59,4 +61,55 @@ test('speculative sub-fields are gated by the enable toggle', () => {
   const on = render({ ...MANAGED_PRESET, SpeculativeEnabled: true, SpeculativeType: 'ngram-map-k' });
   assert.match(on, /Speculative type/);
   assert.match(on, /SpeculativeNgramSizeN/);
+});
+
+test('selected preset editor does not render active runtime lifecycle controls', () => {
+  const markup = render(MANAGED_PRESET);
+  assert.doesNotMatch(markup, /Runtime:/u);
+  assert.doesNotMatch(markup, /<button[^>]*>Load/u);
+  assert.doesNotMatch(markup, /<button[^>]*>Freeze/u);
+  assert.doesNotMatch(markup, /<button[^>]*>Unload/u);
+});
+
+const ACTIVE_RUNTIME_STATUS = {
+  activePresetId: MANAGED_PRESET.id,
+  activePresetLabel: MANAGED_PRESET.label,
+  backend: 'exl3',
+  idleAction: 'freeze',
+  processState: 'ready',
+  modelState: 'ready',
+  model: 'active-model',
+  idleDeadlineUtc: null,
+  errorPhase: null,
+  error: null,
+  rollback: null,
+  imageTokenBudget: {
+    pixelsPerToken: 1024,
+    maxPixels: 2_097_152,
+    maxImageTokens: 2048,
+    encoder: { hiddenSize: 1152, intermediateSize: 4304, patchesPerToken: 4 },
+    source: 'preprocessor_config',
+  },
+  gpuFreeBytes: 8 * 1_073_741_824,
+} satisfies InferenceRuntimeDashboardStatus;
+
+test('matching active EXL3 preset and model receives runtime vision metrics', () => {
+  const preset = { ...MANAGED_PRESET, Backend: 'exl3', Model: 'active-model', VisionEnabled: true };
+  const markup = render(preset, ACTIVE_RUNTIME_STATUS);
+  assert.match(markup, /Model ceiling/u);
+  assert.match(markup, /free VRAM/u);
+});
+
+test('edited or different preset does not receive another runtime model metrics', () => {
+  const edited = { ...MANAGED_PRESET, Backend: 'exl3', Model: 'edited-model', VisionEnabled: true };
+  const markup = render(edited, ACTIVE_RUNTIME_STATUS);
+  assert.doesNotMatch(markup, /Model ceiling/u);
+  assert.doesNotMatch(markup, /free VRAM/u);
+});
+
+test('a different selected preset does not receive active runtime metrics', () => {
+  const different = { ...MANAGED_PRESET, id: 'different', Backend: 'exl3', Model: 'active-model', VisionEnabled: true };
+  const markup = render(different, ACTIVE_RUNTIME_STATUS);
+  assert.doesNotMatch(markup, /Model ceiling/u);
+  assert.doesNotMatch(markup, /free VRAM/u);
 });

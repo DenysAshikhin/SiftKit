@@ -10,6 +10,7 @@ import {
   type SettingsSectionId,
 } from '../settings-sections';
 import { SettingsSectionField } from '../settings/SettingsFields';
+import { useInferenceRuntimeStatus } from '../hooks/useInferenceRuntimeStatus';
 import type {
   DashboardConfig,
   DashboardModelRuntimePreset,
@@ -28,6 +29,7 @@ import type {
 } from '../settings-action-groups';
 import { PresetsSection } from './settings/PresetsSection';
 import { ModelPresetsSection } from './settings/ModelPresetsSection';
+import { ModelRuntimeResidencyPanel } from './settings/ModelRuntimeResidencyPanel';
 import { ToolPolicyMatrix } from './settings/ToolPolicyMatrix';
 import { AssistantSettings } from './settings/AssistantSettings';
 
@@ -94,6 +96,7 @@ export function SettingsTab(props: SettingsTabProps) {
 
   const [showTavilyKey, setShowTavilyKey] = React.useState(false);
   const [showFirecrawlKey, setShowFirecrawlKey] = React.useState(false);
+  const runtimeStatus = useInferenceRuntimeStatus();
 
   const renderField = (
     sectionId: SettingsSectionId,
@@ -404,13 +407,17 @@ export function SettingsTab(props: SettingsTabProps) {
       );
     }
     return (
-      <ModelPresetsSection
-        dashboardConfig={dashboardConfig}
-        selectedModelPreset={selectedModelPreset}
-        settingsActionBusy={settingsActionBusy}
-        settingsPathPickerBusyTarget={settingsPathPickerBusyTarget}
-        modelPresetActions={modelPresetActions}
-      />
+      <>
+        <ModelRuntimeResidencyPanel runtime={runtimeStatus} />
+        <ModelPresetsSection
+          dashboardConfig={dashboardConfig}
+          selectedModelPreset={selectedModelPreset}
+          settingsActionBusy={settingsActionBusy}
+          settingsPathPickerBusyTarget={settingsPathPickerBusyTarget}
+          modelPresetActions={modelPresetActions}
+          runtimeStatus={runtimeStatus.status}
+        />
+      </>
     );
   };
 

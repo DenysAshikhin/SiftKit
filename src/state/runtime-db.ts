@@ -5,7 +5,7 @@ import Database from 'better-sqlite3';
 import { z } from '../lib/zod.js';
 import { ensureDirectory } from '../lib/fs.js';
 import { parseJsonValueText } from '../lib/json.js';
-import { JsonObjectSchema, type JsonObject, type JsonValue } from '../lib/json-types.js';
+import { JsonObjectSchema, JsonValueSchema, type JsonObject, type JsonValue, isJsonObject } from '../lib/json-types.js';
 import { findNearestSiftKitRepoRoot } from '../lib/paths.js';
 
 import { SystemClock } from '../assistant/clock.js';
@@ -47,9 +47,13 @@ const ChatPresetSnapshotSessionRowSchema = z.object({
   context_window_tokens: z.number(),
 });
 
-export const CURRENT_SCHEMA_VERSION = 46;
+export const CURRENT_SCHEMA_VERSION = 47;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["read","grep","find","ls","git"],"full":[]}';
 const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
+const IdleActionMigrationConfigRowSchema = z.object({ presets_json: z.string() });
+const IdleActionMigrationSessionRowSchema = z.object({ id: z.string(), model_preset_json: z.string().nullable() });
+const IdleActionMigrationBenchmarkSessionRowSchema = z.object({ id: z.string(), original_config_json: z.string() });
+const IdleActionMigrationBenchmarkCaseRowSchema = z.object({ id: z.string(), managed_preset_json: z.string() });
 
 let cachedDatabasePath: string | null = null;
 let cachedDatabase: RuntimeDatabase | null = null;
@@ -1016,6 +1020,193 @@ function migrateAppConfigRemoveGlobalStartupContext(database: RuntimeDatabase): 
   `);
 }
 
+/**
+ * v42: persisted model presets gained explicit residency semantics. Existing records that omitted
+ * IdleAction are migrated once, before config parsing becomes strict. The marker is committed in
+ * the same transaction as the row update, so a failed write leaves the migration retryable.
+ */
+function requireMigrationObject(value: JsonValue, source: string): JsonObject {
+  if (!isJsonObject(value)) {
+    throw new Error(`Cannot migrate ${source}: expected a JSON object.`);
+  }
+  return value;
+}
+
+function parseMigrationJson(text: string, source: string): JsonValue {
+  try {
+    return parseJsonValueText(text);
+  } catch (error) {
+    throw new Error(
+      `Cannot migrate ${source}: invalid JSON (${error instanceof Error ? error.message : String(error)}).`,
+    );
+  }
+}
+
+function migratePresetRecord(value: JsonValue, source: string): { preset: JsonObject; changed: boolean } {
+  const preset = requireMigrationObject(value, source);
+  if (Object.hasOwn(preset, 'IdleAction')) {
+    return { preset, changed: false };
+  }
+  return { preset: { ...preset, IdleAction: 'unload' }, changed: true };
+}
+
+function migratePresetArray(text: string, source: string): { presets: JsonObject[]; changed: boolean } {
+  const parsed = parseMigrationJson(text, source);
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Cannot migrate ${source}: expected a JSON array of preset objects.`);
+  }
+  const presets: JsonObject[] = [];
+  let changed = false;
+  for (const [index, value] of parsed.entries()) {
+    const migrated = migratePresetRecord(value, `${source}[${index}]`);
+    presets.push(migrated.preset);
+    changed ||= migrated.changed;
+  }
+  return { presets, changed };
+}
+
+function migrateConfigSnapshot(text: string, source: string): { json: string; changed: boolean } {
+  const config = requireMigrationObject(parseMigrationJson(text, source), source);
+  const server = requireMigrationObject(JsonValueSchema.parse(config.Server), `${source}.Server`);
+  const modelPresets = requireMigrationObject(
+    JsonValueSchema.parse(server.ModelPresets),
+    `${source}.Server.ModelPresets`,
+  );
+  const presetsValue = modelPresets.Presets;
+  if (!Array.isArray(presetsValue)) {
+    throw new Error(`Cannot migrate ${source}.Server.ModelPresets.Presets: expected a JSON array of preset objects.`);
+  }
+  const presets: JsonObject[] = [];
+  let changed = false;
+  for (const [index, value] of presetsValue.entries()) {
+    const migrated = migratePresetRecord(value, `${source}.Server.ModelPresets.Presets[${index}]`);
+    presets.push(migrated.preset);
+    changed ||= migrated.changed;
+  }
+  if (!changed) {
+    return { json: text, changed: false };
+  }
+  config.Server = {
+    ...server,
+    ModelPresets: { ...modelPresets, Presets: presets },
+  };
+  return { json: JSON.stringify(config), changed: true };
+}
+
+function migrateAppConfigIdleAction(database: RuntimeDatabase): void {
+  let migratedAppPresets: JsonObject[] | null = null;
+  let migratedAppPresetsChanged = false;
+  const migratedSessions: { id: string; modelPresetJson: string }[] = [];
+  const migratedBenchmarkSessions: { id: string; originalConfigJson: string }[] = [];
+  const migratedBenchmarkCases: { id: string; managedPresetJson: string }[] = [];
+
+  if (tableHasColumn(database, 'app_config', 'server_llama_presets_json')) {
+    const rawRow = database.prepare(`
+      SELECT server_llama_presets_json AS presets_json
+      FROM app_config
+      WHERE id = 1
+    `).get();
+    if (rawRow != null) {
+      const row = IdleActionMigrationConfigRowSchema.parse(rawRow);
+      const migrated = migratePresetArray(row.presets_json, 'app_config.server_llama_presets_json');
+      migratedAppPresets = migrated.presets;
+      migratedAppPresetsChanged = migrated.changed;
+    }
+  }
+  if (tableHasColumn(database, 'chat_sessions', 'model_preset_json')) {
+    const sessionRows = z.array(IdleActionMigrationSessionRowSchema).parse(database.prepare(`
+      SELECT id, model_preset_json
+      FROM chat_sessions
+      WHERE model_preset_json IS NOT NULL
+      ORDER BY id
+    `).all());
+    for (const row of sessionRows) {
+      const migrated = migratePresetRecord(
+        parseMigrationJson(row.model_preset_json ?? '', `chat_sessions[${row.id}].model_preset_json`),
+        `chat_sessions[${row.id}].model_preset_json`,
+      );
+      if (migrated.changed) {
+        migratedSessions.push({ id: row.id, modelPresetJson: JSON.stringify(migrated.preset) });
+      }
+    }
+  }
+  if (tableHasColumn(database, 'benchmark_sessions', 'original_config_json')) {
+    const sessionRows = z.array(IdleActionMigrationBenchmarkSessionRowSchema).parse(database.prepare(`
+      SELECT id, original_config_json
+      FROM benchmark_sessions
+      ORDER BY id
+    `).all());
+    for (const row of sessionRows) {
+      const migrated = migrateConfigSnapshot(
+        row.original_config_json,
+        `benchmark_sessions[${row.id}].original_config_json`,
+      );
+      if (migrated.changed) {
+        migratedBenchmarkSessions.push({ id: row.id, originalConfigJson: migrated.json });
+      }
+    }
+  }
+  if (tableHasColumn(database, 'benchmark_cases', 'managed_preset_json')) {
+    const caseRows = z.array(IdleActionMigrationBenchmarkCaseRowSchema).parse(database.prepare(`
+      SELECT id, managed_preset_json
+      FROM benchmark_cases
+      ORDER BY id
+    `).all());
+    for (const row of caseRows) {
+      const migrated = migratePresetRecord(
+        parseMigrationJson(row.managed_preset_json, `benchmark_cases[${row.id}].managed_preset_json`),
+        `benchmark_cases[${row.id}].managed_preset_json`,
+      );
+      if (migrated.changed) {
+        migratedBenchmarkCases.push({ id: row.id, managedPresetJson: JSON.stringify(migrated.preset) });
+      }
+    }
+  }
+
+  const migrate = database.transaction(() => {
+    const updatedAtUtc = new Date().toISOString();
+    if (migratedAppPresetsChanged && migratedAppPresets !== null) {
+      database.prepare(`
+        UPDATE app_config
+        SET server_llama_presets_json = ?, updated_at_utc = ?
+        WHERE id = 1
+      `).run(JSON.stringify(migratedAppPresets), updatedAtUtc);
+    }
+    if (migratedSessions.length > 0) {
+      const updateSession = database.prepare(`
+        UPDATE chat_sessions
+        SET model_preset_json = ?, updated_at_utc = ?
+        WHERE id = ?
+      `);
+      for (const session of migratedSessions) {
+        updateSession.run(session.modelPresetJson, updatedAtUtc, session.id);
+      }
+    }
+    if (migratedBenchmarkSessions.length > 0) {
+      const updateSession = database.prepare(`
+        UPDATE benchmark_sessions
+        SET original_config_json = ?, updated_at_utc = ?
+        WHERE id = ?
+      `);
+      for (const session of migratedBenchmarkSessions) {
+        updateSession.run(session.originalConfigJson, updatedAtUtc, session.id);
+      }
+    }
+    if (migratedBenchmarkCases.length > 0) {
+      const updateCase = database.prepare(`
+        UPDATE benchmark_cases
+        SET managed_preset_json = ?
+        WHERE id = ?
+      `);
+      for (const benchmarkCase of migratedBenchmarkCases) {
+        updateCase.run(benchmarkCase.managedPresetJson, benchmarkCase.id);
+      }
+    }
+    setSchemaVersion(database, 47);
+  });
+  migrate();
+}
+
 function ensureSchema(database: RuntimeDatabase): void {
   database.exec('PRAGMA foreign_keys = ON;');
   const storedVersion = getSchemaVersion(database);
@@ -1515,6 +1706,10 @@ function ensureSchema(database: RuntimeDatabase): void {
     backfillAssistantFtsRowids(database);
     setSchemaVersion(database, 46);
     currentVersion = 46;
+  }
+  if (currentVersion < 47) {
+    migrateAppConfigIdleAction(database);
+    currentVersion = 47;
   }
   ensureChatMessageTimelineSchema(database);
   ensureRuntimeArtifactsSchema(database);

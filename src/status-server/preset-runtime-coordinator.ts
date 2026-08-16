@@ -1,9 +1,16 @@
-import type { InferenceBackendId, InferenceRuntimeErrorPhase, InferenceRuntimeStatus } from '@siftkit/contracts';
+import type {
+  InferenceBackendId,
+  InferenceRuntimeErrorPhase,
+  InferenceRuntimeStatus,
+  ModelLifecycleActionResult,
+} from '@siftkit/contracts';
 import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
 import type { ManagedInferenceRuntime } from './managed-inference-runtime.js';
 import type { ModelRequestLock } from './server-types.js';
 import type { AppliedModelPresetState } from './applied-model-preset-state.js';
 import { readConfig, writeConfig } from './config-store.js';
+
+const MODEL_RESIDENCY_TRANSITION_BUSY_ERROR = 'A model residency transition is in progress; retry once it completes.';
 
 /** Raised when a restart is asked of a preset whose server SiftKit did not launch. */
 export class ExternalServerRestartError extends Error {}
@@ -16,7 +23,10 @@ export class PresetRuntimeCoordinator {
   private error: string | null = null;
   private rollback: string | null = null;
   private idleDeadlineUtc: string | null = null;
-  private idleUnloadInProgress = false;
+  private residencyActionInProgress = false;
+  private admissionBlockerCount = 0;
+  private admissionBlockerPromise: Promise<void> = Promise.resolve();
+  private resolveAdmissionBlocker: (() => void) | null = null;
 
   constructor(
     private readonly configPath: string,
@@ -41,7 +51,8 @@ export class PresetRuntimeCoordinator {
     const preset = this.appliedModelPresetState.getPreset();
     const runtime = this.getRuntime(preset);
     try {
-      await runtime.ensurePresetReady(preset);
+      if (runtime.getModelState() === 'frozen') await runtime.restorePreset();
+      else await runtime.ensurePresetReady(preset);
     } catch (error) {
       this.fail('process-start', error instanceof Error ? error.message : String(error));
       throw error;
@@ -49,6 +60,7 @@ export class PresetRuntimeCoordinator {
   }
 
   async applyPreset(presetId: string): Promise<'ready' | 'queued'> {
+    if (this.residencyActionInProgress) throw new Error(MODEL_RESIDENCY_TRANSITION_BUSY_ERROR);
     const target = this.getPreset(presetId);
     if (
       this.presetsEqual(target, this.appliedModelPresetState.getPreset())
@@ -68,6 +80,7 @@ export class PresetRuntimeCoordinator {
   // refuses outright when the server belongs to someone else, because stopping it is
   // then impossible and reporting success would be a lie.
   async restartConfiguredPreset(): Promise<void> {
+    if (this.residencyActionInProgress) throw new Error(MODEL_RESIDENCY_TRANSITION_BUSY_ERROR);
     if (this.switchPromise) throw new Error('A preset switch is already in progress.');
     if (this.hasActiveModelRequests()) throw new Error('A model request is in progress; retry once it completes.');
     const configured = this.getConfiguredPreset();
@@ -88,13 +101,23 @@ export class PresetRuntimeCoordinator {
     if (this.switchPromise) await this.switchPromise;
     const preset = this.appliedModelPresetState.getPreset();
     const runtime = this.getRuntime(preset);
+    const modelState = runtime.getModelState();
+    if (modelState === 'ready') {
+      this.errorPhase = null;
+      this.error = null;
+      return;
+    }
+    this.beginResidencyAction();
     try {
-      await runtime.ensurePresetReady(preset);
+      if (modelState === 'frozen') await runtime.restorePreset();
+      else await runtime.ensurePresetReady(preset);
       this.errorPhase = null;
       this.error = null;
     } catch (error) {
       this.fail('model-load', error instanceof Error ? error.message : String(error));
       throw error;
+    } finally {
+      this.endResidencyAction();
     }
   }
 
@@ -107,28 +130,118 @@ export class PresetRuntimeCoordinator {
   }
 
   canGrantModelRequest(): boolean {
-    return this.pendingPresetId === null && this.switchPromise === null && !this.idleUnloadInProgress;
+    return this.pendingPresetId === null && this.switchPromise === null && !this.residencyActionInProgress;
+  }
+
+  waitForCurrentAdmissionBlocker(): Promise<void> {
+    if (this.canGrantModelRequest()) return Promise.resolve();
+    return this.admissionBlockerPromise;
   }
 
   setIdleDeadlineUtc(deadlineUtc: string | null): void {
     this.idleDeadlineUtc = deadlineUtc;
   }
 
-  async unloadActivePresetForIdle(presetId: string): Promise<boolean> {
+  async applyIdleResidencyAction(presetId: string, action: 'freeze' | 'unload'): Promise<boolean> {
     if (presetId !== this.appliedModelPresetState.getPreset().id || this.hasActiveModelRequests() || this.pendingPresetId !== null) return false;
+    if (this.residencyActionInProgress) return false;
     const preset = this.appliedModelPresetState.getPreset();
-    if (preset.Backend !== 'exl3') return false;
     const runtime = this.getRuntime(preset);
     if (runtime.getModelState() !== 'ready') return false;
-    this.idleUnloadInProgress = true;
+    if (action === 'freeze' && preset.Backend !== 'exl3') {
+      const error = new Error('Freeze requires the EXL3 backend.');
+      this.fail('model-freeze', error.message);
+      throw error;
+    }
+    this.beginResidencyAction();
+    try {
+      if (action === 'freeze') await runtime.freezePreset();
+      else await runtime.unloadPreset();
+      return true;
+    } catch (error) {
+      this.fail(action === 'freeze' ? 'model-freeze' : 'model-unload', error instanceof Error ? error.message : String(error));
+      throw error;
+    } finally {
+      this.endResidencyAction();
+    }
+  }
+
+  private refuseIfBusy(): ModelLifecycleActionResult | null {
+    if (this.switchPromise !== null || this.pendingPresetId !== null) {
+      return { status: 'busy', reason: 'A preset switch is in progress; retry once it completes.' };
+    }
+    if (this.hasActiveModelRequests()) {
+      return {
+        status: 'busy',
+        reason: `${this.activeModelRequests.size} model request(s) are in progress; retry once they complete.`,
+      };
+    }
+    if (this.residencyActionInProgress) {
+      return { status: 'busy', reason: MODEL_RESIDENCY_TRANSITION_BUSY_ERROR };
+    }
+    return null;
+  }
+
+  async unloadActivePresetNow(): Promise<ModelLifecycleActionResult> {
+    const busy = this.refuseIfBusy();
+    if (busy) return busy;
+    const preset = this.appliedModelPresetState.getPreset();
+    const runtime = this.getRuntime(preset);
+    if (runtime.getModelState() === 'unloaded') return { status: 'noop' };
+    this.beginResidencyAction();
     try {
       await runtime.unloadPreset();
-      return true;
+      return { status: 'done' };
     } catch (error) {
       this.fail('model-unload', error instanceof Error ? error.message : String(error));
       throw error;
     } finally {
-      this.idleUnloadInProgress = false;
+      this.endResidencyAction();
+    }
+  }
+
+  async freezeActivePresetNow(): Promise<ModelLifecycleActionResult> {
+    const busy = this.refuseIfBusy();
+    if (busy) return busy;
+    const preset = this.appliedModelPresetState.getPreset();
+    if (preset.Backend !== 'exl3') {
+      return { status: 'unsupported', reason: 'Freeze requires the EXL3 backend.' };
+    }
+    const runtime = this.getRuntime(preset);
+    if (runtime.getModelState() === 'frozen') return { status: 'noop' };
+    if (runtime.getModelState() !== 'ready') {
+      return { status: 'busy', reason: `Cannot freeze a model in state '${runtime.getModelState()}'.` };
+    }
+    this.beginResidencyAction();
+    try {
+      await runtime.freezePreset();
+      return { status: 'done' };
+    } catch (error) {
+      this.fail('model-freeze', error instanceof Error ? error.message : String(error));
+      throw error;
+    } finally {
+      this.endResidencyAction();
+    }
+  }
+
+  async loadActivePresetNow(): Promise<ModelLifecycleActionResult> {
+    const busy = this.refuseIfBusy();
+    if (busy) return busy;
+    const preset = this.appliedModelPresetState.getPreset();
+    const runtime = this.getRuntime(preset);
+    if (runtime.getModelState() === 'ready') return { status: 'noop' };
+    this.beginResidencyAction();
+    try {
+      if (runtime.getModelState() === 'frozen') await runtime.restorePreset();
+      else await runtime.ensurePresetReady(preset);
+      this.errorPhase = null;
+      this.error = null;
+      return { status: 'done' };
+    } catch (error) {
+      this.fail('model-load', error instanceof Error ? error.message : String(error));
+      throw error;
+    } finally {
+      this.endResidencyAction();
     }
   }
 
@@ -143,6 +256,7 @@ export class PresetRuntimeCoordinator {
       activePresetId: preset.id,
       activePresetLabel: preset.label,
       backend: preset.Backend,
+      idleAction: preset.IdleAction,
       processState: runtime.getProcessState(),
       modelState: runtime.getModelState(),
       model: preset.Model,
@@ -161,13 +275,21 @@ export class PresetRuntimeCoordinator {
         // Continue with best-effort shutdown of the active runtime.
       }
     }
+    await this.waitForCurrentAdmissionBlocker();
     const runtime = this.getRuntime(this.appliedModelPresetState.getPreset());
-    if (runtime.id === 'exl3' && runtime.getModelState() === 'ready') await runtime.unloadPreset();
+    if (runtime.id === 'exl3' && runtime.getModelState() !== 'unloaded') {
+      try {
+        await runtime.unloadPreset();
+      } catch {
+        // Continue with best-effort process shutdown after a failed model unload.
+      }
+    }
     await runtime.stopProcess();
     this.pendingPresetId = null;
   }
 
   private setPendingSwitch(presetId: string, forceRestart: boolean): void {
+    if (this.pendingPresetId === null) this.beginAdmissionBlocker();
     this.pendingPresetId = presetId;
     this.pendingForceRestart = forceRestart;
     this.errorPhase = null;
@@ -184,7 +306,38 @@ export class PresetRuntimeCoordinator {
     } finally {
       this.switchPromise = null;
       this.pendingForceRestart = false;
+      this.endAdmissionBlocker();
     }
+  }
+
+  private beginResidencyAction(): void {
+    this.residencyActionInProgress = true;
+    this.beginAdmissionBlocker();
+  }
+
+  private endResidencyAction(): void {
+    this.residencyActionInProgress = false;
+    this.endAdmissionBlocker();
+  }
+
+  private beginAdmissionBlocker(): void {
+    if (this.admissionBlockerCount === 0) {
+      this.admissionBlockerPromise = new Promise<void>((resolve) => {
+        this.resolveAdmissionBlocker = resolve;
+      });
+    }
+    this.admissionBlockerCount += 1;
+  }
+
+  private endAdmissionBlocker(): void {
+    if (this.admissionBlockerCount === 0) throw new Error('Admission blocker closed without an active blocker.');
+    this.admissionBlockerCount -= 1;
+    if (this.admissionBlockerCount > 0) return;
+    const resolve = this.resolveAdmissionBlocker;
+    if (!resolve) throw new Error('Admission blocker resolver is missing.');
+    this.resolveAdmissionBlocker = null;
+    this.admissionBlockerPromise = Promise.resolve();
+    resolve();
   }
 
   private async executeSwitch(targetId: string, forceRestart: boolean): Promise<void> {

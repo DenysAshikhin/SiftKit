@@ -318,6 +318,7 @@ const PRESET_FIELD_EXPECTATIONS = {
   HealthcheckTimeoutMs: ON_BOTH_BACKENDS,
   HealthcheckIntervalMs: ON_BOTH_BACKENDS,
   SleepIdleSeconds: ON_BOTH_BACKENDS,
+  IdleAction: ON_BOTH_BACKENDS,
   VerboseLogging: LLAMA_ONLY,
   VisionEnabled: EXL3_ONLY,
   VisionImageRetention: EXL3_ONLY,

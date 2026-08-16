@@ -1,6 +1,7 @@
 import { initializeRuntime } from './paths.js';
 import {
-  CaptureScopeSchema, KeyCustodySchema, ModelPresetFieldSchema, SiftPresetCollectionSchema,
+  CaptureScopeSchema, KeyCustodySchema, ModelIdleActionSchema, ModelPresetFieldSchema,
+  SiftPresetCollectionSchema, type ModelIdleAction,
 } from '@siftkit/contracts';
 import {
   SIFT_DEFAULT_LLAMA_BATCH_SIZE,
@@ -30,6 +31,7 @@ import type {
   Exl3EngineConfig,
   AssistantConfig,
   ManagedLlamaKvCacheQuantization,
+  ManagedLlamaSettings,
   ManagedLlamaSpeculativeType,
   ModelRuntimePreset,
   NormalizationInfo,
@@ -48,59 +50,7 @@ const WEB_SEARCH_PROVIDER_IDS: readonly WebSearchProviderId[] = ['tavily', 'fire
 const MAX_LLAMA_STARTUP_TIMEOUT_MS = 600_000;
 const SiftConfigSchema = z.custom<SiftConfig>((value) => JsonObjectSchema.safeParse(value).success);
 
-export type ManagedLlamaConfig = {
-  Model?: string | null;
-  ExternalServerEnabled: boolean;
-  ExecutablePath: string | null;
-  BaseUrl: string | null;
-  BindHost: string;
-  Port: number;
-  ModelPath: string | null;
-  NumCtx: number;
-  GpuLayers: number;
-  Threads: number;
-  NcpuMoe: number;
-  FlashAttention: boolean;
-  ParallelSlots: number;
-  BatchSize: number;
-  UBatchSize: number;
-  CacheRam: number;
-  CacheRecurrentRam: number;
-  KvCacheQuantization: ManagedLlamaKvCacheQuantization;
-  MaxTokens: number;
-  Temperature: number;
-  TopP: number;
-  TopK: number;
-  MinP: number;
-  PresencePenalty: number;
-  RepetitionPenalty: number;
-  Reasoning: 'on' | 'off';
-  ReasoningContent: boolean;
-  PreserveThinking: boolean;
-  MaintainPerStepThinking: boolean;
-  SpeculativeEnabled: boolean;
-  SpeculativeType: ManagedLlamaSpeculativeType;
-  SpeculativeMtpEnabled: boolean;
-  SpeculativeNgramSizeN: number;
-  SpeculativeNgramSizeM: number;
-  SpeculativeNgramMinHits: number;
-  SpeculativeNgramModNMatch: number;
-  SpeculativeNgramModNMin: number;
-  SpeculativeNgramModNMax: number;
-  SpeculativeDraftMax: number;
-  SpeculativeDraftMin: number;
-  SpeculativeDynamic: boolean;
-  ReasoningBudget: number;
-  ReasoningBudgetMessage: string | null;
-  StartupTimeoutMs: number;
-  HealthcheckTimeoutMs: number;
-  HealthcheckIntervalMs: number;
-  SleepIdleSeconds: number;
-  VerboseLogging: boolean;
-  VisionEnabled: boolean;
-  VisionImageRetention: number;
-  VisionMaxImagePixels: number;
-};
+export type ManagedLlamaConfig = ManagedLlamaSettings & { Model?: string | null };
 
 function getRecord(value: JsonValue): MutableJsonObject {
   const record = JsonRecordReader.asObject(value);
@@ -291,6 +241,14 @@ function clampInteger(value: JsonValue, fallback: number, minValue: number, maxV
 export function getFinitePositiveInteger(value: JsonValue, fallback: number): number {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getModelIdleAction(value: JsonValue): ModelIdleAction {
+  const parsed = ModelIdleActionSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error(`Invalid IdleAction '${String(value)}'; expected none, freeze, or unload.`);
+  }
+  return parsed.data;
 }
 
 function getFiniteNonNegativeInteger(value: JsonValue, fallback: number): number {
@@ -492,12 +450,19 @@ export function normalizeModelRuntimePresetRecord(
       );
     }
   }
+  const backend = normalizeInferenceBackend(record.Backend);
+  const settings = resolveManagedLlamaSettings(record);
+  if (backend === 'llama' && settings.IdleAction === 'freeze') {
+    throw new Error(
+      `Preset '${getNullableTrimmedString(record.id) || fallbackId}' with backend llama cannot use IdleAction=freeze.`,
+    );
+  }
   return {
     id: getNullableTrimmedString(record.id) || fallbackId,
     label: getNullableTrimmedString(record.label) || fallbackLabel,
-    Backend: normalizeInferenceBackend(record.Backend),
+    Backend: backend,
     Model: getNullableTrimmedString(record.Model) || deriveModelIdFromPath(record.ModelPath) || SIFT_DEFAULT_LLAMA_MODEL,
-    ...resolveManagedLlamaSettings(record),
+    ...settings,
   };
 }
 
@@ -597,6 +562,7 @@ function resolveManagedLlamaSettings(input: MutableJsonObject): ManagedLlamaConf
     HealthcheckTimeoutMs: getFinitePositiveInteger(input.HealthcheckTimeoutMs, Number(defaults.HealthcheckTimeoutMs ?? 2_000)),
     HealthcheckIntervalMs: getFinitePositiveInteger(input.HealthcheckIntervalMs, Number(defaults.HealthcheckIntervalMs ?? 1_000)),
     SleepIdleSeconds: getFinitePositiveInteger(input.SleepIdleSeconds, Number(defaults.SleepIdleSeconds ?? SIFT_DEFAULT_LLAMA_SLEEP_IDLE_SECONDS)),
+    IdleAction: getModelIdleAction(input.IdleAction),
     VerboseLogging: Boolean(input.VerboseLogging),
     VisionEnabled: input.VisionEnabled === null || input.VisionEnabled === undefined
       ? Boolean(defaults.VisionEnabled)

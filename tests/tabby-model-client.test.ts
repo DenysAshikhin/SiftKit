@@ -237,6 +237,23 @@ test('Tabby model client rejects a resident model that reports no applied parame
   }
 });
 
+test('Tabby model client rejects a malformed upstream model response', async () => {
+  const server = http.createServer((_request, response) => {
+    response.setHeader('content-type', 'application/json');
+    response.end('{"id":42}');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const baseUrl = `http://127.0.0.1:${getAddressInfo(server).port}`;
+  try {
+    await assert.rejects(
+      new TabbyModelClient('').getResidentModel(baseUrl, 1_000),
+      /Invalid input|expected string/u,
+    );
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test('Tabby model client rejects successful unload when a model remains resident', async () => {
   const server = http.createServer((request, response) => {
     if (request.url === '/v1/model/unload') {

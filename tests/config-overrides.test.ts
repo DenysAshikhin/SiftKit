@@ -16,8 +16,8 @@ function buildConfig() {
       ModelPresets: {
         ActivePresetId: 'active',
         Presets: [
-          { id: 'active', label: 'active', Model: 'preset-model', MaxTokens: 4096 },
-          { id: 'other', label: 'other', Model: 'other-model', MaxTokens: 2048 },
+          { id: 'active', label: 'active', Model: 'preset-model', MaxTokens: 4096, IdleAction: 'unload' },
+          { id: 'other', label: 'other', Model: 'other-model', MaxTokens: 2048, IdleAction: 'unload' },
         ],
       },
     },
@@ -72,7 +72,7 @@ test('overlayActivePreset mirrors NumCtx and Reasoning onto the launch record', 
     Server: {
       ModelPresets: {
         ActivePresetId: 'active',
-        Presets: [{ id: 'active', label: 'active', Model: 'preset-model', NumCtx: 8000, Reasoning: 'off' }],
+        Presets: [{ id: 'active', label: 'active', Model: 'preset-model', NumCtx: 8000, Reasoning: 'off', IdleAction: 'unload' }],
       },
     },
   });
@@ -91,7 +91,7 @@ test('overlayActivePreset leaves the launch record alone for fields it does not 
     Server: {
       ModelPresets: {
         ActivePresetId: 'active',
-        Presets: [{ id: 'active', label: 'active', Model: 'preset-model', NumCtx: 8000 }],
+        Presets: [{ id: 'active', label: 'active', Model: 'preset-model', NumCtx: 8000, IdleAction: 'unload' }],
       },
     },
   });
@@ -109,8 +109,8 @@ test('overlays follow the active preset id rather than the first preset', () => 
       ModelPresets: {
         ActivePresetId: 'other',
         Presets: [
-          { id: 'active', label: 'active', Model: 'preset-model', MaxTokens: 4096 },
-          { id: 'other', label: 'other', Model: 'other-model', MaxTokens: 2048 },
+          { id: 'active', label: 'active', Model: 'preset-model', MaxTokens: 4096, IdleAction: 'unload' },
+          { id: 'other', label: 'other', Model: 'other-model', MaxTokens: 2048, IdleAction: 'unload' },
         ],
       },
     },

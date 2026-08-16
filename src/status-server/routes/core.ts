@@ -130,7 +130,12 @@ import type {
   ServerContext,
   TerminalMetadataQueueItem,
 } from '../server-types.js';
-import { InferenceRuntimeDashboardStatusSchema } from '@siftkit/contracts';
+import {
+  InferenceRuntimeDashboardStatusSchema,
+  ModelLifecycleRequestSchema,
+  ModelLifecycleResponseSchema,
+} from '@siftkit/contracts';
+import type { ModelLifecycleAction } from '@siftkit/contracts';
 import type { ActiveRunState } from '../status-run-registry.js';
 import { buildStatusRunStartInput } from '../status-run-registry.js';
 import { readGpuMemory } from '../gpu-memory.js';
@@ -1966,6 +1971,40 @@ class InferenceRuntimeReadEndpoint implements RouteEndpoint {
   }
 }
 
+class ModelResidencyEndpoint implements RouteEndpoint {
+  constructor(private readonly action: ModelLifecycleAction) {}
+
+  async handle(
+    ctx: ServerContext,
+    _req: IncomingMessage,
+    res: ServerResponse,
+    _match: RouteMatch,
+  ): Promise<void> {
+    const coordinator = ctx.presetRuntimeCoordinator;
+    if (!coordinator) {
+      sendJson(res, 503, ModelLifecycleResponseSchema.parse({
+        ok: false,
+        error: 'Inference runtime coordinator is unavailable.',
+      }));
+      return;
+    }
+    try {
+      ctx.modelIdleController?.cancelForPresetChange();
+      const action = ModelLifecycleRequestSchema.parse({ action: this.action }).action;
+      const result = action === 'load'
+        ? await coordinator.loadActivePresetNow()
+        : action === 'unload'
+          ? await coordinator.unloadActivePresetNow()
+          : await coordinator.freezeActivePresetNow();
+      if (result.status === 'busy') sendJson(res, 409, ModelLifecycleResponseSchema.parse({ ok: false, error: result.reason }));
+      else if (result.status === 'unsupported') sendJson(res, 400, ModelLifecycleResponseSchema.parse({ ok: false, error: result.reason }));
+      else sendJson(res, 200, ModelLifecycleResponseSchema.parse({ ok: true, status: result.status }));
+    } catch (error) {
+      sendJson(res, 503, ModelLifecycleResponseSchema.parse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+    }
+  }
+}
+
 const STATUS_POST_ENDPOINT = new StatusPostEndpoint();
 
 const CORE_ROUTES = new RouteTable([
@@ -1989,6 +2028,9 @@ const CORE_ROUTES = new RouteTable([
   { method: 'GET', path: /^\/config(?:\?.*)?$/u, endpoint: new ConfigReadEndpoint() },
   { method: 'PUT', path: /^\/config(?:\?.*)?$/u, endpoint: new ConfigUpdateEndpoint() },
   { method: 'POST', path: '/status/restart', endpoint: new StatusRestartEndpoint() },
+  { method: 'POST', path: '/runtime/model/load', endpoint: new ModelResidencyEndpoint('load') },
+  { method: 'POST', path: '/runtime/model/unload', endpoint: new ModelResidencyEndpoint('unload') },
+  { method: 'POST', path: '/runtime/model/freeze', endpoint: new ModelResidencyEndpoint('freeze') },
 ]);
 
 export async function handleCoreRoute(

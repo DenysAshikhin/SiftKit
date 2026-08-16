@@ -25,6 +25,7 @@ import type {
   DashboardPresetToolName,
   InferenceBackendId,
   ManagedLlamaKvCacheQuantization,
+  ModelIdleAction,
   WebSearchProviderId,
 } from './types.js';
 
@@ -124,6 +125,7 @@ export type DashboardSettingsDraftAction =
   | { type: 'set-model-float'; presetId: string; field: ModelFloatField; value: number }
   | { type: 'set-model-boolean'; presetId: string; field: ModelBooleanField; value: boolean }
   | { type: 'set-model-backend'; presetId: string; value: InferenceBackendId }
+  | { type: 'set-model-idle-action'; presetId: string; value: ModelIdleAction }
   | { type: 'set-model-kv-cache-quantization'; presetId: string; value: ManagedLlamaKvCacheQuantization }
   | { type: 'set-model-reasoning'; presetId: string; value: 'on' | 'off' }
   | { type: 'set-model-reasoning-content'; presetId: string; value: boolean }
@@ -259,6 +261,9 @@ export class DashboardSettingsDraftEditor {
       case 'set-model-backend':
         this.setModelBackend(action.presetId, action.value);
         return;
+      case 'set-model-idle-action':
+        this.requireModelPreset(action.presetId).IdleAction = action.value;
+        return;
       case 'set-model-kv-cache-quantization':
         this.requireModelPreset(action.presetId).KvCacheQuantization = action.value;
         return;
@@ -349,6 +354,9 @@ export class DashboardSettingsDraftEditor {
   private setModelBackend(presetId: string, backend: InferenceBackendId): void {
     const preset = this.requireModelPreset(presetId);
     preset.Backend = backend;
+    if (backend === 'llama' && preset.IdleAction === 'freeze') {
+      preset.IdleAction = 'unload';
+    }
     if (backend === 'exl3') {
       preset.SpeculativeType = 'draft-mtp';
       preset.SpeculativeMtpEnabled = false;

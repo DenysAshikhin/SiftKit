@@ -10,7 +10,7 @@ import { mockSiftConfig } from './helpers/mock-config.js';
 
 function configForBackend(backend: 'llama' | 'exl3') {
   return mockSiftConfig({
-    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', Backend: backend }] } },
+    Server: { ModelPresets: { ActivePresetId: 'default', Presets: [{ id: 'default', Backend: backend, IdleAction: 'unload' }] } },
   });
 }
 

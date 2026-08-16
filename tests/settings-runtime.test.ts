@@ -37,6 +37,7 @@ test('syncDerivedSettingsFields uses the active managed preset model when presen
             Model: 'Managed Model',
             BaseUrl: 'http://127.0.0.1:8080',
             ModelPath: 'D:\\models\\managed.gguf',
+            IdleAction: 'unload',
           },
         ],
       },

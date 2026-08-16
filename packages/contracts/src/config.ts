@@ -23,9 +23,15 @@ export const InferenceProcessStateSchema = z.enum([
 export type InferenceProcessState = z.infer<typeof InferenceProcessStateSchema>;
 
 export const InferenceModelStateSchema = z.enum([
-  'unloaded', 'loading', 'ready', 'unloading', 'failed',
+  'unloaded', 'loading', 'ready', 'unloading', 'freezing', 'frozen', 'failed',
 ]);
 export type InferenceModelState = z.infer<typeof InferenceModelStateSchema>;
+
+export const ModelLifecycleActionSchema = z.enum(['load', 'freeze', 'unload']);
+export type ModelLifecycleAction = z.infer<typeof ModelLifecycleActionSchema>;
+
+export const ModelIdleActionSchema = z.enum(['none', 'freeze', 'unload']);
+export type ModelIdleAction = z.infer<typeof ModelIdleActionSchema>;
 
 export const InferenceThinkingConfigSchema = z.object({
   Enabled: z.boolean(),
@@ -66,7 +72,8 @@ const ManagedLlamaSettingsShape = {
   SpeculativeDraftMax: z.number(), SpeculativeDraftMin: z.number(), SpeculativeDynamic: z.boolean(),
   ReasoningBudget: z.number(),
   ReasoningBudgetMessage: z.string().nullable(), StartupTimeoutMs: z.number(), HealthcheckTimeoutMs: z.number(),
-  HealthcheckIntervalMs: z.number(), SleepIdleSeconds: z.number(), VerboseLogging: z.boolean(), VisionEnabled: z.boolean(),
+  HealthcheckIntervalMs: z.number(), SleepIdleSeconds: z.number(), IdleAction: ModelIdleActionSchema,
+  VerboseLogging: z.boolean(), VisionEnabled: z.boolean(),
   VisionImageRetention: z.number().int().min(-1), VisionMaxImagePixels: z.number().int().min(0),
 };
 
@@ -79,7 +86,7 @@ export const ModelPresetFieldSchema = z.enum([
   'SpeculativeNgramSizeM', 'SpeculativeNgramMinHits', 'SpeculativeNgramModNMatch', 'SpeculativeNgramModNMin',
   'SpeculativeNgramModNMax', 'SpeculativeDraftMax', 'SpeculativeDraftMin', 'SpeculativeDynamic', 'ReasoningBudget',
   'ReasoningBudgetMessage', 'StartupTimeoutMs', 'HealthcheckTimeoutMs', 'HealthcheckIntervalMs',
-  'SleepIdleSeconds', 'VerboseLogging', 'VisionEnabled', 'VisionImageRetention', 'VisionMaxImagePixels',
+  'SleepIdleSeconds', 'IdleAction', 'VerboseLogging', 'VisionEnabled', 'VisionImageRetention', 'VisionMaxImagePixels',
 ]);
 export type ModelPresetField = z.infer<typeof ModelPresetFieldSchema>;
 

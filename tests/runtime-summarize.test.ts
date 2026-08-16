@@ -1073,6 +1073,7 @@ test('summary requests use the host model and the caller MaxTokens overlay', asy
               ExternalServerEnabled: true,
               BaseUrl: stubBaseUrl,
               MaxTokens: 9000,
+              IdleAction: 'unload',
             }],
           },
         },
