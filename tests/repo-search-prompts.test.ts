@@ -180,7 +180,7 @@ test('buildTaskSystemPrompt includes anti-loop and larger single-file read guida
     assert.match(prompt, /`read`/u);
     assert.match(prompt, /one large window per anchor|larger window/u);
     assert.match(prompt, /never tiny|tiny-slice/u);
-    assert.match(prompt, /Two reads of the same file must have a grep search between them/u);
+    assert.doesNotMatch(prompt, /Two reads of the same file/u);
     assert.match(prompt, /strengthen the anchor/u);
   });
 });

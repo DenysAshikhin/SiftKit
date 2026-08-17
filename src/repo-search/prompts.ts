@@ -242,7 +242,6 @@ export function buildTaskSystemPrompt(context: PresetSystemContext): string {
     '- ≥3 of your first 5 calls MUST be grep keyword searches; no file reads or list calls until you have anchors.',
     '- Turn 1: pick 5 keywords from the task and grep `"k1|k2|k3|k4|k5"` with no path (searches from the repo root; the ignore policy filters noise). If empty, reformulate before drilling.',
     '- Files >500 lines: run a file-scoped grep anchor first.',
-    '- Two reads of the same file must have a grep search between them.',
     '',
     'Output style + finish gate:',
     '- Concise, structured, tied to the question. Distinguish confirmed / inferred / unknown.',
