@@ -1,10 +1,15 @@
 import type { ChatMessage } from '../types';
 
+/** How many recent thinking blocks a live turn keeps on screen, newest last. */
+export const LIVE_THINKING_STACK_DEPTH = 3;
+
 export type ChatTurn = {
   key: string;
   isLive: boolean;
   messages: ChatMessage[];
   steps: ChatMessage[];
+  /** Live-only: the newest thinking blocks, oldest first. Always empty once settled. */
+  liveThinking: ChatMessage[];
   main: ChatMessage | null;
 };
 
@@ -21,6 +26,14 @@ function isStepMessage(message: ChatMessage): boolean {
   return kind === 'assistant_thinking' || kind === 'assistant_tool_call';
 }
 
+function isThinkingMessage(message: ChatMessage): boolean {
+  return normalizeMessageKind(message) === 'assistant_thinking';
+}
+
+function isToolCallMessage(message: ChatMessage): boolean {
+  return normalizeMessageKind(message) === 'assistant_tool_call';
+}
+
 function resolveTurnKey(message: ChatMessage, isLive: boolean): string {
   if (isLive) return 'live';
   if (message.role === 'user') return `user:${message.id}`;
@@ -31,8 +44,13 @@ function resolveTurnKey(message: ChatMessage, isLive: boolean): string {
 function pickMainMessage(turn: ChatTurn): ChatMessage | null {
   const answer = turn.messages.find(isAnswerMessage);
   if (answer) return answer;
-  // Live turn with no answer yet: surface the latest streamed item ("show latest").
-  if (turn.isLive) return turn.messages[turn.messages.length - 1] ?? null;
+  // Live turn with no answer yet: the newest tool call owns the main slot. The
+  // reasoning that led to it lives in the thinking stack instead of being
+  // demoted into Internal Logic the moment the tool starts.
+  if (turn.isLive) {
+    const toolCalls = turn.messages.filter(isToolCallMessage);
+    return toolCalls[toolCalls.length - 1] ?? null;
+  }
   // Settled, no answer: surface the last non-step message (e.g. a lone user_text
   // message). A settled run that is only thinking/tool steps (answer deleted) has
   // no main slot, so everything stays in Internal Logic.
@@ -40,12 +58,23 @@ function pickMainMessage(turn: ChatTurn): ChatMessage | null {
   return nonStepMessages[nonStepMessages.length - 1] ?? null;
 }
 
+function pickLiveThinking(turn: ChatTurn): ChatMessage[] {
+  // Settled turns keep every step in Internal Logic; the stack is live-only.
+  if (!turn.isLive) return [];
+  // Once the answer streams, the turn settles into the ordinary shape.
+  if (turn.messages.some(isAnswerMessage)) return [];
+  return turn.messages.filter(isThinkingMessage).slice(-LIVE_THINKING_STACK_DEPTH);
+}
+
 function finalizeTurn(turn: ChatTurn): void {
   const main = pickMainMessage(turn);
+  const liveThinking = pickLiveThinking(turn);
   turn.main = main;
-  // steps = everything that is not the main slot. No kind filter on steps, so a
-  // stray extra message in a run renders inside Internal Logic rather than dropped.
-  turn.steps = turn.messages.filter((message) => message !== main);
+  turn.liveThinking = liveThinking;
+  // steps = everything that is neither the main slot nor on the stack. No kind
+  // filter, so a stray extra message in a run renders inside Internal Logic
+  // rather than being dropped.
+  turn.steps = turn.messages.filter((message) => message !== main && !liveThinking.includes(message));
 }
 
 export function groupMessagesIntoTurns(messages: ChatMessage[], liveMessageIds: Set<string>): ChatTurn[] {
@@ -57,7 +86,7 @@ export function groupMessagesIntoTurns(messages: ChatMessage[], liveMessageIds: 
     if (lastTurn && lastTurn.key === key) {
       lastTurn.messages.push(message);
     } else {
-      turns.push({ key, isLive, messages: [message], steps: [], main: null });
+      turns.push({ key, isLive, messages: [message], steps: [], liveThinking: [], main: null });
     }
   }
   for (const turn of turns) {
