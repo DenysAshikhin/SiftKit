@@ -972,17 +972,24 @@ test('executeRepoTool rejects an unknown tool name', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// mutatedPathKey
+// mutatedPath
 // ---------------------------------------------------------------------------
 
-test('write reports the mutated path key so read windows can be invalidated', async () => {
+test('write reports the mutated path with its original casing preserved', async () => {
   const root = makeRepo();
   const result = await executeRepoTool('write', { path: 'src/New.ts', content: 'alpha\n' }, makeContext(root));
   assert.ok(result.ok);
-  assert.equal(result.mutatedPathKey, 'src/new.ts');
+  assert.equal(result.mutatedPath, 'src/New.ts');
 });
 
-test('edit reports the mutated path key so read windows can be invalidated', async () => {
+test('write resolves a non-canonical mutated path to its repository-relative form', async () => {
+  const root = makeRepo();
+  const result = await executeRepoTool('write', { path: '.\\src\\Deep.ts', content: 'alpha\n' }, makeContext(root));
+  assert.ok(result.ok);
+  assert.equal(result.mutatedPath, 'src/Deep.ts');
+});
+
+test('edit reports the mutated path so read windows can be invalidated', async () => {
   const root = makeRepo();
   const result = await executeRepoTool(
     'edit',
@@ -990,10 +997,10 @@ test('edit reports the mutated path key so read windows can be invalidated', asy
     makeContext(root),
   );
   assert.ok(result.ok);
-  assert.equal(result.mutatedPathKey, 'src/a.ts');
+  assert.equal(result.mutatedPath, 'src/a.ts');
 });
 
-test('a failed edit reports no mutated path key because nothing was written', async () => {
+test('a failed edit reports no mutated path because nothing was written', async () => {
   const root = makeRepo();
   const result = await executeRepoTool(
     'edit',

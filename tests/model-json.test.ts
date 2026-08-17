@@ -360,6 +360,34 @@ test('ModelJson accepts typed run output modes and rejects invalid values', () =
   );
 });
 
+test('ModelJson passes the advertised run timeoutMs through to the engine', () => {
+  assert.deepEqual(
+    parseRepoSearchPlannerAction(
+      '{"action":"run","command":"npm test","timeoutMs":300000}',
+      ['run'],
+    ),
+    {
+      action: 'tool',
+      tool_name: 'run',
+      args: { command: 'npm test', timeoutMs: 300000 },
+    },
+  );
+});
+
+test('ModelJson keeps the wrong run timeout key so the engine can reject it', () => {
+  assert.deepEqual(
+    parseRepoSearchPlannerAction(
+      '{"action":"run","command":"npm test","timeout":300000}',
+      ['run'],
+    ),
+    {
+      action: 'tool',
+      tool_name: 'run',
+      args: { command: 'npm test', timeout: 300000 },
+    },
+  );
+});
+
 test('ModelJson omits explicit null placeholders from repo-search tool batches', () => {
   const action = parseRepoSearchPlannerAction(
     JSON.stringify({

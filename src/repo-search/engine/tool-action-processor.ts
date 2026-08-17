@@ -42,6 +42,7 @@ import { FORCED_FINISH_MAX_ATTEMPTS, FORCED_FINISH_MODE_MESSAGE, ForcedFinishCon
 import { ActivitySummaryCollector } from './activity-summary-collector.js';
 import { ImageRetentionPolicy } from '../../image-retention-policy.js';
 import { ProgressReporter } from './progress-reporter.js';
+import { buildReadPathKey } from './read-overlap.js';
 import { ReadWindowGovernor } from './read-window-governor.js';
 import {
   applyToolOutputRepetitionGuard,
@@ -160,6 +161,8 @@ export type ToolActionProcessorDeps = {
   progress: ProgressReporter;
   transcript: TranscriptManager;
   recentEvidenceKeys: Set<string>;
+  /** Repository-relative paths successfully written to, in the order they were first touched. */
+  mutatedPaths: Set<string>;
   successfulToolCalls: Array<{ toolName: string; promptResultText: string }>;
   commands: TaskCommand[];
   counters: LoopCounters;
@@ -1042,6 +1045,9 @@ export class ToolActionProcessor {
    *
    * A tool that can actually change the tree also clears the duplicate memory, so a re-query after
    * a write is not rejected as a repeat of the pre-write answer.
+   *
+   * A reported path is also the run's record of which files it changed, so the caller can state
+   * that independently of the model's own account of the run.
    */
   private invalidateAfterMutation(context: ExecutedToolContext, commandSucceeded: boolean): void {
     const { normalizedToolName, nativeExecution } = context;
@@ -1052,8 +1058,9 @@ export class ToolActionProcessor {
       this.deps.readWindows.invalidateAll();
       return;
     }
-    if (commandSucceeded && nativeExecution && nativeExecution.ok && nativeExecution.mutatedPathKey) {
-      this.deps.readWindows.invalidatePath(nativeExecution.mutatedPathKey);
+    if (commandSucceeded && nativeExecution && nativeExecution.ok && nativeExecution.mutatedPath) {
+      this.deps.readWindows.invalidatePath(buildReadPathKey(nativeExecution.mutatedPath));
+      this.deps.mutatedPaths.add(nativeExecution.mutatedPath);
     }
   }
 }

@@ -73,6 +73,50 @@ test('deduplicates identical outputs', () => {
   assert.ok(output.includes('Different output'));
 });
 
+function makeMutatedResult(finalOutput: string, mutatedPaths: string[]): RepoSearchExecutionResult {
+  const result = makeResult(finalOutput);
+  const baseTask = result.scorecard.tasks[0];
+  if (baseTask === undefined) {
+    throw new Error('Mock scorecard must include one task.');
+  }
+  result.scorecard.tasks = [{ ...baseTask, mutatedPaths }];
+  return result;
+}
+
+test('appends the files a run modified so a denying final output cannot hide them', () => {
+  const output = formatRepoTaskOutput(makeMutatedResult(
+    'No changes made. No files were edited.',
+    ['src/llm-protocol/llama-cpp-client.ts', 'tests/llama-cpp-client-thinking-budget.test.ts'],
+  ));
+
+  assert.ok(output.includes('No changes made. No files were edited.'));
+  assert.ok(output.includes('Files modified by this run:'));
+  assert.ok(output.includes('- src/llm-protocol/llama-cpp-client.ts'));
+  assert.ok(output.includes('- tests/llama-cpp-client-thinking-budget.test.ts'));
+});
+
+test('omits the modified-files section when a run mutated nothing', () => {
+  const output = formatRepoTaskOutput(makeMutatedResult('Read-only investigation.', []));
+
+  assert.ok(output.includes('Read-only investigation.'));
+  assert.ok(!output.includes('Files modified by this run:'));
+});
+
+test('keeps the scorecard fallback parseable when a run mutated files but produced no output', () => {
+  const output = formatRepoTaskOutput(makeMutatedResult('', ['src/foo.ts']));
+  const parsed = ScorecardSchema.parse(JSON.parse(output));
+
+  assert.deepEqual(parsed.tasks[0]?.mutatedPaths, ['src/foo.ts']);
+});
+
+test('reports each modified file once across tasks', () => {
+  const result = makeMultiTaskResult(['First task output', 'Second task output']);
+  result.scorecard.tasks = result.scorecard.tasks.map((task) => ({ ...task, mutatedPaths: ['src/shared.ts'] }));
+  const output = formatRepoTaskOutput(result);
+
+  assert.equal((output.match(/- src\/shared\.ts/gu) || []).length, 1);
+});
+
 test('filters empty outputs', () => {
   const result = makeMultiTaskResult([
     '',

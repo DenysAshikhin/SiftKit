@@ -141,6 +141,7 @@ export class TaskLoop {
   private readonly slotId: number;
   private readonly ignorePolicy: IgnorePolicy;
   private readonly successfulToolCalls: Array<{ toolName: string; promptResultText: string }> = [];
+  private readonly mutatedPaths = new Set<string>();
   private readonly duplicates = new DuplicateTracker();
   private readonly forcedFinish = new ForcedFinishController();
   private readonly readWindows = new ReadWindowGovernor();
@@ -285,6 +286,7 @@ export class TaskLoop {
       progress: this.progress,
       transcript: this.transcript,
       recentEvidenceKeys: new Set<string>(),
+      mutatedPaths: this.mutatedPaths,
       successfulToolCalls: this.successfulToolCalls,
       commands: this.commands,
       counters: this.counters,
@@ -687,7 +689,8 @@ export class TaskLoop {
 
     return {
       id: this.task.id, question: this.task.question, reason: this.counters.reason, turnsUsed: this.turnsUsed, safetyRejects: this.counters.safetyRejects,
-      invalidResponses: this.counters.invalidResponses, commandFailures: this.counters.commandFailures, commands: this.commands, turnThinking: this.turnThinking, finalOutput: this.finalOutput, passed,
+      invalidResponses: this.counters.invalidResponses, commandFailures: this.counters.commandFailures, commands: this.commands, turnThinking: this.turnThinking, finalOutput: this.finalOutput,
+      mutatedPaths: [...this.mutatedPaths], passed,
       ...(this.chatWebGroundingEnabled ? { groundingStatus: this.chatWebGroundingPolicy.getStatus() } : {}),
       missingSignals: signalCheck.missingSignals,
       ...this.tokenUsage.snapshot(),

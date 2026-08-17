@@ -72,7 +72,7 @@ const REPO_TOOL_ARG_SPECS: Record<string, { requiredText: readonly string[]; req
   ls: { requiredText: [], optional: ['path', 'limit'] },
   write: { requiredText: ['path', 'content'], optional: [] },
   edit: { requiredText: ['path'], requiredArray: ['edits'], optional: [] },
-  run: { requiredText: ['command'], optional: ['timeout'] },
+  run: { requiredText: ['command'], optional: ['timeout', 'timeoutMs'] },
   web_search: { requiredText: ['query'], optional: ['timeFilter'] },
   web_fetch: { requiredText: ['url'], optional: [] },
 };

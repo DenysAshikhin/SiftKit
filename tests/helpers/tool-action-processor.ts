@@ -89,6 +89,7 @@ export function makeProcessor(
     }),
     transcript,
     recentEvidenceKeys: new Set<string>(),
+    mutatedPaths: new Set<string>(),
     successfulToolCalls: [],
     commands,
     counters,

@@ -47,8 +47,11 @@ export type RepoToolExecution =
       totalEndLineExclusive: number;
       hasUnread: boolean;
     };
-    /** Set by mutating tools so the caller can drop stale read windows for that file. */
-    mutatedPathKey?: string;
+    /**
+     * Repository-relative path a mutating tool wrote to, with its on-disk casing preserved. The
+     * caller folds it into a read-window key and reports it as the file the run changed.
+     */
+    mutatedPath?: string;
     outputUnit?: ToolOutputTruncationUnit;
     // Which end survives per-tool truncation. Omitted → 'head'. Command output
     // (`run`) sets 'tail' so the trailing summary/errors survive.
@@ -886,7 +889,7 @@ function executeWrite(args: JsonObject, context: RepoToolContext): RepoToolExecu
     ok: true, requestedCommand: command, command, exitCode: 0,
     output: `Wrote ${Buffer.byteLength(content, 'utf8')} bytes to ${resolvedPath.relativePath}.`,
     toolType: 'write', outputUnit: 'lines',
-    mutatedPathKey: buildReadPathKey(resolvedPath.relativePath),
+    mutatedPath: resolvedPath.relativePath,
   };
 }
 
@@ -955,7 +958,7 @@ function executeEdit(args: JsonObject, context: RepoToolContext): RepoToolExecut
     ok: true, requestedCommand: command, command, exitCode: 0,
     output: `Applied ${resolved.length} edit(s) to ${resolvedPath.relativePath}.`,
     toolType: 'edit', outputUnit: 'lines',
-    mutatedPathKey: buildReadPathKey(resolvedPath.relativePath),
+    mutatedPath: resolvedPath.relativePath,
   };
 }
 

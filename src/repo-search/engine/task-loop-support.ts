@@ -117,6 +117,11 @@ export const TaskResultSchema = z.object({
   commands: z.array(TaskCommandSchema),
   turnThinking: z.record(z.coerce.number(), z.string()),
   finalOutput: z.string(),
+  /**
+   * Repository-relative paths this task actually wrote to. Recorded independently of the final
+   * output so a run that ends without acknowledging its own edits still reports them.
+   */
+  mutatedPaths: z.array(z.string()),
   groundingStatus: ChatGroundingStatusSchema.optional(),
   passed: z.boolean(),
   missingSignals: z.array(z.string()),

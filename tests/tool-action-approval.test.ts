@@ -103,6 +103,58 @@ test('edit approval receives every complete replacement before execution', async
   }
 });
 
+test('a run records the files it mutated even when the finish output denies changing anything', async () => {
+  const tempRoot = createManagedTempDir('siftkit-mutated-paths-');
+  try {
+    const writer = new AutoRespondingWriter(() => ({ kind: 'approve' }));
+    const gate = new ApprovalGateHarness(writer).gate;
+    writer.gate = gate;
+    const result = await runTaskLoop(makeTask('write a file'), makeLoopOptions(tempRoot, [
+      '{"action":"write","path":"out.txt","content":"hello"}',
+      '{"action":"finish","output":"No changes made. No files were edited."}',
+    ], writer, gate));
+
+    assert.equal(result.finalOutput, 'No changes made. No files were edited.');
+    assert.deepEqual(result.mutatedPaths, ['out.txt']);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('a mutated path is recorded in its resolved form, not as the model spelled it', async () => {
+  const tempRoot = createManagedTempDir('siftkit-resolved-paths-');
+  try {
+    const writer = new AutoRespondingWriter(() => ({ kind: 'approve' }));
+    const gate = new ApprovalGateHarness(writer).gate;
+    writer.gate = gate;
+    const result = await runTaskLoop(makeTask('write a file'), makeLoopOptions(tempRoot, [
+      '{"action":"write","path":".\\\\nested\\\\Out.txt","content":"hello"}',
+      '{"action":"finish","output":"done"}',
+    ], writer, gate));
+
+    assert.deepEqual(result.mutatedPaths, ['nested/Out.txt']);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('a denied mutation is not recorded as a mutated path', async () => {
+  const tempRoot = createManagedTempDir('siftkit-denied-paths-');
+  try {
+    const writer = new AutoRespondingWriter(() => ({ kind: 'deny', reason: 'no' }));
+    const gate = new ApprovalGateHarness(writer).gate;
+    writer.gate = gate;
+    const result = await runTaskLoop(makeTask('write a file'), makeLoopOptions(tempRoot, [
+      '{"action":"write","path":"out.txt","content":"hello"}',
+      '{"action":"finish","output":"blocked"}',
+    ], writer, gate));
+
+    assert.deepEqual(result.mutatedPaths, []);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('deny blocks execution, feeds the reason to the model, and the run continues', async () => {
   const tempRoot = createManagedTempDir('siftkit-approval-deny-');
   try {
