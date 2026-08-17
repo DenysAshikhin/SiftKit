@@ -115,6 +115,7 @@ const RUNTIME_STATUS = {
   activePresetLabel: 'Vision',
   backend: 'exl3',
   idleAction: 'unload',
+  freezeSupported: true,
   processState: 'ready',
   modelState: 'ready',
   model: 'vision',

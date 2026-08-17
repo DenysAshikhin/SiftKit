@@ -125,6 +125,7 @@ test('InferenceRuntimeStatusSchema represents process and model residency indepe
     activePresetLabel: 'Coding',
     backend: 'exl3',
     idleAction: 'unload',
+    freezeSupported: true,
     processState: 'ready',
     modelState: 'unloaded',
     model: null,

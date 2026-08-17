@@ -18,6 +18,7 @@ type ResidencyControlState = {
 export function resolveResidencyControlState(
   modelState: InferenceModelState,
   backend: InferenceBackendId,
+  freezeSupported: boolean,
   processState: InferenceProcessState = 'ready',
   requestBusy = false,
 ): ResidencyControlState {
@@ -28,7 +29,7 @@ export function resolveResidencyControlState(
   }
   return {
     load: modelState === 'unloaded' || modelState === 'frozen',
-    freeze: modelState === 'ready' && backend === 'exl3',
+    freeze: modelState === 'ready' && backend === 'exl3' && freezeSupported,
     unload: modelState === 'ready' || modelState === 'frozen',
   };
 }
@@ -46,7 +47,7 @@ export function ModelRuntimeResidencyPanel({ runtime }: ModelRuntimeResidencyPan
   const [actionError, setActionError] = React.useState<string | null>(null);
   const status = runtime.status;
   const controls = status
-    ? resolveResidencyControlState(status.modelState, status.backend, status.processState, actionBusy || runtime.loading || runtime.error !== null)
+    ? resolveResidencyControlState(status.modelState, status.backend, status.freezeSupported, status.processState, actionBusy || runtime.loading || runtime.error !== null)
     : { load: false, freeze: false, unload: false };
 
   async function runAction(action: ModelLifecycleAction): Promise<void> {
@@ -94,6 +95,11 @@ export function ModelRuntimeResidencyPanel({ runtime }: ModelRuntimeResidencyPan
             <button type="button" disabled={!controls.freeze} onClick={() => { void runAction('freeze'); }}>Freeze to RAM</button>
             <button type="button" disabled={!controls.unload} onClick={() => { void runAction('unload'); }}>Unload</button>
           </div>
+          {status.backend === 'exl3' && !status.freezeSupported ? (
+            <p className="hint" role="status">
+              Freeze to RAM is unavailable: the installed exllamav3 has no host-RAM freeze support.
+            </p>
+          ) : null}
           {actionError ? <p className="hint" role="alert">Runtime action failed: {actionError}</p> : null}
         </>
       ) : null}

@@ -14,6 +14,19 @@ const ModelConfigSchema = z.object({
  */
 const DEVICE_RESIDENT_PAST_IDS_MARKER = 'pinned_ids_valid';
 
+/**
+ * Markers for the host-RAM freeze patch carried by the `siftkit` branch of exllamav3. Both halves
+ * are checked because the patch is pure Python and is therefore installable by overlaying files
+ * into site-packages, which can leave `Model.freeze` present without the source it imports.
+ */
+const FROZEN_TENSOR_SOURCE_MARKER = 'class FrozenTensorSource';
+const MODEL_FREEZE_MARKER = 'def freeze';
+
+/** Shown wherever a freeze is refused, so the reason names the missing dependency and the fix. */
+export const FREEZE_UNSUPPORTED_REASON =
+  'The installed exllamav3 has no host-RAM freeze support. Install an exllamav3 built from the '
+  + 'siftkit branch into the EXL3 engine venv, then restart the backend.';
+
 export class Exl3ModelCapabilities {
   hasVisionTower(modelDirectory: string): boolean {
     try {
@@ -28,15 +41,31 @@ export class Exl3ModelCapabilities {
 
   /** `pythonPath` is a venv interpreter at `<venv>\Scripts\python.exe`; exllamav3 lives two levels up. */
   hasDeviceResidentPastIds(pythonPath: string): boolean {
+    return this.readPackageSource(pythonPath, ['generator', 'job.py'])
+      ?.includes(DEVICE_RESIDENT_PAST_IDS_MARKER) ?? false;
+  }
+
+  /**
+   * Whether the installed exllamav3 can freeze weights to host RAM. Without it `Model.freeze()`
+   * raises `AttributeError` inside TabbyAPI, so both the idle `freeze` action and the manual
+   * button would fail at request time rather than being refused up front.
+   */
+  hasFreezeSupport(pythonPath: string): boolean {
+    const frozenTensors = this.readPackageSource(pythonPath, ['loader', 'frozen_tensors.py']);
+    if (!frozenTensors?.includes(FROZEN_TENSOR_SOURCE_MARKER)) return false;
+    return this.readPackageSource(pythonPath, ['model', 'model.py'])
+      ?.includes(MODEL_FREEZE_MARKER) ?? false;
+  }
+
+  private readPackageSource(pythonPath: string, relativePath: string[]): string | null {
     try {
       const venvRoot = win32.dirname(win32.dirname(pythonPath));
-      const jobSource = readFileSync(
-        win32.join(venvRoot, 'Lib', 'site-packages', 'exllamav3', 'generator', 'job.py'),
+      return readFileSync(
+        win32.join(venvRoot, 'Lib', 'site-packages', 'exllamav3', ...relativePath),
         'utf8',
       );
-      return jobSource.includes(DEVICE_RESIDENT_PAST_IDS_MARKER);
     } catch {
-      return false;
+      return null;
     }
   }
 }

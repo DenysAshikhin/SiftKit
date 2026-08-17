@@ -66,6 +66,10 @@ export class ManagedLlamaRuntime extends ManagedInferenceRuntime {
     await this.stopProcess();
   }
 
+  supportsFreeze(): boolean {
+    return false;
+  }
+
   async freezePreset(): Promise<void> {
     throw new Error('llama.cpp cannot freeze model weights; use a full unload instead.');
   }

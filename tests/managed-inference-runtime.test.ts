@@ -30,6 +30,10 @@ class TestRuntime extends ManagedInferenceRuntime {
     this.transitionModelTo('unloaded');
   }
 
+  supportsFreeze(): boolean {
+    return true;
+  }
+
   async freezePreset(): Promise<void> {
     this.transitionModelTo('freezing');
     this.transitionModelTo('frozen');

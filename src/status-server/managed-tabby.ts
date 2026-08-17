@@ -5,7 +5,7 @@ import {
   Exl3PresetAdapter,
   type Exl3LaunchEnvironment,
 } from '../inference-presets/exl3-preset-adapter.js';
-import { Exl3ModelCapabilities } from '../inference-presets/exl3-model-capabilities.js';
+import { Exl3ModelCapabilities, FREEZE_UNSUPPORTED_REASON } from '../inference-presets/exl3-model-capabilities.js';
 import { InferenceRunRecorder } from './inference-run-recorder.js';
 import { ManagedInferenceRuntime } from './managed-inference-runtime.js';
 import type { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
@@ -128,9 +128,14 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     }
   }
 
+  supportsFreeze(): boolean {
+    return this.capabilities.hasFreezeSupport(this.engine.PythonPath);
+  }
+
   async freezePreset(): Promise<void> {
     if (this.loadPromise) await this.loadPromise;
     if (this.getModelState() === 'frozen') return;
+    if (!this.supportsFreeze()) throw new Error(FREEZE_UNSUPPORTED_REASON);
     const preset = this.currentPreset;
     if (!preset) throw new Error('Cannot freeze EXL3 without a validated current preset.');
     this.transitionModelTo('freezing');

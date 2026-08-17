@@ -37,6 +37,38 @@ test('Exl3ModelCapabilities rejects an interpreter outside a venv layout', () =>
   assert.equal(new Exl3ModelCapabilities().hasDeviceResidentPastIds(process.execPath), false);
 });
 
+test('Exl3ModelCapabilities accepts an exllamav3 carrying the host-RAM freeze patch', async () => {
+  await withTempEnv((root) => {
+    const { pythonPath } = writeFakeExl3Venv(root, true);
+    assert.equal(new Exl3ModelCapabilities().hasFreezeSupport(pythonPath), true);
+  });
+});
+
+test('Exl3ModelCapabilities rejects a stock exllamav3 with no freeze patch', async () => {
+  await withTempEnv((root) => {
+    const { pythonPath } = writeFakeExl3Venv(root, true, { frozenTensorSource: false, modelFreeze: false });
+    assert.equal(new Exl3ModelCapabilities().hasFreezeSupport(pythonPath), false);
+  });
+});
+
+test('Exl3ModelCapabilities rejects a freeze overlay missing FrozenTensorSource', async () => {
+  await withTempEnv((root) => {
+    const { pythonPath } = writeFakeExl3Venv(root, true, { frozenTensorSource: false, modelFreeze: true });
+    assert.equal(new Exl3ModelCapabilities().hasFreezeSupport(pythonPath), false);
+  });
+});
+
+test('Exl3ModelCapabilities rejects a freeze overlay missing Model.freeze', async () => {
+  await withTempEnv((root) => {
+    const { pythonPath } = writeFakeExl3Venv(root, true, { frozenTensorSource: true, modelFreeze: false });
+    assert.equal(new Exl3ModelCapabilities().hasFreezeSupport(pythonPath), false);
+  });
+});
+
+test('Exl3ModelCapabilities reports no freeze support for an interpreter outside a venv layout', () => {
+  assert.equal(new Exl3ModelCapabilities().hasFreezeSupport(process.execPath), false);
+});
+
 test('managed Tabby refuses to launch against an exllamav3 predating 8e08af9', async () => {
   await withTempEnv(async (root) => {
     await using portLease = await acquireChildPortLease('exl3-engine-build-preflight');

@@ -59,6 +59,7 @@ export const InferenceRuntimeStatusSchema = z.object({
   activePresetLabel: z.string(),
   backend: InferenceBackendIdSchema,
   idleAction: ModelIdleActionSchema,
+  freezeSupported: z.boolean(),
   processState: InferenceProcessStateSchema,
   modelState: InferenceModelStateSchema,
   model: z.string().nullable(),

@@ -5,6 +5,7 @@ import type {
   ModelLifecycleActionResult,
 } from '@siftkit/contracts';
 import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
+import { FREEZE_UNSUPPORTED_REASON } from '../inference-presets/exl3-model-capabilities.js';
 import type { ManagedInferenceRuntime } from './managed-inference-runtime.js';
 import type { ModelRequestLock } from './server-types.js';
 import type { AppliedModelPresetState } from './applied-model-preset-state.js';
@@ -153,6 +154,11 @@ export class PresetRuntimeCoordinator {
       this.fail('model-freeze', error.message);
       throw error;
     }
+    if (action === 'freeze' && !runtime.supportsFreeze()) {
+      const error = new Error(FREEZE_UNSUPPORTED_REASON);
+      this.fail('model-freeze', error.message);
+      throw error;
+    }
     this.beginResidencyAction();
     try {
       if (action === 'freeze') await runtime.freezePreset();
@@ -208,6 +214,9 @@ export class PresetRuntimeCoordinator {
       return { status: 'unsupported', reason: 'Freeze requires the EXL3 backend.' };
     }
     const runtime = this.getRuntime(preset);
+    if (!runtime.supportsFreeze()) {
+      return { status: 'unsupported', reason: FREEZE_UNSUPPORTED_REASON };
+    }
     if (runtime.getModelState() === 'frozen') return { status: 'noop' };
     if (runtime.getModelState() !== 'ready') {
       return { status: 'busy', reason: `Cannot freeze a model in state '${runtime.getModelState()}'.` };
@@ -257,6 +266,7 @@ export class PresetRuntimeCoordinator {
       activePresetLabel: preset.label,
       backend: preset.Backend,
       idleAction: preset.IdleAction,
+      freezeSupported: runtime.supportsFreeze(),
       processState: runtime.getProcessState(),
       modelState: runtime.getModelState(),
       model: preset.Model,

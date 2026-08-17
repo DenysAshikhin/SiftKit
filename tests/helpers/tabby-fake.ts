@@ -61,7 +61,32 @@ export interface FakeTabbyFiles {
 export interface FakeExl3Venv {
   pythonPath: string;
   jobSourcePath: string;
+  frozenTensorsPath: string;
+  modelSourcePath: string;
 }
+
+/** Selects which halves of the host-RAM freeze patch the fake exllamav3 carries. */
+export interface FakeExl3FreezeSupport {
+  frozenTensorSource: boolean;
+  modelFreeze: boolean;
+}
+
+const FREEZE_MODEL_SOURCE = `
+    def freeze(self) -> FrozenTensorSource:
+        return FrozenTensorSource(self.get_tensors())
+`;
+
+const UNPATCHED_MODEL_SOURCE = `
+    def unload(self):
+        for module in self.modules:
+            module.unload()
+`;
+
+const FROZEN_TENSORS_SOURCE = `
+class FrozenTensorSource:
+    def __init__(self, tensors):
+        self.tensors = dict(tensors)
+`;
 
 const DEVICE_RESIDENT_JOB_SOURCE = `
     def prepare_sampling_past_ids(self):
@@ -81,13 +106,24 @@ const LEGACY_JOB_SOURCE = `
  * `<venv>\\Lib\\site-packages\\exllamav3\\generator\\job.py`. The interpreter is a hard link to
  * the running Node binary so the fake TabbyAPI script is actually launchable from the venv path;
  * `deviceResidentPastIds` selects an exllamav3 with or without turboderp-org/exllamav3@8e08af9.
+ * `freezeSupport` selects each half of the host-RAM freeze patch independently so a partial
+ * overlay — the exact failure mode of hand-copying files into site-packages — is representable.
  */
-export function writeFakeExl3Venv(root: string, deviceResidentPastIds: boolean): FakeExl3Venv {
+export function writeFakeExl3Venv(
+  root: string,
+  deviceResidentPastIds: boolean,
+  freezeSupport: FakeExl3FreezeSupport = { frozenTensorSource: true, modelFreeze: true },
+): FakeExl3Venv {
   const venvRoot = path.join(root, 'venv');
   const scriptsDirectory = path.join(venvRoot, 'Scripts');
-  const generatorDirectory = path.join(venvRoot, 'Lib', 'site-packages', 'exllamav3', 'generator');
+  const packageDirectory = path.join(venvRoot, 'Lib', 'site-packages', 'exllamav3');
+  const generatorDirectory = path.join(packageDirectory, 'generator');
+  const loaderDirectory = path.join(packageDirectory, 'loader');
+  const modelDirectory = path.join(packageDirectory, 'model');
   fs.mkdirSync(scriptsDirectory, { recursive: true });
   fs.mkdirSync(generatorDirectory, { recursive: true });
+  fs.mkdirSync(loaderDirectory, { recursive: true });
+  fs.mkdirSync(modelDirectory, { recursive: true });
   const pythonPath = path.join(scriptsDirectory, path.basename(process.execPath));
   if (!fs.existsSync(pythonPath)) {
     try {
@@ -98,7 +134,15 @@ export function writeFakeExl3Venv(root: string, deviceResidentPastIds: boolean):
   }
   const jobSourcePath = path.join(generatorDirectory, 'job.py');
   fs.writeFileSync(jobSourcePath, deviceResidentPastIds ? DEVICE_RESIDENT_JOB_SOURCE : LEGACY_JOB_SOURCE, 'utf8');
-  return { pythonPath, jobSourcePath };
+  const frozenTensorsPath = path.join(loaderDirectory, 'frozen_tensors.py');
+  if (freezeSupport.frozenTensorSource) {
+    fs.writeFileSync(frozenTensorsPath, FROZEN_TENSORS_SOURCE, 'utf8');
+  } else {
+    fs.rmSync(frozenTensorsPath, { force: true });
+  }
+  const modelSourcePath = path.join(modelDirectory, 'model.py');
+  fs.writeFileSync(modelSourcePath, freezeSupport.modelFreeze ? FREEZE_MODEL_SOURCE : UNPATCHED_MODEL_SOURCE, 'utf8');
+  return { pythonPath, jobSourcePath, frozenTensorsPath, modelSourcePath };
 }
 
 /**

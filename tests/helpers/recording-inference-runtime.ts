@@ -6,6 +6,9 @@ import { ManagedInferenceRuntime } from '../../src/status-server/managed-inferen
  * coordinator-driven tests can assert the exact stop/start/load ordering.
  */
 export class RecordingInferenceRuntime extends ManagedInferenceRuntime {
+  /** Mutable so a test can model a venv whose exllamav3 lacks the host-RAM freeze patch. */
+  freezeSupported = true;
+
   constructor(
     id: InferenceBackendId,
     private readonly events: string[],
@@ -40,6 +43,10 @@ export class RecordingInferenceRuntime extends ManagedInferenceRuntime {
     this.events.push(`unload:${this.id}`);
     if (this.getModelState() === 'failed') throw new Error(`nothing loaded: ${this.id}`);
     this.transitionModelTo('unloaded');
+  }
+
+  supportsFreeze(): boolean {
+    return this.freezeSupported;
   }
 
   async freezePreset(): Promise<void> {

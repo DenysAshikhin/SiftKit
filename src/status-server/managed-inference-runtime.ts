@@ -18,6 +18,13 @@ export abstract class ManagedInferenceRuntime {
   abstract freezePreset(): Promise<void>;
   abstract restorePreset(): Promise<void>;
 
+  /**
+   * Whether this backend can currently freeze weights to host RAM. Reported rather than assumed
+   * from the backend id: EXL3 only gains the capability once the installed exllamav3 carries the
+   * freeze patch, which is a property of the venv rather than of the preset.
+   */
+  abstract supportsFreeze(): boolean;
+
   getProcessState(): InferenceProcessState {
     return this.processState;
   }

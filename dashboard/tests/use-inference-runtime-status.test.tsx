@@ -11,6 +11,7 @@ const STATUS = {
   activePresetLabel: 'Active runtime',
   backend: 'llama',
   idleAction: 'unload',
+  freezeSupported: true,
   processState: 'ready',
   modelState: 'ready',
   model: 'active-model',

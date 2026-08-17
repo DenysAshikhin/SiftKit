@@ -24,6 +24,7 @@ import type { ModelRequestLock, ServerContext } from '../src/status-server/serve
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { RecordingInferenceRuntime } from './helpers/recording-inference-runtime.js';
 import { createTestServerContext } from './helpers/server-context-fixture.js';
+import { writeFakeExl3Venv } from './helpers/tabby-fake.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { acquireChildPortLease } from './helpers/test-endpoints.js';
 
@@ -683,6 +684,49 @@ test('manual freeze refuses a llama preset as unsupported', async () => {
   }
 });
 
+test('manual freeze refuses when the installed exllamav3 has no freeze patch', async () => {
+  const fixture = createCoordinatorFixture();
+  try {
+    await fixture.coordinator.ensureActivePresetReady();
+    fixture.exl3Runtime.freezeSupported = false;
+    fixture.events.length = 0;
+    const result = await fixture.coordinator.freezeActivePresetNow();
+    assert.equal(result.status, 'unsupported');
+    assert.match(result.reason ?? '', /exllamav3/u);
+    assert.deepEqual(fixture.events, []);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('idle freeze fails loudly when the installed exllamav3 has no freeze patch', async () => {
+  const fixture = createCoordinatorFixture({ idleAction: 'freeze' });
+  try {
+    await fixture.coordinator.ensureActivePresetReady();
+    fixture.exl3Runtime.freezeSupported = false;
+    fixture.events.length = 0;
+    await assert.rejects(
+      fixture.coordinator.applyIdleResidencyAction(fixture.preset.id, 'freeze'),
+      /exllamav3/u,
+    );
+    assert.deepEqual(fixture.events, []);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('runtime status reports whether freeze is installable on the active backend', async () => {
+  const fixture = createCoordinatorFixture();
+  try {
+    await fixture.coordinator.ensureActivePresetReady();
+    assert.equal(fixture.coordinator.getStatus().freezeSupported, true);
+    fixture.exl3Runtime.freezeSupported = false;
+    assert.equal(fixture.coordinator.getStatus().freezeSupported, false);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
 test('manual unload is a no-op when the model is already unloaded', async () => {
   const fixture = createCoordinatorFixture();
   try {
@@ -913,7 +957,7 @@ test('Tabby freeze uses the startup timeout for the host transfer', async () => 
   const runtime = new ManagedTabbyRuntime({
     Managed: false,
     WorkingDirectory: root,
-    PythonPath: process.execPath,
+    PythonPath: writeFakeExl3Venv(root, true).pythonPath,
     Entrypoint: 'unused',
     ModelRoot: root,
     AdminApiKey: '',

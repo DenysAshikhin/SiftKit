@@ -76,6 +76,7 @@ const ACTIVE_RUNTIME_STATUS = {
   activePresetLabel: MANAGED_PRESET.label,
   backend: 'exl3',
   idleAction: 'freeze',
+  freezeSupported: true,
   processState: 'ready',
   modelState: 'ready',
   model: 'active-model',
