@@ -1,5 +1,6 @@
 import type { SiftConfig } from '../../config/index.js';
-import { countTokensWithFallbackDetailed, estimateTokenCount } from '../prompt-budget.js';
+import { estimateTokenCount } from '../../lib/token-estimate.js';
+import { countTokensWithFallbackDetailed } from '../prompt-budget.js';
 
 export type ModelUsageResponse = {
   text?: string;

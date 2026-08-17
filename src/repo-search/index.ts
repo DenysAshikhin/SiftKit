@@ -25,8 +25,8 @@ export {
   type FinishAction,
   type ChatMessage,
 } from './planner-protocol.js';
+export { estimateTokenCount } from '../lib/token-estimate.js';
 export {
-  estimateTokenCount,
   countTokensWithFallback,
   preflightPlannerPromptBudget,
   compactPlannerMessagesOnce,

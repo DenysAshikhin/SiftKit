@@ -15,7 +15,7 @@ import {
   runRepoSearch,
 } from '../src/repo-search/engine.js';
 import { getDynamicMaxOutputTokens } from '../src/lib/dynamic-output-cap.js';
-import { estimateTokenCount } from '../src/repo-search/prompt-budget.js';
+import { estimateTokenCount } from '../src/lib/token-estimate.js';
 import { REJECTED_ARGS_ELISION_LIMIT } from '../src/repo-search/engine/repo-tools.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';

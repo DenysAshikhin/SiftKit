@@ -16,6 +16,25 @@ import { generateLlamaCppResponse } from '../src/providers/llama-cpp.js';
 import { executePlannerTool } from '../src/summary/planner/tools.js';
 import type { PlannerToolDefinition, PlannerToolName } from '../src/summary/types.js';
 import { asObject } from './helpers/dashboard-http.js';
+import { estimateTokenCount } from '../src/lib/token-estimate.js';
+
+const TOOL_STEP_ACTION_TEXT = JSON.stringify({
+  action: 'json_filter',
+  filters: [
+    { path: 'from.worldX', op: 'gte', value: 3200 },
+    { path: 'from.worldX', op: 'lte', value: 3215 },
+  ],
+  select: ['id', 'label'],
+  limit: 20,
+});
+const FINISH_ACTION_TEXT = JSON.stringify({
+  action: 'finish',
+  classification: 'summary',
+  raw_review_required: false,
+  output: 'final planner answer',
+});
+/** Local count of both planner prompts for the fixed oversized-transitions fixture. */
+const LOCAL_PLANNER_PROMPT_TOKENS = 4687;
 
 function getToolDefinition(
   definitions: readonly PlannerToolDefinition[],
@@ -466,12 +485,7 @@ test('planner mode executes multi-tool batches sequentially before finishing', a
               index: 0,
               message: {
                 role: 'assistant',
-                content: JSON.stringify({
-                  action: 'finish',
-                  classification: 'summary',
-                  raw_review_required: false,
-                  output: 'final planner answer',
-                }),
+                content: FINISH_ACTION_TEXT,
               },
             },
           ],
@@ -510,9 +524,17 @@ test('planner token accounting treats tool-step completion tokens as thinking an
       assert.equal(result.Classification, 'summary');
       assert.equal(result.Summary, 'final planner answer');
       assert.equal(server.state.chatRequests.length, 2);
-      assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 36);
-      assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 21);
-      assert.equal(Number(server.state.metrics.toolTokensTotal || 0) - baselineToolTokens, 15);
+      // Every count is local: the provider's 17/15 and 19/21 are ignored. The
+      // prompt total is the local count of both planner prompts.
+      assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, LOCAL_PLANNER_PROMPT_TOKENS);
+      assert.equal(
+        server.state.metrics.outputTokensTotal - baselineOutputTokens,
+        estimateTokenCount(config, FINISH_ACTION_TEXT),
+      );
+      assert.equal(
+        Number(server.state.metrics.toolTokensTotal || 0) - baselineToolTokens,
+        estimateTokenCount(config, TOOL_STEP_ACTION_TEXT),
+      );
       assert.equal(server.state.metrics.thinkingTokensTotal - baselineThinkingTokens, 0);
     }, {
       chatResponse(promptText, parsed, requestIndex) {
@@ -525,15 +547,7 @@ test('planner token accounting treats tool-step completion tokens as thinking an
                 index: 0,
                 message: {
                   role: 'assistant',
-                  content: JSON.stringify({
-                    action: 'json_filter',
-                    filters: [
-                      { path: 'from.worldX', op: 'gte', value: 3200 },
-                      { path: 'from.worldX', op: 'lte', value: 3215 },
-                    ],
-                    select: ['id', 'label'],
-                    limit: 20,
-                  }),
+                  content: TOOL_STEP_ACTION_TEXT,
                 },
               },
             ],
@@ -553,12 +567,7 @@ test('planner token accounting treats tool-step completion tokens as thinking an
               index: 0,
               message: {
                 role: 'assistant',
-                content: JSON.stringify({
-                  action: 'finish',
-                  classification: 'summary',
-                  raw_review_required: false,
-                  output: 'final planner answer',
-                }),
+                content: FINISH_ACTION_TEXT,
               },
             },
           ],

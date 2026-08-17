@@ -1,7 +1,7 @@
 import type { SiftConfig } from '../config/index.js';
+import { estimateTokenCount } from '../lib/token-estimate.js';
 import {
   countTokensWithFallbackDetailed,
-  estimateTokenCount,
   type TokenCountSource,
   type TokenCountWithFallbackResult,
 } from './prompt-budget.js';

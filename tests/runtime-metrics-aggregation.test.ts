@@ -14,6 +14,13 @@ import {
 } from './_runtime-helpers.js';
 import { asObject } from './helpers/dashboard-http.js';
 
+// The summary prompt and the stub's answer are fixed fixtures, so their local
+// (characters-per-token) counts are constants for these end-to-end assertions.
+const LOCAL_PROMPT_TOKENS = 2267;
+const LOCAL_ANSWER_TOKENS = 40;
+const STUB_REASONING_TEXT = 'weighing the options before answering';
+const LOCAL_REASONING_TOKENS = 15;
+
 test('summary aggregation accumulates provider usage and duration in status metrics', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
@@ -38,8 +45,10 @@ test('summary aggregation accumulates provider usage and duration in status metr
       await waitForAsyncExpectation(async () => {
         assert.ok(server.state.metrics.inputCharactersTotal > baselineInputCharacters);
         assert.ok(server.state.metrics.outputCharactersTotal > baselineOutputCharacters);
-        assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 123);
-        assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 45);
+        // Locally counted from the fixed 5000-character summary prompt and the
+        // stub's answer; the provider's 123/45 no longer reach the metrics.
+        assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, LOCAL_PROMPT_TOKENS);
+        assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, LOCAL_ANSWER_TOKENS);
         assert.equal(server.state.metrics.thinkingTokensTotal - baselineThinkingTokens, 0);
         assert.ok(server.state.metrics.completedRequestCount - baselineCompletedRequestCount >= 1);
         assert.ok(server.state.metrics.requestDurationMsTotal >= baselineRequestDurationMs);
@@ -58,7 +67,7 @@ test('summary aggregation accumulates provider usage and duration in status metr
   });
 });
 
-test('summary aggregation records duration without tokens when provider usage is absent', async () => {
+test('summary aggregation records local token counts when provider usage is absent', async () => {
   await withTempEnv(async () => {
     await withStubServer(async (server) => {
       const baselineInputCharacters = server.state.metrics.inputCharactersTotal;
@@ -82,8 +91,9 @@ test('summary aggregation records duration without tokens when provider usage is
       await waitForAsyncExpectation(async () => {
         assert.ok(server.state.metrics.inputCharactersTotal > baselineInputCharacters);
         assert.ok(server.state.metrics.outputCharactersTotal > baselineOutputCharacters);
-        assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 0);
-        assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 0);
+        // Local counting does not depend on the provider reporting usage at all.
+        assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, LOCAL_PROMPT_TOKENS);
+        assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, LOCAL_ANSWER_TOKENS);
         assert.equal(server.state.metrics.thinkingTokensTotal - baselineThinkingTokens, 0);
         assert.ok(server.state.metrics.completedRequestCount - baselineCompletedRequestCount >= 1);
         assert.ok(server.state.metrics.requestDurationMsTotal >= baselineRequestDurationMs);
@@ -123,14 +133,17 @@ test('summary aggregation records thinking tokens independently from output metr
 
       assert.equal(result.WasSummarized, true);
       await waitForAsyncExpectation(async () => {
-        assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 123);
-        assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 33);
-        assert.equal(server.state.metrics.thinkingTokensTotal - baselineThinkingTokens, 12);
+        // Thinking is counted from the reasoning text, never carved out of the
+        // provider's completion_tokens_details.
+        assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, LOCAL_PROMPT_TOKENS);
+        assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, LOCAL_ANSWER_TOKENS);
+        assert.equal(server.state.metrics.thinkingTokensTotal - baselineThinkingTokens, LOCAL_REASONING_TOKENS);
         assert.ok(server.state.metrics.completedRequestCount - baselineCompletedRequestCount >= 1);
         assert.ok(server.state.metrics.requestDurationMsTotal >= baselineRequestDurationMs);
       }, 2000);
     }, {
       reasoningTokens: 12,
+      assistantReasoningContent: () => STUB_REASONING_TEXT,
       metrics: {
         inputCharactersTotal: 3_461_904,
         inputTokensTotal: 1_865_267,
@@ -161,8 +174,10 @@ test('summary aggregation counts only processed prompt tokens when cache metadat
 
       assert.equal(result.WasSummarized, true);
       await waitForAsyncExpectation(async () => {
+        // Processed prompt tokens still come from the provider's cache/eval split;
+        // the output count is local.
         assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, 23);
-        assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, 45);
+        assert.equal(server.state.metrics.outputTokensTotal - baselineOutputTokens, LOCAL_ANSWER_TOKENS);
       }, 2000);
       const completionPost = server.state.statusPosts.slice().reverse().find(
         (post) => post.running === false
@@ -176,7 +191,7 @@ test('summary aggregation counts only processed prompt tokens when cache metadat
       assert.equal(completionPost.promptCacheTokens, undefined);
       assert.equal(completionPost.promptEvalTokens, undefined);
       assert.equal(deferredMetadata.inputTokens, 23);
-      assert.equal(deferredMetadata.outputTokens, 45);
+      assert.equal(deferredMetadata.outputTokens, LOCAL_ANSWER_TOKENS);
       assert.equal(deferredMetadata.promptCacheTokens, 100);
       assert.equal(deferredMetadata.promptEvalTokens, 23);
     }, {

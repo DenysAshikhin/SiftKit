@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { TemporaryTimingRecorder } from '../src/lib/temporary-timing-recorder.js';
 import { ToolResultBudgeter } from '../src/repo-search/engine/tool-result-budgeter.js';
-import { estimateTokenCount } from '../src/repo-search/prompt-budget.js';
+import { estimateTokenCount } from '../src/lib/token-estimate.js';
 
 function makeBudgeter(): ToolResultBudgeter {
   // config undefined + useEstimatedTokensOnly -> pure char-based estimates, no HTTP.

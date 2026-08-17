@@ -93,7 +93,6 @@ test('early-stopped streaming planner turn records real predicted_ms from per-ch
   try {
     const response = await runStreamingPlanner(fake.baseUrl);
     assert.equal(response.generationDurationMs, PREDICTED_MS);
-    assert.equal(response.completionTokens, PREDICTED_N);
   } finally {
     await fake.close();
   }

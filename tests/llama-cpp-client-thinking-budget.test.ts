@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { LlamaCppClient } from '../src/llm-protocol/llama-cpp-client.js';
 import { requestRepoSearchPlannerProtocolAction } from '../src/repo-search/planner-protocol.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { asObject } from './helpers/dashboard-http.js';
@@ -35,6 +36,12 @@ function startFakeStreamServer(): Promise<FakeStreamServer> {
         const writeDelta = (delta: JsonObject): void => {
           res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta }], object: 'chat.completion.chunk' })}\n\n`);
         };
+        // Prompt usage rides the first frame of every request, so the first
+        // request's stats survive the mid-stream budget abort.
+        const promptUsage = bodies.length === 1
+          ? { prompt_tokens: 100, prompt_tokens_details: { cached_tokens: 60 } }
+          : { prompt_tokens: 110, prompt_tokens_details: { cached_tokens: 100 } };
+        res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {} }], object: 'chat.completion.chunk', usage: promptUsage })}\n\n`);
         if (bodies.length === 1) {
           // 10 chunks x 8 chars = 80 reasoning chars (> 8 tokens x 4 chars/token).
           for (let index = 0; index < 10; index += 1) {
@@ -107,6 +114,31 @@ test('exl3 streaming enforces ReasoningBudget with a response_prefix continuatio
     assert.match(response.text, /"action"\s*:\s*"finish"/u);
     assert.ok(response.thinkingText.includes('reason00'));
     assert.ok(response.thinkingText.includes('Answer now.'));
+    assert.equal(response.thinkingBudgetExhausted, true);
+
+    // Both requests' prefill work is billed: 60 + 100 cached, 40 + 10 evaluated.
+    assert.equal(response.promptCacheTokens, 160);
+    assert.equal(response.promptEvalTokens, 50);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('exl3 budget enforcement applies when reasoning comes from the preset default', async () => {
+  const fake = await startFakeStreamServer();
+  try {
+    const response = await new LlamaCppClient().chat({
+      config: budgetedConfig('exl3'),
+      baseUrl: fake.baseUrl,
+      model: 'mock',
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [],
+      maxTokens: 64,
+      stream: true,
+      allowedToolNames: [],
+      retryMaxWaitMs: 0,
+    });
+    assert.equal(fake.requestCount(), 2);
     assert.equal(response.thinkingBudgetExhausted, true);
   } finally {
     await fake.close();

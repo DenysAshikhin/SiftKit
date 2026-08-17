@@ -5,7 +5,7 @@ import {
   SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
   type SiftConfig,
 } from '../config/index.js';
-import { estimatePromptTokenCountFromCharacters } from '../lib/dynamic-output-cap.js';
+import { estimateTokenCountFromCharacters } from '../lib/token-estimate.js';
 import { buildPresetRequestDefaults } from '../inference-presets/preset-compatibility.js';
 import { httpClient, HttpResponseError, LlamaHttpError, type FullJsonResponse } from '../lib/http-client.js';
 import { parseJsonObjectText } from '../lib/json.js';
@@ -19,6 +19,7 @@ import {
   retryProviderRequest,
 } from '../lib/provider-helpers.js';
 import { getNormalizedCompletionTokens } from '../lib/telemetry-metrics.js';
+import { buildClosedThinkBlock } from './think-markers.js';
 import { z } from '../lib/zod.js';
 import { JsonValueSchema, JsonObjectSchema, type OptionalJsonValue } from '../lib/json-types.js';
 import type {
@@ -174,10 +175,15 @@ export type LlamaCppChatOptions = {
   abortSignal?: AbortSignal;
   onThinkingDelta?: (accumulatedThinking: string) => void;
   onContentDelta?: (accumulatedContent: string) => void;
-  /** Rendered after the generation prompt (TabbyAPI `response_prefix`); set internally by the budget continuation. */
-  responsePrefix?: string;
-  /** Set to false on the budget continuation so an over-budget continuation cannot recurse. */
-  enforceThinkingBudget?: boolean;
+};
+
+/**
+ * Internal state of a thinking-budget continuation request: carries the closed
+ * think block rendered after the generation prompt (TabbyAPI `response_prefix`)
+ * and, by its presence, disables the budget gate so a continuation cannot recurse.
+ */
+type ThinkingBudgetContinuation = {
+  responsePrefix: string;
 };
 
 /** Early-stop reason set when streamed thinking exceeds the preset ReasoningBudget on exl3. */
@@ -328,10 +334,8 @@ export class LlamaCppClient {
     const activePreset = getActiveModelPreset(options.config);
     const budgetMessage = activePreset.ReasoningBudgetMessage || SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE;
     const exhaustedThinking = `${streamed.reasoningText.trimEnd()}\n\n${budgetMessage}`;
-    const continuation = await this.streamChatAtBaseUrl(baseUrl, {
-      ...options,
-      enforceThinkingBudget: false,
-      responsePrefix: `<think>\n${exhaustedThinking}\n</think>\n\n`,
+    const continuation = await this.streamChatAtBaseUrl(baseUrl, options, {
+      responsePrefix: buildClosedThinkBlock(exhaustedThinking),
     });
     return {
       ...continuation,
@@ -339,16 +343,25 @@ export class LlamaCppClient {
       thinkingBudgetExhausted: true,
       usage: {
         ...continuation.usage,
-        generationDurationMs: sumFiniteDurations(streamed.usage.generationDurationMs, continuation.usage.generationDurationMs),
+        promptCacheTokens: sumFinite(streamed.usage.promptCacheTokens, continuation.usage.promptCacheTokens),
+        promptEvalTokens: sumFinite(streamed.usage.promptEvalTokens, continuation.usage.promptEvalTokens),
+        promptEvalDurationMs: sumFinite(streamed.usage.promptEvalDurationMs, continuation.usage.promptEvalDurationMs),
+        generationDurationMs: sumFinite(streamed.usage.generationDurationMs, continuation.usage.generationDurationMs),
+        speculativeAcceptedTokens: sumFinite(streamed.usage.speculativeAcceptedTokens, continuation.usage.speculativeAcceptedTokens),
+        speculativeGeneratedTokens: sumFinite(streamed.usage.speculativeGeneratedTokens, continuation.usage.speculativeGeneratedTokens),
       },
     };
   }
 
-  private buildChatRequest(options: LlamaCppChatOptions): LlamaCppChatRequest {
+  private resolveReasoning(options: LlamaCppChatOptions): 'on' | 'off' | undefined {
+    return options.reasoningOverride
+      ?? buildPresetRequestDefaults(getActiveModelPreset(options.config)).reasoning;
+  }
+
+  private buildChatRequest(options: LlamaCppChatOptions, responsePrefix?: string): LlamaCppChatRequest {
     const activePreset = getActiveModelPreset(options.config);
     const defaults = buildPresetRequestDefaults(activePreset);
-    const resolvedReasoning = options.reasoningOverride
-      ?? defaults.reasoning;
+    const resolvedReasoning = this.resolveReasoning(options);
     const reasoningContentEnabled = resolvedReasoning === 'on' && activePreset.ReasoningContent;
     const preserveThinkingEnabled = reasoningContentEnabled && activePreset.PreserveThinking;
     return {
@@ -361,7 +374,7 @@ export class LlamaCppClient {
         maxTokens: options.maxTokens,
         stream: options.stream,
         ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}),
-        ...(options.responsePrefix ? { responsePrefix: options.responsePrefix } : {}),
+        ...(responsePrefix ? { responsePrefix } : {}),
         thinking: {
           ...(resolvedReasoning === undefined ? {} : { enabled: resolvedReasoning === 'on' }),
           reasoningContent: reasoningContentEnabled,
@@ -375,10 +388,14 @@ export class LlamaCppClient {
     };
   }
 
-  private async streamChatAtBaseUrl(baseUrl: string, options: LlamaCppChatOptions): Promise<NormalizedLlamaCppChatResponse> {
+  private async streamChatAtBaseUrl(
+    baseUrl: string,
+    options: LlamaCppChatOptions,
+    continuation?: ThinkingBudgetContinuation,
+  ): Promise<NormalizedLlamaCppChatResponse> {
     const startedAt = Date.now();
     const url = `${baseUrl.replace(/\/$/u, '')}/v1/chat/completions`;
-    const body = JSON.stringify(this.buildChatRequest(options));
+    const body = JSON.stringify(this.buildChatRequest(options, continuation?.responsePrefix));
     const parser = new LlamaCppToolCallParser(options.allowedToolNames);
     const toolChunks = new Map<number, { id: string; name: string; argumentsText: string }>();
     let contentText = '';
@@ -408,9 +425,9 @@ export class LlamaCppClient {
     };
     const reasoningActionScanner = new FirstJsonObjectScanner();
     const budgetPreset = getActiveModelPreset(options.config);
-    const thinkingBudgetTokens = options.enforceThinkingBudget !== false
+    const thinkingBudgetTokens = continuation === undefined
       && getActiveInferenceBackend(options.config) === 'exl3'
-      && options.reasoningOverride === 'on'
+      && this.resolveReasoning(options) === 'on'
       && Number.isFinite(budgetPreset.ReasoningBudget)
       && budgetPreset.ReasoningBudget > 0
       ? budgetPreset.ReasoningBudget
@@ -464,7 +481,7 @@ export class LlamaCppClient {
               break streamFrames;
             }
             if (thinkingBudgetTokens !== null
-              && estimatePromptTokenCountFromCharacters(options.config, reasoningText.length) > thinkingBudgetTokens) {
+              && estimateTokenCountFromCharacters(options.config, reasoningText.length) > thinkingBudgetTokens) {
               earlyStopReason = THINKING_BUDGET_EARLY_STOP_REASON;
               break streamFrames;
             }
@@ -582,7 +599,7 @@ export class LlamaCppClient {
   }
 }
 
-function sumFiniteDurations(left: number | null | undefined, right: number | null | undefined): number | null {
+function sumFinite(left: number | null | undefined, right: number | null | undefined): number | null {
   const leftValue = Number.isFinite(left) ? Number(left) : null;
   const rightValue = Number.isFinite(right) ? Number(right) : null;
   if (leftValue === null) return rightValue;

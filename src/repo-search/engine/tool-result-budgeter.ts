@@ -1,7 +1,8 @@
 import { colorize } from '../../lib/text-format.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
 import type { SiftConfig } from '../../config/index.js';
-import { countTokensWithFallbackDetailed, estimateTokenCount } from '../prompt-budget.js';
+import { estimateTokenCount } from '../../lib/token-estimate.js';
+import { countTokensWithFallbackDetailed } from '../prompt-budget.js';
 import { ToolOutputFitter, type ToolOutputTruncationUnit, type ToolOutputKeep } from '../../tool-output-fit.js';
 
 const ANSI_RED_CODE = 31;

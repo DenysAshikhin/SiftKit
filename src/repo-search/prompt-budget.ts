@@ -1,8 +1,8 @@
 import {
   getActiveInferenceBackend,
-  getEffectiveInputCharactersPerContextToken,
   type SiftConfig,
 } from '../config/index.js';
+import { estimateTokenCount } from '../lib/token-estimate.js';
 import type { InferenceBackendId } from '../config/types.js';
 import {
   DEFAULT_LLAMA_CPP_TOKENIZE_RETRY_MAX_WAIT_MS,
@@ -15,17 +15,6 @@ import type { ChatMessage } from './planner-protocol.js';
 import { renderTaskTranscript } from './planner-protocol.js';
 import { SIFT_IMAGE_TOKEN_ESTIMATE } from '../config/constants.js';
 import { countContentImages, extractContentText } from '../llm-protocol/image-attachments.js';
-
-// ---------------------------------------------------------------------------
-// Token estimation
-// ---------------------------------------------------------------------------
-
-export function estimateTokenCount(config: SiftConfig | undefined, text: string): number {
-  const charsPerToken = config
-    ? Math.max(Number(getEffectiveInputCharactersPerContextToken(config) || 4), 0.1)
-    : 4;
-  return Math.max(1, Math.ceil(String(text || '').length / charsPerToken));
-}
 
 /**
  * Where a token count came from: the engine that tokenized it, or the local

@@ -1,4 +1,4 @@
-import { getEffectiveInputCharactersPerContextToken, type SiftConfig } from '../config/index.js';
+import { type SiftConfig } from '../config/index.js';
 import { computeResponseReserveTokens, getPresetMaxTokens } from './response-reserve.js';
 
 /**
@@ -7,16 +7,6 @@ import { computeResponseReserveTokens, getPresetMaxTokens } from './response-res
  */
 export function clampToPresetMaxTokens(config: SiftConfig, outputTokens: number): number {
   return Math.min(outputTokens, getPresetMaxTokens(config));
-}
-
-export function estimatePromptTokenCountFromCharacters(
-  config: SiftConfig | undefined,
-  promptCharacters: number,
-): number {
-  const charsPerToken = config
-    ? Math.max(Number(getEffectiveInputCharactersPerContextToken(config) || 4), 0.1)
-    : 4;
-  return Math.max(1, Math.ceil(Math.max(0, Number(promptCharacters) || 0) / charsPerToken));
 }
 
 /**

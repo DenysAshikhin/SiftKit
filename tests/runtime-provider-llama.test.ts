@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { getLlamaCppProviderStatus, generateLlamaCppChatResponse } from '../src/providers/llama-cpp.js';
+import { estimateTokenCount } from '../src/lib/token-estimate.js';
 import { z } from '../src/lib/zod.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { asObject } from './helpers/dashboard-http.js';
@@ -26,6 +27,8 @@ const ObservedBudgetRowSchema = z.object({
   observed_tokens_total: z.number().optional(),
   last_known_chars_per_token: z.number().optional(),
 });
+
+const STUB_REASONING_TEXT = 'weighing the options before answering';
 
 function buildStubLlamaConfig(port: number): SiftConfig {
   return mockConfig({
@@ -95,11 +98,13 @@ test('llama.cpp provider lists models and parses chat completions from the stub 
 
       assert.deepEqual(models, [config.Server.ModelPresets.Presets[0].Model]);
       assert.match(summary.text, /^summary:/u);
+      // The stub reports prompt_tokens 123 / completion_tokens 45; local counting
+      // replaces both (the stub tokenizer is down, so the estimator answers).
       assert.deepEqual(summary.usage, {
-        promptTokens: 123,
-        completionTokens: 45,
+        promptTokens: estimateTokenCount(config, 'test prompt body'),
+        completionTokens: estimateTokenCount(config, summary.text),
         totalTokens: 168,
-        outputTokens: 45,
+        outputTokens: estimateTokenCount(config, summary.text),
         thinkingTokens: null,
         promptCacheTokens: null,
         promptEvalTokens: null,
@@ -132,7 +137,7 @@ test('llama.cpp provider preserves image_url parts in the protocol payload', asy
   });
 });
 
-test('llama.cpp provider returns null usage when the server omits token usage', async () => {
+test('llama.cpp provider still reports local counts when the server omits token usage', async () => {
   await withTempEnv(async () => {
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
@@ -143,8 +148,13 @@ test('llama.cpp provider returns null usage when the server omits token usage', 
         timeoutSeconds: 5,
       });
 
-      assert.equal(summary.usage, null);
       assert.match(summary.text, /^summary:/u);
+      assert.equal(summary.usage?.promptTokens, estimateTokenCount(config, 'test prompt body'));
+      assert.equal(summary.usage?.completionTokens, estimateTokenCount(config, summary.text));
+      // Only the provider-owned fields stay empty when the server reports no usage.
+      assert.equal(summary.usage?.totalTokens, null);
+      assert.equal(summary.usage?.promptCacheTokens, null);
+      assert.equal(summary.usage?.promptEvalTokens, null);
     }, {
       omitUsage: true,
     });
@@ -162,12 +172,14 @@ test('llama.cpp provider records thinking tokens separately from completion usag
         timeoutSeconds: 5,
       });
 
+      // The stub reports reasoning_tokens 12; the thinking count comes from the
+      // reasoning text itself, and never from the completion count.
       assert.deepEqual(summary.usage, {
-        promptTokens: 123,
-        completionTokens: 33,
+        promptTokens: estimateTokenCount(config, 'test prompt body'),
+        completionTokens: estimateTokenCount(config, summary.text),
         totalTokens: 168,
-        outputTokens: 45,
-        thinkingTokens: 12,
+        outputTokens: estimateTokenCount(config, summary.text),
+        thinkingTokens: estimateTokenCount(config, STUB_REASONING_TEXT),
         promptCacheTokens: null,
         promptEvalTokens: null,
         promptEvalDurationMs: null,
@@ -175,9 +187,11 @@ test('llama.cpp provider records thinking tokens separately from completion usag
         speculativeAcceptedTokens: null,
         speculativeGeneratedTokens: null,
       });
+      assert.equal(summary.reasoningText, STUB_REASONING_TEXT);
       assert.match(summary.text, /^summary:/u);
     }, {
       reasoningTokens: 12,
+      assistantReasoningContent: () => STUB_REASONING_TEXT,
     });
   });
 });
@@ -472,12 +486,15 @@ test('llama.cpp chat responses update observed-budget weighted totals from exact
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
       const prompt = 'B'.repeat(500);
-      await generateLlamaCppResponse({
+      const summary = await generateLlamaCppResponse({
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt,
         timeoutSeconds: 5,
       });
+      // Local counting tokenizes the prompt and the answer, and only those exact
+      // counts reach the observed budget.
+      const expectedChars = prompt.length + summary.text.length;
 
       const database = new Database(path.join(tempRoot, '.siftkit', 'runtime.sqlite'));
       try {
@@ -487,12 +504,14 @@ test('llama.cpp chat responses update observed-budget weighted totals from exact
           WHERE id = 1
         `).get());
         assert.ok(row);
-        assert.equal(row.observed_chars_total, 500);
-        assert.equal(row.observed_tokens_total, 123);
-        assert.equal(row.last_known_chars_per_token, 500 / 123);
+        assert.equal(row.observed_chars_total, expectedChars);
+        assert.equal(row.observed_tokens_total, expectedChars);
+        assert.equal(row.last_known_chars_per_token, 1);
       } finally {
         database.close();
       }
+    }, {
+      tokenizeCharsPerToken: 1,
     });
   });
 });
@@ -533,12 +552,14 @@ test('exact char-token observations accumulate as a weighted average', async () 
     await withStubServer(async () => {
       const config = await loadConfig({ ensure: true });
       await countLlamaCppTokens(config, 'A'.repeat(100));
-      await generateLlamaCppResponse({
+      const prompt = 'B'.repeat(500);
+      const summary = await generateLlamaCppResponse({
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
-        prompt: 'B'.repeat(500),
+        prompt,
         timeoutSeconds: 5,
       });
+      const expectedChars = 100 + prompt.length + summary.text.length;
 
       const database = new Database(path.join(tempRoot, '.siftkit', 'runtime.sqlite'));
       try {
@@ -548,9 +569,9 @@ test('exact char-token observations accumulate as a weighted average', async () 
           WHERE id = 1
         `).get());
         assert.ok(row);
-        assert.equal(row.observed_chars_total, 600);
-        assert.equal(row.observed_tokens_total, 223);
-        assert.equal(row.last_known_chars_per_token, 600 / 223);
+        assert.equal(row.observed_chars_total, expectedChars);
+        assert.equal(row.observed_tokens_total, expectedChars);
+        assert.equal(row.last_known_chars_per_token, 1);
       } finally {
         database.close();
       }

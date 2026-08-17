@@ -485,8 +485,6 @@ test('requestRepoSearchPlannerProtocolAction uses llama timings from the final s
       });
 
       assert.equal(result.promptEvalTokens, 10);
-      assert.equal(result.completionTokens, 4);
-      assert.equal(result.usageThinkingTokens, null);
       assert.equal(result.promptEvalDurationMs, 30.5);
       assert.equal(result.generationDurationMs, 18.75);
     },

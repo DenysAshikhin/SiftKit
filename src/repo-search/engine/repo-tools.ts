@@ -3,7 +3,7 @@ import { existsSync, statSync, readdirSync, writeFileSync, mkdirSync, realpathSy
 import { resolve, relative, isAbsolute, join, dirname, posix } from 'node:path';
 import { z } from 'zod';
 import { type IgnorePolicy } from '../command-safety.js';
-import { estimateTokenCount } from '../prompt-budget.js';
+import { estimateTokenCount } from '../../lib/token-estimate.js';
 import { findContiguousUnreadRange, type ToolOutputTruncationUnit, type ToolOutputKeep } from '../../tool-output-fit.js';
 import { buildReadPathKey, getOrCreateFileReadState, type FileReadState } from './read-overlap.js';
 import { parseJsonValueText } from '../../lib/json.js';

@@ -422,7 +422,7 @@ export class TaskLoop {
     };
     return {
       outcome: 'continue',
-      response: this.toNormalizedResponse(response),
+      response: this.toNormalizedResponse(response, resolvedTokens, prepared.promptTokenCount),
       data,
     };
   }
@@ -495,17 +495,21 @@ export class TaskLoop {
     };
   }
 
-  private toNormalizedResponse(response: PlannerActionResponse): NormalizedLlamaCppChatResponse {
+  private toNormalizedResponse(
+    response: PlannerActionResponse,
+    resolvedTokens: ResolvedResponseTokens,
+    promptTokenCount: number,
+  ): NormalizedLlamaCppChatResponse {
     return {
       text: response.text,
       reasoningText: response.thinkingText || '',
       toolCalls: [],
       usage: {
-        promptTokens: response.promptTokens ?? null,
-        completionTokens: response.completionTokens ?? null,
+        promptTokens: promptTokenCount,
+        completionTokens: resolvedTokens.completionTokens,
         totalTokens: null,
-        outputTokens: response.completionTokens ?? null,
-        thinkingTokens: response.usageThinkingTokens ?? null,
+        outputTokens: resolvedTokens.completionTokens,
+        thinkingTokens: resolvedTokens.thinkingTokens,
         promptCacheTokens: response.promptCacheTokens ?? null,
         promptEvalTokens: response.promptEvalTokens ?? null,
         promptEvalDurationMs: response.promptEvalDurationMs ?? null,

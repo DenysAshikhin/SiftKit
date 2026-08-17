@@ -23,6 +23,7 @@ import {
 import { lowerResponseFormatForBackend } from '../providers/formatron-schema-lowering.js';
 import { getFirstCommandToken } from './command-safety.js';
 import { getSupportedImageExtensions } from '../llm-protocol/image-attachments.js';
+import { buildInlineThinkPattern, THINK_OPEN_TAG } from '../llm-protocol/think-markers.js';
 import type { JsonLogger } from './types.js';
 
 export type PlannerActionResponse = {
@@ -30,9 +31,6 @@ export type PlannerActionResponse = {
   thinkingText: string;
   mockExhausted: boolean;
   nextMockResponseIndex?: number;
-  promptTokens?: number | null;
-  completionTokens?: number | null;
-  usageThinkingTokens?: number | null;
   promptCacheTokens?: number | null;
   promptEvalTokens?: number | null;
   promptEvalDurationMs?: number | null;
@@ -483,7 +481,7 @@ export type PlannerRequestOptions = Partial<PlannerThinkingFlags> & {
 
 function extractInlineThinking(raw: string): { thinkingText: string; text: string } {
   const thinkingParts: string[] = [];
-  const text = raw.replace(/<think>([\s\S]*?)<\/think>/gu, (_all, thinking: string) => {
+  const text = raw.replace(buildInlineThinkPattern(), (_all, thinking: string) => {
     thinkingParts.push(thinking);
     return '';
   }).trim();
@@ -601,7 +599,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
     const index = options.mockResponseIndex || 0;
     if (index >= options.mockResponses.length) return { text: '', thinkingText: '', mockExhausted: true };
     const rawMock = options.mockResponses[index];
-    const { thinkingText, text } = rawMock.includes('<think>')
+    const { thinkingText, text } = rawMock.includes(THINK_OPEN_TAG)
       ? extractInlineThinking(rawMock)
       : { thinkingText: '', text: rawMock };
     return { text, thinkingText, mockExhausted: false, nextMockResponseIndex: index + 1 };
@@ -687,7 +685,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
     ...(response.earlyStopReason ? { earlyTerminationReason: response.earlyStopReason } : {}),
   });
 
-  const inlineThinking = !response.reasoningText && response.text.includes('<think>')
+  const inlineThinking = !response.reasoningText && response.text.includes(THINK_OPEN_TAG)
     ? extractInlineThinking(response.text)
     : null;
   const rawChoiceText = inlineThinking ? inlineThinking.text : response.text;
@@ -703,9 +701,6 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
     text: text.trim(),
     thinkingText,
     mockExhausted: false,
-    promptTokens: response.usage.promptTokens,
-    completionTokens: response.usage.completionTokens,
-    usageThinkingTokens: response.usage.thinkingTokens,
     promptCacheTokens: response.usage.promptCacheTokens,
     promptEvalTokens: response.usage.promptEvalTokens,
     promptEvalDurationMs: response.usage.promptEvalDurationMs ?? null,

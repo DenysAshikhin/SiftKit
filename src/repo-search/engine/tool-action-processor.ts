@@ -15,7 +15,7 @@ import {
   type ToolAction,
 } from '../planner-protocol.js';
 import { buildApprovalReviewPayload } from '../approval-review-policy.js';
-import { estimateTokenCount } from '../prompt-budget.js';
+import { estimateTokenCount } from '../../lib/token-estimate.js';
 import type { TaskCommand } from '../prompts.js';
 import {
   buildRepeatedToolCallSummary,

@@ -3,10 +3,8 @@ import {
   getConfiguredLlamaNumCtx,
   type SiftConfig,
 } from '../config/index.js';
-import {
-  estimatePromptTokenCountFromCharacters,
-  getDynamicMaxOutputTokens,
-} from '../lib/dynamic-output-cap.js';
+import { getDynamicMaxOutputTokens } from '../lib/dynamic-output-cap.js';
+import { estimateTokenCount, estimateTokenCountFromCharacters } from '../lib/token-estimate.js';
 import { ModelJson } from '../lib/model-json.js';
 import { tryRecordAccurateCharTokenObservation } from '../state/observed-budget.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
@@ -216,15 +214,6 @@ export function toProtocolTools(tools: StructuredOutputToolDefinition[] | undefi
       },
     }];
   });
-}
-
-function hasUsageValue(usage: NormalizedLlamaCppChatResponse['usage']): boolean {
-  return usage.promptTokens !== null
-    || usage.completionTokens !== null
-    || usage.totalTokens !== null
-    || usage.thinkingTokens !== null
-    || usage.promptCacheTokens !== null
-    || usage.promptEvalTokens !== null;
 }
 
 function parseStructuredPlannerToolCall(toolCall: LlamaCppToolCall | null | undefined): PlannerStructuredToolCall | null {
@@ -470,7 +459,7 @@ export async function generateLlamaCppChatResponse(options: {
     totalContextTokens: Math.max(1, Number(getConfiguredLlamaNumCtx(options.config) || 0)),
     promptTokenCount: Number.isFinite(options.promptTokenCount) && Number(options.promptTokenCount) > 0
       ? Number(options.promptTokenCount)
-      : estimatePromptTokenCountFromCharacters(options.config, promptChars),
+      : estimateTokenCountFromCharacters(options.config, promptChars),
   });
 
   let response: NormalizedLlamaCppChatResponse;
@@ -522,26 +511,33 @@ export async function generateLlamaCppChatResponse(options: {
     throw new Error(message);
   }
 
-  const promptTokens = response.usage.promptTokens;
-  if (promptTokens !== null && promptTokens > 0) {
-    tryRecordAccurateCharTokenObservation({
-      chars: promptChars,
-      tokens: promptTokens,
-      updatedAtUtc: new Date().toISOString(),
-    });
-  }
-  const thinkingTokens = response.usage.thinkingTokens
-    ?? (response.reasoningText.trim() ? await countLlamaCppTokens(options.config, response.reasoningText) : null);
-  // The protocol usage passes through untouched apart from thinkingTokens, which the
-  // provider may have to derive by tokenizing the reasoning text when the server omits it.
-  const usage: LlamaCppUsage | null = hasUsageValue(response.usage) || thinkingTokens !== null
-    ? { ...response.usage, thinkingTokens }
-    : null;
+  // Local counting owns what the model consumed and produced; the provider keeps
+  // only the cache/prefill/timing stats it alone knows. Prompt counting tokenizes
+  // the joined message contents, so it ignores chat-template overhead.
+  const countLocally = async (content: string): Promise<number> => {
+    const counted = await countLlamaCppTokensDetailed(options.config, content);
+    return counted.status === 'completed' && counted.tokenCount !== null
+      ? counted.tokenCount
+      : estimateTokenCount(options.config, content);
+  };
+  // countLlamaCppTokensDetailed records its own char/token observation on the
+  // exact path, so nothing here feeds estimates into the observed budget.
+  const promptText = options.messages.map((message) => getTextContent(message.content)).join('\n');
+  const promptTokens = await countLocally(promptText);
+  const completionTokens = await countLocally(text);
+  const thinkingTokens = response.reasoningText.trim() ? await countLocally(response.reasoningText) : null;
+  const usage: LlamaCppUsage = {
+    ...response.usage,
+    promptTokens,
+    completionTokens,
+    outputTokens: completionTokens,
+    thinkingTokens,
+  };
 
   traceLlamaCpp(
-    `generate done elapsed_ms=${Date.now() - startedAt} prompt_tokens=${usage?.promptTokens ?? 'null'} `
-    + `completion_tokens=${usage?.completionTokens ?? 'null'} thinking_tokens=${usage?.thinkingTokens ?? 'null'} `
-    + `cache_tokens=${usage?.promptCacheTokens ?? 'null'} prompt_eval_tokens=${usage?.promptEvalTokens ?? 'null'} `
+    `generate done elapsed_ms=${Date.now() - startedAt} prompt_tokens=${usage.promptTokens ?? 'null'} `
+    + `completion_tokens=${usage.completionTokens ?? 'null'} thinking_tokens=${usage.thinkingTokens ?? 'null'} `
+    + `cache_tokens=${usage.promptCacheTokens ?? 'null'} prompt_eval_tokens=${usage.promptEvalTokens ?? 'null'} `
     + `output_chars=${text.length}`
   );
 
