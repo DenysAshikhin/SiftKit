@@ -439,18 +439,16 @@ export class AssistantService implements AssistantRuntime {
 
   setPolicyEnabled(policyId: string, enabled: boolean): boolean {
     if (!this.enabled) return false;
-    const policy = this.graph.policies.listPolicies(this.ownerId)
-      .find((row) => row.id === policyId);
-    if (policy === undefined) return false;
+    const policy = this.graph.policies.getPolicyById(this.ownerId, policyId);
+    if (policy === null) return false;
     this.graph.policies.setEnabled(this.ownerId, policy.policy_type, policy.key, enabled);
     return true;
   }
 
   deletePolicy(policyId: string): boolean {
     if (!this.enabled) return false;
-    const policy = this.graph.policies.listPolicies(this.ownerId)
-      .find((row) => row.id === policyId);
-    if (policy === undefined) return false;
+    const policy = this.graph.policies.getPolicyById(this.ownerId, policyId);
+    if (policy === null) return false;
     this.graph.policies.deletePolicy(this.ownerId, policy.policy_type, policy.key);
     return true;
   }

@@ -27,6 +27,21 @@ test('a policy is created, read by type and key, and listed', () => {
   });
 });
 
+test('getPolicyById returns the row for this owner and null otherwise', () => {
+  withAssistantContext((context) => {
+    const policies = newPolicyStore(context);
+    policies.upsertPolicy({
+      ownerId: context.ownerId, policyType: 'never_infer_topic', key: 'health',
+      value: { reason: 'user asked' }, enabled: true, source: 'user',
+    });
+    const row = policies.listPolicies(context.ownerId)[0];
+    assert.ok(row);
+    assert.equal(policies.getPolicyById(context.ownerId, row.id)?.id, row.id);
+    assert.equal(policies.getPolicyById(context.ownerId, 'pol_missing'), null);
+    assert.equal(policies.getPolicyById('own_other', row.id), null);
+  });
+});
+
 test('upserting the same type and key updates in place rather than duplicating', () => {
   withAssistantContext((context) => {
     const policies = newPolicyStore(context);

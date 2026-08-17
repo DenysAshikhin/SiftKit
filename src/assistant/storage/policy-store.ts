@@ -69,6 +69,13 @@ export class PolicyStore {
     return z.array(PolicyRowSchema).parse(rows);
   }
 
+  getPolicyById(ownerId: string, policyId: string): PolicyRow | null {
+    const row = this.database.prepare(`
+      SELECT * FROM assistant_policies WHERE owner_id = ? AND id = ?
+    `).get(ownerId, policyId);
+    return row === undefined || row === null ? null : PolicyRowSchema.parse(row);
+  }
+
   setEnabled(ownerId: string, policyType: PolicyType, key: string, enabled: boolean): void {
     this.database.prepare(`
       UPDATE assistant_policies SET enabled = ?, updated_at_utc = ?
