@@ -724,10 +724,11 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
     const repoSearch = d(planMessage.body.repoSearch);
     const repoScorecard = d(repoSearch.scorecard);
     const repoTotals = d(repoScorecard.totals);
-    assert.equal(
-      Number(latestMessage.inputTokensEstimate || 0),
-      Number(repoTotals.promptTokens || 0),
-    );
+    // Assistant messages carry no input component (inputTokensEstimate is 0 by
+    // design), while run prompt totals are counted locally from the preflight
+    // prompt, so they are nonzero even on mock-driven runs.
+    assert.equal(Number(latestMessage.inputTokensEstimate || 0), 0);
+    assert.equal(Number(repoTotals.promptTokens || 0) > 0, true);
     assert.equal(latestMessage.sourceRunId, String(repoSearch.requestId));
     assert.equal(Number(latestMessage.outputTokensEstimate || 0), Number(repoTotals.outputTokens || 0));
     assert.equal(Number(latestMessage.thinkingTokens || 0), Number(repoTotals.thinkingTokens || 0));

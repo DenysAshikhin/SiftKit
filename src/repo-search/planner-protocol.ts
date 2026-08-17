@@ -39,6 +39,8 @@ export type PlannerActionResponse = {
   generationDurationMs?: number | null;
   speculativeAcceptedTokens?: number | null;
   speculativeGeneratedTokens?: number | null;
+  /** Set when the client stopped thinking at the preset ReasoningBudget and completed via a continuation request. */
+  thinkingBudgetExhausted?: true;
 };
 
 export type ToolAction = {
@@ -710,6 +712,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
     generationDurationMs: response.usage.generationDurationMs ?? null,
     speculativeAcceptedTokens: response.usage.speculativeAcceptedTokens ?? null,
     speculativeGeneratedTokens: response.usage.speculativeGeneratedTokens ?? null,
+    ...(response.thinkingBudgetExhausted ? { thinkingBudgetExhausted: true } : {}),
   };
 }
 

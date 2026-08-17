@@ -388,15 +388,20 @@ export class TaskLoop {
       this.mockResponseIndex = response.nextMockResponseIndex;
     }
 
+    const resolvedTokens = await this.tokenUsage.recordModelResponse(response, prepared.promptTokenCount);
+
     this.options.logger?.write({
       kind: 'turn_model_response', taskId: this.task.id, turn,
       text: response.text, thinkingText: response.thinkingText || '',
       mockExhausted: Boolean(response.mockExhausted),
-      promptTokens: Number.isFinite(response.promptTokens) ? Number(response.promptTokens) : null,
-      completionTokens: Number.isFinite(response.completionTokens) ? Number(response.completionTokens) : null,
-      usageThinkingTokens: Number.isFinite(response.usageThinkingTokens) ? Number(response.usageThinkingTokens) : null,
+      promptTokens: prepared.promptTokenCount,
+      completionTokens: resolvedTokens.completionTokens,
+      completionTokensEstimated: resolvedTokens.completionTokensEstimated,
+      thinkingTokens: resolvedTokens.thinkingTokens,
+      thinkingTokensEstimated: resolvedTokens.thinkingTokensEstimated,
       promptCacheTokens: Number.isFinite(response.promptCacheTokens) ? Number(response.promptCacheTokens) : null,
       promptEvalTokens: Number.isFinite(response.promptEvalTokens) ? Number(response.promptEvalTokens) : null,
+      ...(response.thinkingBudgetExhausted ? { thinkingBudgetExhausted: true } : {}),
     });
 
     const turnThinkingText = String(response.thinkingText || '').trim();
@@ -404,8 +409,6 @@ export class TaskLoop {
       new ThinkingRetentionPolicy(this.plannerMaintainPerStepThinking)
         .recordTurnThinking(this.turnThinking, turn, turnThinkingText);
     }
-
-    const resolvedTokens = await this.tokenUsage.recordModelResponse(response);
 
     // Emit native thinking text (from reasoning_content) to UI
     if (response.thinkingText && this.progress.liveTextEnabled) {

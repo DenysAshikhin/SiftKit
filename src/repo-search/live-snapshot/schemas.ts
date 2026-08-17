@@ -170,7 +170,7 @@ export const TurnModelResponseEventSchema = z.object({
   turn: z.number(),
   promptTokens: OptionalNumber,
   completionTokens: OptionalNumber,
-  usageThinkingTokens: OptionalNumber,
+  thinkingTokens: OptionalNumber,
   promptCacheTokens: OptionalNumber,
   promptEvalTokens: OptionalNumber,
 });

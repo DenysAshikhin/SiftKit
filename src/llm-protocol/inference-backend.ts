@@ -23,6 +23,8 @@ export type InferenceRequestInput = {
   maxTokens: number;
   stream: boolean;
   responseFormat?: LlamaCppResponseFormat;
+  /** Rendered after the generation prompt (TabbyAPI `response_prefix`); used to close an exhausted think block. */
+  responsePrefix?: string;
   thinking: InferenceThinkingPolicy;
   llama: {
     cachePrompt: boolean;
@@ -50,4 +52,5 @@ export type InferenceChatRequest = {
   cache_prompt?: boolean;
   id_slot?: number;
   timings_per_token?: boolean;
+  response_prefix?: string;
 };

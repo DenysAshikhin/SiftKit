@@ -4,9 +4,6 @@ import { countTokensWithFallbackDetailed, estimateTokenCount } from '../prompt-b
 export type ModelUsageResponse = {
   text?: string;
   thinkingText?: string;
-  promptTokens?: number | null;
-  completionTokens?: number | null;
-  usageThinkingTokens?: number | null;
   promptCacheTokens?: number | null;
   promptEvalTokens?: number | null;
   promptEvalDurationMs?: number | null;
@@ -59,12 +56,12 @@ export class TokenUsageTracker {
 
   private readonly useEstimatedTokensOnly: boolean;
 
-  async recordModelResponse(response: ModelUsageResponse): Promise<ResolvedResponseTokens> {
-    if (Number.isFinite(response.promptTokens) && Number(response.promptTokens) >= 0) {
-      this.promptTokens += Number(response.promptTokens);
+  async recordModelResponse(response: ModelUsageResponse, promptTokenCount: number): Promise<ResolvedResponseTokens> {
+    if (Number.isFinite(promptTokenCount) && promptTokenCount >= 0) {
+      this.promptTokens += promptTokenCount;
     }
-    const completion = await this.resolveTextTokens(response.completionTokens, response.text);
-    const thinking = await this.resolveTextTokens(response.usageThinkingTokens, response.thinkingText);
+    const completion = await this.resolveTextTokens(response.text);
+    const thinking = await this.resolveTextTokens(response.thinkingText);
     const completionTokens = completion.tokenCount;
     const thinkingTokens = thinking.tokenCount;
     this.thinkingTokens += thinkingTokens;
@@ -125,13 +122,10 @@ export class TokenUsageTracker {
     };
   }
 
-  private async resolveTextTokens(explicitTokens: number | null | undefined, text: string | undefined): Promise<{
+  private async resolveTextTokens(text: string | undefined): Promise<{
     tokenCount: number;
     estimated: boolean;
   }> {
-    if (Number.isFinite(explicitTokens) && Number(explicitTokens) >= 0) {
-      return { tokenCount: Number(explicitTokens), estimated: false };
-    }
     const content = String(text || '').trim();
     if (!content) {
       return { tokenCount: 0, estimated: false };

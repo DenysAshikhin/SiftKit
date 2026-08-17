@@ -2,8 +2,10 @@ import {
   getActiveInferenceBackend,
   getActiveModelPreset,
   getConfiguredLlamaBaseUrl,
+  SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
   type SiftConfig,
 } from '../config/index.js';
+import { estimatePromptTokenCountFromCharacters } from '../lib/dynamic-output-cap.js';
 import { buildPresetRequestDefaults } from '../inference-presets/preset-compatibility.js';
 import { httpClient, HttpResponseError, LlamaHttpError, type FullJsonResponse } from '../lib/http-client.js';
 import { parseJsonObjectText } from '../lib/json.js';
@@ -172,7 +174,14 @@ export type LlamaCppChatOptions = {
   abortSignal?: AbortSignal;
   onThinkingDelta?: (accumulatedThinking: string) => void;
   onContentDelta?: (accumulatedContent: string) => void;
+  /** Rendered after the generation prompt (TabbyAPI `response_prefix`); set internally by the budget continuation. */
+  responsePrefix?: string;
+  /** Set to false on the budget continuation so an over-budget continuation cannot recurse. */
+  enforceThinkingBudget?: boolean;
 };
+
+/** Early-stop reason set when streamed thinking exceeds the preset ReasoningBudget on exl3. */
+export const THINKING_BUDGET_EARLY_STOP_REASON = 'thinking budget exhausted';
 
 export class LlamaCppClient {
   constructor(private readonly client: LlamaCppHttpClient = httpClient) {}
@@ -275,7 +284,11 @@ export class LlamaCppClient {
 
   private async chatAtBaseUrl(baseUrl: string, options: LlamaCppChatOptions): Promise<NormalizedLlamaCppChatResponse> {
     if (options.stream) {
-      return this.streamChatAtBaseUrl(baseUrl, options);
+      const streamed = await this.streamChatAtBaseUrl(baseUrl, options);
+      if (streamed.earlyStopReason !== THINKING_BUDGET_EARLY_STOP_REASON) {
+        return streamed;
+      }
+      return this.continueAfterThinkingBudget(baseUrl, options, streamed);
     }
     const requestOnce = async (): Promise<FullJsonResponse<RawChatResponse>> => {
       const nextResponse = await this.client.requestJsonFull({
@@ -302,6 +315,35 @@ export class LlamaCppClient {
     return this.normalizeChatResponse(response, options.allowedToolNames);
   }
 
+  /**
+   * The stream stopped at the ReasoningBudget mid-think. Re-send once with the
+   * partial reasoning and the budget message closed inside a think block
+   * (TabbyAPI `response_prefix`), so generation resumes at the answer.
+   */
+  private async continueAfterThinkingBudget(
+    baseUrl: string,
+    options: LlamaCppChatOptions,
+    streamed: NormalizedLlamaCppChatResponse,
+  ): Promise<NormalizedLlamaCppChatResponse> {
+    const activePreset = getActiveModelPreset(options.config);
+    const budgetMessage = activePreset.ReasoningBudgetMessage || SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE;
+    const exhaustedThinking = `${streamed.reasoningText.trimEnd()}\n\n${budgetMessage}`;
+    const continuation = await this.streamChatAtBaseUrl(baseUrl, {
+      ...options,
+      enforceThinkingBudget: false,
+      responsePrefix: `<think>\n${exhaustedThinking}\n</think>\n\n`,
+    });
+    return {
+      ...continuation,
+      reasoningText: [exhaustedThinking, continuation.reasoningText.trim()].filter(Boolean).join('\n\n'),
+      thinkingBudgetExhausted: true,
+      usage: {
+        ...continuation.usage,
+        generationDurationMs: sumFiniteDurations(streamed.usage.generationDurationMs, continuation.usage.generationDurationMs),
+      },
+    };
+  }
+
   private buildChatRequest(options: LlamaCppChatOptions): LlamaCppChatRequest {
     const activePreset = getActiveModelPreset(options.config);
     const defaults = buildPresetRequestDefaults(activePreset);
@@ -319,6 +361,7 @@ export class LlamaCppClient {
         maxTokens: options.maxTokens,
         stream: options.stream,
         ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}),
+        ...(options.responsePrefix ? { responsePrefix: options.responsePrefix } : {}),
         thinking: {
           ...(resolvedReasoning === undefined ? {} : { enabled: resolvedReasoning === 'on' }),
           reasoningContent: reasoningContentEnabled,
@@ -364,6 +407,14 @@ export class LlamaCppClient {
       return true;
     };
     const reasoningActionScanner = new FirstJsonObjectScanner();
+    const budgetPreset = getActiveModelPreset(options.config);
+    const thinkingBudgetTokens = options.enforceThinkingBudget !== false
+      && getActiveInferenceBackend(options.config) === 'exl3'
+      && options.reasoningOverride === 'on'
+      && Number.isFinite(budgetPreset.ReasoningBudget)
+      && budgetPreset.ReasoningBudget > 0
+      ? budgetPreset.ReasoningBudget
+      : null;
 
     try {
       streamFrames: for await (const frame of this.client.streamSse({
@@ -410,6 +461,11 @@ export class LlamaCppClient {
               contentText = completedAction;
               reasoningText = '';
               earlyStopReason = 'planner action completed in streamed reasoning';
+              break streamFrames;
+            }
+            if (thinkingBudgetTokens !== null
+              && estimatePromptTokenCountFromCharacters(options.config, reasoningText.length) > thinkingBudgetTokens) {
+              earlyStopReason = THINKING_BUDGET_EARLY_STOP_REASON;
               break streamFrames;
             }
             options.onThinkingDelta?.(reasoningText);
@@ -524,6 +580,14 @@ export class LlamaCppClient {
       stoppedEarly: false,
     };
   }
+}
+
+function sumFiniteDurations(left: number | null | undefined, right: number | null | undefined): number | null {
+  const leftValue = Number.isFinite(left) ? Number(left) : null;
+  const rightValue = Number.isFinite(right) ? Number(right) : null;
+  if (leftValue === null) return rightValue;
+  if (rightValue === null) return leftValue;
+  return leftValue + rightValue;
 }
 
 function getTextContent(content: string | Array<{ type?: string; text?: string }> | null | undefined): string {

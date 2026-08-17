@@ -411,7 +411,7 @@ export class LiveRunSnapshotCollector {
       : Math.max(0, Date.now() - turn.modelStartedAtMs);
     turn.promptTokens = optionalNumber(parsed.data.promptTokens) ?? turn.promptTokens;
     turn.completionTokens = optionalNumber(parsed.data.completionTokens);
-    turn.thinkingTokens = optionalNumber(parsed.data.usageThinkingTokens);
+    turn.thinkingTokens = optionalNumber(parsed.data.thinkingTokens);
     turn.promptCacheTokens = optionalNumber(parsed.data.promptCacheTokens);
     turn.promptEvalTokens = optionalNumber(parsed.data.promptEvalTokens);
     this.setPhase('idle', parsed.data.turn, null);

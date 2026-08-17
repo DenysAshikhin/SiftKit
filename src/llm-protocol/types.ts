@@ -111,4 +111,6 @@ export type NormalizedLlamaCppChatResponse = {
   raw: JsonObject;
   stoppedEarly: boolean;
   earlyStopReason?: string;
+  /** Set when the client stopped thinking at the preset ReasoningBudget and completed via a continuation request. */
+  thinkingBudgetExhausted?: true;
 };

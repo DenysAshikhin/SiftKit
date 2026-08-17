@@ -79,7 +79,7 @@ export class TerminalSynthesizer {
         if (typeof synthesisResponse.nextMockResponseIndex === 'number') {
           mockResponseIndex = synthesisResponse.nextMockResponseIndex;
         }
-        const resolved = await this.options.tokenUsage.recordModelResponse(synthesisResponse);
+        const resolved = await this.options.tokenUsage.recordModelResponse(synthesisResponse, synthesisPromptTokenCount);
         this.options.tokenUsage.addOutputTokens(resolved.completionTokens, resolved.completionTokensEstimated);
 
         const text = String(synthesisResponse.text || '').trim();

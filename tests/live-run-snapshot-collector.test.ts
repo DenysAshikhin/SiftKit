@@ -83,7 +83,7 @@ test('collector records per-turn prompt budget and model token accounting', () =
   collector.record({ kind: 'provider_request_done', stage: 'planner_action', method: 'POST', url: 'u', path: '/p', statusCode: 200, elapsedMs: 123000 });
   collector.record({
     kind: 'turn_model_response', taskId: 't', turn: 39, text: '{}', thinkingText: '', mockExhausted: false,
-    promptTokens: 64552, completionTokens: 71, usageThinkingTokens: 0, promptCacheTokens: 0, promptEvalTokens: 64552,
+    promptTokens: 64552, completionTokens: 71, thinkingTokens: 0, promptCacheTokens: 0, promptEvalTokens: 64552,
   });
 
   const snapshot = LiveRunSnapshotSchema.parse(collector.build());
@@ -225,7 +225,7 @@ test('collector totals and slowest lists summarize every recorded turn', () => {
     collector.record({ kind: 'turn_model_request', taskId: 't', turn, thinkingEnabled: false });
     collector.record({
       kind: 'turn_model_response', taskId: 't', turn, text: '{}', thinkingText: '', mockExhausted: false,
-      promptTokens: 100, completionTokens: completion, usageThinkingTokens: 0,
+      promptTokens: 100, completionTokens: completion, thinkingTokens: 0,
       promptCacheTokens: cache, promptEvalTokens: promptEval,
     });
   };

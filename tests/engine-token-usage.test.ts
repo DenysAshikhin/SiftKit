@@ -20,48 +20,58 @@ async function closeServer(server: http.Server): Promise<void> {
   });
 }
 
-test('recordModelResponse accumulates usage fields and returns resolved counts', async () => {
+test('recordModelResponse counts output and thinking locally, ignoring provider counts', async () => {
   const tracker = new TokenUsageTracker(undefined);
+  // 400 chars thinking, 80 chars text; estimate path (no config) = chars/4
   const resolved = await tracker.recordModelResponse({
-    text: 'hello', thinkingText: 'thought',
-    promptTokens: 100, completionTokens: 20, usageThinkingTokens: 7,
+    text: 'x'.repeat(80),
+    thinkingText: 'y'.repeat(400),
     promptCacheTokens: 50, promptEvalTokens: 60,
     promptEvalDurationMs: 11, generationDurationMs: 22,
     speculativeAcceptedTokens: 16, speculativeGeneratedTokens: 20,
-  });
-  assert.deepEqual(resolved, {
-    completionTokens: 20,
-    thinkingTokens: 7,
-    completionTokensEstimated: false,
-    thinkingTokensEstimated: false,
-  });
+  }, 123);
+  assert.equal(resolved.completionTokens, 20);
+  assert.equal(resolved.thinkingTokens, 100);
+  assert.equal(resolved.completionTokensEstimated, true);
+  assert.equal(resolved.thinkingTokensEstimated, true);
   const snapshot = tracker.snapshot();
-  assert.equal(snapshot.promptTokens, 100);
-  assert.equal(snapshot.thinkingTokens, 7);
+  assert.equal(snapshot.promptTokens, 123); // local preflight count, not provider usage
+  assert.equal(snapshot.thinkingTokens, 100);
   assert.equal(snapshot.promptCacheTokens, 50);
   assert.equal(snapshot.promptEvalTokens, 60);
-  assert.equal(snapshot.promptEvalDurationMs, 11);
-  assert.equal(snapshot.generationDurationMs, 22);
-  assert.equal(snapshot.speculativeAcceptedTokens, 16);
-  assert.equal(snapshot.speculativeGeneratedTokens, 20);
-  assert.equal(snapshot.outputTokens, 0); // caller decides when completion tokens count as output
+});
+
+test('regression: provider-shaped usage fields cannot influence resolved counts', async () => {
+  // exllamav3 requeue bug: provider reported 2102 tokens for an 8921-token response.
+  const tracker = new TokenUsageTracker(undefined);
+  // These provider fields no longer exist on ModelUsageResponse; passing a
+  // variable (not a literal) keeps this compiling if someone re-adds them,
+  // and the assertions below still protect us. No type assertions.
+  const providerShaped = {
+    text: 'z'.repeat(200),
+    thinkingText: '',
+    completionTokens: 2, usageThinkingTokens: 3, promptTokens: 999999,
+  };
+  const withBogus = await tracker.recordModelResponse(providerShaped, 10);
+  assert.equal(withBogus.completionTokens, 50);
+  assert.equal(tracker.snapshot().promptTokens, 10);
 });
 
 test('recordModelResponse estimates completion/thinking tokens when usage is missing', async () => {
   const tracker = new TokenUsageTracker(undefined);
-  const resolved = await tracker.recordModelResponse({ text: 'some response text', thinkingText: 'some thinking' });
+  const resolved = await tracker.recordModelResponse({ text: 'some response text', thinkingText: 'some thinking' }, 0);
   assert.ok(resolved.completionTokens > 0);
   assert.ok(resolved.thinkingTokens > 0);
   assert.equal(resolved.completionTokensEstimated, true);
   assert.equal(resolved.thinkingTokensEstimated, true);
-  const empty = await tracker.recordModelResponse({ text: '', thinkingText: '' });
+  const empty = await tracker.recordModelResponse({ text: '', thinkingText: '' }, 0);
   assert.deepEqual(empty, {
     completionTokens: 0,
     thinkingTokens: 0,
     completionTokensEstimated: false,
     thinkingTokensEstimated: false,
   });
-  const absent = await tracker.recordModelResponse({});
+  const absent = await tracker.recordModelResponse({}, 0);
   assert.deepEqual(absent, {
     completionTokens: 0,
     thinkingTokens: 0,
@@ -70,7 +80,7 @@ test('recordModelResponse estimates completion/thinking tokens when usage is mis
   });
 });
 
-test('recordModelResponse uses llama tokenizer for missing completion and thinking usage', async () => {
+test('recordModelResponse uses the server tokenizer for text and thinking', async () => {
   const server = http.createServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/tokenize') {
       res.writeHead(404, { 'content-type': 'application/json' });
@@ -103,7 +113,7 @@ test('recordModelResponse uses llama tokenizer for missing completion and thinki
     const resolved = await tracker.recordModelResponse({
       text: 'exact answer',
       thinkingText: 'exact thinking',
-    });
+    }, 0);
 
     assert.deepEqual(resolved, {
       completionTokens: 17,
@@ -123,16 +133,13 @@ test('negative or non-finite usage fields are ignored', async () => {
   const resolved = await tracker.recordModelResponse({
     text: '   ',
     thinkingText: '   ',
-    promptTokens: -5,
-    completionTokens: -1,
-    usageThinkingTokens: -1,
     promptCacheTokens: Number.NaN,
     promptEvalTokens: -1,
     promptEvalDurationMs: -1,
     generationDurationMs: -1,
     speculativeAcceptedTokens: -3,
     speculativeGeneratedTokens: Number.NaN,
-  });
+  }, -5);
   assert.deepEqual(resolved, {
     completionTokens: 0,
     thinkingTokens: 0,

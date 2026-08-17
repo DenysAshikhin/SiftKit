@@ -48,6 +48,7 @@ export class InferenceRequestBuilder {
             response_format: lowerResponseFormatForBackend(input.backend, input.responseFormat),
           }
         : {}),
+      ...(input.responsePrefix ? { response_prefix: input.responsePrefix } : {}),
     };
   }
 }
