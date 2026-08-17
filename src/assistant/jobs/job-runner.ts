@@ -12,7 +12,7 @@ import type { JobRow } from '../storage/rows.js';
 import { isModelBackedJobType, type AssistantJobType } from './job-types.js';
 import type { ResourcePolicy } from './resource-policy.js';
 
-/** The host tells the runner when background model work is allowed (Â§12.4). */
+/** The host tells the runner when background model work is allowed (§12.4). */
 export interface InteractivityGate {
   isIdle(): boolean;
 }
@@ -63,7 +63,7 @@ export class AssistantJobRunner {
 
   /**
    * Stop claiming and abandon the in-flight model call. Called by the host the moment an
-   * interactive request arrives (Â§12.3).
+   * interactive request arrives (§12.3).
    */
   requestPreemption(): void {
     this.preemptionRequested = true;

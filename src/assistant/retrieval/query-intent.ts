@@ -39,7 +39,7 @@ const TASK_PATTERNS: readonly { taskType: MemoryTaskType; pattern: RegExp }[] = 
 ];
 
 /**
- * Â§11.3 stage 1, deterministically. Gate B does not spend a model round-trip on the chat
+ * §11.3 stage 1, deterministically. Gate B does not spend a model round-trip on the chat
  * critical path; `query_intent_parser` arrives in Gate C behind explicit configuration.
  */
 export class QueryIntentExtractor {

@@ -511,6 +511,7 @@ class AssistantEndpoint implements RouteEndpoint {
       sendJson(res, 200, { items: service.memoryQueries.listMemoryHistory(service.ownerId, {
         limit: integerParam(url, 'limit', 100), offset: integerParam(url, 'offset', 0),
       }) });
+      return;
     }
   }
 

@@ -128,15 +128,15 @@ export interface AssistantRuntime {
   refreshConfig(config: AssistantConfig): void;
 }
 
-/** How much of the chat prompt memory may consume (Â§11). */
+/** How long a claimed background job may run before its lease expires and it is re-queued. */
 const JOB_LEASE_SECONDS = 300;
 
 /** Capture states that still owe an extraction; a drain enqueues both (spec §5). */
 const PENDING_CAPTURE_STATES = ['queued', 'awaiting_image_capability'] as const;
 
 /**
- * Â§3. Everything assistant-shaped hangs off this object, and the status server holds exactly one
- * of them â€” or `null`, if construction threw, in which case SiftKit runs exactly as before.
+ * §3. Everything assistant-shaped hangs off this object, and the status server holds exactly one
+ * of them — or `null`, if construction threw, in which case SiftKit runs exactly as before.
  */
 export class AssistantService implements AssistantRuntime {
   readonly graph: AssistantGraph;
@@ -574,8 +574,8 @@ export class AssistantService implements AssistantRuntime {
   }
 
   /**
-   * Request-path ingestion: writes evidence and enqueues work. Never throws at the caller â€”
-   * a chat turn completes normally even if ingestion fails (Â§7.1).
+   * Request-path ingestion: writes evidence and enqueues work. Never throws at the caller —
+   * a chat turn completes normally even if ingestion fails (§7.1).
    */
   ingestChatTurn(input: ChatTurnInput): void {
     if (!this.enabled) return;
@@ -648,7 +648,7 @@ export class AssistantService implements AssistantRuntime {
     });
   }
 
-  /** Called by the host when interactive work arrives (Â§12.3). */
+  /** Called by the host when interactive work arrives (§12.3). */
   onInteractiveRequest(): void {
     if (!this.enabled) return;
     this.runner.requestPreemption();

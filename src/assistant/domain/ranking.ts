@@ -1,4 +1,4 @@
-/** Â§11.5. Every signal is normalized to [0, 1]; the weights make the ordering explicit. */
+/** §11.5. Every signal is normalized to [0, 1]; the weights make the ordering explicit. */
 export interface RankInput {
   readonly relationRelevance: number;
   readonly entityMatch: number;

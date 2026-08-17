@@ -27,12 +27,12 @@ export interface RetrieveResult {
   readonly tokenCount: number;
 }
 
-/** Â§11.4 default traversal bounds. */
+/** §11.4 default traversal bounds. */
 const RENDER_HEADING = '## Relevant personal context';
 
 /**
  * The task-relevant predicate allowlist for expansion. `RELATED_TO` is deliberately absent:
- * Â§11.4 forbids expanding it without an explicit allowlist and it produces unbounded fanout.
+ * §11.4 forbids expanding it without an explicit allowlist and it produces unbounded fanout.
  */
 const RETRIEVAL_PREDICATES = [
   'OWNS', 'USES', 'PREFERS', 'WORKS_ON', 'HAS_SETTING', 'HAS_CONSTRAINT', 'HAS_GOAL',

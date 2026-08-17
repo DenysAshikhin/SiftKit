@@ -16,8 +16,8 @@ type AssistantMemoryService = Pick<
 >;
 
 /**
- * The whole Â§11.1 gate in one place: memory is read and written only when the assistant started
- * and the session's preset opted in. Both directions fail soft â€” a broken assistant must never
+ * The whole §11.1 gate in one place: memory is read and written only when the assistant started
+ * and the session's preset opted in. Both directions fail soft — a broken assistant must never
  * break a chat turn.
  */
 export class ChatMemorySeam {

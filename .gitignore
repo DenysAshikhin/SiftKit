@@ -63,3 +63,6 @@ test-out.log
 /.codex
 /.worktrees
 /.bench-assistant
+*.tgz
+/tmp/
+tmp-*.ts

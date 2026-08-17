@@ -227,7 +227,7 @@ function getChatUsageValue(value: number | null | undefined): number | null {
 
 type BuildChatOptions = {
   webActionInstruction?: string;
-  /** Rendered assistant-memory block (Â§11.6). Absent when memory is off or found nothing. */
+  /** Rendered assistant-memory block (§11.6). Absent when memory is off or found nothing. */
   memoryContext?: string;
 };
 
