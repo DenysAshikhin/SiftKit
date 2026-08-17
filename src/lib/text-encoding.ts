@@ -83,3 +83,20 @@ export function readTextFileWithEncoding(filePath: string): string {
 export function readSourceText(filePath: string): string {
   return readTextFileWithEncoding(filePath).replace(/\r\n/gu, '\n');
 }
+
+export type SourceEolStyle = 'lf' | 'crlf';
+
+/**
+ * 'crlf' only when the text has at least one newline and every newline is CRLF.
+ * Mixed-ending files report 'lf', so write-back normalizes them to uniform LF.
+ */
+export function detectEolStyle(rawText: string): SourceEolStyle {
+  const newlines = rawText.match(/\r?\n/gu) ?? [];
+  return newlines.length > 0 && newlines.every((newline) => newline === '\r\n') ? 'crlf' : 'lf';
+}
+
+/** Re-applies a detected style to LF-normalized text. Idempotent for either input style. */
+export function applyEolStyle(text: string, style: SourceEolStyle): string {
+  const normalized = text.replace(/\r\n/gu, '\n');
+  return style === 'crlf' ? normalized.replace(/\n/gu, '\r\n') : normalized;
+}
