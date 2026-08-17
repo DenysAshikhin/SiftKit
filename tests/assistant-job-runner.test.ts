@@ -152,6 +152,58 @@ test('draining a queued conversation job produces an assertion and a projection'
   });
 });
 
+test('many mutations between drains leave at most one queued projection_maintenance job', async () => {
+  await withAssistantContextAsync(async ({ graph, ownerId }) => {
+    const owner = graph.nodes.createNode({
+      ownerId, type: 'person', canonicalKey: OWNER_PERSON_CANONICAL_KEY,
+      displayName: 'the user', description: null, sensitivity: 'personal', properties: {},
+    });
+    graph.nodes.addAlias({
+      ownerId, nodeId: owner.id, alias: 'the user',
+      aliasType: 'user_supplied', sourceEvidenceId: null,
+    });
+    const tools = ['PowerShell', 'TypeScript', 'SQLite', 'Godot', 'Git'];
+    const inference = new FakeAssistantInference(tools.map((tool) => JSON.stringify({
+      statements: [{
+        statementKind: 'direct_fact',
+        subject: { nodeType: 'person', displayName: 'the user' },
+        predicate: 'USES',
+        object: { kind: 'unresolved', nodeType: 'software', displayName: tool },
+        scope: null, validFromUtc: null, validToUtc: null,
+        rationale: `The user wrote "I use ${tool}".`, suggestedConfidence: 0.9,
+      }],
+    })));
+    const pipeline = new IngestionPipeline(graph, new SecretScanner(), 800);
+    const ingestor = new ConversationIngestor(pipeline);
+    for (const [index, tool] of tools.entries()) {
+      ingestor.ingestTurn({
+        ownerId, sessionId: 'chat_1', capturedAtUtc: '2026-08-05T09:00:00.000Z',
+        userMessageId: `m${index * 2 + 1}`, userText: `I use ${tool}.`,
+        assistantMessageId: `m${index * 2 + 2}`, assistantText: '',
+      });
+    }
+    const runner = new AssistantJobRunner({
+      graph,
+      ...UNUSED_GATE_C_JOBS,
+      extractor: new ConversationExtractor(graph, new StructuredOutputRunner(inference)),
+      promoter: new CandidatePromoter(graph, new CandidateGate(graph.policies, new SecretScanner())),
+      consolidator: new CandidateConsolidator(graph, new StructuredOutputRunner(inference)),
+      projections: projectionCompiler(graph),
+      idleGate: new StaticIdleGate(true),
+      resourcePolicy: new NoLimitResourcePolicy(),
+      jobPriorities: JOB_PRIORITIES,
+      leaseOwner: 'runner_test',
+      leaseSeconds: 120,
+    });
+
+    const summary = await runner.drain(ownerId, tools.length);
+    assert.equal(summary.completed, tools.length);
+    const queued = graph.jobs.listByStatus(ownerId, 'queued')
+      .filter((job) => job.job_type === 'projection_maintenance');
+    assert.equal(queued.length, 1);
+  });
+});
+
 test('a busy host claims nothing', async () => {
   await withAssistantContextAsync(async ({ graph, ownerId }) => {
     const pipeline = new IngestionPipeline(graph, new SecretScanner(), 800);

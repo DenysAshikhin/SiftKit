@@ -19,6 +19,34 @@ test('enqueue is idempotent while a job with the same key is live', () => {
   });
 });
 
+test('enqueueSuperseding cancels older queued jobs of the same type but not running ones', () => {
+  withAssistantContext(({ graph, ownerId }) => {
+    const first = graph.jobs.enqueue({
+      ownerId, jobType: 'projection_maintenance',
+      payload: { reason: 'graph_changed' }, idempotencyKey: 'projection_maintenance:1',
+    }, 0);
+    assert.ok(first);
+    const second = graph.jobs.enqueueSuperseding({
+      ownerId, jobType: 'projection_maintenance',
+      payload: { reason: 'graph_changed' }, idempotencyKey: 'projection_maintenance:2',
+    }, 0);
+    assert.ok(second);
+    assert.equal(graph.jobs.getJob(first.id)?.status, 'cancelled');
+    assert.equal(graph.jobs.getJob(second.id)?.status, 'queued');
+
+    graph.jobs.claimNext({
+      ownerId, leaseOwner: 'test', leaseSeconds: 60, modelWorkAllowed: true,
+    });
+    const third = graph.jobs.enqueueSuperseding({
+      ownerId, jobType: 'projection_maintenance',
+      payload: { reason: 'graph_changed' }, idempotencyKey: 'projection_maintenance:3',
+    }, 0);
+    assert.ok(third);
+    assert.equal(graph.jobs.getJob(second.id)?.status, 'running');
+    assert.equal(graph.jobs.getJob(third.id)?.status, 'queued');
+  });
+});
+
 test('claimNext takes the highest priority available job and leases it', () => {
   withAssistantContext(({ graph, ownerId, clock }) => {
     graph.jobs.enqueue({

@@ -297,7 +297,7 @@ export class MemoryMutationService {
   }
 
   private enqueueProjectionMaintenance(ownerId: string): void {
-    this.graph.jobs.enqueue({
+    this.graph.jobs.enqueueSuperseding({
       ownerId,
       jobType: 'projection_maintenance',
       payload: { reason: 'graph_changed' },

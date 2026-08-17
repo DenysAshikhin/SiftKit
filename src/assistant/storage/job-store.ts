@@ -73,6 +73,19 @@ export class JobStore {
     return this.requireJob(id);
   }
 
+  /**
+   * Enqueues after cancelling every queued job of the same type, so at most one job of this type
+   * waits. Running jobs survive so a newer graph version can queue a follow-up compile.
+   */
+  enqueueSuperseding(input: EnqueueJobInput, priority: number): JobRow | null {
+    this.database.prepare(`
+      UPDATE assistant_jobs
+      SET status = 'cancelled', updated_at_utc = ?
+      WHERE owner_id = ? AND job_type = ? AND status = 'queued'
+    `).run(this.clock.nowUtc(), input.ownerId, AssistantJobTypeSchema.parse(input.jobType));
+    return this.enqueue(input, priority);
+  }
+
   claimNext(input: ClaimJobInput): JobRow | null {
     const nowUtc = this.clock.nowUtc();
     const candidate = this.database.prepare(`

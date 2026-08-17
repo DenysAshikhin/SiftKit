@@ -230,7 +230,7 @@ export class AssistantJobRunner {
   }
 
   private enqueueProjectionMaintenance(ownerId: string): void {
-    this.options.graph.jobs.enqueue({
+    this.options.graph.jobs.enqueueSuperseding({
       ownerId,
       jobType: 'projection_maintenance',
       payload: { reason: 'graph_changed' },

@@ -76,7 +76,9 @@ test('memory mutations confirm, correct, pin, and demote with explicit history',
     });
     assert.equal(corrected.kind, 'superseded');
     assert.ok(graph.audit.listMutations(ownerId, 'graph_assertions', created.assertionId).length >= 4);
-    assert.ok(graph.jobs.countByStatus(ownerId, 'queued') >= 1);
+    const queuedProjectionJobs = graph.jobs.listByStatus(ownerId, 'queued')
+      .filter((job) => job.job_type === 'projection_maintenance');
+    assert.equal(queuedProjectionJobs.length, 1);
   });
 });
 
