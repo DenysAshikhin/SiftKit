@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import type { ToolAction } from '../src/repo-search/planner-protocol.js';
+import { TaskCommandSchema } from '../src/repo-search/prompts.js';
 import { z } from '../src/lib/zod.js';
 import type { ApprovalRequester } from '../src/repo-search/engine/approval-gate.js';
 import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
@@ -105,6 +106,21 @@ test('an executed command entry records the turn prompt token count', async () =
   );
 
   assert.equal(commands[0]?.promptTokenCount, 4321);
+});
+
+test('TaskCommandSchema rejects a negative or fractional promptTokenCount', () => {
+  const base = {
+    command: 'ls .',
+    turn: 1,
+    safe: true,
+    reason: null,
+    exitCode: 0,
+    output: 'a.ts',
+  };
+  assert.equal(TaskCommandSchema.safeParse({ ...base, promptTokenCount: 4321 }).success, true);
+  assert.equal(TaskCommandSchema.safeParse(base).success, true);
+  assert.equal(TaskCommandSchema.safeParse({ ...base, promptTokenCount: -1 }).success, false);
+  assert.equal(TaskCommandSchema.safeParse({ ...base, promptTokenCount: 1.5 }).success, false);
 });
 
 test('a git action whose command omits the git token is normalized instead of rejected', async () => {

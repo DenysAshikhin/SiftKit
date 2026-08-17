@@ -47,7 +47,7 @@ const ChatPresetSnapshotSessionRowSchema = z.object({
   context_window_tokens: z.number(),
 });
 
-export const CURRENT_SCHEMA_VERSION = 47;
+export const CURRENT_SCHEMA_VERSION = 48;
 const DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON = '{"summary":["find_text","read_lines","json_filter","json_get"],"read-only":["read","grep","find","ls","git"],"full":[]}';
 const OBSOLETE_CHAT_HIDDEN_TOOL_CONTEXTS_TABLE = 'chat_' + 'hidden_' + 'tool_' + 'contexts';
 const IdleActionMigrationConfigRowSchema = z.object({ presets_json: z.string() });
@@ -1718,6 +1718,15 @@ function ensureSchema(database: RuntimeDatabase): void {
   if (currentVersion < 47) {
     migrateAppConfigIdleAction(database);
     currentVersion = 47;
+  }
+  if (currentVersion < 48) {
+    // Pre-v48 builds stamped the run-total prompt tokens onto every tool row;
+    // the real per-call value is unknowable for them, so reset to "unknown".
+    if (tableHasColumn(database, 'chat_messages', 'tool_call_prompt_token_count')) {
+      database.exec('UPDATE chat_messages SET tool_call_prompt_token_count = NULL;');
+    }
+    setSchemaVersion(database, 48);
+    currentVersion = 48;
   }
   ensureChatMessageTimelineSchema(database);
   ensureRuntimeArtifactsSchema(database);

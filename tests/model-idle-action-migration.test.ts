@@ -11,7 +11,7 @@ import { normalizeConfigObject } from '../src/config/normalization.js';
 import { JsonObjectSchema, JsonValueSchema, type JsonObject, type JsonValue } from '../src/lib/json-types.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { readConfig, writeConfig } from '../src/status-server/config-store.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { CURRENT_SCHEMA_VERSION, closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 const PresetsJsonRowSchema = z.object({ presets_json: z.string() });
@@ -148,7 +148,7 @@ test('v47 migrates every missing IdleAction to unload and persists it once', () 
 
     const migrated = readConfig(dbPath);
     assert.equal(migrated.Server.ModelPresets.Presets.every((preset) => preset.IdleAction === 'unload'), true);
-    assert.equal(readSchemaVersion(dbPath), 47);
+    assert.equal(readSchemaVersion(dbPath), CURRENT_SCHEMA_VERSION);
     const persisted = readStoredPresets(dbPath);
     assert.equal(persisted.every((preset) => preset.IdleAction === 'unload'), true);
     const persistedBeforeSecondRead = JSON.stringify(persisted);
@@ -156,7 +156,7 @@ test('v47 migrates every missing IdleAction to unload and persists it once', () 
     readConfig(dbPath);
 
     assert.equal(JSON.stringify(readStoredPresets(dbPath)), persistedBeforeSecondRead);
-    assert.equal(readSchemaVersion(dbPath), 47);
+    assert.equal(readSchemaVersion(dbPath), CURRENT_SCHEMA_VERSION);
   } finally {
     closeRuntimeDatabase();
   }
@@ -235,7 +235,7 @@ test('v47 migrates benchmark session configs and case preset snapshots in the sa
     assert.equal(benchmarkPreset.IdleAction, 'unload');
     assert.equal(JsonObjectSchema.parse(parseJsonValueText(rows.chatPreset)).IdleAction, 'unload');
     assert.equal(z.array(JsonObjectSchema).parse(parseJsonValueText(rows.appPresets))[0]?.IdleAction, 'unload');
-    assert.equal(readSchemaVersion(dbPath), 47);
+    assert.equal(readSchemaVersion(dbPath), CURRENT_SCHEMA_VERSION);
   } finally {
     closeRuntimeDatabase();
   }
@@ -266,7 +266,7 @@ test('v47 leaves pre-ModelPresets benchmark snapshots unchanged and still migrat
 
     readConfig(dbPath);
 
-    assert.equal(readSchemaVersion(dbPath), 47);
+    assert.equal(readSchemaVersion(dbPath), CURRENT_SCHEMA_VERSION);
     const after = readSnapshotRows(dbPath);
     assert.equal(after.benchmarkConfig, legacyLlamaCppConfig);
     const readonlyDatabase = new Database(dbPath, { readonly: true });
@@ -418,7 +418,7 @@ test('a failed v47 migration write surfaces and leaves the marker incomplete', (
     unlocked.exec('DROP TRIGGER reject_idle_action_migration');
     unlocked.close();
     readConfig(dbPath);
-    assert.equal(readSchemaVersion(dbPath), 47);
+    assert.equal(readSchemaVersion(dbPath), CURRENT_SCHEMA_VERSION);
   } finally {
     closeRuntimeDatabase();
   }

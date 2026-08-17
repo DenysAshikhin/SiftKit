@@ -768,7 +768,7 @@ function buildToolMessageFromCommand(command: RepoSearchCommandResult, turnsUsed
     throw new Error(`TaskCommand for "${commandText}" has an invalid turn: ${String(command.turn)}`);
   }
   const output = command.output || command.outputSnippet;
-  const outputTokens = getChatUsageValue(command.outputTokens);
+  const outputTokens = command.outputTokens;
   return {
     id: randomUUID(),
     content: commandText,
