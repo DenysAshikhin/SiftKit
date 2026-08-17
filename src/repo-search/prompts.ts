@@ -387,5 +387,6 @@ export const TaskCommandSchema = z.object({
   imageMeta: z.array(ImageMetadataSchema).optional(),
   outputTokens: z.number().optional(),
   outputTokensEstimated: z.boolean().optional(),
+  promptTokenCount: z.number().optional(),
 });
 export type TaskCommand = z.infer<typeof TaskCommandSchema>;

@@ -91,6 +91,22 @@ test('non-image command records omit optional image fields from their JSON shape
   assert.equal(Object.prototype.hasOwnProperty.call(command, 'imageMeta'), false);
 });
 
+test('an executed command entry records the turn prompt token count', async () => {
+  const root = createManagedTempDir('siftkit-command-prompt-tokens-');
+  fs.writeFileSync(path.join(root, 'a.ts'), 'alpha\n', 'utf8');
+  const { processor, commands } = makeProcessor(root);
+
+  await processor.executeBatch(
+    1,
+    [{ action: 'tool', tool_name: 'ls', args: { path: '.' } }],
+    '',
+    4321,
+    false,
+  );
+
+  assert.equal(commands[0]?.promptTokenCount, 4321);
+});
+
 test('a git action whose command omits the git token is normalized instead of rejected', async () => {
   const root = createManagedTempDir('siftkit-git-prefix-');
   const { processor, commands, counters } = makeProcessor(root, ['git']);

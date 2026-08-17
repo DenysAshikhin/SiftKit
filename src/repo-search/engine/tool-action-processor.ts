@@ -1001,6 +1001,7 @@ export class ToolActionProcessor {
       ...(imageMeta ? { imageMeta } : {}),
       outputTokens: resultTokenCount,
       outputTokensEstimated: resultTokenCountEstimated,
+      promptTokenCount,
     });
     const commandSucceeded = Number(executed.exitCode) === 0;
     this.invalidateAfterMutation(context, commandSucceeded);
