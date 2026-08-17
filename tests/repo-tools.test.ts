@@ -673,6 +673,18 @@ test('write creates parent directories and overwrites existing content', async (
   assert.equal(fs.readFileSync(path.join(root, 'gen', 'deep', 'new.ts'), 'utf8'), 'bye\n');
 });
 
+test('write re-applies CRLF when overwriting a uniformly CRLF file, and writes new files as-is', async () => {
+  const root = makeRepo();
+  fs.writeFileSync(path.join(root, 'src', 'win.ts'), 'old1\r\nold2\r\n', 'utf8');
+  const overwritten = await executeRepoTool('write', { path: 'src/win.ts', content: 'new1\nnew2\n' }, makeContext(root));
+  assert.ok(overwritten.ok);
+  assert.equal(fs.readFileSync(path.join(root, 'src', 'win.ts'), 'utf8'), 'new1\r\nnew2\r\n');
+
+  const fresh = await executeRepoTool('write', { path: 'src/fresh.ts', content: 'a\nb\n' }, makeContext(root));
+  assert.ok(fresh.ok);
+  assert.equal(fs.readFileSync(path.join(root, 'src', 'fresh.ts'), 'utf8'), 'a\nb\n');
+});
+
 test('write rejects paths outside the repository root', async () => {
   const root = makeRepo();
   const result = await executeRepoTool('write', { path: '../escape.ts', content: 'x' }, makeContext(root));

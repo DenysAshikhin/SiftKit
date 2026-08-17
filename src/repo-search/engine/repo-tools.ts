@@ -884,10 +884,18 @@ function executeWrite(args: JsonObject, context: RepoToolContext): RepoToolExecu
     return failure('write', command, 'path is ignored by runtime policy');
   }
   mkdirSync(dirname(resolvedPath.absolutePath), { recursive: true });
-  writeFileSync(resolvedPath.absolutePath, content, 'utf8');
+  // Overwriting an existing uniformly-CRLF file keeps its endings; new files and
+  // mixed/LF files are written exactly as the model composed them (LF).
+  const overwriteTarget = existsSync(resolvedPath.absolutePath) && statSync(resolvedPath.absolutePath).isFile()
+    ? readTextFileWithEncoding(resolvedPath.absolutePath)
+    : null;
+  const finalContent = overwriteTarget === null
+    ? content
+    : applyEolStyle(content, detectEolStyle(overwriteTarget));
+  writeFileSync(resolvedPath.absolutePath, finalContent, 'utf8');
   return {
     ok: true, requestedCommand: command, command, exitCode: 0,
-    output: `Wrote ${Buffer.byteLength(content, 'utf8')} bytes to ${resolvedPath.relativePath}.`,
+    output: `Wrote ${Buffer.byteLength(finalContent, 'utf8')} bytes to ${resolvedPath.relativePath}.`,
     toolType: 'write', outputUnit: 'lines',
     mutatedPath: resolvedPath.relativePath,
   };
