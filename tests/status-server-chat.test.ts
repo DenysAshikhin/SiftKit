@@ -578,6 +578,21 @@ test('buildPersistTurnsFromRepoSearchResult throws on a command with a missing t
   }), /invalid turn/u);
 });
 
+test('buildPersistTurnsFromRepoSearchResult persists per-call prompt token counts', () => {
+  const turns = buildPersistTurnsFromRepoSearchResult({
+    scorecard: { tasks: [{
+      turnsUsed: 2,
+      turnThinking: {},
+      commands: [
+        { command: 'rg -n "a" src', modelVisibleCommand: 'rg -n "a" src', turn: 1, exitCode: 0, output: 'a', promptTokenCount: 2464 },
+        { command: 'rg -n "b" src', modelVisibleCommand: 'rg -n "b" src', turn: 2, exitCode: 0, output: 'b' },
+      ],
+    }] },
+  });
+  assert.equal(turns[0].toolMessages[0].toolCallPromptTokenCount, 2464);
+  assert.equal(turns[1].toolMessages[0].toolCallPromptTokenCount, null);
+});
+
 
 test('buildContextUsage counts typed thinking and tool bubbles from visible timeline content', () => {
   const session = mockChatSession({

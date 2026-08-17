@@ -32,7 +32,6 @@ import {
   buildRepoSearchMarkdown,
   getScorecardTotal,
   resolveChatSessionConfig,
-  type PersistTurn,
 } from './chat.js';
 import { ChatOperationPresetSelector } from './chat-operation-preset.js';
 import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js';
@@ -259,7 +258,7 @@ export class ChatRepoOperationRunner {
     const telemetry = new ChatTurnTelemetry(options.request.config, tokenConfig);
     const inputTokenCount = await telemetry.countInputTokens(options.request.content);
     const turns = await telemetry.countThinkingTokens(
-      this.buildPersistTurns(options.engineResult),
+      buildPersistTurnsFromRepoSearchResult(options.engineResult),
     );
     const trackedSpeculative = getManagedLlamaSpeculativeMetricsDelta(
       options.request.managedLlamaRunId,
@@ -317,17 +316,6 @@ export class ChatRepoOperationRunner {
       throw new Error(`Chat session disappeared after persistence: ${options.session.id}`);
     }
     return authoritativeSession;
-  }
-
-  private buildPersistTurns(result: RepoSearchExecutionResult): PersistTurn[] {
-    const promptTokens = getScorecardTotal(result.scorecard, 'promptTokens');
-    return buildPersistTurnsFromRepoSearchResult(result).map((turn) => ({
-      thinkingText: turn.thinkingText,
-      toolMessages: turn.toolMessages.map((message) => ({
-        ...message,
-        toolCallPromptTokenCount: promptTokens,
-      })),
-    }));
   }
 
   private hasEstimatedTokens(

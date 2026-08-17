@@ -776,7 +776,7 @@ function buildToolMessageFromCommand(command: RepoSearchCommandResult, turnsUsed
     toolCallTurn: turn,
     toolCallMaxTurns: turnsUsed,
     toolCallExitCode: command.exitCode,
-    toolCallPromptTokenCount: null,
+    toolCallPromptTokenCount: command.promptTokenCount,
     toolCallOutputSnippet: output.length > 200 ? `${output.slice(0, 200)}...` : output,
     toolCallOutput: output,
     outputTokens,
