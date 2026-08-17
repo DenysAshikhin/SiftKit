@@ -94,6 +94,13 @@ export class QuestionStore {
     `).all(ownerId));
   }
 
+  countPending(ownerId: string): number {
+    return z.object({ count: z.number() }).parse(this.database.prepare(`
+      SELECT COUNT(*) AS count FROM assistant_questions
+      WHERE owner_id = ? AND status IN ('planned', 'eligible', 'shown', 'snoozed')
+    `).get(ownerId)).count;
+  }
+
   listAll(ownerId: string): QuestionRow[] {
     return z.array(QuestionRowSchema).parse(this.database.prepare(`
       SELECT * FROM assistant_questions

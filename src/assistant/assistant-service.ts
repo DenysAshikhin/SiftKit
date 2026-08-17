@@ -342,9 +342,9 @@ export class AssistantService implements AssistantRuntime {
       available: true,
       enabled: this.enabled,
       ownerId: this.ownerId,
-      pendingQuestionCount: this.enabled ? this.graph.questions.listPending(this.ownerId).length : 0,
+      pendingQuestionCount: this.enabled ? this.graph.questions.countPending(this.ownerId) : 0,
       pendingValidationCount: this.enabled
-        ? this.graph.candidates.listValidationQueue(this.ownerId).length
+        ? this.graph.candidates.countValidationQueue(this.ownerId)
         : 0,
     };
   }

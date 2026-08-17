@@ -71,6 +71,45 @@ test('a candidate is stored pending and is unique per fingerprint and observatio
   });
 });
 
+test('countValidationQueue matches listValidationQueue length', () => {
+  withAssistantContext(({ graph, ownerId }) => {
+    const evidence = graph.evidence.recordTextEvidence({
+      ownerId, deviceId: null, sourceType: 'conversation_message', parentEvidenceId: null,
+      sourceEventId: 'chat_1:msg_3', sourceRef: 'chat_1', sourceTimezone: null,
+      capturedAtUtc: '2026-08-05T09:00:00.000Z', sensitivity: 'personal',
+      retentionUntilUtc: null, metadata: {}, text: 'I use PowerShell and Bash on a Golf.',
+    });
+    const observation = graph.observations.record({
+      ownerId, evidenceId: evidence.id, observationType: 'conversation_statement',
+      payload: { text: 'I use PowerShell and Bash on a Golf.' }, confidence: 0.9,
+      sensitivity: 'personal', extractorName: 'conversation_memory_extractor',
+      extractorVersion: '1',
+    });
+    const propose = (predicate: 'USES' | 'DRIVES', name: string) => graph.candidates.propose({
+      ownerId, observationId: observation.id,
+      subject: { nodeType: 'person', displayName: 'the user' },
+      predicate,
+      object: { kind: 'unresolved', nodeType: 'software', displayName: name },
+      scope: null, basis: 'explicit_user_statement', confidence: 0.9,
+      sensitivity: 'personal', validFromUtc: null, validToUtc: null,
+      rationale: `User mentioned ${name}.`,
+    });
+    const pending = propose('USES', 'PowerShell');
+    assert.ok(pending);
+    const needsConfirmation = propose('USES', 'Bash');
+    assert.ok(needsConfirmation);
+    graph.candidates.needsConfirmation(needsConfirmation.id, 'ambiguous_scope');
+    const accepted = propose('DRIVES', 'Golf');
+    assert.ok(accepted);
+    graph.candidates.reject(accepted.id, 'unknown_predicate');
+    assert.equal(graph.candidates.countValidationQueue(ownerId), 2);
+    assert.equal(
+      graph.candidates.countValidationQueue(ownerId),
+      graph.candidates.listValidationQueue(ownerId).length,
+    );
+  });
+});
+
 test('candidate refs round-trip and a rejection records its reason', () => {
   withAssistantContext(({ graph, ownerId }) => {
     const evidence = graph.evidence.recordTextEvidence({

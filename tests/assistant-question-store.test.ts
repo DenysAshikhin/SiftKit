@@ -68,6 +68,31 @@ test('QuestionStore snoozes, expires due questions, and records feedback', () =>
   });
 });
 
+test('countPending matches listPending length', () => {
+  withAssistantContext(({ graph, ownerId, clock }) => {
+    const base = {
+      questionType: 'confirm_inference', candidateIds: [], expectedValue: 0.5,
+      interruptionCost: 0.1, eligibleAfterUtc: null, expiresAtUtc: null,
+    } as const;
+    graph.questions.create({ ownerId, topicKey: 'topic:a', questionText: 'A?', ...base });
+    graph.questions.create({ ownerId, topicKey: 'topic:b', questionText: 'B?', ...base });
+    const answered = graph.questions.create({
+      ownerId, topicKey: 'topic:c', questionText: 'C?', ...base,
+    });
+    graph.questions.markEligible(answered.id, NOW);
+    graph.questions.markShown(answered.id);
+    const evidence = graph.evidence.recordTextEvidence({
+      ownerId, deviceId: null, sourceEventId: 'answer_c', parentEvidenceId: null,
+      sourceType: 'question_answer', sourceRef: answered.id, capturedAtUtc: clock.nowUtc(),
+      sourceTimezone: null, sensitivity: 'personal', retentionUntilUtc: null,
+      metadata: {}, text: 'Yes.',
+    });
+    graph.questions.answer(answered.id, evidence.id);
+    assert.equal(graph.questions.countPending(ownerId), graph.questions.listPending(ownerId).length);
+    assert.equal(graph.questions.countPending(ownerId), 2);
+  });
+});
+
 test('QuestionStore rejects illegal transitions loudly', () => {
   withAssistantContext(({ graph, ownerId }) => {
     const question = graph.questions.create({

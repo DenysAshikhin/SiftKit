@@ -108,6 +108,13 @@ export class CandidateStore {
     `).all(ownerId));
   }
 
+  countValidationQueue(ownerId: string): number {
+    return z.object({ count: z.number() }).parse(this.database.prepare(`
+      SELECT COUNT(*) AS count FROM candidate_assertions
+      WHERE owner_id = ? AND status IN ('pending', 'needs_confirmation')
+    `).get(ownerId)).count;
+  }
+
   listByObservation(observationId: string): CandidateRow[] {
     return z.array(CandidateRowSchema).parse(this.database.prepare(`
       SELECT * FROM candidate_assertions
