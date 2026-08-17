@@ -58,6 +58,31 @@ function isHttpClientLogLine(line: string): boolean {
   return /^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+http_client\b/u.test(line.trim());
 }
 
+/** Subcommands whose stdout is file content: blank lines are payload, not noise. */
+const CONTENT_BEARING_GIT_SUBCOMMANDS = new Set(['show', 'cat-file']);
+
+/** Global git flags that consume a separate value token (e.g. `git -C sub show ...`). */
+const GIT_GLOBAL_FLAGS_WITH_VALUE = new Set(['-c', '-C', '--git-dir', '--work-tree', '--exec-path']);
+
+function isContentBearingGitCommand(command: string): boolean {
+  const tokens = normalizeWhitespace(String(command || '')).split(' ');
+  if (tokens[0] !== 'git') {
+    return false;
+  }
+  for (let index = 1; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (GIT_GLOBAL_FLAGS_WITH_VALUE.has(token)) {
+      index += 1;
+      continue;
+    }
+    if (token.startsWith('-')) {
+      continue;
+    }
+    return CONTENT_BEARING_GIT_SUBCOMMANDS.has(token);
+  }
+  return false;
+}
+
 /** `git` is the only repo tool whose call is a command string rather than typed args. */
 function normalizeRepoSearchFingerprint(command: string): string {
   return normalizeWhitespace(String(command || '').toLowerCase());
@@ -157,20 +182,28 @@ export function buildPromptToolResult(options: BuildPromptToolResultOptions): st
   if (!isRepoSearchCommandToolName(options.toolName)) {
     return stripLeadingSuccessExitCode(String(options.rawOutput || '').trim());
   }
+  const exitCode = Number(options.exitCode);
+  const failed = Number.isFinite(exitCode) && exitCode !== 0;
+  // Successful content-bearing commands (git show / cat-file) return the payload
+  // verbatim apart from CRLF→LF: interior blank lines are part of the file, and
+  // the direct-spawn git tool cannot emit http_client noise. Filtering stays for
+  // log/status/branch, where blank lines are decoration.
+  if (!failed && isContentBearingGitCommand(String(options.command || ''))) {
+    return stripLeadingSuccessExitCode(String(options.rawOutput || '').replace(/\r\n/gu, '\n'));
+  }
   const meaningfulLines = String(options.rawOutput || '')
     .replace(/\r\n/gu, '\n')
     .split('\n')
     .filter((line) => !isHttpClientLogLine(line))
     .filter((line) => line.trim().length > 0);
   const trimmed = meaningfulLines.join('\n').trim();
-  const exitCode = Number(options.exitCode);
   if (!trimmed) {
-    if (Number.isFinite(exitCode) && exitCode !== 0) {
+    if (failed) {
       return `exit_code=${exitCode}`;
     }
     return '';
   }
-  if (Number.isFinite(exitCode) && exitCode !== 0) {
+  if (failed) {
     if (new RegExp(`^exit_code=${exitCode}(?:\\s|$)`, 'u').test(trimmed)) {
       return trimmed;
     }

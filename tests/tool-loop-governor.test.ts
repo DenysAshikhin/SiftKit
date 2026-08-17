@@ -176,3 +176,64 @@ test('classifyToolOutputNovelty defers to the evidence keys when output is prese
   });
   assert.equal(repeat.hasNewEvidence, false);
 });
+
+test('buildPromptToolResult preserves blank lines for git show file content', () => {
+  const fileContent = [
+    "import { z } from 'zod';",
+    '',
+    'export const schema = z.object({',
+    '  port: z.number(),',
+    '});',
+    '',
+    'export type Config = z.infer<typeof schema>;',
+  ].join('\n');
+  const promptResult = buildPromptToolResult({
+    toolName: 'git',
+    command: 'git show HEAD:src/config.ts',
+    exitCode: 0,
+    rawOutput: `exit_code=0\n${fileContent}`,
+  });
+
+  assert.equal(promptResult, fileContent);
+});
+
+test('buildPromptToolResult recognizes content-bearing git commands through global flags', () => {
+  const body = 'alpha\n\nbeta';
+  const withPagerFlag = buildPromptToolResult({
+    toolName: 'git',
+    command: 'git --no-pager show HEAD:a.txt',
+    exitCode: 0,
+    rawOutput: `exit_code=0\n${body}`,
+  });
+  const withValueFlag = buildPromptToolResult({
+    toolName: 'git',
+    command: 'git -C sub cat-file -p HEAD:a.txt',
+    exitCode: 0,
+    rawOutput: `exit_code=0\n${body}`,
+  });
+
+  assert.equal(withPagerFlag, body);
+  assert.equal(withValueFlag, body);
+});
+
+test('buildPromptToolResult still strips blank lines from git log output', () => {
+  const promptResult = buildPromptToolResult({
+    toolName: 'git',
+    command: 'git log --oneline -n 3',
+    exitCode: 0,
+    rawOutput: 'exit_code=0\ncommit abc123\n\n    fix the thing\n\ncommit def456',
+  });
+
+  assert.equal(promptResult, 'commit abc123\n    fix the thing\ncommit def456');
+});
+
+test('buildPromptToolResult keeps the filtered error shape for a failed git show', () => {
+  const promptResult = buildPromptToolResult({
+    toolName: 'git',
+    command: 'git show HEAD:missing.ts',
+    exitCode: 128,
+    rawOutput: "exit_code=128\n\nfatal: path 'missing.ts' does not exist in 'HEAD'",
+  });
+
+  assert.equal(promptResult, "exit_code=128\nfatal: path 'missing.ts' does not exist in 'HEAD'");
+});
