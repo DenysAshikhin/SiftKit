@@ -42,7 +42,7 @@ test('normalizeRepoSearchResult reads typed scorecard tasks and totals', () => {
         finalOutput: 'answer',
         turnsUsed: 2,
         groundingStatus: 'fetched',
-        commands: [{ turn: 1, command: 'rg Dict', output: 'hit', exitCode: 0, outputTokens: 3 }],
+        commands: [{ turn: 1, command: 'rg Dict', output: 'hit', exitCode: 0, outputTokens: 3, promptTokenCount: 2464 }],
         turnThinking: { 1: 'thinking' },
       }],
     },
@@ -54,6 +54,25 @@ test('normalizeRepoSearchResult reads typed scorecard tasks and totals', () => {
   assert.equal(result.requestId, 'r1');
   assert.equal(tasks[0]?.finalOutput, 'answer');
   assert.equal(tasks[0]?.commands[0]?.command, 'rg Dict');
+  assert.equal(tasks[0]?.commands[0]?.promptTokenCount, 2464);
   assert.equal(totals.promptTokens, 10);
   assert.equal(totals.outputTokens, 20);
+});
+
+test('normalizeRepoSearchResult yields null promptTokenCount when absent', () => {
+  const result = normalizeRepoSearchResult({
+    requestId: 'r2',
+    transcriptPath: 't.jsonl',
+    artifactPath: 'a.json',
+    scorecard: {
+      totals: {},
+      tasks: [{
+        finalOutput: 'answer',
+        turnsUsed: 1,
+        commands: [{ turn: 1, command: 'rg Dict', output: 'hit', exitCode: 0 }],
+        turnThinking: {},
+      }],
+    },
+  });
+  assert.equal(getRepoSearchTasks(result.scorecard)[0]?.commands[0]?.promptTokenCount, null);
 });

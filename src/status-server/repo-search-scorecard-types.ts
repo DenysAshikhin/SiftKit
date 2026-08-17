@@ -14,6 +14,7 @@ export type RepoSearchCommandResult = {
   exitCode: number | null;
   outputTokens: number | null;
   outputTokensEstimated: boolean;
+  promptTokenCount: number | null;
   imageDataUrls: ImageDataUrl[];
   imageMeta: ImageMetadata[];
 };
@@ -74,6 +75,7 @@ function normalizeCommand(value: OptionalJsonValue): RepoSearchCommandResult {
     exitCode: reader.number('exitCode'),
     outputTokens: reader.nullableNonNegativeInteger('outputTokens'),
     outputTokensEstimated: reader.value('outputTokensEstimated') !== false,
+    promptTokenCount: reader.nullableNonNegativeInteger('promptTokenCount'),
     imageDataUrls: imageDataUrlsValue === undefined
       ? []
       : z.array(ImageDataUrlSchema).parse(imageDataUrlsValue),
