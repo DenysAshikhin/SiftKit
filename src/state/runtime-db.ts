@@ -1067,7 +1067,15 @@ function migratePresetArray(text: string, source: string): { presets: JsonObject
 
 function migrateConfigSnapshot(text: string, source: string): { json: string; changed: boolean } {
   const config = requireMigrationObject(parseMigrationJson(text, source), source);
+  // Snapshots that predate Server.ModelPresets (e.g. Server.LlamaCpp) carry no presets to
+  // migrate; they stay untouched and normalization rejects them loudly if they are ever reused.
+  if (!Object.hasOwn(config, 'Server')) {
+    return { json: text, changed: false };
+  }
   const server = requireMigrationObject(JsonValueSchema.parse(config.Server), `${source}.Server`);
+  if (!Object.hasOwn(server, 'ModelPresets')) {
+    return { json: text, changed: false };
+  }
   const modelPresets = requireMigrationObject(
     JsonValueSchema.parse(server.ModelPresets),
     `${source}.Server.ModelPresets`,

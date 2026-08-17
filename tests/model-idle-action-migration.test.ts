@@ -241,6 +241,51 @@ test('v47 migrates benchmark session configs and case preset snapshots in the sa
   }
 });
 
+test('v47 leaves pre-ModelPresets benchmark snapshots unchanged and still migrates the rest', () => {
+  const dbPath = tempDbPath('sk-idle-action-legacy-benchmark-config-');
+  try {
+    seedAllMissingIdleActionSnapshots(dbPath);
+    const legacyLlamaCppConfig = JSON.stringify({
+      Version: '0.1.0',
+      Backend: 'llama.cpp',
+      Server: { LlamaCpp: { Port: 8080 } },
+    });
+    const legacyNoServerConfig = JSON.stringify({ Version: '0.1.0' });
+    const database = new Database(dbPath);
+    database.prepare('UPDATE benchmark_sessions SET original_config_json = ? WHERE id = ?')
+      .run(legacyLlamaCppConfig, 'benchmark-session-1');
+    database.prepare(`
+      INSERT INTO benchmark_sessions (
+        id, status, question_preset_count, case_count, repetitions,
+        current_case_index, current_prompt_index, current_repeat_index,
+        restore_status, restore_error, original_config_json,
+        started_at_utc, completed_at_utc, updated_at_utc
+      ) VALUES ('benchmark-session-2', 'completed', 1, 1, 1, NULL, NULL, NULL, 'completed', NULL, ?, '2026-01-01', NULL, '2026-01-01')
+    `).run(legacyNoServerConfig);
+    database.close();
+
+    readConfig(dbPath);
+
+    assert.equal(readSchemaVersion(dbPath), 47);
+    const after = readSnapshotRows(dbPath);
+    assert.equal(after.benchmarkConfig, legacyLlamaCppConfig);
+    const readonlyDatabase = new Database(dbPath, { readonly: true });
+    try {
+      const secondRow = z.object({ value: z.string() }).parse(
+        readonlyDatabase.prepare('SELECT original_config_json AS value FROM benchmark_sessions WHERE id = ?').get('benchmark-session-2'),
+      );
+      assert.equal(secondRow.value, legacyNoServerConfig);
+    } finally {
+      readonlyDatabase.close();
+    }
+    assert.equal(JsonObjectSchema.parse(parseJsonValueText(after.chatPreset)).IdleAction, 'unload');
+    assert.equal(JsonObjectSchema.parse(parseJsonValueText(after.benchmarkPreset)).IdleAction, 'unload');
+    assert.equal(z.array(JsonObjectSchema).parse(parseJsonValueText(after.appPresets))[0]?.IdleAction, 'unload');
+  } finally {
+    closeRuntimeDatabase();
+  }
+});
+
 test('v47 rejects malformed app preset JSON without advancing or partially updating snapshots', () => {
   const dbPath = tempDbPath('sk-idle-action-malformed-app-');
   try {
