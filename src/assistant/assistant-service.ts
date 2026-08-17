@@ -131,6 +131,9 @@ export interface AssistantRuntime {
 /** How long a claimed background job may run before its lease expires and it is re-queued. */
 const JOB_LEASE_SECONDS = 300;
 
+/** Terminal job rows older than this are deleted at the start of each drain. */
+const JOB_RETENTION_DAYS = 7;
+
 /** Capture states that still owe an extraction; a drain enqueues both (spec §5). */
 const PENDING_CAPTURE_STATES = ['queued', 'awaiting_image_capability'] as const;
 
@@ -716,6 +719,10 @@ export class AssistantService implements AssistantRuntime {
   }
 
   private async performDrain(): Promise<void> {
+    const cutoffUtc = new Date(
+      Date.parse(this.clock.nowUtc()) - JOB_RETENTION_DAYS * 86_400_000,
+    ).toISOString();
+    this.graph.jobs.pruneTerminal(this.ownerId, cutoffUtc);
     // Retention runs even when observation is paused: it only ever removes data (spec §7).
     this.graph.jobs.enqueue({
       ownerId: this.ownerId,

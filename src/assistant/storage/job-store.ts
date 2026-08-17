@@ -153,6 +153,16 @@ export class JobStore {
     return result.changes;
   }
 
+  /** Deletes terminal jobs last touched before the cutoff. Live jobs are never touched. */
+  pruneTerminal(ownerId: string, beforeUtc: string): number {
+    const result = this.database.prepare(`
+      DELETE FROM assistant_jobs
+      WHERE owner_id = ? AND status IN ('completed', 'failed', 'cancelled', 'dead_letter')
+        AND updated_at_utc < ?
+    `).run(ownerId, beforeUtc);
+    return result.changes;
+  }
+
   getJob(jobId: string): JobRow | null {
     const row = this.database.prepare('SELECT * FROM assistant_jobs WHERE id = ?').get(jobId);
     return row === undefined || row === null ? null : JobRowSchema.parse(row);

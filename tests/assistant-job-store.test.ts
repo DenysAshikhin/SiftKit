@@ -149,6 +149,41 @@ test('payload round-trips through its schema', () => {
   });
 });
 
+test('pruneTerminal deletes old terminal jobs and keeps live and recent ones', () => {
+  withAssistantContext(({ graph, ownerId, clock }) => {
+    const oldJob = graph.jobs.enqueue({
+      ownerId, jobType: 'capture_retention',
+      payload: { reason: 'schedule' }, idempotencyKey: 'k1',
+    }, 0);
+    assert.ok(oldJob);
+    graph.jobs.claimNext({
+      ownerId, leaseOwner: 'test', leaseSeconds: 60, modelWorkAllowed: true,
+    });
+    graph.jobs.complete(oldJob.id);
+
+    clock.advanceSeconds(1);
+    const recentJob = graph.jobs.enqueue({
+      ownerId, jobType: 'capture_retention',
+      payload: { reason: 'schedule' }, idempotencyKey: 'k2',
+    }, 0);
+    assert.ok(recentJob);
+    graph.jobs.claimNext({
+      ownerId, leaseOwner: 'test', leaseSeconds: 60, modelWorkAllowed: true,
+    });
+    graph.jobs.complete(recentJob.id);
+    const liveJob = graph.jobs.enqueue({
+      ownerId, jobType: 'capture_retention',
+      payload: { reason: 'schedule' }, idempotencyKey: 'k3',
+    }, 0);
+    assert.ok(liveJob);
+
+    assert.equal(graph.jobs.pruneTerminal(ownerId, clock.nowUtc()), 1);
+    assert.equal(graph.jobs.getJob(oldJob.id), null);
+    assert.equal(graph.jobs.getJob(recentJob.id)?.status, 'completed');
+    assert.equal(graph.jobs.getJob(liveJob.id)?.status, 'queued');
+  });
+});
+
 test('Gate C job payloads are parsed strictly', () => {
   withAssistantContext(({ graph, ownerId }) => {
     const planning = graph.jobs.enqueue({
