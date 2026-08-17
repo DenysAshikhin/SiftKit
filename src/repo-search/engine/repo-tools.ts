@@ -7,7 +7,7 @@ import { estimateTokenCount } from '../../lib/token-estimate.js';
 import { findContiguousUnreadRange, type ToolOutputTruncationUnit, type ToolOutputKeep } from '../../tool-output-fit.js';
 import { buildReadPathKey, getOrCreateFileReadState, type FileReadState } from './read-overlap.js';
 import { parseJsonValueText } from '../../lib/json.js';
-import { readSourceText } from '../../lib/text-encoding.js';
+import { applyEolStyle, detectEolStyle, readSourceText, readTextFileWithEncoding } from '../../lib/text-encoding.js';
 import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
 import type { ToolTranscriptAction } from '../../tool-call-messages.js';
 import { spawnDirectCommand } from '../../lib/command-spawn.js';
@@ -941,7 +941,11 @@ function executeEdit(args: JsonObject, context: RepoToolContext): RepoToolExecut
     return failure('edit', command, 'path is not a readable file');
   }
 
-  const originalText = readSourceText(resolvedPath.absolutePath);
+  const rawText = readTextFileWithEncoding(resolvedPath.absolutePath);
+  const eolStyle = detectEolStyle(rawText);
+  // The model matches against LF (readSourceText contract); the on-disk style is
+  // re-applied on write-back so an edit never rewrites unrelated line endings.
+  const originalText = rawText.replace(/\r\n/gu, '\n');
   const resolved = resolveEdits(originalText, rawEdits);
   if (typeof resolved === 'string') {
     return failure('edit', command, resolved);
@@ -953,7 +957,7 @@ function executeEdit(args: JsonObject, context: RepoToolContext): RepoToolExecut
     cursor = edit.end;
   }
   updatedText += originalText.slice(cursor);
-  writeFileSync(resolvedPath.absolutePath, updatedText, 'utf8');
+  writeFileSync(resolvedPath.absolutePath, applyEolStyle(updatedText, eolStyle), 'utf8');
   return {
     ok: true, requestedCommand: command, command, exitCode: 0,
     output: `Applied ${resolved.length} edit(s) to ${resolvedPath.relativePath}.`,
