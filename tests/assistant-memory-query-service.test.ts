@@ -89,3 +89,66 @@ test('listMemoryHistory pages newest-first and validates the page', () => {
     assert.throws(() => service.listMemoryHistory(ownerId, { limit: 10, offset: -1 }));
   });
 });
+
+test('getProjections returns the same rows as getProjection per id', () => {
+  withAssistantContext(({ graph, ownerId }) => {
+    graph.projections.upsert({
+      ownerId, tier: 1, topicKey: 'test-topic', title: 'Test Projection',
+      content: 'the quick brown fox', contentHash: 'hash', tokenCount: 10,
+      tokenizerId: 'tokenizer', graphVersion: 1, includedAssertionIds: [],
+      sensitivity: 'personal',
+    });
+    const ids = graph.projections.search(ownerId, 'quick', 10);
+    assert.ok(ids.length > 0, 'expected at least one projection match');
+    const batch = graph.projections.getProjections(ids);
+    for (const id of ids) {
+      assert.deepEqual(batch.get(id), graph.projections.getProjection(id));
+    }
+  });
+});
+
+test('listEvidenceForAssertions groups links by assertion id', () => {
+  withAssistantContext(({ graph, ownerId }) => {
+    const subject = graph.nodes.createNode({
+      ownerId, type: 'person', canonicalKey: null, displayName: 'Subject',
+      description: null, sensitivity: 'personal', properties: {},
+    });
+    const object = graph.nodes.createNode({
+      ownerId, type: 'software', canonicalKey: null, displayName: 'SiftKit',
+      description: null, sensitivity: 'personal', properties: {},
+    });
+    const evidence = graph.evidence.recordTextEvidence({
+      ownerId, deviceId: null, parentEvidenceId: null, sourceType: 'conversation_message',
+      sourceEventId: 'chat:e1', sourceRef: 'chat', capturedAtUtc: '2026-08-10T00:00:00.000Z',
+      sourceTimezone: null, sensitivity: 'personal', retentionUntilUtc: null,
+      metadata: {}, text: 'evidence text',
+    });
+    const outcome = graph.assertionService.assert({
+      ownerId, actorType: 'user', actorRef: null, subjectNodeId: subject.id,
+      predicate: 'INTERESTED_IN', object: { kind: 'node', nodeId: object.id }, scopeNodeId: null,
+      basis: 'explicit_user_statement', sensitivity: 'personal',
+      validFromUtc: null, validToUtc: null, observedAtUtc: '2026-08-10T00:00:00.000Z',
+      topics: [], attributes: {},
+      searchText: { subject: 'Subject', predicate: 'INTERESTED_IN', object: 'SiftKit', scope: '' },
+      evidence: [{ evidenceId: evidence.id, stance: 'supports', weight: 1 }],
+    });
+    assert.equal(outcome.kind, 'created');
+    if (outcome.kind !== 'created') return;
+    const single = graph.assertions.listEvidence(outcome.assertionId);
+    const batch = graph.assertions.listEvidenceForAssertions([outcome.assertionId]);
+    assert.deepEqual(batch.get(outcome.assertionId) ?? [], single);
+  });
+});
+
+test('getEvidenceMany returns the same rows as getEvidence per id', () => {
+  withAssistantContext(({ graph, ownerId }) => {
+    const evidence = graph.evidence.recordTextEvidence({
+      ownerId, deviceId: null, parentEvidenceId: null, sourceType: 'conversation_message',
+      sourceEventId: 'chat:e2', sourceRef: 'chat', capturedAtUtc: '2026-08-10T00:00:00.000Z',
+      sourceTimezone: null, sensitivity: 'personal', retentionUntilUtc: null,
+      metadata: {}, text: 'evidence text',
+    });
+    const batch = graph.evidence.getEvidenceMany([evidence.id]);
+    assert.deepEqual(batch.get(evidence.id), graph.evidence.getEvidence(evidence.id));
+  });
+});

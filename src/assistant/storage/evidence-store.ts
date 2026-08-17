@@ -11,6 +11,7 @@ import type { IdGenerator } from '../ids.js';
 import {
   BlobRowSchema, CountRowSchema, EvidenceRowSchema, type BlobRow, type EvidenceRow,
 } from './rows.js';
+import { fetchRowsByIds } from './sql-helpers.js';
 import { z } from '../../lib/zod.js';
 
 interface EvidenceCommonInput {
@@ -90,6 +91,11 @@ export class EvidenceStore {
       throw new Error(`Unknown evidence record: ${evidenceId}`);
     }
     return evidence;
+  }
+
+  /** Batch fetch by id, deduplicated. Missing ids are simply absent from the result. */
+  getEvidenceMany(evidenceIds: readonly string[]): Map<string, EvidenceRow> {
+    return fetchRowsByIds(this.database, 'evidence_records', EvidenceRowSchema, evidenceIds);
   }
 
   findBySourceEventId(ownerId: string, sourceEventId: string): EvidenceRow | null {

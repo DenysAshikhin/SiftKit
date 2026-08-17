@@ -41,18 +41,28 @@ export class MemoryQueryService {
     this.validateLimit(limit);
     const trimmed = query.trim();
     if (!trimmed) return { nodes: [], assertions: [], projections: [] };
+    const nodeIds = this.graph.nodes.searchNodes(ownerId, trimmed, limit);
+    const assertionIds = this.graph.assertions.searchAssertions(ownerId, trimmed, limit);
+    const projectionIds = this.graph.projections.search(ownerId, trimmed, limit);
+    const nodeRows = this.graph.nodes.getNodes(nodeIds);
+    const assertionRows = this.graph.assertions.getAssertions(assertionIds);
+    const projectionRows = this.graph.projections.getProjections(projectionIds);
+    const ownedAssertions = assertionIds
+      .map((id) => assertionRows.get(id))
+      .filter((row): row is AssertionRow => row !== undefined && row.owner_id === ownerId);
+    const views = new Map(
+      this.views.buildMany(ownedAssertions).map((view) => [view.assertionId, view] as const),
+    );
     return {
-      nodes: this.graph.nodes.searchNodes(ownerId, trimmed, limit)
-        .map((id) => this.graph.nodes.getNode(id))
-        .filter((row): row is NodeRow => row !== null && row.owner_id === ownerId)
+      nodes: nodeIds
+        .map((id) => nodeRows.get(id))
+        .filter((row): row is NodeRow => row !== undefined && row.owner_id === ownerId)
         .map((row) => this.toNodeSummary(row)),
-      assertions: this.graph.assertions.searchAssertions(ownerId, trimmed, limit)
-        .map((id) => this.graph.assertions.getAssertion(id))
-        .filter((row): row is AssertionRow => row !== null && row.owner_id === ownerId)
-        .map((row) => this.toAssertion(row)),
-      projections: this.graph.projections.search(ownerId, trimmed, limit)
-        .map((id) => this.graph.projections.getProjection(id))
-        .filter((row): row is ProjectionRow => row !== null && row.owner_id === ownerId)
+      assertions: ownedAssertions
+        .map((row) => this.toAssertionWithView(row, this.requireHistoryView(views, row.id))),
+      projections: projectionIds
+        .map((id) => projectionRows.get(id))
+        .filter((row): row is ProjectionRow => row !== undefined && row.owner_id === ownerId)
         .map((row) => this.toProjection(row)),
     };
   }
@@ -101,8 +111,11 @@ export class MemoryQueryService {
 
   listAssertions(ownerId: string, page: PageRequest): AssistantAssertionDto[] {
     this.validatePage(page);
-    return this.graph.assertions.list(ownerId, page.limit, page.offset)
-      .map((row) => this.toAssertion(row));
+    const rows = this.graph.assertions.list(ownerId, page.limit, page.offset);
+    const views = new Map(
+      this.views.buildMany(rows).map((view) => [view.assertionId, view] as const),
+    );
+    return rows.map((row) => this.toAssertionWithView(row, this.requireHistoryView(views, row.id)));
   }
 
   getAssertion(ownerId: string, assertionId: string): QueryResult<AssistantAssertionDto> {
@@ -155,6 +168,10 @@ export class MemoryQueryService {
       this.views.buildMany([...assertionsById.values()])
         .map((view) => [view.assertionId, view] as const),
     );
+    const evidenceLinks = this.graph.assertions.listEvidenceForAssertions([...assertionsById.keys()]);
+    const evidenceRows = this.graph.evidence.getEvidenceMany(
+      [...evidenceLinks.values()].flat().map((link) => link.evidence_id),
+    );
     return mutations.map((mutation) => {
       const assertion = mutation.target_type === 'graph_assertions'
         ? assertionsById.get(mutation.target_id) ?? null
@@ -167,8 +184,11 @@ export class MemoryQueryService {
         : mutation.operation.startsWith('delete') ? 'Deleted' : 'Changed';
       const proofs = assertion === null
         ? []
-        : this.graph.assertions.listEvidence(assertion.id).map((link) => {
-          const evidence = this.graph.evidence.requireEvidence(link.evidence_id);
+        : (evidenceLinks.get(assertion.id) ?? []).map((link) => {
+          const evidence = evidenceRows.get(link.evidence_id);
+          if (evidence === undefined) {
+            throw new Error(`Unknown evidence record: ${link.evidence_id}`);
+          }
           return {
             evidenceId: evidence.id,
             sourceType: evidence.source_type,
@@ -210,7 +230,10 @@ export class MemoryQueryService {
   }
 
   private toAssertion(row: AssertionRow): AssistantAssertionDto {
-    const view = this.views.build(row);
+    return this.toAssertionWithView(row, this.views.build(row));
+  }
+
+  private toAssertionWithView(row: AssertionRow, view: AssertionView): AssistantAssertionDto {
     const sensitive = this.isSensitive(row.sensitivity);
     return {
       id: row.id,

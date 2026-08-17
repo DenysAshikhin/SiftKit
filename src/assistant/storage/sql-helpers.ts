@@ -4,17 +4,25 @@ import type { RuntimeDatabase } from '../../state/runtime-db.js';
 /** SQLite's default parameter cap is 999; stay far under it per chunk. */
 const ID_CHUNK = 400;
 
+/** Deduplicated ids split into 400-id chunks, preserving first-seen order. */
+export function chunkIds(ids: readonly string[]): string[][] {
+  const unique = [...new Set(ids)];
+  const chunks: string[][] = [];
+  for (let start = 0; start < unique.length; start += ID_CHUNK) {
+    chunks.push(unique.slice(start, start + ID_CHUNK));
+  }
+  return chunks;
+}
+
 /** Batch fetch by id, deduplicated. Missing ids are simply absent from the result. */
 export function fetchRowsByIds<Row extends { id: string }>(
   database: RuntimeDatabase,
-  table: 'graph_nodes' | 'graph_assertions',
+  table: 'graph_nodes' | 'graph_assertions' | 'memory_projections' | 'evidence_records',
   schema: z.ZodType<Row>,
   ids: readonly string[],
 ): Map<string, Row> {
   const found = new Map<string, Row>();
-  const unique = [...new Set(ids)];
-  for (let start = 0; start < unique.length; start += ID_CHUNK) {
-    const chunk = unique.slice(start, start + ID_CHUNK);
+  for (const chunk of chunkIds(ids)) {
     const placeholders = chunk.map(() => '?').join(', ');
     const rows = z.array(schema).parse(database.prepare(
       `SELECT * FROM ${table} WHERE id IN (${placeholders})`,

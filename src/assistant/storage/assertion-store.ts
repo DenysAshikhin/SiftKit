@@ -15,7 +15,7 @@ import {
   AssertionEvidenceRowSchema, AssertionRowSchema, CountRowSchema,
   type AssertionEvidenceRow, type AssertionRow,
 } from './rows.js';
-import { dropFtsRow, fetchRowsByIds, recordFtsRowid } from './sql-helpers.js';
+import { chunkIds, dropFtsRow, fetchRowsByIds, recordFtsRowid } from './sql-helpers.js';
 
 const SupportingEvidenceSchema = z.object({
   weight: z.number(),
@@ -362,6 +362,29 @@ export class AssertionStore {
       SELECT * FROM assertion_evidence WHERE assertion_id = ?
       ORDER BY created_at_utc ASC, evidence_id ASC, stance ASC
     `).all(assertionId));
+  }
+
+  /**
+   * Evidence links for many assertions, grouped by assertion id. Each bucket keeps the exact
+   * `listEvidence` order so batched callers observe the same link sequence as the single fetch.
+   */
+  listEvidenceForAssertions(
+    assertionIds: readonly string[],
+  ): Map<string, AssertionEvidenceRow[]> {
+    const result = new Map<string, AssertionEvidenceRow[]>();
+    for (const chunk of chunkIds(assertionIds)) {
+      const placeholders = chunk.map(() => '?').join(', ');
+      const rows = z.array(AssertionEvidenceRowSchema).parse(this.database.prepare(`
+        SELECT * FROM assertion_evidence WHERE assertion_id IN (${placeholders})
+        ORDER BY assertion_id, created_at_utc ASC, evidence_id ASC, stance ASC
+      `).all(...chunk));
+      for (const row of rows) {
+        const bucket = result.get(row.assertion_id) ?? [];
+        bucket.push(row);
+        result.set(row.assertion_id, bucket);
+      }
+    }
+    return result;
   }
 
   /**

@@ -5,7 +5,7 @@ import type { Clock } from '../clock.js';
 import { isIndexableInPlaintext, type ProjectionStatus, type Sensitivity } from '../domain/enums.js';
 import type { IdGenerator } from '../ids.js';
 import { ProjectionRowSchema, type ProjectionRow } from './rows.js';
-import { dropFtsRow, recordFtsRowid } from './sql-helpers.js';
+import { dropFtsRow, fetchRowsByIds, recordFtsRowid } from './sql-helpers.js';
 
 export interface UpsertProjectionInput {
   readonly ownerId: string;
@@ -84,6 +84,11 @@ export class ProjectionStore {
       throw new Error(`Unknown memory projection: ${projectionId}`);
     }
     return row;
+  }
+
+  /** Batch fetch by id, deduplicated. Missing ids are simply absent from the result. */
+  getProjections(projectionIds: readonly string[]): Map<string, ProjectionRow> {
+    return fetchRowsByIds(this.database, 'memory_projections', ProjectionRowSchema, projectionIds);
   }
 
   findByTopic(ownerId: string, tier: number, topicKey: string): ProjectionRow | null {
