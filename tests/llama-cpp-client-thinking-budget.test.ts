@@ -1,13 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import os from 'node:os';
 import { LlamaCppClient } from '../src/llm-protocol/llama-cpp-client.js';
-import { requestRepoSearchPlannerProtocolAction } from '../src/repo-search/planner-protocol.js';
+import {
+  PLANNER_REASONING_BUDGET_MESSAGE,
+  requestRepoSearchPlannerProtocolAction,
+} from '../src/repo-search/planner-protocol.js';
+import { runTaskLoop } from '../src/repo-search/engine.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { asObject } from './helpers/dashboard-http.js';
 import { mockModelPreset, mockSiftConfig } from './helpers/mock-config.js';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
+import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
+import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import type { SiftConfig } from '../src/config/types.js';
-import type { JsonObject } from '../src/lib/json-types.js';
+import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
 
 type FakeStreamServer = {
   baseUrl: string;
@@ -27,6 +35,13 @@ function startFakeStreamServer(): Promise<FakeStreamServer> {
       let raw = '';
       req.on('data', (chunk) => { raw += chunk; });
       req.on('end', () => {
+        // Token-count probes (loop preflight) get a plain JSON answer and stay
+        // out of the chat body index the assertions rely on.
+        if (req.url === '/v1/token/encode' || req.url === '/tokenize') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ length: 32 }));
+          return;
+        }
         bodies.push(raw);
         res.writeHead(200, {
           'Content-Type': 'text/event-stream',
@@ -69,14 +84,22 @@ function startFakeStreamServer(): Promise<FakeStreamServer> {
   });
 }
 
-function budgetedConfig(backend: 'exl3' | 'llama'): SiftConfig {
+function budgetedConfig(
+  backend: 'exl3' | 'llama',
+  opts: { baseUrl?: string; stockBudgetMessage?: boolean } = {},
+): SiftConfig {
   const preset = mockModelPreset({
     id: 'budget-test',
     label: 'budget test',
     Backend: backend,
     Reasoning: 'on',
     ReasoningBudget: 8,
-    ReasoningBudgetMessage: 'Answer now.',
+    // stockBudgetMessage keeps the normalized default so tests can exercise the
+    // "user did not customize the message" branch.
+    ...(opts.stockBudgetMessage ? {} : { ReasoningBudgetMessage: 'Answer now.' }),
+    // exl3 resolves its base URL from the preset, so token-count probes must
+    // target the fake server rather than a real runtime port.
+    ...(opts.baseUrl ? { BaseUrl: opts.baseUrl } : {}),
   });
   return mockSiftConfig({
     Server: { ModelPresets: { Presets: [preset], ActivePresetId: 'budget-test' } },
@@ -143,6 +166,130 @@ test('exl3 budget enforcement applies when reasoning comes from the preset defau
   } finally {
     await fake.close();
   }
+});
+
+test('planner reasoningBudgetMessage overrides the preset message in the continuation', async () => {
+  const fake = await startFakeStreamServer();
+  try {
+    const response = await requestRepoSearchPlannerProtocolAction({
+      config: budgetedConfig('exl3'),
+      baseUrl: fake.baseUrl,
+      model: 'mock',
+      messages: [{ role: 'user', content: 'hi' }],
+      timeoutMs: 5000,
+      maxTokens: 64,
+      thinkingEnabled: true,
+      stream: true,
+      toolDefinitions: [],
+      onThinkingDelta: () => {},
+      reasoningBudgetMessage: 'Emit the next action.',
+    });
+
+    assert.equal(fake.requestCount(), 2);
+    const prefix = String(fake.bodyAt(1).response_prefix);
+    assert.ok(prefix.includes('Emit the next action.'));
+    assert.ok(!prefix.includes('Answer now.'));
+    assert.ok(response.thinkingText.includes('Emit the next action.'));
+  } finally {
+    await fake.close();
+  }
+});
+
+async function runBudgetedTaskLoop(
+  baseUrl: string,
+  loopKind: 'repo-search' | 'chat',
+  opts: { stockBudgetMessage?: boolean } = {},
+): Promise<void> {
+  await runTaskLoop(
+    { id: loopKind, question: 'hi', signals: [] },
+    {
+      repoRoot: os.tmpdir(),
+      systemContext: createEmptyPresetSystemContext(),
+      config: budgetedConfig('exl3', { baseUrl, stockBudgetMessage: opts.stockBudgetMessage }),
+      model: 'mock',
+      baseUrl,
+      maxTurns: 2,
+      maxInvalidResponses: 2,
+      minToolCallsBeforeFinish: 0,
+      loopKind,
+      ...(loopKind === 'chat' ? { plannerToolDefinitions: [] } : {}),
+      mockCommandResults: {},
+      progressWriter: new CollectingProgressWriter(),
+    },
+  );
+}
+
+test('repo-search loop continuations use the planner action budget message', async () => {
+  const fake = await startFakeStreamServer();
+  try {
+    await runBudgetedTaskLoop(fake.baseUrl, 'repo-search', { stockBudgetMessage: true });
+
+    assert.ok(fake.requestCount() >= 2);
+    const prefix = String(fake.bodyAt(1).response_prefix);
+    assert.ok(prefix.includes(PLANNER_REASONING_BUDGET_MESSAGE));
+    assert.ok(!prefix.includes('You have to provide the answer now.'));
+  } finally {
+    await fake.close();
+  }
+});
+
+test('repo-search loop keeps a user-customized preset budget message', async () => {
+  const fake = await startFakeStreamServer();
+  try {
+    await runBudgetedTaskLoop(fake.baseUrl, 'repo-search');
+
+    assert.ok(fake.requestCount() >= 2);
+    const prefix = String(fake.bodyAt(1).response_prefix);
+    assert.ok(prefix.includes('Answer now.'));
+    assert.ok(!prefix.includes(PLANNER_REASONING_BUDGET_MESSAGE));
+  } finally {
+    await fake.close();
+  }
+});
+
+test('chat loop continuations keep the preset budget message', async () => {
+  const fake = await startFakeStreamServer();
+  try {
+    await runBudgetedTaskLoop(fake.baseUrl, 'chat');
+
+    assert.ok(fake.requestCount() >= 2);
+    const prefix = String(fake.bodyAt(1).response_prefix);
+    assert.ok(prefix.includes('Answer now.'));
+    assert.ok(!prefix.includes(PLANNER_REASONING_BUDGET_MESSAGE));
+  } finally {
+    await fake.close();
+  }
+});
+
+test('planner loop on llama backend warns that the planner budget message cannot apply', async () => {
+  const runWithLogger = async (loopKind: 'repo-search' | 'chat'): Promise<Record<string, JsonSerializable>[]> => {
+    const events: Record<string, JsonSerializable>[] = [];
+    await runTaskLoop(
+      { id: loopKind, question: 'hi', signals: [] },
+      {
+        repoRoot: os.tmpdir(),
+        systemContext: createEmptyPresetSystemContext(),
+        config: budgetedConfig('llama'),
+        model: 'mock',
+        baseUrl: DEAD_BASE_URL,
+        maxTurns: 2,
+        maxInvalidResponses: 2,
+        minToolCallsBeforeFinish: 0,
+        loopKind,
+        ...(loopKind === 'chat' ? { plannerToolDefinitions: [] } : {}),
+        mockResponses: ['{"action":"finish","output":"done"}'],
+        mockCommandResults: {},
+        logger: { path: 'memory', write: (event) => { events.push(event); } },
+      },
+    );
+    return events;
+  };
+
+  const plannerEvents = await runWithLogger('repo-search');
+  assert.ok(plannerEvents.some((event) => event.kind === 'planner_budget_backend_gap'));
+
+  const chatEvents = await runWithLogger('chat');
+  assert.ok(!chatEvents.some((event) => event.kind === 'planner_budget_backend_gap'));
 });
 
 test('llama backend streaming never enforces the budget client-side', async () => {

@@ -1,4 +1,8 @@
-import { getActiveModelPreset, getConfiguredLlamaNumCtx } from '../../config/index.js';
+import {
+  SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE,
+  getActiveModelPreset,
+  getConfiguredLlamaNumCtx,
+} from '../../config/index.js';
 import { AgentLoop } from '../../agent-loop/agent-loop.js';
 import type {
   AgentLoopFinishAction,
@@ -18,6 +22,7 @@ import { toProtocolTools } from '../../providers/llama-cpp.js';
 import { StreamingFinishOutputExtractor } from '../../lib/model-json.js';
 import { buildIgnorePolicy, type IgnorePolicy } from '../command-safety.js';
 import {
+  PLANNER_REASONING_BUDGET_MESSAGE,
   captureExecutingPlannerRequest,
   getRepoSearchToolNamesForParsing,
   requestApprovalVerdict as requestApprovalVerdictRequest,
@@ -134,6 +139,7 @@ export class TaskLoop {
   private readonly plannerMaintainPerStepThinking: boolean;
   private readonly loopKind: 'repo-search' | 'chat';
   private readonly streamFinishAsAnswer: boolean;
+  private readonly plannerBudgetMessageOverride: string | null;
   private readonly plannerToolDefinitions: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;
   private readonly allowedPlannerToolNames: string[];
   private readonly chatWebGroundingEnabled: boolean;
@@ -171,11 +177,11 @@ export class TaskLoop {
   constructor(task: TaskDefinition, options: RunTaskLoopOptions) {
     this.task = task;
     this.options = options;
-    const visionPreset = getActiveModelPreset(options.config);
-    this.visionEnabled = visionPreset.VisionEnabled === true;
-    this.visionImageRetention = visionPreset.VisionImageRetention;
-    this.visionMaxImagePixels = visionPreset.VisionMaxImagePixels;
-    this.imageTokenBudget = resolveImageTokenBudget(visionPreset);
+    const activePreset = getActiveModelPreset(options.config);
+    this.visionEnabled = activePreset.VisionEnabled === true;
+    this.visionImageRetention = activePreset.VisionImageRetention;
+    this.visionMaxImagePixels = activePreset.VisionMaxImagePixels;
+    this.imageTokenBudget = resolveImageTokenBudget(activePreset);
     this.taskStartedAt = Date.now();
     this.maxTurns = Math.max(1, Number(options.maxTurns || DEFAULT_MAX_TURNS));
     this.maxInvalidResponses = Math.max(1, Number(options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES));
@@ -195,6 +201,27 @@ export class TaskLoop {
       : true;
     this.loopKind = options.loopKind === 'chat' ? 'chat' : 'repo-search';
     this.streamFinishAsAnswer = options.streamFinishAsAnswer === true;
+    // A preset message that differs from the stock default is a deliberate user
+    // choice and outranks the planner wording; chat answers the user directly,
+    // so the answer-oriented preset/default message is already right there.
+    const presetBudgetMessageCustomized = Boolean(activePreset.ReasoningBudgetMessage)
+      && activePreset.ReasoningBudgetMessage !== SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE;
+    this.plannerBudgetMessageOverride = this.loopKind === 'chat' || presetBudgetMessageCustomized
+      ? null
+      : PLANNER_REASONING_BUDGET_MESSAGE;
+    if (this.loopKind !== 'chat'
+      && activePreset.Backend === 'llama'
+      && Number.isFinite(activePreset.ReasoningBudget)
+      && activePreset.ReasoningBudget > 0) {
+      // llama enforces the budget server-side with a launch-time message, so the
+      // planner wording cannot apply there; surface the gap instead of hiding it.
+      options.logger?.write({
+        kind: 'planner_budget_backend_gap',
+        taskId: task.id,
+        warningText: 'llama backend injects the preset ReasoningBudgetMessage server-side on budget exhaustion; '
+          + 'the planner action budget message cannot apply, so the model may still read it as "finish now".',
+      });
+    }
     this.plannerToolDefinitions = Array.isArray(options.plannerToolDefinitions)
       ? options.plannerToolDefinitions
       : resolveRepoSearchPlannerToolDefinitions();
@@ -556,6 +583,9 @@ export class TaskLoop {
         maxTokens: prepared.maxOutputTokens,
         ...this.plannerThinking,
         stream: this.progress.enabled,
+        ...(this.plannerBudgetMessageOverride === null
+          ? {}
+          : { reasoningBudgetMessage: this.plannerBudgetMessageOverride }),
         onThinkingDelta: this.progress.liveTextEnabled
           ? (accThinking) => { this.progress.thinking(turn, accThinking); }
           : undefined,

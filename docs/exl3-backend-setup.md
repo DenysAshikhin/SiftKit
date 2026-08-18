@@ -2,19 +2,19 @@
 
 ## Installed deployment
 
-- TabbyAPI checkout: `C:\Users\denys\Documents\GitHub\TabbyAPI`
-- TabbyAPI commit: `0158fb48d76546a6475d1d63f6cd5b90932d1d11`
+- TabbyAPI checkout: `C:\Users\denys\Documents\GitHub\TabbyAPI`, branch `siftkit` at `4d6554eb3694a013922c1b64c7bf28371df4540d`, forked from `theroyallab/tabbyAPI@0158fb48`
+- ExLlamaV3 checkout: `C:\Users\denys\Documents\GitHub\exllamav3`, branch `siftkit` at `8bcc08a`, forked from upstream `dev` at `cf05532` (v1.3.0)
 - Python: `C:\envs\rl313\Scripts\python.exe` (`3.13.14`)
 - Torch: `2.9.0+cu128`; CUDA build: `12.8`
-- ExLlamaV3: `1.2.1+cu128.torch2.9.0`
-- Model: `D:\personal\models\elx3\3.6_27B`
+- ExLlamaV3: `1.3.0+siftkit.freeze`, installed from a locally built wheel under `C:\tmp\rsx\elx3_freeze\wheels`
+- Model: `D:\personal\models\elx3\3.8_27b_4.6bpw`
 - Tabby config: `C:\Users\denys\Documents\GitHub\TabbyAPI\config.yml`
 - Managed command: `C:\envs\rl313\Scripts\python.exe main.py`, with the Tabby checkout as its working directory
 - API: `http://127.0.0.1:8098/v1`
 
-The checkpoint reports `Qwen3_5ForConditionalGeneration`, EXL3 4.00-bit `mul1` quantization, and one built-in MTP layer. It includes vision metadata, but Tabby is explicitly configured with `vision: false`; startup reports that the model has vision capabilities and vision is disabled. No mmproj or vision tower is loaded.
+The checkpoint reports `Qwen3_5ForConditionalGeneration`, EXL3 4.6-bit `mul1` quantization with `head_bits: 6`, and one built-in MTP layer. Attention is hybrid: `full_attention_interval: 4` yields 16 full-attention layers out of 64, the rest linear-attention, so the KV cache scales with 16 layers only. The active preset sets `VisionEnabled: true`, so Tabby loads the vision tower as its own component alongside the MTP draft and the main model.
 
-The Tabby profile uses `max_seq_len: 84992`, `cache_size: 84992`, main `cache_mode: 8,8`, `max_batch_size: 1`, MTP drafting, and a `Q8` draft cache. `/props` must report `total_slots: 1` and `n_ctx: 84992`. SiftKit uses backend-aware admission: EXL3 accepts concurrent work up to the capacity reported by Tabby, while llama.cpp executes admitted requests FIFO. With this one-slot profile, Tabby itself limits execution to one active generation.
+The Tabby profile uses `max_seq_len: 125000`, `cache_size: 125184`, main `cache_mode: 8,8`, `max_batch_size: 1`, MTP drafting, and a `Q8` draft cache. `/props` must report `total_slots: 1` and `n_ctx: 125000`. SiftKit uses backend-aware admission: EXL3 accepts concurrent work up to the capacity reported by Tabby, while llama.cpp executes admitted requests FIFO. With this one-slot profile, Tabby itself limits execution to one active generation.
 
 Tabby loads the model folder's `chat_template.jinja`. SiftKit forwards OpenAI `tools` and `response_format` unchanged to both backends. This Qwen template emits tool calls as `<tool_call>` XML, which SiftKit parses locally into the standard tool-call representation. JSON-schema output is also native; when thinking is enabled, constrained content may begin only after reasoning, so the request needs enough output tokens for both.
 

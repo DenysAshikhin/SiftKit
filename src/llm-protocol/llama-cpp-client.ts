@@ -173,6 +173,8 @@ export type LlamaCppChatOptions = {
   requestTimeoutSeconds?: number;
   retryMaxWaitMs?: number;
   abortSignal?: AbortSignal;
+  /** Spliced into the closed think block of a budget continuation in place of the preset message. */
+  reasoningBudgetMessage?: string;
   onThinkingDelta?: (accumulatedThinking: string) => void;
   onContentDelta?: (accumulatedContent: string) => void;
 };
@@ -332,7 +334,9 @@ export class LlamaCppClient {
     streamed: NormalizedLlamaCppChatResponse,
   ): Promise<NormalizedLlamaCppChatResponse> {
     const activePreset = getActiveModelPreset(options.config);
-    const budgetMessage = activePreset.ReasoningBudgetMessage || SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE;
+    const budgetMessage = options.reasoningBudgetMessage
+      || activePreset.ReasoningBudgetMessage
+      || SIFT_DEFAULT_LLAMA_REASONING_BUDGET_MESSAGE;
     const exhaustedThinking = `${streamed.reasoningText.trimEnd()}\n\n${budgetMessage}`;
     const continuation = await this.streamChatAtBaseUrl(baseUrl, options, {
       responsePrefix: buildClosedThinkBlock(exhaustedThinking),

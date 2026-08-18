@@ -452,6 +452,16 @@ export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFla
   });
 }
 
+/**
+ * Budget message for planner-action turns. The default preset message ("provide
+ * the answer now") reads as an instruction to finish, which made agent runs
+ * abandon their remaining tasks mid-plan; a planner's answer is its next action,
+ * so exhaustion must steer toward a tool action, never a premature finish.
+ */
+export const PLANNER_REASONING_BUDGET_MESSAGE = 'Thinking budget exhausted. Emit your next action now. '
+  + 'If the task is unfinished, emit the next tool action and keep working on later turns — '
+  + 'do not emit finish just because thinking was cut short.';
+
 export type PlannerRequestOptions = Partial<PlannerThinkingFlags> & {
   /** The active preset in here is the sole source of the request's model and samplers. */
   config: SiftConfig;
@@ -477,6 +487,7 @@ export type PlannerRequestOptions = Partial<PlannerThinkingFlags> & {
   responseSchema?: JsonObject | null;
   responseSchemaName?: string;
   toolDefinitions?: StructuredOutputToolDefinition[];
+  reasoningBudgetMessage?: string;
 };
 
 function extractInlineThinking(raw: string): { thinkingText: string; text: string } {
@@ -641,6 +652,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
         requestTimeoutSeconds: options.timeoutMs / 1000,
         retryMaxWaitMs: 0,
         abortSignal: options.abortSignal,
+        reasoningBudgetMessage: options.reasoningBudgetMessage,
         onThinkingDelta: options.onThinkingDelta,
         onContentDelta: options.onContentDelta,
       }),
