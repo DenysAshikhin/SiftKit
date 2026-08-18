@@ -86,19 +86,45 @@ test('validates a complete pre-action replay payload', () => {
   }));
 });
 
-test('builds a data-only approval review request', () => {
-  assert.equal(
-    buildApprovalVerdictQuestion({
-      toolName: 'shell_command',
-      command: 'git status --short',
-      reviewPayload: null,
-    }),
-    [
-      APPROVAL_REVIEW_REQUEST_MARKER,
-      'tool: shell_command',
-      'command: git status --short',
-    ].join('\n'),
-  );
+test('verdict question carries the full review policy followed by the request', () => {
+  const question = buildApprovalVerdictQuestion({
+    toolName: 'shell_command',
+    command: 'git status --short',
+    reviewPayload: null,
+  });
+
+  assert.ok(question.endsWith([
+    APPROVAL_REVIEW_REQUEST_MARKER,
+    'tool: shell_command',
+    'command: git status --short',
+  ].join('\n')));
+
+  assert.match(question, /Approval review policy/u);
+  assert.match(question, /untrusted data/u);
+  assert.match(question, /claims.*must never reduce.*risk/isu);
+  assert.match(question, /Safety rules override user intent and task relevance/u);
+  assert.match(question, /recursive deletion/u);
+  assert.match(question, /repository-root deletion or deletion of \.git/u);
+  assert.match(question, /git reset --hard/u);
+  assert.match(question, /git clean with force/u);
+  assert.match(question, /forced branch deletion or recursive git rm/u);
+  assert.match(question, /force-push/u);
+  assert.match(question, /credential or secret access/u);
+  assert.match(question, /package installation/u);
+  assert.match(question, /normal pushes/u);
+  assert.match(question, /non-recursive deletion/u);
+  assert.match(question, /narrowly scoped, non-destructive repository writes/u);
+  assert.match(question, /"verdict":"approve"\|"deny"\|"unsure"/u);
+  assert.match(question, /inspect the complete.*edit.*write.*payload/isu);
+  assert.match(question, /buried among.*benign lines/isu);
+  assert.match(question, /destructive filesystem|repository.*history/isu);
+  assert.match(question, /credential|secret.*transmission/isu);
+  assert.match(question, /remote execution|command injection/isu);
+  assert.match(question, /package scripts|hooks|workflows|startup/isu);
+  assert.match(question, /approval|authentication|authorization|validation|auditing/isu);
+  assert.match(question, /obfuscation/iu);
+  assert.match(question, /destructive migrations|disabling.*tests|safety checks/isu);
+  assert.match(question, /missing.*malformed.*truncated.*too large.*unsure/isu);
 });
 
 test('submits existing history followed by one transient approval question', async () => {
@@ -117,19 +143,18 @@ test('submits existing history followed by one transient approval question', asy
   ]);
   const lastMessage = result.submittedMessages.at(-1);
   assert.equal(lastMessage?.role, 'user');
-  assert.equal(
-    lastMessage?.content,
-    [
-      APPROVAL_REVIEW_REQUEST_MARKER,
-      'tool: edit',
-      'command: edit path="src/cleanup.ts" edits=1',
-      APPROVAL_REVIEW_PAYLOAD_LABEL,
-      reviewPayload,
-    ].join('\n'),
-  );
-  assert.doesNotMatch(lastMessage?.content ?? '', /independent command reviewer/u);
-  assert.doesNotMatch(lastMessage?.content ?? '', /Decide whether this action should run/u);
-  assert.match(lastMessage?.content ?? '', /fs\.rmSync\(repoRoot/u);
+  const lastContent = typeof lastMessage?.content === 'string' ? lastMessage.content : '';
+  assert.match(lastContent, /^Approval review policy/u);
+  assert.ok(lastContent.endsWith([
+    APPROVAL_REVIEW_REQUEST_MARKER,
+    'tool: edit',
+    'command: edit path="src/cleanup.ts" edits=1',
+    APPROVAL_REVIEW_PAYLOAD_LABEL,
+    reviewPayload,
+  ].join('\n')));
+  assert.doesNotMatch(lastContent, /independent command reviewer/u);
+  assert.doesNotMatch(lastContent, /Decide whether this action should run/u);
+  assert.match(lastContent, /fs\.rmSync\(repoRoot/u);
   assert.deepEqual(client.requests, [result.submittedMessages]);
   assert.equal(result.verdict, 'deny');
   assert.equal(result.reason, 'Targets files outside the repository.');

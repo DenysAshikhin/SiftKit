@@ -3,7 +3,7 @@ import { parseJsonValueText } from '../../lib/json.js';
 import type { ProgressWriter } from '../../lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../types.js';
 import type { PlannerActionResponse } from '../planner-protocol.js';
-import { buildApprovalReviewRequest } from '../approval-review-policy.js';
+import { APPROVAL_REVIEW_POLICY_LINES, buildApprovalReviewRequest } from '../approval-review-policy.js';
 import { isApprovalExemptReadOnlyTool, type ApprovalDecision, type ApprovalRequester, type ApprovalRequestInput } from './approval-gate.js';
 import type { JsonLogger } from '../types.js';
 
@@ -21,7 +21,7 @@ export type ApprovalVerdictRequester = {
 export function buildApprovalVerdictQuestion(
   input: Pick<ApprovalRequestInput, 'toolName' | 'command' | 'reviewPayload'>,
 ): string {
-  return buildApprovalReviewRequest(input);
+  return [...APPROVAL_REVIEW_POLICY_LINES, '', buildApprovalReviewRequest(input)].join('\n');
 }
 
 /**

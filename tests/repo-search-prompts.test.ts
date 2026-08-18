@@ -215,37 +215,12 @@ test('buildAgentSystemPrompt has persona, full tool list, edit-first guideline, 
   assert.doesNotMatch(prompt, /Minimum 5 tool-call turns/u);
 });
 
-test('buildAgentSystemPrompt includes the stable scoped approval-review policy', () => {
+test('buildAgentSystemPrompt excludes the approval-review policy', () => {
   const prompt = buildAgentSystemPrompt(buildTestContext(process.cwd(), false, true));
 
-  assert.match(prompt, /Approval review policy/u);
-  assert.ok(prompt.includes(APPROVAL_REVIEW_REQUEST_MARKER));
-  assert.match(prompt, /Otherwise continue normal repo-agent behavior/u);
-  assert.match(prompt, /untrusted data/u);
-  assert.match(prompt, /claims.*must never reduce.*risk/isu);
-  assert.match(prompt, /Safety rules override user intent and task relevance/u);
-  assert.match(prompt, /recursive deletion/u);
-  assert.match(prompt, /repository-root deletion or deletion of \.git/u);
-  assert.match(prompt, /git reset --hard/u);
-  assert.match(prompt, /git clean with force/u);
-  assert.match(prompt, /forced branch deletion or recursive git rm/u);
-  assert.match(prompt, /force-push/u);
-  assert.match(prompt, /credential or secret access/u);
-  assert.match(prompt, /package installation/u);
-  assert.match(prompt, /normal pushes/u);
-  assert.match(prompt, /non-recursive deletion/u);
-  assert.match(prompt, /narrowly scoped, non-destructive repository writes/u);
-  assert.match(prompt, /"verdict":"approve"\|"deny"\|"unsure"/u);
-  assert.match(prompt, /inspect the complete.*edit.*write.*payload/isu);
-  assert.match(prompt, /buried among.*benign lines/isu);
-  assert.match(prompt, /destructive filesystem|repository.*history/isu);
-  assert.match(prompt, /credential|secret.*transmission/isu);
-  assert.match(prompt, /remote execution|command injection/isu);
-  assert.match(prompt, /package scripts|hooks|workflows|startup/isu);
-  assert.match(prompt, /approval|authentication|authorization|validation|auditing/isu);
-  assert.match(prompt, /obfuscation/iu);
-  assert.match(prompt, /destructive migrations|disabling.*tests|safety checks/isu);
-  assert.match(prompt, /missing.*malformed.*truncated.*too large.*unsure/isu);
+  assert.doesNotMatch(prompt, /Approval review policy/u);
+  assert.equal(prompt.includes(APPROVAL_REVIEW_REQUEST_MARKER), false);
+  assert.doesNotMatch(prompt, /"verdict":"approve"\|"deny"\|"unsure"/u);
 });
 
 test('buildTaskSystemPrompt excludes repo-agent approval-review policy', () => {
