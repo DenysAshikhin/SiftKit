@@ -394,7 +394,7 @@ export async function executeRepoSearchRequest(
         ? REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT
         : null,
       allowEmptyTools: taskKind === 'chat',
-      loopKind: taskKind === 'chat' ? 'chat' : 'repo-search',
+      loopKind: taskKind === 'chat' ? 'chat' : isAgent ? 'repo-agent' : 'repo-search',
       streamFinishAsAnswer: taskKind === 'chat',
       minToolCallsBeforeFinish: (taskKind === 'chat' || isAgent) ? 0 : undefined,
       systemPromptOverride,

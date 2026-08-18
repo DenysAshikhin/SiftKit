@@ -14,3 +14,8 @@ test('chat allows the same finish (no repo-evidence coercion)', () => {
   const result = evaluateFinishAttempt({ loopKind: 'chat', finalOutput: anchoredOutput, successfulToolCalls: oneSupportingCall });
   assert.equal(result.allowed, true);
 });
+
+test('repo-agent allows the same finish (verification gate replaces the citation gate)', () => {
+  const result = evaluateFinishAttempt({ loopKind: 'repo-agent', finalOutput: anchoredOutput, successfulToolCalls: oneSupportingCall });
+  assert.equal(result.allowed, true);
+});

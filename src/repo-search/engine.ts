@@ -176,7 +176,7 @@ export async function runRepoSearch(options: {
   minToolCallsBeforeFinish?: number;
   contextOverflowPolicy?: ContextOverflowPolicy;
   validationCommandOutputLineLimit?: number | null;
-  loopKind?: 'repo-search' | 'chat';
+  loopKind?: 'repo-search' | 'chat' | 'repo-agent';
   allowEmptyTools?: boolean;
   streamFinishAsAnswer?: boolean;
   systemPromptOverride?: string;

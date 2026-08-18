@@ -114,6 +114,8 @@ export const TaskResultSchema = z.object({
   safetyRejects: z.number(),
   invalidResponses: z.number(),
   commandFailures: z.number(),
+  /** Verification-gate challenges issued before this task's finish was accepted. */
+  finishChallenges: z.number(),
   commands: z.array(TaskCommandSchema),
   turnThinking: z.record(z.coerce.number(), z.string()),
   finalOutput: z.string(),
@@ -161,7 +163,7 @@ export type RunTaskLoopOptions = {
   minToolCallsBeforeFinish?: number;
   contextOverflowPolicy?: ContextOverflowPolicy;
   validationCommandOutputLineLimit?: number | null;
-  loopKind?: 'repo-search' | 'chat';
+  loopKind?: 'repo-search' | 'chat' | 'repo-agent';
   streamFinishAsAnswer?: boolean;
   thinkingEnabledOverride?: boolean;
   systemPromptOverride?: string;

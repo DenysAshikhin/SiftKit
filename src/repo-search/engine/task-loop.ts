@@ -57,6 +57,7 @@ import { WebResearchTools } from '../../web-search/web-research-tools.js';
 import { throwIfAborted } from '../../lib/abort.js';
 import { SilentProgressWriter } from '../../lib/progress-writer.js';
 import { DuplicateTracker } from './duplicate-tracker.js';
+import { FINISH_VERIFICATION_MAX_CHALLENGES, FinishVerificationGate } from './finish-verification.js';
 import { ForcedFinishController } from './forced-finish.js';
 import { ProgressReporter } from './progress-reporter.js';
 import { PromptPreparer } from './prompt-preparer.js';
@@ -137,7 +138,7 @@ export class TaskLoop {
   private readonly useEstimatedTokensOnly: boolean;
   private readonly plannerThinking: PlannerThinkingFlags;
   private readonly plannerMaintainPerStepThinking: boolean;
-  private readonly loopKind: 'repo-search' | 'chat';
+  private readonly loopKind: 'repo-search' | 'chat' | 'repo-agent';
   private readonly streamFinishAsAnswer: boolean;
   private readonly plannerBudgetMessageOverride: string | null;
   private readonly plannerToolDefinitions: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;
@@ -150,6 +151,7 @@ export class TaskLoop {
   private readonly mutatedPaths = new Set<string>();
   private readonly duplicates = new DuplicateTracker();
   private readonly forcedFinish = new ForcedFinishController();
+  private readonly finishVerification: FinishVerificationGate;
   private readonly readWindows = new ReadWindowGovernor();
   private readonly visionEnabled: boolean;
   private readonly visionImageRetention: number;
@@ -199,7 +201,10 @@ export class TaskLoop {
     this.plannerMaintainPerStepThinking = this.plannerThinking.thinkingEnabled
       ? isPlannerMaintainPerStepThinkingEnabled(options.config)
       : true;
-    this.loopKind = options.loopKind === 'chat' ? 'chat' : 'repo-search';
+    this.loopKind = options.loopKind === 'chat' || options.loopKind === 'repo-agent'
+      ? options.loopKind
+      : 'repo-search';
+    this.finishVerification = new FinishVerificationGate(this.loopKind === 'repo-agent');
     this.streamFinishAsAnswer = options.streamFinishAsAnswer === true;
     // A preset message that differs from the stock default is a deliberate user
     // choice and outranks the planner wording; chat answers the user directly,
@@ -487,6 +492,7 @@ export class TaskLoop {
   }
 
   async executeTools(actions: readonly AgentLoopToolAction[], context: AgentLoopResponseContext): Promise<AgentLoopToolExecution> {
+    this.finishVerification.recordNonFinishAction();
     const beforeCommandCount = this.commands.length;
     const response = getRepoSearchModelData(context).plannerResponse;
     const toolActions: ToolAction[] = actions.map((action) => ({
@@ -641,6 +647,14 @@ export class TaskLoop {
     return 'continue';
   }
 
+  /** Replays the finish back into the transcript with a rejection message so the loop continues. */
+  private rejectFinish(response: PlannerActionResponse, message: string): void {
+    this.toolStats.recordFinishRejection();
+    this.transcript.pushAssistant(buildAssistantReplayMessage(response.text, String(response.thinkingText || '').trim()));
+    this.transcript.pruneThinking(this.plannerMaintainPerStepThinking);
+    this.transcript.pushUser(message);
+  }
+
   private handleFinishAction(turn: number, action: FinishAction, response: PlannerActionResponse, resolvedTokens: ResolvedResponseTokens): TurnOutcome {
     this.tokenUsage.addOutputTokens(resolvedTokens.completionTokens, resolvedTokens.completionTokensEstimated);
     const finishEvaluation = evaluateFinishAttempt({
@@ -650,19 +664,13 @@ export class TaskLoop {
     });
     if (!finishEvaluation.allowed) {
       const warning = finishEvaluation.warning || 'Need stronger repository evidence before finishing.';
-      this.toolStats.recordFinishRejection();
-      this.transcript.pushAssistant(buildAssistantReplayMessage(response.text, String(response.thinkingText || '').trim()));
-      this.transcript.pruneThinking(this.plannerMaintainPerStepThinking);
-      this.transcript.pushUser(warning);
+      this.rejectFinish(response, warning);
       this.options.logger?.write({ kind: 'turn_finish_rejected', taskId: this.task.id, turn, toolCallTurns: this.commands.length, minToolCallsBeforeFinish: this.minToolCallsBeforeFinish, warning });
       return 'continue';
     }
     const groundingDecision = this.chatWebGroundingPolicy.evaluateFinish();
     if (groundingDecision.kind === 'reject') {
-      this.toolStats.recordFinishRejection();
-      this.transcript.pushAssistant(buildAssistantReplayMessage(response.text, String(response.thinkingText || '').trim()));
-      this.transcript.pruneThinking(this.plannerMaintainPerStepThinking);
-      this.transcript.pushUser(groundingDecision.message);
+      this.rejectFinish(response, groundingDecision.message);
       this.options.logger?.write({
         kind: 'chat_grounding_finish_rejected',
         taskId: this.task.id,
@@ -670,6 +678,28 @@ export class TaskLoop {
         status: this.chatWebGroundingPolicy.getStatus(),
       });
       return 'continue';
+    }
+    if (!this.forcedFinish.isActive()) {
+      const verification = this.finishVerification.evaluateFinish();
+      if (verification.kind === 'challenge') {
+        this.rejectFinish(response, verification.message);
+        this.options.logger?.write({
+          kind: 'turn_finish_challenged',
+          taskId: this.task.id,
+          turn,
+          challengesIssued: verification.challengesIssued,
+          maxChallenges: FINISH_VERIFICATION_MAX_CHALLENGES,
+        });
+        return 'continue';
+      }
+      if (verification.mode) {
+        this.options.logger?.write({
+          kind: 'turn_finish_verified',
+          taskId: this.task.id,
+          turn,
+          mode: verification.mode,
+        });
+      }
     }
     this.finalOutput = action.output;
     if (this.streamFinishAsAnswer && this.progress.liveTextEnabled) {
@@ -714,12 +744,15 @@ export class TaskLoop {
 
     this.options.logger?.write({
       kind: 'task_done', taskId: this.task.id, reason: this.counters.reason, turnsUsed: this.turnsUsed, safetyRejects: this.counters.safetyRejects,
-      invalidResponses: this.counters.invalidResponses, commandFailures: this.counters.commandFailures, passed, missingSignals: signalCheck.missingSignals,
+      invalidResponses: this.counters.invalidResponses, commandFailures: this.counters.commandFailures,
+      finishChallenges: this.finishVerification.issuedCount, passed, missingSignals: signalCheck.missingSignals,
     });
 
     return {
       id: this.task.id, question: this.task.question, reason: this.counters.reason, turnsUsed: this.turnsUsed, safetyRejects: this.counters.safetyRejects,
-      invalidResponses: this.counters.invalidResponses, commandFailures: this.counters.commandFailures, commands: this.commands, turnThinking: this.turnThinking, finalOutput: this.finalOutput,
+      invalidResponses: this.counters.invalidResponses, commandFailures: this.counters.commandFailures,
+      finishChallenges: this.finishVerification.issuedCount,
+      commands: this.commands, turnThinking: this.turnThinking, finalOutput: this.finalOutput,
       mutatedPaths: [...this.mutatedPaths], passed,
       ...(this.chatWebGroundingEnabled ? { groundingStatus: this.chatWebGroundingPolicy.getStatus() } : {}),
       missingSignals: signalCheck.missingSignals,

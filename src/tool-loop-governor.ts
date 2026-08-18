@@ -1,7 +1,7 @@
 import type { JsonObject } from './lib/json-types.js';
 import { isRepoSearchCommandToolName } from './repo-search/planner-protocol.js';
 
-type ToolLoopKind = 'repo-search' | 'planner' | 'chat';
+type ToolLoopKind = 'repo-search' | 'planner' | 'chat' | 'repo-agent';
 
 type SuccessfulToolCall = {
   toolName: string;
