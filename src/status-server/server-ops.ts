@@ -172,45 +172,45 @@ export function isIdle(ctx: ServerContext): boolean {
 }
 
 export function clearIdleSummaryTimer(ctx: ServerContext): void {
-  if (ctx.idleSummaryTimer) {
-    clearTimeout(ctx.idleSummaryTimer);
-    ctx.idleSummaryTimer = null;
+  if (ctx.idleSummary.timer) {
+    clearTimeout(ctx.idleSummary.timer);
+    ctx.idleSummary.timer = null;
   }
 }
 
 export function resetPendingIdleSummaryMetadata(ctx: ServerContext): void {
-  ctx.pendingIdleSummaryMetadata = {
+  ctx.idleSummary.pendingMetadata = {
     inputCharactersPerContextToken: null,
     chunkThresholdCharacters: null,
   };
 }
 
 export function getIdleSummaryDatabase(ctx: ServerContext): DatabaseInstance {
-  if (ctx.idleSummaryDatabase) {
-    return ctx.idleSummaryDatabase;
+  if (ctx.idleSummary.database) {
+    return ctx.idleSummary.database;
   }
   ensureDirectory(dirname(ctx.idleSummarySnapshotsPath));
-  ctx.idleSummaryDatabase = new Database(ctx.idleSummarySnapshotsPath);
-  ensureIdleSummarySnapshotsTable(ctx.idleSummaryDatabase);
-  ensureRunLogsTable(ctx.idleSummaryDatabase);
-  return ctx.idleSummaryDatabase;
+  ctx.idleSummary.database = new Database(ctx.idleSummarySnapshotsPath);
+  ensureIdleSummarySnapshotsTable(ctx.idleSummary.database);
+  ensureRunLogsTable(ctx.idleSummary.database);
+  return ctx.idleSummary.database;
 }
 
 export function scheduleIdleSummaryIfNeeded(ctx: ServerContext): void {
-  if (!ctx.idleSummaryPending || !isIdle(ctx)) {
+  if (!ctx.idleSummary.pending || !isIdle(ctx)) {
     clearIdleSummaryTimer(ctx);
     return;
   }
   clearIdleSummaryTimer(ctx);
-  ctx.idleSummaryTimer = setTimeout(async () => {
-    ctx.idleSummaryTimer = null;
-    if (!ctx.idleSummaryPending || !isIdle(ctx)) {
+  ctx.idleSummary.timer = setTimeout(async () => {
+    ctx.idleSummary.timer = null;
+    if (!ctx.idleSummary.pending || !isIdle(ctx)) {
       return;
     }
     const emittedAt = new Date();
     const snapshot = buildIdleSummarySnapshot({
       ...ctx.metrics,
-      ...ctx.pendingIdleSummaryMetadata,
+      ...ctx.idleSummary.pendingMetadata,
     }, emittedAt);
     try {
       persistIdleSummarySnapshot(getIdleSummaryDatabase(ctx), snapshot);
@@ -218,12 +218,12 @@ export function scheduleIdleSummaryIfNeeded(ctx: ServerContext): void {
       process.stderr.write(`[siftKitStatus] Failed to persist idle summary snapshot to ${ctx.idleSummarySnapshotsPath}: ${error instanceof Error ? error.message : String(error)}\n`);
     }
     serverLogger.report(buildIdleSummarySnapshotMessage(snapshot), emittedAt);
-    ctx.idleSummaryPending = false;
+    ctx.idleSummary.pending = false;
     resetPendingIdleSummaryMetadata(ctx);
     publishStatus(ctx);
-  }, ctx.idleSummaryDelayMs);
-  if (typeof ctx.idleSummaryTimer.unref === 'function') {
-    ctx.idleSummaryTimer.unref();
+  }, ctx.idleSummary.delayMs);
+  if (typeof ctx.idleSummary.timer.unref === 'function') {
+    ctx.idleSummary.timer.unref();
   }
 }
 

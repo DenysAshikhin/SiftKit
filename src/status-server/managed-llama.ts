@@ -1369,7 +1369,7 @@ export function shutdownManagedLlamaForProcessExitSync(ctx: ServerContext): void
     ctx.bootstrapManagedLlamaStartup = false;
     ctx.managedLlamaStarting = false;
     ctx.managedLlamaReady = false;
-    ctx.idleSummaryPending = false;
+    ctx.idleSummary.pending = false;
     resetPendingIdleSummaryMetadata(ctx);
     if (ctx.disableManagedLlamaStartup) {
       publishStatus(ctx);
@@ -1423,7 +1423,7 @@ export async function shutdownManagedLlamaForServerExit(ctx: ServerContext): Pro
     process.stderr.write(`[siftKitStatus] Failed to stop managed llama.cpp during server exit: ${error instanceof Error ? error.message : String(error)}\n`);
   } finally {
     ctx.managedLlamaReady = false;
-    ctx.idleSummaryPending = false;
+    ctx.idleSummary.pending = false;
     resetPendingIdleSummaryMetadata(ctx);
     publishStatus(ctx);
   }

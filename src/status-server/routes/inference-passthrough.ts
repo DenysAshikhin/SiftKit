@@ -249,7 +249,7 @@ class WorkloadEndpoint implements RouteEndpoint {
       } else if (requestText !== null) {
         await proxyTokenizeRequest(req, res, baseUrl, currentPreset, match.pathname, requestText);
       }
-      ctx.idleSummaryPending = true;
+      ctx.idleSummary.pending = true;
     } catch (error) {
       if (!res.headersSent && !res.destroyed) sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
       else res.destroy(error instanceof Error ? error : new Error(String(error)));

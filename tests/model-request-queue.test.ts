@@ -775,19 +775,19 @@ test('active and queued model requests keep the server out of idle state', async
 test('model request acquire clears pending idle unload timer and release reschedules it', async () => {
   const ctx = createQueueContext();
   try {
-    ctx.idleSummaryPending = true;
-    ctx.idleSummaryTimer = setTimeout(() => {}, 10_000);
+    ctx.idleSummary.pending = true;
+    ctx.idleSummary.timer = setTimeout(() => {}, 10_000);
 
     const lock = await acquireModelRequestWithWait(ctx, 'passthrough');
     assert.ok(lock);
-    assert.equal(ctx.idleSummaryTimer, null);
+    assert.equal(ctx.idleSummary.timer, null);
 
     assert.equal(releaseModelRequest(ctx, lock.token), true);
-    assert.notEqual(ctx.idleSummaryTimer, null);
+    assert.notEqual(ctx.idleSummary.timer, null);
   } finally {
-    if (ctx.idleSummaryTimer) {
-      clearTimeout(ctx.idleSummaryTimer);
-      ctx.idleSummaryTimer = null;
+    if (ctx.idleSummary.timer) {
+      clearTimeout(ctx.idleSummary.timer);
+      ctx.idleSummary.timer = null;
     }
     await ctx.inferenceRunFlushQueue.close();
   }

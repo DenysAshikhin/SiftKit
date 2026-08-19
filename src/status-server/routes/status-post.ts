@@ -341,10 +341,10 @@ class StatusPostRequestHandler {
 
   private capturePendingIdleSummaryMetadata(metadata: StatusPostMetadata): void {
     if (metadata.inputCharactersPerContextToken !== null) {
-      this.ctx.pendingIdleSummaryMetadata.inputCharactersPerContextToken = metadata.inputCharactersPerContextToken;
+      this.ctx.idleSummary.pendingMetadata.inputCharactersPerContextToken = metadata.inputCharactersPerContextToken;
     }
     if (metadata.chunkThresholdCharacters !== null) {
-      this.ctx.pendingIdleSummaryMetadata.chunkThresholdCharacters = metadata.chunkThresholdCharacters;
+      this.ctx.idleSummary.pendingMetadata.chunkThresholdCharacters = metadata.chunkThresholdCharacters;
     }
   }
 
@@ -530,7 +530,7 @@ class StatusPostRequestHandler {
     writeMetrics(this.metricsPath, this.ctx.metrics);
     recordWebSearchUsage(this.metricsPath, Number(metadata.toolStats?.web_search?.calls) || 0, new Date());
     if (timing.requestCompleted) {
-      this.ctx.idleSummaryPending = true;
+      this.ctx.idleSummary.pending = true;
       scheduleIdleSummaryIfNeeded(this.ctx);
     }
   }

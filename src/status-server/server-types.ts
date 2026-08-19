@@ -62,6 +62,17 @@ export type TerminalMetadataState = {
   readonly idleDelayMs: number;
 };
 
+export type IdleSummaryState = {
+  readonly delayMs: number;
+  pendingMetadata: {
+    inputCharactersPerContextToken: number | null;
+    chunkThresholdCharacters: number | null;
+  };
+  timer: NodeJS.Timeout | null;
+  pending: boolean;
+  database: DatabaseInstance | null;
+};
+
 export type EnsureManagedLlamaOptions ={ resetStatusBeforeCheck?: boolean; allowUnconfigured?: boolean };
 export type ShutdownManagedLlamaOptions = { force?: boolean; timeoutMs?: number };
 export type StartupReviewOptions = { result?: string; baseUrl?: string; errorMessage?: string };
@@ -122,14 +133,7 @@ export type ServerContext = {
   terminalMetadata: TerminalMetadataState;
 
   // Idle summary
-  readonly idleSummaryDelayMs: number;
-  pendingIdleSummaryMetadata: {
-    inputCharactersPerContextToken: number | null;
-    chunkThresholdCharacters: number | null;
-  };
-  idleSummaryTimer: NodeJS.Timeout | null;
-  idleSummaryPending: boolean;
-  idleSummaryDatabase: DatabaseInstance | null;
+  idleSummary: IdleSummaryState;
 
   // Managed llama
   managedLlamaStartupPromise: Promise<void> | null;

@@ -120,7 +120,7 @@ function applyDeferredTerminalMetadata(ctx: ServerContext, job: DeferredTerminal
   persistStatusRunLog(ctx, job, taskKind);
   recordWebSearchUsage(ctx.metricsPath, Number(metadata.toolStats?.web_search?.calls) || 0, new Date());
   if (job.requestCompleted) {
-    ctx.idleSummaryPending = true;
+    ctx.idleSummary.pending = true;
     scheduleIdleSummaryIfNeeded(ctx);
   }
   const logBody = buildStatusRequestLogBody({

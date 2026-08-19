@@ -282,14 +282,16 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       lastModelRequestFinishedAtMs: null,
       idleDelayMs: getTerminalMetadataIdleDelayMs(options),
     },
-    idleSummaryDelayMs: getIdleSummaryDelayMs(options),
-    pendingIdleSummaryMetadata: {
-      inputCharactersPerContextToken: null,
-      chunkThresholdCharacters: null,
+    idleSummary: {
+      delayMs: getIdleSummaryDelayMs(options),
+      pendingMetadata: {
+        inputCharactersPerContextToken: null,
+        chunkThresholdCharacters: null,
+      },
+      timer: null,
+      pending: false,
+      database: null,
     },
-    idleSummaryTimer: null,
-    idleSummaryPending: false,
-    idleSummaryDatabase: null,
     managedLlamaStartupPromise: null,
     managedLlamaShutdownPromise: null,
     managedLlamaHostProcess: null,
@@ -477,9 +479,9 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       clearInterval(ctx.runtimeHistoryPruneTimer);
       ctx.runtimeHistoryPruneTimer = null;
     }
-    if (ctx.idleSummaryDatabase) {
-      ctx.idleSummaryDatabase.close();
-      ctx.idleSummaryDatabase = null;
+    if (ctx.idleSummary.database) {
+      ctx.idleSummary.database.close();
+      ctx.idleSummary.database = null;
     }
     void ctx.inferenceRunFlushQueue.close();
     closeRuntimeDatabase();
