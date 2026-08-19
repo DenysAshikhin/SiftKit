@@ -54,7 +54,15 @@ export type TerminalMetadataQueueItem = {
   capturedAtMs: number;
 };
 
-export type EnsureManagedLlamaOptions = { resetStatusBeforeCheck?: boolean; allowUnconfigured?: boolean };
+export type TerminalMetadataState = {
+  queue: TerminalMetadataQueueItem[];
+  drainScheduled: boolean;
+  drainRunning: boolean;
+  lastModelRequestFinishedAtMs: number | null;
+  readonly idleDelayMs: number;
+};
+
+export type EnsureManagedLlamaOptions ={ resetStatusBeforeCheck?: boolean; allowUnconfigured?: boolean };
 export type ShutdownManagedLlamaOptions = { force?: boolean; timeoutMs?: number };
 export type StartupReviewOptions = { result?: string; baseUrl?: string; errorMessage?: string };
 export type LogEntry = { label: string; streamKind: InferenceRunStreamKind; text: string; matchingLines: string[] };
@@ -111,11 +119,7 @@ export type ServerContext = {
   deferredArtifactQueue: DeferredArtifact[];
   deferredArtifactDrainScheduled: boolean;
   deferredArtifactDrainRunning: boolean;
-  terminalMetadataQueue: TerminalMetadataQueueItem[];
-  terminalMetadataDrainScheduled: boolean;
-  terminalMetadataDrainRunning: boolean;
-  terminalMetadataLastModelRequestFinishedAtMs: number | null;
-  terminalMetadataIdleDelayMs: number;
+  terminalMetadata: TerminalMetadataState;
 
   // Idle summary
   readonly idleSummaryDelayMs: number;

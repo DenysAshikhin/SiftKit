@@ -326,7 +326,7 @@ function syncInferenceRunFlushQueueModelState(ctx: ServerContext, lastFinishedAt
   ctx.inferenceRunFlushQueue.setModelRequestState({
     active: ctx.activeModelRequests.size > 0,
     queueLength: ctx.modelRequestQueue.length,
-    lastFinishedAtMs: lastFinishedAtMs ?? ctx.terminalMetadataLastModelRequestFinishedAtMs,
+    lastFinishedAtMs: lastFinishedAtMs ?? ctx.terminalMetadata.lastModelRequestFinishedAtMs,
   });
 }
 
@@ -589,7 +589,7 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
   clearModelRequestHoldCeiling(releasedLock);
   ctx.activeModelRequests.delete(token);
   const finishedAtMs = Date.now();
-  ctx.terminalMetadataLastModelRequestFinishedAtMs = finishedAtMs;
+  ctx.terminalMetadata.lastModelRequestFinishedAtMs = finishedAtMs;
   syncInferenceRunFlushQueueModelState(ctx, finishedAtMs);
   logModelRequestLockReleased(releasedLock, ctx.modelRequestQueue.length);
   const coordinator = ctx.presetRuntimeCoordinator;

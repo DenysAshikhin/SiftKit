@@ -16,16 +16,16 @@ import { createManagedTempDir } from './helpers/temp-dirs.js';
 test('terminal metadata idle wait observes scheduled work completing', async () => {
   const tempRoot = createManagedTempDir('siftkit-terminal-metadata-idle-');
   const context = createTestServerContext(path.join(tempRoot, 'config.json'));
-  context.terminalMetadataQueue.push({
+  context.terminalMetadata.queue.push({
     requestId: 'request-delayed',
     terminalState: 'completed',
     bodyText: '{}',
     capturedAtMs: Date.now(),
   });
-  context.terminalMetadataDrainScheduled = true;
+  context.terminalMetadata.drainScheduled = true;
   const completion = setTimeout(() => {
-    context.terminalMetadataQueue.length = 0;
-    context.terminalMetadataDrainScheduled = false;
+    context.terminalMetadata.queue.length = 0;
+    context.terminalMetadata.drainScheduled = false;
   }, 20);
   try {
     await waitForTerminalMetadataIdle(context, 100);
@@ -38,13 +38,13 @@ test('terminal metadata idle wait observes scheduled work completing', async () 
 test('terminal metadata idle wait reports stuck queue state at its ceiling', async () => {
   const tempRoot = createManagedTempDir('siftkit-terminal-metadata-stuck-');
   const context = createTestServerContext(path.join(tempRoot, 'config.json'));
-  context.terminalMetadataQueue.push({
+  context.terminalMetadata.queue.push({
     requestId: 'request-stuck',
     terminalState: 'failed',
     bodyText: '{}',
     capturedAtMs: Date.now(),
   });
-  context.terminalMetadataDrainRunning = true;
+  context.terminalMetadata.drainRunning = true;
   try {
     await assert.rejects(
       waitForTerminalMetadataIdle(context, 25),

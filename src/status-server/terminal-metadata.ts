@@ -165,24 +165,24 @@ export function scheduleDeferredTerminalMetadata(ctx: ServerContext, job: Deferr
 
 function getTerminalMetadataIdleWaitMs(ctx: ServerContext, fallbackStartedAtMs: number): number {
   if (ctx.activeModelRequests.size > 0 || ctx.modelRequestQueue.length > 0) {
-    return Math.max(1, Math.min(1000, ctx.terminalMetadataIdleDelayMs || 1000));
+    return Math.max(1, Math.min(1000, ctx.terminalMetadata.idleDelayMs || 1000));
   }
-  const lastFinishedAtMs = ctx.terminalMetadataLastModelRequestFinishedAtMs ?? fallbackStartedAtMs;
-  const idleWaitMs = Math.max(0, ctx.terminalMetadataIdleDelayMs - (Date.now() - lastFinishedAtMs));
+  const lastFinishedAtMs = ctx.terminalMetadata.lastModelRequestFinishedAtMs ?? fallbackStartedAtMs;
+  const idleWaitMs = Math.max(0, ctx.terminalMetadata.idleDelayMs - (Date.now() - lastFinishedAtMs));
   if (idleWaitMs > 0) {
     return idleWaitMs;
   }
   if (!ctx.inferenceRunFlushQueue.isIdle()) {
-    return Math.max(1, Math.min(1000, ctx.terminalMetadataIdleDelayMs || 1000));
+    return Math.max(1, Math.min(1000, ctx.terminalMetadata.idleDelayMs || 1000));
   }
   return 0;
 }
 
 function scheduleTerminalMetadataDrain(ctx: ServerContext, delayMs: number = 0): void {
-  if (ctx.terminalMetadataDrainScheduled || ctx.terminalMetadataDrainRunning || ctx.terminalMetadataQueue.length === 0) {
+  if (ctx.terminalMetadata.drainScheduled || ctx.terminalMetadata.drainRunning || ctx.terminalMetadata.queue.length === 0) {
     return;
   }
-  ctx.terminalMetadataDrainScheduled = true;
+  ctx.terminalMetadata.drainScheduled = true;
   const timer = setTimeout(() => {
     drainTerminalMetadataQueue(ctx);
   }, Math.max(0, Math.trunc(delayMs)));
@@ -192,12 +192,12 @@ function scheduleTerminalMetadataDrain(ctx: ServerContext, delayMs: number = 0):
 }
 
 export function enqueueTerminalMetadata(ctx: ServerContext, item: TerminalMetadataQueueItem): void {
-  ctx.terminalMetadataQueue.push(item);
+  ctx.terminalMetadata.queue.push(item);
   serverLogger.debug({
     scope: 'st',
     id: item.requestId,
     event: 'terminal_metadata_enqueued',
-    fields: `state=${item.terminalState} q=${ctx.terminalMetadataQueue.length}`,
+    fields: `state=${item.terminalState} q=${ctx.terminalMetadata.queue.length}`,
   });
   scheduleTerminalMetadataDrain(ctx);
 }
@@ -296,11 +296,11 @@ function processTerminalMetadataBody(ctx: ServerContext, item: TerminalMetadataQ
 }
 
 function drainTerminalMetadataQueue(ctx: ServerContext): void {
-  if (ctx.terminalMetadataDrainRunning) {
+  if (ctx.terminalMetadata.drainRunning) {
     return;
   }
-  ctx.terminalMetadataDrainScheduled = false;
-  const nextItem = ctx.terminalMetadataQueue[0] || null;
+  ctx.terminalMetadata.drainScheduled = false;
+  const nextItem = ctx.terminalMetadata.queue[0] || null;
   if (!nextItem) {
     return;
   }
@@ -314,7 +314,7 @@ function drainTerminalMetadataQueue(ctx: ServerContext): void {
         event: 'drain_wait',
         fields: `state=${nextItem.terminalState} wait_ms=${Math.max(1, Math.trunc(waitMs))} `
           + `active=${ctx.activeModelRequests.size > 0 ? 'true' : 'false'} `
-          + `q=${ctx.terminalMetadataQueue.length} model_q=${ctx.modelRequestQueue.length}`,
+          + `q=${ctx.terminalMetadata.queue.length} model_q=${ctx.modelRequestQueue.length}`,
       });
     }
     scheduleTerminalMetadataDrain(ctx, waitMs);
@@ -327,13 +327,13 @@ function drainTerminalMetadataQueue(ctx: ServerContext): void {
       id: nextItem.requestId,
       event: 'drain_resume',
       fields: `waited=${formatElapsed(drainRelease.elapsedMs)}  cycles=${drainRelease.repeatCount + 1}  `
-        + `q=${ctx.terminalMetadataQueue.length}`,
+        + `q=${ctx.terminalMetadata.queue.length}`,
     });
   }
-  ctx.terminalMetadataDrainRunning = true;
-  const item = ctx.terminalMetadataQueue.shift();
+  ctx.terminalMetadata.drainRunning = true;
+  const item = ctx.terminalMetadata.queue.shift();
   if (!item) {
-    ctx.terminalMetadataDrainRunning = false;
+    ctx.terminalMetadata.drainRunning = false;
     return;
   }
   const startedAt = Date.now();
@@ -360,17 +360,17 @@ function drainTerminalMetadataQueue(ctx: ServerContext): void {
         + `error=${error instanceof Error ? error.message : String(error)}`,
     });
   } finally {
-    ctx.terminalMetadataDrainRunning = false;
-    if (ctx.terminalMetadataQueue.length > 0) {
+    ctx.terminalMetadata.drainRunning = false;
+    if (ctx.terminalMetadata.queue.length > 0) {
       scheduleTerminalMetadataDrain(ctx);
     }
   }
 }
 
 function isTerminalMetadataIdle(ctx: ServerContext, minimumCompletedRequestCount: number): boolean {
-  return ctx.terminalMetadataQueue.length === 0
-    && !ctx.terminalMetadataDrainScheduled
-    && !ctx.terminalMetadataDrainRunning
+  return ctx.terminalMetadata.queue.length === 0
+    && !ctx.terminalMetadata.drainScheduled
+    && !ctx.terminalMetadata.drainRunning
     && ctx.metrics.completedRequestCount >= minimumCompletedRequestCount;
 }
 
@@ -386,11 +386,11 @@ export async function waitForTerminalMetadataIdle(
   const deadline = Date.now() + normalizedTimeoutMs;
   while (!isTerminalMetadataIdle(ctx, normalizedMinimumCount)) {
     if (Date.now() >= deadline) {
-      const nextRequestId = ctx.terminalMetadataQueue[0]?.requestId ?? 'none';
+      const nextRequestId = ctx.terminalMetadata.queue[0]?.requestId ?? 'none';
       throw new Error(
         `Timed out waiting for terminal metadata after ${normalizedTimeoutMs}ms: `
-        + `queue=${ctx.terminalMetadataQueue.length} scheduled=${ctx.terminalMetadataDrainScheduled} `
-        + `running=${ctx.terminalMetadataDrainRunning} request=${nextRequestId} `
+        + `queue=${ctx.terminalMetadata.queue.length} scheduled=${ctx.terminalMetadata.drainScheduled} `
+        + `running=${ctx.terminalMetadata.drainRunning} request=${nextRequestId} `
         + `completed=${ctx.metrics.completedRequestCount} expected=${normalizedMinimumCount}`,
       );
     }

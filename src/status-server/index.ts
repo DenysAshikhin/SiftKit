@@ -275,11 +275,13 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     deferredArtifactQueue: [],
     deferredArtifactDrainScheduled: false,
     deferredArtifactDrainRunning: false,
-    terminalMetadataQueue: [],
-    terminalMetadataDrainScheduled: false,
-    terminalMetadataDrainRunning: false,
-    terminalMetadataLastModelRequestFinishedAtMs: null,
-    terminalMetadataIdleDelayMs: getTerminalMetadataIdleDelayMs(options),
+    terminalMetadata: {
+      queue: [],
+      drainScheduled: false,
+      drainRunning: false,
+      lastModelRequestFinishedAtMs: null,
+      idleDelayMs: getTerminalMetadataIdleDelayMs(options),
+    },
     idleSummaryDelayMs: getIdleSummaryDelayMs(options),
     pendingIdleSummaryMetadata: {
       inputCharactersPerContextToken: null,
