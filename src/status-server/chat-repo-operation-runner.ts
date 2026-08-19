@@ -1,4 +1,5 @@
 import { WEB_RESEARCH_PRESET_TOOLS } from '@siftkit/contracts';
+import type { ImageMetadata } from '@siftkit/contracts';
 
 import {
   getActiveModelPreset,
@@ -133,8 +134,9 @@ export class ChatRepoOperationRunner {
       .select(request.session, operation);
     const effectiveConfig = resolveChatSessionConfig(request.config, selected.session);
     const activePreset = getActiveModelPreset(effectiveConfig);
-    const admittedImages = admitImagesForPreset(activePreset, request.images)
-      .map((image) => image.dataUrl);
+    const admitted = admitImagesForPreset(activePreset, request.images);
+    const admittedImages = admitted.map((image) => image.dataUrl);
+    const admittedImageMeta = admitted.map((image) => image.metadata);
     const session = {
       ...selected.session,
       planRepoRoot: request.repoRoot,
@@ -191,6 +193,7 @@ export class ChatRepoOperationRunner {
       engineResult,
       assistantContent,
       admittedImages,
+      admittedImageMeta,
       startedAt,
       progress,
       speculativeSnapshot,
@@ -247,6 +250,7 @@ export class ChatRepoOperationRunner {
     engineResult: RepoSearchExecutionResult;
     assistantContent: string;
     admittedImages: string[];
+    admittedImageMeta: ImageMetadata[];
     startedAt: number;
     progress: ChatRepoOperationProgressTracker;
     speculativeSnapshot: ReturnType<typeof captureManagedLlamaSpeculativeMetricsSnapshot>;
@@ -279,6 +283,7 @@ export class ChatRepoOperationRunner {
       {
         turns,
         images: options.admittedImages,
+        imageMeta: options.admittedImageMeta,
         maintainPerStepThinking: telemetry.shouldMaintainPerStepThinking(options.session),
         inputTokens: inputTokenCount.tokenCount,
         inputTokensEstimated: inputTokenCount.estimated,

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ImageMetadataSchema, resolveEffectiveImagePixelCeiling } from '@siftkit/contracts';
+import { ImageMetadataSchema, resolveEffectiveImagePixelCeiling, sumImageTokens } from '@siftkit/contracts';
 import type { ContextUsage, ImageMetadata } from '@siftkit/contracts';
 import { getActiveModelPreset, getConfiguredLlamaNumCtx } from '../config/getters.js';
 import { overlayActivePreset } from '../config/overrides.js';
@@ -45,7 +45,9 @@ function getMessageContextTokenEstimate(message: PersistedChatMessage): number {
   if (message.kind === 'assistant_thinking') {
     return estimateTokenCount(message.content);
   }
-  return estimateTokenCount(formatChatMessageForPrompt(message)) + getMessageThinkingTokenEstimate(message);
+  return estimateTokenCount(formatChatMessageForPrompt(message))
+    + getMessageThinkingTokenEstimate(message)
+    + sumImageTokens(message.imageMeta);
 }
 
 function getMessageThinkingTokenEstimate(message: PersistedChatMessage): number {
@@ -60,7 +62,21 @@ function formatChatMessageForPrompt(message: PersistedChatMessage): string {
     const command = trimText(message.toolCallCommand) || trimText(message.content);
     return command || trimText(message.content);
   }
-  return String(message.content || '');
+  return appendRemovedImageNotice(String(message.content || ''), message.removedImageCount ?? 0);
+}
+
+/**
+ * Deleted attachments are stored as a count, never written into the message text. The notice
+ * is composed here so the model does not read a dangling reference to an image that is gone.
+ */
+function appendRemovedImageNotice(content: string, removedImageCount: number): string {
+  if (removedImageCount <= 0) {
+    return content;
+  }
+  const notice = removedImageCount === 1
+    ? '[1 image removed]'
+    : `[${removedImageCount} images removed]`;
+  return content ? `${content}\n${notice}` : notice;
 }
 
 function getMessageToolTokenEstimate(message: PersistedChatMessage): number {
@@ -89,6 +105,7 @@ type ContextUsageTokenTotals = {
   chatUsedTokens: number;
   thinkingUsedTokens: number;
   toolUsedTokens: number;
+  imageUsedTokens: number;
   totalUsedTokens: number;
   remainingTokens: number;
   estimatedTokenFallbackTokens: number;
@@ -161,6 +178,7 @@ class ContextUsageBuilder {
       chatUsedTokens: totals.chatUsedTokens,
       thinkingUsedTokens: totals.thinkingUsedTokens,
       toolUsedTokens: totals.toolUsedTokens,
+      imageUsedTokens: totals.imageUsedTokens,
       totalUsedTokens: totals.totalUsedTokens,
       remainingTokens: totals.remainingTokens,
       warnThresholdTokens,
@@ -180,6 +198,7 @@ class ContextUsageBuilder {
     const messageTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + getMessageContextTokenEstimate(message), 0);
     const thinkingUsedTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + getMessageThinkingTokenEstimate(message), 0);
     const toolUsedTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + getMessageToolTokenEstimate(message), 0);
+    const imageUsedTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + sumImageTokens(message.imageMeta), 0);
     const chatUsedTokens = estimateTokenCount(DEFAULT_CHAT_SYSTEM_PROMPT) + messageTokens;
     const totalUsedTokens = chatUsedTokens + toolUsedTokens;
     const estimatedToolTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + getMessageToolTokenFallbackEstimate(message), 0);
@@ -188,6 +207,7 @@ class ContextUsageBuilder {
       chatUsedTokens,
       thinkingUsedTokens,
       toolUsedTokens,
+      imageUsedTokens,
       totalUsedTokens,
       remainingTokens: Math.max(contextWindowTokens - totalUsedTokens, 0),
       estimatedTokenFallbackTokens: chatUsedTokens + estimatedToolTokens,
@@ -282,11 +302,12 @@ export function buildChatHistoryMessages(
     if (kind === 'tool_image') {
       const toolImages = message.images ?? [];
       if (toolImages.length > 0) {
-        history.push({ role: 'user', content: buildUserContent(trimText(message.content), toolImages) });
+        const toolText = appendRemovedImageNotice(trimText(message.content), message.removedImageCount ?? 0);
+        history.push({ role: 'user', content: buildUserContent(toolText, toolImages) });
       }
       continue;
     }
-    const content = trimText(message.content);
+    const content = appendRemovedImageNotice(trimText(message.content), message.removedImageCount ?? 0);
     const messageImages = message.images ?? [];
     if (!content && messageImages.length === 0) {
       continue;
@@ -434,6 +455,7 @@ type AppendChatOptions = {
   sourceRunId?: string | null;
   groundingStatus?: ChatGroundingStatus | null;
   images?: string[];
+  imageMeta?: ImageMetadata[];
 };
 
 export function appendChatMessagesWithUsage(
@@ -487,6 +509,7 @@ export function appendChatMessagesWithUsage(
     createdAtUtc: now,
     sourceRunId: null,
     images: options.images ?? [],
+    imageMeta: options.imageMeta ?? [],
   });
   const turns = Array.isArray(options.turns) ? options.turns : [];
   let associatedToolTokens = 0;

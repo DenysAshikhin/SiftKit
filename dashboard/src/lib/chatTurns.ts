@@ -35,8 +35,11 @@ function isToolCallMessage(message: ChatMessage): boolean {
 }
 
 function resolveTurnKey(message: ChatMessage, isLive: boolean): string {
-  if (isLive) return 'live';
+  // A user message always owns its own turn. Keying it as 'live' too would fold the
+  // optimistic bubble into the assistant's live turn, where the streaming answer takes
+  // the main slot and the user's own words get demoted into Internal Logic.
   if (message.role === 'user') return `user:${message.id}`;
+  if (isLive) return 'live';
   const runId = typeof message.sourceRunId === 'string' ? message.sourceRunId.trim() : '';
   return runId ? `run:${runId}` : `solo:${message.id}`;
 }
@@ -49,11 +52,15 @@ function pickMainMessage(turn: ChatTurn): ChatMessage | null {
   // demoted into Internal Logic the moment the tool starts.
   if (turn.isLive) {
     const toolCalls = turn.messages.filter(isToolCallMessage);
-    return toolCalls[toolCalls.length - 1] ?? null;
+    const toolCall = toolCalls[toolCalls.length - 1];
+    if (toolCall) {
+      return toolCall;
+    }
   }
-  // Settled, no answer: surface the last non-step message (e.g. a lone user_text
-  // message). A settled run that is only thinking/tool steps (answer deleted) has
-  // no main slot, so everything stays in Internal Logic.
+  // No answer and no owning tool call: surface the last non-step message (e.g.
+  // a lone user_text message, or the live user bubble before the turn's
+  // assistant side starts). A run that is only thinking/tool steps (answer
+  // deleted) has no main slot, so everything stays in Internal Logic.
   const nonStepMessages = turn.messages.filter((message) => !isStepMessage(message));
   return nonStepMessages[nonStepMessages.length - 1] ?? null;
 }

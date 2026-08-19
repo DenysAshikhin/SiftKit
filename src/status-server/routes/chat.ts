@@ -8,6 +8,7 @@ import type {
   ChatMessage as WireChatMessage,
   ChatSessionResponse,
   ChatSessionsResponse,
+  ImageMetadata,
 } from '@siftkit/contracts';
 import type { ChatMessage as PersistedChatMessage } from '../../state/chat-sessions.js';
 import { join, resolve } from 'node:path';
@@ -70,6 +71,8 @@ import {
   getChatSessionPath,
   deleteChatSession,
   deleteChatMessage,
+  deleteChatMessageImage,
+  ChatMessageImageNotFoundError,
   saveChatSession,
 } from '../../state/chat-sessions.js';
 import { getRuntimeDatabase } from '../../state/runtime-db.js';
@@ -224,12 +227,15 @@ function admitSelectedChatImages(
   config: SiftConfig,
   session: ChatSession,
   requestedImages: string[],
-): { effectiveConfig: SiftConfig; images: string[] } {
+): { effectiveConfig: SiftConfig; images: string[]; imageMeta: ImageMetadata[] } {
   const effectiveConfig = resolveChatSessionConfig(config, session);
   const activePreset = getActiveModelPreset(effectiveConfig);
-  const admittedImages = admitImagesForPreset(activePreset, requestedImages)
-    .map((image) => image.dataUrl);
-  return { effectiveConfig, images: admittedImages };
+  const admitted = admitImagesForPreset(activePreset, requestedImages);
+  return {
+    effectiveConfig,
+    images: admitted.map((image) => image.dataUrl),
+    imageMeta: admitted.map((image) => image.metadata),
+  };
 }
 
 export function formatChatEngineError(
@@ -589,6 +595,38 @@ class DeleteChatMessageEndpoint implements RouteEndpoint {
   }
 }
 
+class DeleteChatMessageImageEndpoint implements RouteEndpoint {
+  async handle(
+    ctx: ServerContext,
+    req: IncomingMessage,
+    res: ServerResponse,
+    routeMatch: RouteMatch,
+  ): Promise<void> {
+    const { configPath } = ctx;
+    const runtimeRoot = getRuntimeRoot();
+    const match = /^\/dashboard\/chat\/sessions\/([^/]+)\/messages\/([^/]+)\/images\/([0-9]+)$/u
+      .exec(routeMatch.pathname);
+    const sessionId = decodeURIComponent(match?.[1] || '');
+    const messageId = decodeURIComponent(match?.[2] || '');
+    const imageIndex = Number(match?.[3]);
+    try {
+      deleteChatMessageImage(runtimeRoot, sessionId, messageId, imageIndex);
+    } catch (error) {
+      if (error instanceof ChatMessageImageNotFoundError) {
+        sendJson(res, 404, { error: 'Image not found.' });
+        return;
+      }
+      throw error;
+    }
+    const session = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
+    if (!session) {
+      sendJson(res, 404, { error: 'Session not found.' });
+      return;
+    }
+    sendJson(res, 200, buildChatSessionResponse(readConfig(configPath), session));
+  }
+}
+
 class CreateChatSessionEndpoint implements RouteEndpoint {
   async handle(
     ctx: ServerContext,
@@ -697,6 +735,7 @@ class ChatMessageTurn {
     private readonly preset: SiftPreset,
     private readonly userContent: string,
     private readonly userImages: string[],
+    private readonly userImageMeta: ImageMetadata[],
     private readonly mockResponses: string[] | undefined,
   ) {
     this.managedLlamaCursor = captureManagedLlamaSessionCursor(ctx);
@@ -805,6 +844,7 @@ class ChatMessageTurn {
         speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
         sourceRunId: turn.sourceRunId,
         images: this.userImages,
+        imageMeta: this.userImageMeta,
       },
     );
     ingestAssistantMemoryTurn(
@@ -905,6 +945,7 @@ class CreateChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         selected.preset,
         messageRequest.content,
         selectedImages.images,
+        selectedImages.imageMeta,
         readRouteStringArray(new JsonRecordReader(request.parsedBody), 'mockResponses'),
       );
       if (providedAssistantContent) {
@@ -1051,6 +1092,7 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         groundingStatus: getChatGroundingStatus(result.scorecard),
         sourceRunId: String(result.requestId || ''),
         images: selectedImages.images,
+        imageMeta: selectedImages.imageMeta,
       });
       ingestAssistantMemoryTurn(
         memory,
@@ -1376,6 +1418,7 @@ const CHAT_ROUTES = new RouteTable([
   { method: 'GET', path: /^\/dashboard\/chat\/sessions\/([^/]+)$/u, endpoint: new GetChatSessionEndpoint() },
   { method: 'PUT', path: /^\/dashboard\/chat\/sessions\/([^/]+)$/u, endpoint: new UpdateChatSessionEndpoint() },
   { method: 'DELETE', path: /^\/dashboard\/chat\/sessions\/([^/]+)$/u, endpoint: new DeleteChatSessionEndpoint() },
+  { method: 'DELETE', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/messages\/([^/]+)\/images\/([0-9]+)$/u, endpoint: new DeleteChatMessageImageEndpoint() },
   { method: 'DELETE', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/messages\/([^/]+)$/u, endpoint: new DeleteChatMessageEndpoint() },
   { method: 'POST', path: '/dashboard/chat/sessions', endpoint: new CreateChatSessionEndpoint() },
   { method: 'POST', path: /^\/dashboard\/chat\/sessions\/([^/]+)\/messages$/u, endpoint: new CreateChatMessageEndpoint() },

@@ -55,12 +55,12 @@ function KeyedMessageImages(props: React.ComponentProps<typeof MessageImages>): 
 test('guards in-flight caption requests across identity changes and unmounts', async () => {
   const deferred = deferredFetch();
   Object.defineProperty(globalThis, 'fetch', { configurable: true, value: deferred.fetch });
-  const view = render(<KeyedMessageImages sessionId="s1" messageId="m1" images={[PNG_A]} imageMeta={[META]} />);
+  const view = render(<KeyedMessageImages sessionId="s1" messageId="m1" images={[PNG_A]} imageMeta={[META]} removedImageCount={0} chatBusy={false} onDeleteImage={async () => undefined} />);
 
   await openDetails(view);
   assert.equal(deferred.responses.length, 1);
 
-  view.rerender(<KeyedMessageImages sessionId="s2" messageId="m2" images={[PNG_B]} imageMeta={[META]} />);
+  view.rerender(<KeyedMessageImages sessionId="s2" messageId="m2" images={[PNG_B]} imageMeta={[META]} removedImageCount={0} chatBusy={false} onDeleteImage={async () => undefined} />);
   await openDetails(view);
   assert.equal(deferred.responses.length, 2);
 
@@ -83,10 +83,10 @@ test('guards in-flight caption requests across identity changes and unmounts', a
   });
   assert.match(view.container.textContent ?? '', /new caption/u);
 
-  view.rerender(<KeyedMessageImages sessionId="s3" messageId="m3" images={[PNG_A]} imageMeta={[META]} />);
+  view.rerender(<KeyedMessageImages sessionId="s3" messageId="m3" images={[PNG_A]} imageMeta={[META]} removedImageCount={0} chatBusy={false} onDeleteImage={async () => undefined} />);
   await openDetails(view);
   assert.equal(deferred.responses.length, 3);
-  view.rerender(<KeyedMessageImages sessionId="s4" messageId="m4" images={[PNG_B]} imageMeta={[META]} />);
+  view.rerender(<KeyedMessageImages sessionId="s4" messageId="m4" images={[PNG_B]} imageMeta={[META]} removedImageCount={0} chatBusy={false} onDeleteImage={async () => undefined} />);
   await openDetails(view);
   assert.equal(deferred.responses.length, 4);
 
@@ -106,7 +106,7 @@ test('guards in-flight caption requests across identity changes and unmounts', a
   });
   assert.match(view.container.textContent ?? '', /new caption after error/u);
 
-  view.rerender(<KeyedMessageImages sessionId="s5" messageId="m5" images={[PNG_A]} imageMeta={[META]} />);
+  view.rerender(<KeyedMessageImages sessionId="s5" messageId="m5" images={[PNG_A]} imageMeta={[META]} removedImageCount={0} chatBusy={false} onDeleteImage={async () => undefined} />);
   await openDetails(view);
   assert.equal(deferred.responses.length, 5);
   view.unmount();

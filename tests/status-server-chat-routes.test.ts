@@ -5,6 +5,7 @@ import { ImageMetadataSchema } from '@siftkit/contracts';
 import {
   ChatMessageImageNotFoundError,
   deleteChatMessage,
+  deleteChatMessageImage,
   updateChatMessageImageCaption,
   readChatSessionFromPath,
   saveChatSession,
@@ -536,5 +537,191 @@ test('caption route returns 404 when the image disappears during inference', asy
   } finally {
     StatusEngineService.prototype.executeRepoSearch = originalExecute;
     await closeCaptionTestServer(harness.server, harness.previousCwd, harness.envBackup, harness.tempRoot);
+  }
+});
+
+test('the message route persists admitted image metadata on the user message', async () => {
+  const context = await withCaptionServer();
+  try {
+    const image = toDataUrl('image/png', rasterBuffer('png', 4, 4));
+    const response = await requestJson(
+      `${context.baseUrl}/dashboard/chat/sessions/${context.fixture.session.id}/messages`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ content: 'what is this', images: [image], assistantContent: 'a tiny square' }),
+      },
+    );
+    assert.equal(response.statusCode, 200);
+
+    const stored = readChatSessionFromPath(
+      getChatSessionPath(context.fixture.runtimeRoot, context.fixture.session.id),
+    );
+    const appendedUserMessage = stored?.messages?.filter((message) => message.role === 'user').at(-1);
+    assert.equal(appendedUserMessage?.images?.length, 1);
+    assert.equal(appendedUserMessage?.imageMeta?.length, 1);
+    assert.ok((appendedUserMessage?.imageMeta?.[0]?.tokenEstimate ?? 0) > 0);
+  } finally {
+    await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);
+  }
+});
+
+test('deleteChatMessageImage strips one image and records the removal without editing the text', () => {
+  const runtimeRoot = createManagedTempDir('siftkit-delete-image-db-');
+  const session = createTestChatSession(runtimeRoot);
+  const message = {
+    id: 'two-images',
+    role: 'user' as const,
+    kind: 'user_text' as const,
+    content: 'compare these',
+    inputTokensEstimate: 1,
+    outputTokensEstimate: 1,
+    thinkingTokens: 0,
+    createdAtUtc: '2026-08-08T00:00:00.000Z',
+    images: ['data:image/png;base64,AA==', 'data:image/png;base64,BB=='],
+    imageMeta: [imageMetadata(), imageMetadata(2, 2, 'keep me')],
+  };
+  saveChatSession(runtimeRoot, { ...session, messages: [message] });
+
+  deleteChatMessageImage(runtimeRoot, session.id, message.id, 0);
+
+  const reloaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, session.id));
+  assert.deepEqual(reloaded?.messages?.[0]?.images, ['data:image/png;base64,BB==']);
+  assert.equal(reloaded?.messages?.[0]?.imageMeta?.length, 1);
+  assert.equal(reloaded?.messages?.[0]?.imageMeta?.[0]?.caption, 'keep me');
+  assert.equal(reloaded?.messages?.[0]?.content, 'compare these');
+  assert.equal(reloaded?.messages?.[0]?.removedImageCount, 1);
+});
+
+test('deleteChatMessageImage rejects missing targets and invalid boundaries', () => {
+  const runtimeRoot = createManagedTempDir('siftkit-delete-image-boundaries-');
+  const session = createTestChatSession(runtimeRoot);
+  const message = {
+    id: 'one-image',
+    role: 'user' as const,
+    kind: 'user_text' as const,
+    content: 'one image',
+    inputTokensEstimate: 1,
+    outputTokensEstimate: 1,
+    thinkingTokens: 0,
+    createdAtUtc: '2026-08-08T00:00:00.000Z',
+    images: ['data:image/png;base64,AA=='],
+    imageMeta: [imageMetadata()],
+  };
+  saveChatSession(runtimeRoot, { ...session, messages: [message] });
+
+  assert.throws(
+    () => deleteChatMessageImage(runtimeRoot, session.id, 'missing', 0),
+    ChatMessageImageNotFoundError,
+  );
+  assert.throws(
+    () => deleteChatMessageImage(runtimeRoot, session.id, message.id, 7),
+    ChatMessageImageNotFoundError,
+  );
+  assert.throws(
+    () => deleteChatMessageImage(runtimeRoot, session.id, message.id, -1),
+    /non-negative integer/u,
+  );
+});
+
+test('deleteChatMessageImage counts every removal separately', () => {
+  const runtimeRoot = createManagedTempDir('siftkit-delete-image-marker-');
+  const session = createTestChatSession(runtimeRoot);
+  const message = {
+    id: 'two-images-marker',
+    role: 'user' as const,
+    kind: 'user_text' as const,
+    content: 'compare these',
+    inputTokensEstimate: 1,
+    outputTokensEstimate: 1,
+    thinkingTokens: 0,
+    createdAtUtc: '2026-08-08T00:00:00.000Z',
+    images: ['data:image/png;base64,AA==', 'data:image/png;base64,BB=='],
+    imageMeta: [imageMetadata(), imageMetadata()],
+  };
+  saveChatSession(runtimeRoot, { ...session, messages: [message] });
+
+  deleteChatMessageImage(runtimeRoot, session.id, message.id, 0);
+  deleteChatMessageImage(runtimeRoot, session.id, message.id, 0);
+
+  const reloaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, session.id));
+  assert.deepEqual(reloaded?.messages?.[0]?.images, []);
+  assert.equal(reloaded?.messages?.[0]?.content, 'compare these');
+  assert.equal(reloaded?.messages?.[0]?.removedImageCount, 2);
+});
+
+test('deleteChatMessageImage leaves a literal removal phrase typed by the user alone', () => {
+  const runtimeRoot = createManagedTempDir('siftkit-delete-image-literal-');
+  const session = createTestChatSession(runtimeRoot);
+  const message = {
+    id: 'literal-marker',
+    role: 'user' as const,
+    kind: 'user_text' as const,
+    content: 'the log line reads [image removed] verbatim',
+    inputTokensEstimate: 1,
+    outputTokensEstimate: 1,
+    thinkingTokens: 0,
+    createdAtUtc: '2026-08-08T00:00:00.000Z',
+    images: ['data:image/png;base64,AA=='],
+    imageMeta: [imageMetadata()],
+  };
+  saveChatSession(runtimeRoot, { ...session, messages: [message] });
+
+  deleteChatMessageImage(runtimeRoot, session.id, message.id, 0);
+
+  const reloaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, session.id));
+  assert.equal(reloaded?.messages?.[0]?.content, 'the log line reads [image removed] verbatim');
+  assert.equal(reloaded?.messages?.[0]?.removedImageCount, 1);
+});
+
+test('deleting one image returns the session with reduced context usage', async () => {
+  const context = await withCaptionServer();
+  try {
+    const before = await requestJson(
+      `${context.baseUrl}/dashboard/chat/sessions/${context.fixture.session.id}`,
+    );
+    assert.equal(before.statusCode, 200);
+    assert.ok(Number(asObject(before.body.contextUsage).imageUsedTokens) > 0);
+
+    const response = await requestJson(
+      `${context.baseUrl}/dashboard/chat/sessions/${context.fixture.session.id}/messages/${context.fixture.message.id}/images/0`,
+      { method: 'DELETE' },
+    );
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(Number(asObject(response.body.contextUsage).imageUsedTokens), 0);
+
+    const stored = readChatSessionFromPath(
+      getChatSessionPath(context.fixture.runtimeRoot, context.fixture.session.id),
+    );
+    assert.deepEqual(stored?.messages?.[0]?.images, []);
+    assert.equal(stored?.messages?.[0]?.removedImageCount, 1);
+  } finally {
+    await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);
+  }
+});
+
+test('deleting an out-of-range image index answers 404', async () => {
+  const context = await withCaptionServer();
+  try {
+    const response = await requestJson(
+      `${context.baseUrl}/dashboard/chat/sessions/${context.fixture.session.id}/messages/${context.fixture.message.id}/images/7`,
+      { method: 'DELETE' },
+    );
+    assert.equal(response.statusCode, 404);
+  } finally {
+    await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);
+  }
+});
+
+test('deleting an image on an unknown message answers 404', async () => {
+  const context = await withCaptionServer();
+  try {
+    const response = await requestJson(
+      `${context.baseUrl}/dashboard/chat/sessions/${context.fixture.session.id}/messages/no-such-message/images/0`,
+      { method: 'DELETE' },
+    );
+    assert.equal(response.statusCode, 404);
+  } finally {
+    await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);
   }
 });

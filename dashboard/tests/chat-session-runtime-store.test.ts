@@ -24,6 +24,7 @@ const SAMPLE_RESPONSE: ChatSessionResponse = {
     chatUsedTokens: 0,
     thinkingUsedTokens: 0,
     toolUsedTokens: 0,
+    imageUsedTokens: 0,
     totalUsedTokens: 0,
     remainingTokens: 100,
     warnThresholdTokens: 80,
@@ -106,6 +107,7 @@ test('ensureSession creates a runtime with idle activity and empty defaults', ()
   assert.deepEqual(runtime.pendingImages, []);
   assert.equal(runtime.planRepoRootInput, '');
   assert.equal(runtime.planMaxTurnsInput, '');
+  assert.equal(runtime.awaitingResponse, false);
 });
 
 test('begin sets active activity with operation kind', () => {
@@ -366,4 +368,108 @@ test('setContextUsage updates only the targeted session', () => {
     .apply({ kind: 'context-usage', sessionId: 's1', contextUsage: SAMPLE_RESPONSE.contextUsage });
   assert.equal(store.get('s1').contextUsage, SAMPLE_RESPONSE.contextUsage);
   assert.equal(store.get('s2').contextUsage, null);
+});
+
+test('submit moves the draft and images into a live user bubble', () => {
+  const next = new ChatSessionRuntimeStore()
+    .apply({ kind: 'draft', sessionId: 's1', draft: 'look at this' })
+    .apply({ kind: 'append-images', sessionId: 's1', images: [IMAGE_A] })
+    .apply({ kind: 'submit', sessionId: 's1', content: 'look at this', images: [IMAGE_A] });
+
+  const runtime = next.get('s1');
+  assert.equal(runtime.draft, '');
+  assert.deepEqual(runtime.pendingImages, []);
+  assert.equal(runtime.liveMessages.length, 1);
+  assert.equal(runtime.liveMessages[0]?.id, 'live-user');
+  assert.equal(runtime.liveMessages[0]?.role, 'user');
+  assert.equal(runtime.liveMessages[0]?.content, 'look at this');
+  assert.deepEqual(runtime.liveMessages[0]?.images, [IMAGE_A.dataUrl]);
+  assert.deepEqual(runtime.submittedInput, { content: 'look at this', images: [IMAGE_A] });
+});
+
+test('submit keeps the live user bubble first when the answer starts streaming', () => {
+  const next = new ChatSessionRuntimeStore()
+    .apply({ kind: 'submit', sessionId: 's1', content: 'hi', images: [] })
+    .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'hello' } });
+
+  assert.deepEqual(
+    next.get('s1').liveMessages.map((message) => message.id),
+    ['live-user', 'live-answer'],
+  );
+});
+
+test('failure restores the submitted draft and images and drops the live bubble', () => {
+  const next = new ChatSessionRuntimeStore()
+    .apply({ kind: 'submit', sessionId: 's1', content: 'look at this', images: [IMAGE_A, IMAGE_B] })
+    .apply({ kind: 'failure', sessionId: 's1', message: 'engine unavailable' });
+
+  const runtime = next.get('s1');
+  assert.equal(runtime.draft, 'look at this');
+  assert.deepEqual(runtime.pendingImages, [IMAGE_A, IMAGE_B]);
+  assert.deepEqual(runtime.liveMessages, []);
+  assert.equal(runtime.submittedInput, null);
+  assert.equal(runtime.error, 'engine unavailable');
+});
+
+test('failure without a submitted input leaves the composer untouched', () => {
+  const next = new ChatSessionRuntimeStore()
+    .apply({ kind: 'draft', sessionId: 's1', draft: 'typed but never sent' })
+    .apply({ kind: 'failure', sessionId: 's1', message: 'boom' });
+
+  assert.equal(next.get('s1').draft, 'typed but never sent');
+  assert.deepEqual(next.get('s1').pendingImages, []);
+});
+
+test('submit marks the session as awaiting the first streamed response', () => {
+  const next = new ChatSessionRuntimeStore()
+    .apply({ kind: 'submit', sessionId: 's1', content: 'hi', images: [] });
+
+  assert.equal(next.get('s1').awaitingResponse, true);
+});
+
+test('a warning before the stream starts leaves the session still awaiting', () => {
+  const next = new ChatSessionRuntimeStore()
+    .apply({ kind: 'submit', sessionId: 's1', content: 'hi', images: [] })
+    .apply({ kind: 'warning', sessionId: 's1', text: 'repo root is dirty' });
+
+  assert.equal(next.get('s1').awaitingResponse, true);
+});
+
+test('any streamed evidence ends the awaiting state, whatever arrives first', () => {
+  const submitted = new ChatSessionRuntimeStore()
+    .apply({ kind: 'submit', sessionId: 's1', content: 'hi', images: [] });
+
+  const afterTool = submitted.apply({ kind: 'tool', sessionId: 's1', toolEvent: {
+    kind: 'tool_start',
+    toolCallId: 'tc1',
+    turn: 1,
+    maxTurns: 4,
+    command: 'rg foo',
+  }});
+  const afterThinking = submitted
+    .apply({ kind: 'thinking', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'hmm' } });
+  const afterAnswer = submitted
+    .apply({ kind: 'answer', sessionId: 's1', delta: { turn: 1, offset: 0, text: 'hello' } });
+
+  assert.equal(afterTool.get('s1').awaitingResponse, false);
+  assert.equal(afterThinking.get('s1').awaitingResponse, false);
+  assert.equal(afterAnswer.get('s1').awaitingResponse, false);
+});
+
+test('done and failure both end the awaiting state', () => {
+  const submitted = new ChatSessionRuntimeStore()
+    .apply({ kind: 'submit', sessionId: 's1', content: 'hi', images: [] });
+
+  assert.equal(submitted.apply({ kind: 'done', sessionId: 's1', response: SAMPLE_RESPONSE }).get('s1').awaitingResponse, false);
+  assert.equal(submitted.apply({ kind: 'failure', sessionId: 's1', message: 'boom' }).get('s1').awaitingResponse, false);
+});
+
+test('done clears the submitted input along with the live messages', () => {
+  const next = new ChatSessionRuntimeStore()
+    .apply({ kind: 'submit', sessionId: 's1', content: 'hi', images: [IMAGE_A] })
+    .apply({ kind: 'done', sessionId: 's1', response: SAMPLE_RESPONSE });
+
+  assert.equal(next.get('s1').submittedInput, null);
+  assert.deepEqual(next.get('s1').liveMessages, []);
+  assert.deepEqual(next.get('s1').pendingImages, []);
 });

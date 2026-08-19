@@ -373,6 +373,18 @@ export function deleteChatMessage(sessionId: string, messageId: string): Promise
   });
 }
 
+export function deleteChatMessageImage(
+  sessionId: string,
+  messageId: string,
+  imageIndex: number,
+): Promise<ChatSessionResponse> {
+  return fetchJson(
+    `/dashboard/chat/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/images/${imageIndex}`,
+    ChatSessionResponseSchema,
+    { method: 'DELETE' },
+  );
+}
+
 export function requestImageCaption(
   sessionId: string,
   messageId: string,

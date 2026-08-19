@@ -23,6 +23,7 @@ export const ChatMessageSchema = z.object({
   createdAtUtc: z.string(), sourceRunId: z.string().nullable(), compressedIntoSummary: z.boolean().optional(),
   images: z.array(ImageDataUrlSchema).optional(),
   imageMeta: z.array(ImageMetadataSchema).optional(),
+  removedImageCount: z.number().int().nonnegative().optional(),
 });
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
@@ -45,7 +46,8 @@ export type ChatSession = z.infer<typeof ChatSessionSchema>;
 
 export const ContextUsageSchema = z.object({
   contextWindowTokens: z.number(), usedTokens: z.number(), chatUsedTokens: z.number(), thinkingUsedTokens: z.number(),
-  toolUsedTokens: z.number(), totalUsedTokens: z.number(), remainingTokens: z.number(), warnThresholdTokens: z.number(),
+  toolUsedTokens: z.number(), imageUsedTokens: z.number().int().nonnegative(),
+  totalUsedTokens: z.number(), remainingTokens: z.number(), warnThresholdTokens: z.number(),
   shouldCondense: z.boolean(), estimatedTokenFallbackTokens: z.number(), providerOverheadTokens: z.number(),
   effectiveImagePixelCeiling: z.number().int().positive().optional(),
 });

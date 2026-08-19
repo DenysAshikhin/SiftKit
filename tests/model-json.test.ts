@@ -611,6 +611,84 @@ test('ModelJson names the offending call when a batch entry is unavailable or ma
   );
 });
 
+test('ModelJson restores Windows path separators eaten by JSON escapes in run commands', () => {
+  // Regression: the model emitted `dashboard\tests\test\test.ts` inside a JSON string, so JSON.parse
+  // consumed each `\t` as a TAB and PowerShell saw `dashboard<TAB>ests<TAB>est<TAB>est.ts`.
+  const action = parseRepoSearchPlannerAction(
+    String.raw`{"action":"run","command":"Select-String -Path dashboard\tests\test\test.ts, dashboard\test\test.tsx -Pattern 'readImageFiles' | Select-Object -Property Path, LineNumber, Line","timeoutMs":30000,"outputMode":"auto"}`,
+    ['run'],
+  );
+  assert.deepEqual(action, {
+    action: 'tool',
+    tool_name: 'run',
+    args: {
+      command: String.raw`Select-String -Path dashboard\tests\test\test.ts, dashboard\test\test.tsx -Pattern 'readImageFiles' | Select-Object -Property Path, LineNumber, Line`,
+      timeoutMs: 30000,
+      outputMode: 'auto',
+    },
+  });
+});
+
+test('ModelJson restores Windows path separators eaten by JSON escapes in path arguments', () => {
+  const action = parseRepoSearchPlannerAction('{"action":"read","path":"dashboard\\tests\\react-env.ts"}');
+  assert.deepEqual(action, {
+    action: 'tool',
+    tool_name: 'read',
+    args: { path: String.raw`dashboard\tests\react-env.ts` },
+  });
+});
+
+test('ModelJson restores every control-character escape inside a path argument', () => {
+  // \n, \r, \b and \f are as silently destructive as \t for `\node_modules`, `\reports`, `\bin`, `\fixtures`.
+  const action = parseRepoSearchPlannerAction('{"action":"read","path":"a\\node_modules\\reports\\bin\\fixtures"}');
+  assert.deepEqual(action, {
+    action: 'tool',
+    tool_name: 'read',
+    args: { path: String.raw`a\node_modules\reports\bin\fixtures` },
+  });
+});
+
+test('ModelJson keeps deliberate newlines in run commands', () => {
+  const action = parseRepoSearchPlannerAction(
+    JSON.stringify({ action: 'run', command: 'Get-Content a.txt\nSelect-String foo' }),
+    ['run'],
+  );
+  assert.deepEqual(action, {
+    action: 'tool',
+    tool_name: 'run',
+    args: { command: 'Get-Content a.txt\nSelect-String foo' },
+  });
+});
+
+test('ModelJson never rewrites write content or edit payloads', () => {
+  const content = 'line1\n\tindented\nline3';
+  const writeAction = parseRepoSearchPlannerAction(JSON.stringify({ action: 'write', path: 'a.ts', content }), [
+    'write',
+  ]);
+  assert.deepEqual(writeAction, {
+    action: 'tool',
+    tool_name: 'write',
+    args: { path: 'a.ts', content },
+  });
+
+  const edits = [{ oldText: 'const a = 1;\n\tconst b = 2;', newText: 'const a = 3;\n\tconst b = 4;' }];
+  const editAction = parseRepoSearchPlannerAction(JSON.stringify({ action: 'edit', path: 'a.ts', edits }), ['edit']);
+  assert.deepEqual(editAction, {
+    action: 'tool',
+    tool_name: 'edit',
+    args: { path: 'a.ts', edits },
+  });
+});
+
+test('ModelJson restores Windows path separators eaten by JSON escapes in git commands', () => {
+  const action = parseRepoSearchPlannerAction('{"action":"git","command":"log --oneline -- dashboard\\tests"}');
+  assert.deepEqual(action, {
+    action: 'tool',
+    tool_name: 'git',
+    args: { command: String.raw`git log --oneline -- dashboard\tests` },
+  });
+});
+
 test('ModelJson repairs malformed escaped command payloads', () => {
   const malformed =
     '{"action":"grep","pattern":"rg -n \\"D:\\\\\\\\|C:\\\\\\\\|\\\\\\\\\\\\\\\\" src --type ts | Select-Object -First 30"';

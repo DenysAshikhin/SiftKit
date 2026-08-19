@@ -192,3 +192,28 @@ test('settled turns never populate liveThinking', () => {
   assert.equal(turns[0].main, null);
   assert.deepEqual(turns[0].steps.map((m) => m.id), ['th1', 'tc1']);
 });
+
+test('the live user bubble keeps its own turn once the assistant answer streams', () => {
+  const messages = [
+    message({ id: 'live-user', role: 'user', kind: 'user_text', content: 'describe this' }),
+    message({ id: 'live-answer', role: 'assistant', kind: 'assistant_answer', content: 'a chart' }),
+  ];
+  const turns = groupMessagesIntoTurns(messages, new Set(['live-user', 'live-answer']));
+
+  assert.equal(turns.length, 2);
+  assert.equal(turns[0]?.main?.id, 'live-user');
+  assert.deepEqual(turns[0]?.steps, []);
+  assert.equal(turns[1]?.main?.id, 'live-answer');
+  assert.deepEqual(turns[1]?.steps.map((step) => step.id), []);
+});
+
+test('a live user bubble alone owns the main slot instead of Internal Logic', () => {
+  const turns = groupMessagesIntoTurns(
+    [message({ id: 'live-user', role: 'user', kind: 'user_text', content: 'describe this' })],
+    new Set(['live-user']),
+  );
+
+  assert.equal(turns.length, 1);
+  assert.equal(turns[0]?.main?.id, 'live-user');
+  assert.deepEqual(turns[0]?.steps, []);
+});

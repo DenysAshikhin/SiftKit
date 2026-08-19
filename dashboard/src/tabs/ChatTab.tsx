@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { sumImageTokens } from '@siftkit/contracts';
 
 import {
   formatCompactTokenCount,
@@ -20,10 +21,14 @@ import type { ChatSessionRuntime } from '../lib/chat-session-runtime-store';
 import { ToolCallCard } from '../components/ToolCallCard';
 import { PendingImageStrip } from '../components/PendingImageStrip';
 import { MessageImages } from '../components/MessageImages';
+import { ChatStatsBar, type ChatSessionStats } from '../components/ChatStatsBar';
+import type { LastTurnTelemetry } from '../lib/format';
 import { downscaleDataUrl, type PendingImage } from '../lib/downscale-image';
+import { extractClipboardImageFiles } from '../lib/clipboard-images';
 import { useChatScroll } from '../hooks/useChatScroll';
 import { useSmoothedText } from '../hooks/useSmoothedText';
 import { groupMessagesIntoTurns, normalizeMessageKind, type ChatTurn } from '../lib/chatTurns';
+import { LIVE_USER_MESSAGE_ID } from '../lib/chat-live-messages';
 import type {
   ChatSession,
   ContextUsage,
@@ -55,13 +60,14 @@ function getTurnTokenDisplay(messages: ChatMessage[]): TurnTokenDisplay {
   let knownTotal = 0;
   let hasUnavailableComponent = false;
   for (const message of messages) {
+    const imageTokens = sumImageTokens(message.imageMeta);
     const tokenCount = getMessageTokenCount(message);
     if (tokenCount === null) {
       hasUnavailableComponent = true;
-      knownTotal += getMessageKnownTokenCount(message);
+      knownTotal += getMessageKnownTokenCount(message) + imageTokens;
     } else {
-      total += tokenCount;
-      knownTotal += tokenCount;
+      total += tokenCount + imageTokens;
+      knownTotal += tokenCount + imageTokens;
     }
   }
   if (!hasUnavailableComponent) {
@@ -70,16 +76,11 @@ function getTurnTokenDisplay(messages: ChatMessage[]): TurnTokenDisplay {
   return knownTotal > 0 ? { tokenCount: knownTotal, exact: false } : { tokenCount: null, exact: false };
 }
 
-type SessionPromptCacheStats = {
-  cacheHitRate: number | null;
-  promptCacheTokens: number;
-  promptEvalTokens: number;
-  acceptanceRate: number | null;
-  speculativeAcceptedTokens: number;
-  speculativeGeneratedTokens: number;
-  promptTokensPerSecond: number | null;
-  generationTokensPerSecond: number | null;
-};
+function formatBubbleTokenLabel(message: ChatMessage): string {
+  const textLabel = formatTokenLabel(getReplayDisplayTokenCount(message));
+  const imageTokens = sumImageTokens(message.imageMeta);
+  return imageTokens > 0 ? `${textLabel} (+${formatNumber(imageTokens)} img)` : textLabel;
+}
 
 export type ChatSessionIndicatorView = {
   sessionId: string;
@@ -92,7 +93,8 @@ export type ChatTabProps = {
   selectedSession: ChatSession | null;
   selectedRuntime: ChatSessionRuntime | null;
   sessionRuntimes: ChatSessionRuntime[];
-  sessionPromptCacheStats: SessionPromptCacheStats;
+  sessionPromptCacheStats: ChatSessionStats;
+  lastTurnTelemetry: LastTurnTelemetry;
   webPresets: DashboardPreset[];
   selectedChatPreset: DashboardPreset | null;
   chatMode: DashboardPresetExecutionFamily | null;
@@ -113,6 +115,7 @@ export type ChatTabProps = {
   onSavePlanRepoRoot(): Promise<void>;
   onDeleteMessage(messageId: string): Promise<void>;
   onDeleteTurn(messageIds: string[]): Promise<void>;
+  onDeleteMessageImage(messageId: string, imageIndex: number): Promise<void>;
   onCondense(): Promise<void>;
   onSendPlan(): Promise<void>;
   onSendRepoSearch(): Promise<void>;
@@ -156,10 +159,9 @@ export async function readImageFile(file: File, maxPixels: number): Promise<Pend
   return downscaleDataUrl(dataUrl, maxPixels);
 }
 
-export async function readImageFiles(files: FileList | null, maxPixels: number): Promise<PendingImage[]> {
-  if (!files) return [];
+export async function readImageFiles(files: File[], maxPixels: number): Promise<PendingImage[]> {
   const results: PendingImage[] = [];
-  for (const file of Array.from(files)) {
+  for (const file of files) {
     results.push(await readImageFile(file, maxPixels));
   }
   return results;
@@ -184,6 +186,8 @@ export function ChatTab({
   selectedSession,
   selectedRuntime,
   sessionRuntimes,
+  sessionPromptCacheStats,
+  lastTurnTelemetry,
   webPresets,
   selectedChatPreset,
   chatMode,
@@ -204,6 +208,7 @@ export function ChatTab({
   onSavePlanRepoRoot,
   onDeleteMessage,
   onDeleteTurn,
+  onDeleteMessageImage,
   onCondense,
   onSendPlan,
   onSendRepoSearch,
@@ -213,6 +218,7 @@ export function ChatTab({
   onPendingImageError,
 }: ChatTabProps) {
   const pendingImageReadState = React.useRef({ generation: 0, tail: Promise.resolve() });
+  const [pendingImageReadCount, setPendingImageReadCount] = React.useState(0);
   const planRepoRootInput = selectedRuntime?.planRepoRootInput ?? '';
   const contextUsage = selectedRuntime?.contextUsage ?? null;
   const liveToolPromptTokenCount = selectedRuntime?.liveToolPromptTokenCount ?? null;
@@ -230,15 +236,22 @@ export function ChatTab({
   const { chatLogRef } = useChatScroll(visibleMessageIds, liveMessageScrollSignature);
   const sessionIndicators = buildSessionIndicators(sessions, sessionRuntimes);
   const selectedSessionBusy = isSessionBusy(selectedRuntime);
+  const pendingUserMessageId = selectedRuntime?.awaitingResponse ? LIVE_USER_MESSAGE_ID : null;
 
   React.useEffect(() => {
     pendingImageReadState.current.generation += 1;
     pendingImageReadState.current.tail = Promise.resolve();
+    setPendingImageReadCount(0);
   }, [selectedSessionId]);
 
-  function enqueuePendingImageRead(files: FileList | null, maxPixels: number): void {
+  function enqueuePendingImageRead(files: File[], maxPixels: number): void {
+    if (files.length === 0) {
+      return;
+    }
     const generation = pendingImageReadState.current.generation;
     const sessionId = selectedSessionId;
+    const fileCount = files.length;
+    setPendingImageReadCount((previous) => previous + fileCount);
     const batch = readImageFiles(files, maxPixels);
     pendingImageReadState.current.tail = pendingImageReadState.current.tail.then(async () => {
       try {
@@ -250,8 +263,22 @@ export function ChatTab({
         if (generation === pendingImageReadState.current.generation) {
           onPendingImageError(sessionId, error instanceof Error ? error.message : String(error));
         }
+      } finally {
+        setPendingImageReadCount((previous) => Math.max(0, previous - fileCount));
       }
     });
+  }
+
+  function handleComposerPaste(event: React.ClipboardEvent<HTMLTextAreaElement>): void {
+    if (selectedSessionBusy || effectiveImagePixelCeiling === null) {
+      return;
+    }
+    const files = extractClipboardImageFiles(event.clipboardData);
+    if (files.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    enqueuePendingImageRead(files, effectiveImagePixelCeiling);
   }
 
   function dispatchSend(): void {
@@ -357,9 +384,11 @@ export function ChatTab({
                       message={message}
                       sessionId={selectedSessionId}
                       isLive={turn.isLive}
+                      isPending={message.id === pendingUserMessageId}
                       isDirectChatMode={isDirectChatMode}
                       chatBusy={selectedSessionBusy}
                       onDeleteMessage={onDeleteMessage}
+                      onDeleteMessageImage={onDeleteMessageImage}
                     />
                   );
                 }
@@ -371,6 +400,7 @@ export function ChatTab({
                     isDirectChatMode={isDirectChatMode}
                     chatBusy={selectedSessionBusy}
                     onDeleteMessage={onDeleteMessage}
+                    onDeleteMessageImage={onDeleteMessageImage}
                     onDeleteTurn={onDeleteTurn}
                   />
                 );
@@ -424,6 +454,7 @@ export function ChatTab({
               ) : null}
               <PendingImageStrip
                 images={pendingImages}
+                pendingCount={pendingImageReadCount}
                 onChange={onPendingImagesChange}
               />
               <div className="row">
@@ -441,6 +472,7 @@ export function ChatTab({
                   placeholder={chatMode === 'plan' ? 'Describe the feature to plan…' : chatMode === 'repo-search' ? 'Enter a repo search query…' : chatMode === 'summary' ? 'Enter a summary request…' : 'Message SiftKit…'}
                   value={draft}
                   onChange={(event) => onChangeDraft(event.target.value)}
+                  onPaste={handleComposerPaste}
                   rows={2}
                 />
                 {contextUsage ? (
@@ -457,7 +489,10 @@ export function ChatTab({
                       if (effectiveImagePixelCeiling === null) {
                         return;
                       }
-                      enqueuePendingImageRead(event.currentTarget.files, effectiveImagePixelCeiling);
+                      enqueuePendingImageRead(
+                        Array.from(event.currentTarget.files ?? []),
+                        effectiveImagePixelCeiling,
+                      );
                     }}
                   />
                 </label>
@@ -470,6 +505,12 @@ export function ChatTab({
                   {getSendLabel(chatMode)}
                 </button>
               </div>
+              <ChatStatsBar
+                lastTurn={lastTurnTelemetry}
+                sessionStats={sessionPromptCacheStats}
+                contextUsage={contextUsage}
+                streaming={selectedSessionBusy}
+              />
             </div>
           </>
         ) : (
@@ -519,6 +560,9 @@ function SettingsPopover(props: {
           <span title="Tokens from preserved assistant thinking/reasoning text that can be replayed into the next request.">
             Thinking/reasoning: {formatNumber(contextUsage.thinkingUsedTokens || 0)}
           </span>
+          <span title="Estimated tokens consumed by images attached in this session.">
+            Images: {formatNumber(contextUsage.imageUsedTokens)}
+          </span>
         </>
       )}
       {isRepoToolMode && Number.isFinite(liveToolPromptTokenCount) ? (
@@ -533,9 +577,10 @@ function SettingsPopover(props: {
   );
 }
 
-function MessageHeader({ message, isLive, chatBusy, onDeleteMessage }: {
+function MessageHeader({ message, isLive, isPending, chatBusy, onDeleteMessage }: {
   message: ChatMessage;
   isLive: boolean;
+  isPending: boolean;
   chatBusy: boolean;
   onDeleteMessage(messageId: string): Promise<void>;
 }) {
@@ -547,9 +592,10 @@ function MessageHeader({ message, isLive, chatBusy, onDeleteMessage }: {
       : message.role === 'user' ? 'You' : 'SiftKit';
   return (
     <div className="who">
-      <span>{messageLabel} · {isLive ? 'live' : formatDate(message.createdAtUtc)}</span>
+      <span>{messageLabel} · {isPending ? 'sending…' : isLive ? 'live' : formatDate(message.createdAtUtc)}</span>
       <span className="msg-meta">
-        <span className="msg-tokens">{formatTokenLabel(getReplayDisplayTokenCount(message))}</span>
+        {isPending ? <span className="sp" /> : null}
+        <span className="msg-tokens" title="Text tokens, plus the estimated image tokens this message keeps in context.">{formatBubbleTokenLabel(message)}</span>
         {!isLive ? (
           <button
             type="button"
@@ -596,10 +642,29 @@ function AssistantAnswerBody({ message, isLive, isDirectChatMode }: {
   );
 }
 
-function renderMessageBody(message: ChatMessage, sessionId: string, isDirectChatMode: boolean, isLive: boolean) {
+function renderMessageBody(
+  message: ChatMessage,
+  sessionId: string,
+  isDirectChatMode: boolean,
+  isLive: boolean,
+  chatBusy: boolean,
+  onDeleteMessageImage: (messageId: string, imageIndex: number) => Promise<void>,
+) {
   const messageKind = normalizeMessageKind(message);
+  const images = (
+    <MessageImages
+      key={`${sessionId}:${message.id}`}
+      sessionId={sessionId}
+      messageId={message.id}
+      images={message.images ?? []}
+      imageMeta={message.imageMeta ?? []}
+      removedImageCount={message.removedImageCount ?? 0}
+      chatBusy={chatBusy || isLive}
+      onDeleteImage={(imageIndex: number) => onDeleteMessageImage(message.id, imageIndex)}
+    />
+  );
   if (messageKind === 'tool_image') {
-    return <MessageImages key={`${sessionId}:${message.id}`} sessionId={sessionId} messageId={message.id} images={message.images ?? []} imageMeta={message.imageMeta ?? []} />;
+    return images;
   }
   if (messageKind === 'assistant_tool_call') {
     return <ToolCallCard message={message} />;
@@ -613,36 +678,39 @@ function renderMessageBody(message: ChatMessage, sessionId: string, isDirectChat
   return (
     <>
       <p className="user-message">{message.content}</p>
-      <MessageImages key={`${sessionId}:${message.id}`} sessionId={sessionId} messageId={message.id} images={message.images ?? []} imageMeta={message.imageMeta ?? []} />
+      {images}
     </>
   );
 }
 
-function MessageBubble({ message, sessionId, isLive, isDirectChatMode, chatBusy, onDeleteMessage, extraClass }: {
+function MessageBubble({ message, sessionId, isLive, isPending, isDirectChatMode, chatBusy, onDeleteMessage, onDeleteMessageImage, extraClass }: {
   message: ChatMessage;
   sessionId: string;
   isLive: boolean;
+  isPending: boolean;
   isDirectChatMode: boolean;
   chatBusy: boolean;
   onDeleteMessage(messageId: string): Promise<void>;
+  onDeleteMessageImage(messageId: string, imageIndex: number): Promise<void>;
   extraClass?: string;
 }) {
   const messageKind = normalizeMessageKind(message);
   const tone = message.role === 'user' ? 'user' : 'ai';
   return (
-    <article className={`msg ${tone} ${messageKind}${extraClass ? ` ${extraClass}` : ''}${isLive ? ' live' : ''}`}>
-      <MessageHeader message={message} isLive={isLive} chatBusy={chatBusy} onDeleteMessage={onDeleteMessage} />
-      {renderMessageBody(message, sessionId, isDirectChatMode, isLive)}
+    <article className={`msg ${tone} ${messageKind}${extraClass ? ` ${extraClass}` : ''}${isLive ? ' live' : ''}${isPending ? ' pending' : ''}`}>
+      <MessageHeader message={message} isLive={isLive} isPending={isPending} chatBusy={chatBusy} onDeleteMessage={onDeleteMessage} />
+      {renderMessageBody(message, sessionId, isDirectChatMode, isLive, chatBusy, onDeleteMessageImage)}
     </article>
   );
 }
 
-function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteMessage, onDeleteTurn }: {
+function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteMessage, onDeleteMessageImage, onDeleteTurn }: {
   turn: ChatTurn;
   sessionId: string;
   isDirectChatMode: boolean;
   chatBusy: boolean;
   onDeleteMessage(messageId: string): Promise<void>;
+  onDeleteMessageImage(messageId: string, imageIndex: number): Promise<void>;
   onDeleteTurn(messageIds: string[]): Promise<void>;
 }) {
   const aggregateTokens = getTurnTokenDisplay(turn.messages);
@@ -686,9 +754,11 @@ function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteM
               message={step}
               sessionId={sessionId}
               isLive={turn.isLive}
+              isPending={false}
               isDirectChatMode={isDirectChatMode}
               chatBusy={chatBusy}
               onDeleteMessage={onDeleteMessage}
+              onDeleteMessageImage={onDeleteMessageImage}
             />
           ))}
         </div>
@@ -698,9 +768,11 @@ function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteM
           message={turn.main}
           sessionId={sessionId}
           isLive={turn.isLive}
+          isPending={false}
           isDirectChatMode={isDirectChatMode}
           chatBusy={chatBusy}
           onDeleteMessage={onDeleteMessage}
+          onDeleteMessageImage={onDeleteMessageImage}
           extraClass="turn-main"
         />
       ) : null}

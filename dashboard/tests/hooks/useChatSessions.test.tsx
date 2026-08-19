@@ -102,6 +102,7 @@ const CONTEXT_USAGE = {
   chatUsedTokens: 0,
   thinkingUsedTokens: 0,
   toolUsedTokens: 0,
+  imageUsedTokens: 0,
   totalUsedTokens: 0,
   remainingTokens: 100,
   warnThresholdTokens: 50,

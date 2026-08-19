@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { ImageMetadata } from '@siftkit/contracts';
 
 import { requestImageCaption } from '../api.js';
+import { ImageLightbox } from './ImageLightbox';
 
 type CaptionState =
   | { status: 'pending' }
@@ -19,13 +20,21 @@ function formatSummary(meta: ImageMetadata): string {
   return `${meta.width}×${meta.height} · ${format} · ${formatBytes(meta.byteLength)} · ${meta.tokenEstimate.toLocaleString('en-US')} tok`;
 }
 
-export function MessageImages({ sessionId, messageId, images, imageMeta }: {
+function formatRemovedImageNotice(removedImageCount: number): string {
+  return removedImageCount === 1 ? '1 image removed' : `${removedImageCount} images removed`;
+}
+
+export function MessageImages({ sessionId, messageId, images, imageMeta, removedImageCount, chatBusy, onDeleteImage }: {
   sessionId: string;
   messageId: string;
   images: string[];
   imageMeta: ImageMetadata[];
+  removedImageCount: number;
+  chatBusy: boolean;
+  onDeleteImage(imageIndex: number): Promise<void>;
 }) {
   const [captionStates, setCaptionStates] = useState<Record<number, CaptionState>>({});
+  const [zoomedIndex, setZoomedIndex] = useState<number | null>(null);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -35,7 +44,7 @@ export function MessageImages({ sessionId, messageId, images, imageMeta }: {
     };
   }, []);
 
-  if (images.length === 0) {
+  if (images.length === 0 && removedImageCount === 0) {
     return null;
   }
 
@@ -79,10 +88,28 @@ export function MessageImages({ sessionId, messageId, images, imageMeta }: {
         const captionError = captionState?.status === 'error' ? captionState.message : null;
         return (
           <figure className="message-image" key={`${index}:${image.slice(0, 32)}`}>
-            <img
-              src={image}
-              alt={meta ? `Attachment ${index + 1}, ${meta.width} by ${meta.height}` : `Attachment ${index + 1}`}
-            />
+            <button
+              type="button"
+              className="image-zoom"
+              aria-label={`Enlarge attachment ${index + 1}`}
+              title="Enlarge"
+              onClick={() => setZoomedIndex(index)}
+            >
+              <img
+                src={image}
+                alt={meta ? `Attachment ${index + 1}, ${meta.width} by ${meta.height}` : `Attachment ${index + 1}`}
+              />
+            </button>
+            <button
+              type="button"
+              className="msg-icon-button danger message-image-remove"
+              aria-label={`Delete image ${index + 1}`}
+              title="Delete this image and free its context tokens"
+              disabled={chatBusy}
+              onClick={() => { void onDeleteImage(index); }}
+            >
+              &#128465;
+            </button>
             {meta ? (
               <details onToggle={(event) => {
                 if (event.currentTarget.open) {
@@ -105,6 +132,18 @@ export function MessageImages({ sessionId, messageId, images, imageMeta }: {
           </figure>
         );
       })}
+      {removedImageCount > 0 ? (
+        <p className="message-image-removed" title="Deleted attachments no longer occupy context tokens.">
+          {formatRemovedImageNotice(removedImageCount)}
+        </p>
+      ) : null}
+      {zoomedIndex !== null && images[zoomedIndex] ? (
+        <ImageLightbox
+          src={images[zoomedIndex]}
+          alt={`Attachment ${zoomedIndex + 1}`}
+          onClose={() => setZoomedIndex(null)}
+        />
+      ) : null}
     </div>
   );
 }

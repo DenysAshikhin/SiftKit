@@ -3,7 +3,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { ImageDataUrlSchema, SIFT_MAX_IMAGE_BYTES, type ImageTokenBudget } from '@siftkit/contracts';
+import {
+  ImageDataUrlSchema,
+  ImageMetadataSchema,
+  SIFT_MAX_IMAGE_BYTES,
+  sumImageTokens,
+  type ImageMetadata,
+  type ImageTokenBudget,
+} from '@siftkit/contracts';
 import { parseImageDataUrls, ImageAttachmentReader, buildUserContent, assertPresetAcceptsImages, isImagePath, imageMimeForPath, getSupportedImageExtensions } from '../src/llm-protocol/image-attachments.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { gifBufferWithSize, INSTALLED_ENCODER, rasterBuffer } from './helpers/image-fixtures.js';
@@ -323,4 +330,27 @@ test('getSupportedImageExtensions is sorted and matches the MIME map', () => {
 test('imageMimeForPath returns the mapped MIME or undefined', () => {
   assert.equal(imageMimeForPath('a/b.JPG'), 'image/jpeg');
   assert.equal(imageMimeForPath('a/b.txt'), undefined);
+});
+
+function metadataWithTokens(tokenEstimate: number): ImageMetadata {
+  return ImageMetadataSchema.parse({
+    width: 8,
+    height: 8,
+    originalWidth: 8,
+    originalHeight: 8,
+    mime: 'image/png',
+    byteLength: 64,
+    tokenEstimate,
+    resized: false,
+    caption: null,
+  });
+}
+
+test('sumImageTokens adds the admission estimate of every attachment', () => {
+  assert.equal(sumImageTokens([metadataWithTokens(1024), metadataWithTokens(512)]), 1536);
+});
+
+test('sumImageTokens is zero for a message that carries no attachments', () => {
+  assert.equal(sumImageTokens([]), 0);
+  assert.equal(sumImageTokens(undefined), 0);
 });

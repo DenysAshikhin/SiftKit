@@ -29,6 +29,7 @@
 .image-caption-note { font-size: 11px; opacity: 0.6; font-style: italic; }
 .image-caption { font-size: 12px; white-space: pre-wrap; }
 .image-caption-error { font-size: 12px; color: var(--err, #d55); }
+.message-image-removed { margin: 0; font-size: 11px; opacity: 0.6; font-style: italic; }
 
 .settings-inline-readout { display: flex; align-items: center; gap: 8px; }
 .settings-inline-readout input { width: 6em; }

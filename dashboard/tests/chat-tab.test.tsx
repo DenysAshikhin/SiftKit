@@ -54,7 +54,7 @@ const SESSION_B = {
 } satisfies ChatSession;
 
 const CONTEXT_USAGE = {
-  shouldCondense: false, chatUsedTokens: 90, thinkingUsedTokens: 0, toolUsedTokens: 0,
+  shouldCondense: false, chatUsedTokens: 90, thinkingUsedTokens: 0, toolUsedTokens: 0, imageUsedTokens: 0,
   totalUsedTokens: 90, remainingTokens: 10, warnThresholdTokens: 50, contextWindowTokens: 100,
   usedTokens: 90, estimatedTokenFallbackTokens: 0, providerOverheadTokens: 5,
   effectiveImagePixelCeiling: 1_000_000,
@@ -79,6 +79,7 @@ function buildProps(overrides: Partial<ChatTabProps> = {}): ChatTabProps {
     selectedRuntime: defaultStore.get(selectedSessionId),
     sessionRuntimes: defaultStore.getAll(),
     sessionPromptCacheStats: { cacheHitRate: 0, promptCacheTokens: 0, promptEvalTokens: 0, acceptanceRate: null, speculativeAcceptedTokens: 0, speculativeGeneratedTokens: 0, promptTokensPerSecond: null, generationTokensPerSecond: null },
+    lastTurnTelemetry: { promptTokensPerSecond: null, generationTokensPerSecond: null, ttftMs: null },
     webPresets: [PRESET],
     selectedChatPreset: PRESET,
     chatMode: 'chat',
@@ -90,7 +91,8 @@ function buildProps(overrides: Partial<ChatTabProps> = {}): ChatTabProps {
     onSelectSession: () => {}, onToggleSettings: () => {}, onChangePlanRepoRoot: () => {},
     onChangeDraft: () => {}, onCreateSession: async () => {}, onDeleteSession: async () => {},
     onUpdateSessionPreset: async () => {}, onToggleThinking: async () => {}, onToggleWebSearchEnabled: async () => {},
-    onSavePlanRepoRoot: async () => {}, onDeleteMessage: async () => {}, onDeleteTurn: async () => {}, onCondense: async () => {},
+    onSavePlanRepoRoot: async () => {}, onDeleteMessage: async () => {}, onDeleteTurn: async () => {},
+    onDeleteMessageImage: async () => {}, onCondense: async () => {},
     onSendPlan: async () => {}, onSendRepoSearch: async () => {}, onSendMessage: async () => {},
     onPendingImagesChange: () => {},
     onPendingImagesAppend: () => {},
@@ -348,6 +350,48 @@ test('chat does not render first-message context toggles', () => {
   assert.doesNotMatch(markup, /Repo-search auto-append controls|File scan/u);
 });
 
+test('pasting an image attaches it and a text paste is left alone', async () => {
+  const controls = installImageReadControls();
+  const appended: string[] = [];
+  try {
+    const store = new ChatSessionRuntimeStore()
+      .ensureSession(SESSION_A.id)
+      .apply({ kind: 'context-usage', sessionId: SESSION_A.id, contextUsage: CONTEXT_USAGE });
+    renderComponent(React.createElement(ChatTab, buildProps({
+      selectedRuntime: store.get(SESSION_A.id),
+      sessionRuntimes: store.getAll(),
+      onPendingImagesAppend: (_sessionId, images) => {
+        appended.push(...images.map((image) => image.dataUrl));
+      },
+    })));
+    const textarea = screen.getByPlaceholderText('Message SiftKit…');
+
+    const imagePaste = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(imagePaste, 'clipboardData', {
+      value: {
+        items: [{
+          kind: 'file',
+          type: 'image/png',
+          getAsFile: () => new File([new Uint8Array([1])], 'p.png', { type: 'image/png' }),
+        }],
+      },
+    });
+    await act(async () => { textarea.dispatchEvent(imagePaste); });
+    assert.equal(imagePaste.defaultPrevented, true);
+    await act(async () => { controls.complete(0, IMAGE); });
+    assert.deepEqual(appended, [IMAGE]);
+
+    const textPaste = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(textPaste, 'clipboardData', {
+      value: { items: [{ kind: 'string', type: 'text/plain', getAsFile: () => null }] },
+    });
+    await act(async () => { textarea.dispatchEvent(textPaste); });
+    assert.equal(textPaste.defaultPrevented, false);
+  } finally {
+    controls.restore();
+  }
+});
+
 test('composer attaches images through a styled label wrapping the file input', () => {
   const markup = render();
   assert.match(markup, /<label class="mini-btn attach"[^>]*>Attach<input type="file"/u);
@@ -365,4 +409,67 @@ test('renders user and tool-image attachments inline', () => {
 
   assert.equal((markup.match(/class="message-images"/gu) ?? []).length, 2);
   assert.equal((markup.match(/<img\b/gu) ?? []).length, 2);
+});
+
+test('a submitted message renders as a pending bubble instead of staying in the composer', () => {
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession(SESSION_A.id)
+    .apply({ kind: 'context-usage', sessionId: SESSION_A.id, contextUsage: CONTEXT_USAGE })
+    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message' })
+    .apply({ kind: 'submit', sessionId: SESSION_A.id, content: 'describe this', images: [{ dataUrl: IMAGE, note: null }] });
+  const markup = render({
+    selectedRuntime: store.get(SESSION_A.id),
+    sessionRuntimes: store.getAll(),
+  });
+
+  assert.match(markup, /class="msg user user_text live pending"/u);
+  assert.match(markup, /sending…/u);
+  assert.match(markup, /describe this/u);
+});
+
+test('the pending bubble survives a warning that arrives before the stream', () => {
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession(SESSION_A.id)
+    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message' })
+    .apply({ kind: 'submit', sessionId: SESSION_A.id, content: 'describe this', images: [] })
+    .apply({ kind: 'warning', sessionId: SESSION_A.id, text: 'repo root is dirty' });
+  const markup = render({
+    selectedRuntime: store.get(SESSION_A.id),
+    sessionRuntimes: store.getAll(),
+  });
+
+  assert.match(markup, /sending…/u);
+});
+
+test('the pending bubble clears once the assistant starts streaming', () => {
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession(SESSION_A.id)
+    .apply({ kind: 'begin', sessionId: SESSION_A.id, operationKind: 'message' })
+    .apply({ kind: 'submit', sessionId: SESSION_A.id, content: 'describe this', images: [] })
+    .apply({ kind: 'answer', sessionId: SESSION_A.id, delta: { turn: 1, offset: 0, text: 'here it is' } });
+  const markup = render({
+    selectedRuntime: store.get(SESSION_A.id),
+    sessionRuntimes: store.getAll(),
+  });
+
+  assert.doesNotMatch(markup, /sending…/u);
+});
+
+test('a bubble token chip separates text tokens from image tokens', () => {
+  const session = {
+    ...SESSION_A,
+    messages: [msg({
+      id: 'u1',
+      role: 'user',
+      kind: 'user_text',
+      content: 'look',
+      inputTokensEstimate: 12,
+      inputTokensEstimated: false,
+      images: [IMAGE],
+      imageMeta: [{ ...IMAGE_META, tokenEstimate: 1024 }],
+    })],
+  };
+  const markup = render({ selectedSession: session });
+
+  assert.match(markup, /12 tokens \(\+1,024 img\)/u);
 });

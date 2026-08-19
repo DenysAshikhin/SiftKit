@@ -9,6 +9,7 @@ import {
   condenseChatSession,
   createChatSession,
   deleteChatMessage,
+  deleteChatMessageImage,
   deleteChatSession,
   getChatSession,
   getChatSessions,
@@ -311,6 +312,20 @@ export function useChatSessions(deps: {
     }
   }
 
+  async function deleteMessageImage(messageId: string, imageIndex: number): Promise<ChatSessionResponse | null> {
+    if (!selectedSessionId || !messageId) {
+      return null;
+    }
+    try {
+      const response = await deleteChatMessageImage(selectedSessionId, messageId, imageIndex);
+      applySessionResponse(response);
+      return response;
+    } catch (error) {
+      recordSessionError(selectedSessionId, toError(error));
+      return null;
+    }
+  }
+
   function selectSession(sessionId: string): void {
     if (sessions.length > 0) {
       findSessionByIdStrict(sessions, sessionId);
@@ -347,6 +362,10 @@ export function useChatSessions(deps: {
     };
   }
 
+  function submitRuntimeInputs(sessionId: string, content: string, images: PendingImage[]): void {
+    setRuntimeStore((previous) => previous.apply({ kind: 'submit', sessionId, content, images }));
+  }
+
   async function sendMessage(): Promise<void> {
     if (!selectedSession) {
       return;
@@ -376,6 +395,7 @@ export function useChatSessions(deps: {
         // The warning is advisory; a failed probe must not block a user who knows the image is safe.
       }
     }
+    submitRuntimeInputs(selectedSession.id, inputs.draft, inputs.pendingImages);
     await runChatStream(
       selectedSession.id,
       'message',
@@ -392,6 +412,7 @@ export function useChatSessions(deps: {
     if (!inputs.draft) {
       return;
     }
+    submitRuntimeInputs(session.id, inputs.draft, inputs.pendingImages);
     await runChatStream(session.id, 'plan', streamPlanMessage(session.id, {
       content: inputs.draft,
       images: inputs.pendingImages.map((image) => image.dataUrl),
@@ -406,6 +427,7 @@ export function useChatSessions(deps: {
     if (!inputs.draft) {
       return;
     }
+    submitRuntimeInputs(session.id, inputs.draft, inputs.pendingImages);
     await runChatStream(session.id, 'repo-search', streamRepoSearchMessage(session.id, {
       content: inputs.draft,
       images: inputs.pendingImages.map((image) => image.dataUrl),
@@ -430,6 +452,7 @@ export function useChatSessions(deps: {
     condense,
     deleteMessage,
     deleteMessages,
+    deleteMessageImage,
     applySessionResponse,
     failSessionOperation,
     setSessionDraft,

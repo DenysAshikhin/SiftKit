@@ -132,6 +132,15 @@ export const ImageMetadataSchema = z.object({
 });
 export type ImageMetadata = z.infer<typeof ImageMetadataSchema>;
 
+/**
+ * Images occupy context as encoder tokens, not text. The per-image estimate is fixed at
+ * admission, so a message costs its text plus every attachment still on it. Shared by the
+ * server's context accounting and the dashboard's bubble chip so the two cannot disagree.
+ */
+export function sumImageTokens(imageMeta: ImageMetadata[] | undefined): number {
+  return (imageMeta ?? []).reduce((sum, metadata) => sum + metadata.tokenEstimate, 0);
+}
+
 export const ImageCaptionResponseSchema = z.object({ caption: z.string().min(1) });
 export type ImageCaptionResponse = z.infer<typeof ImageCaptionResponseSchema>;
 

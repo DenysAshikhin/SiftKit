@@ -18,7 +18,7 @@ const IMAGE_B = { dataUrl: PNG_B, note: 'Resized from 4000×2000 to 22×11' };
 const IMAGE_C = { dataUrl: PNG_C, note: null };
 
 function renderStrip(images: PendingImage[]): string {
-  return renderToStaticMarkup(<PendingImageStrip images={images} onChange={() => undefined} />);
+  return renderToStaticMarkup(<PendingImageStrip images={images} pendingCount={0} onChange={() => undefined} />);
 }
 
 test('renders one thumbnail per pending image', () => {
@@ -37,7 +37,7 @@ test('the remove control removes the right index', () => {
 
 test('clicking a remove control reports the remaining images', () => {
   let nextImages: PendingImage[] | null = null;
-  render(<PendingImageStrip images={[IMAGE_A, IMAGE_B, IMAGE_C]} onChange={(next) => { nextImages = next; }} />);
+  render(<PendingImageStrip images={[IMAGE_A, IMAGE_B, IMAGE_C]} pendingCount={0} onChange={(next) => { nextImages = next; }} />);
 
   fireEvent.click(screen.getByRole('button', { name: 'Remove image 2' }));
 
@@ -45,7 +45,7 @@ test('clicking a remove control reports the remaining images', () => {
 });
 
 test('the remove control renders a multiplication glyph', () => {
-  render(<PendingImageStrip images={[IMAGE_A]} onChange={() => undefined} />);
+  render(<PendingImageStrip images={[IMAGE_A]} pendingCount={0} onChange={() => undefined} />);
 
   assert.equal(screen.getByRole('button', { name: 'Remove image 1' }).textContent?.trim(), '×');
 });

@@ -30,6 +30,7 @@ import { JsonValueSchema, type JsonObject } from '../src/lib/json-types.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { mockModelPreset } from './helpers/mock-config.js';
+import { ImageMetadataSchema } from '@siftkit/contracts';
 
 // Brand a deliberately-partial session fixture as ChatSession at one boundary;
 // tests exercise only the fields they set.
@@ -672,6 +673,50 @@ test('buildChatHistoryMessages replays user answers and tool calls in persisted 
   ]);
 });
 
+test('buildChatHistoryMessages composes the removal notice from the stored count', () => {
+  const session = mockChatSession({
+    id: 's1',
+    messages: [
+      { id: 'u1', role: 'user', kind: 'user_text', content: 'compare these', removedImageCount: 2 },
+      { id: 'u2', role: 'user', kind: 'user_text', content: '', removedImageCount: 1 },
+      { id: 'u3', role: 'user', kind: 'user_text', content: 'no attachments here' },
+    ],
+  });
+
+  assert.deepEqual(buildChatHistoryMessages(createNoThinkingReplayConfig(), session), [
+    { role: 'user', content: 'compare these\n[2 images removed]' },
+    { role: 'user', content: '[1 image removed]' },
+    { role: 'user', content: 'no attachments here' },
+  ]);
+});
+
+test('buildChatHistoryMessages carries the removal notice into a tool image replay', () => {
+  const imageUrl = 'data:image/png;base64,AA==';
+  const session = mockChatSession({
+    id: 's1',
+    messages: [
+      {
+        id: 't1',
+        role: 'assistant',
+        kind: 'tool_image',
+        content: 'read output',
+        images: [imageUrl],
+        removedImageCount: 1,
+      },
+    ],
+  });
+
+  assert.deepEqual(buildChatHistoryMessages(createNoThinkingReplayConfig(), session), [
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'read output\n[1 image removed]' },
+        { type: 'image_url', image_url: { url: imageUrl } },
+      ],
+    },
+  ]);
+});
+
 test('buildChatHistoryMessages replays persisted repo tool calls with real protocol names', () => {
   const session = mockChatSession({
     id: 's1',
@@ -938,4 +983,72 @@ test('buildRetainedWebToolCalls ignores deleted tool messages because they are a
 test('buildChatSystemContent returns the default chat system prompt', () => {
   const content = buildChatSystemContent(createConfig(), mockChatSession({ id: 's', messages: [] }));
   assert.match(content, /coder friendly assistant/);
+});
+
+test('appendChatMessagesWithUsage persists image metadata on the user message', () => {
+  const runtimeRoot = createManagedTempDir('siftkit-append-image-meta-');
+  const session = mockChatSession({
+    ...createSession(),
+    id: 'image-meta-session',
+    messages: [],
+  });
+  const metadata = ImageMetadataSchema.parse({
+    width: 32,
+    height: 32,
+    originalWidth: 32,
+    originalHeight: 32,
+    mime: 'image/png',
+    byteLength: 64,
+    tokenEstimate: 1024,
+    resized: false,
+    caption: null,
+  });
+
+  const updated = appendChatMessagesWithUsage(runtimeRoot, session, 'look', 'ok', {}, {
+    turns: [{ thinkingText: '', toolMessages: [] }],
+    images: ['data:image/png;base64,AA=='],
+    imageMeta: [metadata],
+  });
+
+  const userMessage = updated.messages.find((message) => message.role === 'user');
+  assert.deepEqual(userMessage?.imageMeta, [metadata]);
+});
+
+test('buildContextUsage counts persisted image tokens', () => {
+  const config = createConfig();
+  const baseMessage = {
+    id: 'u1',
+    role: 'user' as const,
+    kind: 'user_text' as const,
+    content: 'look',
+    inputTokensEstimate: 1,
+    outputTokensEstimate: 0,
+    thinkingTokens: 0,
+    createdAtUtc: '2026-08-08T00:00:00.000Z',
+  };
+  const session = createSession();
+  const withoutImages = buildContextUsage(config, mockChatSession({ ...session, messages: [baseMessage] }));
+  const withImages = buildContextUsage(config, mockChatSession({
+    ...session,
+    messages: [{
+      ...baseMessage,
+      images: ['data:image/png;base64,AA=='],
+      imageMeta: [ImageMetadataSchema.parse({
+        width: 1024,
+        height: 1024,
+        originalWidth: 1024,
+        originalHeight: 1024,
+        mime: 'image/png',
+        byteLength: 2048,
+        tokenEstimate: 1024,
+        resized: false,
+        caption: null,
+      })],
+    }],
+  }));
+
+  assert.equal(withoutImages.imageUsedTokens, 0);
+  assert.equal(withImages.imageUsedTokens, 1024);
+  assert.equal(withImages.chatUsedTokens, withoutImages.chatUsedTokens + 1024);
+  assert.equal(withImages.totalUsedTokens, withoutImages.totalUsedTokens + 1024);
 });

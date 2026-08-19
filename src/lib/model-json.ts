@@ -77,6 +77,43 @@ const REPO_TOOL_ARG_SPECS: Record<string, { requiredText: readonly string[]; req
   web_fetch: { requiredText: ['url'], optional: [] },
 };
 
+/**
+ * A Windows separator written unescaped inside a JSON string is destroyed by parsing: `dashboard\tests`
+ * carries the valid escape `\t`, so JSON.parse yields `dashboard<TAB>ests` and the tool receives a
+ * corrupted path. Paths never legitimately contain a control character, so every one is restored.
+ * Shell commands may legitimately contain newlines as statement separators, so only the control
+ * characters that are never meaningful in a command are restored, and only between two non-space
+ * characters (a `\n` swallowed from `\node_modules` is therefore not recoverable here).
+ */
+const PATH_CONTROL_ESCAPES = /[\t\n\r\b\f]/gu;
+const COMMAND_PATH_CONTROL_ESCAPES = /(?<=\S)[\t\r\b\f](?=\S)/gu;
+/** The escape consumed its letter too, so `\tests` arrives as TAB + `ests` and both must come back. */
+const CONTROL_ESCAPE_LETTERS: Record<string, string> = {
+  '\t': 't',
+  '\n': 'n',
+  '\r': 'r',
+  '\b': 'b',
+  '\f': 'f',
+};
+
+function restoreWindowsSeparators(value: string, kind: 'path' | 'command'): string {
+  return value.replace(kind === 'path' ? PATH_CONTROL_ESCAPES : COMMAND_PATH_CONTROL_ESCAPES, (match) => {
+    const letter = CONTROL_ESCAPE_LETTERS[match];
+    return letter === undefined ? match : `\\${letter}`;
+  });
+}
+
+/** Only path and command arguments are repaired; patterns, globs and file content are left verbatim. */
+function restoreToolArgumentSeparators(toolName: string, key: string, value: string): string {
+  if (key === 'path') {
+    return restoreWindowsSeparators(value, 'path');
+  }
+  if (toolName === 'run' && key === 'command') {
+    return restoreWindowsSeparators(value, 'command');
+  }
+  return value;
+}
+
 const JSON_ESCAPE_CHARS: Record<string, string> = {
   n: '\n',
   t: '\t',
@@ -603,7 +640,14 @@ export class ModelJson {
       if (!command) {
         return { ok: false, reason: `"${toolName}" requires a non-empty "command" string` };
       }
-      return { ok: true, action: { action: 'tool', tool_name: toolName, args: { command } } };
+      return {
+        ok: true,
+        action: {
+          action: 'tool',
+          tool_name: toolName,
+          args: { command: restoreWindowsSeparators(command, 'command') },
+        },
+      };
     }
 
     const argSpec = REPO_TOOL_ARG_SPECS[toolName];
@@ -617,7 +661,7 @@ export class ModelJson {
       if (!value) {
         return { ok: false, reason: `"${toolName}" requires "${key}" to be a non-empty string` };
       }
-      args[key] = value;
+      args[key] = restoreToolArgumentSeparators(toolName, key, value);
     }
     for (const key of argSpec.requiredArray ?? []) {
       const rawValue = rawArgs[key];
@@ -629,7 +673,7 @@ export class ModelJson {
     for (const key of argSpec.optional) {
       const rawValue = rawArgs[key];
       if (rawValue !== undefined) {
-        args[key] = rawValue;
+        args[key] = typeof rawValue === 'string' ? restoreToolArgumentSeparators(toolName, key, rawValue) : rawValue;
       }
     }
     if (toolName === 'run' && rawArgs.outputMode !== undefined) {

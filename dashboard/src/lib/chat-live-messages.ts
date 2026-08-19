@@ -28,6 +28,15 @@ export function createLiveMessage(
   };
 }
 
+export const LIVE_USER_MESSAGE_ID = 'live-user';
+
+export function buildLiveUserMessage(content: string, imageDataUrls: string[]): ChatMessage {
+  return {
+    ...createLiveMessage(LIVE_USER_MESSAGE_ID, 'user_text', 'user', content),
+    images: imageDataUrls,
+  };
+}
+
 export function upsertLiveMessageInto(previous: ChatMessage[], message: ChatMessage): ChatMessage[] {
   const index = previous.findIndex((entry) => entry.id === message.id);
   if (index < 0) {

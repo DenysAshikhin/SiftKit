@@ -2,6 +2,7 @@ import { applyLiveThinkingDelta } from './live-thinking-message';
 import {
   buildAppendedLiveToolMessage,
   buildCompletedLiveToolMessage,
+  buildLiveUserMessage,
   createLiveMessage,
   upsertLiveMessageInto,
 } from './chat-live-messages';
@@ -15,6 +16,8 @@ export type ChatSessionActivity =
   | { kind: 'idle' }
   | { kind: 'active'; operationKind: ChatSessionOperationKind };
 
+export type SubmittedChatInput = { content: string; images: PendingImage[] };
+
 export type ChatSessionRuntime = {
   sessionId: string;
   activity: ChatSessionActivity;
@@ -25,6 +28,9 @@ export type ChatSessionRuntime = {
   liveToolPromptTokenCount: number | null;
   draft: string;
   pendingImages: PendingImage[];
+  submittedInput: SubmittedChatInput | null;
+  /** The submitted turn has produced nothing yet; cleared by the first streamed evidence. */
+  awaitingResponse: boolean;
   planRepoRootInput: string;
   planMaxTurnsInput: string;
 };
@@ -35,6 +41,7 @@ export type ChatSessionRuntimeTransition =
   | { kind: 'tool'; sessionId: string; toolEvent: ChatStreamToolEvent }
   | { kind: 'answer'; sessionId: string; delta: ChatStreamTextDelta }
   | { kind: 'warning'; sessionId: string; text: string }
+  | { kind: 'submit'; sessionId: string; content: string; images: PendingImage[] }
   | { kind: 'done'; sessionId: string; response: ChatSessionResponse }
   | { kind: 'failure'; sessionId: string; message: string }
   | { kind: 'context-usage'; sessionId: string; contextUsage: ContextUsage }
@@ -54,6 +61,8 @@ function createChatSessionRuntime(sessionId: string): ChatSessionRuntime {
     liveToolPromptTokenCount: null,
     draft: '',
     pendingImages: [],
+    submittedInput: null,
+    awaitingResponse: false,
     planRepoRootInput: '',
     planMaxTurnsInput: '',
   };
@@ -65,6 +74,7 @@ function applyToolEvent(runtime: ChatSessionRuntime, toolEvent: ChatStreamToolEv
     : buildCompletedLiveToolMessage(toolEvent);
   return {
     ...runtime,
+    awaitingResponse: false,
     liveMessages: upsertLiveMessageInto(runtime.liveMessages, toolMessage),
     liveToolPromptTokenCount: typeof toolEvent.promptTokenCount === 'number'
       ? toolEvent.promptTokenCount
@@ -77,7 +87,11 @@ function applyAnswer(runtime: ChatSessionRuntime, delta: ChatStreamTextDelta): C
   const text = applyTextDelta(existing?.content ?? '', delta);
   const answerMessage = createLiveMessage('live-answer', 'assistant_answer', 'assistant', text);
   answerMessage.outputTokensEstimate = Math.max(1, Math.ceil(text.length / 4));
-  return { ...runtime, liveMessages: upsertLiveMessageInto(runtime.liveMessages, answerMessage) };
+  return {
+    ...runtime,
+    awaitingResponse: false,
+    liveMessages: upsertLiveMessageInto(runtime.liveMessages, answerMessage),
+  };
 }
 
 function applyTransition(
@@ -90,6 +104,7 @@ function applyTransition(
     case 'thinking':
       return {
         ...runtime,
+        awaitingResponse: false,
         liveMessages: applyLiveThinkingDelta(runtime.liveMessages, transition.delta, true),
       };
     case 'tool':
@@ -98,6 +113,19 @@ function applyTransition(
       return applyAnswer(runtime, transition.delta);
     case 'warning':
       return { ...runtime, warnings: [...runtime.warnings, transition.text] };
+    case 'submit':
+      return {
+        ...runtime,
+        error: null,
+        draft: '',
+        pendingImages: [],
+        submittedInput: { content: transition.content, images: transition.images },
+        awaitingResponse: true,
+        liveMessages: upsertLiveMessageInto(
+          runtime.liveMessages,
+          buildLiveUserMessage(transition.content, transition.images.map((image) => image.dataUrl)),
+        ),
+      };
     case 'done':
       return {
         ...runtime,
@@ -107,9 +135,20 @@ function applyTransition(
         error: null,
         draft: '',
         pendingImages: [],
+        submittedInput: null,
+        awaitingResponse: false,
       };
     case 'failure':
-      return { ...runtime, activity: { kind: 'idle' }, error: transition.message, liveMessages: [] };
+      return {
+        ...runtime,
+        activity: { kind: 'idle' },
+        error: transition.message,
+        liveMessages: [],
+        draft: runtime.submittedInput ? runtime.submittedInput.content : runtime.draft,
+        pendingImages: runtime.submittedInput ? runtime.submittedInput.images : runtime.pendingImages,
+        submittedInput: null,
+        awaitingResponse: false,
+      };
     case 'context-usage':
       return { ...runtime, contextUsage: transition.contextUsage };
     case 'draft':

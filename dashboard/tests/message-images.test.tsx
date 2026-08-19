@@ -31,9 +31,9 @@ const META = ImageMetadataSchema.parse({
   caption: null,
 });
 
-function renderImages(images: string[], imageMeta = [META]): string {
+function renderImages(images: string[], imageMeta = [META], removedImageCount = 0): string {
   return renderToStaticMarkup(
-    <MessageImages sessionId="s1" messageId="m1" images={images} imageMeta={imageMeta} />,
+    <MessageImages sessionId="s1" messageId="m1" images={images} imageMeta={imageMeta} removedImageCount={removedImageCount} chatBusy={false} onDeleteImage={async () => undefined} />,
   );
 }
 
@@ -139,6 +139,7 @@ test('PendingImageStrip renders the note for the resized image index', () => {
         { dataUrl: SMALL_PNG, note: null },
         { dataUrl: LARGE_PNG, note: 'Resized from 4000×2000 to 22×11' },
       ]}
+      pendingCount={0}
       onChange={() => undefined}
     />,
   );
@@ -163,6 +164,14 @@ test('renders nothing when the message has no images', () => {
   assert.equal(renderImages([], []), '');
 });
 
+test('a message whose only image was deleted still reports the removal', () => {
+  assert.match(renderImages([], [], 1), /1 image removed/u);
+});
+
+test('the removal notice counts every deleted image', () => {
+  assert.match(renderImages([PNG_A], [META], 2), /2 images removed/u);
+});
+
 test('uses a persisted caption without requesting it', { concurrency: false }, async () => {
   let fetchCalls = 0;
   Object.defineProperty(globalThis, 'fetch', {
@@ -181,6 +190,9 @@ test('uses a persisted caption without requesting it', { concurrency: false }, a
       messageId="m1"
       images={[PNG_A]}
       imageMeta={[{ ...META, caption: 'persisted caption' }]}
+      removedImageCount={0}
+      chatBusy={false}
+      onDeleteImage={async () => undefined}
     />,
   );
 
@@ -204,7 +216,7 @@ test('deduplicates caption requests while one request is pending', { concurrency
       return responsePromise;
     },
   });
-  render(<MessageImages sessionId="s1" messageId="m1" images={[PNG_A]} imageMeta={[META]} />);
+  render(<MessageImages sessionId="s1" messageId="m1" images={[PNG_A]} imageMeta={[META]} removedImageCount={0} chatBusy={false} onDeleteImage={async () => undefined} />);
   const summary = screen.getByText(/1440/u);
 
   await act(async () => {
@@ -230,10 +242,60 @@ test('shows a caption error without an unhandled rejection', { concurrency: fals
     configurable: true,
     value: async () => { throw new Error('caption service unavailable'); },
   });
-  render(<MessageImages sessionId="s1" messageId="m1" images={[PNG_A]} imageMeta={[META]} />);
+  render(<MessageImages sessionId="s1" messageId="m1" images={[PNG_A]} imageMeta={[META]} removedImageCount={0} chatBusy={false} onDeleteImage={async () => undefined} />);
   await act(async () => {
     fireEvent.click(screen.getByText(/1440/u));
     await new Promise<void>((resolve) => { setImmediate(resolve); });
   });
   assert.match((await screen.findByRole('alert')).textContent ?? '', /caption service unavailable/u);
+});
+
+test('clicking a message image opens the lightbox', () => {
+  render(<MessageImages sessionId="s1" messageId="m1" images={[PNG_A]} imageMeta={[META]} removedImageCount={0} chatBusy={false} onDeleteImage={async () => undefined} />);
+  assert.equal(screen.queryByRole('dialog'), null);
+  fireEvent.click(screen.getByLabelText('Enlarge attachment 1'));
+  assert.notEqual(screen.queryByRole('dialog'), null);
+});
+
+test('clicking a pending image opens the lightbox', () => {
+  render(<PendingImageStrip images={[{ dataUrl: PNG_A, note: null }]} pendingCount={0} onChange={() => undefined} />);
+  fireEvent.click(screen.getByLabelText('Enlarge pending attachment 1'));
+  assert.notEqual(screen.queryByRole('dialog'), null);
+});
+
+test('the pending strip shows a skeleton tile for each in-flight read', () => {
+  render(<PendingImageStrip images={[]} pendingCount={2} onChange={() => undefined} />);
+  assert.equal(screen.getAllByLabelText('Reading image').length, 2);
+});
+
+test('the per-image delete button reports the image index', () => {
+  const deleted: number[] = [];
+  render(
+    <MessageImages
+      sessionId="s1"
+      messageId="m1"
+      images={[PNG_A, PNG_B]}
+      imageMeta={[META, META]}
+      removedImageCount={0}
+      chatBusy={false}
+      onDeleteImage={async (index: number) => { deleted.push(index); }}
+    />,
+  );
+  fireEvent.click(screen.getByLabelText('Delete image 2'));
+  assert.deepEqual(deleted, [1]);
+});
+
+test('the per-image delete button is disabled while the session is busy', () => {
+  render(
+    <MessageImages
+      sessionId="s1"
+      messageId="m1"
+      images={[PNG_A]}
+      imageMeta={[META]}
+      removedImageCount={0}
+      chatBusy
+      onDeleteImage={async () => undefined}
+    />,
+  );
+  assert.equal(screen.getByLabelText('Delete image 1').hasAttribute('disabled'), true);
 });

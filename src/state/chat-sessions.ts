@@ -66,6 +66,8 @@ export type ChatMessage = {
   groundingStatus?: ChatGroundingStatus | null;
   images?: string[];
   imageMeta?: ImageMetadata[];
+  /** Attachments deleted from this message after it was sent. */
+  removedImageCount?: number;
 };
 
 export type ChatSession = {
@@ -143,6 +145,7 @@ const MessageRowSchema = z.object({
   grounding_status: z.string().nullable(),
   images: z.string().nullable(),
   image_meta: z.string().nullable(),
+  removed_image_count: z.number().nullable(),
   position: z.number(),
 });
 type MessageRow = z.infer<typeof MessageRowSchema>;
@@ -153,6 +156,10 @@ const MessageImageRowSchema = z.object({
   image_meta: z.string().nullable(),
 });
 type MessageImageRow = z.infer<typeof MessageImageRowSchema>;
+
+const MessageImageRemovalRowSchema = MessageImageRowSchema.extend({
+  removed_image_count: z.number().nullable(),
+});
 
 function getSessionDatabase(runtimeRoot: string): ReturnType<typeof getRuntimeDatabase> {
   return getRuntimeDatabase(join(runtimeRoot, 'runtime.sqlite'));
@@ -273,6 +280,7 @@ function mapMessageRow(row: MessageRow): ChatMessage {
     imageMeta: row.image_meta === null
       ? []
       : z.array(ImageMetadataSchema).parse(parseJsonValueText(row.image_meta)),
+    removedImageCount: row.removed_image_count ?? 0,
   };
 }
 
@@ -371,6 +379,7 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       grounding_status,
       images,
       image_meta,
+      removed_image_count,
       position
     FROM chat_messages
     WHERE session_id = ?
@@ -511,6 +520,69 @@ export function updateChatMessageImageCaption(
   }
 }
 
+function touchChatSession(runtimeRoot: string, sessionId: string): void {
+  getSessionDatabase(runtimeRoot)
+    .prepare('UPDATE chat_sessions SET updated_at_utc = ? WHERE id = ?')
+    .run(new Date().toISOString(), sessionId);
+}
+
+/**
+ * Drops one attachment from a persisted message so its tokens stop replaying into every
+ * later request. The removal is recorded as a count rather than written into the text:
+ * the user's words stay theirs, and the replay notice is composed from the count so a
+ * message that referred to "this screenshot" does not dangle.
+ */
+export function deleteChatMessageImage(
+  runtimeRoot: string,
+  sessionId: string,
+  messageId: string,
+  imageIndex: number,
+): void {
+  const normalizedSessionId = sessionId.trim();
+  const normalizedMessageId = messageId.trim();
+  if (!normalizedSessionId || !normalizedMessageId) {
+    throw new Error('Session id and message id are required.');
+  }
+  if (!Number.isInteger(imageIndex) || imageIndex < 0) {
+    throw new Error('Image index must be a non-negative integer.');
+  }
+
+  const database = getSessionDatabase(runtimeRoot);
+  const rowValue = database.prepare(`
+    SELECT id, images, image_meta, removed_image_count
+    FROM chat_messages
+    WHERE session_id = ? AND id = ?
+  `).get(normalizedSessionId, normalizedMessageId);
+  if (rowValue === undefined || rowValue === null) {
+    throw new ChatMessageImageNotFoundError();
+  }
+  const row = MessageImageRemovalRowSchema.parse(rowValue);
+  const images = row.images === null ? [] : parseImageDataUrls(parseJsonValueText(row.images));
+  if (!images[imageIndex]) {
+    throw new ChatMessageImageNotFoundError();
+  }
+  const imageMeta = row.image_meta === null
+    ? []
+    : z.array(ImageMetadataSchema).parse(parseJsonValueText(row.image_meta));
+  const remainingImages = images.filter((_, index) => index !== imageIndex);
+  const remainingImageMeta = imageMeta.filter((_, index) => index !== imageIndex);
+  const result = database.prepare(`
+    UPDATE chat_messages
+    SET images = ?, image_meta = ?, removed_image_count = ?
+    WHERE session_id = ? AND id = ?
+  `).run(
+    JSON.stringify(remainingImages),
+    remainingImageMeta.length > 0 ? JSON.stringify(remainingImageMeta) : null,
+    (row.removed_image_count ?? 0) + 1,
+    normalizedSessionId,
+    normalizedMessageId,
+  );
+  if (Number(result.changes || 0) !== 1) {
+    throw new ChatMessageImageNotFoundError();
+  }
+  touchChatSession(runtimeRoot, normalizedSessionId);
+}
+
 export function saveChatSession(runtimeRoot: string, session: ChatSession): void {
   const sessionId = String(session.id || '').trim();
   if (!sessionId) {
@@ -612,8 +684,9 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         grounding_status,
         images,
         image_meta,
+        removed_image_count,
         position
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     for (let index = 0; index < messages.length; index += 1) {
@@ -659,6 +732,7 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         normalizeGroundingStatus(message.groundingStatus),
         JSON.stringify(message.images ?? []),
         message.imageMeta && message.imageMeta.length > 0 ? JSON.stringify(message.imageMeta) : null,
+        toNullableNonNegativeInteger(message.removedImageCount) ?? 0,
         index,
       );
     }

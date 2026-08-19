@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { getDefaultWebPresetId, getPresetById, getPresetFamily, getSurfacePresets } from '../dashboard-presets';
-import { getSessionTelemetryStats, readSearchParams } from '../lib/format';
+import { getLastTurnTelemetry, getSessionTelemetryStats, readSearchParams } from '../lib/format';
 import { getErrorMessage } from '../../../src/lib/errors.js';
 import { useChatSessions } from './useChatSessions';
 import type { PendingImage } from '../lib/downscale-image';
@@ -44,6 +44,7 @@ export function useChatController(deps: {
   const isDirectChatMode = chatMode === 'chat' || chatMode === 'summary';
   const isRepoToolMode = chatMode === 'plan' || chatMode === 'repo-search';
   const sessionPromptCacheStats = getSessionTelemetryStats(selectedSession);
+  const lastTurnTelemetry = getLastTurnTelemetry(selectedSession);
 
   const selectedRuntime = chatSessionsHook.selectedSessionId
     ? (() => {
@@ -82,6 +83,14 @@ export function useChatController(deps: {
     await refreshAfterChatMessageMutation();
   }
 
+  async function onDeleteChatMessageImage(messageId: string, imageIndex: number): Promise<void> {
+    const response = await chatSessionsHook.deleteMessageImage(messageId, imageIndex);
+    if (!response) {
+      return;
+    }
+    await refreshAfterChatMessageMutation();
+  }
+
   const tabProps: ChatTabProps = {
     sessions: chatSessionsHook.sessions,
     selectedSessionId: chatSessionsHook.selectedSessionId,
@@ -89,6 +98,7 @@ export function useChatController(deps: {
     selectedRuntime,
     sessionRuntimes: chatSessionsHook.runtimeStore.getAll(),
     sessionPromptCacheStats,
+    lastTurnTelemetry,
     webPresets,
     selectedChatPreset,
     chatMode,
@@ -112,6 +122,7 @@ export function useChatController(deps: {
     onSavePlanRepoRoot: () => chatSessionsHook.savePlanRepoRoot(selectedRuntime?.planRepoRootInput ?? '', selectedChatPreset?.id),
     onDeleteMessage: onDeleteChatMessage,
     onDeleteTurn: onDeleteChatTurn,
+    onDeleteMessageImage: onDeleteChatMessageImage,
     onCondense: chatSessionsHook.condense,
     onSendPlan: chatSessionsHook.sendPlan,
     onSendRepoSearch: chatSessionsHook.sendRepoSearch,

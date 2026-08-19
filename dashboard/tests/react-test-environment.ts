@@ -8,6 +8,7 @@ Object.assign(globalThis, {
   document: dom.window.document,
   HTMLElement: dom.window.HTMLElement,
   HTMLButtonElement: dom.window.HTMLButtonElement,
+  Event: dom.window.Event,
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 

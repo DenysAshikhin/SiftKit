@@ -234,6 +234,47 @@ export function getSessionTelemetryStats(session: ChatSession | null): {
   };
 }
 
+export type LastTurnTelemetry = {
+  promptTokensPerSecond: number | null;
+  generationTokensPerSecond: number | null;
+  ttftMs: number | null;
+};
+
+function readPositiveTokenRate(value: OptionalJsonValue): number | null {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : null;
+}
+
+/**
+ * The HUD reports the newest completed turn, not the running average, so a slow prompt
+ * shows up the moment it happens. Rates only ride the terminal `done` payload, so this
+ * never sees an in-flight turn.
+ */
+export function getLastTurnTelemetry(session: ChatSession | null): LastTurnTelemetry {
+  const empty: LastTurnTelemetry = {
+    promptTokensPerSecond: null,
+    generationTokensPerSecond: null,
+    ttftMs: null,
+  };
+  if (!session || !Array.isArray(session.messages)) {
+    return empty;
+  }
+  for (let index = session.messages.length - 1; index >= 0; index -= 1) {
+    const message = session.messages[index];
+    if (!message || message.role !== 'assistant') {
+      continue;
+    }
+    const promptTokensPerSecond = readPositiveTokenRate(message.promptTokensPerSecond);
+    const generationTokensPerSecond = readPositiveTokenRate(message.generationTokensPerSecond);
+    const ttftMs = readPositiveTokenRate(message.promptEvalDurationMs);
+    if (promptTokensPerSecond === null && generationTokensPerSecond === null && ttftMs === null) {
+      continue;
+    }
+    return { promptTokensPerSecond, generationTokensPerSecond, ttftMs };
+  }
+  return empty;
+}
+
 export function classifyRunGroup(kind: string): RunGroupKey {
   const normalized = kind.trim().toLowerCase();
   if (normalized.includes('repo_search')) {

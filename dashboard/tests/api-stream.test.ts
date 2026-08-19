@@ -20,6 +20,7 @@ const SAMPLE_DONE: ChatSessionResponse = {
     chatUsedTokens: 0,
     thinkingUsedTokens: 0,
     toolUsedTokens: 0,
+    imageUsedTokens: 0,
     totalUsedTokens: 0,
     remainingTokens: 0,
     warnThresholdTokens: 0,
