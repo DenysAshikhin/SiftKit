@@ -74,6 +74,15 @@ test('repo-search does not keep a separate agent loop', () => {
   assert.equal(/for\s*\(\s*let\s+turn\s*=/u.test(text), false);
 });
 
+test('native repo-tool arguments have one runtime-schema implementation', () => {
+  const modelJsonPath = path.join(process.cwd(), 'src', 'lib', 'model-json.ts');
+  const text = fs.readFileSync(modelJsonPath, 'utf8');
+
+  assert.doesNotMatch(text, /REPO_TOOL_ARG_SPECS/u);
+  assert.doesNotMatch(text, /argSpec\.requiredText|argSpec\.verbatimText|rawArgs\.outputMode/u);
+  assert.match(text, /RepoNativeToolCallSchema/u);
+});
+
 test('production repo-search and summary planner use AgentLoop model-client path', () => {
   const productionTexts = [
     fs.readFileSync(path.join(process.cwd(), 'src', 'repo-search', 'engine', 'task-loop.ts'), 'utf8'),

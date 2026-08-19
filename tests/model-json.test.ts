@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { ModelJson, StreamingFinishOutputExtractor } from '../src/lib/model-json.js';
+import { MAX_RUN_TIMEOUT_MS } from '../src/lib/powershell.js';
 import {
   getRepoSearchToolNamesForParsing,
   resolveRepoSearchPlannerToolDefinitions,
@@ -374,18 +375,31 @@ test('ModelJson passes the advertised run timeoutMs through to the engine', () =
   );
 });
 
-test('ModelJson keeps the wrong run timeout key so the engine can reject it', () => {
-  assert.deepEqual(
-    parseRepoSearchPlannerAction(
+test('ModelJson rejects the removed run timeout key at the model boundary', () => {
+  assert.throws(
+    () => parseRepoSearchPlannerAction(
       '{"action":"run","command":"npm test","timeout":300000}',
       ['run'],
     ),
-    {
-      action: 'tool',
-      tool_name: 'run',
-      args: { command: 'npm test', timeout: 300000 },
-    },
+    /invalid planner tool action/u,
   );
+});
+
+test('ModelJson applies canonical validation to native optional values and extra keys', () => {
+  const invalidPayloads = [
+    { allowed: ['grep'], payload: { action: 'grep', pattern: 'x', limit: 'ten' } },
+    { allowed: ['edit'], payload: { action: 'edit', path: 'x.ts', edits: [] } },
+    { allowed: ['write'], payload: { action: 'write', path: 'x.ts', content: '', extra: true } },
+    { allowed: ['run'], payload: { action: 'run', command: 'npm test', timeoutMs: 0 } },
+    { allowed: ['run'], payload: { action: 'run', command: 'npm test', timeoutMs: MAX_RUN_TIMEOUT_MS + 1 } },
+  ];
+
+  for (const fixture of invalidPayloads) {
+    assert.throws(
+      () => parseRepoSearchPlannerAction(JSON.stringify(fixture.payload), fixture.allowed),
+      /invalid planner tool action/u,
+    );
+  }
 });
 
 test('ModelJson omits explicit null placeholders from repo-search tool batches', () => {
@@ -512,15 +526,15 @@ test('ModelJson passes a non-empty required array through untouched', () => {
 test('ModelJson reports a distinct reason for each tool-argument rejection path', () => {
   assert.throws(
     () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'grep', glob: '*.ts' }), ['grep']),
-    /"grep" requires "pattern" to be a non-empty string/u,
+    /invalid planner tool action:.*pattern/u,
   );
   assert.throws(
     () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'edit', path: 'a.ts', edits: [] }), ['edit']),
-    /"edit" requires "edits" to be a non-empty array/u,
+    /invalid planner tool action:.*edits/u,
   );
   assert.throws(
     () => parseRepoSearchPlannerAction('{"action":"run","command":"npm test","outputMode":"verbose"}', ['run']),
-    /"run" requires "outputMode" to be "auto" or "full"/u,
+    /invalid planner tool action:.*outputMode/u,
   );
 });
 
@@ -529,7 +543,7 @@ test('ModelJson reports a distinct reason for each tool-argument rejection path'
 test('ModelJson thrown planner messages do not end in a period', () => {
   assert.throws(
     () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'grep', glob: '*.ts' }), ['grep']),
-    /"grep" requires "pattern" to be a non-empty string$/u,
+    /invalid planner tool action:.*[^.]$/u,
   );
 });
 
@@ -607,7 +621,7 @@ test('ModelJson names the offending call when a batch entry is unavailable or ma
         JSON.stringify({ action: 'tool_batch', calls: [{ action: 'grep', glob: '*.ts' }] }),
         ['grep'],
       ),
-    /invalid planner tool batch action: call 1 — "grep" requires "pattern" to be a non-empty string/u,
+    /invalid planner tool batch action: call 1.*pattern/u,
   );
 });
 
@@ -708,11 +722,11 @@ test('ModelJson accepts whitespace-only write content but still rejects an empty
 
   assert.throws(
     () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'write', path: 'a.ts', content: '' }), ['write']),
-    /"write" requires "content" to be a non-empty string/u,
+    /invalid planner tool action:.*content/u,
   );
   assert.throws(
     () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'write', path: 'a.ts' }), ['write']),
-    /"write" requires "content" to be a non-empty string/u,
+    /invalid planner tool action:.*content/u,
   );
 });
 

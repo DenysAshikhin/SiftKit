@@ -1,6 +1,9 @@
 import { jsonrepair } from 'jsonrepair';
 
-import { RunOutputModeSchema } from '../repo-search/engine/validation-command-output-policy.js';
+import {
+  RepoNativeToolCallSchema,
+  restoreModelCommandSeparators,
+} from '../repo-search/repo-tool-arguments.js';
 import {
   isRepoSearchCommandToolName,
   normalizeRepoSearchCommandForToolName,
@@ -56,73 +59,6 @@ type ParsedModelObject = {
 type RepoSearchToolCallNormalization =
   | { ok: true; action: RepoSearchToolAction }
   | { ok: false; reason: string };
-
-/**
- * Per-tool argument shape for the native (non-`git`) repo tools. `requiredText` args are trimmed and
- * must be non-empty or the call is rejected; `verbatimText` args must be non-empty but are stored
- * exactly as the model wrote them, because surrounding whitespace is part of the payload;
- * `optional` args are passed through untouched and value-validated by engine/repo-tools.ts.
- */
-const REPO_TOOL_ARG_SPECS: Record<
-  string,
-  {
-    requiredText: readonly string[];
-    verbatimText?: readonly string[];
-    requiredArray?: readonly string[];
-    optional: readonly string[];
-  }
-> = {
-  read: { requiredText: ['path'], optional: ['offset', 'limit'] },
-  grep: {
-    requiredText: ['pattern'],
-    optional: ['path', 'glob', 'ignoreCase', 'literal', 'context', 'limit'],
-  },
-  find: { requiredText: ['pattern'], optional: ['path', 'limit'] },
-  ls: { requiredText: [], optional: ['path', 'limit'] },
-  write: { requiredText: ['path'], verbatimText: ['content'], optional: [] },
-  edit: { requiredText: ['path'], requiredArray: ['edits'], optional: [] },
-  run: { requiredText: ['command'], optional: ['timeout', 'timeoutMs'] },
-  web_search: { requiredText: ['query'], optional: ['timeFilter'] },
-  web_fetch: { requiredText: ['url'], optional: [] },
-};
-
-/**
- * A Windows separator written unescaped inside a JSON string is destroyed by parsing: `dashboard\tests`
- * carries the valid escape `\t`, so JSON.parse yields `dashboard<TAB>ests` and the tool receives a
- * corrupted path. Paths never legitimately contain a control character, so every one is restored.
- * Shell commands may legitimately contain newlines as statement separators, so only the control
- * characters that are never meaningful in a command are restored, and only between two non-space
- * characters (a `\n` swallowed from `\node_modules` is therefore not recoverable here).
- */
-const PATH_CONTROL_ESCAPES = /[\t\n\r\b\f]/gu;
-const COMMAND_PATH_CONTROL_ESCAPES = /(?<=\S)[\t\r\b\f](?=\S)/gu;
-/** The escape consumed its letter too, so `\tests` arrives as TAB + `ests` and both must come back. */
-const CONTROL_ESCAPE_LETTERS: Record<string, string> = {
-  '\t': 't',
-  '\n': 'n',
-  '\r': 'r',
-  '\b': 'b',
-  '\f': 'f',
-};
-
-function restoreWindowsSeparators(value: string, kind: 'path' | 'command'): string {
-  return value.replace(kind === 'path' ? PATH_CONTROL_ESCAPES : COMMAND_PATH_CONTROL_ESCAPES, (match) => {
-    const letter = CONTROL_ESCAPE_LETTERS[match];
-    return letter === undefined ? match : `\\${letter}`;
-  });
-}
-
-/** Only path and command arguments are repaired; patterns and globs are left verbatim. File content
- * never reaches this function - it is stored exactly as written by the verbatimText loop. */
-function restoreToolArgumentSeparators(toolName: string, key: string, value: string): string {
-  if (key === 'path') {
-    return restoreWindowsSeparators(value, 'path');
-  }
-  if (toolName === 'run' && key === 'command') {
-    return restoreWindowsSeparators(value, 'command');
-  }
-  return value;
-}
 
 const JSON_ESCAPE_CHARS: Record<string, string> = {
   n: '\n',
@@ -655,52 +591,25 @@ export class ModelJson {
         action: {
           action: 'tool',
           tool_name: toolName,
-          args: { command: restoreWindowsSeparators(command, 'command') },
+          args: { command: restoreModelCommandSeparators(command) },
         },
       };
     }
 
-    const argSpec = REPO_TOOL_ARG_SPECS[toolName];
-    if (!argSpec) {
-      return { ok: false, reason: `tool "${toolName}" has no argument specification` };
+    const nativeCall = RepoNativeToolCallSchema.safeParse({ toolName, args: rawArgs });
+    if (!nativeCall.success) {
+      const issue = nativeCall.error.issues[0];
+      const issuePath = issue?.path.map(String).join('.') || 'args';
+      const issueMessage = issue?.message.replace(/[.\s]+$/u, '') || 'schema validation failed';
+      return {
+        ok: false,
+        reason: `"${toolName}" has invalid "${issuePath}": ${issueMessage}`,
+      };
     }
-    const args: MutableJsonObject = {};
-    for (const key of argSpec.requiredText) {
-      const rawValue = rawArgs[key];
-      const value = typeof rawValue === 'string' ? rawValue.trim() : '';
-      if (!value) {
-        return { ok: false, reason: `"${toolName}" requires "${key}" to be a non-empty string` };
-      }
-      args[key] = restoreToolArgumentSeparators(toolName, key, value);
-    }
-    for (const key of argSpec.verbatimText ?? []) {
-      const rawValue = rawArgs[key];
-      if (typeof rawValue !== 'string' || rawValue.length === 0) {
-        return { ok: false, reason: `"${toolName}" requires "${key}" to be a non-empty string` };
-      }
-      args[key] = rawValue;
-    }
-    for (const key of argSpec.requiredArray ?? []) {
-      const rawValue = rawArgs[key];
-      if (!Array.isArray(rawValue) || rawValue.length === 0) {
-        return { ok: false, reason: `"${toolName}" requires "${key}" to be a non-empty array` };
-      }
-      args[key] = rawValue;
-    }
-    for (const key of argSpec.optional) {
-      const rawValue = rawArgs[key];
-      if (rawValue !== undefined) {
-        args[key] = typeof rawValue === 'string' ? restoreToolArgumentSeparators(toolName, key, rawValue) : rawValue;
-      }
-    }
-    if (toolName === 'run' && rawArgs.outputMode !== undefined) {
-      const outputMode = RunOutputModeSchema.safeParse(rawArgs.outputMode);
-      if (!outputMode.success) {
-        return { ok: false, reason: '"run" requires "outputMode" to be "auto" or "full"' };
-      }
-      args.outputMode = outputMode.data;
-    }
-    return { ok: true, action: { action: 'tool', tool_name: toolName, args } };
+    return {
+      ok: true,
+      action: { action: 'tool', tool_name: nativeCall.data.toolName, args: nativeCall.data.args },
+    };
   }
 
   private static validateFinishValidation(parsed: JsonObject): FinishValidationResult {

@@ -1,9 +1,6 @@
-import { z } from '../../lib/zod.js';
+import type { RunOutputMode } from '../repo-tool-arguments.js';
 
 export const REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT = 50;
-
-export const RunOutputModeSchema = z.enum(['auto', 'full']);
-export type RunOutputMode = z.infer<typeof RunOutputModeSchema>;
 
 const VALIDATION_COMMAND_PATTERNS = [
   /^(?:&\s*)?(?:npm(?:\.cmd)?|pnpm(?:\.cmd)?|yarn(?:\.cmd)?|bun(?:\.exe)?)\s+(?:run\s+)?(?:test|build|lint|typecheck)(?::[a-z0-9_.-]+)?(?:\s|$)/iu,

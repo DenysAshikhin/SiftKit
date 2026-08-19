@@ -14,11 +14,11 @@ import { spawnDirectCommand } from '../../lib/command-spawn.js';
 import { AGENT_RUN_ID_ENV } from '../../lib/agent-run-marker.js';
 import { DEFAULT_RUN_TIMEOUT_MS, MAX_RUN_TIMEOUT_MS, spawnPowerShellAsync } from '../../lib/powershell.js';
 import {
-  RunOutputModeSchema,
   ValidationCommandOutputPolicy,
   shapeRunOutput,
   type RunFullOutputDecision,
 } from './validation-command-output-policy.js';
+import { RunOutputModeSchema } from '../repo-tool-arguments.js';
 import { WebResearchTools } from '../../web-search/web-research-tools.js';
 import type { WebFetchToolArgs, WebSearchToolArgs } from '../../web-search/types.js';
 import type { ImageDataUrl, ImageMetadata, ImageTokenBudget } from '@siftkit/contracts';

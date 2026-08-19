@@ -25,6 +25,7 @@ import { getFirstCommandToken } from './command-safety.js';
 import { getSupportedImageExtensions } from '../llm-protocol/image-attachments.js';
 import { buildInlineThinkPattern, THINK_OPEN_TAG } from '../llm-protocol/think-markers.js';
 import type { JsonLogger } from './types.js';
+import { RUN_OUTPUT_MODES } from './repo-tool-arguments.js';
 
 export type PlannerActionResponse = {
   text: string;
@@ -222,7 +223,7 @@ const REPO_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
           },
           outputMode: {
             type: 'string',
-            enum: ['auto', 'full'],
+            enum: RUN_OUTPUT_MODES,
             description:
               'Output shaping. auto (default) keeps a curated tail for test/build/lint/typecheck commands - use it for those. full returns raw output; on such commands a first full request is served as auto, and only an immediate identical retry with full returns raw output.',
           },

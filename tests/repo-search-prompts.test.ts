@@ -245,10 +245,12 @@ test('buildAgentSystemPrompt tells the run tool it is PowerShell on Windows with
 // may still require backslashes, which must be escaped in the JSON string rather than forbidden.
 test('buildAgentSystemPrompt gives safe forward-slash and escaped-backslash path guidance', () => {
   const prompt = buildAgentSystemPrompt(buildTestContext(process.cwd(), false, true));
-  const guidance =
-    '- Prefer forward slashes for paths (`dashboard/node_modules`, `src/lib/foo.ts`), including inside `run` commands. If a native executable requires backslashes, JSON-escape each one as `\\\\`; an unescaped backslash in JSON can silently corrupt the argument.';
 
-  assert.equal(prompt.includes(guidance), true);
+  assert.match(prompt, /prefer forward slashes for paths/iu);
+  assert.match(prompt, /including inside `run` commands/iu);
+  assert.match(prompt, /native executable requires backslashes/iu);
+  assert.match(prompt, /JSON-escape each one as `\\\\`/u);
+  assert.match(prompt, /unescaped backslash in JSON.*corrupt the argument/iu);
 });
 
 test('buildAgentSystemPrompt documents automatic validation trimming and full output mode', () => {

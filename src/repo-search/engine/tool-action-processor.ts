@@ -58,11 +58,11 @@ import { TranscriptManager } from './transcript-manager.js';
 import { TurnBudget } from './turn-budget.js';
 import {
   RunFullOutputGate,
-  RunOutputModeSchema,
   ValidationCommandOutputPolicy,
   shapeRunOutput,
   type RunFullOutputDecision,
 } from './validation-command-output-policy.js';
+import { RunOutputModeSchema } from '../repo-tool-arguments.js';
 
 type ToolActionOutcome = 'next' | 'stop_batch';
 

@@ -19,6 +19,7 @@ import { asObject } from './helpers/dashboard-http.js';
 import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
 import { testHttpAgent } from './helpers/http-agent.js';
 import { requestJson } from './helpers/dashboard-http.js';
+import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
 
 const NON_VERDICT_RESPONSE = '{"action":"git","command":"git grep -n \\"x\\" src2"}';
 
@@ -62,7 +63,7 @@ test('POST /repo-agent (approval on): approves a write via the shared /repo-sear
       availableModels: ['mock-model'],
       mockResponses: [
         '{"action":"write","path":"agent-endpoint-out.txt","content":"approved"}',
-        '{"action":"finish","output":"wrote it"}',
+        ...repoAgentFinishResponses('wrote it'),
       ],
       mockCommandResults: {},
     },
@@ -98,7 +99,7 @@ test('POST /repo-agent (approval on): a denied write never runs and the run cont
       availableModels: ['mock-model'],
       mockResponses: [
         '{"action":"write","path":"denied.txt","content":"should never land"}',
-        '{"action":"finish","output":"gave up"}',
+        ...repoAgentFinishResponses('gave up'),
       ],
       mockCommandResults: {},
     },
@@ -162,7 +163,7 @@ test('POST /repo-agent emits activity_summary after ten tool turns', async (t) =
     fs.writeFileSync(path.join(process.cwd(), readPath), `export const marker${i} = ${i};\n`, 'utf8');
     mockResponses.push(`{"action":"read","path":"${readPath}"}`);
   }
-  mockResponses.push('{"action":"finish","output":"done"}');
+  mockResponses.push(...repoAgentFinishResponses('done'));
   const response = await requestSse(`${harness.baseUrl}/repo-agent`, {
     body: {
       prompt: 'find x',
@@ -201,7 +202,7 @@ test('POST /repo-agent defaults omitted approval to auto review', async (t) => {
       mockResponses: [
         '{"action":"write","path":"default-auto.txt","content":"safe"}',
         '{"verdict":"approve","reason":"task-scoped write"}',
-        '{"action":"finish","output":"done"}',
+        ...repoAgentFinishResponses('done'),
       ],
       mockCommandResults: {},
     },
@@ -242,7 +243,7 @@ test('POST /repo-agent with approval:"off" runs autonomously with no approval fr
       availableModels: ['mock-model'],
       mockResponses: [
         '{"action":"write","path":"agent-endpoint-auto.txt","content":"auto"}',
-        '{"action":"finish","output":"done"}',
+        ...repoAgentFinishResponses('done'),
       ],
       mockCommandResults: {},
     },
@@ -265,7 +266,7 @@ test('POST /repo-agent with approval:"auto": reviewer approves; no approval_requ
       mockResponses: [
         '{"action":"write","path":"agent-endpoint-llm-auto.txt","content":"auto"}',
         '{"verdict":"approve","reason":"task-scoped write"}',
-        '{"action":"finish","output":"done"}',
+        ...repoAgentFinishResponses('done'),
       ],
       mockCommandResults: {},
     },
@@ -291,7 +292,7 @@ test('POST /repo-agent: read-only tools execute without approval frames', async 
         '{"action":"grep","pattern":"\\"name\\"","path":"package.json","literal":true,"limit":2}',
         '{"action":"find","pattern":"package.json","path":".","limit":2}',
         '{"action":"ls","path":".","limit":2}',
-        '{"action":"finish","output":"inspected"}',
+        ...repoAgentFinishResponses('inspected'),
       ],
       mockCommandResults: {},
     },
@@ -413,7 +414,7 @@ test('POST /repo-agent (auto): an escalated approval parks the run and ends the 
         '{"action":"write","path":"parked.txt","content":"needs approval"}',
         NON_VERDICT_RESPONSE,
         NON_VERDICT_RESPONSE,
-        '{"action":"finish","output":"done after approval"}',
+        ...repoAgentFinishResponses('done after approval'),
       ],
       mockCommandResults: {},
     },
@@ -452,7 +453,7 @@ test('POST /repo-agent rejects a nested self-call owned by the active run', asyn
         '{"action":"write","path":"self-call.txt","content":"approved later"}',
         NON_VERDICT_RESPONSE,
         NON_VERDICT_RESPONSE,
-        '{"action":"finish","output":"done after approval"}',
+        ...repoAgentFinishResponses('done after approval'),
       ],
       mockCommandResults: {},
     },
@@ -489,7 +490,7 @@ test('POST /repo-agent: a client disconnect does not abort the run; it still par
       '{"action":"write","path":"detached.txt","content":"still parked"}',
       NON_VERDICT_RESPONSE,
       NON_VERDICT_RESPONSE,
-      '{"action":"finish","output":"finished later"}',
+      ...repoAgentFinishResponses('finished later'),
     ],
     mockCommandResults: {},
   });

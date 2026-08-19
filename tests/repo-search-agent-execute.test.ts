@@ -10,6 +10,7 @@ import { CollectingProgressWriter } from './helpers/collecting-progress-writer.j
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { DEAD_BASE_URL, DeadEndpointEnv } from './helpers/dead-endpoints.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
 
 // Execution posts run status; these tests assert on progress events only.
 const deadEndpoints = new DeadEndpointEnv();
@@ -34,7 +35,7 @@ async function readRepoAgentMaxTurns(requestedMaxTurns?: number): Promise<number
       ...(requestedMaxTurns === undefined ? {} : { maxTurns: requestedMaxTurns }),
       allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
       availableModels: ['mock'],
-      mockResponses: ['{"action":"finish","output":"done"}'],
+      mockResponses: repoAgentFinishResponses('done'),
       mockCommandResults: {},
       progressWriter: new CollectingProgressWriter(events),
     });
@@ -97,7 +98,7 @@ test('repo-agent automatically trims noisy validation run output', async () => {
       availableModels: ['mock'],
       mockResponses: [
         '{"action":"run","command":"npm test"}',
-        '{"action":"finish","output":"validation passed"}',
+        ...repoAgentFinishResponses('validation passed'),
       ],
       mockCommandResults: {},
     });
@@ -131,7 +132,7 @@ test('awaitRepoSearchRunPersistence resolves only once the deferred run log has 
       model: 'mock',
       allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
       availableModels: ['mock'],
-      mockResponses: ['{"action":"finish","output":"done"}'],
+      mockResponses: repoAgentFinishResponses('done'),
       mockCommandResults: {},
       progressWriter: new CollectingProgressWriter([]),
     });
@@ -161,8 +162,7 @@ test('repo-agent applies write content verbatim without an approval gate', async
       availableModels: ['mock'],
       mockResponses: [
         JSON.stringify({ action: 'write', path: 'out.txt', content }),
-        '{"action":"finish","output":"created out.txt"}',
-        '{"action":"finish","output":"created out.txt"}',
+        ...repoAgentFinishResponses('created out.txt'),
       ],
       mockCommandResults: {},
     });
@@ -194,7 +194,7 @@ test('repo-agent uses ExpandReads=false and still skips already-returned lines',
       mockResponses: [
         '{"action":"read","path":"a.ts","offset":100,"limit":20}',
         '{"action":"read","path":"a.ts","offset":110,"limit":20}',
-        '{"action":"finish","output":"done"}',
+        ...repoAgentFinishResponses('done'),
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {},
