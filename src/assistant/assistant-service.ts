@@ -1,13 +1,11 @@
 import type { RuntimeDatabase } from '../state/runtime-db.js';
 import type {
   ActivityEventDto,
-  AssistantPolicyDto,
   AssistantFactoryResetPreview,
   AssistantQuestionDto,
   AssistantRestorePreviewResponse,
   AssistantRestoreResult,
   AssistantStatusResponse,
-  AssistantValidationCandidateDto,
   CaptureSubmissionDto,
   DesktopStateDto,
   EnvironmentStateDto,
@@ -66,8 +64,9 @@ import { ExportService } from './control/export-service.js';
 import { FactoryResetService } from './control/factory-reset-service.js';
 import { MemoryQueryService } from './control/memory-query-service.js';
 import { MemoryMutationService } from './control/memory-mutation-service.js';
+import { PolicyControlService } from './control/policy-control-service.js';
 import { RestoreService } from './control/restore-service.js';
-import { normalizeLiteralValue } from './domain/keys.js';
+import { ValidationQueueService } from './control/validation-queue-service.js';
 import { OWNER_PERSON_CANONICAL_KEY } from './storage/schema.js';
 
 /** The closed set of desktop-shell payloads whose contract rejections are audited. */
@@ -148,6 +147,8 @@ export class AssistantService implements AssistantRuntime {
   readonly graph: AssistantGraph;
   readonly memoryQueries: MemoryQueryService;
   readonly memoryMutations: MemoryMutationService;
+  readonly policyControl: PolicyControlService;
+  readonly validation: ValidationQueueService;
   readonly questionFeedback: QuestionFeedbackService;
   readonly keyCustody: KeyCustodyService;
   readonly exports: ExportService;
@@ -256,6 +257,8 @@ export class AssistantService implements AssistantRuntime {
       },
     );
     this.memoryQueries = new MemoryQueryService(this.graph);
+    this.policyControl = new PolicyControlService(this.graph, this.graph.ownerId);
+    this.validation = new ValidationQueueService(this.graph, this.graph.ownerId);
     this.exports = new ExportService(this.graph, options.database, this.graph.ownerId);
     this.backups = new BackupService({
       graph: this.graph,
@@ -431,84 +434,6 @@ export class AssistantService implements AssistantRuntime {
       expiresAtUtc: row.expires_at_utc,
       createdAtUtc: row.created_at_utc,
     };
-  }
-
-  listPolicies(): AssistantPolicyDto[] {
-    if (!this.enabled) return [];
-    return this.graph.policies.listPolicies(this.ownerId).map((row) => ({
-      id: row.id,
-      policyType: row.policy_type,
-      topicKey: row.key,
-      active: row.enabled,
-    }));
-  }
-
-  setPolicyEnabled(policyId: string, enabled: boolean): boolean {
-    if (!this.enabled) return false;
-    const policy = this.graph.policies.getPolicyById(this.ownerId, policyId);
-    if (policy === null) return false;
-    this.graph.policies.setEnabled(this.ownerId, policy.policy_type, policy.key, enabled);
-    return true;
-  }
-
-  deletePolicy(policyId: string): boolean {
-    if (!this.enabled) return false;
-    const policy = this.graph.policies.getPolicyById(this.ownerId, policyId);
-    if (policy === null) return false;
-    this.graph.policies.deletePolicy(this.ownerId, policy.policy_type, policy.key);
-    return true;
-  }
-
-  blockPolicyTopic(topic: string): void {
-    if (!this.enabled) throw new Error('Assistant is disabled.');
-    this.graph.policies.upsertPolicy({
-      ownerId: this.ownerId,
-      policyType: 'never_infer_topic',
-      key: topic,
-      value: { reason: 'CLI user block' },
-      enabled: true,
-      source: 'user',
-    });
-  }
-
-  listValidationQueue(): AssistantValidationCandidateDto[] {
-    if (!this.enabled) return [];
-    return this.graph.candidates.listValidationQueue(this.ownerId).map((row) => {
-      const refs = this.graph.candidates.readRefs(row);
-      const objectText = refs.object.kind === 'literal'
-        ? normalizeLiteralValue(refs.object.valueType, refs.object.value)
-        : refs.object.displayName;
-      const evidenceId = row.observation_id === null
-        ? null
-        : this.graph.observations.requireObservation(row.observation_id).evidence_id;
-      return {
-        id: row.id,
-        status: row.status === 'needs_confirmation' ? 'needs_confirmation' : 'pending',
-        proposedStatement: `${refs.subject.displayName} ${row.predicate} ${objectText}`,
-        rationale: row.rationale,
-        confidence: row.confidence,
-        sensitivity: row.sensitivity,
-        evidenceId,
-        userNotes: row.user_notes,
-        createdAtUtc: row.created_at_utc,
-      };
-    });
-  }
-
-  setValidationNotes(candidateId: string, notes: string): boolean {
-    if (!this.enabled) return false;
-    const candidate = this.graph.candidates.getCandidate(candidateId);
-    if (candidate === null || candidate.owner_id !== this.ownerId) return false;
-    this.graph.candidates.setUserNotes(candidateId, notes);
-    return true;
-  }
-
-  removeValidationCandidate(candidateId: string): boolean {
-    if (!this.enabled) return false;
-    const candidate = this.graph.candidates.getCandidate(candidateId);
-    if (candidate === null || candidate.owner_id !== this.ownerId) return false;
-    this.graph.candidates.removeFromValidationQueue(candidateId);
-    return true;
   }
 
   /**
