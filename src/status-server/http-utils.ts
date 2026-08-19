@@ -28,10 +28,10 @@ export class RequestBodyTooLargeError extends Error {
 }
 
 /**
- * The raw body. Binary routes (§16.4 restore uploads a zip) need the bytes; `readBody` is the
- * utf8 view of exactly this.
+ * The raw buffered body, backing `readBody`. Bodies that can be large go to disk via
+ * `readBodyToFile` instead, which is why nothing outside this module buffers bytes directly.
  */
-export function readBodyBytes(
+function readBodyBytes(
   req: IncomingMessage,
   options: { maxBytes?: number } = {},
 ): Promise<Buffer> {
