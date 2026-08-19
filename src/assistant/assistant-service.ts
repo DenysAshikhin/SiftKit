@@ -134,6 +134,9 @@ const JOB_LEASE_SECONDS = 300;
 /** Terminal job rows older than this are deleted at the start of each drain. */
 const JOB_RETENTION_DAYS = 7;
 
+/** Drains slower than this are logged so event-loop pressure is visible before it hurts chat. */
+const SLOW_DRAIN_THRESHOLD_MS = 250;
+
 /** Capture states that still owe an extraction; a drain enqueues both (spec §5). */
 const PENDING_CAPTURE_STATES = ['queued', 'awaiting_image_capability'] as const;
 
@@ -723,6 +726,7 @@ export class AssistantService implements AssistantRuntime {
       Date.parse(this.clock.nowUtc()) - JOB_RETENTION_DAYS * 86_400_000,
     ).toISOString();
     this.graph.jobs.pruneTerminal(this.ownerId, cutoffUtc);
+    const startedAtMs = Date.now();
     // Retention runs even when observation is paused: it only ever removes data (spec §7).
     this.graph.jobs.enqueue({
       ownerId: this.ownerId,
@@ -732,6 +736,10 @@ export class AssistantService implements AssistantRuntime {
     }, this.currentConfig.Background.JobPriorities.CaptureRetention);
     this.enqueueWaitingCaptures();
     await this.runner.drain(this.ownerId, this.maxJobsPerDrain);
+    const elapsedMs = Date.now() - startedAtMs;
+    if (elapsedMs > SLOW_DRAIN_THRESHOLD_MS) {
+      process.stderr.write(`[assistant] slow drain: ${elapsedMs}ms\n`);
+    }
   }
 
   /**
