@@ -58,11 +58,20 @@ type RepoSearchToolCallNormalization =
   | { ok: false; reason: string };
 
 /**
- * Per-tool argument shape for the native (non-`git`) repo tools. `requiredText` args must arrive as
- * non-empty strings or the call is rejected; `optional` args are passed through untouched and
- * value-validated by engine/repo-tools.ts.
+ * Per-tool argument shape for the native (non-`git`) repo tools. `requiredText` args are trimmed and
+ * must be non-empty or the call is rejected; `verbatimText` args must be non-empty but are stored
+ * exactly as the model wrote them, because surrounding whitespace is part of the payload;
+ * `optional` args are passed through untouched and value-validated by engine/repo-tools.ts.
  */
-const REPO_TOOL_ARG_SPECS: Record<string, { requiredText: readonly string[]; requiredArray?: readonly string[]; optional: readonly string[] }> = {
+const REPO_TOOL_ARG_SPECS: Record<
+  string,
+  {
+    requiredText: readonly string[];
+    verbatimText?: readonly string[];
+    requiredArray?: readonly string[];
+    optional: readonly string[];
+  }
+> = {
   read: { requiredText: ['path'], optional: ['offset', 'limit'] },
   grep: {
     requiredText: ['pattern'],
@@ -70,7 +79,7 @@ const REPO_TOOL_ARG_SPECS: Record<string, { requiredText: readonly string[]; req
   },
   find: { requiredText: ['pattern'], optional: ['path', 'limit'] },
   ls: { requiredText: [], optional: ['path', 'limit'] },
-  write: { requiredText: ['path', 'content'], optional: [] },
+  write: { requiredText: ['path'], verbatimText: ['content'], optional: [] },
   edit: { requiredText: ['path'], requiredArray: ['edits'], optional: [] },
   run: { requiredText: ['command'], optional: ['timeout', 'timeoutMs'] },
   web_search: { requiredText: ['query'], optional: ['timeFilter'] },
@@ -103,7 +112,8 @@ function restoreWindowsSeparators(value: string, kind: 'path' | 'command'): stri
   });
 }
 
-/** Only path and command arguments are repaired; patterns, globs and file content are left verbatim. */
+/** Only path and command arguments are repaired; patterns and globs are left verbatim. File content
+ * never reaches this function - it is stored exactly as written by the verbatimText loop. */
 function restoreToolArgumentSeparators(toolName: string, key: string, value: string): string {
   if (key === 'path') {
     return restoreWindowsSeparators(value, 'path');
@@ -662,6 +672,13 @@ export class ModelJson {
         return { ok: false, reason: `"${toolName}" requires "${key}" to be a non-empty string` };
       }
       args[key] = restoreToolArgumentSeparators(toolName, key, value);
+    }
+    for (const key of argSpec.verbatimText ?? []) {
+      const rawValue = rawArgs[key];
+      if (typeof rawValue !== 'string' || rawValue.length === 0) {
+        return { ok: false, reason: `"${toolName}" requires "${key}" to be a non-empty string` };
+      }
+      args[key] = rawValue;
     }
     for (const key of argSpec.requiredArray ?? []) {
       const rawValue = rawArgs[key];

@@ -20,9 +20,11 @@ const BACKEND_USAGE = {
   prompt_tokens: 123,
   prompt_tokens_details: { cached_tokens: 100 },
   completion_tokens: 45,
+  completion_tokens_details: {
+    accepted_prediction_tokens: 36,
+    rejected_prediction_tokens: 9,
+  },
   total_tokens: 168,
-  draft_accepted_tokens: 36,
-  draft_rejected_tokens: 9,
 };
 const EXPECTED_SPECULATIVE_ACCEPTED_TOKENS = 36;
 const EXPECTED_SPECULATIVE_GENERATED_TOKENS = 45;

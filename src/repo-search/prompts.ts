@@ -302,6 +302,7 @@ export function buildAgentSystemPrompt(context: PresetSystemContext): string {
     'Guidelines:',
     '- Be concise. Show file paths clearly when working with files.',
     `- \`run\` executes in ${RUN_SHELL_LABEL}: use PowerShell syntax (Select-Object -Last N, Select-String, Get-Content -Tail N). Unix (tail/head/grep) and cmd (\`&\`, \`%ERRORLEVEL%\`) are NOT available.`,
+    '- Prefer forward slashes for paths (`dashboard/node_modules`, `src/lib/foo.ts`), including inside `run` commands. If a native executable requires backslashes, JSON-escape each one as `\\\\`; an unescaped backslash in JSON can silently corrupt the argument.',
     '- Long `run` output is truncated to its tail, so final summaries and errors survive.',
     `- Commands for test, build, lint, and typecheck retain a curated final ${REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT} lines (summary and failure lines survive) under \`outputMode: "auto"\`; always use "auto" for these. Do not add tail pipelines or temporary redirection.`,
     '- Reserve `outputMode: "full"` for raw log streams where the untrimmed text itself is required. On a test/build/lint/typecheck command the first "full" request is served as "auto" with a notice; if the raw output is still required, repeat the identical run with "full" immediately.',

@@ -680,6 +680,64 @@ test('ModelJson never rewrites write content or edit payloads', () => {
   });
 });
 
+// Trailing newlines are the payload for file writes: trimming them here silently defeats the
+// CRLF re-application in executeWrite, which can only convert newlines that still exist.
+test('ModelJson preserves leading and trailing whitespace in write content', () => {
+  const content = '\n  leading blank line kept\nlast line\n';
+  const action = parseRepoSearchPlannerAction(JSON.stringify({ action: 'write', path: 'a.ts', content }), [
+    'write',
+  ]);
+
+  assert.deepEqual(action, {
+    action: 'tool',
+    tool_name: 'write',
+    args: { path: 'a.ts', content },
+  });
+});
+
+test('ModelJson accepts whitespace-only write content but still rejects an empty string', () => {
+  const action = parseRepoSearchPlannerAction(JSON.stringify({ action: 'write', path: 'a.ts', content: '\n' }), [
+    'write',
+  ]);
+
+  assert.deepEqual(action, {
+    action: 'tool',
+    tool_name: 'write',
+    args: { path: 'a.ts', content: '\n' },
+  });
+
+  assert.throws(
+    () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'write', path: 'a.ts', content: '' }), ['write']),
+    /"write" requires "content" to be a non-empty string/u,
+  );
+  assert.throws(
+    () => parseRepoSearchPlannerAction(JSON.stringify({ action: 'write', path: 'a.ts' }), ['write']),
+    /"write" requires "content" to be a non-empty string/u,
+  );
+});
+
+test('ModelJson still trims surrounding whitespace from path and command arguments', () => {
+  const writeAction = parseRepoSearchPlannerAction(
+    JSON.stringify({ action: 'write', path: '  a.ts  ', content: 'body' }),
+    ['write'],
+  );
+  assert.deepEqual(writeAction, {
+    action: 'tool',
+    tool_name: 'write',
+    args: { path: 'a.ts', content: 'body' },
+  });
+
+  const runAction = parseRepoSearchPlannerAction(
+    JSON.stringify({ action: 'run', command: '  npm run lint  ' }),
+    ['run'],
+  );
+  assert.deepEqual(runAction, {
+    action: 'tool',
+    tool_name: 'run',
+    args: { command: 'npm run lint' },
+  });
+});
+
 test('ModelJson restores Windows path separators eaten by JSON escapes in git commands', () => {
   const action = parseRepoSearchPlannerAction('{"action":"git","command":"log --oneline -- dashboard\\tests"}');
   assert.deepEqual(action, {

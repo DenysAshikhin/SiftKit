@@ -145,8 +145,9 @@ test('awaitRepoSearchRunPersistence resolves only once the deferred run log has 
   }
 });
 
-test('repo-agent taskKind runs the agent prompt and applies a write without approval gate', async () => {
+test('repo-agent applies write content verbatim without an approval gate', async () => {
   const dir = createManagedTempDir('siftkit-agent-exec-');
+  const content = '\n  agent wrote this\n';
   try {
     const result = await executeRepoSearchRequest({
       presetId: 'repo-search',
@@ -159,13 +160,14 @@ test('repo-agent taskKind runs the agent prompt and applies a write without appr
       allowedTools: [...INTERACTIVE_REPO_TOOL_NAMES],
       availableModels: ['mock'],
       mockResponses: [
-        '{"action":"write","path":"out.txt","content":"agent wrote this"}',
+        JSON.stringify({ action: 'write', path: 'out.txt', content }),
+        '{"action":"finish","output":"created out.txt"}',
         '{"action":"finish","output":"created out.txt"}',
       ],
       mockCommandResults: {},
     });
     assert.equal(result.scorecard.verdict === 'fail', false);
-    assert.equal(fs.readFileSync(path.join(dir, 'out.txt'), 'utf8'), 'agent wrote this');
+    assert.equal(fs.readFileSync(path.join(dir, 'out.txt'), 'utf8'), content);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

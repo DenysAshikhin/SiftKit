@@ -53,10 +53,12 @@ test('provider helpers extract TabbyAPI usage: cache details, second-based timin
       completion_tokens: 50,
       completion_time: 1.2,
       completion_tokens_per_sec: 41.7,
+      completion_tokens_details: {
+        accepted_prediction_tokens: 40,
+        rejected_prediction_tokens: 8,
+      },
       total_tokens: 1050,
       total_time: 1.3,
-      draft_accepted_tokens: 40,
-      draft_rejected_tokens: 8,
     },
   };
 

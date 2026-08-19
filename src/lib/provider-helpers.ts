@@ -309,15 +309,16 @@ export type SpeculativeUsage = {
 
 /**
  * Per-request speculative-decoding stats. TabbyAPI reports accepted/rejected
- * draft tokens in `usage`; llama.cpp exposes no per-request equivalent (its
- * stats are scraped from the managed server log instead), so both fields stay
- * null there.
+ * draft tokens under OpenAI's `usage.completion_tokens_details`; llama.cpp
+ * exposes no per-request equivalent (its stats are scraped from the managed
+ * server log instead), so both fields stay null there.
  */
 export function getSpeculativeUsageFromResponseBody(body: JsonValue): SpeculativeUsage {
   const record = JsonRecordReader.asObject(body) ?? {};
   const usage = JsonRecordReader.asObject(record.usage) ?? {};
-  const acceptedTokens = getUsageNumber(usage.draft_accepted_tokens);
-  const rejectedTokens = getUsageNumber(usage.draft_rejected_tokens);
+  const completionDetails = JsonRecordReader.asObject(usage.completion_tokens_details) ?? {};
+  const acceptedTokens = getUsageNumber(completionDetails.accepted_prediction_tokens);
+  const rejectedTokens = getUsageNumber(completionDetails.rejected_prediction_tokens);
   if (acceptedTokens === null && rejectedTokens === null) {
     return { speculativeAcceptedTokens: null, speculativeGeneratedTokens: null };
   }

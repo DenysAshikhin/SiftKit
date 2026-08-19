@@ -23,12 +23,14 @@ const TABBY_USAGE = {
   prompt_time: 0.05,
   prompt_tokens_per_sec: 460,
   completion_tokens: 45,
+  completion_tokens_details: {
+    accepted_prediction_tokens: 36,
+    rejected_prediction_tokens: 9,
+  },
   completion_time: 0.25,
   completion_tokens_per_sec: 180,
   total_tokens: 168,
   total_time: 0.3,
-  draft_accepted_tokens: 36,
-  draft_rejected_tokens: 9,
 };
 
 const EXPECTED_PROMPT_EVAL_DURATION_MS = 50;

@@ -74,6 +74,9 @@ const RawToolCallSchema = z.object({
 const RawTokenDetailsSchema = z.object({
   reasoning_tokens: z.number().optional(),
   thinking_tokens: z.number().optional(),
+  // TabbyAPI reports speculative draft stats under OpenAI's prediction fields.
+  accepted_prediction_tokens: z.number().nullable().optional(),
+  rejected_prediction_tokens: z.number().nullable().optional(),
 });
 
 const RawCachedTokenDetailsSchema = z.object({
@@ -104,13 +107,11 @@ const RawChatResponseSchema = z.object({
     prompt_tokens_details: RawCachedTokenDetailsSchema.optional(),
     input_tokens_details: RawCachedTokenDetailsSchema.optional(),
     output_tokens_details: RawTokenDetailsSchema.optional(),
-    // TabbyAPI: second-based timings, rate fields, and speculative draft stats.
+    // TabbyAPI: second-based timings and rate fields.
     prompt_time: z.number().nullable().optional(),
     completion_time: z.number().nullable().optional(),
     prompt_tokens_per_sec: z.union([z.number(), z.string()]).nullable().optional(),
     completion_tokens_per_sec: z.union([z.number(), z.string()]).nullable().optional(),
-    draft_accepted_tokens: z.number().nullable().optional(),
-    draft_rejected_tokens: z.number().nullable().optional(),
   }).nullable().optional(),
   timings: z.object({
     cache_n: z.number().optional(),
