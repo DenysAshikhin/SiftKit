@@ -25,8 +25,8 @@ import {
   ensureInferenceRunAndBenchmarkMatrixSchema,
   ensureRuntimeArtifactsSchema,
   ensureRuntimeErrorEventsSchema,
-  DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON,
-} from '../runtime-db.js';
+} from './schema-helpers.js';
+import { DEFAULT_OPERATION_MODE_ALLOWED_TOOLS_JSON } from './constants.js';
 
 export const MIGRATIONS: readonly Migration[] = [
   {

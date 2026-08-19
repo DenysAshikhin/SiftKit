@@ -1,7 +1,7 @@
 import { z } from '../../lib/zod.js';
 import { parseJsonValueText } from '../../lib/json.js';
 import { JsonObjectSchema, JsonValueSchema, type JsonObject, type JsonValue, isJsonObject } from '../../lib/json-types.js';
-import type { RuntimeDatabase } from '../runtime-db.js';
+import type { RuntimeDatabase } from '../database-handle.js';
 import { tableExists, tableHasColumn } from './schema-introspection.js';
 
 const PresetsJsonRowSchema = z.object({ presetsJson: z.string().nullable() });

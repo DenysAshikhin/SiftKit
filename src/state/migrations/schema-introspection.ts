@@ -1,5 +1,5 @@
 import { z } from '../../lib/zod.js';
-import type { RuntimeDatabase } from '../runtime-db.js';
+import type { RuntimeDatabase } from '../database-handle.js';
 
 const ExistsFlagRowSchema = z.object({ exists_flag: z.number().nullable() });
 
