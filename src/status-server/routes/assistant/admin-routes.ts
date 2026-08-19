@@ -8,7 +8,7 @@ import {
 import { readConfig, writeConfig } from '../../config-store.js';
 import { readBodyBytes, sendJson } from '../../http-utils.js';
 import {
-  assistantRoute, body, desktopBody, KEY_MATERIAL_BODY_LIMIT, RESTORE_BODY_LIMIT, sendZip,
+  assistantRoute, body, desktopBody, KEY_MATERIAL_BODY_LIMIT, RESTORE_BODY_LIMIT, sendArchive,
 } from './helpers.js';
 
 export const statusEndpoint = assistantRoute(({ service, res }) => {
@@ -61,11 +61,11 @@ export const factoryResetEndpoint = assistantRoute(async ({ service, req, res })
 
 export const exportEndpoint = assistantRoute(async ({ service, req, res }) => {
   const request = await body(req, AssistantExportRequestSchema);
-  sendZip(res, await service.exports.export(request));
+  await sendArchive(res, await service.exports.export(request));
 }, { requireEnabled: false });
 
 export const backupEndpoint = assistantRoute(async ({ service, res }) => {
-  sendZip(res, await service.backups.createBackup());
+  await sendArchive(res, await service.backups.createBackup());
 }, { requireEnabled: false });
 
 export const restorePreviewEndpoint = assistantRoute(async ({ service, req, res }) => {

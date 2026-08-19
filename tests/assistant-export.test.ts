@@ -14,6 +14,7 @@ import { CURRENT_SCHEMA_VERSION } from '../src/state/runtime-db.js';
 import {
   withAssistantContextAsync, type AssistantTestContext,
 } from './helpers/assistant-fixture.js';
+import { archiveBytes } from './helpers/archive-bytes.js';
 import { seedOwnerAssertion } from './helpers/gate-e-seed.js';
 
 class PassthroughSummarizer implements ProjectionSummaryService {
@@ -43,10 +44,11 @@ async function seededExport(context: AssistantTestContext): Promise<ExportServic
   return new ExportService(context.graph, context.database, context.ownerId);
 }
 
+
 test('export renders the §16.3 tree without blobs by default', async () => {
   await withAssistantContextAsync(async (context) => {
     const service = await seededExport(context);
-    const archive = readZip(await service.export({ includeDecryptedBlobs: false }));
+    const archive = readZip(await archiveBytes(service.export({ includeDecryptedBlobs: false })));
     const names = [...archive.keys()];
 
     for (const required of REQUIRED_ENTRIES) assert.ok(names.includes(required), required);
@@ -79,7 +81,7 @@ test('export renders the §16.3 tree without blobs by default', async () => {
 test('includeDecryptedBlobs adds plaintext blobs and an audit row', async () => {
   await withAssistantContextAsync(async (context) => {
     const service = await seededExport(context);
-    const archive = readZip(await service.export({ includeDecryptedBlobs: true }));
+    const archive = readZip(await archiveBytes(service.export({ includeDecryptedBlobs: true })));
 
     const blobEntries = [...archive.keys()].filter((name) => name.startsWith('evidence/blobs/'));
     assert.equal(blobEntries.length, 1);
@@ -98,7 +100,7 @@ test('includeDecryptedBlobs adds plaintext blobs and an audit row', async () => 
 test('a default export records no decrypted-export audit event', async () => {
   await withAssistantContextAsync(async (context) => {
     const service = await seededExport(context);
-    await service.export({ includeDecryptedBlobs: false });
+    await archiveBytes(service.export({ includeDecryptedBlobs: false }));
 
     assert.equal(
       context.graph.audit.listAuditEvents(context.ownerId, 50)
@@ -111,7 +113,7 @@ test('a default export records no decrypted-export audit event', async () => {
 test('an empty assistant exports a well-formed but empty tree', async () => {
   await withAssistantContextAsync(async (context) => {
     const service = new ExportService(context.graph, context.database, context.ownerId);
-    const archive = readZip(await service.export({ includeDecryptedBlobs: true }));
+    const archive = readZip(await archiveBytes(service.export({ includeDecryptedBlobs: true })));
 
     for (const required of REQUIRED_ENTRIES) assert.ok(archive.has(required), required);
     assert.equal(archive.get('graph/assertions.jsonl')?.byteLength, 0);

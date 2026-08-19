@@ -1,9 +1,10 @@
 import type { AssistantExportRequest } from '@siftkit/contracts';
 import { z } from '../../lib/zod.js';
-import { ZipWriter } from '../../lib/zip.js';
+import type { ZipFileWriter } from '../../lib/zip-file-writer.js';
 import type { RuntimeDatabase } from '../../state/runtime-db.js';
 import { CURRENT_SCHEMA_VERSION } from '../../state/runtime-db.js';
 import type { AssistantGraph } from '../assistant-graph.js';
+import { TempArchiveBuilder, type TempArchive } from './temp-archive.js';
 import {
   AliasRowSchema, AssertionEvidenceRowSchema, AssertionRowSchema, AuditEventRowSchema,
   EvidenceRowSchema, NodeRowSchema, PolicyRowSchema, QuestionRowSchema,
@@ -64,8 +65,9 @@ const TABLE_EXPORTS: readonly TableExport[] = [
 
 /**
  * §16.3 export: the user's memory as a portable zip — graph tables as JSON Lines, projections as
- * the markdown they already are, and evidence bytes only when explicitly asked for. Everything is
- * built in memory; an export never leaves plaintext in a temp file.
+ * the markdown they already are, and evidence bytes only when explicitly asked for. Entries are
+ * produced one at a time and streamed into a temp archive, so the export never holds more than a
+ * single entry in memory. That archive is the caller's to delete: `cleanup()` is not optional.
  */
 export class ExportService {
   constructor(
@@ -74,34 +76,42 @@ export class ExportService {
     private readonly ownerId: string,
   ) {}
 
-  async export(request: AssistantExportRequest): Promise<Buffer> {
-    const writer = new ZipWriter();
-    writer.add('manifest.json', Buffer.from(JSON.stringify({
-      schemaVersion: CURRENT_SCHEMA_VERSION,
-      exportedAtUtc: this.graph.nowUtc(),
-      includesDecryptedBlobs: request.includeDecryptedBlobs,
-    }, null, 2), 'utf8'));
+  async export(request: AssistantExportRequest): Promise<TempArchive> {
+    const builder = new TempArchiveBuilder('siftkit-export-');
+    try {
+      const writer = builder.writer;
+      writer.addBuffer('manifest.json', Buffer.from(JSON.stringify({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        exportedAtUtc: this.graph.nowUtc(),
+        includesDecryptedBlobs: request.includeDecryptedBlobs,
+      }, null, 2), 'utf8'));
 
-    for (const table of TABLE_EXPORTS) {
-      writer.add(table.entryName, this.jsonLines(table));
-    }
-    writer.add('policies.json', Buffer.from(JSON.stringify(
-      z.array(PolicyRowSchema).parse(this.database
-        .prepare('SELECT * FROM assistant_policies WHERE owner_id = ? ORDER BY id')
-        .all(this.ownerId)),
-      null,
-      2,
-    ), 'utf8'));
+      for (const table of TABLE_EXPORTS) {
+        writer.addBuffer(table.entryName, this.jsonLines(table));
+      }
+      writer.addBuffer('policies.json', Buffer.from(JSON.stringify(
+        z.array(PolicyRowSchema).parse(this.database
+          .prepare('SELECT * FROM assistant_policies WHERE owner_id = ? ORDER BY id')
+          .all(this.ownerId)),
+        null,
+        2,
+      ), 'utf8'));
 
-    for (const projection of this.graph.projections.listAllRows(this.ownerId)) {
-      if (projection.status !== 'active') continue;
-      writer.add(`projections/${projection.relative_path}`, Buffer.from(projection.content, 'utf8'));
-    }
+      for (const projection of this.graph.projections.listAllRows(this.ownerId)) {
+        if (projection.status !== 'active') continue;
+        writer.addBuffer(
+          `projections/${projection.relative_path}`, Buffer.from(projection.content, 'utf8'),
+        );
+      }
 
-    if (request.includeDecryptedBlobs) {
-      this.addDecryptedBlobs(writer);
+      if (request.includeDecryptedBlobs) {
+        this.addDecryptedBlobs(writer);
+      }
+      return builder.finish();
+    } catch (error) {
+      builder.cleanup();
+      throw error;
     }
-    return writer.build();
   }
 
   private jsonLines(table: TableExport): Buffer {
@@ -110,7 +120,7 @@ export class ExportService {
   }
 
   /** Plaintext evidence, content-addressed exactly as the record names it. Always audited. */
-  private addDecryptedBlobs(writer: ZipWriter): void {
+  private addDecryptedBlobs(writer: ZipFileWriter): void {
     const rows = z.array(EvidenceRowSchema).parse(this.database.prepare(`
       SELECT * FROM evidence_records
       WHERE owner_id = ? AND status <> 'deleted' AND blob_id IS NOT NULL ORDER BY id
@@ -119,7 +129,9 @@ export class ExportService {
     let exported = 0;
     for (const row of rows) {
       if (row.blob_id === null) continue;
-      writer.add(
+      // One decrypted blob is materialized at a time and released once written; decrypting to a
+      // scratch file first would leave plaintext outside the archive, which §16.3 forbids.
+      writer.addBuffer(
         `evidence/blobs/${row.content_hash}`,
         this.graph.evidence.readBlobBytes(row.blob_id),
       );

@@ -41,6 +41,7 @@ import {
   type AssistantTestContext,
 } from './helpers/assistant-fixture.js';
 import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
+import { archiveBytes } from './helpers/archive-bytes.js';
 import { seedOwnerAssertion } from './helpers/gate-e-seed.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
@@ -112,6 +113,7 @@ function restoreServiceFor(
   });
 }
 
+
 /** Re-zips an entry map, so a test can mutate entries and hand the result back to restore. */
 function rebuild(archive: Map<string, Buffer>): Buffer {
   const writer = new ZipWriter();
@@ -148,7 +150,7 @@ function buildServiceContext(): { service: AssistantService; context: AssistantT
 test('backup carries a verified snapshot, the encrypted blob tree, and a sealed key', async () => {
   await withAssistantContextAsync(async (context) => {
     seedOwnerAssertion(context, { objectName: 'Pi Tool' });
-    const archive = readZip(await backupServiceFor(context).createBackup());
+    const archive = readZip(await archiveBytes(backupServiceFor(context).createBackup()));
 
     const manifest = ManifestSchema.parse(
       JSON.parse(archive.get('manifest.json')?.toString('utf8') ?? ''),
@@ -176,11 +178,11 @@ test('the backed-up key is sealed, and unseals to the live key material', async 
   await withAssistantContextAsync(async (context) => {
     seedOwnerAssertion(context, { objectName: 'Rho Tool' });
     const custody = custodyFor(context);
-    const archive = readZip(await new BackupService({
+    const archive = readZip(await archiveBytes(new BackupService({
       graph: context.graph,
       database: context.database,
       keyCustody: custody,
-    }).createBackup());
+    }).createBackup()));
 
     const sealed = archive.get('key.protected');
     assert.ok(sealed !== undefined);
@@ -196,7 +198,7 @@ test('the backed-up key is sealed, and unseals to the live key material', async 
 test('the snapshot is a readable database carrying the same rows', async () => {
   await withAssistantContextAsync(async (context) => {
     const seeded = seedOwnerAssertion(context, { objectName: 'Sigma Tool' });
-    const archive = readZip(await backupServiceFor(context).createBackup());
+    const archive = readZip(await archiveBytes(backupServiceFor(context).createBackup()));
 
     const snapshot = archive.get('snapshot.sqlite');
     assert.ok(snapshot !== undefined && snapshot.byteLength > 0);
@@ -213,7 +215,7 @@ test('every blob file on disk reaches the archive with its encrypted bytes intac
     assert.ok(blob !== null);
     const envelope = context.graph.evidence.readBlobEnvelope(blob);
 
-    const archive = readZip(await backupServiceFor(context).createBackup());
+    const archive = readZip(await archiveBytes(backupServiceFor(context).createBackup()));
     const blobEntries = [...archive.entries()].filter(([name]) => name.startsWith('blobs/'));
     assert.equal(blobEntries.length, 1);
     const [name, bytes] = blobEntries[0] ?? ['', Buffer.alloc(0)];
@@ -234,8 +236,8 @@ test('backup → factory reset → restore round-trips the graph, projections, a
     ).compileAll(context.ownerId, new AbortController().signal);
 
     const exports = exportServiceFor(context);
-    const before = readZip(await exports.export({ includeDecryptedBlobs: false }));
-    const backupBytes = await backupServiceFor(context).createBackup();
+    const before = readZip(await archiveBytes(exports.export({ includeDecryptedBlobs: false })));
+    const backupBytes = await archiveBytes(backupServiceFor(context).createBackup());
 
     const factoryResets = factoryResetServiceFor(context);
     factoryResets.confirm(context.ownerId, factoryResets.preview(context.ownerId).previewToken);
@@ -249,7 +251,7 @@ test('backup → factory reset → restore round-trips the graph, projections, a
     assert.deepEqual(result, { ok: true, blobsReadable: true, warning: null });
 
     // A byte-identical export means the graph and projections came back exactly.
-    const after = readZip(await exports.export({ includeDecryptedBlobs: false }));
+    const after = readZip(await archiveBytes(exports.export({ includeDecryptedBlobs: false })));
     assert.deepEqual(
       [...after.entries()].map(([name, data]) => [name, data.toString('base64')]).sort(),
       [...before.entries()].map(([name, data]) => [name, data.toString('base64')]).sort(),
@@ -266,7 +268,7 @@ test('backup → factory reset → restore round-trips the graph, projections, a
 test('restore refuses a tampered manifest hash before touching anything', async () => {
   await withAssistantContextAsync(async (context) => {
     const seeded = seedOwnerAssertion(context, { objectName: 'Chi Tool' });
-    const archive = readZip(await backupServiceFor(context).createBackup());
+    const archive = readZip(await archiveBytes(backupServiceFor(context).createBackup()));
     const snapshot = archive.get('snapshot.sqlite') ?? Buffer.alloc(0);
 
     archive.set('snapshot.sqlite', Buffer.concat([snapshot, Buffer.of(1)]));
@@ -281,7 +283,7 @@ test('restore refuses a tampered manifest hash before touching anything', async 
 test('restore refuses a newer schema version', async () => {
   await withAssistantContextAsync(async (context) => {
     seedOwnerAssertion(context, { objectName: 'Psi Tool' });
-    const archive = readZip(await backupServiceFor(context).createBackup());
+    const archive = readZip(await archiveBytes(backupServiceFor(context).createBackup()));
     const manifest = ManifestSchema.parse(
       JSON.parse(archive.get('manifest.json')?.toString('utf8') ?? ''),
     );
@@ -298,7 +300,7 @@ test('a wrong confirm token is a conflict and an unknown upload is a not-found',
   await withAssistantContextAsync(async (context) => {
     const seeded = seedOwnerAssertion(context, { objectName: 'Omega Tool' });
     const restores = restoreServiceFor(context);
-    const preview = restores.preview(await backupServiceFor(context).createBackup());
+    const preview = restores.preview(await archiveBytes(backupServiceFor(context).createBackup()));
 
     await assert.rejects(
       restores.confirm(preview.uploadId, 'wrong-token'),
@@ -320,7 +322,7 @@ test('a wrong confirm token is a conflict and an unknown upload is a not-found',
 test('a backup whose key cannot be unsealed restores loudly, not silently', async () => {
   await withAssistantContextAsync(async (context) => {
     seedOwnerAssertion(context, { objectName: 'Alpha Two' });
-    const archive = readZip(await backupServiceFor(context).createBackup());
+    const archive = readZip(await archiveBytes(backupServiceFor(context).createBackup()));
 
     // Corrupt only the sealed key: DPAPI must refuse it while everything else verifies.
     const sealed = archive.get('key.protected') ?? Buffer.alloc(0);
@@ -353,7 +355,7 @@ test('a backup whose key cannot be unsealed restores loudly, not silently', asyn
 test('a parked upload lives under the runtime root and a new service sweeps it', async () => {
   await withAssistantContextAsync(async (context) => {
     seedOwnerAssertion(context, { objectName: 'Kappa Tool' });
-    const backupBytes = await backupServiceFor(context).createBackup();
+    const backupBytes = await archiveBytes(backupServiceFor(context).createBackup());
     restoreServiceFor(context).preview(backupBytes);
 
     // Parked inside the runtime root — never the world-readable system temp directory.
@@ -369,7 +371,7 @@ test('a parked upload lives under the runtime root and a new service sweeps it',
 test('pending uploads beyond the cap evict the oldest, deleting its parked bytes', async () => {
   await withAssistantContextAsync(async (context) => {
     seedOwnerAssertion(context, { objectName: 'Lambda Tool' });
-    const backupBytes = await backupServiceFor(context).createBackup();
+    const backupBytes = await archiveBytes(backupServiceFor(context).createBackup());
     const restores = restoreServiceFor(context);
 
     const first = restores.preview(backupBytes);
@@ -392,7 +394,7 @@ test('restore runs through the service maintenance path and refreshes the owner 
   try {
     const { service, context } = buildServiceContext();
     seedOwnerAssertion(context, { objectName: 'Iota Tool' });
-    const backupBytes = await service.backups.createBackup();
+    const backupBytes = await archiveBytes(service.backups.createBackup());
 
     await service.factoryReset(service.previewFactoryReset().previewToken);
     assert.equal(service.ownerPersonNodeId, null);

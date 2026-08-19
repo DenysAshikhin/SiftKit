@@ -1,10 +1,13 @@
+import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { pipeline } from 'node:stream/promises';
 
 import { SIFT_MAX_IMAGE_BYTES } from '@siftkit/contracts';
 import { z } from '../../../lib/zod.js';
 import { ObjectValueTypeSchema } from '../../../assistant/domain/enums.js';
 import { JsonValueSchema } from '../../../lib/json-types.js';
 import type { AssistantService, DesktopPayloadKind } from '../../../assistant/assistant-service.js';
+import type { TempArchive } from '../../../assistant/control/temp-archive.js';
 import {
   parseJsonBody, readBody, sendJson,
 } from '../../http-utils.js';
@@ -81,14 +84,21 @@ export function success(service: AssistantService): { ok: true; graphVersion: nu
   return { ok: true, graphVersion: service.graph.graphVersion };
 }
 
-/** Archive responses are streamed straight from memory and never cached to disk (§16.3). */
-export function sendZip(res: ServerResponse, bytes: Buffer): void {
-  res.writeHead(200, {
-    'Content-Type': 'application/zip',
-    'Content-Length': bytes.byteLength,
-    'Cache-Control': 'no-store',
-  });
-  res.end(bytes);
+/**
+ * Streams a temp archive to the client and always deletes it — on success, on a read error, and
+ * on a client that disconnects mid-download. The response is never cached (§16.3).
+ */
+export async function sendArchive(res: ServerResponse, archive: TempArchive): Promise<void> {
+  try {
+    res.writeHead(200, {
+      'Content-Type': 'application/zip',
+      'Content-Length': fs.statSync(archive.path).size,
+      'Cache-Control': 'no-store',
+    });
+    await pipeline(fs.createReadStream(archive.path), res);
+  } finally {
+    archive.cleanup();
+  }
 }
 
 /**

@@ -23,6 +23,7 @@ import {
   type AssistantTestContext,
 } from './helpers/assistant-fixture.js';
 import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
+import { archiveBytes } from './helpers/archive-bytes.js';
 import { seedOwnerAssertion } from './helpers/gate-e-seed.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
@@ -308,8 +309,8 @@ test('gate E scenario 12: export survives factory reset and restore byte for byt
     await service.drainJobs();
     await service.memoryMutations.rebuildProjections(context.ownerId, PROJECTION_SIGNAL);
 
-    const before = readZip(await service.exports.export({ includeDecryptedBlobs: false }));
-    const backupBytes = await service.backups.createBackup();
+    const before = readZip(await archiveBytes(service.exports.export({ includeDecryptedBlobs: false })));
+    const backupBytes = await archiveBytes(service.backups.createBackup());
 
     await service.factoryReset(service.previewFactoryReset().previewToken);
     assert.equal(context.graph.projections.listAllRows(context.ownerId).length, 0);
@@ -319,7 +320,7 @@ test('gate E scenario 12: export survives factory reset and restore byte for byt
     const result = await service.restore(preview.uploadId, preview.confirmToken);
     assert.deepEqual(result, { ok: true, blobsReadable: true, warning: null });
 
-    const after = readZip(await service.exports.export({ includeDecryptedBlobs: false }));
+    const after = readZip(await archiveBytes(service.exports.export({ includeDecryptedBlobs: false })));
     assert.deepEqual(
       [...after.entries()].map(([name, data]) => [name, data.toString('base64')]).sort(),
       [...before.entries()].map(([name, data]) => [name, data.toString('base64')]).sort(),
