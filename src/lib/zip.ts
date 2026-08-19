@@ -6,12 +6,14 @@ import { deflateRawSync, inflateRawSync } from 'node:zlib';
  * Windows Explorer and `Expand-Archive` without SiftKit shipping a compression library.
  */
 
-const LOCAL_HEADER = 0x04034b50;
-const CENTRAL_HEADER = 0x02014b50;
-const EOCD = 0x06054b50;
-const LOCAL_HEADER_SIZE = 30;
-const CENTRAL_HEADER_SIZE = 46;
-const EOCD_SIZE = 22;
+export const LOCAL_HEADER = 0x04034b50;
+export const CENTRAL_HEADER = 0x02014b50;
+export const EOCD = 0x06054b50;
+export const LOCAL_HEADER_SIZE = 30;
+export const CENTRAL_HEADER_SIZE = 46;
+export const EOCD_SIZE = 22;
+/** Offset of the CRC field inside a local file header, patched by the streaming writer. */
+export const LOCAL_HEADER_CRC_OFFSET = 14;
 /** The zip comment field is 16-bit, so the EOCD cannot start further back than this. */
 const MAX_COMMENT_LENGTH = 65_535;
 
@@ -23,12 +25,24 @@ const CRC_TABLE = new Uint32Array(256).map((_, index) => {
   return crc >>> 0;
 });
 
-export function crc32(data: Buffer): number {
-  let crc = 0xffffffff;
+/** The seed a chunked CRC pass starts from; feed it to `crc32Update`, then `crc32Finish`. */
+export const CRC32_SEED = 0xffffffff;
+
+/** Folds one more chunk into a running CRC. Byte-for-byte identical to a single-buffer `crc32`. */
+export function crc32Update(crc: number, data: Buffer): number {
+  let next = crc;
   for (const byte of data) {
-    crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+    next = CRC_TABLE[(next ^ byte) & 0xff] ^ (next >>> 8);
   }
+  return next >>> 0;
+}
+
+export function crc32Finish(crc: number): number {
   return (crc ^ 0xffffffff) >>> 0;
+}
+
+export function crc32(data: Buffer): number {
+  return crc32Finish(crc32Update(CRC32_SEED, data));
 }
 
 interface Entry {
