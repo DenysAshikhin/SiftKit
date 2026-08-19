@@ -1,11 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from '../../lib/zod.js';
 import { toError } from '../../lib/errors.js';
-import type { OptionalJsonValue } from '../../lib/json-types.js';
-import type {
-  SummaryPolicyProfile,
-  SummarySourceKind,
-} from '../../summary/types.js';
 import { mergeToolTypeStats } from '../../line-read-guidance.js';
 import { getRuntimeDatabase } from '../../state/runtime-db.js';
 import { upsertRuntimeJsonArtifact } from '../../state/runtime-artifacts.js';
@@ -62,33 +57,6 @@ import {
   sendJson,
 } from '../http-utils.js';
 import { sendServerErrorJson } from '../error-response.js';
-
-export function normalizeSummaryPolicyProfile(value: OptionalJsonValue): SummaryPolicyProfile {
-  return (
-    value === 'pass-fail'
-    || value === 'unique-errors'
-    || value === 'buried-critical'
-    || value === 'json-extraction'
-    || value === 'diff-summary'
-    || value === 'risky-operation'
-  ) ? value : 'general';
-}
-
-export function normalizeSummarySourceKind(value: OptionalJsonValue): SummarySourceKind {
-  return value === 'command-output' ? 'command-output' : 'standalone';
-}
-
-export function normalizeCommandOutputKind(value: OptionalJsonValue): 'command' | 'interactive' {
-  return value === 'interactive' ? 'interactive' : 'command';
-}
-
-export function normalizeCommandOutputRiskLevel(value: OptionalJsonValue): 'informational' | 'debug' | 'risky' | undefined {
-  return value === 'informational' || value === 'debug' || value === 'risky' ? value : undefined;
-}
-
-export function normalizeCommandOutputReducerProfile(value: OptionalJsonValue): 'smart' | 'errors' | 'tail' | 'diff' | 'none' | undefined {
-  return value === 'smart' || value === 'errors' || value === 'tail' || value === 'diff' || value === 'none' ? value : undefined;
-}
 
 type StatusPostMetadata = ReturnType<typeof parseStatusMetadata>;
 type StatusPostDeferredMetadata = ReturnType<typeof parseStatusMetadataRecord>;

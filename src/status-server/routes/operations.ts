@@ -1,8 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { JsonRecordReader } from '../../lib/json-record-reader.js';
-import type { JsonObject, JsonSerializable } from '../../lib/json-types.js';
+import type { JsonObject, JsonSerializable, OptionalJsonValue } from '../../lib/json-types.js';
 import type { ServerContext } from '../server-types.js';
-import { parseOptionalSummaryProvider } from '../../summary/types.js';
+import {
+  parseOptionalSummaryProvider,
+  type SummaryPolicyProfile,
+  type SummarySourceKind,
+} from '../../summary/types.js';
 import { readConfig } from '../config-store.js';
 import { sendJson } from '../http-utils.js';
 import { sendServerErrorJson } from '../error-response.js';
@@ -18,13 +22,33 @@ import {
   type StreamedOperationContext,
 } from './streamed-operation-endpoint.js';
 import type { RouteEndpoint, RouteMatch } from '../route-table.js';
-import {
-  normalizeCommandOutputKind,
-  normalizeCommandOutputReducerProfile,
-  normalizeCommandOutputRiskLevel,
-  normalizeSummaryPolicyProfile,
-  normalizeSummarySourceKind,
-} from './status-post.js';
+
+function normalizeSummaryPolicyProfile(value: OptionalJsonValue): SummaryPolicyProfile {
+  return (
+    value === 'pass-fail'
+    || value === 'unique-errors'
+    || value === 'buried-critical'
+    || value === 'json-extraction'
+    || value === 'diff-summary'
+    || value === 'risky-operation'
+  ) ? value : 'general';
+}
+
+function normalizeSummarySourceKind(value: OptionalJsonValue): SummarySourceKind {
+  return value === 'command-output' ? 'command-output' : 'standalone';
+}
+
+function normalizeCommandOutputKind(value: OptionalJsonValue): 'command' | 'interactive' {
+  return value === 'interactive' ? 'interactive' : 'command';
+}
+
+function normalizeCommandOutputRiskLevel(value: OptionalJsonValue): 'informational' | 'debug' | 'risky' | undefined {
+  return value === 'informational' || value === 'debug' || value === 'risky' ? value : undefined;
+}
+
+function normalizeCommandOutputReducerProfile(value: OptionalJsonValue): 'smart' | 'errors' | 'tail' | 'diff' | 'none' | undefined {
+  return value === 'smart' || value === 'errors' || value === 'tail' || value === 'diff' || value === 'none' ? value : undefined;
+}
 
 type ParsedCommandOutputRoute = { parsedBody: JsonObject };
 

@@ -150,7 +150,7 @@ test('status-server config consumers keep SiftConfig at config boundaries', () =
 });
 
 test('status-server /config route does not cast normalized config back to Dict', () => {
-  const source = fs.readFileSync('src/status-server/routes/core.ts', 'utf8');
+  const source = fs.readFileSync('src/status-server/routes/server-admin.ts', 'utf8');
 
   assert.doesNotMatch(source, /readConfig\(configPath\) as SiftConfig/u);
   assert.doesNotMatch(source, /mergeConfig\(baseConfig, parsedBody\) as Dict/u);
