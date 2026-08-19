@@ -7,7 +7,7 @@ import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { DashboardTestServer } from './helpers/dashboard-server-fixture.js';
-import { waitForTerminalMetadataIdle } from '../src/status-server/routes/core.js';
+import { waitForTerminalMetadataIdle } from '../src/status-server/terminal-metadata.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { testHttpAgent } from './helpers/http-agent.js';
 import { createTestServerContext } from './helpers/server-context-fixture.js';

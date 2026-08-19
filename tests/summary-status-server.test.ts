@@ -24,7 +24,7 @@ test('summary endpoint defaults model request timeout to 240 seconds', () => {
 });
 
 test('summary endpoint forwards promptPrefix and llamaCppMaxTokens to the summary engine', () => {
-  const routeText = fs.readFileSync(path.join(process.cwd(), 'dist', 'status-server', 'routes', 'core.js'), 'utf8');
+  const routeText = fs.readFileSync(path.join(process.cwd(), 'dist', 'status-server', 'routes', 'operations.js'), 'utf8');
   assert.match(routeText, /promptPrefix:\s*summaryRequest\.promptPrefix/u);
   assert.match(routeText, /llamaCppMaxTokens:\s*summaryRequest\.llamaCppMaxTokens/u);
 });

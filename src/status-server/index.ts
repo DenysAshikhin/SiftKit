@@ -64,7 +64,7 @@ import {
   dumpManagedLlamaStartupReviewToConsole,
 } from './managed-llama.js';
 import { createRequestHandler } from './routes.js';
-import { waitForTerminalMetadataIdle } from './routes/core.js';
+import { waitForTerminalMetadataIdle } from './terminal-metadata.js';
 import { PresetRuntimeCoordinator } from './preset-runtime-coordinator.js';
 import { AppliedModelPresetState } from './applied-model-preset-state.js';
 import { ManagedRuntimeImageCapabilityProvider } from './runtime-image-capability.js';

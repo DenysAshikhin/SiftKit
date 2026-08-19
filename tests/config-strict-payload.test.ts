@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { JsonObjectSchema, type MutableJsonObject } from '../src/lib/json-types.js';
-import { isStrictConfigPayload } from '../src/status-server/routes/core.js';
+import { isStrictConfigPayload } from '../src/status-server/routes/server-admin.js';
 
 function defaultConfigPayload(): MutableJsonObject {
   return { ...JsonObjectSchema.parse(JSON.parse(JSON.stringify(getDefaultConfigObject()))) };
