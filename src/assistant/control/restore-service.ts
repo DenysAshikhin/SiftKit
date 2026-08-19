@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -9,7 +9,7 @@ import {
 } from '@siftkit/contracts';
 import { parseJsonText } from '../../lib/json.js';
 import { z } from '../../lib/zod.js';
-import { readZip } from '../../lib/zip.js';
+import { ZipFileReader } from '../../lib/zip-file-reader.js';
 import { CURRENT_SCHEMA_VERSION, migrateDatabaseFile, type RuntimeDatabase } from '../../state/runtime-db.js';
 import type { AssistantGraph } from '../assistant-graph.js';
 import { DpapiUnavailableError, dpapiUnprotect } from '../crypto/dpapi.js';
@@ -70,28 +70,41 @@ export class RestoreService {
     fs.rmSync(this.uploadsDir, { recursive: true, force: true });
   }
 
-  /** Verifies the archive end to end and parks it. Nothing is mutated until `confirm`. */
-  preview(archiveBytes: Buffer): AssistantRestorePreviewResponse {
-    const entries = this.verifiedEntries(archiveBytes);
-    const manifest = this.readManifest(entries);
+  /**
+   * Verifies the uploaded archive end to end and parks a copy. Nothing is mutated until
+   * `confirm`. The upload is read from disk throughout — a backup is the size of the whole
+   * evidence tree and never belongs in the heap.
+   */
+  preview(uploadPath: string): AssistantRestorePreviewResponse {
+    const reader = ZipFileReader.open(uploadPath);
+    let manifest: BackupManifest;
+    let fileCount: number;
+    let totalBytes = 0;
+    try {
+      this.verifyEntries(reader);
+      manifest = this.readManifest(reader);
+      const names = reader.entryNames();
+      fileCount = names.length;
+      for (const name of names) totalBytes += reader.entrySize(name);
+    } finally {
+      reader.close();
+    }
 
     const uploadId = `upload_${randomBytes(16).toString('hex')}`;
     const archivePath = path.join(this.uploadsDir, `${uploadId}.zip`);
     fs.mkdirSync(this.uploadsDir, { recursive: true });
-    fs.writeFileSync(archivePath, archiveBytes);
+    fs.copyFileSync(uploadPath, archivePath);
 
     const confirmToken = randomBytes(32).toString('base64url');
     this.pending.set(uploadId, { archivePath, confirmToken });
     this.evictBeyondCap();
 
-    let totalBytes = 0;
-    for (const data of entries.values()) totalBytes += data.byteLength;
     return {
       uploadId,
       confirmToken,
       schemaVersion: manifest.schemaVersion,
       custody: manifest.custody,
-      fileCount: entries.size,
+      fileCount,
       totalBytes,
     };
   }
@@ -106,24 +119,27 @@ export class RestoreService {
     if (supplied.byteLength !== expected.byteLength || !timingSafeEqual(supplied, expected)) {
       throw new AssistantConflictError('Restore confirm token does not match this upload.');
     }
-    // Re-verify: the parked file could have been swapped since the preview.
-    const entries = this.verifiedEntries(fs.readFileSync(request.archivePath));
-    this.readManifest(entries);
 
     const snapshotPath = path.join(this.uploadsDir, `${uploadId}.sqlite`);
+    const reader = ZipFileReader.open(request.archivePath);
     try {
-      this.replaceRows(entries, snapshotPath);
-      this.replaceBlobTree(entries);
-      const recovered = await this.recoverKey(entries);
+      // Re-verify: the parked file could have been swapped since the preview.
+      this.verifyEntries(reader);
+      this.readManifest(reader);
+
+      await this.replaceRows(reader, snapshotPath);
+      await this.replaceBlobTree(reader);
+      const recovered = await this.recoverKey(reader);
       this.pending.delete(uploadId);
-      fs.rmSync(request.archivePath, { force: true });
       return {
         ok: true,
         blobsReadable: recovered,
         warning: recovered ? null : UNREADABLE_BLOBS_WARNING,
       };
     } finally {
+      reader.close();
       fs.rmSync(snapshotPath, { force: true });
+      if (!this.pending.has(uploadId)) fs.rmSync(request.archivePath, { force: true });
     }
   }
 
@@ -139,41 +155,37 @@ export class RestoreService {
   }
 
   /** Every entry, with each manifest hash checked. A damaged archive never reaches the database. */
-  private verifiedEntries(archiveBytes: Buffer): Map<string, Buffer> {
-    const entries = readZip(archiveBytes);
-    const manifest = this.readManifestOnly(entries);
+  private verifyEntries(reader: ZipFileReader): void {
+    const manifest = this.readManifestOnly(reader);
     for (const [name, hash] of Object.entries(manifest.files)) {
-      const data = entries.get(name);
-      if (data === undefined) {
+      if (!reader.hasEntry(name)) {
         throw new Error(`Backup entry ${name} is missing.`);
       }
-      if (createHash('sha256').update(data).digest('hex') !== hash) {
+      if (reader.hashEntry(name) !== hash) {
         throw new Error(`Backup entry ${name} failed its manifest hash check.`);
       }
     }
-    for (const name of entries.keys()) {
+    for (const name of reader.entryNames()) {
       if (name !== MANIFEST_ENTRY && manifest.files[name] === undefined) {
         throw new Error(`Backup entry ${name} is not covered by the manifest hash list.`);
       }
     }
-    return entries;
   }
 
-  private readManifestOnly(entries: ReadonlyMap<string, Buffer>): BackupManifest {
-    const raw = entries.get(MANIFEST_ENTRY);
-    if (raw === undefined) throw new Error('Backup is missing its manifest.json.');
-    return parseJsonText(raw.toString('utf8'), BackupManifestSchema);
+  private readManifestOnly(reader: ZipFileReader): BackupManifest {
+    if (!reader.hasEntry(MANIFEST_ENTRY)) throw new Error('Backup is missing its manifest.json.');
+    return parseJsonText(reader.readEntry(MANIFEST_ENTRY).toString('utf8'), BackupManifestSchema);
   }
 
-  private readManifest(entries: ReadonlyMap<string, Buffer>): BackupManifest {
-    const manifest = this.readManifestOnly(entries);
+  private readManifest(reader: ZipFileReader): BackupManifest {
+    const manifest = this.readManifestOnly(reader);
     if (manifest.schemaVersion > CURRENT_SCHEMA_VERSION) {
       throw new Error(
         `Backup schema version ${manifest.schemaVersion} is newer than this build's `
         + `${CURRENT_SCHEMA_VERSION}; upgrade SiftKit before restoring.`,
       );
     }
-    if (!entries.has(SNAPSHOT_ENTRY)) throw new Error('Backup is missing its database snapshot.');
+    if (!reader.hasEntry(SNAPSHOT_ENTRY)) throw new Error('Backup is missing its database snapshot.');
     return manifest;
   }
 
@@ -182,8 +194,8 @@ export class RestoreService {
    * intersection so an older backup restores into today's columns without silently dropping
    * anything the two schemas share.
    */
-  private replaceRows(entries: ReadonlyMap<string, Buffer>, snapshotPath: string): void {
-    fs.writeFileSync(snapshotPath, entries.get(SNAPSHOT_ENTRY) ?? Buffer.alloc(0));
+  private async replaceRows(reader: ZipFileReader, snapshotPath: string): Promise<void> {
+    await reader.extractTo(SNAPSHOT_ENTRY, snapshotPath);
     migrateDatabaseFile(snapshotPath);
 
     // ATTACH cannot run inside a transaction, so it brackets the whole copy.
@@ -230,14 +242,14 @@ export class RestoreService {
   }
 
   /** The blob tree is replaced wholesale: a half-old, half-new tree would be undetectable. */
-  private replaceBlobTree(entries: ReadonlyMap<string, Buffer>): void {
+  private async replaceBlobTree(reader: ZipFileReader): Promise<void> {
     const root = assistantEvidenceDir(this.graph.runtimeRoot);
     fs.rmSync(root, { recursive: true, force: true });
-    for (const [name, data] of entries) {
+    for (const name of reader.entryNames()) {
       if (!name.startsWith(BLOB_PREFIX)) continue;
       const target = path.join(root, ...name.slice(BLOB_PREFIX.length).split('/'));
       fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.writeFileSync(target, data);
+      await reader.extractTo(name, target);
     }
   }
 
@@ -245,9 +257,9 @@ export class RestoreService {
    * Unseals the backup key and proves it reads the restored evidence. A key that cannot be
    * unsealed here — a backup from another machine or account — is reported, never swallowed.
    */
-  private async recoverKey(entries: ReadonlyMap<string, Buffer>): Promise<boolean> {
-    const sealed = entries.get(KEY_ENTRY);
-    if (sealed === undefined) return false;
+  private async recoverKey(reader: ZipFileReader): Promise<boolean> {
+    if (!reader.hasEntry(KEY_ENTRY)) return false;
+    const sealed = reader.readEntry(KEY_ENTRY);
     try {
       const material = parseJsonText(
         (await dpapiUnprotect(sealed)).toString('utf8'),

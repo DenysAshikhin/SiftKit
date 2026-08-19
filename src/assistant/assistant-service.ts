@@ -619,8 +619,8 @@ export class AssistantService implements AssistantRuntime {
     this.ownerPersonId = null;
   }
 
-  previewRestore(archiveBytes: Buffer): AssistantRestorePreviewResponse {
-    return this.restoreService.preview(archiveBytes);
+  previewRestore(uploadPath: string): AssistantRestorePreviewResponse {
+    return this.restoreService.preview(uploadPath);
   }
 
   /** §16.4: replaces the assistant's rows, blobs, and key from a verified backup artifact. */

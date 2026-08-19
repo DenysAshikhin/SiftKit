@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import {
   AssistantConfigPatchRequestSchema,
   AssistantConfirmTokenRequestSchema,
@@ -6,7 +10,7 @@ import {
   KeyMaterialDtoSchema,
 } from '@siftkit/contracts';
 import { readConfig, writeConfig } from '../../config-store.js';
-import { readBodyBytes, sendJson } from '../../http-utils.js';
+import { readBodyToFile, sendJson } from '../../http-utils.js';
 import {
   assistantRoute, body, desktopBody, KEY_MATERIAL_BODY_LIMIT, RESTORE_BODY_LIMIT, sendArchive,
 } from './helpers.js';
@@ -68,10 +72,19 @@ export const backupEndpoint = assistantRoute(async ({ service, res }) => {
   await sendArchive(res, await service.backups.createBackup());
 }, { requireEnabled: false });
 
+/**
+ * A restore upload is a whole backup, so it goes to disk as it arrives and is parsed from there.
+ * The staging directory is this route's alone; `preview` copies what it wants to keep.
+ */
 export const restorePreviewEndpoint = assistantRoute(async ({ service, req, res }) => {
-  sendJson(res, 200, service.previewRestore(
-    await readBodyBytes(req, { maxBytes: RESTORE_BODY_LIMIT }),
-  ));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'siftkit-restore-'));
+  try {
+    const uploadPath = path.join(directory, 'upload.zip');
+    await readBodyToFile(req, uploadPath, { maxBytes: RESTORE_BODY_LIMIT });
+    sendJson(res, 200, service.previewRestore(uploadPath));
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 }, { requireEnabled: false });
 
 export const restoreEndpoint = assistantRoute(async ({ service, req, res }) => {

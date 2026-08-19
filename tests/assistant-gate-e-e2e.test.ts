@@ -23,7 +23,7 @@ import {
   type AssistantTestContext,
 } from './helpers/assistant-fixture.js';
 import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
-import { archiveBytes } from './helpers/archive-bytes.js';
+import { archiveBytes, archiveUploadPath } from './helpers/archive-bytes.js';
 import { seedOwnerAssertion } from './helpers/gate-e-seed.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
@@ -316,7 +316,7 @@ test('gate E scenario 12: export survives factory reset and restore byte for byt
     assert.equal(context.graph.projections.listAllRows(context.ownerId).length, 0);
     assert.equal(service.ownerPersonNodeId, null);
 
-    const preview = service.previewRestore(backupBytes);
+    const preview = service.previewRestore(archiveUploadPath(backupBytes));
     const result = await service.restore(preview.uploadId, preview.confirmToken);
     assert.deepEqual(result, { ok: true, blobsReadable: true, warning: null });
 

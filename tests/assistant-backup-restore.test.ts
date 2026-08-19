@@ -41,7 +41,7 @@ import {
   type AssistantTestContext,
 } from './helpers/assistant-fixture.js';
 import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
-import { archiveBytes } from './helpers/archive-bytes.js';
+import { archiveBytes, archiveUploadPath } from './helpers/archive-bytes.js';
 import { seedOwnerAssertion } from './helpers/gate-e-seed.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
@@ -244,7 +244,7 @@ test('backup → factory reset → restore round-trips the graph, projections, a
     assert.equal(context.graph.projections.listAllRows(context.ownerId).length, 0);
 
     const restores = restoreServiceFor(context);
-    const preview = restores.preview(backupBytes);
+    const preview = restores.preview(archiveUploadPath(backupBytes));
     assert.equal(preview.schemaVersion, CURRENT_SCHEMA_VERSION);
     assert.ok(preview.fileCount > 0 && preview.totalBytes > 0);
     const result = await restores.confirm(preview.uploadId, preview.confirmToken);
@@ -272,7 +272,7 @@ test('restore refuses a tampered manifest hash before touching anything', async 
     const snapshot = archive.get('snapshot.sqlite') ?? Buffer.alloc(0);
 
     archive.set('snapshot.sqlite', Buffer.concat([snapshot, Buffer.of(1)]));
-    assert.throws(() => restoreServiceFor(context).preview(rebuild(archive)), /hash/iu);
+    assert.throws(() => restoreServiceFor(context).preview(archiveUploadPath(rebuild(archive))), /hash/iu);
     assert.equal(
       context.graph.assertions.requireAssertion(seeded.assertion.id).status,
       seeded.assertion.status,
@@ -292,7 +292,7 @@ test('restore refuses a newer schema version', async () => {
     archive.set('manifest.json', Buffer.from(JSON.stringify({
       ...manifest, schemaVersion: CURRENT_SCHEMA_VERSION + 1,
     }), 'utf8'));
-    assert.throws(() => restoreServiceFor(context).preview(rebuild(archive)), /schema/iu);
+    assert.throws(() => restoreServiceFor(context).preview(archiveUploadPath(rebuild(archive))), /schema/iu);
   });
 });
 
@@ -300,7 +300,9 @@ test('a wrong confirm token is a conflict and an unknown upload is a not-found',
   await withAssistantContextAsync(async (context) => {
     const seeded = seedOwnerAssertion(context, { objectName: 'Omega Tool' });
     const restores = restoreServiceFor(context);
-    const preview = restores.preview(await archiveBytes(backupServiceFor(context).createBackup()));
+    const preview = restores.preview(
+      archiveUploadPath(await archiveBytes(backupServiceFor(context).createBackup())),
+    );
 
     await assert.rejects(
       restores.confirm(preview.uploadId, 'wrong-token'),
@@ -341,7 +343,7 @@ test('a backup whose key cannot be unsealed restores loudly, not silently', asyn
     }), 'utf8'));
 
     const restores = restoreServiceFor(context);
-    const preview = restores.preview(rebuild(archive));
+    const preview = restores.preview(archiveUploadPath(rebuild(archive)));
     const result = await restores.confirm(preview.uploadId, preview.confirmToken);
 
     assert.equal(result.ok, true);
@@ -355,8 +357,8 @@ test('a backup whose key cannot be unsealed restores loudly, not silently', asyn
 test('a parked upload lives under the runtime root and a new service sweeps it', async () => {
   await withAssistantContextAsync(async (context) => {
     seedOwnerAssertion(context, { objectName: 'Kappa Tool' });
-    const backupBytes = await archiveBytes(backupServiceFor(context).createBackup());
-    restoreServiceFor(context).preview(backupBytes);
+    const backupUpload = archiveUploadPath(await archiveBytes(backupServiceFor(context).createBackup()));
+    restoreServiceFor(context).preview(backupUpload);
 
     // Parked inside the runtime root — never the world-readable system temp directory.
     const uploadsDir = assistantRestoreUploadsDir(context.runtimeRoot);
@@ -371,13 +373,13 @@ test('a parked upload lives under the runtime root and a new service sweeps it',
 test('pending uploads beyond the cap evict the oldest, deleting its parked bytes', async () => {
   await withAssistantContextAsync(async (context) => {
     seedOwnerAssertion(context, { objectName: 'Lambda Tool' });
-    const backupBytes = await archiveBytes(backupServiceFor(context).createBackup());
+    const backupUpload = archiveUploadPath(await archiveBytes(backupServiceFor(context).createBackup()));
     const restores = restoreServiceFor(context);
 
-    const first = restores.preview(backupBytes);
+    const first = restores.preview(backupUpload);
     let last = first;
     for (let index = 0; index < MAX_PENDING_RESTORE_UPLOADS; index += 1) {
-      last = restores.preview(backupBytes);
+      last = restores.preview(backupUpload);
     }
 
     await assert.rejects(
@@ -399,7 +401,7 @@ test('restore runs through the service maintenance path and refreshes the owner 
     await service.factoryReset(service.previewFactoryReset().previewToken);
     assert.equal(service.ownerPersonNodeId, null);
 
-    const preview = service.previewRestore(backupBytes);
+    const preview = service.previewRestore(archiveUploadPath(backupBytes));
     const result = await service.restore(preview.uploadId, preview.confirmToken);
     assert.equal(result.ok, true);
     assert.equal(result.blobsReadable, true);
