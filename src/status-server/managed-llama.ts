@@ -758,7 +758,7 @@ function spawnManagedLlamaProcess(
     baseUrl: managed.BaseUrl,
     flushQueue: ctx.inferenceRunFlushQueue,
   });
-  if (ctx.managedLlamaReady) {
+  if (ctx.managedLlama.ready) {
     recorder.enableFlushQueue();
   }
   const child = spawn(invocation.filePath, invocation.args, {
@@ -1027,9 +1027,9 @@ async function abortManagedLlamaStartup(ctx: ServerContext, config: SiftConfig, 
   try {
     await waitForLlamaServerReachability(config, false);
   } finally {
-    ctx.managedLlamaReady = false;
-    ctx.managedLlamaHostProcess = null;
-    ctx.managedLlamaLastStartupLogs = null;
+    ctx.managedLlama.ready = false;
+    ctx.managedLlama.hostProcess = null;
+    ctx.managedLlama.lastStartupLogs = null;
   }
 }
 
@@ -1081,42 +1081,42 @@ async function ensureManagedLlamaConfigReady(
   options: EnsureManagedLlamaOptions,
 ): Promise<SiftConfig> {
   if (!managesManagedLlamaLifecycle(config)) {
-    ctx.managedLlamaStartupWarning = null;
+    ctx.managedLlama.startupWarning = null;
     return config;
   }
   const baseUrl = getLlamaBaseUrl(config);
   if (!baseUrl) {
-    ctx.managedLlamaStartupWarning = 'llama.cpp base URL is not configured.';
+    ctx.managedLlama.startupWarning = 'llama.cpp base URL is not configured.';
     return config;
   }
   const managed = getManagedLlamaConfig(config);
   const startupDeadline = Date.now() + managed.StartupTimeoutMs;
   if (managed.ExternalServerEnabled) {
     if (await isLlamaServerReachable(config)) {
-      ctx.managedLlamaStartupWarning = null;
-      ctx.managedLlamaReady = true;
+      ctx.managedLlama.startupWarning = null;
+      ctx.managedLlama.ready = true;
       publishStatus(ctx);
       return config;
     }
     const message = `External llama.cpp server is not reachable at ${baseUrl}.`;
-    ctx.managedLlamaStartupWarning = message;
-    ctx.managedLlamaReady = false;
+    ctx.managedLlama.startupWarning = message;
+    ctx.managedLlama.ready = false;
     publishStatus(ctx);
     throw new Error(message);
   }
-  if (ctx.managedLlamaShutdownPromise) {
-    await ctx.managedLlamaShutdownPromise;
+  if (ctx.managedLlama.shutdownPromise) {
+    await ctx.managedLlama.shutdownPromise;
   }
   if (await isLlamaServerReachable(config)) {
-    ctx.managedLlamaStartupWarning = null;
-    ctx.managedLlamaReady = true;
+    ctx.managedLlama.startupWarning = null;
+    ctx.managedLlama.ready = true;
     publishStatus(ctx);
     return config;
   }
-  if (ctx.managedLlamaStartupPromise) {
-    await ctx.managedLlamaStartupPromise;
-    ctx.managedLlamaStartupWarning = null;
-    ctx.managedLlamaReady = true;
+  if (ctx.managedLlama.startupPromise) {
+    await ctx.managedLlama.startupPromise;
+    ctx.managedLlama.startupWarning = null;
+    ctx.managedLlama.ready = true;
     publishStatus(ctx);
     return readConfig(ctx.configPath);
   }
@@ -1128,15 +1128,15 @@ async function ensureManagedLlamaConfigReady(
     await sleep(graceDelayMs);
   }
   if (await isLlamaServerReachable(config)) {
-    ctx.managedLlamaStartupWarning = null;
-    ctx.managedLlamaReady = true;
+    ctx.managedLlama.startupWarning = null;
+    ctx.managedLlama.ready = true;
     publishStatus(ctx);
     return readConfig(ctx.configPath);
   }
-  if (ctx.managedLlamaStartupPromise) {
-    await ctx.managedLlamaStartupPromise;
-    ctx.managedLlamaStartupWarning = null;
-    ctx.managedLlamaReady = true;
+  if (ctx.managedLlama.startupPromise) {
+    await ctx.managedLlama.startupPromise;
+    ctx.managedLlama.startupWarning = null;
+    ctx.managedLlama.ready = true;
     publishStatus(ctx);
     return readConfig(ctx.configPath);
   }
@@ -1146,8 +1146,8 @@ async function ensureManagedLlamaConfigReady(
       ...(!managed.ModelPath ? ['ModelPath'] : []),
     ].join(', ');
     const message = `Managed llama.cpp is not configured; missing config.Server.ModelPresets.${missingFields}. Set ExecutablePath and ModelPath in the dashboard's Managed llama.cpp section, or enable an external llama.cpp server.`;
-    ctx.managedLlamaStartupWarning = message;
-    ctx.managedLlamaReady = false;
+    ctx.managedLlama.startupWarning = message;
+    ctx.managedLlama.ready = false;
     publishStatus(ctx);
     process.stderr.write(`[siftKitStatus] ${message}\n`);
     if (options.allowUnconfigured === true) {
@@ -1161,8 +1161,8 @@ async function ensureManagedLlamaConfigReady(
   // this function (awaiting an in-flight shutdown promise, the grace delay,
   // reachability probes) does not eat into the model-load budget.
   const spawnStartupDeadline = Date.now() + managed.StartupTimeoutMs;
-  ctx.managedLlamaStarting = true;
-  ctx.managedLlamaStartupPromise = (async () => {
+  ctx.managedLlama.starting = true;
+  ctx.managedLlama.startupPromise = (async () => {
     serverLogger.event({
       scope: 'llama',
       id: '',
@@ -1170,8 +1170,8 @@ async function ensureManagedLlamaConfigReady(
       fields: `executable=${managed.ExecutablePath}  verbose_logging=${managed.VerboseLogging ? 'on' : 'off'}`,
     });
     const launched = spawnManagedLlamaProcess(ctx, managed, 'startup');
-    ctx.managedLlamaHostProcess = launched.child;
-    ctx.managedLlamaLastStartupLogs = launched.recorder;
+    ctx.managedLlama.hostProcess = launched.child;
+    ctx.managedLlama.lastStartupLogs = launched.recorder;
     try {
       await waitForManagedLlamaStartup(config, launched.child, launched.recorder, spawnStartupDeadline, launched.recorder.progress);
       await scanManagedLlamaStartupLogsOrFail(launched.recorder);
@@ -1182,8 +1182,8 @@ async function ensureManagedLlamaConfigReady(
       } catch {
         // Best-effort: a missing snapshot only degrades to RuntimeConfigReady=false.
       }
-      ctx.managedLlamaStartupWarning = null;
-      ctx.managedLlamaReady = true;
+      ctx.managedLlama.startupWarning = null;
+      ctx.managedLlama.ready = true;
       // Live stream chunks may only be queued once the server is ready to drain them.
       launched.recorder.enableFlushQueue();
       serverLogger.ok({ scope: 'llama', id: '', event: 'ready', fields: `base_url=${baseUrl}` });
@@ -1199,8 +1199,8 @@ async function ensureManagedLlamaConfigReady(
         errorMessage,
       });
       launched.recorder.finish({ status: 'failed', errorMessage, baseUrl });
-      ctx.managedLlamaStartupWarning = errorMessage;
-      ctx.managedLlamaReady = false;
+      ctx.managedLlama.startupWarning = errorMessage;
+      ctx.managedLlama.ready = false;
       try {
         await abortManagedLlamaStartup(ctx, config, launched.child);
       } catch (cleanupError) {
@@ -1209,11 +1209,11 @@ async function ensureManagedLlamaConfigReady(
       throw failure;
     }
   })().finally(() => {
-    ctx.managedLlamaStarting = false;
-    ctx.managedLlamaStartupPromise = null;
+    ctx.managedLlama.starting = false;
+    ctx.managedLlama.startupPromise = null;
     publishStatus(ctx);
   });
-  await ctx.managedLlamaStartupPromise;
+  await ctx.managedLlama.startupPromise;
   return readConfig(ctx.configPath);
 }
 
@@ -1242,7 +1242,7 @@ async function shutdownManagedLlamaConfigIfNeeded(
   shutdownOptions: ShutdownManagedLlamaOptions,
 ): Promise<void> {
   if (ctx.disableManagedLlamaStartup) {
-    ctx.managedLlamaReady = false;
+    ctx.managedLlama.ready = false;
     publishStatus(ctx);
     return;
   }
@@ -1258,26 +1258,26 @@ async function shutdownManagedLlamaConfigIfNeeded(
     ? Number(shutdownOptions.timeoutMs)
     : getManagedLlamaConfig(config).StartupTimeoutMs;
   const shutdownDeadline = Date.now() + timeoutMs;
-  if (ctx.managedLlamaStartupPromise) {
-    await ctx.managedLlamaStartupPromise;
+  if (ctx.managedLlama.startupPromise) {
+    await ctx.managedLlama.startupPromise;
   }
-  if (ctx.managedLlamaShutdownPromise) {
-    await ctx.managedLlamaShutdownPromise;
+  if (ctx.managedLlama.shutdownPromise) {
+    await ctx.managedLlama.shutdownPromise;
     return;
   }
   const managed = getManagedLlamaConfig(config);
   if (managed.ExternalServerEnabled) {
-    ctx.managedLlamaReady = false;
-    ctx.managedLlamaHostProcess = null;
-    ctx.managedLlamaLastStartupLogs = null;
+    ctx.managedLlama.ready = false;
+    ctx.managedLlama.hostProcess = null;
+    ctx.managedLlama.lastStartupLogs = null;
     publishStatus(ctx);
     return;
   }
   const hasLaunchConfig = hasManagedLlamaLaunchConfig(managed);
   const hasActiveHostProcess = Boolean(
-    ctx.managedLlamaHostProcess
-    && ctx.managedLlamaHostProcess.exitCode === null
-    && ctx.managedLlamaHostProcess.signalCode === null
+    ctx.managedLlama.hostProcess
+    && ctx.managedLlama.hostProcess.exitCode === null
+    && ctx.managedLlama.hostProcess.signalCode === null
   );
   const listeningPort = getManagedLlamaListeningPort(config, managed);
   const fallbackPid = hasLaunchConfig ? findListeningProcessIdByPort(listeningPort) : null;
@@ -1287,11 +1287,11 @@ async function shutdownManagedLlamaConfigIfNeeded(
     if (await isLlamaServerReachable(config)) {
       throw new Error(`llama.cpp is still serving at ${baseUrl} but SiftKit does not own that process. Stop it manually, or enable "External inference server" for this preset.`);
     }
-    ctx.managedLlamaReady = false;
+    ctx.managedLlama.ready = false;
     publishStatus(ctx);
     return;
   }
-  ctx.managedLlamaShutdownPromise = (async () => {
+  ctx.managedLlama.shutdownPromise = (async () => {
     // Final pre-kill guard: a request may have arrived in the microtask gap
     // between the idle-summary timer's sync isIdle check and this point.
     // Caller can pass `force: true` to override (used during process exit).
@@ -1305,7 +1305,7 @@ async function shutdownManagedLlamaConfigIfNeeded(
       return;
     }
     if (hasActiveHostProcess) {
-      const hostPid = ctx.managedLlamaHostProcess?.pid ?? 0;
+      const hostPid = ctx.managedLlama.hostProcess?.pid ?? 0;
       serverLogger.event({ scope: 'llama', id: '', event: 'stopping', fields: `pid=${hostPid}` });
       terminateProcessTree(hostPid);
       const remainingPid = fallbackPid || (hasLaunchConfig ? findListeningProcessIdByPort(listeningPort) : null);
@@ -1330,9 +1330,9 @@ async function shutdownManagedLlamaConfigIfNeeded(
       }
       throw error;
     } finally {
-      ctx.managedLlamaReady = false;
-      ctx.managedLlamaHostProcess = null;
-      ctx.managedLlamaLastStartupLogs = null;
+      ctx.managedLlama.ready = false;
+      ctx.managedLlama.hostProcess = null;
+      ctx.managedLlama.lastStartupLogs = null;
     }
     serverLogger.ok({ scope: 'llama', id: '', event: 'offline', fields: `base_url=${baseUrl}` });
     publishStatus(ctx);
@@ -1340,9 +1340,9 @@ async function shutdownManagedLlamaConfigIfNeeded(
     process.stderr.write(`[siftKitStatus] Failed to stop llama.cpp server: ${getErrorMessage(error)}\n`);
     throw error;
   }).finally(() => {
-    ctx.managedLlamaShutdownPromise = null;
+    ctx.managedLlama.shutdownPromise = null;
   });
-  return ctx.managedLlamaShutdownPromise;
+  return ctx.managedLlama.shutdownPromise;
 }
 
 export async function shutdownManagedLlamaIfNeeded(
@@ -1366,9 +1366,9 @@ export async function shutdownManagedLlamaPresetIfNeeded(
 
 export function shutdownManagedLlamaForProcessExitSync(ctx: ServerContext): void {
   try {
-    ctx.bootstrapManagedLlamaStartup = false;
-    ctx.managedLlamaStarting = false;
-    ctx.managedLlamaReady = false;
+    ctx.managedLlama.bootstrapStartup = false;
+    ctx.managedLlama.starting = false;
+    ctx.managedLlama.ready = false;
     ctx.idleSummary.pending = false;
     resetPendingIdleSummaryMetadata(ctx);
     if (ctx.disableManagedLlamaStartup) {
@@ -1385,8 +1385,8 @@ export function shutdownManagedLlamaForProcessExitSync(ctx: ServerContext): void
       publishStatus(ctx);
       return;
     }
-    if (ctx.managedLlamaHostProcess && ctx.managedLlamaHostProcess.pid && ctx.managedLlamaHostProcess.exitCode === null && ctx.managedLlamaHostProcess.signalCode === null) {
-      terminateProcessTree(ctx.managedLlamaHostProcess.pid);
+    if (ctx.managedLlama.hostProcess && ctx.managedLlama.hostProcess.pid && ctx.managedLlama.hostProcess.exitCode === null && ctx.managedLlama.hostProcess.signalCode === null) {
+      terminateProcessTree(ctx.managedLlama.hostProcess.pid);
     } else {
       const managed = getManagedLlamaConfig(config);
       if (managed.ExternalServerEnabled) {
@@ -1413,8 +1413,8 @@ export function shutdownManagedLlamaForProcessExitSync(ctx: ServerContext): void
 
 export async function shutdownManagedLlamaForServerExit(ctx: ServerContext): Promise<void> {
   try {
-    ctx.bootstrapManagedLlamaStartup = false;
-    ctx.managedLlamaStarting = false;
+    ctx.managedLlama.bootstrapStartup = false;
+    ctx.managedLlama.starting = false;
     if (ctx.disableManagedLlamaStartup) {
       return;
     }
@@ -1422,7 +1422,7 @@ export async function shutdownManagedLlamaForServerExit(ctx: ServerContext): Pro
   } catch (error) {
     process.stderr.write(`[siftKitStatus] Failed to stop managed llama.cpp during server exit: ${error instanceof Error ? error.message : String(error)}\n`);
   } finally {
-    ctx.managedLlamaReady = false;
+    ctx.managedLlama.ready = false;
     ctx.idleSummary.pending = false;
     resetPendingIdleSummaryMetadata(ctx);
     publishStatus(ctx);

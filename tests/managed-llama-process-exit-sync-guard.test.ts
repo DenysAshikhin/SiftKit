@@ -13,10 +13,10 @@ import { createTestServerContext } from './helpers/server-context-fixture.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 function createExitSyncContext(configPath: string, statusRoot: string, hostProcess: ChildProcess): ServerContext {
+  const ctx = createTestServerContext(configPath, statusRoot);
   return {
-    ...createTestServerContext(configPath, statusRoot),
-    managedLlamaHostProcess: hostProcess,
-    managedLlamaReady: true,
+    ...ctx,
+    managedLlama: { ...ctx.managedLlama, hostProcess, ready: true },
   };
 }
 

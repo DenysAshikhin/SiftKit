@@ -260,7 +260,7 @@ test('llama runtime refuses unloading an external preset and stays ready', async
     );
     assert.equal(runtime.getProcessState(), 'ready');
     assert.equal(runtime.getModelState(), 'ready');
-    assert.equal(ctx.managedLlamaReady, true);
+    assert.equal(ctx.managedLlama.ready, true);
   } finally {
     await runtime.stopProcess();
     await server.close();
@@ -315,7 +315,7 @@ setInterval(() => {}, 1000);
     }
     assert.equal(await listenerIsReachable(baseUrl), true, 'managed listener failed to start');
     await runtime.ensurePresetReady(preset);
-    ctx.managedLlamaHostProcess = listener;
+    ctx.managedLlama.hostProcess = listener;
 
     const drifted = readConfig(configPath);
     drifted.Server.ModelPresets = {
@@ -411,14 +411,14 @@ test('llama termination failure rejects and preserves the ready model', async ()
   const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', windowsHide: true });
   try {
     await runtime.ensurePresetReady(preset);
-    ctx.managedLlamaHostProcess = child;
+    ctx.managedLlama.hostProcess = child;
     await assert.rejects(
       () => runtime.stopProcess(),
       /Timed out waiting for llama\.cpp server/u,
     );
     assert.equal(runtime.getProcessState(), 'failed');
     assert.equal(runtime.getModelState(), 'ready');
-    assert.equal(ctx.managedLlamaShutdownPromise, null);
+    assert.equal(ctx.managedLlama.shutdownPromise, null);
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
     await server.close();
@@ -474,14 +474,14 @@ setInterval(() => {}, 1000);
     }
     assert.equal(await listenerIsReachable(listenerBaseUrl), true, 'unrelated listener failed to start');
     await runtime.ensurePresetReady(preset);
-    ctx.managedLlamaHostProcess = ownedHost;
+    ctx.managedLlama.hostProcess = ownedHost;
     await assert.rejects(
       () => shutdownManagedLlamaPresetIfNeeded(ctx, preset, { force: true, timeoutMs: 50 }),
       /Timed out waiting for llama\.cpp server/u,
     );
     await waitForChildExit(ownedHost);
     assert.equal(await listenerIsReachable(listenerBaseUrl), true, 'forced shutdown killed an unrelated listener');
-    assert.equal(ctx.managedLlamaShutdownPromise, null);
+    assert.equal(ctx.managedLlama.shutdownPromise, null);
   } finally {
     if (ownedHost.exitCode === null && ownedHost.signalCode === null) ownedHost.kill('SIGTERM');
     if (listener.exitCode === null && listener.signalCode === null) listener.kill('SIGTERM');

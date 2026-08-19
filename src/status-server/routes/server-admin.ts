@@ -87,7 +87,7 @@ export class HealthEndpoint implements RouteEndpoint {
     _match: RouteMatch,
   ): Promise<void> {
     const { configPath, statusPath, metricsPath, disableManagedLlamaStartup } = ctx;
-    const startupPending = Boolean(ctx.bootstrapManagedLlamaStartup || ctx.managedLlamaStarting || ctx.managedLlamaStartupPromise);
+    const startupPending = Boolean(ctx.managedLlama.bootstrapStartup || ctx.managedLlama.starting || ctx.managedLlama.startupPromise);
     sendJson(res, startupPending ? 503 : 200, {
       ok: !startupPending,
       startupPending,
@@ -197,7 +197,7 @@ export class ConfigReadEndpoint implements RouteEndpoint {
         sendJson(res, 200, readConfig(configPath));
         return;
       }
-      if (ctx.bootstrapManagedLlamaStartup && (ctx.managedLlamaStarting || ctx.managedLlamaStartupPromise)) {
+      if (ctx.managedLlama.bootstrapStartup && (ctx.managedLlama.starting || ctx.managedLlama.startupPromise)) {
         sendJson(res, 200, readConfig(configPath));
         return;
       }

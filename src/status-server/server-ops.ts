@@ -68,8 +68,8 @@ function readModelRequestHoldCeilingMs(): number {
 // ---------------------------------------------------------------------------
 
 export function hasPublishedActivity(ctx: ServerContext): boolean {
-  return ctx.bootstrapManagedLlamaStartup
-    || ctx.managedLlamaStarting
+  return ctx.managedLlama.bootstrapStartup
+    || ctx.managedLlama.starting
     || ctx.activeModelRequests.size > 0
     || ctx.modelRequestQueue.some((request) => !request.cancelled)
     || hasActiveRuns(ctx);
@@ -336,7 +336,7 @@ export function wakeManagedLlamaForIncomingModelRequest(ctx: ServerContext): voi
   }
   void ctx.ensureManagedLlamaReady({ allowUnconfigured: true }).catch((error) => {
     const message = getErrorMessage(error);
-    ctx.managedLlamaStartupWarning = message;
+    ctx.managedLlama.startupWarning = message;
     publishStatus(ctx);
     process.stderr.write(`[siftKitStatus] Failed to wake llama.cpp for incoming request: ${message}\n`);
   });
@@ -610,8 +610,8 @@ export function releaseModelRequest(ctx: ServerContext, token: string): boolean 
     if (ctx.activeModelRequests.size === 0) armActivePresetIdle(ctx, finishedAtMs);
   }
   syncInferenceRunFlushQueueModelState(ctx, finishedAtMs);
-  if (ctx.managedLlamaLastStartupLogs?.runId) {
-    ctx.inferenceRunFlushQueue.enqueue(ctx.managedLlamaLastStartupLogs.runId, 'llama');
+  if (ctx.managedLlama.lastStartupLogs?.runId) {
+    ctx.inferenceRunFlushQueue.enqueue(ctx.managedLlama.lastStartupLogs.runId, 'llama');
   }
   scheduleIdleSummaryIfNeeded(ctx);
   return true;

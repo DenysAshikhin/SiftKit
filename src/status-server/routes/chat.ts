@@ -288,7 +288,7 @@ function buildChatRepoOperationRequest(options: {
     availableModels: readRouteStringArray(options.reader, 'availableModels'),
     mockResponses: readRouteStringArray(options.reader, 'mockResponses'),
     mockCommandResults: normalizeRepoSearchMockCommandResults(options.parsedBody.mockCommandResults),
-    managedLlamaRunId: options.ctx.managedLlamaLastStartupLogs?.runId ?? null,
+    managedLlamaRunId: options.ctx.managedLlama.lastStartupLogs?.runId ?? null,
   };
 }
 
@@ -410,7 +410,7 @@ class RepoSearchToolLogProgressWriter extends ProgressWriter<RepoSearchProgressE
 }
 
 function captureManagedLlamaSessionCursor(ctx: ServerContext) {
-  return captureManagedLlamaSpeculativeMetricsSnapshot(ctx.managedLlamaLastStartupLogs?.runId ?? null);
+  return captureManagedLlamaSpeculativeMetricsSnapshot(ctx.managedLlama.lastStartupLogs?.runId ?? null);
 }
 
 function readScorecardSpeculativeMetrics(scorecard: OptionalJsonValue): SessionSpeculativeMetrics {
@@ -431,7 +431,7 @@ function resolveSessionSpeculativeMetrics(
   fallback: Partial<SessionSpeculativeMetrics>,
 ): SessionSpeculativeMetrics {
   const tracked = cursor
-    ? getManagedLlamaSpeculativeMetricsDelta(ctx.managedLlamaLastStartupLogs?.runId ?? null, cursor)
+    ? getManagedLlamaSpeculativeMetricsDelta(ctx.managedLlama.lastStartupLogs?.runId ?? null, cursor)
     : null;
   return {
     speculativeAcceptedTokens: tracked?.speculativeAcceptedTokens ?? fallback.speculativeAcceptedTokens ?? null,

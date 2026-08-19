@@ -333,7 +333,7 @@ class StatusPostRequestHandler {
       this.statusPath,
       metadata,
       normalizeTaskKind(metadata.taskKind),
-      captureManagedLlamaSpeculativeMetricsSnapshot(this.ctx.managedLlamaLastStartupLogs?.runId ?? null),
+      captureManagedLlamaSpeculativeMetricsSnapshot(this.ctx.managedLlama.lastStartupLogs?.runId ?? null),
       now,
     ));
     return { elapsedMs: null, totalElapsedMs: null, requestCompleted: false, suppressLogLine: false };
@@ -416,7 +416,7 @@ class StatusPostRequestHandler {
     this.copyRunStateMetadata(targetMetadata, runState);
     this.applySpeculativeMetrics(requestId, sourceMetadata, targetMetadata, runState);
     if (sourceMetadata.terminalState === null) {
-      runState.managedLlamaSpeculativeSnapshot = captureManagedLlamaSpeculativeMetricsSnapshot(this.ctx.managedLlamaLastStartupLogs?.runId ?? null);
+      runState.managedLlamaSpeculativeSnapshot = captureManagedLlamaSpeculativeMetricsSnapshot(this.ctx.managedLlama.lastStartupLogs?.runId ?? null);
     } else if (sourceMetadata.terminalState === 'completed') {
       timing.totalElapsedMs = now - runState.overallStartedAt;
       targetMetadata.totalOutputTokens = runState.outputTokensTotal;
@@ -445,7 +445,7 @@ class StatusPostRequestHandler {
     runState: ActiveRunState,
   ): void {
     const speculativeMetrics = getManagedLlamaSpeculativeMetricsDelta(
-      this.ctx.managedLlamaLastStartupLogs?.runId ?? null,
+      this.ctx.managedLlama.lastStartupLogs?.runId ?? null,
       runState.managedLlamaSpeculativeSnapshot,
     );
     if (speculativeMetrics) {

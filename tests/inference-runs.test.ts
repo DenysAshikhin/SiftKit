@@ -236,11 +236,15 @@ test('releaseModelRequest queues buffered managed llama logs for the active host
       }]]),
       appliedModelPresetState: new AppliedModelPresetState(getActiveModelPreset(getDefaultConfig())),
       modelRequestQueue: [],
-      managedLlamaLastStartupLogs: {
-        runId: run.id,
-        purpose: 'startup',
-        scriptPath: 'fake-launcher.cmd',
-        baseUrl: 'http://127.0.0.1:8080',
+      terminalMetadata: { lastModelRequestFinishedAtMs: null },
+      idleSummary: { pending: false, timer: null },
+      managedLlama: {
+        lastStartupLogs: {
+          runId: run.id,
+          purpose: 'startup',
+          scriptPath: 'fake-launcher.cmd',
+          baseUrl: 'http://127.0.0.1:8080',
+        },
       },
       inferenceRunFlushQueue: flushQueue,
     }), 'token-1');
@@ -292,11 +296,15 @@ test('releaseModelRequest releases the active request when managed llama log flu
       }]]),
       appliedModelPresetState: new AppliedModelPresetState(getActiveModelPreset(getDefaultConfig())),
       modelRequestQueue: [],
-      managedLlamaLastStartupLogs: {
-        runId: run.id,
-        purpose: 'startup',
-        scriptPath: 'fake-launcher.cmd',
-        baseUrl: 'http://127.0.0.1:8080',
+      terminalMetadata: { lastModelRequestFinishedAtMs: null },
+      idleSummary: { pending: false, timer: null },
+      managedLlama: {
+        lastStartupLogs: {
+          runId: run.id,
+          purpose: 'startup',
+          scriptPath: 'fake-launcher.cmd',
+          baseUrl: 'http://127.0.0.1:8080',
+        },
       },
       inferenceRunFlushQueue: flushQueue,
     });

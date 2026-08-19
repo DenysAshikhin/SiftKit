@@ -73,6 +73,18 @@ export type IdleSummaryState = {
   database: DatabaseInstance | null;
 };
 
+export type ManagedLlamaState = {
+  startupPromise: Promise<void> | null;
+  shutdownPromise: Promise<void> | null;
+  hostProcess: ChildProcess | null;
+  lastStartupLogs: LlamaRunRecorder | null;
+  starting: boolean;
+  ready: boolean;
+  startupWarning: string | null;
+  bootstrapStartup: boolean;
+  logCleanupTimer: NodeJS.Timeout | null;
+};
+
 export type EnsureManagedLlamaOptions ={ resetStatusBeforeCheck?: boolean; allowUnconfigured?: boolean };
 export type ShutdownManagedLlamaOptions = { force?: boolean; timeoutMs?: number };
 export type StartupReviewOptions = { result?: string; baseUrl?: string; errorMessage?: string };
@@ -136,15 +148,7 @@ export type ServerContext = {
   idleSummary: IdleSummaryState;
 
   // Managed llama
-  managedLlamaStartupPromise: Promise<void> | null;
-  managedLlamaShutdownPromise: Promise<void> | null;
-  managedLlamaHostProcess: ChildProcess | null;
-  managedLlamaLastStartupLogs: LlamaRunRecorder | null;
-  managedLlamaStarting: boolean;
-  managedLlamaReady: boolean;
-  managedLlamaStartupWarning: string | null;
-  bootstrapManagedLlamaStartup: boolean;
-  managedLlamaLogCleanupTimer: NodeJS.Timeout | null;
+  managedLlama: ManagedLlamaState;
   runtimeHistoryPruneTimer: NodeJS.Timeout | null;
   inferenceRunFlushQueue: InferenceRunFlushQueue;
 

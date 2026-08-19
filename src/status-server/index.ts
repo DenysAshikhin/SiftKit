@@ -292,15 +292,17 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       pending: false,
       database: null,
     },
-    managedLlamaStartupPromise: null,
-    managedLlamaShutdownPromise: null,
-    managedLlamaHostProcess: null,
-    managedLlamaLastStartupLogs: null,
-    managedLlamaStarting: false,
-    managedLlamaReady: false,
-    managedLlamaStartupWarning: null,
-    bootstrapManagedLlamaStartup: false,
-    managedLlamaLogCleanupTimer: null,
+    managedLlama: {
+      startupPromise: null,
+      shutdownPromise: null,
+      hostProcess: null,
+      lastStartupLogs: null,
+      starting: false,
+      ready: false,
+      startupWarning: null,
+      bootstrapStartup: false,
+      logCleanupTimer: null,
+    },
     runtimeHistoryPruneTimer: null,
     inferenceRunFlushQueue: new InferenceRunFlushQueue({ idleDelayMs: getInferenceRunFlushIdleDelayMs(options) }),
     // Late-bound function references (break circular deps between modules).
@@ -390,15 +392,15 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
     });
   }, ASSISTANT_DRAIN_INTERVAL_MS);
   ctx.assistantDrainTimer.unref();
-  ctx.managedLlamaLogCleanupTimer = setInterval(() => {
+  ctx.managedLlama.logCleanupTimer = setInterval(() => {
     try {
       pruneManagedLlamaLogChunks();
     } catch (error) {
       process.stderr.write(`[siftKitStatus] Managed llama log cleanup failed: ${error instanceof Error ? error.message : String(error)}\n`);
     }
   }, MANAGED_LLAMA_LOG_CLEANUP_INTERVAL_MS);
-  if (typeof ctx.managedLlamaLogCleanupTimer.unref === 'function') {
-    ctx.managedLlamaLogCleanupTimer.unref();
+  if (typeof ctx.managedLlama.logCleanupTimer.unref === 'function') {
+    ctx.managedLlama.logCleanupTimer.unref();
   }
   ctx.runtimeHistoryPruneTimer = setInterval(() => {
     runRuntimeHistoryPrune(repoAgentRunStore);
@@ -432,20 +434,20 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       if (!disableManagedLlamaStartup) {
         try {
           await clearPreexistingManagedLlamaIfNeeded(ctx);
-          ctx.bootstrapManagedLlamaStartup = true;
+          ctx.managedLlama.bootstrapStartup = true;
           try {
             await presetRuntimeCoordinator.initialize();
-            ctx.managedLlamaStartupWarning = null;
+            ctx.managedLlama.startupWarning = null;
           } finally {
-            ctx.bootstrapManagedLlamaStartup = false;
+            ctx.managedLlama.bootstrapStartup = false;
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           startupWarning = message;
-          ctx.managedLlamaStartupWarning = message;
-          ctx.managedLlamaReady = false;
-          ctx.bootstrapManagedLlamaStartup = false;
-          dumpManagedLlamaStartupReviewToConsole(ctx.managedLlamaLastStartupLogs);
+          ctx.managedLlama.startupWarning = message;
+          ctx.managedLlama.ready = false;
+          ctx.managedLlama.bootstrapStartup = false;
+          dumpManagedLlamaStartupReviewToConsole(ctx.managedLlama.lastStartupLogs);
           process.stderr.write(`[siftKitStatus] Inference backend startup failed; continuing in degraded mode: ${message}\n`);
         }
       }
@@ -460,7 +462,7 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       setImmediate(() => runRuntimeHistoryPrune(repoAgentRunStore));
     } catch (error) {
       rejectStartupPromise(toError(error));
-      dumpManagedLlamaStartupReviewToConsole(ctx.managedLlamaLastStartupLogs);
+      dumpManagedLlamaStartupReviewToConsole(ctx.managedLlama.lastStartupLogs);
       process.stderr.write(`[siftKitStatus] Startup cleanup failed: ${error instanceof Error ? error.message : String(error)}\n`);
       server.close(() => process.exit(1));
     }
@@ -471,9 +473,9 @@ export function startStatusServer(options: StartStatusServerOptions = {}): Exten
       clearInterval(ctx.assistantDrainTimer);
       ctx.assistantDrainTimer = null;
     }
-    if (ctx.managedLlamaLogCleanupTimer) {
-      clearInterval(ctx.managedLlamaLogCleanupTimer);
-      ctx.managedLlamaLogCleanupTimer = null;
+    if (ctx.managedLlama.logCleanupTimer) {
+      clearInterval(ctx.managedLlama.logCleanupTimer);
+      ctx.managedLlama.logCleanupTimer = null;
     }
     if (ctx.runtimeHistoryPruneTimer) {
       clearInterval(ctx.runtimeHistoryPruneTimer);

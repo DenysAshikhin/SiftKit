@@ -263,7 +263,7 @@ function processTerminalMetadataBody(ctx: ServerContext, item: TerminalMetadataQ
       targetMetadata.chunkPath = runState.chunkPath;
     }
     const speculativeMetrics = getManagedLlamaSpeculativeMetricsDelta(
-      ctx.managedLlamaLastStartupLogs?.runId ?? null,
+      ctx.managedLlama.lastStartupLogs?.runId ?? null,
       runState.managedLlamaSpeculativeSnapshot,
     );
     if (speculativeMetrics) {

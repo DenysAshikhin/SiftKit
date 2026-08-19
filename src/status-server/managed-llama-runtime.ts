@@ -20,8 +20,8 @@ export class ManagedLlamaRuntime extends ManagedInferenceRuntime {
     this.transitionProcessTo('starting');
     try {
       await ensureManagedLlamaPresetReady(this.ctx, preset, { allowUnconfigured: true });
-      if (!this.ctx.managedLlamaReady) {
-        throw new Error(this.ctx.managedLlamaStartupWarning ?? 'Managed llama.cpp did not become ready.');
+      if (!this.ctx.managedLlama.ready) {
+        throw new Error(this.ctx.managedLlama.startupWarning ?? 'Managed llama.cpp did not become ready.');
       }
       this.transitionProcessTo('ready');
     } catch (error) {
