@@ -236,6 +236,19 @@ export function getTestBuildState(repoRoot: string): TestBuildState {
   return { kind: 'current' };
 }
 
+/**
+ * True when every stale input lives under a test directory. Such a change cannot alter
+ * dist, the contracts build, or the pack manifest, so build:test may skip those stages.
+ * An empty change list means the stamp itself is inconsistent — never fast-path that.
+ */
+export function isTestsOnlyChange(state: TestBuildState): boolean {
+  return state.kind === 'stale'
+    && state.changedInputPaths.length > 0
+    && state.changedInputPaths.every(
+      (inputPath) => inputPath.startsWith('tests/') || inputPath.startsWith('dashboard/tests/'),
+    );
+}
+
 export function readCurrentTestBuildManifest(repoRoot: string): TestBuildManifest {
   assertCurrentTestBuild(repoRoot);
   const stampPath = path.resolve(repoRoot, TEST_BUILD_STAMP_PATH);

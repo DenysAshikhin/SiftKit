@@ -9,6 +9,7 @@ import {
   TEST_BUILD_STAMP_PATH,
   createTestBuildStampContent,
   getTestBuildState,
+  isTestsOnlyChange,
 } from '../src/test-runner/test-build-state.ts';
 
 const repoRoot = process.cwd();
@@ -117,9 +118,68 @@ function resetTestBuildRoot(): void {
   fs.rmSync(testBuildRoot, { recursive: true, force: true });
 }
 
+/**
+ * A change confined to tests/ or dashboard/tests/ cannot alter dist, contracts, or the
+ * pack manifest, so only the type gate and the reachable bundles need rebuilding. The
+ * .test-build tree is NOT reset here: tsconfig.test-build.json keeps its incremental
+ * state inside it, which is what makes the type gate warm on this path.
+ */
+async function rebuildTestBundlesOnly(changedInputPaths: string[]): Promise<void> {
+  // esbuild strips types without checking them; the gate must still fail loudly on a
+  // type-broken test. Incremental state keeps this to the affected files.
+  runNodeScript(path.join('node_modules', 'typescript', 'lib', 'tsc.js'), ['-p', path.join(repoRoot, 'tsconfig.test-build.json')]);
+
+  const testSourcePaths = [
+    ...listTestEntries(path.join(repoRoot, 'tests')),
+    ...listTestEntries(path.join(repoRoot, 'dashboard', 'tests')),
+  ];
+  const testSourceByManifestPath = new Map(testSourcePaths.map((sourcePath) => [
+    path.relative(repoRoot, sourcePath).replace(/\\/gu, '/'),
+    sourcePath,
+  ]));
+  // A changed helper (any non-entry file under tests/) is inlined into an unknowable set
+  // of bundles, so anything that is not itself a test entry forces a full re-bundle.
+  const everyChangeIsAnEntry = changedInputPaths.every(
+    (inputPath) => testSourceByManifestPath.has(inputPath) || /\.test\.tsx?$/u.test(inputPath),
+  );
+  const changedEntrySources = changedInputPaths
+    .map((inputPath) => testSourceByManifestPath.get(inputPath))
+    .filter((sourcePath): sourcePath is string => sourcePath !== undefined);
+  const sourcesToBundle = everyChangeIsAnEntry ? changedEntrySources : testSourcePaths;
+  if (sourcesToBundle.length > 0) {
+    await emitBundledTests(sourcesToBundle);
+  }
+  // The tsc gate above re-emits compiled test files over the runner's entrypoint shims;
+  // rewrite every shim so each entrypoint imports its bundle again.
+  for (const sourcePath of testSourcePaths) {
+    emitIsolatedTestEntry(sourcePath);
+  }
+  // A deleted test entry leaves artifacts the manifest no longer lists; remove them so
+  // the tree matches the stamp exactly.
+  for (const inputPath of changedInputPaths) {
+    if (/\.test\.tsx?$/u.test(inputPath) && !testSourceByManifestPath.has(inputPath)) {
+      const entrypointPath = path.resolve(testBuildRoot, inputPath.replace(/\.tsx?$/u, '.js'));
+      fs.rmSync(entrypointPath, { force: true });
+      fs.rmSync(entrypointPath.replace(/\.js$/u, '.bundle.js'), { force: true });
+    }
+  }
+
+  fs.writeFileSync(
+    path.resolve(repoRoot, TEST_BUILD_STAMP_PATH),
+    createTestBuildStampContent(repoRoot),
+    'utf8',
+  );
+  process.stdout.write('[build:test] tests-only rebuild\n');
+}
+
 async function buildTestArtifacts(): Promise<void> {
-  if (getTestBuildState(repoRoot).kind === 'current') {
+  const state = getTestBuildState(repoRoot);
+  if (state.kind === 'current') {
     process.stdout.write('[build:test] up to date\n');
+    return;
+  }
+  if (isTestsOnlyChange(state) && state.kind === 'stale') {
+    await rebuildTestBundlesOnly(state.changedInputPaths);
     return;
   }
 

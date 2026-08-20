@@ -7,6 +7,7 @@ import {
   assertCurrentTestBuild,
   createTestBuildStampContent,
   getTestBuildState,
+  isTestsOnlyChange,
 } from '../src/test-runner/test-build-state.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
@@ -179,5 +180,33 @@ test('test build state lists every changed input for the fast-path decision', ()
   assert.deepEqual(
     state.kind === 'stale' ? state.changedInputPaths : [],
     ['dashboard/tests/input.test.ts', 'tests/input.test.ts'],
+  );
+});
+
+test('a change confined to test directories qualifies for the tests-only fast path', () => {
+  const { root } = createCurrentBuildLayout();
+  fs.writeFileSync(path.join(root, 'tests', 'input.test.ts'), 'changed', 'utf8');
+  fs.writeFileSync(path.join(root, 'dashboard', 'tests', 'input.test.ts'), 'changed', 'utf8');
+
+  assert.equal(isTestsOnlyChange(getTestBuildState(root)), true);
+});
+
+test('a source change alongside a test change disqualifies the fast path', () => {
+  const { root } = createCurrentBuildLayout();
+  fs.writeFileSync(path.join(root, 'tests', 'input.test.ts'), 'changed', 'utf8');
+  fs.writeFileSync(path.join(root, 'src', 'input.ts'), 'changed', 'utf8');
+
+  assert.equal(isTestsOnlyChange(getTestBuildState(root)), false);
+});
+
+test('non-stale states never qualify for the fast path', () => {
+  const { root } = createCurrentBuildLayout();
+
+  assert.equal(isTestsOnlyChange(getTestBuildState(root)), false);
+  assert.equal(isTestsOnlyChange({ kind: 'missing' }), false);
+  // An inconsistent stamp reports stale with no changed inputs; that must rebuild fully.
+  assert.equal(
+    isTestsOnlyChange({ kind: 'stale', newestInputPath: root, changedInputPaths: [] }),
+    false,
   );
 });

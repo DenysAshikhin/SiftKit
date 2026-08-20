@@ -728,7 +728,8 @@ test('explicit ESM source execution emits no typeless-package warning', () => {
 test('build:test reuses only a current content-addressed artifact set', () => {
   const buildScript = fs.readFileSync('scripts/build-test.ts', 'utf8');
 
-  assert.match(buildScript, /getTestBuildState\(repoRoot\)\.kind === 'current'/u);
+  assert.match(buildScript, /state\.kind === 'current'/u);
+  assert.match(buildScript, /isTestsOnlyChange\(state\)/u);
   assert.match(buildScript, /\['--clean'\]/u);
 });
 
