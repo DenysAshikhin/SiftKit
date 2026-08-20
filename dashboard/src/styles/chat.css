@@ -97,3 +97,11 @@
 .chat-stat { display: inline-flex; align-items: center; gap: 4px; position: relative; cursor: help; }
 .chat-stat-icon { font-size: 0.72rem; }
 .chat-stat:hover::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 40; width: max-content; max-width: 260px; white-space: normal; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; color: var(--ink); font-family: inherit; font-size: 0.64rem; line-height: 1.35; }
+
+/* ---- compaction boundary ---- */
+.compaction { display: grid; gap: 8px; margin-bottom: 10px; }
+.compaction-divider { cursor: pointer; text-align: center; color: var(--dim); font-size: 0.72rem; letter-spacing: 0.04em; border-top: 1px solid var(--line); padding-top: 8px; }
+/* Dimmed while expanded: these turns are readable history, not model context. */
+.compaction-originals { display: grid; gap: 8px; margin-top: 8px; opacity: 0.55; }
+.compaction-summary { border: 1px dashed var(--line); border-radius: 8px; background: var(--panel2); padding: 8px 10px; }
+.compaction-summary-body { white-space: pre-wrap; font-size: 0.8rem; }

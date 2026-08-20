@@ -223,7 +223,18 @@ export function ChatTab({
   const pendingImages = selectedRuntime?.pendingImages ?? [];
   const effectiveImagePixelCeiling = contextUsage?.effectiveImagePixelCeiling ?? null;
   const persistedMessages = selectedSession ? selectedSession.messages : [];
-  const visibleMessages = [...persistedMessages, ...liveMessages];
+  // The newest summary row is the boundary: persistence always writes it after the
+  // rows it replaced, so everything before it is compacted history.
+  const compactionSummaryIndex = persistedMessages.reduce(
+    (found, message, index) => (message.kind === 'compaction_summary' ? index : found),
+    -1,
+  );
+  const compactionSummaryMessage = compactionSummaryIndex < 0 ? null : persistedMessages[compactionSummaryIndex];
+  const compactedMessages = compactionSummaryIndex < 0 ? [] : persistedMessages.slice(0, compactionSummaryIndex);
+  const conversationMessages = compactionSummaryIndex < 0
+    ? persistedMessages
+    : persistedMessages.slice(compactionSummaryIndex + 1);
+  const visibleMessages = [...conversationMessages, ...liveMessages];
   const promptContext = selectedSession?.promptContext ?? null;
   const visibleMessageIds = visibleMessages.map((message) => message.id).join('|');
   const liveMessageScrollSignature = buildLiveMessageScrollSignature(liveMessages);
@@ -351,14 +362,18 @@ export function ChatTab({
               </button>
             </div>
 
-            {selectedSession.condensedSummary && (
-              <details className="card">
-                <summary>Condensed Summary</summary>
-                <pre className="mono">{selectedSession.condensedSummary}</pre>
-              </details>
-            )}
-
             <div className="msgs" ref={chatLogRef}>
+              {compactionSummaryMessage ? (
+                <CompactedHistoryPanel
+                  compactedMessages={compactedMessages}
+                  summary={compactionSummaryMessage}
+                  sessionId={selectedSessionId}
+                  isDirectChatMode={isDirectChatMode}
+                  chatBusy={selectedSessionBusy}
+                  onDeleteMessage={onDeleteMessage}
+                  onDeleteMessageImage={onDeleteMessageImage}
+                />
+              ) : null}
               {promptContext && promptContext.content.trim() ? (
                 <article className="msg ai system_context">
                   <div className="who">system · first message</div>
@@ -512,6 +527,47 @@ export function ChatTab({
         )}
       </div>
     </>
+  );
+}
+
+function CompactedHistoryPanel(props: {
+  compactedMessages: ChatMessage[];
+  summary: ChatMessage;
+  sessionId: string;
+  isDirectChatMode: boolean;
+  chatBusy: boolean;
+  onDeleteMessage(messageId: string): Promise<void>;
+  onDeleteMessageImage(messageId: string, imageIndex: number): Promise<void>;
+}) {
+  const { compactedMessages, summary, sessionId, isDirectChatMode, chatBusy, onDeleteMessage, onDeleteMessageImage } = props;
+  const messageCount = compactedMessages.length;
+  return (
+    <section className="compaction">
+      <details className="compaction-history">
+        <summary className="compaction-divider">
+          — Context compacted ({messageCount} {messageCount === 1 ? 'message' : 'messages'} summarized) —
+        </summary>
+        <div className="compaction-originals">
+          {compactedMessages.map((message) => (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              sessionId={sessionId}
+              isLive={false}
+              isPending={false}
+              isDirectChatMode={isDirectChatMode}
+              chatBusy={chatBusy}
+              onDeleteMessage={onDeleteMessage}
+              onDeleteMessageImage={onDeleteMessageImage}
+            />
+          ))}
+        </div>
+      </details>
+      <article className="msg ai compaction-summary">
+        <div className="who">assistant · Compacted summary</div>
+        <div className="compaction-summary-body">{summary.content}</div>
+      </article>
+    </section>
   );
 }
 
