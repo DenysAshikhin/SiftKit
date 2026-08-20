@@ -81,7 +81,7 @@ export const restorePreviewEndpoint = assistantRoute(async ({ service, req, res 
   try {
     const uploadPath = path.join(directory, 'upload.zip');
     await readBodyToFile(req, uploadPath, { maxBytes: RESTORE_BODY_LIMIT });
-    sendJson(res, 200, service.previewRestore(uploadPath));
+    sendJson(res, 200, await service.previewRestore(uploadPath));
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

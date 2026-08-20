@@ -619,7 +619,7 @@ export class AssistantService implements AssistantRuntime {
     this.ownerPersonId = null;
   }
 
-  previewRestore(uploadPath: string): AssistantRestorePreviewResponse {
+  previewRestore(uploadPath: string): Promise<AssistantRestorePreviewResponse> {
     return this.restoreService.preview(uploadPath);
   }
 

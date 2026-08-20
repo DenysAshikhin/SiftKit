@@ -26,7 +26,7 @@ test('ZipFileWriter output is readable by ZipFileReader', async () => {
   await writer.addFile('blobs/blob.bin', blob);
   writer.finish();
 
-  const entries = readArchiveEntries(archivePath);
+  const entries = await readArchiveEntries(archivePath);
   assert.deepEqual([...entries.keys()].sort(), ['blobs/blob.bin', 'manifest.json']);
   assert.equal(entries.get('blobs/blob.bin')?.byteLength, 300_000);
   assert.deepEqual(entries.get('blobs/blob.bin'), Buffer.alloc(300_000, 7));
@@ -62,7 +62,7 @@ test('ZipFileWriter stores file entries and deflates buffer entries that shrink'
 
   const archive = fs.readFileSync(archivePath);
   assert.equal(archive.readUInt16LE(LOCAL_METHOD_OFFSET), 8, 'compressible buffer entry deflates');
-  assert.equal(readArchiveEntries(archivePath).get('blob.bin')?.byteLength, 200_000);
+  assert.equal((await readArchiveEntries(archivePath)).get('blob.bin')?.byteLength, 200_000);
   assert.ok(archive.byteLength < 250_000, 'the deflated buffer entry shrinks the archive');
 });
 
@@ -77,7 +77,7 @@ test('ZipFileWriter patches the streamed entry CRC into its local header', async
 
   const archive = fs.readFileSync(archivePath);
   assert.notEqual(archive.readUInt32LE(LOCAL_CRC_OFFSET), 0);
-  assert.equal(readArchiveEntries(archivePath).get('blob.bin')?.toString('utf8'), 'streamed payload');
+  assert.equal((await readArchiveEntries(archivePath)).get('blob.bin')?.toString('utf8'), 'streamed payload');
 });
 
 test('ZipFileWriter round-trips an empty file entry', async () => {
@@ -89,18 +89,18 @@ test('ZipFileWriter round-trips an empty file entry', async () => {
   await writer.addFile('empty.bin', blob);
   writer.finish();
 
-  const entries = readArchiveEntries(archivePath);
+  const entries = await readArchiveEntries(archivePath);
   assert.equal(entries.get('empty.bin')?.byteLength, 0);
 });
 
-test('ZipFileWriter produces an empty but valid archive when nothing is added', () => {
+test('ZipFileWriter produces an empty but valid archive when nothing is added', async () => {
   const dir = createManagedTempDir('zipw-noentries-');
   const archivePath = path.join(dir, 'a.zip');
 
   const writer = new ZipFileWriter(archivePath);
   writer.finish();
 
-  assert.deepEqual([...readArchiveEntries(archivePath).keys()], []);
+  assert.deepEqual([...(await readArchiveEntries(archivePath)).keys()], []);
 });
 
 test('ZipFileWriter rejects use after finish', async () => {

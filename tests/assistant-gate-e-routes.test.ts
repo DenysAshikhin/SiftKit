@@ -77,7 +77,7 @@ test('the Gate E routes serve deletion, maintenance, transfer, and mobile end to
     const backup = await requestBinary(`${baseUrl}/assistant/backup`, { method: 'POST', headers });
     assert.equal(backup.statusCode, 200);
     assert.equal(backup.contentType, 'application/zip');
-    const backupEntries = readArchiveEntriesFromBytes(backup.body);
+    const backupEntries = await readArchiveEntriesFromBytes(backup.body);
     assert.ok(backupEntries.has('snapshot.sqlite'));
     assert.ok(backupEntries.has('manifest.json'));
 
@@ -88,7 +88,7 @@ test('the Gate E routes serve deletion, maintenance, transfer, and mobile end to
     });
     assert.equal(exportBytes.statusCode, 200);
     assert.equal(exportBytes.contentType, 'application/zip');
-    assert.ok(readArchiveEntriesFromBytes(exportBytes.body).has('manifest.json'));
+    assert.ok((await readArchiveEntriesFromBytes(exportBytes.body)).has('manifest.json'));
 
     // Evidence deletion: preview, then a 404 for an id this owner does not have, then a
     // stale token, then the real thing.

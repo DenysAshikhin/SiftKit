@@ -16,14 +16,14 @@ function build(entries: readonly (readonly [string, Buffer])[], prefix: string):
   return archivePath;
 }
 
-test('round-trips stored and deflated entries byte-for-byte', () => {
+test('round-trips stored and deflated entries byte-for-byte', async () => {
   const archivePath = build([
     ['manifest.json', Buffer.from('{"a":1}')],
     ['blobs/aa/deadbeef', Buffer.alloc(70_000, 7)], // compressible, > one chunk
     ['empty.txt', Buffer.alloc(0)],
   ], 'zip-roundtrip-');
 
-  const entries = readArchiveEntries(archivePath);
+  const entries = await readArchiveEntries(archivePath);
   assert.deepEqual([...entries.keys()].sort(), ['blobs/aa/deadbeef', 'empty.txt', 'manifest.json']);
   assert.equal(entries.get('manifest.json')?.toString('utf8'), '{"a":1}');
   assert.equal(entries.get('blobs/aa/deadbeef')?.equals(Buffer.alloc(70_000, 7)), true);
@@ -36,12 +36,12 @@ test('the same input always produces the same archive bytes', () => {
   assert.equal(fs.readFileSync(first).equals(fs.readFileSync(second)), true);
 });
 
-test('preserves non-ASCII entry names', () => {
+test('preserves non-ASCII entry names', async () => {
   const archivePath = build([['topics/café-münchen.md', Buffer.from('naïve')]], 'zip-utf8-');
-  assert.equal(readArchiveEntries(archivePath).get('topics/café-münchen.md')?.toString('utf8'), 'naïve');
+  assert.equal((await readArchiveEntries(archivePath)).get('topics/café-münchen.md')?.toString('utf8'), 'naïve');
 });
 
-test('rejects a corrupted entry via CRC mismatch', () => {
+test('rejects a corrupted entry via CRC mismatch', async () => {
   // High-entropy 8 bytes: deflate cannot shrink them, so the writer picks method 0 (store)
   // and the flipped byte reaches the CRC check instead of dying inside inflate.
   const archivePath = build([['a.bin', Buffer.from('9f8e7d6c5b4a3210', 'hex')]], 'zip-crc-');
@@ -49,24 +49,24 @@ test('rejects a corrupted entry via CRC mismatch', () => {
   archive[30 + 'a.bin'.length + 2] ^= 0xff; // inside the stored data
   fs.writeFileSync(archivePath, archive);
 
-  const reader = ZipFileReader.open(archivePath);
+  const reader = await ZipFileReader.open(archivePath);
   try {
     assert.throws(() => reader.readEntry('a.bin'), /CRC/u);
   } finally {
-    reader.close();
+    await reader.close();
   }
 });
 
-test('rejects non-zip input', () => {
+test('rejects non-zip input', async () => {
   const notZip = path.join(createManagedTempDir('zip-notzip-'), 'not.zip');
   fs.writeFileSync(notZip, Buffer.from('not a zip'));
-  assert.throws(() => ZipFileReader.open(notZip), /end of central directory/iu);
+  await assert.rejects(ZipFileReader.open(notZip), /end of central directory/iu);
 });
 
-test('rejects a truncated archive rather than returning partial entries', () => {
+test('rejects a truncated archive rather than returning partial entries', async () => {
   const archivePath = build([['a.txt', Buffer.from('alpha')]], 'zip-truncated-');
   const archive = fs.readFileSync(archivePath);
   const truncated = path.join(createManagedTempDir('zip-truncated-out-'), 'a.zip');
   fs.writeFileSync(truncated, archive.subarray(0, archive.byteLength - 4));
-  assert.throws(() => ZipFileReader.open(truncated));
+  await assert.rejects(ZipFileReader.open(truncated));
 });

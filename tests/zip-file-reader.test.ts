@@ -8,7 +8,9 @@ import { ZipFileReader } from '../src/lib/zip-file-reader.js';
 import { ZipFileWriter } from '../src/lib/zip-file-writer.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
-const BLOB_BYTES = 300_000;
+// Larger than one READ_CHUNK_BYTES, so a chunked walk spans several iterations and several
+// timer ticks -- which is what the non-blocking test below measures.
+const BLOB_BYTES = 8_000_000;
 const MANIFEST_TEXT = '{"x":1}';
 
 interface Fixture {
@@ -32,7 +34,7 @@ async function buildFixture(prefix: string): Promise<Fixture> {
 
 test('ZipFileReader lists entries and extracts them with CRC verification', async () => {
   const { dir, archivePath, blobContents } = await buildFixture('zipr-basic-');
-  const reader = ZipFileReader.open(archivePath);
+  const reader = await ZipFileReader.open(archivePath);
   try {
     assert.deepEqual(reader.entryNames().sort(), ['blobs/blob.bin', 'manifest.json']);
     assert.equal(reader.readEntry('manifest.json').toString('utf8'), MANIFEST_TEXT);
@@ -42,26 +44,26 @@ test('ZipFileReader lists entries and extracts them with CRC verification', asyn
     assert.equal(fs.statSync(out).size, BLOB_BYTES);
     assert.deepEqual(fs.readFileSync(out), blobContents);
   } finally {
-    reader.close();
+    await reader.close();
   }
 });
 
 test('ZipFileReader reports uncompressed sizes and hashes entries without loading them', async () => {
   const { archivePath, blobContents } = await buildFixture('zipr-hash-');
-  const reader = ZipFileReader.open(archivePath);
+  const reader = await ZipFileReader.open(archivePath);
   try {
     assert.equal(reader.entrySize('blobs/blob.bin'), BLOB_BYTES);
     assert.equal(reader.entrySize('manifest.json'), MANIFEST_TEXT.length);
     assert.equal(
-      reader.hashEntry('blobs/blob.bin'),
+      await reader.hashEntry('blobs/blob.bin'),
       createHash('sha256').update(blobContents).digest('hex'),
     );
     assert.equal(
-      reader.hashEntry('manifest.json'),
+      await reader.hashEntry('manifest.json'),
       createHash('sha256').update(Buffer.from(MANIFEST_TEXT, 'utf8')).digest('hex'),
     );
   } finally {
-    reader.close();
+    await reader.close();
   }
 });
 
@@ -73,7 +75,7 @@ test('ZipFileReader round-trips a deflated entry', async () => {
   writer.addBuffer('compressible.txt', compressible);
   writer.finish();
 
-  const reader = ZipFileReader.open(archivePath);
+  const reader = await ZipFileReader.open(archivePath);
   try {
     assert.equal(reader.entrySize('compressible.txt'), compressible.byteLength);
     assert.deepEqual(reader.readEntry('compressible.txt'), compressible);
@@ -81,18 +83,18 @@ test('ZipFileReader round-trips a deflated entry', async () => {
     await reader.extractTo('compressible.txt', out);
     assert.deepEqual(fs.readFileSync(out), compressible);
   } finally {
-    reader.close();
+    await reader.close();
   }
 });
 
 test('ZipFileReader names a missing entry rather than returning empty bytes', async () => {
   const { archivePath } = await buildFixture('zipr-missing-');
-  const reader = ZipFileReader.open(archivePath);
+  const reader = await ZipFileReader.open(archivePath);
   try {
     assert.throws(() => reader.readEntry('nope.txt'), /no entry named nope\.txt/u);
     assert.throws(() => reader.entrySize('nope.txt'), /no entry named nope\.txt/u);
   } finally {
-    reader.close();
+    await reader.close();
   }
 });
 
@@ -104,21 +106,35 @@ test('ZipFileReader rejects a corrupted stored entry and leaves no partial outpu
   const damagedPath = path.join(dir, 'damaged.zip');
   fs.writeFileSync(damagedPath, archive);
 
-  const reader = ZipFileReader.open(damagedPath);
+  const reader = await ZipFileReader.open(damagedPath);
   const out = path.join(dir, 'restored.bin');
   try {
     await assert.rejects(reader.extractTo('blobs/blob.bin', out), /failed its CRC check/u);
     assert.equal(fs.existsSync(out), false);
-    assert.throws(() => reader.hashEntry('blobs/blob.bin'), /failed its CRC check/u);
+    await assert.rejects(reader.hashEntry('blobs/blob.bin'), /failed its CRC check/u);
   } finally {
-    reader.close();
+    await reader.close();
   }
 });
 
-test('ZipFileReader rejects a file that is not a zip', () => {
+test('ZipFileReader yields to the event loop while extracting', async () => {
+  const { dir, archivePath } = await buildFixture('zipr-nonblocking-');
+  const reader = await ZipFileReader.open(archivePath);
+  let ticks = 0;
+  const ticker = setInterval(() => { ticks += 1; }, 1);
+  try {
+    await reader.extractTo('blobs/blob.bin', path.join(dir, 'restored.bin'));
+  } finally {
+    clearInterval(ticker);
+    await reader.close();
+  }
+  assert.ok(ticks > 0, 'a synchronous extract starves timers; this must not block the event loop');
+});
+
+test('ZipFileReader rejects a file that is not a zip', async () => {
   const dir = createManagedTempDir('zipr-notzip-');
   const notZip = path.join(dir, 'not.zip');
   fs.writeFileSync(notZip, Buffer.alloc(4_096, 1));
 
-  assert.throws(() => ZipFileReader.open(notZip), /end of central directory not found/u);
+  await assert.rejects(ZipFileReader.open(notZip), /end of central directory not found/u);
 });

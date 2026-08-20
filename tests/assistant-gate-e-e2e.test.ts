@@ -315,7 +315,7 @@ test('gate E scenario 12: export survives factory reset and restore byte for byt
     assert.equal(context.graph.projections.listAllRows(context.ownerId).length, 0);
     assert.equal(service.ownerPersonNodeId, null);
 
-    const preview = service.previewRestore(archiveUploadPath(backupBytes));
+    const preview = await service.previewRestore(archiveUploadPath(backupBytes));
     const result = await service.restore(preview.uploadId, preview.confirmToken);
     assert.deepEqual(result, { ok: true, blobsReadable: true, warning: null });
 

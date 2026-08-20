@@ -53,7 +53,10 @@ test('sendArchive streams the archive and then deletes it', async () => {
     assert.equal(response.headers.get('content-type'), 'application/zip');
     assert.equal(response.headers.get('cache-control'), 'no-store');
     const body = Buffer.from(await response.arrayBuffer());
-    assert.equal(readArchiveEntriesFromBytes(body).get('payload.bin')?.byteLength, PAYLOAD_BYTES);
+    assert.equal(
+      (await readArchiveEntriesFromBytes(body)).get('payload.bin')?.byteLength,
+      PAYLOAD_BYTES,
+    );
     assert.equal(await waitForRemoval(directory), true, 'archive directory must be removed');
   } finally {
     await closeServer(server);

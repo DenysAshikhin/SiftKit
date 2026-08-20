@@ -36,8 +36,8 @@ export function archiveUploadPath(bytes: Buffer): string {
 }
 
 /** Every entry of an on-disk archive, for tests that assert on contents. */
-export function readArchiveEntries(archivePath: string): Map<string, Buffer> {
-  const reader = ZipFileReader.open(archivePath);
+export async function readArchiveEntries(archivePath: string): Promise<Map<string, Buffer>> {
+  const reader = await ZipFileReader.open(archivePath);
   try {
     const entries = new Map<string, Buffer>();
     for (const name of reader.entryNames()) {
@@ -45,7 +45,7 @@ export function readArchiveEntries(archivePath: string): Map<string, Buffer> {
     }
     return entries;
   } finally {
-    reader.close();
+    await reader.close();
   }
 }
 
@@ -53,13 +53,13 @@ export function readArchiveEntries(archivePath: string): Map<string, Buffer> {
 export async function archiveEntries(archive: Promise<TempArchive>): Promise<Map<string, Buffer>> {
   const finished = await archive;
   try {
-    return readArchiveEntries(finished.path);
+    return await readArchiveEntries(finished.path);
   } finally {
     finished.cleanup();
   }
 }
 
 /** For tests holding raw bytes (an HTTP response body) rather than a path. */
-export function readArchiveEntriesFromBytes(bytes: Buffer): Map<string, Buffer> {
+export function readArchiveEntriesFromBytes(bytes: Buffer): Promise<Map<string, Buffer>> {
   return readArchiveEntries(archiveUploadPath(bytes));
 }

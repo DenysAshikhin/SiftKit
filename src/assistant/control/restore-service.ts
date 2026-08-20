@@ -75,19 +75,19 @@ export class RestoreService {
    * `confirm`. The upload is read from disk throughout — a backup is the size of the whole
    * evidence tree and never belongs in the heap.
    */
-  preview(uploadPath: string): AssistantRestorePreviewResponse {
-    const reader = ZipFileReader.open(uploadPath);
+  async preview(uploadPath: string): Promise<AssistantRestorePreviewResponse> {
+    const reader = await ZipFileReader.open(uploadPath);
     let manifest: BackupManifest;
     let fileCount: number;
     let totalBytes = 0;
     try {
-      this.verifyEntries(reader);
+      await this.verifyEntries(reader);
       manifest = this.readManifest(reader);
       const names = reader.entryNames();
       fileCount = names.length;
       for (const name of names) totalBytes += reader.entrySize(name);
     } finally {
-      reader.close();
+      await reader.close();
     }
 
     const uploadId = `upload_${randomBytes(16).toString('hex')}`;
@@ -121,10 +121,10 @@ export class RestoreService {
     }
 
     const snapshotPath = path.join(this.uploadsDir, `${uploadId}.sqlite`);
-    const reader = ZipFileReader.open(request.archivePath);
+    const reader = await ZipFileReader.open(request.archivePath);
     try {
       // Re-verify: the parked file could have been swapped since the preview.
-      this.verifyEntries(reader);
+      await this.verifyEntries(reader);
       this.readManifest(reader);
 
       await this.replaceRows(reader, snapshotPath);
@@ -137,7 +137,7 @@ export class RestoreService {
         warning: recovered ? null : UNREADABLE_BLOBS_WARNING,
       };
     } finally {
-      reader.close();
+      await reader.close();
       fs.rmSync(snapshotPath, { force: true });
       if (!this.pending.has(uploadId)) fs.rmSync(request.archivePath, { force: true });
     }
@@ -155,13 +155,13 @@ export class RestoreService {
   }
 
   /** Every entry, with each manifest hash checked. A damaged archive never reaches the database. */
-  private verifyEntries(reader: ZipFileReader): void {
+  private async verifyEntries(reader: ZipFileReader): Promise<void> {
     const manifest = this.readManifestOnly(reader);
     for (const [name, hash] of Object.entries(manifest.files)) {
       if (!reader.hasEntry(name)) {
         throw new Error(`Backup entry ${name} is missing.`);
       }
-      if (reader.hashEntry(name) !== hash) {
+      if (await reader.hashEntry(name) !== hash) {
         throw new Error(`Backup entry ${name} failed its manifest hash check.`);
       }
     }
