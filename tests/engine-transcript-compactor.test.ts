@@ -5,9 +5,11 @@ import {
   COMPACTION_SUMMARY_MARKER,
   TranscriptCompactor,
 } from '../src/repo-search/engine/transcript-compactor.js';
+import { TaskResultSchema } from '../src/repo-search/engine/task-loop-support.js';
 import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
 import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
 import type { ChatMessage } from '../src/repo-search/planner-protocol.js';
+import { buildMockScorecard } from './_test-helpers.js';
 import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 
@@ -110,8 +112,8 @@ for (const totalContextTokens of [150_000, 32_000, 9_000]) {
     const compactor = makeCompactor(['SUMMARY BODY'], totalContextTokens);
     const messages: ChatMessage[] = [
       { role: 'system', content: 'SYSTEM PROMPT' },
-      // 2.5 characters per token is the local estimate the mock config uses.
-      { role: 'assistant', content: 'H'.repeat(Math.floor(worstCaseTranscriptTokens * 2.5)) },
+      // 4 characters per token is the estimate mock mode counts with.
+      { role: 'assistant', content: 'H'.repeat(worstCaseTranscriptTokens * 4) },
       { role: 'user', content: 'latest user intent' },
     ];
 
@@ -148,4 +150,13 @@ test('compact summarizes the transcript below the system prompt, not the system 
 
   assert.equal(outcome.summaryText, 'SUMMARY BODY');
   assert.equal(logged.some((event) => event.kind === 'turn_compaction_prompt_overflow_fail'), false);
+});
+
+test('TaskResultSchema requires compactionSummary so a missed producer fails loudly', () => {
+  const task = buildMockScorecard('done').tasks[0];
+  assert.equal(TaskResultSchema.safeParse(task).success, true);
+
+  const { compactionSummary, ...withoutCompactionSummary } = task;
+  assert.equal(typeof compactionSummary, 'string');
+  assert.equal(TaskResultSchema.safeParse(withoutCompactionSummary).success, false);
 });

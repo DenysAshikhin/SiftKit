@@ -149,6 +149,7 @@ function mockedCaptionExecution(finalOutput: string): RepoSearchExecutionResult 
       commands: [],
       turnThinking: {},
       finalOutput,
+      compactionSummary: '',
       passed: true,
       missingSignals: [],
       promptTokens: 0,

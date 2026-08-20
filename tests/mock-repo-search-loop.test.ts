@@ -1,4 +1,4 @@
-import test from 'node:test';
+﻿import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import fs from 'node:fs';
@@ -16,10 +16,7 @@ import {
 import { resolveRepoSearchPlannerToolDefinitions, type ChatMessage } from '../src/repo-search/planner-protocol.js';
 import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
 import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
-import {
-  preflightPlannerPromptBudget,
-  compactPlannerMessagesOnce,
-} from '../src/repo-search/prompt-budget.js';
+import { preflightPlannerPromptBudget } from '../src/repo-search/prompt-budget.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
@@ -849,49 +846,7 @@ test('preflightPlannerPromptBudget reserves provider prompt overhead against con
   assert.equal(withReserve.promptTokenCount > withReserve.maxPromptBudget, true);
 });
 
-test('compactPlannerMessagesOnce preserves system and latest user intent', async () => {
-  const messages: ChatMessage[] = [
-    { role: 'system', content: 'system message' },
-    { role: 'user', content: 'first user intent' },
-    { role: 'assistant', content: 'older assistant details ' + 'a'.repeat(2000) },
-    { role: 'tool', content: 'older tool output ' + 'b'.repeat(4000), tool_call_id: 'call_1' },
-    { role: 'user', content: 'latest user intent must remain' },
-    { role: 'assistant', content: 'most recent assistant context' },
-  ];
-  const compacted = await compactPlannerMessagesOnce({
-    messages,
-    maxPromptBudget: 600,
-  });
-  const transcript = compacted.messages.map((message) => String(message.content || '')).join('\n');
-
-  assert.equal(compacted.droppedMessageCount > 0, true);
-  assert.equal(compacted.summaryInserted, true);
-  assert.match(transcript, /\[COMPRESSED HISTORICAL EVIDENCE\]/u);
-  assert.match(transcript, /latest user intent must remain/u);
-  assert.match(String(compacted.messages[0]?.role || ''), /^system$/u);
-});
-
-test('compactPlannerMessagesOnce budgets provider prompt overhead while selecting history', async () => {
-  const messages: ChatMessage[] = [
-    { role: 'system', content: 'system message' },
-    { role: 'assistant', content: 'older assistant details ' + 'a'.repeat(2000) },
-    { role: 'tool', content: 'older tool output ' + 'b'.repeat(2000), tool_call_id: 'call_1' },
-    { role: 'user', content: 'latest user intent must remain' },
-  ];
-  const compacted = await compactPlannerMessagesOnce({
-    messages,
-    providerPromptReserveText: 'provider overhead '.repeat(500),
-    maxPromptBudget: 2800,
-  });
-  const transcript = compacted.messages.map((message) => String(message.content || '')).join('\n');
-
-  assert.equal(compacted.droppedMessageCount > 0, true);
-  assert.equal(compacted.promptTokenCount <= 2800, true);
-  assert.match(transcript, /latest user intent must remain/u);
-  assert.match(String(compacted.messages[0]?.role || ''), /^system$/u);
-});
-
-test('runTaskLoop fails with planner_preflight_overflow before provider request when compaction cannot fit', async () => {
+test('runTaskLoop fails before any provider request when the summarization prompt cannot fit', async () => {
   const events: JsonObject[] = [];
   // This loop has no mockResponses, so preflight tokenizes for real: point it at the 404
   // stub so it falls back to the estimate instead of retrying a refused connection.
@@ -900,8 +855,8 @@ test('runTaskLoop fails with planner_preflight_overflow before provider request 
     await assert.rejects(
       () => runTaskLoop(
         {
-          id: 'task-preflight-overflow-hard-fail',
-          question: 'Q'.repeat(12000),
+          id: 'task-compaction-prompt-overflow',
+          question: 'Q'.repeat(20000),
           signals: [],
         },
         {
@@ -921,7 +876,7 @@ test('runTaskLoop fails with planner_preflight_overflow before provider request 
           },
         }
       ),
-      /planner_preflight_overflow/u
+      /planner_compaction_prompt_overflow/u
     );
   } finally {
     await notFound.close();
@@ -929,9 +884,9 @@ test('runTaskLoop fails with planner_preflight_overflow before provider request 
 
   const providerStart = events.find((event) => event.kind === 'provider_request_start');
   assert.equal(Boolean(providerStart), false);
-  const overflowEvent = events.find((event) => event.kind === 'turn_preflight_overflow_fail');
+  const overflowEvent = events.find((event) => event.kind === 'turn_compaction_prompt_overflow_fail');
   assert.ok(overflowEvent);
-  assert.equal(Number(overflowEvent.overflowTokens) > 0, true);
+  assert.equal(Number(overflowEvent.remainingTokens) < Number(overflowEvent.minSummaryOutputTokens), true);
 });
 
 test('runTaskLoop includes planner provider reserve in dynamic output budget', async () => {
@@ -972,54 +927,32 @@ test('runTaskLoop includes planner provider reserve in dynamic output budget', a
   assert.equal(Number(budgetEvent?.maxOutputTokens) > 0, true);
 });
 
-// Multi-line grep output, like the real tool: the per-tool cap truncates line by line, so
-// each turn admits a cap's worth of evidence and the transcript grows until it overflows.
-// A single long line would be all-or-nothing and make the overflow turn a coin flip.
-function grepHitLines(directory: string, count: number): string {
-  return Array.from({ length: count }, (_, index) => `${directory}/file-${index}.ts:${index}: planner reference ${index}`).join('\n');
-}
-
-test('runTaskLoop applies one-pass compaction and continues when compacted prompt fits', async () => {
+test('runTaskLoop compacts an overflowing history and continues from the summary', async () => {
   const events: JsonObject[] = [];
   const result = await runTaskLoop(
     {
-      id: 'task-preflight-compaction-success',
+      id: 'task-llm-compaction',
       question: 'Find planner references.',
       signals: ['done'],
     },
     {
       ...MOCK_LOOP_DEFAULTS,
-      maxTurns: 14,
+      maxTurns: 4,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
-      // Half goes to the shared response reserve, leaving the 3200 usable prompt
-      // tokens this overflow-then-compact scenario is tuned to.
-      totalContextTokens: 6400,
+      // 15k response reserve leaves a 17000-token prompt budget; the 100k-character
+      // history is 25000 tokens at mock mode's 4-characters-per-token estimate, so
+      // turn 1 overflows and the compaction summary is the first mock response
+      // consumed. The 10k compaction reserve keeps the summarization request fitting.
+      totalContextTokens: 32000,
+      historyMessages: [{ role: 'assistant', content: 'H'.repeat(100_000) }],
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['git']),
       mockResponses: [
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" lib\"}",
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" test\"}",
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" docs\"}",
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" scripts\"}",
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" examples\"}",
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" fixtures\"}",
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" bench\"}",
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" tools\"}",
+        'SUMMARY: earlier turns collected planner references under src/.',
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
-      mockCommandResults: {
-        'git grep -n "planner" src': { exitCode: 0, stdout: grepHitLines('src', 500), stderr: '' },
-        'git grep -n "planner" lib': { exitCode: 0, stdout: grepHitLines('lib', 500), stderr: '' },
-        'git grep -n "planner" test': { exitCode: 0, stdout: grepHitLines('test', 500), stderr: '' },
-        'git grep -n "planner" docs': { exitCode: 0, stdout: grepHitLines('docs', 500), stderr: '' },
-        'git grep -n "planner" scripts': { exitCode: 0, stdout: grepHitLines('scripts', 500), stderr: '' },
-        'git grep -n "planner" examples': { exitCode: 0, stdout: grepHitLines('examples', 500), stderr: '' },
-        'git grep -n "planner" fixtures': { exitCode: 0, stdout: grepHitLines('fixtures', 500), stderr: '' },
-        'git grep -n "planner" bench': { exitCode: 0, stdout: grepHitLines('bench', 500), stderr: '' },
-        'git grep -n "planner" tools': { exitCode: 0, stdout: grepHitLines('tools', 500), stderr: '' },
-      },
+      mockCommandResults: {},
       logger: {
         path: 'memory',
         write(event: Record<string, JsonSerializable>) {
@@ -1030,17 +963,24 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
   );
 
   const compactionEvents = events.filter((event) => event.kind === 'turn_preflight_compaction_applied');
-  assert.equal(compactionEvents.length >= 1, true);
+  assert.equal(compactionEvents.length, 1);
   assert.equal(Number(compactionEvents[0].droppedMessageCount) > 0, true);
+  assert.equal(Number(compactionEvents[0].summaryTokenCount) > 0, true);
   assert.equal(Number(compactionEvents[0].beforeProviderPromptReserveTokenCount) > 0, true);
   assert.equal(Number(compactionEvents[0].providerPromptReserveTokenCount) > 0, true);
-  const newMessagesEvents = events.filter((event) => event.kind === 'turn_new_messages');
-  const allCompactedContent = newMessagesEvents
+  assert.equal(
+    Number(compactionEvents[0].afterPromptTokenCount) < Number(compactionEvents[0].beforePromptTokenCount),
+    true,
+  );
+  const allContent = events
+    .filter((event) => event.kind === 'turn_new_messages')
     .flatMap((event) => asObjectArray(event.messages))
-    .map((m) => String(m.content || ''));
-  assert.equal(allCompactedContent.some((c) => c.includes('[COMPRESSED HISTORICAL EVIDENCE]')), true);
+    .map((message) => String(message.content || ''));
+  assert.equal(allContent.some((content) => content.includes('[CONTEXT COMPACTED')), true);
+  assert.equal(allContent.some((content) => content.includes('SUMMARY: earlier turns collected')), true);
   assert.equal(result.reason, 'finish');
   assert.equal(result.finalOutput, 'done');
+  assert.equal(result.compactionSummary, 'SUMMARY: earlier turns collected planner references under src/.');
 });
 
 test('runTaskLoop increases per-tool cap as tool-call progress grows', async () => {
@@ -1664,7 +1604,7 @@ test('runTaskLoop blocks semantic duplicate repo-search commands with explicit e
       minToolCallsBeforeFinish: 0,
       mockResponses: [
         '{"action":"git","command":"git log -n 5 --oneline"}',
-        // Same command, only respaced and recased — a different raw key, the same fingerprint.
+        // Same command, only respaced and recased â€” a different raw key, the same fingerprint.
         '{"action":"git","command":"git LOG  -n   5 --oneline"}',
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
@@ -2182,7 +2122,7 @@ test('runTaskLoop lets a read repeat after an edit invalidates the file window',
   const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
   assert.equal(result.reason, 'finish');
   assert.equal(result.commandFailures, 0);
-  // read, edit, read — the third call executed instead of being rejected.
+  // read, edit, read â€” the third call executed instead of being rejected.
   assert.equal(commandEvents.length, 3);
   assert.match(String(commandEvents[2]?.insertedResultText || ''), /^1: line-1/mu);
   assert.match(String(commandEvents[2]?.insertedResultText || ''), /^2: line-2-EDITED/mu);

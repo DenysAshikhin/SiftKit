@@ -772,6 +772,7 @@ export class TaskLoop {
       invalidResponses: this.counters.invalidResponses, commandFailures: this.counters.commandFailures,
       finishChallenges: this.finishVerification.issuedCount,
       commands: this.commands, turnThinking: this.turnThinking, finalOutput: this.finalOutput,
+      compactionSummary: this.lastCompactionSummary,
       mutatedPaths: [...this.mutatedPaths], passed,
       ...(this.chatWebGroundingEnabled ? { groundingStatus: this.chatWebGroundingPolicy.getStatus() } : {}),
       missingSignals: signalCheck.missingSignals,
