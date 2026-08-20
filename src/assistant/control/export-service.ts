@@ -65,9 +65,11 @@ const TABLE_EXPORTS: readonly TableExport[] = [
 
 /**
  * §16.3 export: the user's memory as a portable zip — graph tables as JSON Lines, projections as
- * the markdown they already are, and evidence bytes only when explicitly asked for. Entries are
- * produced one at a time and streamed into a temp archive, so the export never holds more than a
- * single entry in memory. That archive is the caller's to delete: `cleanup()` is not optional.
+ * the markdown they already are, and evidence bytes only when explicitly asked for (design §3.1:
+ * the flag decrypts them into the archive and writes an audit row). Entries are produced one at a
+ * time and streamed into a temp archive, so the export never holds more than a single entry in
+ * memory. With `includeDecryptedBlobs` that archive holds plaintext, so it lives alone in a
+ * `mkdtemp` directory and is the caller's to delete: `cleanup()` is not optional.
  */
 export class ExportService {
   constructor(
@@ -129,8 +131,8 @@ export class ExportService {
     let exported = 0;
     for (const row of rows) {
       if (row.blob_id === null) continue;
-      // One decrypted blob is materialized at a time and released once written; decrypting to a
-      // scratch file first would leave plaintext outside the archive, which §16.3 forbids.
+      // Decrypted one blob at a time and released once written, so a large evidence tree never
+      // lands in the heap all at once.
       writer.addBuffer(
         `evidence/blobs/${row.content_hash}`,
         this.graph.evidence.readBlobBytes(row.blob_id),

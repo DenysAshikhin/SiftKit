@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 
 import { z } from '../src/lib/zod.js';
@@ -43,6 +45,29 @@ async function seededExport(context: AssistantTestContext): Promise<ExportServic
   return new ExportService(context.graph, context.database, context.ownerId);
 }
 
+
+/**
+ * §16.3 lets the user export decrypted evidence; the design (§3.1) says the flag "decrypts them
+ * into the archive and writes an audit row", and never forbids the archive being a temp file.
+ * What must hold is containment: plaintext lives alone in a private directory and does not
+ * survive cleanup. That is the guarantee worth pinning.
+ */
+test('a decrypted export leaves nothing on disk once cleaned up', async () => {
+  await withAssistantContextAsync(async (context) => {
+    const service = await seededExport(context);
+    const archive = await service.export({ includeDecryptedBlobs: true });
+    const directory = path.dirname(archive.path);
+
+    // The archive is alone in a directory of its own, not loose in the shared temp root.
+    // (Export writes no scratch files -- unlike backup, which puts its sqlite snapshot here.)
+    assert.deepEqual(fs.readdirSync(directory), ['archive.zip']);
+    assert.match(path.basename(directory), /^siftkit-export-/u);
+
+    archive.cleanup();
+    assert.equal(fs.existsSync(directory), false, 'a decrypted export must not survive cleanup');
+    archive.cleanup(); // idempotent
+  });
+});
 
 test('export renders the §16.3 tree without blobs by default', async () => {
   await withAssistantContextAsync(async (context) => {
