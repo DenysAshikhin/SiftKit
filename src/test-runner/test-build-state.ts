@@ -75,7 +75,7 @@ const IGNORED_INPUT_DIRECTORIES = new Set([
 export type TestBuildState =
   | { kind: 'missing' }
   | { kind: 'malformed'; stampPath: string }
-  | { kind: 'stale'; newestInputPath: string }
+  | { kind: 'stale'; newestInputPath: string; changedInputPaths: string[] }
   | { kind: 'incomplete'; missingOutputPath: string }
   | { kind: 'current' };
 
@@ -149,11 +149,8 @@ function createMirroredOutputs(inputPaths: string[]): string[] {
     .map((inputPath) => `${TEST_BUILD_ROOT}/${inputPath.replace(/\.ts$/u, '.js')}`);
 }
 
-function createManifest(repoRoot: string): TestBuildManifest {
-  const inputPaths = listInputFiles(repoRoot);
-  if (!inputPaths) {
-    throw new Error('Cannot create a test build manifest while required inputs are missing.');
-  }
+function createManifestFromInputs(inputs: TestBuildManifest['inputs']): TestBuildManifest {
+  const inputPaths = inputs.map((input) => input.path);
   const tests = createTestEntries(inputPaths);
   const outputs = [
     ...STATIC_OUTPUT_PATHS.map((outputPath) => outputPath.replace(/\\/gu, '/')),
@@ -162,14 +159,18 @@ function createManifest(repoRoot: string): TestBuildManifest {
   ];
   return TestBuildManifestSchema.parse({
     version: 2,
-    inputs: createInputs(repoRoot, inputPaths),
+    inputs,
     outputs: [...new Set(outputs)].sort((left, right) => left.localeCompare(right)),
     tests,
   });
 }
 
 export function createTestBuildStampContent(repoRoot: string): string {
-  return `${JSON.stringify(createManifest(repoRoot))}\n`;
+  const inputPaths = listInputFiles(repoRoot);
+  if (!inputPaths) {
+    throw new Error('Cannot create a test build manifest while required inputs are missing.');
+  }
+  return `${JSON.stringify(createManifestFromInputs(createInputs(repoRoot, inputPaths)))}\n`;
 }
 
 function readManifest(stampPath: string): TestBuildManifest | null {
@@ -180,16 +181,19 @@ function readManifest(stampPath: string): TestBuildManifest | null {
   }
 }
 
-function findChangedInput(
-  repoRoot: string,
+function findChangedInputPaths(
   manifestInputs: TestBuildManifest['inputs'],
   currentInputs: TestBuildManifest['inputs'],
-): string | null {
+): string[] {
   const manifestByPath = new Map(manifestInputs.map((input) => [input.path, input.sha256]));
   const currentByPath = new Map(currentInputs.map((input) => [input.path, input.sha256]));
-  const changedPath = currentInputs.find((input) => manifestByPath.get(input.path) !== input.sha256)?.path
-    ?? manifestInputs.find((input) => currentByPath.get(input.path) !== input.sha256)?.path;
-  return changedPath ? path.resolve(repoRoot, changedPath) : null;
+  const changed = currentInputs
+    .filter((input) => manifestByPath.get(input.path) !== input.sha256)
+    .map((input) => input.path);
+  const removed = manifestInputs
+    .filter((input) => !currentByPath.has(input.path))
+    .map((input) => input.path);
+  return [...changed, ...removed];
 }
 
 export function getTestBuildState(repoRoot: string): TestBuildState {
@@ -206,19 +210,24 @@ export function getTestBuildState(repoRoot: string): TestBuildState {
   if (!currentInputPaths) {
     return { kind: 'missing' };
   }
-  const changedInputPath = findChangedInput(
-    repoRoot,
-    manifest.inputs,
-    createInputs(repoRoot, currentInputPaths),
-  );
-  if (changedInputPath) {
-    return { kind: 'stale', newestInputPath: changedInputPath };
+  // Hashing every input is the dominant cost of this call, so the inputs computed here are
+  // reused for the derived-manifest comparison below instead of being recomputed.
+  const currentInputs = createInputs(repoRoot, currentInputPaths);
+  const changedInputPaths = findChangedInputPaths(manifest.inputs, currentInputs);
+  if (changedInputPaths.length > 0) {
+    return {
+      kind: 'stale',
+      newestInputPath: path.resolve(repoRoot, changedInputPaths[0] ?? ''),
+      changedInputPaths,
+    };
   }
 
-  const expectedManifest = createManifest(repoRoot);
+  const expectedManifest = createManifestFromInputs(currentInputs);
   if (JSON.stringify(manifest.outputs) !== JSON.stringify(expectedManifest.outputs)
     || JSON.stringify(manifest.tests) !== JSON.stringify(expectedManifest.tests)) {
-    return { kind: 'stale', newestInputPath: stampPath };
+    // Inputs all match yet derived outputs disagree: the stamp itself is inconsistent.
+    // No input to blame, so the fast path must not engage — an empty list signals that.
+    return { kind: 'stale', newestInputPath: stampPath, changedInputPaths: [] };
   }
   const missingOutput = manifest.outputs.find((outputPath) => !fs.existsSync(path.resolve(repoRoot, outputPath)));
   if (missingOutput) {

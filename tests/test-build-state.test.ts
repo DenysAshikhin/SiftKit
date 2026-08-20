@@ -122,7 +122,11 @@ test('test build state names a changed input when artifacts are stale', () => {
   const { root, newestInputPath } = createCurrentBuildLayout();
   fs.writeFileSync(newestInputPath, 'changed', 'utf8');
 
-  assert.deepEqual(getTestBuildState(root), { kind: 'stale', newestInputPath });
+  assert.deepEqual(getTestBuildState(root), {
+    kind: 'stale',
+    newestInputPath,
+    changedInputPaths: ['src/input.ts'],
+  });
   assert.throws(() => assertCurrentTestBuild(root), /npm run build:test/u);
 });
 
@@ -132,7 +136,11 @@ test('test build state detects changed input content when its mtime is restored'
   fs.writeFileSync(newestInputPath, 'changed-with-restored-mtime', 'utf8');
   fs.utimesSync(newestInputPath, originalTimes.atime, originalTimes.mtime);
 
-  assert.deepEqual(getTestBuildState(root), { kind: 'stale', newestInputPath });
+  assert.deepEqual(getTestBuildState(root), {
+    kind: 'stale',
+    newestInputPath,
+    changedInputPaths: ['src/input.ts'],
+  });
 });
 
 test('test build state accepts a complete artifact tree newer than every input', () => {
@@ -154,5 +162,22 @@ test('test build state rejects artifacts after a source input is deleted', () =>
   const deletedInputPath = path.join(root, 'src', 'input.ts');
   fs.rmSync(deletedInputPath);
 
-  assert.deepEqual(getTestBuildState(root), { kind: 'stale', newestInputPath: deletedInputPath });
+  assert.deepEqual(getTestBuildState(root), {
+    kind: 'stale',
+    newestInputPath: deletedInputPath,
+    changedInputPaths: ['src/input.ts'],
+  });
+});
+
+test('test build state lists every changed input for the fast-path decision', () => {
+  const { root } = createCurrentBuildLayout();
+  fs.writeFileSync(path.join(root, 'tests', 'input.test.ts'), 'changed', 'utf8');
+  fs.writeFileSync(path.join(root, 'dashboard', 'tests', 'input.test.ts'), 'changed', 'utf8');
+
+  const state = getTestBuildState(root);
+  assert.equal(state.kind, 'stale');
+  assert.deepEqual(
+    state.kind === 'stale' ? state.changedInputPaths : [],
+    ['dashboard/tests/input.test.ts', 'tests/input.test.ts'],
+  );
 });

@@ -3,7 +3,6 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { buildNodeTestArgs } from './test-targets.js';
-import { assertCurrentTestBuild } from './test-build-state.js';
 import { terminateProcessTree } from '../lib/process-tree.js';
 import { TIMEOUT_EXIT_CODE } from '../lib/captured-command.js';
 import { SIFT_DEFAULT_LLAMA_PORT, SIFT_DEFAULT_STATUS_PORT } from '../config/constants.js';
@@ -36,7 +35,8 @@ const repoRoot = process.cwd();
 // it, and the URL is absolute so a child in a temp cwd resolves it like one in the repo.
 const scriptsDirectory = path.dirname(fileURLToPath(import.meta.url));
 const liveInstanceGuardUrl = pathToFileURL(path.resolve(scriptsDirectory, 'live-instance-guard.js')).href;
-assertCurrentTestBuild(repoRoot);
+// buildNodeTestArgs reaches readCurrentTestBuildManifest, which asserts the build is current;
+// asserting here too would hash every input a second time before a single test ran.
 const testArgs = buildNodeTestArgs(repoRoot, process.argv.slice(2));
 // Node defaults to no per-test timeout, so one test awaiting a server or child process that never
 // answers freezes the whole run with no output. A bounded failure is always more useful than a hang.
