@@ -1,6 +1,7 @@
 import { syncDerivedSettingsFields } from '../settings-runtime.js';
 import telemetryMetrics from '../../../src/lib/telemetry-metrics.js';
 import type { JsonValue, JsonObject, OptionalJsonValue } from '../../../src/lib/json-types.js';
+import { sumImageTokens } from '@siftkit/contracts';
 import type {
   ChatSession,
   DashboardConfig,
@@ -98,6 +99,16 @@ export function getMessageKnownTokenCount(message: ChatSession['messages'][numbe
 
 export function getReplayDisplayTokenCount(message: ChatSession['messages'][number]): number | null {
   return getMessageTokenCount(message);
+}
+
+export function formatMessageTokenLabel(message: ChatSession['messages'][number]): string {
+  const textTokens = getReplayDisplayTokenCount(message);
+  const imageTokens = sumImageTokens(message.imageMeta);
+  if (textTokens === 0 && imageTokens > 0) {
+    return `${formatNumber(imageTokens)} image tokens`;
+  }
+  const textLabel = formatTokenLabel(textTokens);
+  return imageTokens > 0 ? `${textLabel} (+${formatNumber(imageTokens)} img)` : textLabel;
 }
 
 export function getSessionTelemetryStats(session: ChatSession | null): {

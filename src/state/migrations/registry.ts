@@ -556,4 +556,21 @@ export const MIGRATIONS: readonly Migration[] = [
     }
     },
   },
+  {
+    version: 49,
+    up: (database) => {
+    if (tableHasColumn(database, 'chat_messages', 'image_meta')) {
+      database.exec(`
+      UPDATE chat_messages
+      SET input_tokens_estimate = 0,
+          input_tokens_estimated = 0
+      WHERE role = 'user'
+        AND coalesce(kind, 'user_text') = 'user_text'
+        AND trim(content) = ''
+        AND image_meta IS NOT NULL
+        AND json_array_length(image_meta) > 0;
+      `);
+    }
+    },
+  },
 ];

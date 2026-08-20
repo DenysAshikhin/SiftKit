@@ -8,7 +8,6 @@ export {
   buildScorecard,
   runRepoSearch,
   runTaskLoop,
-  TASK_PACK,
   type Scorecard,
   type TaskDefinition,
   type TaskResult,

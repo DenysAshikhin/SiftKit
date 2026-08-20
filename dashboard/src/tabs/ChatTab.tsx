@@ -6,11 +6,11 @@ import { sumImageTokens } from '@siftkit/contracts';
 import {
   formatCompactTokenCount,
   formatDate,
+  formatMessageTokenLabel,
   formatNumber,
   formatTokenLabel,
   getMessageKnownTokenCount,
   getMessageTokenCount,
-  getReplayDisplayTokenCount,
 } from '../lib/format';
 import {
   buildLiveMessageScrollSignature,
@@ -74,12 +74,6 @@ function getTurnTokenDisplay(messages: ChatMessage[]): TurnTokenDisplay {
     return { tokenCount: total, exact: true };
   }
   return knownTotal > 0 ? { tokenCount: knownTotal, exact: false } : { tokenCount: null, exact: false };
-}
-
-function formatBubbleTokenLabel(message: ChatMessage): string {
-  const textLabel = formatTokenLabel(getReplayDisplayTokenCount(message));
-  const imageTokens = sumImageTokens(message.imageMeta);
-  return imageTokens > 0 ? `${textLabel} (+${formatNumber(imageTokens)} img)` : textLabel;
 }
 
 export type ChatSessionIndicatorView = {
@@ -595,7 +589,7 @@ function MessageHeader({ message, isLive, isPending, chatBusy, onDeleteMessage }
       <span>{messageLabel} · {isPending ? 'sending…' : isLive ? 'live' : formatDate(message.createdAtUtc)}</span>
       <span className="msg-meta">
         {isPending ? <span className="sp" /> : null}
-        <span className="msg-tokens" title="Text tokens, plus the estimated image tokens this message keeps in context.">{formatBubbleTokenLabel(message)}</span>
+        <span className="msg-tokens" title="Text tokens, plus the estimated image tokens this message keeps in context.">{formatMessageTokenLabel(message)}</span>
         {!isLive ? (
           <button
             type="button"

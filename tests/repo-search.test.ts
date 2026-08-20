@@ -22,6 +22,7 @@ import { z } from 'zod';
 import { ProgressWriter, SilentProgressWriter } from '../src/lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { OutputCapture } from './helpers/stdout-capture.js';
+import { getActiveModelPreset } from '../src/config/index.js';
 
 const IMAGES_ONLY_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
@@ -204,24 +205,33 @@ test('executeRepoSearchRequest throws on whitespace-only prompt', async () => {
   });
 });
 
-test('executeRepoSearchRequest does not reject an images-only request at the prompt guard', async () => {
-  await withTestEnvAndServer(async () => {
-    await assert.doesNotReject(
-      async () => {
-        try {
-          await executeRepoSearchRequest({
-            presetId: 'chat',
-            taskKind: 'chat',
-            prompt: '',
-            repoRoot: process.cwd(),
-            initialUserImages: [IMAGES_ONLY_PNG],
-          });
-        } catch (error) {
-          // Anything past the guard is acceptable here; only the guard is under test.
-          assert.doesNotMatch(getErrorMessage(error), /prompt or an image is required/u);
-        }
-      },
-    );
+test('executeRepoSearchRequest runs one task for an image-only chat request', async () => {
+  await withTestEnvAndServer(async ({ stub, tempRoot }) => {
+    const config = asRuntimeSiftConfig(stub.state.config);
+    const activePreset = getActiveModelPreset(config);
+    activePreset.Backend = 'exl3';
+    activePreset.VisionEnabled = true;
+    activePreset.VisionImageRetention = -1;
+
+    const result = await executeRepoSearchRequest({
+      presetId: 'chat',
+      taskKind: 'chat',
+      prompt: '',
+      repoRoot: tempRoot,
+      config,
+      thinkingEnabled: false,
+      maxTurns: 1,
+      initialUserImages: [IMAGES_ONLY_PNG],
+      mockResponses: [
+        '{"action":"finish","output":"image answer"}',
+        'image answer',
+      ],
+      mockCommandResults: {},
+    });
+
+    assert.equal(result.scorecard.tasks.length, 1);
+    assert.equal(result.scorecard.tasks[0]?.question, '');
+    assert.equal(result.scorecard.tasks[0]?.finalOutput, 'image answer');
   });
 });
 

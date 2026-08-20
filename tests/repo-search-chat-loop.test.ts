@@ -509,3 +509,24 @@ test('runRepoSearch allows zero tools when allowEmptyTools is set', async () => 
   const tasks = scorecard.tasks;
   assert.equal(tasks[0].finalOutput, 'hi');
 });
+
+test('runRepoSearch rejects an undefined task prompt instead of executing self-test work', async () => {
+  await assert.rejects(
+    () => runRepoSearch({
+      repoRoot: os.tmpdir(),
+      systemContext: createEmptyPresetSystemContext(),
+      config: MOCK_CONFIG,
+      baseUrl: DEAD_BASE_URL,
+      allowedTools: [],
+      allowEmptyTools: true,
+      loopKind: 'chat',
+      minToolCallsBeforeFinish: 0,
+      taskPrompt: undefined,
+      availableModels: ['mock'],
+      model: 'mock',
+      mockResponses: ['{"action":"finish","output":"unexpected"}'],
+      mockCommandResults: {},
+    }),
+    /taskPrompt is required/u,
+  );
+});

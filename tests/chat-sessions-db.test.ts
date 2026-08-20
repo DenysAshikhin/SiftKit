@@ -104,6 +104,67 @@ test('chat sessions are persisted in runtime sqlite instead of JSON files', () =
   });
 });
 
+test('v49 normalizes persisted image-only user token metadata', () => {
+  withTempRepo((repoRoot) => {
+    const runtimeRoot = path.join(repoRoot, '.siftkit');
+    const databasePath = path.join(runtimeRoot, 'runtime.sqlite');
+    saveChatSession(runtimeRoot, {
+      id: 'image-only-session',
+      title: 'Image only',
+      modelPresetId: 'preset-a',
+      modelPreset: mockModelPreset({ id: 'preset-a' }),
+      thinkingEnabled: true,
+      presetId: 'chat',
+      mode: 'chat',
+      planRepoRoot: repoRoot,
+      condensedSummary: '',
+      createdAtUtc: '2026-08-20T00:00:00.000Z',
+      updatedAtUtc: '2026-08-20T00:00:00.000Z',
+      messages: [{
+        id: 'image-message',
+        role: 'user',
+        kind: 'user_text',
+        content: '',
+        inputTokensEstimate: 1,
+        outputTokensEstimate: 0,
+        thinkingTokens: 0,
+        inputTokensEstimated: true,
+        outputTokensEstimated: false,
+        thinkingTokensEstimated: false,
+        createdAtUtc: '2026-08-20T00:00:00.000Z',
+        images: ['data:image/png;base64,AA=='],
+        imageMeta: [{
+          width: 32,
+          height: 32,
+          originalWidth: 32,
+          originalHeight: 32,
+          mime: 'image/png',
+          byteLength: 64,
+          tokenEstimate: 1,
+          resized: false,
+          caption: null,
+        }],
+      }],
+    });
+    getRuntimeDatabase(databasePath)
+      .prepare('UPDATE runtime_schema SET version = 48 WHERE id = 1')
+      .run();
+    closeRuntimeDatabase();
+
+    const migratedMessage = readChatSessions(runtimeRoot)[0]?.messages?.[0];
+
+    assert.equal(migratedMessage?.inputTokensEstimate, 0);
+    assert.equal(migratedMessage?.inputTokensEstimated, false);
+    const row = z.object({
+      input_tokens_estimate: z.number(),
+      input_tokens_estimated: z.number(),
+    }).parse(getRuntimeDatabase(databasePath).prepare(
+      "SELECT input_tokens_estimate, input_tokens_estimated FROM chat_messages WHERE id = 'image-message'",
+    ).get());
+    assert.deepEqual(row, { input_tokens_estimate: 0, input_tokens_estimated: 0 });
+  });
+});
+
 test('chat sessions round-trip the full model preset snapshot', () => {
   withTempRepo((repoRoot) => {
     const runtimeRoot = path.join(repoRoot, '.siftkit');

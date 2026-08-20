@@ -5,7 +5,7 @@ import test from 'node:test';
 import { z } from '../src/lib/zod.js';
 import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { writeConfig } from '../src/status-server/config-store.js';
-import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
+import { CURRENT_SCHEMA_VERSION, closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 const SchemaVersionRowSchema = z.object({ version: z.number() });
@@ -76,7 +76,7 @@ test('v48 nulls stamped run-total prompt token counts on pre-fix tool rows', () 
     closeRuntimeDatabase();
 
     assert.deepEqual(readPromptTokenCounts(dbPath), [null, null, null]);
-    assert.equal(readSchemaVersion(dbPath), 48);
+    assert.equal(readSchemaVersion(dbPath), CURRENT_SCHEMA_VERSION);
   } finally {
     closeRuntimeDatabase();
   }
@@ -95,7 +95,7 @@ test('v48 tolerates a chat_messages table that predates the prompt-token column'
     closeRuntimeDatabase();
 
     assert.deepEqual(readPromptTokenCounts(dbPath), []);
-    assert.equal(readSchemaVersion(dbPath), 48);
+    assert.equal(readSchemaVersion(dbPath), CURRENT_SCHEMA_VERSION);
   } finally {
     closeRuntimeDatabase();
   }

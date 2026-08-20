@@ -37,6 +37,12 @@ test('chat turn telemetry counts input and thinking with one explicit policy own
   ]);
 });
 
+test('chat turn telemetry counts blank input as exact zero', async () => {
+  const telemetry = new ChatTurnTelemetry(getDefaultConfigObject(), undefined);
+
+  assert.deepEqual(await telemetry.countInputTokens(''), { tokenCount: 0, estimated: false });
+});
+
 test('chat turn telemetry requires session thinking and active reasoning retention', () => {
   const config = getDefaultConfigObject();
   const preset = getActiveModelPreset(config);

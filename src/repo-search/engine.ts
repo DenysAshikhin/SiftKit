@@ -46,38 +46,6 @@ import type { PresetSystemContext } from '../preset-system-context.js';
 export { evaluateTaskSignals, type RunTaskLoopOptions, type TaskDefinition, type TaskResult } from './engine/task-loop.js';
 
 // ---------------------------------------------------------------------------
-// Task definitions (built-in self-test pack)
-// ---------------------------------------------------------------------------
-
-export const TASK_PACK: TaskDefinition[] = [
-  {
-    id: 'symbol-location',
-    question: 'Find where buildPlannerToolDefinitions is defined. Return file path and nearby signature text.',
-    signals: ['src[\\\\/]summary\\.ts', 'buildPlannerToolDefinitions'],
-  },
-  {
-    id: 'call-path',
-    question: 'Find what function invokes invokePlannerMode in summary flow. Return caller function name.',
-    signals: ['invokePlannerMode', 'invokeSummaryCore'],
-  },
-  {
-    id: 'config-runtime-key',
-    question: 'Find where getConfiguredLlamaNumCtx is defined and at least one usage site.',
-    signals: ['src[\\\\/]config\\.ts', 'getConfiguredLlamaNumCtx'],
-  },
-  {
-    id: 'planner-tools',
-    question: 'Find planner tool names in SiftKit and list them.',
-    signals: ['find_text', 'read_lines', 'json_filter'],
-  },
-  {
-    id: 'debug-artifacts',
-    question: 'Find where planner debug dumps are written and show filename pattern.',
-    signals: ['planner_debug_', 'getRuntimeLogsPath'],
-  },
-];
-
-// ---------------------------------------------------------------------------
 // Main task loop
 // ---------------------------------------------------------------------------
 
@@ -182,7 +150,7 @@ export async function runRepoSearch(options: {
   systemPromptOverride?: string;
   historyMessages?: ChatMessage[];
   thinkingEnabledOverride?: boolean;
-  taskPrompt?: string;
+  taskPrompt: string | undefined;
   availableModels?: string[];
   mockResponses?: string[];
   mockCommandResults?: Record<string, RepoSearchMockCommandResult>;
@@ -196,6 +164,9 @@ export async function runRepoSearch(options: {
   timingRecorder?: TemporaryTimingRecorder | null;
 }): Promise<Scorecard> {
   throwIfAborted(options.abortSignal);
+  if (options.taskPrompt === undefined) {
+    throw new Error('runRepoSearch taskPrompt is required.');
+  }
   const progressWriter = options.progressWriter ?? new SilentProgressWriter<RepoSearchProgressEvent>();
   const path = await import('node:path');
   const repoRoot = path.resolve(options.repoRoot || process.cwd());
@@ -231,9 +202,11 @@ export async function runRepoSearch(options: {
   progressWriter.write({ kind: 'model_inventory_done', modelCount: availableModels.length, elapsedMs: 0 });
   options.logger?.write({ kind: 'model_inventory', configuredModel: model, availableModels });
 
-  const tasksToRun: TaskDefinition[] = options.taskPrompt
-    ? [{ id: 'repo-search', question: String(options.taskPrompt), signals: [] }]
-    : TASK_PACK;
+  const tasksToRun: TaskDefinition[] = [{
+    id: 'repo-search',
+    question: options.taskPrompt,
+    signals: [],
+  }];
 
   const tasks: TaskResult[] = [];
 

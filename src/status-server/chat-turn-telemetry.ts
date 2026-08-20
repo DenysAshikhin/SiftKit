@@ -20,6 +20,9 @@ export class ChatTurnTelemetry {
   ) {}
 
   async countInputTokens(content: string): Promise<ChatInputTokenCount> {
+    if (!content.trim()) {
+      return { tokenCount: 0, estimated: false };
+    }
     const count = await this.countTokens(content);
     return {
       tokenCount: count.tokenCount,

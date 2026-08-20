@@ -473,3 +473,24 @@ test('a bubble token chip separates text tokens from image tokens', () => {
 
   assert.match(markup, /12 tokens \(\+1,024 img\)/u);
 });
+
+test('an image-only bubble surfaces its known image token count', () => {
+  const session = {
+    ...SESSION_A,
+    messages: [msg({
+      id: 'u1',
+      role: 'user',
+      kind: 'user_text',
+      content: '',
+      inputTokensEstimate: 0,
+      inputTokensEstimated: false,
+      images: [IMAGE],
+      imageMeta: [{ ...IMAGE_META, tokenEstimate: 2048 }],
+    })],
+  };
+
+  const markup = render({ selectedSession: session });
+
+  assert.match(markup, /2,048 image tokens/u);
+  assert.doesNotMatch(markup, /tokens unavailable/u);
+});
