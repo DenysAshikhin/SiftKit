@@ -63,6 +63,32 @@ test('sendArchive streams the archive and then deletes it', async () => {
   }
 });
 
+/**
+ * Pins the cleanup contract so the builder and the handle it returns cannot drift back into two
+ * different `cleanup()` semantics: whichever one you call, in either state, the directory goes.
+ */
+test('the builder and the archive it returns share one cleanup', () => {
+  const builder = new TempArchiveBuilder('siftkit-archive-cleanup-');
+  builder.writer.addBuffer('payload.bin', Buffer.from('kept', 'utf8'));
+  const archive = builder.finish();
+
+  assert.equal(fs.readFileSync(archive.path).byteLength > 0, true);
+  builder.cleanup();
+  assert.equal(fs.existsSync(archive.path), false);
+  archive.cleanup(); // idempotent: the handle the caller holds must tolerate a double cleanup
+  assert.equal(fs.existsSync(path.dirname(archive.path)), false);
+});
+
+test('cleanup before finish closes the writer and leaves nothing behind', () => {
+  const builder = new TempArchiveBuilder('siftkit-archive-abandoned-');
+  builder.writer.addBuffer('payload.bin', Buffer.from('abandoned', 'utf8'));
+  const directory = path.dirname(builder.scratchPath('x'));
+
+  builder.cleanup();
+  assert.equal(fs.existsSync(directory), false);
+  builder.cleanup(); // a failure path may call it twice; the second must not throw
+});
+
 test('sendArchive deletes the archive when the client disconnects mid-download', async () => {
   const archive = buildArchive();
   const directory = path.dirname(archive.path);

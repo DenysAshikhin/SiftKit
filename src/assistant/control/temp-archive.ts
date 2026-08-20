@@ -21,15 +21,16 @@ export interface TempArchive {
  * memory. `cleanup` removes the directory whether the build finished or threw, which is why
  * every intermediate file belongs in `scratchPath` rather than somewhere else in `os.tmpdir()`.
  */
-export class TempArchiveBuilder {
+export class TempArchiveBuilder implements TempArchive {
   readonly writer: ZipFileWriter;
+  readonly path: string;
   private readonly directory: string;
-  private readonly archivePath: string;
+  private finished = false;
 
   constructor(prefix: string) {
     this.directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-    this.archivePath = path.join(this.directory, ARCHIVE_FILE_NAME);
-    this.writer = new ZipFileWriter(this.archivePath);
+    this.path = path.join(this.directory, ARCHIVE_FILE_NAME);
+    this.writer = new ZipFileWriter(this.path);
   }
 
   /** A path for an intermediate file, inside the directory `cleanup` already covers. */
@@ -37,20 +38,22 @@ export class TempArchiveBuilder {
     return path.join(this.directory, name);
   }
 
+  /** Seals the archive and hands back the narrow handle the caller owns. */
   finish(): TempArchive {
     this.writer.finish();
-    const directory = this.directory;
-    return {
-      path: this.archivePath,
-      cleanup(): void {
-        fs.rmSync(directory, { recursive: true, force: true });
-      },
-    };
+    this.finished = true;
+    return this;
   }
 
-  /** Closes the writer and removes the directory. Safe before or after `finish`. */
+  /**
+   * Removes the directory and everything in it. The only cleanup path, safe to call more than
+   * once and in either state: an unfinished writer still holds an open fd, so it is closed first.
+   */
   cleanup(): void {
-    this.writer.abort();
+    if (!this.finished) {
+      this.writer.abort();
+      this.finished = true;
+    }
     fs.rmSync(this.directory, { recursive: true, force: true });
   }
 }
