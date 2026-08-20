@@ -194,6 +194,38 @@ pre-existing fragility, not a regression: `ce832dd5` green, `2912f45b` red, and 
 no `src` file at all. Fixing it properly means holding the active operation until explicitly
 released rather than by wall clock.
 
+## Drift follow-up (2026-08-20) — complete
+
+The eight follow-up findings the user selected from the 2026-08-19 reflection were closed under
+`docs/superpowers/plans/2026-08-20-drift-followup-remediation.md`, commits `9feadf9f`..`3c1abb02`.
+Findings 1, 2, 3, 4, 5, 7, 9 and 10 are closed:
+
+- `BodySink.write` is async and `consumeBody` pauses the request per chunk, so no request body
+  reaches disk synchronously. Ordering guard: a 8 MB position-dependent payload must hash equal.
+- `RestoreService.preview` parks its upload with `fs.promises.copyFile`, not `copyFileSync`.
+- `findEocdOffset` throws instead of returning `-1`; its only caller lost the sentinel check.
+- `ZipFileReader` has one read path, over the `FileHandle` promise API. The `private get fd()`,
+  the synchronous `readExactly` and `readExactlyAsync` are gone, `readEntry` is async, and the
+  class doc's non-blocking claim is now true rather than aspirational.
+- `TempArchiveBuilder.finish()` returns `{ path, cleanup }` bound to the builder's own `cleanup`,
+  so a sealed archive no longer hands back its writer.
+- `tests/zip-external-tool.test.ts` claims only what Expand-Archive can detect; the UTF-8 flag-bit
+  claim is replaced by a note that no available oracle can pin that bit.
+- The four token assertions duplicated after the poll in `tests/dashboard-status-server.test.ts`
+  are gone, and `statusMetrics` moved inside the poll that assigns it.
+
+Reviewed and deliberately left:
+
+- 6 — `readArchiveEntriesFromBytes` still round-trips bytes through a temp file; accepted because
+  it is test-only and the alternative is a second reader.
+- 8 — `BufferBodySink.take()` keeps its unreachable-state throw; accepted because the nullable
+  field is what makes the sink's two-phase contract type-safe.
+
+**Not covered, still open:** `ZipFileWriter.writeAt` (`src/lib/zip-file-writer.ts:112`) uses
+`fs.writeSync`. No 2026-08-19 finding named it, so it was out of this plan's scope — but it is the
+same defect class as finding 1 on the archive-writing half, and a backup writes the whole evidence
+tree through it.
+
 ## Suggested next steps
 
 1. Make `DashboardModelQueueHarness` release its held operation explicitly instead of on a
