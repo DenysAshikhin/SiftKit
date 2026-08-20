@@ -16,15 +16,90 @@ test('event lines are compact and uncoloured when colour is disabled', () => {
     scope: 'rs',
     id: 'ddda7acf-fe04-45b8-9005-2180c3327878',
     event: 'preflight',
-    fields: 't4/45  prompt=32,944tok/102.9kc',
+    fields: 't4/45  prompt=32,944tok',
     date: new Date(2026, 6, 21, 20, 42, 37),
   });
 
   assert.equal(sink.lines.length, 1);
   assert.equal(
     sink.lines[0],
-    '20:42:37  rs ddda7acf  preflight  t4/45  prompt=32,944tok/102.9kc\n',
+    '20:42:37  rs ddda7acf  preflight  t4/45  prompt=32,944tok\n',
   );
+});
+
+test('severity colour covers the fields, not just the verb', () => {
+  const sink = collect();
+  const logger = new ServerLogger({ level: 'normal', colour: true, write: sink.write });
+
+  logger.warning({
+    scope: 'rs',
+    id: 'abcdef12',
+    event: 'auto-approval',
+    fields: 't3/9  approve: edit',
+    date: new Date(2026, 6, 21, 20, 42, 37),
+  });
+
+  assert.equal(sink.lines.length, 1);
+  assert.equal(
+    sink.lines[0],
+    '\x1b[2;37m20:42:37\x1b[0m'
+      + '  \x1b[36mrs\x1b[0m \x1b[2;35mabcdef12\x1b[0m'
+      + '  \x1b[33mauto-approval\x1b[0m'
+      + '  \x1b[33mt3/9  approve: edit\x1b[0m\n',
+  );
+});
+
+test('plain event lines leave their fields uncoloured', () => {
+  const sink = collect();
+  new ServerLogger({ level: 'normal', colour: true, write: sink.write })
+    .event({ scope: 'rs', id: 'abcdef12', event: 'command', fields: 't3/9  run command="npm test"' });
+
+  assert.ok(sink.lines[0].endsWith('  t3/9  run command="npm test"\n'), 'normal fields carry no SGR');
+});
+
+test('an alert fragment trails the fields in red on an otherwise normal line', () => {
+  const sink = collect();
+  const logger = new ServerLogger({ level: 'normal', colour: true, write: sink.write });
+
+  logger.event({
+    scope: 'rs',
+    id: 'abcdef12',
+    event: 'preflight',
+    fields: 't4/45  prompt=32,944tok  elapsed=31s',
+    alert: 'tokenize=111ms(exl3)',
+  });
+
+  assert.equal(sink.lines.length, 1);
+  assert.ok(
+    sink.lines[0].endsWith('  t4/45  prompt=32,944tok  elapsed=31s  \x1b[31mtokenize=111ms(exl3)\x1b[0m\n'),
+    'only the alert fragment is red',
+  );
+});
+
+test('an alert fragment concatenates plainly when colour is disabled', () => {
+  const sink = collect();
+  new ServerLogger({ level: 'normal', colour: false, write: sink.write }).event({
+    scope: 'rs',
+    id: 'abcdef12',
+    event: 'preflight',
+    fields: 't4/45  elapsed=31s',
+    alert: 'tokenize=111ms(exl3)',
+    date: new Date(2026, 6, 21, 20, 42, 37),
+  });
+
+  assert.equal(sink.lines[0], '20:42:37  rs abcdef12  preflight  t4/45  elapsed=31s  tokenize=111ms(exl3)\n');
+});
+
+test('emitBody forwards the alert fragment', () => {
+  const sink = collect();
+  new ServerLogger({ level: 'normal', colour: false, write: sink.write }).emitBody('rs', 'abcdef12', {
+    event: 'preflight',
+    fields: 't4/45  elapsed=31s',
+    alert: 'tokenize=111ms(exl3)',
+    severity: 'normal',
+  });
+
+  assert.ok(sink.lines[0].endsWith('tokenize=111ms(exl3)\n'));
 });
 
 test('debug events are suppressed at normal level and emitted at debug level', () => {

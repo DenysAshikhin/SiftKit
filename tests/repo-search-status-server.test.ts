@@ -812,6 +812,86 @@ test('buildRepoSearchProgressLogBody formats command and llm progress bodies', (
   assert.equal(buildRepoSearchProgressLogBody({ kind: 'command', turn: 1, maxTurns: 2 }), null);
 });
 
+test('auto-approval verdicts log as their own warning-severity line', () => {
+  assert.deepEqual(
+    buildRepoSearchProgressLogBody({
+      kind: 'approval_auto',
+      turn: 31,
+      maxTurns: 100,
+      toolName: 'edit',
+      command: 'edit path="src/x.ts" edits=1',
+      verdict: 'approve',
+      reason: 'file is inside the repo and the edit matches the plan',
+    }),
+    {
+      event: 'auto-approval',
+      fields: 't31/100  approve: edit — file is inside the repo and the edit matches the plan',
+      severity: 'warning',
+    },
+  );
+  assert.deepEqual(
+    buildRepoSearchProgressLogBody({
+      kind: 'approval_auto',
+      turn: 2,
+      maxTurns: 9,
+      toolName: 'run',
+      command: 'run command="rm -rf /"',
+      verdict: 'deny',
+      reason: 'deletes outside the repository root',
+    }),
+    {
+      event: 'auto-approval',
+      fields: 't2/9  deny: run — deletes outside the repository root',
+      severity: 'warning',
+    },
+  );
+});
+
+test('a multi-line auto-approval reason is collapsed onto one line', () => {
+  const body = buildRepoSearchProgressLogBody({
+    kind: 'approval_auto',
+    turn: 1,
+    maxTurns: 2,
+    toolName: 'edit',
+    verdict: 'unsure',
+    reason: 'the diff touches\n  generated output\n\nand the plan is silent about it',
+  });
+
+  assert.equal(
+    body?.fields,
+    't1/2  unsure: edit — the diff touches generated output and the plan is silent about it',
+  );
+});
+
+test('an over-long auto-approval reason is truncated rather than flooding the log', () => {
+  const body = buildRepoSearchProgressLogBody({
+    kind: 'approval_auto',
+    turn: 1,
+    maxTurns: 2,
+    toolName: 'edit',
+    verdict: 'approve',
+    reason: 'x'.repeat(400),
+  });
+
+  assert.ok(String(body?.fields).length < 220, 'the line stays readable');
+  assert.ok(String(body?.fields).endsWith('…'), 'truncation is marked');
+});
+
+test('an auto-approval line never leaks the review payload', () => {
+  const body = buildRepoSearchProgressLogBody({
+    kind: 'approval_auto',
+    turn: 1,
+    maxTurns: 2,
+    toolName: 'edit',
+    command: 'edit path="src/x.ts" edits=1',
+    verdict: 'approve',
+    reason: 'looks fine',
+    reviewPayload: 'auto-approval-secret-sentinel',
+  });
+
+  assert.equal(JSON.stringify(body).includes('auto-approval-secret-sentinel'), false);
+});
+
 test('repo-search transcript artifact keeps routine normalized flags out of tool replay', async () => {
   const tempRoot = createManagedTempDir('siftkit-repo-search-effective-transcript-');
   const previousCwd = process.cwd();

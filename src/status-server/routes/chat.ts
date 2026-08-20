@@ -38,6 +38,7 @@ import { admitImagesForPreset } from '../../llm-protocol/preset-image-admission.
 import {
   type RepoSearchProgressEvent,
   buildRepoSearchProgressLogBody,
+  isServerLoggedProgressEvent,
   removeDashboardRunCommandFromLogs,
 } from '../dashboard-runs.js';
 import {
@@ -401,7 +402,7 @@ class RepoSearchToolLogProgressWriter extends ProgressWriter<RepoSearchProgressE
   }
 
   write(event: RepoSearchProgressEvent): void {
-    if (event.kind !== 'tool_start' && event.kind !== 'context_warning') return;
+    if (!isServerLoggedProgressEvent(event)) return;
     const body = buildRepoSearchProgressLogBody(event);
     if (body) {
       serverLogger.emitBody(this.scope, this.requestId, body);

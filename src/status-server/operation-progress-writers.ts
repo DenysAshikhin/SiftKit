@@ -1,7 +1,7 @@
 import { ProgressWriter } from '../lib/progress-writer.js';
 import type { SummaryProgressEvent } from '../summary/progress-reporter.js';
 import type { RepoSearchProgressEvent } from '../repo-search/types.js';
-import { buildRepoSearchProgressLogBody } from './dashboard-runs.js';
+import { buildRepoSearchProgressLogBody, isServerLoggedProgressEvent } from './dashboard-runs.js';
 import { serverLogger } from './server-logger.js';
 import type { StreamedOperationContext } from './routes/streamed-operation-endpoint.js';
 
@@ -48,7 +48,7 @@ export class LoggedRepoSearchSseProgressWriter extends RepoSearchSseProgressWrit
   }
 
   override write(event: RepoSearchProgressEvent): void {
-    if (event.kind === 'tool_start' || event.kind === 'context_warning') {
+    if (isServerLoggedProgressEvent(event)) {
       const body = buildRepoSearchProgressLogBody(event);
       if (body) {
         serverLogger.emitBody('rs', this.requestId, body);

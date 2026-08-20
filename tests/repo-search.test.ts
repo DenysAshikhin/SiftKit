@@ -435,38 +435,68 @@ test('executeRepoSearchRequest logs lifecycle before provider work starts', asyn
   });
 });
 
-test('executeRepoSearchRequest logs repo-search preflight tokenization timing', async () => {
-  await withTestEnvAndServer(async ({ tempRoot, stub }) => {
-    const previousLogLevel = process.env.SIFTKIT_LOG_LEVEL;
-    process.env.SIFTKIT_LOG_LEVEL = 'debug';
-    const capture = OutputCapture.start(process.stdout);
-    try {
-      await executeRepoSearchRequest({
+async function capturePreflightLogLines(
+  tempRoot: string,
+  config: ReturnType<typeof asRuntimeSiftConfig>,
+): Promise<readonly string[]> {
+  const previousLogLevel = process.env.SIFTKIT_LOG_LEVEL;
+  process.env.SIFTKIT_LOG_LEVEL = 'debug';
+  const capture = OutputCapture.start(process.stdout);
+  try {
+    await executeRepoSearchRequest({
       presetId: 'repo-search',
-        prompt: 'find tokenize timing logs',
-        repoRoot: tempRoot,
-        config: asRuntimeSiftConfig(stub.state.config),
-        maxTurns: 1,
-        mockCommandResults: {},
-      });
-    } finally {
-      capture.restore();
-      if (previousLogLevel === undefined) delete process.env.SIFTKIT_LOG_LEVEL;
-      else process.env.SIFTKIT_LOG_LEVEL = previousLogLevel;
-    }
-    const lines = capture.lines;
+      prompt: 'find tokenize timing logs',
+      repoRoot: tempRoot,
+      config,
+      maxTurns: 1,
+      mockCommandResults: {},
+    });
+  } finally {
+    capture.restore();
+    if (previousLogLevel === undefined) delete process.env.SIFTKIT_LOG_LEVEL;
+    else process.env.SIFTKIT_LOG_LEVEL = previousLogLevel;
+  }
+  return capture.lines;
+}
+
+test('executeRepoSearchRequest logs repo-search preflight without the character count', async () => {
+  await withTestEnvAndServer(async ({ tempRoot, stub }) => {
+    const lines = await capturePreflightLogLines(tempRoot, asRuntimeSiftConfig(stub.state.config));
 
     assert.ok(
       lines.some((line) => /rs [\da-f]{8} {2}preflight_tokenize_start {2}t1 {2}prompt_chars=\d+ {2}timeout_ms=10000 {2}retry_max_wait_ms=30000/u.test(line)),
       lines.join('\n'),
     );
+    const preflightLines = lines.filter((line) => / {2}preflight {2}/u.test(line));
+    for (const line of preflightLines) {
+      assert.match(
+        line,
+        /rs [\da-f]{8} {2}preflight {2}t1\/\d+ {2}prompt=\d+tok {2}elapsed=\d+s( {2}tokenize=\d+ms\(llama\))?$/u,
+        lines.join('\n'),
+      );
+    }
+  }, {
+    assistantContent: '{"action":"finish","output":"done"}',
+    tokenizeTokenCount: 321,
+  });
+});
+
+test('a slow tokenize trails the preflight line with its duration and source', async () => {
+  await withTestEnvAndServer(async ({ tempRoot, stub }) => {
+    const lines = await capturePreflightLogLines(tempRoot, asRuntimeSiftConfig(stub.state.config));
+
     assert.ok(
-      lines.some((line) => /rs [\da-f]{8} {2}preflight {2}t1\/\d+ {2}prompt=\d+tok\/\d+\.\dkc {2}tokenize=\d+ms\(llama\) {2}elapsed=\d+s$/u.test(line)),
+      lines.some((line) => /rs [\da-f]{8} {2}preflight {2}t1\/\d+ {2}prompt=[\d,]+tok {2}elapsed=\d+s {2}tokenize=\d+ms\(llama\)$/u.test(line)),
       lines.join('\n'),
     );
   }, {
     assistantContent: '{"action":"finish","output":"done"}',
-    tokenizeTokenCount: 321,
+    // Stall past SLOW_TOKENIZE_MS so the preflight line is guaranteed to surface.
+    tokenizeTokenCount: () => {
+      const until = Date.now() + 40;
+      while (Date.now() < until) { /* deliberate stall */ }
+      return 321;
+    },
   });
 });
 

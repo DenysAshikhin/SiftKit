@@ -172,6 +172,23 @@ function normalizeRepoSearchCommandForLog(command: string | undefined): string {
   return String(command || '').replace(/\s+/gu, ' ').trim();
 }
 
+/** The model's rationale is free text, so it is flattened and clamped to keep the line scannable. */
+const APPROVAL_REASON_MAX_CHARS = 160;
+
+function normalizeApprovalReasonForLog(reason: string | undefined): string {
+  const collapsed = normalizeRepoSearchCommandForLog(reason);
+  return collapsed.length > APPROVAL_REASON_MAX_CHARS
+    ? `${collapsed.slice(0, APPROVAL_REASON_MAX_CHARS - 1)}…`
+    : collapsed;
+}
+
+/** Progress kinds the server prints; every other kind is dashboard- and stream-only. */
+const SERVER_LOGGED_PROGRESS_KINDS = new Set(['tool_start', 'context_warning', 'approval_auto']);
+
+export function isServerLoggedProgressEvent(event: RepoSearchProgressEvent): boolean {
+  return SERVER_LOGGED_PROGRESS_KINDS.has(event.kind);
+}
+
 export function buildRepoSearchProgressLogBody(event: RepoSearchProgressEvent | null | undefined): ServerLogBody | null {
   const maxTurnsLabel = Number.isFinite(Number(event?.maxTurns))
     ? String(Math.max(1, Math.trunc(Number(event?.maxTurns))))
@@ -190,6 +207,16 @@ export function buildRepoSearchProgressLogBody(event: RepoSearchProgressEvent | 
     return {
       event: 'context_warning',
       fields: event?.warningText ?? 'startup context was skipped',
+      severity: 'warning',
+    };
+  }
+  if (kind === 'approval_auto') {
+    const verdict = String(event?.verdict || 'unknown');
+    const toolName = normalizeRepoSearchCommandForLog(event?.toolName);
+    const reason = normalizeApprovalReasonForLog(event?.reason);
+    return {
+      event: 'auto-approval',
+      fields: `${turnLabel}  ${verdict}${toolName ? `: ${toolName}` : ''}${reason ? ` — ${reason}` : ''}`,
       severity: 'warning',
     };
   }

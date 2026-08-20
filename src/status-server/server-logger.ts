@@ -22,6 +22,8 @@ export type ServerLogEvent = {
   id: string;
   event: string;
   fields: string;
+  /** One hot fragment trailing the fields, always red, on a line whose own severity may be lower. */
+  alert?: string;
   date?: Date;
 };
 
@@ -32,6 +34,7 @@ export type LogSeverity = 'normal' | 'ok' | 'warning' | 'error';
 export type ServerLogBody = {
   event: string;
   fields: string;
+  alert?: string;
   severity: LogSeverity;
 };
 
@@ -114,7 +117,13 @@ export class ServerLogger {
 
   /** Emits a builder-produced body at the severity the builder declared. */
   emitBody(scope: string, id: string, body: ServerLogBody): void {
-    const line = { scope, id, event: body.event, fields: body.fields };
+    const line = {
+      scope,
+      id,
+      event: body.event,
+      fields: body.fields,
+      ...(body.alert ? { alert: body.alert } : {}),
+    };
     if (body.severity === 'error') {
       this.error(line);
       return;
@@ -151,8 +160,10 @@ export class ServerLogger {
     const scope = this.paint(event.scope, Ansi.scope);
     const id = this.paint(shortenRequestId(event.id), Ansi.id);
     const verb = this.paint(event.event, eventColour || Ansi.bold);
-    const fields = event.fields ? `  ${event.fields}` : '';
-    this.writeText(`${clock}  ${scope} ${id}  ${verb}${fields}\n`);
+    // Severity-coloured lines colour their whole body; plain events leave the fields alone.
+    const fields = event.fields ? `  ${this.paint(event.fields, eventColour)}` : '';
+    const alert = event.alert ? `  ${this.paint(event.alert, Ansi.error)}` : '';
+    this.writeText(`${clock}  ${scope} ${id}  ${verb}${fields}${alert}\n`);
   }
 }
 

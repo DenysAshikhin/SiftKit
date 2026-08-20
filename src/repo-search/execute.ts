@@ -43,7 +43,6 @@ import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js'
 export type RepoSearchPreflightSummary = {
   turn: number;
   maxTurns: number;
-  promptChars: number;
   promptTokenCount: number;
   tokenizeElapsedMs: number;
   tokenCountSource: TokenCountSource;
@@ -53,28 +52,37 @@ export type RepoSearchPreflightSummary = {
   errorMessage?: string;
 };
 
-function formatKiloCharacters(characters: number): string {
-  return `${(Math.max(0, characters) / 1000).toFixed(1)}kc`;
-}
+/** Above this, tokenization is worth a red mention; below it, it is noise. */
+const SLOW_TOKENIZE_MS = 25;
 
 /**
- * The four preflight progress events collapse into this one line, built when
- * tokenization finishes. The events themselves still reach the dashboard.
+ * Preflight stays silent on the common path: the command line that follows
+ * already carries the turn, prompt size and elapsed time. It speaks up only
+ * when tokenization was slow, retried or failed. The underlying progress
+ * events are unaffected and still reach the dashboard.
  */
-export function buildRepoSearchPreflightLogBody(summary: RepoSearchPreflightSummary): ServerLogBody {
+export function buildRepoSearchPreflightLogBody(summary: RepoSearchPreflightSummary): ServerLogBody | null {
+  const slowTokenize = summary.tokenizeElapsedMs > SLOW_TOKENIZE_MS;
+  const failed = summary.tokenizeStatus !== 'completed';
+  if (!slowTokenize && !failed && summary.tokenizeRetryCount === 0) {
+    return null;
+  }
   const retries = summary.tokenizeRetryCount > 0 ? `  retries=${summary.tokenizeRetryCount}` : '';
   const fields = `t${summary.turn}/${summary.maxTurns}`
-    + `  prompt=${formatInteger(summary.promptTokenCount)}tok/${formatKiloCharacters(summary.promptChars)}`
-    + `  tokenize=${summary.tokenizeElapsedMs}ms(${summary.tokenCountSource})`
+    + `  prompt=${formatInteger(summary.promptTokenCount)}tok`
     + `  elapsed=${formatElapsed(summary.elapsedMs)}${retries}`;
-  if (summary.tokenizeStatus !== 'completed') {
+  const alert = slowTokenize
+    ? { alert: `tokenize=${summary.tokenizeElapsedMs}ms(${summary.tokenCountSource})` }
+    : {};
+  if (failed) {
     return {
       event: 'preflight',
       fields: `${fields}  status=${summary.tokenizeStatus}  ${summary.errorMessage ?? ''}`.trimEnd(),
+      ...alert,
       severity: 'error',
     };
   }
-  return { event: 'preflight', fields, severity: 'normal' };
+  return { event: 'preflight', fields, ...alert, severity: 'normal' };
 }
 
 function logRepoSearchLifecycleEvent(requestId: string, event: RepoSearchProgressEvent, startedAt: number): void {
@@ -125,10 +133,9 @@ function logRepoSearchLifecycleEvent(requestId: string, event: RepoSearchProgres
         + `retry_max_wait_ms=${Math.max(0, Math.trunc(Number(event.tokenizeRetryMaxWaitMs || 0)))}`,
     });
   } else if (event.kind === 'preflight_tokenize_done') {
-    serverLogger.emitBody('rs', requestId, buildRepoSearchPreflightLogBody({
+    const body = buildRepoSearchPreflightLogBody({
       turn: Math.max(1, Math.trunc(Number(event.turn || 1))),
       maxTurns: Math.max(1, Math.trunc(Number(event.maxTurns || 1))),
-      promptChars: Math.max(0, Math.trunc(Number(event.promptChars || 0))),
       promptTokenCount: Math.max(0, Math.trunc(Number(event.promptTokenCount || 0))),
       tokenizeElapsedMs: Math.max(0, Math.trunc(Number(event.tokenizeElapsedMs || 0))),
       tokenCountSource: event.tokenCountSource ?? 'estimate',
@@ -136,7 +143,10 @@ function logRepoSearchLifecycleEvent(requestId: string, event: RepoSearchProgres
       tokenizeStatus: String(event.tokenizeStatus || 'unknown'),
       elapsedMs,
       ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
-    }));
+    });
+    if (body) {
+      serverLogger.emitBody('rs', requestId, body);
+    }
   }
 }
 

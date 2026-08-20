@@ -24,7 +24,7 @@ import type {
   RepoSearchExecutionResult,
   RepoSearchProgressEvent,
 } from '../repo-search/types.js';
-import { buildRepoSearchProgressLogBody } from './dashboard-runs.js';
+import { buildRepoSearchProgressLogBody, isServerLoggedProgressEvent } from './dashboard-runs.js';
 import {
   markRepoSearchAdmissionFailed,
   type RepoSearchAdmissionRecord,
@@ -257,7 +257,7 @@ export class RepoAgentSession implements ApprovalGateObserver {
         return;
       }
     }
-    if (event.kind === 'tool_start' || event.kind === 'context_warning') {
+    if (isServerLoggedProgressEvent(event)) {
       const body = buildRepoSearchProgressLogBody(event);
       if (body) {
         serverLogger.emitBody('rs', this.requestId, body);
