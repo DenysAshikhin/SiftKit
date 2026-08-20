@@ -46,6 +46,9 @@ export default tseslint.config(
   {
     ignores: [
       'dist/**',
+      // Generated test bundles: 198MB of esbuild output. Linting them costs ~150s
+      // per run and can only ever flag code that originated in already-linted sources.
+      '.test-build/**',
       'dashboard/dist/**',
       'desktop/src-tauri/target/**',
       '**/node_modules/**',

@@ -119,3 +119,17 @@ test('eslint gate flags unused underscore-prefixed variables', () => {
   assert.equal(result.errorCount, 1);
   assert.equal(result.messages[0]?.ruleId, '@typescript-eslint/no-unused-vars');
 });
+
+// Generated test bundles are 198MB of esbuild output; linting them once cost 160s per run.
+// ESLint reports an explicitly-named ignored file with a single "ignored" warning.
+test('eslint gate ignores the generated test build tree', () => {
+  const output = execFileSync(
+    process.execPath,
+    [eslintExecutable, '--format', 'json', '.test-build/tests/eslint-gate.test.bundle.js'],
+    { encoding: 'utf8' },
+  );
+  const results = z.array(LintFileResultSchema).parse(JSON.parse(output));
+  assert.equal(results.length, 1);
+  assert.equal(results[0]?.errorCount, 0);
+  assert.match(results[0]?.messages[0]?.message ?? '', /ignored/u);
+});

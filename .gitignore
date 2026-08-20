@@ -33,6 +33,7 @@ src/**/*.d.ts
 /tmp
 
 # Temp/debug files
+.eslintcache
 .tmp-*
 runtime-*.log
 test-run.log

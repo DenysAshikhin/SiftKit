@@ -43,8 +43,8 @@
     "postinstall": "node scripts/postinstall.cjs",
     "refresh-global": "npm run build && powershell -ExecutionPolicy Bypass -File .\\scripts\\refresh-global.ps1",
     "delete_logs": "tsx .\\scripts\\delete-logs.ts",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint": "eslint . --cache --cache-location .eslintcache",
+    "lint:fix": "eslint . --fix --cache --cache-location .eslintcache"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
