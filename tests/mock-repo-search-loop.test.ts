@@ -13,7 +13,7 @@ import {
   buildScorecard,
   type TaskResult,
 } from '../src/repo-search/engine.js';
-import { resolveRepoSearchPlannerToolDefinitions, type ChatMessage } from '../src/repo-search/planner-protocol.js';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
 import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
 import { preflightPlannerPromptBudget } from '../src/repo-search/prompt-budget.js';

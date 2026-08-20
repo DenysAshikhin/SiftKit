@@ -8,6 +8,7 @@ import {
 import { TaskResultSchema } from '../src/repo-search/engine/task-loop-support.js';
 import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
 import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
+import type { JsonSerializable } from '../src/lib/json-types.js';
 import type { ChatMessage } from '../src/repo-search/planner-protocol.js';
 import { buildMockScorecard } from './_test-helpers.js';
 import { mockOfflineSiftConfig } from './helpers/mock-config.js';
@@ -124,7 +125,7 @@ for (const totalContextTokens of [150_000, 32_000, 9_000]) {
 }
 
 test('compact summarizes the transcript below the system prompt, not the system prompt itself', async () => {
-  const logged: Array<Record<string, unknown>> = [];
+  const logged: Array<Record<string, JsonSerializable>> = [];
   const config = mockOfflineSiftConfig();
   const compactor = new TranscriptCompactor({
     config,

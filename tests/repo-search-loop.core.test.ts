@@ -315,7 +315,9 @@ test('runTaskLoop replaces long repeated tool output before inserting it into co
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
-      totalContextTokens: 10000,
+      // 20000 total leaves the same 5000-token usable prompt budget this test was
+      // written against: 10000 response reserve, then 5000 held back for compaction.
+      totalContextTokens: 20000,
       mockResponses: [
         "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
         '{"action":"finish","output":"done"}',

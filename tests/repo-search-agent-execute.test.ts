@@ -50,7 +50,9 @@ test('repo-agent defaults to 100 turns and preserves an explicit higher override
   assert.equal(await readRepoAgentMaxTurns(125), 125);
 });
 
-test('repo-agent selects fail context policy and surfaces overflow without a model call', async () => {
+// repo-agent compacts like every other loop kind now, so an initial prompt that alone
+// exceeds the window fails in the summarizer's own budget check, not a policy switch.
+test('repo-agent surfaces an unsummarizable oversize prompt without a model call', async () => {
   const dir = createManagedTempDir('siftkit-agent-overflow-');
   try {
     await assert.rejects(
@@ -66,7 +68,7 @@ test('repo-agent selects fail context policy and surfaces overflow without a mod
         mockResponses: ['{"action":"finish","output":"must not run"}'],
         mockCommandResults: {},
       }),
-      /planner_preflight_overflow.*context_overflow_policy=fail/u,
+      /planner_compaction_prompt_overflow.*total_context_tokens=9000/u,
     );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
