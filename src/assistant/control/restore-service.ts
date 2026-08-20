@@ -122,6 +122,7 @@ export class RestoreService {
 
     const snapshotPath = path.join(this.uploadsDir, `${uploadId}.sqlite`);
     const reader = await ZipFileReader.open(request.archivePath);
+    let recovered: boolean;
     try {
       // Re-verify: the parked file could have been swapped since the preview.
       await this.verifyEntries(reader);
@@ -129,18 +130,21 @@ export class RestoreService {
 
       await this.replaceRows(reader, snapshotPath);
       await this.replaceBlobTree(reader);
-      const recovered = await this.recoverKey(reader);
-      this.pending.delete(uploadId);
-      return {
-        ok: true,
-        blobsReadable: recovered,
-        warning: recovered ? null : UNREADABLE_BLOBS_WARNING,
-      };
+      recovered = await this.recoverKey(reader);
     } finally {
       await reader.close();
       fs.rmSync(snapshotPath, { force: true });
-      if (!this.pending.has(uploadId)) fs.rmSync(request.archivePath, { force: true });
     }
+
+    // Only a completed restore retires the upload; a failure leaves it parked for a retry. The
+    // reader is closed above, so Windows will let the archive go.
+    this.pending.delete(uploadId);
+    fs.rmSync(request.archivePath, { force: true });
+    return {
+      ok: true,
+      blobsReadable: recovered,
+      warning: recovered ? null : UNREADABLE_BLOBS_WARNING,
+    };
   }
 
   /** Oldest first — `pending` iterates in insertion order — with the parked bytes deleted too. */

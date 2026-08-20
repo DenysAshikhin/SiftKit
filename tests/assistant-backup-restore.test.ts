@@ -356,6 +356,28 @@ test('a backup whose key cannot be unsealed restores loudly, not silently', asyn
   });
 });
 
+test('a failed confirm leaves the upload parked for a retry', async () => {
+  await withAssistantContextAsync(async (context) => {
+    seedOwnerAssertion(context, { objectName: 'Nu Tool' });
+    const restores = restoreServiceFor(context);
+    const preview = await restores.preview(
+      archiveUploadPath(await archiveBytes(backupServiceFor(context).createBackup())),
+    );
+
+    // Corrupt the parked archive so re-verification fails inside confirm.
+    const parked = path.join(
+      assistantRestoreUploadsDir(context.runtimeRoot),
+      `${preview.uploadId}.zip`,
+    );
+    const bytes = fs.readFileSync(parked);
+    bytes[Math.floor(bytes.byteLength / 2)] ^= 0xff;
+    fs.writeFileSync(parked, bytes);
+
+    await assert.rejects(restores.confirm(preview.uploadId, preview.confirmToken));
+    assert.equal(fs.existsSync(parked), true, 'a failed confirm must not delete the parked upload');
+  });
+});
+
 test('a parked upload lives under the runtime root and a new service sweeps it', async () => {
   await withAssistantContextAsync(async (context) => {
     seedOwnerAssertion(context, { objectName: 'Kappa Tool' });
