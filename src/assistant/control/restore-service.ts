@@ -92,8 +92,10 @@ export class RestoreService {
 
     const uploadId = `upload_${randomBytes(16).toString('hex')}`;
     const archivePath = path.join(this.uploadsDir, `${uploadId}.zip`);
-    fs.mkdirSync(this.uploadsDir, { recursive: true });
-    fs.copyFileSync(uploadPath, archivePath);
+    // A backup is the size of the whole evidence tree; copying it synchronously would stall the
+    // status server for exactly as long as the streamed verification above avoided stalling it.
+    await fs.promises.mkdir(this.uploadsDir, { recursive: true });
+    await fs.promises.copyFile(uploadPath, archivePath);
 
     const confirmToken = randomBytes(32).toString('base64url');
     this.pending.set(uploadId, { archivePath, confirmToken });
