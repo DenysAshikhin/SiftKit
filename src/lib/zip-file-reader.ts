@@ -205,8 +205,6 @@ function readCentralDirectory(fd: number, size: number): Map<string, DirectoryEn
   readExactly(fd, tail, tailLength, size - tailLength);
 
   const eocdOffset = findEocdOffset(tail);
-  if (eocdOffset < 0) throw new Error('Zip end of central directory not found.');
-
   const entryCount = tail.readUInt16LE(eocdOffset + 10);
   const centralSize = tail.readUInt32LE(eocdOffset + 12);
   const centralStart = tail.readUInt32LE(eocdOffset + 16);

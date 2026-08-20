@@ -133,12 +133,12 @@ export function decodeCentralHeader(central: Buffer, cursor: number): DecodedCen
   };
 }
 
-/** Offset of the EOCD record inside `tail`, or -1 when the tail holds no archive end. */
+/** Offset of the EOCD record inside `tail`. Throws when the tail holds no archive end. */
 export function findEocdOffset(tail: Buffer): number {
   for (let index = tail.byteLength - EOCD_SIZE; index >= 0; index -= 1) {
     if (tail.readUInt32LE(index) === EOCD) return index;
   }
-  return -1;
+  throw new Error('Zip end of central directory not found.');
 }
 
 /** Payload offset for an entry, read out of its local header (name and extra repeat there). */
