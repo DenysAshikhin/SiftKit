@@ -3,16 +3,15 @@ import fs from 'node:fs';
 import { inflateRawSync } from 'node:zlib';
 
 import {
-  CENTRAL_HEADER, CENTRAL_HEADER_SIZE, CRC32_SEED, EOCD, EOCD_SIZE, LOCAL_HEADER_SIZE,
+  CRC32_SEED, EOCD_SIZE, LOCAL_HEADER_SIZE, MAX_COMMENT_LENGTH,
   crc32, crc32Finish, crc32Update,
+  decodeCentralHeader, findEocdOffset, localHeaderDataOffset,
 } from './zip.js';
 
 const READ_CHUNK_BYTES = 1024 * 1024;
-/** The zip comment field is 16-bit, so the EOCD cannot start further back than this. */
-const MAX_COMMENT_LENGTH = 65_535;
 
 interface DirectoryEntry {
-  readonly method: number;
+  readonly method: 0 | 8;
   readonly crc: number;
   readonly compressedSize: number;
   readonly uncompressedSize: number;
@@ -143,8 +142,10 @@ export class ZipFileReader {
 
   /** The local header repeats the name and extra fields, so the payload offset comes from it. */
   private dataStart(entry: DirectoryEntry): number {
-    const local = this.readRange(entry.localOffset, LOCAL_HEADER_SIZE);
-    return entry.localOffset + LOCAL_HEADER_SIZE + local.readUInt16LE(26) + local.readUInt16LE(28);
+    return localHeaderDataOffset(
+      entry.localOffset,
+      this.readRange(entry.localOffset, LOCAL_HEADER_SIZE),
+    );
   }
 }
 
@@ -163,13 +164,7 @@ function readCentralDirectory(fd: number, size: number): Map<string, DirectoryEn
   const tail = Buffer.alloc(tailLength);
   readExactly(fd, tail, tailLength, size - tailLength);
 
-  let eocdOffset = -1;
-  for (let index = tail.byteLength - EOCD_SIZE; index >= 0; index -= 1) {
-    if (tail.readUInt32LE(index) === EOCD) {
-      eocdOffset = index;
-      break;
-    }
-  }
+  const eocdOffset = findEocdOffset(tail);
   if (eocdOffset < 0) throw new Error('Zip end of central directory not found.');
 
   const entryCount = tail.readUInt16LE(eocdOffset + 10);
@@ -181,27 +176,15 @@ function readCentralDirectory(fd: number, size: number): Map<string, DirectoryEn
   const directory = new Map<string, DirectoryEntry>();
   let cursor = 0;
   for (let index = 0; index < entryCount; index += 1) {
-    if (central.readUInt32LE(cursor) !== CENTRAL_HEADER) {
-      throw new Error('Zip central directory entry is corrupt.');
-    }
-    const method = central.readUInt16LE(cursor + 10);
-    const nameLength = central.readUInt16LE(cursor + 28);
-    const extraLength = central.readUInt16LE(cursor + 30);
-    const commentLength = central.readUInt16LE(cursor + 32);
-    const name = central
-      .subarray(cursor + CENTRAL_HEADER_SIZE, cursor + CENTRAL_HEADER_SIZE + nameLength)
-      .toString('utf8');
-    if (method !== 0 && method !== 8) {
-      throw new Error(`Zip entry ${name} uses unsupported compression method ${method}.`);
-    }
-    directory.set(name, {
-      method,
-      crc: central.readUInt32LE(cursor + 16),
-      compressedSize: central.readUInt32LE(cursor + 20),
-      uncompressedSize: central.readUInt32LE(cursor + 24),
-      localOffset: central.readUInt32LE(cursor + 42),
+    const decoded = decodeCentralHeader(central, cursor);
+    directory.set(decoded.name, {
+      method: decoded.method,
+      crc: decoded.crc,
+      compressedSize: decoded.compressedSize,
+      uncompressedSize: decoded.uncompressedSize,
+      localOffset: decoded.localOffset,
     });
-    cursor += CENTRAL_HEADER_SIZE + nameLength + extraLength + commentLength;
+    cursor += decoded.recordLength;
   }
   return directory;
 }

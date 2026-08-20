@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import { deflateRawSync } from 'node:zlib';
 
 import {
-  CENTRAL_HEADER, CENTRAL_HEADER_SIZE, CRC32_SEED, EOCD, EOCD_SIZE,
-  LOCAL_HEADER, LOCAL_HEADER_CRC_OFFSET, LOCAL_HEADER_SIZE,
+  CRC32_SEED, LOCAL_HEADER_CRC_OFFSET,
   crc32, crc32Finish, crc32Update,
+  encodeCentralHeader, encodeEocd, encodeLocalHeader,
 } from './zip.js';
 
 const READ_CHUNK_BYTES = 1024 * 1024;
@@ -75,13 +75,7 @@ export class ZipFileWriter {
         this.writeCentralHeader(entry);
       }
       this.assertZip32(this.offset, 'Archive is too large for a non-zip64 end-of-central-directory.');
-      const eocd = Buffer.alloc(EOCD_SIZE);
-      eocd.writeUInt32LE(EOCD, 0);
-      eocd.writeUInt16LE(this.entries.length, 8);
-      eocd.writeUInt16LE(this.entries.length, 10);
-      eocd.writeUInt32LE(this.offset - centralStart, 12);
-      eocd.writeUInt32LE(centralStart, 16);
-      this.append(eocd);
+      this.append(encodeEocd(this.entries.length, this.offset - centralStart, centralStart));
     } finally {
       fs.closeSync(this.fd);
     }
@@ -119,20 +113,7 @@ export class ZipFileWriter {
   }
 
   private writeCentralHeader(entry: WrittenEntry): void {
-    const header = Buffer.alloc(CENTRAL_HEADER_SIZE);
-    header.writeUInt32LE(CENTRAL_HEADER, 0);
-    header.writeUInt16LE(20, 4); // version made by
-    header.writeUInt16LE(20, 6); // version needed
-    header.writeUInt16LE(0x0800, 8); // UTF-8 names
-    header.writeUInt16LE(entry.method, 10);
-    header.writeUInt32LE(0, 12); // dos time/date: zero, deterministic
-    header.writeUInt32LE(entry.crc, 16);
-    header.writeUInt32LE(entry.compressedSize, 20);
-    header.writeUInt32LE(entry.uncompressedSize, 24);
-    header.writeUInt16LE(entry.name.byteLength, 28);
-    // 30..41: extra, comment, disk number, and attributes are all zero.
-    header.writeUInt32LE(entry.offset, 42);
-    this.append(header);
+    this.append(encodeCentralHeader(entry, entry.offset));
     this.append(entry.name);
   }
 
@@ -140,21 +121,9 @@ export class ZipFileWriter {
     name: string, crc: number, method: 0 | 8, compressedSize: number, uncompressedSize: number,
   ): void {
     const nameBytes = Buffer.from(name, 'utf8');
-    const header = Buffer.alloc(LOCAL_HEADER_SIZE);
-    header.writeUInt32LE(LOCAL_HEADER, 0);
-    header.writeUInt16LE(20, 4); // version needed
-    header.writeUInt16LE(0x0800, 6); // UTF-8 names
-    header.writeUInt16LE(method, 8);
-    header.writeUInt32LE(0, 10); // dos time/date: zero, deterministic
-    header.writeUInt32LE(crc, LOCAL_HEADER_CRC_OFFSET);
-    header.writeUInt32LE(compressedSize, 18);
-    header.writeUInt32LE(uncompressedSize, 22);
-    header.writeUInt16LE(nameBytes.byteLength, 26);
-    header.writeUInt16LE(0, 28); // extra length
-    this.entries.push({
-      name: nameBytes, crc, method, compressedSize, uncompressedSize, offset: this.offset,
-    });
-    this.append(header);
+    const fields = { name: nameBytes, method, crc, compressedSize, uncompressedSize };
+    this.entries.push({ ...fields, offset: this.offset });
+    this.append(encodeLocalHeader(fields));
     this.append(nameBytes);
   }
 
