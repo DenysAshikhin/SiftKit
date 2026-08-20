@@ -2,6 +2,8 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./.tscache/analysis.tsbuildinfo",
     "rootDir": ".",
     "module": "ESNext",
     "moduleResolution": "Bundler"

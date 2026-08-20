@@ -15,6 +15,8 @@
     "types": ["vite/client"]
     ,
     "noEmit": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./.tscache/dashboard.tsbuildinfo",
     "paths": {
       "@siftkit/contracts": ["../packages/contracts/src/index.ts"]
     }

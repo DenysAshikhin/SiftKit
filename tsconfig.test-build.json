@@ -3,6 +3,11 @@
   "compilerOptions": {
     "noEmit": false,
     "noEmitOnError": true,
+    // The buildinfo must live under .test-build and nowhere else: resetTestBuildRoot deletes
+    // the whole tree, and a surviving buildinfo would make the next tsc run skip emit over
+    // missing outputs. This also overrides the path inherited from tsconfig.test.json.
+    "incremental": true,
+    "tsBuildInfoFile": "./.test-build/.tsbuildinfo",
     "declaration": false,
     "outDir": ".test-build",
     "rootDir": ".",

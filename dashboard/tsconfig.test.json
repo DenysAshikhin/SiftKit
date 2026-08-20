@@ -2,6 +2,10 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
+    // Mandatory override: this config extends dashboard/tsconfig.json and would otherwise
+    // share — and corrupt — that project's buildinfo file.
+    "incremental": true,
+    "tsBuildInfoFile": "./.tscache/dashboard-test.tsbuildinfo",
     "types": ["vite/client", "node"],
     "paths": {
       "react": ["./node_modules/@types/react"],

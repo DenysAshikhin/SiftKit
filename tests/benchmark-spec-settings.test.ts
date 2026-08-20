@@ -754,7 +754,9 @@ test('package typecheck command is available for repo, scripts, dashboard, bench
 
   assert.equal(
     String(pkg.scripts?.typecheck),
-    'tsc -b .\\packages\\contracts\\tsconfig.json && tsc -p .\\tsconfig.json --noEmit && tsc -p .\\tsconfig.scripts.json --noEmit && tsc -p .\\dashboard\\tsconfig.json --noEmit && npm run typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test && npm run typecheck:analysis && npm run lint',
+    // tsconfig.json and tsconfig.scripts.json also drive emitting builds, so their incremental
+    // state is attached here on the CLI rather than in the configs those builds share.
+    'tsc -b .\\packages\\contracts\\tsconfig.json && tsc -p .\\tsconfig.json --noEmit --incremental --tsBuildInfoFile .tscache\\main.tsbuildinfo && tsc -p .\\tsconfig.scripts.json --noEmit --incremental --tsBuildInfoFile .tscache\\scripts.tsbuildinfo && tsc -p .\\dashboard\\tsconfig.json --noEmit && npm run typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test && npm run typecheck:analysis && npm run lint',
   );
   assert.equal(String(pkg.scripts?.['typecheck:bench']), 'tsc -p .\\tsconfig.bench.json --noEmit');
   assert.equal(String(pkg.scripts?.['typecheck:dashboard-test']), 'tsc -p .\\dashboard\\tsconfig.test.json --noEmit');

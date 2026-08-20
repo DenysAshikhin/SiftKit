@@ -14,7 +14,7 @@
     "build": "npm --prefix .\\packages\\contracts run build && node --experimental-strip-types .\\scripts\\sync-dist-runtime.ts --clean && tsc -p .\\tsconfig.json && tsc -p .\\tsconfig.scripts.json && npm --prefix .\\dashboard run build && node --experimental-strip-types .\\scripts\\sync-dist-runtime.ts",
     "build:test": "node --experimental-strip-types .\\scripts\\build-test.ts",
     "purge:temp": "node .\\dist\\scripts\\purge-temp-dirs-main.js",
-    "typecheck": "tsc -b .\\packages\\contracts\\tsconfig.json && tsc -p .\\tsconfig.json --noEmit && tsc -p .\\tsconfig.scripts.json --noEmit && tsc -p .\\dashboard\\tsconfig.json --noEmit && npm run typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test && npm run typecheck:analysis && npm run lint",
+    "typecheck": "tsc -b .\\packages\\contracts\\tsconfig.json && tsc -p .\\tsconfig.json --noEmit --incremental --tsBuildInfoFile .tscache\\main.tsbuildinfo && tsc -p .\\tsconfig.scripts.json --noEmit --incremental --tsBuildInfoFile .tscache\\scripts.tsbuildinfo && tsc -p .\\dashboard\\tsconfig.json --noEmit && npm run typecheck:bench && npm run typecheck:test && npm run typecheck:dashboard-test && npm run typecheck:analysis && npm run lint",
     "typecheck:analysis": "tsc -p .\\tsconfig.analysis.json --noEmit",
     "typecheck:test": "tsc -p .\\tsconfig.test.json --noEmit",
     "typecheck:dashboard-test": "tsc -p .\\dashboard\\tsconfig.test.json --noEmit",
