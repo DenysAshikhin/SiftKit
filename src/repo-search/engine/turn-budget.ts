@@ -12,9 +12,19 @@ export const MIN_TURN_TOOL_RESULT_RATIO = 0.075;
 // import without pulling in the loop.
 export const DEFAULT_MAX_TURNS = 45;
 
+// Hard cap on one compaction summary's output, and the output half of the compaction
+// reserve below.
+export const COMPACTION_SUMMARY_MAX_OUTPUT_TOKENS = 4_000;
+
+// Withheld from the tool-result budget so a summarization request always fits in one
+// shot: the summary's own output plus headroom for the summarization instruction and
+// the (tool-free) provider overhead of that request.
+export const COMPACTION_RESERVE_TOKENS = 10_000;
+
 export class TurnBudget {
   readonly totalContextTokens: number;
   readonly responseReserveTokens: number;
+  readonly compactionReserveTokens: number;
   readonly usablePromptTokens: number;
   private readonly maxTurns: number;
 
@@ -25,7 +35,14 @@ export class TurnBudget {
       totalContextTokens: this.totalContextTokens,
       config: options.config,
     });
-    this.usablePromptTokens = Math.max(this.totalContextTokens - this.responseReserveTokens, 0);
+    const promptTokensBeforeCompactionReserve = Math.max(this.totalContextTokens - this.responseReserveTokens, 0);
+    // Never more than half the prompt budget: on a tiny context window a flat 10k
+    // reserve would leave no room for any tool result at all.
+    this.compactionReserveTokens = Math.min(
+      COMPACTION_RESERVE_TOKENS,
+      Math.floor(promptTokensBeforeCompactionReserve / 2),
+    );
+    this.usablePromptTokens = Math.max(promptTokensBeforeCompactionReserve - this.compactionReserveTokens, 0);
   }
 
   perToolCapTokens(completedCommandCount: number, batchCommandCount: number): number {

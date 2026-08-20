@@ -15,8 +15,7 @@ import {
 } from '../src/repo-search/engine.js';
 import { resolveRepoSearchPlannerToolDefinitions, type ChatMessage } from '../src/repo-search/planner-protocol.js';
 import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
-import { MIN_TURN_TOOL_RESULT_RATIO } from '../src/repo-search/engine/turn-budget.js';
-import { computeResponseReserveTokens } from '../src/lib/response-reserve.js';
+import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
 import {
   preflightPlannerPromptBudget,
   compactPlannerMessagesOnce,
@@ -329,9 +328,8 @@ test('runTaskLoop cuts off runaway streamed tool JSON and reprompts once', { tim
 test('runTaskLoop truncates oversized rg output to the largest fitting prefix', async () => {
   const events: JsonObject[] = [];
   const totalContextTokens = 20000;
-  const responseReserveTokens = computeResponseReserveTokens({ totalContextTokens, config: MOCK_LOOP_DEFAULTS.config });
-  const usablePromptTokens = Math.max(totalContextTokens - responseReserveTokens, 0);
-  const baselinePerToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * MIN_TURN_TOOL_RESULT_RATIO));
+  const budget = new TurnBudget({ totalContextTokens, maxTurns: 3, config: MOCK_LOOP_DEFAULTS.config });
+  const baselinePerToolCapTokens = budget.perToolCapTokens(0, 1);
   const oversizedOutput = Array.from(
     { length: 500 },
     (_, index) => `src/example-${index + 1}.ts:${index + 1}: ${'x'.repeat(80)}`
@@ -447,7 +445,9 @@ test('runTaskLoop replays effective read range after native unread expansion', a
       maxTurns: 4,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
-      totalContextTokens: 20000,
+      // 15k response reserve + 10k compaction reserve leaves the 10000 usable prompt
+      // tokens this scenario needs for the first read to return all 80 lines.
+      totalContextTokens: 35000,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read']),
       mockResponses: [
         '{"action":"read","path":"src/big-file.ts","offset":1,"limit":80}',
@@ -1046,10 +1046,9 @@ test('runTaskLoop applies one-pass compaction and continues when compacted promp
 test('runTaskLoop increases per-tool cap as tool-call progress grows', async () => {
   const events: JsonObject[] = [];
   const totalContextTokens = 20000;
-  const responseReserveTokens = computeResponseReserveTokens({ totalContextTokens, config: MOCK_LOOP_DEFAULTS.config });
-  const usablePromptTokens = Math.max(totalContextTokens - responseReserveTokens, 0);
-  const baselinePerToolCapTokens = Math.max(1, Math.floor(usablePromptTokens * MIN_TURN_TOOL_RESULT_RATIO));
-  const expectedThirdCommandCap = Math.max(1, Math.floor(usablePromptTokens * (2 / 10)));
+  const budget = new TurnBudget({ totalContextTokens, maxTurns: 10, config: MOCK_LOOP_DEFAULTS.config });
+  const baselinePerToolCapTokens = budget.perToolCapTokens(0, 1);
+  const expectedThirdCommandCap = budget.perToolCapTokens(2, 1);
   const result = await runTaskLoop(
     {
       id: 'task-dynamic-cap-growth',
@@ -1093,9 +1092,9 @@ test('runTaskLoop increases per-tool cap as tool-call progress grows', async () 
 
 test('runTaskLoop fits tool output that exceeds remaining token allowance', async () => {
   const events: JsonObject[] = [];
-  // 15k goes to the shared response reserve, leaving the 25500 usable prompt tokens
-  // this scenario is tuned to.
-  const totalContextTokens = 40500;
+  // 15k goes to the shared response reserve and 10k to the compaction reserve, leaving
+  // the 25500 usable prompt tokens this scenario is tuned to.
+  const totalContextTokens = 50500;
   // Sized to pin the regime where remainingTokenAllowance < perToolCapTokens after
   // the system prompt + question consume most of totalContextTokens. The prior
   // 84_000 was tuned to the older, larger system prompt; bumped to keep the
