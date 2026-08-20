@@ -1,12 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { ImageMetadataSchema, resolveEffectiveImagePixelCeiling, sumImageTokens } from '@siftkit/contracts';
 import type { ContextUsage, ImageMetadata } from '@siftkit/contracts';
-import { getActiveModelPreset, getConfiguredLlamaNumCtx } from '../config/getters.js';
+import { getActiveModelPreset, getConfiguredLlamaBaseUrl, getConfiguredLlamaNumCtx } from '../config/getters.js';
 import { overlayActivePreset } from '../config/overrides.js';
 import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
 import type { ChatMessage as PlannerChatMessage } from '../repo-search/planner-protocol.js';
 import type { ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
+import { COMPACTION_SUMMARY_MARKER, TranscriptCompactor } from '../repo-search/engine/transcript-compactor.js';
+import { TokenUsageTracker } from '../repo-search/engine/token-usage.js';
+import { resolvePlannerThinkingFlags } from '../repo-search/engine/task-loop-support.js';
 import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
 import { ImageRetentionPolicy } from '../image-retention-policy.js';
 import { ThinkingRetentionPolicy } from '../thinking-retention-policy.js';
@@ -288,6 +291,17 @@ export function buildChatHistoryMessages(
       : message.role === 'user'
         ? 'user_text'
         : 'assistant_answer';
+    if (message.compressedIntoSummary === true) {
+      continue;
+    }
+    if (kind === 'compaction_summary') {
+      const summaryText = trimText(message.content);
+      if (summaryText) {
+        history.push({ role: 'assistant', content: `${COMPACTION_SUMMARY_MARKER}\n${summaryText}` });
+      }
+      pendingThinking = '';
+      continue;
+    }
     if (kind === 'assistant_thinking') {
       if (replayThinking) {
         pendingThinking = trimText(message.content);
@@ -453,6 +467,8 @@ type AppendChatOptions = {
   thinkingTokens?: number | null;
   thinkingTokensEstimated?: boolean;
   sourceRunId?: string | null;
+  /** Raw summary text when this turn compacted; marks every earlier row as compacted. */
+  compactionSummary?: string | null;
   groundingStatus?: ChatGroundingStatus | null;
   images?: string[];
   imageMeta?: ImageMetadata[];
@@ -467,7 +483,30 @@ export function appendChatMessagesWithUsage(
   options: AppendChatOptions = { turns: [] }
 ): ChatSession & { messages: PersistedChatMessage[] } {
   const now = new Date().toISOString();
-  const messages = Array.isArray(session.messages) ? session.messages.slice() : [];
+  const compactionSummary = typeof options.compactionSummary === 'string' ? options.compactionSummary.trim() : '';
+  // The run compacted against the replayed history, so the boundary is exactly
+  // "everything that existed before this turn". Marking here — in the same
+  // saveChatSession write as the turn's own rows — is what makes the flags and the
+  // summary row impossible to separate.
+  const messages = (Array.isArray(session.messages) ? session.messages : [])
+    .map((message) => (compactionSummary ? { ...message, compressedIntoSummary: true } : message));
+  if (compactionSummary) {
+    messages.push({
+      id: randomUUID(),
+      role: 'assistant',
+      kind: 'compaction_summary',
+      content: compactionSummary,
+      inputTokensEstimate: 0,
+      outputTokensEstimate: estimateTokenCount(compactionSummary),
+      thinkingTokens: 0,
+      inputTokensEstimated: false,
+      outputTokensEstimated: true,
+      thinkingTokensEstimated: false,
+      createdAtUtc: now,
+      sourceRunId: null,
+      compressedIntoSummary: false,
+    });
+  }
   const promptCacheTokens = getChatUsageValue(usage.promptCacheTokens);
   const promptEvalTokens = getChatUsageValue(usage.promptEvalTokens);
   const completionTokens = getChatUsageValue(usage.completionTokens);
@@ -645,26 +684,61 @@ export function appendChatMessagesWithUsage(
 }
 
 
-export function condenseChatSession(runtimeRoot: string, session: ChatSession): ChatSession {
+const CONDENSE_TIMEOUT_MS = 120_000;
+
+/**
+ * Manual condense: the same summarizer the engine runs at budget, invoked directly
+ * against the session's replayed history. One summarization call, no planner run.
+ */
+export async function condenseChatSession(
+  runtimeRoot: string,
+  config: SiftConfig,
+  session: ChatSession,
+  mockResponses: string[] | undefined,
+): Promise<ChatSession> {
+  const effectiveConfig = resolveChatSessionConfig(config, session);
+  const history = buildChatHistoryMessages(effectiveConfig, session);
+  const compactor = new TranscriptCompactor({
+    config: effectiveConfig,
+    baseUrl: getConfiguredLlamaBaseUrl(effectiveConfig),
+    model: resolveChatSessionModel(config, session),
+    timeoutMs: CONDENSE_TIMEOUT_MS,
+    totalContextTokens: resolveChatSessionContextWindow(config, session),
+    thinking: resolvePlannerThinkingFlags(effectiveConfig, session.thinkingEnabled !== false),
+    useEstimatedTokensOnly: Array.isArray(mockResponses),
+    mockResponses,
+    tokenUsage: new TokenUsageTracker(effectiveConfig, Array.isArray(mockResponses)),
+    logger: null,
+    abortSignal: undefined,
+  });
+  // No system message: chat's system prompt is composed per request, and the compactor
+  // summarizes everything below the system slot anyway.
+  const outcome = await compactor.compact({
+    taskId: session.id,
+    turn: 0,
+    messages: history,
+    mockResponseIndex: 0,
+  });
+
   const now = new Date().toISOString();
-  const messages = Array.isArray(session.messages) ? session.messages.slice() : [];
-  const keptCount = Math.min(messages.length, 2);
-  const startIndex = Math.max(messages.length - keptCount, 0);
-  const sourceMessages = startIndex > 0 ? messages.slice(0, startIndex) : messages;
-  const condensedText = sourceMessages
-    .map((message: PersistedChatMessage) => `${message.role}: ${String(message.content || '')}`)
-    .join('\n');
-  const condensedTail = condensedText.length > 2400 ? condensedText.slice(condensedText.length - 2400) : condensedText;
-  const nextMessages = messages.map((message: PersistedChatMessage, index: number) => ({
-    ...message,
-    compressedIntoSummary: index < startIndex,
-  }));
-  const updated: ChatSession = {
-    ...session,
-    updatedAtUtc: now,
-    condensedSummary: condensedTail || session.condensedSummary || '',
-    messages: nextMessages,
-  };
+  const messages: PersistedChatMessage[] = (Array.isArray(session.messages) ? session.messages : [])
+    .map((message: PersistedChatMessage) => ({ ...message, compressedIntoSummary: true }));
+  messages.push({
+    id: randomUUID(),
+    role: 'assistant',
+    kind: 'compaction_summary',
+    content: outcome.summaryText,
+    inputTokensEstimate: 0,
+    outputTokensEstimate: estimateTokenCount(outcome.summaryText),
+    thinkingTokens: 0,
+    inputTokensEstimated: false,
+    outputTokensEstimated: true,
+    thinkingTokensEstimated: false,
+    createdAtUtc: now,
+    sourceRunId: null,
+    compressedIntoSummary: false,
+  });
+  const updated: ChatSession = { ...session, updatedAtUtc: now, messages };
   saveChatSession(runtimeRoot, updated);
   return updated;
 }

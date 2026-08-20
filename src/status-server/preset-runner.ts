@@ -199,7 +199,6 @@ export class StatusPresetRunner {
       presetId: preset.id,
       mode: 'chat',
       planRepoRoot: getRepoRoot(request),
-      condensedSummary: '',
       createdAtUtc: now,
       updatedAtUtc: now,
       messages: [],

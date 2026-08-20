@@ -126,7 +126,6 @@ function createSession(): ChatSession {
     presetId: 'summary',
     mode: 'chat',
     planRepoRoot: process.cwd(),
-    condensedSummary: '',
     createdAtUtc: '2026-07-28T00:00:00.000Z',
     updatedAtUtc: '2026-07-28T00:00:00.000Z',
     messages: [],

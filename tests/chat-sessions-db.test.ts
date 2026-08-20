@@ -9,14 +9,48 @@ import {
   getChatSessionPath,
   deleteChatSession,
 } from '../src/state/chat-sessions.js';
-import type { ChatSession } from '../src/state/chat-sessions.js';
+import type { ChatMessage, ChatSession } from '../src/state/chat-sessions.js';
+import { appendChatMessagesWithUsage, buildChatHistoryMessages } from '../src/status-server/chat.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { JsonValueSchema } from '../src/lib/json-types.js';
 import { z } from '../src/lib/zod.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
-import { mockModelPreset } from './helpers/mock-config.js';
+import { mockModelPreset, mockOfflineSiftConfig } from './helpers/mock-config.js';
 
 const SnapshotRowSchema = z.object({ model_preset_json: z.string() });
+
+const COMPACTION_FIXTURE_TIMESTAMP = '2026-08-20T00:00:00.000Z';
+
+function compactionMessage(overrides: Partial<ChatMessage> & { id: string }): ChatMessage {
+  return {
+    role: 'assistant',
+    content: '',
+    inputTokensEstimate: 0,
+    outputTokensEstimate: 0,
+    thinkingTokens: 0,
+    createdAtUtc: COMPACTION_FIXTURE_TIMESTAMP,
+    sourceRunId: null,
+    ...overrides,
+  };
+}
+
+function saveCompactionSession(runtimeRoot: string, messages: ChatMessage[]): ChatSession {
+  const session: ChatSession = {
+    id: 'compaction-session',
+    title: 'Compaction session',
+    modelPresetId: 'default',
+    modelPreset: mockModelPreset({ id: 'default' }),
+    thinkingEnabled: true,
+    presetId: 'chat',
+    mode: 'chat',
+    planRepoRoot: runtimeRoot,
+    createdAtUtc: COMPACTION_FIXTURE_TIMESTAMP,
+    updatedAtUtc: COMPACTION_FIXTURE_TIMESTAMP,
+    messages,
+  };
+  saveChatSession(runtimeRoot, session);
+  return session;
+}
 
 function withTempRepo(fn: (repoRoot: string) => void): void {
   const tempRoot = createManagedTempDir('siftkit-chat-db-');
@@ -51,7 +85,6 @@ test('chat sessions are persisted in runtime sqlite instead of JSON files', () =
       presetId: 'chat',
       mode: 'chat',
       planRepoRoot: repoRoot,
-      condensedSummary: '',
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       messages: [{
@@ -117,7 +150,6 @@ test('v49 normalizes persisted image-only user token metadata', () => {
       presetId: 'chat',
       mode: 'chat',
       planRepoRoot: repoRoot,
-      condensedSummary: '',
       createdAtUtc: '2026-08-20T00:00:00.000Z',
       updatedAtUtc: '2026-08-20T00:00:00.000Z',
       messages: [{
@@ -185,7 +217,6 @@ test('chat sessions round-trip the full model preset snapshot', () => {
       presetId: 'chat',
       mode: 'chat',
       planRepoRoot: repoRoot,
-      condensedSummary: '',
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       messages: [],
@@ -214,7 +245,6 @@ test('reading a chat session row without a preset snapshot fails loudly', () => 
       presetId: 'chat',
       mode: 'chat',
       planRepoRoot: repoRoot,
-      condensedSummary: '',
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       messages: [],
@@ -248,7 +278,6 @@ test('a preset snapshot written before a field existed loads with that field def
       presetId: 'chat',
       mode: 'chat',
       planRepoRoot: repoRoot,
-      condensedSummary: '',
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       messages: [],
@@ -284,7 +313,6 @@ test('a preset snapshot carrying a field this repo removed still fails loudly', 
       presetId: 'chat',
       mode: 'chat',
       planRepoRoot: repoRoot,
-      condensedSummary: '',
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       messages: [],
@@ -321,7 +349,6 @@ test('chat sessions persist webSearchEnabled', () => {
       presetId: 'chat',
       mode: 'chat',
       planRepoRoot: repoRoot,
-      condensedSummary: '',
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       messages: [],
@@ -351,7 +378,6 @@ test('chat timeline bubbles persist typed tool payload fields', () => {
       presetId: 'repo-search',
       mode: 'repo-search',
       planRepoRoot: repoRoot,
-      condensedSummary: '',
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       messages: [{
@@ -402,7 +428,6 @@ test('chat session persistence keeps typed tool and timing fields', () => {
       presetId: 'repo-search',
       mode: 'repo-search',
       planRepoRoot: runtimeRoot,
-      condensedSummary: '',
       createdAtUtc: '2026-01-01T00:00:00.000Z',
       updatedAtUtc: '2026-01-01T00:00:00.000Z',
       messages: [{
@@ -468,7 +493,6 @@ test('deleteChatSession removes DB rows and reports existence correctly', () => 
       modelPresetId: 'preset-a',
       modelPreset: mockModelPreset({ Model: null, NumCtx: 1024 }),
       presetId: 'chat',
-      condensedSummary: '',
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       messages: [],
@@ -491,7 +515,6 @@ test('saveChatSession rejects a missing preset id instead of deriving it from mo
         modelPresetId: 'preset-a',
         modelPreset: mockModelPreset({ Model: null, NumCtx: 1024 }),
         mode: 'plan',
-        condensedSummary: '',
         createdAtUtc: new Date().toISOString(),
         updatedAtUtc: new Date().toISOString(),
         messages: [],
@@ -515,7 +538,6 @@ test('chat messages round-trip their image data URIs', () => {
       presetId: 'chat',
       mode: 'chat',
       planRepoRoot: repoRoot,
-      condensedSummary: '',
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       messages: [{
@@ -536,5 +558,96 @@ test('chat messages round-trip their image data URIs', () => {
 
     const loaded = readChatSessionFromPath(getChatSessionPath(runtimeRoot, sessionId));
     assert.deepEqual(loaded?.messages?.[0]?.images, ['data:image/png;base64,AAAA']);
+  });
+});
+
+test('a compacted turn persists a summary row and flags everything before it', () => {
+  withTempRepo((repoRoot) => {
+    const runtimeRoot = path.join(repoRoot, '.siftkit');
+    const session = saveCompactionSession(runtimeRoot, [
+      compactionMessage({ id: 'u0', role: 'user', kind: 'user_text', content: 'first question' }),
+      compactionMessage({ id: 'a0', kind: 'assistant_answer', content: 'first answer' }),
+    ]);
+
+    const updated = appendChatMessagesWithUsage(
+      runtimeRoot,
+      session,
+      'second question',
+      'second answer',
+      {},
+      { turns: [], compactionSummary: 'SUMMARY OF THE FIRST EXCHANGE' },
+    );
+
+    const kinds = updated.messages.map((message) => message.kind);
+    assert.deepEqual(kinds, ['user_text', 'assistant_answer', 'compaction_summary', 'user_text', 'assistant_answer']);
+    const flags = updated.messages.map((message) => message.compressedIntoSummary === true);
+    assert.deepEqual(flags, [true, true, false, false, false]);
+    const summaryRow = updated.messages[2];
+    assert.equal(summaryRow.role, 'assistant');
+    assert.equal(summaryRow.content, 'SUMMARY OF THE FIRST EXCHANGE');
+
+    const reread = readChatSessionFromPath(getChatSessionPath(runtimeRoot, session.id));
+    assert.deepEqual((reread?.messages ?? []).map((message) => message.kind), kinds);
+    assert.deepEqual((reread?.messages ?? []).map((message) => message.compressedIntoSummary === true), flags);
+  });
+});
+
+test('a turn without compaction leaves the earlier messages in context', () => {
+  withTempRepo((repoRoot) => {
+    const runtimeRoot = path.join(repoRoot, '.siftkit');
+    const session = saveCompactionSession(runtimeRoot, [
+      compactionMessage({ id: 'u0', role: 'user', kind: 'user_text', content: 'first question' }),
+      compactionMessage({ id: 'a0', kind: 'assistant_answer', content: 'first answer' }),
+    ]);
+
+    const updated = appendChatMessagesWithUsage(runtimeRoot, session, 'second question', 'second answer', {}, { turns: [] });
+
+    assert.equal(updated.messages.some((message) => message.kind === 'compaction_summary'), false);
+    assert.equal(updated.messages.every((message) => message.compressedIntoSummary !== true), true);
+  });
+});
+
+test('a second compaction supersedes the first summary row', () => {
+  withTempRepo((repoRoot) => {
+    const runtimeRoot = path.join(repoRoot, '.siftkit');
+    const session = saveCompactionSession(runtimeRoot, [
+      compactionMessage({ id: 'u0', role: 'user', kind: 'user_text', content: 'first question' }),
+      compactionMessage({ id: 's0', kind: 'compaction_summary', content: 'FIRST SUMMARY' }),
+      compactionMessage({ id: 'u1', role: 'user', kind: 'user_text', content: 'second question' }),
+    ]);
+
+    const updated = appendChatMessagesWithUsage(
+      runtimeRoot,
+      session,
+      'third question',
+      'third answer',
+      {},
+      { turns: [], compactionSummary: 'SECOND SUMMARY' },
+    );
+
+    const summaryRows = updated.messages.filter((message) => message.kind === 'compaction_summary');
+    assert.deepEqual(summaryRows.map((message) => message.content), ['FIRST SUMMARY', 'SECOND SUMMARY']);
+    assert.equal(summaryRows[0].compressedIntoSummary, true);
+    assert.equal(summaryRows[1].compressedIntoSummary, false);
+  });
+});
+
+test('buildChatHistoryMessages replays the compacted shape without the dropped turns', () => {
+  withTempRepo((repoRoot) => {
+    const runtimeRoot = path.join(repoRoot, '.siftkit');
+    const session = saveCompactionSession(runtimeRoot, [
+      compactionMessage({ id: 'u0', role: 'user', kind: 'user_text', content: 'first question', compressedIntoSummary: true }),
+      compactionMessage({ id: 'a0', kind: 'assistant_answer', content: 'first answer', compressedIntoSummary: true }),
+      compactionMessage({ id: 's0', kind: 'compaction_summary', content: 'SUMMARY OF THE FIRST EXCHANGE' }),
+      compactionMessage({ id: 'u1', role: 'user', kind: 'user_text', content: 'second question' }),
+      compactionMessage({ id: 'a1', kind: 'assistant_answer', content: 'second answer' }),
+    ]);
+
+    const history = buildChatHistoryMessages(mockOfflineSiftConfig(), session);
+
+    assert.deepEqual(history.map((message) => message.role), ['assistant', 'user', 'assistant']);
+    assert.match(String(history[0].content), /^\[CONTEXT COMPACTED/u);
+    assert.match(String(history[0].content), /SUMMARY OF THE FIRST EXCHANGE/u);
+    assert.equal(history.some((message) => String(message.content).includes('first answer')), false);
   });
 });

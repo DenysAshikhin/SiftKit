@@ -110,7 +110,6 @@ function createSession(presetId: string, mode: ChatSession['mode'] = 'chat'): Ch
     presetId,
     mode,
     planRepoRoot: process.cwd(),
-    condensedSummary: '',
     createdAtUtc: new Date().toISOString(),
     updatedAtUtc: new Date().toISOString(),
     messages: [],

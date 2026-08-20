@@ -41,8 +41,7 @@ function msg(overrides: Partial<ChatMessage>): ChatMessage {
 
 const SESSION_A = {
   id: 'session-a', title: 'Session A', model: 'test-model', contextWindowTokens: 100,
-  thinkingEnabled: true, presetId: PRESET.id, mode: 'chat', condensedSummary: '',
-  createdAtUtc: '2026-04-16T11:00:00.000Z', updatedAtUtc: '2026-04-16T12:00:00.000Z',
+  thinkingEnabled: true, presetId: PRESET.id, mode: 'chat',  createdAtUtc: '2026-04-16T11:00:00.000Z', updatedAtUtc: '2026-04-16T12:00:00.000Z',
   messages: [msg({ id: 'a1', kind: 'assistant_answer', content: 'Hello from the assistant.' })],
 } satisfies ChatSession;
 

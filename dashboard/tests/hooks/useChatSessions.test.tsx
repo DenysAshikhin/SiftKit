@@ -28,7 +28,6 @@ const SESSION: ChatSession = {
   },
   model: null,
   contextWindowTokens: 100,
-  condensedSummary: '',
   createdAtUtc: '2026-06-03T12:00:00.000Z',
   updatedAtUtc: '2026-06-03T12:00:00.000Z',
   messages: [],

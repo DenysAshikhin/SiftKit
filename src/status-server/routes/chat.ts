@@ -195,7 +195,6 @@ function toWireChatSession(config: SiftConfig, session: ChatSession): WireChatSe
     presetId: session.presetId,
     mode: session.mode,
     planRepoRoot: session.planRepoRoot,
-    condensedSummary: session.condensedSummary ?? '',
     createdAtUtc: session.createdAtUtc ?? '',
     updatedAtUtc: session.updatedAtUtc ?? '',
     messages: (session.messages ?? []).map(toWireChatMessage),
@@ -671,7 +670,6 @@ class CreateChatSessionEndpoint implements RouteEndpoint {
       presetId: preset.id,
       mode: presets.deriveChatSessionMode(preset.id),
       planRepoRoot: process.cwd(),
-      condensedSummary: '',
       createdAtUtc: now,
       updatedAtUtc: now,
       messages: [],
@@ -1406,12 +1404,37 @@ class CondenseChatSessionEndpoint extends ChatSessionOperationEndpoint<'condense
 
   protected async run(
     ctx: ServerContext,
-    _req: IncomingMessage,
+    req: IncomingMessage,
     res: ServerResponse,
     request: ChatSessionOperationRequest<'condense'>,
   ): Promise<void> {
-    const updatedSession = condenseChatSession(getRuntimeRoot(), request.session);
-    sendJson(res, 200, buildChatSessionResponse(readConfig(ctx.configPath), updatedSession));
+    // Condense now issues a real model request, so it takes the same lock and
+    // readiness gate as any other turn.
+    const modelRequestLock = await acquireModelRequestWithWait(ctx, 'dashboard_chat_condense', req, res);
+    if (!modelRequestLock) {
+      return;
+    }
+    try {
+      await ensureActivePresetReadyForModelRequest(ctx);
+    } catch (error) {
+      releaseModelRequest(ctx, modelRequestLock.token);
+      sendJson(res, 503, { error: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+    try {
+      const config = readConfig(ctx.configPath);
+      const updatedSession = await condenseChatSession(
+        getRuntimeRoot(),
+        config,
+        request.session,
+        readRouteStringArray(new JsonRecordReader(request.parsedBody), 'mockResponses'),
+      );
+      sendJson(res, 200, buildChatSessionResponse(config, updatedSession));
+    } catch (error) {
+      sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      releaseModelRequest(ctx, modelRequestLock.token);
+    }
   }
 }
 const CHAT_ROUTES = new RouteTable([

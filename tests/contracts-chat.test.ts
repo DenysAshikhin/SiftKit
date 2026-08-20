@@ -19,10 +19,27 @@ test('ChatMessageSchema accepts a minimal user message', () => {
   assert.deepEqual(ChatMessageSchema.parse(message), message);
 });
 
+test('ChatMessageSchema accepts a compaction summary row', () => {
+  const summary = {
+    ...message,
+    id: 'm2', role: 'assistant', kind: 'compaction_summary', content: 'summary text',
+    compressedIntoSummary: false,
+  };
+  assert.equal(ChatMessageSchema.parse(summary).kind, 'compaction_summary');
+});
+
+test('ChatSessionSchema no longer carries a condensed summary', () => {
+  const parsed = ChatSessionSchema.parse({
+    id: 's1', title: 't', modelPresetId: 'preset-a', model: 'model-a', contextWindowTokens: 4096,
+    createdAtUtc: 'x', updatedAtUtc: 'y', messages: [message],
+  });
+  assert.equal('condensedSummary' in parsed, false);
+});
+
 test('ChatSessionResponseSchema requires contextUsage', () => {
   const session = {
     id: 's1', title: 't', model: null, contextWindowTokens: 4096,
-    condensedSummary: '', createdAtUtc: 'x', updatedAtUtc: 'y', messages: [message],
+    createdAtUtc: 'x', updatedAtUtc: 'y', messages: [message],
   };
   assert.throws(() => ChatSessionResponseSchema.parse({ session }));
 });
@@ -30,7 +47,7 @@ test('ChatSessionResponseSchema requires contextUsage', () => {
 test('ChatSessionSchema requires modelPresetId', () => {
   const session = {
     id: 's1', title: 't', model: 'model-a', contextWindowTokens: 4096,
-    condensedSummary: '', createdAtUtc: 'x', updatedAtUtc: 'y', messages: [message],
+    createdAtUtc: 'x', updatedAtUtc: 'y', messages: [message],
   };
 
   assert.throws(() => ChatSessionSchema.parse(session));

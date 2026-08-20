@@ -29,7 +29,6 @@ test('a route handler throw answers 500 and leaves the status server serving', a
       presetId: 'chat',
       mode: 'chat',
       planRepoRoot: server.tempRoot,
-      condensedSummary: '',
       createdAtUtc: new Date().toISOString(),
       updatedAtUtc: new Date().toISOString(),
       messages: [],

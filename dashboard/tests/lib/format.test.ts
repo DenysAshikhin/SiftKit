@@ -24,7 +24,6 @@ const SESSION_SHELL = {
   thinkingEnabled: true,
   presetId: 'chat-default',
   mode: 'chat',
-  condensedSummary: '',
   createdAtUtc: '2026-08-08T00:00:00.000Z',
   updatedAtUtc: '2026-08-08T00:00:00.000Z',
 };

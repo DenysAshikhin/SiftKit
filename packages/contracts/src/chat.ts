@@ -4,7 +4,7 @@ import { ImageDataUrlSchema, ImageMetadataSchema } from './image.js';
 
 export const ChatMessageSchema = z.object({
   id: z.string(), role: z.enum(['user', 'assistant']),
-  kind: z.enum(['user_text', 'assistant_answer', 'assistant_thinking', 'assistant_tool_call', 'tool_image']).optional(),
+  kind: z.enum(['user_text', 'assistant_answer', 'assistant_thinking', 'assistant_tool_call', 'tool_image', 'compaction_summary']).optional(),
   content: z.string(), inputTokensEstimate: z.number(), outputTokensEstimate: z.number(), thinkingTokens: z.number(),
   inputTokensEstimated: z.boolean().optional(), outputTokensEstimated: z.boolean().optional(), thinkingTokensEstimated: z.boolean().optional(),
   promptCacheTokens: z.number().nullable().optional(), promptEvalTokens: z.number().nullable().optional(),
@@ -39,7 +39,7 @@ export const ChatSessionSchema = z.object({
   model: z.string().nullable(), contextWindowTokens: z.number(),
   thinkingEnabled: z.boolean().optional(), webSearchEnabled: z.boolean().optional(), presetId: z.string().optional(),
   mode: z.enum(['chat', 'plan', 'repo-search']).optional(), planRepoRoot: z.string().optional(),
-  condensedSummary: z.string(), createdAtUtc: z.string(), updatedAtUtc: z.string(),
+  createdAtUtc: z.string(), updatedAtUtc: z.string(),
   messages: z.array(ChatMessageSchema), promptContext: ChatPromptContextSchema.optional(),
 });
 export type ChatSession = z.infer<typeof ChatSessionSchema>;
