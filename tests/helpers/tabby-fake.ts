@@ -77,10 +77,8 @@ const FREEZE_MODEL_SOURCE = `
         return FrozenTensorSource(self.get_tensors())
 `;
 
-const FREEZE_COVERAGE_MODEL_SOURCE = `
-    def freeze(self) -> FrozenTensorSource:
-        return FrozenTensorSource(self.get_tensors())
-
+/** Appended to `FREEZE_MODEL_SOURCE`, so the two halves of the patch cannot drift apart. */
+const FREEZE_COVERAGE_SOURCE = `
     def _validate_freeze_coverage(self, tensors):
         return None
 `;
@@ -150,13 +148,10 @@ export function writeFakeExl3Venv(
     fs.rmSync(frozenTensorsPath, { force: true });
   }
   const modelSourcePath = path.join(modelDirectory, 'model.py');
-  fs.writeFileSync(
-    modelSourcePath,
-    freezeSupport.modelFreeze
-      ? (freezeSupport.freezeCoverage ? FREEZE_COVERAGE_MODEL_SOURCE : FREEZE_MODEL_SOURCE)
-      : UNPATCHED_MODEL_SOURCE,
-    'utf8',
-  );
+  const modelSource = freezeSupport.modelFreeze
+    ? FREEZE_MODEL_SOURCE + (freezeSupport.freezeCoverage ? FREEZE_COVERAGE_SOURCE : '')
+    : UNPATCHED_MODEL_SOURCE;
+  fs.writeFileSync(modelSourcePath, modelSource, 'utf8');
   return { pythonPath, jobSourcePath, frozenTensorsPath, modelSourcePath };
 }
 

@@ -29,10 +29,16 @@ const MODEL_FREEZE_MARKER = 'def freeze';
  */
 const FREEZE_COVERAGE_MARKER = 'def _validate_freeze_coverage';
 
-/** Shown wherever a freeze is refused, so the reason names the missing dependency and the fix. */
+/**
+ * Shown wherever a freeze is refused, so the reason names the missing dependency and the fix. It
+ * names the capability rather than a version, because the check below reads source watermarks and
+ * never reads a version — a file-overlay install leaves version metadata describing the wheel it
+ * overwrote, which is why the watermarks exist in the first place.
+ */
 export const FREEZE_UNSUPPORTED_REASON =
   'The installed exllamav3 has no host-RAM freeze support that validates snapshot coverage. Install '
-  + 'exllamav3 1.4.2+siftkit.freeze2 or newer into the EXL3 engine venv, then restart the backend.';
+  + 'an exllamav3 built from the siftkit branch whose Model verifies snapshot coverage before '
+  + 'freezing, then restart the backend.';
 
 export class Exl3ModelCapabilities {
   hasVisionTower(modelDirectory: string): boolean {

@@ -1122,6 +1122,26 @@ inside the observed run-to-run variation band, and the throughput/acceptance tab
 evidence that drafting survived. Bit-identical weight transfer is pinned by the unit tests
 (`tests/test_vision_module_freeze_roundtrip.py`, `tests/test_linear_freeze.py`) instead.
 
+**Correction to the guard's stated scope (added after a follow-up review).** Task 5's framing — that
+the guard turns "the whole class of bug into a loud freeze-time error" — is too strong. Coverage is
+subtree-wide: a module counts as covered when anything under its key is snapshotted, including a
+child's tensors. So it catches a *leaf* module that reads and snapshots nothing (Qwen3-VL and GLM-4V,
+2 of the 3 bugs) but not a module that owns a raw tensor and also has contributing children
+(Gemma-4, the 3rd).
+
+Tightening it to require each module to contribute at its own level was tried and reverted: it
+refuses the real preset. `model.visual.blocks.N.attn` reads one fused `<key>.qkv.weight` and
+snapshots it under its child Linears' keys, contributing nothing at its own level, so the stricter
+rule rejected every one of those modules with `Cannot freeze: these modules loaded tensors the
+snapshot does not carry` — on a model that restores perfectly. The two shapes are structurally
+identical to a static key test, so no prefix rule separates them. The permissive rule is kept, the
+limitation is documented at `exllamav3/model/model.py:_validate_freeze_coverage`, and the Gemma-4
+class of gap is pinned by `tests/test_vision_module_freeze_roundtrip.py` instead, which now reloads
+each module through `load()` from its own snapshot.
+
+The refused-freeze path was also exercised for real by that experiment, confirming Task 10's reading:
+the `RuntimeError` propagated with the model still resident and serving.
+
 **Task 10 (separate draft model), confirmed by reading:** `freeze_to_ram` calls `model.freeze()` once
 per component from `_component_inventory()` — vision, draft, main
 (`TabbyAPI/backends/exllamav3/model.py:652-662,852-860`) — so the Task 5 guard runs for a separate

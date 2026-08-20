@@ -4,7 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { Exl3ModelCapabilities } from '../src/inference-presets/exl3-model-capabilities.js';
+import { Exl3ModelCapabilities, FREEZE_UNSUPPORTED_REASON } from '../src/inference-presets/exl3-model-capabilities.js';
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
 import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.js';
 
@@ -74,6 +74,13 @@ test('Exl3ModelCapabilities rejects a freeze build that does not validate snapsh
     });
     assert.equal(new Exl3ModelCapabilities().hasFreezeSupport(pythonPath), false);
   });
+});
+
+test('FREEZE_UNSUPPORTED_REASON names the capability that is checked, not a version that is not', () => {
+  // hasFreezeSupport reads source watermarks and never reads a version, so naming a version here
+  // would tell the user to install a build we cannot verify they installed.
+  assert.match(FREEZE_UNSUPPORTED_REASON, /snapshot coverage/u);
+  assert.doesNotMatch(FREEZE_UNSUPPORTED_REASON, /\d+\.\d+\.\d+/u);
 });
 
 test('Exl3ModelCapabilities reports no freeze support for an interpreter outside a venv layout', () => {
