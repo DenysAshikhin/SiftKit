@@ -15,7 +15,10 @@ import {
 } from './helpers/process-tree-fixture.js';
 
 const repoRoot = process.cwd();
-const RUN_BUDGET_MS = 5_000;
+// Must exceed nested-runner startup (~0.3s, one manifest hash pass) plus the fixture's
+// child+grandchild spawn chain (~1.5s under full-suite load) before the tree kill fires,
+// or the grandchild PID file never appears and waitForGrandchildPidFile fails loudly.
+const RUN_BUDGET_MS = 3_000;
 // Only reached if the runner never bounds itself; the elapsed assertion fails long before this.
 const HARD_LIMIT_MS = 20_000;
 const ManagedProcessIdsSchema = z.array(z.coerce.number().int().positive());
