@@ -85,6 +85,7 @@ import { ToolResultBudgeter } from './tool-result-budgeter.js';
 import { TokenUsageTracker, type ResolvedResponseTokens } from './token-usage.js';
 import { ToolStatsRecorder } from './tool-stats.js';
 import { TranscriptManager } from './transcript-manager.js';
+import { TranscriptCompactor } from './transcript-compactor.js';
 import { DEFAULT_MAX_TURNS, TurnBudget } from './turn-budget.js';
 import { ThinkingRetentionPolicy } from '../../thinking-retention-policy.js';
 import { resolveImageTokenBudget } from '../../llm-protocol/image-token-budget.js';
@@ -172,6 +173,7 @@ export class TaskLoop {
     reason: 'max_turns',
   };
   private finalOutput = '';
+  private lastCompactionSummary = '';
   private turnsUsed = 0;
   private mockResponseIndex = 0;
   private executingPlannerRequest: ExecutingPlannerRequest | null = null;
@@ -276,8 +278,21 @@ export class TaskLoop {
       budget: this.budget,
       plannerToolDefinitions: this.plannerToolDefinitions,
       thinking: this.plannerThinking,
-      contextOverflowPolicy: options.contextOverflowPolicy ?? 'compact',
       transcript: this.transcript,
+      compactor: new TranscriptCompactor({
+        config: options.config,
+        baseUrl: options.baseUrl,
+        model: String(options.model || ''),
+        timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
+        totalContextTokens: this.budget.totalContextTokens,
+        thinking: this.plannerThinking,
+        useEstimatedTokensOnly: this.useEstimatedTokensOnly,
+        mockResponses: options.mockResponses,
+        tokenUsage: this.tokenUsage,
+        slotId: this.slotId,
+        logger: options.logger || null,
+        abortSignal: options.abortSignal,
+      }),
       progress: this.progress,
       logger: options.logger || null,
       timingRecorder: options.timingRecorder || null,
@@ -395,7 +410,11 @@ export class TaskLoop {
     this.turnsUsed = turn;
     const inForcedFinishMode = this.forcedFinish.isActive();
 
-    const prepared = await this.promptPreparer.prepareTurn(turn);
+    const prepared = await this.promptPreparer.prepareTurn(turn, this.mockResponseIndex);
+    this.mockResponseIndex = prepared.nextMockResponseIndex;
+    if (prepared.compactionSummary !== null) {
+      this.lastCompactionSummary = prepared.compactionSummary;
+    }
 
     this.options.logger?.write({ kind: 'turn_model_request', taskId: this.task.id, turn, thinkingEnabled: this.plannerThinking.thinkingEnabled });
     this.progress.llmStart(turn, prepared.promptTokenCount);

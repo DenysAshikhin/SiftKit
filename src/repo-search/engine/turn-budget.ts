@@ -13,8 +13,13 @@ export const MIN_TURN_TOOL_RESULT_RATIO = 0.075;
 export const DEFAULT_MAX_TURNS = 45;
 
 // Hard cap on one compaction summary's output, and the output half of the compaction
-// reserve below.
+// reserve below. The summary gets whatever the window leaves after the summarization
+// prompt, up to this ceiling.
 export const COMPACTION_SUMMARY_MAX_OUTPUT_TOKENS = 4_000;
+
+// Below this there is not enough room to write a summary worth resuming from, so the
+// run fails loudly instead of emitting a stub that silently loses the conversation.
+export const COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS = 512;
 
 // Withheld from the tool-result budget so a summarization request always fits in one
 // shot: the summary's own output plus headroom for the summarization instruction and

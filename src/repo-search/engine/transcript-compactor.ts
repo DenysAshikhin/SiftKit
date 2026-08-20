@@ -10,7 +10,10 @@ import { buildCompactionSummaryPrompt } from '../prompts.js';
 import { countTokensWithFallback } from '../prompt-budget.js';
 import type { JsonLogger } from '../types.js';
 import { TokenUsageTracker } from './token-usage.js';
-import { COMPACTION_SUMMARY_MAX_OUTPUT_TOKENS } from './turn-budget.js';
+import {
+  COMPACTION_SUMMARY_MAX_OUTPUT_TOKENS,
+  COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS,
+} from './turn-budget.js';
 
 /** Marks the rebuilt assistant message so the model reads it as history, not as its own answer. */
 export const COMPACTION_SUMMARY_MARKER = '[CONTEXT COMPACTED — SUMMARY OF PRIOR CONVERSATION]';
@@ -67,8 +70,7 @@ export class TranscriptCompactor {
     const systemMessage = String(messages[0]?.role || '') === 'system' ? messages[0] : null;
     const summarizableMessages = systemMessage ? messages.slice(1) : messages;
     const prompt = buildCompactionSummaryPrompt(renderTaskTranscript(summarizableMessages));
-    const maxOutputTokens = clampToPresetMaxTokens(this.options.config, COMPACTION_SUMMARY_MAX_OUTPUT_TOKENS);
-    await this.assertPromptFitsSingleShot(input, prompt, maxOutputTokens);
+    const maxOutputTokens = await this.resolveSummaryOutputTokens(input, prompt);
 
     const summary = await this.requestSummary(input, prompt, maxOutputTokens);
     const latestUserMessage = findLatestUserMessage(messages);
@@ -90,31 +92,35 @@ export class TranscriptCompactor {
   }
 
   /**
-   * Unreachable unless the TurnBudget compaction reserve regressed: a transcript is
-   * capped so this request always fits. Name the real counts rather than silently
-   * chunking, so the cap math is what gets fixed.
+   * The summary gets whatever the window leaves after the summarization prompt, up to
+   * the fixed ceiling. The TurnBudget compaction reserve is what keeps that remainder
+   * comfortably above the floor; dropping below it means the cap math regressed, so the
+   * error names the real counts rather than silently chunking the transcript.
    */
-  private async assertPromptFitsSingleShot(
+  private async resolveSummaryOutputTokens(
     input: { taskId: string; turn: number },
     prompt: string,
-    maxOutputTokens: number,
-  ): Promise<void> {
+  ): Promise<number> {
     const promptTokenCount = await countTokensWithFallback(this.tokenCountConfig, prompt);
-    const availableTokens = this.options.totalContextTokens - maxOutputTokens;
-    if (promptTokenCount <= availableTokens) {
-      return;
+    const remainingTokens = this.options.totalContextTokens - promptTokenCount;
+    const maxOutputTokens = Math.min(
+      clampToPresetMaxTokens(this.options.config, COMPACTION_SUMMARY_MAX_OUTPUT_TOKENS),
+      remainingTokens,
+    );
+    if (maxOutputTokens >= COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS) {
+      return maxOutputTokens;
     }
     const message = `planner_compaction_prompt_overflow prompt_tokens=${promptTokenCount} `
-      + `available_tokens=${availableTokens} total_context_tokens=${this.options.totalContextTokens} `
-      + `summary_output_tokens=${maxOutputTokens} turn=${input.turn}`;
+      + `remaining_tokens=${remainingTokens} min_summary_output_tokens=${COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS} `
+      + `total_context_tokens=${this.options.totalContextTokens} turn=${input.turn}`;
     this.options.logger?.write({
       kind: 'turn_compaction_prompt_overflow_fail',
       taskId: input.taskId,
       turn: input.turn,
       promptTokenCount,
-      availableTokens,
+      remainingTokens,
+      minSummaryOutputTokens: COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS,
       totalContextTokens: this.options.totalContextTokens,
-      summaryOutputTokens: maxOutputTokens,
       error: message,
     });
     throw new Error(message);

@@ -7,12 +7,20 @@ import {
   type PlannerThinkingFlags,
 } from '../planner-protocol.js';
 import { IncrementalTokenCounter } from '../incremental-token-counter.js';
-import { compactPlannerMessagesOnce, preflightPlannerPromptBudget } from '../prompt-budget.js';
+import { preflightPlannerPromptBudget } from '../prompt-budget.js';
 import type { JsonLogger } from '../types.js';
 import { ProgressReporter } from './progress-reporter.js';
-import type { ContextOverflowPolicy } from './task-loop-support.js';
 import { TranscriptManager } from './transcript-manager.js';
+import { TranscriptCompactor } from './transcript-compactor.js';
 import { TurnBudget } from './turn-budget.js';
+
+export type PreparedTurnBudget = {
+  promptTokenCount: number;
+  maxOutputTokens: number;
+  /** The raw summary text when this turn compacted, else null. */
+  compactionSummary: string | null;
+  nextMockResponseIndex: number;
+};
 
 export class PromptPreparer {
   constructor(
@@ -24,8 +32,8 @@ export class PromptPreparer {
       budget: TurnBudget;
       plannerToolDefinitions: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;
       thinking: PlannerThinkingFlags;
-      contextOverflowPolicy: ContextOverflowPolicy;
       transcript: TranscriptManager;
+      compactor: TranscriptCompactor;
       progress: ProgressReporter;
       logger: JsonLogger | null;
       timingRecorder: TemporaryTimingRecorder | null;
@@ -48,7 +56,7 @@ export class PromptPreparer {
     });
   }
 
-  async prepareTurn(turn: number): Promise<{ promptTokenCount: number; maxOutputTokens: number }> {
+  async prepareTurn(turn: number, mockResponseIndex: number): Promise<PreparedTurnBudget> {
     const { taskId, budget, transcript, progress } = this.options;
     const promptRenderSpan = this.options.timingRecorder?.start('repo.prompt.render', {
       taskId,
@@ -112,22 +120,26 @@ export class PromptPreparer {
       overflowTokens: preflight.overflowTokens,
       ok: preflight.ok,
       compacted: false,
-      contextOverflowPolicy: this.options.contextOverflowPolicy,
       maxOutputTokens,
     });
 
-    if (!preflight.ok && this.options.contextOverflowPolicy === 'compact') {
+    let compactionSummary: string | null = null;
+    let nextMockResponseIndex = mockResponseIndex;
+
+    if (!preflight.ok) {
       const compactionSpan = this.options.timingRecorder?.start('repo.prompt.compact', {
         taskId,
         turn,
         beforePromptTokenCount: preflight.promptTokenCount,
       });
-      const compacted = await compactPlannerMessagesOnce({
+      const compacted = await this.options.compactor.compact({
+        taskId,
+        turn,
         messages: transcript.getMessages(),
-        config: this.options.useEstimatedTokensOnly ? undefined : this.options.config,
-        maxPromptBudget: preflight.maxPromptBudget,
-        providerPromptReserveText,
+        mockResponseIndex,
       });
+      compactionSummary = compacted.summaryText;
+      nextMockResponseIndex = compacted.nextMockResponseIndex;
       transcript.replaceWith(compacted.messages);
       const beforeProviderPromptReserveTokenCount = preflight.providerPromptReserveTokenCount;
       providerPromptReserveText = this.buildProviderPromptReserveText(
@@ -171,7 +183,8 @@ export class PromptPreparer {
         providerPromptReserveTokenCount: afterCompaction.providerPromptReserveTokenCount,
         maxPromptBudget: afterCompaction.maxPromptBudget,
         droppedMessageCount: compacted.droppedMessageCount,
-        summaryInserted: compacted.summaryInserted,
+        summaryTokenCount: compacted.summaryTokenCount,
+        summarizerElapsedMs: compacted.summarizerElapsedMs,
         maxOutputTokens,
       });
       preflight = afterCompaction;
@@ -182,8 +195,7 @@ export class PromptPreparer {
         `planner_preflight_overflow prompt_tokens=${preflight.promptTokenCount} ` +
           `max_prompt_tokens=${preflight.maxPromptBudget} overflow_tokens=${preflight.overflowTokens} ` +
           `max_output_tokens=${maxOutputTokens} total_context_tokens=${budget.totalContextTokens} ` +
-          `response_reserve_tokens=${budget.responseReserveTokens} ` +
-          `context_overflow_policy=${this.options.contextOverflowPolicy}`,
+          `response_reserve_tokens=${budget.responseReserveTokens} compacted=true`,
       );
       this.options.logger?.write({
         kind: 'turn_preflight_overflow_fail',
@@ -197,12 +209,16 @@ export class PromptPreparer {
         maxOutputTokens,
         totalContextTokens: budget.totalContextTokens,
         responseReserveTokens: budget.responseReserveTokens,
-        contextOverflowPolicy: this.options.contextOverflowPolicy,
         error: overflowError.message,
       });
       throw overflowError;
     }
 
-    return { promptTokenCount: preflight.promptTokenCount, maxOutputTokens };
+    return {
+      promptTokenCount: preflight.promptTokenCount,
+      maxOutputTokens,
+      compactionSummary,
+      nextMockResponseIndex,
+    };
   }
 }

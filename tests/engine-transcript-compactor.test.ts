@@ -6,6 +6,7 @@ import {
   TranscriptCompactor,
 } from '../src/repo-search/engine/transcript-compactor.js';
 import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
+import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
 import type { ChatMessage } from '../src/repo-search/planner-protocol.js';
 import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
@@ -99,6 +100,26 @@ test('compact keeps a transcript with no user message to system plus summary', a
   assert.deepEqual(outcome.messages.map((message) => message.role), ['system', 'assistant']);
   assert.equal(outcome.droppedMessageCount, 1);
 });
+
+// The reserve clamps on small windows; the summary output budget has to clamp with it,
+// or compaction becomes impossible exactly where the window is tightest.
+for (const totalContextTokens of [150_000, 32_000, 9_000]) {
+  test(`the worst-case transcript at a ${totalContextTokens}-token window still compacts`, async () => {
+    const budget = new TurnBudget({ totalContextTokens, maxTurns: 45, config: null });
+    const worstCaseTranscriptTokens = budget.usablePromptTokens + budget.responseReserveTokens;
+    const compactor = makeCompactor(['SUMMARY BODY'], totalContextTokens);
+    const messages: ChatMessage[] = [
+      { role: 'system', content: 'SYSTEM PROMPT' },
+      // 2.5 characters per token is the local estimate the mock config uses.
+      { role: 'assistant', content: 'H'.repeat(Math.floor(worstCaseTranscriptTokens * 2.5)) },
+      { role: 'user', content: 'latest user intent' },
+    ];
+
+    const outcome = await compactor.compact({ taskId: 't1', turn: 9, messages, mockResponseIndex: 0 });
+
+    assert.equal(outcome.summaryText, 'SUMMARY BODY');
+  });
+}
 
 test('compact summarizes the transcript below the system prompt, not the system prompt itself', async () => {
   const logged: Array<Record<string, unknown>> = [];
