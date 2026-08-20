@@ -10,7 +10,14 @@ import {
   deleteChatSession,
 } from '../src/state/chat-sessions.js';
 import type { ChatMessage, ChatSession } from '../src/state/chat-sessions.js';
-import { appendChatMessagesWithUsage, buildChatHistoryMessages } from '../src/status-server/chat.js';
+import {
+  appendChatMessagesWithUsage,
+  buildChatHistoryMessages,
+  buildCompactionSummaryRow,
+  condenseChatSession,
+} from '../src/status-server/chat.js';
+import type { JsonSerializable } from '../src/lib/json-types.js';
+import { buildCompactionSummaryMessage } from '../src/repo-search/engine/transcript-compactor.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import { JsonValueSchema } from '../src/lib/json-types.js';
 import { z } from '../src/lib/zod.js';
@@ -63,6 +70,24 @@ function withTempRepo(fn: (repoRoot: string) => void): void {
     );
     process.chdir(tempRoot);
     fn(tempRoot);
+  } finally {
+    closeRuntimeDatabase();
+    process.chdir(previousCwd);
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
+async function withTempRepoAsync(fn: (repoRoot: string) => Promise<void>): Promise<void> {
+  const tempRoot = createManagedTempDir('siftkit-chat-db-');
+  const previousCwd = process.cwd();
+  try {
+    fs.writeFileSync(
+      path.join(tempRoot, 'package.json'),
+      JSON.stringify({ name: 'siftkit', version: '0.1.0' }, null, 2),
+      'utf8',
+    );
+    process.chdir(tempRoot);
+    await fn(tempRoot);
   } finally {
     closeRuntimeDatabase();
     process.chdir(previousCwd);
@@ -649,5 +674,69 @@ test('buildChatHistoryMessages replays the compacted shape without the dropped t
     assert.match(String(history[0].content), /^\[CONTEXT COMPACTED/u);
     assert.match(String(history[0].content), /SUMMARY OF THE FIRST EXCHANGE/u);
     assert.equal(history.some((message) => String(message.content).includes('first answer')), false);
+  });
+});
+
+test('chat replay reuses the engine compaction message, so both paths frame the summary identically', () => {
+  withTempRepo((repoRoot) => {
+    const runtimeRoot = path.join(repoRoot, '.siftkit');
+    const session = saveCompactionSession(runtimeRoot, [
+      compactionMessage({ id: 'u0', role: 'user', kind: 'user_text', content: 'dropped question', compressedIntoSummary: true }),
+      compactionMessage({ id: 's0', kind: 'compaction_summary', content: 'SUMMARY TEXT' }),
+      compactionMessage({ id: 'u1', role: 'user', kind: 'user_text', content: 'live question' }),
+    ]);
+
+    const history = buildChatHistoryMessages(mockOfflineSiftConfig(), session);
+
+    assert.deepEqual(history[0], buildCompactionSummaryMessage('SUMMARY TEXT'));
+  });
+});
+
+test('manual condense reports the summarizer retry through the logger it is given', async () => {
+  await withTempRepoAsync(async (repoRoot) => {
+    const runtimeRoot = path.join(repoRoot, '.siftkit');
+    const session = saveCompactionSession(runtimeRoot, [
+      compactionMessage({ id: 'u0', role: 'user', kind: 'user_text', content: 'a question' }),
+      compactionMessage({ id: 'a0', kind: 'assistant_answer', content: 'an answer' }),
+    ]);
+    const logged: Array<Record<string, JsonSerializable>> = [];
+
+    const updated = await condenseChatSession(
+      runtimeRoot,
+      mockOfflineSiftConfig(),
+      session,
+      ['', 'RECOVERED SUMMARY'],
+      { path: 'memory', write: (event) => { logged.push(event); } },
+    );
+
+    const summaryRow = updated.messages.find((message) => message.kind === 'compaction_summary');
+    assert.equal(summaryRow?.content, 'RECOVERED SUMMARY');
+    const retry = logged.find((event) => event.kind === 'turn_compaction_summary_retry');
+    assert.ok(retry);
+    // Condense is not a loop turn, so it must not claim one.
+    assert.equal(retry.turn, null);
+  });
+});
+
+test('both persistence paths write the same compaction summary row shape', () => {
+  withTempRepo((repoRoot) => {
+    const runtimeRoot = path.join(repoRoot, '.siftkit');
+    const session = saveCompactionSession(runtimeRoot, [
+      compactionMessage({ id: 'u0', role: 'user', kind: 'user_text', content: 'a question' }),
+    ]);
+
+    const updated = appendChatMessagesWithUsage(
+      runtimeRoot,
+      session,
+      'next question',
+      'next answer',
+      {},
+      { turns: [], compactionSummary: 'SUMMARY TEXT' },
+    );
+
+    const summaryRow = updated.messages.find((message) => message.kind === 'compaction_summary');
+    assert.ok(summaryRow);
+    const canonical = buildCompactionSummaryRow('SUMMARY TEXT', summaryRow.createdAtUtc);
+    assert.deepEqual({ ...summaryRow, id: '' }, { ...canonical, id: '' });
   });
 });

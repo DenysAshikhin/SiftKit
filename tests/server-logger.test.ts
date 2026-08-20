@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ServerLogger, shortenRequestId } from '../src/status-server/server-logger.js';
+import { createServerJsonLogger, ServerLogger, shortenRequestId } from '../src/status-server/server-logger.js';
 
 function collect(): { lines: string[]; write: (text: string) => void } {
   const lines: string[] = [];
@@ -25,6 +25,25 @@ test('event lines are compact and uncoloured when colour is disabled', () => {
     sink.lines[0],
     '20:42:37  rs ddda7acf  preflight  t4/45  prompt=32,944tok\n',
   );
+});
+
+test('a JSON logger view writes engine events onto the server log', () => {
+  const sink = collect();
+  const logger = new ServerLogger({ level: 'normal', colour: false, write: sink.write });
+
+  createServerJsonLogger(logger, 'chat', 'session-abcdef').write({
+    kind: 'turn_compaction_summary_retry',
+    attempt: 1,
+    turn: null,
+    error: 'empty_output',
+  });
+
+  assert.equal(sink.lines.length, 1);
+  // Ids are shortened to eight characters like every other server-log line.
+  assert.match(sink.lines[0], /chat session-  turn_compaction_summary_retry/u);
+  assert.match(sink.lines[0], /attempt=1/u);
+  assert.match(sink.lines[0], /turn=null/u);
+  assert.match(sink.lines[0], /error=empty_output/u);
 });
 
 test('severity colour covers the fields, not just the verb', () => {

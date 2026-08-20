@@ -6,10 +6,11 @@ import { overlayActivePreset } from '../config/overrides.js';
 import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
 import type { ChatMessage as PlannerChatMessage } from '../repo-search/planner-protocol.js';
+import type { JsonLogger } from '../repo-search/types.js';
 import type { ChatGroundingStatus } from '../repo-search/chat-grounding-policy.js';
-import { COMPACTION_SUMMARY_MARKER, TranscriptCompactor } from '../repo-search/engine/transcript-compactor.js';
+import { buildCompactionSummaryMessage, TranscriptCompactor } from '../repo-search/engine/transcript-compactor.js';
 import { TokenUsageTracker } from '../repo-search/engine/token-usage.js';
-import { resolvePlannerThinkingFlags } from '../repo-search/engine/task-loop-support.js';
+import { DEFAULT_TIMEOUT_MS, resolvePlannerThinkingFlags } from '../repo-search/engine/task-loop-support.js';
 import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
 import { ImageRetentionPolicy } from '../image-retention-policy.js';
 import { ThinkingRetentionPolicy } from '../thinking-retention-policy.js';
@@ -297,7 +298,7 @@ export function buildChatHistoryMessages(
     if (kind === 'compaction_summary') {
       const summaryText = trimText(message.content);
       if (summaryText) {
-        history.push({ role: 'assistant', content: `${COMPACTION_SUMMARY_MARKER}\n${summaryText}` });
+        history.push(buildCompactionSummaryMessage(summaryText));
       }
       pendingThinking = '';
       continue;
@@ -474,6 +475,29 @@ type AppendChatOptions = {
   imageMeta?: ImageMetadata[];
 };
 
+/**
+ * The single shape of a persisted compaction boundary. Both writers — the automatic
+ * per-turn compaction and the manual condense — go through here so the rows they leave
+ * behind stay indistinguishable to replay and to the transcript UI.
+ */
+export function buildCompactionSummaryRow(summaryText: string, createdAtUtc: string): PersistedChatMessage {
+  return {
+    id: randomUUID(),
+    role: 'assistant',
+    kind: 'compaction_summary',
+    content: summaryText,
+    inputTokensEstimate: 0,
+    outputTokensEstimate: estimateTokenCount(summaryText),
+    thinkingTokens: 0,
+    inputTokensEstimated: false,
+    outputTokensEstimated: true,
+    thinkingTokensEstimated: false,
+    createdAtUtc,
+    sourceRunId: null,
+    compressedIntoSummary: false,
+  };
+}
+
 export function appendChatMessagesWithUsage(
   runtimeRoot: string,
   session: ChatSession,
@@ -491,21 +515,7 @@ export function appendChatMessagesWithUsage(
   const messages = (Array.isArray(session.messages) ? session.messages : [])
     .map((message) => (compactionSummary ? { ...message, compressedIntoSummary: true } : message));
   if (compactionSummary) {
-    messages.push({
-      id: randomUUID(),
-      role: 'assistant',
-      kind: 'compaction_summary',
-      content: compactionSummary,
-      inputTokensEstimate: 0,
-      outputTokensEstimate: estimateTokenCount(compactionSummary),
-      thinkingTokens: 0,
-      inputTokensEstimated: false,
-      outputTokensEstimated: true,
-      thinkingTokensEstimated: false,
-      createdAtUtc: now,
-      sourceRunId: null,
-      compressedIntoSummary: false,
-    });
+    messages.push(buildCompactionSummaryRow(compactionSummary, now));
   }
   const promptCacheTokens = getChatUsageValue(usage.promptCacheTokens);
   const promptEvalTokens = getChatUsageValue(usage.promptEvalTokens);
@@ -684,8 +694,6 @@ export function appendChatMessagesWithUsage(
 }
 
 
-const CONDENSE_TIMEOUT_MS = 120_000;
-
 /**
  * Manual condense: the same summarizer the engine runs at budget, invoked directly
  * against the session's replayed history. One summarization call, no planner run.
@@ -695,27 +703,29 @@ export async function condenseChatSession(
   config: SiftConfig,
   session: ChatSession,
   mockResponses: string[] | undefined,
-): Promise<ChatSession> {
+  logger: JsonLogger | null,
+): Promise<ChatSession & { messages: PersistedChatMessage[] }> {
   const effectiveConfig = resolveChatSessionConfig(config, session);
   const history = buildChatHistoryMessages(effectiveConfig, session);
   const compactor = new TranscriptCompactor({
     config: effectiveConfig,
     baseUrl: getConfiguredLlamaBaseUrl(effectiveConfig),
     model: resolveChatSessionModel(config, session),
-    timeoutMs: CONDENSE_TIMEOUT_MS,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
     totalContextTokens: resolveChatSessionContextWindow(config, session),
     thinking: resolvePlannerThinkingFlags(effectiveConfig, session.thinkingEnabled !== false),
     useEstimatedTokensOnly: Array.isArray(mockResponses),
     mockResponses,
     tokenUsage: new TokenUsageTracker(effectiveConfig, Array.isArray(mockResponses)),
-    logger: null,
+    logger,
     abortSignal: undefined,
   });
   // No system message: chat's system prompt is composed per request, and the compactor
-  // summarizes everything below the system slot anyway.
+  // summarizes everything below the system slot anyway. There is no turn either — this
+  // is a user action on a session, not a step in a planner loop.
   const outcome = await compactor.compact({
     taskId: session.id,
-    turn: 0,
+    turn: null,
     messages: history,
     mockResponseIndex: 0,
   });
@@ -723,22 +733,8 @@ export async function condenseChatSession(
   const now = new Date().toISOString();
   const messages: PersistedChatMessage[] = (Array.isArray(session.messages) ? session.messages : [])
     .map((message: PersistedChatMessage) => ({ ...message, compressedIntoSummary: true }));
-  messages.push({
-    id: randomUUID(),
-    role: 'assistant',
-    kind: 'compaction_summary',
-    content: outcome.summaryText,
-    inputTokensEstimate: 0,
-    outputTokensEstimate: estimateTokenCount(outcome.summaryText),
-    thinkingTokens: 0,
-    inputTokensEstimated: false,
-    outputTokensEstimated: true,
-    thinkingTokensEstimated: false,
-    createdAtUtc: now,
-    sourceRunId: null,
-    compressedIntoSummary: false,
-  });
-  const updated: ChatSession = { ...session, updatedAtUtc: now, messages };
+  messages.push(buildCompactionSummaryRow(outcome.summaryText, now));
+  const updated: ChatSession & { messages: PersistedChatMessage[] } = { ...session, updatedAtUtc: now, messages };
   saveChatSession(runtimeRoot, updated);
   return updated;
 }

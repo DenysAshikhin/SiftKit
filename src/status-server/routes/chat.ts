@@ -94,7 +94,7 @@ import {
   diagnoseManagedLlamaOom,
   getManagedLlamaSpeculativeMetricsDelta,
 } from '../managed-llama.js';
-import { serverLogger } from '../server-logger.js';
+import { createServerJsonLogger, serverLogger } from '../server-logger.js';
 import { LIVE_TEXT_FLUSH_MAX_LATENCY_MS, LiveTextDeltaTracker } from '../live-text-delta.js';
 import {
   acquireModelRequestWithWait,
@@ -1433,6 +1433,7 @@ class CondenseChatSessionEndpoint extends ChatSessionOperationEndpoint<'condense
         config,
         request.session,
         readRouteStringArray(new JsonRecordReader(request.parsedBody), 'mockResponses'),
+        createServerJsonLogger(serverLogger, 'condense', request.session.id),
       );
       sendJson(res, 200, buildChatSessionResponse(config, updatedSession));
     } catch (error) {

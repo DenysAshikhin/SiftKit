@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  COMPACTION_PROMPT_HEADROOM_TOKENS,
   COMPACTION_RESERVE_TOKENS,
+  COMPACTION_SUMMARY_MAX_OUTPUT_TOKENS,
   MIN_TURN_TOOL_RESULT_RATIO,
   TurnBudget,
 } from '../src/repo-search/engine/turn-budget.js';
@@ -41,6 +43,16 @@ test('usablePromptTokens never goes negative', () => {
   const budget = new TurnBudget({ totalContextTokens: 1, maxTurns: 45, config: null });
   assert.equal(budget.compactionReserveTokens, 0);
   assert.equal(budget.usablePromptTokens, 0);
+});
+
+test('the compaction reserve is the summary output cap plus its prompt headroom', () => {
+  // Derived, not a coincidence: raising the summary cap has to raise the reserve that
+  // holds it, or the summarizer overflows a window the budget still calls healthy.
+  assert.equal(
+    COMPACTION_RESERVE_TOKENS,
+    COMPACTION_SUMMARY_MAX_OUTPUT_TOKENS + COMPACTION_PROMPT_HEADROOM_TOKENS,
+  );
+  assert.ok(COMPACTION_PROMPT_HEADROOM_TOKENS > 0);
 });
 
 test('the compaction reserve leaves room for a whole summarization request', () => {
