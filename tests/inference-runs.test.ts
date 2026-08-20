@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import Database from 'better-sqlite3';
 
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
@@ -31,9 +32,10 @@ import { z } from '../src/lib/zod.js';
 import { JsonRecordReader } from '../src/lib/json-record-reader.js';
 import type { JsonObject } from '../src/lib/json-types.js';
 import { withTestEnvAndServer } from './_test-helpers.js';
-import { AppliedModelPresetState } from '../src/status-server/applied-model-preset-state.js';
-import { getActiveModelPreset } from '../src/config/getters.js';
-import { getDefaultConfig } from '../src/status-server/config-store.js';
+import type { LlamaRunRecorder } from '../src/status-server/llama-run-recorder.js';
+import type { ServerContext } from '../src/status-server/server-types.js';
+import { createTestServerContext } from './helpers/server-context-fixture.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { OutputCapture } from './helpers/stdout-capture.js';
 
 // SQLite .get()/.all() return `unknown`; narrow to JsonObject at the boundary.
@@ -45,12 +47,42 @@ function asRows<T>(values: readonly T[]): JsonObject[] {
   return values.map((value) => JsonRecordReader.asObject(value) ?? {});
 }
 
-// Brand a partial server-ops context fixture at one boundary.
-const ReleaseModelRequestCtxSchema = z.custom<Parameters<typeof releaseModelRequest>[0]>(
-  (value) => typeof value === 'object' && value !== null,
+/**
+ * `releaseModelRequest` reads only `managedLlama.lastStartupLogs?.runId`, but a real
+ * `LlamaRunRecorder` cannot be built here: its constructor writes an inference-run row and would
+ * invalidate the assertions below. This is the one branded value in the file, and its predicate
+ * checks exactly the field the code under test reads. Everything else comes from the real fixture,
+ * so a future `ServerContext` migration fails at compile time instead of at runtime.
+ */
+const StartupLogsSchema = z.custom<LlamaRunRecorder>(
+  (value) => typeof value === 'object'
+    && value !== null
+    && 'runId' in value
+    && typeof value.runId === 'string',
 );
-function mockReleaseCtx(ctx: object): Parameters<typeof releaseModelRequest>[0] {
-  return ReleaseModelRequestCtxSchema.parse(ctx);
+
+function releaseModelRequestCtx(options: {
+  activeModelRequests: ServerContext['activeModelRequests'];
+  inferenceRunFlushQueue: InferenceRunFlushQueue;
+  startupLogRunId: string;
+}): ServerContext {
+  const base = createTestServerContext(
+    path.join(createManagedTempDir('siftkit-release-ctx-'), 'config.json'),
+  );
+  return {
+    ...base,
+    activeModelRequests: options.activeModelRequests,
+    inferenceRunFlushQueue: options.inferenceRunFlushQueue,
+    managedLlama: {
+      ...base.managedLlama,
+      lastStartupLogs: StartupLogsSchema.parse({
+        runId: options.startupLogRunId,
+        purpose: 'startup',
+        scriptPath: 'fake-launcher.cmd',
+        baseUrl: 'http://127.0.0.1:8080',
+      }),
+    },
+  };
 }
 
 test('inference runs are recorded per backend', async () => {
@@ -227,26 +259,16 @@ test('releaseModelRequest queues buffered managed llama logs for the active host
     });
 
     const flushQueue = new InferenceRunFlushQueue();
-    const released = releaseModelRequest(mockReleaseCtx({
+    const released = releaseModelRequest(releaseModelRequestCtx({
       activeModelRequests: new Map([['token-1', {
         token: 'token-1',
         kind: 'dashboard_chat_stream',
         startedAtUtc: new Date().toISOString(),
         ownerRunId: null,
+        holdTimeoutHandle: null,
       }]]),
-      appliedModelPresetState: new AppliedModelPresetState(getActiveModelPreset(getDefaultConfig())),
-      modelRequestQueue: [],
-      terminalMetadata: { lastModelRequestFinishedAtMs: null },
-      idleSummary: { pending: false, timer: null },
-      managedLlama: {
-        lastStartupLogs: {
-          runId: run.id,
-          purpose: 'startup',
-          scriptPath: 'fake-launcher.cmd',
-          baseUrl: 'http://127.0.0.1:8080',
-        },
-      },
       inferenceRunFlushQueue: flushQueue,
+      startupLogRunId: run.id,
     }), 'token-1');
     try {
       assert.equal(released, true);
@@ -287,26 +309,16 @@ test('releaseModelRequest releases the active request when managed llama log flu
     blocker.pragma('busy_timeout = 1');
     blocker.exec('BEGIN IMMEDIATE');
     const flushQueue = new InferenceRunFlushQueue();
-    const ctx = mockReleaseCtx({
+    const ctx = releaseModelRequestCtx({
       activeModelRequests: new Map([['token-locked', {
         token: 'token-locked',
         kind: 'repo_search',
         startedAtUtc: new Date().toISOString(),
         ownerRunId: null,
+        holdTimeoutHandle: null,
       }]]),
-      appliedModelPresetState: new AppliedModelPresetState(getActiveModelPreset(getDefaultConfig())),
-      modelRequestQueue: [],
-      terminalMetadata: { lastModelRequestFinishedAtMs: null },
-      idleSummary: { pending: false, timer: null },
-      managedLlama: {
-        lastStartupLogs: {
-          runId: run.id,
-          purpose: 'startup',
-          scriptPath: 'fake-launcher.cmd',
-          baseUrl: 'http://127.0.0.1:8080',
-        },
-      },
       inferenceRunFlushQueue: flushQueue,
+      startupLogRunId: run.id,
     });
 
     try {
