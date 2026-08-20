@@ -15,7 +15,14 @@ import type { ServerContext } from '../server-types.js';
 import { SseResponseWriter } from '../sse-response-writer.js';
 import { rejectNestedAgentSelfCall } from '../nested-agent-call-guard.js';
 
-const LOCK_WAIT_EMIT_INTERVAL_MS = 2_000;
+const DEFAULT_LOCK_WAIT_EMIT_INTERVAL_MS = 2_000;
+
+// An unparseable override must not become the interval: setInterval clamps NaN to 1ms,
+// which would flood every stream with lock_wait frames instead of pacing them.
+function readLockWaitEmitIntervalMs(): number {
+  const parsed = Number.parseInt(String(process.env.SIFTKIT_LOCK_WAIT_EMIT_INTERVAL_MS || ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_LOCK_WAIT_EMIT_INTERVAL_MS;
+}
 
 export type ParsedStreamedRequest<TParsed> =
   | { ok: true; value: TParsed }
@@ -92,7 +99,7 @@ export abstract class StreamedOperationEndpoint<TParsed> implements RouteEndpoin
         queueLength: getModelRequestQueueDiagnostics(ctx).queueLength,
         elapsedMs: Date.now() - lockWaitStartedAt,
       });
-    }, LOCK_WAIT_EMIT_INTERVAL_MS);
+    }, readLockWaitEmitIntervalMs());
     lockWaitTimer.unref();
     const modelRequestLock = await acquireModelRequestWithWait(ctx, this.lockKind, req, res, {
       ownerRunId: this.lockOwnerRunId(parsed.value),

@@ -67,15 +67,20 @@ test('repo-search emits activity_summary after ten tool turns', async (t) => {
 });
 
 test('queued repo-search sees lock_wait progress while a slow run holds the lock', async (t) => {
+  // The queued request only starts waiting after the holder's tool_start frame crosses
+  // SSE. A 250ms emit interval against a 1500ms hold keeps over a second of absolute
+  // margin for that propagation under full-suite load, without spending real seconds
+  // waiting out the production 2s first tick.
+  process.env.SIFTKIT_LOCK_WAIT_EMIT_INTERVAL_MS = '250';
+  t.after(() => {
+    delete process.env.SIFTKIT_LOCK_WAIT_EMIT_INTERVAL_MS;
+  });
   const harness = await startHarness('siftkit-streamed-rs-lock-', t);
   const slowBody = {
     ...REPO_SEARCH_BODY,
     repoRoot: process.cwd(),
     mockCommandResults: {
-      // The queued request only starts waiting after the holder's tool_start frame crosses SSE,
-      // and the server emits its first lock_wait tick at LOCK_WAIT_EMIT_INTERVAL_MS (2s) of
-      // waiting — the hold must outlast that interval plus propagation delay under suite load.
-      'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 4_500 },
+      'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 1_500 },
     },
   };
   let resolveHolderStarted: (() => void) | null = null;
