@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -98,6 +99,38 @@ test('readBodyToFile rejects past the cap and leaves no partial file', async () 
       'oversize bodies must reject with RequestBodyTooLargeError',
     );
     assert.equal(fs.existsSync(server.destinationPath), false);
+  } finally {
+    await server.close();
+  }
+});
+
+test('readBodyToFile preserves byte order across many chunks', async () => {
+  const server = await startBodyServer('read-body-file-order-', 32 * 1024 * 1024);
+  // Position-dependent bytes: any reordered or dropped chunk changes the digest, which a
+  // uniform fill would hide. Large enough to span thousands of socket chunks.
+  const payload = Buffer.alloc(8 * 1024 * 1024);
+  for (let index = 0; index < payload.byteLength; index += 1) {
+    payload[index] = (index * 31 + (index >> 13)) & 0xff;
+  }
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const request = http.request(
+        { host: '127.0.0.1', port: server.port, method: 'POST', path: '/', agent: testHttpAgent },
+        (response) => {
+          response.resume();
+          response.on('end', () => resolve());
+        },
+      );
+      request.on('error', reject);
+      request.end(payload);
+    });
+
+    assert.deepEqual(await waitForOutcome(server), { ok: true });
+    assert.equal(
+      createHash('sha256').update(fs.readFileSync(server.destinationPath)).digest('hex'),
+      createHash('sha256').update(payload).digest('hex'),
+      'chunks must land in arrival order',
+    );
   } finally {
     await server.close();
   }

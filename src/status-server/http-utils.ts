@@ -30,11 +30,13 @@ export class RequestBodyTooLargeError extends Error {
 /**
  * Where a streamed request body goes. Exactly one of `close` (body complete and accepted) or
  * `discard` (read failed) runs, so a sink that holds an fd or a temp file always releases it.
+ * `write` is async so a sink can reach disk without blocking the event loop; `consumeBody`
+ * serialises the calls, so an implementation never sees overlapping writes.
  */
 interface BodySink {
-  write(chunk: Buffer): void;
-  close(): void;
-  discard(): void;
+  write(chunk: Buffer): Promise<void>;
+  close(): Promise<void>;
+  discard(): Promise<void>;
 }
 
 /** Collects the body in memory for `readBody`. */
@@ -42,16 +44,16 @@ class BufferBodySink implements BodySink {
   private readonly chunks: Buffer[] = [];
   private collected: Buffer | null = null;
 
-  write(chunk: Buffer): void {
+  async write(chunk: Buffer): Promise<void> {
     this.chunks.push(chunk);
   }
 
-  close(): void {
+  async close(): Promise<void> {
     this.collected = Buffer.concat(this.chunks);
     this.chunks.length = 0;
   }
 
-  discard(): void {
+  async discard(): Promise<void> {
     this.chunks.length = 0;
   }
 
@@ -65,25 +67,29 @@ class BufferBodySink implements BodySink {
 
 /** Writes the body straight to disk, leaving nothing behind when the read fails. */
 class FileBodySink implements BodySink {
-  private readonly fd: number;
   private written = 0;
 
-  constructor(private readonly destinationPath: string) {
-    this.fd = fs.openSync(destinationPath, 'w');
+  private constructor(
+    private readonly handle: fs.promises.FileHandle,
+    private readonly destinationPath: string,
+  ) {}
+
+  static async open(destinationPath: string): Promise<FileBodySink> {
+    return new FileBodySink(await fs.promises.open(destinationPath, 'w'), destinationPath);
   }
 
-  write(chunk: Buffer): void {
-    fs.writeSync(this.fd, chunk, 0, chunk.byteLength, this.written);
+  async write(chunk: Buffer): Promise<void> {
+    await this.handle.write(chunk, 0, chunk.byteLength, this.written);
     this.written += chunk.byteLength;
   }
 
-  close(): void {
-    fs.closeSync(this.fd);
+  async close(): Promise<void> {
+    await this.handle.close();
   }
 
-  discard(): void {
-    fs.closeSync(this.fd);
-    fs.rmSync(this.destinationPath, { force: true });
+  async discard(): Promise<void> {
+    await this.handle.close();
+    await fs.promises.rm(this.destinationPath, { force: true });
   }
 }
 
@@ -91,11 +97,16 @@ class FileBodySink implements BodySink {
  * The one body-reading loop. Oversize bodies reject with `RequestBodyTooLargeError`; a mid-body
  * disconnect rejects rather than hanging, because `end` never fires and only `close` is left to
  * settle the promise. The sink decides where the bytes land.
+ *
+ * The request is paused for the duration of each write and resumed when it lands, so chunks reach
+ * the sink in arrival order, at most one write is ever in flight, and a slow disk applies
+ * backpressure to the socket instead of queueing the body in memory.
  */
 function consumeBody(req: IncomingMessage, maxBytes: number, sink: BodySink): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     let totalBytes = 0;
     let settled = false;
+    let pending: Promise<void> = Promise.resolve();
 
     const detach = (): void => {
       req.off('data', onData);
@@ -108,15 +119,13 @@ function consumeBody(req: IncomingMessage, maxBytes: number, sink: BodySink): Pr
       if (settled) return;
       settled = true;
       detach();
-      sink.close();
-      resolve();
+      sink.close().then(resolve, reject);
     };
     const settleReject = (error: Error): void => {
       if (settled) return;
       settled = true;
       detach();
-      sink.discard();
-      reject(error);
+      sink.discard().then(() => reject(error), () => reject(error));
     };
 
     const onData = (chunk: Buffer): void => {
@@ -126,14 +135,23 @@ function consumeBody(req: IncomingMessage, maxBytes: number, sink: BodySink): Pr
         req.destroy();
         return;
       }
-      try {
-        sink.write(chunk);
-      } catch (error) {
-        settleReject(error instanceof Error ? error : new Error(String(error)));
-        req.destroy();
-      }
+      req.pause();
+      pending = pending.then(async () => {
+        try {
+          await sink.write(chunk);
+        } catch (error) {
+          settleReject(error instanceof Error ? error : new Error(String(error)));
+          req.destroy();
+          return;
+        }
+        if (!settled) req.resume();
+      });
     };
-    const onEnd = (): void => settleResolve();
+    // `end` cannot arrive mid-write because the request is paused for the duration of each write,
+    // but draining `pending` first makes that independent of stream-timing subtleties.
+    const onEnd = (): void => {
+      void pending.then(() => settleResolve());
+    };
     const onAborted = (): void => settleReject(new Error('Request aborted before the body was received.'));
     const onError = (error: Error): void => settleReject(error);
     const onClose = (): void => {
@@ -171,12 +189,13 @@ export async function readBody(
  * ever holding the body. A rejected read leaves no file behind, so the caller's failure path has
  * nothing to remember. Used by §16.4 restore uploads, which are whole backups.
  */
-export function readBodyToFile(
+export async function readBodyToFile(
   req: IncomingMessage,
   destinationPath: string,
   options: { readonly maxBytes: number },
 ): Promise<void> {
-  return consumeBody(req, resolveMaxBytes(options.maxBytes), new FileBodySink(destinationPath));
+  const sink = await FileBodySink.open(destinationPath);
+  await consumeBody(req, resolveMaxBytes(options.maxBytes), sink);
 }
 
 export function parseJsonBody(bodyText: string): JsonObject {
