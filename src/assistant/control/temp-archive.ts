@@ -21,16 +21,16 @@ export interface TempArchive {
  * memory. `cleanup` removes the directory whether the build finished or threw, which is why
  * every intermediate file belongs in `scratchPath` rather than somewhere else in `os.tmpdir()`.
  */
-export class TempArchiveBuilder implements TempArchive {
+export class TempArchiveBuilder {
   readonly writer: ZipFileWriter;
-  readonly path: string;
   private readonly directory: string;
+  private readonly archivePath: string;
   private finished = false;
 
   constructor(prefix: string) {
     this.directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-    this.path = path.join(this.directory, ARCHIVE_FILE_NAME);
-    this.writer = new ZipFileWriter(this.path);
+    this.archivePath = path.join(this.directory, ARCHIVE_FILE_NAME);
+    this.writer = new ZipFileWriter(this.archivePath);
   }
 
   /** A path for an intermediate file, inside the directory `cleanup` already covers. */
@@ -38,11 +38,14 @@ export class TempArchiveBuilder implements TempArchive {
     return path.join(this.directory, name);
   }
 
-  /** Seals the archive and hands back the narrow handle the caller owns. */
+  /**
+   * Seals the archive and hands back a handle carrying only what a caller streaming it needs.
+   * `cleanup` is the builder's own, so there is still exactly one cleanup implementation.
+   */
   finish(): TempArchive {
     this.writer.finish();
     this.finished = true;
-    return this;
+    return { path: this.archivePath, cleanup: (): void => this.cleanup() };
   }
 
   /**

@@ -79,6 +79,18 @@ test('the builder and the archive it returns share one cleanup', () => {
   assert.equal(fs.existsSync(path.dirname(archive.path)), false);
 });
 
+test('the finished handle exposes only the path and cleanup', () => {
+  const builder = new TempArchiveBuilder('siftkit-archive-narrow-');
+  builder.writer.addBuffer('payload.bin', Buffer.from('sealed', 'utf8'));
+  const archive = builder.finish();
+
+  assert.deepEqual(Object.keys(archive).sort(), ['cleanup', 'path']);
+  assert.equal('writer' in archive, false, 'a sealed archive must not hand back its writer');
+  assert.equal('scratchPath' in archive, false);
+  archive.cleanup();
+  assert.equal(fs.existsSync(path.dirname(archive.path)), false);
+});
+
 test('cleanup before finish closes the writer and leaves nothing behind', () => {
   const builder = new TempArchiveBuilder('siftkit-archive-abandoned-');
   builder.writer.addBuffer('payload.bin', Buffer.from('abandoned', 'utf8'));
