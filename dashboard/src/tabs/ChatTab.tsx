@@ -223,17 +223,12 @@ export function ChatTab({
   const pendingImages = selectedRuntime?.pendingImages ?? [];
   const effectiveImagePixelCeiling = contextUsage?.effectiveImagePixelCeiling ?? null;
   const persistedMessages = selectedSession ? selectedSession.messages : [];
-  // The newest summary row is the boundary: persistence always writes it after the
-  // rows it replaced, so everything before it is compacted history.
-  const compactionSummaryIndex = persistedMessages.reduce(
-    (found, message, index) => (message.kind === 'compaction_summary' ? index : found),
-    -1,
-  );
-  const compactionSummaryMessage = compactionSummaryIndex < 0 ? null : persistedMessages[compactionSummaryIndex];
-  const compactedMessages = compactionSummaryIndex < 0 ? [] : persistedMessages.slice(0, compactionSummaryIndex);
-  const conversationMessages = compactionSummaryIndex < 0
-    ? persistedMessages
-    : persistedMessages.slice(compactionSummaryIndex + 1);
+  // The persisted flag is the boundary, exactly as it is for the history the model
+  // replays: a flagged row is compacted history wherever it sits in the session.
+  const compactedMessages = persistedMessages.filter((message) => message.compressedIntoSummary === true);
+  const liveHistory = persistedMessages.filter((message) => message.compressedIntoSummary !== true);
+  const compactionSummaryMessage = liveHistory.find((message) => message.kind === 'compaction_summary') ?? null;
+  const conversationMessages = liveHistory.filter((message) => message.kind !== 'compaction_summary');
   const visibleMessages = [...conversationMessages, ...liveMessages];
   const promptContext = selectedSession?.promptContext ?? null;
   const visibleMessageIds = visibleMessages.map((message) => message.id).join('|');
@@ -363,7 +358,7 @@ export function ChatTab({
             </div>
 
             <div className="msgs" ref={chatLogRef}>
-              {compactionSummaryMessage ? (
+              {compactedMessages.length > 0 ? (
                 <CompactedHistoryPanel
                   compactedMessages={compactedMessages}
                   summary={compactionSummaryMessage}
@@ -532,7 +527,8 @@ export function ChatTab({
 
 function CompactedHistoryPanel(props: {
   compactedMessages: ChatMessage[];
-  summary: ChatMessage;
+  /** Null when the rows were flagged but their summary row is no longer in the session. */
+  summary: ChatMessage | null;
   sessionId: string;
   isDirectChatMode: boolean;
   chatBusy: boolean;
@@ -563,10 +559,12 @@ function CompactedHistoryPanel(props: {
           ))}
         </div>
       </details>
-      <article className="msg ai compaction-summary">
-        <div className="who">assistant · Compacted summary</div>
-        <div className="compaction-summary-body">{summary.content}</div>
-      </article>
+      {summary ? (
+        <article className="msg ai compaction-summary">
+          <div className="who">assistant · Compacted summary</div>
+          <div className="compaction-summary-body">{summary.content}</div>
+        </article>
+      ) : null}
     </section>
   );
 }

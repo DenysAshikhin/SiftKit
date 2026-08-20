@@ -62,7 +62,8 @@ export class TranscriptCompactor {
 
   async compact(input: {
     taskId: string;
-    turn: number;
+    /** The loop turn that overflowed, or null when the caller is not a loop at all. */
+    turn: number | null;
     messages: readonly ChatMessage[];
     mockResponseIndex: number;
   }): Promise<CompactionOutcome> {
@@ -98,7 +99,7 @@ export class TranscriptCompactor {
    * error names the real counts rather than silently chunking the transcript.
    */
   private async resolveSummaryOutputTokens(
-    input: { taskId: string; turn: number },
+    input: { taskId: string; turn: number | null },
     prompt: string,
   ): Promise<number> {
     const promptTokenCount = await countTokensWithFallback(this.tokenCountConfig, prompt);
@@ -112,7 +113,7 @@ export class TranscriptCompactor {
     }
     const message = `planner_compaction_prompt_overflow prompt_tokens=${promptTokenCount} `
       + `remaining_tokens=${remainingTokens} min_summary_output_tokens=${COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS} `
-      + `total_context_tokens=${this.options.totalContextTokens} turn=${input.turn}`;
+      + `total_context_tokens=${this.options.totalContextTokens} turn=${formatTurn(input.turn)}`;
     this.options.logger?.write({
       kind: 'turn_compaction_prompt_overflow_fail',
       taskId: input.taskId,
@@ -127,7 +128,7 @@ export class TranscriptCompactor {
   }
 
   private async requestSummary(
-    input: { taskId: string; turn: number; mockResponseIndex: number },
+    input: { taskId: string; turn: number | null; mockResponseIndex: number },
     prompt: string,
     maxOutputTokens: number,
   ): Promise<{ summaryText: string; nextMockResponseIndex: number; elapsedMs: number }> {
@@ -172,10 +173,15 @@ export class TranscriptCompactor {
       });
     }
     throw new Error(
-      `planner_compaction_failed attempts=${COMPACTION_SUMMARY_ATTEMPTS} turn=${input.turn} `
+      `planner_compaction_failed attempts=${COMPACTION_SUMMARY_ATTEMPTS} turn=${formatTurn(input.turn)} `
       + `last_error=${lastErrorMessage || 'unknown'}`,
     );
   }
+}
+
+/** A caller outside the turn loop has no turn to name, and must not borrow turn zero. */
+function formatTurn(turn: number | null): string {
+  return turn === null ? 'none' : String(turn);
 }
 
 function findLatestUserMessage(messages: readonly ChatMessage[]): ChatMessage | null {

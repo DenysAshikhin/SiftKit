@@ -1,4 +1,6 @@
 import { z } from '../lib/zod.js';
+import type { JsonSerializable } from '../lib/json-types.js';
+import type { JsonLogger } from '../repo-search/types.js';
 
 const LogLevelSchema = z.enum(['quiet', 'normal', 'debug']);
 export type LogLevel = z.infer<typeof LogLevelSchema>;
@@ -171,3 +173,25 @@ export const serverLogger = new ServerLogger({
   colour: shouldUseColour(),
   write: (text: string) => { process.stdout.write(text); },
 });
+
+/**
+ * A `JsonLogger` view of the server log, so engine components invoked outside a run —
+ * which write structured events and know nothing about this logger — still report.
+ * `kind` becomes the verb; every other field is rendered as `name=value`.
+ */
+export function createServerJsonLogger(logger: ServerLogger, scope: string, id: string): JsonLogger {
+  return {
+    path: `server-log://${scope}/${id}`,
+    write(event: Record<string, JsonSerializable>): void {
+      const { kind, ...rest } = event;
+      logger.event({
+        scope,
+        id,
+        event: typeof kind === 'string' ? kind : 'event',
+        fields: Object.entries(rest)
+          .map(([name, value]) => `${name}=${typeof value === 'string' ? value : JSON.stringify(value)}`)
+          .join('  '),
+      });
+    },
+  };
+}

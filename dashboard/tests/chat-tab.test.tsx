@@ -521,6 +521,44 @@ test('a compacted session renders the divider, the collapsed originals and the s
   assert.match(markup, /new answer/u);
 });
 
+test('a flagged message after the summary row stays in compacted history', () => {
+  // The boundary is the persisted flag, not row order: the model replays exactly the
+  // rows that are not flagged, and the transcript has to show the same split.
+  const session = {
+    ...COMPACTED_SESSION,
+    id: 'session-compacted-out-of-order',
+    messages: [
+      ...COMPACTED_SESSION.messages,
+      msg({ id: 'c6', kind: 'assistant_answer', content: 'stale flagged answer', compressedIntoSummary: true }),
+    ],
+  } satisfies ChatSession;
+
+  const markup = render({ sessions: [session], selectedSessionId: session.id, selectedSession: session });
+
+  assert.match(markup, /Context compacted \(3 messages summarized\)/u);
+  assert.match(markup, /compaction-originals[\s\S]*stale flagged answer/u);
+});
+
+test('flagged messages stay hidden from the live conversation when the summary row is gone', () => {
+  // Nothing may replay a flagged row as live conversation just because no summary row
+  // survived next to it — the flag alone decides.
+  const session = {
+    ...SESSION_A,
+    id: 'session-flags-without-summary',
+    messages: [
+      msg({ id: 'f1', role: 'user', kind: 'user_text', content: 'orphaned question', compressedIntoSummary: true }),
+      msg({ id: 'f2', kind: 'assistant_answer', content: 'orphaned answer', compressedIntoSummary: true }),
+      msg({ id: 'f3', kind: 'assistant_answer', content: 'live answer' }),
+    ],
+  } satisfies ChatSession;
+
+  const markup = render({ sessions: [session], selectedSessionId: session.id, selectedSession: session });
+
+  assert.match(markup, /live answer/u);
+  assert.match(markup, /compaction-originals[\s\S]*orphaned answer/u);
+  assert.doesNotMatch(markup, /Compacted summary/u);
+});
+
 test('a session with no compaction renders no divider', () => {
   const markup = render();
 

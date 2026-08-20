@@ -21,10 +21,14 @@ export const COMPACTION_SUMMARY_MAX_OUTPUT_TOKENS = 4_000;
 // run fails loudly instead of emitting a stub that silently loses the conversation.
 export const COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS = 512;
 
+// Room for the summarization instruction and the (tool-free) provider overhead of the
+// summarization request, on top of the summary's own output.
+export const COMPACTION_PROMPT_HEADROOM_TOKENS = 6_000;
+
 // Withheld from the tool-result budget so a summarization request always fits in one
-// shot: the summary's own output plus headroom for the summarization instruction and
-// the (tool-free) provider overhead of that request.
-export const COMPACTION_RESERVE_TOKENS = 10_000;
+// shot. Derived from the two parts above so raising the summary cap cannot leave the
+// reserve too small to hold what it is reserving for.
+export const COMPACTION_RESERVE_TOKENS = COMPACTION_SUMMARY_MAX_OUTPUT_TOKENS + COMPACTION_PROMPT_HEADROOM_TOKENS;
 
 export class TurnBudget {
   readonly totalContextTokens: number;

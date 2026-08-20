@@ -91,6 +91,50 @@ test('compact fails hard when the summarization prompt cannot fit single-shot', 
   );
 });
 
+test('a caller with no turn is reported as such instead of borrowing turn zero', async () => {
+  const logged: Array<Record<string, JsonSerializable>> = [];
+  const config = mockOfflineSiftConfig();
+  const compactor = new TranscriptCompactor({
+    config,
+    baseUrl: DEAD_BASE_URL,
+    model: 'mock-model',
+    timeoutMs: 5_000,
+    totalContextTokens: 32_000,
+    thinking: { thinkingEnabled: false, reasoningContentEnabled: false, preserveThinking: false },
+    useEstimatedTokensOnly: true,
+    mockResponses: ['', 'RECOVERED SUMMARY'],
+    tokenUsage: new TokenUsageTracker(config, true),
+    logger: { path: 'memory', write: (event) => { logged.push(event); } },
+    abortSignal: undefined,
+  });
+
+  const outcome = await compactor.compact({
+    taskId: 'session-x',
+    turn: null,
+    messages: transcript(),
+    mockResponseIndex: 0,
+  });
+
+  assert.equal(outcome.summaryText, 'RECOVERED SUMMARY');
+  const retry = logged.find((event) => event.kind === 'turn_compaction_summary_retry');
+  assert.ok(retry);
+  assert.equal(retry.turn, null);
+  assert.equal(retry.taskId, 'session-x');
+});
+
+test('an overflow reported by a turnless caller names no turn', async () => {
+  const compactor = makeCompactor(['SUMMARY BODY'], 5_000);
+  const oversized: ChatMessage[] = [
+    { role: 'system', content: 'SYSTEM PROMPT' },
+    { role: 'user', content: 'Q'.repeat(40_000) },
+  ];
+
+  await assert.rejects(
+    compactor.compact({ taskId: 'session-x', turn: null, messages: oversized, mockResponseIndex: 0 }),
+    /planner_compaction_prompt_overflow .*turn=none/u,
+  );
+});
+
 test('compact keeps a transcript with no user message to system plus summary', async () => {
   const compactor = makeCompactor(['SUMMARY BODY']);
   const messages: ChatMessage[] = [
