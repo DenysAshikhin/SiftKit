@@ -8,9 +8,10 @@ import { ZipFileReader } from '../src/lib/zip-file-reader.js';
 import { ZipFileWriter } from '../src/lib/zip-file-writer.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
-// Larger than one READ_CHUNK_BYTES, so a chunked walk spans several iterations and several
-// timer ticks -- which is what the non-blocking test below measures.
-const BLOB_BYTES = 8_000_000;
+// Larger than one READ_CHUNK_BYTES (1 MiB), so a chunked walk spans several iterations and gives
+// the event loop several chances to run -- which is what the non-blocking test below measures.
+// Kept as small as that requirement allows: this fixture is built by six tests in a parallel run.
+const BLOB_BYTES = 3_000_000;
 const MANIFEST_TEXT = '{"x":1}';
 
 interface Fixture {

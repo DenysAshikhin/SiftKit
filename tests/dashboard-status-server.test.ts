@@ -3143,11 +3143,17 @@ test('chat completion replays prior tool evidence without hidden system context'
       assert.equal(chatRunDetail.statusCode, 200, `chat sourceRunId ${chatRunId} resolves to no run`);
     }, 5000);
     let statusMetrics: Dict = {};
+    // Poll on the `chat` bucket, not just the global totals: the earlier plan request already
+    // pushed the global counters past these thresholds, so waiting on the global pair can return
+    // before the chat request's own tokens have been recorded and leave the per-task assertions
+    // racing it. Same assertions, waited on properly.
     await runtimeHelpers.waitForAsyncExpectation(async () => {
       const statusAfterChat = await requestJson(`${baseUrl}/status`);
       statusMetrics = d(statusAfterChat.body.metrics);
       assert.equal(Number(statusMetrics.inputTokensTotal) >= 20, true);
       assert.equal(Number(statusMetrics.outputTokensTotal) >= 4, true);
+      assert.equal(Number(d(d(statusMetrics.taskTotals).chat).inputTokensTotal) >= 20, true);
+      assert.equal(Number(d(d(statusMetrics.taskTotals).chat).outputTokensTotal) >= 4, true);
     }, 5000);
     assert.equal(Number(statusMetrics.inputTokensTotal) >= 20, true);
     assert.equal(Number(statusMetrics.outputTokensTotal) >= 4, true);
