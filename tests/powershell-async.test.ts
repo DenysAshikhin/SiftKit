@@ -15,12 +15,13 @@ function powerShellCommandFor(parentScript: string): string {
 }
 
 /**
- * Must outlast powershell.exe startup (~0.5s idle, seconds under load) plus two node
+ * Must outlast powershell.exe startup (~0.5s idle, worse under load) plus two node
  * startups, so the grandchild exists before the tree kill fires — otherwise the kill
- * lands on a lone powershell.exe and the PID file the fixture waits on never appears.
+ * lands on a lone powershell.exe and the PID file the fixture waits on never appears
+ * (waitForGrandchildPid then fails loudly at its own deadline).
  * Must stay well under PROCESS_LIFETIME_MS / 2 to keep the promptness assertion meaningful.
  */
-const TREE_KILL_TIMEOUT_MS = 4_000;
+const TREE_KILL_TIMEOUT_MS = 3_000;
 const timeoutMessagePattern = new RegExp(`timeout=${TREE_KILL_TIMEOUT_MS}ms exceeded`, 'u');
 
 test('spawnPowerShellAsync times out and resolves promptly instead of waiting on descendants', async () => {
