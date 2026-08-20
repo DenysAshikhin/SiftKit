@@ -46,21 +46,32 @@ test('Exl3ModelCapabilities accepts an exllamav3 carrying the host-RAM freeze pa
 
 test('Exl3ModelCapabilities rejects a stock exllamav3 with no freeze patch', async () => {
   await withTempEnv((root) => {
-    const { pythonPath } = writeFakeExl3Venv(root, true, { frozenTensorSource: false, modelFreeze: false });
+    const { pythonPath } = writeFakeExl3Venv(root, true, { frozenTensorSource: false, modelFreeze: false, freezeCoverage: false });
     assert.equal(new Exl3ModelCapabilities().hasFreezeSupport(pythonPath), false);
   });
 });
 
 test('Exl3ModelCapabilities rejects a freeze overlay missing FrozenTensorSource', async () => {
   await withTempEnv((root) => {
-    const { pythonPath } = writeFakeExl3Venv(root, true, { frozenTensorSource: false, modelFreeze: true });
+    const { pythonPath } = writeFakeExl3Venv(root, true, { frozenTensorSource: false, modelFreeze: true, freezeCoverage: true });
     assert.equal(new Exl3ModelCapabilities().hasFreezeSupport(pythonPath), false);
   });
 });
 
 test('Exl3ModelCapabilities rejects a freeze overlay missing Model.freeze', async () => {
   await withTempEnv((root) => {
-    const { pythonPath } = writeFakeExl3Venv(root, true, { frozenTensorSource: true, modelFreeze: false });
+    const { pythonPath } = writeFakeExl3Venv(root, true, { frozenTensorSource: true, modelFreeze: false, freezeCoverage: false });
+    assert.equal(new Exl3ModelCapabilities().hasFreezeSupport(pythonPath), false);
+  });
+});
+
+test('Exl3ModelCapabilities rejects a freeze build that does not validate snapshot coverage', async () => {
+  await withTempEnv((root) => {
+    const { pythonPath } = writeFakeExl3Venv(root, true, {
+      frozenTensorSource: true,
+      modelFreeze: true,
+      freezeCoverage: false,
+    });
     assert.equal(new Exl3ModelCapabilities().hasFreezeSupport(pythonPath), false);
   });
 });

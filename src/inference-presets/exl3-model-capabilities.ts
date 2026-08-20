@@ -22,10 +22,17 @@ const DEVICE_RESIDENT_PAST_IDS_MARKER = 'pinned_ids_valid';
 const FROZEN_TENSOR_SOURCE_MARKER = 'class FrozenTensorSource';
 const MODEL_FREEZE_MARKER = 'def freeze';
 
+/**
+ * Watermark for the freeze build that verifies snapshot coverage before handing back a source.
+ * Earlier freeze builds silently omitted vision-tower tensors, so their snapshots only failed on
+ * restore — after the VRAM copy was gone. Those builds are reported as having no freeze support.
+ */
+const FREEZE_COVERAGE_MARKER = 'def _validate_freeze_coverage';
+
 /** Shown wherever a freeze is refused, so the reason names the missing dependency and the fix. */
 export const FREEZE_UNSUPPORTED_REASON =
-  'The installed exllamav3 has no host-RAM freeze support. Install an exllamav3 built from the '
-  + 'siftkit branch into the EXL3 engine venv, then restart the backend.';
+  'The installed exllamav3 has no host-RAM freeze support that validates snapshot coverage. Install '
+  + 'exllamav3 1.4.2+siftkit.freeze2 or newer into the EXL3 engine venv, then restart the backend.';
 
 export class Exl3ModelCapabilities {
   hasVisionTower(modelDirectory: string): boolean {
@@ -53,8 +60,9 @@ export class Exl3ModelCapabilities {
   hasFreezeSupport(pythonPath: string): boolean {
     const frozenTensors = this.readPackageSource(pythonPath, ['loader', 'frozen_tensors.py']);
     if (!frozenTensors?.includes(FROZEN_TENSOR_SOURCE_MARKER)) return false;
-    return this.readPackageSource(pythonPath, ['model', 'model.py'])
-      ?.includes(MODEL_FREEZE_MARKER) ?? false;
+    const model = this.readPackageSource(pythonPath, ['model', 'model.py']);
+    if (!model) return false;
+    return model.includes(MODEL_FREEZE_MARKER) && model.includes(FREEZE_COVERAGE_MARKER);
   }
 
   private readPackageSource(pythonPath: string, relativePath: string[]): string | null {

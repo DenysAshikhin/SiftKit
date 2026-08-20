@@ -69,11 +69,20 @@ export interface FakeExl3Venv {
 export interface FakeExl3FreezeSupport {
   frozenTensorSource: boolean;
   modelFreeze: boolean;
+  freezeCoverage: boolean;
 }
 
 const FREEZE_MODEL_SOURCE = `
     def freeze(self) -> FrozenTensorSource:
         return FrozenTensorSource(self.get_tensors())
+`;
+
+const FREEZE_COVERAGE_MODEL_SOURCE = `
+    def freeze(self) -> FrozenTensorSource:
+        return FrozenTensorSource(self.get_tensors())
+
+    def _validate_freeze_coverage(self, tensors):
+        return None
 `;
 
 const UNPATCHED_MODEL_SOURCE = `
@@ -112,7 +121,7 @@ const LEGACY_JOB_SOURCE = `
 export function writeFakeExl3Venv(
   root: string,
   deviceResidentPastIds: boolean,
-  freezeSupport: FakeExl3FreezeSupport = { frozenTensorSource: true, modelFreeze: true },
+  freezeSupport: FakeExl3FreezeSupport = { frozenTensorSource: true, modelFreeze: true, freezeCoverage: true },
 ): FakeExl3Venv {
   const venvRoot = path.join(root, 'venv');
   const scriptsDirectory = path.join(venvRoot, 'Scripts');
@@ -141,7 +150,13 @@ export function writeFakeExl3Venv(
     fs.rmSync(frozenTensorsPath, { force: true });
   }
   const modelSourcePath = path.join(modelDirectory, 'model.py');
-  fs.writeFileSync(modelSourcePath, freezeSupport.modelFreeze ? FREEZE_MODEL_SOURCE : UNPATCHED_MODEL_SOURCE, 'utf8');
+  fs.writeFileSync(
+    modelSourcePath,
+    freezeSupport.modelFreeze
+      ? (freezeSupport.freezeCoverage ? FREEZE_COVERAGE_MODEL_SOURCE : FREEZE_MODEL_SOURCE)
+      : UNPATCHED_MODEL_SOURCE,
+    'utf8',
+  );
   return { pythonPath, jobSourcePath, frozenTensorsPath, modelSourcePath };
 }
 
