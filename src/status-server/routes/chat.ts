@@ -685,6 +685,7 @@ type ChatTurnContent = {
   usage: Partial<ChatUsage>;
   persistTurns: PersistTurn[];
   sourceRunId: string | null;
+  compactionSummary: string;
 };
 
 function ingestAssistantMemoryTurn(
@@ -785,6 +786,7 @@ class ChatMessageTurn {
         // Run rows are keyed by the engine request id, so deleting a tool bubble later
         // finds the run-log command to purge.
         sourceRunId: String(result.requestId || ''),
+        compactionSummary: scorecardTasks[0]?.compactionSummary ?? '',
       });
     } catch (error) {
       const activePreset = getActiveModelPreset(resolveChatSessionConfig(this.config, this.session));
@@ -811,6 +813,7 @@ class ChatMessageTurn {
           usage: {},
           persistTurns: [{ thinkingText: '', toolMessages: [] }],
           sourceRunId: null,
+          compactionSummary: '',
         },
       );
     } catch (error) {
@@ -842,6 +845,7 @@ class ChatMessageTurn {
         speculativeAcceptedTokens: speculativeMetrics.speculativeAcceptedTokens,
         speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
         sourceRunId: turn.sourceRunId,
+        compactionSummary: turn.compactionSummary,
         images: this.userImages,
         imageMeta: this.userImageMeta,
       },
@@ -1090,6 +1094,7 @@ class StreamChatMessageEndpoint extends ChatSessionOperationEndpoint<ChatMessage
         speculativeGeneratedTokens: speculativeMetrics.speculativeGeneratedTokens,
         groundingStatus: getChatGroundingStatus(result.scorecard),
         sourceRunId: String(result.requestId || ''),
+        compactionSummary: scorecardTasks[0]?.compactionSummary ?? '',
         images: selectedImages.images,
         imageMeta: selectedImages.imageMeta,
       });

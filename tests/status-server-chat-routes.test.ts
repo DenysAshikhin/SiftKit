@@ -132,7 +132,7 @@ async function withCaptionServer(
   return { tempRoot, previousCwd, envBackup, fixture, server, baseUrl: `http://127.0.0.1:${address.port}` };
 }
 
-function mockedCaptionExecution(finalOutput: string): RepoSearchExecutionResult {
+function mockedCaptionExecution(finalOutput: string, compactionSummary = ''): RepoSearchExecutionResult {
   const scorecard = ScorecardSchema.parse({
     runId: 'caption-test',
     model: 'caption-model',
@@ -149,7 +149,7 @@ function mockedCaptionExecution(finalOutput: string): RepoSearchExecutionResult 
       commands: [],
       turnThinking: {},
       finalOutput,
-      compactionSummary: '',
+      compactionSummary,
       passed: true,
       missingSignals: [],
       promptTokens: 0,
@@ -563,6 +563,38 @@ test('the message route persists admitted image metadata on the user message', a
     assert.equal(appendedUserMessage?.imageMeta?.length, 1);
     assert.ok((appendedUserMessage?.imageMeta?.[0]?.tokenEstimate ?? 0) > 0);
   } finally {
+    await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);
+  }
+});
+
+test('a chat turn whose run compacted persists the summary row and flags earlier messages', async () => {
+  const context = await withCaptionServer();
+  const originalExecute = StatusEngineService.prototype.executeRepoSearch;
+  StatusEngineService.prototype.executeRepoSearch = async function executeCompactedRun(
+    this: StatusEngineService,
+    _request: RepoSearchExecutionRequest,
+  ): Promise<RepoSearchExecutionResult> {
+    return mockedCaptionExecution('the fresh answer', 'SUMMARY OF PRIOR CONVERSATION');
+  };
+  try {
+    const response = await requestJson(
+      `${context.baseUrl}/dashboard/chat/sessions/${context.fixture.session.id}/messages`,
+      { method: 'POST', body: JSON.stringify({ content: 'a new question' }) },
+    );
+    assert.equal(response.statusCode, 200);
+
+    const stored = readChatSessionFromPath(
+      getChatSessionPath(context.fixture.runtimeRoot, context.fixture.session.id),
+    );
+    const messages = stored?.messages ?? [];
+    const summaryIndex = messages.findIndex((message) => message.kind === 'compaction_summary');
+    assert.ok(summaryIndex >= 0);
+    assert.equal(messages[summaryIndex]?.content, 'SUMMARY OF PRIOR CONVERSATION');
+    assert.ok(summaryIndex > 0);
+    assert.equal(messages.slice(0, summaryIndex).every((message) => message.compressedIntoSummary === true), true);
+    assert.equal(messages.slice(summaryIndex).every((message) => message.compressedIntoSummary !== true), true);
+  } finally {
+    StatusEngineService.prototype.executeRepoSearch = originalExecute;
     await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);
   }
 });
