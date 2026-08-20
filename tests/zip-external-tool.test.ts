@@ -15,6 +15,10 @@ const UNICODE_ENTRY = 'topics/café-münchen.md';
  * The module doc for `src/lib/zip.ts` promises archives that Windows can open without SiftKit's
  * own reader. `ZipFileReader` cannot prove that — only a foreign unzip can. This is the
  * independent oracle that used to be `readZip`.
+ *
+ * Mutation-verified: corrupting the EOCD central-directory offset fails this test. It does not
+ * cover CRC — Expand-Archive does not verify stored entries, and every entry this writer emits is
+ * stored — so `zip.test.ts` owns the CRC case.
  */
 test('ZipFileWriter output opens with Expand-Archive', { skip: process.platform !== 'win32' }, async () => {
   const dir = createManagedTempDir('zip-external-');
@@ -24,8 +28,9 @@ test('ZipFileWriter output opens with Expand-Archive', { skip: process.platform 
   const archivePath = path.join(dir, 'compat.zip');
   const writer = new ZipFileWriter(archivePath);
   writer.addBuffer('manifest.json', Buffer.from('{"x":1}', 'utf8'));
-  // A non-ASCII name is the only way the UTF-8 flag bit is observable: our own reader decodes
-  // names as UTF-8 unconditionally, so clearing the bit is invisible to every other test.
+  // Carried for the other tools users open these archives with. Note what this does NOT prove:
+  // clearing the UTF-8 flag bit (0x0800) fails nothing here, because .NET decodes entry names as
+  // UTF-8 regardless — as does our own reader. No available oracle can pin that bit.
   writer.addBuffer(UNICODE_ENTRY, Buffer.from('naïve', 'utf8'));
   await writer.addFile('blobs/payload.bin', source);
   writer.finish();
@@ -41,9 +46,5 @@ test('ZipFileWriter output opens with Expand-Archive', { skip: process.platform 
   assert.equal(result.status, 0, `Expand-Archive failed: ${result.stderr}`);
   assert.equal(fs.readFileSync(path.join(outDir, 'manifest.json'), 'utf8'), '{"x":1}');
   assert.equal(fs.readFileSync(path.join(outDir, 'blobs', 'payload.bin')).equals(PAYLOAD), true);
-  assert.equal(
-    fs.readFileSync(path.join(outDir, ...UNICODE_ENTRY.split('/')), 'utf8'),
-    'naïve',
-    'a cleared UTF-8 flag bit makes Windows decode the name in the OEM codepage',
-  );
+  assert.equal(fs.readFileSync(path.join(outDir, ...UNICODE_ENTRY.split('/')), 'utf8'), 'naïve');
 });
