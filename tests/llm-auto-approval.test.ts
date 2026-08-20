@@ -29,6 +29,14 @@ import { ApprovalGateHarness } from './helpers/approval-gate-harness.js';
 
 const ESCALATION_DECISION_TIMEOUT_MS = 25;
 
+/**
+ * Every other gate in this file is either answered immediately or must never be reached at all,
+ * so none of them may inherit the 10-minute production default. A regression that parks on the
+ * gate then fails this file in a second instead of stalling the whole suite behind one test —
+ * which is exactly how a mis-routed verdict request once wedged it.
+ */
+const UNREACHED_GATE_TIMEOUT_MS = 1_000;
+
 /** Records everything and answers nothing — a caller that ignores approval frames. */
 class UnansweringWriter extends ProgressWriter<RepoSearchProgressEvent> {
   public readonly events: RepoSearchProgressEvent[] = [];
@@ -150,7 +158,7 @@ test('auto mode: reviewer approve executes the write with no human involvement',
   const tempRoot = createManagedTempDir('siftkit-llm-auto-approve-');
   try {
     const writer = new RecordingWriter(new AlwaysAbortProvider());
-    const gate = new ApprovalGateHarness(writer).gate;
+    const gate = new ApprovalGateHarness(writer, false, UNREACHED_GATE_TIMEOUT_MS).gate;
     writer.gate = gate;
     const { events: logEvents, logger } = makeRecordingLogger();
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
@@ -186,7 +194,7 @@ test('auto mode: reviewer deny blocks the write and feeds the reason to the mode
   const tempRoot = createManagedTempDir('siftkit-llm-auto-deny-');
   try {
     const writer = new RecordingWriter(new AlwaysAbortProvider());
-    const gate = new ApprovalGateHarness(writer).gate;
+    const gate = new ApprovalGateHarness(writer, false, UNREACHED_GATE_TIMEOUT_MS).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
       '{"action":"write","path":"out.txt","content":"hello"}',
@@ -209,7 +217,7 @@ test('auto mode: unsure escalates to the human gate, which approves', async () =
   const tempRoot = createManagedTempDir('siftkit-llm-auto-unsure-');
   try {
     const writer = new RecordingWriter(new AlwaysApproveProvider());
-    const gate = new ApprovalGateHarness(writer).gate;
+    const gate = new ApprovalGateHarness(writer, false, UNREACHED_GATE_TIMEOUT_MS).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
       '{"action":"write","path":"out.txt","content":"hello"}',
@@ -244,7 +252,7 @@ for (const testCase of [
     try {
       fs.writeFileSync(path.join(tempRoot, 'a.txt'), 'content-a', 'utf8');
       const writer = new RecordingWriter(new AlwaysAbortProvider());
-      const gate = new ApprovalGateHarness(writer).gate;
+      const gate = new ApprovalGateHarness(writer, false, UNREACHED_GATE_TIMEOUT_MS).gate;
       writer.gate = gate;
       // No verdict mock present: if a verdict call were made it would consume the finish action and fail the run.
       const result = await runTaskLoop(makeTask('read a file'), makeAutoLoopOptions(tempRoot, [
@@ -268,7 +276,7 @@ test('auto mode: unparseable verdicts (after one retry) escalate to the human ga
   const tempRoot = createManagedTempDir('siftkit-llm-auto-badverdict-');
   try {
     const writer = new RecordingWriter(new AlwaysApproveProvider());
-    const gate = new ApprovalGateHarness(writer).gate;
+    const gate = new ApprovalGateHarness(writer, false, UNREACHED_GATE_TIMEOUT_MS).gate;
     writer.gate = gate;
     const result = await runTaskLoop(makeTask('write a file'), makeAutoLoopOptions(tempRoot, [
       '{"action":"write","path":"out.txt","content":"hello"}',
@@ -321,7 +329,10 @@ test('auto mode over HTTP: the verdict request byte-extends the executing planne
         const parsed = asObject(parseJsonValueText(body));
         const lastMessage = asObject(asArray(parsed.messages).at(-1));
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        if (String(lastMessage.content || '').startsWith(APPROVAL_REVIEW_REQUEST_MARKER)) {
+        // The verdict question leads with the review policy and carries the marker as a block
+        // header partway down, so routing must look for the marker anywhere in the message.
+        // A planner request never contains it — the assertion at the end of this test proves it.
+        if (String(lastMessage.content || '').includes(APPROVAL_REVIEW_REQUEST_MARKER)) {
           verdictBodies.push(parsed);
           res.end(completionBody('{"verdict":"approve","reason":"scoped write"}', null));
           return;
@@ -346,7 +357,7 @@ test('auto mode over HTTP: the verdict request byte-extends the executing planne
   const tempRoot = createManagedTempDir('siftkit-llm-auto-http-');
   try {
     fs.writeFileSync(path.join(tempRoot, 'a.txt'), 'content-a', 'utf8');
-    const gate = new ApprovalGateHarness(new SilentProgressWriter()).gate;
+    const gate = new ApprovalGateHarness(new SilentProgressWriter(), false, UNREACHED_GATE_TIMEOUT_MS).gate;
     const result = await runTaskLoop(makeTask('read a file then write a file'), {
       repoRoot: tempRoot,
       model: 'mock-model',

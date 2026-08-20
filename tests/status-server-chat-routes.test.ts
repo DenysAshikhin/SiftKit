@@ -144,6 +144,7 @@ function mockedCaptionExecution(finalOutput: string): RepoSearchExecutionResult 
       safetyRejects: 0,
       invalidResponses: 0,
       commandFailures: 0,
+      finishChallenges: 0,
       mutatedPaths: [],
       commands: [],
       turnThinking: {},
