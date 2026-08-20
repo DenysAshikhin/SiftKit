@@ -16,7 +16,7 @@ import type { ChatPromptContext } from '../status-server/chat-prompt-context.js'
 
 export type ChatSessionMode = 'chat' | 'plan' | 'repo-search';
 export type ChatMessageRole = 'user' | 'assistant';
-export type ChatMessageKind = 'user_text' | 'assistant_answer' | 'assistant_thinking' | 'assistant_tool_call' | 'tool_image';
+export type ChatMessageKind = 'user_text' | 'assistant_answer' | 'assistant_thinking' | 'assistant_tool_call' | 'tool_image' | 'compaction_summary';
 export type ChatGroundingStatus = 'ungrounded' | 'snippet_only' | 'fetched';
 
 export class ChatMessageImageNotFoundError extends Error {
@@ -81,7 +81,6 @@ export type ChatSession = {
   presetId?: string;
   mode?: ChatSessionMode;
   planRepoRoot?: string;
-  condensedSummary?: string;
   promptContext?: ChatPromptContext;
   createdAtUtc?: string;
   updatedAtUtc?: string;
@@ -100,7 +99,6 @@ const SessionRowSchema = z.object({
   preset_id: z.string().nullable(),
   mode: z.string(),
   plan_repo_root: z.string(),
-  condensed_summary: z.string(),
   created_at_utc: z.string(),
   updated_at_utc: z.string(),
 });
@@ -224,6 +222,7 @@ function normalizeMessageKind(value: string | null | undefined, roleValue: strin
     || value === 'assistant_thinking'
     || value === 'assistant_tool_call'
     || value === 'tool_image'
+    || value === 'compaction_summary'
   ) {
     return value;
   }
@@ -327,7 +326,6 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
       preset_id,
       mode,
       plan_repo_root,
-      condensed_summary,
       created_at_utc,
       updated_at_utc
     FROM chat_sessions
@@ -397,7 +395,6 @@ function readSessionById(runtimeRoot: string, sessionId: string): ChatSession | 
     presetId: requirePresetId(session.preset_id),
     mode: normalizeMode(session.mode),
     planRepoRoot: session.plan_repo_root,
-    condensedSummary: session.condensed_summary,
     createdAtUtc: session.created_at_utc,
     updatedAtUtc: session.updated_at_utc,
     messages: messages.map((message) => mapMessageRow(message)),
@@ -608,10 +605,9 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         preset_id,
         mode,
         plan_repo_root,
-        condensed_summary,
         created_at_utc,
         updated_at_utc
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         model_preset_id = excluded.model_preset_id,
@@ -621,7 +617,6 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
         preset_id = excluded.preset_id,
         mode = excluded.mode,
         plan_repo_root = excluded.plan_repo_root,
-        condensed_summary = excluded.condensed_summary,
         updated_at_utc = excluded.updated_at_utc
     `).run(
       sessionId,
@@ -635,7 +630,6 @@ export function saveChatSession(runtimeRoot: string, session: ChatSession): void
       typeof session.planRepoRoot === 'string' && session.planRepoRoot.trim()
         ? resolve(session.planRepoRoot)
         : process.cwd(),
-      typeof session.condensedSummary === 'string' ? session.condensedSummary : '',
       typeof session.createdAtUtc === 'string' && session.createdAtUtc.trim() ? session.createdAtUtc : now,
       typeof session.updatedAtUtc === 'string' && session.updatedAtUtc.trim() ? session.updatedAtUtc : now,
     );

@@ -399,7 +399,6 @@ export async function executeRepoSearchRequest(
       model: request.model,
       maxTurns: request.maxTurns ?? (isAgent ? REPO_AGENT_DEFAULT_MAX_TURNS : undefined),
       allowedTools: Array.isArray(request.allowedTools) ? request.allowedTools : undefined,
-      contextOverflowPolicy: isAgent ? 'fail' : 'compact',
       validationCommandOutputLineLimit: isAgent
         ? REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT
         : null,

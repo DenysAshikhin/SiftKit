@@ -400,7 +400,7 @@ class ChatInferenceMetadataFixture {
       id: 'stale-active', title: 'Stale active session', modelPresetId: this.activePresetId,
       modelPreset: mockModelPreset({ id: this.activePresetId, Model: 'stale-model', NumCtx: 30_000 }), thinkingEnabled: true,
       presetId: 'chat', mode: 'chat',
-      condensedSummary: '', createdAtUtc: '2026-07-21T00:00:00.000Z',
+      createdAtUtc: '2026-07-21T00:00:00.000Z',
       updatedAtUtc: '2026-07-21T00:00:00.000Z', messages: [],
     });
   }
@@ -410,7 +410,7 @@ class ChatInferenceMetadataFixture {
       id: 'historical', title: 'Historical session', modelPresetId: 'historical-preset',
       modelPreset: mockModelPreset({ id: 'historical-preset', Model: 'historical-model', NumCtx: 30_000 }), thinkingEnabled: true,
       presetId: 'chat', mode: 'chat',
-      condensedSummary: '', createdAtUtc: '2026-07-20T00:00:00.000Z',
+      createdAtUtc: '2026-07-20T00:00:00.000Z',
       updatedAtUtc: '2026-07-20T00:00:00.000Z', messages: [],
     });
   }
@@ -764,12 +764,21 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
 
     const condenseResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/condense`, {
       method: 'POST',
-      body: JSON.stringify({}),
+      body: JSON.stringify({ mockResponses: ['CONDENSED: the session discussed a stored assistant response.'] }),
     });
     assert.equal(condenseResponse.statusCode, 200);
     const condensedSession = d(condenseResponse.body.session);
-    assert.equal(typeof condensedSession.condensedSummary, 'string');
-    assert.match(String(condensedSession.condensedSummary), /stored assistant response/u);
+    const condensedMessages = asObjectArray(condensedSession.messages);
+    const summaryRow = condensedMessages.find((message) => message.kind === 'compaction_summary');
+    assert.ok(summaryRow);
+    assert.match(String(summaryRow.content), /stored assistant response/u);
+    assert.equal(summaryRow.compressedIntoSummary !== true, true);
+    const summaryIndex = condensedMessages.indexOf(summaryRow);
+    assert.equal(summaryIndex, condensedMessages.length - 1);
+    assert.equal(
+      condensedMessages.slice(0, summaryIndex).every((message) => message.compressedIntoSummary === true),
+      true,
+    );
 
     const sessionsResponse = await requestJson(`${baseUrl}/dashboard/chat/sessions`);
     assert.equal(sessionsResponse.statusCode, 200);

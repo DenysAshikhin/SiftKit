@@ -20,7 +20,7 @@ import {
   mergeReadOverlapSummaries,
   ReadOverlapSummarySchema,
 } from './engine/read-overlap.js';
-import { TaskResultSchema, type ContextOverflowPolicy } from './engine/task-loop-support.js';
+import { TaskResultSchema } from './engine/task-loop-support.js';
 import type { ApprovalGate, ApprovalMode } from './engine/approval-gate.js';
 import {
   DEFAULT_MAX_INVALID_RESPONSES,
@@ -142,7 +142,6 @@ export async function runRepoSearch(options: {
   timeoutMs?: number;
   maxInvalidResponses?: number;
   minToolCallsBeforeFinish?: number;
-  contextOverflowPolicy?: ContextOverflowPolicy;
   validationCommandOutputLineLimit?: number | null;
   loopKind?: 'repo-search' | 'chat' | 'repo-agent';
   allowEmptyTools?: boolean;
@@ -222,7 +221,6 @@ export async function runRepoSearch(options: {
       maxTurns: options.maxTurns || DEFAULT_MAX_TURNS,
       maxInvalidResponses: options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES,
       minToolCallsBeforeFinish: options.minToolCallsBeforeFinish,
-      contextOverflowPolicy: options.contextOverflowPolicy ?? 'compact',
       validationCommandOutputLineLimit:
         options.validationCommandOutputLineLimit ?? null,
       loopKind: options.loopKind,

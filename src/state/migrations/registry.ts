@@ -573,4 +573,18 @@ export const MIGRATIONS: readonly Migration[] = [
     }
     },
   },
+  {
+    version: 50,
+    up: (database) => {
+    // The 2400-character condensed tail is gone: compaction now writes a real summary
+    // message. Old sessions have no summary row to replay, so their flags reset and
+    // their full history replays until the next compaction writes one.
+    if (tableHasColumn(database, 'chat_sessions', 'condensed_summary')) {
+      database.exec('ALTER TABLE chat_sessions DROP COLUMN condensed_summary;');
+    }
+    if (tableHasColumn(database, 'chat_messages', 'compressed_into_summary')) {
+      database.exec('UPDATE chat_messages SET compressed_into_summary = 0;');
+    }
+    },
+  },
 ];

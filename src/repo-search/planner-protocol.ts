@@ -883,6 +883,44 @@ export async function requestTerminalSynthesis(options: Partial<PlannerThinkingF
   });
 }
 
+/**
+ * The context-compaction summarization call. Free-form text with no tools and no
+ * response schema: the output becomes an assistant message, not a planner action.
+ */
+export async function requestContextCompactionSummary(options: Partial<PlannerThinkingFlags> & {
+  config: SiftConfig;
+  baseUrl: string;
+  model: string;
+  prompt: string;
+  timeoutMs: number;
+  maxTokens: number;
+  slotId?: number;
+  mockResponses?: string[];
+  mockResponseIndex?: number;
+  abortSignal?: AbortSignal;
+  logger?: JsonLogger | null;
+}): Promise<PlannerActionResponse> {
+  return requestRepoSearchPlannerProtocolAction({
+    config: options.config,
+    baseUrl: options.baseUrl,
+    model: options.model,
+    messages: serializeProtocolMessages([{ role: 'user', content: options.prompt }], options.reasoningContentEnabled === true),
+    slotId: options.slotId,
+    timeoutMs: options.timeoutMs,
+    maxTokens: options.maxTokens,
+    thinkingEnabled: options.thinkingEnabled,
+    reasoningContentEnabled: options.reasoningContentEnabled,
+    preserveThinking: options.preserveThinking,
+    mockResponses: options.mockResponses,
+    mockResponseIndex: options.mockResponseIndex,
+    abortSignal: options.abortSignal,
+    logger: options.logger,
+    stage: 'context_compaction',
+    responseSchema: null,
+    toolDefinitions: [],
+  });
+}
+
 export { isTransientProviderError } from '../lib/provider-helpers.js';
 
 export function renderTaskTranscript(messages: ChatMessage[]): string {

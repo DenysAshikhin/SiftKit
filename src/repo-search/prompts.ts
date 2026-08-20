@@ -371,6 +371,34 @@ export function buildTerminalSynthesisPrompt(options: {
   ].join('\n');
 }
 
+/**
+ * The context-compaction instruction. The conversation it wraps is about to be deleted
+ * and replaced by the model's answer, so the sections demanded here are exactly what a
+ * resumed run cannot reconstruct on its own.
+ */
+export function buildCompactionSummaryPrompt(transcriptText: string): string {
+  const conversationText = transcriptText.trim() || '[none]';
+  return [
+    'You are compacting a long working conversation so the same model can resume it from the summary alone.',
+    'The conversation below will be deleted and replaced by what you write. Nothing else survives.',
+    'Write the summary as plain prose under these headings, in this order:',
+    '1. Task and goal — what was asked, in the requester\'s terms.',
+    '2. Current state — what is done, what is not.',
+    '3. Key findings — concrete evidence, each with a file:line anchor where one exists.',
+    '4. Decisions made — choices already settled, and why, so they are not relitigated.',
+    '5. Tool results that still matter — reproduce exact error text, command output and identifiers verbatim.',
+    '6. In-flight work — pending edits, the current hypothesis, and the next intended command.',
+    'Rules:',
+    '- Write for the model that must continue the work, not for a reader looking back.',
+    '- Never invent a path, line number, symbol or result that is not in the conversation.',
+    '- Prefer dropping commentary over dropping a concrete anchor or an exact error string.',
+    '- Output the summary only. No preamble, no meta-commentary about summarizing.',
+    '',
+    'Conversation to compact:',
+    conversationText,
+  ].join('\n');
+}
+
 export const TaskCommandSchema = z.object({
   command: z.string(),
   turn: z.number(),

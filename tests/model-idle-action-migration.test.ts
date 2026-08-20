@@ -65,9 +65,9 @@ function seedAllMissingIdleActionSnapshots(dbPath: string): void {
   database.prepare(`
     INSERT INTO chat_sessions (
       id, title, model_preset_id, model_preset_json, thinking_enabled,
-      web_search_enabled, preset_id, mode, plan_repo_root, condensed_summary,
+      web_search_enabled, preset_id, mode, plan_repo_root,
       created_at_utc, updated_at_utc
-    ) VALUES ('session-1', 'Session', 'default', ?, 0, 1, NULL, 'chat', '.', '', ?, ?)
+    ) VALUES ('session-1', 'Session', 'default', ?, 0, 1, NULL, 'chat', '.', ?, ?)
   `).run(JSON.stringify(preset), timestamp, timestamp);
   database.prepare(`
     INSERT INTO benchmark_sessions (
@@ -194,9 +194,9 @@ test('v47 migrates persisted chat-session preset snapshots before they are read'
     database.prepare(`
       INSERT INTO chat_sessions (
         id, title, model_preset_id, model_preset_json, thinking_enabled,
-        web_search_enabled, preset_id, mode, plan_repo_root, condensed_summary,
+        web_search_enabled, preset_id, mode, plan_repo_root,
         created_at_utc, updated_at_utc
-      ) VALUES ('session-1', 'Session', 'default', ?, 0, 1, NULL, 'chat', '.', '', '2026-01-01', '2026-01-01')
+      ) VALUES ('session-1', 'Session', 'default', ?, 0, 1, NULL, 'chat', '.', '2026-01-01', '2026-01-01')
     `).run(JSON.stringify(withoutIdleAction));
     database.prepare('UPDATE runtime_schema SET version = 46 WHERE id = 1').run();
     closeRuntimeDatabase();

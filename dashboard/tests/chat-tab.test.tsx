@@ -41,8 +41,7 @@ function msg(overrides: Partial<ChatMessage>): ChatMessage {
 
 const SESSION_A = {
   id: 'session-a', title: 'Session A', model: 'test-model', contextWindowTokens: 100,
-  thinkingEnabled: true, presetId: PRESET.id, mode: 'chat', condensedSummary: '',
-  createdAtUtc: '2026-04-16T11:00:00.000Z', updatedAtUtc: '2026-04-16T12:00:00.000Z',
+  thinkingEnabled: true, presetId: PRESET.id, mode: 'chat',  createdAtUtc: '2026-04-16T11:00:00.000Z', updatedAtUtc: '2026-04-16T12:00:00.000Z',
   messages: [msg({ id: 'a1', kind: 'assistant_answer', content: 'Hello from the assistant.' })],
 } satisfies ChatSession;
 
@@ -493,4 +492,44 @@ test('an image-only bubble surfaces its known image token count', () => {
 
   assert.match(markup, /2,048 image tokens/u);
   assert.doesNotMatch(markup, /tokens unavailable/u);
+});
+
+const COMPACTED_SESSION = {
+  ...SESSION_A,
+  id: 'session-compacted',
+  messages: [
+    msg({ id: 'c1', role: 'user', kind: 'user_text', content: 'old question', compressedIntoSummary: true }),
+    msg({ id: 'c2', kind: 'assistant_answer', content: 'old answer', compressedIntoSummary: true }),
+    msg({ id: 'c3', kind: 'compaction_summary', content: 'SUMMARY OF THE OLD EXCHANGE' }),
+    msg({ id: 'c4', role: 'user', kind: 'user_text', content: 'new question' }),
+    msg({ id: 'c5', kind: 'assistant_answer', content: 'new answer' }),
+  ],
+} satisfies ChatSession;
+
+test('a compacted session renders the divider, the collapsed originals and the summary card', () => {
+  const markup = render({
+    sessions: [COMPACTED_SESSION],
+    selectedSessionId: COMPACTED_SESSION.id,
+    selectedSession: COMPACTED_SESSION,
+  });
+
+  assert.match(markup, /Context compacted \(2 messages summarized\)/u);
+  assert.match(markup, /compaction-originals/u);
+  assert.match(markup, /Compacted summary/u);
+  assert.match(markup, /SUMMARY OF THE OLD EXCHANGE/u);
+  assert.match(markup, /old answer/u);
+  assert.match(markup, /new answer/u);
+});
+
+test('a session with no compaction renders no divider', () => {
+  const markup = render();
+
+  assert.doesNotMatch(markup, /Context compacted/u);
+  assert.doesNotMatch(markup, /Compacted summary/u);
+});
+
+test('the condensed summary panel is gone', () => {
+  const markup = render();
+
+  assert.doesNotMatch(markup, /Condensed Summary/u);
 });

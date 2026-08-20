@@ -119,6 +119,8 @@ export const TaskResultSchema = z.object({
   commands: z.array(TaskCommandSchema),
   turnThinking: z.record(z.coerce.number(), z.string()),
   finalOutput: z.string(),
+  /** Raw summary text from the run's last compaction; empty when the run never compacted. */
+  compactionSummary: z.string(),
   /**
    * Repository-relative paths this task actually wrote to. Recorded independently of the final
    * output so a run that ends without acknowledging its own edits still reports them.
@@ -148,8 +150,6 @@ export type TaskResult = z.infer<typeof TaskResultSchema>;
 // Task loop options
 // ---------------------------------------------------------------------------
 
-export type ContextOverflowPolicy = 'compact' | 'fail';
-
 export type RunTaskLoopOptions = {
   repoRoot: string;
   model: string;
@@ -161,7 +161,6 @@ export type RunTaskLoopOptions = {
   maxTurns?: number;
   maxInvalidResponses?: number;
   minToolCallsBeforeFinish?: number;
-  contextOverflowPolicy?: ContextOverflowPolicy;
   validationCommandOutputLineLimit?: number | null;
   loopKind?: 'repo-search' | 'chat' | 'repo-agent';
   streamFinishAsAnswer?: boolean;

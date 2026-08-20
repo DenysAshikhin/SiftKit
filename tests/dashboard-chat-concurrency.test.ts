@@ -131,9 +131,11 @@ test('condense is rejected while the same session is streaming and allowed once 
     assert.equal(busyCondense.statusCode, 409);
     assert.equal(asObject(busyCondense.body).operationKind, 'message');
 
+    // Condense now issues its own summarization request, so it needs a mock response
+    // exactly like any other turn driven through this harness.
     const otherCondense = await requestJson(
       `${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionB}/condense`,
-      { method: 'POST', body: JSON.stringify({}) },
+      { method: 'POST', body: JSON.stringify({ mockResponses: ['summary-b'] }) },
     );
     assert.equal(otherCondense.statusCode, 200);
 
@@ -142,9 +144,12 @@ test('condense is rejected while the same session is streaming and allowed once 
 
     const settledCondense = await requestJson(
       `${harness.getBaseUrl()}/dashboard/chat/sessions/${sessionA}/condense`,
-      { method: 'POST', body: JSON.stringify({}) },
+      { method: 'POST', body: JSON.stringify({ mockResponses: ['summary-a'] }) },
     );
     assert.equal(settledCondense.statusCode, 200);
+    const condensedMessages = asObjectArray(asObject(asObject(settledCondense.body).session).messages);
+    assert.equal(condensedMessages.at(-1)?.kind, 'compaction_summary');
+    assert.equal(condensedMessages.at(-1)?.content, 'summary-a');
   } finally {
     await harness.close();
   }

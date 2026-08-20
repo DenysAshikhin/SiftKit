@@ -28,7 +28,6 @@ export { estimateTokenCount } from '../lib/token-estimate.js';
 export {
   countTokensWithFallback,
   preflightPlannerPromptBudget,
-  compactPlannerMessagesOnce,
 } from './prompt-budget.js';
 export type {
   JsonLogger,

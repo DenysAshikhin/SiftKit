@@ -35,11 +35,11 @@ Remaining work: scale required search effort to task complexity and evidence suf
 
 Remaining work: make harness interventions append-only. Do not overwrite earlier model-visible transcript messages.
 
-## L5. Repo-search compaction can still produce invalid or misleading history
+## L5. Compaction summaries are still assistant-authored content
 
-`compactPlannerMessagesOnce` still greedily keeps messages by newest-first token fit in `src/repo-search/prompt-budget.ts:200` without preserving assistant tool-call/tool-response pairs. It also injects `[COMPRESSED HISTORICAL EVIDENCE]` (marker at `src/repo-search/prompt-budget.ts:143`) as an assistant message (`role: 'assistant'`, `src/repo-search/prompt-budget.ts:187`).
+Truncation compaction is gone: `TranscriptCompactor` in `src/repo-search/engine/transcript-compactor.ts` replaces an over-budget transcript with one LLM-written summary and rebuilds it as `system → summary → latest user message`, so no partial tool-call pair can survive. The summary is still injected as an assistant message (`buildCompactionSummaryMessage`, `src/repo-search/engine/transcript-compactor.ts:34`).
 
-Remaining work: compact by protocol-valid message groups and put harness summaries in system/user role or out-of-band metadata, not assistant speech.
+Remaining work: put harness summaries in system/user role or out-of-band metadata, not assistant speech.
 
 ## L6. Planner JSON parsing still repairs invalid model output
 
@@ -65,11 +65,11 @@ Chat replay still uses `trimText(message.toolCallOutput) || trimText(message.too
 
 Remaining work: replay full tool outputs when available, and when only snippets exist, label them as truncated so the model knows to re-fetch instead of treating them as complete evidence.
 
-## L10. Chat condense is still cosmetic for model input
+## L10. Chat context accounting is still estimate-based
 
-`condenseChatSession` still marks `compressedIntoSummary` and stores a `condensedSummary` in `src/status-server/chat.ts:543`, but `buildChatHistoryMessages` iterates session messages directly from `src/status-server/chat.ts:207` and does not inject `condensedSummary` or skip compressed messages. Context accounting still uses estimates in `ContextUsageBuilder` starting at `src/status-server/chat.ts:94`.
+Condense is no longer cosmetic: `condenseChatSession` runs the same LLM summarizer the engine uses, persists a `compaction_summary` row, and flags everything before it, and `buildChatHistoryMessages` skips `compressedIntoSummary` rows and replays the summary instead. Context accounting still uses estimates in `ContextUsageBuilder` starting at `src/status-server/chat.ts:94`.
 
-Remaining work: make condense affect the prompt the model sees, preserve tool-call pairs, retain evidence intentionally, and make the context meter reflect rendered prompt tokens as closely as practical.
+Remaining work: make the context meter reflect rendered prompt tokens as closely as practical.
 
 ## L11. Web grounding is still session-wide instead of claim-sensitive
 

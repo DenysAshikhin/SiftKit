@@ -12,7 +12,6 @@ test('getSessionTelemetryStats computes cache hit rate and per-turn averaged acc
     contextWindowTokens: 100,
     presetId: 'chat',
     mode: 'chat',
-    condensedSummary: '',
     createdAtUtc: '2026-04-16T11:00:00.000Z',
     updatedAtUtc: '2026-04-16T12:00:00.000Z',
     messages: [
@@ -87,7 +86,6 @@ test('getSessionTelemetryStats uses thinking plus output tokens consistently acr
     contextWindowTokens: 100,
     presetId: 'chat',
     mode: 'chat',
-    condensedSummary: '',
     createdAtUtc: '2026-04-16T11:00:00.000Z',
     updatedAtUtc: '2026-04-16T12:00:00.000Z',
     messages: [
@@ -162,7 +160,6 @@ test('getSessionTelemetryStats returns null rates when the session has no timing
     contextWindowTokens: 100,
     presetId: 'chat',
     mode: 'chat',
-    condensedSummary: '',
     createdAtUtc: '2026-04-16T11:00:00.000Z',
     updatedAtUtc: '2026-04-16T12:00:00.000Z',
     messages: [],

@@ -21,6 +21,8 @@ export type RepoSearchCommandResult = {
 
 export type RepoSearchTaskResult = {
   finalOutput: string;
+  /** Raw summary text from the run's last compaction; empty when the run never compacted. */
+  compactionSummary: string;
   turnsUsed: number | null;
   groundingStatus: ChatGroundingStatus | null;
   commands: RepoSearchCommandResult[];
@@ -98,6 +100,7 @@ function normalizeTask(value: OptionalJsonValue): RepoSearchTaskResult {
   }
   return {
     finalOutput: reader.string('finalOutput'),
+    compactionSummary: reader.string('compactionSummary'),
     turnsUsed: reader.nullableNonNegativeInteger('turnsUsed'),
     groundingStatus: normalizeGroundingStatus(reader.value('groundingStatus')),
     commands: Array.isArray(commandsRaw) ? commandsRaw.map((entry) => normalizeCommand(entry)) : [],

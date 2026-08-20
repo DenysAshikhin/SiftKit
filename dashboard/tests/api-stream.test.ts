@@ -9,7 +9,6 @@ const SAMPLE_DONE: ChatSessionResponse = {
     modelPresetId: 'test-model',
     model: null,
     contextWindowTokens: 0,
-    condensedSummary: '',
     createdAtUtc: '2026-06-03T00:00:00.000Z',
     updatedAtUtc: '2026-06-03T00:00:00.000Z',
     messages: [],

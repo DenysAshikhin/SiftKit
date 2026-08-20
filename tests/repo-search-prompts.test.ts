@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { buildAgentSystemPrompt, buildTaskInitialUserPrompt, buildTaskSystemPrompt } from '../src/repo-search/prompts.js';
+import {
+  buildAgentSystemPrompt,
+  buildCompactionSummaryPrompt,
+  buildTaskInitialUserPrompt,
+  buildTaskSystemPrompt,
+} from '../src/repo-search/prompts.js';
 import { APPROVAL_REVIEW_REQUEST_MARKER } from '../src/repo-search/approval-review-policy.js';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/validation-command-output-policy.js';
 import { RUN_SHELL_LABEL, POWERSHELL_EXECUTABLE } from '../src/lib/powershell.js';
@@ -286,4 +291,22 @@ test('buildAgentSystemPrompt uses context metadata without injecting context con
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('buildCompactionSummaryPrompt demands every section the resumed model needs', () => {
+  const prompt = buildCompactionSummaryPrompt('[user]\nfind the bug\n[tool]\nError: ENOENT foo.ts');
+
+  assert.match(prompt, /Task and goal/u);
+  assert.match(prompt, /Current state/u);
+  assert.match(prompt, /Key findings/u);
+  assert.match(prompt, /file:line/u);
+  assert.match(prompt, /Decisions made/u);
+  assert.match(prompt, /Tool results that still matter/u);
+  assert.match(prompt, /verbatim/u);
+  assert.match(prompt, /In-flight work/u);
+  assert.match(prompt, /Error: ENOENT foo\.ts/u);
+});
+
+test('buildCompactionSummaryPrompt marks an empty transcript instead of emitting nothing', () => {
+  assert.match(buildCompactionSummaryPrompt('   '), /\[none\]/u);
 });

@@ -45,6 +45,7 @@ export function buildMockScorecard(finalOutput: string): RepoSearchExecutionResu
       commands: [],
       turnThinking: {},
       finalOutput,
+      compactionSummary: '',
       passed: true,
       missingSignals: [],
       promptTokens: 0,
