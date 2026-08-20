@@ -22,7 +22,7 @@ interface DirectoryEntry {
  * Reads entries of an on-disk archive without loading the archive into memory. The central
  * directory is parsed once — it is small — and payloads are read on demand. Deflated entries are
  * inflated in memory because only metadata-sized entries are ever deflated by `ZipFileWriter`;
- * stored entries stream a chunk at a time. Every read is CRC-verified, matching `readZip`.
+ * stored entries stream a chunk at a time. Every read is CRC-verified.
  */
 export class ZipFileReader {
   private constructor(
@@ -53,7 +53,7 @@ export class ZipFileReader {
     return this.requireEntry(name).uncompressedSize;
   }
 
-  /** In-memory read for metadata-sized entries; CRC-verified like `readZip`. */
+  /** In-memory read for metadata-sized entries; CRC-verified. */
   readEntry(name: string): Buffer {
     const entry = this.requireEntry(name);
     const compressed = this.readRange(this.dataStart(entry), entry.compressedSize);

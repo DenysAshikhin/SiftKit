@@ -6,7 +6,7 @@ import test from 'node:test';
 
 import { TempArchiveBuilder, type TempArchive } from '../src/assistant/control/temp-archive.js';
 import { sendArchive } from '../src/status-server/routes/assistant/helpers.js';
-import { readZip } from '../src/lib/zip.js';
+import { readArchiveEntriesFromBytes } from './helpers/archive-bytes.js';
 
 /** Large enough that the client gets a chance to hang up before the body finishes. */
 const PAYLOAD_BYTES = 8 * 1024 * 1024;
@@ -53,7 +53,7 @@ test('sendArchive streams the archive and then deletes it', async () => {
     assert.equal(response.headers.get('content-type'), 'application/zip');
     assert.equal(response.headers.get('cache-control'), 'no-store');
     const body = Buffer.from(await response.arrayBuffer());
-    assert.equal(readZip(body).get('payload.bin')?.byteLength, PAYLOAD_BYTES);
+    assert.equal(readArchiveEntriesFromBytes(body).get('payload.bin')?.byteLength, PAYLOAD_BYTES);
     assert.equal(await waitForRemoval(directory), true, 'archive directory must be removed');
   } finally {
     await closeServer(server);

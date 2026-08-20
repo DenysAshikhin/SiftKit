@@ -16,14 +16,13 @@ import type {
 } from '../src/assistant/projections/projection-summarizer.js';
 import { LIVE_ASSERTION_STATUSES } from '../src/assistant/storage/assertion-store.js';
 import { DEFAULT_ASSISTANT_CONFIG } from '../src/config/defaults.js';
-import { readZip } from '../src/lib/zip.js';
 import { closeRuntimeDatabase, getRuntimeDatabase } from '../src/state/runtime-db.js';
 import {
   FIXTURE_START_INSTANT, MemoryAssistantConfigWriter, withAssistantContextAsync,
   type AssistantTestContext,
 } from './helpers/assistant-fixture.js';
 import { FakeAssistantInference } from './helpers/assistant-inference-fake.js';
-import { archiveBytes, archiveUploadPath } from './helpers/archive-bytes.js';
+import { archiveEntries, archiveBytes, archiveUploadPath } from './helpers/archive-bytes.js';
 import { seedOwnerAssertion } from './helpers/gate-e-seed.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
@@ -309,7 +308,7 @@ test('gate E scenario 12: export survives factory reset and restore byte for byt
     await service.drainJobs();
     await service.memoryMutations.rebuildProjections(context.ownerId, PROJECTION_SIGNAL);
 
-    const before = readZip(await archiveBytes(service.exports.export({ includeDecryptedBlobs: false })));
+    const before = await archiveEntries(service.exports.export({ includeDecryptedBlobs: false }));
     const backupBytes = await archiveBytes(service.backups.createBackup());
 
     await service.factoryReset(service.previewFactoryReset().previewToken);
@@ -320,7 +319,7 @@ test('gate E scenario 12: export survives factory reset and restore byte for byt
     const result = await service.restore(preview.uploadId, preview.confirmToken);
     assert.deepEqual(result, { ok: true, blobsReadable: true, warning: null });
 
-    const after = readZip(await archiveBytes(service.exports.export({ includeDecryptedBlobs: false })));
+    const after = await archiveEntries(service.exports.export({ includeDecryptedBlobs: false }));
     assert.deepEqual(
       [...after.entries()].map(([name, data]) => [name, data.toString('base64')]).sort(),
       [...before.entries()].map(([name, data]) => [name, data.toString('base64')]).sort(),

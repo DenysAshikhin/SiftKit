@@ -8,7 +8,7 @@ import {
 } from './zip.js';
 
 const READ_CHUNK_BYTES = 1024 * 1024;
-/** Sizes and offsets are 32-bit: this writer emits no zip64 records, same as `ZipWriter`. */
+/** Sizes and offsets are 32-bit: this writer emits no zip64 records. */
 const MAX_ZIP32_BYTES = 0xfffffffe;
 
 interface WrittenEntry {
@@ -22,7 +22,7 @@ interface WrittenEntry {
 
 /**
  * Streams a zip archive to disk entry by entry, holding at most one read chunk in memory.
- * Same format decisions as `ZipWriter`: zero timestamps for determinism, UTF-8 names, no zip64.
+ * Zero timestamps for determinism, UTF-8 names, no zip64 -- see `zip.ts` for the header codecs.
  *
  * File entries are STORE (method 0), so their sizes are known from `stat` before any byte is
  * written. Only the CRC is not, and rather than reading the source twice — or emitting a data
