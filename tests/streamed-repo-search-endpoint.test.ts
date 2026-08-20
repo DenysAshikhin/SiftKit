@@ -72,7 +72,10 @@ test('queued repo-search sees lock_wait progress while a slow run holds the lock
     ...REPO_SEARCH_BODY,
     repoRoot: process.cwd(),
     mockCommandResults: {
-      'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 2_100 },
+      // The queued request only starts waiting after the holder's tool_start frame crosses SSE,
+      // and the server emits its first lock_wait tick at LOCK_WAIT_EMIT_INTERVAL_MS (2s) of
+      // waiting — the hold must outlast that interval plus propagation delay under suite load.
+      'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 4_500 },
     },
   };
   let resolveHolderStarted: (() => void) | null = null;
