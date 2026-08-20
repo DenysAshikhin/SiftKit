@@ -51,7 +51,7 @@ test('rejects a corrupted entry via CRC mismatch', async () => {
 
   const reader = await ZipFileReader.open(archivePath);
   try {
-    assert.throws(() => reader.readEntry('a.bin'), /CRC/u);
+    await assert.rejects(reader.readEntry('a.bin'), /CRC/u);
   } finally {
     await reader.close();
   }

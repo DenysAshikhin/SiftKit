@@ -82,7 +82,7 @@ export class RestoreService {
     let totalBytes = 0;
     try {
       await this.verifyEntries(reader);
-      manifest = this.readManifest(reader);
+      manifest = await this.readManifest(reader);
       const names = reader.entryNames();
       fileCount = names.length;
       for (const name of names) totalBytes += reader.entrySize(name);
@@ -128,7 +128,7 @@ export class RestoreService {
     try {
       // Re-verify: the parked file could have been swapped since the preview.
       await this.verifyEntries(reader);
-      this.readManifest(reader);
+      await this.readManifest(reader);
 
       await this.replaceRows(reader, snapshotPath);
       await this.replaceBlobTree(reader);
@@ -162,7 +162,7 @@ export class RestoreService {
 
   /** Every entry, with each manifest hash checked. A damaged archive never reaches the database. */
   private async verifyEntries(reader: ZipFileReader): Promise<void> {
-    const manifest = this.readManifestOnly(reader);
+    const manifest = await this.readManifestOnly(reader);
     for (const [name, hash] of Object.entries(manifest.files)) {
       if (!reader.hasEntry(name)) {
         throw new Error(`Backup entry ${name} is missing.`);
@@ -178,13 +178,16 @@ export class RestoreService {
     }
   }
 
-  private readManifestOnly(reader: ZipFileReader): BackupManifest {
+  private async readManifestOnly(reader: ZipFileReader): Promise<BackupManifest> {
     if (!reader.hasEntry(MANIFEST_ENTRY)) throw new Error('Backup is missing its manifest.json.');
-    return parseJsonText(reader.readEntry(MANIFEST_ENTRY).toString('utf8'), BackupManifestSchema);
+    return parseJsonText(
+      (await reader.readEntry(MANIFEST_ENTRY)).toString('utf8'),
+      BackupManifestSchema,
+    );
   }
 
-  private readManifest(reader: ZipFileReader): BackupManifest {
-    const manifest = this.readManifestOnly(reader);
+  private async readManifest(reader: ZipFileReader): Promise<BackupManifest> {
+    const manifest = await this.readManifestOnly(reader);
     if (manifest.schemaVersion > CURRENT_SCHEMA_VERSION) {
       throw new Error(
         `Backup schema version ${manifest.schemaVersion} is newer than this build's `
@@ -265,7 +268,7 @@ export class RestoreService {
    */
   private async recoverKey(reader: ZipFileReader): Promise<boolean> {
     if (!reader.hasEntry(KEY_ENTRY)) return false;
-    const sealed = reader.readEntry(KEY_ENTRY);
+    const sealed = await reader.readEntry(KEY_ENTRY);
     try {
       const material = parseJsonText(
         (await dpapiUnprotect(sealed)).toString('utf8'),

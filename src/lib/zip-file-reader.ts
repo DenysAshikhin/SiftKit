@@ -51,13 +51,13 @@ class FileChunkSink implements ChunkSink {
 
 /**
  * Reads entries of an on-disk archive without loading the archive into memory. The central
- * directory is parsed once — it is small — and payloads are read on demand. Deflated entries are
- * inflated in memory because only metadata-sized entries are ever deflated by `ZipFileWriter`;
- * stored entries stream a chunk at a time, off the event loop. Every read is CRC-verified.
+ * directory is parsed once — it is small — and payloads are read on demand. Every read goes
+ * through the handle's promise API, so no read blocks the event loop, and every read is
+ * CRC-verified.
  *
- * The handle backs both access modes: `handle.fd` serves the small positional reads that build
- * the directory, while the chunked walks go through the promise API so a multi-gigabyte restore
- * cannot stall the status server.
+ * Two bounded exceptions remain, both CPU rather than I/O: a deflated entry is inflated in a
+ * single synchronous call, and an in-memory read folds its CRC in one pass. `ZipFileWriter` only
+ * deflates `addBuffer` entries, so in a backup those are the manifest and the sealed key.
  */
 export class ZipFileReader {
   private constructor(
@@ -65,15 +65,11 @@ export class ZipFileReader {
     private readonly directory: ReadonlyMap<string, DirectoryEntry>,
   ) {}
 
-  private get fd(): number {
-    return this.handle.fd;
-  }
-
   static async open(archivePath: string): Promise<ZipFileReader> {
     const handle = await fs.promises.open(archivePath, 'r');
     try {
       const { size } = await handle.stat();
-      return new ZipFileReader(handle, readCentralDirectory(handle.fd, size));
+      return new ZipFileReader(handle, await readCentralDirectory(handle, size));
     } catch (error) {
       await handle.close();
       throw error;
@@ -94,9 +90,9 @@ export class ZipFileReader {
   }
 
   /** In-memory read for metadata-sized entries; CRC-verified. */
-  readEntry(name: string): Buffer {
+  async readEntry(name: string): Promise<Buffer> {
     const entry = this.requireEntry(name);
-    const compressed = this.readRange(this.dataStart(entry), entry.compressedSize);
+    const compressed = await this.readRange(await this.dataStart(entry), entry.compressedSize);
     const data = entry.method === 8 ? inflateRawSync(compressed) : compressed;
     if (crc32(data) !== entry.crc) {
       throw new Error(`Zip entry ${name} failed its CRC check.`);
@@ -108,7 +104,7 @@ export class ZipFileReader {
   async hashEntry(name: string): Promise<string> {
     const entry = this.requireEntry(name);
     if (entry.method !== 0) {
-      return createHash('sha256').update(this.readEntry(name)).digest('hex');
+      return createHash('sha256').update(await this.readEntry(name)).digest('hex');
     }
     const sink = new HashChunkSink();
     await this.walkStored(name, entry, sink);
@@ -119,7 +115,7 @@ export class ZipFileReader {
   async extractTo(name: string, destinationPath: string): Promise<void> {
     const entry = this.requireEntry(name);
     if (entry.method !== 0) {
-      await fs.promises.writeFile(destinationPath, this.readEntry(name));
+      await fs.promises.writeFile(destinationPath, await this.readEntry(name));
       return;
     }
     const handle = await fs.promises.open(destinationPath, 'w');
@@ -139,13 +135,13 @@ export class ZipFileReader {
 
   /** Walks a stored entry a chunk at a time and throws unless the CRC matches. */
   private async walkStored(name: string, entry: DirectoryEntry, sink: ChunkSink): Promise<void> {
-    const start = this.dataStart(entry);
+    const start = await this.dataStart(entry);
     const chunk = Buffer.allocUnsafe(READ_CHUNK_BYTES);
     let crc = CRC32_SEED;
     let position = 0;
     while (position < entry.compressedSize) {
       const toRead = Math.min(READ_CHUNK_BYTES, entry.compressedSize - position);
-      await this.readExactlyAsync(chunk, toRead, start + position);
+      await readExactly(this.handle, chunk, toRead, start + position);
       const view = chunk.subarray(0, toRead);
       crc = crc32Update(crc, view);
       await sink.write(view);
@@ -156,60 +152,56 @@ export class ZipFileReader {
     }
   }
 
-  /** The async twin of `readExactly`: a short read still means a truncated archive. */
-  private async readExactlyAsync(buffer: Buffer, length: number, position: number): Promise<void> {
-    let read = 0;
-    while (read < length) {
-      const result = await this.handle.read(buffer, read, length - read, position + read);
-      if (result.bytesRead === 0) {
-        throw new Error('Zip archive ended before the expected number of bytes.');
-      }
-      read += result.bytesRead;
-    }
-  }
-
   private requireEntry(name: string): DirectoryEntry {
     const entry = this.directory.get(name);
     if (entry === undefined) throw new Error(`Zip archive has no entry named ${name}.`);
     return entry;
   }
 
-  private readRange(position: number, length: number): Buffer {
+  private async readRange(position: number, length: number): Promise<Buffer> {
     const buffer = Buffer.alloc(length);
-    readExactly(this.fd, buffer, length, position);
+    await readExactly(this.handle, buffer, length, position);
     return buffer;
   }
 
   /** The local header repeats the name and extra fields, so the payload offset comes from it. */
-  private dataStart(entry: DirectoryEntry): number {
+  private async dataStart(entry: DirectoryEntry): Promise<number> {
     return localHeaderDataOffset(
       entry.localOffset,
-      this.readRange(entry.localOffset, LOCAL_HEADER_SIZE),
+      await this.readRange(entry.localOffset, LOCAL_HEADER_SIZE),
     );
   }
 }
 
 /** A short read means the archive is truncated, which must never be mistaken for zero bytes. */
-function readExactly(fd: number, buffer: Buffer, length: number, position: number): void {
+async function readExactly(
+  handle: fs.promises.FileHandle,
+  buffer: Buffer,
+  length: number,
+  position: number,
+): Promise<void> {
   let read = 0;
   while (read < length) {
-    const bytes = fs.readSync(fd, buffer, read, length - read, position + read);
-    if (bytes === 0) throw new Error('Zip archive ended before the expected number of bytes.');
-    read += bytes;
+    const { bytesRead } = await handle.read(buffer, read, length - read, position + read);
+    if (bytesRead === 0) throw new Error('Zip archive ended before the expected number of bytes.');
+    read += bytesRead;
   }
 }
 
-function readCentralDirectory(fd: number, size: number): Map<string, DirectoryEntry> {
+async function readCentralDirectory(
+  handle: fs.promises.FileHandle,
+  size: number,
+): Promise<Map<string, DirectoryEntry>> {
   const tailLength = Math.min(size, EOCD_SIZE + MAX_COMMENT_LENGTH);
   const tail = Buffer.alloc(tailLength);
-  readExactly(fd, tail, tailLength, size - tailLength);
+  await readExactly(handle, tail, tailLength, size - tailLength);
 
   const eocdOffset = findEocdOffset(tail);
   const entryCount = tail.readUInt16LE(eocdOffset + 10);
   const centralSize = tail.readUInt32LE(eocdOffset + 12);
   const centralStart = tail.readUInt32LE(eocdOffset + 16);
   const central = Buffer.alloc(centralSize);
-  readExactly(fd, central, centralSize, centralStart);
+  await readExactly(handle, central, centralSize, centralStart);
 
   const directory = new Map<string, DirectoryEntry>();
   let cursor = 0;

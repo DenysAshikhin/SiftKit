@@ -41,7 +41,7 @@ export async function readArchiveEntries(archivePath: string): Promise<Map<strin
   try {
     const entries = new Map<string, Buffer>();
     for (const name of reader.entryNames()) {
-      entries.set(name, reader.readEntry(name));
+      entries.set(name, await reader.readEntry(name));
     }
     return entries;
   } finally {

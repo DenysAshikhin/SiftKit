@@ -38,7 +38,7 @@ test('ZipFileReader lists entries and extracts them with CRC verification', asyn
   const reader = await ZipFileReader.open(archivePath);
   try {
     assert.deepEqual(reader.entryNames().sort(), ['blobs/blob.bin', 'manifest.json']);
-    assert.equal(reader.readEntry('manifest.json').toString('utf8'), MANIFEST_TEXT);
+    assert.equal((await reader.readEntry('manifest.json')).toString('utf8'), MANIFEST_TEXT);
 
     const out = path.join(dir, 'restored.bin');
     await reader.extractTo('blobs/blob.bin', out);
@@ -79,7 +79,7 @@ test('ZipFileReader round-trips a deflated entry', async () => {
   const reader = await ZipFileReader.open(archivePath);
   try {
     assert.equal(reader.entrySize('compressible.txt'), compressible.byteLength);
-    assert.deepEqual(reader.readEntry('compressible.txt'), compressible);
+    assert.deepEqual(await reader.readEntry('compressible.txt'), compressible);
     const out = path.join(dir, 'restored.txt');
     await reader.extractTo('compressible.txt', out);
     assert.deepEqual(fs.readFileSync(out), compressible);
@@ -92,7 +92,7 @@ test('ZipFileReader names a missing entry rather than returning empty bytes', as
   const { archivePath } = await buildFixture('zipr-missing-');
   const reader = await ZipFileReader.open(archivePath);
   try {
-    assert.throws(() => reader.readEntry('nope.txt'), /no entry named nope\.txt/u);
+    await assert.rejects(reader.readEntry('nope.txt'), /no entry named nope\.txt/u);
     assert.throws(() => reader.entrySize('nope.txt'), /no entry named nope\.txt/u);
   } finally {
     await reader.close();
