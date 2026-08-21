@@ -63,6 +63,7 @@ class RecordingBackend implements AssistantChatBackend {
       usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2, outputTokens: 1, thinkingTokens: 0, promptCacheTokens: 0, promptEvalTokens: 0 },
       raw: {},
       stoppedEarly: false,
+      invalidFrameCount: 0,
     };
   }
 }

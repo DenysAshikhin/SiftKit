@@ -129,8 +129,8 @@ function stubUsage(promptTokens: number | null): LlamaCppUsage {
 
 test('agent loop executes tool turns before accepting finish', async () => {
   const responses: NormalizedLlamaCppChatResponse[] = [
-    { text: 'tool', reasoningText: '', toolCalls: [], usage: stubUsage(1), raw: {}, stoppedEarly: false },
-    { text: 'finish', reasoningText: '', toolCalls: [], usage: stubUsage(2), raw: {}, stoppedEarly: false },
+    { text: 'tool', reasoningText: '', toolCalls: [], usage: stubUsage(1), raw: {}, stoppedEarly: false, invalidFrameCount: 0 },
+    { text: 'finish', reasoningText: '', toolCalls: [], usage: stubUsage(2), raw: {}, stoppedEarly: false, invalidFrameCount: 0 },
   ];
   const loop = new AgentLoop({
     maxTurns: 4,
@@ -158,8 +158,8 @@ test('agent loop executes tool turns before accepting finish', async () => {
 test('agent loop delegates invalid responses to the action adapter', async () => {
   const actionAdapter = new StubActionAdapter();
   const responses: NormalizedLlamaCppChatResponse[] = [
-    { text: 'invalid', reasoningText: '', toolCalls: [], usage: stubUsage(1), raw: {}, stoppedEarly: false },
-    { text: 'finish', reasoningText: '', toolCalls: [], usage: stubUsage(2), raw: {}, stoppedEarly: false },
+    { text: 'invalid', reasoningText: '', toolCalls: [], usage: stubUsage(1), raw: {}, stoppedEarly: false, invalidFrameCount: 0 },
+    { text: 'finish', reasoningText: '', toolCalls: [], usage: stubUsage(2), raw: {}, stoppedEarly: false, invalidFrameCount: 0 },
   ];
   const loop = new AgentLoop({
     maxTurns: 3,
@@ -244,6 +244,7 @@ test('agent loop carries model data through response contexts', async () => {
           usage: stubUsage(1),
           raw: {},
           stoppedEarly: false,
+          invalidFrameCount: 0,
         },
         data: modelData,
       }),
@@ -311,8 +312,8 @@ test('agent loop stops when model client requests stop', async () => {
 
 test('agent loop honors inspect continue and inspect stop without parsing actions', async () => {
   const responses: NormalizedLlamaCppChatResponse[] = [
-    { text: 'ignored', reasoningText: '', toolCalls: [], usage: stubUsage(1), raw: {}, stoppedEarly: false },
-    { text: 'ignored', reasoningText: '', toolCalls: [], usage: stubUsage(2), raw: {}, stoppedEarly: false },
+    { text: 'ignored', reasoningText: '', toolCalls: [], usage: stubUsage(1), raw: {}, stoppedEarly: false, invalidFrameCount: 0 },
+    { text: 'ignored', reasoningText: '', toolCalls: [], usage: stubUsage(2), raw: {}, stoppedEarly: false, invalidFrameCount: 0 },
   ];
   let inspectCount = 0;
   const actionAdapter: AgentLoopActionAdapter = {
@@ -364,7 +365,7 @@ test('agent loop stops on invalid-response handler stop', async () => {
     modelClient: {
       chat: async () => ({
         outcome: 'continue',
-        response: { text: 'invalid', reasoningText: '', toolCalls: [], usage: stubUsage(null), raw: {}, stoppedEarly: false },
+        response: { text: 'invalid', reasoningText: '', toolCalls: [], usage: stubUsage(null), raw: {}, stoppedEarly: false, invalidFrameCount: 0 },
         data: null,
       }),
     },
@@ -395,7 +396,7 @@ test('agent loop wraps non-error parse failures before invalid-response handling
     modelClient: {
       chat: async () => ({
         outcome: 'continue',
-        response: { text: 'invalid', reasoningText: '', toolCalls: [], usage: stubUsage(null), raw: {}, stoppedEarly: false },
+        response: { text: 'invalid', reasoningText: '', toolCalls: [], usage: stubUsage(null), raw: {}, stoppedEarly: false, invalidFrameCount: 0 },
         data: null,
       }),
     },
@@ -420,6 +421,7 @@ test('agent loop covers rejected finish stop, no-tool continue, tool stop, and m
     usage: stubUsage(null),
     raw: {},
     stoppedEarly: false,
+    invalidFrameCount: 0,
   };
 
   const rejected = await new AgentLoop({

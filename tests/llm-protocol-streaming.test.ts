@@ -218,20 +218,19 @@ test('llama streaming client covers empty packets, thinking fallback, malformed 
   assert.match(response.earlyStopReason || '', /recent planner content tokens repeated/u);
 });
 
-test('llama streaming client covers empty streams without derived timings', async () => {
-  const response = await new LlamaCppClient(new StreamingHttpClient([])).chat({
-    config: streamingConfig,
-    model: 'local',
-    messages: [{ role: 'user', content: 'hello' }],
-    tools: [],
-    maxTokens: 64,
-    stream: true,
-    allowedToolNames: [],
-  });
-
-  assert.equal(response.text, '');
-  assert.equal(response.usage.promptEvalDurationMs, null);
-  assert.equal(response.usage.generationDurationMs, null);
+test('llama streaming client rejects an empty stream as degenerate', async () => {
+  await assert.rejects(
+    () => new LlamaCppClient(new StreamingHttpClient([])).chat({
+      config: streamingConfig,
+      model: 'local',
+      messages: [{ role: 'user', content: 'hello' }],
+      tools: [],
+      maxTokens: 64,
+      stream: true,
+      allowedToolNames: [],
+    }),
+    /stream produced no frames/u,
+  );
 });
 
 test('llama streaming client wraps non-error stream failures', async () => {

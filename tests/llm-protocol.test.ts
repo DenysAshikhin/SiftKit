@@ -66,6 +66,7 @@ test('llm protocol types model text, reasoning, and tool-call responses', () => 
     },
     raw: { choices: [{ message }] },
     stoppedEarly: false,
+    invalidFrameCount: 0,
   };
 
   assert.equal(request.chat_template_kwargs?.reasoning_content, true);

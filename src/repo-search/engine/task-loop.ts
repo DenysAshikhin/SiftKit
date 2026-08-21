@@ -578,6 +578,7 @@ export class TaskLoop {
         nextMockResponseIndex: response.nextMockResponseIndex ?? null,
       },
       stoppedEarly: false,
+      invalidFrameCount: 0,
     };
   }
 

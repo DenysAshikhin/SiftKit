@@ -39,6 +39,7 @@ test('repo-search action adapter parses tool batches and finish actions', () => 
     usage,
     raw: {},
     stoppedEarly: false,
+    invalidFrameCount: 0,
   });
   const finish = adapter.parseActions({
     text: '{"action":"finish","output":"done"}',
@@ -47,6 +48,7 @@ test('repo-search action adapter parses tool batches and finish actions', () => 
     usage,
     raw: {},
     stoppedEarly: false,
+    invalidFrameCount: 0,
   });
 
   assert.equal(tools[0]?.kind, 'tool');

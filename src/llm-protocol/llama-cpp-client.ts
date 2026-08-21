@@ -20,8 +20,9 @@ import {
 } from '../lib/provider-helpers.js';
 import { getNormalizedCompletionTokens } from '../lib/telemetry-metrics.js';
 import { buildClosedThinkBlock } from './think-markers.js';
+import { ProviderStreamDegenerateError, type ProviderStreamDegenerateReason } from './stream-errors.js';
 import { z } from '../lib/zod.js';
-import { JsonValueSchema, JsonObjectSchema, type OptionalJsonValue } from '../lib/json-types.js';
+import { JsonValueSchema, JsonObjectSchema, type JsonSerializable, type OptionalJsonValue } from '../lib/json-types.js';
 import type {
   JsonObject,
   LlamaCppChatMessage,
@@ -158,6 +159,14 @@ export type LlamaCppModelProbeResult = {
   models: string[];
 };
 
+/**
+ * Structural subset of JsonLogger. Declared here so llm-protocol never imports
+ * from repo-search; any JsonLogger is assignable.
+ */
+export type ProviderEventLogger = {
+  write: (event: Record<string, JsonSerializable>) => void;
+};
+
 export type LlamaCppChatOptions = {
   config: SiftConfig;
   baseUrl?: string;
@@ -167,13 +176,14 @@ export type LlamaCppChatOptions = {
   maxTokens: number;
   cachePrompt?: boolean;
   slotId?: number;
-  stream: boolean;
+  stream?: boolean;
   responseFormat?: LlamaCppChatRequest['response_format'];
   reasoningOverride?: 'on' | 'off';
   allowedToolNames: string[];
   requestTimeoutSeconds?: number;
   retryMaxWaitMs?: number;
   abortSignal?: AbortSignal;
+  logger?: ProviderEventLogger | null;
   /** Spliced into the closed think block of a budget continuation in place of the preset message. */
   reasoningBudgetMessage?: string;
   onThinkingDelta?: (accumulatedThinking: string) => void;
@@ -292,7 +302,7 @@ export class LlamaCppClient {
   }
 
   private async chatAtBaseUrl(baseUrl: string, options: LlamaCppChatOptions): Promise<NormalizedLlamaCppChatResponse> {
-    if (options.stream) {
+    if (options.stream !== false) {
       const streamed = await this.streamChatAtBaseUrl(baseUrl, options);
       if (streamed.earlyStopReason !== THINKING_BUDGET_EARLY_STOP_REASON) {
         return streamed;
@@ -377,7 +387,7 @@ export class LlamaCppClient {
         tools: options.tools,
         defaults,
         maxTokens: options.maxTokens,
-        stream: options.stream,
+        stream: options.stream !== false,
         ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}),
         ...(responsePrefix ? { responsePrefix } : {}),
         thinking: {
@@ -418,6 +428,9 @@ export class LlamaCppClient {
     let speculativeGeneratedTokens: number | null = null;
     let earlyStopReason: string | null = null;
     let lastRunawayCheckLength = 0;
+    let frameCount = 0;
+    let invalidFrameCount = 0;
+    let sawDoneSentinel = false;
     const detectRunaway = (): boolean => {
       const runaway = getRecentTokenRepetition(contentText)
         || getRecentTokenRepetition(reasoningText)
@@ -447,12 +460,21 @@ export class LlamaCppClient {
         abortSignal: options.abortSignal,
       })) {
         if (frame.data === '[DONE]') {
+          sawDoneSentinel = true;
           break;
         }
+        frameCount += 1;
         let packet: JsonObject;
         try {
           packet = parseJsonObjectText(frame.data);
         } catch {
+          invalidFrameCount += 1;
+          options.logger?.write({
+            kind: 'provider_stream_frame_invalid',
+            url,
+            frameIndex: frameCount,
+            rawFrame: frame.data.slice(0, INVALID_FRAME_LOG_CHARS),
+          });
           continue;
         }
           const promptUsage = getPromptUsageFromResponseBody(packet);
@@ -524,6 +546,21 @@ export class LlamaCppClient {
       if (!earlyStopReason) {
         detectRunaway();
       }
+      // An early stop breaks out before [DONE], so only a stream that ran to
+      // completion is required to have produced one.
+      const degenerateReason: ProviderStreamDegenerateReason | null = frameCount === 0
+        ? 'no_frames'
+        : (!sawDoneSentinel && earlyStopReason === null ? 'missing_done_sentinel' : null);
+      if (degenerateReason !== null) {
+        options.logger?.write({
+          kind: 'provider_stream_degenerate',
+          url,
+          reason: degenerateReason,
+          frameCount,
+          invalidFrameCount,
+        });
+        throw new ProviderStreamDegenerateError(url, degenerateReason, frameCount);
+      }
     } catch (error) {
       if (error instanceof HttpResponseError && isTransientProviderHttpResponse(error.statusCode, error.rawText)) {
         throw buildTransientProviderHttpError(error.statusCode, error.rawText);
@@ -565,6 +602,7 @@ export class LlamaCppClient {
       },
       raw: {},
       stoppedEarly: earlyStopReason !== null,
+      invalidFrameCount,
       ...(earlyStopReason ? { earlyStopReason } : {}),
     };
   }
@@ -601,6 +639,7 @@ export class LlamaCppClient {
       usage,
       raw: bodyJson,
       stoppedEarly: false,
+      invalidFrameCount: 0,
     };
   }
 }
@@ -634,6 +673,9 @@ function isRecord(value: OptionalJsonValue): value is JsonObject {
  * the added latency cannot miss a live runaway.
  */
 const RUNAWAY_CHECK_INTERVAL_CHARS = 256;
+
+/** Cap on how much of a malformed frame is copied into the log event. */
+const INVALID_FRAME_LOG_CHARS = 512;
 
 function getRunawayStructuralTail(text: string): { reason: string; truncatedText: string } | null {
   if (!/"action"\s*:/u.test(text)) return null;

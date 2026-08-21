@@ -496,6 +496,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
         outputCharacterCount: response.outputCharacterCount,
       },
       stoppedEarly: false,
+      invalidFrameCount: 0,
     };
   }
 

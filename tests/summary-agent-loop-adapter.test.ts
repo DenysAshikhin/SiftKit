@@ -39,6 +39,7 @@ test('summary planner action adapter parses planner tool and finish actions', ()
     usage,
     raw: {},
     stoppedEarly: false,
+    invalidFrameCount: 0,
   });
   const finish = adapter.parseActions({
     text: '{"action":"finish","classification":"summary","output":"done"}',
@@ -47,6 +48,7 @@ test('summary planner action adapter parses planner tool and finish actions', ()
     usage,
     raw: {},
     stoppedEarly: false,
+    invalidFrameCount: 0,
   });
 
   assert.equal(tool[0]?.kind, 'tool');

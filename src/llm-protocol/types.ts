@@ -113,6 +113,8 @@ export type NormalizedLlamaCppChatResponse = {
   usage: LlamaCppUsage;
   raw: JsonObject;
   stoppedEarly: boolean;
+  /** Frames that failed JSON parsing and were skipped. Always 0 on a healthy stream. */
+  invalidFrameCount: number;
   earlyStopReason?: string;
   /** Set when the client stopped thinking at the preset ReasoningBudget and completed via a continuation request. */
   thinkingBudgetExhausted?: true;
