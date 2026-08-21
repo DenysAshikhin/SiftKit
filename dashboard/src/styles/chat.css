@@ -32,7 +32,7 @@
 .think { border-left: 2px solid #3a4c61; color: var(--dim); padding: 2px 0 2px 10px; font-size: 0.74rem; margin-top: 8px; font-style: italic; white-space: pre-wrap; }
 .thinking-box, .system-context-bubble, .internal-logic { margin-top: 8px; font-size: 0.74rem; color: var(--dim); }
 .thinking-box > summary, .system-context-bubble > summary, .internal-logic > summary { cursor: pointer; color: var(--dim); }
-.internal-logic-steps { display: grid; gap: 8px; margin-top: 8px; }
+.internal-logic-steps, .live-thinking-stack { display: grid; gap: 8px; margin-top: 8px; }
 
 /* ---- tool call card ---- */
 .tcall { border: 1px solid var(--line); border-radius: 8px; background: var(--panel2); margin-top: 8px; font-size: 0.74rem; overflow: hidden; }
