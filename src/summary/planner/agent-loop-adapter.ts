@@ -12,6 +12,7 @@ import type {
   AgentLoopToolAdapter,
   AgentLoopToolAction,
   AgentLoopToolExecution,
+  AgentLoopTurnOutcome,
 } from '../../agent-loop/types.js';
 import type { AgentLoopModelClient } from '../../agent-loop/agent-loop.js';
 import type { NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
@@ -54,6 +55,10 @@ export class SummaryPlannerActionAdapter implements AgentLoopActionAdapter {
 
   async evaluateFinish(action: AgentLoopFinishAction, context: AgentLoopResponseContext): Promise<AgentLoopFinishEvaluation> {
     return this.controller.evaluateFinish(action, context);
+  }
+
+  async handleProgress(): Promise<AgentLoopTurnOutcome> {
+    throw new Error('Summary planner does not support the progress action.');
   }
 }
 

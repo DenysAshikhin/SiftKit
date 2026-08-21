@@ -11,10 +11,12 @@ import type {
   AgentLoopModelData,
   AgentLoopModelResponse,
   AgentLoopPreparedTurn,
+  AgentLoopProgressAction,
   AgentLoopResponseContext,
   AgentLoopToolAction,
   AgentLoopToolExecution,
   AgentLoopToolResult,
+  AgentLoopTurnOutcome,
 } from '../../agent-loop/types.js';
 import type { NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
 import { JsonObjectSchema } from '../../lib/json-types.js';
@@ -493,6 +495,11 @@ export class TaskLoop {
     const data = getRepoSearchModelData(context);
     this.handleInvalidParse(turn, data.plannerResponse, context.error, data.resolvedTokens);
     return { outcome: this.counters.reason === 'invalid_response_limit' ? 'stop' : 'continue' };
+  }
+
+  async handleProgress(action: AgentLoopProgressAction, _context: AgentLoopResponseContext): Promise<AgentLoopTurnOutcome> {
+    void action;
+    return 'continue';
   }
 
   async evaluateFinish(action: AgentLoopFinishAction, context: AgentLoopResponseContext): Promise<AgentLoopFinishEvaluation> {

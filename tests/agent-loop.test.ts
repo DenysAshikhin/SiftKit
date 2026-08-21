@@ -11,12 +11,14 @@ import type {
   AgentLoopInvalidResponseResult,
   AgentLoopModelData,
   AgentLoopPreparedTurn,
+  AgentLoopProgressAction,
   AgentLoopPromptAdapter,
   AgentLoopResponseContext,
   AgentLoopToolAction,
   AgentLoopToolAdapter,
   AgentLoopToolExecution,
   AgentLoopToolResult,
+  AgentLoopTurnOutcome,
 } from '../src/agent-loop/types.js';
 import type {
   LlamaCppUsage,
@@ -74,6 +76,7 @@ class StubPromptAdapter implements AgentLoopPromptAdapter {
 
 class StubActionAdapter implements AgentLoopActionAdapter {
   invalidResponses = 0;
+  progressTexts: string[] = [];
 
   parseActions(response: NormalizedLlamaCppChatResponse): AgentLoopAction[] {
     if (response.text === 'invalid') {
@@ -97,6 +100,11 @@ class StubActionAdapter implements AgentLoopActionAdapter {
     return context.turns.length >= 1
       ? { accepted: true, outcome: 'stop' }
       : { accepted: false, outcome: 'continue' };
+  }
+
+  async handleProgress(action: AgentLoopProgressAction, _context: AgentLoopResponseContext): Promise<AgentLoopTurnOutcome> {
+    this.progressTexts.push(action.text);
+    return 'continue';
   }
 }
 
@@ -227,6 +235,7 @@ test('agent loop carries model data through response contexts', async () => {
       seenData = context.modelData;
       return { accepted: true, outcome: 'stop', finishText: 'done' };
     },
+    handleProgress: async () => 'continue',
   };
 
   const result = await new AgentLoop({
@@ -326,6 +335,7 @@ test('agent loop honors inspect continue and inspect stop without parsing action
     },
     handleInvalidResponse: async () => ({ outcome: 'stop' }),
     evaluateFinish: async () => ({ accepted: false, outcome: 'stop' }),
+    handleProgress: async () => 'continue',
   };
 
   const result = await new AgentLoop({
@@ -355,6 +365,7 @@ test('agent loop stops on invalid-response handler stop', async () => {
     inspectResponse: () => null,
     handleInvalidResponse: async () => ({ outcome: 'stop' }),
     evaluateFinish: async () => ({ accepted: false, outcome: 'stop' }),
+    handleProgress: async () => 'continue',
   };
 
   const result = await new AgentLoop({
@@ -386,6 +397,7 @@ test('agent loop wraps non-error parse failures before invalid-response handling
       return { outcome: 'stop' };
     },
     evaluateFinish: async () => ({ accepted: false, outcome: 'stop' }),
+    handleProgress: async () => 'continue',
   };
 
   const result = await new AgentLoop({
@@ -412,6 +424,7 @@ test('agent loop covers rejected finish stop, no-tool continue, tool stop, and m
     inspectResponse: () => null,
     handleInvalidResponse: async () => ({ outcome: 'continue' }),
     evaluateFinish: async () => ({ accepted: false, outcome: 'stop' }),
+    handleProgress: async () => 'continue',
   };
   const emptyToolAdapter = new StubToolAdapter();
   const baseResponse: NormalizedLlamaCppChatResponse = {
@@ -441,6 +454,7 @@ test('agent loop covers rejected finish stop, no-tool continue, tool stop, and m
       inspectResponse: () => null,
       handleInvalidResponse: async () => ({ outcome: 'continue' }),
       evaluateFinish: async () => ({ accepted: false, outcome: 'continue' }),
+      handleProgress: async () => 'continue',
     },
     toolAdapter: emptyToolAdapter,
     modelClient: { chat: async () => ({ outcome: 'continue', response: baseResponse, data: null }) },
@@ -470,4 +484,31 @@ test('agent loop covers rejected finish stop, no-tool continue, tool stop, and m
   }).run();
   assert.equal(toolStop.reason, 'aborted');
   assert.equal(toolStop.turns[0]?.toolResults[0]?.text, 'stopped');
+});
+
+test('agent loop action parser maps a progress action', () => {
+  const parser = new AgentLoopActionParser();
+
+  const actions = parser.parseRepoSearchActions('{"action":"progress","output":"RED done; starting GREEN"}', ['grep']);
+
+  assert.equal(actions.length, 1);
+  const action = actions[0];
+  assert.equal(action?.kind, 'progress');
+  if (action?.kind !== 'progress') {
+    throw new Error('expected progress action');
+  }
+  assert.equal(action.text, 'RED done; starting GREEN');
+});
+
+test('progress action validation rejects empty output and extra keys', () => {
+  const parser = new AgentLoopActionParser();
+
+  assert.throws(
+    () => parser.parseRepoSearchActions('{"action":"progress","output":"  "}', ['grep']),
+    /invalid planner progress action/u,
+  );
+  assert.throws(
+    () => parser.parseRepoSearchActions('{"action":"progress","output":"x","extra":1}', ['grep']),
+    /accepts only "action" and "output"/u,
+  );
 });

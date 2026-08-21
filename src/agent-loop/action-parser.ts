@@ -21,6 +21,14 @@ export class AgentLoopActionParser {
         },
       ];
     }
+    if (parsed.action === 'progress') {
+      return [
+        {
+          kind: 'progress',
+          text: parsed.output,
+        },
+      ];
+    }
     if (parsed.action === 'tool_batch') {
       return parsed.tool_calls.map((toolCall, index) => ({
         kind: 'tool',

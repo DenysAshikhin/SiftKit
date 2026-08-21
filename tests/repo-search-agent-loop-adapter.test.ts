@@ -27,6 +27,7 @@ const controller: RepoSearchLoopController = {
   inspectModelResponse: () => null,
   handleInvalidResponse: async () => ({ outcome: 'stop' }),
   evaluateFinish: async () => ({ accepted: true, outcome: 'stop' }),
+  handleProgress: async () => 'continue',
   executeTools: async () => ({ outcome: 'stop', results: [] }),
 };
 

@@ -61,7 +61,12 @@ export type FinishAction = {
   output: string;
 };
 
-export type PlannerAction = ToolAction | ToolBatchAction | FinishAction;
+export type ProgressAction = {
+  action: 'progress';
+  output: string;
+};
+
+export type PlannerAction = ToolAction | ToolBatchAction | FinishAction | ProgressAction;
 
 export type FinishValidationResult = {
   verdict: 'pass' | 'fail';

@@ -12,6 +12,7 @@ import type {
   FinishAction as RepoSearchFinishAction,
   FinishValidationResult,
   PlannerAction as RepoSearchPlannerAction,
+  ProgressAction as RepoSearchProgressAction,
   ToolAction as RepoSearchToolAction,
   ToolBatchAction as RepoSearchToolBatchAction,
 } from '../repo-search/planner-protocol.js';
@@ -557,6 +558,20 @@ export class ModelJson {
       } satisfies RepoSearchToolBatchAction;
     }
 
+    if (action === 'progress') {
+      const output = typeof parsed.output === 'string' ? parsed.output.trim() : '';
+      if (!output) {
+        throw new Error('Provider returned an invalid planner progress action: "output" must be a non-empty string');
+      }
+      const extraKeys = Object.keys(parsed).filter((key) => key !== 'action' && key !== 'output');
+      if (extraKeys.length > 0) {
+        throw new Error(
+          `Provider returned an invalid planner progress action: progress accepts only "action" and "output"; remove: ${extraKeys.join(', ')}`,
+        );
+      }
+      return { action: 'progress', output } satisfies RepoSearchProgressAction;
+    }
+
     if (action === 'finish') {
       const output = typeof parsed.output === 'string' ? parsed.output.trim() : '';
       if (!output) {
@@ -572,7 +587,7 @@ export class ModelJson {
     }
 
     throw new Error(
-      `Provider returned an unknown planner action "${action}"; valid actions: ${[...allowedToolNames, 'tool_batch', 'finish'].sort().join(', ')}`,
+      `Provider returned an unknown planner action "${action}"; valid actions: ${[...allowedToolNames, 'tool_batch', 'finish', 'progress'].sort().join(', ')}`,
     );
   }
 
