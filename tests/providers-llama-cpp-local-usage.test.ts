@@ -5,6 +5,7 @@ import { generateLlamaCppChatResponse } from '../src/providers/llama-cpp.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { asObject } from './helpers/dashboard-http.js';
 import { mockConfig } from './_runtime-helpers.js';
+import { sendChatCompletionSse } from './helpers/streaming-client.js';
 
 const CONTENT = 'x'.repeat(400);
 const REASONING = 'y'.repeat(200);
@@ -21,16 +22,16 @@ function startFakeServer(): Promise<FakeServer> {
       req.setEncoding('utf8');
       req.on('data', (chunk) => { body += chunk; });
       req.on('end', () => {
-        res.writeHead(200, { 'content-type': 'application/json' });
         if (req.url === '/tokenize') {
+          res.writeHead(200, { 'content-type': 'application/json' });
           const content = String(asObject(parseJsonValueText(body || '{}')).content || '');
           res.end(JSON.stringify({ count: Math.ceil(content.length / 2) }));
           return;
         }
-        res.end(JSON.stringify({
+        sendChatCompletionSse(res, {
           choices: [{ message: { content: CONTENT, reasoning_content: REASONING } }],
           usage: { prompt_tokens: 999, completion_tokens: 2 },
-        }));
+        });
       });
     });
     server.listen(0, '127.0.0.1', () => {

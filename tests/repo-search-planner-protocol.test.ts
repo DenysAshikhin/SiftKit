@@ -6,6 +6,7 @@ import { ModelJson } from '../src/lib/model-json.js';
 import type { JsonObject } from '../src/lib/json-types.js';
 import type { ModelRuntimePreset, SiftConfig } from '../src/config/types.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
+import { sendChatCompletionSse } from './helpers/streaming-client.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { getSupportedImageExtensions } from '../src/llm-protocol/image-attachments.js';
 import {
@@ -57,8 +58,7 @@ async function captureChatRequestBody(
       });
       req.on('end', () => {
         capturedBody = JSON.parse(body || '{}');
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ choices: [{ message: { content: responseContent } }] }));
+        sendChatCompletionSse(res, { choices: [{ message: { content: responseContent } }] });
       });
     },
     async (baseUrl) => {
@@ -213,7 +213,7 @@ test('repo-search tool registry exposes the pi tool surface and withholds the mu
   assert.deepEqual(git?.function?.parameters?.required, ['command']);
 });
 
-test('requestRepoSearchPlannerProtocolAction reconstructs a tool batch from non-streaming multi-tool responses', async () => {
+test('requestRepoSearchPlannerProtocolAction reconstructs a tool batch from multi-tool responses', async () => {
   await withServer(
     (req, res) => {
       if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
@@ -221,9 +221,7 @@ test('requestRepoSearchPlannerProtocolAction reconstructs a tool batch from non-
         res.end();
         return;
       }
-      res.setHeader('Content-Type', 'application/json');
-      res.end(
-        JSON.stringify({
+      sendChatCompletionSse(res, {
           choices: [
             {
               message: {
@@ -250,8 +248,7 @@ test('requestRepoSearchPlannerProtocolAction reconstructs a tool batch from non-
               },
             },
           ],
-        }),
-      );
+        });
     },
     async (baseUrl) => {
       const result = await requestRepoSearchPlannerProtocolAction({
@@ -541,12 +538,9 @@ test('requestRepoSearchPlannerProtocolAction sends json_schema response_format w
       });
       req.on('end', () => {
         capturedBody = JSON.parse(body || '{}');
-        res.setHeader('Content-Type', 'application/json');
-        res.end(
-          JSON.stringify({
+        sendChatCompletionSse(res, {
             choices: [{ message: { content: '{"action":"finish","output":"done"}' } }],
-          }),
-        );
+          });
       });
     },
     async (baseUrl) => {
@@ -579,12 +573,9 @@ test('requestRepoSearchPlannerProtocolAction forwards native EXL3 structured out
       });
       req.on('end', () => {
         capturedBody = JSON.parse(body || '{}');
-        res.setHeader('Content-Type', 'application/json');
-        res.end(
-          JSON.stringify({
+        sendChatCompletionSse(res, {
             choices: [{ message: { content: '{"action":"finish","output":"done"}' } }],
-          }),
-        );
+          });
       });
     },
     async (baseUrl) => {
@@ -622,12 +613,9 @@ test('requestRepoSearchPlannerProtocolAction assembles planner schema dynamicall
       });
       req.on('end', () => {
         capturedBody = JSON.parse(body || '{}');
-        res.setHeader('Content-Type', 'application/json');
-        res.end(
-          JSON.stringify({
+        sendChatCompletionSse(res, {
             choices: [{ message: { content: '{"action":"finish","output":"done"}' } }],
-          }),
-        );
+          });
       });
     },
     async (baseUrl) => {

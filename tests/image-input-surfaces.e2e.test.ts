@@ -24,6 +24,7 @@ import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/repo-search/planner-protocol
 import { DeadEndpointEnv } from './helpers/dead-endpoints.js';
 import { gifBufferWithSize, rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 import { readImageDimensions } from '../src/llm-protocol/image-admission.js';
+import { sendChatCompletionSse } from './helpers/streaming-client.js';
 
 const basePreset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
 if (!basePreset) throw new Error('Default model preset is missing');
@@ -56,21 +57,10 @@ async function withModelServer(
     req.on('data', (chunk) => { body += chunk; });
     req.on('end', () => {
       capturedBodies.push(body);
-      if (body.includes('"stream":true')) {
-        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-        res.write(`data: ${JSON.stringify({
-          choices: [{ delta: { role: 'assistant', content: responseContent } }],
-          usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
-        })}\n\n`);
-        res.write('data: [DONE]\n\n');
-        res.end();
-        return;
-      }
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
+      sendChatCompletionSse(res, {
         choices: [{ message: { role: 'assistant', content: responseContent } }],
         usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
-      }));
+      });
     });
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -164,11 +154,10 @@ test('repo-search puts the image part on the first user message it sends', async
     req.on('data', (chunk) => { body += chunk; });
     req.on('end', () => {
       capturedBodies.push(body);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
+      sendChatCompletionSse(res, {
         choices: [{ message: { role: 'assistant', content: '{"action":"finish","output":"done"}' } }],
         usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
-      }));
+      });
     });
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));

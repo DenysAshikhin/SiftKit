@@ -26,6 +26,7 @@ import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-co
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
+import { sendChatCompletionSse } from './helpers/streaming-client.js';
 
 const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-mock-loop-');
 
@@ -392,8 +393,7 @@ test('runTaskLoop reuses preflight prompt token count for tool progress and allo
     }
     if (req.method === 'POST' && req.url === '/v1/chat/completions') {
       chatRequestCount += 1;
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
+      sendChatCompletionSse(res, {
         choices: [{
           message: {
             role: 'assistant',
@@ -403,7 +403,7 @@ test('runTaskLoop reuses preflight prompt token count for tool progress and allo
           },
         }],
         usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
-      }));
+      });
       return;
     }
     res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -977,8 +977,7 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
             action: 'finish',
             output: 'done',
           });
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        sendChatCompletionSse(res, {
           id: 'chatcmpl-test',
           object: 'chat.completion',
           choices: [
@@ -995,7 +994,7 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
             completion_tokens: 5,
             total_tokens: 15,
           },
-        }));
+        });
       });
       return;
     }
@@ -1105,8 +1104,7 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
             action: 'finish',
             output: 'done',
           });
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        sendChatCompletionSse(res, {
           id: 'chatcmpl-test',
           object: 'chat.completion',
           choices: [
@@ -1123,7 +1121,7 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
             completion_tokens: 5,
             total_tokens: 15,
           },
-        }));
+        });
       });
       return;
     }
@@ -1238,11 +1236,10 @@ test('runTaskLoop uses dynamic max_tokens for planner requests from live prompt 
       req.on('data', (chunk) => { body += chunk; });
       req.on('end', () => {
         chatRequests.push(JSON.parse(body || '{}'));
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        sendChatCompletionSse(res, {
           choices: [{ message: { role: 'assistant', content: '{"action":"finish","output":"done"}' } }],
           usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
-        }));
+        });
       });
       return;
     }
@@ -1310,8 +1307,7 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
         const parsed = JSON.parse(body || '{}');
         chatRequests.push(parsed);
         const isTerminalSynthesis = String(parsed?.response_format?.type || '') !== 'json_schema';
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        sendChatCompletionSse(res, {
           choices: [{
             message: {
               role: 'assistant',
@@ -1319,7 +1315,7 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
             },
           }],
           usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
-        }));
+        });
       });
       return;
     }
@@ -1385,8 +1381,7 @@ test('runTaskLoop bounds planner and terminal synthesis max_tokens by the preset
         const parsed = JSON.parse(body || '{}');
         chatRequests.push(parsed);
         const isTerminalSynthesis = String(parsed?.response_format?.type || '') !== 'json_schema';
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+        sendChatCompletionSse(res, {
           choices: [{
             message: {
               role: 'assistant',
@@ -1394,7 +1389,7 @@ test('runTaskLoop bounds planner and terminal synthesis max_tokens by the preset
             },
           }],
           usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
-        }));
+        });
       });
       return;
     }

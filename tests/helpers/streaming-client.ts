@@ -70,6 +70,15 @@ export function sendChatCompletionSse(res: ServerResponse, body: JsonObject): vo
   if (content) {
     writePacket({ choices: [{ index: 0, delta: { content } }] });
   }
+  const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+  if (toolCalls.length > 0) {
+    writePacket({
+      choices: [{
+        index: 0,
+        delta: { tool_calls: toolCalls.map((call, index) => ({ index, ...(isJsonObject(call) ? call : {}) })) },
+      }],
+    });
+  }
   writePacket({
     choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
     ...(body.usage === undefined ? {} : { usage: body.usage }),
