@@ -9,7 +9,7 @@ import { ModelJson } from '../lib/model-json.js';
 import { tryRecordAccurateCharTokenObservation } from '../state/observed-budget.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
 import { getErrorMessage } from '../lib/errors.js';
-import { LlamaHttpError } from '../lib/http-client.js';
+import { HttpTimeoutError, LlamaHttpError } from '../lib/http-client.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
 import type {
   JsonObject,
@@ -273,13 +273,17 @@ function getHttpStatusCode(message: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
+function formatProviderHttpStatus(prefix: string, statusCode: number, detail: string): string {
+  const trimmed = detail.trim();
+  return `${prefix} with HTTP ${statusCode}${trimmed ? `: ${trimmed}` : '.'}`;
+}
+
 function formatProviderHttpError(prefix: string, message: string): string {
   const httpStatusCode = getHttpStatusCode(message);
   if (httpStatusCode === null) {
     return message;
   }
-  const detail = message.replace(/^HTTP \d{3}:?\s*/u, '').trim();
-  return `${prefix} with HTTP ${httpStatusCode}${detail ? `: ${detail}` : '.'}`;
+  return formatProviderHttpStatus(prefix, httpStatusCode, message.replace(/^HTTP \d{3}:?\s*/u, ''));
 }
 
 export async function countLlamaCppTokens(
@@ -415,7 +419,8 @@ export async function generateLlamaCppResponse(options: {
   config: SiftConfig;
   model: string;
   prompt: string;
-  timeoutSeconds: number;
+  /** Maximum gap between SSE frames, not a total duration; the client derives the total deadline from maxTokens. */
+  idleTimeoutSeconds: number;
   slotId?: number;
   structuredOutput?: LlamaCppStructuredOutput;
   reasoningOverride?: 'on' | 'off';
@@ -430,7 +435,7 @@ export async function generateLlamaCppResponse(options: {
         content: options.prompt,
       },
     ],
-    timeoutSeconds: options.timeoutSeconds,
+    idleTimeoutSeconds: options.idleTimeoutSeconds,
     slotId: options.slotId,
     structuredOutput: options.structuredOutput,
     reasoningOverride: options.reasoningOverride,
@@ -442,7 +447,8 @@ export async function generateLlamaCppChatResponse(options: {
   config: SiftConfig;
   model: string;
   messages: LlamaCppChatMessage[];
-  timeoutSeconds: number;
+  /** Maximum gap between SSE frames, not a total duration; the client derives the total deadline from maxTokens. */
+  idleTimeoutSeconds: number;
   slotId?: number;
   cachePrompt?: boolean;
   tools?: StructuredOutputToolDefinition[];
@@ -466,7 +472,7 @@ export async function generateLlamaCppChatResponse(options: {
   let response: NormalizedLlamaCppChatResponse;
   const startedAt = Date.now();
   traceLlamaCpp(
-    `generate start model=${options.model} timeout_s=${options.timeoutSeconds} `
+    `generate start model=${options.model} idle_timeout_s=${options.idleTimeoutSeconds} `
     + `prompt_chars=${promptChars} base_url=${baseUrl}`
   );
   try {
@@ -484,21 +490,21 @@ export async function generateLlamaCppChatResponse(options: {
       responseFormat: structuredOutputResponseFormat ?? undefined,
       reasoningOverride: options.reasoningOverride,
       allowedToolNames: protocolTools.map((tool) => tool.function.name),
-      idleTimeoutSeconds: options.timeoutSeconds,
+      idleTimeoutSeconds: options.idleTimeoutSeconds,
       cachePrompt: options.cachePrompt ?? true,
       slotId: options.slotId,
     });
   } catch (error) {
-    const message = error instanceof LlamaHttpError
-      ? `HTTP ${error.statusCode}${error.rawText.trim() ? `: ${error.rawText.trim()}` : ''}`
-      : getErrorMessage(error);
+    const message = getErrorMessage(error);
     traceLlamaCpp(`generate error elapsed_ms=${Date.now() - startedAt} message=${JSON.stringify(message)}`);
-    if (/^(?:Request timed out after \d+ ms\.|Operation stream timed out after \d+ ms of inactivity\.)$/u.test(message)) {
-      const timeoutMessage = `llama.cpp generate timed out after ${options.timeoutSeconds} seconds.`;
+    if (error instanceof HttpTimeoutError) {
+      const timeoutMessage = `llama.cpp generate timed out after ${options.idleTimeoutSeconds} seconds.`;
       logLlamaCppError('generate', timeoutMessage);
       throw new Error(timeoutMessage);
     }
-    const providerMessage = formatProviderHttpError('llama.cpp generate failed', message);
+    const providerMessage = error instanceof LlamaHttpError
+      ? formatProviderHttpStatus('llama.cpp generate failed', error.statusCode, error.rawText)
+      : formatProviderHttpError('llama.cpp generate failed', message);
     logLlamaCppError('generate', providerMessage);
     throw new Error(providerMessage);
   }

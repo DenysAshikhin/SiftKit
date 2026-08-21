@@ -65,7 +65,7 @@ export interface ActiveModelPresetSource {
 /** Assistant extraction never needs a long answer; JSON candidates are small. */
 const ASSISTANT_MAX_OUTPUT_TOKENS = 2_048;
 
-const ASSISTANT_REQUEST_TIMEOUT_SECONDS = 120;
+const ASSISTANT_IDLE_TIMEOUT_SECONDS = 120;
 
 /**
  * The assistant's only path to a model. It shares SiftKit's GPU-locked runtime, sends no tools,
@@ -97,7 +97,7 @@ export class LlamaCppAssistantInference implements AssistantInferenceClient {
         name: request.responseSchemaName,
         schema: request.responseJsonSchema,
       }),
-      idleTimeoutSeconds: ASSISTANT_REQUEST_TIMEOUT_SECONDS,
+      idleTimeoutSeconds: ASSISTANT_IDLE_TIMEOUT_SECONDS,
       reasoningOverride: 'off',
       ...(request.abortSignal === null ? {} : { abortSignal: request.abortSignal }),
     });

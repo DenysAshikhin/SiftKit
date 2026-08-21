@@ -52,7 +52,7 @@ test('generateLlamaCppChatResponse reports locally counted tokens, not provider 
       config: mockConfig({ Runtime: { LlamaCpp: { BaseUrl: fake.baseUrl, NumCtx: 32000 } } }),
       model: 'mock',
       messages: [{ role: 'user', content: USER_MESSAGE }],
-      timeoutSeconds: 10,
+      idleTimeoutSeconds: 10,
     });
 
     assert.equal(result.usage?.completionTokens, 200);

@@ -475,6 +475,7 @@ export type PlannerRequestOptions = Partial<PlannerThinkingFlags> & {
    */
   messages: LlamaCppChatMessage[];
   slotId?: number;
+  /** Per-attempt allowance, not a total wall clock: bounds the SSE idle gap and caps the retry window. */
   timeoutMs: number;
   maxTokens: number;
   onThinkingDelta?: (accumulatedThinking: string) => void;

@@ -141,7 +141,7 @@ test('generateLlamaCppResponse returns text response', async () => {
       config,
       model: 'mock-model',
       prompt: 'Hello, world!',
-      timeoutSeconds: 30,
+      idleTimeoutSeconds: 30,
     });
     assert.equal(typeof response.text, 'string');
     assert.ok(response.text.length > 0);

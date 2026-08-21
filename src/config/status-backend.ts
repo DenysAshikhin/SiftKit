@@ -1,5 +1,5 @@
 import { ActiveStatusRunSchema } from '@siftkit/contracts';
-import { httpClient } from '../lib/http-client.js';
+import { httpClient, HttpTimeoutError } from '../lib/http-client.js';
 import { sleep } from '../lib/time.js';
 import { getStatusServerConnectHost } from '../lib/status-host.js';
 import { getErrorMessage, toError } from '../lib/errors.js';
@@ -56,7 +56,7 @@ function shouldTraceHealthcheckAttempts(): boolean {
 }
 
 function isTimedOutHealthcheck(error: Error): boolean {
-  return error.message.startsWith('Request timed out after ');
+  return error instanceof HttpTimeoutError;
 }
 
 export function deriveServiceUrl(configuredUrl: string, nextPath: string): string {

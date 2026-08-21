@@ -77,6 +77,20 @@ export class HttpResponseError extends Error {
   }
 }
 
+/**
+ * A request ended by the client-side timer rather than the server. `stream_idle`
+ * means the gap between SSE frames exceeded the idle allowance; `request` means
+ * a blocking request exceeded its total allowance.
+ */
+export class HttpTimeoutError extends Error {
+  constructor(readonly timeoutMs: number, readonly kind: 'request' | 'stream_idle') {
+    super(kind === 'stream_idle'
+      ? `Operation stream timed out after ${timeoutMs} ms of inactivity.`
+      : `Request timed out after ${timeoutMs} ms.`);
+    this.name = 'HttpTimeoutError';
+  }
+}
+
 export class LlamaHttpError extends Error {
   public readonly statusCode: number;
   public readonly rawText: string;
@@ -276,7 +290,7 @@ export class HttpClient {
       request.destroy(getAbortError(options.abortSignal, 'SSE request aborted.'));
     };
     request.setTimeout(options.idleTimeoutMs, () => {
-      request.destroy(new Error(`Operation stream timed out after ${options.idleTimeoutMs} ms of inactivity.`));
+      request.destroy(new HttpTimeoutError(options.idleTimeoutMs, 'stream_idle'));
     });
     request.on('error', (error: Error) => {
       logHttpClientLifecycle(target, 'POST', 'request_error', `elapsed_ms=${Math.max(0, Date.now() - startedAt)} error=${String(error.message || error).replace(/\s+/gu, '_')}`);
@@ -379,7 +393,7 @@ function requestJson<T>(options: RequestJsonOptions, schema: z.ZodType<T>): Prom
     if (Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0) {
       const timeoutMs = Math.trunc(Number(options.timeoutMs));
       request.setTimeout(timeoutMs, () => {
-        request.destroy(new Error(`Request timed out after ${timeoutMs} ms.`));
+        request.destroy(new HttpTimeoutError(timeoutMs, 'request'));
       });
     }
     request.on('error', (error) => {
@@ -419,7 +433,7 @@ function requestText(options: RequestTextOptions): Promise<TextResponse> {
       });
     });
     request.setTimeout(options.timeoutMs, () => {
-      request.destroy(new Error(`Request timed out after ${options.timeoutMs} ms.`));
+      request.destroy(new HttpTimeoutError(options.timeoutMs, 'request'));
     });
     request.on('error', reject);
     request.end();
@@ -461,7 +475,7 @@ function requestBytes(options: RequestBytesOptions): Promise<Buffer> {
     if (Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0) {
       const timeoutMs = Math.trunc(Number(options.timeoutMs));
       request.setTimeout(timeoutMs, () => {
-        request.destroy(new Error(`Request timed out after ${timeoutMs} ms.`));
+        request.destroy(new HttpTimeoutError(timeoutMs, 'request'));
       });
     }
     request.on('error', reject);
@@ -533,7 +547,7 @@ function requestJsonFull<T>(options: RequestJsonOptions, schema: z.ZodType<T>): 
     if (Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0) {
       const timeoutMs = Math.trunc(Number(options.timeoutMs));
       timeoutHandle = setTimeout(() => {
-        request.destroy(new Error(`Request timed out after ${timeoutMs} ms.`));
+        request.destroy(new HttpTimeoutError(timeoutMs, 'request'));
       }, timeoutMs);
     }
     const abortRequest = (): void => {

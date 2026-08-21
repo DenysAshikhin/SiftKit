@@ -94,7 +94,7 @@ test('llama.cpp provider lists models and parses chat completions from the stub 
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
-        timeoutSeconds: 5,
+        idleTimeoutSeconds: 5,
       });
 
       assert.deepEqual(models, [config.Server.ModelPresets.Presets[0].Model]);
@@ -131,7 +131,7 @@ test('llama.cpp provider preserves image_url parts in the protocol payload', asy
           role: 'user',
           content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,admitted' } }],
         }],
-        timeoutSeconds: 5,
+        idleTimeoutSeconds: 5,
       });
 
       const payload = JSON.stringify(server.state.chatRequests[0] ?? {});
@@ -148,7 +148,7 @@ test('llama.cpp provider still reports local counts when the server omits token 
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
-        timeoutSeconds: 5,
+        idleTimeoutSeconds: 5,
       });
 
       assert.match(summary.text, /^summary:/u);
@@ -172,7 +172,7 @@ test('llama.cpp provider records thinking tokens separately from completion usag
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
-        timeoutSeconds: 5,
+        idleTimeoutSeconds: 5,
       });
 
       // The stub reports reasoning_tokens 12; the thinking count comes from the
@@ -210,7 +210,7 @@ test('llama.cpp provider forwards reasoning mode to chat template kwargs', async
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
-        timeoutSeconds: 5,
+        idleTimeoutSeconds: 5,
       });
 
       assert.equal(server.state.chatRequests.length, 1);
@@ -237,7 +237,7 @@ test('llama.cpp provider forwards thinking preservation flags when enabled', asy
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
-        timeoutSeconds: 5,
+        idleTimeoutSeconds: 5,
       });
 
       assert.equal(server.state.chatRequests.length, 1);
@@ -262,7 +262,7 @@ test('llama.cpp provider per-call reasoning override takes precedence over confi
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
-        timeoutSeconds: 5,
+        idleTimeoutSeconds: 5,
         reasoningOverride: 'off',
       });
 
@@ -291,7 +291,7 @@ test('llama.cpp provider emits sampling defaults from the active model preset', 
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
-        timeoutSeconds: 5,
+        idleTimeoutSeconds: 5,
       });
 
       assert.equal(server.state.chatRequests.length, 1);
@@ -317,7 +317,7 @@ test('llama.cpp provider enables explicit prompt caching on a supplied slot', as
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
-        timeoutSeconds: 5,
+        idleTimeoutSeconds: 5,
         slotId: 7,
       });
 
@@ -337,7 +337,7 @@ test('llama.cpp provider includes per-request response_format json_schema when s
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
-        timeoutSeconds: 5,
+        idleTimeoutSeconds: 5,
         structuredOutput: { kind: 'siftkit-decision-json' },
       });
 
@@ -361,7 +361,7 @@ test('llama.cpp provider omits native tools for structured planner JSON', async 
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
-        timeoutSeconds: 5,
+        idleTimeoutSeconds: 5,
         structuredOutput: {
           kind: 'siftkit-planner-action-json',
           tools: buildPlannerToolDefinitions(),
@@ -386,7 +386,7 @@ test('EXL3 provider forwards native structured planner output', async () => {
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? 'exl3',
         prompt: 'test prompt body',
-        timeoutSeconds: 5,
+        idleTimeoutSeconds: 5,
         structuredOutput: {
           kind: 'siftkit-planner-action-json',
           tools: buildPlannerToolDefinitions(),
@@ -410,7 +410,7 @@ test('llama.cpp provider does not enable parallel tool calls when no tools are s
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
-        timeoutSeconds: 5,
+        idleTimeoutSeconds: 5,
       });
 
       assert.equal(server.state.chatRequests.length, 1);
@@ -429,7 +429,7 @@ test('llama.cpp provider gets answer content from qwen-style servers when reason
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
-        timeoutSeconds: 5,
+        idleTimeoutSeconds: 5,
       });
 
       assert.equal(summary.text, '{"classification":"summary","raw_review_required":false,"output":"ok"}');
@@ -495,7 +495,7 @@ test('llama.cpp chat responses update observed-budget weighted totals from exact
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt,
-        timeoutSeconds: 5,
+        idleTimeoutSeconds: 5,
       });
       // Local counting tokenizes the prompt and the answer, and only those exact
       // counts reach the observed budget.
@@ -529,7 +529,7 @@ test('estimated token fallback does not mutate observed-budget state', async () 
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'C'.repeat(500),
-        timeoutSeconds: 5,
+        idleTimeoutSeconds: 5,
       });
       assert.match(summary.text, /^summary:/u);
 
@@ -562,7 +562,7 @@ test('exact char-token observations accumulate as a weighted average', async () 
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt,
-        timeoutSeconds: 5,
+        idleTimeoutSeconds: 5,
       });
       const expectedChars = 100 + prompt.length + summary.text.length;
 
@@ -599,7 +599,7 @@ test('llama.cpp provider surfaces HTTP 400 errors when json-schema constrained r
             config,
             model: config.Server.ModelPresets.Presets[0].Model ?? '',
             prompt: 'test prompt body',
-            timeoutSeconds: 5,
+            idleTimeoutSeconds: 5,
             structuredOutput: { kind: 'siftkit-decision-json' },
           }),
           /llama\.cpp generate failed with HTTP 400/u
@@ -746,7 +746,7 @@ test('llama.cpp provider prints chat completion HTTP errors to console', async (
           config: buildStubLlamaConfig(port),
           model: 'warmup-model',
           prompt: 'test prompt body',
-          timeoutSeconds: 5,
+          idleTimeoutSeconds: 5,
         }),
         /llama\.cpp generate failed with HTTP 500/u
       );
@@ -831,7 +831,7 @@ test('llama.cpp provider waits for warm-up and retries chat-completions after EC
         config,
         model: 'warmup-model',
         prompt: 'test prompt body',
-        timeoutSeconds: 5,
+        idleTimeoutSeconds: 5,
       });
       assert.equal(response.text, 'warm-up complete');
       assert.equal(chatRequestCount >= 1, true);
@@ -887,12 +887,46 @@ test('llama.cpp provider retries HTTP 503 Loading model responses for chat-compl
         config,
         model: 'warmup-model',
         prompt: 'test prompt body',
-        timeoutSeconds: 5,
+        idleTimeoutSeconds: 5,
       });
       assert.equal(response.text, 'model ready');
       assert.equal(chatRequestCount, 2);
     } finally {
       await new Promise<void>((resolve) => loadingServer.close(() => resolve()));
+    }
+  });
+});
+
+test('llama.cpp provider maps a stalled stream to the generate-timeout message', async () => {
+  await withTempEnv(async () => {
+    await using portLease = await acquireChildPortLease('runtime-provider-llama');
+    const port = portLease.port;
+    const server = http.createServer((req, res) => {
+      if (req.method === 'POST' && req.url === '/v1/chat/completions') {
+        // Send SSE headers, then stall forever so only the idle timeout can fire.
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        res.write('event: progress\ndata: {}\n\n');
+        return;
+      }
+      res.statusCode = 404;
+      res.end();
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.listen(port, '127.0.0.1', (error?: Error) => (error ? reject(error) : resolve()));
+    });
+
+    try {
+      await assert.rejects(
+        () => generateLlamaCppResponse({
+          config: buildStubLlamaConfig(port),
+          model: 'warmup-model',
+          prompt: 'test prompt body',
+          idleTimeoutSeconds: 1,
+        }),
+        /llama\.cpp generate timed out after 1 seconds\./u,
+      );
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
 });

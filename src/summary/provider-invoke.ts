@@ -130,7 +130,8 @@ export async function invokeProviderSummary(options: {
         model: options.model,
         prompt: options.prompt,
         promptTokenCount: options.promptTokenCount,
-        timeoutSeconds: options.requestTimeoutSeconds ?? 600,
+        // The config knob predates streaming: requestTimeoutSeconds now bounds the idle gap between frames.
+        idleTimeoutSeconds: options.requestTimeoutSeconds ?? 600,
         slotId: options.slotId ?? undefined,
         reasoningOverride: options.reasoningOverride,
         structuredOutput: {

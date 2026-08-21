@@ -306,7 +306,7 @@ test('llama.cpp provider reconstructs planner tool actions from empty-content to
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
-        timeoutSeconds: 5,
+        idleTimeoutSeconds: 5,
         structuredOutput: {
           kind: 'siftkit-planner-action-json',
           tools: buildPlannerToolDefinitions(),
@@ -358,7 +358,7 @@ test('llama.cpp provider reconstructs planner tool batches from empty-content to
         config,
         model: config.Server.ModelPresets.Presets[0].Model ?? '',
         prompt: 'test prompt body',
-        timeoutSeconds: 5,
+        idleTimeoutSeconds: 5,
         structuredOutput: {
           kind: 'siftkit-planner-action-json',
           tools: buildPlannerToolDefinitions(),

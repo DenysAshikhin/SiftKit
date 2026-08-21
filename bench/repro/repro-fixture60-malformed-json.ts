@@ -445,7 +445,7 @@ export async function runFixture60MalformedJsonRepro(
           config,
           model,
           prompt,
-          timeoutSeconds: args.requestTimeoutSeconds,
+          idleTimeoutSeconds: args.requestTimeoutSeconds,
         });
         fs.mkdirSync(chunkRoot, { recursive: true });
         fs.writeFileSync(promptPath, prompt, 'utf8');

@@ -554,7 +554,8 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
           config: this.options.config,
           model: this.options.model,
           messages: this.messages,
-          timeoutSeconds: this.options.requestTimeoutSeconds ?? 600,
+          // The config knob predates streaming: requestTimeoutSeconds now bounds the idle gap between frames.
+          idleTimeoutSeconds: this.options.requestTimeoutSeconds ?? 600,
           slotId: this.options.slotId ?? undefined,
           cachePrompt: true,
           tools: this.toolDefinitions,

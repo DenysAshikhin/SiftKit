@@ -6,6 +6,7 @@ import { z } from '../src/lib/zod.js';
 import {
   HttpClient,
   HttpResponseError,
+  HttpTimeoutError,
   DEFAULT_USER_AGENT,
   CONNECT_TIMEOUT_MS,
 } from '../src/lib/http-client.js';
@@ -236,7 +237,31 @@ test('HttpClient.streamSse applies an idle timeout to a silent stream', async ()
         url: `${server.baseUrl}/operation`, body: '{}', idleTimeoutMs: 100,
       }));
     };
-    await assert.rejects(iterate, /timed out after 100 ms/u);
+    await assert.rejects(iterate, (error: Error) => {
+      assert.ok(error instanceof HttpTimeoutError);
+      assert.equal(error.timeoutMs, 100);
+      assert.match(error.message, /timed out after 100 ms/u);
+      return true;
+    });
+  } finally {
+    await server.close();
+  }
+});
+
+test('HttpClient.requestJsonFull rejects a stalled request with a typed timeout error', async () => {
+  const client = new HttpClient();
+  const server = await startServer((_req, _res) => {
+    // Never respond; only the timeout can end the request.
+  });
+  try {
+    await assert.rejects(
+      client.requestJsonFull({ url: `${server.baseUrl}/v1/models`, method: 'GET', timeoutMs: 100 }, JsonObjectSchema),
+      (error: Error) => {
+        assert.ok(error instanceof HttpTimeoutError);
+        assert.equal(error.timeoutMs, 100);
+        return true;
+      },
+    );
   } finally {
     await server.close();
   }
