@@ -17,13 +17,11 @@ export interface AgentLoopModelClient {
     messages: LlamaCppChatMessage[];
     tools: LlamaCppToolDefinition[];
     allowedToolNames: string[];
-    stream: boolean;
   }): Promise<AgentLoopModelResponse>;
 }
 
 export type AgentLoopOptions = {
   maxTurns: number;
-  stream?: boolean;
   promptAdapter?: AgentLoopPromptAdapter;
   actionAdapter?: AgentLoopActionAdapter;
   toolAdapter?: AgentLoopToolAdapter;
@@ -53,7 +51,6 @@ export class AgentLoop {
         messages,
         tools: toolDefinitions,
         allowedToolNames: toolDefinitions.map((tool) => tool.function.name),
-        stream: this.options.stream === true,
       });
       if (modelResponse.outcome === 'stop') {
         return this.buildResult('', 'aborted');
