@@ -740,7 +740,7 @@ function MessageBubble({ message, sessionId, isLive, isPending, isDirectChatMode
   chatBusy: boolean;
   onDeleteMessage(messageId: string): Promise<void>;
   onDeleteMessageImage(messageId: string, imageIndex: number): Promise<void>;
-  extraClass?: string;
+  extraClass?: string | undefined;
 }) {
   const messageKind = normalizeMessageKind(message);
   const tone = message.role === 'user' ? 'user' : 'ai';
@@ -773,6 +773,20 @@ function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteM
     : aggregateTokens.exact
       ? `${formatNumber(aggregateTokens.tokenCount)} internal run tokens`
       : `${formatNumber(aggregateTokens.tokenCount)} known exact tokens; some token components are unavailable`;
+  const renderTurnMessage = (message: ChatMessage, extraClass?: string) => (
+    <MessageBubble
+      key={message.id}
+      message={message}
+      sessionId={sessionId}
+      isLive={turn.isLive}
+      isPending={false}
+      isDirectChatMode={isDirectChatMode}
+      chatBusy={chatBusy}
+      onDeleteMessage={onDeleteMessage}
+      onDeleteMessageImage={onDeleteMessageImage}
+      extraClass={extraClass}
+    />
+  );
   return (
     <article className={`msg ai turn${turn.isLive ? ' live' : ''}`}>
       <div className="who">
@@ -797,52 +811,16 @@ function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteM
         <details className="internal-logic">
           <summary>Internal Logic ({turn.steps.length})</summary>
           <div className="internal-logic-steps">
-            {turn.steps.map((step) => (
-              <MessageBubble
-                key={step.id}
-                message={step}
-                sessionId={sessionId}
-                isLive={turn.isLive}
-                isPending={false}
-                isDirectChatMode={isDirectChatMode}
-                chatBusy={chatBusy}
-                onDeleteMessage={onDeleteMessage}
-                onDeleteMessageImage={onDeleteMessageImage}
-              />
-            ))}
+            {turn.steps.map((step) => renderTurnMessage(step))}
           </div>
         </details>
       ) : null}
       {turn.liveThinking.length > 0 ? (
         <div className="live-thinking-stack">
-          {turn.liveThinking.map((thinking) => (
-            <MessageBubble
-              key={thinking.id}
-              message={thinking}
-              sessionId={sessionId}
-              isLive={turn.isLive}
-              isPending={false}
-              isDirectChatMode={isDirectChatMode}
-              chatBusy={chatBusy}
-              onDeleteMessage={onDeleteMessage}
-              onDeleteMessageImage={onDeleteMessageImage}
-            />
-          ))}
+          {turn.liveThinking.map((thinking) => renderTurnMessage(thinking))}
         </div>
       ) : null}
-      {turn.main ? (
-        <MessageBubble
-          message={turn.main}
-          sessionId={sessionId}
-          isLive={turn.isLive}
-          isPending={false}
-          isDirectChatMode={isDirectChatMode}
-          chatBusy={chatBusy}
-          onDeleteMessage={onDeleteMessage}
-          onDeleteMessageImage={onDeleteMessageImage}
-          extraClass="turn-main"
-        />
-      ) : null}
+      {turn.main ? renderTurnMessage(turn.main, 'turn-main') : null}
     </article>
   );
 }

@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { fireEvent, render as renderComponent, screen } from './react-test-environment.js';
 import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
 import { ChatTab } from '../src/tabs/ChatTab';
-import type { ChatMessage, ChatSession, ContextUsage, DashboardPreset } from '../src/types';
+import type { ChatMessage, ChatSession, ChatSessionOperationKind, ContextUsage, DashboardPreset } from '../src/types';
 import type { PendingImage } from '../src/lib/downscale-image';
 
 const IMAGE = 'data:image/png;base64,AA==';
@@ -573,16 +573,26 @@ test('the condensed summary panel is gone', () => {
   assert.doesNotMatch(markup, /Condensed Summary/u);
 });
 
-function buildThinkingOnlyStore(content: string, images: PendingImage[]): ChatSessionRuntimeStore {
+function buildThinkingStore(options: {
+  content: string;
+  images: PendingImage[];
+  operationKind: ChatSessionOperationKind;
+  marker: string;
+}): ChatSessionRuntimeStore {
   return new ChatSessionRuntimeStore()
     .ensureSession(SESSION_B.id)
-    .apply({ kind: 'submit', sessionId: SESSION_B.id, content, images })
-    .apply({ kind: 'begin', sessionId: SESSION_B.id, operationKind: 'message' })
-    .apply({ kind: 'thinking', sessionId: SESSION_B.id, delta: { turn: 1, offset: 0, text: 'THINK_MARKER_ONE' } });
+    .apply({ kind: 'submit', sessionId: SESSION_B.id, content: options.content, images: options.images })
+    .apply({ kind: 'begin', sessionId: SESSION_B.id, operationKind: options.operationKind })
+    .apply({ kind: 'thinking', sessionId: SESSION_B.id, delta: { turn: 1, offset: 0, text: options.marker } });
 }
 
 test('a live turn that has only streamed thinking renders the thinking text', () => {
-  const store = buildThinkingOnlyStore('', [{ dataUrl: 'data:image/png;base64,AA', note: null }]);
+  const store = buildThinkingStore({
+    content: '',
+    images: [{ dataUrl: IMAGE, note: null }],
+    operationKind: 'message',
+    marker: 'THINK_MARKER_ONE',
+  });
   const html = render({
     selectedSessionId: SESSION_B.id,
     selectedRuntime: store.get(SESSION_B.id),
@@ -592,7 +602,7 @@ test('a live turn that has only streamed thinking renders the thinking text', ()
 });
 
 test('a live turn that has only streamed thinking renders no empty Internal Logic disclosure', () => {
-  const store = buildThinkingOnlyStore('hello', []);
+  const store = buildThinkingStore({ content: 'hello', images: [], operationKind: 'message', marker: 'THINK_MARKER_ONE' });
   const html = render({
     selectedSessionId: SESSION_B.id,
     selectedRuntime: store.get(SESSION_B.id),
@@ -603,7 +613,7 @@ test('a live turn that has only streamed thinking renders no empty Internal Logi
 });
 
 test('once the answer streams, the answer and the thinking both render', () => {
-  const store = buildThinkingOnlyStore('hello', [])
+  const store = buildThinkingStore({ content: 'hello', images: [], operationKind: 'message', marker: 'THINK_MARKER_ONE' })
     .apply({ kind: 'answer', sessionId: SESSION_B.id, delta: { turn: 1, offset: 0, text: 'ANSWER_MARKER' } });
   const html = render({
     selectedSessionId: SESSION_B.id,
@@ -615,11 +625,7 @@ test('once the answer streams, the answer and the thinking both render', () => {
 });
 
 test('a live turn with a running tool call still renders the thinking that led to it', () => {
-  const store = new ChatSessionRuntimeStore()
-    .ensureSession(SESSION_B.id)
-    .apply({ kind: 'submit', sessionId: SESSION_B.id, content: 'find it', images: [] })
-    .apply({ kind: 'begin', sessionId: SESSION_B.id, operationKind: 'repo-search' })
-    .apply({ kind: 'thinking', sessionId: SESSION_B.id, delta: { turn: 1, offset: 0, text: 'THINK_MARKER_TOOL' } })
+  const store = buildThinkingStore({ content: 'find it', images: [], operationKind: 'repo-search', marker: 'THINK_MARKER_TOOL' })
     .apply({
       kind: 'tool',
       sessionId: SESSION_B.id,
