@@ -1122,7 +1122,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     const rawFormattedResultText = formatPlannerResult(result);
     const formattedResultText = buildPromptToolResult({
       toolName: effectiveToolAction.tool_name,
-      rawOutput: rawFormattedResultText,
+      output: rawFormattedResultText,
     });
     formatSpan?.end({
       rawChars: rawFormattedResultText.length,
@@ -1215,7 +1215,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     });
     const promptResultText = buildPromptToolResult({
       toolName: effectiveToolAction.tool_name,
-      rawOutput: fitResult.visibleText,
+      output: fitResult.visibleText,
     });
     const fitTokenSpan = this.options.timingRecorder?.start('summary.planner.tool.tokenize_prompt', {
       turn: ctx.turn,

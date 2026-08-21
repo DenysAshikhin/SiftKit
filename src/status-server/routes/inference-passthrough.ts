@@ -79,6 +79,7 @@ function applyThinkingSettings(body: JsonObject, preset: ModelRuntimePreset): vo
     enable_thinking: thinkingEnabled,
     ...(compatibility.reasoningContent && reasoningContent ? { reasoning_content: true } : {}),
     ...(reasoningContent && preset.PreserveThinking ? { preserve_thinking: true } : {}),
+    ...(thinkingEnabled ? { reasoning_effort: preset.ReasoningEffort } : {}),
   };
 }
 

@@ -13,6 +13,7 @@ import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { Exl3PresetAdapter } from '../src/inference-presets/exl3-preset-adapter.js';
 import { LlamaPresetAdapter } from '../src/inference-presets/llama-preset-adapter.js';
 import {
+  buildPresetRequestDefaults,
   getExl3CacheModes,
   getPresetFieldAvailability,
   type PresetFieldAvailability,
@@ -297,6 +298,7 @@ const PRESET_FIELD_EXPECTATIONS = {
   PresencePenalty: ON_BOTH_BACKENDS,
   RepetitionPenalty: ON_BOTH_BACKENDS,
   Reasoning: ON_BOTH_BACKENDS,
+  ReasoningEffort: ON_BOTH_BACKENDS,
   ReasoningContent: ON_BOTH_BACKENDS,
   PreserveThinking: ON_BOTH_BACKENDS,
   MaintainPerStepThinking: ON_BOTH_BACKENDS,
@@ -366,6 +368,7 @@ test('EXL3 adapter returns common request defaults', () => {
     presencePenalty: preset.PresencePenalty,
     repetitionPenalty: preset.RepetitionPenalty,
     reasoning: 'on',
+    reasoningEffort: preset.ReasoningEffort,
     reasoningContent: preset.ReasoningContent,
     preserveThinking: preset.PreserveThinking,
     maintainPerStepThinking: preset.MaintainPerStepThinking,
@@ -399,6 +402,7 @@ test('llama adapter preserves launch settings and common request defaults', () =
     presencePenalty: 0.2,
     repetitionPenalty: 1.1,
     reasoning: 'on',
+    reasoningEffort: preset.ReasoningEffort,
     reasoningContent: true,
     preserveThinking: true,
     maintainPerStepThinking: true,
@@ -427,4 +431,12 @@ test('adapters reject presets assigned to the other backend', () => {
     () => new Exl3PresetAdapter('D:\\personal\\models\\exl3').validatePreset(createModelPreset({ Backend: 'llama' })),
     /backend=llama/u,
   );
+});
+
+test('buildPresetRequestDefaults carries the preset reasoning effort', () => {
+  const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('Default model preset is missing');
+
+  assert.equal(buildPresetRequestDefaults(preset).reasoningEffort, 'xhigh');
+  assert.equal(buildPresetRequestDefaults({ ...preset, ReasoningEffort: 'low' }).reasoningEffort, 'low');
 });

@@ -659,6 +659,7 @@ test('summary above planner threshold respects runtime reasoning for planner req
       assert.equal(server.state.chatRequests.length >= 1, true);
       assert.deepEqual(server.state.chatRequests[0].chat_template_kwargs, {
         enable_thinking: true,
+        reasoning_effort: 'xhigh',
       });
       assert.equal('extra_body' in server.state.chatRequests[0], false);
       const firstResponseFormatText = JSON.stringify(server.state.chatRequests[0]?.response_format || {});

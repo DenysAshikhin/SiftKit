@@ -378,6 +378,7 @@ test('chat queued during a preset switch is translated for the target backend', 
       assert.deepEqual(tabbyChatBodies[0]?.chat_template_kwargs, {
         enable_thinking: true,
         preserve_thinking: true,
+        reasoning_effort: 'xhigh',
       });
 
       // The queued chat only proves the request was translated; the switch it triggered

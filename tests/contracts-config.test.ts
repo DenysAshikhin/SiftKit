@@ -7,7 +7,9 @@ import {
   ModelLifecycleRequestSchema,
   ModelLifecycleResponseSchema,
   InferenceRuntimeStatusSchema,
+  ModelPresetFieldSchema,
   ModelRuntimePresetSchema,
+  ReasoningEffortSchema,
   REPO_AGENT_DEFAULT_MAX_TURNS,
   RestartBackendResponseSchema,
   ServerModelPresetsConfigSchema,
@@ -209,4 +211,26 @@ test('SiftPresetCollectionSchema requires the summary default to have summary ki
   if (!result.success) {
     assert.deepEqual(result.error.issues.find((issue) => issue.message.includes('summary kind'))?.path, [0, 'presetKind']);
   }
+});
+
+test('ReasoningEffortSchema accepts the three levels this template distinguishes', () => {
+  assert.equal(ReasoningEffortSchema.safeParse('low').success, true);
+  assert.equal(ReasoningEffortSchema.safeParse('medium').success, true);
+  assert.equal(ReasoningEffortSchema.safeParse('xhigh').success, true);
+  // 'high' is a dead alias for 'xhigh' in the Qwen3.8 template; offering it would lie.
+  assert.equal(ReasoningEffortSchema.safeParse('high').success, false);
+  assert.equal(ReasoningEffortSchema.safeParse('').success, false);
+});
+
+test('ModelRuntimePresetSchema requires ReasoningEffort on every preset', () => {
+  const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('Default model preset is missing');
+  const { ReasoningEffort: _ReasoningEffort, ...withoutEffort } = preset;
+  assert.equal(ModelRuntimePresetSchema.safeParse(withoutEffort).success, false);
+  assert.equal(ModelRuntimePresetSchema.safeParse({ ...preset, ReasoningEffort: 'low' }).success, true);
+  assert.equal(ModelRuntimePresetSchema.safeParse({ ...preset, ReasoningEffort: 'high' }).success, false);
+});
+
+test('ReasoningEffort is an editable model preset field', () => {
+  assert.equal(ModelPresetFieldSchema.safeParse('ReasoningEffort').success, true);
 });

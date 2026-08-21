@@ -26,6 +26,7 @@ import type {
   InferenceBackendId,
   ManagedLlamaKvCacheQuantization,
   ModelIdleAction,
+  ReasoningEffort,
   WebSearchProviderId,
 } from './types.js';
 
@@ -128,6 +129,7 @@ export type DashboardSettingsDraftAction =
   | { type: 'set-model-idle-action'; presetId: string; value: ModelIdleAction }
   | { type: 'set-model-kv-cache-quantization'; presetId: string; value: ManagedLlamaKvCacheQuantization }
   | { type: 'set-model-reasoning'; presetId: string; value: 'on' | 'off' }
+  | { type: 'set-model-reasoning-effort'; presetId: string; value: ReasoningEffort }
   | { type: 'set-model-reasoning-content'; presetId: string; value: boolean }
   | { type: 'set-model-speculative-type'; presetId: string; value: DashboardManagedLlamaSpeculativeType }
   | { type: 'add-model-preset' }
@@ -270,6 +272,9 @@ export class DashboardSettingsDraftEditor {
       case 'set-model-reasoning':
         this.setModelReasoning(action.presetId, action.value);
         return;
+      case 'set-model-reasoning-effort':
+        this.requireModelPreset(action.presetId).ReasoningEffort = action.value;
+        return;
       case 'set-model-reasoning-content':
         this.setModelReasoningContent(action.presetId, action.value);
         return;
@@ -367,6 +372,8 @@ export class DashboardSettingsDraftEditor {
     const preset = this.requireModelPreset(presetId);
     preset.Reasoning = reasoning;
     if (reasoning === 'off') {
+      // ReasoningEffort is deliberately not reset: unlike these booleans, whose identity value
+      // is `false`, an enum has no "off" member, so clearing it would discard the user's choice.
       preset.ReasoningContent = false;
       preset.PreserveThinking = false;
       preset.MaintainPerStepThinking = false;

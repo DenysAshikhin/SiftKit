@@ -1,3 +1,4 @@
+import type { ReasoningEffort } from '@siftkit/contracts';
 import type { InferenceBackendId } from '../config/types.js';
 import type { PresetRequestDefaults } from '../inference-presets/preset-compatibility.js';
 import type {
@@ -11,6 +12,8 @@ export type InferenceThinkingPolicy = {
   enabled?: boolean;
   preserve: boolean;
   reasoningContent: boolean;
+  /** Reasoning depth for the chat template; only sent when thinking is on. */
+  effort: ReasoningEffort;
 };
 
 export type InferenceRequestInput = {

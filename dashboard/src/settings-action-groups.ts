@@ -22,6 +22,7 @@ import type {
   InferenceBackendId,
   ManagedLlamaKvCacheQuantization,
   ModelIdleAction,
+  ReasoningEffort,
   WebSearchProviderId,
 } from './types.js';
 
@@ -88,6 +89,7 @@ export type ModelPresetSettingsActions = {
   setIdleAction(value: ModelIdleAction): void;
   setKvCacheQuantization(value: ManagedLlamaKvCacheQuantization): void;
   setReasoning(value: 'on' | 'off'): void;
+  setReasoningEffort(value: ReasoningEffort): void;
   setReasoningContent(value: boolean): void;
   setSpeculativeType(value: DashboardManagedLlamaSpeculativeType): void;
   addPreset(): void;

@@ -12,6 +12,7 @@ interface PresetRenderOptions {
   externalServerEnabled?: boolean;
   kvCacheQuantization?: 'bf16' | 'f16';
   parallelSlots?: number;
+  reasoning?: 'on' | 'off';
 }
 
 const MODEL_PRESET_ACTIONS: ModelPresetSettingsActions = {
@@ -26,6 +27,7 @@ const MODEL_PRESET_ACTIONS: ModelPresetSettingsActions = {
   setIdleAction() {},
   setKvCacheQuantization() {},
   setReasoning() {},
+  setReasoningEffort() {},
   setReasoningContent() {},
   setSpeculativeType() {},
   addPreset() {},
@@ -42,6 +44,7 @@ function renderPreset(options: PresetRenderOptions = {}): string {
   preset.ExternalServerEnabled = options.externalServerEnabled ?? false;
   preset.KvCacheQuantization = options.kvCacheQuantization ?? 'f16';
   preset.ParallelSlots = options.parallelSlots ?? 1;
+  preset.Reasoning = options.reasoning ?? 'off';
   preset.SpeculativeEnabled = true;
   preset.SpeculativeType = 'draft-mtp';
 
@@ -118,4 +121,19 @@ test('EXL3 enum controls disable incompatible values without changing the preset
 
   assert.match(markup, /<option value="bf16"[^>]*disabled=""[^>]*>bf16<\/option>/u);
   assert.match(markup, /<select[^>]*><option value="f32" disabled="">/u);
+});
+
+test('the reasoning effort dropdown offers the three levels the template distinguishes', () => {
+  const markup = renderPreset({ reasoning: 'on' });
+  const field = getRenderedField(markup, 'Reasoning effort');
+
+  assert.match(field, /<option value="low">low<\/option>/u);
+  assert.match(field, /<option value="medium">medium<\/option>/u);
+  assert.match(field, /<option value="xhigh" selected="">xhigh<\/option>/u);
+  // 'high' collapses into 'xhigh' in the Qwen3.8 template, so it is never offered.
+  assert.doesNotMatch(field, /value="high"/u);
+});
+
+test('the reasoning effort dropdown is hidden when reasoning is off', () => {
+  assertFieldAbsent(renderPreset({ reasoning: 'off' }), 'Reasoning effort');
 });

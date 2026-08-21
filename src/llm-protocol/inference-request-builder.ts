@@ -22,6 +22,9 @@ export class InferenceRequestBuilder {
               enable_thinking: input.thinking.enabled,
               ...(compatibility.reasoningContent && input.thinking.reasoningContent ? { reasoning_content: true } : {}),
               ...(input.thinking.preserve ? { preserve_thinking: true } : {}),
+              // The template only reads effort while thinking is on, so sending it otherwise
+              // would change nothing while still breaking prompt-prefix reuse.
+              ...(input.thinking.enabled ? { reasoning_effort: input.thinking.effort } : {}),
             },
           }),
     };

@@ -341,6 +341,10 @@ export function useSettingsController(deps: {
       const presetId = getSelectedModelPresetId();
       if (presetId) applySettingsAction({ type: 'set-model-reasoning', presetId, value });
     },
+    setReasoningEffort(value) {
+      const presetId = getSelectedModelPresetId();
+      if (presetId) applySettingsAction({ type: 'set-model-reasoning-effort', presetId, value });
+    },
     setReasoningContent(value) {
       const presetId = getSelectedModelPresetId();
       if (presetId) applySettingsAction({ type: 'set-model-reasoning-content', presetId, value });

@@ -83,12 +83,12 @@ test('evaluateFinishAttempt rejects repo-search finish without corroborating evi
 test('buildPromptToolResult keeps non-zero exit code but strips exit_code=0', () => {
   const okResult = buildPromptToolResult({
     toolName: 'find_text',
-    rawOutput: 'exit_code=0\nhitCount=0',
+    output: 'hitCount=0',
   });
   const errorResult = buildPromptToolResult({
     toolName: 'git',
     exitCode: 1,
-    rawOutput: 'exit_code=1\npattern not found',
+    output: 'pattern not found',
   });
 
   assert.equal(okResult, 'hitCount=0');
@@ -100,7 +100,7 @@ test('buildPromptToolResult strips http_client stderr logs from repo-search outp
     toolName: 'git',
     command: '.\\gradlew.bat test 2>&1 | siftkit summary --question "Report pass/fail"',
     exitCode: 0,
-    rawOutput: [
+    output: [
       'PASS: command exit code was 0 and the captured output contains no obvious error',
       '2026-05-05 21:38:42 http_client enqueue_intent task=summary method=POST path=/summary body_chars=123',
       'Daemon will be stopped at the end of the build',
@@ -191,7 +191,7 @@ test('buildPromptToolResult preserves blank lines for git show file content', ()
     toolName: 'git',
     command: 'git show HEAD:src/config.ts',
     exitCode: 0,
-    rawOutput: `exit_code=0\n${fileContent}`,
+    output: fileContent,
   });
 
   assert.equal(promptResult, fileContent);
@@ -203,13 +203,13 @@ test('buildPromptToolResult recognizes content-bearing git commands through glob
     toolName: 'git',
     command: 'git --no-pager show HEAD:a.txt',
     exitCode: 0,
-    rawOutput: `exit_code=0\n${body}`,
+    output: body,
   });
   const withValueFlag = buildPromptToolResult({
     toolName: 'git',
     command: 'git -C sub cat-file -p HEAD:a.txt',
     exitCode: 0,
-    rawOutput: `exit_code=0\n${body}`,
+    output: body,
   });
 
   assert.equal(withPagerFlag, body);
@@ -221,7 +221,7 @@ test('buildPromptToolResult still strips blank lines from git log output', () =>
     toolName: 'git',
     command: 'git log --oneline -n 3',
     exitCode: 0,
-    rawOutput: 'exit_code=0\ncommit abc123\n\n    fix the thing\n\ncommit def456',
+    output: 'commit abc123\n\n    fix the thing\n\ncommit def456',
   });
 
   assert.equal(promptResult, 'commit abc123\n    fix the thing\ncommit def456');
@@ -232,8 +232,124 @@ test('buildPromptToolResult keeps the filtered error shape for a failed git show
     toolName: 'git',
     command: 'git show HEAD:missing.ts',
     exitCode: 128,
-    rawOutput: "exit_code=128\n\nfatal: path 'missing.ts' does not exist in 'HEAD'",
+    output: "\nfatal: path 'missing.ts' does not exist in 'HEAD'",
   });
 
   assert.equal(promptResult, "exit_code=128\nfatal: path 'missing.ts' does not exist in 'HEAD'");
+});
+
+test('buildPromptToolResult does not strip an exit_code=0 line that is real file content', () => {
+  const promptResult = buildPromptToolResult({
+    toolName: 'git',
+    command: 'git show HEAD:scripts/expected-output.txt',
+    exitCode: 0,
+    output: 'exit_code=0\nreal first line',
+  });
+
+  assert.equal(promptResult, 'exit_code=0\nreal first line');
+});
+
+test('buildPromptToolResult preserves blank lines when a content-bearing command fails', () => {
+  const promptResult = buildPromptToolResult({
+    toolName: 'git',
+    command: 'git show HEAD:src/config.ts',
+    exitCode: 128,
+    output: 'alpha\n\nbeta',
+  });
+
+  assert.equal(promptResult, 'exit_code=128\nalpha\n\nbeta');
+});
+
+test('buildPromptToolResult preserves blank context lines in git diff output', () => {
+  const diff = [
+    'diff --git a/util/memory.py b/util/memory.py',
+    'index 25f6208..5479d59 100644',
+    '--- a/util/memory.py',
+    '+++ b/util/memory.py',
+    '@@ -30,5 +30,6 @@ def set_memory_fraction_reserve(',
+    '     touch_device(device)',
+    ' ',
+    '-    fraction = (free - reserve) / total',
+    '+    fraction = (free - reserve - already_reserved) / total',
+    ' ',
+    '     return fraction',
+  ].join('\n');
+  const promptResult = buildPromptToolResult({
+    toolName: 'git',
+    command: 'git diff origin/dev..siftkit -- util/memory.py',
+    exitCode: 0,
+    output: diff,
+  });
+
+  assert.equal(promptResult, diff);
+});
+
+test('buildPromptToolResult preserves diff hunks inside git log -p output', () => {
+  const output = [
+    'commit abc123',
+    '',
+    '    fix the thing',
+    '',
+    'diff --git a/a.py b/a.py',
+    '@@ -1,4 +1,4 @@',
+    ' import os',
+    ' ',
+    '-x = 1',
+    '+x = 2',
+  ].join('\n');
+  const promptResult = buildPromptToolResult({
+    toolName: 'git',
+    command: 'git log -1 -p -- a.py',
+    exitCode: 0,
+    output,
+  });
+
+  assert.equal(promptResult, output);
+});
+
+test('buildPromptToolResult preserves blank context lines in git format-patch output', () => {
+  const output = [
+    'From abc123 Mon Sep 17 00:00:00 2001',
+    'Subject: [PATCH] fix the thing',
+    '',
+    '---',
+    ' a.py | 2 +-',
+    '',
+    'diff --git a/a.py b/a.py',
+    '@@ -1,3 +1,3 @@',
+    ' import os',
+    ' ',
+    '-x = 1',
+    '+x = 2',
+  ].join('\n');
+  const promptResult = buildPromptToolResult({
+    toolName: 'git',
+    command: 'git format-patch -1 --stdout',
+    exitCode: 0,
+    output,
+  });
+
+  assert.equal(promptResult, output);
+});
+
+test('buildPromptToolResult reports an explicit no-output result for an empty successful command', () => {
+  const promptResult = buildPromptToolResult({
+    toolName: 'git',
+    command: "git log origin/dev --oneline --grep='293'",
+    exitCode: 0,
+    output: '',
+  });
+
+  assert.equal(promptResult, 'exit_code=0 (no output)');
+});
+
+test('classifyToolOutputNovelty treats the no-output marker as carrying no evidence', () => {
+  const novelty = classifyToolOutputNovelty({
+    baseOutput: '\n\n',
+    promptResultText: 'exit_code=0 (no output)',
+    recentEvidenceKeys: new Set<string>(),
+  });
+
+  assert.deepEqual(novelty.evidenceKeys, []);
+  assert.equal(novelty.hasNewEvidence, false);
 });

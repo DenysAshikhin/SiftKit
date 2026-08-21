@@ -1,7 +1,7 @@
 import { initializeRuntime } from './paths.js';
 import {
   CaptureScopeSchema, KeyCustodySchema, ModelIdleActionSchema, ModelPresetFieldSchema,
-  SiftPresetCollectionSchema, type ModelIdleAction,
+  ReasoningEffortSchema, SiftPresetCollectionSchema, type ModelIdleAction, type ReasoningEffort,
 } from '@siftkit/contracts';
 import {
   SIFT_DEFAULT_LLAMA_BATCH_SIZE,
@@ -385,6 +385,11 @@ function getManagedSpeculativeType(value: JsonValue, fallback: ManagedLlamaSpecu
   }
 }
 
+function getReasoningEffort(value: JsonValue, fallback: ReasoningEffort): ReasoningEffort {
+  const parsed = ReasoningEffortSchema.safeParse(getNullableTrimmedString(value));
+  return parsed.success ? parsed.data : fallback;
+}
+
 function getManagedKvCacheQuantization(value: JsonValue, fallback: ManagedLlamaKvCacheQuantization): ManagedLlamaKvCacheQuantization {
   const normalized = getNullableTrimmedString(value);
   if (
@@ -537,6 +542,9 @@ function resolveManagedLlamaSettings(input: MutableJsonObject): ManagedLlamaConf
     Reasoning: reasoning === 'on' || reasoning === 'off'
       ? reasoning
       : defaults.Reasoning || 'off',
+    // Effort is not zeroed when reasoning is off: the value is inert while thinking is off and
+    // must survive a round trip through the toggle rather than silently losing the user's choice.
+    ReasoningEffort: getReasoningEffort(input.ReasoningEffort, defaults.ReasoningEffort),
     ReasoningContent: reasoningContentEnabled,
     PreserveThinking: reasoningContentEnabled && input.PreserveThinking === true,
     MaintainPerStepThinking: reasoningEnabled && input.MaintainPerStepThinking !== false,

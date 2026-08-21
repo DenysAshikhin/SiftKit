@@ -914,11 +914,13 @@ test('planner keeps the first real tool output and rewrites one duplicate warnin
       for (const request of server.state.chatRequests.slice(0, 5)) {
         assert.deepEqual(request.chat_template_kwargs, {
           enable_thinking: true,
+          reasoning_effort: 'xhigh',
         });
       }
       const finalRequest = server.state.chatRequests[5];
       assert.deepEqual(finalRequest.chat_template_kwargs, {
         enable_thinking: true,
+        reasoning_effort: 'xhigh',
       });
       const finalMessages = Array.isArray(finalRequest?.messages) ? finalRequest.messages : [];
       const assistantToolCalls = finalMessages.filter((message) => Array.isArray(message?.tool_calls));

@@ -21,7 +21,8 @@ const HOST_SETTINGS_TTL_MS = 60_000;
 
 /** The preset fields the host owns in pass-through mode; everything else stays local. */
 type HostPresetSettings = Pick<ModelRuntimePreset,
-  'Model' | 'NumCtx' | 'Reasoning' | 'ReasoningContent' | 'PreserveThinking' | 'MaintainPerStepThinking'
+  'Model' | 'NumCtx' | 'Reasoning' | 'ReasoningEffort' | 'ReasoningContent' | 'PreserveThinking'
+  | 'MaintainPerStepThinking'
   | 'MaxTokens' | 'Temperature' | 'TopP' | 'TopK' | 'MinP' | 'PresencePenalty' | 'RepetitionPenalty'>;
 
 // A host can swap presets while this process runs, so the snapshot expires
@@ -60,6 +61,7 @@ async function fetchHostPresetSettings(baseUrl: string): Promise<HostPresetSetti
     // exl3 host only has them on the preset.
     NumCtx: getFinitePositiveNumber(hostLlama.NumCtx) ?? hostPreset.NumCtx,
     Reasoning: hostLlama.Reasoning === 'on' || hostLlama.Reasoning === 'off' ? hostLlama.Reasoning : hostPreset.Reasoning,
+    ReasoningEffort: hostPreset.ReasoningEffort,
     ReasoningContent: hostPreset.ReasoningContent,
     PreserveThinking: hostPreset.PreserveThinking,
     MaintainPerStepThinking: hostPreset.MaintainPerStepThinking,

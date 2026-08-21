@@ -443,6 +443,7 @@ export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFla
       enable_thinking: Boolean(options.thinkingEnabled),
       ...(options.thinkingEnabled && options.reasoningContentEnabled ? { reasoning_content: true } : {}),
       ...(options.thinkingEnabled && options.reasoningContentEnabled && options.preserveThinking ? { preserve_thinking: true } : {}),
+      ...(options.thinkingEnabled ? { reasoning_effort: samplerDefaults.reasoningEffort } : {}),
     },
     ...(responseFormat ? { response_format: responseFormat } : {}),
     ...(options.stream ? { stream: true } : {}),

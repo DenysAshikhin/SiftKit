@@ -460,6 +460,24 @@ test('chat passthrough forwards the preset thinking kwargs when reasoning is on'
       enable_thinking: true,
       reasoning_content: true,
       preserve_thinking: true,
+      reasoning_effort: 'xhigh',
+    });
+  });
+});
+
+test('chat passthrough replaces a caller reasoning effort with the preset one', async () => {
+  await withPassthroughChatServer({
+    Reasoning: 'on',
+    ReasoningEffort: 'medium',
+  }, async (postChat) => {
+    const forwarded = readForwardedRequest(await postChat({
+      messages: [{ role: 'user', content: 'hi' }],
+      // The preset owns thinking policy, so a caller cannot pick its own depth.
+      chat_template_kwargs: { reasoning_effort: 'low' },
+    }));
+    assert.deepEqual(forwarded.chat_template_kwargs, {
+      enable_thinking: true,
+      reasoning_effort: 'medium',
     });
   });
 });

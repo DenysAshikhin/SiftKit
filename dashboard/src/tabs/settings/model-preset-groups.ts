@@ -36,7 +36,8 @@ export function summarizeSampling(preset: DashboardModelRuntimePreset): string {
 
 export function summarizeReasoning(preset: DashboardModelRuntimePreset): string {
   const perStep = preset.MaintainPerStepThinking ? 'on' : 'off';
-  return `${preset.Reasoning} · per-step thinking ${perStep} · budget ${formatCompactTokenCount(preset.ReasoningBudget)}`;
+  const effort = preset.Reasoning === 'on' ? ` · effort ${preset.ReasoningEffort}` : '';
+  return `${preset.Reasoning}${effort} · per-step thinking ${perStep} · budget ${formatCompactTokenCount(preset.ReasoningBudget)}`;
 }
 
 export function summarizeSpeculative(preset: DashboardModelRuntimePreset): string {

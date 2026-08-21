@@ -241,6 +241,7 @@ test('llama.cpp provider forwards thinking preservation flags when enabled', asy
         enable_thinking: true,
         reasoning_content: true,
         preserve_thinking: true,
+        reasoning_effort: 'xhigh',
       });
       assert.equal('extra_body' in server.state.chatRequests[0], false);
     });

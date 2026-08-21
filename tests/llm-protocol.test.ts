@@ -239,6 +239,7 @@ test('llama client builds chat request with nested reasoning_content and tools',
   assert.deepEqual(body.chat_template_kwargs, {
     enable_thinking: true,
     reasoning_content: true,
+    reasoning_effort: 'xhigh',
   });
   assert.equal(body.parallel_tool_calls, true);
   assert.equal(body.tools[0].function.name, 'grep');
@@ -652,4 +653,51 @@ test('llama client covers prompt-token cache fallback, empty response normalizat
   });
   assert.equal(empty.text, '');
   assert.equal(empty.reasoningText, '');
+});
+
+test('chat requests send the active preset reasoning effort', async () => {
+  const config = buildProtocolConfig();
+  const preset = config.Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('default config must include a managed llama preset');
+  preset.ReasoningEffort = 'low';
+
+  const http = new CapturingHttpClient();
+  await new LlamaCppClient(http).chat({
+    config,
+    model: 'local',
+    messages: [{ role: 'user', content: 'hello' }],
+    tools: [],
+    maxTokens: 64,
+    stream: false,
+    allowedToolNames: [],
+  });
+
+  const body = JSON.parse(String(http.requests[0]?.body || '{}'));
+  assert.deepEqual(body.chat_template_kwargs, {
+    enable_thinking: true,
+    reasoning_content: true,
+    reasoning_effort: 'low',
+  });
+});
+
+test('chat requests omit reasoning effort when the preset has reasoning off', async () => {
+  const config = buildProtocolConfig();
+  const preset = config.Server.ModelPresets.Presets[0];
+  if (!preset) throw new Error('default config must include a managed llama preset');
+  preset.Reasoning = 'off';
+  preset.ReasoningEffort = 'low';
+
+  const http = new CapturingHttpClient();
+  await new LlamaCppClient(http).chat({
+    config,
+    model: 'local',
+    messages: [{ role: 'user', content: 'hello' }],
+    tools: [],
+    maxTokens: 64,
+    stream: false,
+    allowedToolNames: [],
+  });
+
+  const body = JSON.parse(String(http.requests[0]?.body || '{}'));
+  assert.deepEqual(body.chat_template_kwargs, { enable_thinking: false });
 });

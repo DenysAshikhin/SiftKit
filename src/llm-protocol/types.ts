@@ -1,3 +1,5 @@
+import type { ReasoningEffort } from '@siftkit/contracts';
+
 export const LLAMA_CPP_PROTOCOL_FORMAT = 'openai-compatible' as const;
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -65,6 +67,7 @@ export type LlamaCppChatTemplateKwargs = {
   enable_thinking?: boolean;
   reasoning_content?: boolean;
   preserve_thinking?: boolean;
+  reasoning_effort?: ReasoningEffort;
 };
 
 export type LlamaCppChatRequest = {

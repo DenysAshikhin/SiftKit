@@ -14,6 +14,15 @@ export type ManagedLlamaSpeculativeType = z.infer<typeof ManagedLlamaSpeculative
 
 const ReasoningSchema = z.enum(['on', 'off']);
 
+/**
+ * Reasoning depth passed to the chat template as `reasoning_effort`. The Qwen3.8 template
+ * collapses `high` into `xhigh`, so only the three levels it actually distinguishes are offered.
+ */
+export const ReasoningEffortSchema = z.enum(['low', 'medium', 'xhigh']);
+export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>;
+/** Matches the Qwen3.8 template's own default, so an unset preset renders what it always did. */
+export const DEFAULT_REASONING_EFFORT: ReasoningEffort = 'xhigh';
+
 export const InferenceBackendIdSchema = z.enum(['llama', 'exl3']);
 export type InferenceBackendId = z.infer<typeof InferenceBackendIdSchema>;
 
@@ -64,7 +73,7 @@ const ManagedLlamaSettingsShape = {
   KvCacheQuantization: ManagedLlamaKvCacheQuantizationSchema,
   MaxTokens: z.number(), Temperature: z.number(), TopP: z.number(), TopK: z.number(), MinP: z.number(),
   PresencePenalty: z.number(), RepetitionPenalty: z.number(),
-  Reasoning: ReasoningSchema, ReasoningContent: z.boolean(),
+  Reasoning: ReasoningSchema, ReasoningEffort: ReasoningEffortSchema, ReasoningContent: z.boolean(),
   PreserveThinking: z.boolean(), MaintainPerStepThinking: z.boolean(), SpeculativeEnabled: z.boolean(),
   SpeculativeType: ManagedLlamaSpeculativeTypeSchema, SpeculativeMtpEnabled: z.boolean(),
   SpeculativeNgramSizeN: z.number(), SpeculativeNgramSizeM: z.number(), SpeculativeNgramMinHits: z.number(),
@@ -81,7 +90,8 @@ export const ModelPresetFieldSchema = z.enum([
   'Model', 'ExternalServerEnabled', 'ExecutablePath', 'BaseUrl', 'BindHost', 'Port', 'ModelPath', 'NumCtx',
   'GpuLayers', 'Threads', 'NcpuMoe', 'FlashAttention', 'ParallelSlots', 'BatchSize', 'UBatchSize', 'CacheRam',
   'CacheRecurrentRam', 'KvCacheQuantization', 'MaxTokens', 'Temperature', 'TopP', 'TopK', 'MinP', 'PresencePenalty',
-  'RepetitionPenalty', 'Reasoning', 'ReasoningContent', 'PreserveThinking', 'MaintainPerStepThinking',
+  'RepetitionPenalty', 'Reasoning', 'ReasoningEffort', 'ReasoningContent', 'PreserveThinking',
+  'MaintainPerStepThinking',
   'SpeculativeEnabled', 'SpeculativeType', 'SpeculativeMtpEnabled', 'SpeculativeNgramSizeN',
   'SpeculativeNgramSizeM', 'SpeculativeNgramMinHits', 'SpeculativeNgramModNMatch', 'SpeculativeNgramModNMin',
   'SpeculativeNgramModNMax', 'SpeculativeDraftMax', 'SpeculativeDraftMin', 'SpeculativeDynamic', 'ReasoningBudget',

@@ -156,6 +156,7 @@ test('applyHostLlamaRuntimeSettings overlays the host preset request fields onto
       ReasoningContent: true,
       PreserveThinking: true,
       MaintainPerStepThinking: true,
+      ReasoningEffort: 'medium',
     },
   });
   const host = await startHostConfigServer(hostConfig);
@@ -176,6 +177,7 @@ test('applyHostLlamaRuntimeSettings overlays the host preset request fields onto
         ReasoningContent: false,
         PreserveThinking: false,
         MaintainPerStepThinking: false,
+        ReasoningEffort: 'xhigh',
       },
     });
 
@@ -192,6 +194,7 @@ test('applyHostLlamaRuntimeSettings overlays the host preset request fields onto
     assert.equal(preset.ReasoningContent, true);
     assert.equal(preset.PreserveThinking, true);
     assert.equal(preset.MaintainPerStepThinking, true);
+    assert.equal(preset.ReasoningEffort, 'medium');
     assert.equal(preset.NumCtx, 60_000);
     // Only request-shaping fields are host-owned; the client stays the pass-through client.
     assert.equal(preset.ExternalServerEnabled, true);

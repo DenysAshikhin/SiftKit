@@ -261,3 +261,26 @@ test('settings draft editor clones once and never mutates its source config', ()
   assert.equal(MANAGED_PRESET.label, 'Managed');
   assert.equal(DASHBOARD_CONFIG.Presets[1]?.label, 'Deep Dive');
 });
+
+test('settings draft editor sets the model reasoning effort', () => {
+  const editor = new DashboardSettingsDraftEditor(DASHBOARD_CONFIG);
+
+  editor.apply({ type: 'set-model-reasoning', presetId: MANAGED_PRESET.id, value: 'on' });
+  editor.apply({ type: 'set-model-reasoning-effort', presetId: MANAGED_PRESET.id, value: 'low' });
+
+  const preset = editor.getConfig().Server.ModelPresets.Presets.find((entry) => entry.id === MANAGED_PRESET.id);
+  assert.equal(preset?.ReasoningEffort, 'low');
+});
+
+test('the reasoning effort survives a round trip through the reasoning toggle', () => {
+  const editor = new DashboardSettingsDraftEditor(DASHBOARD_CONFIG);
+
+  editor.apply({ type: 'set-model-reasoning', presetId: MANAGED_PRESET.id, value: 'on' });
+  editor.apply({ type: 'set-model-reasoning-effort', presetId: MANAGED_PRESET.id, value: 'low' });
+  // Effort is inert while thinking is off, so toggling must not silently discard the choice.
+  editor.apply({ type: 'set-model-reasoning', presetId: MANAGED_PRESET.id, value: 'off' });
+  editor.apply({ type: 'set-model-reasoning', presetId: MANAGED_PRESET.id, value: 'on' });
+
+  const preset = editor.getConfig().Server.ModelPresets.Presets.find((entry) => entry.id === MANAGED_PRESET.id);
+  assert.equal(preset?.ReasoningEffort, 'low');
+});

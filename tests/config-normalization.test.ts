@@ -4,6 +4,7 @@ import test from 'node:test';
 import { ModelPresetFieldSchema, ModelRuntimePresetSchema } from '@siftkit/contracts';
 import { getDefaultConfig, normalizeConfig, normalizeWebSearchConfig } from '../src/status-server/config-store.js';
 import { isReadExpansionEnabled } from '../src/config/index.js';
+import { normalizeModelRuntimePresetRecord } from '../src/config/normalization.js';
 import { SIFT_DEFAULT_EXL3_RECURRENT_CACHE_RAM, SIFT_DEFAULT_LLAMA_CACHE_RAM } from '../src/config/constants.js';
 import { JsonValueSchema, type JsonObject } from '../src/lib/json-types.js';
 import type { SiftConfig, ModelRuntimePreset } from '../src/config/types.js';
@@ -403,4 +404,44 @@ test('VisionMaxImagePixels rejects a negative value', () => {
     ModelRuntimePresetSchema.safeParse({ ...makeTestPreset(), VisionMaxImagePixels: -1 }).success,
     false,
   );
+});
+
+test('a stored preset without ReasoningEffort defaults to xhigh', () => {
+  const preset = normalizeModelRuntimePresetRecord(
+    { id: 'legacy', label: 'Legacy', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload' },
+    'legacy',
+    'Legacy',
+  );
+
+  assert.equal(preset.ReasoningEffort, 'xhigh');
+});
+
+test('a stored preset keeps a valid ReasoningEffort and falls back on an invalid one', () => {
+  const low = normalizeModelRuntimePresetRecord(
+    { id: 'low', label: 'Low', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', ReasoningEffort: 'low' },
+    'low',
+    'Low',
+  );
+  assert.equal(low.ReasoningEffort, 'low');
+
+  const medium = normalizeModelRuntimePresetRecord(
+    { id: 'medium', label: 'Medium', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', ReasoningEffort: 'medium' },
+    'medium',
+    'Medium',
+  );
+  assert.equal(medium.ReasoningEffort, 'medium');
+
+  // 'high' is not a level this template distinguishes, so it normalizes rather than throwing,
+  // matching how KvCacheQuantization and SpeculativeType treat unrecognized values.
+  const bogus = normalizeModelRuntimePresetRecord(
+    { id: 'bogus', label: 'Bogus', Backend: 'exl3', Reasoning: 'on', IdleAction: 'unload', ReasoningEffort: 'high' },
+    'bogus',
+    'Bogus',
+  );
+  assert.equal(bogus.ReasoningEffort, 'xhigh');
+});
+
+test('the default model preset ships ReasoningEffort xhigh', () => {
+  const [preset] = getDefaultConfig().Server.ModelPresets.Presets;
+  assert.equal(preset.ReasoningEffort, 'xhigh');
 });

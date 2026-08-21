@@ -28,6 +28,7 @@ const defaults = {
   presencePenalty: 0,
   repetitionPenalty: 1,
   reasoning: 'off',
+  reasoningEffort: 'xhigh',
   reasoningContent: false,
   preserveThinking: false,
   maintainPerStepThinking: false,
@@ -63,7 +64,7 @@ test('llama request includes llama-only cache and slot controls', () => {
     defaults,
     maxTokens: defaults.maxTokens,
     stream: true,
-    thinking: { enabled: false, preserve: false, reasoningContent: false },
+    thinking: { enabled: false, preserve: false, reasoningContent: false, effort: 'xhigh' as const },
     llama: { cachePrompt: true, slotId: 2 },
   });
 
@@ -82,7 +83,7 @@ test('streamed EXL3 request asks the server for usage in the final chunk', () =>
     defaults,
     maxTokens: defaults.maxTokens,
     stream: true,
-    thinking: { enabled: false, preserve: false, reasoningContent: false },
+    thinking: { enabled: false, preserve: false, reasoningContent: false, effort: 'xhigh' as const },
     llama: { cachePrompt: true },
   });
 
@@ -98,7 +99,7 @@ test('non-streamed request omits stream_options', () => {
     defaults,
     maxTokens: defaults.maxTokens,
     stream: false,
-    thinking: { enabled: false, preserve: false, reasoningContent: false },
+    thinking: { enabled: false, preserve: false, reasoningContent: false, effort: 'xhigh' as const },
     llama: { cachePrompt: true },
   });
 
@@ -118,7 +119,7 @@ test('EXL3 request omits llama-only fields and maps thinking policy', () => {
       type: 'json_schema',
       json_schema: { name: 'answer', schema: { type: 'object' } },
     },
-    thinking: { enabled: true, preserve: true, reasoningContent: true },
+    thinking: { enabled: true, preserve: true, reasoningContent: true, effort: 'xhigh' as const },
     llama: { cachePrompt: true, slotId: 2 },
   });
 
@@ -134,6 +135,7 @@ test('EXL3 request omits llama-only fields and maps thinking policy', () => {
   assert.deepEqual(request.chat_template_kwargs, {
     enable_thinking: true,
     preserve_thinking: true,
+    reasoning_effort: 'xhigh',
   });
 });
 
@@ -152,13 +154,14 @@ test('request builder emits every shared sampler for EXL3', () => {
       presencePenalty: 0.1,
       repetitionPenalty: 1.05,
       reasoning: 'off',
+      reasoningEffort: 'xhigh',
       reasoningContent: false,
       preserveThinking: false,
       maintainPerStepThinking: false,
     },
     maxTokens: 256,
     stream: false,
-    thinking: { enabled: false, preserve: false, reasoningContent: false },
+    thinking: { enabled: false, preserve: false, reasoningContent: false, effort: 'xhigh' as const },
     llama: { cachePrompt: true },
   });
 
@@ -183,7 +186,7 @@ test('neither backend sends penalty_range — exllamav3 8e08af9 removed the unbo
       defaults,
       maxTokens: defaults.maxTokens,
       stream: false,
-      thinking: { enabled: false, preserve: false, reasoningContent: false },
+      thinking: { enabled: false, preserve: false, reasoningContent: false, effort: 'xhigh' as const },
       llama: { cachePrompt: false },
     });
 
@@ -206,13 +209,14 @@ test('sampling always comes from preset defaults; maxTokens is the sole request 
       presencePenalty: 0,
       repetitionPenalty: 1.25,
       reasoning: 'off',
+      reasoningEffort: 'xhigh',
       reasoningContent: false,
       preserveThinking: false,
       maintainPerStepThinking: false,
     },
     maxTokens: 32,
     stream: false,
-    thinking: { enabled: false, preserve: false, reasoningContent: false },
+    thinking: { enabled: false, preserve: false, reasoningContent: false, effort: 'xhigh' as const },
     llama: { cachePrompt: true },
   });
 
@@ -235,7 +239,7 @@ test('request builder omits thinking kwargs when no thinking override is supplie
     defaults,
     maxTokens: defaults.maxTokens,
     stream: false,
-    thinking: { enabled: undefined, preserve: false, reasoningContent: false },
+    thinking: { enabled: undefined, preserve: false, reasoningContent: false, effort: 'xhigh' as const },
     llama: { cachePrompt: false },
   });
 
@@ -251,7 +255,7 @@ test('llama request includes reasoning content when requested', () => {
     defaults,
     maxTokens: defaults.maxTokens,
     stream: false,
-    thinking: { enabled: true, preserve: true, reasoningContent: true },
+    thinking: { enabled: true, preserve: true, reasoningContent: true, effort: 'xhigh' as const },
     llama: { cachePrompt: false },
   });
 
@@ -259,6 +263,7 @@ test('llama request includes reasoning content when requested', () => {
     enable_thinking: true,
     reasoning_content: true,
     preserve_thinking: true,
+    reasoning_effort: 'xhigh',
   });
 });
 
@@ -283,7 +288,7 @@ test('request builder preserves the canonical planner schema for llama', () => {
       type: 'json_schema',
       json_schema: { name: 'planner', schema },
     },
-    thinking: { enabled: false, preserve: false, reasoningContent: false },
+    thinking: { enabled: false, preserve: false, reasoningContent: false, effort: 'xhigh' as const },
     llama: { cachePrompt: true },
   });
 
@@ -330,7 +335,7 @@ test('request builder lowers only Formatron-incompatible planner constraints for
       type: 'json_schema',
       json_schema: { name: 'planner', schema },
     },
-    thinking: { enabled: false, preserve: false, reasoningContent: false },
+    thinking: { enabled: false, preserve: false, reasoningContent: false, effort: 'xhigh' as const },
     llama: { cachePrompt: false },
   });
 
@@ -350,4 +355,38 @@ test('request builder lowers only Formatron-incompatible planner constraints for
   assert.deepEqual(requireObject(calls.items), loweredDirect);
   assert.equal(requireObject(requireObject(direct.properties).optionalLimit).type, 'integer');
   assert.equal(requireObject(requireObject(requireObject(schema.anyOf[1]).properties).calls).minItems, 1);
+});
+
+test('thinking requests carry the preset reasoning effort', () => {
+  for (const effort of ['low', 'medium', 'xhigh'] as const) {
+    const request = new InferenceRequestBuilder().build({
+      backend: 'exl3',
+      model: '3.8_27b_4.6bpw',
+      messages,
+      tools: [],
+      defaults: { ...defaults, reasoningEffort: effort },
+      maxTokens: defaults.maxTokens,
+      stream: false,
+      thinking: { enabled: true, preserve: false, reasoningContent: false, effort },
+      llama: { cachePrompt: true },
+    });
+
+    assert.deepEqual(request.chat_template_kwargs, { enable_thinking: true, reasoning_effort: effort });
+  }
+});
+
+test('non-thinking requests omit reasoning effort because the template ignores it', () => {
+  const request = new InferenceRequestBuilder().build({
+    backend: 'exl3',
+    model: '3.8_27b_4.6bpw',
+    messages,
+    tools: [],
+    defaults: { ...defaults, reasoningEffort: 'low' },
+    maxTokens: defaults.maxTokens,
+    stream: false,
+    thinking: { enabled: false, preserve: false, reasoningContent: false, effort: 'low' },
+    llama: { cachePrompt: true },
+  });
+
+  assert.deepEqual(request.chat_template_kwargs, { enable_thinking: false });
 });

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ReasoningEffortSchema } from '@siftkit/contracts';
 import type {
   ManagedLlamaKvCacheQuantization,
   ModelPresetField,
@@ -23,6 +24,7 @@ export const PresetRequestDefaultsSchema = z.object({
   presencePenalty: z.number(),
   repetitionPenalty: z.number(),
   reasoning: z.enum(['on', 'off']),
+  reasoningEffort: ReasoningEffortSchema,
   reasoningContent: z.boolean(),
   preserveThinking: z.boolean(),
   maintainPerStepThinking: z.boolean(),
@@ -39,6 +41,7 @@ export function buildPresetRequestDefaults(preset: ModelRuntimePreset): PresetRe
     presencePenalty: preset.PresencePenalty,
     repetitionPenalty: preset.RepetitionPenalty,
     reasoning: preset.Reasoning,
+    reasoningEffort: preset.ReasoningEffort,
     reasoningContent: preset.ReasoningContent,
     preserveThinking: preset.PreserveThinking,
     maintainPerStepThinking: preset.MaintainPerStepThinking,
@@ -112,6 +115,10 @@ const PRESET_FIELD_SUPPORT = {
   PresencePenalty: 'both',
   RepetitionPenalty: 'both',
   Reasoning: 'both',
+  // Jinja templates guard their variables with `is defined`, so a template that does not read
+  // `reasoning_effort` simply ignores the extra kwarg. Hiding the field would make it wrong the
+  // moment a GGUF ships a template that reads it.
+  ReasoningEffort: 'both',
   ReasoningContent: 'both',
   PreserveThinking: 'both',
   MaintainPerStepThinking: 'both',

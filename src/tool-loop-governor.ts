@@ -24,7 +24,8 @@ type BuildPromptToolResultOptions = {
   toolName: string;
   command?: string;
   exitCode?: number | null;
-  rawOutput: string;
+  /** Command output only. Callers must not prepend an `exit_code=` line — this function adds it. */
+  output: string;
 };
 
 type BuildToolReplayFingerprintOptions = {
@@ -50,16 +51,24 @@ function normalizeEvidenceLine(line: string): string {
   return normalizeWhitespace(line).replace(/[\\/]+/gu, '/');
 }
 
-function stripLeadingSuccessExitCode(text: string): string {
-  return String(text || '').replace(/^exit_code=0\s*\n?/u, '').trim();
-}
-
 function isHttpClientLogLine(line: string): boolean {
   return /^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+http_client\b/u.test(line.trim());
 }
 
 /** Subcommands whose stdout is file content: blank lines are payload, not noise. */
 const CONTENT_BEARING_GIT_SUBCOMMANDS = new Set(['show', 'cat-file']);
+
+/**
+ * A unified diff carries blank context lines as payload: dropping them desynchronizes the hunk
+ * body from its own `@@ -a,b +c,d @@` line counts, so any file:line the model derives is wrong.
+ * Detected by shape rather than by subcommand so `diff`, `log -p`, `format-patch --stdout`,
+ * `range-diff`, and `stash show -p` are all covered by one rule.
+ */
+const UNIFIED_DIFF_MARKER = /^(?:diff --git |@@ .+ @@)/mu;
+
+function containsUnifiedDiff(output: string): boolean {
+  return UNIFIED_DIFF_MARKER.test(output);
+}
 
 /** Global git flags that consume a separate value token (e.g. `git -C sub show ...`). */
 const GIT_GLOBAL_FLAGS_WITH_VALUE = new Set(['-c', '-C', '--git-dir', '--work-tree', '--exec-path']);
@@ -150,7 +159,7 @@ function extractEvidenceKeys(promptResultText: string): string[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .filter((line) => !isHttpClientLogLine(line))
-    .filter((line) => !/^exit_code=\d+$/iu.test(line))
+    .filter((line) => !/^exit_code=\d+(?: \(no output\))?$/iu.test(line))
     .filter((line) => !/^(read_lines|find_text|json_filter)\b.*=/iu.test(line))
     .filter((line) => !/^error:\srequested output would consume/iu.test(line));
   if (lines.length === 0) {
@@ -178,38 +187,33 @@ export function classifyToolOutputNovelty(options: {
   };
 }
 
+function filterDecorativeLines(body: string): string {
+  return body
+    .split('\n')
+    .filter((line) => !isHttpClientLogLine(line))
+    .filter((line) => line.trim().length > 0)
+    .join('\n')
+    .trim();
+}
+
 export function buildPromptToolResult(options: BuildPromptToolResultOptions): string {
+  const body = String(options.output || '').replace(/\r\n/gu, '\n');
   if (!isRepoSearchCommandToolName(options.toolName)) {
-    return stripLeadingSuccessExitCode(String(options.rawOutput || '').trim());
+    return body.trim();
   }
   const exitCode = Number(options.exitCode);
   const failed = Number.isFinite(exitCode) && exitCode !== 0;
-  // Successful content-bearing commands (git show / cat-file) return the payload
-  // verbatim apart from CRLF→LF: interior blank lines are part of the file, and
-  // the direct-spawn git tool cannot emit http_client noise. Filtering stays for
-  // log/status/branch, where blank lines are decoration.
-  if (!failed && isContentBearingGitCommand(String(options.command || ''))) {
-    return stripLeadingSuccessExitCode(String(options.rawOutput || '').replace(/\r\n/gu, '\n'));
+  // Blank lines are payload for file content (git show / cat-file) and for unified diffs.
+  // Everywhere else — log, status, branch — they are decoration and cost tokens.
+  const preserveBlankLines = isContentBearingGitCommand(String(options.command || ''))
+    || containsUnifiedDiff(body);
+  const visible = preserveBlankLines ? body.trim() : filterDecorativeLines(body);
+  if (!failed) {
+    // An empty result must still say the command ran: on its own, the zero-output warning
+    // reads as "nothing happened" rather than "this search legitimately matched nothing".
+    return visible || 'exit_code=0 (no output)';
   }
-  const meaningfulLines = String(options.rawOutput || '')
-    .replace(/\r\n/gu, '\n')
-    .split('\n')
-    .filter((line) => !isHttpClientLogLine(line))
-    .filter((line) => line.trim().length > 0);
-  const trimmed = meaningfulLines.join('\n').trim();
-  if (!trimmed) {
-    if (failed) {
-      return `exit_code=${exitCode}`;
-    }
-    return '';
-  }
-  if (failed) {
-    if (new RegExp(`^exit_code=${exitCode}(?:\\s|$)`, 'u').test(trimmed)) {
-      return trimmed;
-    }
-    return `exit_code=${exitCode}\n${trimmed}`.trim();
-  }
-  return stripLeadingSuccessExitCode(trimmed);
+  return visible ? `exit_code=${exitCode}\n${visible}` : `exit_code=${exitCode}`;
 }
 
 export function buildToolReplayFingerprint(options: BuildToolReplayFingerprintOptions): string {

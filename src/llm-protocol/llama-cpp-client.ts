@@ -384,6 +384,7 @@ export class LlamaCppClient {
           ...(resolvedReasoning === undefined ? {} : { enabled: resolvedReasoning === 'on' }),
           reasoningContent: reasoningContentEnabled,
           preserve: preserveThinkingEnabled,
+          effort: defaults.reasoningEffort,
         },
         llama: {
           cachePrompt: options.cachePrompt ?? true,

@@ -859,7 +859,7 @@ export class ToolActionProcessor {
       toolName: normalizedToolName,
       command: commandToRun,
       exitCode: executed.exitCode,
-      rawOutput: rawResultText,
+      output: baseOutput,
     });
     if (zeroOutputWarningText) {
       resultText = `${zeroOutputWarningText}\n\n${resultText}`.trim();

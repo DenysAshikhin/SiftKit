@@ -19,6 +19,7 @@ import {
   SIFT_DEFAULT_NUM_CTX,
   SIFT_DEFAULT_PROMPT_PREFIX,
 } from './constants.js';
+import { DEFAULT_REASONING_EFFORT } from '@siftkit/contracts';
 import { initializeRuntime } from './paths.js';
 import { PresetCatalog } from '../preset-catalog.js';
 import { getDefaultOperationModeAllowedTools } from '../presets.js';
@@ -126,6 +127,7 @@ export function getDefaultConfigObject(): SiftConfig {
     PresencePenalty: 1.5,
     RepetitionPenalty: 1.0,
     Reasoning: 'off' as const,
+    ReasoningEffort: DEFAULT_REASONING_EFFORT,
     ReasoningContent: false,
     PreserveThinking: false,
     MaintainPerStepThinking: false,

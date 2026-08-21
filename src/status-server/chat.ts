@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { ImageMetadataSchema, resolveEffectiveImagePixelCeiling, sumImageTokens } from '@siftkit/contracts';
-import type { ContextUsage, ImageMetadata } from '@siftkit/contracts';
+import { DEFAULT_REASONING_EFFORT, ImageMetadataSchema, resolveEffectiveImagePixelCeiling, sumImageTokens } from '@siftkit/contracts';
+import type { ContextUsage, ImageMetadata, ReasoningEffort } from '@siftkit/contracts';
 import { getActiveModelPreset, getConfiguredLlamaBaseUrl, getConfiguredLlamaNumCtx } from '../config/getters.js';
 import { overlayActivePreset } from '../config/overrides.js';
 import type { ModelRuntimePreset, SiftConfig } from '../config/types.js';
@@ -234,6 +234,7 @@ class ContextUsageBuilder {
         enable_thinking: thinkingEnabled,
         ...(thinkingEnabled && shouldReplayReasoningContent(config) ? { reasoning_content: true } : {}),
         ...(shouldPreserveThinking(config, thinkingEnabled) ? { preserve_thinking: true } : {}),
+        ...(thinkingEnabled ? { reasoning_effort: resolveReasoningEffort(config) } : {}),
       },
     };
     return estimateTokenCount(JSON.stringify(reserveShape));
@@ -275,6 +276,10 @@ function shouldPreserveThinking(config: SiftConfig, thinkingEnabled: boolean): b
     return false;
   }
   return getActiveServerLlamaPreset(config)?.PreserveThinking === true;
+}
+
+function resolveReasoningEffort(config: SiftConfig): ReasoningEffort {
+  return getActiveServerLlamaPreset(config)?.ReasoningEffort ?? DEFAULT_REASONING_EFFORT;
 }
 
 

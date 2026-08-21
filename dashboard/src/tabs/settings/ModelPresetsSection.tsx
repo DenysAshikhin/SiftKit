@@ -8,7 +8,7 @@ import {
 import { summarizeModelPresetGroup, type ModelPresetGroupId } from './model-preset-groups';
 import { SettingsSectionField } from '../../settings/SettingsFields';
 import { VisionPresetControls, ModelPresetControl } from './VisionPresetControls.js';
-import { ModelIdleActionSchema } from '@siftkit/contracts';
+import { ModelIdleActionSchema, ReasoningEffortSchema } from '@siftkit/contracts';
 import type {
   DashboardConfig,
   DashboardModelRuntimePreset,
@@ -320,6 +320,21 @@ export function ModelPresetsSection({
               <option value="on">on</option>
             </select>
           </SettingsSectionField>
+          {reasoningEnabled ? (
+            <SettingsSectionField sectionId="model-presets" label="Reasoning effort">
+              <select
+                value={preset.ReasoningEffort}
+                onChange={(event) => {
+                  const value = ReasoningEffortSchema.safeParse(event.target.value);
+                  if (value.success) modelPresetActions.setReasoningEffort(value.data);
+                }}
+              >
+                {ReasoningEffortSchema.options.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+            </SettingsSectionField>
+          ) : null}
           {reasoningEnabled ? (
             <SettingsSectionField sectionId="model-presets" label="Reasoning content">
               <label className="settings-live-toggle-control">
