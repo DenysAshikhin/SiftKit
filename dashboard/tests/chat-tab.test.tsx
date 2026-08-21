@@ -613,3 +613,23 @@ test('once the answer streams, the answer and the thinking both render', () => {
   assert.ok(html.includes('ANSWER_MARKER'), 'the streamed answer must render');
   assert.ok(html.includes('THINK_MARKER_ONE'), 'the thinking must remain visible once the answer arrives');
 });
+
+test('a live turn with a running tool call still renders the thinking that led to it', () => {
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession(SESSION_B.id)
+    .apply({ kind: 'submit', sessionId: SESSION_B.id, content: 'find it', images: [] })
+    .apply({ kind: 'begin', sessionId: SESSION_B.id, operationKind: 'repo-search' })
+    .apply({ kind: 'thinking', sessionId: SESSION_B.id, delta: { turn: 1, offset: 0, text: 'THINK_MARKER_TOOL' } })
+    .apply({
+      kind: 'tool',
+      sessionId: SESSION_B.id,
+      toolEvent: { kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4, command: 'TOOL_MARKER' },
+    });
+  const html = render({
+    selectedSessionId: SESSION_B.id,
+    selectedRuntime: store.get(SESSION_B.id),
+    sessionRuntimes: store.getAll(),
+  });
+  assert.ok(html.includes('TOOL_MARKER'), 'the running tool call must render in the main slot');
+  assert.ok(html.includes('THINK_MARKER_TOOL'), 'the thinking that led to the tool call must render');
+});
