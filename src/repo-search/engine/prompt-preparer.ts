@@ -1,9 +1,12 @@
 import type { SiftConfig } from '../../config/index.js';
 import { getDynamicMaxOutputTokens } from '../../lib/dynamic-output-cap.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
+import { estimateTokenCount } from '../../lib/token-estimate.js';
 import {
   buildPlannerRequestPromptReserveText,
+  plannerMessageKeepsReasoningContent,
   resolveRepoSearchPlannerToolDefinitions,
+  type ChatMessage,
   type PlannerThinkingFlags,
 } from '../planner-protocol.js';
 import { IncrementalTokenCounter } from '../incremental-token-counter.js';
@@ -13,6 +16,17 @@ import { ProgressReporter } from './progress-reporter.js';
 import { TranscriptManager } from './transcript-manager.js';
 import { TranscriptCompactor } from './transcript-compactor.js';
 import { TurnBudget } from './turn-budget.js';
+
+/** Log visibility only: a character estimate of the preserved reasoning mass, no extra tokenize round-trip. */
+function estimateReasoningTokens(config: SiftConfig, messages: readonly ChatMessage[], reasoningContentEnabled: boolean): number {
+  let tokens = 0;
+  for (const message of messages) {
+    if (plannerMessageKeepsReasoningContent(message, reasoningContentEnabled)) {
+      tokens += estimateTokenCount(config, String(message.reasoning_content));
+    }
+  }
+  return tokens;
+}
 
 export type PreparedTurnBudget = {
   promptTokenCount: number;
@@ -66,7 +80,7 @@ export class PromptPreparer {
       transcript.messageRoles(),
       budget.totalContextTokens,
     );
-    let prompt = transcript.render();
+    let prompt = transcript.render(this.options.thinking.reasoningContentEnabled);
     promptRenderSpan?.end({
       promptChars: prompt.length,
       providerPromptReserveChars: providerPromptReserveText.length,
@@ -110,6 +124,7 @@ export class PromptPreparer {
       taskId,
       turn,
       promptTokenCount: preflight.promptTokenCount,
+      reasoningTokenEstimate: estimateReasoningTokens(this.options.config, transcript.getMessages(), this.options.thinking.reasoningContentEnabled),
       tokenizeElapsedMs: preflight.tokenizeElapsedMs ?? null,
       tokenCountSource: preflight.tokenCountSource,
       transcriptPromptTokenCount: preflight.transcriptPromptTokenCount,
@@ -144,7 +159,7 @@ export class PromptPreparer {
         transcript.messageRoles(),
         budget.totalContextTokens,
       );
-      prompt = transcript.render();
+      prompt = transcript.render(this.options.thinking.reasoningContentEnabled);
       if (preflightConfig) {
         progress.tokenizeStart(turn, prompt.length);
       }
@@ -175,6 +190,7 @@ export class PromptPreparer {
         turn,
         beforePromptTokenCount: preflight.promptTokenCount,
         afterPromptTokenCount: afterCompaction.promptTokenCount,
+        reasoningTokenEstimate: estimateReasoningTokens(this.options.config, transcript.getMessages(), this.options.thinking.reasoningContentEnabled),
         transcriptPromptTokenCount: afterCompaction.transcriptPromptTokenCount,
         beforeProviderPromptReserveTokenCount,
         providerPromptReserveTokenCount: afterCompaction.providerPromptReserveTokenCount,

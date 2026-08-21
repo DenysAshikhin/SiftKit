@@ -47,12 +47,12 @@ export class TranscriptManager {
     return this.messages.map((message) => String(message.role || 'unknown'));
   }
 
-  render(): string {
-    return renderTaskTranscript(this.messages);
+  render(includeReasoningContent: boolean): string {
+    return renderTaskTranscript(this.messages, { includeReasoningContent });
   }
 
   renderTail(skipCount: number): string {
-    return renderTaskTranscript(this.messages.slice(skipCount));
+    return renderTaskTranscript(this.messages.slice(skipCount), { includeReasoningContent: false });
   }
 
   replaceWith(compactedMessages: ChatMessage[]): void {

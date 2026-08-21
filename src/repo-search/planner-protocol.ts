@@ -547,13 +547,16 @@ export function serializeProtocolMessages(
   return toProtocolChatMessages(messages.map((message) => serializePlannerMessage(message, reasoningContentEnabled)));
 }
 
-function serializePlannerMessage(message: ChatMessage, reasoningContentEnabled: boolean): ChatMessage {
-  if (
-    reasoningContentEnabled
+/** The one keep-condition for preserved thinking: whatever this keeps is what the request sends, so counting must use it too. */
+export function plannerMessageKeepsReasoningContent(message: ChatMessage, reasoningContentEnabled: boolean): boolean {
+  return reasoningContentEnabled
     && message.role === 'assistant'
     && typeof message.reasoning_content === 'string'
-    && message.reasoning_content.trim()
-  ) {
+    && message.reasoning_content.trim().length > 0;
+}
+
+function serializePlannerMessage(message: ChatMessage, reasoningContentEnabled: boolean): ChatMessage {
+  if (plannerMessageKeepsReasoningContent(message, reasoningContentEnabled)) {
     return message;
   }
   if (!Object.prototype.hasOwnProperty.call(message, 'reasoning_content')) return message;
@@ -935,9 +938,15 @@ export async function requestContextCompactionSummary(options: Partial<PlannerTh
 
 export { isTransientProviderError } from '../lib/provider-helpers.js';
 
-export function renderTaskTranscript(messages: ChatMessage[]): string {
+export function renderTaskTranscript(
+  messages: ChatMessage[],
+  options: { includeReasoningContent: boolean },
+): string {
   return messages.map((message) => {
     const sections = [`[${String(message.role || 'unknown')}]`];
+    if (options.includeReasoningContent && plannerMessageKeepsReasoningContent(message, true)) {
+      sections.push(`[reasoning]\n${String(message.reasoning_content)}`);
+    }
     // Content is a parts array whenever the turn carries images; reading only the
     // string form would drop the user's prose from the rendered transcript too.
     const contentText = extractContentText(message.content);

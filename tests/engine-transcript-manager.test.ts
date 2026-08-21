@@ -168,7 +168,7 @@ test('render and renderTail produce transcripts', () => {
   // Intentionally malformed (no role) to exercise the 'unknown' role fallback;
   // brand it as ChatMessage through a runtime check instead of a cast.
   transcript.getMessages().push(z.custom<ChatMessage>(() => true).parse({ content: 'roleless' }));
-  assert.ok(transcript.render().includes('QUESTION'));
+  assert.ok(transcript.render(false).includes('QUESTION'));
   assert.ok(transcript.messageRoles().includes('unknown'));
   assert.ok(!transcript.renderTail(2).includes('SYSTEM'));
 });

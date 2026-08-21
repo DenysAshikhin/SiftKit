@@ -70,7 +70,7 @@ export class TranscriptCompactor {
     const messages = [...input.messages];
     const systemMessage = String(messages[0]?.role || '') === 'system' ? messages[0] : null;
     const summarizableMessages = systemMessage ? messages.slice(1) : messages;
-    const prompt = buildCompactionSummaryPrompt(renderTaskTranscript(summarizableMessages));
+    const prompt = buildCompactionSummaryPrompt(renderTaskTranscript(summarizableMessages, { includeReasoningContent: false }));
     const maxOutputTokens = await this.resolveSummaryOutputTokens(input, prompt);
 
     const summary = await this.requestSummary(input, prompt, maxOutputTokens);

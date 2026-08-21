@@ -18,12 +18,14 @@ import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 
 const NO_THINKING = { thinkingEnabled: false, reasoningContentEnabled: false, preserveThinking: false };
+const WITH_PRESERVED_THINKING = { thinkingEnabled: true, reasoningContentEnabled: true, preserveThinking: true };
 
 function makePreparer(
   budget: TurnBudget,
   transcript: TranscriptManager,
   mockResponses: string[] = ['SUMMARY BODY'],
   events: Array<Record<string, JsonSerializable>> = [],
+  thinking: typeof NO_THINKING = NO_THINKING,
 ): PromptPreparer {
   const config = mockOfflineSiftConfig();
   const logger = {
@@ -39,7 +41,7 @@ function makePreparer(
     useEstimatedTokensOnly: true,
     budget,
     plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
-    thinking: NO_THINKING,
+    thinking,
     transcript,
     compactor: new TranscriptCompactor({
       config,
@@ -47,7 +49,7 @@ function makePreparer(
       model: 'mock-model',
       timeoutMs: 5_000,
       totalContextTokens: budget.totalContextTokens,
-      thinking: NO_THINKING,
+      thinking,
       useEstimatedTokensOnly: true,
       mockResponses,
       tokenUsage: new TokenUsageTracker(config, true),
@@ -109,8 +111,8 @@ test('prepareTurn compacts an overflowing transcript to system, summary, latest 
   const prepared = await preparer.prepareTurn(1, 0);
 
   assert.deepEqual(transcript.messageRoles(), ['system', 'assistant', 'user']);
-  assert.equal(transcript.render().includes(COMPACTION_SUMMARY_MARKER), true);
-  assert.match(transcript.render(), /SUMMARY BODY/u);
+  assert.equal(transcript.render(false).includes(COMPACTION_SUMMARY_MARKER), true);
+  assert.match(transcript.render(false), /SUMMARY BODY/u);
   assert.equal(prepared.compactionSummary, 'SUMMARY BODY');
   assert.equal(prepared.nextMockResponseIndex, 1);
   assert.equal(transcript.generation, 1);
@@ -179,4 +181,41 @@ test('prepareTurn surfaces a summarizer failure as planner_compaction_failed', a
   );
 
   await assert.rejects(preparer.prepareTurn(1, 0), /planner_compaction_failed/u);
+});
+
+test('preflight counts preserved reasoning_content toward the prompt', async () => {
+  const reasoning = 'R'.repeat(8_000);
+  const makeTranscript = () => new TranscriptManager({
+    systemPromptContent: 'SYSTEM',
+    historyMessages: [{ role: 'assistant', content: 'step done', reasoning_content: reasoning }],
+    initialUserContent: 'question',
+    initialUserImages: [],
+    liveImagePathKeys: new Set<string>(),
+  });
+
+  const withReasoning = makePreparer(new TurnBudget({ totalContextTokens: 32_000, maxTurns: 45, config: null }), makeTranscript(), ['SUMMARY BODY'], [], WITH_PRESERVED_THINKING);
+  const withoutReasoning = makePreparer(new TurnBudget({ totalContextTokens: 32_000, maxTurns: 45, config: null }), makeTranscript(), ['SUMMARY BODY'], [], NO_THINKING);
+
+  const counted = await withReasoning.prepareTurn(1, 0);
+  const uncounted = await withoutReasoning.prepareTurn(1, 0);
+
+  // ~8k chars of reasoning ≈ 2k estimated tokens; require a decisive gap.
+  assert.ok(counted.promptTokenCount > uncounted.promptTokenCount + 1_000);
+});
+
+test('preserved reasoning mass triggers compaction that plain content would not', async () => {
+  const transcript = new TranscriptManager({
+    systemPromptContent: 'SYSTEM',
+    historyMessages: [{ role: 'assistant', content: 'short', reasoning_content: 'R'.repeat(14_000) }],
+    initialUserContent: 'question',
+    initialUserImages: [],
+    liveImagePathKeys: new Set<string>(),
+  });
+  const events: Array<Record<string, JsonSerializable>> = [];
+  const preparer = makePreparer(new TurnBudget({ totalContextTokens: 9_000, maxTurns: 45, config: null }), transcript, ['SUMMARY BODY'], events, WITH_PRESERVED_THINKING);
+
+  const prepared = await preparer.prepareTurn(1, 0);
+
+  assert.equal(prepared.compactionSummary, 'SUMMARY BODY');
+  assert.ok(events.some((event) => event.kind === 'turn_preflight_compaction_applied'));
 });

@@ -811,6 +811,7 @@ test('preflightPlannerPromptBudget reports overflow against context budget', asy
       { role: 'system', content: 'system' },
       { role: 'user', content: 'x '.repeat(10000) },
     ],
+    includeReasoningContent: false,
     totalContextTokens: 7000,
     responseReserveTokens: 4000,
   });
@@ -827,6 +828,7 @@ test('preflightPlannerPromptBudget reserves provider prompt overhead against con
       { role: 'system', content: 'system' },
       { role: 'user', content: 'short request' },
     ],
+    includeReasoningContent: false,
     totalContextTokens: 4200,
     responseReserveTokens: 4000,
   });
@@ -835,6 +837,7 @@ test('preflightPlannerPromptBudget reserves provider prompt overhead against con
       { role: 'system', content: 'system' },
       { role: 'user', content: 'short request' },
     ],
+    includeReasoningContent: false,
     providerPromptReserveText: 'provider tools and response schema '.repeat(900),
     totalContextTokens: 4200,
     responseReserveTokens: 4000,

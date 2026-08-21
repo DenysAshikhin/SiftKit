@@ -105,21 +105,25 @@ export type PreflightResult = {
 
 export async function preflightPlannerPromptBudget(options: {
   config?: SiftConfig;
-  prompt?: string;
-  messages?: ChatMessage[];
   providerPromptReserveText?: string;
   totalContextTokens: number;
   responseReserveTokens: number;
   transcriptTokenCounter?: PromptTokenCounter;
   reserveTokenCounter?: PromptTokenCounter;
-}): Promise<PreflightResult> {
+} & (
+  // A caller-supplied prompt string is already the final counted text; the
+  // messages path renders it here and must state whether preserved
+  // reasoning_content is part of what will be sent.
+  | { prompt: string; messages?: undefined; includeReasoningContent?: undefined }
+  | { prompt?: undefined; messages: ChatMessage[]; includeReasoningContent: boolean }
+)): Promise<PreflightResult> {
   const totalContextTokens = Math.max(1, Number(options.totalContextTokens || 0));
   const responseReserveTokens = Math.max(0, Number(options.responseReserveTokens || 0));
 
   const messages = Array.isArray(options.messages) ? options.messages : [];
   const promptText = typeof options.prompt === 'string'
     ? options.prompt
-    : renderTaskTranscript(messages);
+    : renderTaskTranscript(messages, { includeReasoningContent: options.includeReasoningContent === true });
 
   // Image tokens cannot be derived from a data URI without decoding the image, and the
   // rendered transcript carries no text for them, so each attachment gets a flat
