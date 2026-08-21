@@ -303,11 +303,19 @@ export class LlamaCppClient {
 
   private async chatAtBaseUrl(baseUrl: string, options: LlamaCppChatOptions): Promise<NormalizedLlamaCppChatResponse> {
     if (options.stream !== false) {
-      const streamed = await this.streamChatAtBaseUrl(baseUrl, options);
-      if (streamed.earlyStopReason !== THINKING_BUDGET_EARLY_STOP_REASON) {
-        return streamed;
-      }
-      return this.continueAfterThinkingBudget(baseUrl, options, streamed);
+      const attempt = async (): Promise<NormalizedLlamaCppChatResponse> => {
+        const streamed = await this.streamChatAtBaseUrl(baseUrl, options);
+        if (streamed.earlyStopReason !== THINKING_BUDGET_EARLY_STOP_REASON) {
+          return streamed;
+        }
+        return this.continueAfterThinkingBudget(baseUrl, options, streamed);
+      };
+      return options.retryMaxWaitMs === 0
+        ? attempt()
+        : retryProviderRequest(
+          attempt,
+          options.retryMaxWaitMs ? { maxWaitMs: options.retryMaxWaitMs } : undefined,
+        );
     }
     const requestOnce = async (): Promise<FullJsonResponse<RawChatResponse>> => {
       const nextResponse = await this.client.requestJsonFull({
@@ -562,7 +570,11 @@ export class LlamaCppClient {
         throw new ProviderStreamDegenerateError(url, degenerateReason, frameCount);
       }
     } catch (error) {
-      if (error instanceof HttpResponseError && isTransientProviderHttpResponse(error.statusCode, error.rawText)) {
+      // Once a frame has been delivered the caller may already have seen deltas,
+      // so a replay would duplicate them. Only a pre-first-frame failure is retryable.
+      if (frameCount === 0
+        && error instanceof HttpResponseError
+        && isTransientProviderHttpResponse(error.statusCode, error.rawText)) {
         throw buildTransientProviderHttpError(error.statusCode, error.rawText);
       }
       if (error instanceof HttpResponseError) {

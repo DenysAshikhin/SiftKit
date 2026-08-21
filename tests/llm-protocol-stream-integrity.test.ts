@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { HttpResponseError, type FullJsonResponse, type SseStreamOptions } from '../src/lib/http-client.js';
+import type { SseFrame } from '../src/lib/sse-frame-parser.js';
 import { LlamaCppClient } from '../src/llm-protocol/llama-cpp-client.js';
 import {
   RawFrameHttpClient,
@@ -75,4 +77,41 @@ test('a stream ending without [DONE] throws', async () => {
 
   const degenerate = logger.events.filter((event) => event.kind === 'provider_stream_degenerate');
   assert.equal(degenerate[0]?.reason, 'missing_done_sentinel');
+});
+
+/** Fails the first N attempts with a transient 503, then streams normally. */
+class FlakyStreamHttpClient {
+  attempts = 0;
+  constructor(private readonly failures: number) {}
+
+  async requestJsonFull<T>(): Promise<FullJsonResponse<T>> {
+    throw new Error('requestJsonFull must not be called for chat completions');
+  }
+
+  async *streamSse(_options: SseStreamOptions): AsyncGenerator<SseFrame> {
+    this.attempts += 1;
+    if (this.attempts <= this.failures) {
+      throw new HttpResponseError(503, 'LOADING MODEL');
+    }
+    yield { event: 'message', data: contentFrame('recovered') };
+    yield { event: 'message', data: '[DONE]' };
+  }
+}
+
+test('a transient failure before the first frame is retried', async () => {
+  const http = new FlakyStreamHttpClient(1);
+  const client = new LlamaCppClient(http);
+
+  const response = await client.chat({
+    config: buildStreamingTestConfig(),
+    model: 'local',
+    messages: [{ role: 'user', content: 'hi' }],
+    tools: [],
+    maxTokens: 64,
+    allowedToolNames: [],
+    retryMaxWaitMs: 5_000,
+  });
+
+  assert.equal(response.text, 'recovered');
+  assert.equal(http.attempts, 2);
 });
