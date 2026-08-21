@@ -379,7 +379,7 @@ export function ChatTab({
                 </article>
               ) : null}
               {groupMessagesIntoTurns(visibleMessages, new Set(liveMessages.map((message) => message.id))).map((turn) => {
-                if (turn.steps.length === 0) {
+                if (turn.steps.length === 0 && turn.liveThinking.length === 0) {
                   const message = turn.main;
                   if (!message) { return null; }
                   return (
@@ -793,13 +793,32 @@ function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteM
           ) : null}
         </span>
       </div>
-      <details className="internal-logic">
-        <summary>Internal Logic ({turn.steps.length})</summary>
-        <div className="internal-logic-steps">
-          {turn.steps.map((step) => (
+      {turn.steps.length > 0 ? (
+        <details className="internal-logic">
+          <summary>Internal Logic ({turn.steps.length})</summary>
+          <div className="internal-logic-steps">
+            {turn.steps.map((step) => (
+              <MessageBubble
+                key={step.id}
+                message={step}
+                sessionId={sessionId}
+                isLive={turn.isLive}
+                isPending={false}
+                isDirectChatMode={isDirectChatMode}
+                chatBusy={chatBusy}
+                onDeleteMessage={onDeleteMessage}
+                onDeleteMessageImage={onDeleteMessageImage}
+              />
+            ))}
+          </div>
+        </details>
+      ) : null}
+      {turn.liveThinking.length > 0 ? (
+        <div className="live-thinking-stack">
+          {turn.liveThinking.map((thinking) => (
             <MessageBubble
-              key={step.id}
-              message={step}
+              key={thinking.id}
+              message={thinking}
               sessionId={sessionId}
               isLive={turn.isLive}
               isPending={false}
@@ -810,7 +829,7 @@ function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteM
             />
           ))}
         </div>
-      </details>
+      ) : null}
       {turn.main ? (
         <MessageBubble
           message={turn.main}

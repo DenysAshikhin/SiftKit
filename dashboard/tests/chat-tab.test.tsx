@@ -8,6 +8,7 @@ import { fireEvent, render as renderComponent, screen } from './react-test-envir
 import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
 import { ChatTab } from '../src/tabs/ChatTab';
 import type { ChatMessage, ChatSession, ContextUsage, DashboardPreset } from '../src/types';
+import type { PendingImage } from '../src/lib/downscale-image';
 
 const IMAGE = 'data:image/png;base64,AA==';
 const IMAGE_META = {
@@ -570,4 +571,45 @@ test('the condensed summary panel is gone', () => {
   const markup = render();
 
   assert.doesNotMatch(markup, /Condensed Summary/u);
+});
+
+function buildThinkingOnlyStore(content: string, images: PendingImage[]): ChatSessionRuntimeStore {
+  return new ChatSessionRuntimeStore()
+    .ensureSession(SESSION_B.id)
+    .apply({ kind: 'submit', sessionId: SESSION_B.id, content, images })
+    .apply({ kind: 'begin', sessionId: SESSION_B.id, operationKind: 'message' })
+    .apply({ kind: 'thinking', sessionId: SESSION_B.id, delta: { turn: 1, offset: 0, text: 'THINK_MARKER_ONE' } });
+}
+
+test('a live turn that has only streamed thinking renders the thinking text', () => {
+  const store = buildThinkingOnlyStore('', [{ dataUrl: 'data:image/png;base64,AA', note: null }]);
+  const html = render({
+    selectedSessionId: SESSION_B.id,
+    selectedRuntime: store.get(SESSION_B.id),
+    sessionRuntimes: store.getAll(),
+  });
+  assert.ok(html.includes('THINK_MARKER_ONE'), 'streamed thinking must be in the DOM before the answer arrives');
+});
+
+test('a live turn that has only streamed thinking renders no empty Internal Logic disclosure', () => {
+  const store = buildThinkingOnlyStore('hello', []);
+  const html = render({
+    selectedSessionId: SESSION_B.id,
+    selectedRuntime: store.get(SESSION_B.id),
+    sessionRuntimes: store.getAll(),
+  });
+  assert.ok(html.includes('THINK_MARKER_ONE'), 'streamed thinking must be in the DOM for a text-only submit too');
+  assert.ok(!html.includes('Internal Logic (0)'), 'an empty Internal Logic disclosure must not render');
+});
+
+test('once the answer streams, the answer and the thinking both render', () => {
+  const store = buildThinkingOnlyStore('hello', [])
+    .apply({ kind: 'answer', sessionId: SESSION_B.id, delta: { turn: 1, offset: 0, text: 'ANSWER_MARKER' } });
+  const html = render({
+    selectedSessionId: SESSION_B.id,
+    selectedRuntime: store.get(SESSION_B.id),
+    sessionRuntimes: store.getAll(),
+  });
+  assert.ok(html.includes('ANSWER_MARKER'), 'the streamed answer must render');
+  assert.ok(html.includes('THINK_MARKER_ONE'), 'the thinking must remain visible once the answer arrives');
 });
