@@ -4,7 +4,7 @@ import { ImageDataUrlSchema, ImageMetadataSchema } from './image.js';
 
 export const ChatMessageSchema = z.object({
   id: z.string(), role: z.enum(['user', 'assistant']),
-  kind: z.enum(['user_text', 'assistant_answer', 'assistant_thinking', 'assistant_tool_call', 'tool_image', 'compaction_summary']).optional(),
+  kind: z.enum(['user_text', 'assistant_answer', 'assistant_thinking', 'assistant_tool_call', 'assistant_progress', 'tool_image', 'compaction_summary']).optional(),
   content: z.string(), inputTokensEstimate: z.number(), outputTokensEstimate: z.number(), thinkingTokens: z.number(),
   inputTokensEstimated: z.boolean().optional(), outputTokensEstimated: z.boolean().optional(), thinkingTokensEstimated: z.boolean().optional(),
   promptCacheTokens: z.number().nullable().optional(), promptEvalTokens: z.number().nullable().optional(),

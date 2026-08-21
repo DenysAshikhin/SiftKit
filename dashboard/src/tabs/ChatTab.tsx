@@ -820,6 +820,14 @@ function ChatTurnBubble({ turn, sessionId, isDirectChatMode, chatBusy, onDeleteM
           {turn.liveThinking.map((thinking) => renderTurnMessage(thinking))}
         </div>
       ) : null}
+      {turn.progress ? (
+        <div className="turn-progress-bar" role="status">
+          <span className="turn-progress-dot" aria-hidden="true" />
+          <span className="turn-progress-label">Progress</span>
+          <span className="turn-progress-text">{turn.progress.content}</span>
+          <span className="turn-progress-meta">{formatDate(turn.progress.createdAtUtc)}</span>
+        </div>
+      ) : null}
       {turn.main ? renderTurnMessage(turn.main, 'turn-main') : null}
     </article>
   );

@@ -472,3 +472,15 @@ test('done clears the submitted input along with the live messages', () => {
   assert.deepEqual(next.get('s1').liveMessages, []);
   assert.deepEqual(next.get('s1').pendingImages, []);
 });
+
+test('progress transitions upsert a single live-progress message in place', () => {
+  const store = new ChatSessionRuntimeStore()
+    .ensureSession('s1')
+    .apply({ kind: 'progress', sessionId: 's1', progress: { turn: 3, text: 'RED done', elapsedMs: 1_000 } })
+    .apply({ kind: 'progress', sessionId: 's1', progress: { turn: 5, text: 'GREEN wiring', elapsedMs: 2_000 } });
+
+  const progressMessages = store.get('s1').liveMessages.filter((message) => message.id === 'live-progress');
+  assert.equal(progressMessages.length, 1);
+  assert.equal(progressMessages[0]?.kind, 'assistant_progress');
+  assert.equal(progressMessages[0]?.content, 'GREEN wiring');
+});

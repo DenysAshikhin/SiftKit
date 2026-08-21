@@ -217,3 +217,26 @@ test('a live user bubble alone owns the main slot instead of Internal Logic', ()
   assert.equal(turns[0]?.main?.id, 'live-user');
   assert.deepEqual(turns[0]?.steps, []);
 });
+
+test('an assistant_progress message lands on turn.progress, not steps/stack/main', () => {
+  const liveIds = new Set(['t1', 't2', 't3', 'live-progress']);
+  const messages = [
+    message({ id: 't1', kind: 'assistant_thinking' }),
+    message({ id: 't2', kind: 'assistant_thinking' }),
+    message({ id: 't3', kind: 'assistant_thinking' }),
+    message({ id: 'live-progress', kind: 'assistant_progress', content: 'GREEN wiring' }),
+  ];
+
+  const turns = groupMessagesIntoTurns(messages, liveIds);
+
+  assert.equal(turns.length, 1);
+  const turn = turns[0];
+  assert.ok(turn);
+  assert.equal(turn.isLive, true);
+  const progress = turn.progress;
+  assert.ok(progress);
+  assert.equal(progress.id, 'live-progress');
+  assert.deepEqual(turn.liveThinking.map((m) => m.id), ['t1', 't2', 't3']);
+  assert.equal(turn.steps.includes(progress), false);
+  assert.equal(turn.main, null);
+});

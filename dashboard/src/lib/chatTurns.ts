@@ -10,6 +10,8 @@ export type ChatTurn = {
   steps: ChatMessage[];
   /** Live-only: the newest thinking blocks, oldest first. Always empty once settled. */
   liveThinking: ChatMessage[];
+  /** Live-only status bar note; never part of steps, the thinking stack, or main. */
+  progress: ChatMessage | null;
   main: ChatMessage | null;
 };
 
@@ -32,6 +34,10 @@ function isThinkingMessage(message: ChatMessage): boolean {
 
 function isToolCallMessage(message: ChatMessage): boolean {
   return normalizeMessageKind(message) === 'assistant_tool_call';
+}
+
+function isProgressMessage(message: ChatMessage): boolean {
+  return normalizeMessageKind(message) === 'assistant_progress';
 }
 
 function resolveTurnKey(message: ChatMessage, isLive: boolean): string {
@@ -61,7 +67,7 @@ function pickMainMessage(turn: ChatTurn): ChatMessage | null {
   // a lone user_text message, or the live user bubble before the turn's
   // assistant side starts). A run that is only thinking/tool steps (answer
   // deleted) has no main slot, so everything stays in Internal Logic.
-  const nonStepMessages = turn.messages.filter((message) => !isStepMessage(message));
+  const nonStepMessages = turn.messages.filter((message) => !isStepMessage(message) && !isProgressMessage(message));
   return nonStepMessages[nonStepMessages.length - 1] ?? null;
 }
 
@@ -76,12 +82,14 @@ function pickLiveThinking(turn: ChatTurn): ChatMessage[] {
 function finalizeTurn(turn: ChatTurn): void {
   const main = pickMainMessage(turn);
   const liveThinking = pickLiveThinking(turn);
+  const progressMessages = turn.messages.filter(isProgressMessage);
   turn.main = main;
   turn.liveThinking = liveThinking;
-  // steps = everything that is neither the main slot nor on the stack. No kind
-  // filter, so a stray extra message in a run renders inside Internal Logic
-  // rather than being dropped.
-  turn.steps = turn.messages.filter((message) => message !== main && !liveThinking.includes(message));
+  turn.progress = progressMessages[progressMessages.length - 1] ?? null;
+  // steps = everything that is neither the main slot, on the stack, nor the
+  // progress bar. No other kind filter, so a stray extra message in a run
+  // renders inside Internal Logic rather than being dropped.
+  turn.steps = turn.messages.filter((message) => message !== main && !liveThinking.includes(message) && !isProgressMessage(message));
 }
 
 export function groupMessagesIntoTurns(messages: ChatMessage[], liveMessageIds: Set<string>): ChatTurn[] {
@@ -93,7 +101,7 @@ export function groupMessagesIntoTurns(messages: ChatMessage[], liveMessageIds: 
     if (lastTurn && lastTurn.key === key) {
       lastTurn.messages.push(message);
     } else {
-      turns.push({ key, isLive, messages: [message], steps: [], liveThinking: [], main: null });
+      turns.push({ key, isLive, messages: [message], steps: [], liveThinking: [], progress: null, main: null });
     }
   }
   for (const turn of turns) {

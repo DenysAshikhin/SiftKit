@@ -9,7 +9,7 @@ import {
 import { applyTextDelta } from './stream-text-delta';
 import type { ChatStreamToolEvent } from './chat-stream-parser';
 import type { ChatMessage, ChatSessionResponse, ChatSessionOperationKind, ContextUsage } from '../types';
-import type { ChatStreamTextDelta } from '@siftkit/contracts';
+import type { ChatStreamProgress, ChatStreamTextDelta } from '@siftkit/contracts';
 import type { PendingImage } from './downscale-image';
 
 export type ChatSessionActivity =
@@ -39,6 +39,7 @@ export type ChatSessionRuntimeTransition =
   | { kind: 'begin'; sessionId: string; operationKind: ChatSessionOperationKind }
   | { kind: 'thinking'; sessionId: string; delta: ChatStreamTextDelta }
   | { kind: 'tool'; sessionId: string; toolEvent: ChatStreamToolEvent }
+  | { kind: 'progress'; sessionId: string; progress: ChatStreamProgress }
   | { kind: 'answer'; sessionId: string; delta: ChatStreamTextDelta }
   | { kind: 'warning'; sessionId: string; text: string }
   | { kind: 'submit'; sessionId: string; content: string; images: PendingImage[] }
@@ -109,6 +110,14 @@ function applyTransition(
       };
     case 'tool':
       return applyToolEvent(runtime, transition.toolEvent);
+    case 'progress': {
+      const progressMessage = createLiveMessage('live-progress', 'assistant_progress', 'assistant', transition.progress.text);
+      return {
+        ...runtime,
+        awaitingResponse: false,
+        liveMessages: upsertLiveMessageInto(runtime.liveMessages, progressMessage),
+      };
+    }
     case 'answer':
       return applyAnswer(runtime, transition.delta);
     case 'warning':

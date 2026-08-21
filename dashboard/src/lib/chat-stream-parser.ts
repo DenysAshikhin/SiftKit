@@ -1,5 +1,5 @@
 import type { JsonValue, JsonObject } from '../../../src/lib/json-types.js';
-import { ChatSessionResponseSchema, ChatStreamTextDeltaSchema, type ChatSessionResponse, type ChatStreamTextDelta } from '@siftkit/contracts';
+import { ChatSessionResponseSchema, ChatStreamProgressSchema, ChatStreamTextDeltaSchema, type ChatSessionResponse, type ChatStreamProgress, type ChatStreamTextDelta } from '@siftkit/contracts';
 
 export type ChatStreamToolEvent = {
   kind: 'tool_start' | 'tool_result';
@@ -18,6 +18,7 @@ export type ChatStreamEvent =
   | { kind: 'thinking'; delta: ChatStreamTextDelta }
   | { kind: 'warning'; text: string }
   | { kind: 'tool'; tool: ChatStreamToolEvent }
+  | { kind: 'progress'; progress: ChatStreamProgress }
   | { kind: 'answer'; delta: ChatStreamTextDelta }
   | { kind: 'done'; payload: ChatSessionResponse }
   | { kind: 'error'; message: string };
@@ -71,6 +72,10 @@ export function parseChatStreamPacket(packet: string): ChatStreamEvent | null {
     case 'tool_start':
     case 'tool_result':
       return { kind: 'tool', tool: buildToolEvent(parsed.eventName, record) };
+    case 'progress': {
+      const result = ChatStreamProgressSchema.safeParse(record);
+      return result.success ? { kind: 'progress', progress: result.data } : null;
+    }
     case 'answer': {
       const result = ChatStreamTextDeltaSchema.safeParse(record);
       return result.success ? { kind: 'answer', delta: result.data } : null;

@@ -639,3 +639,27 @@ test('a live turn with a running tool call still renders the thinking that led t
   assert.ok(html.includes('TOOL_MARKER'), 'the running tool call must render in the main slot');
   assert.ok(html.includes('THINK_MARKER_TOOL'), 'the thinking that led to the tool call must render');
 });
+
+test('a live progress note renders one status bar between the thinking stack and the main slot', () => {
+  const store = buildThinkingStore({ content: 'find it', images: [], operationKind: 'repo-search', marker: 'THINK_MARKER_PROGRESS' })
+    .apply({ kind: 'progress', sessionId: SESSION_B.id, progress: { turn: 1, text: 'PROGRESS_MARKER_ONE', elapsedMs: 500 } })
+    .apply({
+      kind: 'tool',
+      sessionId: SESSION_B.id,
+      toolEvent: { kind: 'tool_start', toolCallId: 't1', turn: 1, maxTurns: 4, command: 'TOOL_MARKER' },
+    })
+    .apply({ kind: 'progress', sessionId: SESSION_B.id, progress: { turn: 2, text: 'PROGRESS_MARKER_TWO', elapsedMs: 900 } });
+  const html = render({
+    selectedSessionId: SESSION_B.id,
+    selectedRuntime: store.get(SESSION_B.id),
+    sessionRuntimes: store.getAll(),
+  });
+  assert.ok(!html.includes('PROGRESS_MARKER_ONE'), 'a newer progress event must replace the previous bar text');
+  assert.ok(html.includes('PROGRESS_MARKER_TWO'), 'the latest progress text must render');
+  assert.equal(html.match(/turn-progress-bar/gu)?.length, 1, 'exactly one progress bar renders');
+  const stackIndex = html.indexOf('live-thinking-stack');
+  const barIndex = html.indexOf('turn-progress-bar');
+  const mainIndex = html.indexOf('TOOL_MARKER');
+  assert.ok(stackIndex !== -1 && barIndex !== -1 && mainIndex !== -1, 'stack, bar, and main must all render');
+  assert.ok(stackIndex < barIndex && barIndex < mainIndex, 'bar renders after the thinking stack and before the main message');
+});

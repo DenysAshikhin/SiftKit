@@ -25,6 +25,8 @@ export async function* toRuntimeTransitions(
         yield { kind: 'warning', sessionId, text: event.text };
       } else if (event.kind === 'tool') {
         yield { kind: 'tool', sessionId, toolEvent: event.tool };
+      } else if (event.kind === 'progress') {
+        yield { kind: 'progress', sessionId, progress: event.progress };
       } else if (event.kind === 'answer') {
         yield { kind: 'answer', sessionId, delta: event.delta };
       } else if (event.kind === 'done') {
