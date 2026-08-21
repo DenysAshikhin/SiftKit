@@ -333,7 +333,7 @@ test('llama client covers streamed request and response normalization branches',
     slotId: 2,
     responseFormat: { type: 'json_object' },
     reasoningOverride: 'off',
-    retryMaxWaitMs: 0,
+    retry: false,
     allowedToolNames: ['finish'],
   });
 
@@ -535,7 +535,7 @@ test('llama client covers chat HTTP errors and status success branches', async (
       messages: [{ role: 'user', content: 'hello' }],
       tools: [],
       maxTokens: 16,
-      retryMaxWaitMs: 0,
+      retry: false,
       allowedToolNames: [],
     }),
     /HTTP 500: bad chat/u,
@@ -576,7 +576,7 @@ test('llama client covers timing cache, top-level thinking tokens, and top-level
     messages: [{ role: 'user', content: 'hello' }],
     tools: [],
     maxTokens: 16,
-    retryMaxWaitMs: 0,
+    retry: false,
     allowedToolNames: ['grep'],
   });
 
@@ -611,7 +611,7 @@ test('llama client covers prompt-token cache fallback, empty response normalizat
     messages: [{ role: 'user', content: 'hello' }],
     tools: [],
     maxTokens: 16,
-    retryMaxWaitMs: 1,
+    retry: { maxWaitMs: 1 },
     allowedToolNames: [],
   });
   const body = JSON.parse(String(http.requests[0]?.body || '{}'));
@@ -628,7 +628,7 @@ test('llama client covers prompt-token cache fallback, empty response normalizat
     messages: [{ role: 'user', content: 'hello' }],
     tools: [],
     maxTokens: 16,
-    retryMaxWaitMs: 0,
+    retry: false,
     allowedToolNames: [],
   });
   assert.equal(empty.text, '');

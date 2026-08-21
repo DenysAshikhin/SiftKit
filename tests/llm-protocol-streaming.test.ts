@@ -173,7 +173,7 @@ test('llama streaming client converts transient HTTP stream errors', async () =>
       maxTokens: 64,
       // Conversion is under test, not the retry loop; without this the client
       // spends the full 30 s retry window replaying the always-503 fake.
-      retryMaxWaitMs: 0,
+      retry: false,
       allowedToolNames: [],
     }),
     /HTTP 503: loading model/u,

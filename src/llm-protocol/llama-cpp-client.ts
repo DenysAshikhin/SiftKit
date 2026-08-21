@@ -115,7 +115,8 @@ export type LlamaCppChatOptions = {
   idleTimeoutSeconds?: number;
   /** Total wall-clock ceiling. Defaults to what maxTokens needs at the throughput floor. */
   totalDeadlineMs?: number;
-  retryMaxWaitMs?: number;
+  /** Transient-failure retry policy: omit for the default window, false to fail on the first attempt. */
+  retry?: false | { maxWaitMs: number };
   abortSignal?: AbortSignal;
   logger?: ProviderEventLogger | null;
   /** Spliced into the closed think block of a budget continuation in place of the preset message. */
@@ -243,11 +244,11 @@ export class LlamaCppClient {
       }
       return this.continueAfterThinkingBudget(baseUrl, options, streamed);
     };
-    return options.retryMaxWaitMs === 0
+    return options.retry === false
       ? attempt()
       : retryProviderRequest(
         attempt,
-        options.retryMaxWaitMs ? { maxWaitMs: options.retryMaxWaitMs } : undefined,
+        options.retry ? { maxWaitMs: options.retry.maxWaitMs } : undefined,
       );
   }
 

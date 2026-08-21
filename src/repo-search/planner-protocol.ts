@@ -650,7 +650,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
         reasoningOverride: options.thinkingEnabled ? 'on' : 'off',
         allowedToolNames,
         idleTimeoutSeconds: options.timeoutMs / 1000,
-        retryMaxWaitMs: 0,
+        retry: false,
         abortSignal: options.abortSignal,
         reasoningBudgetMessage: options.reasoningBudgetMessage,
         onThinkingDelta: options.onThinkingDelta,

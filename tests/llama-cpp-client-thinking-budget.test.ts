@@ -157,7 +157,7 @@ test('exl3 budget enforcement applies when reasoning comes from the preset defau
       tools: [],
       maxTokens: 64,
       allowedToolNames: [],
-      retryMaxWaitMs: 0,
+      retry: false,
     });
     assert.equal(fake.requestCount(), 2);
     assert.equal(response.thinkingBudgetExhausted, true);

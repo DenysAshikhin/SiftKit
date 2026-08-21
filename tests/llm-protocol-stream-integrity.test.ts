@@ -109,9 +109,28 @@ test('a transient failure before the first frame is retried', async () => {
     tools: [],
     maxTokens: 64,
     allowedToolNames: [],
-    retryMaxWaitMs: 5_000,
+    retry: { maxWaitMs: 5_000 },
   });
 
   assert.equal(response.text, 'recovered');
   assert.equal(http.attempts, 2);
+});
+
+test('retry: false propagates a transient failure without a second attempt', async () => {
+  const http = new FlakyStreamHttpClient(1);
+  const client = new LlamaCppClient(http);
+
+  await assert.rejects(
+    client.chat({
+      config: buildStreamingTestConfig(),
+      model: 'local',
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [],
+      maxTokens: 64,
+      allowedToolNames: [],
+      retry: false,
+    }),
+    /HTTP 503/u,
+  );
+  assert.equal(http.attempts, 1);
 });
