@@ -94,6 +94,10 @@ export class ProgressReporter {
     this.emit({ kind: 'answer', turn, maxTurns: this.maxTurns, answerText });
   }
 
+  progressUpdate(turn: number, progressText: string): void {
+    this.emit({ kind: 'progress_update', taskId: this.taskId, turn, maxTurns: this.maxTurns, progressText, elapsedMs: this.elapsedMs() });
+  }
+
   toolStart(toolCallId: string, turn: number, command: string, promptTokenCount: number): void {
     this.emit({ kind: 'tool_start', toolCallId, turn, maxTurns: this.maxTurns, command, promptTokenCount, elapsedMs: this.elapsedMs() });
   }

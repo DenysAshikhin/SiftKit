@@ -82,6 +82,9 @@ class StubActionAdapter implements AgentLoopActionAdapter {
     if (response.text === 'invalid') {
       throw new Error('bad json');
     }
+    if (response.text === 'progress') {
+      return [{ kind: 'progress', text: 'halfway' }];
+    }
     return response.text === 'finish'
       ? [{ kind: 'finish', text: 'done' }]
       : [{ kind: 'tool', callId: 'call_1', toolName: 'read_lines', args: { startLine: 1 } }];
@@ -511,4 +514,31 @@ test('progress action validation rejects empty output and extra keys', () => {
     () => parser.parseRepoSearchActions('{"action":"progress","output":"x","extra":1}', ['grep']),
     /accepts only "action" and "output"/u,
   );
+});
+
+test('agent loop routes a progress action through handleProgress and continues', async () => {
+  const actionAdapter = new StubActionAdapter();
+  const responses: NormalizedLlamaCppChatResponse[] = [
+    { text: 'progress', reasoningText: '', toolCalls: [], usage: stubUsage(1), raw: {}, stoppedEarly: false, invalidFrameCount: 0 },
+    { text: 'finish', reasoningText: '', toolCalls: [], usage: stubUsage(2), raw: {}, stoppedEarly: false, invalidFrameCount: 0 },
+  ];
+  const loop = new AgentLoop({
+    maxTurns: 3,
+    promptAdapter: new StubPromptAdapter(),
+    actionAdapter,
+    toolAdapter: new StubToolAdapter(),
+    modelClient: {
+      chat: async () => {
+        const response = responses.shift();
+        assert.ok(response);
+        return { outcome: 'continue', response, data: null };
+      },
+    },
+  });
+
+  const result = await loop.run();
+
+  assert.equal(result.reason, 'finished');
+  assert.equal(result.finishText, 'done');
+  assert.deepEqual(actionAdapter.progressTexts, ['halfway']);
 });

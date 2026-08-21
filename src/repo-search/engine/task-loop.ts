@@ -497,8 +497,15 @@ export class TaskLoop {
     return { outcome: this.counters.reason === 'invalid_response_limit' ? 'stop' : 'continue' };
   }
 
-  async handleProgress(action: AgentLoopProgressAction, _context: AgentLoopResponseContext): Promise<AgentLoopTurnOutcome> {
-    void action;
+  async handleProgress(action: AgentLoopProgressAction, context: AgentLoopResponseContext): Promise<AgentLoopTurnOutcome> {
+    const turn = context.turnNumber;
+    const response = getRepoSearchModelData(context).plannerResponse;
+    this.finishVerification.recordNonFinishAction();
+    this.transcript.pushAssistant(buildAssistantReplayMessage(response.text, String(response.thinkingText || '').trim()));
+    this.transcript.pruneThinking(this.plannerMaintainPerStepThinking);
+    this.transcript.pushUser('Progress note recorded. Continue with the next action.');
+    this.progress.progressUpdate(turn, action.text);
+    this.options.logger?.write({ kind: 'turn_progress', taskId: this.task.id, turn, text: action.text });
     return 'continue';
   }
 

@@ -26,6 +26,7 @@ export type RepoSearchProgressEvent = {
   taskId?: string;
   thinkingText?: string;
   answerText?: string;
+  progressText?: string;
   command?: string;
   outputSnippet?: string;
   outputTokens?: number;
