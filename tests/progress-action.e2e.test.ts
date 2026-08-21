@@ -1,5 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { Writable } from 'node:stream';
+
+import { CliProgressRenderer } from '../src/cli/progress-renderer.js';
+import { buildRepoSearchProgressLogBody, isServerLoggedProgressEvent } from '../src/status-server/dashboard-runs.js';
 
 import { executeRepoSearchRequest } from '../src/repo-search/index.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
@@ -31,4 +35,29 @@ test('a progress action emits a progress_update event and the run continues to f
     assert.equal(progressEvents[0]?.progressText, 'scanning scripts next');
     assert.equal(progressEvents[0]?.turn, 1);
   });
+});
+
+test('cli renderer prints one line per progress_update', () => {
+  const lines: string[] = [];
+  const sink = new Writable({
+    write(chunk, _encoding, callback): void {
+      lines.push(String(chunk));
+      callback();
+    },
+  });
+  const renderer = new CliProgressRenderer(sink, 'rs test');
+
+  renderer.render({ kind: 'progress_update', turn: 12, maxTurns: 100, progressText: 'GREEN: wiring render', elapsedMs: 1000 });
+
+  assert.equal(lines.length, 1);
+  assert.match(lines[0] ?? '', /t12\/100 progress "GREEN: wiring render"/u);
+});
+
+test('server log body renders progress_update with turn and text', () => {
+  const event = { kind: 'progress_update', turn: 12, maxTurns: 100, progressText: 'GREEN: wiring render', elapsedMs: 61_000 };
+  assert.equal(isServerLoggedProgressEvent(event), true);
+  const body = buildRepoSearchProgressLogBody(event);
+  assert.equal(body?.event, 'progress');
+  assert.match(body?.fields ?? '', /t12\/100 {2}elapsed=/u);
+  assert.match(body?.fields ?? '', /"GREEN: wiring render"/u);
 });

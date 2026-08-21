@@ -344,6 +344,15 @@ class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
       this.writer.writeEvent('warning', { warning: event.warningText ?? '' });
       return;
     }
+    if (event.kind === 'progress_update') {
+      this.flushPending();
+      this.writer.writeEvent('progress', {
+        turn: requireProgressTurn(event),
+        text: event.progressText || '',
+        elapsedMs: Number(event.elapsedMs ?? 0),
+      });
+      return;
+    }
     this.flushPending();
     forwardRepoSearchToolEvent(this.writer, event, this.scope, this.requestId);
   }

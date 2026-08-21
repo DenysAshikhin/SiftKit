@@ -183,7 +183,7 @@ function normalizeApprovalReasonForLog(reason: string | undefined): string {
 }
 
 /** Progress kinds the server prints; every other kind is dashboard- and stream-only. */
-const SERVER_LOGGED_PROGRESS_KINDS = new Set(['tool_start', 'context_warning', 'approval_auto']);
+const SERVER_LOGGED_PROGRESS_KINDS = new Set(['tool_start', 'context_warning', 'approval_auto', 'progress_update']);
 
 export function isServerLoggedProgressEvent(event: RepoSearchProgressEvent): boolean {
   return SERVER_LOGGED_PROGRESS_KINDS.has(event.kind);
@@ -218,6 +218,14 @@ export function buildRepoSearchProgressLogBody(event: RepoSearchProgressEvent | 
       event: 'auto-approval',
       fields: `${turnLabel}  ${verdict}${toolName ? `: ${toolName}` : ''}${reason ? ` — ${reason}` : ''}`,
       severity: 'warning',
+    };
+  }
+  if (kind === 'progress_update') {
+    const text = normalizeRepoSearchCommandForLog(event?.progressText);
+    return {
+      event: 'progress',
+      fields: `${turnLabel}  elapsed=${formatElapsed(elapsedMs)}  "${text}"`,
+      severity: 'normal',
     };
   }
   const fields = `${turnLabel}  prompt=${promptTokenCount}tok  elapsed=${formatElapsed(elapsedMs)}`;

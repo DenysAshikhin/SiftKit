@@ -55,6 +55,9 @@ export class CliProgressRenderer {
       const outputTokens = reader.number('outputTokens');
       return `${turnPrefix}done exit=${exitCode ?? '?'} ${formatTokens(outputTokens)}`.trim();
     }
+    if (kind === 'progress_update') {
+      return `${turnPrefix}progress "${reader.optionalString('progressText') || ''}"`.trim();
+    }
     if (kind === 'llm_start' || kind === 'llm_end') {
       return `${turnPrefix}${kind} prompt=${formatTokens(reader.number('promptTokenCount'))}`.trim();
     }
