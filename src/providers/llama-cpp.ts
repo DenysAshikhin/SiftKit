@@ -484,7 +484,7 @@ export async function generateLlamaCppChatResponse(options: {
       responseFormat: structuredOutputResponseFormat ?? undefined,
       reasoningOverride: options.reasoningOverride,
       allowedToolNames: protocolTools.map((tool) => tool.function.name),
-      requestTimeoutSeconds: options.timeoutSeconds,
+      idleTimeoutSeconds: options.timeoutSeconds,
       cachePrompt: options.cachePrompt ?? true,
       slotId: options.slotId,
     });

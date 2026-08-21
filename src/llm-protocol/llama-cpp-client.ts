@@ -20,7 +20,8 @@ import {
 } from '../lib/provider-helpers.js';
 import { getNormalizedCompletionTokens } from '../lib/telemetry-metrics.js';
 import { buildClosedThinkBlock } from './think-markers.js';
-import { ProviderStreamDegenerateError, type ProviderStreamDegenerateReason } from './stream-errors.js';
+import { assertDeadlineFitsBudget, computeRequiredGenerationMs } from './stream-deadline.js';
+import { ProviderStreamDegenerateError, ProviderStreamDeadlineError, type ProviderStreamDegenerateReason } from './stream-errors.js';
 import { z } from '../lib/zod.js';
 import { JsonValueSchema, JsonObjectSchema, type JsonSerializable, type OptionalJsonValue } from '../lib/json-types.js';
 import type {
@@ -180,7 +181,10 @@ export type LlamaCppChatOptions = {
   responseFormat?: LlamaCppChatRequest['response_format'];
   reasoningOverride?: 'on' | 'off';
   allowedToolNames: string[];
-  requestTimeoutSeconds?: number;
+  /** Maximum gap between SSE frames. Not a total duration; see totalDeadlineMs. */
+  idleTimeoutSeconds?: number;
+  /** Total wall-clock ceiling. Defaults to what maxTokens needs at the throughput floor. */
+  totalDeadlineMs?: number;
   retryMaxWaitMs?: number;
   abortSignal?: AbortSignal;
   logger?: ProviderEventLogger | null;
@@ -321,7 +325,7 @@ export class LlamaCppClient {
       const nextResponse = await this.client.requestJsonFull({
         url: `${baseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
         method: 'POST',
-        timeoutMs: Math.max(1, options.requestTimeoutSeconds ?? 300) * 1000,
+        timeoutMs: Math.max(1, options.idleTimeoutSeconds ?? 300) * 1000,
         body: JSON.stringify(this.buildChatRequest(options)),
         abortSignal: options.abortSignal,
       }, RawChatResponseSchema);
@@ -418,6 +422,8 @@ export class LlamaCppClient {
     continuation?: ThinkingBudgetContinuation,
   ): Promise<NormalizedLlamaCppChatResponse> {
     const startedAt = Date.now();
+    const totalDeadlineMs = options.totalDeadlineMs ?? computeRequiredGenerationMs(options.maxTokens);
+    assertDeadlineFitsBudget({ maxTokens: options.maxTokens, totalDeadlineMs });
     const url = `${baseUrl.replace(/\/$/u, '')}/v1/chat/completions`;
     const body = JSON.stringify(this.buildChatRequest(options, continuation?.responsePrefix));
     const parser = new LlamaCppToolCallParser(options.allowedToolNames);
@@ -464,9 +470,12 @@ export class LlamaCppClient {
       streamFrames: for await (const frame of this.client.streamSse({
         url,
         body,
-        idleTimeoutMs: Math.max(1, options.requestTimeoutSeconds ?? 300) * 1000,
+        idleTimeoutMs: Math.max(1, options.idleTimeoutSeconds ?? 300) * 1000,
         abortSignal: options.abortSignal,
       })) {
+        if (Date.now() - startedAt > totalDeadlineMs) {
+          throw new ProviderStreamDeadlineError(url, totalDeadlineMs, options.maxTokens);
+        }
         if (frame.data === '[DONE]') {
           sawDoneSentinel = true;
           break;

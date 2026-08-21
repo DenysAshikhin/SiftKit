@@ -21,3 +21,14 @@ export class ProviderStreamDegenerateError extends Error {
     this.name = 'ProviderStreamDegenerateError';
   }
 }
+
+/** A streaming chat request ran past its total wall-clock budget. */
+export class ProviderStreamDeadlineError extends Error {
+  constructor(readonly url: string, readonly totalDeadlineMs: number, readonly maxTokens: number) {
+    super(
+      `Chat stream exceeded its total deadline of ${totalDeadlineMs} ms `
+      + `(maxTokens=${maxTokens}, url=${url}).`,
+    );
+    this.name = 'ProviderStreamDeadlineError';
+  }
+}

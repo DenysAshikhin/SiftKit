@@ -98,7 +98,7 @@ export class LlamaCppAssistantInference implements AssistantInferenceClient {
         name: request.responseSchemaName,
         schema: request.responseJsonSchema,
       }),
-      requestTimeoutSeconds: ASSISTANT_REQUEST_TIMEOUT_SECONDS,
+      idleTimeoutSeconds: ASSISTANT_REQUEST_TIMEOUT_SECONDS,
       reasoningOverride: 'off',
       ...(request.abortSignal === null ? {} : { abortSignal: request.abortSignal }),
     });

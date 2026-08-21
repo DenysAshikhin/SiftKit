@@ -56,6 +56,16 @@ async function withModelServer(
     req.on('data', (chunk) => { body += chunk; });
     req.on('end', () => {
       capturedBodies.push(body);
+      if (body.includes('"stream":true')) {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        res.write(`data: ${JSON.stringify({
+          choices: [{ delta: { role: 'assistant', content: responseContent } }],
+          usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+        })}\n\n`);
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
+      }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         choices: [{ message: { role: 'assistant', content: responseContent } }],

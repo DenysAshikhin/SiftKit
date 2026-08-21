@@ -651,7 +651,7 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
         responseFormat: responseFormat ?? undefined,
         reasoningOverride: options.thinkingEnabled ? 'on' : 'off',
         allowedToolNames,
-        requestTimeoutSeconds: options.timeoutMs / 1000,
+        idleTimeoutSeconds: options.timeoutMs / 1000,
         retryMaxWaitMs: 0,
         abortSignal: options.abortSignal,
         reasoningBudgetMessage: options.reasoningBudgetMessage,
