@@ -20,7 +20,7 @@ import {
   buildRepoSearchPlannerActionJsonSchema,
   type StructuredOutputToolDefinition,
 } from '../providers/structured-output-schema.js';
-import { lowerResponseFormatForBackend } from '../providers/formatron-schema-lowering.js';
+import { InferenceRequestBuilder } from '../llm-protocol/inference-request-builder.js';
 import { getFirstCommandToken } from './command-safety.js';
 import { getSupportedImageExtensions } from '../llm-protocol/image-attachments.js';
 import { buildInlineThinkPattern, THINK_OPEN_TAG } from '../llm-protocol/think-markers.js';
@@ -407,6 +407,8 @@ export type PlannerThinkingFlags = {
   preserveThinking: boolean;
 };
 
+const reserveRequestBuilder = new InferenceRequestBuilder();
+
 export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFlags & {
   config: SiftConfig;
   stage?: string;
@@ -427,25 +429,33 @@ export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFla
       ? buildFinishValidationJsonSchema()
       : null;
   const responseSchema = options.responseSchema === undefined ? defaultResponseSchema : options.responseSchema;
-  const responseFormat = responseSchema === null ? null : lowerResponseFormatForBackend(backend, buildLlamaJsonSchemaResponseFormat({
+  const responseFormat = responseSchema === null ? null : buildLlamaJsonSchemaResponseFormat({
     name: options.responseSchemaName || (stage === 'finish_validation' ? 'siftkit_finish_validation' : 'siftkit_repo_search_planner_action'),
     schema: responseSchema,
-  }));
+  });
 
-  return JSON.stringify({
-    stage,
+  // Derive the envelope from the real request builder so the reserve estimate
+  // cannot drift from what is actually sent; message contents are counted
+  // separately, so messages stay empty and template overhead is reserved below.
+  const requestShape = reserveRequestBuilder.build({
+    backend,
     model: options.model,
-    max_tokens: options.maxTokens,
-    temperature: samplerDefaults.temperature,
-    top_p: samplerDefaults.topP,
-    chat_template_kwargs: {
-      enable_thinking: Boolean(options.thinkingEnabled),
-      ...(options.thinkingEnabled && options.reasoningContentEnabled ? { reasoning_content: true } : {}),
-      ...(options.thinkingEnabled && options.reasoningContentEnabled && options.preserveThinking ? { preserve_thinking: true } : {}),
-      ...(options.thinkingEnabled ? { reasoning_effort: samplerDefaults.reasoningEffort } : {}),
+    messages: [],
+    tools: [],
+    defaults: samplerDefaults,
+    maxTokens: options.maxTokens,
+    ...(responseFormat ? { responseFormat } : {}),
+    thinking: {
+      enabled: Boolean(options.thinkingEnabled),
+      reasoningContent: Boolean(options.thinkingEnabled && options.reasoningContentEnabled),
+      preserve: Boolean(options.thinkingEnabled && options.reasoningContentEnabled && options.preserveThinking),
+      effort: samplerDefaults.reasoningEffort,
     },
-    ...(responseFormat ? { response_format: responseFormat } : {}),
-    stream: true,
+    llama: { cachePrompt: true },
+  });
+  return JSON.stringify({
+    ...requestShape,
+    stage,
     message_template_reserve: options.messageRoles.map((role) => ({
       role: String(role || 'unknown'),
       template: '<|im_start|>role\\ncontent<|im_end|>',

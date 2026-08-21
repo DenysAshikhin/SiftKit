@@ -15,6 +15,8 @@ import { RepoSearchOutputFormatter } from '../repo-search/output-format.js';
 import { ImageRetentionPolicy } from '../image-retention-policy.js';
 import { ThinkingRetentionPolicy } from '../thinking-retention-policy.js';
 import { buildReplayToolCall } from '../llm-protocol/tool-call-parser.js';
+import { InferenceRequestBuilder } from '../llm-protocol/inference-request-builder.js';
+import { buildPresetRequestDefaults } from '../inference-presets/preset-compatibility.js';
 import { resolveImageTokenBudget } from '../llm-protocol/image-token-budget.js';
 import {
   type ChatSession,
@@ -221,23 +223,28 @@ class ContextUsageBuilder {
   private getProviderOverheadTokens(): number {
     const thinkingEnabled = this.session.thinkingEnabled !== false;
     const config = this.config;
-    const reserveShape = {
+    const preset = getActiveModelPreset(config);
+    // Derive the shape from the real request builder so the overhead estimate
+    // cannot drift from what is actually sent; contents are counted separately.
+    const request = overheadRequestBuilder.build({
+      backend: preset.Backend,
       model: resolveChatSessionModel(this.config, this.session),
-      stream: true,
-      cache_prompt: true,
-      max_tokens: 0,
       messages: [
         { role: 'system', content: '' },
         { role: 'user', content: '' },
       ],
-      chat_template_kwargs: {
-        enable_thinking: thinkingEnabled,
-        ...(thinkingEnabled && shouldReplayReasoningContent(config) ? { reasoning_content: true } : {}),
-        ...(shouldPreserveThinking(config, thinkingEnabled) ? { preserve_thinking: true } : {}),
-        ...(thinkingEnabled ? { reasoning_effort: resolveReasoningEffort(config) } : {}),
+      tools: [],
+      defaults: buildPresetRequestDefaults(preset),
+      maxTokens: 0,
+      thinking: {
+        enabled: thinkingEnabled,
+        reasoningContent: thinkingEnabled && shouldReplayReasoningContent(config),
+        preserve: shouldPreserveThinking(config, thinkingEnabled),
+        effort: resolveReasoningEffort(config),
       },
-    };
-    return estimateTokenCount(JSON.stringify(reserveShape));
+      llama: { cachePrompt: true },
+    });
+    return estimateTokenCount(JSON.stringify(request));
   }
 }
 
@@ -265,6 +272,8 @@ function getActiveServerLlamaPreset(config: SiftConfig): ModelRuntimePreset | nu
   const activePresetId = modelPresets.ActivePresetId;
   return presets.find((preset) => preset.id === activePresetId) || presets[0] || null;
 }
+
+const overheadRequestBuilder = new InferenceRequestBuilder();
 
 function shouldReplayReasoningContent(config: SiftConfig): boolean {
   const activePreset = getActiveServerLlamaPreset(config);

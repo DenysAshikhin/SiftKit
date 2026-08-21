@@ -51,3 +51,18 @@ test('the planner prompt reserve reflects the preset reasoning effort', () => {
 
   assert.match(reserve, /"reasoning_effort":"low"/u);
 });
+
+test('the planner prompt reserve carries the streaming envelope of the real request', () => {
+  const reserve = buildPlannerRequestPromptReserveText({
+    config: getDefaultConfigObject(),
+    model: '3.8_27b_4.6bpw',
+    messageRoles: ['system', 'user'],
+    maxTokens: 512,
+    thinkingEnabled: false,
+    reasoningContentEnabled: false,
+    preserveThinking: false,
+  });
+
+  assert.match(reserve, /"stream":true/u);
+  assert.match(reserve, /"stream_options":\{"include_usage":true\}/u);
+});
