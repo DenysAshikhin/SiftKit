@@ -18,10 +18,11 @@ import { LlmApprovalGate } from '../src/repo-search/engine/llm-approval-gate.js'
 import { ProgressWriter, SilentProgressWriter } from '../src/lib/progress-writer.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { asObject, asArray, getAddressInfo } from './helpers/dashboard-http.js';
+import { sendChatCompletionSse } from './helpers/streaming-client.js';
 import { mockOfflineSiftConfig, mockSiftConfig } from './helpers/mock-config.js';
 import { INTERACTIVE_REPO_TOOL_NAMES, resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
-import type { JsonSerializable } from '../src/lib/json-types.js';
+import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
@@ -301,8 +302,8 @@ test('auto mode over HTTP: the verdict request byte-extends the executing planne
   const verdictBodies: ReturnType<typeof asObject>[] = [];
   let plannerCalls = 0;
 
-  function completionBody(content: string, reasoning: string | null): string {
-    return JSON.stringify({
+  function completionBody(content: string, reasoning: string | null): JsonObject {
+    return {
       choices: [{
         message: {
           role: 'assistant',
@@ -311,7 +312,7 @@ test('auto mode over HTTP: the verdict request byte-extends the executing planne
         },
       }],
       usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
-    });
+    };
   }
 
   const server = http.createServer((req, res) => {
@@ -328,13 +329,12 @@ test('auto mode over HTTP: the verdict request byte-extends the executing planne
       if (req.method === 'POST' && req.url === '/v1/chat/completions') {
         const parsed = asObject(parseJsonValueText(body));
         const lastMessage = asObject(asArray(parsed.messages).at(-1));
-        res.writeHead(200, { 'Content-Type': 'application/json' });
         // The verdict question leads with the review policy and carries the marker as a block
         // header partway down, so routing must look for the marker anywhere in the message.
         // A planner request never contains it — the assertion at the end of this test proves it.
         if (String(lastMessage.content || '').includes(APPROVAL_REVIEW_REQUEST_MARKER)) {
           verdictBodies.push(parsed);
-          res.end(completionBody('{"verdict":"approve","reason":"scoped write"}', null));
+          sendChatCompletionSse(res, completionBody('{"verdict":"approve","reason":"scoped write"}', null));
           return;
         }
         plannerBodies.push(parsed);
@@ -344,7 +344,7 @@ test('auto mode over HTTP: the verdict request byte-extends the executing planne
           : plannerCalls === 2
             ? '{"action":"write","path":"out.txt","content":"hello"}'
             : '{"action":"finish","output":"wrote it"}';
-        res.end(completionBody(content, `thought-${plannerCalls}`));
+        sendChatCompletionSse(res, completionBody(content, `thought-${plannerCalls}`));
         return;
       }
       res.writeHead(404, { 'Content-Type': 'application/json' });

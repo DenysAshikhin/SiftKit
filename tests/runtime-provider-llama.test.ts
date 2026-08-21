@@ -6,6 +6,7 @@ import { estimateTokenCount } from '../src/lib/token-estimate.js';
 import { z } from '../src/lib/zod.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { asObject } from './helpers/dashboard-http.js';
+import { sendChatCompletionSse } from './helpers/streaming-client.js';
 import {
   http,
   path,
@@ -100,7 +101,11 @@ test('llama.cpp provider lists models and parses chat completions from the stub 
       assert.match(summary.text, /^summary:/u);
       // The stub reports prompt_tokens 123 / completion_tokens 45; local counting
       // replaces both (the stub tokenizer is down, so the estimator answers).
-      assert.deepEqual(summary.usage, {
+      // Streamed requests derive wall-clock timings, so only their presence is stable.
+      const { promptEvalDurationMs, generationDurationMs, ...usageCounts } = summary.usage ?? {};
+      assert.ok(Number.isFinite(promptEvalDurationMs));
+      assert.ok(Number.isFinite(generationDurationMs));
+      assert.deepEqual(usageCounts, {
         promptTokens: estimateTokenCount(config, 'test prompt body'),
         completionTokens: estimateTokenCount(config, summary.text),
         totalTokens: 168,
@@ -108,8 +113,6 @@ test('llama.cpp provider lists models and parses chat completions from the stub 
         thinkingTokens: null,
         promptCacheTokens: null,
         promptEvalTokens: null,
-        promptEvalDurationMs: null,
-        generationDurationMs: null,
         speculativeAcceptedTokens: null,
         speculativeGeneratedTokens: null,
       });
@@ -174,7 +177,10 @@ test('llama.cpp provider records thinking tokens separately from completion usag
 
       // The stub reports reasoning_tokens 12; the thinking count comes from the
       // reasoning text itself, and never from the completion count.
-      assert.deepEqual(summary.usage, {
+      const { promptEvalDurationMs, generationDurationMs, ...usageCounts } = summary.usage ?? {};
+      assert.ok(Number.isFinite(promptEvalDurationMs));
+      assert.ok(Number.isFinite(generationDurationMs));
+      assert.deepEqual(usageCounts, {
         promptTokens: estimateTokenCount(config, 'test prompt body'),
         completionTokens: estimateTokenCount(config, summary.text),
         totalTokens: 168,
@@ -182,8 +188,6 @@ test('llama.cpp provider records thinking tokens separately from completion usag
         thinkingTokens: estimateTokenCount(config, STUB_REASONING_TEXT),
         promptCacheTokens: null,
         promptEvalTokens: null,
-        promptEvalDurationMs: null,
-        generationDurationMs: null,
         speculativeAcceptedTokens: null,
         speculativeGeneratedTokens: null,
       });
@@ -803,11 +807,10 @@ test('llama.cpp provider waits for warm-up and retries chat-completions after EC
       delayedServer = http.createServer((req, res) => {
         if (req.method === 'POST' && req.url === '/v1/chat/completions') {
           chatRequestCount += 1;
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({
+          sendChatCompletionSse(res, {
             choices: [{ message: { content: 'warm-up complete' } }],
             usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-          }));
+          });
           return;
         }
         if (req.method === 'POST' && req.url === '/tokenize') {
@@ -854,11 +857,10 @@ test('llama.cpp provider retries HTTP 503 Loading model responses for chat-compl
           res.end(JSON.stringify({ error: { message: 'Loading model', type: 'unavailable_error', code: 503 } }));
           return;
         }
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({
+        sendChatCompletionSse(res, {
           choices: [{ message: { content: 'model ready' } }],
           usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-        }));
+        });
         return;
       }
       if (req.method === 'POST' && req.url === '/tokenize') {

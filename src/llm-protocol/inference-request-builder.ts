@@ -12,7 +12,7 @@ export class InferenceRequestBuilder {
         ? {
             cache_prompt: input.llama.cachePrompt,
             ...(Number.isInteger(input.llama.slotId) ? { id_slot: input.llama.slotId } : {}),
-            ...(input.stream ? { timings_per_token: true } : {}),
+            timings_per_token: true,
           }
         : {}),
       ...(input.thinking.enabled === undefined
@@ -43,8 +43,8 @@ export class InferenceRequestBuilder {
       model: input.model,
       messages: input.messages,
       ...sampling,
-      stream: input.stream,
-      ...(input.stream ? { stream_options: { include_usage: true } } : {}),
+      stream: true,
+      stream_options: { include_usage: true },
       ...(input.tools.length > 0 ? { tools: input.tools, parallel_tool_calls: true } : {}),
       ...(input.responseFormat
         ? {

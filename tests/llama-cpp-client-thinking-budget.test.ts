@@ -115,7 +115,6 @@ async function runStreamingPlanner(baseUrl: string, config: SiftConfig): Promise
     timeoutMs: 5000,
     maxTokens: 64,
     thinkingEnabled: true,
-    stream: true,
     toolDefinitions: [],
     onThinkingDelta: () => {},
   });
@@ -157,7 +156,6 @@ test('exl3 budget enforcement applies when reasoning comes from the preset defau
       messages: [{ role: 'user', content: 'hi' }],
       tools: [],
       maxTokens: 64,
-      stream: true,
       allowedToolNames: [],
       retryMaxWaitMs: 0,
     });
@@ -179,7 +177,6 @@ test('planner reasoningBudgetMessage overrides the preset message in the continu
       timeoutMs: 5000,
       maxTokens: 64,
       thinkingEnabled: true,
-      stream: true,
       toolDefinitions: [],
       onThinkingDelta: () => {},
       reasoningBudgetMessage: 'Emit the next action.',

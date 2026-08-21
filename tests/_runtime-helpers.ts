@@ -17,6 +17,7 @@ import { mockSiftConfig } from './helpers/mock-config.js';
 import { DEAD_CONFIG_SERVICE_URL, DEAD_STATUS_BACKEND_URL } from './helpers/dead-endpoints.js';
 import { EnvBackup } from './helpers/env-backup.js';
 import { acquireChildPortLease } from './helpers/test-endpoints.js';
+import { sendChatCompletionSse } from './helpers/streaming-client.js';
 import {
   createManagedTempDir,
   removeDirectoryWithRetries,
@@ -339,33 +340,6 @@ function sleepUnref(milliseconds: number): Promise<void> {
     const timer = setTimeout(resolve, milliseconds);
     timer.unref();
   });
-}
-
-/**
- * Planner turns request `stream: true` whenever progress reporting is on, which is
- * every engine-backed call. Replay the completion body the stub would have sent as
- * SSE deltas so streamed and non-streamed callers see identical content and usage.
- */
-function sendChatCompletionSse(res: http.ServerResponse, body: JsonObject): void {
-  const choices = Array.isArray(body.choices) ? body.choices : [];
-  const firstChoice = isJsonObject(choices[0]) ? choices[0] : {};
-  const message = isJsonObject(firstChoice.message) ? firstChoice.message : {};
-  const reasoningContent = typeof message.reasoning_content === 'string' ? message.reasoning_content : '';
-  const content = typeof message.content === 'string' ? message.content : '';
-  const writePacket = (packet: JsonObject): void => { res.write(`data: ${JSON.stringify(packet)}\n\n`); };
-  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
-  if (reasoningContent) {
-    writePacket({ choices: [{ index: 0, delta: { reasoning_content: reasoningContent } }] });
-  }
-  if (content) {
-    writePacket({ choices: [{ index: 0, delta: { content } }] });
-  }
-  writePacket({
-    choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-    ...(body.usage === undefined ? {} : { usage: body.usage }),
-  });
-  res.write('data: [DONE]\n\n');
-  res.end();
 }
 
 function spawnProcess(command: string, args: string[], options: SpawnOptions = {}): Promise<SpawnProcessResult> {
@@ -788,12 +762,7 @@ async function startStubStatusServer(options: StubServerOptions = {}): Promise<S
           ],
           ...(usage ? { usage } : {}),
         };
-      if (parsed.stream === true) {
-        sendChatCompletionSse(res, chatResponseBody);
-        return;
-      }
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(chatResponseBody));
+      sendChatCompletionSse(res, chatResponseBody);
       return;
     }
 

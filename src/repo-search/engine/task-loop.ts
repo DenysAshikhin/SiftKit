@@ -608,7 +608,6 @@ export class TaskLoop {
         timeoutMs: this.options.timeoutMs || DEFAULT_TIMEOUT_MS,
         maxTokens: prepared.maxOutputTokens,
         ...this.plannerThinking,
-        stream: this.progress.enabled,
         ...(this.plannerBudgetMessageOverride === null
           ? {}
           : { reasoningBudgetMessage: this.plannerBudgetMessageOverride }),

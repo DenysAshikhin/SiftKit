@@ -107,7 +107,6 @@ test('a text request carries no tools and no image content of any kind', async (
   assert.ok(sent);
   assert.deepEqual(sent?.tools, []);
   assert.deepEqual(sent?.allowedToolNames, []);
-  assert.equal(sent?.stream, false);
   for (const message of sent?.messages ?? []) {
     assert.equal(typeof message.content, 'string', 'message content must be a plain string');
   }

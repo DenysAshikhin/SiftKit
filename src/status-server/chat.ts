@@ -223,7 +223,7 @@ class ContextUsageBuilder {
     const config = this.config;
     const reserveShape = {
       model: resolveChatSessionModel(this.config, this.session),
-      stream: false,
+      stream: true,
       cache_prompt: true,
       max_tokens: 0,
       messages: [

@@ -24,7 +24,6 @@ export type InferenceRequestInput = {
   defaults: PresetRequestDefaults;
   /** The only per-request sampling value; every other sampler comes from `defaults`. */
   maxTokens: number;
-  stream: boolean;
   responseFormat?: LlamaCppResponseFormat;
   /** Rendered after the generation prompt (TabbyAPI `response_prefix`); used to close an exhausted think block. */
   responsePrefix?: string;

@@ -7,7 +7,7 @@ import {
 } from '../config/index.js';
 import { estimateTokenCountFromCharacters } from '../lib/token-estimate.js';
 import { buildPresetRequestDefaults } from '../inference-presets/preset-compatibility.js';
-import { httpClient, HttpResponseError, LlamaHttpError, type FullJsonResponse } from '../lib/http-client.js';
+import { httpClient, HttpResponseError, LlamaHttpError } from '../lib/http-client.js';
 import { parseJsonObjectText } from '../lib/json.js';
 import {
   buildTransientProviderHttpError,
@@ -18,7 +18,6 @@ import {
   isTransientProviderHttpResponse,
   retryProviderRequest,
 } from '../lib/provider-helpers.js';
-import { getNormalizedCompletionTokens } from '../lib/telemetry-metrics.js';
 import { buildClosedThinkBlock } from './think-markers.js';
 import { assertDeadlineFitsBudget, computeRequiredGenerationMs } from './stream-deadline.js';
 import { ProviderStreamDegenerateError, ProviderStreamDeadlineError, type ProviderStreamDegenerateReason } from './stream-errors.js';
@@ -29,7 +28,6 @@ import type {
   LlamaCppChatMessage,
   LlamaCppChatRequest,
   LlamaCppToolDefinition,
-  LlamaCppUsage,
   NormalizedLlamaCppChatResponse,
 } from './types.js';
 import { LlamaCppToolCallParser } from './tool-call-parser.js';
@@ -58,73 +56,6 @@ class SingleRequestGate {
     this.active = false;
   }
 }
-
-const RawContentPartSchema = z.object({
-  type: z.string().optional(),
-  text: z.string().optional(),
-});
-
-const RawToolCallSchema = z.object({
-  id: z.string().optional(),
-  type: z.string().optional(),
-  function: z.object({
-    name: z.string().optional(),
-    arguments: z.string().optional(),
-  }).optional(),
-});
-
-const RawTokenDetailsSchema = z.object({
-  reasoning_tokens: z.number().optional(),
-  thinking_tokens: z.number().optional(),
-  // TabbyAPI reports speculative draft stats under OpenAI's prediction fields.
-  accepted_prediction_tokens: z.number().nullable().optional(),
-  rejected_prediction_tokens: z.number().nullable().optional(),
-});
-
-const RawCachedTokenDetailsSchema = z.object({
-  cached_tokens: z.number().optional(),
-});
-
-const RawChatResponseSchema = z.object({
-  choices: z.array(z.object({
-    text: z.string().optional(),
-    message: z.object({
-      content: z.union([z.string(), z.array(RawContentPartSchema)]).optional(),
-      reasoning_content: z.union([z.string(), z.array(RawContentPartSchema)]).nullable().optional(),
-      tool_calls: z.array(RawToolCallSchema).nullable().optional(),
-      function_call: z.object({
-        name: z.string().optional(),
-        arguments: z.string().optional(),
-      }).optional(),
-    }).optional(),
-    tool_calls: z.array(RawToolCallSchema).optional(),
-  })).optional(),
-  usage: z.object({
-    prompt_tokens: z.number().optional(),
-    completion_tokens: z.number().optional(),
-    total_tokens: z.number().optional(),
-    reasoning_tokens: z.number().optional(),
-    thinking_tokens: z.number().optional(),
-    completion_tokens_details: RawTokenDetailsSchema.optional(),
-    prompt_tokens_details: RawCachedTokenDetailsSchema.optional(),
-    input_tokens_details: RawCachedTokenDetailsSchema.optional(),
-    output_tokens_details: RawTokenDetailsSchema.optional(),
-    // TabbyAPI: second-based timings and rate fields.
-    prompt_time: z.number().nullable().optional(),
-    completion_time: z.number().nullable().optional(),
-    prompt_tokens_per_sec: z.union([z.number(), z.string()]).nullable().optional(),
-    completion_tokens_per_sec: z.union([z.number(), z.string()]).nullable().optional(),
-  }).nullable().optional(),
-  timings: z.object({
-    cache_n: z.number().optional(),
-    prompt_n: z.number().optional(),
-    prompt_ms: z.number().optional(),
-    predicted_ms: z.number().optional(),
-    prompt_per_second: z.number().optional(),
-    predicted_per_second: z.number().optional(),
-  }).optional(),
-});
-type RawChatResponse = z.infer<typeof RawChatResponseSchema>;
 
 const RawTokenizeResponseSchema = z.object({
   length: z.number().optional(),
@@ -177,7 +108,6 @@ export type LlamaCppChatOptions = {
   maxTokens: number;
   cachePrompt?: boolean;
   slotId?: number;
-  stream?: boolean;
   responseFormat?: LlamaCppChatRequest['response_format'];
   reasoningOverride?: 'on' | 'off';
   allowedToolNames: string[];
@@ -306,44 +236,19 @@ export class LlamaCppClient {
   }
 
   private async chatAtBaseUrl(baseUrl: string, options: LlamaCppChatOptions): Promise<NormalizedLlamaCppChatResponse> {
-    if (options.stream !== false) {
-      const attempt = async (): Promise<NormalizedLlamaCppChatResponse> => {
-        const streamed = await this.streamChatAtBaseUrl(baseUrl, options);
-        if (streamed.earlyStopReason !== THINKING_BUDGET_EARLY_STOP_REASON) {
-          return streamed;
-        }
-        return this.continueAfterThinkingBudget(baseUrl, options, streamed);
-      };
-      return options.retryMaxWaitMs === 0
-        ? attempt()
-        : retryProviderRequest(
-          attempt,
-          options.retryMaxWaitMs ? { maxWaitMs: options.retryMaxWaitMs } : undefined,
-        );
-    }
-    const requestOnce = async (): Promise<FullJsonResponse<RawChatResponse>> => {
-      const nextResponse = await this.client.requestJsonFull({
-        url: `${baseUrl.replace(/\/$/u, '')}/v1/chat/completions`,
-        method: 'POST',
-        timeoutMs: Math.max(1, options.idleTimeoutSeconds ?? 300) * 1000,
-        body: JSON.stringify(this.buildChatRequest(options)),
-        abortSignal: options.abortSignal,
-      }, RawChatResponseSchema);
-      if (isTransientProviderHttpResponse(nextResponse.statusCode, nextResponse.rawText)) {
-        throw buildTransientProviderHttpError(nextResponse.statusCode, nextResponse.rawText);
+    const attempt = async (): Promise<NormalizedLlamaCppChatResponse> => {
+      const streamed = await this.streamChatAtBaseUrl(baseUrl, options);
+      if (streamed.earlyStopReason !== THINKING_BUDGET_EARLY_STOP_REASON) {
+        return streamed;
       }
-      return nextResponse;
+      return this.continueAfterThinkingBudget(baseUrl, options, streamed);
     };
-    const response = options.retryMaxWaitMs === 0
-      ? await requestOnce()
-      : await retryProviderRequest(
-        requestOnce,
+    return options.retryMaxWaitMs === 0
+      ? attempt()
+      : retryProviderRequest(
+        attempt,
         options.retryMaxWaitMs ? { maxWaitMs: options.retryMaxWaitMs } : undefined,
       );
-    if (response.statusCode >= 400) {
-      throw new Error(`HTTP ${response.statusCode}: ${response.rawText.trim()}`);
-    }
-    return this.normalizeChatResponse(response, options.allowedToolNames);
   }
 
   /**
@@ -399,7 +304,6 @@ export class LlamaCppClient {
         tools: options.tools,
         defaults,
         maxTokens: options.maxTokens,
-        stream: options.stream !== false,
         ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}),
         ...(responsePrefix ? { responsePrefix } : {}),
         thinking: {
@@ -432,6 +336,7 @@ export class LlamaCppClient {
     let reasoningText = '';
     let promptTokens: number | null = null;
     let completionTokens: number | null = null;
+    let totalTokens: number | null = null;
     let thinkingTokens: number | null = null;
     let promptCacheTokens: number | null = null;
     let promptEvalTokens: number | null = null;
@@ -501,6 +406,8 @@ export class LlamaCppClient {
           promptCacheTokens = promptUsage.promptCacheTokens ?? promptCacheTokens;
           promptEvalTokens = promptUsage.promptEvalTokens ?? promptEvalTokens;
           completionTokens = completionUsage.completionTokens ?? completionTokens;
+          const packetUsage = isRecord(packet.usage) ? packet.usage : {};
+          totalTokens = getUsageValue(packetUsage.total_tokens) ?? totalTokens;
           thinkingTokens = completionUsage.thinkingTokens ?? thinkingTokens;
           promptEvalDurationMs = timingUsage.promptEvalDurationMs ?? promptEvalDurationMs;
           generationDurationMs = timingUsage.generationDurationMs ?? generationDurationMs;
@@ -611,7 +518,7 @@ export class LlamaCppClient {
       usage: {
         promptTokens,
         completionTokens,
-        totalTokens: null,
+        totalTokens,
         outputTokens: completionTokens,
         thinkingTokens,
         promptCacheTokens,
@@ -627,42 +534,6 @@ export class LlamaCppClient {
       ...(earlyStopReason ? { earlyStopReason } : {}),
     };
   }
-
-  private normalizeChatResponse(response: FullJsonResponse<RawChatResponse>, allowedToolNames: string[]): NormalizedLlamaCppChatResponse {
-    const firstChoice = response.body.choices?.[0] || {};
-    const message = firstChoice.message;
-    const reasoningText = getTextContent(message?.reasoning_content);
-    const text = getTextContent(message?.content) || firstChoice.text || '';
-    const thinkingTokens = getThinkingTokens(response.body.usage);
-    const bodyJson = toJsonObject(response.body);
-    const promptUsage = getPromptUsageFromResponseBody(bodyJson);
-    const timingUsage = getTimingUsageFromResponseBody(bodyJson);
-    const speculativeUsage = getSpeculativeUsageFromResponseBody(bodyJson);
-    const usage: LlamaCppUsage = {
-      promptTokens: promptUsage.promptTokens,
-      completionTokens: getNormalizedCompletionTokens(getUsageValue(response.body.usage?.completion_tokens), thinkingTokens),
-      totalTokens: getUsageValue(response.body.usage?.total_tokens),
-      outputTokens: getUsageValue(response.body.usage?.completion_tokens),
-      thinkingTokens,
-      promptCacheTokens: promptUsage.promptCacheTokens,
-      promptEvalTokens: promptUsage.promptEvalTokens,
-      promptEvalDurationMs: timingUsage.promptEvalDurationMs,
-      generationDurationMs: timingUsage.generationDurationMs,
-      speculativeAcceptedTokens: speculativeUsage.speculativeAcceptedTokens,
-      speculativeGeneratedTokens: speculativeUsage.speculativeGeneratedTokens,
-    };
-    const parser = new LlamaCppToolCallParser(allowedToolNames);
-    const protocolToolCalls = parser.parseFromChoice(firstChoice);
-    return {
-      text,
-      reasoningText,
-      toolCalls: protocolToolCalls.length > 0 ? protocolToolCalls : parser.parseFromText(text),
-      usage,
-      raw: bodyJson,
-      stoppedEarly: false,
-      invalidFrameCount: 0,
-    };
-  }
 }
 
 function sumFinite(left: number | null | undefined, right: number | null | undefined): number | null {
@@ -671,12 +542,6 @@ function sumFinite(left: number | null | undefined, right: number | null | undef
   if (leftValue === null) return rightValue;
   if (rightValue === null) return leftValue;
   return leftValue + rightValue;
-}
-
-function getTextContent(content: string | Array<{ type?: string; text?: string }> | null | undefined): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content.map((part) => typeof part.text === 'string' ? part.text : '').join('');
 }
 
 function getString(value: OptionalJsonValue): string {
@@ -812,22 +677,6 @@ export class FirstJsonObjectScanner {
 
 function getUsageValue(value: OptionalJsonValue): number | null {
   return Number.isFinite(value) && Number(value) >= 0 ? Number(value) : null;
-}
-
-function getThinkingTokens(usage: RawChatResponse['usage']): number | null {
-  for (const details of [usage?.completion_tokens_details, usage?.output_tokens_details]) {
-    const detailReasoning = getUsageValue(details?.reasoning_tokens);
-    const detailThinking = getUsageValue(details?.thinking_tokens);
-    if (detailReasoning !== null || detailThinking !== null) {
-      return (detailReasoning ?? 0) + (detailThinking ?? 0);
-    }
-  }
-  const topReasoning = getUsageValue(usage?.reasoning_tokens);
-  const topThinking = getUsageValue(usage?.thinking_tokens);
-  if (topReasoning !== null || topThinking !== null) {
-    return (topReasoning ?? 0) + (topThinking ?? 0);
-  }
-  return null;
 }
 
 function toJsonObject(value: object): JsonObject {

@@ -43,7 +43,7 @@ export class PromptPreparer {
   private readonly transcriptTokenCounter = new IncrementalTokenCounter();
   private readonly reserveTokenCounter = new IncrementalTokenCounter();
 
-  private buildProviderPromptReserveText(messageRoles: readonly string[], maxTokens: number, stream: boolean): string {
+  private buildProviderPromptReserveText(messageRoles: readonly string[], maxTokens: number): string {
     return buildPlannerRequestPromptReserveText({
       config: this.options.config,
       stage: 'planner_action',
@@ -52,7 +52,6 @@ export class PromptPreparer {
       toolDefinitions: this.options.plannerToolDefinitions,
       maxTokens,
       ...this.options.thinking,
-      stream,
     });
   }
 
@@ -66,7 +65,6 @@ export class PromptPreparer {
     let providerPromptReserveText = this.buildProviderPromptReserveText(
       transcript.messageRoles(),
       budget.totalContextTokens,
-      progress.enabled,
     );
     let prompt = transcript.render();
     promptRenderSpan?.end({
@@ -145,7 +143,6 @@ export class PromptPreparer {
       providerPromptReserveText = this.buildProviderPromptReserveText(
         transcript.messageRoles(),
         budget.totalContextTokens,
-        progress.enabled,
       );
       prompt = transcript.render();
       if (preflightConfig) {

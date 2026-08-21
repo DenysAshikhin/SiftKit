@@ -302,7 +302,6 @@ test('requestRepoSearchPlannerProtocolAction reconstructs a tool batch from stre
         messages: [{ role: 'user', content: 'find plan and repo-search' }],
         timeoutMs: 5000,
         maxTokens: 512,
-        stream: true,
       });
 
       assert.deepEqual(parseRepoSearchPlannerAction(result.text, getRepoSearchToolNamesForParsing()), {
@@ -349,7 +348,6 @@ test('requestRepoSearchPlannerProtocolAction stops streamed reasoning after a co
         messages: [{ role: 'user', content: 'find planner' }],
         timeoutMs: 2000,
         maxTokens: 512,
-        stream: true,
       });
 
       assert.equal(result.text, actionText);
@@ -386,7 +384,6 @@ test('requestRepoSearchPlannerProtocolAction stops streamed content when recent 
         messages: [{ role: 'user', content: 'find planner' }],
         timeoutMs: 2000,
         maxTokens: 512,
-        stream: true,
         logger: {
           path: 'memory',
           write(event) {
@@ -433,7 +430,6 @@ test('requestRepoSearchPlannerProtocolAction does not stop streamed content for 
         messages: [{ role: 'user', content: 'find planner' }],
         timeoutMs: 2000,
         maxTokens: 512,
-        stream: true,
         logger: {
           path: 'memory',
           write(event) {
@@ -481,7 +477,6 @@ test('requestRepoSearchPlannerProtocolAction uses llama timings from the final s
         messages: [{ role: 'user', content: 'finish' }],
         timeoutMs: 5000,
         maxTokens: 512,
-        stream: true,
       });
 
       assert.equal(result.promptEvalTokens, 10);
@@ -519,7 +514,6 @@ test('requestRepoSearchPlannerProtocolAction aborts an in-flight streaming reque
               messages: [{ role: 'user', content: 'finish slowly' }],
               timeoutMs: 5000,
               maxTokens: 512,
-              stream: true,
               abortSignal: controller.signal,
             }),
           /Repo search prompt exceeded 20 ms\. Please try again\./u,

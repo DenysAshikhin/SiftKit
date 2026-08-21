@@ -93,7 +93,6 @@ export class LlamaCppAssistantInference implements AssistantInferenceClient {
       tools: [],
       allowedToolNames: [],
       maxTokens: ASSISTANT_MAX_OUTPUT_TOKENS,
-      stream: false,
       responseFormat: buildLlamaJsonSchemaResponseFormat({
         name: request.responseSchemaName,
         schema: request.responseJsonSchema,

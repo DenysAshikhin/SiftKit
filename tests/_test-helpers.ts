@@ -13,6 +13,7 @@ import { awaitRepoSearchRunPersistence } from '../src/repo-search/execute.js';
 import { asObject, getAddressInfo } from './helpers/dashboard-http.js';
 import { EnvBackup } from './helpers/env-backup.js';
 import { writeSseResult } from './helpers/sse-http.js';
+import { sendChatCompletionSse } from './helpers/streaming-client.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 export type Dict = JsonObject;
@@ -423,11 +424,10 @@ export async function startMiniStubServer(options: StubServerOptions = {}): Prom
             raw_review_required: false,
             output: 'mock summary output',
           }));
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
+      sendChatCompletionSse(res, {
         choices: [{ message: { role: 'assistant', content: assistantContent, reasoning_content: '' } }],
         usage: { prompt_tokens: 100, completion_tokens: 20, completion_tokens_details: { reasoning_tokens: 0 } },
-      }));
+      });
       return;
     }
     if (req.method === 'POST' && req.url === '/status') {

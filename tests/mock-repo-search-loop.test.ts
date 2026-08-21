@@ -7,6 +7,7 @@ import { z } from '../src/lib/zod.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
 import { asObject, asObjectArray, getAddressInfo } from './helpers/dashboard-http.js';
+import { sendChatCompletionSse } from './helpers/streaming-client.js';
 
 import {
   runTaskLoop,
@@ -1369,8 +1370,7 @@ test('runTaskLoop retries transient provider network failures via shared retry h
       const content = toolIndex === null
         ? '{"action":"finish","output":"done"}'
         : `{"action":"git","command":"git grep -n \\"q${toolIndex}\\" src"}`;
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({
+      sendChatCompletionSse(res, {
         choices: [
           {
             message: {
@@ -1378,7 +1378,7 @@ test('runTaskLoop retries transient provider network failures via shared retry h
             },
           },
         ],
-      }));
+      });
     });
   });
 
@@ -1450,10 +1450,9 @@ test('runTaskLoop waits for planner endpoint warm-up when initial connections ar
         return;
       }
       plannerRequestCount += 1;
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({
+      sendChatCompletionSse(res, {
         choices: [{ message: { content: '{"action":"finish","output":"done"}' } }],
-      }));
+      });
     });
     delayedServer.listen(port, '127.0.0.1');
   }, 300);
@@ -1516,10 +1515,9 @@ test('runTaskLoop retries planner calls when endpoint returns HTTP 503 Loading m
       res.end(JSON.stringify({ error: { message: 'Loading model', type: 'unavailable_error', code: 503 } }));
       return;
     }
-    res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({
+    sendChatCompletionSse(res, {
       choices: [{ message: { content: '{"action":"finish","output":"done"}' } }],
-    }));
+    });
   });
   await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', () => resolve()));
 

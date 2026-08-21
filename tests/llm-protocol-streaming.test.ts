@@ -88,7 +88,6 @@ test('llama streaming client assembles deltas, callbacks, timings, tool chunks, 
     messages: [{ role: 'user', content: 'hello' }],
     tools: [{ type: 'function', function: { name: 'grep', description: 'Search.', parameters: { type: 'object' } } }],
     maxTokens: 64,
-    stream: true,
     allowedToolNames: ['grep'],
     onThinkingDelta: (value) => thinkingUpdates.push(value),
     onContentDelta: (value) => contentUpdates.push(value),
@@ -117,6 +116,7 @@ test('streaming client requests include_usage and captures a final usage-only ch
       usage: {
         prompt_tokens: 22232,
         completion_tokens: 40,
+        total_tokens: 22272,
         prompt_tokens_details: { cached_tokens: 21421 },
       },
     },
@@ -128,7 +128,6 @@ test('streaming client requests include_usage and captures a final usage-only ch
     messages: [{ role: 'user', content: 'hello' }],
     tools: [],
     maxTokens: 64,
-    stream: true,
     allowedToolNames: [],
   });
 
@@ -136,6 +135,7 @@ test('streaming client requests include_usage and captures a final usage-only ch
   assert.deepEqual(body.stream_options, { include_usage: true });
   assert.equal(response.usage.promptTokens, 22232);
   assert.equal(response.usage.completionTokens, 40);
+  assert.equal(response.usage.totalTokens, 22272);
   assert.equal(response.usage.promptCacheTokens, 21421);
   assert.equal(response.usage.promptEvalTokens, 811);
 });
@@ -152,7 +152,6 @@ test('llama streaming client stops on completed planner action in reasoning', as
     messages: [{ role: 'user', content: 'hello' }],
     tools: [],
     maxTokens: 64,
-    stream: true,
     allowedToolNames: [],
   });
 
@@ -172,7 +171,9 @@ test('llama streaming client converts transient HTTP stream errors', async () =>
       messages: [{ role: 'user', content: 'hello' }],
       tools: [],
       maxTokens: 64,
-      stream: true,
+      // Conversion is under test, not the retry loop; without this the client
+      // spends the full 30 s retry window replaying the always-503 fake.
+      retryMaxWaitMs: 0,
       allowedToolNames: [],
     }),
     /HTTP 503: loading model/u,
@@ -207,7 +208,6 @@ test('llama streaming client covers empty packets, thinking fallback, malformed 
     messages: [{ role: 'user', content: 'hello' }],
     tools: [],
     maxTokens: 64,
-    stream: true,
     allowedToolNames: [],
   });
 
@@ -226,7 +226,6 @@ test('llama streaming client rejects an empty stream as degenerate', async () =>
       messages: [{ role: 'user', content: 'hello' }],
       tools: [],
       maxTokens: 64,
-      stream: true,
       allowedToolNames: [],
     }),
     /stream produced no frames/u,
@@ -247,7 +246,6 @@ test('llama streaming client wraps non-error stream failures', async () => {
       messages: [{ role: 'user', content: 'hello' }],
       tools: [],
       maxTokens: 64,
-      stream: true,
       allowedToolNames: [],
     }),
     /stream failed/u,
@@ -271,7 +269,6 @@ test('llama streaming client throttles runaway checks to the 256-char stride', a
     messages: [{ role: 'user', content: 'hello' }],
     tools: [],
     maxTokens: 64,
-    stream: true,
     allowedToolNames: [],
     onContentDelta: (value) => contentUpdates.push(value),
   });
@@ -300,7 +297,6 @@ test('llama streaming client detects a runaway completing after the last throttl
     messages: [{ role: 'user', content: 'hello' }],
     tools: [],
     maxTokens: 64,
-    stream: true,
     allowedToolNames: [],
     onContentDelta: (value) => contentUpdates.push(value),
   });
@@ -328,7 +324,6 @@ test('llama streaming client stops on a planner action assembled across reasonin
     messages: [{ role: 'user', content: 'hello' }],
     tools: [],
     maxTokens: 64,
-    stream: true,
     allowedToolNames: [],
   });
 

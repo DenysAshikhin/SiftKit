@@ -71,7 +71,6 @@ export class TerminalSynthesizer {
           maxTokens: synthesisMaxTokens,
           ...this.options.thinking,
           logger: this.options.logger,
-          stream: this.options.streamFinishAsAnswer && this.options.progress.enabled,
           onContentDelta: this.options.streamFinishAsAnswer && this.options.progress.liveTextEnabled
             ? (answerText: string) => { this.options.progress.answer(input.turnsUsed, answerText); }
             : undefined,

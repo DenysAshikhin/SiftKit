@@ -12,7 +12,7 @@ import type {
 import { LLAMA_CPP_PROTOCOL_FORMAT } from '../src/llm-protocol/types.js';
 import { buildReplayToolCall, LlamaCppToolCallParser } from '../src/llm-protocol/tool-call-parser.js';
 import { LlamaCppClient } from '../src/llm-protocol/llama-cpp-client.js';
-import type { FullJsonResponse, RequestJsonOptions } from '../src/lib/http-client.js';
+import { HttpResponseError, type FullJsonResponse, type RequestJsonOptions, type SseStreamOptions } from '../src/lib/http-client.js';
 import type { JsonValue } from '../src/lib/json-types.js';
 import type { SseFrame } from '../src/lib/sse-frame-parser.js';
 import type { SiftConfig } from '../src/config/types.js';
@@ -115,40 +115,51 @@ test('replay tool-call helper emits real web tool protocol names and rejects unk
   );
 });
 
-class CapturingHttpClient {
-  readonly requests: RequestJsonOptions[] = [];
-  private readonly responses: Array<FullJsonResponse<JsonValue> | Error>;
+type CapturedRequest = { url: string; body?: string };
 
-  constructor(responses: Array<FullJsonResponse<JsonValue> | Error> = []) {
+class CapturingHttpClient {
+  readonly requests: CapturedRequest[] = [];
+  private readonly responses: Array<FullJsonResponse<JsonValue> | Error>;
+  private readonly frameSets: Array<string[] | Error>;
+
+  constructor(responses: Array<FullJsonResponse<JsonValue> | Error> = [], frameSets: Array<string[] | Error> = []) {
     this.responses = responses;
+    this.frameSets = frameSets;
   }
 
   async requestJsonFull<T>(options: RequestJsonOptions, schema: z.ZodType<T>): Promise<FullJsonResponse<T>> {
-    this.requests.push(options);
-    const response = this.responses.shift() || {
-      statusCode: 200,
-      rawText: JSON.stringify({
-        choices: [{ message: { content: 'ok', reasoning_content: 'think' } }],
-        usage: { prompt_tokens: 3, completion_tokens: 5, completion_tokens_details: { reasoning_tokens: 2 } },
-      }),
-      body: {
-        choices: [{ message: { content: 'ok', reasoning_content: 'think' } }],
-        usage: { prompt_tokens: 3, completion_tokens: 5, completion_tokens_details: { reasoning_tokens: 2 } },
-      },
-    };
+    if (options.url.includes('/v1/chat/completions')) {
+      throw new Error('chat must not use requestJsonFull');
+    }
+    this.requests.push({ url: options.url, ...(typeof options.body === 'string' ? { body: options.body } : {}) });
+    const response = this.responses.shift();
+    if (!response) {
+      throw new Error(`no queued response for ${options.url}`);
+    }
     if (response instanceof Error) {
       throw response;
     }
     return { statusCode: response.statusCode, rawText: response.rawText, body: schema.parse(response.body) };
   }
 
-  async *streamSse(): AsyncGenerator<SseFrame> {
-    throw new Error('streamSse should not be called by non-streaming tests');
+  async *streamSse(options: SseStreamOptions): AsyncGenerator<SseFrame> {
+    this.requests.push({ url: options.url, body: options.body });
+    const frames = this.frameSets.shift() ?? [JSON.stringify({
+      choices: [{ delta: { content: 'ok', reasoning_content: 'think' } }],
+      usage: { prompt_tokens: 3, completion_tokens: 5, completion_tokens_details: { reasoning_tokens: 2 } },
+    })];
+    if (frames instanceof Error) {
+      throw frames;
+    }
+    for (const data of frames) {
+      yield { event: 'message', data };
+    }
+    yield { event: 'message', data: '[DONE]' };
   }
 }
 
 class StringThrowingHttpClient extends CapturingHttpClient {
-  async requestJsonFull<T>(): Promise<FullJsonResponse<T>> {
+  override async requestJsonFull<T>(): Promise<FullJsonResponse<T>> {
     throw 'string failure';
   }
 }
@@ -163,22 +174,21 @@ class BlockingHttpClient extends CapturingHttpClient {
     this.holdFirst = false;
   }
 
-  async requestJsonFull<T>(options: RequestJsonOptions, schema: z.ZodType<T>): Promise<FullJsonResponse<T>> {
-    this.requests.push(options);
+  override async *streamSse(options: SseStreamOptions): AsyncGenerator<SseFrame> {
+    this.requests.push({ url: options.url, body: options.body });
     this.calls += 1;
     const callNumber = this.calls;
     this.activeCalls += 1;
     this.maxActiveCalls = Math.max(this.maxActiveCalls, this.activeCalls);
-    while (callNumber === 1 && this.holdFirst) {
-      await delay(1);
+    try {
+      while (callNumber === 1 && this.holdFirst) {
+        await delay(1);
+      }
+      yield { event: 'message', data: JSON.stringify({ choices: [{ delta: { content: `response ${callNumber}` } }] }) };
+      yield { event: 'message', data: '[DONE]' };
+    } finally {
+      this.activeCalls -= 1;
     }
-    this.activeCalls -= 1;
-    const body = { choices: [{ message: { content: `response ${callNumber}` } }] };
-    return {
-      statusCode: 200,
-      rawText: JSON.stringify(body),
-      body: schema.parse(body),
-    };
   }
 }
 
@@ -231,7 +241,6 @@ test('llama client builds chat request with nested reasoning_content and tools',
       },
     }],
     maxTokens: 64,
-    stream: false,
     allowedToolNames: ['grep'],
   });
 
@@ -297,17 +306,10 @@ test('llama client accepts current object-valued model lists', async () => {
   assert.deepEqual(fallback.models, ['fallback-name.gguf']);
 });
 
-test('llama client covers non-streaming request and response normalization branches', async () => {
-  const http = new CapturingHttpClient([
-    jsonResponse({
-      choices: [{
-        text: 'fallback text',
-        message: {
-          content: [{ type: 'text', text: '' }, { type: 'text', text: '' }],
-          reasoning_content: [{ type: 'text', text: 'reason ' }, { type: 'text', text: 'trace' }],
-          function_call: { name: 'finish', arguments: '{"output":"done"}' },
-        },
-      }],
+test('llama client covers streamed request and response normalization branches', async () => {
+  const http = new CapturingHttpClient([], [[
+    JSON.stringify({
+      choices: [{ delta: { content: 'fallback text', reasoning_content: 'reason trace' } }],
       usage: {
         prompt_tokens: 11,
         completion_tokens: 13,
@@ -316,7 +318,10 @@ test('llama client covers non-streaming request and response normalization branc
         input_tokens_details: { cached_tokens: 4 },
       },
     }),
-  ]);
+    JSON.stringify({
+      choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_finish', function: { name: 'finish', arguments: '{"output":"done"}' } }] } }],
+    }),
+  ]]);
 
   const response = await new LlamaCppClient(http).chat({
     config: protocolConfig,
@@ -326,7 +331,6 @@ test('llama client covers non-streaming request and response normalization branc
     maxTokens: 33,
     cachePrompt: false,
     slotId: 2,
-    stream: false,
     responseFormat: { type: 'json_object' },
     reasoningOverride: 'off',
     retryMaxWaitMs: 0,
@@ -390,18 +394,11 @@ test('EXL3 forwards native tools and response format while parsing Qwen XML tool
   const config = buildProtocolConfig();
   config.Server.ModelPresets.Presets[0].Backend = 'exl3';
   config.Server.ModelPresets.Presets[0].BaseUrl = 'http://127.0.0.1:8098';
-  const http = new CapturingHttpClient([
-    jsonResponse({
-      choices: [{
-        message: {
-          content: '<tool_call><function=grep><parameter=pattern>SelectedBackend</parameter></function></tool_call>',
-          reasoning_content: null,
-          tool_calls: null,
-        },
-      }],
-      usage: null,
+  const http = new CapturingHttpClient([], [[
+    JSON.stringify({
+      choices: [{ delta: { content: '<tool_call><function=grep><parameter=pattern>SelectedBackend</parameter></function></tool_call>' } }],
     }),
-  ]);
+  ]]);
   const tool: LlamaCppToolDefinition = {
     type: 'function',
     function: {
@@ -417,7 +414,6 @@ test('EXL3 forwards native tools and response format while parsing Qwen XML tool
     messages: [{ role: 'user', content: 'find it' }],
     tools: [tool],
     maxTokens: 32,
-    stream: false,
     responseFormat: { type: 'json_object' },
     allowedToolNames: ['grep'],
   });
@@ -442,7 +438,6 @@ test('EXL3 chat requests are serialized for a single Tabby cache slot', async ()
     messages: [{ role: 'user' as const, content: 'hello' }],
     tools: [],
     maxTokens: 4,
-    stream: false,
     allowedToolNames: [],
   };
 
@@ -462,18 +457,9 @@ test('OpenAI response normalization accepts Tabby nullable optional fields', asy
   const config = buildProtocolConfig();
   config.Server.ModelPresets.Presets[0].Backend = 'exl3';
   config.Server.ModelPresets.Presets[0].BaseUrl = 'http://127.0.0.1:8098';
-  const http = new CapturingHttpClient([
-    jsonResponse({
-      choices: [{
-        message: {
-          content: 'EXL3 response',
-          reasoning_content: null,
-          tool_calls: null,
-        },
-      }],
-      usage: null,
-    }),
-  ]);
+  const http = new CapturingHttpClient([], [[
+    JSON.stringify({ choices: [{ delta: { content: 'EXL3 response' } }] }),
+  ]]);
 
   const response = await new LlamaCppClient(http).chat({
     config,
@@ -482,7 +468,6 @@ test('OpenAI response normalization accepts Tabby nullable optional fields', asy
     messages: [{ role: 'user', content: 'hello' }],
     tools: [],
     maxTokens: 16,
-    stream: false,
     allowedToolNames: [],
   });
 
@@ -533,7 +518,7 @@ test('tool-call parser covers fallback ids, default arguments, quoted replay val
   );
 });
 
-test('llama client covers non-streaming HTTP errors and status success branches', async () => {
+test('llama client covers chat HTTP errors and status success branches', async () => {
   await assert.rejects(
     () => new LlamaCppClient(new CapturingHttpClient([
       jsonResponse({ error: 'bad' }, 500, 'bad tokenize'),
@@ -542,15 +527,14 @@ test('llama client covers non-streaming HTTP errors and status success branches'
   );
 
   await assert.rejects(
-    () => new LlamaCppClient(new CapturingHttpClient([
-      jsonResponse({ error: 'bad' }, 500, 'bad chat'),
+    () => new LlamaCppClient(new CapturingHttpClient([], [
+      new HttpResponseError(500, 'bad chat'),
     ])).chat({
       config: protocolConfig,
       model: 'local',
       messages: [{ role: 'user', content: 'hello' }],
       tools: [],
       maxTokens: 16,
-      stream: false,
       retryMaxWaitMs: 0,
       allowedToolNames: [],
     }),
@@ -567,11 +551,14 @@ test('llama client covers non-streaming HTTP errors and status success branches'
 });
 
 test('llama client covers timing cache, top-level thinking tokens, and top-level tool calls', async () => {
-  const http = new CapturingHttpClient([
-    jsonResponse({
+  const http = new CapturingHttpClient([], [[
+    JSON.stringify({
       choices: [{
-        message: { content: 'answer', reasoning_content: 'think' },
-        tool_calls: [{ id: 'top', type: 'function', function: { name: 'grep', arguments: '{"pattern":"x"}' } }],
+        delta: {
+          content: 'answer',
+          reasoning_content: 'think',
+          tool_calls: [{ index: 0, id: 'top', function: { name: 'grep', arguments: '{"pattern":"x"}' } }],
+        },
       }],
       usage: {
         prompt_tokens: 9,
@@ -581,7 +568,7 @@ test('llama client covers timing cache, top-level thinking tokens, and top-level
       },
       timings: { cache_n: 3, prompt_n: 6 },
     }),
-  ]);
+  ]]);
 
   const response = await new LlamaCppClient(http).chat({
     config: protocolConfig,
@@ -589,7 +576,6 @@ test('llama client covers timing cache, top-level thinking tokens, and top-level
     messages: [{ role: 'user', content: 'hello' }],
     tools: [],
     maxTokens: 16,
-    stream: false,
     retryMaxWaitMs: 0,
     allowedToolNames: ['grep'],
   });
@@ -605,22 +591,17 @@ test('llama client covers prompt-token cache fallback, empty response normalizat
   const noReasoningConfig = buildProtocolConfig();
   noReasoningConfig.Runtime.LlamaCpp.Reasoning = null;
   noReasoningConfig.Server.ModelPresets.Presets[0].Reasoning = 'off';
-  const http = new CapturingHttpClient([
-    jsonResponse({
-      choices: [{
-        message: {
-          content: [{ type: 'text' }, { type: 'text', text: 'answer' }],
-          reasoning_content: [{ type: 'text' }, { type: 'text', text: 'trace' }],
-        },
-      }],
+  const http = new CapturingHttpClient([], [
+    [JSON.stringify({
+      choices: [{ delta: { content: 'answer', reasoning_content: 'trace' } }],
       usage: {
         prompt_tokens: 8,
         completion_tokens: 4,
         prompt_tokens_details: { cached_tokens: 3 },
         thinking_tokens: 2,
       },
-    }),
-    jsonResponse({}),
+    })],
+    [JSON.stringify({ choices: [] })],
   ]);
   const client = new LlamaCppClient(http);
 
@@ -630,7 +611,6 @@ test('llama client covers prompt-token cache fallback, empty response normalizat
     messages: [{ role: 'user', content: 'hello' }],
     tools: [],
     maxTokens: 16,
-    stream: false,
     retryMaxWaitMs: 1,
     allowedToolNames: [],
   });
@@ -648,7 +628,6 @@ test('llama client covers prompt-token cache fallback, empty response normalizat
     messages: [{ role: 'user', content: 'hello' }],
     tools: [],
     maxTokens: 16,
-    stream: false,
     retryMaxWaitMs: 0,
     allowedToolNames: [],
   });
@@ -669,7 +648,6 @@ test('chat requests send the active preset reasoning effort', async () => {
     messages: [{ role: 'user', content: 'hello' }],
     tools: [],
     maxTokens: 64,
-    stream: false,
     allowedToolNames: [],
   });
 
@@ -695,7 +673,6 @@ test('chat requests omit reasoning effort when the preset has reasoning off', as
     messages: [{ role: 'user', content: 'hello' }],
     tools: [],
     maxTokens: 64,
-    stream: false,
     allowedToolNames: [],
   });
 

@@ -9,6 +9,7 @@ import { ModelJson } from '../lib/model-json.js';
 import { tryRecordAccurateCharTokenObservation } from '../state/observed-budget.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
 import { getErrorMessage } from '../lib/errors.js';
+import { LlamaHttpError } from '../lib/http-client.js';
 import type { OptionalJsonValue } from '../lib/json-types.js';
 import type {
   JsonObject,
@@ -480,7 +481,6 @@ export async function generateLlamaCppChatResponse(options: {
       messages: toProtocolMessages(options.messages),
       tools,
       maxTokens,
-      stream: false,
       responseFormat: structuredOutputResponseFormat ?? undefined,
       reasoningOverride: options.reasoningOverride,
       allowedToolNames: protocolTools.map((tool) => tool.function.name),
@@ -489,9 +489,11 @@ export async function generateLlamaCppChatResponse(options: {
       slotId: options.slotId,
     });
   } catch (error) {
-    const message = getErrorMessage(error);
+    const message = error instanceof LlamaHttpError
+      ? `HTTP ${error.statusCode}${error.rawText.trim() ? `: ${error.rawText.trim()}` : ''}`
+      : getErrorMessage(error);
     traceLlamaCpp(`generate error elapsed_ms=${Date.now() - startedAt} message=${JSON.stringify(message)}`);
-    if (/^Request timed out after \d+ ms\.$/u.test(message)) {
+    if (/^(?:Request timed out after \d+ ms\.|Operation stream timed out after \d+ ms of inactivity\.)$/u.test(message)) {
       const timeoutMessage = `llama.cpp generate timed out after ${options.timeoutSeconds} seconds.`;
       logLlamaCppError('generate', timeoutMessage);
       throw new Error(timeoutMessage);

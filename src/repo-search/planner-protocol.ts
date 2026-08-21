@@ -416,7 +416,6 @@ export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFla
   maxTokens: number;
   responseSchema?: JsonObject | null;
   responseSchemaName?: string;
-  stream?: boolean;
 }): string {
   const backend = getActiveInferenceBackend(options.config);
   const samplerDefaults = buildPresetRequestDefaults(getActiveModelPreset(options.config));
@@ -446,7 +445,7 @@ export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFla
       ...(options.thinkingEnabled ? { reasoning_effort: samplerDefaults.reasoningEffort } : {}),
     },
     ...(responseFormat ? { response_format: responseFormat } : {}),
-    ...(options.stream ? { stream: true } : {}),
+    stream: true,
     message_template_reserve: options.messageRoles.map((role) => ({
       role: String(role || 'unknown'),
       template: '<|im_start|>role\\ncontent<|im_end|>',
@@ -478,7 +477,6 @@ export type PlannerRequestOptions = Partial<PlannerThinkingFlags> & {
   slotId?: number;
   timeoutMs: number;
   maxTokens: number;
-  stream?: boolean;
   onThinkingDelta?: (accumulatedThinking: string) => void;
   onContentDelta?: (accumulatedContent: string) => void;
   mockResponses?: string[];
@@ -647,7 +645,6 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
         tools: [],
         maxTokens: options.maxTokens,
         slotId: options.slotId,
-        stream: options.stream === true,
         responseFormat: responseFormat ?? undefined,
         reasoningOverride: options.thinkingEnabled ? 'on' : 'off',
         allowedToolNames,
@@ -860,7 +857,6 @@ export async function requestTerminalSynthesis(options: Partial<PlannerThinkingF
   mockResponses?: string[];
   mockResponseIndex?: number;
   logger?: JsonLogger | null;
-  stream?: boolean;
   onContentDelta?: (accumulatedContent: string) => void;
 }): Promise<PlannerActionResponse> {
   return requestRepoSearchPlannerProtocolAction({
@@ -879,7 +875,6 @@ export async function requestTerminalSynthesis(options: Partial<PlannerThinkingF
     stage: 'terminal_synthesis',
     responseSchema: null,
     toolDefinitions: [],
-    stream: options.stream,
     onContentDelta: options.onContentDelta,
   });
 }

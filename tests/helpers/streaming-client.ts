@@ -1,5 +1,6 @@
+import type { ServerResponse } from 'node:http';
 import type { FullJsonResponse, RequestJsonOptions, SseStreamOptions } from '../../src/lib/http-client.js';
-import type { JsonSerializable } from '../../src/lib/json-types.js';
+import { isJsonObject, type JsonObject, type JsonSerializable } from '../../src/lib/json-types.js';
 import type { SseFrame } from '../../src/lib/sse-frame-parser.js';
 import { getDefaultConfigObject } from '../../src/config/defaults.js';
 import type { SiftConfig } from '../../src/config/types.js';
@@ -48,4 +49,31 @@ export class RecordingLogger {
   write(event: Record<string, JsonSerializable>): void {
     this.events.push(event);
   }
+}
+
+/**
+ * Replays a full chat-completion body as SSE deltas so streamed callers see the
+ * same content and usage a blocking body would have carried. All chat requests
+ * stream, so every fake chat-completions endpoint must answer this way.
+ */
+export function sendChatCompletionSse(res: ServerResponse, body: JsonObject): void {
+  const choices = Array.isArray(body.choices) ? body.choices : [];
+  const firstChoice = isJsonObject(choices[0]) ? choices[0] : {};
+  const message = isJsonObject(firstChoice.message) ? firstChoice.message : {};
+  const reasoningContent = typeof message.reasoning_content === 'string' ? message.reasoning_content : '';
+  const content = typeof message.content === 'string' ? message.content : '';
+  const writePacket = (packet: JsonObject): void => { res.write(`data: ${JSON.stringify(packet)}\n\n`); };
+  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+  if (reasoningContent) {
+    writePacket({ choices: [{ index: 0, delta: { reasoning_content: reasoningContent } }] });
+  }
+  if (content) {
+    writePacket({ choices: [{ index: 0, delta: { content } }] });
+  }
+  writePacket({
+    choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+    ...(body.usage === undefined ? {} : { usage: body.usage }),
+  });
+  res.write('data: [DONE]\n\n');
+  res.end();
 }
