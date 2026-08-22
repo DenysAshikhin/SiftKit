@@ -17,6 +17,10 @@ SiftKit intercepts those flows and routes them through a local model first. The 
 - **Free local inference** via `llama.cpp` — no extra API costs for the sift pass.
 - **Single server-owned runtime state** so agent sessions and background tooling observe one consistent activity signal.
 
+## Invoking on Windows
+
+`siftkit` works from PowerShell, cmd, and Git Bash. `npm run refresh-global` rebuilds the CLI, reinstalls it globally, and smoke-checks that Git Bash's sh shim runs (the build prepends `#!/usr/bin/env node` to `dist/cli/main.js`) and that embedded double quotes survive shell argument passing. Quote prompts per your shell — `'task "quoted"'` in PowerShell or Git Bash, `"task \"quoted\""` in cmd.
+
 ## What SiftKit does
 
 ### `siftkit summary` — compress command output

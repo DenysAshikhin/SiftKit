@@ -164,6 +164,9 @@ export async function runCli(options: CliRunOptions): Promise<number> {
         return await runTest(stdout);
       case 'internal':
         return await runInternal({ args: commandArgs, stdout });
+      case 'argv-probe':
+        stdout.write(`${JSON.stringify({ argv: commandArgs })}\n`);
+        return 0;
       default:
         return failUnknownCommand(commandName);
     }

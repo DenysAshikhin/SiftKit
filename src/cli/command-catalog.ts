@@ -13,6 +13,8 @@ const CLI_COMMAND_DEFINITIONS = [
   { name: 'run', exposed: true, serverDependent: false, modelLock: true },
   { name: 'find-files', exposed: true, serverDependent: false, modelLock: false },
   { name: 'internal', exposed: true, serverDependent: false, modelLock: false },
+  /** Echoes argv as JSON; the shim smoke checks use it to prove quotes survive shell boundaries. */
+  { name: 'argv-probe', exposed: true, serverDependent: false, modelLock: false },
   { name: 'install', exposed: false, serverDependent: true, modelLock: false },
   { name: 'test', exposed: false, serverDependent: true, modelLock: false },
   { name: 'eval', exposed: false, serverDependent: true, modelLock: true },

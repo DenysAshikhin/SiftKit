@@ -19,5 +19,9 @@ export function showHelp(stdout: NodeJS.WritableStream): void {
     '',
     'Run `siftkit preset list` to read server-managed CLI presets.',
     '',
+    'On Windows, siftkit works from PowerShell, cmd, and Git Bash. Embedded double quotes',
+    'in prompts are preserved; quote them per your shell. Run `npm run refresh-global` to',
+    'rebuild and refresh the global install.',
+    '',
   ].join('\n'));
 }

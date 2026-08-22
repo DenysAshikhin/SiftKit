@@ -21,7 +21,7 @@ test('blocked public commands are not accessible', async () => {
     assert.match(errorText, /not exposed in this CLI build/u);
     assert.match(
       errorText,
-      /Available commands: summary, repo-search, repo-agent, preset, assistant, run, find-files, internal, help\./u,
+      /Available commands: summary, repo-search, repo-agent, preset, assistant, run, find-files, internal, argv-probe, help\./u,
     );
   }
 });
@@ -44,4 +44,17 @@ test('repo-agent owns start preflight so local control commands stay offline', (
   assert.equal(invocation.command.name, 'repo-agent');
   assert.equal(invocation.command.exposed, true);
   assert.equal(invocation.command.serverDependent, false);
+});
+
+test('argv-probe echoes argv as JSON for shim quote verification', async () => {
+  const stdout = makeCaptureStream();
+  const stderr = makeCaptureStream();
+  const code = await runCli({
+    argv: ['argv-probe', 'quote-probe "with quotes"', 'trailing\slash '],
+    stdout: stdout.stream,
+    stderr: stderr.stream,
+  });
+  assert.equal(code, 0);
+  assert.equal(stderr.read(), '');
+  assert.deepEqual(JSON.parse(stdout.read()), { argv: ['quote-probe "with quotes"', 'trailing\slash '] });
 });

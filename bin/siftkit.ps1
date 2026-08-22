@@ -52,6 +52,32 @@ function Test-SiftSummaryHasExplicitInput {
     $Args -contains '--text' -or $Args -contains '--file'
 }
 
+function ConvertTo-SiftNativeArguments {
+    param(
+        [string[]]$Arguments
+    )
+
+    # PowerShell engines with legacy native argument passing (Windows PowerShell 5.1,
+    # PowerShell < 7.2) wrap whitespace-bearing arguments in quotes but never escape
+    # embedded quotes or trailing backslashes, so node receives a mangled argv.
+    # Pre-escape per the MSVCRT parsing rules. Newer engines with Standard/Windows
+    # argument passing escape correctly themselves and must not be double-escaped.
+    $legacyPassing = -not (Test-Path Variable:\PSNativeCommandArgumentPassing) `
+        -or $PSNativeCommandArgumentPassing -eq 'Legacy'
+    if (-not $legacyPassing) {
+        return ,@($Arguments)
+    }
+
+    $escaped = @(foreach ($argument in $Arguments) {
+        $value = [string]$argument -replace '(\\*)"', '$1$1\"'
+        if ($value -match '\s') {
+            $value = $value -replace '(\\+)$', '$1$1'
+        }
+        $value
+    })
+    ,$escaped
+}
+
 function Invoke-SiftModuleHelper {
     param(
         [Parameter(Mandatory = $true)]
@@ -116,7 +142,8 @@ try {
             $env:SIFTKIT_SUMMARY_COMMAND_EXIT_CODE = '0'
         }
     }
-    & node $cliPath @forwardedArgs
+    $nativeArgs = ConvertTo-SiftNativeArguments -Arguments @($forwardedArgs)
+    & node $cliPath @nativeArgs
     exit $LASTEXITCODE
 }
 finally {

@@ -206,4 +206,51 @@ if ($LASTEXITCODE -ne 0) {
     throw ('Global siftkit repo-search --help failed with exit code {0}.' -f $LASTEXITCODE)
 }
 
+Write-Host 'Verifying double-quote round-trip through the PowerShell shim...'
+$globalPrefix = (npm prefix -g 2>$null | Select-Object -First 1).ToString().Trim()
+$psShimPath = Join-Path $globalPrefix 'siftkit.ps1'
+$probeArgument = 'quote-probe "with quotes"'
+$probeJson = (& $psShimPath argv-probe $probeArgument | Out-String).Trim()
+$probeExitCode = $LASTEXITCODE
+$probeResult = $probeJson | ConvertFrom-Json
+if ($probeExitCode -ne 0 -or @($probeResult.argv).Count -ne 1 -or $probeResult.argv[0] -ne $probeArgument) {
+    throw ('Double-quote round-trip failed through {0}. Output: {1}' -f $psShimPath, $probeJson)
+}
+
+# PATH bash.exe is often the WSL stub; resolve Git Bash from the git install instead.
+function Get-GitBashPath {
+    $gitCommand = Get-Command git.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $gitCommand -or -not $gitCommand.Source) {
+        return $null
+    }
+    $gitRoot = Split-Path (Split-Path $gitCommand.Source -Parent) -Parent
+    $bashPath = Join-Path $gitRoot 'bin\bash.exe'
+    if (Test-Path -LiteralPath $bashPath) {
+        return $bashPath
+    }
+    $null
+}
+
+$gitBashPath = Get-GitBashPath
+if ($gitBashPath) {
+    Write-Host 'Verifying the Git Bash sh shim and its double-quote round-trip...'
+    $shShimBashPath = (Join-Path $globalPrefix 'siftkit') -replace '\\', '/'
+    $bashScriptPath = Join-Path ([System.IO.Path]::GetTempPath()) ('siftkit-shim-probe-{0}.sh' -f [guid]::NewGuid().ToString('N'))
+    try {
+        Set-Content -LiteralPath $bashScriptPath -Encoding Ascii -Value ('"{0}" argv-probe "quote-probe \"with quotes\""' -f $shShimBashPath)
+        $bashProbeJson = (& $gitBashPath $bashScriptPath | Out-String).Trim()
+        $bashProbeExitCode = $LASTEXITCODE
+        $bashProbeResult = $bashProbeJson | ConvertFrom-Json
+        if ($bashProbeExitCode -ne 0 -or $bashProbeResult.argv[0] -ne $probeArgument) {
+            throw ('Git Bash double-quote round-trip failed through {0}. Output: {1}' -f $shShimBashPath, $bashProbeJson)
+        }
+    }
+    finally {
+        Remove-Item -LiteralPath $bashScriptPath -Force -ErrorAction SilentlyContinue
+    }
+}
+else {
+    Write-Host 'Git Bash not found; skipped the Git Bash shim check.'
+}
+
 Write-Host 'Global siftkit public CLI smoke checks passed.'

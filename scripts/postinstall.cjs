@@ -30,18 +30,19 @@ function writeFileIfPossible(filePath, content) {
 
 const shimDir = getShimDir();
 
+// The target script is invoked in-process: arguments cross as .NET strings with no
+// command-line re-encoding, so embedded double quotes survive. A powershell.exe hop
+// here would re-quote them through Windows PowerShell's legacy native argv rules.
 const powershellShim = `#!/usr/bin/env pwsh
 $CliArgs = @($args)
 $basedir=Split-Path $MyInvocation.MyCommand.Definition -Parent
 $target=Join-Path $basedir 'node_modules\\siftkit\\bin\\siftkit.ps1'
-$ret=0
 if ($MyInvocation.ExpectingInput) {
-  $input | & powershell.exe -ExecutionPolicy Bypass -File $target @CliArgs
+  $input | & $target @CliArgs
 } else {
-  & powershell.exe -ExecutionPolicy Bypass -File $target @CliArgs
+  & $target @CliArgs
 }
-$ret=$LASTEXITCODE
-exit $ret
+exit $LASTEXITCODE
 `;
 
 const cmdShim = `@ECHO off
