@@ -62,6 +62,7 @@ import { DuplicateTracker } from './duplicate-tracker.js';
 import { FINISH_VERIFICATION_MAX_CHALLENGES, FinishVerificationGate } from './finish-verification.js';
 import { ForcedFinishController } from './forced-finish.js';
 import { ProgressReporter } from './progress-reporter.js';
+import { evaluatePromptDrift } from './prompt-drift.js';
 import { PromptPreparer } from './prompt-preparer.js';
 import { ReadWindowGovernor } from './read-window-governor.js';
 import {
@@ -458,6 +459,17 @@ export class TaskLoop {
       promptEvalTokens: Number.isFinite(response.promptEvalTokens) ? Number(response.promptEvalTokens) : null,
       ...(response.thinkingBudgetExhausted ? { thinkingBudgetExhausted: true } : {}),
     });
+
+    const drift = evaluatePromptDrift({
+      predictedPromptTokens: prepared.promptTokenCount,
+      serverPromptTokens: response.serverPromptTokens ?? null,
+    });
+    if (drift) {
+      this.options.logger?.write({ kind: 'turn_prompt_drift', taskId: this.task.id, turn, ...drift });
+      if (drift.warn) {
+        this.progress.contextWarning(`prompt drift ${drift.driftTokens} tokens: predicted=${drift.predictedPromptTokens} server=${drift.serverPromptTokens}`);
+      }
+    }
 
     const turnThinkingText = String(response.thinkingText || '').trim();
     if (turnThinkingText) {
