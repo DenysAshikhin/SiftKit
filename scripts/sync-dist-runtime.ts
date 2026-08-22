@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -41,6 +42,21 @@ function writeRuntimePackageMarkers(distRoot: string): void {
   );
 }
 
+const CLI_SHEBANG = '#!/usr/bin/env node\n';
+
+/** npm's sh-shim executes dist/cli/main.js directly; without a shebang, sh parses ESM as shell. */
+export function ensureCliShebang(distRoot: string): void {
+  const mainPath = join(distRoot, 'cli', 'main.js');
+  if (!existsSync(mainPath)) {
+    throw new Error(`Expected CLI entry point at ${mainPath}; build layout changed.`);
+  }
+  const content = readFileSync(mainPath, 'utf8');
+  if (content.startsWith(CLI_SHEBANG)) {
+    return;
+  }
+  writeFileSync(mainPath, `${CLI_SHEBANG}${content}`, 'utf8');
+}
+
 function main(): void {
   const repoRoot = resolve(import.meta.dirname, '..');
   const distRoot = join(repoRoot, 'dist');
@@ -50,6 +66,7 @@ function main(): void {
   }
   syncDistRuntime(join(distRoot, 'src'), distRoot);
   writeRuntimePackageMarkers(distRoot);
+  ensureCliShebang(distRoot);
 }
 
 const isDirectExecution = process.argv[1] !== undefined
