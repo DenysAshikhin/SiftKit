@@ -56,6 +56,7 @@ test('catalog lists every exposed command in definition order', () => {
     'run',
     'find-files',
     'internal',
+    'argv-probe',
   ]);
 });
 

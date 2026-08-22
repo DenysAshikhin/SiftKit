@@ -591,7 +591,7 @@ test('ModelJson distinguishes an empty finish output from an extra finish key', 
 test('ModelJson names the action and the valid alternatives for an unknown action', () => {
   assert.throws(
     () => parseRepoSearchPlannerAction('{"action":"read_lines","command":"rg x"}', ['ls', 'grep']),
-    /unknown planner action "read_lines"; valid actions: finish, grep, ls, tool_batch/u,
+    /unknown planner action "read_lines"; valid actions: finish, grep, ls, progress, tool_batch/u,
   );
 });
 

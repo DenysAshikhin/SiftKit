@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { ensureCliShebang } from '../scripts/sync-dist-runtime.js';
+import { createManagedTempDir } from './helpers/temp-dirs.js';
 
 test('ensureCliShebang prepends the node shebang exactly once', () => {
-  const distRoot = mkdtempSync(join(tmpdir(), 'siftkit-shebang-'));
+  const distRoot = createManagedTempDir('siftkit-shebang-');
   mkdirSync(join(distRoot, 'cli'), { recursive: true });
   const mainPath = join(distRoot, 'cli', 'main.js');
   writeFileSync(mainPath, "import { runCli } from './dispatch.js';\n", 'utf8');
@@ -21,7 +21,7 @@ test('ensureCliShebang prepends the node shebang exactly once', () => {
 });
 
 test('ensureCliShebang fails loudly when the CLI entry point is missing', () => {
-  const distRoot = mkdtempSync(join(tmpdir(), 'siftkit-shebang-missing-'));
+  const distRoot = createManagedTempDir('siftkit-shebang-missing-');
 
   assert.throws(() => ensureCliShebang(distRoot), /Expected CLI entry point/u);
 });
