@@ -51,14 +51,16 @@ class StubStatusEngineService extends StatusEngineService {
 
   override async executeRepoSearch(request: RepoSearchExecutionRequest): Promise<RepoSearchExecutionResult> {
     this.request = request;
-    request.progressWriter?.write({ kind: 'context_warning', warningText: 'autoload skipped' });
-    request.progressWriter?.write({ kind: 'thinking', thinkingText: 'inspect files' });
+    request.progressWriter?.write({ kind: 'context_warning', warningText: 'autoload skipped', elapsedMs: 0 });
+    request.progressWriter?.write({ kind: 'thinking', thinkingText: 'inspect files', turn: 1, maxTurns: 7 });
     request.progressWriter?.write({
       kind: 'tool_start',
       toolCallId: 'tool-1',
       turn: 1,
       maxTurns: 7,
       command: 'rg -n "target" src',
+      promptTokenCount: 1_200,
+      elapsedMs: 10,
     });
     request.progressWriter?.write({
       kind: 'tool_result',
@@ -68,6 +70,10 @@ class StubStatusEngineService extends StatusEngineService {
       command: 'rg -n "target" src',
       exitCode: 0,
       outputSnippet: 'src/main.ts:4:target',
+      outputTokens: 8,
+      outputTokensEstimated: false,
+      promptTokenCount: 1_200,
+      elapsedMs: 20,
     });
     if (this.failure) {
       throw this.failure;

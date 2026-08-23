@@ -168,14 +168,14 @@ export function buildStatusRequestLogBody(input: StatusRequestLogInput): ServerL
 import type { RepoSearchProgressEvent } from '../repo-search/types.js';
 export type { RepoSearchProgressEvent };
 
-function normalizeRepoSearchCommandForLog(command: string | undefined): string {
-  return String(command || '').replace(/\s+/gu, ' ').trim();
+function normalizeRepoSearchCommandForLog(command: string): string {
+  return command.replace(/\s+/gu, ' ').trim();
 }
 
 /** The model's rationale is free text, so it is flattened and clamped to keep the line scannable. */
 const APPROVAL_REASON_MAX_CHARS = 160;
 
-function normalizeApprovalReasonForLog(reason: string | undefined): string {
+function normalizeApprovalReasonForLog(reason: string): string {
   const collapsed = normalizeRepoSearchCommandForLog(reason);
   return collapsed.length > APPROVAL_REASON_MAX_CHARS
     ? `${collapsed.slice(0, APPROVAL_REASON_MAX_CHARS - 1)}…`
@@ -183,60 +183,61 @@ function normalizeApprovalReasonForLog(reason: string | undefined): string {
 }
 
 /** Progress kinds the server prints; every other kind is dashboard- and stream-only. */
-const SERVER_LOGGED_PROGRESS_KINDS = new Set(['tool_start', 'context_warning', 'approval_auto', 'progress_update']);
+const SERVER_LOGGED_PROGRESS_KINDS = new Set<RepoSearchProgressEvent['kind']>([
+  'tool_start',
+  'context_warning',
+  'approval_auto',
+  'progress_update',
+]);
 
 export function isServerLoggedProgressEvent(event: RepoSearchProgressEvent): boolean {
   return SERVER_LOGGED_PROGRESS_KINDS.has(event.kind);
 }
 
-export function buildRepoSearchProgressLogBody(event: RepoSearchProgressEvent | null | undefined): ServerLogBody | null {
-  const maxTurnsLabel = Number.isFinite(Number(event?.maxTurns))
-    ? String(Math.max(1, Math.trunc(Number(event?.maxTurns))))
-    : '?';
-  const turnLabel = Number.isFinite(Number(event?.turn))
-    ? `t${Math.max(1, Math.trunc(Number(event?.turn)))}/${maxTurnsLabel}`
-    : 't?/?';
-  const promptTokenCount = Number.isFinite(Number(event?.promptTokenCount))
-    ? formatInteger(Math.max(0, Math.trunc(Number(event?.promptTokenCount))))
-    : 'null';
-  const elapsedMs = Number.isFinite(Number(event?.elapsedMs))
-    ? Math.max(0, Math.trunc(Number(event?.elapsedMs)))
-    : 0;
-  const kind = event?.kind;
-  if (kind === 'context_warning') {
-    return {
-      event: 'context_warning',
-      fields: event?.warningText ?? 'startup context was skipped',
-      severity: 'warning',
-    };
+function turnLabel(event: { turn: number; maxTurns: number }): string {
+  return `t${Math.max(1, Math.trunc(event.turn))}/${Math.max(1, Math.trunc(event.maxTurns))}`;
+}
+
+export function buildRepoSearchProgressLogBody(event: RepoSearchProgressEvent): ServerLogBody | null {
+  if (event.kind === 'context_warning') {
+    return { event: 'context_warning', fields: event.warningText, severity: 'warning' };
   }
-  if (kind === 'approval_auto') {
-    const verdict = String(event?.verdict || 'unknown');
-    const toolName = normalizeRepoSearchCommandForLog(event?.toolName);
-    const reason = normalizeApprovalReasonForLog(event?.reason);
+  if (event.kind === 'approval_auto') {
+    const toolName = normalizeRepoSearchCommandForLog(event.toolName);
+    const reason = normalizeApprovalReasonForLog(event.reason);
     return {
       event: 'auto-approval',
-      fields: `${turnLabel}  ${verdict}${toolName ? `: ${toolName}` : ''}${reason ? ` — ${reason}` : ''}`,
+      // An approval carries no maxTurns, so the turn stands alone here.
+      fields: `t${Math.max(1, Math.trunc(event.turn))}  ${event.verdict}${toolName ? `: ${toolName}` : ''}${reason ? ` — ${reason}` : ''}`,
       severity: 'warning',
     };
   }
-  if (kind === 'progress_update') {
-    const text = normalizeRepoSearchCommandForLog(event?.progressText);
+  if (event.kind === 'progress_update') {
     return {
       event: 'progress',
-      fields: `${turnLabel}  elapsed=${formatElapsed(elapsedMs)}  "${text}"`,
+      fields: `${turnLabel(event)}  elapsed=${formatElapsed(event.elapsedMs)}  "${normalizeRepoSearchCommandForLog(event.progressText)}"`,
       severity: 'normal',
     };
   }
-  const fields = `${turnLabel}  prompt=${promptTokenCount}tok  elapsed=${formatElapsed(elapsedMs)}`;
-  if (kind === 'llm_start' || kind === 'llm_end') {
-    return { event: kind, fields, severity: 'normal' };
+  if (event.kind === 'llm_start' || event.kind === 'llm_end') {
+    return {
+      event: event.kind,
+      fields: `${turnLabel(event)}  prompt=${formatInteger(event.promptTokenCount)}tok  elapsed=${formatElapsed(event.elapsedMs)}`,
+      severity: 'normal',
+    };
   }
-  const commandText = normalizeRepoSearchCommandForLog(event?.command);
-  if (!commandText) {
-    return null;
+  if (event.kind === 'tool_start' || event.kind === 'tool_result') {
+    const commandText = normalizeRepoSearchCommandForLog(event.command);
+    if (!commandText) {
+      return null;
+    }
+    return {
+      event: 'command',
+      fields: `${turnLabel(event)}  prompt=${formatInteger(event.promptTokenCount)}tok  elapsed=${formatElapsed(event.elapsedMs)}  ${commandText}`,
+      severity: 'normal',
+    };
   }
-  return { event: 'command', fields: `${fields}  ${commandText}`, severity: 'normal' };
+  return null;
 }
 
 export {

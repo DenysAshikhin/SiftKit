@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
 import { CliApprovalPrompter } from '../src/cli/approval-prompter.js';
 import { CLIENT_ABORT_MESSAGE } from '../src/repo-search/engine/approval-gate.js';
+import type { ApprovalRequestProgressEvent } from '../src/repo-search/types.js';
 import { makeCaptureStream } from './_test-helpers.js';
 
 function makePrompter(): { prompter: CliApprovalPrompter; input: PassThrough; output: ReturnType<typeof makeCaptureStream> } {
@@ -11,12 +12,12 @@ function makePrompter(): { prompter: CliApprovalPrompter; input: PassThrough; ou
   return { prompter: new CliApprovalPrompter({ input, output: output.stream }), input, output };
 }
 
-const EVENT = {
+// An approval_request carries no maxTurns, so the prompt shows the turn alone.
+const EVENT: ApprovalRequestProgressEvent = {
   kind: 'approval_request',
   requestId: 'r1',
   approvalId: 'a1',
   turn: 3,
-  maxTurns: 24,
   toolName: 'write',
   command: 'write path=src/x.ts',
   reviewPayload: '{\n  "content": "destructive-sentinel"\n}',
@@ -28,7 +29,7 @@ test('a approves', async () => {
   input.write('a\n');
   assert.deepEqual(await pending, { kind: 'approve' });
   const rendered = output.read();
-  assert.match(rendered, /t3\/24 wants to run: write path=src\/x\.ts/u);
+  assert.match(rendered, /t3 wants to run: write path=src\/x\.ts/u);
   assert.match(rendered, /Proposed edit\/write payload:/u);
   assert.equal((rendered.match(/destructive-sentinel/gu) ?? []).length, 1);
 });

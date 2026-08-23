@@ -33,7 +33,7 @@ async function runImageReadTurnRoles(repoRoot: string, paths: string[]): Promise
     1,
     paths.map((imagePath) => ({ action: 'tool' as const, tool_name: 'read', args: { path: imagePath } })),
     '',
-    0,
+    { reported: 0, budgeted: 0 },
     false,
   );
   return transcript.messageRoles();

@@ -1,0 +1,72 @@
+<h2>Progress action: how should the persistent update render in the live turn?</h2>
+<p class="subtitle">Both variants keep your ordering: Internal Logic (collapsed) → the 3 live thinking blocks → the latest progress update. Each new progress replaces the previous one in place. Click the variant you prefer.</p>
+
+<style>
+  .sk-turn { background: #121a24; border: 1px solid #24303e; border-radius: 10px; padding: 8px 12px; font-size: 0.81rem; color: #d7e2ee; max-width: 100%; text-align: left; }
+  .sk-who { display: flex; justify-content: space-between; gap: 10px; font-size: 0.62rem; letter-spacing: 0.07em; text-transform: uppercase; color: #7d8fa3; margin-bottom: 3px; }
+  .sk-il { margin-top: 8px; font-size: 0.74rem; color: #7d8fa3; }
+  .sk-il .sk-sum { cursor: default; }
+  .sk-think { border-left: 2px solid #3a4c61; color: #7d8fa3; padding: 2px 0 2px 10px; font-size: 0.74rem; margin-top: 8px; font-style: italic; white-space: pre-wrap; }
+  .sk-dot { width: 8px; height: 8px; border-radius: 50%; background: #f0a94b; display: inline-block; flex: none; animation: skpulse 1.6s ease-in-out infinite; }
+  @keyframes skpulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .sk-bar { margin-top: 10px; display: flex; align-items: center; gap: 8px; border: 1px solid #2c4a3f; background: #14231d; border-left: 3px solid #35d3a2; border-radius: 8px; padding: 6px 10px; font-size: 0.76rem; }
+  .sk-bar .sk-label { font-size: 0.6rem; letter-spacing: 0.08em; text-transform: uppercase; color: #35d3a2; flex: none; }
+  .sk-bar .sk-meta { margin-left: auto; flex: none; font-family: ui-monospace, Consolas, monospace; font-size: 0.64rem; color: #7d8fa3; }
+  .sk-bubble { margin-top: 10px; border: 1px solid #24303e; border-radius: 10px; background: #17222e; padding: 7px 11px; font-size: 0.79rem; }
+  .sk-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 0.6rem; letter-spacing: 0.08em; text-transform: uppercase; color: #35d3a2; border: 1px solid #2c4a3f; border-radius: 999px; padding: 1px 8px; margin-bottom: 5px; }
+  .sk-term { background: #0b1016; border: 1px solid #24303e; border-radius: 8px; padding: 10px 12px; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.68rem; color: #93a7bb; overflow-x: auto; white-space: pre; line-height: 1.7; }
+  .sk-term .hl { color: #35d3a2; }
+  .sk-term .dim2 { color: #55677a; }
+</style>
+
+<div class="cards">
+  <div class="card" data-choice="bar" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0d141c; padding:14px;">
+      <div class="sk-turn">
+        <div class="sk-who"><span>SiftKit · live</span><span>t12/100 · 119,884 tok</span></div>
+        <div class="sk-il">▸ Internal Logic (9)</div>
+        <div class="sk-think">The failing test proves the RED phase. Now ChatTab.tsx needs to render the stack during thinking-only turns…</div>
+        <div class="sk-think">Editing chatTurns.ts so the last three thinking messages land on the live stack instead of Internal Logic…</div>
+        <div class="sk-think">Build passed — run the dashboard test file next to confirm GREEN…</div>
+        <div class="sk-bar">
+          <span class="sk-dot"></span>
+          <span class="sk-label">Progress</span>
+          <span>Task 1 step 3/5 (GREEN): implementing live-stack render in ChatTab.tsx; tests next</span>
+          <span class="sk-meta">t12 · 14:19:42</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Status bar</h3>
+      <p>A slim pinned bar at the bottom of the live turn: pulsing dot, PROGRESS label, the update text, turn + time on the right. Visually distinct from chat content — reads as run state, not conversation. Superseded updates are discarded (they remain in the run log).</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="bubble" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0d141c; padding:14px;">
+      <div class="sk-turn">
+        <div class="sk-who"><span>SiftKit · live</span><span>t12/100 · 119,884 tok</span></div>
+        <div class="sk-il">▸ Internal Logic (11)</div>
+        <div class="sk-think">The failing test proves the RED phase. Now ChatTab.tsx needs to render the stack during thinking-only turns…</div>
+        <div class="sk-think">Editing chatTurns.ts so the last three thinking messages land on the live stack instead of Internal Logic…</div>
+        <div class="sk-think">Build passed — run the dashboard test file next to confirm GREEN…</div>
+        <div class="sk-bubble">
+          <div><span class="sk-badge"><span class="sk-dot"></span>progress · t12 · 14:19:42</span></div>
+          <div>Task 1 step 3/5 (GREEN): implementing live-stack render in ChatTab.tsx; tests next</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Message bubble</h3>
+      <p>The update renders as a message bubble with a small progress badge, sitting where the final answer will land. Feels like part of the conversation. Superseded updates fold into Internal Logic (note the count: 11 vs 9), so the full narration history stays reviewable in the turn.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>CLI rendering (same in both variants — for confirmation, not a choice)</h3>
+  <p class="subtitle">Each progress action prints one line in the existing event-line format, like the periodic activity summaries:</p>
+  <div class="sk-term"><span class="dim2">14:19:20  rs d5df5fc7  command   t77/100  prompt=114,033tok  elapsed=12:55  edit path="src/llm-protocol/types.ts" edits=1</span>
+<span class="hl">14:19:42  rs d5df5fc7  progress  t78/100  elapsed=13:17  "Task 1 step 3/5 (GREEN): implementing live-stack render in ChatTab.tsx; tests next"</span>
+<span class="dim2">14:19:49  rs d5df5fc7  command   t78/100  prompt=114,218tok  elapsed=13:24  run command="npm run build:test"</span></div>
+</div>

@@ -17,7 +17,7 @@ const controller: SummaryPlannerLoopController = {
   prepareTurn: async (turnNumber) => ({
     outcome: 'continue',
     turnNumber,
-    promptTokenCount: 0,
+    promptTokens: { reported: 0, budgeted: 0 },
     maxOutputTokens: 0,
     messages: [],
     toolDefinitions: [],

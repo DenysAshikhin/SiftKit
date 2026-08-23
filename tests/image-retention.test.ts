@@ -339,7 +339,7 @@ test('live transcript ages images out in place and releases the dropped path gua
       { action: 'tool', tool_name: 'read', args: { path: 'docs/flow.png' } },
     ],
     '',
-    0,
+    { reported: 0, budgeted: 0 },
     false,
   );
 
@@ -355,7 +355,7 @@ test('live transcript ages images out in place and releases the dropped path gua
     2,
     [{ action: 'tool', tool_name: 'read', args: { path: 'docs/arch.png' } }],
     '',
-    0,
+    { reported: 0, budgeted: 0 },
     false,
   );
 

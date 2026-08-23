@@ -1,4 +1,5 @@
 import type { SiftConfig } from '../../config/index.js';
+import type { TurnPromptTokens } from '../../agent-loop/types.js';
 import { getDynamicMaxOutputTokens } from '../../lib/dynamic-output-cap.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
 import { estimateTokenCount } from '../../lib/token-estimate.js';
@@ -10,9 +11,9 @@ import {
   type PlannerThinkingFlags,
 } from '../planner-protocol.js';
 import { IncrementalTokenCounter } from '../incremental-token-counter.js';
-import { preflightPlannerPromptBudget } from '../prompt-budget.js';
+import { preflightPlannerPromptBudget, type PreflightResult } from '../prompt-budget.js';
 import type { JsonLogger } from '../types.js';
-import { ProgressReporter } from './progress-reporter.js';
+import { ProgressReporter, type TokenizeDoneInfo } from './progress-reporter.js';
 import { TranscriptManager } from './transcript-manager.js';
 import { TranscriptCompactor } from './transcript-compactor.js';
 import { TurnBudget } from './turn-budget.js';
@@ -28,8 +29,13 @@ function estimateReasoningTokens(config: SiftConfig, messages: readonly ChatMess
   return tokens;
 }
 
+/** Progress shows the prompt the model receives, so the envelope reserve is dropped here too. */
+function toTokenizeDoneInfo(preflight: PreflightResult): TokenizeDoneInfo {
+  return { ...preflight, promptTokenCount: preflight.transcriptPromptTokenCount };
+}
+
 export type PreparedTurnBudget = {
-  promptTokenCount: number;
+  promptTokens: TurnPromptTokens;
   maxOutputTokens: number;
   /** The raw summary text when this turn compacted, else null. */
   compactionSummary: string | null;
@@ -109,9 +115,9 @@ export class PromptPreparer {
       overflowTokens: preflight.overflowTokens,
       ok: preflight.ok,
     });
-    progress.preflightDone(turn, prompt.length, preflight.promptTokenCount);
+    progress.preflightDone(turn, prompt.length, preflight.transcriptPromptTokenCount);
     if (preflight.tokenizationAttempted) {
-      progress.tokenizeDone(turn, prompt.length, preflight);
+      progress.tokenizeDone(turn, prompt.length, toTokenizeDoneInfo(preflight));
     }
     let maxOutputTokens = getDynamicMaxOutputTokens({
       config: this.options.config,
@@ -173,7 +179,7 @@ export class PromptPreparer {
         reserveTokenCounter: this.reserveTokenCounter,
       });
       if (afterCompaction.tokenizationAttempted) {
-        progress.tokenizeDone(turn, prompt.length, afterCompaction);
+        progress.tokenizeDone(turn, prompt.length, toTokenizeDoneInfo(afterCompaction));
       }
       compactionSpan?.end({
         afterPromptTokenCount: afterCompaction.promptTokenCount,
@@ -228,7 +234,10 @@ export class PromptPreparer {
     }
 
     return {
-      promptTokenCount: preflight.promptTokenCount,
+      promptTokens: {
+        reported: preflight.transcriptPromptTokenCount,
+        budgeted: preflight.promptTokenCount,
+      },
       maxOutputTokens,
       compactionSummary,
       nextMockResponseIndex,

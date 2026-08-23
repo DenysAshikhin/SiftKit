@@ -34,8 +34,6 @@ export type PlannerActionResponse = {
   nextMockResponseIndex?: number;
   promptCacheTokens?: number | null;
   promptEvalTokens?: number | null;
-  /** The stream's usage.prompt_tokens — the server's own count of the prompt it received. */
-  serverPromptTokens?: number;
   promptEvalDurationMs?: number | null;
   generationDurationMs?: number | null;
   speculativeAcceptedTokens?: number | null;
@@ -735,7 +733,6 @@ export async function requestRepoSearchPlannerProtocolAction(options: PlannerReq
     mockExhausted: false,
     promptCacheTokens: response.usage.promptCacheTokens,
     promptEvalTokens: response.usage.promptEvalTokens,
-    ...(typeof response.usage.promptTokens === 'number' ? { serverPromptTokens: response.usage.promptTokens } : {}),
     promptEvalDurationMs: response.usage.promptEvalDurationMs ?? null,
     generationDurationMs: response.usage.generationDurationMs ?? null,
     speculativeAcceptedTokens: response.usage.speculativeAcceptedTokens ?? null,

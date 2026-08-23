@@ -64,7 +64,7 @@ test('executeBatch records one command entry per tool action so results stay ali
       { action: 'tool', tool_name: 'ls', args: { path: '.' } },
     ],
     '',
-    0,
+    { reported: 0, budgeted: 0 },
     false,
   );
   assert.equal(commands.length, 2);
@@ -82,7 +82,7 @@ test('non-image command records omit optional image fields from their JSON shape
     1,
     [{ action: 'tool', tool_name: 'ls', args: { path: '.' } }],
     '',
-    0,
+    { reported: 0, budgeted: 0 },
     false,
   );
 
@@ -101,7 +101,7 @@ test('an executed command entry records the turn prompt token count', async () =
     1,
     [{ action: 'tool', tool_name: 'ls', args: { path: '.' } }],
     '',
-    4321,
+    { reported: 4321, budgeted: 4321 },
     false,
   );
 
@@ -127,7 +127,7 @@ test('a git action whose command omits the git token is normalized instead of re
   const root = createManagedTempDir('siftkit-git-prefix-');
   const { processor, commands, counters } = makeProcessor(root, ['git']);
 
-  await processor.executeBatch(1, [{ action: 'tool', tool_name: 'git', args: { command: 'status' } }], '', 0, false);
+  await processor.executeBatch(1, [{ action: 'tool', tool_name: 'git', args: { command: 'status' } }], '', { reported: 0, budgeted: 0 }, false);
 
   assert.equal(counters.invalidResponses, 0);
   assert.equal(commands[0]?.command, 'git status');
@@ -150,7 +150,7 @@ test('a valid tool action decays the invalid-response counter', async () => {
   const { processor, counters } = makeProcessor(root);
   counters.invalidResponses = 2;
 
-  await processor.executeBatch(1, [{ action: 'tool', tool_name: 'ls', args: { path: '.' } }], '', 0, false);
+  await processor.executeBatch(1, [{ action: 'tool', tool_name: 'ls', args: { path: '.' } }], '', { reported: 0, budgeted: 0 }, false);
 
   assert.equal(counters.invalidResponses, 1);
 });
@@ -168,7 +168,7 @@ test('an invalid action followed by two valid ones leaves the counter at zero', 
       { action: 'tool', tool_name: 'ls', args: { path: '.' } },
     ],
     '',
-    0,
+    { reported: 0, budgeted: 0 },
     false,
   );
 
@@ -184,7 +184,7 @@ test('a valid action whose command exits non-zero still decays the counter', asy
     1,
     [{ action: 'tool', tool_name: 'git', args: { command: 'git log --oneline -1' } }],
     '',
-    0,
+    { reported: 0, budgeted: 0 },
     false,
   );
 
@@ -205,7 +205,7 @@ test('a duplicate-rejected action does not decay the invalid-response counter', 
       { action: 'tool', tool_name: 'ls', args: { path: '.' } },
     ],
     '',
-    0,
+    { reported: 0, budgeted: 0 },
     false,
   );
 
@@ -224,7 +224,7 @@ test('malformed actions alternating with safety-rejected ones still hit the inva
     actions.push({ action: 'tool', tool_name: 'git', args: { command: `git push origin branch-${index}` } });
   }
 
-  await processor.executeBatch(1, actions, '', 0, false);
+  await processor.executeBatch(1, actions, '', { reported: 0, budgeted: 0 }, false);
 
   assert.equal(counters.invalidResponses, 3);
   assert.equal(counters.reason, 'invalid_response_limit');
@@ -249,7 +249,7 @@ test('a parallel batch spends no more tool budget in total than a single call is
     1,
     [{ action: 'tool', tool_name: 'grep', args: { pattern: 'alpha', path: '.' } }],
     '',
-    0,
+    { reported: 0, budgeted: 0 },
     false,
   );
   const singleCallToolTokens = single.tokenUsage.snapshot().toolTokens;
@@ -268,7 +268,7 @@ test('a parallel batch spends no more tool budget in total than a single call is
       { action: 'tool', tool_name: 'grep', args: { pattern: 'gamma', path: '.' } },
     ],
     '',
-    0,
+    { reported: 0, budgeted: 0 },
     false,
   );
   assert.equal(batch.commands.length, 3);
@@ -303,7 +303,7 @@ test('every member of a batch is capped at the same share regardless of position
       { action: 'tool', tool_name: 'grep', args: { pattern: 'gamma', path: '.' } },
     ],
     '',
-    0,
+    { reported: 0, budgeted: 0 },
     false,
   );
 
@@ -322,9 +322,9 @@ test('a downgraded full run may be retried once despite duplicate screening', as
   const { processor, commands } = makeProcessor(root, ['run'], REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT);
   const runAction: ToolAction = { action: 'tool', tool_name: 'run', args: { command: 'npm test', outputMode: 'full' } };
 
-  await processor.executeBatch(1, [{ ...runAction, args: { ...runAction.args } }], '', 0, false);
-  await processor.executeBatch(2, [{ ...runAction, args: { ...runAction.args } }], '', 0, false);
-  await processor.executeBatch(3, [{ ...runAction, args: { ...runAction.args } }], '', 0, false);
+  await processor.executeBatch(1, [{ ...runAction, args: { ...runAction.args } }], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(2, [{ ...runAction, args: { ...runAction.args } }], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(3, [{ ...runAction, args: { ...runAction.args } }], '', { reported: 0, budgeted: 0 }, false);
 
   assert.equal(commands.length, 3);
   assert.equal(commands[0]?.safe, true);
@@ -356,8 +356,8 @@ test('a mocked full validation run uses the same downgrade and retry shaping', a
     args: { command: 'npm test', outputMode: 'full' },
   };
 
-  await processor.executeBatch(1, [validation], '', 0, false);
-  await processor.executeBatch(2, [validation], '', 0, false);
+  await processor.executeBatch(1, [validation], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(2, [validation], '', { reported: 0, budgeted: 0 }, false);
 
   assert.match(commands[0]?.output ?? '', /Notice: outputMode "full"/u);
   assert.doesNotMatch(commands[0]?.output ?? '', /validation-line-1\b/u);
@@ -385,10 +385,10 @@ test('a duplicate-rejected intervening run forfeits the pending full retry', asy
     args: { command: 'npm test', outputMode: 'full' },
   };
 
-  await processor.executeBatch(1, [stable], '', 0, false);
-  await processor.executeBatch(2, [validation], '', 0, false);
-  await processor.executeBatch(3, [stable, stable], '', 0, false);
-  await processor.executeBatch(4, [validation], '', 0, false);
+  await processor.executeBatch(1, [stable], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(2, [validation], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(3, [stable, stable], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(4, [validation], '', { reported: 0, budgeted: 0 }, false);
 
   assert.equal(commands[3]?.reason, 'duplicate command');
   assert.match(commands[4]?.output ?? '', /Notice: outputMode "full"/u);
@@ -421,9 +421,9 @@ test('an approval-denied granted retry is consumed', async () => {
     args: { command: 'npm test', outputMode: 'full' },
   };
 
-  await processor.executeBatch(1, [validation], '', 0, false);
-  await processor.executeBatch(2, [validation], '', 0, false);
-  await processor.executeBatch(3, [validation], '', 0, false);
+  await processor.executeBatch(1, [validation], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(2, [validation], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(3, [validation], '', { reported: 0, budgeted: 0 }, false);
 
   assert.match(commands[1]?.reason ?? '', /test denial/u);
   assert.equal(commands[2]?.reason, 'duplicate command');
@@ -444,9 +444,9 @@ test('a non-run tool between downgrade and retry preserves the full grant', asyn
     args: { command: 'npm test', outputMode: 'full' },
   };
 
-  await processor.executeBatch(1, [validation], '', 0, false);
-  await processor.executeBatch(2, [{ action: 'tool', tool_name: 'ls', args: {} }], '', 0, false);
-  await processor.executeBatch(3, [validation], '', 0, false);
+  await processor.executeBatch(1, [validation], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(2, [{ action: 'tool', tool_name: 'ls', args: {} }], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(3, [validation], '', { reported: 0, budgeted: 0 }, false);
 
   assert.match(commands[2]?.output ?? '', /validation-line-1\b/u);
   assert.doesNotMatch(commands[2]?.output ?? '', /Notice: outputMode "full"/u);

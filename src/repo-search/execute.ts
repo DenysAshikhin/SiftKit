@@ -37,6 +37,7 @@ import type {
 } from './types.js';
 import { PresetSystemContextBuilder } from '../preset-system-context.js';
 import { PresetSystemPromptComposer } from '../preset-system-prompt.js';
+import { contextWarningEvent } from '../lib/operation-stream.js';
 import { PresetCatalog } from '../preset-catalog.js';
 import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js';
 
@@ -85,12 +86,11 @@ export function buildRepoSearchPreflightLogBody(summary: RepoSearchPreflightSumm
   return { event: 'preflight', fields, ...alert, severity: 'normal' };
 }
 
-function logRepoSearchLifecycleEvent(requestId: string, event: RepoSearchProgressEvent, startedAt: number): void {
-  const elapsedMs = Number.isFinite(event.elapsedMs) ? Math.max(0, Math.trunc(Number(event.elapsedMs))) : Date.now() - startedAt;
+function logRepoSearchLifecycleEvent(requestId: string, event: RepoSearchProgressEvent): void {
   if (event.kind === 'context_warning') {
     serverLogger.emitBody('rs', requestId, {
       event: 'context_warning',
-      fields: event.warningText ?? 'startup context was skipped',
+      fields: event.warningText,
       severity: 'warning',
     });
   } else if (event.kind === 'model_inventory_start') {
@@ -98,50 +98,48 @@ function logRepoSearchLifecycleEvent(requestId: string, event: RepoSearchProgres
       scope: 'rs',
       id: requestId,
       event: 'inventory_start',
-      fields: `elapsed=${formatElapsed(elapsedMs)}`,
+      fields: `elapsed=${formatElapsed(event.elapsedMs)}`,
     });
   } else if (event.kind === 'model_inventory_done') {
     serverLogger.event({
       scope: 'rs',
       id: requestId,
       event: 'inventory',
-      fields: `models=${Math.max(0, Math.trunc(Number(event.modelCount || 0)))}  elapsed=${formatElapsed(elapsedMs)}`,
+      fields: `models=${event.modelCount}  elapsed=${formatElapsed(event.elapsedMs)}`,
     });
   } else if (event.kind === 'preflight_start') {
     serverLogger.debug({
       scope: 'rs',
       id: requestId,
       event: 'preflight_start',
-      fields: `t${event.turn ?? '?'}  prompt_chars=${Math.max(0, Math.trunc(Number(event.promptChars || 0)))}  `
-        + `elapsed=${formatElapsed(elapsedMs)}`,
+      fields: `t${event.turn}  prompt_chars=${event.promptChars}  elapsed=${formatElapsed(event.elapsedMs)}`,
     });
   } else if (event.kind === 'preflight_done') {
     serverLogger.debug({
       scope: 'rs',
       id: requestId,
       event: 'preflight_done',
-      fields: `t${event.turn ?? '?'}  prompt=${formatInteger(Math.max(0, Math.trunc(Number(event.promptTokenCount || 0))))}tok  `
-        + `elapsed=${formatElapsed(elapsedMs)}`,
+      fields: `t${event.turn}  prompt=${formatInteger(event.promptTokenCount)}tok  elapsed=${formatElapsed(event.elapsedMs)}`,
     });
   } else if (event.kind === 'preflight_tokenize_start') {
     serverLogger.debug({
       scope: 'rs',
       id: requestId,
       event: 'preflight_tokenize_start',
-      fields: `t${event.turn ?? '?'}  prompt_chars=${Math.max(0, Math.trunc(Number(event.promptChars || 0)))}  `
-        + `timeout_ms=${Math.max(0, Math.trunc(Number(event.tokenizeTimeoutMs || 0)))}  `
-        + `retry_max_wait_ms=${Math.max(0, Math.trunc(Number(event.tokenizeRetryMaxWaitMs || 0)))}`,
+      fields: `t${event.turn}  prompt_chars=${event.promptChars}  `
+        + `timeout_ms=${event.tokenizeTimeoutMs}  `
+        + `retry_max_wait_ms=${event.tokenizeRetryMaxWaitMs}`,
     });
   } else if (event.kind === 'preflight_tokenize_done') {
     const body = buildRepoSearchPreflightLogBody({
-      turn: Math.max(1, Math.trunc(Number(event.turn || 1))),
-      maxTurns: Math.max(1, Math.trunc(Number(event.maxTurns || 1))),
-      promptTokenCount: Math.max(0, Math.trunc(Number(event.promptTokenCount || 0))),
-      tokenizeElapsedMs: Math.max(0, Math.trunc(Number(event.tokenizeElapsedMs || 0))),
+      turn: event.turn,
+      maxTurns: event.maxTurns,
+      promptTokenCount: event.promptTokenCount,
+      tokenizeElapsedMs: event.tokenizeElapsedMs ?? 0,
       tokenCountSource: event.tokenCountSource ?? 'estimate',
-      tokenizeRetryCount: Math.max(0, Math.trunc(Number(event.tokenizeRetryCount || 0))),
-      tokenizeStatus: String(event.tokenizeStatus || 'unknown'),
-      elapsedMs,
+      tokenizeRetryCount: event.tokenizeRetryCount ?? 0,
+      tokenizeStatus: event.tokenizeStatus ?? 'unknown',
+      elapsedMs: event.elapsedMs,
       ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
     });
     if (body) {
@@ -153,7 +151,6 @@ function logRepoSearchLifecycleEvent(requestId: string, event: RepoSearchProgres
 class RepoSearchLifecycleWriter extends ProgressWriter<RepoSearchProgressEvent> {
   constructor(
     private readonly requestId: string,
-    private readonly startedAt: number,
     private readonly target: ProgressWriter<RepoSearchProgressEvent>,
   ) {
     super();
@@ -168,11 +165,8 @@ class RepoSearchLifecycleWriter extends ProgressWriter<RepoSearchProgressEvent> 
   }
 
   write(event: RepoSearchProgressEvent): void {
-    logRepoSearchLifecycleEvent(this.requestId, event, this.startedAt);
-    this.target.write({
-      ...event,
-      elapsedMs: Number.isFinite(event.elapsedMs) ? Number(event.elapsedMs) : Date.now() - this.startedAt,
-    });
+    logRepoSearchLifecycleEvent(this.requestId, event);
+    this.target.write(event);
   }
 }
 
@@ -376,11 +370,10 @@ export async function executeRepoSearchRequest(
     const systemContext = new PresetSystemContextBuilder(repoRoot).build(preset);
     const progressWriter = new RepoSearchLifecycleWriter(
       requestId,
-      startedAt,
       request.progressWriter ?? new SilentProgressWriter<RepoSearchProgressEvent>(),
     );
     for (const warningText of systemContext.warnings) {
-      progressWriter.write({ kind: 'context_warning', warningText });
+      progressWriter.write({ ...contextWarningEvent(warningText), elapsedMs: Date.now() - startedAt });
     }
     const baseSystemPrompt = isAgent
       ? buildAgentSystemPrompt(systemContext)

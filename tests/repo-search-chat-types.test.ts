@@ -9,13 +9,13 @@ import {
 } from '../src/status-server/repo-search-scorecard-types.js';
 
 test('loop RepoSearchProgressEvent carries answerText', () => {
-  const event: RepoSearchProgressEvent = { kind: 'answer', answerText: 'hello', turn: 1 };
-  assert.equal(event.answerText, 'hello');
+  const event: RepoSearchProgressEvent = { kind: 'answer', answerText: 'hello', turn: 1, maxTurns: 45 };
+  assert.equal(event.kind === 'answer' ? event.answerText : null, 'hello');
 });
 
 test('route RepoSearchProgressEvent carries answerText', () => {
-  const event: RouteProgressEvent = { kind: 'answer', answerText: 'hi' };
-  assert.equal(event.answerText, 'hi');
+  const event: RouteProgressEvent = { kind: 'answer', answerText: 'hi', turn: 1, maxTurns: 45 };
+  assert.equal(event.kind === 'answer' ? event.answerText : null, 'hi');
 });
 
 test('RepoSearchExecutionRequest accepts chat taskKind, history, systemPrompt', () => {

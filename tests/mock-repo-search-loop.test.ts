@@ -316,7 +316,7 @@ test('runTaskLoop cuts off runaway streamed tool JSON and reprompts once', { tim
     assert.equal(firstStreamClosed, true);
     assert.equal(String(assistantToolCall?.function?.name || ''), 'invalid_tool_call');
     assert.match(String(invalidEvent?.error || ''), /invalid planner payload/u);
-    assert.equal(progressEvents.some((event) => String(event.thinkingText || '').includes('}'.repeat(220))), false);
+    assert.equal(progressEvents.some((event) => event.kind === 'thinking' && event.thinkingText.includes('}'.repeat(220))), false);
   } finally {
     controller.abort(new Error('test cleanup'));
     await new Promise<void>((resolve) => server.close(() => resolve()));

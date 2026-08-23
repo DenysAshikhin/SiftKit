@@ -758,7 +758,8 @@ test('repo-search endpoint logs one model-requested command line per tool call',
 test('buildRepoSearchProgressLogBody formats command and llm progress bodies', () => {
   assert.deepEqual(
     buildRepoSearchProgressLogBody({
-      kind: 'command',
+      kind: 'tool_start',
+      toolCallId: 'call-1',
       turn: 2,
       maxTurns: 9,
       promptTokenCount: 1234,
@@ -769,22 +770,31 @@ test('buildRepoSearchProgressLogBody formats command and llm progress bodies', (
   );
   assert.deepEqual(
     buildRepoSearchProgressLogBody({
-      kind: 'command',
+      kind: 'tool_result',
+      toolCallId: 'call-2',
       turn: 1,
       maxTurns: 2,
       promptTokenCount: 88,
       elapsedMs: 0,
       command: 'git grep -n "dashboard" .',
+      exitCode: 0,
+      outputSnippet: 'hit',
+      outputTokens: 3,
+      outputTokensEstimated: false,
     }),
     { event: 'command', fields: 't1/2  prompt=88tok  elapsed=0s  git grep -n "dashboard" .', severity: 'normal' },
   );
+  // An approval park is never server-logged, so it has no line at all and cannot leak its payload.
   const approvalLogBody = buildRepoSearchProgressLogBody({
     kind: 'approval_request',
+    requestId: 'run-1',
+    approvalId: 'a-1',
     turn: 1,
-    maxTurns: 2,
+    toolName: 'edit',
     command: 'edit path="src/x.ts" edits=1',
     reviewPayload: 'persistent-log-secret-sentinel',
   });
+  assert.equal(approvalLogBody, null);
   assert.equal(
     JSON.stringify(approvalLogBody).includes('persistent-log-secret-sentinel'),
     false,
@@ -809,15 +819,27 @@ test('buildRepoSearchProgressLogBody formats command and llm progress bodies', (
     }),
     { event: 'llm_end', fields: 't18/45  prompt=312,345tok  elapsed=7s', severity: 'normal' },
   );
-  assert.equal(buildRepoSearchProgressLogBody({ kind: 'command', turn: 1, maxTurns: 2 }), null);
+  // A blank command has nothing to log.
+  assert.equal(
+    buildRepoSearchProgressLogBody({
+      kind: 'tool_start',
+      toolCallId: 'call-3',
+      turn: 1,
+      maxTurns: 2,
+      promptTokenCount: 0,
+      elapsedMs: 0,
+      command: '   ',
+    }),
+    null,
+  );
 });
 
 test('auto-approval verdicts log as their own warning-severity line', () => {
   assert.deepEqual(
     buildRepoSearchProgressLogBody({
       kind: 'approval_auto',
+      requestId: 'run-1',
       turn: 31,
-      maxTurns: 100,
       toolName: 'edit',
       command: 'edit path="src/x.ts" edits=1',
       verdict: 'approve',
@@ -825,15 +847,15 @@ test('auto-approval verdicts log as their own warning-severity line', () => {
     }),
     {
       event: 'auto-approval',
-      fields: 't31/100  approve: edit — file is inside the repo and the edit matches the plan',
+      fields: 't31  approve: edit — file is inside the repo and the edit matches the plan',
       severity: 'warning',
     },
   );
   assert.deepEqual(
     buildRepoSearchProgressLogBody({
       kind: 'approval_auto',
+      requestId: 'run-1',
       turn: 2,
-      maxTurns: 9,
       toolName: 'run',
       command: 'run command="rm -rf /"',
       verdict: 'deny',
@@ -841,7 +863,7 @@ test('auto-approval verdicts log as their own warning-severity line', () => {
     }),
     {
       event: 'auto-approval',
-      fields: 't2/9  deny: run — deletes outside the repository root',
+      fields: 't2  deny: run — deletes outside the repository root',
       severity: 'warning',
     },
   );
@@ -850,25 +872,27 @@ test('auto-approval verdicts log as their own warning-severity line', () => {
 test('a multi-line auto-approval reason is collapsed onto one line', () => {
   const body = buildRepoSearchProgressLogBody({
     kind: 'approval_auto',
+    requestId: 'run-1',
     turn: 1,
-    maxTurns: 2,
     toolName: 'edit',
+    command: 'edit path="src/x.ts" edits=1',
     verdict: 'unsure',
     reason: 'the diff touches\n  generated output\n\nand the plan is silent about it',
   });
 
   assert.equal(
     body?.fields,
-    't1/2  unsure: edit — the diff touches generated output and the plan is silent about it',
+    't1  unsure: edit — the diff touches generated output and the plan is silent about it',
   );
 });
 
 test('an over-long auto-approval reason is truncated rather than flooding the log', () => {
   const body = buildRepoSearchProgressLogBody({
     kind: 'approval_auto',
+    requestId: 'run-1',
     turn: 1,
-    maxTurns: 2,
     toolName: 'edit',
+    command: 'edit path="src/x.ts" edits=1',
     verdict: 'approve',
     reason: 'x'.repeat(400),
   });
@@ -877,19 +901,24 @@ test('an over-long auto-approval reason is truncated rather than flooding the lo
   assert.ok(String(body?.fields).endsWith('…'), 'truncation is marked');
 });
 
-test('an auto-approval line never leaks the review payload', () => {
+test('an auto-approval line carries only the verdict, tool and reason', () => {
+  // An approval_auto event cannot carry a reviewPayload at all, so the renderer has
+  // nothing to leak; this pins the line to exactly the three fields it may show.
   const body = buildRepoSearchProgressLogBody({
     kind: 'approval_auto',
+    requestId: 'run-1',
     turn: 1,
-    maxTurns: 2,
     toolName: 'edit',
     command: 'edit path="src/x.ts" edits=1',
     verdict: 'approve',
     reason: 'looks fine',
-    reviewPayload: 'auto-approval-secret-sentinel',
   });
 
-  assert.equal(JSON.stringify(body).includes('auto-approval-secret-sentinel'), false);
+  assert.deepEqual(body, {
+    event: 'auto-approval',
+    fields: 't1  approve: edit — looks fine',
+    severity: 'warning',
+  });
 });
 
 test('repo-search transcript artifact keeps routine normalized flags out of tool replay', async () => {

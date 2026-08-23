@@ -15,13 +15,14 @@ import {
   type ApprovalGate,
 } from '../src/repo-search/engine/approval-gate.js';
 import { LlmApprovalGate } from '../src/repo-search/engine/llm-approval-gate.js';
-import { ProgressWriter, SilentProgressWriter } from '../src/lib/progress-writer.js';
+import { SilentProgressWriter } from '../src/lib/progress-writer.js';
 import { parseJsonValueText } from '../src/lib/json.js';
 import { asObject, asArray, getAddressInfo } from './helpers/dashboard-http.js';
 import { sendChatCompletionSse } from './helpers/streaming-client.js';
 import { mockOfflineSiftConfig, mockSiftConfig } from './helpers/mock-config.js';
 import { INTERACTIVE_REPO_TOOL_NAMES, resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
-import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
+import type { ApprovalRequestProgressEvent, RepoSearchProgressEvent } from '../src/repo-search/types.js';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
@@ -39,11 +40,7 @@ const ESCALATION_DECISION_TIMEOUT_MS = 25;
 const UNREACHED_GATE_TIMEOUT_MS = 1_000;
 
 /** Records everything and answers nothing — a caller that ignores approval frames. */
-class UnansweringWriter extends ProgressWriter<RepoSearchProgressEvent> {
-  public readonly events: RepoSearchProgressEvent[] = [];
-  get enabled(): boolean { return true; }
-  write(event: RepoSearchProgressEvent): void { this.events.push(event); }
-}
+class UnansweringWriter extends CollectingProgressWriter<RepoSearchProgressEvent> {}
 
 /**
  * Regression for the deadlock behind a 17-minute freeze: when the auto-reviewer cannot produce a
@@ -87,35 +84,32 @@ test('an auto-review that reaches no verdict aborts when nobody answers the esca
 
 /** Explicit decision-provider interface — no dynamic callbacks. */
 interface DecisionProvider {
-  decide(event: RepoSearchProgressEvent): ApprovalDecision;
+  decide(event: ApprovalRequestProgressEvent): ApprovalDecision;
 }
 
 class AlwaysAbortProvider implements DecisionProvider {
-  decide(_event: RepoSearchProgressEvent): ApprovalDecision {
+  decide(_event: ApprovalRequestProgressEvent): ApprovalDecision {
     return { kind: 'abort', reason: CLIENT_ABORT_MESSAGE };
   }
 }
 
 class AlwaysApproveProvider implements DecisionProvider {
-  decide(_event: RepoSearchProgressEvent): ApprovalDecision {
+  decide(_event: ApprovalRequestProgressEvent): ApprovalDecision {
     return { kind: 'approve' };
   }
 }
 
-class RecordingWriter extends ProgressWriter<RepoSearchProgressEvent> {
-  public readonly events: RepoSearchProgressEvent[] = [];
+class RecordingWriter extends CollectingProgressWriter<RepoSearchProgressEvent> {
   public gate: ApprovalGate | null = null;
   constructor(private readonly provider: DecisionProvider) {
     super();
   }
-  get enabled(): boolean { return true; }
-  write(event: RepoSearchProgressEvent): void {
-    this.events.push(event);
+  override write(event: RepoSearchProgressEvent): void {
+    super.write(event);
     if (event.kind !== 'approval_request') return;
-    setImmediate(() => this.gate?.submit(String(event.approvalId), this.provider.decide(event)));
+    setImmediate(() => this.gate?.submit(event.approvalId, this.provider.decide(event)));
   }
   kinds(): string[] { return this.events.map((event) => event.kind); }
-  ofKind(kind: string): RepoSearchProgressEvent[] { return this.events.filter((event) => event.kind === kind); }
 }
 
 function makeTask(prompt: string) {

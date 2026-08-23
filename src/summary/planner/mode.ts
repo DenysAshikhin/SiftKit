@@ -387,7 +387,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       return {
         outcome: 'stop',
         turnNumber,
-        promptTokenCount: 0,
+        promptTokens: { reported: 0, budgeted: 0 },
         maxOutputTokens: 0,
         messages: toProtocolMessages(this.messages),
         toolDefinitions: this.toolDefinitions,
@@ -410,7 +410,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     this.debugRecorder.record({
       kind: 'planner_prompt',
       promptChars: this.prompt.length,
-      promptTokenCount: this.promptTokenCount,
+      promptTokens: { reported: this.promptTokenCount, budgeted: this.promptTokenCount },
       toolCallCount: this.toolResults.length,
       plannerBudget: this.promptBudget,
     });
@@ -418,14 +418,14 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
       this.debugRecorder.finish({
         status: 'failed',
         reason: 'planner_headroom_exceeded',
-        promptTokenCount: this.promptTokenCount,
+        promptTokens: { reported: this.promptTokenCount, budgeted: this.promptTokenCount },
         plannerBudget: this.promptBudget,
       });
       this.completionState.fail();
       return {
         outcome: 'stop',
         turnNumber: turn,
-        promptTokenCount: this.promptTokenCount,
+        promptTokens: { reported: this.promptTokenCount, budgeted: this.promptTokenCount },
         maxOutputTokens: 0,
         messages: toProtocolMessages(this.messages),
         toolDefinitions: this.toolDefinitions,
@@ -435,7 +435,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     return {
       outcome: 'continue',
       turnNumber: turn,
-      promptTokenCount: this.promptTokenCount,
+      promptTokens: { reported: this.promptTokenCount, budgeted: this.promptTokenCount },
       maxOutputTokens: 0,
       messages: toProtocolMessages(this.messages),
       toolDefinitions: this.toolDefinitions,

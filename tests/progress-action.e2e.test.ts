@@ -54,7 +54,9 @@ test('cli renderer prints one line per progress_update', () => {
 });
 
 test('server log body renders progress_update with turn and text', () => {
-  const event = { kind: 'progress_update', turn: 12, maxTurns: 100, progressText: 'GREEN: wiring render', elapsedMs: 61_000 };
+  const event: RepoSearchProgressEvent = {
+    kind: 'progress_update', taskId: 't1', turn: 12, maxTurns: 100, progressText: 'GREEN: wiring render', elapsedMs: 61_000,
+  };
   assert.equal(isServerLoggedProgressEvent(event), true);
   const body = buildRepoSearchProgressLogBody(event);
   assert.equal(body?.event, 'progress');

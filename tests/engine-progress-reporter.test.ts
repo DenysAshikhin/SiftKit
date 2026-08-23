@@ -6,7 +6,7 @@ import type { ActivitySummaryProgressEvent, RepoSearchProgressEvent } from '../s
 import { SilentProgressWriter } from '../src/lib/progress-writer.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 
-function collect(): { events: RepoSearchProgressEvent[]; reporter: ProgressReporter } {
+function collect(): { writer: CollectingProgressWriter<RepoSearchProgressEvent>; events: RepoSearchProgressEvent[]; reporter: ProgressReporter } {
   const writer = new CollectingProgressWriter<RepoSearchProgressEvent>();
   const reporter = new ProgressReporter({
     progressWriter: writer,
@@ -14,7 +14,7 @@ function collect(): { events: RepoSearchProgressEvent[]; reporter: ProgressRepor
     maxTurns: 45,
     taskStartedAt: Date.now(),
   });
-  return { events: writer.events, reporter };
+  return { writer, events: writer.events, reporter };
 }
 
 test('enabled reflects writer behavior; silent writer emits nothing', () => {
@@ -32,18 +32,19 @@ test('enabled reflects writer behavior; silent writer emits nothing', () => {
 });
 
 test('preflightStart/preflightDone/llmStart/llmEnd carry task fields and elapsedMs', () => {
-  const { events, reporter } = collect();
+  const { writer, events, reporter } = collect();
   reporter.preflightStart(2, 1234);
   reporter.preflightDone(2, 1234, 567);
   reporter.llmStart(2, 567);
   reporter.llmEnd(2, 567);
   assert.deepEqual(events.map((event) => event.kind), ['preflight_start', 'preflight_done', 'llm_start', 'llm_end']);
-  const start = events[0];
+  const start = writer.ofKind('preflight_start')[0];
+  assert.ok(start);
   assert.equal(start.taskId, 't1');
   assert.equal(start.turn, 2);
   assert.equal(start.maxTurns, 45);
   assert.equal(start.promptChars, 1234);
-  assert.ok(Number(start.elapsedMs) >= 0);
+  assert.ok(start.elapsedMs >= 0);
 });
 
 test('getMaxTurns returns the configured maximum', () => {

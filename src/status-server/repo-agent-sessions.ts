@@ -20,6 +20,8 @@ import {
 } from '../repo-search/engine/approval-gate.js';
 import { RepoSearchResponseSanityChecker } from '../repo-search/response-sanity.js';
 import type {
+  ApprovalRequestProgressEvent,
+  OperationProgressEvent,
   RepoSearchExecutionRequest,
   RepoSearchExecutionResult,
   RepoSearchProgressEvent,
@@ -39,7 +41,7 @@ function normalizeFailureMessage(message: string): string {
 }
 
 export type RepoAgentSessionSubscriber = {
-  writeProgress(event: RepoSearchProgressEvent): void;
+  writeProgress(event: OperationProgressEvent): void;
 };
 
 export type RepoAgentEngine = {
@@ -369,13 +371,8 @@ export class RepoAgentSession implements ApprovalGateObserver {
     }
   }
 
-  private publishApproval(event: RepoSearchProgressEvent): void {
-    const approvalId = event.approvalId;
-    const toolName = event.toolName;
-    const command = event.command;
-    if (!approvalId || !toolName || !command) {
-      throw new Error('approval_request progress event is missing approvalId, toolName, or command.');
-    }
+  private publishApproval(event: ApprovalRequestProgressEvent): void {
+    const { approvalId, toolName, command } = event;
     if (this.state.status !== 'running') {
       throw new Error(`Approval requested while run ${this.runId} is ${this.state.status}.`);
     }

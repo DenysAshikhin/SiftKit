@@ -92,7 +92,7 @@ test('prepareTurn returns a token count and output budget for a small prompt', a
 
   const prepared = await preparer.prepareTurn(1, 0);
 
-  assert.ok(prepared.promptTokenCount > 0);
+  assert.ok(prepared.promptTokens.reported > 0);
   assert.ok(prepared.maxOutputTokens > 0);
   assert.equal(prepared.compactionSummary, null);
   assert.equal(prepared.nextMockResponseIndex, 0);
@@ -200,7 +200,7 @@ test('preflight counts preserved reasoning_content toward the prompt', async () 
   const uncounted = await withoutReasoning.prepareTurn(1, 0);
 
   // ~8k chars of reasoning ≈ 2k estimated tokens; require a decisive gap.
-  assert.ok(counted.promptTokenCount > uncounted.promptTokenCount + 1_000);
+  assert.ok(counted.promptTokens.reported > uncounted.promptTokens.reported + 1_000);
 });
 
 test('preserved reasoning mass triggers compaction that plain content would not', async () => {
@@ -218,4 +218,35 @@ test('preserved reasoning mass triggers compaction that plain content would not'
 
   assert.equal(prepared.compactionSummary, 'SUMMARY BODY');
   assert.ok(events.some((event) => event.kind === 'turn_preflight_compaction_applied'));
+});
+
+test('prepareTurn reports the transcript prompt size, not the request-envelope reserve', async () => {
+  const transcript = new TranscriptManager({
+    systemPromptContent: 'SYSTEM',
+    historyMessages: [],
+    initialUserContent: 'short question',
+    initialUserImages: [],
+    liveImagePathKeys: new Set<string>(),
+  });
+  const events: Array<Record<string, JsonSerializable>> = [];
+  const preparer = makePreparer(
+    new TurnBudget({ totalContextTokens: 32_000, maxTurns: 45, config: null }),
+    transcript,
+    ['SUMMARY BODY'],
+    events,
+  );
+
+  const prepared = await preparer.prepareTurn(1, 0);
+
+  // The budget log records both halves; the reported count must be the transcript
+  // half alone, because the envelope reserve never occupies prompt context.
+  const budgetEvent = events.find((event) => event.kind === 'turn_preflight_budget');
+  assert.ok(budgetEvent);
+  const reserveTokenCount = Number(budgetEvent.providerPromptReserveTokenCount);
+  const transcriptTokenCount = Number(budgetEvent.transcriptPromptTokenCount);
+  assert.ok(reserveTokenCount > 0, 'the reserve must be non-zero for this assertion to mean anything');
+  assert.equal(prepared.promptTokens.reported, transcriptTokenCount);
+  assert.equal(prepared.promptTokens.reported, Number(budgetEvent.promptTokenCount) - reserveTokenCount);
+  // The budgeted reading keeps the reserve, because the request must still fit with it.
+  assert.equal(prepared.promptTokens.budgeted, Number(budgetEvent.promptTokenCount));
 });

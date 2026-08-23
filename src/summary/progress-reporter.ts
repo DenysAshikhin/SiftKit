@@ -88,12 +88,14 @@ export class SummaryProgressReporter {
   }
 
   contextWarning(warningText: string): void {
-    this.emit({ kind: 'context_warning', requestId: this.requestId, warningText });
+    // Same shape repo-search emits, from the one definition, because one CLI renderer draws both.
+    this.emit({ ...contextWarningEvent(warningText), requestId: this.requestId });
   }
 
   private emit(event: SummaryProgressEvent): void {
     this.progressWriter.write(event);
   }
 }
+import { contextWarningEvent } from '../lib/operation-stream.js';
 import type { ProgressWriter } from '../lib/progress-writer.js';
 import type { SummaryProviderId } from './types.js';

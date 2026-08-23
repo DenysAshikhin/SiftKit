@@ -3,7 +3,8 @@
   type SiftConfig,
 } from '../config/index.js';
 import { estimateTokenCount } from '../lib/token-estimate.js';
-import type { InferenceBackendId } from '../config/types.js';
+import { InferenceBackendIdSchema } from '../config/types.js';
+import { z } from '../lib/zod.js';
 import {
   DEFAULT_LLAMA_CPP_TOKENIZE_RETRY_MAX_WAIT_MS,
   DEFAULT_LLAMA_CPP_TOKENIZE_TIMEOUT_MS,
@@ -20,7 +21,8 @@ import { countContentImages } from '../llm-protocol/image-attachments.js';
  * Where a token count came from: the engine that tokenized it, or the local
  * characters-per-token estimate when no server count was available.
  */
-export type TokenCountSource = InferenceBackendId | 'estimate';
+export const TokenCountSourceSchema = z.union([InferenceBackendIdSchema, z.literal('estimate')]);
+export type TokenCountSource = z.infer<typeof TokenCountSourceSchema>;
 
 export type TokenCountWithFallbackResult = {
   tokenCount: number;

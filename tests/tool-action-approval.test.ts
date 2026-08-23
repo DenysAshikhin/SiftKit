@@ -10,7 +10,7 @@ import {
 } from '../src/repo-search/engine/approval-gate.js';
 import { ProgressWriter } from '../src/lib/progress-writer.js';
 import { INTERACTIVE_REPO_TOOL_NAMES, resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
-import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
+import type { ApprovalRequestProgressEvent, RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
@@ -18,9 +18,9 @@ import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { ApprovalGateHarness } from './helpers/approval-gate-harness.js';
 
 class AutoRespondingWriter extends ProgressWriter<RepoSearchProgressEvent> {
-  public readonly approvalEvents: RepoSearchProgressEvent[] = [];
+  public readonly approvalEvents: ApprovalRequestProgressEvent[] = [];
   public gate: ApprovalGate | null = null;
-  constructor(private readonly decide: (event: RepoSearchProgressEvent) => ApprovalDecision) {
+  constructor(private readonly decide: (event: ApprovalRequestProgressEvent) => ApprovalDecision) {
     super();
   }
   get enabled(): boolean { return true; }
@@ -28,7 +28,7 @@ class AutoRespondingWriter extends ProgressWriter<RepoSearchProgressEvent> {
     if (event.kind !== 'approval_request') return;
     this.approvalEvents.push(event);
     // Resolve asynchronously, as the real endpoint would.
-    setImmediate(() => this.gate?.submit(String(event.approvalId), this.decide(event)));
+    setImmediate(() => this.gate?.submit(event.approvalId, this.decide(event)));
   }
 }
 

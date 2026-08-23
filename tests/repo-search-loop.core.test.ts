@@ -113,7 +113,7 @@ test('runRepoSearch does not fail on model inventory mismatch', async () => {
 });
 
 test('repo-search executes a native web_search tool when allowed', async () => {
-  const events: JsonObject[] = [];
+  const events: RepoSearchProgressEvent[] = [];
   const scorecard = await runRepoSearch({
     repoRoot: process.cwd(),
     systemContext: createEmptyPresetSystemContext(),
@@ -151,8 +151,8 @@ test('repo-search executes a native web_search tool when allowed', async () => {
   assert.equal(scorecard.verdict, 'pass');
   const toolStart = events.find((event) => event.kind === 'tool_start');
   const toolResult = events.find((event) => event.kind === 'tool_result');
-  assert.equal(toolStart?.command, 'web_search query="siftkit"');
-  assert.match(String(toolResult?.outputSnippet || ''), /web result snippet|example\.com/);
+  assert.equal(toolStart?.kind === 'tool_start' ? toolStart.command : null, 'web_search query="siftkit"');
+  assert.match(toolResult?.kind === 'tool_result' ? toolResult.outputSnippet : '', /web result snippet|example\.com/);
   assert.equal(Object.keys(scorecard.toolStats).includes('web_search'), true);
 });
 

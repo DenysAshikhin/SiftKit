@@ -131,14 +131,6 @@ function getChatGroundingStatus(scorecard: OptionalJsonValue): ChatGroundingStat
   return normalizeChatGroundingStatus(normalizeRepoSearchScorecard(scorecard).tasks[0]?.groundingStatus);
 }
 
-function requireToolCallId(event: RepoSearchProgressEvent): string {
-  const value = typeof event.toolCallId === 'string' ? event.toolCallId.trim() : '';
-  if (!value) {
-    throw new Error(`repo-search ${event.kind} progress event missing toolCallId`);
-  }
-  return value;
-}
-
 function forwardRepoSearchToolEvent(
   writer: SseResponseWriter,
   event: RepoSearchProgressEvent,
@@ -149,25 +141,25 @@ function forwardRepoSearchToolEvent(
     const body = buildRepoSearchProgressLogBody(event);
     if (body) serverLogger.emitBody(scope, requestId, body);
     writer.writeEvent('tool_start', {
-      toolCallId: requireToolCallId(event),
+      toolCallId: event.toolCallId,
       turn: event.turn,
       maxTurns: event.maxTurns,
       command: event.command,
-      promptTokenCount: Number.isFinite(event.promptTokenCount) ? Number(event.promptTokenCount) : null,
+      promptTokenCount: event.promptTokenCount,
     });
     return;
   }
   if (event.kind === 'tool_result') {
     writer.writeEvent('tool_result', {
-      toolCallId: requireToolCallId(event),
+      toolCallId: event.toolCallId,
       turn: event.turn,
       maxTurns: event.maxTurns,
       command: event.command,
       exitCode: event.exitCode,
       outputSnippet: event.outputSnippet,
-      outputTokens: Number.isFinite(event.outputTokens) ? Number(event.outputTokens) : null,
-      outputTokensEstimated: event.outputTokensEstimated === true,
-      promptTokenCount: Number.isFinite(event.promptTokenCount) ? Number(event.promptTokenCount) : null,
+      outputTokens: event.outputTokens,
+      outputTokensEstimated: event.outputTokensEstimated,
+      promptTokenCount: event.promptTokenCount,
     });
   }
 }
@@ -297,13 +289,6 @@ type SessionSpeculativeMetrics = {
   speculativeGeneratedTokens: number | null;
 };
 
-function requireProgressTurn(event: RepoSearchProgressEvent): number {
-  if (event.turn === undefined) {
-    throw new Error(`Missing turn for ${event.kind} progress event.`);
-  }
-  return event.turn;
-}
-
 class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
   constructor(
     private readonly writer: SseResponseWriter,
@@ -326,30 +311,28 @@ class ChatStreamProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
 
   write(event: RepoSearchProgressEvent): void {
     if (event.kind === 'thinking') {
-      const text = event.thinkingText || '';
-      this.phaseTracker?.observeThinking(text);
-      this.thinkingDeltas.pushSnapshot(requireProgressTurn(event), text, Date.now());
+      this.phaseTracker?.observeThinking(event.thinkingText);
+      this.thinkingDeltas.pushSnapshot(event.turn, event.thinkingText, Date.now());
       this.emitDueDeltas(false);
       return;
     }
     if (event.kind === 'answer' && this.streamAnswer) {
-      const text = event.answerText || '';
-      this.phaseTracker?.observeAnswer(text);
-      this.answerDeltas.pushSnapshot(requireProgressTurn(event), text, Date.now());
+      this.phaseTracker?.observeAnswer(event.answerText);
+      this.answerDeltas.pushSnapshot(event.turn, event.answerText, Date.now());
       this.emitDueDeltas(false);
       return;
     }
     if (event.kind === 'context_warning') {
       this.flushPending();
-      this.writer.writeEvent('warning', { warning: event.warningText ?? '' });
+      this.writer.writeEvent('warning', { warning: event.warningText });
       return;
     }
     if (event.kind === 'progress_update') {
       this.flushPending();
       this.writer.writeEvent('progress', {
-        turn: requireProgressTurn(event),
-        text: event.progressText || '',
-        elapsedMs: Number(event.elapsedMs ?? 0),
+        turn: event.turn,
+        text: event.progressText,
+        elapsedMs: event.elapsedMs,
       });
       return;
     }

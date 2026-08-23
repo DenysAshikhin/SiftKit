@@ -1,6 +1,5 @@
 import { createInterface } from 'node:readline';
-import { JsonRecordReader } from '../lib/json-record-reader.js';
-import type { JsonObject } from '../lib/json-types.js';
+import type { ApprovalRequestProgressEvent } from '../repo-search/types.js';
 import {
   CLIENT_ABORT_MESSAGE,
   type ApprovalDecision,
@@ -8,7 +7,7 @@ import {
 
 /** Anything that can answer an approval request: TTY prompter or store-backed prompter. */
 export type ApprovalPrompter = {
-  promptDecision(event: JsonObject): Promise<ApprovalDecision>;
+  promptDecision(event: ApprovalRequestProgressEvent): Promise<ApprovalDecision>;
 };
 
 /** Interactive terminal prompt for repo-search approval_request frames. */
@@ -21,16 +20,11 @@ export class CliApprovalPrompter implements ApprovalPrompter {
     this.output = options.output;
   }
 
-  async promptDecision(event: JsonObject): Promise<ApprovalDecision> {
-    const reader = new JsonRecordReader(event);
-    const turn = reader.number('turn');
-    const maxTurns = reader.number('maxTurns');
-    const turnLabel = turn !== null && maxTurns !== null ? `t${turn}/${maxTurns} ` : '';
-    const command = reader.optionalString('command') || reader.optionalString('toolName') || '<unknown>';
-    const reviewPayload = reader.optionalString('reviewPayload');
-    this.output.write(`repo-search ${turnLabel}wants to run: ${command}\n`);
-    if (reviewPayload !== undefined) {
-      this.output.write(`Proposed edit/write payload:\n${reviewPayload}\n`);
+  async promptDecision(event: ApprovalRequestProgressEvent): Promise<ApprovalDecision> {
+    // An approval carries no maxTurns, so the turn stands alone.
+    this.output.write(`repo-search t${event.turn} wants to run: ${event.command || event.toolName}\n`);
+    if (event.reviewPayload !== undefined) {
+      this.output.write(`Proposed edit/write payload:\n${event.reviewPayload}\n`);
     }
 
     // readline's async iterator buffers lines internally, so input that arrives

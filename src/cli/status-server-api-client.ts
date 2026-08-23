@@ -22,7 +22,9 @@ import type { ErrorDiagnostic } from '../lib/error-diagnostics.js';
 import { toError } from '../lib/errors.js';
 import type { SiftConfig } from '../config/index.js';
 import {
+  ApprovalRequestProgressEventSchema,
   RepoSearchExecutionResultSchema,
+  type ApprovalRequestProgressEvent,
   type RepoSearchExecutionResult,
 } from '../repo-search/types.js';
 import {
@@ -42,7 +44,6 @@ import {
 } from '../command-output/types.js';
 import { EvaluationResultSchema, type EvalRequest, type EvaluationResult } from '../eval-types.js';
 import { z } from '../lib/zod.js';
-import { JsonRecordReader } from '../lib/json-record-reader.js';
 import type { JsonObject } from '../lib/json-types.js';
 import {
   RepoSearchApprovalResultSchema,
@@ -477,12 +478,14 @@ export class StatusServerApiClient {
       })) {
         if (frame.event === OPERATION_STREAM_EVENTS.progress) {
           const progressEvent = parseJsonObjectText(frame.data);
-          if (String(progressEvent.kind || '') === 'approval_request') {
+          if (progressEvent.kind === 'approval_request') {
             if (!approvalPrompter) {
               throw new Error('Received approval_request on a non-interactive run.');
             }
-            const decision = await approvalPrompter.promptDecision(progressEvent);
-            await this.submitApproval(progressEvent, decision);
+            // The frame crossed the wire, so it is parsed back into its declared shape here.
+            const approval = ApprovalRequestProgressEventSchema.parse(progressEvent);
+            const decision = await approvalPrompter.promptDecision(approval);
+            await this.submitApproval(approval, decision);
             continue;
           }
           renderer.render(progressEvent);
@@ -507,11 +510,10 @@ export class StatusServerApiClient {
     }
   }
 
-  private async submitApproval(event: JsonObject, decision: ApprovalDecision): Promise<void> {
-    const reader = new JsonRecordReader(event);
+  private async submitApproval(event: ApprovalRequestProgressEvent, decision: ApprovalDecision): Promise<void> {
     const body: RepoSearchApprovalRequest = {
-      requestId: reader.optionalString('requestId') || '',
-      approvalId: reader.optionalString('approvalId') || '',
+      requestId: event.requestId,
+      approvalId: event.approvalId,
       decision: decision.kind,
       ...(decision.kind === 'deny' && decision.reason ? { reason: decision.reason } : {}),
     };

@@ -31,8 +31,24 @@ export type OperationStreamError = z.infer<typeof OperationStreamErrorSchema>;
 
 export const OPERATION_STREAM_HEARTBEAT_MS = 15_000;
 
-export type LockWaitProgressEvent = {
-  kind: 'lock_wait';
-  queueLength: number;
-  elapsedMs: number;
-};
+/** The queue length is unknown to a session that only waits on its own lock, so it is optional. */
+export const LockWaitProgressEventSchema = z.object({
+  kind: z.literal('lock_wait'),
+  queueLength: z.number().optional(),
+  elapsedMs: z.number(),
+});
+export type LockWaitProgressEvent = z.infer<typeof LockWaitProgressEventSchema>;
+
+/**
+ * Emitted by repo-search and by summary, and rendered by the one CLI renderer both
+ * feed, so the shape is defined here rather than duplicated in each subsystem.
+ */
+export const ContextWarningProgressEventSchema = z.object({
+  kind: z.literal('context_warning'),
+  warningText: z.string(),
+});
+export type ContextWarningProgressEvent = z.infer<typeof ContextWarningProgressEventSchema>;
+
+export function contextWarningEvent(warningText: string): ContextWarningProgressEvent {
+  return { kind: 'context_warning', warningText };
+}

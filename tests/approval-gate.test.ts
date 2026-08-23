@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
-import { ProgressWriter } from '../src/lib/progress-writer.js';
-import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
+import type { ApprovalRequestProgressEvent, RepoSearchProgressEvent } from '../src/repo-search/types.js';
+import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import {
   ApprovalGate,
   DEFAULT_DECISION_TIMEOUT_MS,
@@ -11,10 +11,9 @@ import {
 } from '../src/repo-search/engine/approval-gate.js';
 import { ApprovalGateHarness } from './helpers/approval-gate-harness.js';
 
-class CollectingWriter extends ProgressWriter<RepoSearchProgressEvent> {
-  public readonly events: RepoSearchProgressEvent[] = [];
-  get enabled(): boolean { return true; }
-  write(event: RepoSearchProgressEvent): void { this.events.push(event); }
+class CollectingWriter extends CollectingProgressWriter<RepoSearchProgressEvent> {
+  /** Every test here drives the gate, whose only event kind is approval_request. */
+  get approvals(): ApprovalRequestProgressEvent[] { return this.ofKind('approval_request'); }
 }
 
 class FailingWriter extends CollectingWriter {
@@ -54,7 +53,7 @@ test('deny decision carries its reason', async () => {
     command: 'git log',
     reviewPayload: null,
   });
-  gate.submit(String(writer.events[0].approvalId), { kind: 'deny', reason: 'wrong branch' });
+  gate.submit(writer.approvals[0].approvalId, { kind: 'deny', reason: 'wrong branch' });
   assert.deepEqual(await pending, { kind: 'deny', reason: 'wrong branch' });
 });
 
@@ -68,7 +67,7 @@ test('unknown or already-resolved approvalId returns false', async () => {
     command: 'ls',
     reviewPayload: null,
   });
-  const approvalId = String(writer.events[0].approvalId);
+  const approvalId = writer.approvals[0].approvalId;
   assert.equal(gate.submit(approvalId, { kind: 'approve' }), true);
   await pending;
   assert.equal(gate.submit(approvalId, { kind: 'approve' }), false);
@@ -85,7 +84,7 @@ test('pending approval remains live until an explicit decision', async () => {
   });
   await delay(50);
   assert.equal(
-    gate.submit(String(writer.events[0].approvalId), { kind: 'approve' }),
+    gate.submit(writer.approvals[0].approvalId, { kind: 'approve' }),
     true,
   );
   assert.deepEqual(await pending, { kind: 'approve' });
@@ -116,7 +115,7 @@ test('an unanswered approval aborts the run once the decision timeout elapses', 
     reason: buildApprovalTimeoutMessage(DEFAULT_DECISION_TIMEOUT_MS),
   });
   // The approval is gone, so a late decision cannot resurrect a command already reported as timed out.
-  assert.equal(gate.submit(String(writer.events[0].approvalId), { kind: 'approve' }), false);
+  assert.equal(gate.submit(writer.approvals[0].approvalId, { kind: 'approve' }), false);
 });
 
 test('a submitted decision cancels the pending timeout', async (t) => {
@@ -130,7 +129,7 @@ test('a submitted decision cancels the pending timeout', async (t) => {
     reviewPayload: null,
   });
 
-  assert.equal(gate.submit(String(writer.events[0].approvalId), { kind: 'approve' }), true);
+  assert.equal(gate.submit(writer.approvals[0].approvalId, { kind: 'approve' }), true);
   t.mock.timers.tick(DEFAULT_DECISION_TIMEOUT_MS * 2);
 
   assert.deepEqual(await pending, { kind: 'approve' });
@@ -146,7 +145,7 @@ test('approval publication failure clears the pending approval and timeout', asy
     command: 'write path=a.ts',
     reviewPayload: null,
   });
-  const approvalId = String(writer.events[0].approvalId);
+  const approvalId = writer.approvals[0].approvalId;
 
   await assert.rejects(pending, /approval publication failed/u);
   assert.equal(gate.submit(approvalId, { kind: 'approve' }), false);
@@ -168,7 +167,7 @@ test('abort clears the timeout so it cannot resolve an already-rejected approval
 
   await assert.rejects(pending, reason);
   t.mock.timers.tick(DEFAULT_DECISION_TIMEOUT_MS * 2);
-  assert.equal(harness.gate.submit(String(writer.events[0].approvalId), { kind: 'approve' }), false);
+  assert.equal(harness.gate.submit(writer.approvals[0].approvalId, { kind: 'approve' }), false);
 });
 
 test('abort rejects every pending approval and makes their IDs stale', async () => {
@@ -180,8 +179,8 @@ test('abort rejects every pending approval and makes their IDs stale', async () 
   const second = harness.gate.request({
     turn: 2, toolName: 'edit', command: 'edit path=b.ts', reviewPayload: null,
   });
-  const firstId = String(writer.events[0].approvalId);
-  const secondId = String(writer.events[1].approvalId);
+  const firstId = writer.approvals[0].approvalId;
+  const secondId = writer.approvals[1].approvalId;
   const reason = new Error('client disconnected');
   harness.controller.abort(reason);
 
@@ -211,7 +210,7 @@ test('submission removes abort handling from the resolved approval', async () =>
     turn: 1, toolName: 'write', command: 'write path=a.ts', reviewPayload: null,
   });
   assert.equal(
-    harness.gate.submit(String(writer.events[0].approvalId), { kind: 'approve' }),
+    harness.gate.submit(writer.approvals[0].approvalId, { kind: 'approve' }),
     true,
   );
   harness.controller.abort(new Error('late disconnect'));
@@ -238,9 +237,9 @@ for (const toolName of ['read', 'grep', 'find', 'ls']) {
       command: `${toolName} path=test`,
       reviewPayload: null,
     });
-    const event = writer.events[0];
+    const event = writer.approvals[0];
     if (event) {
-      gate.submit(String(event.approvalId), { kind: 'approve' });
+      gate.submit(event.approvalId, { kind: 'approve' });
     }
     assert.deepEqual(await decision, { kind: 'approve' });
     assert.equal(writer.events.length, 0);
@@ -262,7 +261,7 @@ for (const { toolName, command } of [
     });
     assert.equal(writer.events.length, 1);
     assert.equal(writer.events[0].kind, 'approval_request');
-    gate.submit(String(writer.events[0].approvalId), { kind: 'approve' });
+    gate.submit(writer.approvals[0].approvalId, { kind: 'approve' });
     assert.deepEqual(await pending, { kind: 'approve' });
   });
 }
@@ -279,8 +278,8 @@ test('manual approval event carries the transient review payload but the decisio
   });
 
   assert.equal(writer.events.length, 1);
-  assert.equal(writer.events[0].reviewPayload, reviewPayload);
-  gate.submit(String(writer.events[0].approvalId), { kind: 'approve' });
+  assert.equal(writer.approvals[0].reviewPayload, reviewPayload);
+  gate.submit(writer.approvals[0].approvalId, { kind: 'approve' });
   assert.deepEqual(await pending, { kind: 'approve' });
 });
 
@@ -295,7 +294,7 @@ test('the gate logs a park line and a decision line around an approval wait', as
     command: 'write path=src/x.ts bytes=12',
     reviewPayload: null,
   });
-  const approvalId = String(writer.events[0].approvalId);
+  const approvalId = writer.approvals[0].approvalId;
   assert.equal(harness.logLines.length, 1);
   assert.match(harness.logLines[0], /approval_wait/u);
   assert.match(harness.logLines[0], new RegExp(`approval=${approvalId.slice(0, 8)}`, 'u'));
