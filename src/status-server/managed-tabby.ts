@@ -6,12 +6,11 @@ import {
   type Exl3LaunchEnvironment,
 } from '../inference-presets/exl3-preset-adapter.js';
 import { Exl3ModelCapabilities, FREEZE_UNSUPPORTED_REASON } from '../inference-presets/exl3-model-capabilities.js';
-import { InferenceRunRecorder } from './inference-run-recorder.js';
 import { ManagedInferenceRuntime } from './managed-inference-runtime.js';
 import type { InferenceRunFlushQueue } from './inference-run-flush-queue.js';
 import { terminateProcessTree } from '../lib/process-tree.js';
-import { readInferenceRunLogTextByStream } from '../state/inference-runs.js';
 import { TabbyModelClient } from './tabby-model-client.js';
+import { TabbyRunRecorder } from './tabby-run-recorder.js';
 
 const STARTUP_LOG_POLL_INTERVAL_MS = 25;
 
@@ -27,7 +26,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   private child: ChildProcess | null = null;
   private stopping = false;
   private startupError: Error | null = null;
-  private recorder: InferenceRunRecorder | null = null;
+  private recorder: TabbyRunRecorder | null = null;
   private currentPreset: ModelRuntimePreset | null = null;
   private processBaseUrl: string | null = null;
   private processManaged: boolean | null = null;
@@ -224,7 +223,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
     }
     this.stopping = false;
     this.startupError = null;
-    const recorder = new InferenceRunRecorder({
+    const recorder = new TabbyRunRecorder({
       backend: 'exl3',
       purpose: 'startup',
       entrypointPath: this.engine.Entrypoint,
@@ -318,10 +317,7 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   private async assertDraftingActive(preset: ModelRuntimePreset): Promise<void> {
     const deadline = Date.now() + preset.HealthcheckTimeoutMs;
     while (Date.now() <= deadline) {
-      const runId = this.recorder?.runId;
-      const logByStream = runId ? readInferenceRunLogTextByStream(runId) : null;
-      const startupLog = logByStream ? `${logByStream.engine_stdout}\n${logByStream.engine_stderr}` : '';
-      if (startupLog.includes('Using main model MTP component for drafting')) {
+      if (this.recorder?.hasMtpDraftingMarker()) {
         return;
       }
       await delay(Math.min(STARTUP_LOG_POLL_INTERVAL_MS, Math.max(1, deadline - Date.now())));

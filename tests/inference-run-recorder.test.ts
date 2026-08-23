@@ -5,8 +5,13 @@ import { PassThrough } from 'node:stream';
 import { InferenceRunRecorder } from '../src/status-server/inference-run-recorder.js';
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
 import { LlamaRunRecorder } from '../src/status-server/llama-run-recorder.js';
+import { TabbyRunRecorder } from '../src/status-server/tabby-run-recorder.js';
 import { getManagedLlamaSpeculativeMetricsTracker } from '../src/status-server/managed-llama-speculative-tracker.js';
-import { readInferenceRun, readInferenceRunLogTextByStream } from '../src/state/inference-runs.js';
+import {
+  consumeInferenceRunPendingLogChunks,
+  readInferenceRun,
+  readInferenceRunLogTextByStream,
+} from '../src/state/inference-runs.js';
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { withTempEnv } from './_runtime-helpers.js';
 
@@ -72,6 +77,30 @@ test('the recorder counts stdout and stderr characters separately', async () => 
 
     assert.equal(recorder.progress.stdoutChars, 3);
     assert.equal(recorder.progress.stderrChars, 2);
+  });
+});
+
+test('Tabby recorder retains the MTP marker while its log chunk is in flight', async () => {
+  await withRecorderDatabase(async (flushQueue) => {
+    const recorder = new TabbyRunRecorder({
+      backend: 'exl3',
+      purpose: 'startup',
+      entrypointPath: 'C:/tabby/main.py',
+      baseUrl: null,
+      flushQueue,
+    });
+    const stderr = new PassThrough();
+    recorder.attachEngineStderr(stderr);
+    stderr.write('INFO: Using main model MTP comp');
+    stderr.write('onent for drafting\n');
+
+    const inFlight = consumeInferenceRunPendingLogChunks(recorder.runId);
+    assert.equal(
+      inFlight.some((entry) => entry.chunkText.includes('Using main model MTP component for drafting')),
+      true,
+    );
+    assert.equal(readInferenceRunLogTextByStream(recorder.runId).engine_stderr, '');
+    assert.equal(recorder.hasMtpDraftingMarker(), true);
   });
 });
 
