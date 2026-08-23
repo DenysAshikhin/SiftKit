@@ -4,24 +4,48 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { getDefaultConfigObject } from '../src/config/defaults.js';
-import { Exl3ModelCapabilities, FREEZE_UNSUPPORTED_REASON } from '../src/inference-presets/exl3-model-capabilities.js';
+import {
+  Exl3ModelCapabilities,
+  FREEZE_UNSUPPORTED_REASON,
+} from '../src/inference-presets/exl3-model-capabilities.js';
 import { InferenceRunFlushQueue } from '../src/status-server/inference-run-flush-queue.js';
 import { ManagedTabbyRuntime } from '../src/status-server/managed-tabby.js';
 
 import { acquireChildPortLease, withTempEnv } from './_runtime-helpers.js';
-import { writeFakeExl3Venv, writeFakeTabby } from './helpers/tabby-fake.js';
+import {
+  createFakeExl3Capabilities,
+  writeFakeUnifiedExl3Venv,
+  writeFakeExl3Venv,
+  writeFakeTabby,
+} from './helpers/tabby-fake.js';
+
+function capabilitiesForJobSource(jobSourcePath: string): Exl3ModelCapabilities {
+  const packageDirectory = path.dirname(path.dirname(jobSourcePath));
+  const pythonPath = path.join(path.dirname(path.dirname(path.dirname(packageDirectory))), 'Scripts', 'python.exe');
+  return createFakeExl3Capabilities(pythonPath, packageDirectory);
+}
 
 test('Exl3ModelCapabilities accepts an exllamav3 carrying the 8e08af9 watermark', async () => {
   await withTempEnv((root) => {
-    const { pythonPath } = writeFakeExl3Venv(root, true);
-    assert.equal(new Exl3ModelCapabilities().hasDeviceResidentPastIds(pythonPath), true);
+    const { pythonPath, jobSourcePath } = writeFakeExl3Venv(root, true);
+    assert.equal(capabilitiesForJobSource(jobSourcePath).hasDeviceResidentPastIds(pythonPath), true);
+  });
+});
+
+test('Exl3ModelCapabilities reads the package resolved by the configured interpreter', async () => {
+  await withTempEnv((root) => {
+    const { pythonPath, editablePackageDirectory } = writeFakeUnifiedExl3Venv(root);
+    const capabilities = createFakeExl3Capabilities(pythonPath, editablePackageDirectory);
+
+    assert.equal(capabilities.hasDeviceResidentPastIds(pythonPath), true);
+    assert.equal(capabilities.hasFreezeSupport(pythonPath), true);
   });
 });
 
 test('Exl3ModelCapabilities rejects an exllamav3 predating 8e08af9', async () => {
   await withTempEnv((root) => {
-    const { pythonPath } = writeFakeExl3Venv(root, false);
-    assert.equal(new Exl3ModelCapabilities().hasDeviceResidentPastIds(pythonPath), false);
+    const { pythonPath, jobSourcePath } = writeFakeExl3Venv(root, false);
+    assert.equal(capabilitiesForJobSource(jobSourcePath).hasDeviceResidentPastIds(pythonPath), false);
   });
 });
 
@@ -29,7 +53,7 @@ test('Exl3ModelCapabilities rejects a venv with no exllamav3 installed', async (
   await withTempEnv((root) => {
     const { pythonPath, jobSourcePath } = writeFakeExl3Venv(root, true);
     fs.rmSync(path.dirname(path.dirname(jobSourcePath)), { recursive: true, force: true });
-    assert.equal(new Exl3ModelCapabilities().hasDeviceResidentPastIds(pythonPath), false);
+    assert.equal(capabilitiesForJobSource(jobSourcePath).hasDeviceResidentPastIds(pythonPath), false);
   });
 });
 
@@ -39,40 +63,40 @@ test('Exl3ModelCapabilities rejects an interpreter outside a venv layout', () =>
 
 test('Exl3ModelCapabilities accepts an exllamav3 carrying the host-RAM freeze patch', async () => {
   await withTempEnv((root) => {
-    const { pythonPath } = writeFakeExl3Venv(root, true);
-    assert.equal(new Exl3ModelCapabilities().hasFreezeSupport(pythonPath), true);
+    const { pythonPath, jobSourcePath } = writeFakeExl3Venv(root, true);
+    assert.equal(capabilitiesForJobSource(jobSourcePath).hasFreezeSupport(pythonPath), true);
   });
 });
 
 test('Exl3ModelCapabilities rejects a stock exllamav3 with no freeze patch', async () => {
   await withTempEnv((root) => {
-    const { pythonPath } = writeFakeExl3Venv(root, true, { frozenTensorSource: false, modelFreeze: false, freezeCoverage: false });
-    assert.equal(new Exl3ModelCapabilities().hasFreezeSupport(pythonPath), false);
+    const { pythonPath, jobSourcePath } = writeFakeExl3Venv(root, true, { frozenTensorSource: false, modelFreeze: false, freezeCoverage: false });
+    assert.equal(capabilitiesForJobSource(jobSourcePath).hasFreezeSupport(pythonPath), false);
   });
 });
 
 test('Exl3ModelCapabilities rejects a freeze overlay missing FrozenTensorSource', async () => {
   await withTempEnv((root) => {
-    const { pythonPath } = writeFakeExl3Venv(root, true, { frozenTensorSource: false, modelFreeze: true, freezeCoverage: true });
-    assert.equal(new Exl3ModelCapabilities().hasFreezeSupport(pythonPath), false);
+    const { pythonPath, jobSourcePath } = writeFakeExl3Venv(root, true, { frozenTensorSource: false, modelFreeze: true, freezeCoverage: true });
+    assert.equal(capabilitiesForJobSource(jobSourcePath).hasFreezeSupport(pythonPath), false);
   });
 });
 
 test('Exl3ModelCapabilities rejects a freeze overlay missing Model.freeze', async () => {
   await withTempEnv((root) => {
-    const { pythonPath } = writeFakeExl3Venv(root, true, { frozenTensorSource: true, modelFreeze: false, freezeCoverage: false });
-    assert.equal(new Exl3ModelCapabilities().hasFreezeSupport(pythonPath), false);
+    const { pythonPath, jobSourcePath } = writeFakeExl3Venv(root, true, { frozenTensorSource: true, modelFreeze: false, freezeCoverage: false });
+    assert.equal(capabilitiesForJobSource(jobSourcePath).hasFreezeSupport(pythonPath), false);
   });
 });
 
 test('Exl3ModelCapabilities rejects a freeze build that does not validate snapshot coverage', async () => {
   await withTempEnv((root) => {
-    const { pythonPath } = writeFakeExl3Venv(root, true, {
+    const { pythonPath, jobSourcePath } = writeFakeExl3Venv(root, true, {
       frozenTensorSource: true,
       modelFreeze: true,
       freezeCoverage: false,
     });
-    assert.equal(new Exl3ModelCapabilities().hasFreezeSupport(pythonPath), false);
+    assert.equal(capabilitiesForJobSource(jobSourcePath).hasFreezeSupport(pythonPath), false);
   });
 });
 
@@ -92,7 +116,7 @@ test('managed Tabby refuses to launch against an exllamav3 predating 8e08af9', a
     await using portLease = await acquireChildPortLease('exl3-engine-build-preflight');
     const port = portLease.port;
     const { scriptPath, pythonPath, startsPath } = writeFakeTabby(root, port, null);
-    writeFakeExl3Venv(root, false);
+    const { jobSourcePath } = writeFakeExl3Venv(root, false);
     const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
     if (!preset) throw new Error('Default model preset is missing');
     const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
@@ -104,7 +128,7 @@ test('managed Tabby refuses to launch against an exllamav3 predating 8e08af9', a
       ModelRoot: root,
       AdminApiKey: '',
       ShutdownTimeoutMs: 5_000,
-    }, flushQueue);
+    }, flushQueue, capabilitiesForJobSource(jobSourcePath));
     try {
       await assert.rejects(runtime.ensurePresetReady({
         ...preset,

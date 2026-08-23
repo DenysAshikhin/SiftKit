@@ -1181,13 +1181,13 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
     assert.equal(duplicateUserMessages.length, 0);
     assert.match(String(duplicateToolMessages[0]?.content || ''), /duplicate command requested x5\. Issue a different\/unique tool call/u);
 
+    const duplicateToolCallId = String(duplicateToolMessages[0]?.tool_call_id || '');
     const duplicateAssistant = assistantToolCalls.find((message) => asObjectArray(message?.tool_calls)
-      .some((call) => String(call?.id || '').startsWith('duplicate_call_')));
+      .some((call) => String(call?.id || '') === duplicateToolCallId));
     const duplicateArguments = String(asObject(asObjectArray(duplicateAssistant?.tool_calls)[0]?.function)?.arguments || '');
     assert.match(duplicateArguments, /chars of arguments discarded/u);
     assert.ok(duplicateArguments.length < REJECTED_ARGS_ELISION_LIMIT);
-    const acceptedAssistant = assistantToolCalls.find((message) => asObjectArray(message?.tool_calls)
-      .some((call) => String(call?.id || '').startsWith('call_')));
+    const acceptedAssistant = assistantToolCalls.find((message) => message !== duplicateAssistant);
     assert.match(
       String(asObject(asObjectArray(acceptedAssistant?.tool_calls)[0]?.function)?.arguments || ''),
       /git grep -n \\"planner\\" src/u,

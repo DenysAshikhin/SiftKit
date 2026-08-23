@@ -33,9 +33,7 @@ export const AutoApprovalProbeCliOutputSchema = AutoApprovalProbeResultSchema.ex
 
 function getPayloadPath(argv: string[]): string {
   if (argv.length !== 2 || argv[0] !== '--payload' || !argv[1]) {
-    throw new Error(
-      'Usage: npm run probe:auto-approval -- --payload <replay.json>',
-    );
+    throw new Error('Usage: npm run probe:auto-approval -- --payload <replay.json>');
   }
   return argv[1];
 }

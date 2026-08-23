@@ -310,7 +310,7 @@ const MUTATING_COMMAND_TOOL_NAMES = new Set<string>(['run', 'git']);
  */
 const TREE_MUTATING_TOOL_NAMES = new Set<string>(['run', 'write', 'edit']);
 
-function normalizeToolName(toolName: string): string {
+export function normalizeToolName(toolName: string): string {
   return String(toolName || '').trim().toLowerCase();
 }
 
@@ -819,11 +819,21 @@ function assertExtendsExecutingPlannerRequest(
 const APPROVAL_VERDICT_MAX_TOKENS = 512;
 const APPROVAL_VERDICT_THINKING_MAX_TOKENS = 4096;
 
+/** Executing transcript, pending assistant tool call, then the transient verdict question. */
+export function buildApprovalVerdictPromptMessages(
+  transcriptMessages: ChatMessage[],
+  pendingMessages: ChatMessage[],
+  question: string,
+): ChatMessage[] {
+  return [...transcriptMessages, ...pendingMessages, { role: 'user', content: question }];
+}
+
 export async function requestApprovalVerdict(options: {
   config: SiftConfig;
   baseUrl: string;
   model: string;
   transcriptMessages: ChatMessage[];
+  pendingMessages: ChatMessage[];
   question: string;
   executing: ExecutingPlannerRequest;
   slotId?: number;
@@ -834,7 +844,11 @@ export async function requestApprovalVerdict(options: {
   logger?: JsonLogger | null;
 }): Promise<PlannerActionResponse> {
   const serializedMessages = serializeProtocolMessages(
-    [...options.transcriptMessages, { role: 'user', content: options.question }],
+    buildApprovalVerdictPromptMessages(
+      options.transcriptMessages,
+      options.pendingMessages,
+      options.question,
+    ),
     options.executing.flags.reasoningContentEnabled,
   );
   assertExtendsExecutingPlannerRequest(options.executing, serializedMessages);

@@ -8,7 +8,7 @@ import {
   type ApprovalVerdictModelClient,
 } from '../src/repo-search/approval-verdict-probe.js';
 import {
-  APPROVAL_REVIEW_PAYLOAD_LABEL,
+  APPROVAL_PAYLOAD_LOCATOR_LINE,
   APPROVAL_REVIEW_REQUEST_MARKER,
 } from '../src/repo-search/approval-review-policy.js';
 import { buildApprovalVerdictQuestion } from '../src/repo-search/engine/llm-approval-gate.js';
@@ -31,11 +31,31 @@ const reviewPayload = JSON.stringify({
   }],
 }, null, 2);
 
+const pendingMessage: ChatMessage = {
+  role: 'assistant',
+  content: '',
+  tool_calls: [{
+    id: 't2_c0',
+    type: 'function',
+    function: {
+      name: 'edit',
+      arguments: JSON.stringify({
+        path: 'src/cleanup.ts',
+        edits: [{
+          oldText: 'cleanCache();',
+          newText: 'fs.rmSync(repoRoot, { recursive: true, force: true });',
+        }],
+      }),
+    },
+  }],
+};
+
 const action = {
   turn: 2,
   toolName: 'edit',
   command: 'edit path="src/cleanup.ts" edits=1',
   reviewPayload,
+  pendingMessages: [pendingMessage],
 };
 
 class RecordingVerdictModelClient implements ApprovalVerdictModelClient {
@@ -43,8 +63,12 @@ class RecordingVerdictModelClient implements ApprovalVerdictModelClient {
 
   constructor(private readonly responseText: string) {}
 
-  request(requestMessages: ChatMessage[], question: string): Promise<PlannerActionResponse> {
-    this.requests.push([...requestMessages, { role: 'user', content: question }]);
+  request(
+    requestMessages: ChatMessage[],
+    pendingMessages: ChatMessage[],
+    question: string,
+  ): Promise<PlannerActionResponse> {
+    this.requests.push([...requestMessages, ...pendingMessages, { role: 'user', content: question }]);
     return Promise.resolve({
       text: this.responseText,
       thinkingText: '',
@@ -134,7 +158,8 @@ test('submits existing history followed by one transient approval question', asy
 
   const result = await new AutoApprovalVerdictProbe(client).run({ messages, action });
 
-  assert.deepEqual(result.submittedMessages.slice(0, -1), messages);
+  assert.deepEqual(result.submittedMessages.slice(0, messages.length), messages);
+  assert.deepEqual(result.submittedMessages[messages.length], pendingMessage);
   assert.deepEqual(messages, [
     { role: 'system', content: 'Work only inside C:\\repo.' },
     { role: 'user', content: 'Add one parser regression test.' },
@@ -149,12 +174,11 @@ test('submits existing history followed by one transient approval question', asy
     APPROVAL_REVIEW_REQUEST_MARKER,
     'tool: edit',
     'command: edit path="src/cleanup.ts" edits=1',
-    APPROVAL_REVIEW_PAYLOAD_LABEL,
-    reviewPayload,
   ].join('\n')));
+  assert.ok(lastContent.includes(APPROVAL_PAYLOAD_LOCATOR_LINE));
   assert.doesNotMatch(lastContent, /independent command reviewer/u);
   assert.doesNotMatch(lastContent, /Decide whether this action should run/u);
-  assert.match(lastContent, /fs\.rmSync\(repoRoot/u);
+  assert.doesNotMatch(lastContent, /fs\.rmSync\(repoRoot/u);
   assert.deepEqual(client.requests, [result.submittedMessages]);
   assert.equal(result.verdict, 'deny');
   assert.equal(result.reason, 'Targets files outside the repository.');

@@ -8,13 +8,10 @@ import {
 } from '../command-safety.js';
 import {
   isMutatingCommandToolName,
-  isRepoSearchCommandToolName,
-  isRepoSearchNativeToolName,
   isTreeMutatingToolName,
-  normalizeRepoSearchCommandForToolName,
+  type ChatMessage,
   type ToolAction,
 } from '../planner-protocol.js';
-import { buildApprovalReviewPayload } from '../approval-review-policy.js';
 import { estimateTokenCount } from '../../lib/token-estimate.js';
 import type { TaskCommand } from '../prompts.js';
 import {
@@ -32,11 +29,10 @@ import {
   buildEffectiveTranscriptAction,
   buildRejectedTranscriptAction,
   buildReadCommand,
-  buildRepoToolRequestedCommand,
   executeRepoTool,
   type RepoToolExecution,
 } from './repo-tools.js';
-import type { ApprovalRequester } from './approval-gate.js';
+import { buildApprovalReviewPayload, type ApprovalRequester } from './approval-gate.js';
 import { buildDuplicateFingerprint, DuplicateTracker } from './duplicate-tracker.js';
 import { FORCED_FINISH_MAX_ATTEMPTS, FORCED_FINISH_MODE_MESSAGE, ForcedFinishController } from './forced-finish.js';
 import { ActivitySummaryCollector } from './activity-summary-collector.js';
@@ -64,10 +60,17 @@ import {
 } from './validation-command-output-policy.js';
 import { RunOutputModeSchema } from '../repo-tool-arguments.js';
 import type { TurnPromptTokens } from '../../agent-loop/types.js';
+import {
+  buildBatchToolCallId,
+  buildPendingAssistantMessage,
+  resolveToolActionIdentity,
+} from './pending-tool-call-message.js';
 
 type ToolActionOutcome = 'next' | 'stop_batch';
 
 type TurnBatchState = {
+  batchIndex: number;
+  pendingMessages: ChatMessage[];
   batchOutcomes: ToolBatchOutcome[];
   /** One entry per tool result that produced an image, in batch order. */
   pendingToolImages: Array<{ outcomeIndex: number; dataUrl: string; pathKey: string; metadata: ImageMetadata }>;
@@ -196,6 +199,12 @@ export class ToolActionProcessor {
   ): Promise<TurnOutcome> {
     const { transcript, duplicates, counters } = this.deps;
     const state: TurnBatchState = {
+      batchIndex: 0,
+      pendingMessages: [buildPendingAssistantMessage({
+        turn,
+        thinkingText: responseThinkingText,
+        toolActions,
+      })],
       batchOutcomes: [],
       pendingToolImages: [],
       pendingModeChangeUserMessages: [],
@@ -207,7 +216,8 @@ export class ToolActionProcessor {
     };
 
     const commandsAtBatchStart = this.deps.commands.length;
-    for (const toolAction of toolActions) {
+    for (const [batchIndex, toolAction] of toolActions.entries()) {
+      state.batchIndex = batchIndex;
       const outcome = await this.processToolAction(turn, toolAction, state, promptTokens, inForcedFinishMode);
       if (outcome === 'stop_batch') {
         break;
@@ -286,7 +296,6 @@ export class ToolActionProcessor {
         transcriptCommand: command,
         reason: attempt.rejectionReason,
         output: `Rejected command: ${attempt.rejectionReason}`,
-        callIdPrefix: 'forced_finish_call',
       });
       state.pendingForcedFinishCountdownText = attempt.countdownText;
       if (attempt.exhausted) {
@@ -319,6 +328,7 @@ export class ToolActionProcessor {
           toolName: normalizedToolName,
           args: toolAction.args,
         }),
+        pendingMessages: state.pendingMessages,
       });
       if (decision.kind === 'abort') {
         throw new Error(decision.reason);
@@ -334,7 +344,6 @@ export class ToolActionProcessor {
           transcriptCommand: command,
           reason,
           output: `Rejected command: ${reason}`,
-          callIdPrefix: 'denied_call',
         });
         return 'next';
       }
@@ -364,9 +373,7 @@ export class ToolActionProcessor {
   }
 
   private validateToolAction(turn: number, toolAction: ToolAction, state: TurnBatchState): ValidatedToolAction | ToolActionOutcome {
-    const normalizedToolName = String(toolAction.tool_name || '').trim().toLowerCase();
-    const isCommandTool = isRepoSearchCommandToolName(normalizedToolName);
-    const isNativeTool = isRepoSearchNativeToolName(normalizedToolName);
+    const { normalizedToolName, isCommandTool, isNativeTool, command } = resolveToolActionIdentity(toolAction);
     if (!isCommandTool && !isNativeTool) {
       const unsupportedToolMessage = `Invalid action: unsupported planner tool "${toolAction.tool_name}" for repo-search. Use one of: ${this.deps.allowedPlannerToolNames.join(', ')}.`;
       return this.recordInvalidToolCall(turn, toolAction, state, String(toolAction.tool_name || '').trim() || 'invalid_tool_call', unsupportedToolMessage);
@@ -375,12 +382,6 @@ export class ToolActionProcessor {
       const disallowedToolMessage = `Invalid action: tool "${normalizedToolName}" is not enabled for this run. Use one of: ${this.deps.allowedPlannerToolNames.join(', ')}.`;
       return this.recordInvalidToolCall(turn, toolAction, state, normalizedToolName, disallowedToolMessage);
     }
-    const command = isCommandTool
-      ? normalizeRepoSearchCommandForToolName(
-          normalizedToolName,
-          typeof toolAction.args.command === 'string' ? toolAction.args.command : '',
-        )
-      : buildRepoToolRequestedCommand(normalizedToolName, toolAction.args);
     if (isCommandTool && !command) {
       return this.recordInvalidToolCall(
         turn,
@@ -421,7 +422,6 @@ export class ToolActionProcessor {
       transcriptCommand: string;
       reason: string | null;
       output: string;
-      callIdPrefix: string;
     },
   ): void {
     const { commands } = this.deps;
@@ -440,7 +440,7 @@ export class ToolActionProcessor {
         isNativeTool: rejection.isNativeTool,
         commandToRun: rejection.transcriptCommand,
       }),
-      toolCallId: `${rejection.callIdPrefix}_${commands.length}`,
+      toolCallId: buildBatchToolCallId(turn, state.batchIndex),
       toolContent: rejection.output,
     });
   }
@@ -487,7 +487,7 @@ export class ToolActionProcessor {
     });
     state.batchOutcomes.push({
       action: { tool_name: displayToolName, args: toolAction.args },
-      toolCallId: `invalid_call_${counters.invalidResponses}`,
+      toolCallId: buildBatchToolCallId(turn, state.batchIndex),
       toolContent: message,
     });
     return this.logInvalidAction(turn, toolAction, message);
@@ -528,7 +528,6 @@ export class ToolActionProcessor {
           transcriptCommand: command,
           reason: 'duplicate web tool',
           output: duplicateDecision.message,
-          callIdPrefix: 'duplicate_web_call',
         });
         return 'next';
       }
@@ -586,7 +585,7 @@ export class ToolActionProcessor {
           isNativeTool,
           commandToRun: command,
         }),
-        toolCallId: `duplicate_call_${commands.length}`,
+        toolCallId: buildBatchToolCallId(turn, state.batchIndex),
         toolContent: duplicateMessage,
       });
       state.batchDuplicateAnchorIndex = state.batchOutcomes.length - 1;
@@ -694,7 +693,6 @@ export class ToolActionProcessor {
       transcriptCommand: nativeExecution.command,
       reason: nativeExecution.reason,
       output: `Rejected command: ${nativeExecution.reason}`,
-      callIdPrefix: 'rejected_call',
     });
     return 'next';
   }
@@ -744,7 +742,6 @@ export class ToolActionProcessor {
         transcriptCommand: commandToRun,
         reason: safety.reason,
         output: `Rejected command: ${safety.reason}`,
-        callIdPrefix: 'rejected_call',
       });
       return 'next';
     }
@@ -1013,7 +1010,7 @@ export class ToolActionProcessor {
     if (commandSucceeded) {
       duplicates.recordSuccess(normalizedKey, fingerprint || null);
     }
-    const toolCallId = `call_${commands.length}`;
+    const toolCallId = buildBatchToolCallId(turn, state.batchIndex);
     state.batchOutcomes.push({
       action: buildEffectiveTranscriptAction({
         toolName: normalizedToolName,

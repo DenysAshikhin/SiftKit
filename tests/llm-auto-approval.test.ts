@@ -4,10 +4,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { runTaskLoop } from '../src/repo-search/engine.js';
-import {
-  APPROVAL_REVIEW_PAYLOAD_LABEL,
-  APPROVAL_REVIEW_REQUEST_MARKER,
-} from '../src/repo-search/approval-review-policy.js';
+import { APPROVAL_REVIEW_REQUEST_MARKER } from '../src/repo-search/approval-review-policy.js';
 import {
   CLIENT_ABORT_MESSAGE,
   buildApprovalTimeoutMessage,
@@ -70,6 +67,7 @@ test('an auto-review that reaches no verdict aborts when nobody answers the esca
     toolName: 'git',
     command: 'git grep -n "x" src1',
     reviewPayload: null,
+    pendingMessages: [],
   });
 
   assert.deepEqual(decision, {
@@ -176,10 +174,6 @@ test('auto mode: reviewer approve executes the write with no human involvement',
       JSON.stringify(transcriptEvents).includes(APPROVAL_REVIEW_REQUEST_MARKER),
       false,
     );
-    assert.equal(
-      JSON.stringify(transcriptEvents).includes(APPROVAL_REVIEW_PAYLOAD_LABEL),
-      false,
-    );
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -201,7 +195,7 @@ test('auto mode: reviewer deny blocks the write and feeds the reason to the mode
     const denied = result.commands.find((command) => command.safe === false);
     assert.ok(denied);
     assert.match(String(denied.reason), /auto-reviewer: not needed for the task/u);
-    assert.equal(String(denied.output).includes(APPROVAL_REVIEW_PAYLOAD_LABEL), false);
+    assert.equal(String(denied.output).includes('"content": "hello"'), false);
     assert.equal(result.safetyRejects, 1);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -388,18 +382,28 @@ test('auto mode over HTTP: the verdict request byte-extends the executing planne
     // so the prefix equality below proves the verdict preserved it.
     assert.equal(JSON.stringify(executingMessages).includes('thought-1'), true);
 
-    // The verdict prompt is exactly the executing planner prompt plus one question.
-    assert.equal(verdictMessages.length, executingMessages.length + 1);
+    // The verdict prompt is the executing planner prompt, pending assistant call, then question.
+    assert.equal(verdictMessages.length, executingMessages.length + 2);
     assert.deepEqual(verdictMessages.slice(0, executingMessages.length), executingMessages);
+    const pending = asObject(verdictMessages[executingMessages.length]);
+    assert.equal(pending.role, 'assistant');
+    const pendingCall = asObject(asArray(pending.tool_calls)[0]);
+    const pendingFunction = asObject(pendingCall.function);
+    assert.deepEqual(
+      asObject(parseJsonValueText(String(pendingFunction.arguments))),
+      { path: 'out.txt', content: 'hello' },
+    );
     const question = asObject(verdictMessages.at(-1));
     assert.equal(question.role, 'user');
     assert.match(String(question.content), /tool: write/u);
+    assert.equal(String(question.content).includes('"content": "hello"'), false);
 
     // Identical server-side template rendering: same chat_template_kwargs.
     assert.deepEqual(verdict.chat_template_kwargs, executing.chat_template_kwargs);
 
     // The question is popped: it never reaches a later planner request.
     assert.equal(JSON.stringify(plannerBodies[2]).includes(APPROVAL_REVIEW_REQUEST_MARKER), false);
+    assert.deepEqual(asArray(plannerBodies[2].messages)[executingMessages.length], pending);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));

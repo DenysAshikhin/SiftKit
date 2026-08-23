@@ -5,8 +5,8 @@ import type { RepoSearchProgressEvent } from './types.js';
 import { MessageContentSchema } from '../llm-protocol/image-attachments.js';
 import {
   type ApprovalDecision,
-  type ApprovalRequester,
-  type ApprovalRequestInput,
+  type HumanApprovalRequestInput,
+  type HumanApprovalRequester,
 } from './engine/approval-gate.js';
 import {
   LlmApprovalGate,
@@ -14,6 +14,7 @@ import {
 } from './engine/llm-approval-gate.js';
 import {
   captureExecutingPlannerRequest,
+  buildApprovalVerdictPromptMessages,
   requestApprovalVerdict,
   serializeProtocolMessages,
   type ChatMessage,
@@ -44,6 +45,7 @@ export const AutoApprovalActionSchema = z.object({
   toolName: z.string().min(1),
   command: z.string().min(1),
   reviewPayload: z.string().nullable(),
+  pendingMessages: z.array(ReplayMessageSchema).default([]),
 });
 
 export const AutoApprovalReplayPayloadSchema = z.object({
@@ -51,6 +53,7 @@ export const AutoApprovalReplayPayloadSchema = z.object({
   action: AutoApprovalActionSchema,
 });
 export type AutoApprovalReplayPayload = z.infer<typeof AutoApprovalReplayPayloadSchema>;
+export type AutoApprovalReplayPayloadInput = z.input<typeof AutoApprovalReplayPayloadSchema>;
 
 const AutoApprovalEventSchema = z.object({
   kind: z.literal('approval_auto'),
@@ -67,7 +70,11 @@ export const AutoApprovalProbeResultSchema = z.object({
 export type AutoApprovalProbeResult = z.infer<typeof AutoApprovalProbeResultSchema>;
 
 export type ApprovalVerdictModelClient = {
-  request(messages: ChatMessage[], question: string): Promise<PlannerActionResponse>;
+  request(
+    messages: ChatMessage[],
+    pendingMessages: ChatMessage[],
+    question: string,
+  ): Promise<PlannerActionResponse>;
 };
 
 export class ConfiguredApprovalVerdictModelClient implements ApprovalVerdictModelClient {
@@ -80,11 +87,16 @@ export class ConfiguredApprovalVerdictModelClient implements ApprovalVerdictMode
     thinking: PlannerThinkingFlags;
   }) {}
 
-  request(messages: ChatMessage[], question: string): Promise<PlannerActionResponse> {
+  request(
+    messages: ChatMessage[],
+    pendingMessages: ChatMessage[],
+    question: string,
+  ): Promise<PlannerActionResponse> {
     const { thinking, ...request } = this.options;
     return requestApprovalVerdict({
       ...request,
       transcriptMessages: messages,
+      pendingMessages,
       question,
       // Replay reconstructs the executing planner request from the persisted
       // messages the live run submitted, with the configured thinking flags.
@@ -105,14 +117,21 @@ class ReplayVerdictRequester implements ApprovalVerdictRequester {
     private readonly modelClient: ApprovalVerdictModelClient,
   ) {}
 
-  requestApprovalVerdict(question: string): Promise<PlannerActionResponse> {
-    this.submittedMessages = [...this.messages, { role: 'user', content: question }];
-    return this.modelClient.request(this.messages, question);
+  requestApprovalVerdict(
+    question: string,
+    pendingMessages: ChatMessage[],
+  ): Promise<PlannerActionResponse> {
+    this.submittedMessages = buildApprovalVerdictPromptMessages(
+      this.messages,
+      pendingMessages,
+      question,
+    );
+    return this.modelClient.request(this.messages, pendingMessages, question);
   }
 }
 
-class FailClosedHumanGate implements ApprovalRequester {
-  request(_input: ApprovalRequestInput): Promise<ApprovalDecision> {
+class FailClosedHumanGate implements HumanApprovalRequester {
+  request(_input: HumanApprovalRequestInput): Promise<ApprovalDecision> {
     return Promise.resolve({
       kind: 'abort',
       reason: 'Approval verdict probe reached the human gate; failing closed.',
@@ -148,7 +167,7 @@ class ProbeProgressWriter extends ProgressWriter<RepoSearchProgressEvent> {
 export class AutoApprovalVerdictProbe {
   constructor(private readonly modelClient: ApprovalVerdictModelClient) {}
 
-  async run(input: AutoApprovalReplayPayload): Promise<AutoApprovalProbeResult> {
+  async run(input: AutoApprovalReplayPayloadInput): Promise<AutoApprovalProbeResult> {
     const payload = AutoApprovalReplayPayloadSchema.parse(input);
     const requester = new ReplayVerdictRequester(payload.messages, this.modelClient);
     const progressWriter = new ProbeProgressWriter();

@@ -24,7 +24,7 @@ import type { ModelRequestLock, ServerContext } from '../src/status-server/serve
 import { closeRuntimeDatabase } from '../src/state/runtime-db.js';
 import { RecordingInferenceRuntime } from './helpers/recording-inference-runtime.js';
 import { createTestServerContext } from './helpers/server-context-fixture.js';
-import { writeFakeExl3Venv } from './helpers/tabby-fake.js';
+import { createFakeExl3Capabilities, writeFakeExl3Venv } from './helpers/tabby-fake.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { acquireChildPortLease } from './helpers/test-endpoints.js';
 
@@ -954,15 +954,16 @@ test('Tabby freeze uses the startup timeout for the host transfer', async () => 
   const address = server.address();
   if (address === null || typeof address === 'string') throw new Error('Stub Tabby server did not bind to TCP.');
   const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
+  const fakeExl3 = writeFakeExl3Venv(root, true);
   const runtime = new ManagedTabbyRuntime({
     Managed: false,
     WorkingDirectory: root,
-    PythonPath: writeFakeExl3Venv(root, true).pythonPath,
+    PythonPath: fakeExl3.pythonPath,
     Entrypoint: 'unused',
     ModelRoot: root,
     AdminApiKey: '',
     ShutdownTimeoutMs: 1_000,
-  }, flushQueue);
+  }, flushQueue, createFakeExl3Capabilities(fakeExl3.pythonPath));
   const preset = {
     ...basePreset,
     id: 'exl3-main',

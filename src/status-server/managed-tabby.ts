@@ -35,11 +35,11 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   private residentPresetId: string | null = null;
   private loadPromise: Promise<void> | null = null;
   private readonly adapter: Exl3PresetAdapter;
-  private readonly capabilities = new Exl3ModelCapabilities();
 
   constructor(
     private readonly engine: Exl3EngineConfig,
     private readonly flushQueue: InferenceRunFlushQueue,
+    private readonly capabilities = new Exl3ModelCapabilities(),
     private readonly client = new TabbyModelClient(engine.AdminApiKey),
   ) {
     super('exl3');

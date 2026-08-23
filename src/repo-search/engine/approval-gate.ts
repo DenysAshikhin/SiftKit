@@ -4,6 +4,8 @@ import { getAbortError } from '../../lib/abort.js';
 import { ServerLogger, serverLogger, shortenRequestId } from '../../status-server/server-logger.js';
 import type { ProgressWriter } from '../../lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../types.js';
+import type { ChatMessage } from '../planner-protocol.js';
+import type { JsonObject } from '../../lib/json-types.js';
 
 const LOGGED_COMMAND_MAX_CHARS = 100;
 
@@ -29,12 +31,24 @@ export type RepoSearchApprovalResult = z.infer<typeof RepoSearchApprovalResultSc
 export const ApprovalModeSchema = z.enum(['interactive', 'auto', 'off']);
 export type ApprovalMode = z.infer<typeof ApprovalModeSchema>;
 
-export type ApprovalRequestInput = {
+export type HumanApprovalRequestInput = {
   turn: number;
   toolName: string;
   command: string;
   reviewPayload: string | null;
 };
+
+export type ApprovalRequestInput = HumanApprovalRequestInput & {
+  pendingMessages: ChatMessage[];
+};
+
+export function buildApprovalReviewPayload(input: {
+  toolName: string;
+  args: JsonObject;
+}): string | null {
+  if (input.toolName !== 'edit' && input.toolName !== 'write') return null;
+  return JSON.stringify({ action: input.toolName, ...input.args }, null, 2);
+}
 
 const APPROVAL_EXEMPT_READ_ONLY_TOOLS = new Set<string>([
   'read',
@@ -50,6 +64,10 @@ export function isApprovalExemptReadOnlyTool(toolName: string): boolean {
 /** Anything that can answer an approval request: the human gate or the LLM decorator. */
 export type ApprovalRequester = {
   request(input: ApprovalRequestInput): Promise<ApprovalDecision>;
+};
+
+export type HumanApprovalRequester = {
+  request(input: HumanApprovalRequestInput): Promise<ApprovalDecision>;
 };
 
 export type ApprovalDecision =
@@ -146,7 +164,7 @@ export class ApprovalGate {
     return this.requestId;
   }
 
-  request(input: ApprovalRequestInput): Promise<ApprovalDecision> {
+  request(input: HumanApprovalRequestInput): Promise<ApprovalDecision> {
     if (this.bypassReadOnlyTools && isApprovalExemptReadOnlyTool(input.toolName)) {
       return Promise.resolve({ kind: 'approve' });
     }

@@ -28,6 +28,7 @@
     "benchmark:spec-focused": "node .\\scripts\\run-benchmark-spec-focused.cjs",
     "benchmark:spec-focused3": "node .\\scripts\\run-benchmark-spec-focused3.cjs",
     "probe:auto-approval": "tsx .\\scripts\\probe-auto-approval.ts",
+    "redteam:approval": "tsx .\\scripts\\approval-red-team\\main.ts",
     "test": "node .\\dist\\test-runner\\run-tests.js",
     "desktop:install-toolchain": "node .\\scripts\\desktop\\install-toolchain.mjs",
     "desktop:test": "node .\\scripts\\desktop\\rust-env.mjs cargo test --manifest-path desktop/src-tauri/Cargo.toml",

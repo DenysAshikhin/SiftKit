@@ -11,7 +11,7 @@ import { writeFakeTabby } from './helpers/tabby-fake.js';
 
 async function createManagedTabbyRun(root: string, leaseName: string) {
   const portLease = await acquireChildPortLease(leaseName);
-  const { scriptPath, pythonPath } = writeFakeTabby(root, portLease.port, null);
+  const { scriptPath, pythonPath, capabilities } = writeFakeTabby(root, portLease.port, null);
   const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
   if (!preset) throw new Error('Default model preset is missing');
   const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
@@ -23,7 +23,7 @@ async function createManagedTabbyRun(root: string, leaseName: string) {
     ModelRoot: root,
     AdminApiKey: '',
     ShutdownTimeoutMs: 5_000,
-  }, flushQueue);
+  }, flushQueue, capabilities);
 
   return {
     runtime,

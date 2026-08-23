@@ -2,9 +2,18 @@ import { z } from '../../lib/zod.js';
 import { parseJsonValueText } from '../../lib/json.js';
 import type { ProgressWriter } from '../../lib/progress-writer.js';
 import type { RepoSearchProgressEvent } from '../types.js';
-import type { PlannerActionResponse } from '../planner-protocol.js';
-import { APPROVAL_REVIEW_POLICY_LINES, buildApprovalReviewRequest } from '../approval-review-policy.js';
-import { isApprovalExemptReadOnlyTool, type ApprovalDecision, type ApprovalRequester, type ApprovalRequestInput } from './approval-gate.js';
+import type { ChatMessage, PlannerActionResponse } from '../planner-protocol.js';
+import {
+  APPROVAL_PAYLOAD_LOCATOR_LINE,
+  APPROVAL_REVIEW_POLICY_LINES,
+  buildApprovalReviewRequest,
+} from '../approval-review-policy.js';
+import {
+  isApprovalExemptReadOnlyTool,
+  type ApprovalDecision,
+  type ApprovalRequestInput,
+  type HumanApprovalRequester,
+} from './approval-gate.js';
 import type { JsonLogger } from '../types.js';
 
 const ApprovalVerdictSchema = z.object({
@@ -15,13 +24,22 @@ type ApprovalVerdict = z.infer<typeof ApprovalVerdictSchema>;
 
 /** Narrow view of TaskLoop: issues one ephemeral, schema-constrained verdict request. */
 export type ApprovalVerdictRequester = {
-  requestApprovalVerdict(question: string): Promise<PlannerActionResponse>;
+  requestApprovalVerdict(
+    question: string,
+    pendingMessages: ChatMessage[],
+  ): Promise<PlannerActionResponse>;
 };
 
 export function buildApprovalVerdictQuestion(
   input: Pick<ApprovalRequestInput, 'toolName' | 'command' | 'reviewPayload'>,
 ): string {
-  return [...APPROVAL_REVIEW_POLICY_LINES, '', buildApprovalReviewRequest(input)].join('\n');
+  return [
+    ...APPROVAL_REVIEW_POLICY_LINES,
+    '',
+    APPROVAL_PAYLOAD_LOCATOR_LINE,
+    '',
+    buildApprovalReviewRequest(input),
+  ].join('\n');
 }
 
 /**
@@ -33,7 +51,7 @@ export function buildApprovalVerdictQuestion(
 export class LlmApprovalGate {
   constructor(private readonly deps: {
     requestId: string;
-    humanGate: ApprovalRequester;
+    humanGate: HumanApprovalRequester;
     verdictRequester: ApprovalVerdictRequester;
     progressWriter: ProgressWriter<RepoSearchProgressEvent>;
     logger: JsonLogger | null;
@@ -44,7 +62,10 @@ export class LlmApprovalGate {
       this.emitVerdict(input, 'approve', 'read-only tool');
       return { kind: 'approve' };
     }
-    const verdict = await this.requestVerdictWithRetry(buildApprovalVerdictQuestion(input));
+    const verdict = await this.requestVerdictWithRetry(
+      buildApprovalVerdictQuestion(input),
+      input.pendingMessages,
+    );
     if (verdict === null) {
       this.emitVerdict(input, 'unsure', 'verdict call failed');
       return this.deps.humanGate.request(input);
@@ -59,10 +80,13 @@ export class LlmApprovalGate {
     return this.deps.humanGate.request(input);
   }
 
-  private async requestVerdictWithRetry(question: string): Promise<ApprovalVerdict | null> {
+  private async requestVerdictWithRetry(
+    question: string,
+    pendingMessages: ChatMessage[],
+  ): Promise<ApprovalVerdict | null> {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        const response = await this.deps.verdictRequester.requestApprovalVerdict(question);
+        const response = await this.deps.verdictRequester.requestApprovalVerdict(question, pendingMessages);
         return ApprovalVerdictSchema.parse(parseJsonValueText(String(response.text || '')));
       } catch {
         // Inference failure or schema mismatch: retry once, then escalate to the human gate.

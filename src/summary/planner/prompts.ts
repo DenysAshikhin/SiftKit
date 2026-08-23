@@ -7,7 +7,7 @@ import type {
   PlannerToolDefinition,
   SummarySourceKind,
 } from '../types.js';
-import { buildAssistantToolCallMessage as buildSharedAssistantToolCallMessage } from '../../tool-call-messages.js';
+import { buildSingleAssistantToolCallMessage as buildSharedAssistantToolCallMessage } from '../../tool-call-messages.js';
 import { parseJsonValueText } from '../../lib/json.js';
 import { getRecord, MAX_JSON_FALLBACK_PREVIEW_CHARACTERS } from './json-filter.js';
 import { truncatePlannerText } from './formatters.js';

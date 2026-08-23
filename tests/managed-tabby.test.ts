@@ -41,7 +41,7 @@ async function createManagedTabbyFixture(root: string, leaseName: string) {
     ModelRoot: root,
     AdminApiKey: '',
     ShutdownTimeoutMs: 5_000,
-  }, flushQueue);
+  }, flushQueue, fakeTabby.capabilities);
 
   return {
     ...fakeTabby,
@@ -227,7 +227,7 @@ test('managed Tabby rejects a startup-loaded model whose applied context diverge
   await withTempEnv(async (root) => {
     await using portLease = await acquireChildPortLease('managed-tabby');
     const port = portLease.port;
-    const { scriptPath, pythonPath } = writeFakeTabby(root, port, 84_992);
+    const { scriptPath, pythonPath, capabilities } = writeFakeTabby(root, port, 84_992);
     const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
     if (!preset) throw new Error('Default model preset is missing');
     const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
@@ -239,7 +239,7 @@ test('managed Tabby rejects a startup-loaded model whose applied context diverge
       ModelRoot: root,
       AdminApiKey: '',
       ShutdownTimeoutMs: 5_000,
-    }, flushQueue);
+    }, flushQueue, capabilities);
     try {
       await assert.rejects(runtime.ensurePresetReady({
         ...preset,
@@ -287,7 +287,7 @@ test('managed Tabby waits for delayed MTP drafting announced on stderr', async (
   await withTempEnv(async (root) => {
     await using portLease = await acquireChildPortLease('managed-tabby');
     const port = portLease.port;
-    const { scriptPath, pythonPath } = writeFakeTabby(root, port, null, {
+    const { scriptPath, pythonPath, capabilities } = writeFakeTabby(root, port, null, {
       draftingStream: 'stderr',
       draftingDelayMs: 100,
     });
@@ -302,7 +302,7 @@ test('managed Tabby waits for delayed MTP drafting announced on stderr', async (
       ModelRoot: root,
       AdminApiKey: '',
       ShutdownTimeoutMs: 5_000,
-    }, flushQueue);
+    }, flushQueue, capabilities);
     try {
       await runtime.ensurePresetReady({
         ...preset,
@@ -327,7 +327,7 @@ test('managed Tabby rejects a speculative preset when the startup log never repo
   await withTempEnv(async (root) => {
     await using portLease = await acquireChildPortLease('managed-tabby');
     const port = portLease.port;
-    const { scriptPath, pythonPath } = writeFakeTabby(root, port, null, { announceDrafting: false });
+    const { scriptPath, pythonPath, capabilities } = writeFakeTabby(root, port, null, { announceDrafting: false });
     const preset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
     if (!preset) throw new Error('Default model preset is missing');
     const flushQueue = new InferenceRunFlushQueue({ idleDelayMs: 0 });
@@ -339,7 +339,7 @@ test('managed Tabby rejects a speculative preset when the startup log never repo
       ModelRoot: root,
       AdminApiKey: '',
       ShutdownTimeoutMs: 5_000,
-    }, flushQueue);
+    }, flushQueue, capabilities);
     try {
       await assert.rejects(runtime.ensurePresetReady({
         ...preset,

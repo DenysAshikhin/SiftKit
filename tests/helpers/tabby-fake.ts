@@ -3,6 +3,25 @@ import type http from 'node:http';
 import path from 'node:path';
 
 import { Exl3LoadRequestSchema } from '../../src/inference-presets/exl3-preset-adapter.js';
+import {
+  Exl3ModelCapabilities,
+  type Exl3PackageLocator,
+} from '../../src/inference-presets/exl3-model-capabilities.js';
+
+class FixedExl3PackageLocator implements Exl3PackageLocator {
+  constructor(private readonly packageDirectory: string) {}
+
+  resolvePackageDirectory(_pythonPath: string): string | null {
+    return this.packageDirectory;
+  }
+}
+
+export function createFakeExl3Capabilities(
+  pythonPath: string,
+  packageDirectory = path.join(path.dirname(path.dirname(pythonPath)), 'Lib', 'site-packages', 'exllamav3'),
+): Exl3ModelCapabilities {
+  return new Exl3ModelCapabilities(new FixedExl3PackageLocator(packageDirectory));
+}
 
 /**
  * Models TabbyAPI's `/v1/model` card: a loaded server reports the parameters it actually applied,
@@ -56,6 +75,7 @@ export interface FakeTabbyFiles {
   environmentPath: string;
   loadRequestsPath: string;
   startsPath: string;
+  capabilities: Exl3ModelCapabilities;
 }
 
 export interface FakeExl3Venv {
@@ -63,6 +83,10 @@ export interface FakeExl3Venv {
   jobSourcePath: string;
   frozenTensorsPath: string;
   modelSourcePath: string;
+}
+
+export interface FakeUnifiedExl3Venv extends FakeExl3Venv {
+  editablePackageDirectory: string;
 }
 
 /** Selects which halves of the host-RAM freeze patch the fake exllamav3 carries. */
@@ -155,6 +179,28 @@ export function writeFakeExl3Venv(
   return { pythonPath, jobSourcePath, frozenTensorsPath, modelSourcePath };
 }
 
+/** Reproduces a unified package source whose canonical directory differs from stale site-packages. */
+export function writeFakeUnifiedExl3Venv(root: string): FakeUnifiedExl3Venv {
+  const stale = writeFakeExl3Venv(root, false, {
+    frozenTensorSource: false,
+    modelFreeze: false,
+    freezeCoverage: false,
+  });
+  const editableRoot = path.join(root, 'unified-exllamav3');
+  const editablePackageDirectory = path.join(editableRoot, 'exllamav3');
+  const generatorDirectory = path.join(editablePackageDirectory, 'generator');
+  const loaderDirectory = path.join(editablePackageDirectory, 'loader');
+  const modelDirectory = path.join(editablePackageDirectory, 'model');
+  fs.mkdirSync(generatorDirectory, { recursive: true });
+  fs.mkdirSync(loaderDirectory, { recursive: true });
+  fs.mkdirSync(modelDirectory, { recursive: true });
+  fs.writeFileSync(path.join(generatorDirectory, 'job.py'), DEVICE_RESIDENT_JOB_SOURCE, 'utf8');
+  fs.writeFileSync(path.join(loaderDirectory, 'frozen_tensors.py'), FROZEN_TENSORS_SOURCE, 'utf8');
+  fs.writeFileSync(path.join(modelDirectory, 'model.py'), FREEZE_MODEL_SOURCE + FREEZE_COVERAGE_SOURCE, 'utf8');
+
+  return { ...stale, editablePackageDirectory };
+}
+
 /**
  * Fake TabbyAPI that reports the model card its launch environment produced, so the runtime's
  * resident-parameter verification is exercised end to end. `appliedMaxSeqLen` simulates a server
@@ -170,13 +216,15 @@ export function writeFakeTabby(
   const announceDrafting = options.announceDrafting ?? true;
   const draftingStream = options.draftingStream ?? 'stdout';
   const draftingDelayMs = options.draftingDelayMs ?? 0;
+  const fakeVenv = writeFakeExl3Venv(root, true);
   const files: FakeTabbyFiles = {
     scriptPath: path.join(root, 'fake-tabby.cjs'),
-    pythonPath: writeFakeExl3Venv(root, true).pythonPath,
+    pythonPath: fakeVenv.pythonPath,
     argsPath: path.join(root, 'args.json'),
     environmentPath: path.join(root, 'environment.json'),
     loadRequestsPath: path.join(root, 'load-requests.txt'),
     startsPath: path.join(root, 'starts.txt'),
+    capabilities: createFakeExl3Capabilities(fakeVenv.pythonPath),
   };
   fs.writeFileSync(files.scriptPath, `
 const fs = require('node:fs');

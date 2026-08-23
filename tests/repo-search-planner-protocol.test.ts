@@ -692,6 +692,7 @@ test('requestApprovalVerdict clamps the verdict maxTokens to the preset MaxToken
     baseUrl,
     model: 'test-model',
     transcriptMessages: [],
+    pendingMessages: [],
     question: 'ok?',
     executing: captureExecutingPlannerRequest([], {
       thinkingEnabled: false,

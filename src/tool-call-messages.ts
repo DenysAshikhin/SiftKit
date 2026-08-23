@@ -20,24 +20,16 @@ export type ToolTranscriptMessage = {
   tool_call_id?: string;
 };
 
-export function buildAssistantToolCallMessage(
+export function buildSingleAssistantToolCallMessage(
   action: ToolTranscriptAction,
   toolCallId: string,
   thinkingText = '',
 ): ToolTranscriptMessage {
-  return {
-    role: 'assistant',
-    content: '',
-    tool_calls: [{
-      id: toolCallId,
-      type: 'function',
-      function: {
-        name: action.tool_name,
-        arguments: JSON.stringify(action.args),
-      },
-    }],
-    ...(thinkingText ? { reasoning_content: thinkingText } : {}),
-  };
+  return buildAssistantToolCallMessage([{
+    action,
+    toolCallId,
+    toolContent: '',
+  }], thinkingText);
 }
 
 export function appendToolCallExchange(
@@ -47,7 +39,7 @@ export function appendToolCallExchange(
   toolContent: string,
   thinkingText = '',
 ): void {
-  messages.push(buildAssistantToolCallMessage(action, toolCallId, thinkingText));
+  messages.push(buildSingleAssistantToolCallMessage(action, toolCallId, thinkingText));
   messages.push({
     role: 'tool',
     tool_call_id: toolCallId,
@@ -61,15 +53,23 @@ export type ToolBatchOutcome = {
   toolContent: string;
 };
 
-export function appendToolBatchExchange(
-  messages: ToolTranscriptMessage[],
+export type AssistantToolCallMessage = {
+  role: 'assistant';
+  content: '';
+  tool_calls: Array<{
+    id: string;
+    type: 'function';
+    function: { name: string; arguments: string };
+  }>;
+  reasoning_content?: string;
+};
+
+/** The assistant message produced by a tool batch, shared by pending and appended transcripts. */
+export function buildAssistantToolCallMessage(
   outcomes: ToolBatchOutcome[],
   thinkingText = '',
-): void {
-  if (outcomes.length === 0) {
-    return;
-  }
-  messages.push({
+): AssistantToolCallMessage {
+  return {
     role: 'assistant',
     content: '',
     tool_calls: outcomes.map(({ action, toolCallId }) => ({
@@ -81,7 +81,18 @@ export function appendToolBatchExchange(
       },
     })),
     ...(thinkingText ? { reasoning_content: thinkingText } : {}),
-  });
+  };
+}
+
+export function appendToolBatchExchange(
+  messages: ToolTranscriptMessage[],
+  outcomes: ToolBatchOutcome[],
+  thinkingText = '',
+): void {
+  if (outcomes.length === 0) {
+    return;
+  }
+  messages.push(buildAssistantToolCallMessage(outcomes, thinkingText));
   for (const { toolCallId, toolContent } of outcomes) {
     messages.push({
       role: 'tool',

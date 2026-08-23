@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  APPROVAL_REVIEW_PAYLOAD_LABEL,
+  APPROVAL_PAYLOAD_LOCATOR_LINE,
   APPROVAL_REVIEW_REQUEST_MARKER,
-  buildApprovalReviewPayload,
   buildApprovalReviewRequest,
 } from '../src/repo-search/approval-review-policy.js';
+import { buildApprovalReviewPayload } from '../src/repo-search/engine/approval-gate.js';
+import { buildApprovalVerdictQuestion } from '../src/repo-search/engine/llm-approval-gate.js';
 
 test('write approval payload includes the complete path and content', () => {
   const payload = buildApprovalReviewPayload({
@@ -100,28 +101,25 @@ for (const toolName of ['read', 'grep', 'find', 'ls', 'git', 'run', 'web_search'
   });
 }
 
-test('approval request includes a complete payload only when one exists', () => {
-  const reviewPayload = `{
-  "path": "src/cleanup.ts",
-  "edits": [],
-  "action": "edit"
-}`;
+test('approval request identifies the action without duplicating its payload', () => {
   assert.equal(buildApprovalReviewRequest({
     toolName: 'edit',
     command: 'edit path="src/cleanup.ts" edits=0',
-    reviewPayload,
   }), [
     APPROVAL_REVIEW_REQUEST_MARKER,
     'tool: edit',
     'command: edit path="src/cleanup.ts" edits=0',
-    APPROVAL_REVIEW_PAYLOAD_LABEL,
-    reviewPayload,
   ].join('\n'));
+});
 
-  const readRequest = buildApprovalReviewRequest({
-    toolName: 'read',
-    command: 'read path="src/cleanup.ts"',
-    reviewPayload: null,
-  });
-  assert.equal(readRequest.includes(APPROVAL_REVIEW_PAYLOAD_LABEL), false);
+test('the verdict question directs the reviewer to the pending tool call', () => {
+  const input = {
+    toolName: 'write',
+    command: 'write path="a.ts" bytes=1 sha=abc',
+    reviewPayload: '{"action":"write","path":"a.ts","content":"x"}',
+  };
+  const question = buildApprovalVerdictQuestion(input);
+
+  assert.ok(question.includes(APPROVAL_PAYLOAD_LOCATOR_LINE));
+  assert.equal(question.includes('"content":"x"'), false);
 });

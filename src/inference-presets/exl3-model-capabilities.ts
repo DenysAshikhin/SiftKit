@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { win32 } from 'node:path';
 import { z } from 'zod';
@@ -6,6 +7,44 @@ import { parseJsonValueText } from '../lib/json.js';
 const ModelConfigSchema = z.object({
   vision_config: z.object({}).passthrough(),
 });
+
+const ResolvedPackageDirectorySchema = z.object({
+  packageDirectory: z.string().min(1).nullable(),
+});
+
+const RESOLVE_EXL3_PACKAGE_SCRIPT = [
+  'import importlib.util, json',
+  'spec = importlib.util.find_spec("exllamav3")',
+  'locations = list(spec.submodule_search_locations or []) if spec else []',
+  'print(json.dumps({"packageDirectory": locations[0] if len(locations) == 1 else None}))',
+].join('; ');
+
+export type Exl3PackageLocator = {
+  resolvePackageDirectory(pythonPath: string): string | null;
+};
+
+export class InterpreterExl3PackageLocator implements Exl3PackageLocator {
+  private readonly cache = new Map<string, string | null>();
+
+  resolvePackageDirectory(pythonPath: string): string | null {
+    const cached = this.cache.get(pythonPath);
+    if (cached !== undefined || this.cache.has(pythonPath)) return cached ?? null;
+
+    const result = spawnSync(pythonPath, ['-c', RESOLVE_EXL3_PACKAGE_SCRIPT], {
+      encoding: 'utf8',
+      maxBuffer: 1024 * 1024,
+      timeout: 10_000,
+      windowsHide: true,
+    });
+    const packageDirectory = result.error || result.status !== 0
+      ? null
+      : ResolvedPackageDirectorySchema.parse(
+          parseJsonValueText(result.stdout.trim()),
+        ).packageDirectory;
+    this.cache.set(pythonPath, packageDirectory);
+    return packageDirectory;
+  }
+}
 
 /**
  * The incremental staging watermark turboderp-org/exllamav3@8e08af9 added to
@@ -41,6 +80,10 @@ export const FREEZE_UNSUPPORTED_REASON =
   + 'freezing, then restart the backend.';
 
 export class Exl3ModelCapabilities {
+  constructor(
+    private readonly packageLocator: Exl3PackageLocator = new InterpreterExl3PackageLocator(),
+  ) {}
+
   hasVisionTower(modelDirectory: string): boolean {
     try {
       const config = parseJsonValueText(
@@ -52,7 +95,7 @@ export class Exl3ModelCapabilities {
     }
   }
 
-  /** `pythonPath` is a venv interpreter at `<venv>\Scripts\python.exe`; exllamav3 lives two levels up. */
+  /** `pythonPath` is the configured interpreter whose installed package metadata is authoritative. */
   hasDeviceResidentPastIds(pythonPath: string): boolean {
     return this.readPackageSource(pythonPath, ['generator', 'job.py'])
       ?.includes(DEVICE_RESIDENT_PAST_IDS_MARKER) ?? false;
@@ -73,11 +116,9 @@ export class Exl3ModelCapabilities {
 
   private readPackageSource(pythonPath: string, relativePath: string[]): string | null {
     try {
-      const venvRoot = win32.dirname(win32.dirname(pythonPath));
-      return readFileSync(
-        win32.join(venvRoot, 'Lib', 'site-packages', 'exllamav3', ...relativePath),
-        'utf8',
-      );
+      const packageDirectory = this.packageLocator.resolvePackageDirectory(pythonPath);
+      if (packageDirectory === null) return null;
+      return readFileSync(win32.join(packageDirectory, ...relativePath), 'utf8');
     } catch {
       return null;
     }

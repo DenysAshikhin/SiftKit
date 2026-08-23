@@ -34,6 +34,7 @@ import {
   serializeProtocolMessages,
   toProtocolChatMessages,
   type ExecutingPlannerRequest,
+  type ChatMessage,
   type FinishAction,
   type PlannerActionResponse,
   type PlannerThinkingFlags,
@@ -84,6 +85,7 @@ import {
 } from './task-loop-support.js';
 import { TerminalSynthesizer } from './terminal-synthesizer.js';
 import { ToolActionProcessor } from './tool-action-processor.js';
+import { buildBatchToolCallId } from './pending-tool-call-message.js';
 import { ToolResultBudgeter } from './tool-result-budgeter.js';
 import { TokenUsageTracker, type ResolvedResponseTokens } from './token-usage.js';
 import { ToolStatsRecorder } from './tool-stats.js';
@@ -365,11 +367,14 @@ export class TaskLoop {
   }
 
   /**
-   * Ephemeral verdict call: the executing planner prompt + one user question,
-   * never appended to the transcript. The request layer verifies the prompt
-   * byte-extends the executing planner request and throws otherwise.
+   * Ephemeral verdict call: executing planner prompt, pending assistant tool call, then one user
+   * question, never appended to the transcript. The request layer verifies the prompt byte-extends
+   * the executing planner request and throws otherwise.
    */
-  async requestApprovalVerdict(question: string): Promise<PlannerActionResponse> {
+  async requestApprovalVerdict(
+    question: string,
+    pendingMessages: ChatMessage[],
+  ): Promise<PlannerActionResponse> {
     const executing = this.executingPlannerRequest;
     if (!executing) {
       throw new Error('approval_verdict requested before any planner request; there is no executing prompt to extend.');
@@ -379,6 +384,7 @@ export class TaskLoop {
       baseUrl: this.options.baseUrl,
       model: this.options.model,
       transcriptMessages: this.transcript.getMessages(),
+      pendingMessages,
       question,
       executing,
       slotId: this.slotId,
@@ -550,7 +556,7 @@ export class TaskLoop {
           throw new Error(`Repo-search produced ${newCommands.length} command results for ${actions.length} tool actions.`);
         }
         return {
-          callId: `call_${beforeCommandCount + index + 1}`,
+          callId: buildBatchToolCallId(context.turnNumber, index),
           toolName: sourceAction.toolName,
           args: sourceAction.args,
           text: String(command.promptOutput ?? command.output ?? ''),
@@ -660,7 +666,7 @@ export class TaskLoop {
     const invalidToolAction = buildInvalidToolCallActionFromResponseText(String(response.text || ''), this.allowedPlannerToolNames);
     this.transcript.appendToolExchange(
       invalidToolAction,
-      `invalid_call_${this.counters.invalidResponses}`,
+      `t${turn}_invalid_${this.counters.invalidResponses}`,
       invalidActionMessage,
       String(response.thinkingText || '').trim(),
     );

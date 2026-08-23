@@ -48,6 +48,7 @@ function verdictOptions(transcriptMessages: ChatMessage[], executing: ReturnType
     baseUrl: DEAD_BASE_URL,
     model: 'mock-model',
     transcriptMessages,
+    pendingMessages: [],
     question: 'approve?',
     executing,
     timeoutMs: 5000,
@@ -151,7 +152,7 @@ test('a task loop refuses an approval verdict before any planner request', async
       },
     );
     await assert.rejects(
-      loop.requestApprovalVerdict('approve?'),
+      loop.requestApprovalVerdict('approve?', []),
       /before any planner request/u,
     );
   } finally {
