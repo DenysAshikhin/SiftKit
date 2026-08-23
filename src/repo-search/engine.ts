@@ -42,6 +42,8 @@ import type {
   RepoSearchProgressEvent,
 } from './types.js';
 import type { PresetSystemContext } from '../preset-system-context.js';
+import type { RepoSearchTaskKind } from './task-kind.js';
+import { RepoSearchRuntimeProfile } from './engine/runtime-profile.js';
 
 export { evaluateTaskSignals, type RunTaskLoopOptions, type TaskDefinition, type TaskResult } from './engine/task-loop.js';
 
@@ -134,6 +136,7 @@ export function assertConfiguredModelPresent(model: string, availableModels: str
 export async function runRepoSearch(options: {
   repoRoot: string;
   systemContext: PresetSystemContext;
+  taskKind: RepoSearchTaskKind;
   config?: SiftConfig;
   model?: string;
   baseUrl?: string;
@@ -142,8 +145,6 @@ export async function runRepoSearch(options: {
   timeoutMs?: number;
   maxInvalidResponses?: number;
   minToolCallsBeforeFinish?: number;
-  validationCommandOutputLineLimit?: number | null;
-  loopKind?: 'repo-search' | 'chat' | 'repo-agent';
   allowEmptyTools?: boolean;
   streamFinishAsAnswer?: boolean;
   systemPromptOverride?: string;
@@ -166,6 +167,7 @@ export async function runRepoSearch(options: {
   if (options.taskPrompt === undefined) {
     throw new Error('runRepoSearch taskPrompt is required.');
   }
+  const runtimeProfile = new RepoSearchRuntimeProfile(options.taskKind);
   const progressWriter = options.progressWriter ?? new SilentProgressWriter<RepoSearchProgressEvent>();
   const path = await import('node:path');
   const repoRoot = path.resolve(options.repoRoot || process.cwd());
@@ -218,12 +220,10 @@ export async function runRepoSearch(options: {
       config,
       totalContextTokens: getConfiguredLlamaNumCtx(config),
       timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
-      maxTurns: options.maxTurns || DEFAULT_MAX_TURNS,
+      maxTurns: runtimeProfile.resolveMaxTurns(options.maxTurns, DEFAULT_MAX_TURNS),
       maxInvalidResponses: options.maxInvalidResponses || DEFAULT_MAX_INVALID_RESPONSES,
       minToolCallsBeforeFinish: options.minToolCallsBeforeFinish,
-      validationCommandOutputLineLimit:
-        options.validationCommandOutputLineLimit ?? null,
-      loopKind: options.loopKind,
+      runtimeProfile,
       streamFinishAsAnswer: options.streamFinishAsAnswer,
       systemPromptOverride: options.systemPromptOverride,
       historyMessages: options.historyMessages,

@@ -16,6 +16,7 @@ import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-co
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import type { SiftConfig } from '../src/config/types.js';
 import type { JsonObject, JsonSerializable } from '../src/lib/json-types.js';
+import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
 
 type FakeStreamServer = {
   baseUrl: string;
@@ -203,12 +204,12 @@ async function runBudgetedTaskLoop(
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
       config: budgetedConfig('exl3', { baseUrl, stockBudgetMessage: opts.stockBudgetMessage }),
+      runtimeProfile: new RepoSearchRuntimeProfile(loopKind),
       model: 'mock',
       baseUrl,
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
-      loopKind,
       ...(loopKind === 'chat' ? { plannerToolDefinitions: [] } : {}),
       mockCommandResults: {},
       progressWriter: new CollectingProgressWriter(),
@@ -267,12 +268,12 @@ test('planner loop on llama backend warns that the planner budget message cannot
         repoRoot: os.tmpdir(),
         systemContext: createEmptyPresetSystemContext(),
         config: budgetedConfig('llama'),
+        runtimeProfile: new RepoSearchRuntimeProfile(loopKind),
         model: 'mock',
         baseUrl: DEAD_BASE_URL,
         maxTurns: 2,
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
-        loopKind,
         ...(loopKind === 'chat' ? { plannerToolDefinitions: [] } : {}),
         mockResponses: ['{"action":"finish","output":"done"}'],
         mockCommandResults: {},

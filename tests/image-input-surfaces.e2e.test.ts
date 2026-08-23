@@ -25,6 +25,7 @@ import { DeadEndpointEnv } from './helpers/dead-endpoints.js';
 import { gifBufferWithSize, rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 import { readImageDimensions } from '../src/llm-protocol/image-admission.js';
 import { sendChatCompletionSse } from './helpers/streaming-client.js';
+import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
 
 const basePreset = getDefaultConfigObject().Server.ModelPresets.Presets[0];
 if (!basePreset) throw new Error('Default model preset is missing');
@@ -171,11 +172,11 @@ test('repo-search puts the image part on the first user message it sends', async
         systemContext: createEmptyPresetSystemContext(),
         model: 'mock',
         baseUrl: `http://127.0.0.1:${port}`,
+        runtimeProfile: new RepoSearchRuntimeProfile('chat'),
         config: mockSiftConfig({ Runtime: { LlamaCpp: { BaseUrl: `http://127.0.0.1:${port}` } } }),
         maxTurns: 1,
         maxInvalidResponses: 1,
         minToolCallsBeforeFinish: 0,
-        loopKind: 'chat',
         plannerToolDefinitions: [],
         initialUserImages: ['data:image/png;base64,AAAA'],
         mockCommandResults: {},

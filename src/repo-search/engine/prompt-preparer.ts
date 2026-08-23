@@ -17,6 +17,7 @@ import { ProgressReporter, type TokenizeDoneInfo } from './progress-reporter.js'
 import { TranscriptManager } from './transcript-manager.js';
 import { TranscriptCompactor } from './transcript-compactor.js';
 import { TurnBudget } from './turn-budget.js';
+import type { RepoSearchRuntimeProfile } from './runtime-profile.js';
 
 /** Log visibility only: a character estimate of the preserved reasoning mass, no extra tokenize round-trip. */
 function estimateReasoningTokens(config: SiftConfig, messages: readonly ChatMessage[], reasoningContentEnabled: boolean): number {
@@ -53,6 +54,7 @@ export class PromptPreparer {
       plannerToolDefinitions: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;
       thinking: PlannerThinkingFlags;
       transcript: TranscriptManager;
+      runtimeProfile: RepoSearchRuntimeProfile;
       compactor: TranscriptCompactor;
       progress: ProgressReporter;
       logger: JsonLogger | null;
@@ -73,6 +75,36 @@ export class PromptPreparer {
       maxTokens,
       ...this.options.thinking,
     });
+  }
+
+  private failOverflow(
+    preflight: PreflightResult,
+    maxOutputTokens: number,
+    turn: number,
+    compacted: boolean,
+  ): never {
+    const { taskId, budget } = this.options;
+    const overflowError = new Error(
+      `planner_preflight_overflow prompt_tokens=${preflight.promptTokenCount} `
+        + `max_prompt_tokens=${preflight.maxPromptBudget} overflow_tokens=${preflight.overflowTokens} `
+        + `max_output_tokens=${maxOutputTokens} total_context_tokens=${budget.totalContextTokens} `
+        + `response_reserve_tokens=${budget.responseReserveTokens} compacted=${compacted}`,
+    );
+    this.options.logger?.write({
+      kind: 'turn_preflight_overflow_fail',
+      taskId,
+      turn,
+      promptTokenCount: preflight.promptTokenCount,
+      transcriptPromptTokenCount: preflight.transcriptPromptTokenCount,
+      providerPromptReserveTokenCount: preflight.providerPromptReserveTokenCount,
+      maxPromptBudget: preflight.maxPromptBudget,
+      overflowTokens: preflight.overflowTokens,
+      maxOutputTokens,
+      totalContextTokens: budget.totalContextTokens,
+      responseReserveTokens: budget.responseReserveTokens,
+      error: overflowError.message,
+    });
+    throw overflowError;
   }
 
   async prepareTurn(turn: number, mockResponseIndex: number): Promise<PreparedTurnBudget> {
@@ -145,6 +177,10 @@ export class PromptPreparer {
     let compactionSummary: string | null = null;
     let nextMockResponseIndex = mockResponseIndex;
 
+    if (!preflight.ok && this.options.runtimeProfile.contextOverflowPolicy === 'fail') {
+      this.failOverflow(preflight, maxOutputTokens, turn, false);
+    }
+
     if (!preflight.ok) {
       const compactionSpan = this.options.timingRecorder?.start('repo.prompt.compact', {
         taskId,
@@ -210,27 +246,7 @@ export class PromptPreparer {
     }
 
     if (!preflight.ok) {
-      const overflowError = new Error(
-        `planner_preflight_overflow prompt_tokens=${preflight.promptTokenCount} ` +
-          `max_prompt_tokens=${preflight.maxPromptBudget} overflow_tokens=${preflight.overflowTokens} ` +
-          `max_output_tokens=${maxOutputTokens} total_context_tokens=${budget.totalContextTokens} ` +
-          `response_reserve_tokens=${budget.responseReserveTokens} compacted=true`,
-      );
-      this.options.logger?.write({
-        kind: 'turn_preflight_overflow_fail',
-        taskId,
-        turn,
-        promptTokenCount: preflight.promptTokenCount,
-        transcriptPromptTokenCount: preflight.transcriptPromptTokenCount,
-        providerPromptReserveTokenCount: preflight.providerPromptReserveTokenCount,
-        maxPromptBudget: preflight.maxPromptBudget,
-        overflowTokens: preflight.overflowTokens,
-        maxOutputTokens,
-        totalContextTokens: budget.totalContextTokens,
-        responseReserveTokens: budget.responseReserveTokens,
-        error: overflowError.message,
-      });
-      throw overflowError;
+      this.failOverflow(preflight, maxOutputTokens, turn, true);
     }
 
     return {

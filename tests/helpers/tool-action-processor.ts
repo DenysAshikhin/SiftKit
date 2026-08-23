@@ -19,11 +19,13 @@ import { makeMockWebTools } from './mock-web-tools.js';
 import { parseLoggedEvent } from './logged-events.js';
 import { resolveImageTokenBudget } from '../../src/llm-protocol/image-token-budget.js';
 import { makeTestPreset } from './model-presets.js';
+import { RepoSearchRuntimeProfile } from '../../src/repo-search/engine/runtime-profile.js';
+import type { RepoSearchTaskKind } from '../../src/repo-search/task-kind.js';
 
 export function makeProcessor(
   root: string,
   allowedPlannerToolNames: string[] = ['ls'],
-  validationCommandOutputLineLimit: number | null = null,
+  taskKind: RepoSearchTaskKind = 'repo-search',
   approvalGate: ApprovalRequester | null = null,
   mockCommandResults: Record<string, RepoSearchMockCommandResult> | undefined = undefined,
   options: {
@@ -68,7 +70,7 @@ export function makeProcessor(
     maxInvalidResponses: 3,
     allowedPlannerToolNames,
     approvalGate,
-    validationCommandOutputLineLimit,
+    runtimeProfile: new RepoSearchRuntimeProfile(taskKind),
     chatWebGroundingEnabled: false,
     chatWebGroundingPolicy: new ChatGroundingPolicy({ enabled: false }),
     ignorePolicy: buildIgnorePolicy(root),

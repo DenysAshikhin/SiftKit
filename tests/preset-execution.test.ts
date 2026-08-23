@@ -28,6 +28,7 @@ test('repo-search rejects presets that disable the repo command tool', async () 
     () => runRepoSearch({
       repoRoot: process.cwd(),
       systemContext: createEmptyPresetSystemContext(),
+      taskKind: 'repo-search',
       config: getDefaultConfig(),
       model: 'mock-model',
       availableModels: ['mock-model'],
@@ -44,6 +45,7 @@ test('repo-search rejects presets that resolve to an empty allowed-tools list', 
     () => runRepoSearch({
       repoRoot: process.cwd(),
       systemContext: createEmptyPresetSystemContext(),
+      taskKind: 'repo-search',
       config: getDefaultConfig(),
       model: 'mock-model',
       availableModels: ['mock-model'],

@@ -95,6 +95,7 @@ import { resolveImageTokenBudget } from '../../llm-protocol/image-token-budget.j
 import type { ImageTokenBudget } from '@siftkit/contracts';
 import type { ApprovalRequester } from './approval-gate.js';
 import { LlmApprovalGate } from './llm-approval-gate.js';
+import type { RepoSearchLoopKind } from '../task-kind.js';
 
 export {
   DEFAULT_MAX_INVALID_RESPONSES,
@@ -142,7 +143,7 @@ export class TaskLoop {
   private readonly useEstimatedTokensOnly: boolean;
   private readonly plannerThinking: PlannerThinkingFlags;
   private readonly plannerMaintainPerStepThinking: boolean;
-  private readonly loopKind: 'repo-search' | 'chat' | 'repo-agent';
+  private readonly loopKind: RepoSearchLoopKind;
   private readonly streamFinishAsAnswer: boolean;
   private readonly plannerBudgetMessageOverride: string | null;
   private readonly plannerToolDefinitions: ReturnType<typeof resolveRepoSearchPlannerToolDefinitions>;
@@ -206,9 +207,7 @@ export class TaskLoop {
     this.plannerMaintainPerStepThinking = this.plannerThinking.thinkingEnabled
       ? isPlannerMaintainPerStepThinkingEnabled(options.config)
       : true;
-    this.loopKind = options.loopKind === 'chat' || options.loopKind === 'repo-agent'
-      ? options.loopKind
-      : 'repo-search';
+    this.loopKind = options.runtimeProfile.loopKind;
     this.finishVerification = new FinishVerificationGate(this.loopKind === 'repo-agent');
     this.streamFinishAsAnswer = options.streamFinishAsAnswer === true;
     // A preset message that differs from the stock default is a deliberate user
@@ -282,6 +281,7 @@ export class TaskLoop {
       plannerToolDefinitions: this.plannerToolDefinitions,
       thinking: this.plannerThinking,
       transcript: this.transcript,
+      runtimeProfile: options.runtimeProfile,
       compactor: new TranscriptCompactor({
         config: options.config,
         baseUrl: options.baseUrl,
@@ -315,8 +315,7 @@ export class TaskLoop {
       maxInvalidResponses: this.maxInvalidResponses,
       allowedPlannerToolNames: this.allowedPlannerToolNames,
       approvalGate: this.buildApprovalRequester(options),
-      validationCommandOutputLineLimit:
-        options.validationCommandOutputLineLimit ?? null,
+      runtimeProfile: options.runtimeProfile,
       chatWebGroundingEnabled: this.chatWebGroundingEnabled,
       chatWebGroundingPolicy: this.chatWebGroundingPolicy,
       ignorePolicy: this.ignorePolicy,

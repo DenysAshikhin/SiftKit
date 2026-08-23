@@ -12,15 +12,17 @@ import type { JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
 import type { ToolTranscriptAction } from '../../tool-call-messages.js';
 import { spawnDirectCommand } from '../../lib/command-spawn.js';
 import { AGENT_RUN_ID_ENV } from '../../lib/agent-run-marker.js';
-import { DEFAULT_RUN_TIMEOUT_MS, MAX_RUN_TIMEOUT_MS, spawnPowerShellAsync } from '../../lib/powershell.js';
-import {
-  ValidationCommandOutputPolicy,
-  shapeRunOutput,
-  type RunFullOutputDecision,
-} from './validation-command-output-policy.js';
-import { RunOutputModeSchema } from '../repo-tool-arguments.js';
+import { DEFAULT_RUN_TIMEOUT_MS, spawnPowerShellAsync } from '../../lib/powershell.js';
+import type {
+  EditToolArgs,
+  FindToolArgs,
+  GrepToolArgs,
+  LsToolArgs,
+  RepoNativeToolCall,
+  RunToolArgs,
+  WriteToolArgs,
+} from '../repo-tool-arguments.js';
 import { WebResearchTools } from '../../web-search/web-research-tools.js';
-import type { WebFetchToolArgs, WebSearchToolArgs } from '../../web-search/types.js';
 import type { ImageDataUrl, ImageMetadata, ImageTokenBudget } from '@siftkit/contracts';
 import { isImagePath } from '../../llm-protocol/image-attachments.js';
 import { executeImageRead } from './image-read.js';
@@ -82,8 +84,6 @@ export type RepoToolContext = {
   abortSignal?: AbortSignal;
   expandReads: boolean;
   agentRunId: string;
-  validationCommandOutputPolicy: ValidationCommandOutputPolicy | null;
-  runFullOutputDecision: RunFullOutputDecision | null;
   visionEnabled: boolean;
   /** 0 refuses images on every path, including this one. -1 is unbounded. */
   visionImageRetention: number;
@@ -154,32 +154,6 @@ function resolveOptionalPositiveInteger(
 
 function readBoolean(value: OptionalJsonValue, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
-}
-
-/**
- * Resolves the `run` tool's timeout, in milliseconds, or returns the failure reason.
- *
- * Every run is bounded: an omitted argument takes the default rather than running forever, and
- * an over-large one is rejected rather than clamped, so a unit mistake surfaces as a tool error
- * the model can correct instead of a silently uncapped command.
- */
-export function resolveRunTimeoutMs(args: JsonObject): number | string {
-  if (args.timeout !== undefined) {
-    return 'timeout is not a valid argument; use timeoutMs (milliseconds)';
-  }
-  const timeoutMs = resolveOptionalPositiveInteger(
-    args.timeoutMs,
-    'timeoutMs must be a positive integer (milliseconds)',
-  );
-  if (typeof timeoutMs === 'string') {
-    return timeoutMs;
-  }
-  if (timeoutMs === undefined) {
-    return DEFAULT_RUN_TIMEOUT_MS;
-  }
-  return timeoutMs > MAX_RUN_TIMEOUT_MS
-    ? `timeoutMs must not exceed ${MAX_RUN_TIMEOUT_MS} (milliseconds)`
-    : timeoutMs;
 }
 
 // ---------------------------------------------------------------------------
@@ -720,12 +694,9 @@ function truncateGrepOutput(outputLines: string[], limit: number): string {
   return `${outputLines.slice(0, cutIndex).join('\n')}\n... ${totalMatches - limit} more matches beyond limit=${limit}; narrow the pattern, glob, or path.`;
 }
 
-async function executeGrep(args: JsonObject, context: RepoToolContext): Promise<RepoToolExecution> {
+async function executeGrep(args: GrepToolArgs, context: RepoToolContext): Promise<RepoToolExecution> {
   const command = buildRepoToolRequestedCommand('grep', args);
-  if (!readString(args.pattern)) {
-    return failure('grep', command, 'grep requires a non-empty pattern');
-  }
-  const resolvedPath = resolveRepoScopedPath(context.repoRoot, readString(args.path) || '.');
+  const resolvedPath = resolveRepoScopedPath(context.repoRoot, args.path ?? '.');
   if (!resolvedPath) {
     return failure('grep', command, 'path must stay within the repository root');
   }
@@ -737,21 +708,8 @@ async function executeGrep(args: JsonObject, context: RepoToolContext): Promise<
   }
 
   // The planner tool schema documents context's default as 0, so 0 must parse as "matches only".
-  const contextLines = resolveOptionalPositiveInteger(
-    args.context === 0 ? undefined : args.context,
-    'context must be a non-negative integer',
-  );
-  if (typeof contextLines === 'string') {
-    return failure('grep', command, contextLines);
-  }
-  const limit = resolvePositiveInteger(
-    args.limit,
-    GREP_DEFAULT_LIMIT,
-    'limit must be a positive integer',
-  );
-  if (typeof limit === 'string') {
-    return failure('grep', command, limit);
-  }
+  const contextLines = args.context === 0 ? undefined : args.context;
+  const limit = args.limit ?? GREP_DEFAULT_LIMIT;
   const searchPath = resolvedPath.relativePath === '' ? '.' : resolvedPath.relativePath;
   const result = await spawnDirectCommand('rg', buildGrepArgs(args, context.ignorePolicy, searchPath, contextLines), {
     cwd: context.repoRoot,
@@ -776,13 +734,9 @@ async function executeGrep(args: JsonObject, context: RepoToolContext): Promise<
 // find
 // ---------------------------------------------------------------------------
 
-function executeFind(args: JsonObject, context: RepoToolContext): RepoToolExecution {
+function executeFind(args: FindToolArgs, context: RepoToolContext): RepoToolExecution {
   const command = buildRepoToolRequestedCommand('find', args);
-  const pattern = readString(args.pattern);
-  if (!pattern) {
-    return failure('find', command, 'find requires a non-empty pattern');
-  }
-  const resolvedPath = resolveRepoScopedPath(context.repoRoot, readString(args.path) || '.');
+  const resolvedPath = resolveRepoScopedPath(context.repoRoot, args.path ?? '.');
   if (!resolvedPath) {
     return failure('find', command, 'path must stay within the repository root');
   }
@@ -802,16 +756,9 @@ function executeFind(args: JsonObject, context: RepoToolContext): RepoToolExecut
   const basePrefixLength = basePath ? basePath.length + 1 : 0;
   const filtered = repoRelativeFiles
     .map((repoRelativePath) => repoRelativePath.slice(basePrefixLength))
-    .filter((searchRelativePath) => matchesGlob(searchRelativePath, pattern))
+    .filter((searchRelativePath) => matchesGlob(searchRelativePath, args.pattern))
     .sort(compareDisplayNames);
-  const limit = resolvePositiveInteger(
-    args.limit,
-    FIND_DEFAULT_LIMIT,
-    'limit must be a positive integer',
-  );
-  if (typeof limit === 'string') {
-    return failure('find', command, limit);
-  }
+  const limit = args.limit ?? FIND_DEFAULT_LIMIT;
   const truncated = filtered.length > limit;
   const output = filtered.length === 0
     ? 'No files matched.'
@@ -825,9 +772,9 @@ function executeFind(args: JsonObject, context: RepoToolContext): RepoToolExecut
 // ls
 // ---------------------------------------------------------------------------
 
-function executeLs(args: JsonObject, context: RepoToolContext): RepoToolExecution {
+function executeLs(args: LsToolArgs, context: RepoToolContext): RepoToolExecution {
   const command = buildRepoToolRequestedCommand('ls', args);
-  const resolvedPath = resolveRepoScopedPath(context.repoRoot, readString(args.path) || '.');
+  const resolvedPath = resolveRepoScopedPath(context.repoRoot, args.path ?? '.');
   if (!resolvedPath) {
     return failure('ls', command, 'path must stay within the repository root');
   }
@@ -848,14 +795,7 @@ function executeLs(args: JsonObject, context: RepoToolContext): RepoToolExecutio
     entries.push(entry.isDirectory() ? `${entry.name}/` : entry.name);
   }
   entries.sort(compareDisplayNames);
-  const limit = resolvePositiveInteger(
-    args.limit,
-    LS_DEFAULT_LIMIT,
-    'limit must be a positive integer',
-  );
-  if (typeof limit === 'string') {
-    return failure('ls', command, limit);
-  }
+  const limit = args.limit ?? LS_DEFAULT_LIMIT;
   const truncated = entries.length > limit;
   const output = entries.length === 0
     ? 'Directory is empty.'
@@ -870,13 +810,9 @@ function executeLs(args: JsonObject, context: RepoToolContext): RepoToolExecutio
 // See EXPOSED_REPO_TOOL_NAMES in planner-protocol.ts.
 // ---------------------------------------------------------------------------
 
-function executeWrite(args: JsonObject, context: RepoToolContext): RepoToolExecution {
+function executeWrite(args: WriteToolArgs, context: RepoToolContext): RepoToolExecution {
   const command = buildRepoToolRequestedCommand('write', args);
-  const content = typeof args.content === 'string' ? args.content : null;
-  if (content === null) {
-    return failure('write', command, 'write requires args.content');
-  }
-  const resolvedPath = resolveRepoScopedPath(context.repoRoot, readString(args.path));
+  const resolvedPath = resolveRepoScopedPath(context.repoRoot, args.path);
   if (!resolvedPath) {
     return failure('write', command, 'path must stay within the repository root');
   }
@@ -890,8 +826,8 @@ function executeWrite(args: JsonObject, context: RepoToolContext): RepoToolExecu
     ? readTextFileWithEncoding(resolvedPath.absolutePath)
     : null;
   const finalContent = overwriteTarget === null
-    ? content
-    : applyEolStyle(content, detectEolStyle(overwriteTarget));
+    ? args.content
+    : applyEolStyle(args.content, detectEolStyle(overwriteTarget));
   writeFileSync(resolvedPath.absolutePath, finalContent, 'utf8');
   return {
     ok: true, requestedCommand: command, command, exitCode: 0,
@@ -903,17 +839,10 @@ function executeWrite(args: JsonObject, context: RepoToolContext): RepoToolExecu
 
 type ResolvedEdit = { start: number; end: number; newText: string };
 
-function resolveEdits(originalText: string, rawEdits: readonly OptionalJsonValue[]): ResolvedEdit[] | string {
+function resolveEdits(originalText: string, rawEdits: EditToolArgs['edits']): ResolvedEdit[] | string {
   const resolved: ResolvedEdit[] = [];
   for (const rawEdit of rawEdits) {
-    if (!rawEdit || typeof rawEdit !== 'object' || Array.isArray(rawEdit)) {
-      return 'each entry in edits[] must be an object with oldText and newText';
-    }
-    const oldText = typeof rawEdit.oldText === 'string' ? rawEdit.oldText : '';
-    const newText = typeof rawEdit.newText === 'string' ? rawEdit.newText : '';
-    if (!oldText) {
-      return 'each entry in edits[] requires a non-empty oldText';
-    }
+    const { oldText, newText } = rawEdit;
     const start = originalText.indexOf(oldText);
     if (start < 0) {
       return `oldText not found in file: ${JSON.stringify(oldText.slice(0, 60))}`;
@@ -932,13 +861,9 @@ function resolveEdits(originalText: string, rawEdits: readonly OptionalJsonValue
   return ordered;
 }
 
-function executeEdit(args: JsonObject, context: RepoToolContext): RepoToolExecution {
+function executeEdit(args: EditToolArgs, context: RepoToolContext): RepoToolExecution {
   const command = buildRepoToolRequestedCommand('edit', args);
-  const rawEdits = Array.isArray(args.edits) ? args.edits : [];
-  if (rawEdits.length === 0) {
-    return failure('edit', command, 'edit requires at least one entry in edits[]');
-  }
-  const resolvedPath = resolveRepoScopedPath(context.repoRoot, readString(args.path));
+  const resolvedPath = resolveRepoScopedPath(context.repoRoot, args.path);
   if (!resolvedPath) {
     return failure('edit', command, 'path must stay within the repository root');
   }
@@ -954,7 +879,7 @@ function executeEdit(args: JsonObject, context: RepoToolContext): RepoToolExecut
   // The model matches against LF (readSourceText contract); the on-disk style is
   // re-applied on write-back so an edit never rewrites unrelated line endings.
   const originalText = rawText.replace(/\r\n/gu, '\n');
-  const resolved = resolveEdits(originalText, rawEdits);
+  const resolved = resolveEdits(originalText, args.edits);
   if (typeof resolved === 'string') {
     return failure('edit', command, resolved);
   }
@@ -974,62 +899,18 @@ function executeEdit(args: JsonObject, context: RepoToolContext): RepoToolExecut
   };
 }
 
-async function executeRun(args: JsonObject, context: RepoToolContext): Promise<RepoToolExecution> {
+async function executeRun(args: RunToolArgs, context: RepoToolContext): Promise<RepoToolExecution> {
   const command = buildRepoToolRequestedCommand('run', args);
-  const commandText = readString(args.command);
-  if (!commandText) {
-    return failure('run', command, 'run requires args.command');
-  }
-  const outputMode = RunOutputModeSchema.safeParse(args.outputMode ?? 'auto');
-  if (!outputMode.success) {
-    return failure(
-      'run',
-      command,
-      'run outputMode must be "auto" or "full"',
-    );
-  }
-  const timeoutMs = resolveRunTimeoutMs(args);
-  if (typeof timeoutMs === 'string') {
-    return failure('run', command, timeoutMs);
-  }
-  const decision = context.runFullOutputDecision;
-  if (decision === null || decision.kind === 'duplicate') {
-    return failure('run', command, 'run requires a precomputed executable output decision');
-  }
-  const result = await spawnPowerShellAsync(commandText, {
+  const result = await spawnPowerShellAsync(args.command, {
     cwd: context.repoRoot,
     abortSignal: context.abortSignal,
-    timeoutMs,
+    timeoutMs: args.timeoutMs ?? DEFAULT_RUN_TIMEOUT_MS,
     env: { [AGENT_RUN_ID_ENV]: context.agentRunId },
-  });
-  const output = shapeRunOutput({
-    command: commandText,
-    output: result.output,
-    policy: context.validationCommandOutputPolicy,
-    decision,
   });
   return {
     ok: true, requestedCommand: command, command,
-    exitCode: result.exitCode, output, toolType: 'run', outputUnit: 'lines', outputKeep: 'tail',
+    exitCode: result.exitCode, output: result.output, toolType: 'run', outputUnit: 'lines', outputKeep: 'tail',
   };
-}
-
-// ---------------------------------------------------------------------------
-// Web tools
-// ---------------------------------------------------------------------------
-
-function toWebSearchToolArgs(args: JsonObject): WebSearchToolArgs {
-  const timeFilter = args.timeFilter;
-  return {
-    query: typeof args.query === 'string' ? args.query : '',
-    ...(timeFilter === 'day' || timeFilter === 'week' || timeFilter === 'month' || timeFilter === 'year'
-      ? { timeFilter }
-      : {}),
-  };
-}
-
-function toWebFetchToolArgs(args: JsonObject): WebFetchToolArgs {
-  return { url: typeof args.url === 'string' ? args.url : '' };
 }
 
 // ---------------------------------------------------------------------------
@@ -1037,13 +918,12 @@ function toWebFetchToolArgs(args: JsonObject): WebFetchToolArgs {
 // ---------------------------------------------------------------------------
 
 async function executeRepoToolUnguarded(
-  toolName: string,
-  args: JsonObject,
+  call: RepoNativeToolCall,
   context: RepoToolContext,
 ): Promise<RepoToolExecution> {
-  if (toolName === 'read') {
-    const requestedCommand = buildRepoToolRequestedCommand('read', args);
-    const resolvedPath = resolveRepoScopedPath(context.repoRoot, args.path);
+  if (call.toolName === 'read') {
+    const requestedCommand = buildRepoToolRequestedCommand('read', call.args);
+    const resolvedPath = resolveRepoScopedPath(context.repoRoot, call.args.path);
     if (!resolvedPath) {
       return failure('read', requestedCommand, 'path must stay within the repository root');
     }
@@ -1052,40 +932,40 @@ async function executeRepoToolUnguarded(
     }
     if (isImagePath(resolvedPath.relativePath)) {
       return executeImageRead({
-        args,
+        args: call.args,
         requestedCommand,
         absolutePath: resolvedPath.absolutePath,
         displayPath: resolvedPath.relativePath,
         context,
       });
     }
-    const plan = planRead(args, context.repoRoot, context.ignorePolicy, context.fileReadStateByPath, context.expandReads);
+    const plan = planRead(call.args, context.repoRoot, context.ignorePolicy, context.fileReadStateByPath, context.expandReads);
     return isFailedReadPlan(plan)
       ? failure('read', plan.command, plan.reason)
       : buildReadExecution('read', plan);
   }
-  if (toolName === 'grep') {
-    return executeGrep(args, context);
+  if (call.toolName === 'grep') {
+    return executeGrep(call.args, context);
   }
-  if (toolName === 'find') {
-    return executeFind(args, context);
+  if (call.toolName === 'find') {
+    return executeFind(call.args, context);
   }
-  if (toolName === 'ls') {
-    return executeLs(args, context);
+  if (call.toolName === 'ls') {
+    return executeLs(call.args, context);
   }
-  if (toolName === 'write') {
-    return executeWrite(args, context);
+  if (call.toolName === 'write') {
+    return executeWrite(call.args, context);
   }
-  if (toolName === 'edit') {
-    return executeEdit(args, context);
+  if (call.toolName === 'edit') {
+    return executeEdit(call.args, context);
   }
-  if (toolName === 'run') {
-    return executeRun(args, context);
+  if (call.toolName === 'run') {
+    return executeRun(call.args, context);
   }
-  if (toolName === 'web_search') {
-    const command = buildRepoToolRequestedCommand('web_search', args);
+  if (call.toolName === 'web_search') {
+    const command = buildRepoToolRequestedCommand('web_search', call.args);
     try {
-      const result = await context.webTools.search(toWebSearchToolArgs(args));
+      const result = await context.webTools.search(call.args);
       return {
         ok: true, requestedCommand: command, command: result.command, exitCode: 0,
         output: result.output, toolType: 'web_search', outputUnit: 'results',
@@ -1094,19 +974,16 @@ async function executeRepoToolUnguarded(
       return failure('web_search', command, error instanceof Error ? error.message : String(error));
     }
   }
-  if (toolName === 'web_fetch') {
-    const command = buildRepoToolRequestedCommand('web_fetch', args);
-    try {
-      const result = await context.webTools.fetch(toWebFetchToolArgs(args));
-      return {
-        ok: true, requestedCommand: command, command: result.command, exitCode: 0,
-        output: result.output, toolType: 'web_fetch', outputUnit: 'characters',
-      };
-    } catch (error) {
-      return failure('web_fetch', command, error instanceof Error ? error.message : String(error));
-    }
+  const command = buildRepoToolRequestedCommand('web_fetch', call.args);
+  try {
+    const result = await context.webTools.fetch(call.args);
+    return {
+      ok: true, requestedCommand: command, command: result.command, exitCode: 0,
+      output: result.output, toolType: 'web_fetch', outputUnit: 'characters',
+    };
+  } catch (error) {
+    return failure('web_fetch', command, error instanceof Error ? error.message : String(error));
   }
-  return failure(toolName, buildRepoToolRequestedCommand(toolName, args), `unknown repo tool "${toolName}"`);
 }
 
 /**
@@ -1115,16 +992,15 @@ async function executeRepoToolUnguarded(
  * nothing above this function catches.
  */
 export async function executeRepoTool(
-  toolName: string,
-  args: JsonObject,
+  call: RepoNativeToolCall,
   context: RepoToolContext,
 ): Promise<RepoToolExecution> {
   try {
-    return await executeRepoToolUnguarded(toolName, args, context);
+    return await executeRepoToolUnguarded(call, context);
   } catch (error) {
     return failure(
-      toolName,
-      buildRepoToolRequestedCommand(toolName, args),
+      call.toolName,
+      buildRepoToolRequestedCommand(call.toolName, call.args),
       `tool error: ${error instanceof Error ? error.message : String(error)}`,
     );
   }

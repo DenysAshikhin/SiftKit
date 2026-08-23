@@ -57,13 +57,13 @@ import { ToolStatsRecorder } from './tool-stats.js';
 import { TranscriptManager } from './transcript-manager.js';
 import { TurnBudget } from './turn-budget.js';
 import {
-  RunFullOutputGate,
-  ValidationCommandOutputPolicy,
-  shapeRunOutput,
-  type RunFullOutputDecision,
-} from './validation-command-output-policy.js';
-import { RunOutputModeSchema } from '../repo-tool-arguments.js';
+  RepoNativeToolCallSchema,
+  type RepoNativeToolCall,
+} from '../repo-tool-arguments.js';
 import type { TurnPromptTokens } from '../../agent-loop/types.js';
+import type { RepoSearchRuntimeProfile } from './runtime-profile.js';
+
+type RunOutputDecision = ReturnType<RepoSearchRuntimeProfile['beginRun']>;
 
 type ToolActionOutcome = 'next' | 'stop_batch';
 
@@ -88,6 +88,7 @@ type ValidatedToolAction = {
   normalizedToolName: string;
   isCommandTool: boolean;
   isNativeTool: boolean;
+  nativeCall: RepoNativeToolCall | null;
   command: string;
 };
 
@@ -95,7 +96,7 @@ type AcceptedToolContext = ValidatedToolAction & {
   toolAction: ToolAction;
   fingerprint: string;
   normalizedKey: string;
-  runFullOutputDecision: RunFullOutputDecision | null;
+  runFullOutputDecision: RunOutputDecision | null;
   nativeExecution: RepoToolExecution | null;
 };
 
@@ -146,7 +147,7 @@ export type ToolActionProcessorDeps = {
   maxInvalidResponses: number;
   allowedPlannerToolNames: string[];
   approvalGate: ApprovalRequester | null;
-  validationCommandOutputLineLimit: number | null;
+  runtimeProfile: RepoSearchRuntimeProfile;
   chatWebGroundingEnabled: boolean;
   chatWebGroundingPolicy: ChatGroundingPolicy;
   ignorePolicy: IgnorePolicy;
@@ -176,16 +177,10 @@ export type ToolActionProcessorDeps = {
 
 export class ToolActionProcessor {
   private readonly collector = new ActivitySummaryCollector();
-  private readonly runFullOutputGate = new RunFullOutputGate();
-  private readonly validationCommandOutputPolicy: ValidationCommandOutputPolicy | null;
   private progressToolCallSeq = 0;
   private forcedFinishCountdownUserMessageIndex = -1;
 
-  constructor(private readonly deps: ToolActionProcessorDeps) {
-    this.validationCommandOutputPolicy = deps.validationCommandOutputLineLimit === null
-      ? null
-      : new ValidationCommandOutputPolicy(deps.validationCommandOutputLineLimit);
-  }
+  constructor(private readonly deps: ToolActionProcessorDeps) {}
 
   async executeBatch(
     turn: number,
@@ -272,8 +267,8 @@ export class ToolActionProcessor {
     if (validated === 'next' || validated === 'stop_batch') {
       return validated;
     }
-    const { normalizedToolName, isNativeTool, command } = validated;
-    const runFullOutputDecision = this.beginRun(toolAction, normalizedToolName);
+    const { normalizedToolName, isNativeTool, nativeCall, command } = validated;
+    const runFullOutputDecision = this.beginRun(nativeCall);
 
     if (inForcedFinishMode) {
       const attempt = forcedFinish.consumeAttempt();
@@ -340,9 +335,9 @@ export class ToolActionProcessor {
       }
     }
 
-    const nativeExecution = isNativeTool
-      ? await this.runNativeExecution(normalizedToolName, toolAction, command, runFullOutputDecision)
-      : null;
+    const nativeExecution = nativeCall === null
+      ? null
+      : await this.runNativeExecution(nativeCall, command, runFullOutputDecision);
     const context: AcceptedToolContext = {
       ...validated,
       toolAction,
@@ -375,12 +370,30 @@ export class ToolActionProcessor {
       const disallowedToolMessage = `Invalid action: tool "${normalizedToolName}" is not enabled for this run. Use one of: ${this.deps.allowedPlannerToolNames.join(', ')}.`;
       return this.recordInvalidToolCall(turn, toolAction, state, normalizedToolName, disallowedToolMessage);
     }
+    const nativeCallResult = isNativeTool
+      ? RepoNativeToolCallSchema.safeParse({
+          toolName: normalizedToolName,
+          args: toolAction.args,
+        })
+      : null;
+    if (nativeCallResult !== null && !nativeCallResult.success) {
+      return this.recordInvalidToolCall(
+        turn,
+        toolAction,
+        state,
+        normalizedToolName,
+        `Invalid action: invalid ${normalizedToolName} arguments: ${nativeCallResult.error.message}`,
+      );
+    }
+    const nativeCall = nativeCallResult?.data ?? null;
     const command = isCommandTool
       ? normalizeRepoSearchCommandForToolName(
           normalizedToolName,
           typeof toolAction.args.command === 'string' ? toolAction.args.command : '',
         )
-      : buildRepoToolRequestedCommand(normalizedToolName, toolAction.args);
+      : nativeCall === null
+        ? ''
+        : buildRepoToolRequestedCommand(nativeCall.toolName, nativeCall.args);
     if (isCommandTool && !command) {
       return this.recordInvalidToolCall(
         turn,
@@ -390,23 +403,14 @@ export class ToolActionProcessor {
         `Invalid action: ${normalizedToolName} requires args.command.`,
       );
     }
-    return { normalizedToolName, isCommandTool, isNativeTool, command };
+    return { normalizedToolName, isCommandTool, isNativeTool, nativeCall, command };
   }
 
-  private beginRun(toolAction: ToolAction, normalizedToolName: string): RunFullOutputDecision | null {
-    if (normalizedToolName !== 'run') {
+  private beginRun(nativeCall: RepoNativeToolCall | null): RunOutputDecision | null {
+    if (nativeCall?.toolName !== 'run') {
       return null;
     }
-    const command = typeof toolAction.args.command === 'string' ? toolAction.args.command : '';
-    const outputMode = RunOutputModeSchema.safeParse(toolAction.args.outputMode ?? 'auto');
-    if (command === '' || !outputMode.success) {
-      return null;
-    }
-    return this.runFullOutputGate.beginRun({
-      command,
-      requestedMode: outputMode.data,
-      isValidationCommand: this.validationCommandOutputPolicy?.isValidationCommand(command) ?? false,
-    });
+    return this.deps.runtimeProfile.beginRun(nativeCall.args);
   }
 
   /** Records a rejected tool call: a safe:false command entry plus its transcript outcome. */
@@ -616,67 +620,56 @@ export class ToolActionProcessor {
   }
 
   private async runNativeExecution(
-    normalizedToolName: string,
-    toolAction: ToolAction,
+    nativeCall: RepoNativeToolCall,
     command: string,
-    runFullOutputDecision: RunFullOutputDecision | null,
+    runFullOutputDecision: RunOutputDecision | null,
   ): Promise<RepoToolExecution> {
-    if (this.deps.mockCommandResults && this.deps.mockCommandResults[command]) {
-      const mockResult = this.deps.mockCommandResults[command];
-      if (normalizedToolName === 'run') {
-        if (runFullOutputDecision === null || runFullOutputDecision.kind === 'duplicate') {
-          return {
-            ok: false,
-            command,
-            reason: 'run requires a precomputed executable output decision',
-            toolType: normalizedToolName,
-          };
-        }
-        const commandText = typeof toolAction.args.command === 'string' ? toolAction.args.command : '';
-        const rawOutput = [mockResult.stdout, mockResult.stderr]
-          .filter((part) => typeof part === 'string' && part.length > 0)
-          .join('\n');
-        return {
+    const mockResult = this.deps.mockCommandResults?.[command];
+    const execution: RepoToolExecution = mockResult
+      ? {
           ok: true,
           requestedCommand: command,
           command,
           exitCode: Number(mockResult.exitCode),
-          output: shapeRunOutput({
-            command: commandText,
-            output: rawOutput,
-            policy: this.validationCommandOutputPolicy,
-            decision: runFullOutputDecision,
-          }),
-          toolType: normalizedToolName,
-        };
-      }
+          output: [mockResult.stdout, mockResult.stderr]
+            .filter((part) => typeof part === 'string' && part.length > 0)
+            .join('\n'),
+          toolType: nativeCall.toolName,
+        }
+      : await executeRepoTool(nativeCall, {
+          repoRoot: this.deps.repoRoot,
+          ignorePolicy: this.deps.ignorePolicy,
+          webTools: this.deps.webTools,
+          fileReadStateByPath: this.deps.readWindows.stateMap,
+          abortSignal: this.deps.abortSignal,
+          expandReads: isReadExpansionEnabled(this.deps.config),
+          agentRunId: this.deps.task.id,
+          visionEnabled: this.deps.visionEnabled,
+          visionImageRetention: this.deps.visionImageRetention,
+          visionMaxImagePixels: this.deps.visionMaxImagePixels,
+          imageTokenBudget: this.deps.imageTokenBudget,
+          liveImagePathKeys: this.deps.liveImagePathKeys,
+        });
+    if (!execution.ok || nativeCall.toolName !== 'run') {
+      return execution;
+    }
+    if (runFullOutputDecision === null || runFullOutputDecision.kind === 'duplicate') {
       return {
-        ok: true,
-        requestedCommand: command,
+        ok: false,
         command,
-        exitCode: Number(mockResult.exitCode),
-        output: [mockResult.stdout, mockResult.stderr]
-          .filter((part) => typeof part === 'string' && part.length > 0)
-          .join('\n'),
-        toolType: normalizedToolName,
+        reason: 'run requires a precomputed executable output decision',
+        toolType: nativeCall.toolName,
       };
     }
-    return executeRepoTool(normalizedToolName, toolAction.args, {
-      repoRoot: this.deps.repoRoot,
-      ignorePolicy: this.deps.ignorePolicy,
-      webTools: this.deps.webTools,
-      fileReadStateByPath: this.deps.readWindows.stateMap,
-      abortSignal: this.deps.abortSignal,
-      expandReads: isReadExpansionEnabled(this.deps.config),
-      agentRunId: this.deps.task.id,
-      validationCommandOutputPolicy: this.validationCommandOutputPolicy,
-      runFullOutputDecision,
-      visionEnabled: this.deps.visionEnabled,
-      visionImageRetention: this.deps.visionImageRetention,
-      visionMaxImagePixels: this.deps.visionMaxImagePixels,
-      imageTokenBudget: this.deps.imageTokenBudget,
-      liveImagePathKeys: this.deps.liveImagePathKeys,
+    const output = this.deps.runtimeProfile.applyRunOutput({
+      call: nativeCall.args,
+      output: execution.output,
+      decision: runFullOutputDecision,
     });
+    return {
+      ...execution,
+      output,
+    };
   }
 
   private screenRejection(turn: number, context: AcceptedToolContext, state: TurnBatchState): ToolActionOutcome | null {

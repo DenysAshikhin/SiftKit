@@ -9,7 +9,7 @@ import { z } from '../src/lib/zod.js';
 import type { ApprovalRequester } from '../src/repo-search/engine/approval-gate.js';
 import { buildRepoToolRequestedCommand } from '../src/repo-search/engine/repo-tools.js';
 import { decayInvalidResponses } from '../src/repo-search/engine/task-loop-support.js';
-import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/validation-command-output-policy.js';
+import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/runtime-profile.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import type { JsonObject } from '../src/lib/json-types.js';
 import { makeProcessor } from './helpers/tool-action-processor.js';
@@ -71,6 +71,27 @@ test('executeBatch records one command entry per tool action so results stay ali
   assert.equal(commands[0].safe, false);
   assert.equal(commands[0].reason, 'invalid action');
   assert.equal(commands[1].safe, true);
+});
+
+test('executeBatch rejects malformed native-tool arguments before execution', async () => {
+  const root = createManagedTempDir('siftkit-tool-argument-validation-');
+  fs.writeFileSync(path.join(root, 'a.ts'), 'alpha\n', 'utf8');
+  const { processor, commands, counters, transcript } = makeProcessor(root, ['grep']);
+
+  await processor.executeBatch(
+    1,
+    [{ action: 'tool', tool_name: 'grep', args: { pattern: 'alpha', limit: 'ten' } }],
+    '',
+    { reported: 0, budgeted: 0 },
+    false,
+  );
+
+  assert.equal(commands.length, 1);
+  assert.equal(commands[0]?.safe, false);
+  assert.equal(commands[0]?.reason, 'invalid action');
+  assert.match(commands[0]?.output ?? '', /invalid grep arguments/i);
+  assert.equal(counters.invalidResponses, 1);
+  assert.match(JSON.stringify(transcript.getMessages()), /invalid grep arguments/i);
 });
 
 test('non-image command records omit optional image fields from their JSON shape', async () => {
@@ -319,7 +340,7 @@ test('every member of a batch is capped at the same share regardless of position
 test('a downgraded full run may be retried once despite duplicate screening', async () => {
   const root = createManagedTempDir('siftkit-run-full-retry-');
   writeNoisyValidationRepo(root);
-  const { processor, commands } = makeProcessor(root, ['run'], REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT);
+  const { processor, commands } = makeProcessor(root, ['run'], 'repo-agent');
   const runAction: ToolAction = { action: 'tool', tool_name: 'run', args: { command: 'npm test', outputMode: 'full' } };
 
   await processor.executeBatch(1, [{ ...runAction, args: { ...runAction.args } }], '', { reported: 0, budgeted: 0 }, false);
@@ -346,7 +367,7 @@ test('a mocked full validation run uses the same downgrade and retry shaping', a
   const { processor, commands } = makeProcessor(
     root,
     ['run'],
-    REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT,
+    'repo-agent',
     null,
     { [command]: { exitCode: 1, stdout: output, stderr: '' } },
   );
@@ -370,7 +391,7 @@ test('a duplicate-rejected intervening run forfeits the pending full retry', asy
   const { processor, commands } = makeProcessor(
     root,
     ['run'],
-    REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT,
+    'repo-agent',
     null,
     VALIDATION_MOCK_COMMAND_RESULTS,
   );
@@ -411,7 +432,7 @@ test('an approval-denied granted retry is consumed', async () => {
   const { processor, commands } = makeProcessor(
     root,
     ['run'],
-    REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT,
+    'repo-agent',
     approvalGate,
     VALIDATION_MOCK_COMMAND_RESULTS,
   );
@@ -434,7 +455,7 @@ test('a non-run tool between downgrade and retry preserves the full grant', asyn
   const { processor, commands } = makeProcessor(
     root,
     ['run', 'ls'],
-    REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT,
+    'repo-agent',
     null,
     VALIDATION_MOCK_COMMAND_RESULTS,
   );

@@ -4,12 +4,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { executeRepoTool } from '../src/repo-search/engine/repo-tools.js';
+import type { JsonObject } from '../src/lib/json-types.js';
+import {
+  RepoNativeToolCallSchema,
+  type RepoNativeToolCall,
+} from '../src/repo-search/repo-tool-arguments.js';
 import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
 import { getSupportedImageExtensions } from '../src/llm-protocol/image-attachments.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { gifBufferWithSize, rasterBuffer } from './helpers/image-fixtures.js';
 import { makeRepoToolContext } from './helpers/repo-tool-context.js';
 import { makeProcessor } from './helpers/tool-action-processor.js';
+
+function nativeCall(toolName: string, args: JsonObject): RepoNativeToolCall {
+  return RepoNativeToolCallSchema.parse({ toolName, args });
+}
 
 function writeFixtureImages(repoRoot: string): void {
   fs.mkdirSync(path.join(repoRoot, 'docs'), { recursive: true });
@@ -24,7 +33,7 @@ async function runImageReadTurnRoles(repoRoot: string, paths: string[]): Promise
   const { processor, transcript } = makeProcessor(
     repoRoot,
     ['read'],
-    null,
+    'repo-search',
     null,
     undefined,
     { visionEnabled: true },
@@ -45,7 +54,7 @@ test('read returns an image for every supported extension when vision is on', as
   const context = makeRepoToolContext({ repoRoot, visionEnabled: true });
 
   for (const extension of getSupportedImageExtensions()) {
-    const result = await executeRepoTool('read', { path: `docs/arch${extension}` }, context);
+    const result = await executeRepoTool(nativeCall('read', { path: `docs/arch${extension}` }), context);
     assert.equal(result.ok, true, extension);
     assert.ok(result.ok && result.imageDataUrl, `${extension} carries an imageDataUrl`);
     assert.match(result.ok ? result.output : '', /^Image docs\/arch\..+ \(120×80\) attached below\.$/u);
@@ -57,7 +66,7 @@ test('read refuses an image when the preset has no vision', async () => {
   writeFixtureImages(repoRoot);
   const context = makeRepoToolContext({ repoRoot, visionEnabled: false });
 
-  const result = await executeRepoTool('read', { path: 'docs/arch.png' }, context);
+  const result = await executeRepoTool(nativeCall('read', { path: 'docs/arch.png' }), context);
 
   assert.equal(result.ok, false);
   assert.equal(
@@ -71,7 +80,7 @@ test('read refuses an image when retention is zero, with the retention message',
   writeFixtureImages(repoRoot);
   const context = makeRepoToolContext({ repoRoot, visionEnabled: true, visionImageRetention: 0 });
 
-  const result = await executeRepoTool('read', { path: 'docs/arch.png' }, context);
+  const result = await executeRepoTool(nativeCall('read', { path: 'docs/arch.png' }), context);
 
   assert.equal(result.ok, false);
   assert.equal(
@@ -85,7 +94,7 @@ test('read rejects offset on an image path rather than ignoring it', async () =>
   writeFixtureImages(repoRoot);
   const context = makeRepoToolContext({ repoRoot, visionEnabled: true });
 
-  const result = await executeRepoTool('read', { path: 'docs/arch.png', offset: 2 }, context);
+  const result = await executeRepoTool(nativeCall('read', { path: 'docs/arch.png', offset: 2 }), context);
 
   assert.equal(result.ok, false);
   assert.match(result.ok ? '' : result.reason, /offset and limit do not apply to images/u);
@@ -96,7 +105,7 @@ test('read rejects limit on an image path', async () => {
   writeFixtureImages(repoRoot);
   const context = makeRepoToolContext({ repoRoot, visionEnabled: true });
 
-  const result = await executeRepoTool('read', { path: 'docs/arch.png', limit: 5 }, context);
+  const result = await executeRepoTool(nativeCall('read', { path: 'docs/arch.png', limit: 5 }), context);
 
   assert.equal(result.ok, false);
   assert.match(result.ok ? '' : result.reason, /offset and limit do not apply to images/u);
@@ -106,7 +115,7 @@ test('read on an image keeps the ignore-policy and existence checks', async () =
   const repoRoot = createManagedTempDir('image-read-missing');
   const context = makeRepoToolContext({ repoRoot, visionEnabled: true });
 
-  const result = await executeRepoTool('read', { path: 'docs/nope.png' }, context);
+  const result = await executeRepoTool(nativeCall('read', { path: 'docs/nope.png' }), context);
 
   assert.equal(result.ok, false);
   assert.equal(result.ok ? '' : result.reason, 'path is not a readable file');
@@ -117,7 +126,7 @@ test('read on an image produces no lineReadStats', async () => {
   writeFixtureImages(repoRoot);
   const context = makeRepoToolContext({ repoRoot, visionEnabled: true });
 
-  const result = await executeRepoTool('read', { path: 'docs/arch.png' }, context);
+  const result = await executeRepoTool(nativeCall('read', { path: 'docs/arch.png' }), context);
 
   assert.equal(result.ok && result.lineReadStats, undefined);
   assert.equal(result.ok && result.readFile, undefined);
@@ -165,11 +174,11 @@ test('a second read of a live image is refused', async () => {
   writeFixtureImages(repoRoot);
   const context = makeRepoToolContext({ repoRoot, visionEnabled: true });
 
-  const first = await executeRepoTool('read', { path: 'docs/arch.png' }, context);
+  const first = await executeRepoTool(nativeCall('read', { path: 'docs/arch.png' }), context);
   assert.equal(first.ok, true);
   context.liveImagePathKeys.add(first.ok ? first.imagePathKey ?? '' : '');
 
-  const second = await executeRepoTool('read', { path: 'docs/arch.png' }, context);
+  const second = await executeRepoTool(nativeCall('read', { path: 'docs/arch.png' }), context);
 
   assert.equal(second.ok, false);
   assert.match(second.ok ? '' : second.reason, /already attached in this context/u);
@@ -180,12 +189,12 @@ test('re-reading is permitted again once the image is no longer live', async () 
   writeFixtureImages(repoRoot);
   const context = makeRepoToolContext({ repoRoot, visionEnabled: true });
 
-  const first = await executeRepoTool('read', { path: 'docs/arch.png' }, context);
+  const first = await executeRepoTool(nativeCall('read', { path: 'docs/arch.png' }), context);
   const pathKey = first.ok ? first.imagePathKey ?? '' : '';
   context.liveImagePathKeys.add(pathKey);
   context.liveImagePathKeys.delete(pathKey);
 
-  const second = await executeRepoTool('read', { path: 'docs/arch.png' }, context);
+  const second = await executeRepoTool(nativeCall('read', { path: 'docs/arch.png' }), context);
 
   assert.equal(second.ok, true);
 });

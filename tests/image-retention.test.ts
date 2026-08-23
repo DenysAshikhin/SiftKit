@@ -326,7 +326,7 @@ test('live transcript ages images out in place and releases the dropped path gua
   const { processor, commands, transcript } = makeProcessor(
     repoRoot,
     ['read'],
-    null,
+    'repo-search',
     null,
     undefined,
     { visionEnabled: true, visionImageRetention: 1 },

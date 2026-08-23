@@ -12,6 +12,7 @@ import { CollectingProgressWriter } from './helpers/collecting-progress-writer.j
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
+import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
 
 /**
  * Wildly divergent from any prompt this loop can build, so a re-introduced
@@ -64,6 +65,7 @@ async function runOneTurnAgainstServer(): Promise<LoopRun> {
         repoRoot: createManagedTempDir('siftkit-prompt-accounting-'),
         model: 'mock-model',
         baseUrl,
+        runtimeProfile: new RepoSearchRuntimeProfile('repo-search'),
         systemContext: createEmptyPresetSystemContext(),
         config: mockSiftConfig({ Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32_000 } } }),
         maxTurns: 2,

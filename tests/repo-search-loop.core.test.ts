@@ -90,6 +90,7 @@ test('runRepoSearch does not fail on model inventory mismatch', async () => {
   const scorecard = await runRepoSearch({
     repoRoot: process.cwd(),
     systemContext: createEmptyPresetSystemContext(),
+    taskKind: 'repo-search',
     config: mockSiftConfig({
       Runtime: {
         LlamaCpp: {
@@ -117,6 +118,7 @@ test('repo-search executes a native web_search tool when allowed', async () => {
   const scorecard = await runRepoSearch({
     repoRoot: process.cwd(),
     systemContext: createEmptyPresetSystemContext(),
+    taskKind: 'repo-search',
     config: mockSiftConfig({
       Runtime: { LlamaCpp: { BaseUrl: 'http://127.0.0.1:8097', NumCtx: 70000 } },
       WebSearch: {
@@ -172,6 +174,7 @@ test('runTaskLoop passes a mixed-quote grep regex through to rg without shell ma
       signals: ['BridgeClient'],
     },
     {
+      runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
       repoRoot,
       systemContext: createEmptyPresetSystemContext(),
       config: mockOfflineSiftConfig(),
@@ -422,6 +425,7 @@ test('runTaskLoop reuses preflight prompt token count for tool progress and allo
         signals: [],
       },
       {
+        runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
         repoRoot: process.cwd(),
         systemContext: createEmptyPresetSystemContext(),
         baseUrl,
@@ -1014,6 +1018,7 @@ test('runTaskLoop sends append-only chat requests with explicit cache_prompt and
         signals: [],
       },
       {
+        runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
         repoRoot: process.cwd(),
         systemContext: createEmptyPresetSystemContext(),
         baseUrl,
@@ -1141,6 +1146,7 @@ test('runTaskLoop keeps one duplicate warning tool turn and forces finish on the
         signals: [],
       },
       {
+        runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
         repoRoot: process.cwd(),
         systemContext: createEmptyPresetSystemContext(),
         baseUrl,
@@ -1265,6 +1271,7 @@ test('runTaskLoop uses dynamic max_tokens for planner requests from live prompt 
         signals: [],
       },
       {
+        runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
         repoRoot: process.cwd(),
         systemContext: createEmptyPresetSystemContext(),
         baseUrl,
@@ -1341,6 +1348,7 @@ test('runTaskLoop uses dynamic max_tokens for terminal synthesis requests', asyn
         signals: [],
       },
       {
+        runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
         repoRoot: process.cwd(),
         systemContext: createEmptyPresetSystemContext(),
         baseUrl,
@@ -1415,6 +1423,7 @@ test('runTaskLoop bounds planner and terminal synthesis max_tokens by the preset
         signals: [],
       },
       {
+        runtimeProfile: MOCK_LOOP_DEFAULTS.runtimeProfile,
         repoRoot: process.cwd(),
         systemContext: createEmptyPresetSystemContext(),
         baseUrl,

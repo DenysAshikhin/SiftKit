@@ -20,6 +20,7 @@ import { WebResearchTools } from '../../web-search/web-research-tools.js';
 import type { WebSearchConfig } from '../../web-search/types.js';
 import type { ProgressWriter } from '../../lib/progress-writer.js';
 import type { ApprovalGate, ApprovalMode } from './approval-gate.js';
+import type { RepoSearchRuntimeProfile } from './runtime-profile.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -161,8 +162,7 @@ export type RunTaskLoopOptions = {
   maxTurns?: number;
   maxInvalidResponses?: number;
   minToolCallsBeforeFinish?: number;
-  validationCommandOutputLineLimit?: number | null;
-  loopKind?: 'repo-search' | 'chat' | 'repo-agent';
+  runtimeProfile: RepoSearchRuntimeProfile;
   streamFinishAsAnswer?: boolean;
   thinkingEnabledOverride?: boolean;
   systemPromptOverride?: string;

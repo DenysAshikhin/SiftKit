@@ -14,6 +14,7 @@ import type { ChatMessage } from './planner-protocol.js';
 import { ScorecardSchema } from './engine.js';
 import { ContextWarningProgressEventSchema, type LockWaitProgressEvent } from '../lib/operation-stream.js';
 import { ActivitySummaryProgressEventSchema } from './engine/activity-summary-collector.js';
+import type { RepoSearchTaskKind } from './task-kind.js';
 
 export type { ActivitySummaryCategory, ActivitySummaryEntry, ActivitySummaryProgressEvent } from './engine/activity-summary-collector.js';
 
@@ -135,7 +136,7 @@ export type RepoSearchExecutionRequest = {
   startedAtUtc?: string;
   prompt: string;
   repoRoot: string;
-  taskKind?: 'plan' | 'repo-search' | 'chat' | 'repo-agent';
+  taskKind?: RepoSearchTaskKind;
   statusBackendUrl?: string;
   config?: SiftConfig;
   model?: string;

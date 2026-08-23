@@ -7,6 +7,8 @@ import {
   RUN_OUTPUT_MODES,
   RunOutputModeSchema,
 } from '../src/repo-search/repo-tool-arguments.js';
+import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/runtime-profile.js';
+import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
 
 test('canonical schema accepts and normalizes every native repo-tool call', () => {
   const cases = [
@@ -131,4 +133,25 @@ test('canonical schema rejects malformed native arguments at the model boundary'
   for (const call of calls) {
     assert.equal(RepoNativeToolCallSchema.safeParse(call).success, false, call.toolName);
   }
+});
+
+test('run planner metadata uses canonical modes and line limit', () => {
+  const definition = resolveRepoSearchPlannerToolDefinitions(['run'])[0];
+  if (!definition) {
+    throw new Error('Expected the run tool definition.');
+  }
+  const parameters = definition.function.parameters;
+  if (!parameters) {
+    throw new Error('Expected run tool parameters.');
+  }
+  const outputMode = parameters.properties?.outputMode;
+  if (!outputMode) {
+    throw new Error('Expected run outputMode metadata.');
+  }
+
+  assert.deepEqual(outputMode.enum, RUN_OUTPUT_MODES);
+  assert.match(
+    outputMode.description ?? '',
+    new RegExp(`final ${REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT} lines`, 'u'),
+  );
 });

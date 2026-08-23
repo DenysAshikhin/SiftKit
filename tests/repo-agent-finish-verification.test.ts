@@ -6,8 +6,10 @@ import { TaskResultSchema } from '../src/repo-search/engine/task-loop-support.js
 import type { JsonSerializable } from '../src/lib/json-types.js';
 import { createMockLoopDefaults } from './helpers/mock-loop-defaults.js';
 import { buildMockScorecard } from './_test-helpers.js';
+import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
 
 const MOCK_LOOP_DEFAULTS = createMockLoopDefaults('siftkit-finish-verify-');
+const AGENT_RUNTIME_PROFILE = new RepoSearchRuntimeProfile('repo-agent');
 
 const GREP_OK = { exitCode: 0, stdout: 'src\\summary.ts:10:planner hit', stderr: '' };
 
@@ -28,7 +30,7 @@ test('repo-agent finish is challenged once and accepted when the model doubles d
     { id: 'agent-reaffirm', question: 'Do the task.', signals: [] },
     {
       ...MOCK_LOOP_DEFAULTS,
-      loopKind: 'repo-agent',
+      runtimeProfile: AGENT_RUNTIME_PROFILE,
       minToolCallsBeforeFinish: 0,
       maxTurns: 6,
       mockResponses: [
@@ -56,7 +58,7 @@ test('repo-agent model may back down twice; the third finish is forced done', as
     { id: 'agent-forced', question: 'Do the task.', signals: [] },
     {
       ...MOCK_LOOP_DEFAULTS,
-      loopKind: 'repo-agent',
+      runtimeProfile: AGENT_RUNTIME_PROFILE,
       minToolCallsBeforeFinish: 0,
       maxTurns: 10,
       mockResponses: [
@@ -120,7 +122,7 @@ test('finish during forced-finish mode bypasses the verification gate', async ()
     { id: 'agent-forced-mode', question: 'Do the task.', signals: [] },
     {
       ...MOCK_LOOP_DEFAULTS,
-      loopKind: 'repo-agent',
+      runtimeProfile: AGENT_RUNTIME_PROFILE,
       minToolCallsBeforeFinish: 0,
       maxTurns: 15,
       mockResponses: [

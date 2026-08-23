@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT,
   RUN_FULL_DOWNGRADE_NOTICE,
   RunFullOutputGate,
   ValidationCommandOutputPolicy,
 } from '../src/repo-search/engine/validation-command-output-policy.js';
+import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/runtime-profile.js';
 
 const policy = new ValidationCommandOutputPolicy(REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT);
 

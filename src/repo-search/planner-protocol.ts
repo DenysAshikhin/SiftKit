@@ -26,6 +26,7 @@ import { getSupportedImageExtensions } from '../llm-protocol/image-attachments.j
 import { buildInlineThinkPattern, THINK_OPEN_TAG } from '../llm-protocol/think-markers.js';
 import type { JsonLogger } from './types.js';
 import { RUN_OUTPUT_MODES } from './repo-tool-arguments.js';
+import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/runtime-profile.js';
 
 export type PlannerActionResponse = {
   text: string;
@@ -230,7 +231,7 @@ const REPO_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
             type: 'string',
             enum: RUN_OUTPUT_MODES,
             description:
-              'Output shaping. auto (default) keeps a curated tail for test/build/lint/typecheck commands - use it for those. full returns raw output; on such commands a first full request is served as auto, and only an immediate identical retry with full returns raw output.',
+              `Output shaping. auto (default) keeps a curated final ${REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT} lines for test/build/lint/typecheck commands - use it for those. full returns raw output; on such commands a first full request is served as auto, and only an immediate identical retry with full returns raw output.`,
           },
         },
         required: ['command'],

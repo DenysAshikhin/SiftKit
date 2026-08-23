@@ -83,6 +83,83 @@ test('native repo-tool arguments have one runtime-schema implementation', () => 
   assert.match(text, /RepoNativeToolCallSchema/u);
 });
 
+test('native repo-tool execution consumes canonical typed calls', () => {
+  const repoTools = fs.readFileSync(
+    path.join(process.cwd(), 'src', 'repo-search', 'engine', 'repo-tools.ts'),
+    'utf8',
+  );
+  const processor = fs.readFileSync(
+    path.join(process.cwd(), 'src', 'repo-search', 'engine', 'tool-action-processor.ts'),
+    'utf8',
+  );
+
+  assert.match(repoTools, /executeRepoTool\(\s*call:\s*RepoNativeToolCall/u);
+  assert.doesNotMatch(repoTools, /executeRepoTool\(\s*toolName:\s*string/u);
+  assert.match(processor, /RepoNativeToolCallSchema/u);
+});
+
+test('repo-agent runtime behavior flows through one profile', () => {
+  const runtimePaths = [
+    ['src', 'repo-search', 'engine.ts'],
+    ['src', 'repo-search', 'engine', 'task-loop-support.ts'],
+    ['src', 'repo-search', 'engine', 'task-loop.ts'],
+    ['src', 'repo-search', 'engine', 'prompt-preparer.ts'],
+    ['src', 'repo-search', 'engine', 'tool-action-processor.ts'],
+    ['src', 'repo-search', 'engine', 'repo-tools.ts'],
+  ];
+  const runtimeTexts = runtimePaths.map((parts) => fs.readFileSync(
+    path.join(process.cwd(), ...parts),
+    'utf8',
+  ));
+  const execute = fs.readFileSync(
+    path.join(process.cwd(), 'src', 'repo-search', 'execute.ts'),
+    'utf8',
+  );
+  const engine = runtimeTexts[0] ?? '';
+  const taskLoopSupport = runtimeTexts[1] ?? '';
+  const taskLoop = runtimeTexts[2] ?? '';
+  const validationPolicy = fs.readFileSync(
+    path.join(
+      process.cwd(),
+      'src',
+      'repo-search',
+      'engine',
+      'validation-command-output-policy.ts',
+    ),
+    'utf8',
+  );
+  const runtimeProfile = fs.readFileSync(
+    path.join(process.cwd(), 'src', 'repo-search', 'engine', 'runtime-profile.ts'),
+    'utf8',
+  );
+
+  for (const text of runtimeTexts) {
+    assert.doesNotMatch(text, /validationCommandOutputLineLimit/u);
+  }
+  assert.doesNotMatch(execute, /validationCommandOutputLineLimit|REPO_AGENT_DEFAULT_MAX_TURNS/u);
+  assert.doesNotMatch(engine, /loopKind\?:/u);
+  assert.doesNotMatch(taskLoopSupport, /loopKind\?:/u);
+  assert.doesNotMatch(taskLoop, /options\.loopKind/u);
+  assert.doesNotMatch(execute, /\bloopKind\s*:/u);
+  assert.doesNotMatch(validationPolicy, /shapeRunOutput|ExecutableRunFullOutputDecision/u);
+  assert.doesNotMatch(runtimeTexts[4] ?? '', /RunFullOutputGate|RUN_FULL_DOWNGRADE_NOTICE|isValidationCommand/u);
+  assert.match(runtimeProfile, /RunFullOutputGate/u);
+  assert.match(runtimeProfile, /RUN_FULL_DOWNGRADE_NOTICE/u);
+  assert.match(runtimeTexts.join('\n'), /RepoSearchRuntimeProfile/u);
+});
+
+test('run planner metadata references canonical runtime exports', () => {
+  const planner = fs.readFileSync(
+    path.join(process.cwd(), 'src', 'repo-search', 'planner-protocol.ts'),
+    'utf8',
+  );
+
+  assert.match(planner, /RUN_OUTPUT_MODES/u);
+  assert.match(planner, /REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT/u);
+  assert.doesNotMatch(planner, /enum:\s*\['auto',\s*'full'\]/u);
+  assert.doesNotMatch(planner, /final 50 lines/u);
+});
+
 test('production repo-search and summary planner use AgentLoop model-client path', () => {
   const productionTexts = [
     fs.readFileSync(path.join(process.cwd(), 'src', 'repo-search', 'engine', 'task-loop.ts'), 'utf8'),

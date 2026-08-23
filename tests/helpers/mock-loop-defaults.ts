@@ -2,6 +2,7 @@ import { DEAD_BASE_URL } from './dead-endpoints.js';
 import { createEmptyPresetSystemContext } from './empty-preset-system-context.js';
 import { mockOfflineSiftConfig } from './mock-config.js';
 import { createManagedTempDir } from './temp-dirs.js';
+import { RepoSearchRuntimeProfile } from '../../src/repo-search/engine/runtime-profile.js';
 
 /**
  * The required RunTaskLoopOptions fields for a mock-mode loop, which never reaches a
@@ -14,6 +15,7 @@ export function createMockLoopDefaults(tempDirPrefix: string) {
     repoRoot: createManagedTempDir(tempDirPrefix),
     model: 'mock-model',
     baseUrl: DEAD_BASE_URL,
+    runtimeProfile: new RepoSearchRuntimeProfile('repo-search'),
     systemContext: createEmptyPresetSystemContext(),
     config: mockOfflineSiftConfig(),
   };
