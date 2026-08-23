@@ -4,6 +4,7 @@ import { z } from '../lib/zod.js';
 import type { RepoSearchProgressEvent } from './types.js';
 import { MessageContentSchema } from '../llm-protocol/image-attachments.js';
 import {
+  isApprovalExemptReadOnlyTool,
   type ApprovalDecision,
   type HumanApprovalRequestInput,
   type HumanApprovalRequester,
@@ -169,6 +170,12 @@ export class AutoApprovalVerdictProbe {
 
   async run(input: AutoApprovalReplayPayloadInput): Promise<AutoApprovalProbeResult> {
     const payload = AutoApprovalReplayPayloadSchema.parse(input);
+    if (isApprovalExemptReadOnlyTool(payload.action.toolName)) {
+      throw new Error(
+        `${payload.action.toolName} is an approval-exempt read-only tool: the reviewer is never `
+        + 'consulted for it, so there is no verdict to probe.',
+      );
+    }
     const requester = new ReplayVerdictRequester(payload.messages, this.modelClient);
     const progressWriter = new ProbeProgressWriter();
     const gate = new LlmApprovalGate({

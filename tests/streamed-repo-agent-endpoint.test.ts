@@ -312,6 +312,8 @@ test('POST /repo-agent: read-only tools execute without approval frames', async 
   }
   const approvalFrames = response.progress.filter((event) => event.kind === 'approval_request');
   assert.equal(approvalFrames.length, 0);
+  // The server log line is built from this stream, so a read-only run must not put one there.
+  assert.equal(response.progress.filter((event) => event.kind === 'approval_auto').length, 0);
 });
 
 test('POST /repo-agent with a boolean approval value fails loudly', async (t) => {

@@ -236,25 +236,28 @@ for (const testCase of [
   { toolName: 'find', action: '{"action":"find","pattern":"a.txt","path":"."}' },
   { toolName: 'ls', action: '{"action":"ls","path":"."}' },
 ]) {
-  test(`auto mode: ${testCase.toolName} fast-paths without spending a verdict call`, async () => {
+  test(`auto mode: ${testCase.toolName} fast-paths silently, spending neither a verdict call nor a log line`, async () => {
     const tempRoot = createManagedTempDir('siftkit-llm-auto-fastpath-');
     try {
       fs.writeFileSync(path.join(tempRoot, 'a.txt'), 'content-a', 'utf8');
       const writer = new RecordingWriter(new AlwaysAbortProvider());
       const gate = new ApprovalGateHarness(writer, false, UNREACHED_GATE_TIMEOUT_MS).gate;
       writer.gate = gate;
+      const { events: logEvents, logger } = makeRecordingLogger();
       // No verdict mock present: if a verdict call were made it would consume the finish action and fail the run.
       const result = await runTaskLoop(makeTask('read a file'), makeAutoLoopOptions(tempRoot, [
         testCase.action,
         '{"action":"finish","output":"done"}',
-      ], writer, gate));
+      ], writer, gate, logger));
       assert.equal(result.finalOutput, 'done');
-      const auto = writer.ofKind('approval_auto');
-      assert.equal(auto.length, 1);
-      assert.equal(auto[0].toolName, testCase.toolName);
-      assert.equal(auto[0].verdict, 'approve');
-      assert.equal(auto[0].reason, 'read-only tool');
+      // The tool call itself still reports; the exemption is static policy and adds nothing to it.
+      assert.equal(
+        writer.ofKind('tool_start').filter((event) => String(event.command).startsWith(testCase.toolName)).length,
+        1,
+      );
+      assert.equal(writer.ofKind('approval_auto').length, 0);
       assert.equal(writer.ofKind('approval_request').length, 0);
+      assert.equal(logEvents.filter((event) => event.kind === 'approval_verdict').length, 0);
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }

@@ -58,8 +58,10 @@ export class LlmApprovalGate {
   }) {}
 
   async request(input: ApprovalRequestInput): Promise<ApprovalDecision> {
+    // A read-only tool never reaches the reviewer. The exemption is static policy, not a verdict,
+    // so it reports nothing: the tool_start line that follows already names the tool and its
+    // arguments, and an approval line in front of it is pure duplication.
     if (isApprovalExemptReadOnlyTool(input.toolName)) {
-      this.emitVerdict(input, 'approve', 'read-only tool');
       return { kind: 'approve' };
     }
     const verdict = await this.requestVerdictWithRetry(

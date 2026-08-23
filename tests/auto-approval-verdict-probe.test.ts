@@ -232,21 +232,20 @@ test('reports a failed verdict after exactly one retry', async () => {
   assert.equal(result.reason, 'verdict call failed');
 });
 
-test('preserves the production read-only fast path without a model call', async () => {
+test('rejects an approval-exempt read-only action instead of inventing a verdict', async () => {
   const client = new RecordingVerdictModelClient('not-json');
 
-  const result = await new AutoApprovalVerdictProbe(client).run({
-    messages,
-    action: {
-      turn: 2,
-      toolName: 'read',
-      command: 'read tests/parser.test.ts',
-      reviewPayload: null,
-    },
-  });
-
+  await assert.rejects(
+    () => new AutoApprovalVerdictProbe(client).run({
+      messages,
+      action: {
+        turn: 2,
+        toolName: 'read',
+        command: 'read tests/parser.test.ts',
+        reviewPayload: null,
+      },
+    }),
+    /read is an approval-exempt read-only tool/u,
+  );
   assert.equal(client.requests.length, 0);
-  assert.equal(result.verdict, 'approve');
-  assert.equal(result.reason, 'read-only tool');
-  assert.deepEqual(result.submittedMessages, []);
 });
