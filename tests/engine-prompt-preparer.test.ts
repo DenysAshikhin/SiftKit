@@ -16,6 +16,8 @@ import type { JsonSerializable } from '../src/lib/json-types.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
+import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
+import type { RepoSearchTaskKind } from '../src/repo-search/task-kind.js';
 
 const NO_THINKING = { thinkingEnabled: false, reasoningContentEnabled: false, preserveThinking: false };
 const WITH_PRESERVED_THINKING = { thinkingEnabled: true, reasoningContentEnabled: true, preserveThinking: true };
@@ -26,6 +28,7 @@ function makePreparer(
   mockResponses: string[] = ['SUMMARY BODY'],
   events: Array<Record<string, JsonSerializable>> = [],
   thinking: typeof NO_THINKING = NO_THINKING,
+  taskKind: RepoSearchTaskKind = 'repo-search',
 ): PromptPreparer {
   const config = mockOfflineSiftConfig();
   const logger = {
@@ -43,6 +46,7 @@ function makePreparer(
     plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(),
     thinking,
     transcript,
+    runtimeProfile: new RepoSearchRuntimeProfile(taskKind),
     compactor: new TranscriptCompactor({
       config,
       baseUrl: DEAD_BASE_URL,

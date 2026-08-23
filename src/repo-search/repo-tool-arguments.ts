@@ -102,3 +102,12 @@ export const RepoNativeToolCallSchema = z.discriminatedUnion('toolName', [
 ]);
 
 export type RepoNativeToolCall = z.infer<typeof RepoNativeToolCallSchema>;
+export type ReadToolArgs = z.infer<typeof ReadToolArgsSchema>;
+export type GrepToolArgs = z.infer<typeof GrepToolArgsSchema>;
+export type FindToolArgs = z.infer<typeof FindToolArgsSchema>;
+export type LsToolArgs = z.infer<typeof LsToolArgsSchema>;
+export type WriteToolArgs = z.infer<typeof WriteToolArgsSchema>;
+export type EditToolArgs = z.infer<typeof EditToolArgsSchema>;
+export type RunToolArgs = z.infer<typeof RunToolArgsSchema>;
+export type WebSearchToolArgs = z.infer<typeof WebSearchToolArgsSchema>;
+export type WebFetchToolArgs = z.infer<typeof WebFetchToolArgsSchema>;

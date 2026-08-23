@@ -4,7 +4,7 @@ import { ImageDataUrlSchema, ImageMetadataSchema } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import { RUN_SHELL_LABEL } from '../lib/powershell.js';
 import type { IgnorePolicy } from './command-safety.js';
-import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/validation-command-output-policy.js';
+import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/runtime-profile.js';
 import type { PresetSystemContext } from '../preset-system-context.js';
 
 // ---------------------------------------------------------------------------

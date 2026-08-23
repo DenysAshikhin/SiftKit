@@ -18,6 +18,7 @@ import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-co
 import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
+import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
 
 // Mock-mode requests never reach a provider, but the request layer still derives its
 // model, samplers and budgets from a real config, so every call supplies one.
@@ -145,6 +146,7 @@ test('a task loop refuses an approval verdict before any planner request', async
         config: MOCK_CONFIG,
         model: 'mock-model',
         baseUrl: DEAD_BASE_URL,
+        runtimeProfile: new RepoSearchRuntimeProfile('repo-search'),
         maxTurns: 1,
         minToolCallsBeforeFinish: 0,
         mockResponses: [],

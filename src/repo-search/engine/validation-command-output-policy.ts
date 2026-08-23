@@ -1,7 +1,5 @@
 import type { RunOutputMode } from '../repo-tool-arguments.js';
 
-export const REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT = 50;
-
 const VALIDATION_COMMAND_PATTERNS = [
   /^(?:&\s*)?(?:npm(?:\.cmd)?|pnpm(?:\.cmd)?|yarn(?:\.cmd)?|bun(?:\.exe)?)\s+(?:run\s+)?(?:test|build|lint|typecheck)(?::[a-z0-9_.-]+)?(?:\s|$)/iu,
   /^(?:&\s*)?node(?:\.exe)?\s+(?=[^;|]*--test(?:[=\s]|$))/iu,
@@ -175,26 +173,6 @@ export type RunFullOutputDecision =
   | { kind: 'downgrade'; effectiveMode: 'auto'; downgraded: true }
   | { kind: 'retry'; effectiveMode: 'full'; downgraded: false }
   | { kind: 'duplicate' };
-
-export type ExecutableRunFullOutputDecision = Exclude<RunFullOutputDecision, { kind: 'duplicate' }>;
-
-export function shapeRunOutput(options: {
-  command: string;
-  output: string;
-  policy: ValidationCommandOutputPolicy | null;
-  decision: ExecutableRunFullOutputDecision;
-}): string {
-  const shaped = options.policy === null
-    ? options.output
-    : options.policy.apply({
-        command: options.command,
-        output: options.output,
-        outputMode: options.decision.effectiveMode,
-      });
-  return options.decision.downgraded
-    ? `${shaped}\n\n${RUN_FULL_DOWNGRADE_NOTICE}`
-    : shaped;
-}
 
 /**
  * First `full` request on a validation command is served as `auto`; only an immediate

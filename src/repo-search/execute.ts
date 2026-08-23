@@ -1,6 +1,5 @@
 import { resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { REPO_AGENT_DEFAULT_MAX_TURNS } from '@siftkit/contracts';
 import { getActiveModelPreset, loadConfig, notifyStatusBackend } from '../config/index.js';
 import type { InferenceBackendId } from '../config/types.js';
 import type { TokenCountSource } from './prompt-budget.js';
@@ -13,7 +12,6 @@ import {
 import { getLiveRunSnapshotPath } from '../config/paths.js';
 import { attachLiveRunSnapshot, isLiveRunSnapshotEnabled } from './live-snapshot/writer.js';
 import { runRepoSearch } from './engine.js';
-import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/validation-command-output-policy.js';
 import { buildAgentSystemPrompt, buildTaskSystemPrompt } from './prompts.js';
 import { getNumericTotal, getOutputCharacterCount } from './scorecard.js';
 import { upsertRuntimeJsonArtifact } from '../state/runtime-artifacts.js';
@@ -40,6 +38,7 @@ import { PresetSystemPromptComposer } from '../preset-system-prompt.js';
 import { contextWarningEvent } from '../lib/operation-stream.js';
 import { PresetCatalog } from '../preset-catalog.js';
 import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js';
+import { normalizeRepoSearchTaskKind } from './task-kind.js';
 
 export type RepoSearchPreflightSummary = {
   turn: number;
@@ -288,10 +287,11 @@ async function notifyRepoSearchTerminalStatus(options: RepoSearchTerminalStatusN
 export async function executeRepoSearchRequest(
   request: RepoSearchExecutionRequest,
 ): Promise<RepoSearchExecutionResult> {
-  const isAgent = request.taskKind === 'repo-agent';
-  const taskKind = request.taskKind === 'plan'
+  const executionTaskKind = normalizeRepoSearchTaskKind(request.taskKind);
+  const isAgent = executionTaskKind === 'repo-agent';
+  const taskKind = executionTaskKind === 'plan'
     ? 'plan'
-    : request.taskKind === 'chat'
+    : executionTaskKind === 'chat'
       ? 'chat'
       : 'repo-search';
   const prompt = String(request.prompt || '').trim();
@@ -389,14 +389,11 @@ export async function executeRepoSearchRequest(
       repoRoot,
       config,
       systemContext,
+      taskKind: executionTaskKind,
       model: request.model,
-      maxTurns: request.maxTurns ?? (isAgent ? REPO_AGENT_DEFAULT_MAX_TURNS : undefined),
+      maxTurns: request.maxTurns,
       allowedTools: Array.isArray(request.allowedTools) ? request.allowedTools : undefined,
-      validationCommandOutputLineLimit: isAgent
-        ? REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT
-        : null,
       allowEmptyTools: taskKind === 'chat',
-      loopKind: taskKind === 'chat' ? 'chat' : isAgent ? 'repo-agent' : 'repo-search',
       streamFinishAsAnswer: taskKind === 'chat',
       minToolCallsBeforeFinish: (taskKind === 'chat' || isAgent) ? 0 : undefined,
       systemPromptOverride,

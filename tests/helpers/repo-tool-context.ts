@@ -16,8 +16,6 @@ export function makeRepoToolContext(overrides: {
     webTools: makeMockWebTools(),
     expandReads: true,
     agentRunId: 'test-run',
-    validationCommandOutputPolicy: null,
-    runFullOutputDecision: null,
     visionEnabled: overrides.visionEnabled,
     visionImageRetention: overrides.visionImageRetention ?? 8,
     visionMaxImagePixels: overrides.visionMaxImagePixels ?? 0,

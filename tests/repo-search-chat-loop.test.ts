@@ -11,6 +11,10 @@ import { mockSiftConfig } from './helpers/mock-config.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-context.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
+import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
+
+const CHAT_RUNTIME_PROFILE = new RepoSearchRuntimeProfile('chat');
+const REPO_SEARCH_RUNTIME_PROFILE = new RepoSearchRuntimeProfile('repo-search');
 
 const MOCK_CONFIG = mockSiftConfig({
   Runtime: { LlamaCpp: { BaseUrl: DEAD_BASE_URL, NumCtx: 32000 } },
@@ -46,7 +50,7 @@ test('runTaskLoop answers on turn 1 with zero tools in chat loopKind', async () 
       maxTurns: 4,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
-      loopKind: 'chat',
+      runtimeProfile: CHAT_RUNTIME_PROFILE,
       plannerToolDefinitions: [],
       mockResponses: ['{"action":"finish","output":"4"}'],
       mockCommandResults: {},
@@ -69,7 +73,7 @@ test('chat loopKind with zero planner tools rejects repo-search tool actions', a
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
-      loopKind: 'chat',
+      runtimeProfile: CHAT_RUNTIME_PROFILE,
       plannerToolDefinitions: [],
       mockResponses: [
         '{"action":"git","command":"git grep -n \\"needle\\" ."}',
@@ -99,7 +103,7 @@ test('chat mode streams finish output as answer events', async () => {
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
-      loopKind: 'chat',
+      runtimeProfile: CHAT_RUNTIME_PROFILE,
       plannerToolDefinitions: [],
       streamFinishAsAnswer: true,
       mockResponses: ['{"action":"finish","output":"Hello there!"}'],
@@ -126,7 +130,7 @@ test('non-live writers do not receive the final planner answer event', async () 
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
-      loopKind: 'chat',
+      runtimeProfile: CHAT_RUNTIME_PROFILE,
       plannerToolDefinitions: [],
       streamFinishAsAnswer: true,
       mockResponses: ['{"action":"finish","output":"Hello there!"}'],
@@ -143,6 +147,7 @@ test('tool token totals sum command output tokens', async () => {
   const result = await runTaskLoop(
     { id: 'repo-search', question: 'Find x.', signals: [] },
     {
+      runtimeProfile: REPO_SEARCH_RUNTIME_PROFILE,
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
       config: MOCK_CONFIG,
@@ -201,7 +206,7 @@ test('chat answer streaming waits for extractable finish output instead of emitt
         maxTurns: 1,
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
-        loopKind: 'chat',
+      runtimeProfile: CHAT_RUNTIME_PROFILE,
         plannerToolDefinitions: [],
         streamFinishAsAnswer: true,
         progressWriter: new CollectingProgressWriter(events),
@@ -275,7 +280,7 @@ test('chat terminal synthesis streams answer deltas before the final answer even
         maxTurns: 1,
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
-        loopKind: 'chat',
+      runtimeProfile: CHAT_RUNTIME_PROFILE,
         plannerToolDefinitions: [],
         streamFinishAsAnswer: true,
         progressWriter: new CollectingProgressWriter(events),
@@ -343,7 +348,7 @@ test('non-live writers keep planner and terminal streaming without receiving liv
         maxTurns: 1,
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
-        loopKind: 'chat',
+      runtimeProfile: CHAT_RUNTIME_PROFILE,
         plannerToolDefinitions: [],
         streamFinishAsAnswer: true,
         progressWriter: new NonLiveTextProgressWriter(events),
@@ -371,7 +376,7 @@ test('chat mode seeds system prompt override and history before the question', a
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
-      loopKind: 'chat',
+      runtimeProfile: CHAT_RUNTIME_PROFILE,
       plannerToolDefinitions: [],
       streamFinishAsAnswer: true,
       systemPromptOverride: 'general, coder friendly assistant',
@@ -410,7 +415,7 @@ test('chat loop sends replayed tool-call history before the new user message', a
       maxTurns: 2,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
-      loopKind: 'chat',
+      runtimeProfile: CHAT_RUNTIME_PROFILE,
       plannerToolDefinitions: [],
       historyMessages: [
         { role: 'user', content: 'previous question' },
@@ -466,7 +471,7 @@ test('thinkingEnabledOverride=false forces enable_thinking:false in the planner 
       maxTurns: 1,
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
-      loopKind: 'chat',
+      runtimeProfile: CHAT_RUNTIME_PROFILE,
       plannerToolDefinitions: [],
       streamFinishAsAnswer: true,
       thinkingEnabledOverride: false,
@@ -494,11 +499,11 @@ test('runRepoSearch allows zero tools when allowEmptyTools is set', async () => 
   const scorecard = await runRepoSearch({
     repoRoot: os.tmpdir(),
     systemContext: createEmptyPresetSystemContext(),
+    taskKind: 'chat',
     config: MOCK_CONFIG,
     baseUrl: DEAD_BASE_URL,
     allowedTools: [],
     allowEmptyTools: true,
-    loopKind: 'chat',
     minToolCallsBeforeFinish: 0,
     taskPrompt: 'Say hi.',
     availableModels: ['mock'],
@@ -515,11 +520,11 @@ test('runRepoSearch rejects an undefined task prompt instead of executing self-t
     () => runRepoSearch({
       repoRoot: os.tmpdir(),
       systemContext: createEmptyPresetSystemContext(),
+      taskKind: 'chat',
       config: MOCK_CONFIG,
       baseUrl: DEAD_BASE_URL,
       allowedTools: [],
       allowEmptyTools: true,
-      loopKind: 'chat',
       minToolCallsBeforeFinish: 0,
       taskPrompt: undefined,
       availableModels: ['mock'],

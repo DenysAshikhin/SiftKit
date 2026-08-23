@@ -16,6 +16,9 @@ import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { ApprovalGateHarness } from './helpers/approval-gate-harness.js';
+import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
+
+const RUNTIME_PROFILE = new RepoSearchRuntimeProfile('repo-search');
 
 class AutoRespondingWriter extends ProgressWriter<RepoSearchProgressEvent> {
   public readonly approvalEvents: ApprovalRequestProgressEvent[] = [];
@@ -41,6 +44,7 @@ function makeLoopOptions(tempRoot: string, mockResponses: string[], writer: Auto
     repoRoot: tempRoot,
     model: 'mock-model',
     baseUrl: DEAD_BASE_URL,
+    runtimeProfile: RUNTIME_PROFILE,
     systemContext: createEmptyPresetSystemContext(),
     config: mockOfflineSiftConfig(),
     maxTurns: 4,
@@ -228,6 +232,7 @@ test('without a gate, mutating tools stay invalid actions (non-interactive uncha
       config: mockOfflineSiftConfig(),
       model: 'mock-model',
       baseUrl: DEAD_BASE_URL,
+      runtimeProfile: RUNTIME_PROFILE,
       maxTurns: 4,
       minToolCallsBeforeFinish: 0,
       mockResponses: [

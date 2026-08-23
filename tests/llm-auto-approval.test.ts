@@ -25,6 +25,9 @@ import { createEmptyPresetSystemContext } from './helpers/empty-preset-system-co
 import { createManagedTempDir } from './helpers/temp-dirs.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
 import { ApprovalGateHarness } from './helpers/approval-gate-harness.js';
+import { RepoSearchRuntimeProfile } from '../src/repo-search/engine/runtime-profile.js';
+
+const RUNTIME_PROFILE = new RepoSearchRuntimeProfile('repo-search');
 
 const ESCALATION_DECISION_TIMEOUT_MS = 25;
 
@@ -133,6 +136,7 @@ function makeAutoLoopOptions(
     repoRoot: tempRoot,
     model: 'mock-model',
     baseUrl: DEAD_BASE_URL,
+    runtimeProfile: RUNTIME_PROFILE,
     systemContext: createEmptyPresetSystemContext(),
     config: mockOfflineSiftConfig(),
     maxTurns: 4,
@@ -353,6 +357,7 @@ test('auto mode over HTTP: the verdict request byte-extends the executing planne
       repoRoot: tempRoot,
       model: 'mock-model',
       baseUrl,
+      runtimeProfile: RUNTIME_PROFILE,
       systemContext: createEmptyPresetSystemContext(),
       config: mockSiftConfig({
         Runtime: { LlamaCpp: { BaseUrl: baseUrl, NumCtx: 32000 } },
@@ -424,6 +429,7 @@ test('auto mode without a human gate fails loudly at construction', async () => 
         config: mockOfflineSiftConfig(),
         model: 'mock-model',
         baseUrl: DEAD_BASE_URL,
+        runtimeProfile: RUNTIME_PROFILE,
         maxTurns: 4,
         minToolCallsBeforeFinish: 0,
         mockResponses: ['{"action":"finish","output":"unreachable"}'],

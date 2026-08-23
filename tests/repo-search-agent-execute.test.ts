@@ -50,9 +50,7 @@ test('repo-agent defaults to 100 turns and preserves an explicit higher override
   assert.equal(await readRepoAgentMaxTurns(125), 125);
 });
 
-// repo-agent compacts like every other loop kind now, so an initial prompt that alone
-// exceeds the window fails in the summarizer's own budget check, not a policy switch.
-test('repo-agent surfaces an unsummarizable oversize prompt without a model call', async () => {
+test('repo-agent fails an oversized prompt before transcript compaction or a model call', async () => {
   const dir = createManagedTempDir('siftkit-agent-overflow-');
   try {
     await assert.rejects(
@@ -68,7 +66,7 @@ test('repo-agent surfaces an unsummarizable oversize prompt without a model call
         mockResponses: ['{"action":"finish","output":"must not run"}'],
         mockCommandResults: {},
       }),
-      /planner_compaction_prompt_overflow.*total_context_tokens=9000/u,
+      /planner_preflight_overflow.*total_context_tokens=9000.*compacted=false/u,
     );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
