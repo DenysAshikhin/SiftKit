@@ -7,11 +7,11 @@ import {
   buildRepoSearchPlannerActionJsonSchema,
   buildSummaryDecisionJsonSchema,
   buildSummaryPlannerActionJsonSchema,
-  type StructuredOutputToolDefinition,
 } from '../src/providers/structured-output-schema.js';
+import type { PlannerToolDefinition } from '../src/planner-protocol/json-schema.js';
 import { isJsonObject, type JsonObject, type JsonValue, type OptionalJsonValue } from '../src/lib/json-types.js';
 
-const SUMMARY_TOOLS: StructuredOutputToolDefinition[] = [
+const SUMMARY_TOOLS: PlannerToolDefinition[] = [
   {
     type: 'function',
     function: {
@@ -147,7 +147,7 @@ test('planner schemas never emit oneOf at any depth', () => {
 });
 
 test('planner tool schemas retain canonical optional properties and non-empty batches', () => {
-  const tool: StructuredOutputToolDefinition = {
+  const tool: PlannerToolDefinition = {
     type: 'function',
     function: {
       name: 'inspect',
@@ -207,8 +207,10 @@ test('multi-tool planner schema unions action variants and tool_batch items with
     toolDefinitions: SUMMARY_TOOLS,
   });
   const batch = getActionVariant(schema, 'tool_batch');
+  const progress = getActionVariant(schema, 'progress');
   const calls = requireObject(requireObject(batch.properties).calls);
-  assert.equal(requireArray(schema.anyOf).length, 4);
+  assert.deepEqual(progress.required, ['action', 'output']);
+  assert.equal(requireArray(schema.anyOf).length, 5);
   assert.equal(requireArray(requireObject(calls.items).anyOf).length, 2);
 });
 

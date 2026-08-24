@@ -8,8 +8,8 @@ import {
 import {
   isTreeMutatingToolName,
   type ChatMessage,
-  type ToolAction,
 } from '../planner-protocol.js';
+import type { RepoSearchToolAction } from '../../planner-protocol/repo-search.js';
 import { estimateTokenCount } from '../../lib/token-estimate.js';
 import type { TaskCommand } from '../prompts.js';
 import {
@@ -95,7 +95,7 @@ type ValidatedToolAction = {
 };
 
 type AcceptedToolContext = ValidatedToolAction & {
-  toolAction: ToolAction;
+  toolAction: RepoSearchToolAction;
   fingerprint: string;
   normalizedKey: string;
   runFullOutputDecision: RunOutputDecision | null;
@@ -192,7 +192,7 @@ export class ToolActionProcessor {
 
   async executeBatch(
     turn: number,
-    toolActions: ToolAction[],
+    toolActions: RepoSearchToolAction[],
     responseThinkingText: string,
     promptTokens: TurnPromptTokens,
     inForcedFinishMode: boolean,
@@ -272,7 +272,7 @@ export class ToolActionProcessor {
 
   private async processToolAction(
     turn: number,
-    toolAction: ToolAction,
+    toolAction: RepoSearchToolAction,
     state: TurnBatchState,
     promptTokens: TurnPromptTokens,
     inForcedFinishMode: boolean,
@@ -358,7 +358,7 @@ export class ToolActionProcessor {
     return this.executeAcceptedTool(turn, context, prospectiveToolType, state, promptTokens);
   }
 
-  private validateToolAction(turn: number, toolAction: ToolAction, state: TurnBatchState): ValidatedToolAction | ToolActionOutcome {
+  private validateToolAction(turn: number, toolAction: RepoSearchToolAction, state: TurnBatchState): ValidatedToolAction | ToolActionOutcome {
     const identity = resolveToolActionIdentity(toolAction);
     const { normalizedToolName, isNativeTool } = identity;
     if (!isNativeTool) {
@@ -400,7 +400,7 @@ export class ToolActionProcessor {
     state: TurnBatchState,
     rejection: {
       toolName: string;
-      rawArgs: ToolAction['args'];
+      rawArgs: RepoSearchToolAction['args'];
       recordedCommand: string;
       transcriptCommand: string;
       reason: string | null;
@@ -427,7 +427,7 @@ export class ToolActionProcessor {
     });
   }
 
-  private logInvalidAction(turn: number, toolAction: ToolAction, message: string): ToolActionOutcome {
+  private logInvalidAction(turn: number, toolAction: RepoSearchToolAction, message: string): ToolActionOutcome {
     const { counters } = this.deps;
     this.deps.logger?.write({
       kind: 'turn_action_invalid',
@@ -452,7 +452,7 @@ export class ToolActionProcessor {
    */
   private recordInvalidToolCall(
     turn: number,
-    toolAction: ToolAction,
+    toolAction: RepoSearchToolAction,
     state: TurnBatchState,
     displayToolName: string,
     message: string,

@@ -76,11 +76,14 @@ test('repo-search does not keep a separate agent loop', () => {
 
 test('native repo-tool arguments have one runtime-schema implementation', () => {
   const modelJsonPath = path.join(process.cwd(), 'src', 'lib', 'model-json.ts');
-  const text = fs.readFileSync(modelJsonPath, 'utf8');
+  const canonicalProtocolPath = path.join(process.cwd(), 'src', 'planner-protocol', 'repo-search.ts');
+  const modelJsonText = fs.readFileSync(modelJsonPath, 'utf8');
+  const canonicalProtocolText = fs.readFileSync(canonicalProtocolPath, 'utf8');
 
-  assert.doesNotMatch(text, /REPO_TOOL_ARG_SPECS/u);
-  assert.doesNotMatch(text, /argSpec\.requiredText|argSpec\.verbatimText|rawArgs\.outputMode/u);
-  assert.match(text, /RepoNativeToolCallSchema/u);
+  assert.doesNotMatch(modelJsonText, /REPO_TOOL_ARG_SPECS/u);
+  assert.doesNotMatch(modelJsonText, /argSpec\.requiredText|argSpec\.verbatimText|rawArgs\.outputMode/u);
+  assert.doesNotMatch(modelJsonText, /RepoNativeToolCallSchema/u);
+  assert.match(canonicalProtocolText, /RepoNativeToolCallSchema/u);
 });
 
 test('native repo-tool execution consumes canonical typed calls', () => {

@@ -1,9 +1,9 @@
 import { z } from '../../src/lib/zod.js';
 import {
   SummaryPolicyProfileSchema,
-  type SummaryClassification,
   type SummaryProviderId,
 } from '../../src/summary/types.js';
+import type { SummaryClassification } from '../../src/planner-protocol/summary.js';
 
 export const BenchmarkFixtureSchema = z.object({
   Name: z.string(),

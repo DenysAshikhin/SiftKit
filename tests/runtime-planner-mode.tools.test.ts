@@ -14,9 +14,9 @@ import {
 } from '../src/summary.js';
 import { generateLlamaCppResponse } from '../src/providers/llama-cpp.js';
 import { executePlannerTool } from '../src/summary/planner/tools.js';
-import type { PlannerToolDefinition, PlannerToolName } from '../src/summary/types.js';
+import type { PlannerToolDefinition } from '../src/summary/types.js';
+import type { SummaryPlannerToolName as PlannerToolName } from '../src/planner-protocol/summary.js';
 import { asObject } from './helpers/dashboard-http.js';
-import { estimateTokenCount } from '../src/lib/token-estimate.js';
 
 const TOOL_STEP_ACTION_TEXT = JSON.stringify({
   action: 'json_filter',
@@ -33,8 +33,9 @@ const FINISH_ACTION_TEXT = JSON.stringify({
   raw_review_required: false,
   output: 'final planner answer',
 });
-/** Local count of both planner prompts for the fixed oversized-transitions fixture. */
-const LOCAL_PLANNER_PROMPT_TOKENS = 4687;
+const STUB_PROMPT_TOKEN_COUNT = 101;
+const STUB_TOOL_ACTION_TOKEN_COUNT = 7;
+const STUB_FINISH_ACTION_TOKEN_COUNT = 11;
 
 function getToolDefinition(
   definitions: readonly PlannerToolDefinition[],
@@ -524,19 +525,27 @@ test('planner token accounting treats tool-step completion tokens as thinking an
       assert.equal(result.Classification, 'summary');
       assert.equal(result.Summary, 'final planner answer');
       assert.equal(server.state.chatRequests.length, 2);
-      // Every count is local: the provider's 17/15 and 19/21 are ignored. The
-      // prompt total is the local count of both planner prompts.
-      assert.equal(server.state.metrics.inputTokensTotal - baselineInputTokens, LOCAL_PLANNER_PROMPT_TOKENS);
+      // Every count comes from the local tokenizer; the provider's 17/15 and
+      // 19/21 are ignored without coupling this test to serialized prompt text.
+      assert.equal(
+        server.state.metrics.inputTokensTotal - baselineInputTokens,
+        STUB_PROMPT_TOKEN_COUNT * server.state.chatRequests.length,
+      );
       assert.equal(
         server.state.metrics.outputTokensTotal - baselineOutputTokens,
-        estimateTokenCount(config, FINISH_ACTION_TEXT),
+        STUB_FINISH_ACTION_TOKEN_COUNT,
       );
       assert.equal(
         Number(server.state.metrics.toolTokensTotal || 0) - baselineToolTokens,
-        estimateTokenCount(config, TOOL_STEP_ACTION_TEXT),
+        STUB_TOOL_ACTION_TOKEN_COUNT,
       );
       assert.equal(server.state.metrics.thinkingTokensTotal - baselineThinkingTokens, 0);
     }, {
+      tokenizeTokenCount(content) {
+        if (content === TOOL_STEP_ACTION_TEXT) return STUB_TOOL_ACTION_TOKEN_COUNT;
+        if (content === FINISH_ACTION_TEXT) return STUB_FINISH_ACTION_TOKEN_COUNT;
+        return STUB_PROMPT_TOKEN_COUNT;
+      },
       chatResponse(promptText, parsed, requestIndex) {
         if (requestIndex === 1) {
           return {

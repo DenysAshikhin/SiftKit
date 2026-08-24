@@ -562,6 +562,7 @@ test('requestRepoSearchPlannerProtocolAction sends json_schema response_format w
 
       const captured = asObject(capturedBody);
       assert.equal(asObject(captured.response_format).type, 'json_schema');
+      assert.match(JSON.stringify(captured.response_format), /"const":"progress"/u);
       assert.equal('tools' in captured, false);
       assert.equal('parallel_tool_calls' in captured, false);
       assert.equal('grammar' in captured, false);
@@ -597,6 +598,7 @@ test('requestRepoSearchPlannerProtocolAction forwards native EXL3 structured out
 
       const captured = asObject(capturedBody);
       assert.equal(asObject(captured.response_format).type, 'json_schema');
+      assert.match(JSON.stringify(captured.response_format), /"const":"progress"/u);
       assert.equal('tools' in captured, false);
       assert.equal('cache_prompt' in captured, false);
       assert.equal('id_slot' in captured, false);
@@ -810,10 +812,10 @@ test('requestRepoSearchPlannerProtocolAction hard-fails on json_schema rejection
 });
 
 import {
-  INTERACTIVE_REPO_TOOL_NAMES,
   isRepoSearchNativeToolName,
   sanitizeNonInteractiveAllowedTools,
 } from '../src/repo-search/planner-protocol.js';
+import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
 
 test('interactive tool names extend the exposed surface with write, edit, run', () => {
   assert.deepEqual(

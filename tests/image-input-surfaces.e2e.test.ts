@@ -20,7 +20,7 @@ import { getDefaultConfigObject } from '../src/config/defaults.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { SummaryRequestRunner } from '../src/summary/request-runner.js';
 import { executeRepoSearchRequest } from '../src/repo-search/execute.js';
-import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/repo-search/planner-protocol.js';
+import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
 import { DeadEndpointEnv } from './helpers/dead-endpoints.js';
 import { gifBufferWithSize, rasterBuffer, toDataUrl } from './helpers/image-fixtures.js';
 import { readImageDimensions } from '../src/llm-protocol/image-admission.js';

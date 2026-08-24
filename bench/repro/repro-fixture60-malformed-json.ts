@@ -13,8 +13,8 @@ import {
 import { getSummaryDecision, planTokenAwareLlamaCppChunks } from '../../src/summary.js';
 import {
   DEFAULT_SUMMARY_PROVIDER,
-  type SummaryClassification,
 } from '../../src/summary/types.js';
+import type { SummaryClassification } from '../../src/planner-protocol/summary.js';
 import { countLlamaCppTokens, generateLlamaCppResponse } from '../../src/providers/llama-cpp.js';
 import { ModelJson } from '../../src/lib/model-json.js';
 import { getErrorMessage } from '../../src/lib/errors.js';

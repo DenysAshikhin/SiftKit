@@ -42,11 +42,14 @@ function buildRepoToolPromptContextContent(
     preset,
     normalizeOperationModeAllowedTools(config.OperationModeAllowedTools),
   );
+  const toolDefinitions = resolveRepoSearchPlannerToolDefinitions(allowedTools, visionEnabled);
   const systemPrompt = new PresetSystemPromptComposer(
     preset.promptPrefix,
     systemContext,
-  ).compose(buildTaskSystemPrompt(systemContext));
-  const toolDefinitions = resolveRepoSearchPlannerToolDefinitions(allowedTools, visionEnabled);
+  ).compose(buildTaskSystemPrompt(
+    systemContext,
+    toolDefinitions.map(({ function: definition }) => definition.name),
+  ));
   return [
     formatSection('System prompt', systemPrompt),
     formatSection('Tool schema', JSON.stringify(toolDefinitions, null, 2)),

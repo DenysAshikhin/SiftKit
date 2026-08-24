@@ -3,7 +3,6 @@ import { PresetSystemPromptComposer } from '../../preset-system-prompt.js';
 import type { PresetSystemContext } from '../../preset-system-context.js';
 import { getSourceInstructions } from '../prompt.js';
 import type {
-  PlannerToolCall,
   PlannerToolDefinition,
   SummarySourceKind,
 } from '../types.js';
@@ -11,6 +10,11 @@ import { buildSingleAssistantToolCallMessage as buildSharedAssistantToolCallMess
 import { parseJsonValueText } from '../../lib/json.js';
 import { getRecord, MAX_JSON_FALLBACK_PREVIEW_CHARACTERS } from './json-filter.js';
 import { truncatePlannerText } from './formatters.js';
+import {
+  buildSummaryPlannerFinishActionExample,
+  buildSummaryPlannerProtocol,
+  type SummaryPlannerToolCall as PlannerToolCall,
+} from '../../planner-protocol/summary.js';
 
 const MAX_PLANNER_PREVIEW_CHARACTERS = 600;
 // Keep the preview-length constant local here but re-export so the
@@ -82,6 +86,10 @@ export function buildPlannerSystemPrompt(options: {
   toolDefinitions: PlannerToolDefinition[];
 }): string {
   const allowUnsupportedInput = options.sourceKind !== 'command-output';
+  const plannerProtocol = buildSummaryPlannerProtocol(
+    options.toolDefinitions,
+    allowUnsupportedInput,
+  );
   const sections = [
     'You are SiftKit, a conservative shell-output compressor for Codex workflows.',
     '',
@@ -100,11 +108,7 @@ export function buildPlannerSystemPrompt(options: {
     '- If you already used `read_lines` once, do another `find_text` search before requesting a second nearby `read_lines` slice.',
     '',
     'Available actions:',
-    '{"action":"find_text|read_lines|json_filter|json_get", ...tool_arguments}',
-    '{"action":"tool_batch","calls":[{"action":"find_text|read_lines|json_filter|json_get", ...tool_arguments}]}',
-    allowUnsupportedInput
-      ? '{"action":"finish","classification":"summary|command_failure|unsupported_input","raw_review_required":true|false,"output":"final answer text"}'
-      : '{"action":"finish","classification":"summary|command_failure","raw_review_required":true|false,"output":"final answer text"}',
+    plannerProtocol.actionInstructions,
     '',
     'Example tool calls:',
     '{"action":"find_text","query":"Lumbridge","mode":"literal","maxHits":5,"contextLines":1}',
@@ -156,7 +160,7 @@ export function buildPlannerInvalidResponseUserPrompt(message: string): string {
     'Valid examples:',
     '{"action":"find_text","query":"error","mode":"literal","maxHits":5,"contextLines":1}',
     '{"action":"read_lines","startLine":120,"endLine":180}',
-    '{"action":"finish","classification":"summary","raw_review_required":false,"output":"final answer text"}',
+    buildSummaryPlannerFinishActionExample('final answer text'),
   ].join('\n');
 }
 

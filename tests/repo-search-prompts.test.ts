@@ -4,11 +4,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import {
-  buildAgentSystemPrompt,
+  buildAgentSystemPrompt as buildAgentSystemPromptForTools,
   buildCompactionSummaryInstruction,
   buildTaskInitialUserPrompt,
-  buildTaskSystemPrompt,
+  buildTaskSystemPrompt as buildTaskSystemPromptForTools,
 } from '../src/repo-search/prompts.js';
+import {
+  EXPOSED_REPO_TOOL_NAMES,
+  INTERACTIVE_REPO_TOOL_NAMES,
+} from '../src/planner-protocol/repo-search.js';
 import { APPROVAL_REVIEW_REQUEST_MARKER } from '../src/repo-search/approval-review-policy.js';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/runtime-profile.js';
 import { RUN_SHELL_LABEL, POWERSHELL_EXECUTABLE } from '../src/lib/powershell.js';
@@ -38,6 +42,24 @@ function buildTestContext(
     autoloadFiles: [],
   });
 }
+
+function buildTaskSystemPrompt(context: PresetSystemContext): string {
+  return buildTaskSystemPromptForTools(context, EXPOSED_REPO_TOOL_NAMES);
+}
+
+function buildAgentSystemPrompt(context: PresetSystemContext): string {
+  return buildAgentSystemPromptForTools(context, INTERACTIVE_REPO_TOOL_NAMES);
+}
+
+test('system prompt action instructions match the request tool surface', () => {
+  const context = buildTestContext(process.cwd());
+  const reduced = buildTaskSystemPromptForTools(context, ['read']);
+  const empty = buildTaskSystemPromptForTools(context, []);
+
+  assert.match(reduced, /Allowed tools: read/u);
+  assert.doesNotMatch(reduced, /Allowed tools:.*grep/u);
+  assert.doesNotMatch(empty, /Allowed tools:|tool_batch/u);
+});
 
 test('base task prompt and initial user message exclude autoload content', () => {
   const context = {
@@ -81,7 +103,7 @@ test('buildTaskSystemPrompt advertises the native tool surface and no shell comm
   withTempRepo((repoRoot) => {
     const prompt = buildTaskSystemPrompt(buildTestContext(repoRoot));
 
-    assert.match(prompt, /Tools: grep, find, ls, read, git/u);
+    assert.match(prompt, /Allowed tools: read, grep, find, ls, git/u);
     for (const toolName of ['grep', 'find', 'ls', 'read', 'git']) {
       assert.match(prompt, new RegExp(`\\{"action":"${toolName}"`, 'u'));
     }

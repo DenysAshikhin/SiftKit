@@ -17,11 +17,13 @@ export {
   type IgnorePolicy,
 } from './command-safety.js';
 export {
-  type PlannerAction,
-  type ToolAction,
-  type FinishAction,
   type ChatMessage,
 } from './planner-protocol.js';
+export type {
+  RepoSearchPlannerAction,
+  RepoSearchToolAction,
+  RepoSearchFinishAction,
+} from '../planner-protocol/repo-search.js';
 export { estimateTokenCount } from '../lib/token-estimate.js';
 export {
   countTokensWithFallback,

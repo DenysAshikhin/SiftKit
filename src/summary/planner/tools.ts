@@ -1,10 +1,13 @@
 import { getErrorMessage } from '../../lib/errors.js';
 import type { JsonValue, JsonObject, OptionalJsonValue } from '../../lib/json-types.js';
 import type {
-  PlannerToolCall,
   PlannerToolDefinition,
-  PlannerToolName,
 } from '../types.js';
+import type {
+  SummaryPlannerToolCall as PlannerToolCall,
+  SummaryPlannerToolName as PlannerToolName,
+} from '../../planner-protocol/summary.js';
+import { SUMMARY_PLANNER_TOOL_NAMES } from '../../planner-protocol/summary.js';
 import {
   formatCompactJsonBlock,
   formatNumberedLineBlock,
@@ -70,7 +73,7 @@ export function escapeUnescapedRegexBraces(query: string): string {
   return normalized;
 }
 
-export function buildPlannerToolDefinitions(allowedTools: readonly PlannerToolName[] = ['find_text', 'read_lines', 'json_filter', 'json_get']): PlannerToolDefinition[] {
+export function buildPlannerToolDefinitions(allowedTools: readonly PlannerToolName[] = SUMMARY_PLANNER_TOOL_NAMES): PlannerToolDefinition[] {
   const allowed = new Set<PlannerToolName>(allowedTools);
   const definitions: PlannerToolDefinition[] = [
     {
@@ -465,7 +468,7 @@ function executeJsonGetTool(inputText: string, args: JsonObject): PlannerToolRes
 export function executePlannerTool(
   inputText: string,
   action: PlannerToolCall,
-  allowedTools: readonly PlannerToolName[] = ['find_text', 'read_lines', 'json_filter', 'json_get'],
+  allowedTools: readonly PlannerToolName[] = SUMMARY_PLANNER_TOOL_NAMES,
 ): PlannerToolResult {
   if (!allowedTools.includes(action.tool_name)) {
     throw new Error(`Planner tool is not allowed by the active preset: ${action.tool_name}`);

@@ -24,8 +24,8 @@ import {
   buildLlamaJsonSchemaResponseFormat,
   buildSummaryDecisionJsonSchema,
   buildSummaryPlannerActionJsonSchema,
-  type StructuredOutputToolDefinition,
 } from './structured-output-schema.js';
+import type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
 import { createTracer } from '../lib/trace.js';
 
 function logLlamaCppError(operation: string, message: string): void {
@@ -75,7 +75,7 @@ export type LlamaCppChatMessage = {
 export type LlamaCppStructuredOutput =
   | { kind: 'none' }
   | { kind: 'siftkit-decision-json'; allowUnsupportedInput?: boolean }
-  | { kind: 'siftkit-planner-action-json'; tools?: StructuredOutputToolDefinition[]; allowUnsupportedInput?: boolean };
+  | { kind: 'siftkit-planner-action-json'; tools?: PlannerToolDefinition[]; allowUnsupportedInput?: boolean };
 
 type PlannerStructuredToolCall = {
   tool_name: string;
@@ -195,7 +195,7 @@ export function toProtocolMessages(messages: readonly LlamaCppChatMessage[]): Pr
   });
 }
 
-export function toProtocolTools(tools: StructuredOutputToolDefinition[] | undefined): LlamaCppToolDefinition[] {
+export function toProtocolTools(tools: PlannerToolDefinition[] | undefined): LlamaCppToolDefinition[] {
   if (!Array.isArray(tools)) {
     return [];
   }
@@ -451,7 +451,7 @@ export async function generateLlamaCppChatResponse(options: {
   idleTimeoutSeconds: number;
   slotId?: number;
   cachePrompt?: boolean;
-  tools?: StructuredOutputToolDefinition[];
+  tools?: PlannerToolDefinition[];
   structuredOutput?: LlamaCppStructuredOutput;
   reasoningOverride?: 'on' | 'off';
   promptTokenCount?: number | null;

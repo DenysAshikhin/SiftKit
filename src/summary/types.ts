@@ -1,9 +1,13 @@
 import { z } from '../lib/zod.js';
 import type { SiftConfig } from '../config/index.js';
-import type { JsonObject } from '../lib/json-types.js';
 import type { LlamaCppToolParameterSchema } from '../llm-protocol/types.js';
 import type { SummaryProgressEvent } from './progress-reporter.js';
 import type { ProgressWriter } from '../lib/progress-writer.js';
+import {
+  SummaryClassificationSchema,
+  type SummaryClassification,
+  type SummaryPlannerToolName,
+} from '../planner-protocol/summary.js';
 
 /**
  * Summary provider identity. NOT the inference engine axis ('llama'/'exl3', see
@@ -43,9 +47,6 @@ export type SummaryPolicyProfile = z.infer<typeof SummaryPolicyProfileSchema>;
 
 export type SummarySourceKind = 'standalone' | 'command-output';
 
-export const SummaryClassificationSchema = z.enum(['summary', 'command_failure', 'unsupported_input']);
-export type SummaryClassification = z.infer<typeof SummaryClassificationSchema>;
-
 export type SummaryPhase = 'leaf' | 'merge' | 'planner';
 
 export type SummaryTimingInput = {
@@ -69,7 +70,7 @@ export type SummaryRequest = {
   commandExitCode?: number | null;
   debugCommand?: string | null;
   requestTimeoutSeconds?: number;
-  allowedPlannerTools?: PlannerToolName[];
+  allowedPlannerTools?: SummaryPlannerToolName[];
   llamaCppMaxTokens?: number;
   timing?: SummaryTimingInput;
   statusBackendUrl?: string | null;
@@ -111,8 +112,6 @@ export type StructuredModelDecision = {
   output: string;
 };
 
-export type PlannerToolName = 'find_text' | 'read_lines' | 'json_filter' | 'json_get';
-
 // Planner tool parameters reuse the canonical wire schema type, so a PlannerToolDefinition
 // is structurally a LlamaCppToolDefinition and forwards into the agent loop with no cast.
 export type PlannerToolParameterSchema = LlamaCppToolParameterSchema;
@@ -120,7 +119,7 @@ export type PlannerToolParameterSchema = LlamaCppToolParameterSchema;
 export type PlannerToolDefinition = {
   type: 'function';
   function: {
-    name: PlannerToolName;
+    name: SummaryPlannerToolName;
     description: string;
     parameters: {
       type: 'object';
@@ -135,29 +134,6 @@ export type PlannerPromptBudget = {
   responseReserveTokens: number;
   plannerStopLineTokens: number;
 };
-
-export type PlannerToolCall = {
-  action: 'tool';
-  tool_name: PlannerToolName;
-  args: JsonObject;
-};
-
-export type PlannerToolBatchAction = {
-  action: 'tool_batch';
-  tool_calls: Array<{
-    tool_name: PlannerToolName;
-    args: JsonObject;
-  }>;
-};
-
-export type PlannerFinishAction = {
-  action: 'finish';
-  classification: SummaryClassification;
-  rawReviewRequired: boolean;
-  output: string;
-};
-
-export type PlannerAction = PlannerToolCall | PlannerToolBatchAction | PlannerFinishAction;
 
 export type ChunkPromptContext = {
   isGeneratedChunk: boolean;

@@ -1,5 +1,6 @@
 import { z } from './lib/zod.js';
-import { SummaryClassificationSchema, SummaryProviderIdSchema } from './summary/types.js';
+import { SummaryProviderIdSchema } from './summary/types.js';
+import { SummaryClassificationSchema } from './planner-protocol/summary.js';
 import type { SummaryProviderId } from './summary/types.js';
 
 export type EvalRequest = {

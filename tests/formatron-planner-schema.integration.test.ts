@@ -52,6 +52,11 @@ test(
     const populatedGrep =
       '{"action":"grep","pattern":"planner","path":"src","glob":"*.ts","ignoreCase":true,"literal":true,"context":2,"limit":20}';
     const corpus = [
+      {
+        name: 'progress',
+        text: '{"action":"progress","output":"scanning next"}',
+        expected: true,
+      },
       { name: 'direct_all_null', text: nullGrep, expected: true },
       { name: 'direct_all_populated', text: populatedGrep, expected: true },
       {

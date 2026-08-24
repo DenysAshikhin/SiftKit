@@ -569,17 +569,17 @@ test('ModelJson rejects invalid repo-search planner payloads', () => {
   );
 });
 
-test('ModelJson names the offending extra key on a finish action', () => {
+test('ModelJson reports canonical schema rejection for an extra finish key', () => {
   assert.throws(
     () => parseRepoSearchPlannerAction('{"action":"finish","output":"done","confidence":0.7}'),
-    /invalid planner finish action: finish accepts only "action" and "output"; remove: confidence/u,
+    /invalid planner finish action: Unrecognized key: "confidence"/u,
   );
 });
 
-test('ModelJson distinguishes an empty finish output from an extra finish key', () => {
+test('ModelJson reports canonical schema rejection for an empty finish output', () => {
   assert.throws(
     () => parseRepoSearchPlannerAction('{"action":"finish","output":"   "}'),
-    /invalid planner finish action: "output" must be a non-empty string/u,
+    /invalid planner finish action: Too small/u,
   );
 });
 

@@ -29,7 +29,7 @@ test('agent loop action parser parses repo-search and summary planner actions ex
   const parser = new AgentLoopActionParser();
 
   const repo = parser.parseRepoSearchAction('{"action":"finish","output":"done"}', ['grep']);
-  const summary = parser.parseSummaryPlannerAction('{"action":"finish","classification":"summary","output":"done"}');
+  const summary = parser.parseSummaryPlannerAction('{"action":"finish","classification":"summary","raw_review_required":false,"output":"done"}');
 
   assert.equal(repo.kind, 'finish');
   assert.equal(repo.text, 'done');
@@ -512,7 +512,7 @@ test('progress action validation rejects empty output and extra keys', () => {
   );
   assert.throws(
     () => parser.parseRepoSearchActions('{"action":"progress","output":"x","extra":1}', ['grep']),
-    /accepts only "action" and "output"/u,
+    /Unrecognized key: "extra"/u,
   );
 });
 

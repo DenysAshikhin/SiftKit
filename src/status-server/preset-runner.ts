@@ -22,7 +22,9 @@ import { PresetCatalog } from '../preset-catalog.js';
 import type { RepoSearchExecutionResult } from '../repo-search/types.js';
 import type { RepoSearchProgressEvent } from './dashboard-runs.js';
 import type { ChatSession } from '../state/chat-sessions.js';
-import type { PlannerToolName, SummaryPolicyProfile } from '../summary/types.js';
+import type { SummaryPolicyProfile } from '../summary/types.js';
+import type { SummaryPlannerToolName as PlannerToolName } from '../planner-protocol/summary.js';
+import { SUMMARY_PLANNER_TOOL_NAMES } from '../planner-protocol/summary.js';
 import type { SummaryProgressEvent } from '../summary/progress-reporter.js';
 import type { ProgressWriter } from '../lib/progress-writer.js';
 import {
@@ -44,10 +46,10 @@ type PresetRunOptions = {
 
 type ServerPresetConfig = SiftConfig;
 
-const SUMMARY_PLANNER_TOOL_NAMES: ReadonlySet<string> = new Set(['find_text', 'read_lines', 'json_filter', 'json_get']);
+const SUMMARY_PLANNER_TOOL_NAME_SET: ReadonlySet<string> = new Set(SUMMARY_PLANNER_TOOL_NAMES);
 
 function isSummaryPlannerTool(toolName: PresetToolName): toolName is PlannerToolName {
-  return SUMMARY_PLANNER_TOOL_NAMES.has(toolName);
+  return SUMMARY_PLANNER_TOOL_NAME_SET.has(toolName);
 }
 
 function readPresetConfig(): ServerPresetConfig {

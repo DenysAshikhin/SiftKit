@@ -14,36 +14,27 @@ function configForBackend(backend: 'llama' | 'exl3') {
   });
 }
 
-// With no tools there is exactly one action variant, so the schema collapses to that variant
-// directly — no union wrapper at all. See docs/handoff-oneof-grammar-wedge.md: single-variant
-// unions wedge the kbnf grammar engine just as multi-variant ones do.
-const FinishActionSchema = z
-  .object({
-    properties: z
-      .object({
-        action: z.object({ const: z.string().optional() }).passthrough(),
-      })
-      .passthrough(),
-  })
-  .passthrough();
+// With no tools the schema still exposes both canonical non-tool actions.
+const JsonObjectSchema = z.record(z.string(), z.json());
 const PlannerRequestBodySchema = z
   .object({
     response_format: z.object({
-      json_schema: z.object({ schema: FinishActionSchema }),
+      json_schema: z.object({ schema: JsonObjectSchema }),
     }),
   })
   .passthrough();
 
-test('zero tool definitions produce a finish-only action schema with no union wrapper', () => {
+test('zero tool definitions retain only canonical non-tool actions', () => {
   const rawSchema = buildRepoSearchPlannerActionJsonSchema({
     toolDefinitions: [],
   });
-  assert.doesNotMatch(JSON.stringify(rawSchema), /"(?:one|any)Of"/u);
-  const schema = FinishActionSchema.parse(rawSchema);
-  assert.equal(schema.properties.action.const, 'finish');
+  const schemaText = JSON.stringify(rawSchema);
+  assert.match(schemaText, /"const":"progress"/u);
+  assert.match(schemaText, /"const":"finish"/u);
+  assert.doesNotMatch(schemaText, /tool_batch|grep|read/u);
 });
 
-test('planner request with empty toolDefinitions emits a finish-only schema (no repo tools)', () => {
+test('planner request with empty toolDefinitions emits canonical non-tool actions and no repo tools', () => {
   const body = PlannerRequestBodySchema.parse(
     JSON.parse(
       buildPlannerRequestPromptReserveText({
@@ -59,7 +50,10 @@ test('planner request with empty toolDefinitions emits a finish-only schema (no 
       }),
     ),
   );
-  assert.equal(body.response_format.json_schema.schema.properties.action.const, 'finish');
+  const schemaText = JSON.stringify(body.response_format.json_schema.schema);
+  assert.match(schemaText, /"const":"progress"/u);
+  assert.match(schemaText, /"const":"finish"/u);
+  assert.doesNotMatch(schemaText, /tool_batch|grep|read/u);
 });
 
 test('planner prompt reserve mirrors backend-specific schema lowering', () => {

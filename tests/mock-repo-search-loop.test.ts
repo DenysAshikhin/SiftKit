@@ -20,6 +20,7 @@ import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
 import { preflightPlannerPromptBudget } from '../src/repo-search/prompt-budget.js';
 import type { SiftConfig } from '../src/config/types.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
+import { getTokenEstimateCharactersPerToken } from '../src/lib/token-estimate.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { createManagedTempDir } from './helpers/temp-dirs.js';
@@ -1041,11 +1042,11 @@ test('runTaskLoop fits tool output that exceeds remaining token allowance', asyn
   // 15k goes to the shared response reserve and 10k to the compaction reserve, leaving
   // the 25500 usable prompt tokens this scenario is tuned to.
   const totalContextTokens = 50500;
-  // Sized to pin the regime where remainingTokenAllowance < perToolCapTokens after
-  // the system prompt + question consume most of totalContextTokens. The prior
-  // 84_000 was tuned to the older, larger system prompt; bumped to keep the
-  // assertion pinned to the same budget regime after the prompt was compressed.
-  const oversizedQuestion = 'Q'.repeat(90000);
+  const budget = new TurnBudget({ totalContextTokens, maxTurns: 10, config: MOCK_LOOP_DEFAULTS.config });
+  const targetQuestionTokens = budget.usablePromptTokens - budget.perToolCapTokens(0, 1) + 1;
+  const oversizedQuestion = 'Q'.repeat(Math.ceil(
+    targetQuestionTokens * getTokenEstimateCharactersPerToken(undefined),
+  ));
   const result = await runTaskLoop(
     {
       id: 'task-remaining-token-guard',
@@ -1082,7 +1083,14 @@ test('runTaskLoop fits tool output that exceeds remaining token allowance', asyn
 
   const commandEvent = events.find((event) => event.kind === 'turn_command_result');
   assert.equal(typeof commandEvent?.insertedResultText, 'string');
-  assert.equal(Number(commandEvent?.perToolCapTokens) > Number(commandEvent?.remainingTokenAllowance), true);
+  assert.equal(
+    Number(commandEvent?.perToolCapTokens) > Number(commandEvent?.remainingTokenAllowance),
+    true,
+    JSON.stringify({
+      perToolCapTokens: commandEvent?.perToolCapTokens,
+      remainingTokenAllowance: commandEvent?.remainingTokenAllowance,
+    }),
+  );
   assert.doesNotMatch(String(commandEvent?.insertedResultText || ''), /^Error: requested output would consume/u);
   assert.match(String(commandEvent?.insertedResultText || ''), /\d+ lines truncated due to per-tool context limit\./u);
   assert.equal(result.reason, 'finish');

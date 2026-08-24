@@ -39,6 +39,7 @@ import { contextWarningEvent } from '../lib/operation-stream.js';
 import { PresetCatalog } from '../preset-catalog.js';
 import { admitImagesForPreset } from '../llm-protocol/preset-image-admission.js';
 import { normalizeRepoSearchTaskKind } from './task-kind.js';
+import { resolveRepoSearchPlannerToolDefinitions } from './planner-protocol.js';
 
 export type RepoSearchPreflightSummary = {
   turn: number;
@@ -368,6 +369,10 @@ export async function executeRepoSearchRequest(
       .map((image) => image.dataUrl);
     const preset = PresetCatalog.fromPresets(config.Presets).requireById(request.presetId);
     const systemContext = new PresetSystemContextBuilder(repoRoot).build(preset);
+    const promptToolNames = resolveRepoSearchPlannerToolDefinitions(
+      request.allowedTools,
+      activeVisionPreset.VisionEnabled === true,
+    ).map(({ function: definition }) => definition.name);
     const progressWriter = new RepoSearchLifecycleWriter(
       requestId,
       request.progressWriter ?? new SilentProgressWriter<RepoSearchProgressEvent>(),
@@ -376,10 +381,10 @@ export async function executeRepoSearchRequest(
       progressWriter.write({ ...contextWarningEvent(warningText), elapsedMs: Date.now() - startedAt });
     }
     const baseSystemPrompt = isAgent
-      ? buildAgentSystemPrompt(systemContext)
+      ? buildAgentSystemPrompt(systemContext, promptToolNames)
       : taskKind === 'chat'
         ? request.systemPrompt || ''
-        : buildTaskSystemPrompt(systemContext);
+        : buildTaskSystemPrompt(systemContext, promptToolNames);
     const systemPromptOverride = new PresetSystemPromptComposer(
       preset.promptPrefix,
       systemContext,

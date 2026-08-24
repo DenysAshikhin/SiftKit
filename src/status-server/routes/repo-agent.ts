@@ -7,9 +7,7 @@ import { readBody, parseJsonBody, sendBodyReadError, sendJson } from '../http-ut
 import { sendServerErrorJson, recordServerError } from '../error-response.js';
 import { rejectNestedAgentSelfCall } from '../nested-agent-call-guard.js';
 import { readConfig } from '../config-store.js';
-import {
-  INTERACTIVE_REPO_TOOL_NAMES,
-} from '../../repo-search/planner-protocol.js';
+import { INTERACTIVE_REPO_TOOL_NAMES } from '../../planner-protocol/repo-search.js';
 import {
   RepoAgentRunIdSchema,
   RepoAgentRunRequestSchema,

@@ -57,13 +57,16 @@ import {
   type SummaryPlannerLoopController,
 } from './agent-loop-adapter.js';
 import type {
-  PlannerAction,
-  PlannerToolName,
-  SummaryClassification,
   StructuredModelDecision,
   SummaryProviderId,
   SummarySourceKind,
 } from '../types.js';
+import type {
+  SummaryClassification,
+  SummaryPlannerAction as PlannerAction,
+  SummaryPlannerToolName as PlannerToolName,
+} from '../../planner-protocol/summary.js';
+import { DEFAULT_SUMMARY_PLANNER_TOOL_NAMES } from '../../planner-protocol/summary.js';
 import {
   buildRepeatedToolCallSummary,
   buildPromptToolResult,
@@ -1408,7 +1411,9 @@ export async function invokePlannerMode(options: InvokePlannerModeOptions): Prom
   }
 
   const allowedTools: PlannerToolName[] =
-    Array.isArray(options.allowedTools) && options.allowedTools.length > 0 ? options.allowedTools : ['find_text', 'read_lines', 'json_filter'];
+    Array.isArray(options.allowedTools) && options.allowedTools.length > 0
+      ? options.allowedTools
+      : [...DEFAULT_SUMMARY_PLANNER_TOOL_NAMES];
   const toolDefinitions = buildPlannerToolDefinitions(allowedTools);
   const toolResults: SummaryPlannerToolResultRecord[] = [];
   const messages: LlamaCppChatMessage[] = [

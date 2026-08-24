@@ -4,11 +4,11 @@ import {
   measureText,
 } from './measure.js';
 import type {
-  SummaryClassification,
   SummaryDecision,
   SummaryResult,
   SummarySourceKind,
 } from './types.js';
+import type { SummaryClassification } from '../planner-protocol/summary.js';
 
 function getCommandOutputRawReviewRequired(options: {
   text: string;

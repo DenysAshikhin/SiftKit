@@ -19,8 +19,8 @@ import {
   buildFinishValidationJsonSchema,
   buildLlamaJsonSchemaResponseFormat,
   buildRepoSearchPlannerActionJsonSchema,
-  type StructuredOutputToolDefinition,
 } from '../providers/structured-output-schema.js';
+import type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
 import { InferenceRequestBuilder } from '../llm-protocol/inference-request-builder.js';
 import { getSupportedImageExtensions } from '../llm-protocol/image-attachments.js';
 import { buildInlineThinkPattern, THINK_OPEN_TAG } from '../llm-protocol/think-markers.js';
@@ -28,6 +28,12 @@ import type { JsonLogger } from './types.js';
 import { GitToolArgsSchema, RUN_OUTPUT_MODES } from './repo-tool-arguments.js';
 import { z } from '../lib/zod.js';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/runtime-profile.js';
+import type {
+  RepoSearchToolAction,
+} from '../planner-protocol/repo-search.js';
+import {
+  EXPOSED_REPO_TOOL_NAMES,
+} from '../planner-protocol/repo-search.js';
 
 export type PlannerActionResponse = {
   text: string;
@@ -43,32 +49,6 @@ export type PlannerActionResponse = {
   /** Set when the client stopped thinking at the preset ReasoningBudget and completed via a continuation request. */
   thinkingBudgetExhausted?: true;
 };
-
-export type ToolAction = {
-  action: 'tool';
-  tool_name: string;
-  args: JsonObject;
-};
-
-export type ToolBatchAction = {
-  action: 'tool_batch';
-  tool_calls: Array<{
-    tool_name: string;
-    args: JsonObject;
-  }>;
-};
-
-export type FinishAction = {
-  action: 'finish';
-  output: string;
-};
-
-export type ProgressAction = {
-  action: 'progress';
-  output: string;
-};
-
-export type PlannerAction = ToolAction | ToolBatchAction | FinishAction | ProgressAction;
 
 export type FinishValidationResult = {
   verdict: 'pass' | 'fail';
@@ -107,7 +87,7 @@ function buildVisionReadDescription(textOnlyDescription: string): string {
 // `git` and the two web tools. `write`, `edit` and `run` are implemented and tested
 // in engine/repo-tools.ts but deliberately absent from EXPOSED_REPO_TOOL_NAMES, so they never reach
 // a model. See docs/plan-pi-tool-surface.md.
-const REPO_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
+const REPO_TOOL_REGISTRY: Record<string, PlannerToolDefinition> = {
   read: {
     type: 'function',
     function: {
@@ -277,12 +257,6 @@ const REPO_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
   },
 };
 
-/** Tools a non-interactive model may be offered. `write`, `edit` and `run` need the approval gate. */
-export const EXPOSED_REPO_TOOL_NAMES = ['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch'] as const;
-
-/** Full surface for interactive (human-approved) runs. */
-export const INTERACTIVE_REPO_TOOL_NAMES = [...EXPOSED_REPO_TOOL_NAMES, 'write', 'edit', 'run'] as const;
-
 const EXPOSED_REPO_TOOL_NAME_SET = new Set<string>(EXPOSED_REPO_TOOL_NAMES);
 const REGISTERED_REPO_TOOL_NAME_SET = new Set<string>(Object.keys(REPO_TOOL_REGISTRY));
 const WEB_TOOL_NAMES = new Set<string>(['web_search', 'web_fetch']);
@@ -326,12 +300,12 @@ export function sanitizeNonInteractiveAllowedTools(allowedToolNames: string[] | 
 export function resolveRepoSearchPlannerToolDefinitions(
   allowedToolNames?: readonly string[],
   visionEnabled = false,
-): StructuredOutputToolDefinition[] {
+): PlannerToolDefinition[] {
   const requested = Array.isArray(allowedToolNames)
     ? allowedToolNames.map(normalizeToolName)
     : [...EXPOSED_REPO_TOOL_NAMES];
   const seen = new Set<string>();
-  const definitions: StructuredOutputToolDefinition[] = [];
+  const definitions: PlannerToolDefinition[] = [];
   for (const toolName of requested) {
     if (seen.has(toolName) || !REGISTERED_REPO_TOOL_NAME_SET.has(toolName)) {
       continue;
@@ -371,7 +345,7 @@ export function buildPlannerRequestPromptReserveText(options: PlannerThinkingFla
   stage?: string;
   model: string;
   messageRoles: readonly string[];
-  toolDefinitions?: StructuredOutputToolDefinition[];
+  toolDefinitions?: PlannerToolDefinition[];
   maxTokens: number;
   responseSchema?: JsonObject | null;
   responseSchemaName?: string;
@@ -454,7 +428,7 @@ export type PlannerRequestOptions = Partial<PlannerThinkingFlags> & {
   stage?: string;
   responseSchema?: JsonObject | null;
   responseSchemaName?: string;
-  toolDefinitions?: StructuredOutputToolDefinition[];
+  toolDefinitions?: PlannerToolDefinition[];
   reasoningBudgetMessage?: string;
 };
 
@@ -542,10 +516,10 @@ function logProviderRetry(options: {
 
 function actionFromProtocolToolCalls(
   toolCalls: readonly LlamaCppToolCall[],
-  toolDefinitions: readonly StructuredOutputToolDefinition[],
+  toolDefinitions: readonly PlannerToolDefinition[],
 ): string | null {
   const parsedToolCalls = toolCalls
-    .map((toolCall): ToolAction | null => {
+    .map((toolCall): RepoSearchToolAction | null => {
       const args = ModelJson.parseToolArguments(toolCall.function.arguments);
       if (!args) return null;
       try {
@@ -558,7 +532,7 @@ function actionFromProtocolToolCalls(
         return null;
       }
     })
-    .filter((toolCall): toolCall is ToolAction => toolCall !== null);
+    .filter((toolCall): toolCall is RepoSearchToolAction => toolCall !== null);
   if (parsedToolCalls.length === 0) return null;
   if (parsedToolCalls.length === 1) return JSON.stringify(parsedToolCalls[0]);
   return JSON.stringify({

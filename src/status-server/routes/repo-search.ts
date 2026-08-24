@@ -8,9 +8,9 @@ import { readConfig } from '../config-store.js';
 import { readBody, parseJsonBody, sendBodyReadError, sendJson } from '../http-utils.js';
 import { RepoSearchResponseSanityChecker } from '../../repo-search/response-sanity.js';
 import {
-  INTERACTIVE_REPO_TOOL_NAMES,
   sanitizeNonInteractiveAllowedTools,
 } from '../../repo-search/planner-protocol.js';
+import { INTERACTIVE_REPO_TOOL_NAMES } from '../../planner-protocol/repo-search.js';
 import {
   ApprovalGate,
   RepoSearchApprovalRequestSchema,

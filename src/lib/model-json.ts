@@ -1,43 +1,33 @@
 import { jsonrepair } from 'jsonrepair';
 
 import {
-  RepoNativeToolCallSchema,
-} from '../repo-search/repo-tool-arguments.js';
+  parseRepoSearchPlannerAction,
+  type RepoSearchPlannerAction,
+} from '../planner-protocol/repo-search.js';
+import {
+  parseSummaryPlannerAction,
+  SummaryClassificationSchema,
+  type SummaryPlannerAction,
+} from '../planner-protocol/summary.js';
 import type {
-  FinishAction as RepoSearchFinishAction,
   FinishValidationResult,
-  PlannerAction as RepoSearchPlannerAction,
-  ProgressAction as RepoSearchProgressAction,
-  ToolAction as RepoSearchToolAction,
-  ToolBatchAction as RepoSearchToolBatchAction,
 } from '../repo-search/planner-protocol.js';
 import type {
-  PlannerAction as SummaryPlannerAction,
-  PlannerToolName,
   StructuredModelDecision,
-  SummaryClassification,
 } from '../summary/types.js';
-import type { LlamaCppToolParameterSchema } from '../llm-protocol/types.js';
+import type { PlannerToolDefinition } from '../planner-protocol/json-schema.js';
 import { getErrorMessage } from './errors.js';
 import { JsonRecordReader } from './json-record-reader.js';
 import {
   JsonValueSchema,
   type JsonObject,
   type JsonValue,
-  type MutableJsonObject,
   type OptionalJsonValue,
 } from './json-types.js';
 import { stripCodeFence } from './text-format.js';
 
-export type PlannerParserToolDefinition = {
-  function: {
-    name: string;
-    parameters?: LlamaCppToolParameterSchema;
-  };
-};
-
 type PlannerParserOptions = {
-  toolDefinitions: readonly PlannerParserToolDefinition[];
+  toolDefinitions: readonly PlannerToolDefinition[];
 };
 
 type ParsedJsonValue = {
@@ -51,10 +41,6 @@ type ParsedModelObject = {
   repaired: boolean;
   synthesizedNull: boolean;
 };
-
-type RepoSearchToolCallNormalization =
-  | { ok: true; action: RepoSearchToolAction }
-  | { ok: false; reason: string };
 
 const JSON_ESCAPE_CHARS: Record<string, string> = {
   n: '\n',
@@ -272,12 +258,12 @@ export class ModelJson {
 
   static parseSummaryPlannerAction(text: string, options: PlannerParserOptions): SummaryPlannerAction {
     const parsed = this.parsePlannerObject(text);
-    return this.validateSummaryPlannerAction(parsed, options);
+    return parseSummaryPlannerAction(parsed, options.toolDefinitions);
   }
 
   static parseRepoSearchPlannerAction(text: string, options: PlannerParserOptions): RepoSearchPlannerAction {
     const parsed = this.parsePlannerObject(text);
-    return this.validateRepoSearchPlannerAction(parsed, options);
+    return parseRepoSearchPlannerAction(parsed, options.toolDefinitions);
   }
   static parseRepoSearchFinishValidation(text: string): FinishValidationResult {
     const parsed = this.parseModelObject(text, 'finish validation').value;
@@ -459,154 +445,6 @@ export class ModelJson {
     };
   }
 
-  private static validateSummaryPlannerAction(parsed: JsonObject, options: PlannerParserOptions): SummaryPlannerAction {
-    const action = this.getAction(parsed);
-    const directToolName = this.getSummaryPlannerToolName(action);
-    const directToolDefinition = this.getToolDefinition(options, action);
-    if (directToolName && directToolDefinition) {
-      return {
-        action: 'tool',
-        tool_name: directToolName,
-        args: this.getDirectToolArgs(parsed, directToolDefinition),
-      };
-    }
-
-    if (action === 'tool_batch') {
-      return {
-        action: 'tool_batch',
-        tool_calls: this.getBatchToolRecords(parsed).map((toolRecord) => {
-          const toolAction = this.getAction(toolRecord);
-          const toolName = this.getSummaryPlannerToolName(toolAction);
-          const toolDefinition = this.getToolDefinition(options, toolAction);
-          if (!toolName || !toolDefinition) {
-            throw new Error('Provider returned an invalid planner tool batch action.');
-          }
-          return {
-            tool_name: toolName,
-            args: this.getDirectToolArgs(toolRecord, toolDefinition),
-          };
-        }),
-      };
-    }
-
-    if (action === 'finish') {
-      const classification = this.getClassification(parsed.classification);
-      const output = typeof parsed.output === 'string' ? parsed.output.trim() : '';
-      if (!classification || !output) {
-        throw new Error('Provider returned an invalid planner finish action.');
-      }
-      return {
-        action: 'finish',
-        classification,
-        rawReviewRequired: Boolean(parsed.raw_review_required ?? parsed.rawReviewRequired ?? false),
-        output,
-      };
-    }
-
-    throw new Error('Provider returned an unknown planner action.');
-  }
-
-  private static validateRepoSearchPlannerAction(
-    parsed: JsonObject,
-    options: PlannerParserOptions,
-  ): RepoSearchPlannerAction {
-    const action = this.getAction(parsed);
-    const allowedToolNames = this.getAllowedToolNames(options);
-    const directToolDefinition = this.getToolDefinition(options, action);
-    if (allowedToolNames.has(action) && directToolDefinition) {
-      const normalized = this.normalizeRepoSearchToolCall(
-        action,
-        this.getDirectToolArgs(parsed, directToolDefinition),
-      );
-      if (!normalized.ok) {
-        throw new Error(`Provider returned an invalid planner tool action: ${normalized.reason}`);
-      }
-      return normalized.action;
-    }
-
-    if (action === 'tool_batch') {
-      const toolCalls = this.getBatchToolRecords(parsed).map((toolRecord, index) => {
-        const toolName = this.getAction(toolRecord);
-        const toolDefinition = this.getToolDefinition(options, toolName);
-        if (!allowedToolNames.has(toolName) || !toolDefinition) {
-          throw new Error(
-            `Provider returned an invalid planner tool batch action: call ${index + 1} uses unavailable tool "${toolName}"`,
-          );
-        }
-        const normalized = this.normalizeRepoSearchToolCall(
-          toolName,
-          this.getDirectToolArgs(toolRecord, toolDefinition),
-        );
-        if (!normalized.ok) {
-          throw new Error(
-            `Provider returned an invalid planner tool batch action: call ${index + 1} — ${normalized.reason}`,
-          );
-        }
-        return {
-          tool_name: normalized.action.tool_name,
-          args: normalized.action.args,
-        };
-      });
-      return {
-        action: 'tool_batch',
-        tool_calls: toolCalls,
-      } satisfies RepoSearchToolBatchAction;
-    }
-
-    if (action === 'progress') {
-      const output = typeof parsed.output === 'string' ? parsed.output.trim() : '';
-      if (!output) {
-        throw new Error('Provider returned an invalid planner progress action: "output" must be a non-empty string');
-      }
-      const extraKeys = Object.keys(parsed).filter((key) => key !== 'action' && key !== 'output');
-      if (extraKeys.length > 0) {
-        throw new Error(
-          `Provider returned an invalid planner progress action: progress accepts only "action" and "output"; remove: ${extraKeys.join(', ')}`,
-        );
-      }
-      return { action: 'progress', output } satisfies RepoSearchProgressAction;
-    }
-
-    if (action === 'finish') {
-      const output = typeof parsed.output === 'string' ? parsed.output.trim() : '';
-      if (!output) {
-        throw new Error('Provider returned an invalid planner finish action: "output" must be a non-empty string');
-      }
-      const extraKeys = Object.keys(parsed).filter((key) => key !== 'action' && key !== 'output');
-      if (extraKeys.length > 0) {
-        throw new Error(
-          `Provider returned an invalid planner finish action: finish accepts only "action" and "output"; remove: ${extraKeys.join(', ')}`,
-        );
-      }
-      return { action: 'finish', output } satisfies RepoSearchFinishAction;
-    }
-
-    throw new Error(
-      `Provider returned an unknown planner action "${action}"; valid actions: ${[...allowedToolNames, 'tool_batch', 'finish', 'progress'].sort().join(', ')}`,
-    );
-  }
-
-  /** Both callers gate on `allowedToolNames` before dispatching here, so this only validates arguments. */
-  private static normalizeRepoSearchToolCall(
-    toolName: string,
-    rawArgs: JsonObject,
-  ): RepoSearchToolCallNormalization {
-    const nativeCall = RepoNativeToolCallSchema.safeParse({ toolName, args: rawArgs });
-    if (!nativeCall.success) {
-      const issue = nativeCall.error.issues[0];
-      const issuePath = issue?.path.map(String).join('.') || 'args';
-      const issueMessage = issue?.message.replace(/[.\s]+$/u, '') || 'schema validation failed';
-      return {
-        ok: false,
-        reason: `"${toolName}" has invalid "${issuePath}": ${issueMessage}`,
-      };
-    }
-    return {
-      ok: true,
-      action: { action: 'tool', tool_name: nativeCall.data.toolName, args: nativeCall.data.args },
-    };
-  }
-
   private static validateFinishValidation(parsed: JsonObject): FinishValidationResult {
     const verdict = typeof parsed.verdict === 'string' ? parsed.verdict.trim().toLowerCase() : '';
     if (verdict !== 'pass' && verdict !== 'fail') {
@@ -619,88 +457,11 @@ export class ModelJson {
     return { verdict, reason };
   }
 
-  private static getClassification(value?: JsonValue): SummaryClassification | null {
-    const classification = typeof value === 'string' ? value.trim().toLowerCase() : '';
-    switch (classification) {
-      case 'summary':
-      case 'command_failure':
-      case 'unsupported_input':
-        return classification;
-      default:
-        return null;
-    }
-  }
-
-  private static getAction(parsed: JsonObject): string {
-    return typeof parsed.action === 'string' ? parsed.action.trim().toLowerCase() : '';
-  }
-
-  private static getSummaryPlannerToolName(value: string): PlannerToolName | null {
-    switch (value.trim()) {
-      case 'find_text':
-        return 'find_text';
-      case 'read_lines':
-        return 'read_lines';
-      case 'json_filter':
-        return 'json_filter';
-      case 'json_get':
-        return 'json_get';
-      default:
-        return null;
-    }
-  }
-
-  private static getDirectToolArgs(parsed: JsonObject, toolDefinition: PlannerParserToolDefinition): JsonObject {
-    const parameters = this.getRecord(JsonValueSchema.parse(toolDefinition.function.parameters ?? {}));
-    const properties = this.getRecord(parameters?.properties);
-    const required = new Set(
-      Array.isArray(parameters?.required)
-        ? parameters.required.filter((entry): entry is string => typeof entry === 'string')
-        : [],
+  private static getClassification(value?: JsonValue) {
+    const parsed = SummaryClassificationSchema.safeParse(
+      typeof value === 'string' ? value.trim().toLowerCase() : '',
     );
-    const args: MutableJsonObject = {};
-    for (const [key, value] of Object.entries(parsed)) {
-      const schemaDeclaresOmission = properties !== null && Object.hasOwn(properties, key) && !required.has(key);
-      if (key !== 'action' && (value !== null || !schemaDeclaresOmission)) {
-        args[key] = value;
-      }
-    }
-    return args;
-  }
-
-  private static getAllowedToolNames(options: PlannerParserOptions): Set<string> {
-    return new Set<string>(
-      options.toolDefinitions
-        .map((toolDefinition) => toolDefinition.function.name.trim().toLowerCase())
-        .filter(Boolean),
-    );
-  }
-
-  private static getToolDefinition(
-    options: PlannerParserOptions,
-    toolName: string,
-  ): PlannerParserToolDefinition | null {
-    const normalizedToolName = toolName.trim().toLowerCase();
-    return (
-      options.toolDefinitions.find(
-        (toolDefinition) => toolDefinition.function.name.trim().toLowerCase() === normalizedToolName,
-      ) ?? null
-    );
-  }
-
-  private static getBatchToolRecords(parsed: JsonObject): JsonObject[] {
-    if (!Array.isArray(parsed.calls) || parsed.calls.length === 0) {
-      throw new Error('Provider returned an invalid planner tool batch action: "calls" must be a non-empty array');
-    }
-    return parsed.calls.map((toolCall, index) => {
-      const toolRecord = this.getRecord(toolCall);
-      if (!toolRecord) {
-        throw new Error(
-          `Provider returned an invalid planner tool batch action: call ${index + 1} is not a JSON object`,
-        );
-      }
-      return toolRecord;
-    });
+    return parsed.success ? parsed.data : null;
   }
 
 }

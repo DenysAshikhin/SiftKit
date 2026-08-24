@@ -1,30 +1,30 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ActivitySummaryCollector } from '../src/repo-search/engine/activity-summary-collector.js';
-import type { ToolAction } from '../src/repo-search/planner-protocol.js';
+import type { RepoSearchToolAction } from '../src/planner-protocol/repo-search.js';
 import type { TaskCommand } from '../src/repo-search/prompts.js';
 
-function makeReadAction(path: string): ToolAction {
+function makeReadAction(path: string): RepoSearchToolAction {
   return { action: 'tool', tool_name: 'read', args: { path } };
 }
 
-function makeGitAction(operation: string): ToolAction {
+function makeGitAction(operation: string): RepoSearchToolAction {
   return { action: 'tool', tool_name: 'git', args: { operation } };
 }
 
-function makeRunAction(command: string): ToolAction {
+function makeRunAction(command: string): RepoSearchToolAction {
   return { action: 'tool', tool_name: 'run', args: { command } };
 }
 
-function makeEditAction(path: string): ToolAction {
+function makeEditAction(path: string): RepoSearchToolAction {
   return { action: 'tool', tool_name: 'edit', args: { path } };
 }
 
-function makeWriteAction(path: string): ToolAction {
+function makeWriteAction(path: string): RepoSearchToolAction {
   return { action: 'tool', tool_name: 'write', args: { path } };
 }
 
-function makeWebSearchAction(query: string): ToolAction {
+function makeWebSearchAction(query: string): RepoSearchToolAction {
   return { action: 'tool', tool_name: 'web_search', args: { query } };
 }
 

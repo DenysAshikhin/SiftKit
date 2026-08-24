@@ -35,11 +35,13 @@ import {
   toProtocolChatMessages,
   type ExecutingPlannerRequest,
   type ChatMessage,
-  type FinishAction,
   type PlannerActionResponse,
   type PlannerThinkingFlags,
-  type ToolAction,
 } from '../planner-protocol.js';
+import type {
+  RepoSearchFinishAction,
+  RepoSearchToolAction,
+} from '../../planner-protocol/repo-search.js';
 import {
   RepoSearchActionAdapter,
   RepoSearchPlannerModelClient,
@@ -255,7 +257,7 @@ export class TaskLoop {
 
     const baseSystemPrompt = typeof options.systemPromptOverride === 'string' && options.systemPromptOverride.trim()
       ? options.systemPromptOverride.trim()
-      : buildTaskSystemPrompt(options.systemContext);
+      : buildTaskSystemPrompt(options.systemContext, activePlannerToolNames);
     const systemPromptContent = this.chatWebGroundingEnabled
       ? `${baseSystemPrompt}\n\n${CHAT_GROUNDING_FINAL_ANSWER_INSTRUCTION}`
       : baseSystemPrompt;
@@ -534,7 +536,7 @@ export class TaskLoop {
     this.finishVerification.recordNonFinishAction();
     const beforeCommandCount = this.commands.length;
     const response = getRepoSearchModelData(context).plannerResponse;
-    const toolActions: ToolAction[] = actions.map((action) => ({
+    const toolActions: RepoSearchToolAction[] = actions.map((action) => ({
       action: 'tool',
       tool_name: action.toolName,
       args: JsonObjectSchema.parse(action.args),
@@ -694,7 +696,7 @@ export class TaskLoop {
     this.transcript.pushUser(message);
   }
 
-  private handleFinishAction(turn: number, action: FinishAction, response: PlannerActionResponse, resolvedTokens: ResolvedResponseTokens): TurnOutcome {
+  private handleFinishAction(turn: number, action: RepoSearchFinishAction, response: PlannerActionResponse, resolvedTokens: ResolvedResponseTokens): TurnOutcome {
     this.tokenUsage.addOutputTokens(resolvedTokens.completionTokens, resolvedTokens.completionTokensEstimated);
     const finishEvaluation = evaluateFinishAttempt({
       loopKind: this.loopKind,

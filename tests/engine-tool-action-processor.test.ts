@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type { ToolAction } from '../src/repo-search/planner-protocol.js';
+import type { RepoSearchToolAction } from '../src/planner-protocol/repo-search.js';
 import { TaskCommandSchema } from '../src/repo-search/prompts.js';
 import { z } from '../src/lib/zod.js';
 import type { ApprovalRequester } from '../src/repo-search/engine/approval-gate.js';
@@ -277,7 +277,7 @@ test('a duplicate-rejected action does not decay the invalid-response counter', 
 test('malformed actions alternating with invalid Git operations still hit the invalid-response limit', async () => {
   const root = createManagedTempDir('siftkit-decay-unsafe-');
   const { processor, counters } = makeProcessor(root, ['ls', 'git']);
-  const actions: ToolAction[] = [];
+  const actions: RepoSearchToolAction[] = [];
   for (let index = 0; index < 3; index += 1) {
     actions.push({ action: 'tool', tool_name: 'frobnicate', args: {} });
     actions.push({ action: 'tool', tool_name: 'git', args: { operation: `push-${index}` } });
@@ -379,7 +379,7 @@ test('a downgraded full run may be retried once despite duplicate screening', as
   const root = createManagedTempDir('siftkit-run-full-retry-');
   writeNoisyValidationRepo(root);
   const { processor, commands } = makeProcessor(root, ['run'], 'repo-agent');
-  const runAction: ToolAction = { action: 'tool', tool_name: 'run', args: { command: 'npm test', outputMode: 'full' } };
+  const runAction: RepoSearchToolAction = { action: 'tool', tool_name: 'run', args: { command: 'npm test', outputMode: 'full' } };
 
   await processor.executeBatch(1, [{ ...runAction, args: { ...runAction.args } }], '', { reported: 0, budgeted: 0 }, false);
   await processor.executeBatch(2, [{ ...runAction, args: { ...runAction.args } }], '', { reported: 0, budgeted: 0 }, false);
@@ -409,7 +409,7 @@ test('a mocked full validation run uses the same downgrade and retry shaping', a
     null,
     { [command]: { exitCode: 1, stdout: output, stderr: '' } },
   );
-  const validation: ToolAction = {
+  const validation: RepoSearchToolAction = {
     action: 'tool',
     tool_name: 'run',
     args: { command: 'npm test', outputMode: 'full' },
@@ -433,12 +433,12 @@ test('a duplicate-rejected intervening run forfeits the pending full retry', asy
     null,
     VALIDATION_MOCK_COMMAND_RESULTS,
   );
-  const stable: ToolAction = {
+  const stable: RepoSearchToolAction = {
     action: 'tool',
     tool_name: 'run',
     args: { command: 'Write-Output stable' },
   };
-  const validation: ToolAction = {
+  const validation: RepoSearchToolAction = {
     action: 'tool',
     tool_name: 'run',
     args: { command: 'npm test', outputMode: 'full' },
@@ -474,7 +474,7 @@ test('an approval-denied granted retry is consumed', async () => {
     approvalGate,
     VALIDATION_MOCK_COMMAND_RESULTS,
   );
-  const validation: ToolAction = {
+  const validation: RepoSearchToolAction = {
     action: 'tool',
     tool_name: 'run',
     args: { command: 'npm test', outputMode: 'full' },
@@ -497,7 +497,7 @@ test('a non-run tool between downgrade and retry preserves the full grant', asyn
     null,
     VALIDATION_MOCK_COMMAND_RESULTS,
   );
-  const validation: ToolAction = {
+  const validation: RepoSearchToolAction = {
     action: 'tool',
     tool_name: 'run',
     args: { command: 'npm test', outputMode: 'full' },

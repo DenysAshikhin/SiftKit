@@ -5,11 +5,11 @@ import type { JsonObject } from '../lib/json-types.js';
 import { getStatusArtifactUri, type DeferredArtifact } from '../state/status-artifacts.js';
 import { getRecord } from './planner/json-filter.js';
 import type {
-  SummaryClassification,
   SummaryFailureContext,
   SummaryProviderId,
   SummarySourceKind,
 } from './types.js';
+import type { SummaryClassification } from '../planner-protocol/summary.js';
 
 // ---------- failure context ---------- //
 

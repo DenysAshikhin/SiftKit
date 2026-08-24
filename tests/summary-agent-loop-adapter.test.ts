@@ -42,7 +42,7 @@ test('summary planner action adapter parses planner tool and finish actions', ()
     invalidFrameCount: 0,
   });
   const finish = adapter.parseActions({
-    text: '{"action":"finish","classification":"summary","output":"done"}',
+    text: '{"action":"finish","classification":"summary","raw_review_required":false,"output":"done"}',
     reasoningText: '',
     toolCalls: [],
     usage,

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { awaitRepoSearchRunPersistence, executeRepoSearchRequest } from '../src/repo-search/execute.js';
 import { loadDashboardRuns } from '../src/status-server/dashboard-runs/queries.js';
-import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/repo-search/planner-protocol.js';
+import { INTERACTIVE_REPO_TOOL_NAMES } from '../src/planner-protocol/repo-search.js';
 import type { RepoSearchProgressEvent } from '../src/repo-search/types.js';
 import { CollectingProgressWriter } from './helpers/collecting-progress-writer.js';
 import { mockSiftConfig } from './helpers/mock-config.js';

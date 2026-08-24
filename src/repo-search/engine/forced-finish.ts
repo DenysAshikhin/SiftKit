@@ -1,6 +1,8 @@
+import { buildRepoSearchFinishActionExample } from '../../planner-protocol/repo-search.js';
+
 export const ZERO_OUTPUT_FORCE_THRESHOLD = 10;
 export const FORCED_FINISH_MAX_ATTEMPTS = 3;
-export const FORCED_FINISH_MODE_MESSAGE = 'Forced finish mode active. Return {"action":"finish",...} now. Tool calls are blocked.';
+export const FORCED_FINISH_MODE_MESSAGE = `Forced finish mode active. Return ${buildRepoSearchFinishActionExample('<best available final result>')} now. Tool calls are blocked.`;
 
 export type ForcedFinishAttempt = {
   attemptsRemaining: number;

@@ -3,6 +3,12 @@ import { join } from 'node:path';
 import { ImageDataUrlSchema, ImageMetadataSchema } from '@siftkit/contracts';
 import { z } from '../lib/zod.js';
 import { RUN_SHELL_LABEL } from '../lib/powershell.js';
+import {
+  buildRepoSearchActionInstructions,
+  buildRepoSearchFinishActionExample,
+  EXPOSED_REPO_TOOL_NAMES,
+  INTERACTIVE_REPO_TOOL_NAMES,
+} from '../planner-protocol/repo-search.js';
 import type { IgnorePolicy } from './command-safety.js';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/runtime-profile.js';
 import type { PresetSystemContext } from '../preset-system-context.js';
@@ -213,16 +219,43 @@ export function readAgentsMd(repoRoot: string): string {
 // System prompt
 // ---------------------------------------------------------------------------
 
-export function buildTaskSystemPrompt(context: PresetSystemContext): string {
+function hasExactToolSurface(toolNames: readonly string[], expectedToolNames: readonly string[]): boolean {
+  const actual = new Set(toolNames);
+  return actual.size === expectedToolNames.length
+    && expectedToolNames.every((toolName) => actual.has(toolName));
+}
+
+function buildRestrictedToolSystemPrompt(options: {
+  role: 'repo-search planner' | 'repository coding agent';
+  context: PresetSystemContext;
+  toolNames: readonly string[];
+}): string {
+  const toolStatus = options.toolNames.length > 0
+    ? `Use only the request tools listed above: ${options.toolNames.join(', ')}.`
+    : 'No repository tools are available for this request; answer only from the supplied context.';
+  return [
+    `You are a ${options.role}. Return ONE valid JSON object — no markdown fences.`,
+    buildRepoSearchActionInstructions(options.toolNames),
+    '',
+    toolStatus,
+    options.context.hasRepoFileListing
+      ? 'A repository file listing is provided in the system context.'
+      : 'No startup repository file listing is available.',
+    'Use progress only for a genuine non-terminal status.',
+    'Use finish only when the requested work is complete, with a concise final output.',
+  ].join('\n');
+}
+
+export function buildTaskSystemPrompt(context: PresetSystemContext, toolNames: readonly string[]): string {
+  if (!hasExactToolSurface(toolNames, EXPOSED_REPO_TOOL_NAMES)) {
+    return buildRestrictedToolSystemPrompt({ role: 'repo-search planner', context, toolNames });
+  }
   const startupScanLine = !context.hasRepoFileListing
     ? '- No startup file listing provided — derive targeted grep searches from the task wording.'
     : '- A repository file listing is provided in this system message; use it to decide where to look.';
   return [
     'You are a repo-search planner. Return ONE valid JSON object — no markdown fences.',
-    'Action shape: {"action":"<tool>", ...args}. For independent read-only searches, use one {"action":"tool_batch","calls":[...]}.',
-    'Tools: grep, find, ls, read, git (plus web_search/web_fetch when enabled).',
-    'Finish: {"action":"finish","output":"<anchor-bullets>"}.',
-    'Progress note (non-terminal): {"action":"progress","output":"<one-line status>"} — records a status line; the run continues with your next action.',
+    buildRepoSearchActionInstructions(toolNames),
     '',
     'Role: repository search agent. Answer the task using concrete repo evidence from tool calls.',
     '',
@@ -268,7 +301,7 @@ export function buildTaskSystemPrompt(context: PresetSystemContext): string {
     '{"action":"ls","path":"dir/sub"}',
     '{"action":"read","path":"dir/foo.ts","offset":861,"limit":240}',
     '{"action":"git","operation":"status"}',
-    '{"action":"finish","output":"dir/foo.ts:42 — definition; dir/bar.ts:120-135 — call site"}',
+    buildRepoSearchFinishActionExample('dir/foo.ts:42 — definition; dir/bar.ts:120-135 — call site'),
     '',
     'Forbidden:',
     '- Shell syntax in tool args. `grep`/`find`/`ls`/`read` take structured fields, not command lines — there is no `command` key on them.',
@@ -277,7 +310,10 @@ export function buildTaskSystemPrompt(context: PresetSystemContext): string {
   ].join('\n');
 }
 
-export function buildAgentSystemPrompt(context: PresetSystemContext): string {
+export function buildAgentSystemPrompt(context: PresetSystemContext, toolNames: readonly string[]): string {
+  if (!hasExactToolSurface(toolNames, INTERACTIVE_REPO_TOOL_NAMES)) {
+    return buildRestrictedToolSystemPrompt({ role: 'repository coding agent', context, toolNames });
+  }
   const startupScanLine = !context.hasRepoFileListing
     ? '- No startup file listing provided — use grep/find/ls to discover where to work.'
     : '- A repository file listing is provided in this system message; use it to locate files.';
@@ -286,9 +322,7 @@ export function buildAgentSystemPrompt(context: PresetSystemContext): string {
     'You help by reading files, searching the repository, editing code, writing new files, and running commands.',
     '',
     'Return ONE valid JSON object per turn — no markdown fences.',
-    'Action shape: {"action":"<tool>", ...args}. For independent read-only lookups, use one {"action":"tool_batch","calls":[...]}.',
-    'Finish when the task is complete: {"action":"finish","output":"<concise summary of what changed and any follow-ups>"}.',
-    'Progress note (non-terminal): {"action":"progress","output":"<one-line status>"} — records a status line; the run continues with your next action.',
+    buildRepoSearchActionInstructions(toolNames),
     '',
     'Available tools:',
     '- read: read a file (line-numbered; use offset/limit for large files).',
