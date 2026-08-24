@@ -210,7 +210,11 @@ test('repo-search tool registry exposes the pi tool surface and withholds the mu
   assert.equal(ls?.function?.parameters?.properties?.path?.type, 'string');
 
   const git = definitions.find((tool) => tool.function.name === 'git');
-  assert.deepEqual(git?.function?.parameters?.required, ['command']);
+  const gitParameters = git?.function?.parameters;
+  assert.ok(gitParameters);
+  assert.equal(JSON.stringify(gitParameters).includes('command'), false);
+  assert.equal(JSON.stringify(gitParameters).includes('operation'), true);
+  assert.equal(JSON.stringify(gitParameters).includes('ls_files'), true);
 });
 
 test('requestRepoSearchPlannerProtocolAction reconstructs a tool batch from multi-tool responses', async () => {
@@ -743,7 +747,6 @@ test('requestRepoSearchPlannerProtocolAction hard-fails on json_schema rejection
 import {
   INTERACTIVE_REPO_TOOL_NAMES,
   isRepoSearchNativeToolName,
-  normalizeRepoSearchCommandForToolName,
   sanitizeNonInteractiveAllowedTools,
 } from '../src/repo-search/planner-protocol.js';
 
@@ -758,7 +761,7 @@ test('native tool name check covers the full registry', () => {
   assert.equal(isRepoSearchNativeToolName('write'), true);
   assert.equal(isRepoSearchNativeToolName('edit'), true);
   assert.equal(isRepoSearchNativeToolName('run'), true);
-  assert.equal(isRepoSearchNativeToolName('git'), false); // still the command tool
+  assert.equal(isRepoSearchNativeToolName('git'), true);
   assert.equal(isRepoSearchNativeToolName('nonsense'), false);
 });
 
@@ -771,19 +774,4 @@ test('resolver returns definitions for interactive names', () => {
 test('sanitizer strips mutating tools from non-interactive allowed lists', () => {
   assert.deepEqual(sanitizeNonInteractiveAllowedTools(['read', 'write', 'run', 'git']), ['read', 'git']);
   assert.equal(sanitizeNonInteractiveAllowedTools(undefined), undefined);
-});
-
-test('normalizeRepoSearchCommandForToolName prepends the constant git token when it is missing', () => {
-  assert.equal(normalizeRepoSearchCommandForToolName('git', 'status'), 'git status');
-  assert.equal(normalizeRepoSearchCommandForToolName('git', '  log --oneline  '), 'git log --oneline');
-});
-
-test('normalizeRepoSearchCommandForToolName leaves an already-prefixed command untouched', () => {
-  assert.equal(normalizeRepoSearchCommandForToolName('git', 'git status --short'), 'git status --short');
-  assert.equal(normalizeRepoSearchCommandForToolName('git', 'GIT status'), 'GIT status');
-});
-
-test('normalizeRepoSearchCommandForToolName leaves non-command tools and blank commands alone', () => {
-  assert.equal(normalizeRepoSearchCommandForToolName('grep', 'status'), 'status');
-  assert.equal(normalizeRepoSearchCommandForToolName('git', '   '), '');
 });

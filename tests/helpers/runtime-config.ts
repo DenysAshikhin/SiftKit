@@ -70,7 +70,7 @@ export function getTestExl3Engine(): Exl3EngineConfig {
   return {
     Managed: true,
     WorkingDirectory: 'C:\\Users\\denys\\Documents\\GitHub\\TabbyAPI',
-    PythonPath: 'C:\\envs\\rl313\\Scripts\\python.exe',
+    PythonPath: 'C:\\envs\\rl313-turbo\\Scripts\\python.exe',
     Entrypoint: 'main.py',
     ModelRoot: 'D:\\personal\\models\\elx3',
     AdminApiKey: '',

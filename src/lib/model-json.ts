@@ -2,12 +2,7 @@ import { jsonrepair } from 'jsonrepair';
 
 import {
   RepoNativeToolCallSchema,
-  restoreModelCommandSeparators,
 } from '../repo-search/repo-tool-arguments.js';
-import {
-  isRepoSearchCommandToolName,
-  normalizeRepoSearchCommandForToolName,
-} from '../repo-search/planner-protocol.js';
 import type {
   FinishAction as RepoSearchFinishAction,
   FinishValidationResult,
@@ -596,21 +591,6 @@ export class ModelJson {
     toolName: string,
     rawArgs: JsonObject,
   ): RepoSearchToolCallNormalization {
-    if (isRepoSearchCommandToolName(toolName)) {
-      const command = normalizeRepoSearchCommandForToolName(toolName, this.getCommandArgValue(rawArgs));
-      if (!command) {
-        return { ok: false, reason: `"${toolName}" requires a non-empty "command" string` };
-      }
-      return {
-        ok: true,
-        action: {
-          action: 'tool',
-          tool_name: toolName,
-          args: { command: restoreModelCommandSeparators(command) },
-        },
-      };
-    }
-
     const nativeCall = RepoNativeToolCallSchema.safeParse({ toolName, args: rawArgs });
     if (!nativeCall.success) {
       const issue = nativeCall.error.issues[0];
@@ -723,8 +703,4 @@ export class ModelJson {
     });
   }
 
-  private static getCommandArgValue(args: JsonObject): string {
-    const commandValue = typeof args.command === 'string' ? args.command : typeof args.cmd === 'string' ? args.cmd : '';
-    return commandValue.trim();
-  }
 }

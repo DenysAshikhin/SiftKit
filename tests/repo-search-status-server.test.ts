@@ -115,11 +115,11 @@ test('status server stays responsive while repo-search is running', async () => 
         maxTurns: 2,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"git\",\"command\":\"git grep -n \\\"x\\\" src\"}",
+          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
-          'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 100 },
+          "git operation=\"grep\" path=\"src\" pattern=\"x\"": { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 100 },
         },
       },
     });
@@ -298,11 +298,11 @@ test('repo-search registers before queue wait, exposes queue diagnostics, and fa
           maxTurns: 2,
           availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
           mockResponses: [
-            "{\"action\":\"git\",\"command\":\"git grep -n \\\"x\\\" src\"}",
+            "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}",
             '{"action":"finish","output":"done"}',
           ],
           mockCommandResults: {
-            'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 300 },
+            "git operation=\"grep\" path=\"src\" pattern=\"x\"": { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 300 },
           },
         },
       });
@@ -718,11 +718,11 @@ test('repo-search endpoint logs one model-requested command line per tool call',
           maxTurns: 2,
           availableModels: ['mock-model'],
           mockResponses: [
-            "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
+            "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
             '{"action":"finish","output":"done"}',
           ],
           mockCommandResults: {
-            'git grep -n "planner" src': { exitCode: 0, stdout: 'src/example.ts:1:planner', stderr: '' },
+            "git operation=\"grep\" path=\"src\" pattern=\"planner\"": { exitCode: 0, stdout: 'src/example.ts:1:planner', stderr: '' },
           },
         },
       });
@@ -734,7 +734,7 @@ test('repo-search endpoint logs one model-requested command line per tool call',
 
     const commandLines = lines.filter((line) => /rs [\w-]{8} {2}command {2}t\d+\//u.test(line));
     assert.equal(commandLines.length, 1, lines.join('\n'));
-    assert.match(commandLines[0], /git grep -n "planner" src$/u);
+    assert.match(commandLines[0], /git operation="grep" path="src" pattern="planner"$/u);
     assert.equal(/--no-ignore|--ignore-case|--glob/u.test(commandLines[0]), false, commandLines[0]);
     assert.equal(lines.some((line) => / llm_start/u.test(line)), false, lines.join('\n'));
     assert.equal(lines.some((line) => / llm_end/u.test(line)), false, lines.join('\n'));
@@ -764,9 +764,9 @@ test('buildRepoSearchProgressLogBody formats command and llm progress bodies', (
       maxTurns: 9,
       promptTokenCount: 1234,
       elapsedMs: 2500,
-      command: 'git grep -n "planner" src',
+      command: "git operation=\"grep\" path=\"src\" pattern=\"planner\"",
     }),
-    { event: 'command', fields: 't2/9  prompt=1,234tok  elapsed=2s  git grep -n "planner" src', severity: 'normal' },
+    { event: 'command', fields: 't2/9  prompt=1,234tok  elapsed=2s  git operation="grep" path="src" pattern="planner"', severity: 'normal' },
   );
   assert.deepEqual(
     buildRepoSearchProgressLogBody({
@@ -776,13 +776,13 @@ test('buildRepoSearchProgressLogBody formats command and llm progress bodies', (
       maxTurns: 2,
       promptTokenCount: 88,
       elapsedMs: 0,
-      command: 'git grep -n "dashboard" .',
+      command: "git operation=\"grep\" path=\".\" pattern=\"dashboard\"",
       exitCode: 0,
       outputSnippet: 'hit',
       outputTokens: 3,
       outputTokensEstimated: false,
     }),
-    { event: 'command', fields: 't1/2  prompt=88tok  elapsed=0s  git grep -n "dashboard" .', severity: 'normal' },
+    { event: 'command', fields: 't1/2  prompt=88tok  elapsed=0s  git operation="grep" path="." pattern="dashboard"', severity: 'normal' },
   );
   // An approval park is never server-logged, so it has no line at all and cannot leak its payload.
   const approvalLogBody = buildRepoSearchProgressLogBody({
@@ -963,11 +963,11 @@ test('repo-search transcript artifact keeps routine normalized flags out of tool
         maxTurns: 2,
         availableModels: ['mock-model'],
         mockResponses: [
-          '{"action":"git","command":"git grep -n \\"needle\\" src"}',
+          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"needle\",\"path\":\"src\"}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
-          'git grep -n "needle" src': { exitCode: 0, stdout: 'src/index.ts:1:needle', stderr: '' },
+          "git operation=\"grep\" path=\"src\" pattern=\"needle\"": { exitCode: 0, stdout: 'src/index.ts:1:needle', stderr: '' },
         },
       },
     });
@@ -995,8 +995,7 @@ test('repo-search transcript artifact keeps routine normalized flags out of tool
       const firstCallFunction = asObject(toolCalls[0]?.function);
       const firstCallArgs = asObject(parseJsonValueText(String(firstCallFunction.arguments || '{}')));
       assert.equal(String(firstCallFunction.name || ''), 'git');
-      assert.equal(String(firstCallArgs.command || ''), 'git grep -n "needle" src');
-      assert.doesNotMatch(String(firstCallArgs.command || ''), /--no-ignore|--ignore-case|--glob/u);
+      assert.deepEqual(firstCallArgs, { operation: 'grep', pattern: 'needle', path: 'src' });
     } finally {
       database.close();
     }
@@ -1063,12 +1062,12 @@ test('repo-search transcript artifact replays the fitted read range using per-to
         maxTurns: 4,
         availableModels: ['mock-model'],
         mockResponses: [
-          '{"action":"git","command":"git status --short"}',
+          "{\"action\":\"git\",\"operation\":\"status\"}",
           '{"action":"read","path":"src/big.ts","offset":300,"limit":601}',
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
-          'git status --short': { exitCode: 0, stdout: 'slow evidence', stderr: '', delayMs: 40 },
+          "git operation=\"status\"": { exitCode: 0, stdout: 'slow evidence', stderr: '', delayMs: 40 },
         },
       },
     });
@@ -1203,11 +1202,11 @@ test('repo-search endpoint reloads executor module per request', async () => {
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"git\",\"command\":\"git grep -n \\\"x\\\" src\"}",
+          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}",
           'Terminal synthesis answer: src/example.ts:1.',
         ],
         mockCommandResults: {
-          'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '' },
+          "git operation=\"grep\" path=\"src\" pattern=\"x\"": { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '' },
         },
       },
     });
@@ -1274,10 +1273,10 @@ test('repo-search endpoint rejects duplicated final output before sending succes
     '',
     'Conclusion: enough evidence was found.',
   ].join('\n');
-  const commands = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'].map((term) => `git grep -n "${term}" src`);
-  const mockCommandResults = Object.fromEntries(commands.map((command, index) => [
-    command,
-    { exitCode: 0, stdout: `src/${index}.ts:1:${command}`, stderr: '' },
+  const patterns = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'];
+  const mockCommandResults = Object.fromEntries(patterns.map((pattern, index) => [
+    `git operation="grep" path="src" pattern=${JSON.stringify(pattern)}`,
+    { exitCode: 0, stdout: `src/${index}.ts:1:${pattern}`, stderr: '' },
   ]));
 
   const server = startStatusServer({ disableManagedLlamaStartup: true });
@@ -1295,9 +1294,11 @@ test('repo-search endpoint rejects duplicated final output before sending succes
         maxTurns: 8,
         availableModels: ['mock-model'],
         mockResponses: [
-          ...commands.map((command) => JSON.stringify({
+          ...patterns.map((pattern) => JSON.stringify({
             action: 'git',
-            command,
+            operation: 'grep',
+            pattern,
+            path: 'src',
           })),
           JSON.stringify({ action: 'finish', output: duplicatedFinalOutput }),
         ],

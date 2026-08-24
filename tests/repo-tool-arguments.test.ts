@@ -2,13 +2,65 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { MAX_RUN_TIMEOUT_MS } from '../src/lib/powershell.js';
+import { JsonObjectSchema } from '../src/lib/json-types.js';
+import { z } from '../src/lib/zod.js';
 import {
+  GitToolArgsSchema,
   RepoNativeToolCallSchema,
   RUN_OUTPUT_MODES,
   RunOutputModeSchema,
 } from '../src/repo-search/repo-tool-arguments.js';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from '../src/repo-search/engine/runtime-profile.js';
 import { resolveRepoSearchPlannerToolDefinitions } from '../src/repo-search/planner-protocol.js';
+
+test('git schema accepts all supported typed read-only operations', () => {
+  const cases = [
+    { operation: 'status' },
+    { operation: 'log', limit: 20, ref: 'main', path: 'src', patches: true },
+    { operation: 'show', ref: 'HEAD', path: 'src/index.ts' },
+    { operation: 'diff', base: 'main', target: 'HEAD', path: 'src' },
+    { operation: 'blame', path: 'src/index.ts', startLine: 2, endLine: 8 },
+    { operation: 'grep', pattern: '--fixed-looking-pattern', ref: 'HEAD', path: 'src', ignoreCase: true, limit: 5 },
+    { operation: 'ls_files', path: 'src', limit: 50 },
+  ];
+
+  for (const args of cases) {
+    assert.deepEqual(GitToolArgsSchema.parse(args), args);
+    assert.deepEqual(RepoNativeToolCallSchema.parse({ toolName: 'git', args }), { toolName: 'git', args });
+  }
+});
+
+test('git schema rejects malformed and legacy arguments', () => {
+  const cases = [
+    { command: 'git status' },
+    { operation: 'status', extra: true },
+    { operation: 'log', limit: 0 },
+    { operation: 'log', ref: '' },
+    { operation: 'show' },
+    { operation: 'show', ref: '-p' },
+    { operation: 'show', ref: 'HEAD\u0000main' },
+    { operation: 'diff', base: '\u001fmain' },
+    { operation: 'blame', path: 'src/index.ts', startLine: 1 },
+    { operation: 'blame', path: 'src/index.ts', endLine: 1 },
+    { operation: 'blame', path: 'src/index.ts', startLine: 8, endLine: 2 },
+    { operation: 'grep', pattern: '' },
+    { operation: 'grep', pattern: 'x', limit: -1 },
+    { operation: 'ls_files', limit: 0 },
+  ];
+
+  for (const args of cases) {
+    assert.equal(GitToolArgsSchema.safeParse(args).success, false, JSON.stringify(args));
+  }
+});
+
+test('Git planner parameters are generated from the canonical Zod schema', () => {
+  const definition = resolveRepoSearchPlannerToolDefinitions(['git'])[0];
+  if (!definition?.function.parameters) throw new Error('Expected Git planner parameters.');
+  assert.deepEqual(
+    definition.function.parameters,
+    JsonObjectSchema.parse(z.toJSONSchema(GitToolArgsSchema, { io: 'input' })),
+  );
+});
 
 test('canonical schema accepts and normalizes every native repo-tool call', () => {
   const cases = [

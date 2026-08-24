@@ -34,12 +34,12 @@ test('repo-agent finish is challenged once and accepted when the model doubles d
       minToolCallsBeforeFinish: 0,
       maxTurns: 6,
       mockResponses: [
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
         '{"action":"finish","output":"done"}',
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
-      mockCommandResults: { 'git grep -n "planner" src': GREP_OK },
+      mockCommandResults: { "git operation=\"grep\" path=\"src\" pattern=\"planner\"": GREP_OK },
       logger: collectingLogger(events),
     },
   );
@@ -62,18 +62,18 @@ test('repo-agent model may back down twice; the third finish is forced done', as
       minToolCallsBeforeFinish: 0,
       maxTurns: 10,
       mockResponses: [
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
         '{"action":"finish","output":"v1"}',
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"budget\\\" src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"budget\",\"path\":\"src\"}",
         '{"action":"finish","output":"v2"}',
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"tokens\\\" src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"tokens\",\"path\":\"src\"}",
         '{"action":"finish","output":"v3"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'git grep -n "planner" src': GREP_OK,
-        'git grep -n "budget" src': { exitCode: 0, stdout: 'src\\budget.ts:5:budget hit', stderr: '' },
-        'git grep -n "tokens" src': { exitCode: 0, stdout: 'src\\tokens.ts:7:tokens hit', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"planner\"": GREP_OK,
+        "git operation=\"grep\" path=\"src\" pattern=\"budget\"": { exitCode: 0, stdout: 'src\\budget.ts:5:budget hit', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"tokens\"": { exitCode: 0, stdout: 'src\\tokens.ts:7:tokens hit', stderr: '' },
       },
       logger: collectingLogger(events),
     },
@@ -96,11 +96,11 @@ test('repo-search loop finishes are never challenged', async () => {
       maxTurns: 4,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
-      mockCommandResults: { 'git grep -n "planner" src': GREP_OK },
+      mockCommandResults: { "git operation=\"grep\" path=\"src\" pattern=\"planner\"": GREP_OK },
       logger: collectingLogger(events),
     },
   );
@@ -116,7 +116,7 @@ test('finish during forced-finish mode bypasses the verification gate', async ()
   // (src/repo-search/engine/forced-finish.ts:1), activating forced-finish mode; the
   // following finish must be accepted without a challenge.
   const emptyResult = { exitCode: 0, stdout: '', stderr: '' };
-  const commands = Array.from({ length: 10 }, (_, i) => `git grep -n "needle${i}" src`);
+  const patterns = Array.from({ length: 10 }, (_, index) => `needle${index}`);
   const events: LoggedEvent[] = [];
   const result = await runTaskLoop(
     { id: 'agent-forced-mode', question: 'Do the task.', signals: [] },
@@ -126,11 +126,14 @@ test('finish during forced-finish mode bypasses the verification gate', async ()
       minToolCallsBeforeFinish: 0,
       maxTurns: 15,
       mockResponses: [
-        ...commands.map((command) => JSON.stringify({ action: 'git', command })),
+        ...patterns.map((pattern) => JSON.stringify({ action: 'git', operation: 'grep', pattern, path: 'src' })),
         '{"action":"finish","output":"nothing found"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
-      mockCommandResults: Object.fromEntries(commands.map((command) => [command, emptyResult])),
+      mockCommandResults: Object.fromEntries(patterns.map((pattern) => [
+        `git operation="grep" path="src" pattern=${JSON.stringify(pattern)}`,
+        emptyResult,
+      ])),
       logger: collectingLogger(events),
     },
   );

@@ -110,7 +110,7 @@ test('new default config supplies the default preset backend and EXL3 engine', (
 
   assert.match(serialized, /"Backend":"llama"/u);
   assert.match(serialized, /"WorkingDirectory":"C:\\\\Users\\\\denys\\\\Documents\\\\GitHub\\\\TabbyAPI"/u);
-  assert.match(serialized, /"PythonPath":"C:\\\\envs\\\\rl313\\\\Scripts\\\\python\.exe"/u);
+  assert.match(serialized, /"PythonPath":"C:\\\\envs\\\\rl313-turbo\\\\Scripts\\\\python\.exe"/u);
   assert.match(serialized, /"ModelRoot":"D:\\\\personal\\\\models\\\\elx3"/u);
   assert.equal(normalized.Server.Engines.Exl3.AdminApiKey, '');
 });

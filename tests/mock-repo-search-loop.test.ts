@@ -140,12 +140,12 @@ test('runTaskLoop repairs malformed planner payloads before executing tool calls
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"git","command":"git grep -n \\"planner\\" src"',
+        '{"action":"git","operation":"grep","pattern":"planner","path":"src"',
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'git grep -n "planner" src': {
+        "git operation=\"grep\" path=\"src\" pattern=\"planner\"": {
           exitCode: 0,
           stdout: 'src/repo-search/engine.ts: planner anchor',
         },
@@ -169,7 +169,9 @@ test('runTaskLoop repairs malformed planner payloads before executing tool calls
   assert.equal(result.reason, 'finish');
   assert.equal(result.invalidResponses, 0);
   assert.equal(String(assistantToolCall?.function?.name || ''), 'git');
-  assert.equal(JSON.parse(String(assistantToolCall?.function?.arguments || '{}')).command, 'git grep -n "planner" src');
+  assert.deepEqual(JSON.parse(String(assistantToolCall?.function?.arguments || '{}')), {
+    operation: 'grep', pattern: 'planner', path: 'src',
+  });
   assert.match(String(toolMessage?.content || ''), /planner anchor/u);
   assert.equal(userMessages.length, 0);
 });
@@ -244,7 +246,7 @@ test('runTaskLoop cuts off runaway streamed tool JSON and reprompts once', { tim
         `data: ${JSON.stringify({
           choices: [{
             delta: {
-              content: '{"action":"tool_batch","calls":[{"action":"git","command":"git grep -n \\"planner\\" src"}]}'
+              content: "{\"action\":\"tool_batch\",\"calls\":[{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}]}"
                 + '}'.repeat(220),
             },
           }],
@@ -345,12 +347,12 @@ test('runTaskLoop truncates oversized rg output to the largest fitting prefix', 
       minToolCallsBeforeFinish: 0,
       totalContextTokens,
       mockResponses: [
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'git grep -n "planner" src': {
+        "git operation=\"grep\" path=\"src\" pattern=\"planner\"": {
           exitCode: 0,
           stdout: oversizedOutput,
           stderr: '',
@@ -503,13 +505,13 @@ test('runTaskLoop replays only the returned read range after fitting an oversize
       totalContextTokens: 20000,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['git', 'read']),
       mockResponses: [
-        '{"action":"git","command":"git grep -n \\"needle\\" src"}',
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"needle\",\"path\":\"src\"}",
         '{"action":"read","path":"src/big.ts","offset":300,"limit":601}',
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'git grep -n "needle" src': { exitCode: 0, stdout: 'src/big.ts:300:needle', stderr: '', delayMs: 5 },
+        "git operation=\"grep\" path=\"src\" pattern=\"needle\"": { exitCode: 0, stdout: 'src/big.ts:300:needle', stderr: '', delayMs: 5 },
       },
       logger: {
         path: 'memory',
@@ -784,12 +786,12 @@ test('runTaskLoop does not print a red console warning when successful output is
         minToolCallsBeforeFinish: 0,
         totalContextTokens,
         mockResponses: [
-          "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
+          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
           '{"action":"finish","output":"done"}',
           '{"verdict":"pass","reason":"supported"}',
         ],
         mockCommandResults: {
-          'git grep -n "planner" src': {
+          "git operation=\"grep\" path=\"src\" pattern=\"planner\"": {
             exitCode: 0,
             stdout: 'x'.repeat(10000),
             stderr: '',
@@ -1006,16 +1008,16 @@ test('runTaskLoop increases per-tool cap as tool-call progress grows', async () 
       minToolCallsBeforeFinish: 0,
       totalContextTokens,
       mockResponses: [
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"summary\\\" src\"}",
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"repo\\\" src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"summary\",\"path\":\"src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"repo\",\"path\":\"src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'git grep -n "planner" src': { exitCode: 0, stdout: 'planner hit', stderr: '' },
-        'git grep -n "summary" src': { exitCode: 0, stdout: 'summary hit', stderr: '' },
-        'git grep -n "repo" src': { exitCode: 0, stdout: 'repo hit', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"planner\"": { exitCode: 0, stdout: 'planner hit', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"summary\"": { exitCode: 0, stdout: 'summary hit', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"repo\"": { exitCode: 0, stdout: 'repo hit', stderr: '' },
       },
       logger: {
         path: 'memory',
@@ -1058,12 +1060,12 @@ test('runTaskLoop fits tool output that exceeds remaining token allowance', asyn
       totalContextTokens,
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['git']),
       mockResponses: [
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'git grep -n "planner" src': {
+        "git operation=\"grep\" path=\"src\" pattern=\"planner\"": {
           exitCode: 0,
           stdout: 'x'.repeat(10000),
           stderr: '',
@@ -1104,20 +1106,20 @@ test('runTaskLoop subtracts accepted same-turn tool results from remaining allow
         JSON.stringify({
           action: 'tool_batch',
           calls: [
-            { action: 'git', command: 'git grep -n "planner prompt" src' },
-            { action: 'git', command: 'git grep -n "prompt budget" src' },
+            { action: 'git', operation: 'grep', pattern: 'planner prompt', path: 'src' },
+            { action: 'git', operation: 'grep', pattern: 'prompt budget', path: 'src' },
           ],
         }),
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'git grep -n "planner prompt" src': {
+        "git operation=\"grep\" path=\"src\" pattern=\"planner prompt\"": {
           exitCode: 0,
           stdout: 'src/repo-search/prompts.ts:228:repo-search planner prompt',
           stderr: '',
         },
-        'git grep -n "prompt budget" src': {
+        "git operation=\"grep\" path=\"src\" pattern=\"prompt budget\"": {
           exitCode: 0,
           stdout: 'src/repo-search/prompt-budget.ts:1:prompt budget helper',
           stderr: '',
@@ -1231,29 +1233,29 @@ test('runTaskLoop accepts first finish immediately when runtime reasoning is on'
 test('runTaskLoop does not emit follow-up finish events after many reasoning-off tool calls', async () => {
   const events: JsonObject[] = [];
   const mockResponses = [
-    "{\"action\":\"git\",\"command\":\"git grep -n \\\"hit-1\\\" src\"}",
-    "{\"action\":\"git\",\"command\":\"git grep -n \\\"hit-2\\\" src\"}",
-    "{\"action\":\"git\",\"command\":\"git grep -n \\\"hit-3\\\" src\"}",
-    "{\"action\":\"git\",\"command\":\"git grep -n \\\"hit-4\\\" src\"}",
-    "{\"action\":\"git\",\"command\":\"git grep -n \\\"hit-5\\\" src\"}",
-    "{\"action\":\"git\",\"command\":\"git grep -n \\\"hit-6\\\" src\"}",
-    "{\"action\":\"git\",\"command\":\"git grep -n \\\"hit-7\\\" src\"}",
-    "{\"action\":\"git\",\"command\":\"git grep -n \\\"hit-8\\\" src\"}",
-    "{\"action\":\"git\",\"command\":\"git grep -n \\\"hit-9\\\" src\"}",
-    "{\"action\":\"git\",\"command\":\"git grep -n \\\"hit-10\\\" src\"}",
+    "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"hit-1\",\"path\":\"src\"}",
+    "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"hit-2\",\"path\":\"src\"}",
+    "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"hit-3\",\"path\":\"src\"}",
+    "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"hit-4\",\"path\":\"src\"}",
+    "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"hit-5\",\"path\":\"src\"}",
+    "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"hit-6\",\"path\":\"src\"}",
+    "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"hit-7\",\"path\":\"src\"}",
+    "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"hit-8\",\"path\":\"src\"}",
+    "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"hit-9\",\"path\":\"src\"}",
+    "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"hit-10\",\"path\":\"src\"}",
     '{"action":"finish","output":"src\\\\target.ts:10"}',
   ];
   const mockCommandResults = {
-    'git grep -n "hit-1" src': { exitCode: 0, stdout: 'src\\target.ts:1: hit-1', stderr: '' },
-    'git grep -n "hit-2" src': { exitCode: 0, stdout: 'src\\target.ts:2: hit-2', stderr: '' },
-    'git grep -n "hit-3" src': { exitCode: 0, stdout: 'src\\target.ts:3: hit-3', stderr: '' },
-    'git grep -n "hit-4" src': { exitCode: 0, stdout: 'src\\target.ts:4: hit-4', stderr: '' },
-    'git grep -n "hit-5" src': { exitCode: 0, stdout: 'src\\target.ts:5: hit-5', stderr: '' },
-    'git grep -n "hit-6" src': { exitCode: 0, stdout: 'src\\target.ts:6: hit-6', stderr: '' },
-    'git grep -n "hit-7" src': { exitCode: 0, stdout: 'src\\target.ts:7: hit-7', stderr: '' },
-    'git grep -n "hit-8" src': { exitCode: 0, stdout: 'src\\target.ts:8: hit-8', stderr: '' },
-    'git grep -n "hit-9" src': { exitCode: 0, stdout: 'src\\target.ts:9: hit-9', stderr: '' },
-    'git grep -n "hit-10" src': { exitCode: 0, stdout: 'src\\target.ts:10: hit-10', stderr: '' },
+    "git operation=\"grep\" path=\"src\" pattern=\"hit-1\"": { exitCode: 0, stdout: 'src\\target.ts:1: hit-1', stderr: '' },
+    "git operation=\"grep\" path=\"src\" pattern=\"hit-2\"": { exitCode: 0, stdout: 'src\\target.ts:2: hit-2', stderr: '' },
+    "git operation=\"grep\" path=\"src\" pattern=\"hit-3\"": { exitCode: 0, stdout: 'src\\target.ts:3: hit-3', stderr: '' },
+    "git operation=\"grep\" path=\"src\" pattern=\"hit-4\"": { exitCode: 0, stdout: 'src\\target.ts:4: hit-4', stderr: '' },
+    "git operation=\"grep\" path=\"src\" pattern=\"hit-5\"": { exitCode: 0, stdout: 'src\\target.ts:5: hit-5', stderr: '' },
+    "git operation=\"grep\" path=\"src\" pattern=\"hit-6\"": { exitCode: 0, stdout: 'src\\target.ts:6: hit-6', stderr: '' },
+    "git operation=\"grep\" path=\"src\" pattern=\"hit-7\"": { exitCode: 0, stdout: 'src\\target.ts:7: hit-7', stderr: '' },
+    "git operation=\"grep\" path=\"src\" pattern=\"hit-8\"": { exitCode: 0, stdout: 'src\\target.ts:8: hit-8', stderr: '' },
+    "git operation=\"grep\" path=\"src\" pattern=\"hit-9\"": { exitCode: 0, stdout: 'src\\target.ts:9: hit-9', stderr: '' },
+    "git operation=\"grep\" path=\"src\" pattern=\"hit-10\"": { exitCode: 0, stdout: 'src\\target.ts:10: hit-10', stderr: '' },
   };
   const result = await runTaskLoop(
     {
@@ -1317,15 +1319,15 @@ test('runTaskLoop keeps reasoning disabled across max-turn exhaustion when runti
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner2\\\" src\"}",
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner3\\\" src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner2\",\"path\":\"src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner3\",\"path\":\"src\"}",
         'Synthesized best-effort answer.',
       ],
       mockCommandResults: {
-        'git grep -n "planner" src': { exitCode: 0, stdout: 'planner', stderr: '' },
-        'git grep -n "planner2" src': { exitCode: 0, stdout: 'planner2', stderr: '' },
-        'git grep -n "planner3" src': { exitCode: 0, stdout: 'planner3', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"planner\"": { exitCode: 0, stdout: 'planner', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"planner2\"": { exitCode: 0, stdout: 'planner2', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"planner3\"": { exitCode: 0, stdout: 'planner3', stderr: '' },
       },
       logger: {
         path: 'memory',
@@ -1372,7 +1374,7 @@ test('runTaskLoop retries transient provider network failures via shared retry h
       const toolIndex = requestCount <= 4 ? requestCount : null;
       const content = toolIndex === null
         ? '{"action":"finish","output":"done"}'
-        : `{"action":"git","command":"git grep -n \\"q${toolIndex}\\" src"}`;
+        : `{"action":"git","operation":"grep","pattern":"q${toolIndex}","path":"src"}`;
       sendChatCompletionSse(res, {
         choices: [
           {
@@ -1405,10 +1407,10 @@ test('runTaskLoop retries transient provider network failures via shared retry h
         maxInvalidResponses: 2,
         minToolCallsBeforeFinish: 0,
         mockCommandResults: {
-          'git grep -n "q1" src': { exitCode: 0, stdout: 'q1', stderr: '' },
-          'git grep -n "q2" src': { exitCode: 0, stdout: 'q2', stderr: '' },
-          'git grep -n "q3" src': { exitCode: 0, stdout: 'q3', stderr: '' },
-          'git grep -n "q4" src': { exitCode: 0, stdout: 'q4', stderr: '' },
+          "git operation=\"grep\" path=\"src\" pattern=\"q1\"": { exitCode: 0, stdout: 'q1', stderr: '' },
+          "git operation=\"grep\" path=\"src\" pattern=\"q2\"": { exitCode: 0, stdout: 'q2', stderr: '' },
+          "git operation=\"grep\" path=\"src\" pattern=\"q3\"": { exitCode: 0, stdout: 'q3', stderr: '' },
+          "git operation=\"grep\" path=\"src\" pattern=\"q4\"": { exitCode: 0, stdout: 'q4', stderr: '' },
         },
         logger: {
           path: 'memory',
@@ -1571,13 +1573,13 @@ test('runTaskLoop blocks exact duplicate commands with explicit error message', 
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"planner\\\" src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'git grep -n "planner" src': { exitCode: 0, stdout: 'src\\planner.ts:10: planner hit', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"planner\"": { exitCode: 0, stdout: 'src\\planner.ts:10: planner hit', stderr: '' },
       },
     }
   );
@@ -1591,7 +1593,7 @@ test('runTaskLoop blocks exact duplicate commands with explicit error message', 
   assert.equal(result.finalOutput, 'done');
 });
 
-test('runTaskLoop blocks semantic duplicate repo-search commands with explicit error message', async () => {
+test('runTaskLoop blocks an identical typed Git call as an exact duplicate', async () => {
   const result = await runTaskLoop(
     {
       id: 'task-semantic-duplicate-command',
@@ -1604,14 +1606,13 @@ test('runTaskLoop blocks semantic duplicate repo-search commands with explicit e
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"git","command":"git log -n 5 --oneline"}',
-        // Same command, only respaced and recased â€” a different raw key, the same fingerprint.
-        '{"action":"git","command":"git LOG  -n   5 --oneline"}',
+        "{\"action\":\"git\",\"operation\":\"log\",\"limit\":5}",
+        "{\"action\":\"git\",\"operation\":\"log\",\"limit\":5}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'git log -n 5 --oneline': {
+        "git operation=\"log\" limit=5": {
           exitCode: 0,
           stdout: 'abc1234 add runner port default',
           stderr: '',
@@ -1623,7 +1624,7 @@ test('runTaskLoop blocks semantic duplicate repo-search commands with explicit e
   assert.equal(result.reason, 'finish');
   assert.equal(result.commands.length, 2);
   assert.equal(result.commands[1].safe, false);
-  assert.equal(String(result.commands[1].reason || ''), 'semantic duplicate command');
+  assert.equal(String(result.commands[1].reason || ''), 'duplicate command');
   assert.equal(result.finalOutput, 'done');
 });
 
@@ -1739,18 +1740,18 @@ test('runTaskLoop does not compact different commands that happen to return the 
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"alpha\\\" src\"}",
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"beta\\\" src\"}",
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"gamma\\\" src\"}",
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"delta\\\" src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"alpha\",\"path\":\"src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"beta\",\"path\":\"src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"gamma\",\"path\":\"src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"delta\",\"path\":\"src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'git grep -n "alpha" src': { exitCode: 0, stdout: 'src\\app.ts:10: same evidence', stderr: '' },
-        'git grep -n "beta" src': { exitCode: 0, stdout: 'src\\app.ts:10: same evidence', stderr: '' },
-        'git grep -n "gamma" src': { exitCode: 0, stdout: 'src\\app.ts:10: same evidence', stderr: '' },
-        'git grep -n "delta" src': { exitCode: 0, stdout: 'src\\app.ts:10: same evidence', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"alpha\"": { exitCode: 0, stdout: 'src\\app.ts:10: same evidence', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"beta\"": { exitCode: 0, stdout: 'src\\app.ts:10: same evidence', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"gamma\"": { exitCode: 0, stdout: 'src\\app.ts:10: same evidence', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"delta\"": { exitCode: 0, stdout: 'src\\app.ts:10: same evidence', stderr: '' },
       },
       logger: {
         path: 'memory',
@@ -1776,11 +1777,11 @@ test('runTaskLoop forces finish mode after ten zero-output commands', async () =
   const mockResponses: string[] = [];
   const mockCommandResults: Record<string, { exitCode: number; stdout: string; stderr: string }> = {};
   for (let index = 1; index <= 10; index += 1) {
-    const command = `git grep -n q${index} src`;
-    mockResponses.push(`{"action":"git","command":"${command}"}`);
+    const command = `git operation="grep" path="src" pattern="q${index}"`;
+    mockResponses.push(`{"action":"git","operation":"grep","pattern":"q${index}","path":"src"}`);
     mockCommandResults[command] = { exitCode: 0, stdout: '', stderr: '' };
   }
-  mockResponses.push("{\"action\":\"git\",\"command\":\"git grep -n forced src\"}");
+  mockResponses.push("{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"forced\",\"path\":\"src\"}");
   mockResponses.push('{"action":"finish","output":"forced conclusion"}');
   const result = await runTaskLoop(
     {
@@ -1835,20 +1836,20 @@ test('runTaskLoop enables thinking on every tool-call turn when runtime reasonin
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"a\\\" src\"}",
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"b\\\" src\"}",
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"c\\\" src\"}",
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"d\\\" src\"}",
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"e\\\" src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"a\",\"path\":\"src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"b\",\"path\":\"src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"c\",\"path\":\"src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"d\",\"path\":\"src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"e\",\"path\":\"src\"}",
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'git grep -n "a" src': { exitCode: 0, stdout: 'a', stderr: '' },
-        'git grep -n "b" src': { exitCode: 0, stdout: 'b', stderr: '' },
-        'git grep -n "c" src': { exitCode: 0, stdout: 'c', stderr: '' },
-        'git grep -n "d" src': { exitCode: 0, stdout: 'd', stderr: '' },
-        'git grep -n "e" src': { exitCode: 0, stdout: 'e', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"a\"": { exitCode: 0, stdout: 'a', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"b\"": { exitCode: 0, stdout: 'b', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"c\"": { exitCode: 0, stdout: 'c', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"d\"": { exitCode: 0, stdout: 'd', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"e\"": { exitCode: 0, stdout: 'e', stderr: '' },
       },
       logger: {
         path: 'memory',
@@ -1892,13 +1893,13 @@ test('runTaskLoop disables thinking on every tool-call turn when runtime reasoni
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"a\\\" src\"}",
-        "{\"action\":\"git\",\"command\":\"git grep -n \\\"b\\\" src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"a\",\"path\":\"src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"b\",\"path\":\"src\"}",
         '{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
-        'git grep -n "a" src': { exitCode: 0, stdout: 'a', stderr: '' },
-        'git grep -n "b" src': { exitCode: 0, stdout: 'b', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"a\"": { exitCode: 0, stdout: 'a', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"b\"": { exitCode: 0, stdout: 'b', stderr: '' },
       },
       logger: {
         path: 'memory',
@@ -1983,13 +1984,13 @@ test('runTaskLoop records real planner turn per command and per-turn thinking', 
       maxInvalidResponses: 2,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '<think>plan step a</think>{"action":"git","command":"git grep -n \\"a\\" src"}',
-        '<think>plan step b</think>{"action":"git","command":"git grep -n \\"b\\" src"}',
+        "<think>plan step a</think>{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"a\",\"path\":\"src\"}",
+        "<think>plan step b</think>{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"b\",\"path\":\"src\"}",
         '<think>final reasoning</think>{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
-        'git grep -n "a" src': { exitCode: 0, stdout: 'a', stderr: '' },
-        'git grep -n "b" src': { exitCode: 0, stdout: 'b', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"a\"": { exitCode: 0, stdout: 'a', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"b\"": { exitCode: 0, stdout: 'b', stderr: '' },
       },
     }
   );
@@ -2026,13 +2027,13 @@ test('runTaskLoop keeps only latest planner thinking when per-step thinking is d
         },
       }),
       mockResponses: [
-        '<think>plan step a</think>{"action":"git","command":"git grep -n \\"a\\" src"}',
-        '<think>plan step b</think>{"action":"git","command":"git grep -n \\"b\\" src"}',
+        "<think>plan step a</think>{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"a\",\"path\":\"src\"}",
+        "<think>plan step b</think>{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"b\",\"path\":\"src\"}",
         '<think>final reasoning</think>{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
-        'git grep -n "a" src': { exitCode: 0, stdout: 'a', stderr: '' },
-        'git grep -n "b" src': { exitCode: 0, stdout: 'b', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"a\"": { exitCode: 0, stdout: 'a', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"b\"": { exitCode: 0, stdout: 'b', stderr: '' },
       },
     }
   );
@@ -2049,12 +2050,12 @@ test('runTaskLoop sets turn on a duplicate-rejected command push', async () => {
       maxInvalidResponses: 3,
       minToolCallsBeforeFinish: 0,
       mockResponses: [
-        '{"action":"git","command":"git grep -n \\"planner\\" src"}',
-        '{"action":"git","command":"git grep -n \\"planner\\" src"}',
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"planner\",\"path\":\"src\"}",
         '{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
-        'git grep -n "planner" src': { exitCode: 0, stdout: 'hit', stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"planner\"": { exitCode: 0, stdout: 'hit', stderr: '' },
       },
     }
   );
@@ -2129,7 +2130,7 @@ test('runTaskLoop lets a read repeat after an edit invalidates the file window',
   assert.match(String(commandEvents[2]?.insertedResultText || ''), /^2: line-2-EDITED/mu);
 });
 
-test('runTaskLoop lets a read repeat after a git command invalidates every window', async () => {
+test('runTaskLoop keeps read history across a typed read-only Git call', async () => {
   const repoRoot = createTempRepoRoot();
   fs.writeFileSync(path.join(repoRoot, 'target.ts'), ['line-1', 'line-2', 'line-3'].join('\n'), 'utf8');
   const events: JsonObject[] = [];
@@ -2149,13 +2150,13 @@ test('runTaskLoop lets a read repeat after a git command invalidates every windo
       plannerToolDefinitions: resolveRepoSearchPlannerToolDefinitions(['read', 'git']),
       mockResponses: [
         '{"action":"read","path":"target.ts","offset":1,"limit":3}',
-        '{"action":"git","command":"git status --short"}',
+        "{\"action\":\"git\",\"operation\":\"status\"}",
         '{"action":"read","path":"target.ts","offset":1,"limit":3}',
         '{"action":"finish","output":"done"}',
         '{"verdict":"pass","reason":"supported"}',
       ],
       mockCommandResults: {
-        'git status --short': { exitCode: 0, stdout: ' M target.ts', stderr: '' },
+        "git operation=\"status\"": { exitCode: 0, stdout: ' M target.ts', stderr: '' },
       },
       logger: {
         path: 'memory',
@@ -2168,9 +2169,9 @@ test('runTaskLoop lets a read repeat after a git command invalidates every windo
 
   const commandEvents = events.filter((event) => event.kind === 'turn_command_result');
   assert.equal(result.reason, 'finish');
-  assert.equal(result.commandFailures, 0);
-  assert.equal(commandEvents.length, 3);
-  assert.match(String(commandEvents[2]?.insertedResultText || ''), /^1: line-1/mu);
+  assert.equal(result.commandFailures, 1);
+  assert.equal(commandEvents.length, 2);
+  assert.equal(result.commands[2]?.reason, 'exhausted read');
 });
 
 test('runTaskLoop lets a read repeat after run invalidates every window with ExpandReads off', async () => {

@@ -8,8 +8,8 @@ function makeReadAction(path: string): ToolAction {
   return { action: 'tool', tool_name: 'read', args: { path } };
 }
 
-function makeGitAction(command: string): ToolAction {
-  return { action: 'tool', tool_name: 'git', args: { command } };
+function makeGitAction(operation: string): ToolAction {
+  return { action: 'tool', tool_name: 'git', args: { operation } };
 }
 
 function makeRunAction(command: string): ToolAction {
@@ -45,7 +45,7 @@ test('turn 10 returns one event with unique entries', () => {
   // Record some activity in turns 1-9
   collector.recordBatch(1, [makeReadAction('a.ts')], [makeCommand('read a.ts', 1)]);
   collector.recordBatch(2, [makeReadAction('b.ts')], [makeCommand('read b.ts', 2)]);
-  collector.recordBatch(3, [makeGitAction('git fetch')], [makeCommand('git fetch', 3)]);
+  collector.recordBatch(3, [makeGitAction('status')], [makeCommand('git operation="status"', 3)]);
   collector.recordBatch(4, [makeEditAction('c.ts')], [makeCommand('edit c.ts', 4)]);
   collector.recordBatch(5, [makeRunAction('npm test')], [makeCommand('npm test', 5)]);
   collector.recordBatch(6, [makeWebSearchAction('x')], [makeCommand('web_search x', 6)]);
@@ -117,7 +117,7 @@ test('turn 20 contains only activity recorded after turn 10', () => {
 
   // Record new activity after turn 10
   collector.recordBatch(11, [makeEditAction('c.ts')], [makeCommand('edit c.ts', 11)]);
-  collector.recordBatch(15, [makeGitAction('git log')], [makeCommand('git log', 15)]);
+  collector.recordBatch(15, [makeGitAction('log')], [makeCommand('git operation="log"', 15)]);
 
   // Turn 20: emit summary
   collector.recordBatch(20, [makeRunAction('pytest')], [makeCommand('pytest', 20)]);

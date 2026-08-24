@@ -1,5 +1,5 @@
 import type { JsonObject } from './lib/json-types.js';
-import { isRepoSearchCommandToolName } from './repo-search/planner-protocol.js';
+import type { GitToolArgs } from './repo-search/repo-tool-arguments.js';
 
 type ToolLoopKind = 'repo-search' | 'planner' | 'chat' | 'repo-agent';
 
@@ -23,6 +23,7 @@ type FingerprintToolCallOptions = {
 type BuildPromptToolResultOptions = {
   toolName: string;
   command?: string;
+  args?: JsonObject;
   exitCode?: number | null;
   /** Command output only. Callers must not prepend an `exit_code=` line — this function adds it. */
   output: string;
@@ -55,9 +56,6 @@ function isHttpClientLogLine(line: string): boolean {
   return /^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+http_client\b/u.test(line.trim());
 }
 
-/** Subcommands whose stdout is file content: blank lines are payload, not noise. */
-const CONTENT_BEARING_GIT_SUBCOMMANDS = new Set(['show', 'cat-file']);
-
 /**
  * A unified diff carries blank context lines as payload: dropping them desynchronizes the hunk
  * body from its own `@@ -a,b +c,d @@` line counts, so any file:line the model derives is wrong.
@@ -70,31 +68,8 @@ function containsUnifiedDiff(output: string): boolean {
   return UNIFIED_DIFF_MARKER.test(output);
 }
 
-/** Global git flags that consume a separate value token (e.g. `git -C sub show ...`). */
-const GIT_GLOBAL_FLAGS_WITH_VALUE = new Set(['-c', '-C', '--git-dir', '--work-tree', '--exec-path']);
-
-function isContentBearingGitCommand(command: string): boolean {
-  const tokens = normalizeWhitespace(String(command || '')).split(' ');
-  if (tokens[0] !== 'git') {
-    return false;
-  }
-  for (let index = 1; index < tokens.length; index += 1) {
-    const token = tokens[index];
-    if (GIT_GLOBAL_FLAGS_WITH_VALUE.has(token)) {
-      index += 1;
-      continue;
-    }
-    if (token.startsWith('-')) {
-      continue;
-    }
-    return CONTENT_BEARING_GIT_SUBCOMMANDS.has(token);
-  }
-  return false;
-}
-
-/** `git` is the only repo tool whose call is a command string rather than typed args. */
-function normalizeRepoSearchFingerprint(command: string): string {
-  return normalizeWhitespace(String(command || '').toLowerCase());
+function isContentBearingGitCall(args: GitToolArgs): boolean {
+  return args.operation === 'show';
 }
 
 function buildJsonFilterFingerprint(args: JsonObject): string {
@@ -128,8 +103,8 @@ function buildReadLinesFingerprint(args: JsonObject): string {
 }
 
 export function fingerprintToolCall(options: FingerprintToolCallOptions): string {
-  if (isRepoSearchCommandToolName(options.toolName)) {
-    return normalizeRepoSearchFingerprint(String(options.command || ''));
+  if (options.toolName === 'git') {
+    throw new Error('Invalid Git tool call: use fingerprintGitToolCall with typed arguments.');
   }
   if (options.toolName === 'find_text') {
     const args = options.args || {};
@@ -149,6 +124,13 @@ export function fingerprintToolCall(options: FingerprintToolCallOptions): string
     tool: options.toolName,
     command: normalizeWhitespace(String(options.command || '')),
     args: options.args || {},
+  });
+}
+
+export function fingerprintGitToolCall(args: GitToolArgs): string {
+  return JSON.stringify({
+    toolName: 'git',
+    args: Object.fromEntries(Object.entries(args).sort(([left], [right]) => left.localeCompare(right))),
   });
 }
 
@@ -198,14 +180,23 @@ function filterDecorativeLines(body: string): string {
 
 export function buildPromptToolResult(options: BuildPromptToolResultOptions): string {
   const body = String(options.output || '').replace(/\r\n/gu, '\n');
-  if (!isRepoSearchCommandToolName(options.toolName)) {
-    return body.trim();
+  if (options.toolName === 'git') {
+    throw new Error('Invalid Git tool call: use buildGitPromptToolResult with typed arguments.');
   }
+  return body.trim();
+}
+
+export function buildGitPromptToolResult(options: {
+  args: GitToolArgs;
+  exitCode?: number | null;
+  output: string;
+}): string {
+  const body = String(options.output || '').replace(/\r\n/gu, '\n');
   const exitCode = Number(options.exitCode);
   const failed = Number.isFinite(exitCode) && exitCode !== 0;
   // Blank lines are payload for file content (git show / cat-file) and for unified diffs.
   // Everywhere else — log, status, branch — they are decoration and cost tokens.
-  const preserveBlankLines = isContentBearingGitCommand(String(options.command || ''))
+  const preserveBlankLines = isContentBearingGitCall(options.args)
     || containsUnifiedDiff(body);
   const visible = preserveBlankLines ? body.trim() : filterDecorativeLines(body);
   if (!failed) {

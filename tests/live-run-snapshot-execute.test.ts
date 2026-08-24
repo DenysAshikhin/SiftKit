@@ -26,11 +26,11 @@ test('transcript records preflight start and command start events for every turn
       repoRoot,
       maxTurns: 2,
       mockResponses: [
-        '{"action":"git","command":"git status --short"}',
+        "{\"action\":\"git\",\"operation\":\"status\"}",
         '{"action":"finish","output":"Found scripts"}',
       ],
       mockCommandResults: {
-        'git status --short': { exitCode: 0, stdout: '', stderr: '' },
+        "git operation=\"status\"": { exitCode: 0, stdout: '', stderr: '' },
       },
     });
     assert.equal(result.scorecard.verdict, 'pass');
@@ -49,11 +49,11 @@ test('a live snapshot exists while the run is in flight and is removed once it f
       repoRoot,
       maxTurns: 2,
       mockResponses: [
-        '{"action":"git","command":"git status --short"}',
+        "{\"action\":\"git\",\"operation\":\"status\"}",
         '{"action":"finish","output":"Found scripts"}',
       ],
       mockCommandResults: {
-        'git status --short': { exitCode: 0, stdout: '', stderr: '', delayMs: 1500 },
+        "git operation=\"status\"": { exitCode: 0, stdout: '', stderr: '', delayMs: 1500 },
       },
     });
 
@@ -105,11 +105,11 @@ test('the live snapshot is skipped when SIFTKIT_LIVE_SNAPSHOT=0', async () => {
         repoRoot,
         maxTurns: 2,
         mockResponses: [
-          '{"action":"git","command":"git status --short"}',
+          "{\"action\":\"git\",\"operation\":\"status\"}",
           '{"action":"finish","output":"Found scripts"}',
         ],
         mockCommandResults: {
-          'git status --short': { exitCode: 0, stdout: '', stderr: '' },
+          "git operation=\"status\"": { exitCode: 0, stdout: '', stderr: '' },
         },
       });
 

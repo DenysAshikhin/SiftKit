@@ -56,7 +56,7 @@ test('an auto-review that reaches no verdict aborts when nobody answers the esca
     verdictRequester: {
       // What the real reviewer returns when the model answers with anything but a verdict.
       requestApprovalVerdict: () => Promise.resolve({
-        text: '{"action":"git","command":"git grep -n \\"x\\" src2"}',
+        text: "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src2\"}",
         thinkingText: '',
         mockExhausted: false,
       }),
@@ -68,7 +68,7 @@ test('an auto-review that reaches no verdict aborts when nobody answers the esca
   const decision = await gate.request({
     turn: 1,
     toolName: 'git',
-    command: 'git grep -n "x" src1',
+    command: "git operation=\"grep\" path=\"src1\" pattern=\"x\"",
     reviewPayload: null,
     pendingMessages: [],
   });

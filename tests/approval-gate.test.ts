@@ -106,7 +106,7 @@ test('an unanswered approval aborts the run once the decision timeout elapses', 
   const pending = gate.request({
     turn: 1,
     toolName: 'git',
-    command: 'git grep -n "x" src1',
+    command: 'git operation="grep" path="src1" pattern="x"',
     reviewPayload: null,
   });
 

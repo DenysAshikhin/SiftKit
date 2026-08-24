@@ -74,6 +74,9 @@ function extractLabel(toolName: string, action: ToolAction): string {
   if (toolName === 'web_search' || toolName === 'web_fetch') {
     return reader.optionalString('query') || 'web';
   }
+  if (toolName === 'git') {
+    return `git ${reader.optionalString('operation') || 'unknown'}`;
+  }
   return reader.optionalString('command') || toolName;
 }
 

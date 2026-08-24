@@ -107,11 +107,11 @@ test('default repo-search uses git without approval or repo-agent run control', 
       maxTurns: 2,
       availableModels: ['mock-model'],
       mockResponses: [
-        '{"action":"git","command":"git status --short"}',
+        "{\"action\":\"git\",\"operation\":\"status\"}",
         '{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
-        'git status --short': {
+        "git operation=\"status\"": {
           exitCode: 0,
           stdout: ' M src/example.ts',
           stderr: '',

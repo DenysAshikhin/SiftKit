@@ -1262,7 +1262,7 @@ git commit -m "fix(assistant): retire a restore upload only when confirm succeed
 
 The old `ExportService` doc promised "an export never leaves plaintext in a temp file", and `addDecryptedBlobs` still cites §16.3 as forbidding plaintext on disk — which now contradicts its own enclosing method, since the archive it writes into *is* a temp file.
 
-**That claim is not in the spec.** `docs/superpowers/specs/2026-08-13-assistant-gate-e-hardening-design.md:129-130` says the flag "decrypts them into the archive and writes an audit row"; line 198 explicitly parks restore uploads "in a temp file"; the only "plaintext never written" rule (line 39) is about the **backup key** under §16.4, which DPAPI still satisfies. So there is no product decision here — only a false comment to delete and a real guarantee to test.
+**That claim is not part of the implemented contract.** Decrypted exports may be written into the temporary archive, restore uploads may be parked in a temporary file, and only the backup key must never be written in plaintext; DPAPI still satisfies that requirement. So there is no product decision here — only a false comment to delete and a real guarantee to test.
 
 **Files:**
 - Modify: `src/assistant/control/export-service.ts:66-71` and `:132-133`

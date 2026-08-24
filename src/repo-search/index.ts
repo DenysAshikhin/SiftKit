@@ -13,10 +13,8 @@ export {
   type TaskResult,
 } from './engine.js';
 export {
-  evaluateCommandSafety,
   buildIgnorePolicy,
   type IgnorePolicy,
-  type SafetyResult,
 } from './command-safety.js';
 export {
   type PlannerAction,

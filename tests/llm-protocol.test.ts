@@ -99,7 +99,7 @@ test('replay tool-call helper emits real web tool protocol names and rejects unk
   const searchCall = buildReplayToolCall({ id: 'call_search', command: 'web_search query="local llama"' });
   const fetchCall = buildReplayToolCall({ id: 'call_fetch', command: 'web_fetch url="https://example.test/page"' });
   const grepCall = buildReplayToolCall({ id: 'call_grep', command: 'grep pattern="name" path="package.json" limit=20' });
-  const gitCall = buildReplayToolCall({ id: 'call_git', command: 'git status --short' });
+  const gitCall = buildReplayToolCall({ id: 'call_git', command: 'git operation="status"' });
 
   assert.equal(searchCall.function.name, 'web_search');
   assert.equal(searchCall.function.arguments, '{"query":"local llama"}');
@@ -108,7 +108,7 @@ test('replay tool-call helper emits real web tool protocol names and rejects unk
   assert.equal(grepCall.function.name, 'grep');
   assert.equal(grepCall.function.arguments, '{"pattern":"name","path":"package.json","limit":20}');
   assert.equal(gitCall.function.name, 'git');
-  assert.equal(gitCall.function.arguments, '{"command":"git status --short"}');
+  assert.equal(gitCall.function.arguments, '{"operation":"status"}');
   assert.throws(
     () => buildReplayToolCall({ id: 'call_unknown', command: 'not-a-tool: x' }),
     /Cannot replay unknown persisted tool command/u,

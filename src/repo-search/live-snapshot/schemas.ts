@@ -47,11 +47,6 @@ export const LiveRunToolSchema = z.object({
   outputTail: z.string(),
 });
 
-export const LiveRunSafetySchema = z.object({
-  safe: z.boolean(),
-  reason: z.string().nullable(),
-});
-
 export const LiveRunApprovalSchema = z.object({
   verdict: z.string(),
   reason: z.string(),
@@ -72,7 +67,6 @@ export const LiveRunTurnSchema = z.object({
   completionTokens: z.number().nullable(),
   thinkingTokens: z.number().nullable(),
   providerRequests: z.array(LiveRunProviderRequestSchema),
-  safety: LiveRunSafetySchema.nullable(),
   approval: LiveRunApprovalSchema.nullable(),
   tool: LiveRunToolSchema.nullable(),
 });
@@ -173,12 +167,6 @@ export const TurnModelResponseEventSchema = z.object({
   thinkingTokens: OptionalNumber,
   promptCacheTokens: OptionalNumber,
   promptEvalTokens: OptionalNumber,
-});
-
-export const TurnCommandSafetyEventSchema = z.object({
-  turn: z.number(),
-  safe: z.boolean(),
-  reason: OptionalString,
 });
 
 export const TurnCommandStartEventSchema = z.object({

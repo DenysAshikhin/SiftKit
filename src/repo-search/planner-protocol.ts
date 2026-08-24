@@ -4,6 +4,7 @@ import { buildPresetRequestDefaults } from '../inference-presets/preset-compatib
 import { clampToPresetMaxTokens } from '../lib/dynamic-output-cap.js';
 import { LlamaCppClient } from '../llm-protocol/llama-cpp-client.js';
 import type { JsonObject, LlamaCppChatMessage, LlamaCppChatRole, LlamaCppContentPart, LlamaCppToolCall } from '../llm-protocol/types.js';
+import { JsonObjectSchema } from '../lib/json-types.js';
 import { extractContentText } from '../llm-protocol/image-attachments.js';
 import { ModelJson } from '../lib/model-json.js';
 import { DEFAULT_RUN_TIMEOUT_MS, MAX_RUN_TIMEOUT_MS } from '../lib/powershell.js';
@@ -21,11 +22,11 @@ import {
   type StructuredOutputToolDefinition,
 } from '../providers/structured-output-schema.js';
 import { InferenceRequestBuilder } from '../llm-protocol/inference-request-builder.js';
-import { getFirstCommandToken } from './command-safety.js';
 import { getSupportedImageExtensions } from '../llm-protocol/image-attachments.js';
 import { buildInlineThinkPattern, THINK_OPEN_TAG } from '../llm-protocol/think-markers.js';
 import type { JsonLogger } from './types.js';
-import { RUN_OUTPUT_MODES } from './repo-tool-arguments.js';
+import { GitToolArgsSchema, RUN_OUTPUT_MODES } from './repo-tool-arguments.js';
+import { z } from '../lib/zod.js';
 import { REPO_AGENT_VALIDATION_OUTPUT_LINE_LIMIT } from './engine/runtime-profile.js';
 
 export type PlannerActionResponse = {
@@ -89,6 +90,7 @@ export type ChatMessage = {
 };
 
 const TEXT_ONLY_READ_DESCRIPTION = 'Read the contents of a repository file. Lines are returned numbered. Use offset/limit for large files; when you need the full file, continue with offset until complete. Lines already returned in this task are skipped automatically, and a read whose whole range was already returned is rejected. Editing or writing a file clears that history, so you can read it again to see your change.';
+const GIT_TOOL_PARAMETERS = JsonObjectSchema.parse(z.toJSONSchema(GitToolArgsSchema, { io: 'input' }));
 
 /**
  * Generated from IMAGE_MIME_MAP rather than hardcoded, so adding a format cannot leave the
@@ -101,8 +103,8 @@ function buildVisionReadDescription(textOnlyDescription: string): string {
     + 'picture itself for you to look at, not its bytes. `offset` and `limit` do not apply to images.';
 }
 
-// The tool surface mirrors pi.dev: read, write, edit, run, grep, find, ls — plus `git` (the only
-// command-string tool) and the two web tools. `write`, `edit` and `run` are implemented and tested
+// The tool surface mirrors pi.dev: read, write, edit, run, grep, find, ls — plus typed read-only
+// `git` and the two web tools. `write`, `edit` and `run` are implemented and tested
 // in engine/repo-tools.ts but deliberately absent from EXPOSED_REPO_TOOL_NAMES, so they never reach
 // a model. See docs/plan-pi-tool-surface.md.
 const REPO_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
@@ -242,14 +244,8 @@ const REPO_TOOL_REGISTRY: Record<string, StructuredOutputToolDefinition> = {
     type: 'function',
     function: {
       name: 'git',
-      description: "Run one read-only git command in the repository, e.g. 'git status --short', 'git log -n 20 --oneline', 'git show <ref>:<path>', 'git blame -L 40,80 <path>'. History and working-tree inspection only; commands that mutate the repository are rejected.",
-      parameters: {
-        type: 'object',
-        properties: {
-          command: { type: 'string', description: "The full git command line, starting with 'git'" },
-        },
-        required: ['command'],
-      },
+      description: 'Inspect repository state with one typed read-only operation: status, log, show, diff, blame, grep, or ls_files.',
+      parameters: GIT_TOOL_PARAMETERS,
     },
   },
   web_search: {
@@ -287,36 +283,19 @@ export const EXPOSED_REPO_TOOL_NAMES = ['read', 'grep', 'find', 'ls', 'git', 'we
 /** Full surface for interactive (human-approved) runs. */
 export const INTERACTIVE_REPO_TOOL_NAMES = [...EXPOSED_REPO_TOOL_NAMES, 'write', 'edit', 'run'] as const;
 
-/** `git` is the only tool whose args carry a raw command string; everything else is native. */
-export const REPO_COMMAND_TOOL_NAME = 'git';
-
 const EXPOSED_REPO_TOOL_NAME_SET = new Set<string>(EXPOSED_REPO_TOOL_NAMES);
 const REGISTERED_REPO_TOOL_NAME_SET = new Set<string>(Object.keys(REPO_TOOL_REGISTRY));
 const WEB_TOOL_NAMES = new Set<string>(['web_search', 'web_fetch']);
 
 /**
- * Tools that run an arbitrary command and so can rewrite the tree without reporting which paths
- * they touched. Native tools report a mutated path instead; anything listed here forces callers to
- * assume every path changed. Add new command-shaped tools here when they join the registry.
- */
-const MUTATING_COMMAND_TOOL_NAMES = new Set<string>(['run', 'git']);
-
-/**
  * Tools that can change the working tree, so an identical earlier query may now have a different
- * answer and must not be rejected as a repeat. `git` is deliberately absent: evaluateCommandSafety
- * only admits READ_ONLY_GIT_SUBCOMMANDS and allow-listed read-only pipeline stages/script-block
- * statements, so a git call cannot change the tree. That is narrower than
- * MUTATING_COMMAND_TOOL_NAMES above, which stays conservative because a stale read window is worse
- * than a redundant one.
+ * answer and must not be rejected as a repeat. Typed Git is deliberately absent because its fixed
+ * native operations cannot mutate the working tree.
  */
 const TREE_MUTATING_TOOL_NAMES = new Set<string>(['run', 'write', 'edit']);
 
 export function normalizeToolName(toolName: string): string {
   return String(toolName || '').trim().toLowerCase();
-}
-
-export function isMutatingCommandToolName(toolName: string): boolean {
-  return MUTATING_COMMAND_TOOL_NAMES.has(normalizeToolName(toolName));
 }
 
 export function isTreeMutatingToolName(toolName: string): boolean {
@@ -331,13 +310,9 @@ export function getRepoSearchToolNamesForParsing(): string[] {
   return EXPOSED_REPO_TOOL_NAMES.filter((toolName) => !WEB_TOOL_NAMES.has(toolName));
 }
 
-export function isRepoSearchCommandToolName(toolName: string): boolean {
-  return normalizeToolName(toolName) === REPO_COMMAND_TOOL_NAME;
-}
-
 export function isRepoSearchNativeToolName(toolName: string): boolean {
   const normalized = normalizeToolName(toolName);
-  return REGISTERED_REPO_TOOL_NAME_SET.has(normalized) && normalized !== REPO_COMMAND_TOOL_NAME;
+  return REGISTERED_REPO_TOOL_NAME_SET.has(normalized);
 }
 
 export function sanitizeNonInteractiveAllowedTools(allowedToolNames: string[] | undefined): string[] | undefined {
@@ -347,30 +322,6 @@ export function sanitizeNonInteractiveAllowedTools(allowedToolNames: string[] | 
   return allowedToolNames.filter((toolName) => EXPOSED_REPO_TOOL_NAME_SET.has(normalizeToolName(toolName)));
 }
 
-export function getRepoSearchCommandTokenForToolName(toolName: string): string | null {
-  return isRepoSearchCommandToolName(toolName) ? REPO_COMMAND_TOOL_NAME : null;
-}
-
-/**
- * `git` is the only tool whose argument is a raw command line, and the expected leading token is a
- * constant. A model that omits it (`"status"` instead of `"git status"`) has still supplied a complete,
- * unambiguous command, so the token is prepended rather than the call rejected. Mutating subcommands
- * are still stopped downstream by `evaluateCommandSafety`, which is what actually guards PowerShell.
- */
-export function normalizeRepoSearchCommandForToolName(toolName: string, command: string): string {
-  const trimmed = command.trim();
-  const token = getRepoSearchCommandTokenForToolName(toolName);
-  if (!token || !trimmed) {
-    return trimmed;
-  }
-  return getFirstCommandToken(trimmed) === token ? trimmed : `${token} ${trimmed}`;
-}
-
-export function getRepoSearchToolNameForCommand(command: string): string | null {
-  return getFirstCommandToken(String(command || '').trim()) === REPO_COMMAND_TOOL_NAME
-    ? REPO_COMMAND_TOOL_NAME
-    : null;
-}
 
 export function resolveRepoSearchPlannerToolDefinitions(
   allowedToolNames?: readonly string[],
@@ -980,20 +931,4 @@ export function renderTaskTranscript(
     }
     return sections.join('\n');
   }).join('\n\n');
-}
-
-export function buildRepoSearchAssistantToolMessage(command: string, toolCallId: string, toolName?: string): ChatMessage {
-  const resolvedToolName = String(toolName || '').trim().toLowerCase() || getRepoSearchToolNameForCommand(command);
-  if (!resolvedToolName || !isRepoSearchCommandToolName(resolvedToolName)) {
-    throw new Error(`Cannot derive repo-search tool name from command: ${command}`);
-  }
-  return {
-    role: 'assistant',
-    content: '',
-    tool_calls: [{
-      id: toolCallId,
-      type: 'function',
-      function: { name: resolvedToolName, arguments: JSON.stringify({ command }) },
-    }],
-  };
 }

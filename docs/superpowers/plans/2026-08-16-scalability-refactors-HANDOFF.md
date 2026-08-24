@@ -87,15 +87,10 @@ archive, and it is idempotent and safe after `finish`.
 and export instead of each service growing its own temp-directory handling.
 
 **Open concern — resolved, no trade required.** This handoff previously recorded that streaming the
-export to a temp archive violated a §16.3 rule against leaving plaintext in a temp file, and offered
-to revert `ExportService` to the in-memory `ZipWriter`. **That rule does not exist.** The claim came
-from the old doc comment, not the spec:
-
-- `docs/superpowers/specs/2026-08-13-assistant-gate-e-hardening-design.md:129-130` — the flag
-  "decrypts them into the archive and writes an audit row".
-- Line 198 — restore uploads are explicitly parked "in a temp file".
-- Line 39 — the only "plaintext is never written" rule is about the **backup key** under §16.4,
-  which DPAPI still satisfies.
+export to a temp archive violated a rule against leaving plaintext in a temp file, and offered to
+revert `ExportService` to the in-memory `ZipWriter`. **That rule does not exist.** Decrypted exports
+may be written into the temporary archive, restore uploads may be parked in a temporary file, and
+the only value that must never be written in plaintext is the backup key, which DPAPI still protects.
 
 Task 9 of `2026-08-19-session-drift-remediation.md` removed the false citation and replaced it with
 the guarantee that does hold, now tested: a decrypted export lives alone in a `mkdtemp` directory

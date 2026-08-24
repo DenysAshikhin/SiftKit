@@ -27,6 +27,9 @@ const PathSchema = RequiredTrimmedTextSchema.transform((value) => restoreWindows
 const CommandSchema = RequiredTrimmedTextSchema.transform(restoreModelCommandSeparators);
 const PositiveIntegerSchema = z.number().int().positive();
 const VerbatimNonEmptyTextSchema = z.string().min(1);
+const GitRefSchema = RequiredTrimmedTextSchema
+  .refine((value) => !value.startsWith('-'), 'Git refs must not begin with "-".')
+  .refine((value) => !/[\u0000-\u001f\u007f]/u.test(value), 'Git refs must not contain ASCII control characters.');
 
 export const RUN_OUTPUT_MODES = ['auto', 'full'] as const;
 export const RunOutputModeSchema = z.enum(RUN_OUTPUT_MODES);
@@ -80,6 +83,53 @@ const RunToolArgsSchema = z.object({
   outputMode: RunOutputModeSchema.optional(),
 }).strict();
 
+export const GitToolArgsSchema = z.discriminatedUnion('operation', [
+  z.object({ operation: z.literal('status') }).strict(),
+  z.object({
+    operation: z.literal('log'),
+    limit: PositiveIntegerSchema.optional(),
+    ref: GitRefSchema.optional(),
+    path: PathSchema.optional(),
+    patches: z.boolean().optional(),
+  }).strict(),
+  z.object({
+    operation: z.literal('show'),
+    ref: GitRefSchema,
+    path: PathSchema.optional(),
+  }).strict(),
+  z.object({
+    operation: z.literal('diff'),
+    base: GitRefSchema.optional(),
+    target: GitRefSchema.optional(),
+    path: PathSchema.optional(),
+  }).strict(),
+  z.object({
+    operation: z.literal('blame'),
+    path: PathSchema,
+    startLine: PositiveIntegerSchema.optional(),
+    endLine: PositiveIntegerSchema.optional(),
+  }).strict().superRefine((args, context) => {
+    if ((args.startLine === undefined) !== (args.endLine === undefined)) {
+      context.addIssue({ code: 'custom', message: 'startLine and endLine must be supplied together.' });
+    } else if (args.startLine !== undefined && args.endLine !== undefined && args.startLine > args.endLine) {
+      context.addIssue({ code: 'custom', message: 'startLine must not exceed endLine.' });
+    }
+  }),
+  z.object({
+    operation: z.literal('grep'),
+    pattern: RequiredTrimmedTextSchema,
+    ref: GitRefSchema.optional(),
+    path: PathSchema.optional(),
+    ignoreCase: z.boolean().optional(),
+    limit: PositiveIntegerSchema.optional(),
+  }).strict(),
+  z.object({
+    operation: z.literal('ls_files'),
+    path: PathSchema.optional(),
+    limit: PositiveIntegerSchema.optional(),
+  }).strict(),
+]);
+
 const WebSearchToolArgsSchema = z.object({
   query: RequiredTrimmedTextSchema,
   timeFilter: z.enum(['day', 'week', 'month', 'year']).optional(),
@@ -97,6 +147,7 @@ export const RepoNativeToolCallSchema = z.discriminatedUnion('toolName', [
   z.object({ toolName: z.literal('write'), args: WriteToolArgsSchema }).strict(),
   z.object({ toolName: z.literal('edit'), args: EditToolArgsSchema }).strict(),
   z.object({ toolName: z.literal('run'), args: RunToolArgsSchema }).strict(),
+  z.object({ toolName: z.literal('git'), args: GitToolArgsSchema }).strict(),
   z.object({ toolName: z.literal('web_search'), args: WebSearchToolArgsSchema }).strict(),
   z.object({ toolName: z.literal('web_fetch'), args: WebFetchToolArgsSchema }).strict(),
 ]);
@@ -109,5 +160,6 @@ export type LsToolArgs = z.infer<typeof LsToolArgsSchema>;
 export type WriteToolArgs = z.infer<typeof WriteToolArgsSchema>;
 export type EditToolArgs = z.infer<typeof EditToolArgsSchema>;
 export type RunToolArgs = z.infer<typeof RunToolArgsSchema>;
+export type GitToolArgs = z.infer<typeof GitToolArgsSchema>;
 export type WebSearchToolArgs = z.infer<typeof WebSearchToolArgsSchema>;
 export type WebFetchToolArgs = z.infer<typeof WebFetchToolArgsSchema>;

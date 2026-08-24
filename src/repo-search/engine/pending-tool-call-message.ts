@@ -4,13 +4,7 @@ import {
   type AssistantToolCallMessage,
 } from '../../tool-call-messages.js';
 import {
-  buildEffectiveTranscriptAction,
-  buildRepoToolRequestedCommand,
-} from './repo-tools.js';
-import {
-  isRepoSearchCommandToolName,
   isRepoSearchNativeToolName,
-  normalizeRepoSearchCommandForToolName,
   normalizeToolName,
   type ToolAction,
 } from '../planner-protocol.js';
@@ -22,28 +16,17 @@ export function buildBatchToolCallId(turn: number, batchIndex: number): string {
 
 export type ResolvedToolActionIdentity = {
   normalizedToolName: string;
-  isCommandTool: boolean;
   isNativeTool: boolean;
-  command: string;
   rawArgs: JsonObject;
 };
 
 /** Decision-independent identity shared by pending-message construction and validation. */
 export function resolveToolActionIdentity(toolAction: ToolAction): ResolvedToolActionIdentity {
   const normalizedToolName = normalizeToolName(toolAction.tool_name);
-  const isCommandTool = isRepoSearchCommandToolName(normalizedToolName);
   const isNativeTool = isRepoSearchNativeToolName(normalizedToolName);
-  const command = isCommandTool
-    ? normalizeRepoSearchCommandForToolName(
-        normalizedToolName,
-        typeof toolAction.args.command === 'string' ? toolAction.args.command : '',
-      )
-    : buildRepoToolRequestedCommand(normalizedToolName, toolAction.args);
   return {
     normalizedToolName,
-    isCommandTool,
     isNativeTool,
-    command,
     rawArgs: toolAction.args,
   };
 }
@@ -58,12 +41,7 @@ export function buildPendingAssistantMessage(options: {
     options.toolActions.map((toolAction, index) => {
       const identity = resolveToolActionIdentity(toolAction);
       return {
-        action: buildEffectiveTranscriptAction({
-          toolName: identity.normalizedToolName,
-          rawArgs: identity.rawArgs,
-          isNativeTool: identity.isNativeTool,
-          commandToRun: identity.command,
-        }),
+        action: { tool_name: identity.normalizedToolName, args: identity.rawArgs },
         toolCallId: buildBatchToolCallId(options.turn, index),
         toolContent: '',
       };

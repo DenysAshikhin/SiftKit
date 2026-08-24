@@ -11,11 +11,11 @@ const REPO_SEARCH_BODY = {
   maxTurns: 2,
   availableModels: ['mock-model'],
   mockResponses: [
-    '{"action":"git","command":"git grep -n \\"x\\" src"}',
+    "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}",
     '{"action":"finish","output":"done"}',
   ],
   mockCommandResults: {
-    'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 400 },
+    "git operation=\"grep\" path=\"src\" pattern=\"x\"": { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 400 },
   },
 };
 
@@ -40,8 +40,8 @@ test('repo-search emits activity_summary after ten tool turns', async (t) => {
   const mockResponses: string[] = [];
   const mockCommandResults: Record<string, { exitCode: number; stdout: string; stderr: string; delayMs: number }> = {};
   for (let i = 1; i <= 10; i++) {
-    mockResponses.push(`{"action":"git","command":"git grep -n \\"x\\" src${i}"}`);
-    mockCommandResults[`git grep -n "x" src${i}`] = { exitCode: 0, stdout: `src${i}/example.ts:1:x`, stderr: '', delayMs: 50 };
+    mockResponses.push(`{"action":"git","operation":"grep","pattern":"x","path":"src${i}"}`);
+    mockCommandResults[`git operation="grep" path="src${i}" pattern="x"`] = { exitCode: 0, stdout: `src${i}/example.ts:1:x`, stderr: '', delayMs: 50 };
   }
   mockResponses.push('{"action":"finish","output":"done"}');
   const response = await requestSse(`${harness.baseUrl}/repo-search`, {
@@ -66,9 +66,9 @@ test('repo-search emits activity_summary after ten tool turns', async (t) => {
   assert.ok(Array.isArray(summaryEvents[0].entries));
 });
 
-test('queued repo-search sees lock_wait progress while a slow run holds the lock', async (t) => {
-  // The queued request only starts waiting after the holder's tool_start frame crosses
-  // SSE. A 250ms emit interval against a 1500ms hold keeps over a second of absolute
+test('queued repo-search sees lock_wait progress while a slow native tool holds the lock', async (t) => {
+  // The queued request starts after the holder's first progress frame crosses SSE.
+  // A 250ms emit interval against a 1500ms hold keeps over a second of absolute
   // margin for that propagation under full-suite load, without spending real seconds
   // waiting out the production 2s first tick.
   process.env.SIFTKIT_LOCK_WAIT_EMIT_INTERVAL_MS = '250';
@@ -80,7 +80,7 @@ test('queued repo-search sees lock_wait progress while a slow run holds the lock
     ...REPO_SEARCH_BODY,
     repoRoot: process.cwd(),
     mockCommandResults: {
-      'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 1_500 },
+      "git operation=\"grep\" path=\"src\" pattern=\"x\"": { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 1_500 },
     },
   };
   let resolveHolderStarted: (() => void) | null = null;
@@ -90,8 +90,8 @@ test('queued repo-search sees lock_wait progress while a slow run holds the lock
   const holder = requestSse(`${harness.baseUrl}/repo-search`, {
     body: slowBody,
     timeoutMs: 20_000,
-    onProgress(event) {
-      if (event.kind === 'tool_start') resolveHolderStarted?.();
+    onProgress() {
+      resolveHolderStarted?.();
     },
   });
   await holderStarted;
@@ -122,7 +122,7 @@ test('client disconnect aborts the run and frees the lock', async (t) => {
     ...REPO_SEARCH_BODY,
     repoRoot: process.cwd(),
     mockCommandResults: {
-      'git grep -n "x" src': { exitCode: 0, stdout: 'x', stderr: '', delayMs: 10_000 },
+      "git operation=\"grep\" path=\"src\" pattern=\"x\"": { exitCode: 0, stdout: 'x', stderr: '', delayMs: 10_000 },
     },
   });
   await new Promise<void>((resolve, reject) => {
@@ -174,11 +174,11 @@ test('sanity-check failure surfaces as an error frame', async (t) => {
     maxTurns: 8,
     availableModels: ['mock-model'],
     mockResponses: [
-      ...terms.map((term) => JSON.stringify({ action: 'git', command: `git grep -n "${term}" src` })),
+      ...terms.map((term) => JSON.stringify({ action: 'git', operation: 'grep', pattern: term, path: 'src' })),
       JSON.stringify({ action: 'finish', output: [...duplicated, ...duplicated].join('\n') }),
     ],
     mockCommandResults: Object.fromEntries(terms.map((term, index) => [
-      `git grep -n "${term}" src`,
+      `git operation="grep" path="src" pattern=${JSON.stringify(term)}`,
       { exitCode: 0, stdout: `src/${index}.ts:1:${term}`, stderr: '' },
     ])),
   };

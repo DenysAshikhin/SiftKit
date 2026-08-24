@@ -14,8 +14,8 @@ import { asObject, asObjectArray, requestJson, requestSse, type Dict } from './h
 const CHAT_PROMPT = 'What is 2+2?';
 const CHAT_ANSWER = '4';
 const MOCK_FINISH_RESPONSE = `{"action":"finish","output":"${CHAT_ANSWER}"}`;
-const MOCK_TOOL_RESPONSE = '{"action":"git","command":"git grep -n \\"test\\" ."}';
-const MOCK_TOOL_COMMAND = 'git grep -n "test" .';
+const MOCK_TOOL_RESPONSE = "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"test\",\"path\":\".\"}";
+const MOCK_TOOL_COMMAND = "git operation=\"grep\" path=\".\" pattern=\"test\"";
 
 const BACKEND_USAGE = {
   prompt_tokens: 123,

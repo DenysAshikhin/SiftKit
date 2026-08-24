@@ -96,7 +96,7 @@ for (const toolName of ['read', 'grep', 'find', 'ls', 'git', 'run', 'web_search'
   test(`${toolName} does not duplicate its arguments into an approval payload`, () => {
     assert.equal(buildApprovalReviewPayload({
       toolName,
-      args: { command: 'git status --short' },
+      args: toolName === 'git' ? { operation: 'status' } : { command: 'git status --short' },
     }), null);
   });
 }

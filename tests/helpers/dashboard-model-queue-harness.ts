@@ -51,7 +51,7 @@ function readUserContents(body: string): string[] {
 const QUEUE_WAIT_TIMEOUT_MS = 2_000;
 const QUEUE_POLL_INTERVAL_MS = 10;
 const LOCK_HOLDER_MODEL = 'Qwen3.5-35B-A3B-UD-Q4_K_L.gguf';
-const LOCK_HOLDER_COMMAND = 'git grep -n "x" src';
+const LOCK_HOLDER_COMMAND = "git operation=\"grep\" path=\"src\" pattern=\"x\"";
 
 export interface DashboardModelQueueHarnessOptions {
   /**
@@ -124,7 +124,7 @@ export class DashboardModelQueueHarness {
         request.on('end', () => {
           this.fakeTabbyModel.applyLoad(body);
           response.writeHead(200, { 'content-type': 'text/event-stream' });
-          response.end('data: {"model_type":"model","module":1,"modules":1,"status":"finished"}\n\n');
+          response.end("data: {\"model_type\":\"model\",\"module\":1,\"modules\":1,\"status\":\"finished\"}\n\n");
         });
         return;
       }
@@ -416,7 +416,7 @@ export class DashboardModelQueueHarness {
         simulateWorkMs: 80,
         availableModels: [LOCK_HOLDER_MODEL],
         mockResponses: [
-          `{"action":"git","command":"${LOCK_HOLDER_COMMAND.replaceAll('"', '\\"')}"}`,
+          '{"action":"git","operation":"grep","pattern":"x","path":"src"}',
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {

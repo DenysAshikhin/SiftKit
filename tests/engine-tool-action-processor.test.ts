@@ -144,14 +144,54 @@ test('TaskCommandSchema rejects a negative or fractional promptTokenCount', () =
   assert.equal(TaskCommandSchema.safeParse({ ...base, promptTokenCount: 1.5 }).success, false);
 });
 
-test('a git action whose command omits the git token is normalized instead of rejected', async () => {
+test('a typed Git action executes through the native tool path', async () => {
   const root = createManagedTempDir('siftkit-git-prefix-');
-  const { processor, commands, counters } = makeProcessor(root, ['git']);
+  const { processor, commands, counters, events } = makeProcessor(root, ['git']);
 
-  await processor.executeBatch(1, [{ action: 'tool', tool_name: 'git', args: { command: 'status' } }], '', { reported: 0, budgeted: 0 }, false);
+  await processor.executeBatch(1, [{ action: 'tool', tool_name: 'git', args: { operation: 'status' } }], '', { reported: 0, budgeted: 0 }, false);
 
   assert.equal(counters.invalidResponses, 0);
-  assert.equal(commands[0]?.command, 'git status');
+  assert.equal(commands[0]?.command, 'git operation="status"');
+  assert.equal(events.some((event) => event.kind === 'turn_command_start' && event.native === true), true);
+});
+
+test('native command start is observable before delayed execution completes', async () => {
+  const root = createManagedTempDir('siftkit-native-start-order-');
+  const { processor, events } = makeProcessor(
+    root,
+    ['git'],
+    'repo-search',
+    null,
+    { 'git operation="status"': { exitCode: 0, stdout: '', stderr: '', delayMs: 50 } },
+  );
+
+  const pending = processor.executeBatch(
+    1,
+    [{ action: 'tool', tool_name: 'git', args: { operation: 'status' } }],
+    '',
+    { reported: 0, budgeted: 0 },
+    false,
+  );
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const startedBeforeCompletion = events.some((event) => event.kind === 'turn_command_start');
+  await pending;
+
+  assert.equal(startedBeforeCompletion, true);
+});
+
+test('accepted native tools do not emit obsolete command-safety telemetry', async () => {
+  const root = createManagedTempDir('siftkit-no-safety-event-');
+  const { processor, events } = makeProcessor(root);
+
+  await processor.executeBatch(
+    1,
+    [{ action: 'tool', tool_name: 'ls', args: { path: '.' } }],
+    '',
+    { reported: 0, budgeted: 0 },
+    false,
+  );
+
+  assert.equal(events.some((event) => event.kind === 'turn_command_safety'), false);
 });
 
 test('decayInvalidResponses steps the counter down and floors at zero', () => {
@@ -203,7 +243,7 @@ test('a valid action whose command exits non-zero still decays the counter', asy
 
   await processor.executeBatch(
     1,
-    [{ action: 'tool', tool_name: 'git', args: { command: 'git log --oneline -1' } }],
+    [{ action: 'tool', tool_name: 'git', args: { operation: 'log', limit: 1 } }],
     '',
     { reported: 0, budgeted: 0 },
     false,
@@ -234,15 +274,13 @@ test('a duplicate-rejected action does not decay the invalid-response counter', 
   assert.equal(counters.invalidResponses, 1);
 });
 
-// Rejected actions used to buy back a strike, so a model alternating malformed actions with
-// unsafe-but-distinct commands never reached the limit and only `max_turns` ended the run.
-test('malformed actions alternating with safety-rejected ones still hit the invalid-response limit', async () => {
+test('malformed actions alternating with invalid Git operations still hit the invalid-response limit', async () => {
   const root = createManagedTempDir('siftkit-decay-unsafe-');
   const { processor, counters } = makeProcessor(root, ['ls', 'git']);
   const actions: ToolAction[] = [];
   for (let index = 0; index < 3; index += 1) {
     actions.push({ action: 'tool', tool_name: 'frobnicate', args: {} });
-    actions.push({ action: 'tool', tool_name: 'git', args: { command: `git push origin branch-${index}` } });
+    actions.push({ action: 'tool', tool_name: 'git', args: { operation: `push-${index}` } });
   }
 
   await processor.executeBatch(1, actions, '', { reported: 0, budgeted: 0 }, false);

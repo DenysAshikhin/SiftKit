@@ -105,6 +105,10 @@ test('buildRepoToolRequestedCommand covers every tool', () => {
   assert.equal(buildRepoToolRequestedCommand('run', { command: 'git status' }), 'run command="git status"');
   assert.equal(buildRepoToolRequestedCommand('web_search', { query: ' q ' }), 'web_search query="q"');
   assert.equal(buildRepoToolRequestedCommand('web_fetch', { url: 'https://x' }), 'web_fetch url="https://x"');
+  assert.throws(
+    () => buildRepoToolRequestedCommand('git', { command: 'git status' }),
+    /operation|invalid/iu,
+  );
 });
 
 test('edit command strings differ when edit content differs', () => {
@@ -134,30 +138,27 @@ test('buildEffectiveTranscriptAction re-parses the executed read window', () => 
   const action = buildEffectiveTranscriptAction({
     toolName: 'read',
     rawArgs: { path: 'src/a.ts', offset: 1, limit: 99 },
-    isNativeTool: true,
     commandToRun: 'read path="src/a.ts" offset=1 limit=2',
   });
   assert.deepEqual(action, { tool_name: 'read', args: { path: 'src/a.ts', offset: 1, limit: 2 } });
 });
 
-test('buildEffectiveTranscriptAction passes command tools through as a command arg', () => {
+test('buildEffectiveTranscriptAction preserves typed Git arguments', () => {
   const action = buildEffectiveTranscriptAction({
     toolName: 'git',
-    rawArgs: { command: 'git status --short' },
-    isNativeTool: false,
-    commandToRun: 'git status --short',
+    rawArgs: { operation: 'status' },
+    commandToRun: 'git operation="status"',
   });
-  assert.deepEqual(action, { tool_name: 'git', args: { command: 'git status --short' } });
+  assert.deepEqual(action, { tool_name: 'git', args: { operation: 'status' } });
 });
 
 test('buildRejectedTranscriptAction keeps small argument payloads intact', () => {
   const action = buildRejectedTranscriptAction({
     toolName: 'git',
-    rawArgs: { command: 'git status --short' },
-    isNativeTool: false,
-    commandToRun: 'git status --short',
+    rawArgs: { operation: 'status' },
+    commandToRun: 'git operation="status"',
   });
-  assert.deepEqual(action, { tool_name: 'git', args: { command: 'git status --short' } });
+  assert.deepEqual(action, { tool_name: 'git', args: { operation: 'status' } });
 });
 
 test('buildRejectedTranscriptAction elides an oversized argument payload', () => {
@@ -166,7 +167,6 @@ test('buildRejectedTranscriptAction elides an oversized argument payload', () =>
   const action = buildRejectedTranscriptAction({
     toolName: 'edit',
     rawArgs: { path: 'src/summary/core-runner.ts', oldText, newText },
-    isNativeTool: true,
     commandToRun: 'edit path="src/summary/core-runner.ts"',
   });
   assert.equal(action.tool_name, 'edit');
@@ -179,7 +179,6 @@ test('buildRejectedTranscriptAction elides exactly above the limit', () => {
   const build = (padding: number) => buildRejectedTranscriptAction({
     toolName: 'run_repo_cmd',
     rawArgs: { command: 'x'.repeat(padding) },
-    isNativeTool: false,
     commandToRun: 'x'.repeat(padding),
   });
   const atLimit = build(REJECTED_ARGS_ELISION_LIMIT - 20);

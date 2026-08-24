@@ -76,11 +76,11 @@ test('chat loopKind with zero planner tools rejects repo-search tool actions', a
       runtimeProfile: CHAT_RUNTIME_PROFILE,
       plannerToolDefinitions: [],
       mockResponses: [
-        '{"action":"git","command":"git grep -n \\"needle\\" ."}',
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"needle\",\"path\":\".\"}",
         '{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
-        'git grep -n "needle" .': { exitCode: 0, stdout: 'should not execute', stderr: '' },
+        "git operation=\"grep\" path=\".\" pattern=\"needle\"": { exitCode: 0, stdout: 'should not execute', stderr: '' },
       },
     },
   );
@@ -156,11 +156,11 @@ test('tool token totals sum command output tokens', async () => {
       maxTurns: 2,
       maxInvalidResponses: 2,
       mockResponses: [
-        '{"action":"git","command":"git grep -n \\"x\\" src"}',
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}",
         '{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
-        'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x\n'.repeat(4), stderr: '' },
+        "git operation=\"grep\" path=\"src\" pattern=\"x\"": { exitCode: 0, stdout: 'src/example.ts:1:x\n'.repeat(4), stderr: '' },
       },
     },
   );

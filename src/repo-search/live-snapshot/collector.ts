@@ -11,7 +11,6 @@ import {
   RunStartEventSchema,
   TaskDoneEventSchema,
   TurnCommandResultEventSchema,
-  TurnCommandSafetyEventSchema,
   TurnCommandStartEventSchema,
   TurnModelRequestEventSchema,
   TurnModelResponseEventSchema,
@@ -58,7 +57,6 @@ type MutableTurn = {
   completionTokens: number | null;
   thinkingTokens: number | null;
   providerRequests: MutableProviderRequest[];
-  safety: { safe: boolean; reason: string | null } | null;
   approval: { verdict: string; reason: string } | null;
   tool: MutableTool | null;
 };
@@ -165,7 +163,6 @@ export class LiveRunSnapshotCollector {
       case 'provider_request_error': return this.onProviderError(event);
       case 'turn_model_response': return this.onModelResponse(event);
       case 'approval_verdict': return this.onApprovalVerdict(event);
-      case 'turn_command_safety': return this.onCommandSafety(event);
       case 'turn_command_start': return this.onCommandStart(event);
       case 'turn_command_result': return this.onCommandResult(event);
       case 'task_done': return this.onTaskDone(event);
@@ -247,7 +244,6 @@ export class LiveRunSnapshotCollector {
         statusCode: request.statusCode,
         error: request.error,
       })),
-      safety: turn.safety,
       approval: turn.approval,
       tool: turn.tool === null ? null : {
         toolName: turn.tool.toolName,
@@ -284,7 +280,6 @@ export class LiveRunSnapshotCollector {
       completionTokens: null,
       thinkingTokens: null,
       providerRequests: [],
-      safety: null,
       approval: null,
       tool: null,
     };
@@ -428,20 +423,6 @@ export class LiveRunSnapshotCollector {
     };
     if (parsed.data.verdict === 'deny') {
       this.counters.approvalDenials += 1;
-    }
-  }
-
-  private onCommandSafety(event: Record<string, JsonSerializable>): void {
-    const parsed = TurnCommandSafetyEventSchema.safeParse(event);
-    if (!parsed.success) {
-      return;
-    }
-    this.ensureTurn(parsed.data.turn).safety = {
-      safe: parsed.data.safe,
-      reason: parsed.data.reason ?? null,
-    };
-    if (!parsed.data.safe) {
-      this.counters.safetyRejects += 1;
     }
   }
 

@@ -36,12 +36,11 @@ type ParsedReplayCommand = {
 
 /**
  * Persisted tool commands replay as the tool call that produced them. Native tools persist the
- * synthetic `<tool> key=<json>` form built by buildRepoToolRequestedCommand; `git` persists its raw
- * command line. Kept in step with EXPOSED_REPO_TOOL_NAMES in repo-search/planner-protocol.ts —
+ * synthetic `<tool> key=<json>` form built by buildRepoToolRequestedCommand. Kept in step with
+ * EXPOSED_REPO_TOOL_NAMES in repo-search/planner-protocol.ts —
  * importing it here would close an import cycle.
  */
-const REPLAY_NATIVE_TOOL_NAMES = new Set<string>(['read', 'grep', 'find', 'ls', 'web_search', 'web_fetch']);
-const REPLAY_COMMAND_TOOL_NAME = 'git';
+const REPLAY_NATIVE_TOOL_NAMES = new Set<string>(['read', 'grep', 'find', 'ls', 'git', 'web_search', 'web_fetch']);
 const REPLAY_ARGUMENT_PATTERN = /([A-Za-z][A-Za-z0-9_]*)=("(?:\\.|[^"\\])*"|true|false|-?\d+(?:\.\d+)?)/gu;
 
 export class LlamaCppToolCallParser {
@@ -152,9 +151,6 @@ export function buildReplayToolCall(input: ReplayToolCallInput): LlamaCppToolCal
 function parseReplayCommand(command: string): ParsedReplayCommand | null {
   const text = command.trim();
   const toolName = getFirstCommandToken(text);
-  if (toolName === REPLAY_COMMAND_TOOL_NAME) {
-    return { toolName, args: { command: text } };
-  }
   if (!REPLAY_NATIVE_TOOL_NAMES.has(toolName)) {
     return null;
   }

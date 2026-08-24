@@ -24,7 +24,7 @@ Plus two retained non-pi tools:
 
 | tool | params | exposed? | notes |
 |---|---|---|---|
-| `git` | `command` | ✅ | the **only** command-string tool. Renamed from `repo_git` (bare naming). |
+| `git` | typed `operation` union | ✅ | Native read-only status/log/show/diff/blame/grep/ls-files inspection. |
 | `web_search` / `web_fetch` | unchanged | ✅ | unchanged |
 
 **Exposed set (7):** `read`, `grep`, `find`, `ls`, `git`, `web_search`, `web_fetch`.

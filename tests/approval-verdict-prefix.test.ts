@@ -33,22 +33,20 @@ test('the pending message equals the appended message when every call is approve
   assert.deepEqual(pending, appended);
 });
 
-test('pending and validated command tools share one normalized identity', () => {
-  const toolAction = { action: 'tool' as const, tool_name: 'git', args: { command: 'status --short' } };
+test('pending and validated typed Git tools share one normalized identity', () => {
+  const toolAction = { action: 'tool' as const, tool_name: 'git', args: { operation: 'status' } };
 
   assert.deepEqual(resolveToolActionIdentity(toolAction), {
     normalizedToolName: 'git',
-    isCommandTool: true,
-    isNativeTool: false,
-    command: 'git status --short',
-    rawArgs: { command: 'status --short' },
+    isNativeTool: true,
+    rawArgs: { operation: 'status' },
   });
   const pending = buildPendingAssistantMessage({
     turn: 4,
     thinkingText: '',
     toolActions: [toolAction],
   });
-  assert.equal(pending.tool_calls[0]?.function.arguments, '{"command":"git status --short"}');
+  assert.equal(pending.tool_calls[0]?.function.arguments, '{"operation":"status"}');
 });
 
 test('the verdict prompt is transcript, then pending message, then question', () => {

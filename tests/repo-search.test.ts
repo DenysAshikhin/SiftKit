@@ -395,11 +395,11 @@ test('executeRepoSearchRequest with mock command executes and returns scorecard'
       repoRoot: tempRoot,
       maxTurns: 2,
       mockResponses: [
-        "{\"action\":\"git\",\"command\":\"git status --short\"}",
+        "{\"action\":\"git\",\"operation\":\"status\"}",
         '{"action":"finish","output":"Found scripts"}',
       ],
       mockCommandResults: {
-        'git status --short': { exitCode: 0, stdout: '', stderr: '' },
+        "git operation=\"status\"": { exitCode: 0, stdout: '', stderr: '' },
       },
     });
     assert.equal(typeof result.scorecard, 'object');
@@ -518,13 +518,13 @@ test('executeRepoSearchRequest does not force finish from elapsed tool-loop time
       repoRoot: tempRoot,
       maxTurns: 3,
       mockResponses: [
-        "{\"action\":\"git\",\"command\":\"git status --short\"}",
-        "{\"action\":\"git\",\"command\":\"git status --porcelain\"}",
+        "{\"action\":\"git\",\"operation\":\"status\"}",
+        '{"action":"git","operation":"log","limit":1}',
         '{"action":"finish","output":"budget answer"}',
       ],
       mockCommandResults: {
-        'git status --short': { exitCode: 0, stdout: 'slow evidence', stderr: '', delayMs: 40 },
-        'git status --porcelain': { exitCode: 0, stdout: 'should not run', stderr: '' },
+        "git operation=\"status\"": { exitCode: 0, stdout: 'slow evidence', stderr: '', delayMs: 40 },
+        'git operation="log" limit=1': { exitCode: 0, stdout: 'should not run', stderr: '' },
       },
     });
 
@@ -554,12 +554,12 @@ test('executeRepoSearchRequest fits native reads using per-tool context limits',
       repoRoot: tempRoot,
       maxTurns: 4,
       mockResponses: [
-        '{"action":"git","command":"git status --short"}',
+        "{\"action\":\"git\",\"operation\":\"status\"}",
         '{"action":"read","path":"src/big.ts","offset":300,"limit":601}',
         '{"action":"finish","output":"budget answer"}',
       ],
       mockCommandResults: {
-        'git status --short': { exitCode: 0, stdout: 'slow evidence', stderr: '', delayMs: 40 },
+        "git operation=\"status\"": { exitCode: 0, stdout: 'slow evidence', stderr: '', delayMs: 40 },
       },
     });
 
@@ -598,9 +598,9 @@ test('executeRepoSearchRequest persists summed prompt-eval and generation durati
       });
       if (requestCount === 1) {
         setTimeout(() => {
-          res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"git\\",\\"command\\":\\"git status --short\\"}"}}]}\n\n');
+          res.write("data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"action\\\":\\\"git\\\",\\\"operation\\\":\\\"status\\\"}\"}}]}\n\n");
           setTimeout(() => {
-            res.write('data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":30,"completion_tokens":4,"completion_tokens_details":{"reasoning_tokens":6},"prompt_tokens_details":{"cached_tokens":20}}}\n\n');
+            res.write("data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":30,\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":6},\"prompt_tokens_details\":{\"cached_tokens\":20}}}\n\n");
             res.write('data: [DONE]\n\n');
             res.end();
           }, 20);
@@ -608,9 +608,9 @@ test('executeRepoSearchRequest persists summed prompt-eval and generation durati
         return;
       }
       setTimeout(() => {
-        res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"finish\\",\\"output\\":\\"done\\"}"}}]}\n\n');
+        res.write("data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"action\\\":\\\"finish\\\",\\\"output\\\":\\\"done\\\"}\"}}]}\n\n");
         setTimeout(() => {
-          res.write('data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":22,"completion_tokens":5,"completion_tokens_details":{"reasoning_tokens":3},"prompt_tokens_details":{"cached_tokens":15}}}\n\n');
+          res.write("data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":22,\"completion_tokens\":5,\"completion_tokens_details\":{\"reasoning_tokens\":3},\"prompt_tokens_details\":{\"cached_tokens\":15}}}\n\n");
           res.write('data: [DONE]\n\n');
           res.end();
         }, 20);
@@ -638,7 +638,7 @@ test('executeRepoSearchRequest persists summed prompt-eval and generation durati
         statusBackendUrl: stub.statusUrl,
         maxTurns: 2,
         mockCommandResults: {
-          'git status --short': { exitCode: 0, stdout: '', stderr: '' },
+          "git operation=\"status\"": { exitCode: 0, stdout: '', stderr: '' },
         },
         progressWriter: new SilentProgressWriter<RepoSearchProgressEvent>(),
       });

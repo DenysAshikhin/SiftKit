@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { existsSync, statSync, readdirSync, writeFileSync, mkdirSync, realpathSync } from 'node:fs';
-import { resolve, relative, isAbsolute, join, dirname, posix } from 'node:path';
+import { existsSync, statSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join, dirname, posix } from 'node:path';
 import { z } from 'zod';
 import { type IgnorePolicy } from '../command-safety.js';
 import { estimateTokenCount } from '../../lib/token-estimate.js';
@@ -22,10 +22,13 @@ import type {
   RunToolArgs,
   WriteToolArgs,
 } from '../repo-tool-arguments.js';
+import { GitToolArgsSchema } from '../repo-tool-arguments.js';
+import { ReadOnlyGitTool, buildReadOnlyGitCommand } from './read-only-git-tool.js';
 import { WebResearchTools } from '../../web-search/web-research-tools.js';
 import type { ImageDataUrl, ImageMetadata, ImageTokenBudget } from '@siftkit/contracts';
 import { isImagePath } from '../../llm-protocol/image-attachments.js';
 import { executeImageRead } from './image-read.js';
+import { isRepoRelativePathIgnored, resolveRepoScopedPath, toPosixPath } from './repo-paths.js';
 
 export const GREP_DEFAULT_LIMIT = 100;
 export const FIND_DEFAULT_LIMIT = 1000;
@@ -260,6 +263,9 @@ export function buildRepoToolRequestedCommand(toolName: string, args: JsonObject
       ['timeoutMs', parsePositiveInteger(args.timeoutMs)],
     ]);
   }
+  if (toolName === 'git') {
+    return buildReadOnlyGitCommand(GitToolArgsSchema.parse(args));
+  }
   if (toolName === 'web_search') {
     return formatToolCommand('web_search', [['query', readString(args.query)]]);
   }
@@ -267,6 +273,13 @@ export function buildRepoToolRequestedCommand(toolName: string, args: JsonObject
     return formatToolCommand('web_fetch', [['url', readString(args.url)]]);
   }
   return formatToolCommand(toolName, []);
+}
+
+export function buildNativeToolRequestedCommand(call: RepoNativeToolCall): string {
+  if (call.toolName === 'git') {
+    return buildReadOnlyGitCommand(call.args);
+  }
+  return buildRepoToolRequestedCommand(call.toolName, call.args);
 }
 
 function parseEffectiveReadArgs(command: string, fallbackArgs: JsonObject): JsonObject {
@@ -291,12 +304,8 @@ function parseEffectiveReadArgs(command: string, fallbackArgs: JsonObject): Json
 export function buildEffectiveTranscriptAction(options: {
   toolName: string;
   rawArgs: JsonObject;
-  isNativeTool: boolean;
   commandToRun: string;
 }): ToolTranscriptAction {
-  if (!options.isNativeTool) {
-    return { tool_name: options.toolName, args: { command: options.commandToRun } };
-  }
   if (options.toolName === 'read') {
     return { tool_name: options.toolName, args: parseEffectiveReadArgs(options.commandToRun, options.rawArgs) };
   }
@@ -317,7 +326,6 @@ export const REJECTED_ARGS_ELISION_LIMIT = 512;
 export function buildRejectedTranscriptAction(options: {
   toolName: string;
   rawArgs: JsonObject;
-  isNativeTool: boolean;
   commandToRun: string;
 }): ToolTranscriptAction {
   const effective = buildEffectiveTranscriptAction(options);
@@ -331,73 +339,6 @@ export function buildRejectedTranscriptAction(options: {
       elided: `rejected ${effective.tool_name} call; ${serializedLength.toLocaleString('en-US')} chars of arguments discarded`,
     },
   };
-}
-
-// ---------------------------------------------------------------------------
-// Repo-scoped path resolution
-// ---------------------------------------------------------------------------
-
-function toPosixPath(value: string): string {
-  return value.replace(/\\/gu, '/');
-}
-
-function isRepoRelativePathIgnored(relativePath: string, ignorePolicy: IgnorePolicy): boolean {
-  const normalized = toPosixPath(relativePath).replace(/^\.\/+/u, '');
-  if (!normalized) {
-    return false;
-  }
-  const segments = normalized.split('/').filter(Boolean);
-  if (segments.some((segment) => ignorePolicy.namesLower.has(segment.toLowerCase()))) {
-    return true;
-  }
-  return ignorePolicy.paths.some((ignoredPath) => (
-    normalized === ignoredPath || normalized.startsWith(`${ignoredPath}/`)
-  ));
-}
-
-/** The deepest ancestor of the path that exists on disk — the whole path, for read targets. */
-function firstExistingAncestor(absolutePath: string): string {
-  let current = absolutePath;
-  while (!existsSync(current)) {
-    const parent = dirname(current);
-    if (parent === current) {
-      break;
-    }
-    current = parent;
-  }
-  return current;
-}
-
-/**
- * The lexical check above only constrains the path *string*. Symlinks are resolved by the
- * filesystem afterwards, so an in-repo link to an outside target passes the string check and
- * still escapes. Comparing realpaths closes that; realpathing the root too keeps a symlinked
- * repo root (macOS /tmp) working.
- */
-function escapesRepoRootViaSymlink(repoRoot: string, absolutePath: string): boolean {
-  const realRoot = realpathSync(repoRoot);
-  const realTarget = realpathSync(firstExistingAncestor(absolutePath));
-  const relativePath = relative(realRoot, realTarget);
-  return relativePath.startsWith('..') || isAbsolute(relativePath);
-}
-
-function resolveRepoScopedPath(repoRoot: string, rawPath: OptionalJsonValue): {
-  absolutePath: string;
-  relativePath: string;
-} | null {
-  const pathText = readString(rawPath);
-  if (!pathText) {
-    return null;
-  }
-  const absolutePath = resolve(repoRoot, pathText);
-  const relativePath = relative(repoRoot, absolutePath);
-  if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
-    return null;
-  }
-  if (escapesRepoRootViaSymlink(repoRoot, absolutePath)) {
-    return null;
-  }
-  return { absolutePath, relativePath: toPosixPath(relativePath) };
 }
 
 function failure(toolType: string, command: string, reason: string): RepoToolExecution {
@@ -962,6 +903,13 @@ async function executeRepoToolUnguarded(
   if (call.toolName === 'run') {
     return executeRun(call.args, context);
   }
+  if (call.toolName === 'git') {
+    return new ReadOnlyGitTool({
+      repoRoot: context.repoRoot,
+      ignorePolicy: context.ignorePolicy,
+      abortSignal: context.abortSignal,
+    }).execute(call.args);
+  }
   if (call.toolName === 'web_search') {
     const command = buildRepoToolRequestedCommand('web_search', call.args);
     try {
@@ -1000,7 +948,7 @@ export async function executeRepoTool(
   } catch (error) {
     return failure(
       call.toolName,
-      buildRepoToolRequestedCommand(call.toolName, call.args),
+      buildNativeToolRequestedCommand(call),
       `tool error: ${error instanceof Error ? error.message : String(error)}`,
     );
   }

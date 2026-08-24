@@ -27,11 +27,11 @@ test('summary-family request whose marker matches the active agent run is reject
       approval: 'off',
       availableModels: ['mock-model'],
       mockResponses: [
-        '{\"action\":\"git\",\"command\":\"git grep -n \\\"x\\\" src\"}',
+        "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}",
         '{\"action\":\"finish\",\"output\":\"done\"}',
       ],
       mockCommandResults: {
-        'git grep -n "x" src': {
+        "git operation=\"grep\" path=\"src\" pattern=\"x\"": {
           exitCode: 0,
           stdout: 'src/example.ts:1:x',
           stderr: '',

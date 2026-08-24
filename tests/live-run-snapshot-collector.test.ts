@@ -134,11 +134,21 @@ test('collector ignores unknown and malformed events', () => {
   assert.equal(snapshot.phase.name, 'starting');
 });
 
+test('collector snapshots omit the removed command-safety state', () => {
+  const collector = makeCollector();
+  collector.record({
+    kind: 'turn_command_start', taskId: 't', turn: 1, toolName: 'ls',
+    requestedCommand: 'ls path="."', commandToRun: 'ls path="."', native: true,
+  });
+
+  const snapshot = collector.build();
+  assert.equal(Object.hasOwn(snapshot.turns[0], 'safety'), false);
+});
+
 test('collector captures tool execution phase, exit code and truncated output edges', () => {
   const collector = makeCollector();
   const longOutput = `${'A'.repeat(500)}${'B'.repeat(500)}${'C'.repeat(500)}`;
 
-  collector.record({ kind: 'turn_command_safety', taskId: 't', turn: 39, command: 'npm run test', safe: true, reason: null });
   collector.record({ kind: 'turn_command_start', taskId: 't', turn: 39, toolName: 'run', requestedCommand: 'npm run test', commandToRun: 'npm run test', native: false });
 
   const midFlight = LiveRunSnapshotSchema.parse(collector.build());
@@ -162,7 +172,6 @@ test('collector captures tool execution phase, exit code and truncated output ed
   assert.equal(tool?.outputHead.startsWith('A'), true);
   assert.equal(tool?.outputTail.endsWith('C'), true);
   assert.ok(tool !== null && tool.durationMs !== null && tool.durationMs >= 0);
-  assert.equal(snapshot.turns[0].safety?.safe, true);
   assert.equal(snapshot.counters.commandFailures, 1);
   assert.equal(snapshot.phase.name, 'idle');
 });
@@ -179,17 +188,15 @@ test('collector keeps short tool output whole without a tail', () => {
   assert.equal(snapshot.counters.commandFailures, 0);
 });
 
-test('collector counts unsafe commands and denied approvals', () => {
+test('collector counts denied approvals', () => {
   const collector = makeCollector();
 
   collector.record({ kind: 'approval_verdict', taskId: 't', turn: 2, toolName: 'run', verdict: 'deny', reason: 'destructive' });
-  collector.record({ kind: 'turn_command_safety', taskId: 't', turn: 3, command: 'rm -rf /', safe: false, reason: 'blocked by policy' });
 
   const snapshot = LiveRunSnapshotSchema.parse(collector.build());
   assert.equal(snapshot.counters.approvalDenials, 1);
-  assert.equal(snapshot.counters.safetyRejects, 1);
+  assert.equal(snapshot.counters.safetyRejects, 0);
   assert.equal(snapshot.turns[0].approval?.verdict, 'deny');
-  assert.equal(snapshot.turns[1].safety?.reason, 'blocked by policy');
 });
 
 test('collector truncates a long command string', () => {

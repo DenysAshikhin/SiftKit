@@ -44,17 +44,25 @@ function buildAnyOf(values: JsonSchema[]): JsonSchema {
   return { anyOf: values };
 }
 
-function buildPlannerToolCallSchema(tool: StructuredOutputToolDefinition): JsonSchemaObject {
-  const parameters = getObjectRecord(tool.function.parameters);
+function buildPlannerToolCallSchema(toolName: string, parameters: JsonObject): JsonSchemaObject {
   return {
     type: 'object',
     properties: {
-      action: { const: tool.function.name },
+      action: { const: toolName },
       ...getObjectRecord(parameters.properties),
     },
     required: ['action', ...getRequiredList(parameters.required)],
     additionalProperties: false,
   };
+}
+
+function buildPlannerToolCallSchemas(tool: StructuredOutputToolDefinition): JsonSchemaObject[] {
+  const parameters = getObjectRecord(tool.function.parameters);
+  const variants = Array.isArray(parameters.anyOf)
+    ? parameters.anyOf.map(getObjectRecord).filter((variant) => Object.keys(variant).length > 0)
+    : [];
+  return (variants.length > 0 ? variants : [parameters])
+    .map((variant) => buildPlannerToolCallSchema(tool.function.name, variant));
 }
 
 function buildPlannerToolBatchActionSchema(toolDefinitions: StructuredOutputToolDefinition[]): JsonSchemaObject {
@@ -65,7 +73,7 @@ function buildPlannerToolBatchActionSchema(toolDefinitions: StructuredOutputTool
       calls: {
         type: 'array',
         minItems: 1,
-        items: buildAnyOf(toolDefinitions.map((tool) => buildPlannerToolCallSchema(tool))),
+        items: buildAnyOf(toolDefinitions.flatMap(buildPlannerToolCallSchemas)),
       },
     },
     required: ['action', 'calls'],
@@ -109,7 +117,7 @@ function buildPlannerActionSchema(options: {
   const actionSchemas: JsonSchema[] = [options.finishActionSchema];
   if (options.toolDefinitions.length > 0) {
     actionSchemas.unshift(
-      ...options.toolDefinitions.map((tool) => buildPlannerToolCallSchema(tool)),
+      ...options.toolDefinitions.flatMap(buildPlannerToolCallSchemas),
       buildPlannerToolBatchActionSchema(options.toolDefinitions),
     );
   }

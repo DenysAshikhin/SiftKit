@@ -148,11 +148,11 @@ test('repo-search execution dumps temp timing json with llama and tool phases', 
         repoRoot,
         maxTurns: 2,
         mockResponses: [
-          "{\"action\":\"git\",\"command\":\"git status --short\"}",
+          "{\"action\":\"git\",\"operation\":\"status\"}",
           '{"action":"finish","output":"Found scripts"}',
         ],
         mockCommandResults: {
-          'git status --short': { exitCode: 0, stdout: '', stderr: '' },
+          "git operation=\"status\"": { exitCode: 0, stdout: '', stderr: '' },
         },
       });
       assert.equal(result.scorecard.verdict, 'pass');

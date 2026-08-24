@@ -481,31 +481,26 @@ test('ModelJson rejects unrecoverable model JSON', () => {
 });
 
 test('ModelJson parses valid repo-search tool action', () => {
-  const action = parseRepoSearchPlannerAction('{"action":"git","command":"git status --short"}');
+  const action = parseRepoSearchPlannerAction('{"action":"git","operation":"status"}');
   assert.deepEqual(action, {
     action: 'tool',
     tool_name: 'git',
-    args: { command: 'git status --short' },
+    args: { operation: 'status' },
   });
 });
 
-test('ModelJson prepends the git token to a git command that omits it', () => {
-  assert.deepEqual(parseRepoSearchPlannerAction('{"action":"git","command":"status"}'), {
+test('ModelJson parses operation-specific typed Git arguments', () => {
+  assert.deepEqual(parseRepoSearchPlannerAction('{"action":"git","operation":"grep","pattern":"needle","path":"src"}'), {
     action: 'tool',
     tool_name: 'git',
-    args: { command: 'git status' },
-  });
-  assert.deepEqual(parseRepoSearchPlannerAction('{"action":"git","command":"rm -rf ."}'), {
-    action: 'tool',
-    tool_name: 'git',
-    args: { command: 'git rm -rf .' },
+    args: { operation: 'grep', pattern: 'needle', path: 'src' },
   });
 });
 
-test('ModelJson rejects a git tool call with no command and names the missing field', () => {
+test('ModelJson rejects the removed Git command-string contract', () => {
   assert.throws(
-    () => parseRepoSearchPlannerAction('{"action":"git","command":"   "}'),
-    /invalid planner tool action: "git" requires a non-empty "command" string/u,
+    () => parseRepoSearchPlannerAction('{"action":"git","command":"git status"}'),
+    /invalid planner tool action:.*operation/u,
   );
 });
 
@@ -752,12 +747,12 @@ test('ModelJson still trims surrounding whitespace from path and command argumen
   });
 });
 
-test('ModelJson restores Windows path separators eaten by JSON escapes in git commands', () => {
-  const action = parseRepoSearchPlannerAction('{"action":"git","command":"log --oneline -- dashboard\\tests"}');
+test('ModelJson restores Windows path separators eaten by JSON escapes in typed Git paths', () => {
+  const action = parseRepoSearchPlannerAction('{"action":"git","operation":"log","path":"dashboard\\tests"}');
   assert.deepEqual(action, {
     action: 'tool',
     tool_name: 'git',
-    args: { command: String.raw`git log --oneline -- dashboard\tests` },
+    args: { operation: 'log', path: String.raw`dashboard\tests` },
   });
 });
 

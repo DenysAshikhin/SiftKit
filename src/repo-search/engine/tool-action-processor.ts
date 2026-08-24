@@ -3,11 +3,9 @@ import type { ImageMetadata, ImageTokenBudget } from '@siftkit/contracts';
 import { getRepoSearchLineReadStats } from '../../line-read-guidance.js';
 import type { TemporaryTimingRecorder } from '../../lib/temporary-timing-recorder.js';
 import {
-  evaluateCommandSafety,
   type IgnorePolicy,
 } from '../command-safety.js';
 import {
-  isMutatingCommandToolName,
   isTreeMutatingToolName,
   type ChatMessage,
   type ToolAction,
@@ -16,20 +14,21 @@ import { estimateTokenCount } from '../../lib/token-estimate.js';
 import type { TaskCommand } from '../prompts.js';
 import {
   buildRepeatedToolCallSummary,
+  buildGitPromptToolResult,
   buildPromptToolResult,
   classifyToolOutputNovelty,
+  fingerprintGitToolCall,
   fingerprintToolCall,
 } from '../../tool-loop-governor.js';
 import { ChatGroundingPolicy } from '../chat-grounding-policy.js';
 import type { JsonLogger, RepoSearchMockCommandResult } from '../types.js';
 import { type ToolBatchOutcome } from '../../tool-call-messages.js';
 import { WebResearchTools } from '../../web-search/web-research-tools.js';
-import { executeRepoCommand, normalizeToolTypeFromCommand } from './command-execution.js';
 import {
   buildEffectiveTranscriptAction,
+  buildNativeToolRequestedCommand,
   buildRejectedTranscriptAction,
   buildReadCommand,
-  buildRepoToolRequestedCommand,
   executeRepoTool,
   type RepoToolExecution,
 } from './repo-tools.js';
@@ -58,6 +57,7 @@ import {
   type RepoNativeToolCall,
 } from '../repo-tool-arguments.js';
 import type { TurnPromptTokens } from '../../agent-loop/types.js';
+import { getAbortError, throwIfAborted } from '../../lib/abort.js';
 import {
   buildBatchToolCallId,
   buildPendingAssistantMessage,
@@ -90,9 +90,7 @@ type TurnBatchState = {
 
 type ValidatedToolAction = {
   normalizedToolName: string;
-  isCommandTool: boolean;
-  isNativeTool: boolean;
-  nativeCall: RepoNativeToolCall | null;
+  nativeCall: RepoNativeToolCall;
   command: string;
 };
 
@@ -101,8 +99,13 @@ type AcceptedToolContext = ValidatedToolAction & {
   fingerprint: string;
   normalizedKey: string;
   runFullOutputDecision: RunOutputDecision | null;
-  nativeExecution: RepoToolExecution | null;
 };
+
+type NativeExecutionContext = AcceptedToolContext & {
+  nativeExecution: RepoToolExecution;
+};
+
+type SuccessfulRepoToolExecution = Extract<RepoToolExecution, { ok: true }>;
 
 type PreparedCommand = {
   requestedCommand: string;
@@ -110,6 +113,7 @@ type PreparedCommand = {
 };
 
 type ExecutedToolContext = AcceptedToolContext & PreparedCommand & {
+  nativeExecution: SuccessfulRepoToolExecution;
   executed: { exitCode: number; output: string };
   baseOutput: string;
   zeroOutputWarningText: string;
@@ -278,7 +282,7 @@ export class ToolActionProcessor {
     if (validated === 'next' || validated === 'stop_batch') {
       return validated;
     }
-    const { normalizedToolName, isNativeTool, nativeCall, command } = validated;
+    const { normalizedToolName, nativeCall, command } = validated;
     const runFullOutputDecision = this.beginRun(nativeCall);
 
     if (inForcedFinishMode) {
@@ -287,7 +291,6 @@ export class ToolActionProcessor {
       this.recordRejectedToolCall(turn, state, {
         toolName: normalizedToolName,
         rawArgs: toolAction.args,
-        isNativeTool,
         recordedCommand: command,
         transcriptCommand: command,
         reason: attempt.rejectionReason,
@@ -301,15 +304,16 @@ export class ToolActionProcessor {
       return 'next';
     }
 
-    const fingerprint = fingerprintToolCall({ toolName: normalizedToolName, command });
-    const prospectiveToolType = isNativeTool ? normalizedToolName : normalizeToolTypeFromCommand(command);
+    const fingerprint = nativeCall.toolName === 'git'
+      ? fingerprintGitToolCall(nativeCall.args)
+      : fingerprintToolCall({ toolName: normalizedToolName, command, args: toolAction.args });
+    const prospectiveToolType = normalizedToolName;
     const screened = this.screenWebAndDuplicates(turn, {
       ...validated,
       toolAction,
       fingerprint,
       normalizedKey: command,
       runFullOutputDecision,
-      nativeExecution: null,
     }, prospectiveToolType, state);
     if (screened !== null) {
       return screened;
@@ -335,7 +339,6 @@ export class ToolActionProcessor {
         this.recordRejectedToolCall(turn, state, {
           toolName: normalizedToolName,
           rawArgs: toolAction.args,
-          isNativeTool,
           recordedCommand: command,
           transcriptCommand: command,
           reason,
@@ -345,33 +348,20 @@ export class ToolActionProcessor {
       }
     }
 
-    const nativeExecution = nativeCall === null
-      ? null
-      : await this.runNativeExecution(nativeCall, command, runFullOutputDecision);
     const context: AcceptedToolContext = {
       ...validated,
       toolAction,
       fingerprint,
       normalizedKey: command,
       runFullOutputDecision,
-      nativeExecution,
     };
-    const rejection = this.screenRejection(turn, context, state);
-    if (rejection !== null) {
-      return rejection;
-    }
-    const exhausted = this.screenExhaustedRead(turn, context, prospectiveToolType, state);
-    if (exhausted !== null) {
-      return exhausted;
-    }
-
-    return this.executeAcceptedTool(turn, context, state, promptTokens);
+    return this.executeAcceptedTool(turn, context, prospectiveToolType, state, promptTokens);
   }
 
   private validateToolAction(turn: number, toolAction: ToolAction, state: TurnBatchState): ValidatedToolAction | ToolActionOutcome {
     const identity = resolveToolActionIdentity(toolAction);
-    const { normalizedToolName, isCommandTool, isNativeTool } = identity;
-    if (!isCommandTool && !isNativeTool) {
+    const { normalizedToolName, isNativeTool } = identity;
+    if (!isNativeTool) {
       const unsupportedToolMessage = `Invalid action: unsupported planner tool "${toolAction.tool_name}" for repo-search. Use one of: ${this.deps.allowedPlannerToolNames.join(', ')}.`;
       return this.recordInvalidToolCall(turn, toolAction, state, String(toolAction.tool_name || '').trim() || 'invalid_tool_call', unsupportedToolMessage);
     }
@@ -379,13 +369,11 @@ export class ToolActionProcessor {
       const disallowedToolMessage = `Invalid action: tool "${normalizedToolName}" is not enabled for this run. Use one of: ${this.deps.allowedPlannerToolNames.join(', ')}.`;
       return this.recordInvalidToolCall(turn, toolAction, state, normalizedToolName, disallowedToolMessage);
     }
-    const nativeCallResult = isNativeTool
-      ? RepoNativeToolCallSchema.safeParse({
-          toolName: normalizedToolName,
-          args: toolAction.args,
-        })
-      : null;
-    if (nativeCallResult !== null && !nativeCallResult.success) {
+    const nativeCallResult = RepoNativeToolCallSchema.safeParse({
+      toolName: normalizedToolName,
+      args: toolAction.args,
+    });
+    if (!nativeCallResult.success) {
       return this.recordInvalidToolCall(
         turn,
         toolAction,
@@ -394,22 +382,9 @@ export class ToolActionProcessor {
         `Invalid action: invalid ${normalizedToolName} arguments: ${nativeCallResult.error.message}`,
       );
     }
-    const nativeCall = nativeCallResult?.data ?? null;
-    const command = isCommandTool
-      ? identity.command
-      : nativeCall === null
-        ? ''
-        : buildRepoToolRequestedCommand(nativeCall.toolName, nativeCall.args);
-    if (isCommandTool && !command) {
-      return this.recordInvalidToolCall(
-        turn,
-        toolAction,
-        state,
-        normalizedToolName,
-        `Invalid action: ${normalizedToolName} requires args.command.`,
-      );
-    }
-    return { normalizedToolName, isCommandTool, isNativeTool, nativeCall, command };
+    const nativeCall = nativeCallResult.data;
+    const command = buildNativeToolRequestedCommand(nativeCall);
+    return { normalizedToolName, nativeCall, command };
   }
 
   private beginRun(nativeCall: RepoNativeToolCall | null): RunOutputDecision | null {
@@ -426,7 +401,6 @@ export class ToolActionProcessor {
     rejection: {
       toolName: string;
       rawArgs: ToolAction['args'];
-      isNativeTool: boolean;
       recordedCommand: string;
       transcriptCommand: string;
       reason: string | null;
@@ -446,7 +420,6 @@ export class ToolActionProcessor {
       action: buildRejectedTranscriptAction({
         toolName: rejection.toolName,
         rawArgs: rejection.rawArgs,
-        isNativeTool: rejection.isNativeTool,
         commandToRun: rejection.transcriptCommand,
       }),
       toolCallId: buildBatchToolCallId(turn, state.batchIndex),
@@ -509,7 +482,7 @@ export class ToolActionProcessor {
     state: TurnBatchState,
   ): ToolActionOutcome | null {
     const {
-      toolAction, normalizedToolName, isNativeTool, command, fingerprint, normalizedKey,
+      toolAction, normalizedToolName, command, fingerprint, normalizedKey,
       runFullOutputDecision,
     } = context;
     const { counters, duplicates } = this.deps;
@@ -532,7 +505,6 @@ export class ToolActionProcessor {
         this.recordRejectedToolCall(turn, state, {
           toolName: normalizedToolName,
           rawArgs: toolAction.args,
-          isNativeTool,
           recordedCommand: command,
           transcriptCommand: command,
           reason: 'duplicate web tool',
@@ -573,7 +545,7 @@ export class ToolActionProcessor {
       bodyText: string | null;
     },
   ): void {
-    const { toolAction, normalizedToolName, isNativeTool, command, fingerprint } = context;
+    const { toolAction, normalizedToolName, command, fingerprint } = context;
     const { commands, counters, duplicates, forcedFinish, toolStats, transcript } = this.deps;
     const { reason, trigger, isSemantic } = REPEAT_KINDS[options.kind];
     const registration = duplicates.registerDuplicate(options.duplicateFingerprint, transcript.length, transcript.generation);
@@ -591,7 +563,6 @@ export class ToolActionProcessor {
         action: buildRejectedTranscriptAction({
           toolName: normalizedToolName,
           rawArgs: toolAction.args,
-          isNativeTool,
           commandToRun: command,
         }),
         toolCallId: buildBatchToolCallId(turn, state.batchIndex),
@@ -629,6 +600,27 @@ export class ToolActionProcessor {
     runFullOutputDecision: RunOutputDecision | null,
   ): Promise<RepoToolExecution> {
     const mockResult = this.deps.mockCommandResults?.[command];
+    throwIfAborted(this.deps.abortSignal);
+    const delayMs = Number(mockResult?.delayMs ?? 0);
+    if (mockResult && Number.isFinite(delayMs) && delayMs > 0) {
+      await new Promise<void>((resolve, reject) => {
+        let timeoutHandle: NodeJS.Timeout | null = null;
+        const cleanup = (): void => {
+          if (timeoutHandle !== null) clearTimeout(timeoutHandle);
+          this.deps.abortSignal?.removeEventListener('abort', abort);
+        };
+        const abort = (): void => {
+          cleanup();
+          reject(getAbortError(this.deps.abortSignal));
+        };
+        timeoutHandle = setTimeout(() => {
+          cleanup();
+          resolve();
+        }, delayMs);
+        this.deps.abortSignal?.addEventListener('abort', abort, { once: true });
+        if (this.deps.abortSignal?.aborted) abort();
+      });
+    }
     const execution: RepoToolExecution = mockResult
       ? {
           ok: true,
@@ -676,17 +668,16 @@ export class ToolActionProcessor {
     };
   }
 
-  private screenRejection(turn: number, context: AcceptedToolContext, state: TurnBatchState): ToolActionOutcome | null {
-    const { toolAction, normalizedToolName, isNativeTool, command, nativeExecution } = context;
+  private screenRejection(turn: number, context: NativeExecutionContext, state: TurnBatchState): ToolActionOutcome | null {
+    const { toolAction, normalizedToolName, command, nativeExecution } = context;
     const { counters } = this.deps;
-    if (!nativeExecution || nativeExecution.ok) {
+    if (nativeExecution.ok) {
       return null;
     }
     counters.safetyRejects += 1;
     this.recordRejectedToolCall(turn, state, {
       toolName: normalizedToolName,
       rawArgs: toolAction.args,
-      isNativeTool,
       recordedCommand: command,
       transcriptCommand: nativeExecution.command,
       reason: nativeExecution.reason,
@@ -701,12 +692,12 @@ export class ToolActionProcessor {
    */
   private screenExhaustedRead(
     turn: number,
-    context: AcceptedToolContext,
+    context: NativeExecutionContext,
     prospectiveToolType: string,
     state: TurnBatchState,
   ): ToolActionOutcome | null {
     const { nativeExecution, normalizedToolName, normalizedKey, fingerprint } = context;
-    if (!nativeExecution || !nativeExecution.ok || !nativeExecution.readFile || nativeExecution.readFile.hasUnread) {
+    if (!nativeExecution.ok || !nativeExecution.readFile || nativeExecution.readFile.hasUnread) {
       return null;
     }
     this.rejectAsDuplicate(turn, context, state, {
@@ -718,85 +709,70 @@ export class ToolActionProcessor {
     return 'next';
   }
 
-  private prepareCommandToRun(turn: number, context: AcceptedToolContext, state: TurnBatchState): PreparedCommand | 'next' {
-    const { toolAction, normalizedToolName, isNativeTool, command, nativeExecution } = context;
-    const { counters } = this.deps;
-    const requestedCommand = nativeExecution?.ok ? nativeExecution.requestedCommand || command : command;
-    const commandToRun = nativeExecution?.ok ? nativeExecution.command : command;
-
-    // Native tools validate their own typed args; only `git` carries a raw command string.
-    const safety = isNativeTool
-      ? { safe: true, reason: null }
-      : evaluateCommandSafety(commandToRun, this.deps.repoRoot);
-    this.deps.logger?.write({ kind: 'turn_command_safety', taskId: this.deps.task.id, turn, command: commandToRun, safe: safety.safe, reason: safety.reason });
-
-    if (!safety.safe) {
-      counters.safetyRejects += 1;
-      this.recordRejectedToolCall(turn, state, {
-        toolName: normalizedToolName,
-        rawArgs: toolAction.args,
-        isNativeTool,
-        recordedCommand: commandToRun,
-        transcriptCommand: commandToRun,
-        reason: safety.reason,
-        output: `Rejected command: ${safety.reason}`,
-      });
-      return 'next';
-    }
+  private prepareCommandToRun(context: NativeExecutionContext & { nativeExecution: SuccessfulRepoToolExecution }): PreparedCommand {
+    const { command, nativeExecution } = context;
+    const requestedCommand = nativeExecution.requestedCommand || command;
+    const commandToRun = nativeExecution.command;
     return { requestedCommand, commandToRun };
   }
 
   private async executeAcceptedTool(
     turn: number,
     context: AcceptedToolContext,
+    prospectiveToolType: string,
     state: TurnBatchState,
     promptTokens: TurnPromptTokens,
   ): Promise<ToolActionOutcome> {
-    const { normalizedToolName, isNativeTool, nativeExecution } = context;
+    const { normalizedToolName } = context;
     const { counters, forcedFinish } = this.deps;
-    const preparedCommand = this.prepareCommandToRun(turn, context, state);
-    if (preparedCommand === 'next') {
-      return 'next';
-    }
-    const { requestedCommand, commandToRun } = preparedCommand;
-    // The action has cleared every screen and is about to run, which is the only point that counts
-    // as progress. A rejected action parses fine but produces no work, so it must not buy back a
-    // strike — otherwise alternating malformed and rejected actions never reaches the limit.
-    decayInvalidResponses(counters);
 
     const progressToolCallId = `tc_${this.progressToolCallSeq}`;
     this.progressToolCallSeq += 1;
-    this.deps.progress.toolStart(progressToolCallId, turn, requestedCommand, promptTokens.reported);
+    this.deps.progress.toolStart(progressToolCallId, turn, context.command, promptTokens.reported);
     this.deps.logger?.write({
       kind: 'turn_command_start',
       taskId: this.deps.task.id,
       turn,
       toolName: normalizedToolName,
-      requestedCommand,
-      commandToRun,
-      native: isNativeTool,
+      requestedCommand: context.command,
+      commandToRun: context.command,
+      native: true,
     });
 
     const toolExecutionSpan = this.deps.timingRecorder?.start('repo.tool.execute', {
       taskId: this.deps.task.id,
       turn,
       toolName: normalizedToolName,
-      commandChars: commandToRun.length,
-      native: isNativeTool,
+      commandChars: context.command.length,
+      native: true,
     });
-    const executed = nativeExecution && nativeExecution.ok
-      ? { exitCode: nativeExecution.exitCode, output: nativeExecution.output }
-      : await executeRepoCommand(
-        commandToRun,
-        this.deps.repoRoot,
-        this.deps.mockCommandResults || null,
-        this.deps.task.id,
-        this.deps.abortSignal,
-      );
+    const nativeExecution = await this.runNativeExecution(
+      context.nativeCall,
+      context.command,
+      context.runFullOutputDecision,
+    );
+    const nativeContext: NativeExecutionContext = { ...context, nativeExecution };
     toolExecutionSpan?.end({
-      exitCode: executed.exitCode,
-      outputChars: String(executed.output || '').length,
+      exitCode: nativeExecution.ok ? nativeExecution.exitCode : -1,
+      outputChars: nativeExecution.ok ? nativeExecution.output.length : nativeExecution.reason.length,
     });
+    const rejection = this.screenRejection(turn, nativeContext, state);
+    if (rejection !== null) {
+      return rejection;
+    }
+    const exhausted = this.screenExhaustedRead(turn, nativeContext, prospectiveToolType, state);
+    if (exhausted !== null) {
+      return exhausted;
+    }
+    if (!nativeExecution.ok) {
+      throw new Error(`Native ${normalizedToolName} execution was rejected without a recorded outcome.`);
+    }
+    const successfulContext = { ...nativeContext, nativeExecution };
+    const preparedCommand = this.prepareCommandToRun(successfulContext);
+    const { requestedCommand, commandToRun } = preparedCommand;
+    // Only a completed, accepted execution buys back an invalid-response strike.
+    decayInvalidResponses(counters);
+    const executed = { exitCode: nativeExecution.exitCode, output: nativeExecution.output };
     const baseOutput = String(executed.output || '').trim();
     if (normalizedToolName === 'web_search' || normalizedToolName === 'web_fetch') {
       this.deps.chatWebGroundingPolicy.recordToolResult({
@@ -828,7 +804,7 @@ export class ToolActionProcessor {
     }
 
     return this.recordToolOutcome(turn, {
-      ...context,
+      ...successfulContext,
       requestedCommand,
       commandToRun,
       executed,
@@ -851,12 +827,19 @@ export class ToolActionProcessor {
     let { commandToRun } = context;
 
     const rawResultText = `exit_code=${executed.exitCode}\n${baseOutput}`.trim();
-    let resultText = buildPromptToolResult({
-      toolName: normalizedToolName,
-      command: commandToRun,
-      exitCode: executed.exitCode,
-      output: baseOutput,
-    });
+    let resultText = context.nativeCall.toolName === 'git'
+      ? buildGitPromptToolResult({
+        args: context.nativeCall.args,
+        exitCode: executed.exitCode,
+        output: baseOutput,
+      })
+      : buildPromptToolResult({
+        toolName: normalizedToolName,
+        command: commandToRun,
+        args: context.toolAction.args,
+        exitCode: executed.exitCode,
+        output: baseOutput,
+      });
     if (zeroOutputWarningText) {
       resultText = `${zeroOutputWarningText}\n\n${resultText}`.trim();
     }
@@ -922,7 +905,7 @@ export class ToolActionProcessor {
     promptTokens: TurnPromptTokens,
   ): Promise<ToolActionOutcome> {
     const {
-      toolAction, normalizedToolName, isNativeTool, fingerprint, normalizedKey,
+      toolAction, normalizedToolName, fingerprint, normalizedKey,
       requestedCommand, executed, baseOutput, progressToolCallId, nativeExecution,
     } = context;
     const { commands, duplicates, progress, recentEvidenceKeys, successfulToolCalls, tokenUsage, toolStats } = this.deps;
@@ -933,9 +916,7 @@ export class ToolActionProcessor {
       rawResultTokenCount, lineReadStats, perToolCapTokens, remainingTokenAllowance,
     } = fittedOutcome;
 
-    const toolType = isNativeTool
-      ? normalizedToolName
-      : normalizeToolTypeFromCommand(commandToRun);
+    const toolType = normalizedToolName;
     toolStats.recordToolCall({
       toolType,
       resultTextLength: resultText.length,
@@ -970,7 +951,7 @@ export class ToolActionProcessor {
         promptTokenCount: promptTokens.reported,
       });
     }
-    const commandOutputText = isNativeTool ? resultText : baseOutput;
+    const commandOutputText = resultText;
 
     this.deps.logger?.write({
       kind: 'turn_command_result', taskId: this.deps.task.id, turn, command: commandToRun,
@@ -1013,7 +994,6 @@ export class ToolActionProcessor {
       action: buildEffectiveTranscriptAction({
         toolName: normalizedToolName,
         rawArgs: toolAction.args,
-        isNativeTool,
         commandToRun,
       }),
       toolCallId,
@@ -1051,7 +1031,7 @@ export class ToolActionProcessor {
     if (isTreeMutatingToolName(normalizedToolName)) {
       this.deps.duplicates.forgetSuccesses();
     }
-    if (isMutatingCommandToolName(normalizedToolName)) {
+    if (normalizedToolName === 'run') {
       this.deps.readWindows.invalidateAll();
       return;
     }

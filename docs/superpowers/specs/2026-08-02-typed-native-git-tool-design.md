@@ -1,6 +1,6 @@
 # Typed Native Git Tool Design
 
-**Status:** Approved 2026-08-02
+**Status:** Implemented 2026-08-23
 
 ## Purpose
 

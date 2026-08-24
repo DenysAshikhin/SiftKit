@@ -21,7 +21,7 @@ import { testHttpAgent } from './helpers/http-agent.js';
 import { requestJson } from './helpers/dashboard-http.js';
 import { repoAgentFinishResponses } from './helpers/repo-agent-mock-responses.js';
 
-const NON_VERDICT_RESPONSE = '{"action":"git","command":"git grep -n \\"x\\" src2"}';
+const NON_VERDICT_RESPONSE = "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src2\"}";
 
 function runsRoot(): string {
   return path.join(process.cwd(), '.siftkit', 'repo-agent', 'runs');

@@ -695,13 +695,13 @@ test('dashboard endpoints expose runs, details, metrics, and chat sessions', asy
         maxTurns: 2,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"git\",\"command\":\"git grep -n \\\"dashboard\\\" .\"}",
-          "{\"action\":\"git\",\"command\":\"git grep -n \\\"/dashboard/chat/sessions\\\" siftKitStatus/index.js\"}",
+          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"dashboard\",\"path\":\".\"}",
+          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"/dashboard/chat/sessions\",\"path\":\"siftKitStatus/index.js\"}",
           '{"action":"finish","output":"Plan: update dashboard/src/App.tsx and siftKitStatus/index.js; include a risks section for endpoint lock contention and stale repo-root paths."}',
         ],
         mockCommandResults: {
-          'git grep -n "dashboard" .': { exitCode: 0, stdout: 'dashboard/src/App.tsx:1:import { useEffect }', stderr: '' },
-          'git grep -n "/dashboard/chat/sessions" siftKitStatus/index.js': { exitCode: 0, stdout: 'siftKitStatus/index.js:3068:    if (req.method === \'POST\' && pathname === \'/dashboard/chat/sessions\') {', stderr: '' },
+          "git operation=\"grep\" path=\".\" pattern=\"dashboard\"": { exitCode: 0, stdout: 'dashboard/src/App.tsx:1:import { useEffect }', stderr: '' },
+          "git operation=\"grep\" path=\"siftKitStatus/index.js\" pattern=\"/dashboard/chat/sessions\"": { exitCode: 0, stdout: 'siftKitStatus/index.js:3068:    if (req.method === \'POST\' && pathname === \'/dashboard/chat/sessions\') {', stderr: '' },
         },
       }),
     });
@@ -1119,11 +1119,11 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
       maxTurns: 2,
       availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
       mockResponses: [
-        '<think>inspect test coverage</think>{"action":"git","command":"git grep -n \\"test\\" ."}',
+        "<think>inspect test coverage</think>{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"test\",\"path\":\".\"}",
         '<think>prepare implementation plan</think>{"action":"finish","output":"done"}',
       ],
       mockCommandResults: {
-        'git grep -n "test" .': { exitCode: 0, stdout: 'tests/example.test.ts:1:test()', stderr: '' },
+        "git operation=\"grep\" path=\".\" pattern=\"test\"": { exitCode: 0, stdout: 'tests/example.test.ts:1:test()', stderr: '' },
       },
     };
     const jsonPlan = await requestJson(`${baseUrl}/dashboard/chat/sessions/${jsonSessionId}/plan`, {
@@ -1158,8 +1158,8 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
     const planToolResult = planSse.events.find((event) => event.event === 'tool_result');
     assert.equal(Number.isFinite(Number(planToolStart?.payload?.promptTokenCount)), true);
     assert.equal(Number.isFinite(Number(planToolResult?.payload?.promptTokenCount)), true);
-    assert.equal(planToolStart?.payload?.command, 'git grep -n "test" .');
-    assert.equal(planToolResult?.payload?.command, 'git grep -n "test" .');
+    assert.equal(planToolStart?.payload?.command, "git operation=\"grep\" path=\".\" pattern=\"test\"");
+    assert.equal(planToolResult?.payload?.command, "git operation=\"grep\" path=\".\" pattern=\"test\"");
     assert.equal(/--no-ignore|--ignore-case|--glob/u.test(String(planToolStart?.payload?.command || '')), false);
     assert.equal(/--no-ignore|--ignore-case|--glob/u.test(String(planToolResult?.payload?.command || '')), false);
     assert.equal(typeof planToolStart?.payload?.toolCallId, 'string');
@@ -1211,11 +1211,11 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
         maxTurns: 2,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          '<think>inspect repository tests</think>{"action":"git","command":"git grep -n \\"test\\" ."}',
+          "<think>inspect repository tests</think>{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"test\",\"path\":\".\"}",
           '<think>report repository evidence</think>{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
-          'git grep -n "test" .': { exitCode: 0, stdout: 'tests/example.test.ts:1:test()', stderr: '' },
+          "git operation=\"grep\" path=\".\" pattern=\"test\"": { exitCode: 0, stdout: 'tests/example.test.ts:1:test()', stderr: '' },
         },
       }),
     });
@@ -1239,7 +1239,7 @@ test('plan/repo-search stream events include backend promptTokenCount', async ()
     const repoToolResult = repoSse.events.find((event) => event.event === 'tool_result');
     assert.equal(Number.isFinite(Number(repoToolStart?.payload?.promptTokenCount)), true);
     assert.equal(Number.isFinite(Number(repoToolResult?.payload?.promptTokenCount)), true);
-    assert.equal(repoToolStart?.payload?.command, 'git grep -n "test" .');
+    assert.equal(repoToolStart?.payload?.command, "git operation=\"grep\" path=\".\" pattern=\"test\"");
     assert.equal(/--no-ignore|--ignore-case|--glob/u.test(String(repoToolStart?.payload?.command || '')), false);
     assert.equal(typeof repoToolStart?.payload?.toolCallId, 'string');
     assert.equal(String(repoToolStart?.payload?.toolCallId || '').length > 0, true);
@@ -1388,8 +1388,8 @@ test('chat message JSON and SSE endpoints admit images using the selected sessio
     req.on('end', () => {
       capturedBodies.push(raw);
       res.writeHead(200, { 'content-type': 'text/event-stream' });
-      res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"finish\\",\\"output\\":\\"ack\\"}"}}]}\n\n');
-      res.write('data: {"choices":[{"delta":{} }],"usage":{"prompt_tokens":20,"completion_tokens":4}}\n\n');
+      res.write("data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"action\\\":\\\"finish\\\",\\\"output\\\":\\\"ack\\\"}\"}}]}\n\n");
+      res.write("data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":4}}\n\n");
       res.write('data: [DONE]\n\n');
       res.end();
     });
@@ -1559,8 +1559,8 @@ test('plan JSON and repo-search SSE admit images using session-snapshotted caps'
     req.on('end', () => {
       capturedBodies.push(raw);
       res.writeHead(200, { 'content-type': 'text/event-stream' });
-      res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"finish\\",\\"output\\":\\"ack\\"}"}}]}\n\n');
-      res.write('data: {"choices":[{"delta":{} }],"usage":{"prompt_tokens":20,"completion_tokens":4}}\n\n');
+      res.write("data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"action\\\":\\\"finish\\\",\\\"output\\\":\\\"ack\\\"}\"}}]}\n\n");
+      res.write("data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":4}}\n\n");
       res.write('data: [DONE]\n\n');
       res.end();
     });
@@ -2477,11 +2477,11 @@ test('repo-search and dashboard chat messages serialize by waiting', async () =>
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"git\",\"command\":\"git grep -n \\\"x\\\" src\"}",
+          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
-          'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
+          "git operation=\"grep\" path=\"src\" pattern=\"x\"": { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
         },
       }),
     });
@@ -2549,11 +2549,11 @@ test('same session rejects a second request instead of entering the model FIFO',
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"git\",\"command\":\"git grep -n \\\"x\\\" src\"}",
+          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
-          'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
+          "git operation=\"grep\" path=\"src\" pattern=\"x\"": { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
         },
       }),
     });
@@ -2715,11 +2715,11 @@ test('queued model request is dropped when client disconnects before lock grant'
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"git\",\"command\":\"git grep -n \\\"x\\\" src\"}",
+          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
-          'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
+          "git operation=\"grep\" path=\"src\" pattern=\"x\"": { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
         },
       }),
     });
@@ -2898,11 +2898,11 @@ test('invalid model request is rejected without waiting for active model work', 
         simulateWorkMs: 80,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"git\",\"command\":\"git grep -n \\\"x\\\" src\"}",
+          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"x\",\"path\":\"src\"}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
-          'git grep -n "x" src': { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
+          "git operation=\"grep\" path=\"src\" pattern=\"x\"": { exitCode: 0, stdout: 'src/example.ts:1:x', stderr: '', delayMs: 160 },
         },
       }),
     });
@@ -3063,8 +3063,8 @@ test('chat completion replays prior tool evidence without hidden system context'
       capturedChatRawBody = raw;
       res.statusCode = 200;
       res.setHeader('Content-Type', 'text/event-stream');
-      res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"finish\\",\\"output\\":\\"ack\\"}"}}]}\n\n');
-      res.write('data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":20,"completion_tokens":4,"completion_tokens_details":{"reasoning_tokens":0}}}\n\n');
+      res.write("data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"action\\\":\\\"finish\\\",\\\"output\\\":\\\"ack\\\"}\"}}]}\n\n");
+      res.write("data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":0}}}\n\n");
       res.write('data: [DONE]\n\n');
       res.end();
     });
@@ -3109,22 +3109,22 @@ test('chat completion replays prior tool evidence without hidden system context'
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"git\",\"command\":\"git grep -n \\\"name\\\" package.json\"}",
+          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"name\",\"path\":\"package.json\"}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
-          'git grep -n "name" package.json': { exitCode: 0, stdout: 'package.json:2:  "name": "siftkit"', stderr: '' },
+          "git operation=\"grep\" path=\"package.json\" pattern=\"name\"": { exitCode: 0, stdout: 'package.json:2:  "name": "siftkit"', stderr: '' },
         },
       }),
     });
     assert.equal(planMessage.statusCode, 200);
     const planSession = d(planMessage.body.session);
     const planToolMessage = (asObjectArray(planSession.messages)).find((message) => message.kind === 'assistant_tool_call');
-    assert.match(String(planToolMessage?.toolCallCommand || ''), /git grep -n "name" package\.json/u);
+    assert.match(String(planToolMessage?.toolCallCommand || ''), /git operation="grep" path="package\.json" pattern="name"/u);
     assert.match(String(planToolMessage?.toolCallOutput || ''), /"name": "siftkit"/u);
     const persistedPlanSession = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}`);
     const persistedToolMessage = (asObjectArray(d(persistedPlanSession.body.session).messages)).find((message) => message.kind === 'assistant_tool_call');
-    assert.match(String(persistedToolMessage?.toolCallCommand || ''), /git grep -n "name" package\.json/u);
+    assert.match(String(persistedToolMessage?.toolCallCommand || ''), /git operation="grep" path="package\.json" pattern="name"/u);
     assert.match(String(persistedToolMessage?.toolCallOutput || ''), /"name": "siftkit"/u);
 
     const chatReply = await requestJson(`${baseUrl}/dashboard/chat/sessions/${sessionId}/messages`, {
@@ -3173,7 +3173,7 @@ test('chat completion replays prior tool evidence without hidden system context'
     assert.equal(asObjectArray(captured.messages).some((message) =>
       message.role === 'assistant'
       && Array.isArray(message.tool_calls)
-      && String(asObject(asObject(asArray(message.tool_calls)[0]).function).arguments || '').includes('git grep -n \\"name\\" package.json')
+      && String(asObject(asObject(asArray(message.tool_calls)[0]).function).arguments || '').includes('"operation":"grep"')
     ), true);
     assert.equal(asObjectArray(captured.messages).some((message) =>
       message.role === 'tool'
@@ -3224,8 +3224,8 @@ test('non-streaming chat message runs against the session model preset snapshot'
       capturedChatRawBody = raw;
       res.statusCode = 200;
       res.setHeader('Content-Type', 'text/event-stream');
-      res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"finish\\",\\"output\\":\\"ack\\"}"}}]}\n\n');
-      res.write('data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":20,"completion_tokens":4,"completion_tokens_details":{"reasoning_tokens":0}}}\n\n');
+      res.write("data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"action\\\":\\\"finish\\\",\\\"output\\\":\\\"ack\\\"}\"}}]}\n\n");
+      res.write("data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":0}}}\n\n");
       res.write('data: [DONE]\n\n');
       res.end();
     });
@@ -3329,8 +3329,8 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
     req.on('end', () => {
       capturedChatRawBody = raw;
       res.writeHead(200, { 'content-type': 'text/event-stream' });
-      res.write('data: {"choices":[{"delta":{"content":"{\\"action\\":\\"finish\\",\\"output\\":\\"ack\\"}"}}]}\n\n');
-      res.write('data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":30,"completion_tokens":4}}\n\n');
+      res.write("data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"action\\\":\\\"finish\\\",\\\"output\\\":\\\"ack\\\"}\"}}]}\n\n");
+      res.write("data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":30,\"completion_tokens\":4}}\n\n");
       res.write('data: [DONE]\n\n');
       res.end();
     });
@@ -3372,11 +3372,11 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
         maxTurns: 1,
         availableModels: ['Qwen3.5-35B-A3B-UD-Q4_K_L.gguf'],
         mockResponses: [
-          "{\"action\":\"git\",\"command\":\"git grep -n \\\"name\\\" package.json\"}",
+          "{\"action\":\"git\",\"operation\":\"grep\",\"pattern\":\"name\",\"path\":\"package.json\"}",
           '{"action":"finish","output":"done"}',
         ],
         mockCommandResults: {
-          'git grep -n "name" package.json': { exitCode: 0, stdout: 'package.json:2:  "name": "siftkit"', stderr: '' },
+          "git operation=\"grep\" path=\"package.json\" pattern=\"name\"": { exitCode: 0, stdout: 'package.json:2:  "name": "siftkit"', stderr: '' },
         },
       }),
     });
@@ -3385,7 +3385,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
     const repoSession = d(repoDonePayload.session);
     const toolMessage = (asObjectArray(repoSession.messages)).find((message) => message.kind === 'assistant_tool_call');
     assert.equal(typeof toolMessage?.id, 'string');
-    assert.match(String(toolMessage?.toolCallCommand || ''), /^git grep -n "name" package\.json/u);
+    assert.match(String(toolMessage?.toolCallCommand || ''), /^git operation="grep" path="package\.json" pattern="name"/u);
     assert.equal(String(toolMessage?.toolCallOutput || '').includes('"name": "siftkit"'), true);
     const runId = String(toolMessage?.sourceRunId || '');
     const storedCommandText = String(toolMessage?.toolCallCommand || '');
@@ -3424,7 +3424,7 @@ test('deleting a tool bubble removes chat context and rewrites run detail', asyn
     const captured = asObject(parseJsonValueText(capturedChatRawBody));
     assert.equal(Array.isArray(captured.messages), true);
     const capturedText = (asObjectArray(captured.messages)).map((message) => String(message.content || '')).join('\n');
-    assert.equal(capturedText.includes('git grep -n "name" package.json'), false);
+    assert.equal(capturedText.includes("git operation=\"grep\" path=\"package.json\" pattern=\"name\""), false);
     assert.equal(capturedText.includes('"name": "siftkit"'), false);
   } finally {
     await new Promise<void>((resolve, reject) => {
