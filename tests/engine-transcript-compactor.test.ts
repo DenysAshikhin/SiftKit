@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
+
+import { z } from 'zod';
 
 import {
   COMPACTION_SUMMARY_MARKER,
@@ -9,10 +12,20 @@ import { TaskResultSchema } from '../src/repo-search/engine/task-loop-support.js
 import { TokenUsageTracker } from '../src/repo-search/engine/token-usage.js';
 import { TurnBudget } from '../src/repo-search/engine/turn-budget.js';
 import type { JsonSerializable } from '../src/lib/json-types.js';
+import { parseJsonValueText } from '../src/lib/json.js';
 import type { ChatMessage } from '../src/repo-search/planner-protocol.js';
 import { buildMockScorecard } from './_test-helpers.js';
 import { mockOfflineSiftConfig } from './helpers/mock-config.js';
 import { DEAD_BASE_URL } from './helpers/dead-endpoints.js';
+import { getAddressInfo } from './helpers/dashboard-http.js';
+import { sendChatCompletionSse } from './helpers/streaming-client.js';
+
+const SummaryRequestSchema = z.object({
+  messages: z.array(z.object({
+    role: z.string(),
+    content: z.string(),
+  }).passthrough()),
+}).passthrough();
 
 function makeCompactor(mockResponses: string[] | undefined, totalContextTokens = 32_000): TranscriptCompactor {
   const config = mockOfflineSiftConfig();
@@ -48,7 +61,7 @@ function transcript(): ChatMessage[] {
 test('compact rebuilds the transcript as system, summary, latest user message', async () => {
   const compactor = makeCompactor(['SUMMARY BODY']);
 
-  const outcome = await compactor.compact({ taskId: 't1', turn: 4, messages: transcript(), mockResponseIndex: 0 });
+  const outcome = await compactor.compact({ taskId: 't1', turn: 4, messages: transcript(), mockResponseIndex: 0, retention: { kind: 'latest_user' } });
 
   assert.deepEqual(outcome.messages.map((message) => message.role), ['system', 'assistant', 'user']);
   assert.equal(outcome.messages[0].content, 'SYSTEM PROMPT');
@@ -64,7 +77,7 @@ test('compact fails as planner_compaction_failed when the summarizer never answe
   const compactor = makeCompactor([]);
 
   await assert.rejects(
-    compactor.compact({ taskId: 't1', turn: 4, messages: transcript(), mockResponseIndex: 0 }),
+    compactor.compact({ taskId: 't1', turn: 4, messages: transcript(), mockResponseIndex: 0, retention: { kind: 'latest_user' } }),
     /planner_compaction_failed/u,
   );
 });
@@ -72,10 +85,145 @@ test('compact fails as planner_compaction_failed when the summarizer never answe
 test('compact retries the summarizer once before failing', async () => {
   const compactor = makeCompactor(['', 'RECOVERED SUMMARY']);
 
-  const outcome = await compactor.compact({ taskId: 't1', turn: 4, messages: transcript(), mockResponseIndex: 0 });
+  const outcome = await compactor.compact({ taskId: 't1', turn: 4, messages: transcript(), mockResponseIndex: 0, retention: { kind: 'latest_user' } });
 
   assert.equal(outcome.summaryText, 'RECOVERED SUMMARY');
   assert.equal(outcome.nextMockResponseIndex, 2);
+});
+
+test('chat compaction summarizes completed history and retains the entire in-flight turn', async () => {
+  const messages: ChatMessage[] = [
+    { role: 'system', content: 'SYSTEM' },
+    { role: 'user', content: 'old question' },
+    { role: 'assistant', content: 'old answer' },
+    { role: 'user', content: 'trigger question' },
+    { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'web_fetch', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'c1', content: 'fresh tool result' },
+  ];
+
+  const outcome = await makeCompactor(['SUMMARY']).compact({
+    taskId: 'chat-1',
+    turn: 2,
+    messages,
+    mockResponseIndex: 0,
+    retention: { kind: 'current_chat_turn', startIndex: 3 },
+  });
+
+  assert.deepEqual(outcome.messages.slice(2), messages.slice(3));
+  assert.equal(outcome.currentTurnStartIndex, 2);
+});
+
+test('chat compaction sends only completed history to the real summary request', async () => {
+  const capturedRequests: Array<z.infer<typeof SummaryRequestSchema>> = [];
+  const server = http.createServer((request, response) => {
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk: string) => { body += chunk; });
+    request.on('end', () => {
+      capturedRequests.push(SummaryRequestSchema.parse(parseJsonValueText(body)));
+      sendChatCompletionSse(response, { choices: [{ message: { content: 'SUMMARY' } }] });
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.listen(0, '127.0.0.1', (error?: Error) => error ? reject(error) : resolve());
+  });
+  const address = getAddressInfo(server);
+  const config = mockOfflineSiftConfig();
+  const messages: ChatMessage[] = [
+    { role: 'system', content: 'SYSTEM' },
+    { role: 'user', content: 'old question' },
+    { role: 'assistant', content: 'old answer' },
+    { role: 'user', content: 'trigger question' },
+    { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'web_fetch', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'c1', content: 'fresh tool result' },
+  ];
+  try {
+    const compactor = new TranscriptCompactor({
+      config,
+      baseUrl: `http://127.0.0.1:${address.port}`,
+      model: 'mock-model',
+      timeoutMs: 5_000,
+      totalContextTokens: 32_000,
+      thinking: { thinkingEnabled: false, reasoningContentEnabled: false, preserveThinking: false },
+      useEstimatedTokensOnly: true,
+      mockResponses: undefined,
+      tokenUsage: new TokenUsageTracker(config, true),
+      logger: null,
+      abortSignal: undefined,
+    });
+
+    await compactor.compact({
+      taskId: 'chat-1',
+      turn: 2,
+      messages,
+      mockResponseIndex: 0,
+      retention: { kind: 'current_chat_turn', startIndex: 3 },
+    });
+
+    const captured = capturedRequests[0];
+    assert.ok(captured);
+    assert.deepEqual(captured.messages.slice(0, -1), [
+      { role: 'system', content: 'SYSTEM' },
+      { role: 'user', content: 'old question' },
+      { role: 'assistant', content: 'old answer' },
+    ]);
+    const instruction = captured.messages.at(-1);
+    assert.ok(instruction);
+    assert.equal(instruction.role, 'user');
+    assert.match(instruction.content, /You are compacting a long working conversation/u);
+    assert.equal(captured.messages.some((message) => message.content === 'trigger question'), false);
+    assert.equal(captured.messages.some((message) => message.content === 'fresh tool result'), false);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+});
+
+test('manual compaction retains no live message outside its summary', async () => {
+  const outcome = await makeCompactor(['SUMMARY']).compact({
+    taskId: 'chat-1',
+    turn: null,
+    messages: transcript(),
+    mockResponseIndex: 0,
+    retention: { kind: 'none' },
+  });
+
+  assert.deepEqual(outcome.messages.map((message) => message.role), ['system', 'assistant']);
+  assert.equal(outcome.currentTurnStartIndex, null);
+});
+
+test('an invalid chat turn boundary fails loudly', async () => {
+  await assert.rejects(
+    makeCompactor(['SUMMARY']).compact({
+      taskId: 'chat-1',
+      turn: 1,
+      messages: transcript(),
+      mockResponseIndex: 0,
+      retention: { kind: 'current_chat_turn', startIndex: 99 },
+    }),
+    /invalid compaction retention boundary/u,
+  );
+});
+
+test('the summary budget excludes the retained triggering turn', async () => {
+  const trigger = { role: 'user' as const, content: 'Q'.repeat(40_000) };
+  const messages: ChatMessage[] = [
+    { role: 'system', content: 'SYSTEM' },
+    { role: 'assistant', content: 'small completed history' },
+    trigger,
+  ];
+
+  const outcome = await makeCompactor(['SUMMARY'], 5_000).compact({
+    taskId: 'chat-1',
+    turn: 1,
+    messages,
+    mockResponseIndex: 0,
+    retention: { kind: 'current_chat_turn', startIndex: 2 },
+  });
+
+  assert.equal(outcome.summaryText, 'SUMMARY');
+  assert.equal(outcome.messages.at(-1), trigger);
 });
 
 test('compact fails hard when the summarization prompt cannot fit single-shot', async () => {
@@ -86,9 +234,51 @@ test('compact fails hard when the summarization prompt cannot fit single-shot', 
   ];
 
   await assert.rejects(
-    compactor.compact({ taskId: 't1', turn: 1, messages: oversized, mockResponseIndex: 0 }),
+    compactor.compact({ taskId: 't1', turn: 1, messages: oversized, mockResponseIndex: 0, retention: { kind: 'latest_user' } }),
     /planner_compaction_prompt_overflow prompt_tokens=\d+/u,
   );
+});
+
+test('a completed-history image consumes the structured summary budget', async () => {
+  const logged: Array<Record<string, JsonSerializable>> = [];
+  const config = mockOfflineSiftConfig();
+  const compactor = new TranscriptCompactor({
+    config,
+    baseUrl: DEAD_BASE_URL,
+    model: 'mock-model',
+    timeoutMs: 5_000,
+    totalContextTokens: 2_500,
+    thinking: { thinkingEnabled: false, reasoningContentEnabled: false, preserveThinking: false },
+    useEstimatedTokensOnly: true,
+    mockResponses: ['SUMMARY BODY'],
+    tokenUsage: new TokenUsageTracker(config, true),
+    logger: { path: 'memory', write: (event) => { logged.push(event); } },
+    abortSignal: undefined,
+  });
+  const messages: ChatMessage[] = [
+    { role: 'system', content: 'SYSTEM PROMPT' },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'small completed history' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+      ],
+    },
+    { role: 'assistant', content: 'completed answer' },
+  ];
+
+  await assert.rejects(
+    compactor.compact({
+      taskId: 't1',
+      turn: 1,
+      messages,
+      mockResponseIndex: 0,
+      retention: { kind: 'none' },
+    }),
+    /planner_compaction_prompt_overflow prompt_tokens=\d+/u,
+  );
+  assert.equal(logged.some((event) => event.kind === 'turn_compaction_prompt_overflow_fail'), true);
+  assert.equal(logged.some((event) => event.kind === 'turn_compaction_summary_retry'), false);
 });
 
 test('a caller with no turn is reported as such instead of borrowing turn zero', async () => {
@@ -113,6 +303,7 @@ test('a caller with no turn is reported as such instead of borrowing turn zero',
     turn: null,
     messages: transcript(),
     mockResponseIndex: 0,
+    retention: { kind: 'none' },
   });
 
   assert.equal(outcome.summaryText, 'RECOVERED SUMMARY');
@@ -130,22 +321,22 @@ test('an overflow reported by a turnless caller names no turn', async () => {
   ];
 
   await assert.rejects(
-    compactor.compact({ taskId: 'session-x', turn: null, messages: oversized, mockResponseIndex: 0 }),
+    compactor.compact({ taskId: 'session-x', turn: null, messages: oversized, mockResponseIndex: 0, retention: { kind: 'none' } }),
     /planner_compaction_prompt_overflow .*turn=none/u,
   );
 });
 
-test('compact keeps a transcript with no user message to system plus summary', async () => {
+test('latest_user retention fails loudly when the transcript has no user message', async () => {
   const compactor = makeCompactor(['SUMMARY BODY']);
   const messages: ChatMessage[] = [
     { role: 'system', content: 'SYSTEM PROMPT' },
     { role: 'assistant', content: 'assistant only' },
   ];
 
-  const outcome = await compactor.compact({ taskId: 't1', turn: 2, messages, mockResponseIndex: 0 });
-
-  assert.deepEqual(outcome.messages.map((message) => message.role), ['system', 'assistant']);
-  assert.equal(outcome.droppedMessageCount, 1);
+  await assert.rejects(
+    compactor.compact({ taskId: 't1', turn: 2, messages, mockResponseIndex: 0, retention: { kind: 'latest_user' } }),
+    /invalid compaction retention boundary/u,
+  );
 });
 
 // The reserve clamps on small windows; the summary output budget has to clamp with it,
@@ -162,40 +353,11 @@ for (const totalContextTokens of [150_000, 32_000, 9_000]) {
       { role: 'user', content: 'latest user intent' },
     ];
 
-    const outcome = await compactor.compact({ taskId: 't1', turn: 9, messages, mockResponseIndex: 0 });
+    const outcome = await compactor.compact({ taskId: 't1', turn: 9, messages, mockResponseIndex: 0, retention: { kind: 'latest_user' } });
 
     assert.equal(outcome.summaryText, 'SUMMARY BODY');
   });
 }
-
-test('compact summarizes the transcript below the system prompt, not the system prompt itself', async () => {
-  const logged: Array<Record<string, JsonSerializable>> = [];
-  const config = mockOfflineSiftConfig();
-  const compactor = new TranscriptCompactor({
-    config,
-    baseUrl: DEAD_BASE_URL,
-    model: 'mock-model',
-    timeoutMs: 5_000,
-    totalContextTokens: 5_000,
-    thinking: { thinkingEnabled: false, reasoningContentEnabled: false, preserveThinking: false },
-    useEstimatedTokensOnly: true,
-    mockResponses: ['SUMMARY BODY'],
-    tokenUsage: new TokenUsageTracker(config, true),
-    logger: { path: 'memory', write: (event) => { logged.push(event); } },
-    abortSignal: undefined,
-  });
-  // A system prompt far larger than the whole window still compacts: it is never sent
-  // to the summarizer, only the conversation below it is.
-  const messages: ChatMessage[] = [
-    { role: 'system', content: 'S'.repeat(200_000) },
-    { role: 'user', content: 'small question' },
-  ];
-
-  const outcome = await compactor.compact({ taskId: 't1', turn: 3, messages, mockResponseIndex: 0 });
-
-  assert.equal(outcome.summaryText, 'SUMMARY BODY');
-  assert.equal(logged.some((event) => event.kind === 'turn_compaction_prompt_overflow_fail'), false);
-});
 
 test('TaskResultSchema requires compactionSummary so a missed producer fails loudly', () => {
   const task = buildMockScorecard('done').tasks[0];

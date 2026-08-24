@@ -15,7 +15,7 @@ import { preflightPlannerPromptBudget, type PreflightResult } from '../prompt-bu
 import type { JsonLogger } from '../types.js';
 import { ProgressReporter, type TokenizeDoneInfo } from './progress-reporter.js';
 import { TranscriptManager } from './transcript-manager.js';
-import { TranscriptCompactor } from './transcript-compactor.js';
+import { TranscriptCompactor, type CompactionRetention } from './transcript-compactor.js';
 import { TurnBudget } from './turn-budget.js';
 import type { RepoSearchRuntimeProfile } from './runtime-profile.js';
 
@@ -187,15 +187,19 @@ export class PromptPreparer {
         turn,
         beforePromptTokenCount: preflight.promptTokenCount,
       });
+      const retention: CompactionRetention = this.options.runtimeProfile.loopKind === 'chat'
+        ? { kind: 'current_chat_turn', startIndex: transcript.currentTurnStartIndex }
+        : { kind: 'latest_user' };
       const compacted = await this.options.compactor.compact({
         taskId,
         turn,
         messages: transcript.getMessages(),
         mockResponseIndex,
+        retention,
       });
       compactionSummary = compacted.summaryText;
       nextMockResponseIndex = compacted.nextMockResponseIndex;
-      transcript.replaceWith(compacted.messages);
+      transcript.replaceWith(compacted.messages, compacted.currentTurnStartIndex);
       const beforeProviderPromptReserveTokenCount = preflight.providerPromptReserveTokenCount;
       providerPromptReserveText = this.buildProviderPromptReserveText(
         transcript.messageRoles(),
@@ -240,6 +244,8 @@ export class PromptPreparer {
         droppedMessageCount: compacted.droppedMessageCount,
         summaryTokenCount: compacted.summaryTokenCount,
         summarizerElapsedMs: compacted.summarizerElapsedMs,
+        promptCacheTokens: compacted.promptCacheTokens,
+        promptEvalTokens: compacted.promptEvalTokens,
         maxOutputTokens,
       });
       preflight = afterCompaction;

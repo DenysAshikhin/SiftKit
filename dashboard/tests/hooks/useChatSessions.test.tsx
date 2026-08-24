@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { render } from '../react-test-environment.js';
+import { renderHook, waitFor } from '../react-test-environment.js';
 
 import {
   findSessionByIdStrict,
@@ -11,9 +11,8 @@ import {
   useChatSessions,
 } from '../../src/hooks/useChatSessions';
 import { ChatSessionRuntimeStore } from '../../src/lib/chat-session-runtime-store';
-import type { PendingImage } from '../../src/lib/downscale-image';
 import { MANAGED_PRESET } from '../fixtures.js';
-import type { ChatSession } from '../../src/types';
+import type { ChatMessage, ChatSession } from '../../src/types';
 
 const SESSION: ChatSession = {
   id: 's1',
@@ -32,6 +31,23 @@ const SESSION: ChatSession = {
   updatedAtUtc: '2026-06-03T12:00:00.000Z',
   messages: [],
 };
+
+function chatMessage(
+  overrides: Partial<ChatMessage> & Pick<ChatMessage, 'id' | 'role' | 'content'>,
+): ChatMessage {
+  return {
+    id: overrides.id,
+    role: overrides.role,
+    kind: overrides.kind ?? (overrides.role === 'user' ? 'user_text' : 'assistant_answer'),
+    content: overrides.content,
+    inputTokensEstimate: 0,
+    outputTokensEstimate: 0,
+    thinkingTokens: 0,
+    createdAtUtc: '2026-06-03T12:00:00.000Z',
+    sourceRunId: null,
+    ...overrides,
+  };
+}
 
 test('pickFirstSessionId returns the first id or empty string', () => {
   assert.equal(pickFirstSessionId([]), '');
@@ -138,61 +154,145 @@ const LOW_CAP_SESSION: ChatSession = {
   modelPreset: { ...SESSION.modelPreset, VisionMaxImagePixels: 409_600 },
 };
 
+type ChatFixtureResponse = {
+  session: ChatSession;
+  contextUsage: typeof CONTEXT_USAGE;
+};
+
+class ChatFetchFixture {
+  readonly requestedUrls: string[] = [];
+  readonly sentBodies: string[] = [];
+  detailRequestCount = 0;
+  streamRequestCount = 0;
+  private readonly originalFetch = globalThis.fetch;
+  private restored = false;
+
+  constructor(private readonly options: {
+    session: ChatSession;
+    detailResponse: ChatFixtureResponse;
+    streamResponse: ChatFixtureResponse;
+    runtimeStatus?: typeof RUNTIME_STATUS;
+  }) {
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = String(input);
+      this.requestedUrls.push(url);
+      if (typeof init?.body === 'string') {
+        this.sentBodies.push(init.body);
+      }
+      if (url === '/dashboard/chat/sessions') {
+        return new Response(JSON.stringify({ sessions: [this.options.session] }), { status: 200 });
+      }
+      if (url === `/dashboard/chat/sessions/${this.options.session.id}`) {
+        this.detailRequestCount += 1;
+        return new Response(JSON.stringify(this.options.detailResponse), { status: 200 });
+      }
+      if (url === `/dashboard/chat/sessions/${this.options.session.id}/messages/stream`) {
+        this.streamRequestCount += 1;
+        return new Response(`event: done\ndata: ${JSON.stringify(this.options.streamResponse)}\n\n`, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        });
+      }
+      if (url === '/runtime/inference' && this.options.runtimeStatus) {
+        return new Response(JSON.stringify(this.options.runtimeStatus), { status: 200 });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    };
+  }
+
+  restore(): void {
+    if (this.restored) return;
+    this.restored = true;
+    globalThis.fetch = this.originalFetch;
+  }
+}
+
+test('a compacting stream completion installs the boundary and corrected usage without refetching', async () => {
+  const compactedSession: ChatSession = {
+    ...SESSION,
+    messages: [
+      chatMessage({ id: 'old-user', role: 'user', kind: 'user_text', content: 'old question', compressedIntoSummary: true }),
+      chatMessage({ id: 'old-answer', role: 'assistant', kind: 'assistant_answer', content: 'old answer', compressedIntoSummary: true }),
+      chatMessage({ id: 'summary', role: 'assistant', kind: 'compaction_summary', content: 'compact summary' }),
+      chatMessage({ id: 'live-user', role: 'user', kind: 'user_text', content: 'trigger question' }),
+      chatMessage({ id: 'live-answer', role: 'assistant', kind: 'assistant_answer', content: 'fresh answer' }),
+    ],
+  };
+  const correctedUsage = {
+    ...CONTEXT_USAGE,
+    usedTokens: 12,
+    chatUsedTokens: 12,
+    totalUsedTokens: 12,
+    remainingTokens: 88,
+    shouldCondense: false,
+  };
+  const initialResponse = { session: SESSION, contextUsage: CONTEXT_USAGE };
+  const doneResponse = { session: compactedSession, contextUsage: correctedUsage };
+  const fixture = new ChatFetchFixture({
+    session: SESSION,
+    detailResponse: initialResponse,
+    streamResponse: doneResponse,
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
+      initialSelectedSessionId: 's1',
+      refreshToken: 0,
+      buildCreateSessionRequest: () => ({ title: 'x' }),
+      confirmDeleteSession: () => true,
+      enqueueToast: () => {},
+    }));
+    await waitFor(() => { assert.notEqual(hook.result.current.selectedSession, null); });
+    act(() => { hook.result.current.setSessionDraft('s1', 'trigger question'); });
+    await waitFor(() => { assert.equal(hook.result.current.runtimeStore.get('s1').draft, 'trigger question'); });
+    await act(async () => { await hook.result.current.sendMessage(); });
+
+    const selectedSession = hook.result.current.selectedSession;
+    assert.ok(selectedSession);
+    assert.equal(fixture.streamRequestCount, 1, fixture.requestedUrls.join(', '));
+    assert.equal(
+      selectedSession.messages.some(
+        (message) => message.kind === 'compaction_summary' && message.compressedIntoSummary !== true,
+      ),
+      true,
+    );
+    assert.equal(selectedSession.messages.some((message) => message.compressedIntoSummary === true), true);
+    const runtime = hook.result.current.runtimeStore.get('s1');
+    assert.equal(runtime.contextUsage?.totalUsedTokens, 12);
+    assert.equal(runtime.contextUsage?.shouldCondense, false);
+    assert.equal(fixture.detailRequestCount, 1);
+  } finally {
+    fixture.restore();
+  }
+});
+
 async function sendImageForHeadroom(
   session: ChatSession,
   runtimeStatus: typeof RUNTIME_STATUS,
 ): Promise<{ toasts: Array<[string, string]>; sentBodies: string[] }> {
   const toasts: Array<[string, string]> = [];
-  const originalFetch = globalThis.fetch;
-  const sentBodies: string[] = [];
   const doneResponse = { session, contextUsage: CONTEXT_USAGE };
-  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input);
-    if (typeof init?.body === 'string') {
-      sentBodies.push(init.body);
-    }
-    if (url === '/dashboard/chat/sessions') {
-      return new Response(JSON.stringify({ sessions: [session] }), { status: 200 });
-    }
-    if (url === '/dashboard/chat/sessions/s1') {
-      return new Response(JSON.stringify(doneResponse), { status: 200 });
-    }
-    if (url === '/runtime/inference') {
-      return new Response(JSON.stringify(runtimeStatus), { status: 200 });
-    }
-    return new Response(`event: done\ndata: ${JSON.stringify(doneResponse)}\n\n`, {
-      status: 200,
-      headers: { 'Content-Type': 'text/event-stream' },
-    });
-  };
-
-  let sendMessage: (() => Promise<void>) | null = null;
-  let setSessionImages: ((sessionId: string, images: PendingImage[]) => void) | null = null;
-  function Probe(): React.JSX.Element {
-    const result = useChatSessions({
+  const fixture = new ChatFetchFixture({
+    session,
+    detailResponse: doneResponse,
+    streamResponse: doneResponse,
+    runtimeStatus,
+  });
+  try {
+    const hook = renderHook(() => useChatSessions({
       initialSelectedSessionId: 's1',
       refreshToken: 0,
       buildCreateSessionRequest: () => ({ title: 'x' }),
       confirmDeleteSession: () => true,
       enqueueToast: (level, text) => toasts.push([level, text]),
-    });
-    sendMessage = result.sendMessage;
-    setSessionImages = result.setSessionImages;
-    return React.createElement('output');
-  }
-
-  try {
-    render(React.createElement(Probe));
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
-    assert.ok(setSessionImages);
+    }));
+    await waitFor(() => { assert.notEqual(hook.result.current.selectedSession, null); });
     act(() => {
-      setSessionImages?.('s1', [{ dataUrl: 'data:image/png;base64,AAAA', note: null }]);
+      hook.result.current.setSessionImages('s1', [{ dataUrl: 'data:image/png;base64,AAAA', note: null }]);
     });
-    assert.ok(sendMessage);
-    await act(async () => { await sendMessage?.(); });
-    return { toasts, sentBodies };
+    await act(async () => { await hook.result.current.sendMessage(); });
+    return { toasts, sentBodies: fixture.sentBodies };
   } finally {
-    globalThis.fetch = originalFetch;
+    fixture.restore();
   }
 }
 

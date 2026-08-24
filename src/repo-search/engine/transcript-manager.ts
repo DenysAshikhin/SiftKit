@@ -14,10 +14,19 @@ export class TranscriptManager {
   private readonly liveImagePathKeys: Set<string>;
   private lastLoggedMessageCount = 0;
   private generationCounter = 0;
+  private currentTurnStartIndexValue: number;
 
   /** Incremented whenever compaction rewrites the message array, invalidating absolute indexes. */
   get generation(): number {
     return this.generationCounter;
+  }
+
+  /**
+   * Absolute index of the current turn's first message: after system and the persisted
+   * history at construction, and whatever a compaction install says afterwards.
+   */
+  get currentTurnStartIndex(): number {
+    return this.currentTurnStartIndexValue;
   }
 
   constructor(options: {
@@ -33,6 +42,7 @@ export class TranscriptManager {
       ...options.historyMessages,
       { role: 'user', content: buildUserContent(options.initialUserContent, options.initialUserImages) },
     ];
+    this.currentTurnStartIndexValue = 1 + options.historyMessages.length;
   }
 
   get length(): number {
@@ -55,8 +65,19 @@ export class TranscriptManager {
     return renderTaskTranscript(this.messages.slice(skipCount), { includeReasoningContent: false });
   }
 
-  replaceWith(compactedMessages: ChatMessage[]): void {
+  replaceWith(compactedMessages: ChatMessage[], currentTurnStartIndex: number | null): void {
+    if (currentTurnStartIndex !== null
+      && (!Number.isInteger(currentTurnStartIndex)
+        || currentTurnStartIndex < 0
+        || currentTurnStartIndex >= compactedMessages.length)) {
+      throw new Error(
+        `TranscriptManager: invalid current turn start index ${String(currentTurnStartIndex)} for a ${compactedMessages.length}-message replacement`,
+      );
+    }
     this.messages.splice(0, this.messages.length, ...compactedMessages);
+    // No retained turn (manual compaction): the sentinel sits past the end, so any later
+    // chat-boundary read sees an out-of-range index instead of a borrowed live turn.
+    this.currentTurnStartIndexValue = currentTurnStartIndex ?? compactedMessages.length;
     this.lastLoggedMessageCount = 0;
     this.generationCounter += 1;
     this.releaseDroppedImageGuards();

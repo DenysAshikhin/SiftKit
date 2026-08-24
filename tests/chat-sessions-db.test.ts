@@ -654,6 +654,19 @@ test('a second compaction supersedes the first summary row', () => {
     assert.deepEqual(summaryRows.map((message) => message.content), ['FIRST SUMMARY', 'SECOND SUMMARY']);
     assert.equal(summaryRows[0].compressedIntoSummary, true);
     assert.equal(summaryRows[1].compressedIntoSummary, false);
+    const activeSummaries = updated.messages.filter(
+      (message) => message.kind === 'compaction_summary' && message.compressedIntoSummary !== true,
+    );
+    assert.equal(activeSummaries.length, 1);
+    assert.equal(activeSummaries[0]?.content, 'SECOND SUMMARY');
+    const latestSummaryIndex = updated.messages.findLastIndex(
+      (message) => message.kind === 'compaction_summary' && message.compressedIntoSummary !== true,
+    );
+    assert.ok(latestSummaryIndex >= 0);
+    assert.equal(
+      updated.messages.slice(0, latestSummaryIndex).every((message) => message.compressedIntoSummary === true),
+      true,
+    );
   });
 });
 

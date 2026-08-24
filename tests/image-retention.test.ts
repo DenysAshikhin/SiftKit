@@ -134,7 +134,7 @@ test('compaction that drops an image message releases its re-read guard', () => 
     buildReadPathKey('docs/arch.png'),
   );
 
-  transcript.replaceWith([{ role: 'system', content: 'system' }, { role: 'user', content: 'compacted' }]);
+  transcript.replaceWith([{ role: 'system', content: 'system' }, { role: 'user', content: 'compacted' }], 1);
 
   assert.equal(liveImagePathKeys.size, 0);
 });
@@ -152,7 +152,7 @@ test('compaction that keeps an image message keeps its re-read guard', () => {
   const kept = imageMessage('data:image/png;base64,A', 'image docs/arch.png — 1440×900', pathKey);
   transcript.pushUser('image docs/arch.png — 1440×900', ['data:image/png;base64,A'], pathKey);
 
-  transcript.replaceWith([{ role: 'system', content: 'system' }, kept]);
+  transcript.replaceWith([{ role: 'system', content: 'system' }, kept], 1);
 
   assert.equal(liveImagePathKeys.has(buildReadPathKey('docs/arch.png')), true);
 });
@@ -170,10 +170,10 @@ test('compaction retains structured image identity regardless of display wording
   });
   const kept = imageMessage(PNG, 'the label format may change freely', imagePathKey);
 
-  transcript.replaceWith([{ role: 'system', content: 'system' }, kept]);
+  transcript.replaceWith([{ role: 'system', content: 'system' }, kept], 1);
   assert.equal(liveImagePathKeys.has(imagePathKey), true);
 
-  transcript.replaceWith([{ role: 'system', content: 'system' }, { role: 'user', content: 'compacted' }]);
+  transcript.replaceWith([{ role: 'system', content: 'system' }, { role: 'user', content: 'compacted' }], 1);
   assert.equal(liveImagePathKeys.has(imagePathKey), false);
 });
 

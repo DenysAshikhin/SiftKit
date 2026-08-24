@@ -865,6 +865,23 @@ export async function requestTerminalSynthesis(options: Partial<PlannerThinkingF
 }
 
 /**
+ * The prefix-preserving compaction request: the completed history serialized unchanged,
+ * with only the summary instruction appended, so the provider can reuse the prompt-cache
+ * prefix the planner requests already established.
+ */
+export function buildContextCompactionPromptMessages(
+  history: readonly ChatMessage[],
+  instruction: string,
+  reasoningContentEnabled: boolean,
+): LlamaCppChatMessage[] {
+  const messages: ChatMessage[] = [
+    ...history,
+    { role: 'user', content: instruction },
+  ];
+  return serializeProtocolMessages(messages, reasoningContentEnabled);
+}
+
+/**
  * The context-compaction summarization call. Free-form text with no tools and no
  * response schema: the output becomes an assistant message, not a planner action.
  */
@@ -872,7 +889,8 @@ export async function requestContextCompactionSummary(options: Partial<PlannerTh
   config: SiftConfig;
   baseUrl: string;
   model: string;
-  prompt: string;
+  messages: readonly ChatMessage[];
+  instruction: string;
   timeoutMs: number;
   maxTokens: number;
   slotId?: number;
@@ -885,7 +903,7 @@ export async function requestContextCompactionSummary(options: Partial<PlannerTh
     config: options.config,
     baseUrl: options.baseUrl,
     model: options.model,
-    messages: serializeProtocolMessages([{ role: 'user', content: options.prompt }], options.reasoningContentEnabled === true),
+    messages: buildContextCompactionPromptMessages(options.messages, options.instruction, options.reasoningContentEnabled === true),
     slotId: options.slotId,
     timeoutMs: options.timeoutMs,
     maxTokens: options.maxTokens,

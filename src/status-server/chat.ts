@@ -117,6 +117,12 @@ type ContextUsageTokenTotals = {
   estimatedTokenFallbackTokens: number;
 };
 
+export function selectReplayableChatMessages(
+  messages: readonly PersistedChatMessage[],
+): PersistedChatMessage[] {
+  return messages.filter((message) => message.compressedIntoSummary !== true);
+}
+
 export type { ContextUsage } from '@siftkit/contracts';
 
 export function sessionUsesActiveModelPreset(config: SiftConfig, session: ChatSession): boolean {
@@ -200,7 +206,9 @@ class ContextUsageBuilder {
 
   private buildTokenTotals(): ContextUsageTokenTotals {
     const contextWindowTokens = resolveChatSessionContextWindow(this.config, this.session);
-    const messages = Array.isArray(this.session.messages) ? this.session.messages : [];
+    const messages = selectReplayableChatMessages(
+      Array.isArray(this.session.messages) ? this.session.messages : [],
+    );
     const messageTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + getMessageContextTokenEstimate(message), 0);
     const thinkingUsedTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + getMessageThinkingTokenEstimate(message), 0);
     const toolUsedTokens = messages.reduce((sum: number, message: PersistedChatMessage) => sum + getMessageToolTokenEstimate(message), 0);
@@ -296,7 +304,9 @@ export function buildChatHistoryMessages(
   config: SiftConfig,
   session: ChatSession,
 ): PlannerChatMessage[] {
-  const messages = Array.isArray(session.messages) ? session.messages : [];
+  const messages = selectReplayableChatMessages(
+    Array.isArray(session.messages) ? session.messages : [],
+  );
   const history: PlannerChatMessage[] = [];
   const replayThinking = shouldPreserveThinking(config, session.thinkingEnabled !== false);
   let pendingThinking = '';
@@ -306,9 +316,6 @@ export function buildChatHistoryMessages(
       : message.role === 'user'
         ? 'user_text'
         : 'assistant_answer';
-    if (message.compressedIntoSummary === true) {
-      continue;
-    }
     if (kind === 'compaction_summary') {
       const summaryText = trimText(message.content);
       if (summaryText) {
@@ -742,6 +749,7 @@ export async function condenseChatSession(
     turn: null,
     messages: history,
     mockResponseIndex: 0,
+    retention: { kind: 'none' },
   });
 
   const now = new Date().toISOString();

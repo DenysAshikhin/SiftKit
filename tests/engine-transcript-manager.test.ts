@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { z } from 'zod';
 
 import { TranscriptManager } from '../src/repo-search/engine/transcript-manager.js';
+import { buildCompactionSummaryMessage } from '../src/repo-search/engine/transcript-compactor.js';
 import type { ChatMessage } from '../src/repo-search/planner-protocol.js';
 
 function makeTranscript(): TranscriptManager {
@@ -37,7 +38,7 @@ test('takeNewMessagesForLogging returns only messages appended since last call',
 test('replaceWith swaps content and resets the logging cursor', () => {
   const transcript = makeTranscript();
   transcript.takeNewMessagesForLogging();
-  transcript.replaceWith([{ role: 'system', content: 'S2' }, { role: 'user', content: 'U2' }]);
+  transcript.replaceWith([{ role: 'system', content: 'S2' }, { role: 'user', content: 'U2' }], 1);
   assert.equal(transcript.length, 2);
   assert.equal(transcript.takeNewMessagesForLogging().length, 2);
 });
@@ -159,8 +160,29 @@ test('replaceWith bumps the transcript generation', () => {
     liveImagePathKeys: new Set<string>(),
   });
   assert.equal(transcript.generation, 0);
-  transcript.replaceWith([{ role: 'user', content: 'compacted' }]);
+  transcript.replaceWith([{ role: 'user', content: 'compacted' }], 0);
   assert.equal(transcript.generation, 1);
+});
+
+test('chat compaction tracks the current turn after persisted history and after replacement', () => {
+  const transcript = new TranscriptManager({
+    systemPromptContent: 'system',
+    historyMessages: [
+      { role: 'user', content: 'old question' },
+      { role: 'assistant', content: 'old answer' },
+    ],
+    initialUserContent: 'trigger question',
+    initialUserImages: [],
+    liveImagePathKeys: new Set<string>(),
+  });
+
+  assert.equal(transcript.currentTurnStartIndex, 3);
+  transcript.replaceWith([
+    { role: 'system', content: 'system' },
+    buildCompactionSummaryMessage('summary'),
+    { role: 'user', content: 'trigger question' },
+  ], 2);
+  assert.equal(transcript.currentTurnStartIndex, 2);
 });
 
 test('render and renderTail produce transcripts', () => {

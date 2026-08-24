@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import {
   buildAgentSystemPrompt,
-  buildCompactionSummaryPrompt,
+  buildCompactionSummaryInstruction,
   buildTaskInitialUserPrompt,
   buildTaskSystemPrompt,
 } from '../src/repo-search/prompts.js';
@@ -293,20 +293,28 @@ test('buildAgentSystemPrompt uses context metadata without injecting context con
   }
 });
 
-test('buildCompactionSummaryPrompt demands every section the resumed model needs', () => {
-  const prompt = buildCompactionSummaryPrompt('[user]\nfind the bug\n[tool]\nError: ENOENT foo.ts');
+test('buildCompactionSummaryInstruction requests the complete resumable summary without embedding history', () => {
+  const instruction = buildCompactionSummaryInstruction();
 
-  assert.match(prompt, /Task and goal/u);
-  assert.match(prompt, /Current state/u);
-  assert.match(prompt, /Key findings/u);
-  assert.match(prompt, /file:line/u);
-  assert.match(prompt, /Decisions made/u);
-  assert.match(prompt, /Tool results that still matter/u);
-  assert.match(prompt, /verbatim/u);
-  assert.match(prompt, /In-flight work/u);
-  assert.match(prompt, /Error: ENOENT foo\.ts/u);
+  assert.match(instruction, /Task and goal/u);
+  assert.match(instruction, /Current state/u);
+  assert.match(instruction, /Key findings/u);
+  assert.match(instruction, /Decisions made/u);
+  assert.match(instruction, /Tool results that still matter/u);
+  assert.match(instruction, /In-flight work/u);
+  assert.doesNotMatch(instruction, /BEGIN CONVERSATION TO COMPACT/u);
 });
 
-test('buildCompactionSummaryPrompt marks an empty transcript instead of emitting nothing', () => {
-  assert.match(buildCompactionSummaryPrompt('   '), /\[none\]/u);
+test('buildCompactionSummaryInstruction preserves system instructions outside the replaced history', () => {
+  const instruction = buildCompactionSummaryInstruction();
+
+  assert.match(
+    instruction,
+    /The system instructions above remain active after compaction and must not be repeated in the summary\./u,
+  );
+  assert.match(
+    instruction,
+    /Only the completed conversation history above will be replaced by what you write\./u,
+  );
+  assert.doesNotMatch(instruction, /Nothing else survives\./u);
 });

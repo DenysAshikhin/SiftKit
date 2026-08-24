@@ -569,6 +569,10 @@ test('the message route persists admitted image metadata on the user message', a
 
 test('a chat turn whose run compacted persists the summary row and flags earlier messages', async () => {
   const context = await withCaptionServer();
+  saveChatSession(context.fixture.runtimeRoot, {
+    ...context.fixture.session,
+    messages: [{ ...context.fixture.message, content: 'X'.repeat(32_000) }],
+  });
   const originalExecute = StatusEngineService.prototype.executeRepoSearch;
   StatusEngineService.prototype.executeRepoSearch = async function executeCompactedRun(
     this: StatusEngineService,
@@ -582,6 +586,10 @@ test('a chat turn whose run compacted persists the summary row and flags earlier
       { method: 'POST', body: JSON.stringify({ content: 'a new question' }) },
     );
     assert.equal(response.statusCode, 200);
+    const usage = asObject(response.body.contextUsage);
+    assert.equal(usage.shouldCondense, false);
+    assert.ok(Number(usage.totalUsedTokens) < 2000);
+    assert.ok(Number(usage.remainingTokens) > Number(usage.warnThresholdTokens));
 
     const stored = readChatSessionFromPath(
       getChatSessionPath(context.fixture.runtimeRoot, context.fixture.session.id),
@@ -593,6 +601,12 @@ test('a chat turn whose run compacted persists the summary row and flags earlier
     assert.ok(summaryIndex > 0);
     assert.equal(messages.slice(0, summaryIndex).every((message) => message.compressedIntoSummary === true), true);
     assert.equal(messages.slice(summaryIndex).every((message) => message.compressedIntoSummary !== true), true);
+    assert.equal(
+      messages.filter(
+        (message) => message.kind === 'compaction_summary' && message.compressedIntoSummary !== true,
+      ).length,
+      1,
+    );
   } finally {
     StatusEngineService.prototype.executeRepoSearch = originalExecute;
     await closeCaptionTestServer(context.server, context.previousCwd, context.envBackup, context.tempRoot);

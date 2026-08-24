@@ -10,13 +10,16 @@ import { sendChatCompletionSse } from './helpers/streaming-client.js';
 import { mockSiftConfig } from './helpers/mock-config.js';
 import { getSupportedImageExtensions } from '../src/llm-protocol/image-attachments.js';
 import {
+  buildContextCompactionPromptMessages,
   captureExecutingPlannerRequest,
   getRepoSearchToolNames,
   getRepoSearchToolNamesForParsing,
   requestApprovalVerdict,
+  requestContextCompactionSummary,
   requestRepoSearchPlannerProtocolAction,
   resolveRepoSearchPlannerToolDefinitions,
   TOOL_DEFINITIONS,
+  type ChatMessage,
   type PlannerActionResponse,
 } from '../src/repo-search/planner-protocol.js';
 
@@ -707,6 +710,68 @@ test('requestApprovalVerdict clamps the verdict maxTokens to the preset MaxToken
   }), '{"verdict":"approve","reason":"ok"}');
 
   assert.equal(captured.max_tokens, 300);
+});
+
+test('requestContextCompactionSummary sends the unchanged history prefix plus its instruction', async () => {
+  let capturedBody: JsonObject | null = null;
+  await withServer(
+    (req, res) => {
+      if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+        res.statusCode = 404;
+        res.end();
+        return;
+      }
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
+      req.on('end', () => {
+        capturedBody = JSON.parse(body || '{}');
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+        });
+        res.write('data: {"choices":[{"delta":{"content":"SUMMARY TEXT"}}]}\n\n');
+        res.write(
+          'data: {"choices":[{"delta":{},"finish_reason":"stop"}],'
+          + '"usage":{"prompt_tokens":338,"prompt_tokens_details":{"cached_tokens":321}},'
+          + '"timings":{"cache_n":321,"prompt_n":17}}\n\n',
+        );
+        res.write('data: [DONE]\n\n');
+        res.end();
+      });
+    },
+    async (baseUrl) => {
+      const history: ChatMessage[] = [
+        { role: 'system', content: 'system' },
+        { role: 'user', content: 'old question' },
+        { role: 'assistant', content: 'old answer', reasoning_content: 'old reasoning' },
+      ];
+      const instruction = 'summarize now';
+      const response = await requestContextCompactionSummary({
+        config: buildTestConfig({ Backend: 'llama' }),
+        baseUrl,
+        model: 'mock-model',
+        messages: history,
+        instruction,
+        reasoningContentEnabled: true,
+        slotId: 2,
+        timeoutMs: 5000,
+        maxTokens: 512,
+      });
+
+      const body = asObject(capturedBody);
+      assert.deepEqual(body.messages, buildContextCompactionPromptMessages(history, instruction, true));
+      assert.equal(body.cache_prompt, true);
+      assert.equal(body.id_slot, 2);
+      assert.equal(body.tools, undefined);
+      assert.equal(body.response_format, undefined);
+      assert.equal(response.promptCacheTokens, 321);
+      assert.equal(response.promptEvalTokens, 17);
+    },
+  );
 });
 
 test('requestRepoSearchPlannerProtocolAction hard-fails on json_schema rejection without fallback retry', async () => {

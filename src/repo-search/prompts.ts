@@ -374,15 +374,15 @@ export function buildTerminalSynthesisPrompt(options: {
 }
 
 /**
- * The context-compaction instruction. The conversation it wraps is about to be deleted
- * and replaced by the model's answer, so the sections demanded here are exactly what a
- * resumed run cannot reconstruct on its own.
+ * The context-compaction instruction. It is appended after the conversation it summarizes;
+ * that history is about to be deleted and replaced by the model's answer, so the sections
+ * demanded here are exactly what a resumed run cannot reconstruct on its own.
  */
-export function buildCompactionSummaryPrompt(transcriptText: string): string {
-  const conversationText = transcriptText.trim() || '[none]';
+export function buildCompactionSummaryInstruction(): string {
   return [
     'You are compacting a long working conversation so the same model can resume it from the summary alone.',
-    'The conversation below will be deleted and replaced by what you write. Nothing else survives.',
+    'The system instructions above remain active after compaction and must not be repeated in the summary.',
+    'Only the completed conversation history above will be replaced by what you write.',
     'Write the summary as plain prose under these headings, in this order:',
     '1. Task and goal — what was asked, in the requester\'s terms.',
     '2. Current state — what is done, what is not.',
@@ -395,9 +395,6 @@ export function buildCompactionSummaryPrompt(transcriptText: string): string {
     '- Never invent a path, line number, symbol or result that is not in the conversation.',
     '- Prefer dropping commentary over dropping a concrete anchor or an exact error string.',
     '- Output the summary only. No preamble, no meta-commentary about summarizing.',
-    '',
-    'Conversation to compact:',
-    conversationText,
   ].join('\n');
 }
 

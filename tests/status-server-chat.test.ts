@@ -774,6 +774,61 @@ test('buildContextUsage counts replay-visible context, not internal tool telemet
   assert.equal(usage.contextWindowTokens, 62000);
 });
 
+test('buildContextUsage excludes every compressed message cost and counts the active summary plus live turn', () => {
+  const session = mockChatSession({
+    ...createSession(),
+    messages: [
+      {
+        id: 'old-user',
+        role: 'user',
+        kind: 'user_text',
+        content: 'X'.repeat(24_000),
+        compressedIntoSummary: true,
+        imageMeta: [ImageMetadataSchema.parse({
+          width: 1024,
+          height: 1024,
+          originalWidth: 1024,
+          originalHeight: 1024,
+          mime: 'image/png',
+          byteLength: 1,
+          tokenEstimate: 2048,
+          resized: false,
+          caption: null,
+        })],
+      },
+      {
+        id: 'old-thinking',
+        role: 'assistant',
+        kind: 'assistant_thinking',
+        content: 'R'.repeat(8_000),
+        compressedIntoSummary: true,
+      },
+      {
+        id: 'old-tool',
+        role: 'assistant',
+        kind: 'assistant_tool_call',
+        content: 'grep x',
+        toolCallOutput: 'T'.repeat(12_000),
+        associatedToolTokens: 3000,
+        compressedIntoSummary: true,
+      },
+      { id: 'summary', role: 'assistant', kind: 'compaction_summary', content: 'short summary' },
+      { id: 'live-user', role: 'user', kind: 'user_text', content: 'new question' },
+    ],
+  });
+  const config = createConfig();
+
+  const usage = buildContextUsage(config, session);
+  const replay = buildChatHistoryMessages(config, session);
+
+  assert.deepEqual(replay.map((message) => message.role), ['assistant', 'user']);
+  assert.equal(usage.toolUsedTokens, 0);
+  assert.equal(usage.imageUsedTokens, 0);
+  assert.equal(usage.thinkingUsedTokens, 0);
+  assert.ok(usage.totalUsedTokens < 1000);
+  assert.equal(usage.shouldCondense, false);
+});
+
 test('appendChatMessagesWithUsage stores user text token estimate from content, not cumulative prompt eval telemetry', () => {
   const runtimeRoot = createManagedTempDir('siftkit-chat-user-tokens-');
   const session = mockChatSession({

@@ -4,11 +4,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { ChatSessionResponseSchema } from '@siftkit/contracts';
 import { fireEvent, render as renderComponent, screen } from './react-test-environment.js';
 import { ChatSessionRuntimeStore } from '../src/lib/chat-session-runtime-store';
 import { ChatTab } from '../src/tabs/ChatTab';
 import type { ChatMessage, ChatSession, ChatSessionOperationKind, ContextUsage, DashboardPreset } from '../src/types';
 import type { PendingImage } from '../src/lib/downscale-image';
+import { DashboardTestServer } from '../../tests/helpers/dashboard-server-fixture.js';
+import { requestJson, requestSse } from '../../tests/helpers/dashboard-http.js';
+import { getDefaultConfig, writeConfig } from '../../src/status-server/config-store.js';
+import { getActiveModelPreset } from '../../src/config/getters.js';
+import { getRuntimeDatabasePath } from '../../src/state/runtime-db.js';
+import { getRuntimeRoot } from '../../src/config/paths.js';
+import { saveChatSession } from '../../src/state/chat-sessions.js';
 
 const IMAGE = 'data:image/png;base64,AA==';
 const IMAGE_META = {
@@ -507,6 +515,21 @@ const COMPACTED_SESSION = {
   ],
 } satisfies ChatSession;
 
+const TWICE_COMPACTED_SESSION = {
+  ...COMPACTED_SESSION,
+  id: 'session-twice-compacted',
+  messages: [
+    msg({ id: 'o1', role: 'user', kind: 'user_text', content: 'original question', compressedIntoSummary: true }),
+    msg({ id: 'o2', kind: 'assistant_answer', content: 'original answer', compressedIntoSummary: true }),
+    msg({ id: 's1', kind: 'compaction_summary', content: 'FIRST SUMMARY', compressedIntoSummary: true }),
+    msg({ id: 'm1', role: 'user', kind: 'user_text', content: 'middle question', compressedIntoSummary: true }),
+    msg({ id: 'm2', kind: 'assistant_answer', content: 'middle answer', compressedIntoSummary: true }),
+    msg({ id: 's2', kind: 'compaction_summary', content: 'LATEST SUMMARY' }),
+    msg({ id: 'n1', role: 'user', kind: 'user_text', content: 'live question' }),
+    msg({ id: 'n2', kind: 'assistant_answer', content: 'live answer' }),
+  ],
+} satisfies ChatSession;
+
 test('a compacted session renders the divider, the collapsed originals and the summary card', () => {
   const markup = render({
     sessions: [COMPACTED_SESSION],
@@ -520,6 +543,124 @@ test('a compacted session renders the divider, the collapsed originals and the s
   assert.match(markup, /SUMMARY OF THE OLD EXCHANGE/u);
   assert.match(markup, /old answer/u);
   assert.match(markup, /new answer/u);
+});
+
+test('repeated compaction renders one closed fold, the latest summary, then live messages', () => {
+  const markup = render({
+    sessions: [TWICE_COMPACTED_SESSION],
+    selectedSessionId: TWICE_COMPACTED_SESSION.id,
+    selectedSession: TWICE_COMPACTED_SESSION,
+  });
+  const foldStart = markup.indexOf('<details class="compaction-history">');
+  const foldEnd = markup.indexOf('</details>', foldStart);
+  const foldedMarkup = markup.slice(foldStart, foldEnd);
+  const latestSummaryIndex = markup.indexOf('LATEST SUMMARY');
+  const liveQuestionIndex = markup.indexOf('live question');
+  const liveAnswerIndex = markup.indexOf('live answer');
+
+  assert.ok(foldStart >= 0);
+  assert.ok(foldEnd > foldStart);
+  assert.equal((markup.match(/<details class="compaction-history">/gu) ?? []).length, 1);
+  assert.equal((foldedMarkup.match(/<article class="msg/gu) ?? []).length, 5);
+  assert.match(foldedMarkup, /FIRST SUMMARY/u);
+  assert.ok(latestSummaryIndex > foldEnd);
+  assert.ok(liveQuestionIndex > latestSummaryIndex);
+  assert.ok(liveAnswerIndex > liveQuestionIndex);
+});
+
+test('a real compacting stream persists and immediately renders one boundary', async () => {
+  const server = await DashboardTestServer.start('siftkit-chat-compaction-ui-e2e-');
+  try {
+    const config = getDefaultConfig();
+    const preset = getActiveModelPreset(config);
+    preset.Model = 'mock';
+    preset.NumCtx = 9_000;
+    preset.MaxTokens = 512;
+    writeConfig(getRuntimeDatabasePath(), config);
+
+    const created = ChatSessionResponseSchema.parse((await requestJson(
+      `${server.baseUrl}/dashboard/chat/sessions`,
+      { method: 'POST', body: JSON.stringify({ title: 'Compaction E2E' }) },
+    )).body);
+    const seededMessages = [
+      msg({
+        id: 'prior-user',
+        role: 'user',
+        kind: 'user_text',
+        content: `prior completed question ${'X'.repeat(24_000)}`,
+      }),
+      msg({
+        id: 'prior-answer',
+        role: 'assistant',
+        kind: 'assistant_answer',
+        content: 'prior completed answer',
+      }),
+    ];
+    saveChatSession(getRuntimeRoot(), {
+      ...created.session,
+      modelPreset: preset,
+      messages: seededMessages,
+    });
+
+    const triggerQuestion = `trigger question ${'Q'.repeat(12_000)}`;
+    const stream = await requestSse(
+      `${server.baseUrl}/dashboard/chat/sessions/${encodeURIComponent(created.session.id)}/messages/stream`,
+      {
+        method: 'POST',
+        timeoutMs: 10_000,
+        body: JSON.stringify({
+          content: triggerQuestion,
+          webSearchOverride: 'off',
+          maxTurns: 1,
+          availableModels: ['mock'],
+          mockResponses: [
+            'COMPLETE COMPACTION SUMMARY',
+            '{"action":"finish","output":"fresh answer"}',
+          ],
+        }),
+      },
+    );
+    assert.equal(stream.statusCode, 200);
+    const doneEvent = stream.events.find((event) => event.event === 'done');
+    assert.ok(doneEvent?.payload);
+    const terminal = ChatSessionResponseSchema.parse(doneEvent.payload);
+    const activeSummaries = terminal.session.messages.filter(
+      (message) => message.kind === 'compaction_summary' && message.compressedIntoSummary !== true,
+    );
+    assert.equal(activeSummaries.length, 1);
+    const summaryIndex = terminal.session.messages.findIndex((message) => message.id === activeSummaries[0]?.id);
+    assert.ok(summaryIndex > 0);
+    assert.equal(
+      terminal.session.messages.slice(0, summaryIndex).every((message) => message.compressedIntoSummary === true),
+      true,
+    );
+    assert.equal(terminal.contextUsage.shouldCondense, false);
+    assert.ok(terminal.contextUsage.remainingTokens > terminal.contextUsage.warnThresholdTokens);
+
+    const responseStore = new ChatSessionRuntimeStore()
+      .ensureSession(terminal.session.id)
+      .apply({ kind: 'done', sessionId: terminal.session.id, response: terminal });
+    const markup = render({
+      sessions: [terminal.session],
+      selectedSessionId: terminal.session.id,
+      selectedSession: terminal.session,
+      selectedRuntime: responseStore.get(terminal.session.id),
+      sessionRuntimes: responseStore.getAll(),
+    });
+    const foldStart = markup.indexOf('<details class="compaction-history">');
+    const foldEnd = markup.indexOf('</details>', foldStart);
+    const visibleSummaryIndex = markup.indexOf('COMPLETE COMPACTION SUMMARY');
+    const triggerIndex = markup.indexOf('trigger question');
+    const answerIndex = markup.indexOf('fresh answer');
+    assert.ok(foldStart >= 0);
+    assert.ok(foldEnd > foldStart);
+    assert.equal((markup.match(/<details class="compaction-history">/gu) ?? []).length, 1);
+    assert.ok(visibleSummaryIndex > foldEnd);
+    assert.ok(triggerIndex > visibleSummaryIndex);
+    assert.ok(answerIndex > triggerIndex);
+  } finally {
+    await server.close();
+  }
 });
 
 test('a flagged message after the summary row stays in compacted history', () => {

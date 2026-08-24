@@ -1,13 +1,13 @@
 import type { SiftConfig } from '../../config/index.js';
 import { clampToPresetMaxTokens } from '../../lib/dynamic-output-cap.js';
 import {
-  renderTaskTranscript,
+  buildPlannerRequestPromptReserveText,
   requestContextCompactionSummary,
   type ChatMessage,
   type PlannerThinkingFlags,
 } from '../planner-protocol.js';
-import { buildCompactionSummaryPrompt } from '../prompts.js';
-import { countTokensWithFallback } from '../prompt-budget.js';
+import { buildCompactionSummaryInstruction } from '../prompts.js';
+import { countTokensWithFallback, preflightPlannerPromptBudget } from '../prompt-budget.js';
 import type { JsonLogger } from '../types.js';
 import { TokenUsageTracker } from './token-usage.js';
 import {
@@ -21,6 +21,12 @@ export const COMPACTION_SUMMARY_MARKER = '[CONTEXT COMPACTED — SUMMARY OF PRIO
 /** One backend hiccup is worth retrying; a second identical failure is a real failure. */
 const COMPACTION_SUMMARY_ATTEMPTS = 2;
 
+/** Which messages survive the compaction, decided by the caller, never by the compactor. */
+export type CompactionRetention =
+  | { kind: 'current_chat_turn'; startIndex: number }
+  | { kind: 'latest_user' }
+  | { kind: 'none' };
+
 export type CompactionOutcome = {
   messages: ChatMessage[];
   summaryText: string;
@@ -28,6 +34,10 @@ export type CompactionOutcome = {
   summaryTokenCount: number;
   summarizerElapsedMs: number;
   nextMockResponseIndex: number;
+  /** First message of the retained in-flight turn in the rebuilt transcript, or null when none is retained. */
+  currentTurnStartIndex: number | null;
+  promptCacheTokens: number | null;
+  promptEvalTokens: number | null;
 };
 
 /** The assistant message the rebuilt transcript carries in place of the dropped history. */
@@ -37,8 +47,8 @@ export function buildCompactionSummaryMessage(summaryText: string): ChatMessage 
 
 /**
  * Replaces an over-budget transcript with one LLM-written summary of it. The rebuilt
- * transcript is `system → summary → latest user message`; everything else is dropped,
- * so the summary prompt is what decides whether the run can still resume.
+ * transcript is `system → summary → retained messages`; what is retained is the caller's
+ * retention policy, so the summary request is what decides whether the run can still resume.
  */
 export class TranscriptCompactor {
   constructor(private readonly options: {
@@ -66,21 +76,27 @@ export class TranscriptCompactor {
     turn: number | null;
     messages: readonly ChatMessage[];
     mockResponseIndex: number;
+    retention: CompactionRetention;
   }): Promise<CompactionOutcome> {
     const messages = [...input.messages];
     const systemMessage = String(messages[0]?.role || '') === 'system' ? messages[0] : null;
-    const summarizableMessages = systemMessage ? messages.slice(1) : messages;
-    const prompt = buildCompactionSummaryPrompt(renderTaskTranscript(summarizableMessages, { includeReasoningContent: false }));
-    const maxOutputTokens = await this.resolveSummaryOutputTokens(input, prompt);
+    const bodyStart = systemMessage ? 1 : 0;
+    const partition = partitionCompactionRetention(messages, bodyStart, input.retention);
+    const instruction = buildCompactionSummaryInstruction();
+    const historyMessages: ChatMessage[] = [
+      ...(systemMessage ? [systemMessage] : []),
+      ...partition.completedMessages,
+    ];
+    const summaryRequestMessages: ChatMessage[] = [...historyMessages, { role: 'user', content: instruction }];
+    const maxOutputTokens = await this.resolveSummaryOutputTokens(input, summaryRequestMessages);
 
-    const summary = await this.requestSummary(input, prompt, maxOutputTokens);
-    const latestUserMessage = findLatestUserMessage(messages);
+    const summary = await this.requestSummary(input, historyMessages, instruction, maxOutputTokens);
     const rebuilt: ChatMessage[] = [
       ...(systemMessage ? [systemMessage] : []),
       buildCompactionSummaryMessage(summary.summaryText),
-      ...(latestUserMessage ? [latestUserMessage] : []),
+      ...partition.retainedMessages,
     ];
-    const keptMessageCount = (systemMessage ? 1 : 0) + (latestUserMessage ? 1 : 0);
+    const keptMessageCount = (systemMessage ? 1 : 0) + partition.retainedMessages.length;
 
     return {
       messages: rebuilt,
@@ -89,6 +105,9 @@ export class TranscriptCompactor {
       summaryTokenCount: await countTokensWithFallback(this.tokenCountConfig, summary.summaryText),
       summarizerElapsedMs: summary.elapsedMs,
       nextMockResponseIndex: summary.nextMockResponseIndex,
+      currentTurnStartIndex: input.retention.kind === 'current_chat_turn' ? (systemMessage ? 2 : 1) : null,
+      promptCacheTokens: summary.promptCacheTokens,
+      promptEvalTokens: summary.promptEvalTokens,
     };
   }
 
@@ -100,12 +119,34 @@ export class TranscriptCompactor {
    */
   private async resolveSummaryOutputTokens(
     input: { taskId: string; turn: number | null },
-    prompt: string,
+    summaryRequestMessages: ChatMessage[],
   ): Promise<number> {
-    const promptTokenCount = await countTokensWithFallback(this.tokenCountConfig, prompt);
+    const summaryOutputCeiling = clampToPresetMaxTokens(
+      this.options.config,
+      COMPACTION_SUMMARY_MAX_OUTPUT_TOKENS,
+    );
+    const providerPromptReserveText = buildPlannerRequestPromptReserveText({
+      config: this.options.config,
+      stage: 'context_compaction',
+      model: this.options.model,
+      messageRoles: summaryRequestMessages.map((message) => String(message.role || 'unknown')),
+      toolDefinitions: [],
+      maxTokens: summaryOutputCeiling,
+      responseSchema: null,
+      ...this.options.thinking,
+    });
+    const preflight = await preflightPlannerPromptBudget({
+      config: this.tokenCountConfig,
+      messages: summaryRequestMessages,
+      includeReasoningContent: this.options.thinking.reasoningContentEnabled,
+      providerPromptReserveText,
+      totalContextTokens: this.options.totalContextTokens,
+      responseReserveTokens: 0,
+    });
+    const promptTokenCount = preflight.promptTokenCount;
     const remainingTokens = this.options.totalContextTokens - promptTokenCount;
     const maxOutputTokens = Math.min(
-      clampToPresetMaxTokens(this.options.config, COMPACTION_SUMMARY_MAX_OUTPUT_TOKENS),
+      summaryOutputCeiling,
       remainingTokens,
     );
     if (maxOutputTokens >= COMPACTION_SUMMARY_MIN_OUTPUT_TOKENS) {
@@ -129,9 +170,16 @@ export class TranscriptCompactor {
 
   private async requestSummary(
     input: { taskId: string; turn: number | null; mockResponseIndex: number },
-    prompt: string,
+    historyMessages: ChatMessage[],
+    instruction: string,
     maxOutputTokens: number,
-  ): Promise<{ summaryText: string; nextMockResponseIndex: number; elapsedMs: number }> {
+  ): Promise<{
+    summaryText: string;
+    nextMockResponseIndex: number;
+    elapsedMs: number;
+    promptCacheTokens: number | null;
+    promptEvalTokens: number | null;
+  }> {
     let mockResponseIndex = input.mockResponseIndex;
     let lastErrorMessage = '';
     for (let attempt = 1; attempt <= COMPACTION_SUMMARY_ATTEMPTS; attempt += 1) {
@@ -141,7 +189,8 @@ export class TranscriptCompactor {
           config: this.options.config,
           baseUrl: this.options.baseUrl,
           model: this.options.model,
-          prompt,
+          messages: historyMessages,
+          instruction,
           timeoutMs: this.options.timeoutMs,
           maxTokens: maxOutputTokens,
           slotId: this.options.slotId,
@@ -158,7 +207,13 @@ export class TranscriptCompactor {
         this.options.tokenUsage.addOutputTokens(resolved.completionTokens, resolved.completionTokensEstimated);
         const summaryText = String(response.text || '').trim();
         if (!response.mockExhausted && summaryText) {
-          return { summaryText, nextMockResponseIndex: mockResponseIndex, elapsedMs: Date.now() - startedAt };
+          return {
+            summaryText,
+            nextMockResponseIndex: mockResponseIndex,
+            elapsedMs: Date.now() - startedAt,
+            promptCacheTokens: response.promptCacheTokens ?? null,
+            promptEvalTokens: response.promptEvalTokens ?? null,
+          };
         }
         lastErrorMessage = response.mockExhausted ? 'mock_exhausted' : 'empty_output';
       } catch (error) {
@@ -184,11 +239,46 @@ function formatTurn(turn: number | null): string {
   return turn === null ? 'none' : String(turn);
 }
 
-function findLatestUserMessage(messages: readonly ChatMessage[]): ChatMessage | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (String(message.role || '') === 'user') {
-      return message;
+/**
+ * Splits the transcript into the completed history the summarizer sees and the messages
+ * that survive the compaction unchanged. The boundary is validated here, before any
+ * provider call, so a bad policy fails loudly instead of summarizing the wrong range.
+ */
+function partitionCompactionRetention(
+  messages: readonly ChatMessage[],
+  bodyStart: number,
+  retention: CompactionRetention,
+): { completedMessages: ChatMessage[]; retainedMessages: ChatMessage[] } {
+  switch (retention.kind) {
+    case 'current_chat_turn': {
+      const startIndex = retention.startIndex;
+      if (!Number.isInteger(startIndex) || startIndex < bodyStart || startIndex >= messages.length) {
+        throw new Error(
+          `invalid compaction retention boundary: startIndex ${String(startIndex)} is outside the transcript body [${bodyStart}, ${messages.length})`,
+        );
+      }
+      const retainedMessages = messages.slice(startIndex);
+      if (String(retainedMessages[0].role || '') !== 'user') {
+        throw new Error('invalid compaction retention boundary: the retained chat turn must begin with a user message');
+      }
+      return { completedMessages: messages.slice(bodyStart, startIndex), retainedMessages };
+    }
+    case 'latest_user': {
+      const latestUserIndex = findLatestUserIndex(messages, bodyStart);
+      if (latestUserIndex === null) {
+        throw new Error('invalid compaction retention boundary: latest_user retention requires a user message to retain');
+      }
+      return { completedMessages: messages.slice(bodyStart), retainedMessages: [messages[latestUserIndex]] };
+    }
+    case 'none':
+      return { completedMessages: messages.slice(bodyStart), retainedMessages: [] };
+  }
+}
+
+function findLatestUserIndex(messages: readonly ChatMessage[], bodyStart: number): number | null {
+  for (let index = messages.length - 1; index >= bodyStart; index -= 1) {
+    if (String(messages[index].role || '') === 'user') {
+      return index;
     }
   }
   return null;
