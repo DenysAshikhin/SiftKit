@@ -5,14 +5,17 @@ import path from 'node:path';
 import { Exl3LoadRequestSchema } from '../../src/inference-presets/exl3-preset-adapter.js';
 import {
   Exl3ModelCapabilities,
+  type Exl3PackageInspection,
   type Exl3PackageLocator,
 } from '../../src/inference-presets/exl3-model-capabilities.js';
 
 class FixedExl3PackageLocator implements Exl3PackageLocator {
   constructor(private readonly packageDirectory: string) {}
 
-  resolvePackageDirectory(_pythonPath: string): string | null {
-    return this.packageDirectory;
+  inspectPackage(_pythonPath: string): Exl3PackageInspection {
+    return fs.existsSync(this.packageDirectory)
+      ? { status: 'resolved', packageDirectory: this.packageDirectory }
+      : { status: 'package-missing' };
   }
 }
 

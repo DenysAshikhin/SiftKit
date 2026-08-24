@@ -20,15 +20,26 @@ const RESOLVE_EXL3_PACKAGE_SCRIPT = [
 ].join('; ');
 
 export type Exl3PackageLocator = {
-  resolvePackageDirectory(pythonPath: string): string | null;
+  inspectPackage(pythonPath: string): Exl3PackageInspection;
 };
 
-export class InterpreterExl3PackageLocator implements Exl3PackageLocator {
-  private readonly cache = new Map<string, string | null>();
+export type Exl3PackageInspection =
+  | { status: 'resolved'; packageDirectory: string }
+  | { status: 'package-missing' }
+  | { status: 'interpreter-unavailable' };
 
-  resolvePackageDirectory(pythonPath: string): string | null {
+export type Exl3DeviceResidentPastIdsStatus =
+  | 'compatible'
+  | 'incompatible'
+  | 'package-missing'
+  | 'interpreter-unavailable';
+
+export class InterpreterExl3PackageLocator implements Exl3PackageLocator {
+  private readonly cache = new Map<string, Exl3PackageInspection>();
+
+  inspectPackage(pythonPath: string): Exl3PackageInspection {
     const cached = this.cache.get(pythonPath);
-    if (cached !== undefined || this.cache.has(pythonPath)) return cached ?? null;
+    if (cached !== undefined) return cached;
 
     const result = spawnSync(pythonPath, ['-c', RESOLVE_EXL3_PACKAGE_SCRIPT], {
       encoding: 'utf8',
@@ -36,13 +47,27 @@ export class InterpreterExl3PackageLocator implements Exl3PackageLocator {
       timeout: 10_000,
       windowsHide: true,
     });
-    const packageDirectory = result.error || result.status !== 0
-      ? null
-      : ResolvedPackageDirectorySchema.parse(
+    let inspection: Exl3PackageInspection;
+    if (result.error || result.status !== 0) {
+      inspection = { status: 'interpreter-unavailable' };
+    } else {
+      try {
+        const parsed = ResolvedPackageDirectorySchema.safeParse(
           parseJsonValueText(result.stdout.trim()),
-        ).packageDirectory;
-    this.cache.set(pythonPath, packageDirectory);
-    return packageDirectory;
+        );
+        if (!parsed.success) {
+          inspection = { status: 'interpreter-unavailable' };
+        } else if (parsed.data.packageDirectory === null) {
+          inspection = { status: 'package-missing' };
+        } else {
+          inspection = { status: 'resolved', packageDirectory: parsed.data.packageDirectory };
+        }
+      } catch {
+        inspection = { status: 'interpreter-unavailable' };
+      }
+    }
+    this.cache.set(pythonPath, inspection);
+    return inspection;
   }
 }
 
@@ -95,10 +120,16 @@ export class Exl3ModelCapabilities {
     }
   }
 
-  /** `pythonPath` is the configured interpreter whose installed package metadata is authoritative. */
-  hasDeviceResidentPastIds(pythonPath: string): boolean {
-    return this.readPackageSource(pythonPath, ['generator', 'job.py'])
-      ?.includes(DEVICE_RESIDENT_PAST_IDS_MARKER) ?? false;
+  /** `pythonPath` is the configured interpreter whose resolved package source is authoritative. */
+  inspectDeviceResidentPastIds(pythonPath: string): Exl3DeviceResidentPastIdsStatus {
+    const inspection = this.packageLocator.inspectPackage(pythonPath);
+    if (inspection.status !== 'resolved') return inspection.status;
+    try {
+      const source = readFileSync(win32.join(inspection.packageDirectory, 'generator', 'job.py'), 'utf8');
+      return source.includes(DEVICE_RESIDENT_PAST_IDS_MARKER) ? 'compatible' : 'incompatible';
+    } catch {
+      return 'incompatible';
+    }
   }
 
   /**
@@ -116,9 +147,9 @@ export class Exl3ModelCapabilities {
 
   private readPackageSource(pythonPath: string, relativePath: string[]): string | null {
     try {
-      const packageDirectory = this.packageLocator.resolvePackageDirectory(pythonPath);
-      if (packageDirectory === null) return null;
-      return readFileSync(win32.join(packageDirectory, ...relativePath), 'utf8');
+      const inspection = this.packageLocator.inspectPackage(pythonPath);
+      if (inspection.status !== 'resolved') return null;
+      return readFileSync(win32.join(inspection.packageDirectory, ...relativePath), 'utf8');
     } catch {
       return null;
     }

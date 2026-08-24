@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { existsSync } from 'node:fs';
 
 import type { Exl3EngineConfig, ModelRuntimePreset } from '../config/types.js';
 import {
@@ -212,7 +213,17 @@ export class ManagedTabbyRuntime extends ManagedInferenceRuntime {
   }
 
   private spawnProcess(launchEnvironment: Exl3LaunchEnvironment): void {
-    if (!this.capabilities.hasDeviceResidentPastIds(this.engine.PythonPath)) {
+    if (!existsSync(this.engine.PythonPath)) {
+      throw new Error(`Configured EXL3 Python interpreter does not exist: ${this.engine.PythonPath}`);
+    }
+    const compatibility = this.capabilities.inspectDeviceResidentPastIds(this.engine.PythonPath);
+    if (compatibility === 'interpreter-unavailable') {
+      throw new Error(`Configured EXL3 Python interpreter cannot run the package probe: ${this.engine.PythonPath}`);
+    }
+    if (compatibility === 'package-missing') {
+      throw new Error(`Configured EXL3 Python interpreter has no importable exllamav3 package: ${this.engine.PythonPath}`);
+    }
+    if (compatibility === 'incompatible') {
       throw new Error(
         `${this.engine.PythonPath} has no exllamav3 with turboderp-org/exllamav3@8e08af9 `
         + '(no pinned_ids_valid watermark in generator/job.py). SiftKit no longer ships OMP_NUM_THREADS=1, '
