@@ -366,7 +366,7 @@ export class SummaryPlannerLoopRuntime implements SummaryPlannerLoopController {
     return this.requestContext.toolDefinitions;
   }
 
-  private get allowUnsupportedInput(): boolean {
+  get allowUnsupportedInput(): boolean {
     return allowsUnsupportedInput(this.options.sourceKind);
   }
   private get debugRecorder(): SummaryPlannerDebugRecorder {
@@ -1439,11 +1439,7 @@ export async function invokePlannerMode(options: InvokePlannerModeOptions): Prom
   const completionState = new SummaryPlannerCompletionState();
   const runtime = new SummaryPlannerLoopRuntime(requestContext, transcriptState, completionState);
   const promptAdapter = new SummaryPlannerPromptAdapter(runtime);
-  const actionAdapter = new SummaryPlannerActionAdapter(
-    runtime,
-    toolDefinitions,
-    allowsUnsupportedInput(options.sourceKind),
-  );
+  const actionAdapter = new SummaryPlannerActionAdapter(runtime, toolDefinitions);
   const toolAdapter = new SummaryPlannerToolAdapter(runtime);
   await new AgentLoop({
     maxTurns: MAX_PLANNER_TOOL_CALLS + 1,

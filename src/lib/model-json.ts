@@ -27,10 +27,6 @@ import {
 } from './json-types.js';
 import { stripCodeFence } from './text-format.js';
 
-type RepoPlannerParserOptions = {
-  toolDefinitions: readonly PlannerToolDefinition[];
-};
-
 type ParsedJsonValue = {
   value: JsonValue;
   repaired: boolean;
@@ -262,9 +258,9 @@ export class ModelJson {
     return parseSummaryPlannerAction(parsed, options);
   }
 
-  static parseRepoSearchPlannerAction(text: string, options: RepoPlannerParserOptions): RepoSearchPlannerAction {
+  static parseRepoSearchPlannerAction(text: string, toolDefinitions: readonly PlannerToolDefinition[]): RepoSearchPlannerAction {
     const parsed = this.parsePlannerObject(text);
-    return parseRepoSearchPlannerAction(parsed, options.toolDefinitions);
+    return parseRepoSearchPlannerAction(parsed, toolDefinitions);
   }
   static parseRepoSearchFinishValidation(text: string): FinishValidationResult {
     const parsed = this.parseModelObject(text, 'finish validation').value;

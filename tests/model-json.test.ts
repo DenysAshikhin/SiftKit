@@ -21,9 +21,10 @@ function parseRepoSearchPlannerAction(
   text: string,
   allowedToolNames: readonly string[] = getRepoSearchToolNamesForParsing(),
 ) {
-  return ModelJson.parseRepoSearchPlannerAction(text, {
-    toolDefinitions: resolveRepoSearchPlannerToolDefinitions(allowedToolNames),
-  });
+  return ModelJson.parseRepoSearchPlannerAction(
+    text,
+    resolveRepoSearchPlannerToolDefinitions(allowedToolNames),
+  );
 }
 
 function plannerToolAction(toolName: string, args: JsonObject): JsonObject {

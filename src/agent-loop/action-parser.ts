@@ -9,9 +9,10 @@ export class AgentLoopActionParser {
   }
 
   parseRepoSearchActions(text: string, allowedToolNames: readonly string[]): AgentLoopAction[] {
-    const parsed = ModelJson.parseRepoSearchPlannerAction(text, {
-      toolDefinitions: resolveRepoSearchPlannerToolDefinitions(allowedToolNames),
-    });
+    const parsed = ModelJson.parseRepoSearchPlannerAction(
+      text,
+      resolveRepoSearchPlannerToolDefinitions(allowedToolNames),
+    );
     if (parsed.action === 'finish') {
       return [
         {

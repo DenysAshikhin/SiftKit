@@ -424,7 +424,7 @@ function actionFromProtocolToolCalls(
           action: 'tool',
           toolName: toolCall.function.name,
           args,
-        }), { toolDefinitions });
+        }), toolDefinitions);
         return action.action === 'tool' ? action : null;
       } catch {
         return null;

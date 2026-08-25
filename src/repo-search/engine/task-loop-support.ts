@@ -227,9 +227,10 @@ export function buildInvalidToolCallActionFromResponseText(
   allowedToolNames: readonly string[],
 ): ToolTranscriptAction {
   try {
-    const action = ModelJson.parseRepoSearchPlannerAction(responseText, {
-      toolDefinitions: resolveRepoSearchPlannerToolDefinitions(allowedToolNames),
-    });
+    const action = ModelJson.parseRepoSearchPlannerAction(
+      responseText,
+      resolveRepoSearchPlannerToolDefinitions(allowedToolNames),
+    );
     if (action.action === 'tool') {
       return action;
     }

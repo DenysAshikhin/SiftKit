@@ -42,9 +42,10 @@ function buildTestConfig(preset: PresetOverrides = {}): SiftConfig {
 }
 
 function parseRepoSearchPlannerAction(text: string, allowedToolNames: readonly string[]) {
-  return ModelJson.parseRepoSearchPlannerAction(text, {
-    toolDefinitions: resolveRepoSearchPlannerToolDefinitions(allowedToolNames),
-  });
+  return ModelJson.parseRepoSearchPlannerAction(
+    text,
+    resolveRepoSearchPlannerToolDefinitions(allowedToolNames),
+  );
 }
 
 async function captureChatRequestBody(

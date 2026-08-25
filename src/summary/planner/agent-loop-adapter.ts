@@ -19,6 +19,7 @@ import type { AgentLoopModelClient } from '../../agent-loop/agent-loop.js';
 import type { NormalizedLlamaCppChatResponse } from '../../llm-protocol/types.js';
 
 export interface SummaryPlannerLoopController {
+  readonly allowUnsupportedInput: boolean;
   prepareTurn(turnNumber: number): Promise<AgentLoopPreparedTurn>;
   requestModelResponse(preparedTurn: AgentLoopPreparedTurn): Promise<AgentLoopModelResponse>;
   inspectModelResponse(context: AgentLoopResponseContext): 'continue' | 'stop' | null;
@@ -43,13 +44,12 @@ export class SummaryPlannerActionAdapter implements AgentLoopActionAdapter {
   constructor(
     private readonly controller: SummaryPlannerLoopController,
     private readonly toolDefinitions: readonly PlannerToolDefinition[],
-    private readonly allowUnsupportedInput: boolean,
   ) {}
 
   parseActions(response: NormalizedLlamaCppChatResponse): AgentLoopAction[] {
     return this.parser.parseSummaryPlannerActions(response.text, {
       toolDefinitions: this.toolDefinitions,
-      allowUnsupportedInput: this.allowUnsupportedInput,
+      allowUnsupportedInput: this.controller.allowUnsupportedInput,
     });
   }
 

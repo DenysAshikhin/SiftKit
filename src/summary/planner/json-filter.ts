@@ -4,6 +4,8 @@ import { JsonFilterBoundOpSchema, JsonFilterEntrySchema, type JsonFilterEntry } 
 
 export const MAX_JSON_FALLBACK_PREVIEW_CHARACTERS = 200;
 
+const NESTED_BOUND_OPS: readonly string[] = JsonFilterBoundOpSchema.options;
+
 export function getRecord(value: OptionalJsonValue): JsonObject | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value
@@ -82,7 +84,7 @@ export function normalizeJsonFilterFilters(
       : filter.value;
     const nestedBounds = getRecord(normalizedValue);
     const nestedEntries = nestedBounds
-      ? Object.entries(nestedBounds).filter((entry) => JsonFilterBoundOpSchema.safeParse(entry[0]).success)
+      ? Object.entries(nestedBounds).filter((entry) => NESTED_BOUND_OPS.includes(entry[0]))
       : [];
     if (nestedEntries.length > 0) {
       for (const [nestedOp, nestedValue] of nestedEntries) {

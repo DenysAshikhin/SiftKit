@@ -17,6 +17,7 @@ const usage = {
 };
 
 const controller: SummaryPlannerLoopController = {
+  allowUnsupportedInput: false,
   prepareTurn: async (turnNumber) => ({
     outcome: 'continue',
     turnNumber,
@@ -62,7 +63,7 @@ const RESPONSE_CONTEXT: AgentLoopResponseContext = {
 };
 
 test('summary planner action adapter parses planner tool and finish actions', () => {
-  const adapter = new SummaryPlannerActionAdapter(controller, buildSummaryPlannerToolDefinitions(), false);
+  const adapter = new SummaryPlannerActionAdapter(controller, buildSummaryPlannerToolDefinitions());
   const tool = adapter.parseActions({
     text: '{"action":"tool","toolName":"find_text","args":{"query":"needle","mode":"literal"}}',
     reasoningText: '',
@@ -102,7 +103,6 @@ test('summary planner action adapter routes decision-shaped output to the invali
       },
     },
     buildSummaryPlannerToolDefinitions(),
-    false,
   );
 
   assert.throws(
@@ -127,12 +127,14 @@ test('summary planner action adapter applies the unsupported-input finish policy
   );
 
   assert.throws(
-    () => new SummaryPlannerActionAdapter(controller, buildSummaryPlannerToolDefinitions(), false)
+    () => new SummaryPlannerActionAdapter(controller, buildSummaryPlannerToolDefinitions())
       .parseActions(unsupportedFinish),
     /invalid planner finish action/u,
   );
 
-  const allowed = new SummaryPlannerActionAdapter(controller, buildSummaryPlannerToolDefinitions(), true)
-    .parseActions(unsupportedFinish);
+  const allowed = new SummaryPlannerActionAdapter(
+    { ...controller, allowUnsupportedInput: true },
+    buildSummaryPlannerToolDefinitions(),
+  ).parseActions(unsupportedFinish);
   assert.equal(allowed[0]?.kind, 'finish');
 });
